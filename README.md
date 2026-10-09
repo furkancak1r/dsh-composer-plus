@@ -31,4 +31,6 @@ npm test
 
 Runs the real `client.js` against a fake React/DOM: Continue visibility and click, drag order, keyboard moves, `Esc`, revert on failure, image rows.
 
+`node test/browser-history.mjs '<dsh web URL with ?token=…>'` checks ↑/↓ history in a real browser against a throwaway `dsh web` (it sends test messages, so use a separate `DSH_HOME`). Continue and drag-and-drop were also checked by hand-scripted browser runs against a slow fake model.
+
 MIT License. Unofficial community plugin.
