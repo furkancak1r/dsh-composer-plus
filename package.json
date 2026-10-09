@@ -1,0 +1,19 @@
+{
+  "name": "dsh-composer-plus",
+  "version": "0.1.0",
+  "description": "DeepSeek Harness composer helpers: input history, one-click Continue, drag-and-drop queue reordering",
+  "license": "MIT",
+  "type": "module",
+  "keywords": ["dsh-plugin", "deepseek-harness"],
+  "exports": { ".": "./index.js", "./client": "./client.js" },
+  "files": ["index.js", "client.js", "cordis.patch.yml"],
+  "scripts": { "test": "node test/continue.test.mjs && node test/queue-drag.test.mjs" },
+  "dsh": {
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+    }
+  }
+}
