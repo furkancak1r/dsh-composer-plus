@@ -150,13 +150,15 @@ window.__ModuleLoader__.load({
         return all.filter(({ source }) => source.kind !== 'user' || !('rpcId' in source) || !inChat.has(source.rpcId));
       }, [inbox, pending]);
       const anchorRef = React.useRef(null);
-      const [items, setItems] = React.useState([]);
+      // Rows plus each row's grip host (null while the row is being edited); re-scanned on every dock mutation.
+      const [dom, setDom] = React.useState({ items: [], hosts: [] });
+      const items = dom.items;
       const [busy, setBusy] = React.useState(false);
       const active = createPortal !== undefined && updateQueue !== undefined && mutable && rows.length >= 2;
       React.useLayoutEffect(() => {
         const anchor = anchorRef.current;
         const seat = anchor === null ? null : anchor.closest('[data-composer-seat]');
-        if (seat === null || !active) { setItems([]); return undefined; }
+        if (seat === null || !active) { setDom({ items: [], hosts: [] }); return undefined; }
         const scan = () => {
           const dock = seat.querySelector('[data-queue-dock]');
           const lis = dock === null ? [] : [...dock.querySelectorAll('li:not([data-submission-echo])')];
@@ -167,7 +169,9 @@ window.__ModuleLoader__.load({
             host.style.display = 'contents';
             li.insertBefore(host, li.firstChild);
           }
-          setItems((prev) => (sameList(prev, lis) ? prev : lis));
+          // Editing swaps the row body; when it ends the grip must be portaled again, so hosts are part of the state.
+          const hosts = lis.map((li) => (li.querySelector('textarea') === null ? li.firstElementChild : null));
+          setDom((prev) => (sameList(prev.items, lis) && sameList(prev.hosts, hosts) ? prev : { items: lis, hosts }));
         };
         scan();
         const observer = new MutationObserver(scan);
@@ -250,8 +254,8 @@ window.__ModuleLoader__.load({
         mark(true, from, from);
       };
       const portals = rows.map((row, index) => {
-        const host = items[index].firstElementChild;
-        if (host === null || !host.hasAttribute(GRIP) || items[index].querySelector('textarea') !== null) return null;
+        const host = dom.hosts[index];
+        if (host === null || !host.hasAttribute(GRIP) || !host.isConnected) return null;
         const draggable = texts[index] !== null && !busy;
         const grip = React.createElement('button', {
           type: 'button',

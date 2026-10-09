@@ -2,8 +2,8 @@
 import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
 const src=readFileSync(new URL('../client.js',import.meta.url),'utf8');
 let mod;globalThis.window={__ModuleLoader__:{load:m=>{mod=m;}},listeners:{},addEventListener(t,f){this.listeners[t]=f;},removeEventListener(t){delete this.listeners[t];}};eval(src);
-globalThis.MutationObserver=class{observe(){}disconnect(){}};
-const el=(tag)=>{const e={tagName:tag,attrs:{},style:{},children:[],setAttribute(k,v){this.attrs[k]=v;},hasAttribute(k){return k in this.attrs;},
+let observed;globalThis.MutationObserver=class{constructor(f){observed=f;}observe(){}disconnect(){}};
+const el=(tag)=>{const e={tagName:tag,isConnected:true,attrs:{},style:{},children:[],setAttribute(k,v){this.attrs[k]=v;},hasAttribute(k){return k in this.attrs;},
  get firstElementChild(){return this.children[0]??null;},get firstChild(){return this.children[0]??null;},insertBefore(n,ref){const i=ref?this.children.indexOf(ref):this.children.length;this.children.splice(i,0,n);n.parent=this;},
  remove(){this.parent.children.splice(this.parent.children.indexOf(this),1);},querySelector:()=>null};return e;};
 globalThis.document={createElement:el,body:{style:{}}};
@@ -23,6 +23,10 @@ render();const cleanup=layout[0]();let out=render();
 assert.ok(lis.every(li=>li.children[0].hasAttribute('data-queue-grip')),'grip host is the first (leftmost) child');
 assert.equal(out.c.length,5);const grip=i=>out.c[1+i].portal;assert.equal(out.c[1].host,lis[0].children[0]);
 const tick=()=>new Promise(r=>setTimeout(r,5));
+// editing a row hides its grip; when editing ends the grip comes back (regression: it stayed hidden)
+let before=state[0];lis[1].querySelector=(q)=>q==='textarea'?{}:null;observed();assert.notEqual(state[0],before,'edit start triggers a re-render');out=render();assert.equal(out.c.length,4,'edited row has no grip');
+before=state[0];lis[1].querySelector=()=>null;observed();assert.notEqual(state[0],before,'edit end triggers a re-render');out=render();assert.equal(out.c.length,5,'grip returns after editing');assert.equal(out.c[2].host,lis[1].children[0]);
+
 // drag D (index 3) above B: pointer to y=50 (between A and B midpoints → slot 1)
 grip(3).p.onPointerDown({button:0,preventDefault(){}});window.listeners.pointermove({clientY:50});assert.equal(lis[3].style.opacity,'0.5');
 window.listeners.pointerup();await tick();
