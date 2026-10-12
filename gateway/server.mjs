@@ -253,7 +253,8 @@ export function createGateway(opts = {}) {
     qrReady = false
     if (opts.qr !== false) {
       const c = code
-      spawn('swift', [join(HERE, 'qr.swift'), c.payload, join(dir, 'qr.png')], { stdio: 'ignore' })
+      const { SDKROOT, ...env } = process.env // a stale SDKROOT (e.g. Command Line Tools) breaks the swift script; let xcrun pick the SDK
+      spawn('swift', [join(HERE, 'qr.swift'), c.payload, join(dir, 'qr.png')], { stdio: 'ignore', env })
         .on('exit', s => { if (s === 0 && code === c) qrReady = true }).on('error', () => {})
     }
     return code
