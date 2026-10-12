@@ -1,12 +1,17 @@
 {
   "name": "dsh-composer-plus",
-  "version": "0.5.0",
-  "description": "DeepSeek Harness composer helpers: input history, Shift+Tab /plan toggle, one-click Continue, drag-and-drop queue reordering, Copy deeplink, Auto Review \"Allow for this chat\", background notifications",
+  "version": "0.6.0",
+  "description": "DeepSeek Harness helpers: Codex-style Changes panel, input history, Shift+Tab /plan, one-click Continue, queue drag-and-drop, Copy deeplink, Auto Review allow-for-chat, background notifications",
   "license": "MIT",
   "type": "module",
   "keywords": [
+    "changes",
+    "deepseek-harness",
+    "dsh",
     "dsh-plugin",
-    "deepseek-harness"
+    "git",
+    "notifications",
+    "plugin"
   ],
   "exports": {
     ".": "./index.js",
@@ -15,10 +20,12 @@
   "files": [
     "index.js",
     "client.js",
-    "cordis.patch.yml"
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "test": "node test/continue.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs"
+    "test": "node test/continue.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs && node test/changes.test.mjs"
   },
   "dsh": {
     "bundle": {
@@ -30,8 +37,26 @@
       "inject": [
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-workspace"
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-session",
+        "@deepseek-ai/dsh-api-remotes"
       ]
     }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/furkancak1r/dsh-composer-plus.git"
+  },
+  "homepage": "https://github.com/furkancak1r/dsh-composer-plus#readme",
+  "bugs": {
+    "url": "https://github.com/furkancak1r/dsh-composer-plus/issues"
+  },
+  "engines": {
+    "node": ">=22",
+    "dsh": ">=0.2.0-rc.2"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

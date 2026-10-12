@@ -14,7 +14,7 @@ const status={getSnapshot:()=>snap,subscribe:l=>{listeners.add(l);return()=>list
 const publish=m=>{snap=m;for(const l of [...listeners])l();};
 const dicts={};
 plugin.apply({effect:f=>{const d=f();if(d)unloads.push(d);},locale:{register:(ns,d)=>{dicts[ns]=d;return()=>{};}},
- inject:(names,cb)=>{if(names.includes('uiWorkspace'))return;assert.deepEqual(names,['uiSession']);cb({uiSession:{sessionStatus:status},effect:f=>{const d=f();unloads.push(d);}});},
+ inject:(names,cb)=>{if(!(names.length===1&&names[0]==='uiSession'))return;cb({uiSession:{sessionStatus:status},effect:f=>{const d=f();unloads.push(d);}});},
  slots:{inject:(n,f)=>f(),register:(o,C)=>{regs.push([o,C]);return()=>{};}}});
 const [opt,Grants]=regs.find(([o])=>o.id==='chat-tool-grants');assert.equal(opt.name,'conversation.session.header.utilities');
 const en=dicts[opt.locale].en;assert.deepEqual(Object.keys(dicts[opt.locale].en).sort(),Object.keys(dicts[opt.locale].zh).sort());
@@ -46,4 +46,21 @@ const a8=ask('s3',LIVE);publish(new Map([['s3',{pendingInteraction:a8}]]));asser
 // 6. Unload forgets grants and stops auto-answering.
 state=[];const a9=ask('s4',LIVE);publish(new Map([['s4',{pendingInteraction:a9}]]));render('s4');effects[0]();render('s4').c[1].portal.p.onClick();await tick();
 for(const d of unloads)d();const a10=ask('s4',LIVE);publish(new Map([['s4',{pendingInteraction:a10}]]));assert.deepEqual(a10.answers,[]);assert.equal(render("s4").c[0],null,"no chip after unload");
+// Persistence: grants made by a click are posted to the Host; grants loaded from the Host auto-answer after a restart.
+{
+  const posts=[];let store={};
+  globalThis.fetch=async(url,init={})=>{if(init.method==='POST'){const b=JSON.parse(init.body);posts.push(b);return {ok:true,json:async()=>({})};}return {ok:true,json:async()=>store};};
+  let mod2;window.__ModuleLoader__.load=m=>{mod2=m;};eval(src);
+  const p2=mod2.factory(n=>n==='react'?React:n==='react-dom'?{createPortal:(el,host,key)=>({portal:el,host,key})}:{Button:'Button'});
+  store={sR:[LIVE]};let ls2=new Set();let snap2=new Map();
+  const st2={getSnapshot:()=>snap2,subscribe:l=>{ls2.add(l);return()=>ls2.delete(l);}};
+  const regs2=[];p2.apply({effect:f=>{f();},locale:{register:()=>()=>{}},inject:(names,cb)=>{if(names.length===1&&names[0]==='uiSession')cb({uiSession:{sessionStatus:st2},effect:f=>{f();}});},slots:{inject:(n,f)=>f(),register:(o,C)=>{regs2.push([o,C]);return()=>{};}}});
+  await tick();await tick();
+  const a=ask('sR',LIVE);snap2=new Map([['sR',{pendingInteraction:a}]]);for(const l of [...ls2])l();await tick();
+  assert.deepEqual(a.answers,['allowed-once'],'grant loaded from the Host survives a restart');
+  const [,G2]=regs2.find(([o])=>o.id==='chat-tool-grants');
+  si=0;effects=[];const chip=G2({sessionId:'sR',useSessionStatus:sel=>sel(new Map()),t});
+  chip.c[0].p.onClick();await tick();
+  assert.deepEqual(posts.at(-1),{action:'revoke',sessionId:'sR'},'revoke is persisted');
+}
 console.log('chat-grant checks passed');

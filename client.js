@@ -1,8 +1,9 @@
 /**
  * dsh-composer-plus: composer history (ArrowUp/ArrowDown), Shift+Tab `/plan` toggle, a one-click
  * Continue button, drag-and-drop reordering of queued messages, a session "Copy deeplink" menu item and an
- * Auto Review "Allow for this chat" grant per exact tool (memory only), and OS notifications while dsh is in the
- * background (turn finished, approval/question/plan review waiting). Client half only; no Host state.
+ * Auto Review "Allow for this chat" grant per exact tool (saved until revoked), and OS notifications while dsh is in the
+ * background (turn finished, approval/question/plan review waiting), and a Codex-style "Changes" page in the right
+ * sidebar. The Host half (index.js) serves read-only git changes and persists Auto Review grants.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-composer-plus',
@@ -385,19 +386,38 @@ window.__ModuleLoader__.load({
     }
 
     /** Auto Review per-chat tool grants: session id -> exact tool names (a fresh Set per change, so React sees it).
-     * Memory only: a reload or plugin unload forgets every grant. Only Auto Review denials that reached the user are
+     * Saved by the Host half so they survive a restart; revoking deletes them there too. Only Auto Review denials that reached the user are
      * answered, through the approval card's own `answer('allowed-once')`; review failures never get that far. */
     const grants = new Map();
     const grantListeners = new Set();
     const subscribeGrants = (listener) => { grantListeners.add(listener); return () => { grantListeners.delete(listener); }; };
     const grantsChanged = () => { for (const listener of [...grantListeners]) listener(); };
     const isGranted = (sessionId, toolName) => grants.get(sessionId)?.has(toolName) === true;
+    /** Host-side copy of the grants (`/api/composer-plus.grants`) so they survive a restart. Absent host half: memory only. */
+    const GRANTS_ROUTE = '/api/composer-plus.grants';
+    const saveGrant = (body) => {
+      try { fetch(GRANTS_ROUTE, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {}); } catch { /* best-effort */ }
+    };
+    async function loadGrants() {
+      try {
+        const response = await fetch(GRANTS_ROUTE);
+        if (!response.ok) return;
+        const data = await response.json();
+        if (data === null || typeof data !== 'object') return;
+        for (const [sessionId, tools] of Object.entries(data)) {
+          if (Array.isArray(tools)) grants.set(sessionId, new Set([...(grants.get(sessionId) ?? []), ...tools.filter((x) => typeof x === 'string')]));
+        }
+        grantsChanged();
+      } catch { /* host half missing or offline: grants stay in memory */ }
+    }
     function grant(sessionId, toolName) {
       grants.set(sessionId, new Set([...(grants.get(sessionId) ?? []), toolName]));
       grantsChanged();
+      saveGrant({ action: 'grant', sessionId, tool: toolName });
     }
     function revoke(sessionId) {
       if (grants.delete(sessionId)) grantsChanged();
+      saveGrant({ action: 'revoke', sessionId });
     }
     const AUTO_REVIEW_ASK = 'Auto review denied tool ';
     const isAutoReviewAsk = (p) => p !== undefined && p !== null && p.kind === 'approval' && typeof p.reason === 'string' && p.reason.startsWith(AUTO_REVIEW_ASK);
@@ -473,6 +493,30 @@ window.__ModuleLoader__.load({
       if (status !== undefined && previous !== undefined && previous.running === true && status.running === false && pending == null) return 'done';
       return null;
     }
+    /** First non-empty line of a text, trimmed to a notification-friendly length. */
+    const firstLine = (text, max = 140) => {
+      const line = String(text ?? '').split('\n').map((l) => l.trim()).find((l) => l !== '') ?? '';
+      return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+    };
+    /** Notification body: the tool an approval is for, a question's first line, or the reply's opening line. */
+    function attentionBody(kind, pending, reply, t) {
+      if (kind === 'approval' && pending?.toolName) return t('notify.approvalTool', { tool: pending.toolName });
+      if (kind === 'question') {
+        const q = pending?.questions?.[0];
+        const text = firstLine(q?.question ?? q?.header);
+        if (text !== '') return t('notify.questionText', { text });
+      }
+      if (kind === 'done') {
+        const text = firstLine(reply);
+        if (text !== '') return text;
+      }
+      return t(`notify.${kind}`);
+    }
+    /** Latest reply preview from dsh's `turnOutline` projection, when the session list carries it. */
+    const replyOf = (sessionsList, sessionId) => {
+      const outline = sessionsList.getSnapshot().projectionsBySession?.[sessionId]?.values?.turnOutline;
+      return Array.isArray(outline) && outline.length > 0 ? outline[outline.length - 1]?.response : undefined;
+    };
     function watchAttention(status, sessionsList, t, open) {
       let last = status.getSnapshot();
       const shown = new Map();
@@ -488,13 +532,138 @@ window.__ModuleLoader__.load({
           if (row !== undefined && row.origin === 'subagent') continue; // the parent chat reports for its children
           const title = row === undefined ? 'DeepSeek Harness' : row.displayTitle;
           shown.get(sessionId)?.close();
-          const n = new Notification(title, { body: t(`notify.${kind}`), tag: `dsh:${sessionId}`, silent: false });
-          n.onclick = () => { window.focus(); open(sessionId); n.close(); };
+          const body = attentionBody(kind, current.pendingInteraction, kind === 'done' ? replyOf(sessionsList, sessionId) : undefined, t);
+          const n = new Notification(title, { body, tag: `dsh:${sessionId}`, silent: false });
+          n.onclick = () => { window.focus(); open(sessionId); n.close(); unread.delete(sessionId); badge(); };
           shown.set(sessionId, n);
+          unread.add(sessionId);
         }
+        badge();
       };
+      // Dock / taskbar badge: chats that notified while dsh was in the background. Cleared when dsh is focused.
+      const unread = new Set();
+      const badge = () => {
+        try {
+          if (unread.size === 0) navigator.clearAppBadge?.()?.catch?.(() => {});
+          else navigator.setAppBadge?.(unread.size)?.catch?.(() => {});
+        } catch { /* badges are best-effort */ }
+      };
+      const onFocus = () => { if (unread.size > 0) { unread.clear(); badge(); } };
+      window.addEventListener('focus', onFocus);
       // Delivered notifications stay in Notification Center until clicked; only a newer one for the same chat replaces them.
-      return status.subscribe(notify);
+      const off = status.subscribe(notify);
+      return () => { off(); window.removeEventListener('focus', onFocus); unread.clear(); badge(); };
+    }
+
+    /** Codex-style "Changes" page in the right sidebar: Uncommitted / Unstaged / Staged / Branch (vs upstream) with
+     * per-file diffs from the Host half, plus "Last turn", which opens dsh's own turn review tab. */
+    const CHANGES_KIND = 'composer-plus-changes';
+    const CHANGES_ID = 'dsh-composer-plus/changes';
+    const CHANGE_MODES = ['uncommitted', 'unstaged', 'staged', 'branch'];
+    const changesUrl = (sessionId, mode) => `/api/composer-plus.changes?${new URLSearchParams({ sessionId, mode })}`;
+    const diffUrl = (sessionId, mode, path) => `/api/composer-plus.diff?${new URLSearchParams({ sessionId, mode, path })}`;
+    const LINE_COLORS = {
+      '+': { background: 'var(--dsw-alias-state-success-tertiary, rgba(46,160,67,.15))' },
+      '-': { background: 'var(--dsw-alias-state-error-tertiary, rgba(248,81,73,.15))' },
+      '@': { color: 'var(--dsw-alias-label-tertiary)' },
+    };
+    /** Unified patch body (from the first hunk on) as rows; headers are dropped. */
+    function patchRows(patch) {
+      const lines = String(patch ?? '').split('\n');
+      const start = lines.findIndex((l) => l.startsWith('@@'));
+      return start === -1 ? [] : lines.slice(start).filter((l, i, all) => !(i === all.length - 1 && l === ''));
+    }
+    function ChangesDiff({ sessionId, mode, file, t }) {
+      const [state, setState] = React.useState({ status: 'loading' });
+      React.useEffect(() => {
+        const ac = new AbortController();
+        setState({ status: 'loading' });
+        fetch(diffUrl(sessionId, mode, file.path), { signal: ac.signal })
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+          .then((v) => setState({ status: 'ready', value: v }), () => { if (!ac.signal.aborted) setState({ status: 'error' }); });
+        return () => ac.abort();
+      }, [sessionId, mode, file.path, file.added, file.deleted]);
+      if (state.status === 'loading') return React.createElement('div', { style: { padding: '6px 12px', opacity: 0.7 } }, t('changes.loading'));
+      if (state.status === 'error') return React.createElement('div', { style: { padding: '6px 12px' } }, t('changes.diffFailed'));
+      if (file.binary) return React.createElement('div', { style: { padding: '6px 12px', opacity: 0.7 } }, t('changes.binary'));
+      const rows = patchRows(state.value.patch);
+      return React.createElement('pre', {
+        style: { margin: 0, padding: '4px 0', overflowX: 'auto', fontFamily: 'var(--ds-font-family-code)', fontSize: 12, lineHeight: '18px' },
+      }, rows.map((line, i) => React.createElement('div', { key: i, style: { padding: '0 12px', whiteSpace: 'pre', ...(LINE_COLORS[line[0]] ?? {}) } }, line === '' ? ' ' : line)),
+      state.value.truncated ? React.createElement('div', { style: { padding: '4px 12px', opacity: 0.7 } }, t('changes.truncated')) : null);
+    }
+    function ChangesTab({ sessionId, t, openLastTurn }) {
+      const [mode, setMode] = React.useState('uncommitted');
+      const [menuOpen, setMenuOpen] = React.useState(false);
+      const [state, setState] = React.useState({ status: 'loading' });
+      const [open, setOpen] = React.useState(() => new Set());
+      const [tick, setTick] = React.useState(0);
+      React.useEffect(() => {
+        const ac = new AbortController();
+        setState((prev) => (prev.status === 'ready' && prev.mode === mode ? prev : { status: 'loading' }));
+        fetch(changesUrl(sessionId, mode), { signal: ac.signal })
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(String(r.status)))))
+          .then((v) => setState({ status: 'ready', mode, value: v }), () => { if (!ac.signal.aborted) setState({ status: 'error' }); });
+        return () => ac.abort();
+      }, [sessionId, mode, tick]);
+      // Refresh while visible: the agent edits files in the background.
+      React.useEffect(() => {
+        const timer = setInterval(() => { if (document.visibilityState === 'visible') setTick((n) => n + 1); }, 4000);
+        return () => clearInterval(timer);
+      }, []);
+      const v = state.status === 'ready' ? state.value : undefined;
+      const items = [
+        { id: 'last-turn', label: t('changes.mode.lastTurn'), disabled: v?.lastTurn === undefined },
+        { type: 'separator', id: 'sep1' },
+        ...CHANGE_MODES.slice(0, 3).map((id) => ({ id, label: t(`changes.mode.${id}`) })),
+        { type: 'separator', id: 'sep2' },
+        { id: 'branch', label: t('changes.mode.branch') },
+      ];
+      const pill = { display: 'inline-flex', alignItems: 'center', gap: 6, height: 28, padding: '0 12px', borderRadius: 14,
+        border: '1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.25))', background: 'none', color: 'inherit', font: 'inherit', fontSize: 13, cursor: 'pointer' };
+      const trigger = React.createElement('button', { type: 'button', style: pill, 'aria-haspopup': 'menu', 'aria-expanded': menuOpen, onClick: () => setMenuOpen((x) => !x) },
+        t(`changes.mode.${mode}`), React.createElement('span', { 'aria-hidden': true, style: { opacity: 0.6 } }, '▾'));
+      const header = React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', flexWrap: 'wrap' } },
+        primitives.Menu === undefined ? trigger : React.createElement(primitives.Menu, {
+          open: menuOpen, anchor: trigger, items, selectedId: mode, selection: 'check', compact: true,
+          onClose: () => setMenuOpen(false),
+          onSelect: (id) => { setMenuOpen(false); if (id === 'last-turn') { if (v?.lastTurn) openLastTurn(sessionId, v.lastTurn); } else { setMode(id); setOpen(new Set()); } },
+        }),
+        v?.repo ? React.createElement('span', { style: { ...pill, cursor: 'default' }, title: v.root },
+          v.branch ?? 'HEAD', v.upstream ? React.createElement(React.Fragment, null, React.createElement('span', { style: { opacity: 0.5 } }, '→'), v.upstream) : null) : null,
+        React.createElement('span', { style: { flex: 1 } }),
+        React.createElement('button', { type: 'button', style: { ...pill, padding: '0 8px' }, title: t('changes.refresh'), 'aria-label': t('changes.refresh'), onClick: () => setTick((n) => n + 1) }, '⟳'));
+      let body;
+      if (state.status === 'loading') body = React.createElement('div', { style: { padding: 16, opacity: 0.7 } }, t('changes.loading'));
+      else if (state.status === 'error') body = React.createElement('div', { style: { padding: 16 } }, t('changes.failed'));
+      else if (!v.repo) body = React.createElement('div', { style: { padding: 16, opacity: 0.8 } }, t('changes.noRepo'));
+      else if (v.noUpstream) body = React.createElement('div', { style: { padding: 16, opacity: 0.8 } }, t('changes.noUpstream'));
+      else if (v.files.length === 0) body = React.createElement('div', { style: { padding: '48px 16px', textAlign: 'center' } },
+        React.createElement('div', { style: { fontSize: 15, fontWeight: 500 } }, t('changes.empty')),
+        React.createElement('div', { style: { opacity: 0.7, marginTop: 6 } }, t('changes.emptyHint')));
+      else body = React.createElement('div', null,
+        React.createElement('div', { style: { padding: '0 12px 8px', opacity: 0.8, fontSize: 13 } },
+          t('changes.summary', { count: String(v.total) }), ' ',
+          React.createElement('span', { style: { color: 'var(--dsw-alias-state-success-primary, #2ea043)' } }, `+${v.added}`), ' ',
+          React.createElement('span', { style: { color: 'var(--dsw-alias-state-error-primary, #f85149)' } }, `-${v.deleted}`)),
+        v.files.map((file) => {
+          const expanded = open.has(file.path);
+          const toggle = () => setOpen((prev) => { const next = new Set(prev); if (next.has(file.path)) next.delete(file.path); else next.add(file.path); return next; });
+          return React.createElement('div', { key: file.path, style: { borderTop: '1px solid var(--dsw-alias-border-l1, rgba(127,127,127,.15))' } },
+            React.createElement('button', { type: 'button', onClick: toggle, 'aria-expanded': expanded,
+              style: { display: 'flex', width: '100%', alignItems: 'center', gap: 8, padding: '6px 12px', border: 'none', background: 'none', color: 'inherit', font: 'inherit', cursor: 'pointer', textAlign: 'left' } },
+              React.createElement('span', { 'aria-hidden': true, style: { width: 10, opacity: 0.6 } }, expanded ? '▾' : '▸'),
+              React.createElement('span', { style: { flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'var(--ds-font-family-code)', fontSize: 12 }, title: file.from ? `${file.from} → ${file.path}` : file.path },
+                file.from ? `${file.from} → ${file.path}` : file.path),
+              file.untracked ? React.createElement('span', { style: { fontSize: 11, opacity: 0.7 } }, t('changes.untracked')) : null,
+              file.binary ? React.createElement('span', { style: { fontSize: 11, opacity: 0.7 } }, t('changes.binary'))
+                : React.createElement('span', { style: { fontSize: 12, whiteSpace: 'nowrap' } },
+                  React.createElement('span', { style: { color: 'var(--dsw-alias-state-success-primary, #2ea043)' } }, `+${file.added}`), ' ',
+                  React.createElement('span', { style: { color: 'var(--dsw-alias-state-error-primary, #f85149)' } }, `-${file.deleted}`))),
+            expanded ? React.createElement(ChangesDiff, { sessionId, mode, file, t }) : null);
+        }),
+        v.total > v.files.length ? React.createElement('div', { style: { padding: 12, opacity: 0.7 } }, t('changes.more', { count: String(v.total - v.files.length) })) : null);
+      return React.createElement('section', { 'data-composer-plus-changes': '', style: { height: '100%', overflowY: 'auto', fontSize: 13 } }, header, body);
     }
 
     return {
@@ -534,6 +703,29 @@ window.__ModuleLoader__.load({
             'notify.approval': 'Waiting for your approval.',
             'notify.question': 'Has a question for you.',
             'notify.planReview': 'Plan ready for review.',
+            'notify.approvalTool': 'Approve {tool}?',
+            'notify.questionText': 'Question: {text}',
+            'changes.title': 'Changes',
+            'changes.guide': 'Changes',
+            'changes.guideDescription': 'Uncommitted, staged and branch changes of this chat\'s repository',
+            'changes.mode.lastTurn': 'Last Turn',
+            'changes.mode.uncommitted': 'Uncommitted',
+            'changes.mode.unstaged': 'Unstaged',
+            'changes.mode.staged': 'Staged',
+            'changes.mode.branch': 'Branch',
+            'changes.loading': 'Loading…',
+            'changes.failed': 'Could not read changes.',
+            'changes.diffFailed': 'Could not load this diff.',
+            'changes.noRepo': 'This chat\'s folder is not a git repository.',
+            'changes.noUpstream': 'This branch has no upstream to compare with.',
+            'changes.empty': 'No file changes yet',
+            'changes.emptyHint': 'Changes in this project will appear here.',
+            'changes.summary': '{count} file(s)',
+            'changes.untracked': 'new',
+            'changes.binary': 'binary',
+            'changes.truncated': 'Diff truncated.',
+            'changes.more': '{count} more file(s) not shown',
+            'changes.refresh': 'Refresh',
           },
           zh: {
             copyDeeplink: '复制深层链接',
@@ -545,6 +737,29 @@ window.__ModuleLoader__.load({
             'notify.approval': '等待你的批准。',
             'notify.question': '有问题需要你回答。',
             'notify.planReview': '计划已就绪，等待审阅。',
+            'notify.approvalTool': '是否批准 {tool}？',
+            'notify.questionText': '问题：{text}',
+            'changes.title': '改动',
+            'changes.guide': '改动',
+            'changes.guideDescription': '查看本对话仓库的未提交、已暂存和分支改动',
+            'changes.mode.lastTurn': '上一轮',
+            'changes.mode.uncommitted': '未提交',
+            'changes.mode.unstaged': '未暂存',
+            'changes.mode.staged': '已暂存',
+            'changes.mode.branch': '分支',
+            'changes.loading': '加载中…',
+            'changes.failed': '无法读取改动。',
+            'changes.diffFailed': '无法加载此差异。',
+            'changes.noRepo': '本对话的目录不是 git 仓库。',
+            'changes.noUpstream': '当前分支没有可比较的上游分支。',
+            'changes.empty': '暂无文件改动',
+            'changes.emptyHint': '本项目的改动会显示在这里。',
+            'changes.summary': '{count} 个文件',
+            'changes.untracked': '新',
+            'changes.binary': '二进制',
+            'changes.truncated': '差异已截断。',
+            'changes.more': '还有 {count} 个文件未显示',
+            'changes.refresh': '刷新',
           },
         }), 'dsh-composer-plus: dictionaries');
         ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
@@ -560,6 +775,26 @@ window.__ModuleLoader__.load({
           // First use asks the OS once; a denied permission stays denied (re-enable it in System Settings).
           if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
         });
+        if (ctx.inject !== undefined) ctx.inject(['sidebarRight', 'sidebarRightTabs'], (scope) => {
+          const t = ctx.locale.bind(LOCALE_NS);
+          scope.effect(() => scope.sidebarRightTabs.register({
+            id: CHANGES_ID,
+            kind: CHANGES_KIND,
+            priority: 'extension',
+            title: () => t('changes.title'),
+            guide: [{ id: 'open', order: 25, title: () => t('changes.guide'), description: () => t('changes.guideDescription'),
+              ...(primitives.GuideArtworkFiles === undefined ? {} : { icon: primitives.GuideArtworkFiles }) }],
+          }), 'dsh-composer-plus: changes tab type');
+          scope.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
+            name: 'sidebar.right.pane.tab',
+            key: CHANGES_ID,
+            locale: LOCALE_NS,
+            inject: () => ({
+              // "Last turn" reuses dsh's own changes-review tab for the newest recorded turn.
+              openLastTurn: (sessionId, { seq, turn }) => scope.sidebarRight.openResource(`dsh-resource://changes-review/session/${encodeURIComponent(sessionId)}/${seq}/${turn}`),
+            }),
+          }, ChangesTab)), 'dsh-composer-plus: changes tab body');
+        });
         if (ctx.inject !== undefined) ctx.inject(['uiSession'], (scope) => {
           const status = scope.uiSession.sessionStatus;
           // Deferred so answering never re-enters the status notification that triggered it.
@@ -572,6 +807,7 @@ window.__ModuleLoader__.load({
           }, 'dsh-composer-plus: chat tool grants');
         });
         if (ctx.effect !== undefined) ctx.effect(() => () => { grants.clear(); grantsChanged(); }, 'dsh-composer-plus: forget grants on unload');
+        if (typeof fetch === 'function') loadGrants();
         ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
           name: 'sidebar.workspaces.session.menu.item',
           id: 'copy-deeplink',

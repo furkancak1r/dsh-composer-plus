@@ -1,8 +1,8 @@
 // Runs the real client.js attention notifications with fake Notification/window/uiSession.
 import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
 const src=readFileSync(process.env.CLIENT??new URL('../client.js',import.meta.url),'utf8');
-let mod;globalThis.window={__ModuleLoader__:{load:m=>{mod=m;}},focus(){this.focused++;},focused:0,addEventListener(){throw new Error('no window listeners');},removeEventListener(){}};eval(src);
-let focus=false;globalThis.document={hasFocus:()=>focus};
+let mod;globalThis.window={__ModuleLoader__:{load:m=>{mod=m;}},focus(){this.focused++;},focused:0,addEventListener(t,f){this.l=f;},removeEventListener(){this.l=null;}};eval(src);
+let focus=false;globalThis.document={hasFocus:()=>focus};let badgeN=0;Object.defineProperty(globalThis,'navigator',{value:{setAppBadge:n=>{badgeN=n;return Promise.resolve();},clearAppBadge:()=>{badgeN=0;return Promise.resolve();}},configurable:true});
 const shown=[];let perm='granted',asked=0;
 globalThis.Notification=class{static get permission(){return perm;}static requestPermission(){asked++;return Promise.resolve('granted');}
  constructor(title,o){this.title=title;this.body=o.body;this.tag=o.tag;this.closed=false;shown.push(this);}close(){this.closed=true;}};
@@ -11,10 +11,10 @@ const React={useState:v=>[v,()=>{}],useEffect:()=>{},useSyncExternalStore:(s,g)=
 const plugin=mod.factory(n=>n==='react'?React:n==='react-dom'?{createPortal:()=>({})}:{Button:'Button'});
 let snap=new Map(),ls=new Set();const status={getSnapshot:()=>snap,subscribe:l=>{ls.add(l);return()=>ls.delete(l);}};
 const pub=m=>{snap=m;for(const l of [...ls])l();};
-const list={getSnapshot:()=>({byId:{s1:{displayTitle:'Fix login'},s2:{displayTitle:'Sub',origin:'subagent'}}})};
+let outline=[];const list={getSnapshot:()=>({byId:{s1:{displayTitle:'Fix login'},s2:{displayTitle:'Sub',origin:'subagent'}},projectionsBySession:{s1:{values:{turnOutline:outline}}}})};
 const opened=[];const dicts={};const offs=[];
-plugin.apply({effect:f=>{const d=f();if(d)offs.push(d);},locale:{register:(ns,d)=>{dicts[ns]=d;return()=>{};},bind:ns=>k=>dicts[ns].en[k]},
- inject:(names,cb)=>{if(names.includes('uiWorkspace'))cb({uiSession:{sessionStatus:status},sessions:{list},uiWorkspace:{openSession:id=>opened.push(id)},effect:f=>offs.push(f())});else cb({uiSession:{sessionStatus:status},effect:f=>offs.push(f())});},
+plugin.apply({effect:f=>{const d=f();if(d)offs.push(d);},locale:{register:(ns,d)=>{dicts[ns]=d;return()=>{};},bind:ns=>(k,p={})=>dicts[ns].en[k].replace(/\{(\w+)\}/g,(_,x)=>p[x])},
+ inject:(names,cb)=>{if(names.includes('sidebarRight'))return;if(names.includes('uiWorkspace'))cb({uiSession:{sessionStatus:status},sessions:{list},uiWorkspace:{openSession:id=>opened.push(id)},effect:f=>offs.push(f())});else cb({uiSession:{sessionStatus:status},effect:f=>offs.push(f())});},
  slots:{inject:(n,f)=>f(),register:()=>()=>{}}});
 const en=Object.values(dicts)[0].en,zh=Object.values(dicts)[0].zh;for(const k of ['notify.done','notify.approval','notify.question','notify.planReview'])assert.ok(en[k]&&zh[k],k);
 const st=(o={})=>({running:false,pendingInteraction:undefined,completionUnread:false,...o});
@@ -32,6 +32,17 @@ const ap={kind:'approval'},q={kind:'question'},pr={kind:'plan-review'};
 pub(new Map([['s1',st({pendingInteraction:ap})]]));pub(new Map([['s1',st({pendingInteraction:ap})]]));
 pub(new Map([['s1',st({pendingInteraction:q})]]));pub(new Map([['s1',st({pendingInteraction:pr})]]));
 assert.deepEqual(shown.slice(1).map(n=>n.body),[en['notify.approval'],en['notify.question'],en['notify.planReview']]);
+// Richer bodies: tool name, question text, reply preview; badge counts unread chats and clears on focus.
+const fmt=(k,p={})=>en[k].replace(/\{(\w+)\}/g,(_,x)=>p[x]);
+assert.equal(badgeN,1,'badge counts the notifying chat');
+pub(new Map([['s1',st()]]));pub(new Map([['s1',st({pendingInteraction:{kind:'approval',toolName:'mcp__db__execute_sql_prod'}})]]));
+assert.equal(shown.at(-1).body,fmt('notify.approvalTool',{tool:'mcp__db__execute_sql_prod'}));
+pub(new Map([['s1',st({pendingInteraction:{kind:'question',questions:[{question:'\n  Which branch should I use?\nmore'}]}})]]));
+assert.equal(shown.at(-1).body,fmt('notify.questionText',{text:'Which branch should I use?'}));
+outline=[{turn:1,response:'old'},{turn:2,response:'Deployed v2 to staging.\nDetails…'}];
+pub(new Map([['s1',st({running:true})]]));pub(new Map([['s1',st()]]));
+assert.equal(shown.at(-1).body,'Deployed v2 to staging.','finish shows the reply preview');
+window.l();assert.equal(badgeN,0,'focus clears the badge');
 // Subagent chats, focused window and denied permission stay quiet.
 const n0=shown.length;pub(new Map([['s2',st({running:true})]]));pub(new Map([['s2',st()]]));
 focus=true;pub(new Map([['s1',st({running:true})]]));pub(new Map([['s1',st()]]));focus=false;
