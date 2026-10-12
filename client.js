@@ -1,7 +1,8 @@
 /**
  * dsh-composer-plus: composer history (ArrowUp/ArrowDown), Shift+Tab `/plan` toggle, a one-click
  * Continue button, drag-and-drop reordering of queued messages, a session "Copy deeplink" menu item and an
- * Auto Review "Allow for this chat" grant per exact tool (memory only). Client half only; no Host state.
+ * Auto Review "Allow for this chat" grant per exact tool (memory only), and OS notifications while dsh is in the
+ * background (turn finished, approval/question/plan review waiting). Client half only; no Host state.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-composer-plus',
@@ -459,6 +460,43 @@ window.__ModuleLoader__.load({
       return chip === null && button === null ? null : React.createElement(React.Fragment, null, chip, button);
     }
 
+    /** macOS/OS notifications while dsh is in the background: a turn finished, or a chat waits for an approval,
+     * a question or a plan review. Built on dsh's own Session status (`running`, `pendingInteraction`);
+     * clicking a notification focuses dsh and opens that chat. Uses the web Notification API, which the desktop
+     * app permits. Nothing is shown while the dsh window is focused. */
+    function attentionKind(previous, status) {
+      const pending = status === undefined ? undefined : status.pendingInteraction;
+      if (pending !== undefined && pending !== null && (previous === undefined || previous.pendingInteraction !== pending)) {
+        return pending.kind === 'approval' ? 'approval' : pending.kind === 'plan-review' ? 'planReview' : 'question';
+      }
+      // dsh sets `completionUnread` only for chats that are not open, so the open chat's finish is its running → idle edge.
+      if (status !== undefined && previous !== undefined && previous.running === true && status.running === false && pending == null) return 'done';
+      return null;
+    }
+    function watchAttention(status, sessionsList, t, open) {
+      let last = status.getSnapshot();
+      const shown = new Map();
+      const notify = () => {
+        const next = status.getSnapshot();
+        const before = last;
+        last = next;
+        if (typeof Notification === 'undefined' || Notification.permission !== 'granted' || document.hasFocus()) return;
+        for (const [sessionId, current] of next) {
+          const kind = attentionKind(before.get(sessionId), current);
+          if (kind === null) continue;
+          const row = sessionsList.getSnapshot().byId[sessionId];
+          if (row !== undefined && row.origin === 'subagent') continue; // the parent chat reports for its children
+          const title = row === undefined ? 'DeepSeek Harness' : row.displayTitle;
+          shown.get(sessionId)?.close();
+          const n = new Notification(title, { body: t(`notify.${kind}`), tag: `dsh:${sessionId}`, silent: false });
+          n.onclick = () => { window.focus(); open(sessionId); n.close(); };
+          shown.set(sessionId, n);
+        }
+      };
+      // Delivered notifications stay in Notification Center until clicked; only a newer one for the same chat replaces them.
+      return status.subscribe(notify);
+    }
+
     return {
       inject: ['slots', 'sessions', 'locale'],
       apply(ctx) {
@@ -492,6 +530,10 @@ window.__ModuleLoader__.load({
             allowChatTitle: 'Allow {toolName} without asking for the rest of this chat, with any arguments. If the tool can write, that includes any write.',
             grants: '{count} tool(s) allowed · Revoke',
             grantsTitle: 'Allowed in this chat without asking:\n{tools}\nClick to revoke all.',
+            'notify.done': 'Finished.',
+            'notify.approval': 'Waiting for your approval.',
+            'notify.question': 'Has a question for you.',
+            'notify.planReview': 'Plan ready for review.',
           },
           zh: {
             copyDeeplink: '复制深层链接',
@@ -499,6 +541,10 @@ window.__ModuleLoader__.load({
             allowChatTitle: '本对话剩余时间内，{toolName} 的任何参数调用都无需再询问。若该工具可写入，也包括任何写入操作。',
             grants: '已允许 {count} 个工具 · 撤销',
             grantsTitle: '本对话内无需询问即可使用：\n{tools}\n点击撤销全部。',
+            'notify.done': '已完成。',
+            'notify.approval': '等待你的批准。',
+            'notify.question': '有问题需要你回答。',
+            'notify.planReview': '计划已就绪，等待审阅。',
           },
         }), 'dsh-composer-plus: dictionaries');
         ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
@@ -507,6 +553,13 @@ window.__ModuleLoader__.load({
           order: 0,
           locale: LOCALE_NS,
         }, ChatToolGrants));
+        if (ctx.inject !== undefined) ctx.inject(['uiSession', 'uiWorkspace', 'sessions'], (scope) => {
+          const t = ctx.locale.bind(LOCALE_NS);
+          scope.effect(() => watchAttention(scope.uiSession.sessionStatus, scope.sessions.list, t,
+            (sessionId) => scope.uiWorkspace.openSession(sessionId)), 'dsh-composer-plus: attention notifications');
+          // First use asks the OS once; a denied permission stays denied (re-enable it in System Settings).
+          if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+        });
         if (ctx.inject !== undefined) ctx.inject(['uiSession'], (scope) => {
           const status = scope.uiSession.sessionStatus;
           // Deferred so answering never re-enters the status notification that triggered it.

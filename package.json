@@ -1,7 +1,7 @@
 {
   "name": "dsh-composer-plus",
-  "version": "0.4.0",
-  "description": "DeepSeek Harness composer helpers: input history, Shift+Tab /plan toggle, one-click Continue, drag-and-drop queue reordering, Copy deeplink, Auto Review \"Allow for this chat\"",
+  "version": "0.5.0",
+  "description": "DeepSeek Harness composer helpers: input history, Shift+Tab /plan toggle, one-click Continue, drag-and-drop queue reordering, Copy deeplink, Auto Review \"Allow for this chat\", background notifications",
   "license": "MIT",
   "type": "module",
   "keywords": [
@@ -18,7 +18,7 @@
     "cordis.patch.yml"
   ],
   "scripts": {
-    "test": "node test/continue.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs"
+    "test": "node test/continue.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs"
   },
   "dsh": {
     "bundle": {
@@ -29,7 +29,8 @@
       "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-conversation"
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-workspace"
       ]
     }
   }

@@ -14,7 +14,7 @@ const status={getSnapshot:()=>snap,subscribe:l=>{listeners.add(l);return()=>list
 const publish=m=>{snap=m;for(const l of [...listeners])l();};
 const dicts={};
 plugin.apply({effect:f=>{const d=f();if(d)unloads.push(d);},locale:{register:(ns,d)=>{dicts[ns]=d;return()=>{};}},
- inject:(names,cb)=>{assert.deepEqual(names,['uiSession']);cb({uiSession:{sessionStatus:status},effect:f=>{const d=f();unloads.push(d);}});},
+ inject:(names,cb)=>{if(names.includes('uiWorkspace'))return;assert.deepEqual(names,['uiSession']);cb({uiSession:{sessionStatus:status},effect:f=>{const d=f();unloads.push(d);}});},
  slots:{inject:(n,f)=>f(),register:(o,C)=>{regs.push([o,C]);return()=>{};}}});
 const [opt,Grants]=regs.find(([o])=>o.id==='chat-tool-grants');assert.equal(opt.name,'conversation.session.header.utilities');
 const en=dicts[opt.locale].en;assert.deepEqual(Object.keys(dicts[opt.locale].en).sort(),Object.keys(dicts[opt.locale].zh).sort());
