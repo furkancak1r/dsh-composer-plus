@@ -88,10 +88,14 @@ struct QRScanner: UIViewControllerRepresentable {
         s.addInput(input)
         let out = AVCaptureMetadataOutput(); s.addOutput(out)
         out.setMetadataObjectsDelegate(context.coordinator, queue: .main); out.metadataObjectTypes = [.qr]
-        let layer = AVCaptureVideoPreviewLayer(session: s); layer.videoGravity = .resizeAspectFill; layer.frame = UIScreen.main.bounds
-        vc.view.layer.addSublayer(layer)
+        // preview view's own layer resizes with the sheet, unlike a sublayer sized once to the screen
+        let pv = PreviewView(); pv.layer.session = s; pv.layer.videoGravity = .resizeAspectFill; vc.view = pv
         DispatchQueue.global().async { s.startRunning() }
         return vc
+    }
+    final class PreviewView: UIView {
+        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+        override var layer: AVCaptureVideoPreviewLayer { super.layer as! AVCaptureVideoPreviewLayer }
     }
     func updateUIViewController(_ vc: UIViewController, context: Context) {}
     static func dismantleUIViewController(_ vc: UIViewController, coordinator: Coord) { coordinator.session.stopRunning() }
@@ -120,28 +124,33 @@ struct ConversationView: View {
             .navigationTitle(c.currentSess?.title ?? String(localized: "Conversation"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .tabBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { HStack { ConnBadge(); ModelMenu() } }
-            }
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { ConnBadge() } }
     }
 
     var transcript: some View {
         ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
+                    LazyVStack(alignment: .leading, spacing: 14) {
                         ForEach(c.transcript) { LineView(line: $0) }
                         if !c.reasoning.isEmpty { LineView(line: Line(kind: .reasoning, text: c.reasoning), live: true) }
                         if !c.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: c.streaming)) }
-                        if c.running && c.streaming.isEmpty { ProgressView().padding(.leading) }
-                        Color.clear.frame(height: 1).id("end")
+                        if c.running && c.streaming.isEmpty && c.reasoning.isEmpty {
+                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Working…") }.font(.footnote).foregroundStyle(.secondary)
+                        }
+                        // shortcut: 80 pt tall marker pulled up over the content = "near bottom" tolerance, so a streaming delta never flips atBottom off; use onScrollGeometryChange once iOS 18 is the floor.
+                        Color.clear.frame(height: 80).padding(.top, -80).id("end")
                             .onAppear { atBottom = true }.onDisappear { atBottom = false }
-                    }.padding()
+                    }.padding(.horizontal, 16).padding(.vertical, 12)
                 }
+                .defaultScrollAnchor(.bottom)
                 .overlay { if c.transcript.isEmpty && !c.running { emptyState } }
                 .overlay(alignment: .bottomTrailing) {
                     if !atBottom && !c.transcript.isEmpty {
-                        Button { withAnimation { proxy.scrollTo("end") } } label: { Image(systemName: "arrow.down.circle.fill").font(.title).symbolRenderingMode(.hierarchical) }
-                            .padding().accessibilityLabel("Scroll to bottom")
+                        Button { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } label: {
+                            Image(systemName: "arrow.down").font(.footnote.weight(.semibold)).frame(width: 34, height: 34)
+                                .background(.regularMaterial, in: Circle()).overlay(Circle().strokeBorder(Color(.separator)))
+                        }
+                        .buttonStyle(.plain).padding(12).accessibilityLabel("Scroll to bottom")
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
@@ -149,15 +158,14 @@ struct ConversationView: View {
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 0) {
                         if !suggestions.isEmpty { suggestionList }
-                        statusLine
                         composer
-                    }.background(.bar)
+                        statusLine
+                    }.background(.background)
                 }
                 // only follow output while the user is at the bottom, so reading history is not yanked away
-                .onChange(of: c.transcript.count) { if atBottom { proxy.scrollTo("end") } }
-                .onChange(of: c.streaming) { if atBottom { proxy.scrollTo("end") } }
-                .onChange(of: c.reasoning) { if atBottom { proxy.scrollTo("end") } }
-                .onAppear { proxy.scrollTo("end") }
+                .onChange(of: c.transcript.count) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
+                .onChange(of: c.streaming) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
+                .onChange(of: c.reasoning) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
         }
     }
 
@@ -174,7 +182,7 @@ struct ConversationView: View {
     var statusLine: some View {
         let ctx = c.currentSess?.context.map { "ctx \(Int(($0 * 100).rounded()))%" }
         let parts = [c.shownModel, ctx, c.usage.map(usageText)].compactMap { $0 }.filter { !$0.isEmpty }
-        return Text(parts.joined(separator: " · ")).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1).padding(.horizontal).padding(.top, 4)
+        return Text(parts.joined(separator: " · ")).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary).lineLimit(1).padding(.horizontal).padding(.bottom, 4)
     }
 
     var suggestions: [Cmd] {
@@ -196,40 +204,52 @@ struct ConversationView: View {
                     Divider()
                 }
             }
-        }.frame(maxHeight: 220)
+        }.frame(maxHeight: 220).background(.bar)
     }
 
+    var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty }
+
+    /// Codex-style card: text on top, attach · model chip · send/stop on one row below.
     var composer: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 10) {
             if !images.isEmpty {
                 ScrollView(.horizontal) { HStack { ForEach(images.indices, id: \.self) { i in
                     Image(uiImage: UIImage(data: images[i]) ?? UIImage()).resizable().scaledToFill().frame(width: 52, height: 52).clipShape(RoundedRectangle(cornerRadius: 8))
                         .overlay(alignment: .topTrailing) { Button { images.remove(at: i) } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Remove image") }
                 } } }
             }
-            HStack(alignment: .bottom, spacing: 8) {
-                PhotosPicker(selection: $picks, maxSelectionCount: 4, matching: .images) { Image(systemName: "photo").imageScale(.large) }
-                    .accessibilityLabel("Attach image")
-                TextField("Message", text: $text, axis: .vertical).lineLimit(1...6).focused($focused)
-                    .padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 18))
-                if c.running {
-                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty {
-                        Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title) }.accessibilityLabel("Send now")
-                    }
-                    Button { c.run { try await c.stop() } } label: { Image(systemName: "stop.circle.fill").font(.title) }.accessibilityLabel("Stop")
-                } else {
-                    Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title) }
-                        .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && images.isEmpty).accessibilityLabel("Send")
+            TextField("Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4)
+            HStack(spacing: 10) {
+                PhotosPicker(selection: $picks, maxSelectionCount: 4, matching: .images) {
+                    Image(systemName: "plus").font(.body.weight(.medium)).frame(width: 32, height: 32).background(Color(.tertiarySystemFill), in: Circle())
                 }
+                .buttonStyle(.plain)
+                    .accessibilityLabel("Attach image")
+                ModelMenu()
+                Spacer(minLength: 0)
+                if c.running && canSend { roundButton("arrow.up", action: send).accessibilityLabel("Send now") }
+                if c.running { roundButton("stop.fill") { c.run { try await c.stop() } }.accessibilityLabel("Stop") }
+                else { roundButton("arrow.up", action: send).disabled(!canSend).accessibilityLabel("Send") }
             }
         }
-        .padding(8)
+        .padding(10)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 24, style: .continuous).strokeBorder(Color(.separator).opacity(0.6)))
+        .padding(.horizontal, 10).padding(.vertical, 6)
         .onChange(of: picks) { _, items in
             Task {
                 for it in items { if let d = try? await it.loadTransferable(type: Data.self), let j = jpeg(d) { images.append(j) } }
                 picks = []
             }
         }
+    }
+
+    func roundButton(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon).font(.system(size: 14, weight: .bold)).foregroundStyle(Color(.systemBackground))
+                .frame(width: 32, height: 32).background(Color.primary, in: Circle())
+        }
+        .buttonStyle(.plain).opacity(canSend || c.running ? 1 : 0.3)
     }
 
     func send() {
@@ -267,17 +287,20 @@ struct LineView: View {
     @ViewBuilder var content: some View {
         switch line.kind {
         case .user:
-            HStack { Spacer(minLength: 40); Text(line.text).textSelection(.enabled).padding(10).background(Color.accentColor.opacity(0.18), in: RoundedRectangle(cornerRadius: 14)) }
-        case .assistant: Markdown(text: line.text)
+            HStack { Spacer(minLength: 48); Text(line.text).textSelection(.enabled).padding(.horizontal, 14).padding(.vertical, 10).background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
+        case .assistant: Markdown(text: line.text).frame(maxWidth: .infinity, alignment: .leading)
         case .reasoning:
             DisclosureGroup(isExpanded: $open) {
-                Text(line.text).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                Text(line.text).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.leading, 10).overlay(alignment: .leading) { Rectangle().fill(Color(.separator)).frame(width: 2) }
             } label: {
-                Label(live ? String(localized: "Thinking…") : String(localized: "Thought"), systemImage: "brain").font(.caption).foregroundStyle(.secondary)
+                Text(live ? String(localized: "Thinking…") : String(localized: "Thought")).font(.footnote).foregroundStyle(.secondary)
             }
-        case .command: Label(line.text, systemImage: "command").font(.caption.monospaced()).foregroundStyle(.tint)
-        case .tool: tap(Label(line.text, systemImage: "wrench.and.screwdriver").font(.caption.monospaced()).foregroundStyle(.secondary), 3)
-        case .result: tap(Text(line.text).font(.caption2.monospaced()).foregroundStyle(.secondary).padding(.leading, 24), 6)
+            .tint(.secondary)
+        case .command: Label(line.text, systemImage: "chevron.right").font(.footnote.monospaced()).foregroundStyle(.secondary)
+        case .tool: tap(Label(line.text, systemImage: "terminal").font(.footnote.monospaced()).foregroundStyle(.secondary), 2)
+        case .result: tap(Text(line.text).font(.caption.monospaced()).foregroundStyle(.secondary).padding(8)
+            .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous)), 6)
         case .error: tap(Label(line.text, systemImage: "exclamationmark.triangle").font(.caption.monospaced()).foregroundStyle(.red), 6)
         }
     }
@@ -298,7 +321,8 @@ struct Markdown: View {
                         Button { UIPasteboard.general.string = b.text; UIImpactFeedbackGenerator(style: .light).impactOccurred() } label: { Label("Copy", systemImage: "doc.on.doc").font(.caption) }
                         ScrollView(.horizontal) { Text(b.text).font(.caption.monospaced()).textSelection(.enabled) }
                     }
-                    .padding(8).background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                    .padding(10).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(.separator).opacity(0.5)))
                 } else {
                     Text((try? AttributedString(markdown: b.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(b.text))
                         .textSelection(.enabled)
@@ -321,7 +345,12 @@ struct ModelMenu: View {
                 }
             }
             if c.catalog.isEmpty { Text("Loading models…") }
-        } label: { Label(c.shownModel ?? String(localized: "Model"), systemImage: "cpu").labelStyle(.titleAndIcon).font(.caption).lineLimit(1) }
+        } label: {
+            HStack(spacing: 3) { Text(c.shownModel ?? String(localized: "Model")).lineLimit(1); Image(systemName: "chevron.down").imageScale(.small) }
+                .font(.footnote.weight(.medium)).foregroundStyle(.secondary)
+                .padding(.horizontal, 10).frame(height: 32).background(Color(.tertiarySystemFill), in: Capsule())
+        }
+        .accessibilityLabel(Text("Model"))
         .onAppear { if c.catalog.isEmpty { c.run { try await c.loadCatalog() } } }
     }
 }
@@ -395,7 +424,7 @@ struct SessionsView: View {
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
-            if s.running { ProgressView() }
+            if s.running { Circle().fill(.green).frame(width: 8, height: 8).accessibilityLabel("Running") }
             if s.id == c.current { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
         }
     }
