@@ -1,6 +1,6 @@
 {
   "name": "dsh-composer-plus",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "DeepSeek Harness composer helpers: input history, Shift+Tab /plan toggle, one-click Continue, drag-and-drop queue reordering, Copy deeplink",
   "license": "MIT",
   "type": "module",
@@ -13,7 +13,7 @@
     "client": {
       "platform": "web",
       "immediately": true,
-      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+      "inject": ["@deepseek-ai/dsh-client-locale", "@deepseek-ai/dsh-client-ui-conversation"]
     }
   }
 }

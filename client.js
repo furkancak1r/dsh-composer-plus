@@ -146,7 +146,7 @@ window.__ModuleLoader__.load({
     }
 
     /** "Copy deeplink" row in a session's "…" menu. */
-    function CopyDeeplinkItem({ sessionId, useMenuOpenState }) {
+    function CopyDeeplinkItem({ sessionId, useMenuOpenState, t }) {
       const [, setMenuOpen] = useMenuOpenState();
       return React.createElement(primitives.MenuItemButton, {
         icon: React.createElement(primitives.IconLinkOutlineRegular, {}),
@@ -154,7 +154,7 @@ window.__ModuleLoader__.load({
           setMenuOpen(false);
           primitives.writeClipboard(sessionDeeplink(sessionId));
         },
-      }, COPY_DEEPLINK_LABEL);
+      }, t('copyDeeplink'));
     }
 
     /** Right-click on a session row opens its "…" menu; dsh rows have no context menu of their own.
@@ -184,7 +184,8 @@ window.__ModuleLoader__.load({
     }
 
     const CONTINUE_TEXT = 'continue';
-    const COPY_DEEPLINK_LABEL = 'Copy deeplink';
+    /** Dictionary namespace for this plugin's menu copy; dsh ships `en` and `zh`. */
+    const LOCALE_NS = 'dsh-composer-plus';
     let createPortal;
     try { createPortal = require('react-dom').createPortal; } catch { createPortal = undefined; }
     /** The composer's Send button (class `<hash>_primary`); the stop button shares it but only while running. */
@@ -382,7 +383,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'sessions'],
+      inject: ['slots', 'sessions', 'locale'],
       apply(ctx) {
         ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
@@ -407,10 +408,15 @@ window.__ModuleLoader__.load({
           id: 'composer-continue',
           order: 1000,
         }, ContinueButton));
+        if (ctx.locale !== undefined) ctx.effect(() => ctx.locale.register(LOCALE_NS, {
+          en: { copyDeeplink: 'Copy deeplink' },
+          zh: { copyDeeplink: '复制深层链接' },
+        }), 'dsh-composer-plus: dictionaries');
         ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
           name: 'sidebar.workspaces.session.menu.item',
           id: 'copy-deeplink',
           order: 350,
+          locale: LOCALE_NS,
         }, CopyDeeplinkItem));
         ctx.slots.inject('sidebar.workspaces.session.row.action', () => ctx.slots.register({
           name: 'sidebar.workspaces.session.row.action',
