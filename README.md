@@ -11,15 +11,25 @@ Small composer helpers for [DeepSeek Harness](https://github.com/deepseek-ai/dee
 - **Background notifications** – while the dsh window is not focused, you get an OS notification titled with the chat name when a turn finishes (with the reply's first line), or when a chat waits for an approval (names the tool), a question (shows it) or a plan review. The Dock/taskbar badge counts chats waiting for you. Clicking it brings dsh to the front and opens that chat. Notifications stay in Notification Center until clicked; a newer one for the same chat replaces the older. Subagent chats don't notify on their own (the parent chat does). Text follows dsh's language (English or Chinese).
 - **Drag-and-drop queue reordering** – queued messages get a grip (⠿) at the left. Drag a row to a new position (drop line shown, `Esc` cancels), or focus the grip and press `↑` / `↓`.
 
-Tested on dsh `0.2.0-rc.2` (desktop and web).
+Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs the tests on every push.
 
 ## Install
 
-```sh
-dsh plugin --profile web add github:furkancak1r/dsh-composer-plus
+**Desktop app:** Settings → Plugins → **Add plugin**, paste
+
+```
+https://github.com/furkancak1r/dsh-composer-plus
 ```
 
-This adds the dependency and the profile bundle. Restart dsh. For the desktop app use `--profile desktop`.
+then **Enable now** (or restart dsh). (The desktop profile is managed by the app, so the CLI cannot install into it.)
+
+**Web / CLI profiles:**
+
+```sh
+dsh plugin --profile web add https://github.com/furkancak1r/dsh-composer-plus
+```
+
+This adds the dependency and the profile bundle. Restart dsh.
 
 ## How it works / limits
 
