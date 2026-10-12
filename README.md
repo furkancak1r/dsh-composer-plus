@@ -3,6 +3,7 @@
 Small composer helpers for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (web / desktop UI). Client-only plugin, no Host state, no network calls.
 
 - **Input history** – in an empty composer, `↑` / `↓` walk your previously sent messages, like a terminal. An open `/` menu or an edited draft keeps the normal keys.
+- **`/plan` toggle** – `Option+Tab` (`Alt+Tab` on Windows/Linux) adds `/plan ` to the start of the draft, even when it already has text; press it again to remove that leading `/plan`. The rest of the draft, file references and attachments stay intact, and the caret ends up at the end. It never sends.
 - **One-click Continue** – when a turn has stopped and the composer is empty, the Send button becomes **▶**; one click sends `continue`. Hidden on a blank chat, while running, in subagent views, or once you type or attach something.
 - **Drag-and-drop queue reordering** – queued messages get a grip (⠿) at the left. Drag a row to a new position (drop line shown, `Esc` cancels), or focus the grip and press `↑` / `↓`.
 
@@ -29,8 +30,8 @@ This adds the dependency and the profile bundle. Restart dsh. For the desktop ap
 npm test
 ```
 
-Runs the real `client.js` against a fake React/DOM: Continue visibility and click, drag order, keyboard moves, `Esc`, revert on failure, image rows.
+Runs the real `client.js` against a fake React/DOM: the `/plan` toggle edit, Continue visibility and click, drag order, keyboard moves, `Esc`, revert on failure, image rows.
 
-`node test/browser-history.mjs '<dsh web URL with ?token=…>'` checks ↑/↓ history in a real browser against a throwaway `dsh web` (it sends test messages, so use a separate `DSH_HOME`). Continue and drag-and-drop were also checked by hand-scripted browser runs against a slow fake model.
+`node test/browser-history.mjs '<dsh web URL with ?token=…>'` checks ↑/↓ history in a real browser against a throwaway `dsh web` (it sends test messages, so use a separate `DSH_HOME`). The `/plan` toggle (empty, multi-line, references, attachments, caret position), Continue and drag-and-drop were also checked by hand-scripted browser runs against a slow fake model.
 
 MIT License. Unofficial community plugin.

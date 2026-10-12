@@ -1,6 +1,6 @@
 /**
- * dsh-composer-plus: composer history (ArrowUp/ArrowDown), a one-click Continue button,
- * and drag-and-drop reordering of queued messages. Client half only; no Host state.
+ * dsh-composer-plus: composer history (ArrowUp/ArrowDown), Option+Tab `/plan` toggle, a one-click
+ * Continue button, and drag-and-drop reordering of queued messages. Client half only; no Host state.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-composer-plus',
@@ -73,6 +73,56 @@ window.__ModuleLoader__.load({
         };
 
         // Capture on the seat runs before the editor's own keydown handling.
+        seat.addEventListener('keydown', onKeyDown, true);
+        return () => {
+          seat.removeEventListener('keydown', onKeyDown, true);
+        };
+      }, []);
+
+      return React.createElement('span', { ref: anchor, hidden: true });
+    }
+
+    /** `/plan` at the very start (not `/planning`) plus at most one following space/tab. */
+    const PLAN_PREFIX = /^\/plan(?=$|\s)[ \t]?/;
+    /** Option+Tab edit: drop a leading `/plan` command, otherwise prepend one. */
+    function planToggle(draft) {
+      const match = PLAN_PREFIX.exec(draft);
+      return match === null ? { start: 0, end: 0, text: '/plan ' } : { start: 0, end: match[0].length, text: '' };
+    }
+
+    /** Option+Tab toggles a leading `/plan` and leaves the caret at the end. Rides `conversation.input.right`
+     * because, unlike the composer dock, it also renders on a blank chat. */
+    function PlanToggle({ useInput, inputActions }) {
+      const draft = useInput((state) => (state === undefined ? '' : state.draft));
+      const live = React.useRef(null);
+      live.current = { draft, inputActions };
+      const anchor = React.useRef(null);
+
+      React.useEffect(() => {
+        const seat = anchor.current === null ? null : anchor.current.closest('[data-composer-seat]');
+        if (seat === null) return undefined;
+        const onKeyDown = (event) => {
+          if (event.key !== 'Tab' || !event.altKey || event.shiftKey || event.ctrlKey || event.metaKey) return;
+          const input = event.target instanceof Element ? event.target.closest('[data-composer-input]') : null;
+          if (input === null || !input.isContentEditable || input.closest('[data-composer-seat]') !== seat) return;
+          event.preventDefault();
+          event.stopPropagation();
+          const { draft, inputActions } = live.current;
+          if (event.repeat || event.isComposing || event.keyCode === 229 || inputActions === undefined) return;
+          const { start, end, text } = planToggle(draft);
+          // Edit only the prefix so the rest of the draft, its file chips and attachments stay intact.
+          if (!inputActions.insertText(text, { ...inputActions.captureInsertion(), start, end })) return;
+          // Lexical commits the edit and its own caret asynchronously; move the caret after that commit.
+          requestAnimationFrame(() => {
+            if (!input.isConnected) return;
+            const range = document.createRange();
+            range.selectNodeContents(input);
+            range.collapse(false);
+            const selection = window.getSelection();
+            selection.removeAllRanges();
+            selection.addRange(range);
+          });
+        };
         seat.addEventListener('keydown', onKeyDown, true);
         return () => {
           seat.removeEventListener('keydown', onKeyDown, true);
@@ -295,6 +345,11 @@ window.__ModuleLoader__.load({
             };
           },
         }, QueueReorder));
+        ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
+          name: 'conversation.input.right',
+          id: 'composer-plan-toggle',
+          order: 999,
+        }, PlanToggle));
         ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
           name: 'conversation.input.right',
           id: 'composer-continue',
