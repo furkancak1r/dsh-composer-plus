@@ -15,21 +15,17 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 
 ## Install
 
-**Desktop app:** Settings → Plugins → **Add plugin**, paste
-
-```
-https://github.com/furkancak1r/dsh-composer-plus
-```
-
-then **Enable now** (or restart dsh). (The desktop profile is managed by the app, so the CLI cannot install into it.)
+**Desktop app:** Settings → Plugins → **Add plugin**, enter `dsh-composer-plus` (npm) or paste `https://github.com/furkancak1r/dsh-composer-plus`, then **Enable now** (or restart dsh). The desktop profile is managed by the app, so the CLI cannot install into it.
 
 **Web / CLI profiles:**
 
 ```sh
-dsh plugin --profile web add https://github.com/furkancak1r/dsh-composer-plus
+dsh plugin --profile web add dsh-composer-plus
 ```
 
 This adds the dependency and the profile bundle. Restart dsh.
+
+pnpm in dsh skips versions younger than 24 hours by default (`minimum-release-age`). Right after a release, name the version explicitly, e.g. `dsh-composer-plus@0.6.0`.
 
 ## How it works / limits
 
