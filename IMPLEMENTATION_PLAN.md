@@ -35,4 +35,4 @@ Out of scope (user decision): Interrupt-and-send, edit-last-message.
 - Phase B done: Changes tab verified in isolated dsh web (list, diff, Staged empty state, menu incl. Last Turn).
 - Phase C done (unit): richer notification bodies + dock badge in test/notify.test.mjs.
 - Phase D done (unit): grants persisted via host endpoint.
-- Phase E: CI workflow added; npm publish pending npm login.
+- Phase E: CI green on GitHub (5bf543e). dsh 0.2.1-alpha.2 verified in an isolated install: Changes, Continue, right-click deeplink, /plan, queue grips, Auto Review card button, grants surviving a restart. npm publish blocked: this machine has no npm login (web login not completed).
