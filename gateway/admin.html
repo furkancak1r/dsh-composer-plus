@@ -2,49 +2,90 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>DSH Mobile Gateway</title>
+<title>Tether</title>
 <style>
-  :root { color-scheme: light dark; font: 14px -apple-system, system-ui, sans-serif; }
+  :root { color-scheme: light dark; font: 14px -apple-system, system-ui, sans-serif; --line: #8883; --card: #8881; }
   body { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
-  table { border-collapse: collapse; width: 100%; } td, th { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #8884; }
-  code { word-break: break-all; } img { width: 240px; image-rendering: pixelated; background: #fff; padding: 8px; }
-  button { margin-right: .4rem; } .muted { opacity: .7; }
+  h1 { font-size: 1.4rem; margin-bottom: .2rem; } h2 { font-size: 1rem; margin: 1.6rem 0 .5rem; }
+  table { border-collapse: collapse; width: 100%; } td, th { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--line); }
+  code { word-break: break-all; font-size: 12px; } .muted { opacity: .65; }
+  button { font: inherit; padding: .35rem .8rem; border-radius: 8px; border: 1px solid var(--line); background: var(--card); cursor: pointer; margin-right: .4rem; }
+  button.primary { background: #0a84ff; color: #fff; border-color: #0a84ff; }
+  .card { border: 1px solid var(--line); background: var(--card); border-radius: 14px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: .4rem; vertical-align: middle; }
+  .ok { background: #30d158; } .bad { background: #ff453a; } .warn { background: #ff9f0a; }
+  #pair-card { display: flex; gap: 1.4rem; align-items: center; flex-wrap: wrap; }
+  #qr { width: 220px; height: 220px; image-rendering: pixelated; background: #fff; padding: 8px; border-radius: 10px; }
+  ol { padding-left: 1.2rem; margin: .4rem 0; } li { margin: .3rem 0; }
+  .alert { border-color: #ff9f0a; background: #ff9f0a22; }
+  details summary { cursor: pointer; }
 </style>
-<h1>DSH Mobile Gateway</h1>
-<p><button id="start">Start</button><button id="stop">Stop</button><button id="pair">New pairing code</button></p>
-<table id="status"></table>
-<section id="code" hidden>
-  <h2>Pairing code</h2>
-  <p class="muted">Scan with the DSH Mobile app. One-time, expires <span id="exp"></span>.</p>
-  <img id="qr" alt="Pairing QR code">
-  <p>Or paste this into the app: <code id="payload"></code></p>
+<h1>Tether</h1>
+<p class="muted" id="summary">Loading…</p>
+<p class="muted" id="remote"></p>
+<section id="pending-card" class="card alert" hidden>
+  <strong>An iPhone wants to connect</strong>
+  <table id="pending"></table>
 </section>
-<h2>Pending pairing requests</h2>
-<table id="pending"></table>
+<section class="card" id="pair-card">
+  <img id="qr" alt="Pairing QR code" hidden>
+  <div>
+    <strong>Pair an iPhone</strong>
+    <ol>
+      <li>Open Tether on the iPhone (same Wi-Fi as this Mac, or Tailscale on both).</li>
+      <li>Tap <em>Scan QR code</em> and point it at this code.</li>
+      <li>Click <em>Approve</em> here when the request appears.</li>
+    </ol>
+    <p class="muted" id="exp"></p>
+    <button id="pair">New code</button>
+    <details><summary class="muted">Can't scan? Paste this code instead</summary><code id="payload"></code></details>
+  </div>
+</section>
 <h2>Paired devices</h2>
 <table id="devices"></table>
+<details><summary class="muted">Gateway details</summary>
+  <p><button id="start">Start</button><button id="stop">Stop</button></p>
+  <table id="status"></table>
+</details>
 <script>
 const $ = id => document.getElementById(id)
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';')
 const post = (path, body) => fetch(path, { method: 'POST', headers: { 'x-dsh-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) })
   .then(r => r.json()).then(s => s.error ? alert(s.error) : render(s))
-let lastPayload
+let lastPayload, expiresAt, asking = false
 function render(s) {
+  const t = s.tailscale ?? {}
+  $('remote').innerHTML = 'Remote access: ' + (!t.installed ? 'install <a href="https://tailscale.com/download" target="_blank" rel="noopener">Tailscale</a> on this Mac and the iPhone (same account) to connect away from home.'
+    : !t.online || !t.ip ? '<span class="dot warn"></span>Tailscale is off. Turn it on to reach this Mac away from home.'
+    : '<span class="dot ok"></span>Phones connect remotely via <code>' + esc(t.ip + ':' + s.port) + '</code>' + (t.name ? ' (' + esc(t.name) + ')' : ''))
   $('status').innerHTML = [['Gateway', s.running ? 'running' : 'stopped'], ['IP', s.address ?? 'no Wi-Fi address'], ['Port', s.port],
     ['TLS', s.tls], ['Fingerprint (SHA-256)', s.fingerprint ?? '-'], ['DSH host', s.upstream]]
     .map(([k, v]) => '<tr><th>' + k + '</th><td><code>' + esc(v) + '</code></td></tr>').join('')
-  $('code').hidden = !s.code
+  const dsh = s.upstream === 'connected'
+  $('summary').innerHTML = !s.running ? '<span class="dot bad"></span>Gateway stopped' + (s.address ? '' : ' (no Wi-Fi address)')
+    : '<span class="dot ' + (dsh ? 'ok' : 'warn') + '"></span>' + (dsh ? 'Ready' : 'DSH not reachable: ' + esc(s.upstream)) +
+      ' · phones connect to <code>' + esc(s.address + ':' + s.port) + '</code>'
+  // Keep a fresh code on screen while this page is open; codes are one-time and still need Approve.
+  if (!s.code && s.running && !asking && document.visibilityState === 'visible') { asking = true; post('/pair').finally(() => { asking = false }) }
+  expiresAt = s.code && Date.parse(s.code.expiresAt)
   if (s.code) {
-    $('exp').textContent = new Date(s.code.expiresAt).toLocaleTimeString()
     $('payload').textContent = s.code.payload
     if (s.code.qr && lastPayload !== s.code.payload) { lastPayload = s.code.payload; $('qr').src = '/qr.png?t=' + Date.now() }
-    $('qr').hidden = !s.code.qr
   }
-  $('pending').innerHTML = s.pending.map(p => '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.ip) + '</td><td>' +
-    '<button data-a="approve" data-id="' + esc(p.id) + '">Approve</button><button data-a="deny" data-id="' + esc(p.id) + '">Deny</button></td></tr>').join('') || '<tr><td class="muted">None</td></tr>'
-  $('devices').innerHTML = s.devices.map(d => '<tr><td>' + esc(d.name) + '</td><td class="muted">expires ' + esc(new Date(d.expiresAt).toLocaleDateString()) +
-    '</td><td>' + d.connections + ' conn.</td><td><button data-a="revoke" data-id="' + esc(d.id) + '">Revoke</button></td></tr>').join('') || '<tr><td class="muted">None</td></tr>'
+  $('qr').hidden = !s.code?.qr
+  tick()
+  $('pending-card').hidden = !s.pending.length
+  $('pending').innerHTML = s.pending.map(p => '<tr><td>' + esc(p.name) + '</td><td class="muted">' + esc(p.ip) + '</td><td>' +
+    '<button class="primary" data-a="approve" data-id="' + esc(p.id) + '">Approve</button><button data-a="deny" data-id="' + esc(p.id) + '">Deny</button></td></tr>').join('')
+  $('devices').innerHTML = s.devices.map(d => '<tr><td><span class="dot ' + (d.connections ? 'ok' : 'bad') + '"></span>' + esc(d.name) + '</td><td class="muted">' +
+    (d.connections ? 'online' : 'offline') + ' · expires ' + esc(new Date(d.expiresAt).toLocaleDateString()) +
+    '</td><td><button data-a="revoke" data-id="' + esc(d.id) + '">Revoke</button></td></tr>').join('') || '<tr><td class="muted">No iPhone paired yet</td></tr>'
 }
+function tick() {
+  const left = expiresAt ? Math.max(0, Math.round((expiresAt - Date.now()) / 1000)) : 0
+  $('exp').textContent = left ? 'One-time code, valid for ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') : 'Preparing a code…'
+}
+setInterval(tick, 1000)
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return
   if (b.dataset.a) { if (b.dataset.a !== 'revoke' || confirm('Revoke this device? Its connections close immediately.')) post('/' + b.dataset.a, { id: b.dataset.id }) }

@@ -10,8 +10,8 @@ const admin = async (path, body) => (await fetch(ADMIN + path, body === undefine
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
 const inv = JSON.parse((await admin('/pair', {})).code.payload)
-const call = (method, path, body, token, pin = inv.fp) => new Promise((ok, bad) => {
-  const req = request({ host: inv.host, port: inv.port, method, path, rejectUnauthorized: false, agent: false, headers: { 'content-type': 'application/json', ...(token && { authorization: 'Bearer ' + token }) } }, res => {
+const call = (method, path, body, token, pin = inv.fp, host = inv.host) => new Promise((ok, bad) => {
+  const req = request({ host, port: inv.port, method, path, rejectUnauthorized: false, agent: false, headers: { 'content-type': 'application/json', ...(token && { authorization: 'Bearer ' + token }) } }, res => {
     let b = ''; res.on('data', d => b += d).on('end', () => ok({ status: res.statusCode, json: b ? JSON.parse(b) : null }))
   })
   req.on('socket', s => s.on('secureConnect', () => {
@@ -38,6 +38,9 @@ await check('replayed pairing code rejected', async () => { assert.equal((await 
 let me
 for (let i = 0; i < 50; i++) { me = (await call('GET', '/me', undefined, token)).json; if (me.upstream === 'connected') break; await sleep(200) }
 await check('upstream connected to real DSH', () => { assert.equal(me.upstream, 'connected'); return me.upstream })
+if (inv.ts) await check('/me over Tailscale', async () => { assert.equal((await call('GET', '/me', undefined, token, inv.fp, inv.ts)).status, 200); return inv.ts })
+else results.push(['SKIP', '/me over Tailscale', 'Tailscale offline on this Mac'])
+if (inv.ts) await check('WSS over Tailscale', async () => { (await wsConnect('wss://' + inv.ts + ':' + inv.port + '/api/remote.mux', { authorization: 'Bearer ' + token }, { rejectUnauthorized: false })).close() })
 
 const rpc = async (method, args = {}) => {
   const r = await call('POST', '/api/' + method, { type: 'client-request', rpcId: 'e2e-' + Math.random(), method, payload: { args } }, token)

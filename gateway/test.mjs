@@ -7,7 +7,7 @@ import { connect } from 'node:tls'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createGateway, acceptWs, wsConnect, inSubnet, normFp, RPC, STREAMS } from './server.mjs'
+import { createGateway, acceptWs, wsConnect, inSubnet, isTailnet, allowed, normFp, RPC, STREAMS } from './server.mjs'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 async function waitFor(fn, ms = 3000) {
@@ -53,7 +53,7 @@ async function setup(extra = {}) {
   const dsh = await mockDsh()
   const dir = mkdtempSync(join(tmpdir(), 'dshm-'))
   writeFileSync(join(dir, 'upstream.url'), dsh.url)
-  const gw = createGateway({ dir, port: 0, qr: false, bonjour: false, notify: false, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0' }), ...extra })
+  const gw = createGateway({ dir, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0' }), ...extra })
   await gw.start()
   return { gw, dsh, dir, done: async () => { await gw.close(); dsh.close() } }
 }
@@ -99,6 +99,30 @@ test('subnet check', () => {
   assert.ok(!inSubnet('10.0.0.5', '192.168.1.44', '255.255.255.0'))
   assert.ok(!inSubnet('fe80::1', '192.168.1.44', '255.255.255.0'))
   assert.equal(normFp('AB:cd:01'), 'abcd01')
+})
+
+test('tailnet range and connection filter', () => {
+  assert.ok(!isTailnet('100.63.255.255')); assert.ok(isTailnet('100.64.0.1')); assert.ok(isTailnet('100.127.255.254')); assert.ok(!isTailnet('100.128.0.1'))
+  assert.ok(isTailnet('::ffff:100.100.1.2')); assert.ok(isTailnet('fd7a:115c:a1e0::1')); assert.ok(!isTailnet('fd7a:115c:a1e1::1')); assert.ok(!isTailnet('8.8.8.8'))
+  const net = { address: '192.168.1.44', netmask: '255.255.255.0' }
+  assert.ok(allowed('192.168.1.20', '::ffff:192.168.1.44', net)) // LAN -> LAN
+  assert.ok(allowed('100.101.1.2', '100.90.0.7', net)) // tailnet -> tailnet
+  assert.ok(allowed('fd7a:115c:a1e0::2', 'fd7a:115c:a1e0::7', net))
+  assert.ok(!allowed('100.101.1.2', '192.168.1.44', net)) // tailnet peer on the LAN address
+  assert.ok(!allowed('192.168.1.20', '100.90.0.7', net)) // LAN peer arriving on a non-LAN local address
+  assert.ok(!allowed('8.8.8.8', '192.168.1.44', net)); assert.ok(!allowed('8.8.8.8', '100.90.0.7', net)) // public
+})
+
+test('tailscale address goes into the QR and /me', async () => {
+  const t = await setup({ tailscale: { installed: true, online: true, ip: '100.90.0.7', name: 'mac.tail1.ts.net' } })
+  try {
+    assert.equal(JSON.parse(t.gw.newCode().payload).ts, '100.90.0.7')
+    assert.equal(t.gw.state().tailscale.name, 'mac.tail1.ts.net')
+    const { token } = await pairDevice(t.gw)
+    assert.equal((await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + token })).json.tailscale, '100.90.0.7')
+  } finally { await t.done() }
+  const off = await setup()
+  try { assert.equal(JSON.parse(off.gw.newCode().payload).ts, undefined) } finally { await off.done() }
 })
 
 test('pairing gives a token; only its hash is stored; auth works', async () => {

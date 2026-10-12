@@ -1,4 +1,6 @@
-# DSH Mobile
+# Tether
+
+DeepSeek Harness için resmi olmayan uzaktan kumanda; DeepSeek ile bağlantısı yoktur.
 
 Mac'te çalışan DeepSeek Harness'ı (DSH) aynı yerel ağdaki iPhone'dan kontrol etmek için native SwiftUI iOS uygulaması (iOS 17+) ve küçük bir Mac gateway'i. Yeni bağımlılık yok: gateway yalnızca Node stdlib, iOS yalnızca Apple framework'leri.
 
@@ -27,6 +29,15 @@ Mac tarayıcısı ──▶ http://127.0.0.1:19391/  (admin: QR, eşleme onayı,
 3. Mac'te `http://127.0.0.1:19391/` aç; QR görünür.
 4. iOS: `ios/DSHMobile.xcodeproj` aç, gerçek cihaz için Signing Team seç, çalıştır. QR'ı tara (veya içeriğini yapıştır / Bonjour listesinden seç), Mac'teki admin sayfasında **Onayla**.
 5. Proje dosyası `ios/project.yml`'den üretilir: değişiklikten sonra `cd ios && xcodegen generate`.
+
+## Uzaktan erişim (Tailscale)
+
+1. Mac'e ve iPhone'a [Tailscale](https://tailscale.com/download) kur, ikisinde de aynı hesapla giriş yap.
+2. DSH'yi yeniden başlat. Admin sayfasındaki "Remote access" satırı Tailscale adresini gösterir.
+3. Önceden eşleşmiş telefonun bir kez evde (aynı Wi‑Fi'de) bağlanması yeterli, Tailscale adresini kendisi öğrenir. Yeni QR da olur.
+4. Bitti: Wi‑Fi dışındayken uygulama Tailscale üzerinden bağlanır, Ayarlar'da "Route" hangi yolun kullanıldığını gösterir.
+
+Gateway asla public internete açılmaz: yalnızca yerel ağdan ve tailnet'ten (100.64.0.0/10, fd7a:115c:a1e0::/48) gelen bağlantıları kabul eder, gerisi TLS kurulmadan kesilir. Sertifika sabitleme ve token aynen geçerli.
 
 ## Güvenlik değerlendirmesi
 

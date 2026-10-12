@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// DSH Mobile gateway: LAN-only HTTPS/WSS front door for the DeepSeek Harness host running on this Mac.
+// Tether gateway: LAN-only HTTPS/WSS front door for the DeepSeek Harness host running on this Mac.
 // Phones talk to this process; it talks to DSH on 127.0.0.1 with the host's own auth cookie.
 import { createServer as createHttps, request as httpsRequest } from 'node:https'
 import { createServer as createHttp, request as httpRequest } from 'node:http'
 import { createHash, randomBytes, randomUUID, timingSafeEqual, X509Certificate } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { execFileSync, spawn } from 'node:child_process'
+import { execFile, execFileSync, spawn } from 'node:child_process'
 import { homedir, networkInterfaces } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -42,6 +42,36 @@ export const inSubnet = (ip, address, netmask) => {
   return ((ip4(ip) & m) >>> 0) === ((ip4(address) & m) >>> 0)
 }
 export const normFp = s => String(s).replace(/[^0-9a-f]/gi, '').toLowerCase()
+// Tailscale's address space: 100.64.0.0/10 (CGNAT) and fd7a:115c:a1e0::/48.
+export const isTailnet = ip => {
+  ip = String(ip).replace(/^::ffff:/i, '').toLowerCase()
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(ip)) return inSubnet(ip, '100.64.0.0', '255.192.0.0')
+  return /^fd7a:115c:a1e0:/.test(ip)
+}
+// Accept LAN peers that reached us on the LAN address, or tailnet peers that reached us on our tailnet address.
+export const allowed = (remote, local, net) =>
+  (inSubnet(remote, net.address, net.netmask) && String(local).replace(/^::ffff:/i, '') === net.address) ||
+  (isTailnet(remote) && isTailnet(local))
+const TS_BINS = ['tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale']
+export function tailscaleInfo(bins = TS_BINS) {
+  return new Promise(ok => {
+    const next = i => {
+      if (i >= bins.length) return ok({ installed: false, online: false, ip: null, name: null })
+      execFile(bins[i], ['status', '--json'], { timeout: 3000, maxBuffer: 8 << 20 }, (err, out) => {
+        if (err?.code === 'ENOENT') return next(i + 1)
+        let j = null
+        try { j = JSON.parse(out) } catch {}
+        const self = j?.Self ?? {}
+        ok({
+          installed: true, online: j?.BackendState === 'Running',
+          ip: (self.TailscaleIPs ?? []).find(a => /^\d+\.\d+\.\d+\.\d+$/.test(a) && isTailnet(a)) ?? null,
+          name: self.DNSName ? String(self.DNSName).replace(/\.$/, '') : null,
+        })
+      })
+    }
+    next(0)
+  })
+}
 
 function reply(res, status, obj) {
   if (res.headersSent || res.destroyed) return
@@ -197,8 +227,16 @@ export function createGateway(opts = {}) {
   const devFile = join(dir, 'devices.json')
   let devices = existsSync(devFile) ? JSON.parse(readFileSync(devFile, 'utf8')) : []
   const saveDevices = () => writeFileSync(devFile, JSON.stringify(devices, null, 2), { mode: 0o600 })
+  // Tailscale status: cached 30 s, refreshed on start and on new pairing codes. Tests inject opts.tailscale.
+  let ts = { installed: false, online: false, ip: null, name: null }, tsAt = 0
+  const refreshTs = async () => {
+    tsAt = Date.now()
+    const t = opts.tailscale
+    try { ts = t === undefined ? await tailscaleInfo() : typeof t === 'function' ? await t() : t } catch {}
+    return ts
+  }
 
-  let server, bound, port = opts.port ?? Number(process.env.DSH_MOBILE_PORT ?? 19390), running = false, wanted = false
+  let server, bound, port = opts.port ?? Number(process.env.DSH_MOBILE_PORT ?? 19390), running = false, wanted = false, lastTlsError = null
   let key, cert, fp, code = null, qrReady = false, bonjour, upState = 'disconnected', evTimer
   const conns = new Set(), devSockets = new Map(), pending = new Map()
   const reqHits = new Map(), fails = new Map()
@@ -242,14 +280,14 @@ export function createGateway(opts = {}) {
   function notify(msg) {
     if (opts.notify === false) return
     const safe = msg.replace(/[^\w .:'-]/g, '')
-    spawn('osascript', ['-e', 'display notification "' + safe + '" with title "DSH Mobile"'], { stdio: 'ignore' }).on('error', () => {})
+    spawn('osascript', ['-e', 'display notification "' + safe + '" with title "Tether"'], { stdio: 'ignore' }).on('error', () => {})
   }
 
   // ---- Pairing: one-time code (5 min) shown as QR, then explicit approval on the Mac. ----
   function newCode() {
     const net = bound ?? netInfo()
     code = { value: randomBytes(16).toString('base64url'), expires: Date.now() + codeTtl }
-    code.payload = JSON.stringify({ v: 1, host: net?.address, port, fp, code: code.value })
+    code.payload = JSON.stringify({ v: 1, host: net?.address, port, fp, code: code.value, ...(ts.online && ts.ip ? { ts: ts.ip } : {}) })
     qrReady = false
     if (opts.qr !== false) {
       const c = code
@@ -354,7 +392,7 @@ export function createGateway(opts = {}) {
     const dev = auth(req)
     if (!dev) { fail(ip); return reply(res, 401, { error: 'unauthorized' }) }
     track(dev.id, req.socket)
-    if (req.method === 'GET' && path === '/me') return reply(res, 200, { deviceId: dev.id, name: dev.name, expiresAt: dev.expiresAt, upstream: upState })
+    if (req.method === 'GET' && path === '/me') return reply(res, 200, { deviceId: dev.id, name: dev.name, expiresAt: dev.expiresAt, upstream: upState, tailscale: ts.online ? ts.ip : null })
     if (req.method !== 'POST' || !path.startsWith('/api/')) return reply(res, 404, { error: 'not found' })
     const method = path.slice(5)
     let body
@@ -418,19 +456,22 @@ export function createGateway(opts = {}) {
     wanted = true
     if (running) return
     const net = netInfo()
+    // shortcut: Mac'te Wi-Fi/LAN IPv4 yoksa gateway başlamaz, sadece-Tailscale Mac'ler gerekirse kaldır
     if (!net) throw new Error('no IPv4 address on ' + iface + ' (Wi-Fi off?)')
     ensureCert()
+    await refreshTs()
     const s = createHttps({ key, cert, minVersion: 'TLSv1.2' }, onRequest)
     s.on('connection', sock => {
-      if (!inSubnet(sock.remoteAddress, net.address, net.netmask)) return sock.destroy() // LAN-only
+      if (!allowed(sock.remoteAddress, sock.localAddress, net)) return sock.destroy() // LAN or tailnet only, decided by the socket's own addresses
       conns.add(sock); sock.once('close', () => conns.delete(sock))
     })
     s.on('upgrade', onUpgrade)
-    s.on('tlsClientError', (_, sock) => sock.destroy())
-    await new Promise((ok, bad) => { s.once('error', bad); s.listen(port, net.bind ?? net.address, ok) })
+    // Kept for diagnosis only (no secrets): why a phone's TLS handshake died, shown in admin /state.
+    s.on('tlsClientError', (e, sock) => { lastTlsError = { ip: sock.remoteAddress ?? null, error: String(e?.code ?? e?.message ?? e), at: new Date().toISOString() }; sock.destroy() })
+    await new Promise((ok, bad) => { s.once('error', bad); s.listen(port, net.bind ?? '::', ok) })
     server = s; bound = net; port = s.address().port; running = true
     if (opts.bonjour !== false) {
-      bonjour = spawn('dns-sd', ['-R', 'DSH Mobile', '_dshmobile._tcp', 'local', String(port), 'fp=' + fp], { stdio: 'ignore' })
+      bonjour = spawn('dns-sd', ['-R', 'Tether', '_dshmobile._tcp', 'local', String(port), 'fp=' + fp], { stdio: 'ignore' })
       bonjour.on('error', () => {})
     }
     connectEvents()
@@ -452,6 +493,7 @@ export function createGateway(opts = {}) {
     const now = Date.now()
     for (const m of [reqHits, fails]) for (const [k, b] of m) if (now - b.t > 60e3) m.delete(k)
     for (const set of devSockets.values()) for (const s of set) if (s.destroyed) set.delete(s)
+    if (now - tsAt > 30e3) refreshTs()
     const n = netInfo()
     if (running && (!n || n.address !== bound.address || n.netmask !== bound.netmask)) await stop(true).catch(() => {})
     if (wanted && !running && n) await start().catch(() => {})
@@ -460,7 +502,7 @@ export function createGateway(opts = {}) {
 
   const state = () => ({
     running, address: bound?.address ?? netInfo()?.address ?? null, port, tls: running ? 'TLS 1.2+, self-signed' : 'off',
-    fingerprint: fp ?? null, upstream: upState,
+    fingerprint: fp ?? null, upstream: upState, tailscale: ts, lastTlsError,
     code: code && Date.now() < code.expires ? { payload: code.payload, expiresAt: new Date(code.expires).toISOString(), qr: qrReady } : null,
     pending: [...pending.values()].map(({ id, name, ip, at }) => ({ id, name, ip, at })),
     devices: devices.map(({ tokenHash, ...d }) => ({ ...d, connections: devSockets.get(d.id)?.size ?? 0 })),
@@ -480,7 +522,7 @@ export function createGateway(opts = {}) {
     let b = {}
     try { b = JSON.parse((await readBody(req, 4096)) || '{}') } catch { return reply(res, 400, { error: 'bad request' }) }
     try {
-      if (path === '/pair') { if (!running) await start(); newCode() }
+      if (path === '/pair') { if (!running) await start(); else await refreshTs(); newCode() }
       else if (path === '/approve') settle(b.id, true)
       else if (path === '/deny') settle(b.id, false)
       else if (path === '/revoke') revoke(b.id)
@@ -502,7 +544,7 @@ export function createGateway(opts = {}) {
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const gw = createGateway()
   const adminPort = await gw.listenAdmin()
-  console.log('DSH Mobile admin: http://127.0.0.1:' + adminPort + '/')
+  console.log('Tether admin: http://127.0.0.1:' + adminPort + '/')
   try { await gw.start(); console.log('Gateway listening on https://' + gw.state().address + ':' + gw.port) } catch (e) { console.error('Gateway not started:', e.message) }
   const quit = () => gw.close().then(() => process.exit(0))
   process.on('SIGINT', quit); process.on('SIGTERM', quit)

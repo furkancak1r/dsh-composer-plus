@@ -39,6 +39,19 @@ final class CoreTests: XCTestCase {
         XCTAssertNil(parseInvite(good.replacingOccurrences(of: "C6:69", with: "ZZ:69")), "bad fp")
         XCTAssertNil(parseInvite(good.replacingOccurrences(of: "19390", with: "70000")), "port")
         XCTAssertNil(parseInvite("not json"))
+        XCTAssertNil(i?.ts, "old QR without ts still parses")
+        let ts = good.replacingOccurrences(of: #""code""#, with: #""ts":"100.90.0.7","code""#)
+        XCTAssertEqual(parseInvite(ts)?.ts, "100.90.0.7")
+        XCTAssertNil(parseInvite(ts.replacingOccurrences(of: "100.90.0.7", with: "8.8.8.8")), "public ts")
+    }
+
+    func testTailnet() {
+        for ok in ["100.64.0.1", "100.127.255.255", "mac.tail1.ts.net"] { XCTAssertTrue(isTailnet(ok), ok) }
+        for bad in ["100.63.0.1", "100.128.0.1", "MAC.ts.net", "evil.com", "ts.net.evil.com", ".ts.net", "8.8.8.8", "192.168.1.2", "a b.ts.net"] {
+            XCTAssertFalse(isTailnet(bad), bad)
+        }
+        let old = #"{"host":"192.168.1.44","port":19390,"fp":"x","token":"t","deviceId":"d","name":"n","expiresAt":""}"#
+        XCTAssertNotNil(try? JSONDecoder().decode(Pairing.self, from: Data(old.utf8)), "Keychain pairing from before Tailscale")
     }
 
     func testMarkdownBlocks() {
@@ -47,6 +60,15 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(b[1].text, "let x = 1")
         XCTAssertEqual(b[2].text, "After")
         XCTAssertEqual(mdBlocks("plain").count, 1)
+        XCTAssertEqual(mdLine("## Plan"), .heading(2, "Plan"))
+        XCTAssertEqual(mdLine("#hashtag"), .text("#hashtag"))
+        XCTAssertEqual(mdLine("  - item **b**"), .bullet(1, "item **b**"))
+        XCTAssertEqual(mdLine("12. step"), .number(0, "12", "step"))
+        XCTAssertEqual(mdLine("2024. yılı"), .text("2024. yılı"))
+        XCTAssertEqual(mdLine("> note"), .quote("note"))
+        XCTAssertEqual(mdLine("---"), .rule)
+        XCTAssertEqual(mdLine("   "), .blank)
+        XCTAssertEqual(mdLine("-5 degrees"), .text("-5 degrees"))
     }
 
     func testContentAndQuestions() {

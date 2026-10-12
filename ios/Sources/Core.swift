@@ -1,4 +1,4 @@
-// DSH Mobile core: pinning, pairing, RPC + mux client, Bonjour. Views live in UI.swift.
+// Tether core: pinning, pairing, RPC + mux client, Bonjour. Views live in UI.swift.
 import Foundation
 import CryptoKit
 import Network
@@ -19,6 +19,11 @@ func normFp(_ s: String) -> String? {
 func sha256Hex(_ d: Data) -> String { SHA256.hash(data: d).map { String(format: "%02x", $0) }.joined() }
 /// The only trust decision: the leaf certificate's DER must hash to the fingerprint from the QR code.
 func pinMatches(der: Data, fp: String) -> Bool { normFp(fp) == sha256Hex(der) }
+/// Error text with codes (incl. the underlying CFNetwork/stream error) so a field report pins the cause.
+func failText(_ e: Error) -> String {
+    let n = e as NSError, u = n.userInfo[NSUnderlyingErrorKey] as? NSError
+    return "\(n.localizedDescription) [\(n.code)\(u.map { " / \($0.domain) \($0.code)" } ?? "")]"
+}
 
 /// RFC 1918 + link-local IPv4 only: a pairing QR can never point the app at the internet.
 func isLANv4(_ h: String) -> Bool {
@@ -27,13 +32,23 @@ func isLANv4(_ h: String) -> Bool {
     return o[0] == 10 || (o[0] == 172 && (16...31).contains(o[1])) || (o[0] == 192 && o[1] == 168) || (o[0] == 169 && o[1] == 254)
 }
 
-struct Invite: Decodable { let v: Int; let host: String; let port: Int; let fp: String; let code: String }
-/// QR / pasted payload from the Mac: {"v":1,"host","port","fp","code"}.
+/// Tailscale CGNAT IPv4 (100.64.0.0/10) or a lowercase MagicDNS name (*.ts.net): reachable only inside the user's tailnet.
+func isTailnet(_ h: String) -> Bool {
+    let o = h.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) ?? -1 }
+    if o.count == 4, o.allSatisfy({ (0...255).contains($0) }), h.allSatisfy({ $0.isASCII && ($0.isNumber || $0 == ".") }) {
+        return o[0] == 100 && (64...127).contains(o[1])
+    }
+    return h.count <= 253 && h.hasSuffix(".ts.net") && h.count > 7 && !h.hasPrefix(".") && !h.contains("..")
+        && h.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "." || $0 == "-") })
+}
+
+struct Invite: Decodable { let v: Int; let host: String; let port: Int; let fp: String; let code: String; var ts: String? = nil }
+/// QR / pasted payload from the Mac: {"v":1,"host","port","fp","code","ts"?}; ts = the Mac's Tailscale IP.
 func parseInvite(_ s: String) -> Invite? {
     guard let d = s.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
           let i = try? JSONDecoder().decode(Invite.self, from: d), i.v == 1, isLANv4(i.host),
-          (1...65535).contains(i.port), let fp = normFp(i.fp), (1...128).contains(i.code.count) else { return nil }
-    return Invite(v: 1, host: i.host, port: i.port, fp: fp, code: i.code)
+          (1...65535).contains(i.port), let fp = normFp(i.fp), (1...128).contains(i.code.count), i.ts.map(isTailnet) ?? true else { return nil }
+    return Invite(v: 1, host: i.host, port: i.port, fp: fp, code: i.code, ts: i.ts)
 }
 
 /// Splits on triple-backtick fences: prose blocks and code blocks (language tag dropped).
@@ -44,6 +59,24 @@ func mdBlocks(_ s: String) -> [(code: Bool, text: String)] {
         if lines.count > 1 { lines.removeFirst() }
         return (true, lines.joined(separator: "\n").trimmingCharacters(in: .newlines))
     }
+}
+
+/// One prose line classified for block rendering (headings, lists, quotes, rules); inline syntax stays for AttributedString.
+enum MdLine: Equatable { case heading(Int, String), bullet(Int, String), number(Int, String, String), quote(String), rule, blank, text(String) }
+
+// shortcut: line-based, so tables and multi-line list items render as plain lines; switch to swift-markdown if replies lean on tables.
+func mdLine(_ raw: String) -> MdLine {
+    let body = raw.drop { $0 == " " }, indent = (raw.count - body.count) / 2
+    let s = String(body)
+    if s.isEmpty { return .blank }
+    if ["---", "***", "___"].contains(s) { return .rule }
+    let hashes = s.prefix { $0 == "#" }.count
+    if (1...6).contains(hashes), s.dropFirst(hashes).first == " " { return .heading(hashes, String(s.dropFirst(hashes + 1))) }
+    if let f = s.first, "-*+".contains(f), s.dropFirst().first == " " { return .bullet(indent, String(s.dropFirst(2))) }
+    let digits = s.prefix { $0.isNumber }
+    if !digits.isEmpty, digits.count <= 3, s.dropFirst(digits.count).hasPrefix(". ") { return .number(indent, String(digits), String(s.dropFirst(digits.count + 2))) }
+    if s.hasPrefix(">") { return .quote(String(s.dropFirst()).trimmingCharacters(in: .whitespaces)) }
+    return .text(s)
 }
 
 /// DSH message content is a string or [ContentBlock]; only text is rendered, images become a marker.
@@ -80,7 +113,7 @@ func compactJSON(_ v: Any?, limit: Int = 300) -> String {
 
 // MARK: - Models
 
-struct Pairing: Codable { var host: String; var port: Int; var fp: String; var token: String; var deviceId: String; var name: String; var expiresAt: String }
+struct Pairing: Codable { var host: String; var port: Int; var fp: String; var token: String; var deviceId: String; var name: String; var expiresAt: String; var ts: String? = nil }
 
 struct Line: Identifiable {
     enum Kind { case user, assistant, reasoning, command, tool, result, error }
@@ -164,14 +197,20 @@ enum Keychain {
 }
 
 /// Accepts the server only if its leaf certificate matches the pinned fingerprint; system CAs are never consulted.
-final class Pinner: NSObject, URLSessionDelegate {
+final class Pinner: NSObject, URLSessionTaskDelegate {
     let fp: String
     init(fp: String) { self.fp = fp }
     func urlSession(_ s: URLSession, didReceive ch: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
-        guard ch.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust, let t = ch.protectionSpace.serverTrust,
+        // Non-trust challenges (e.g. client-certificate probes) must not kill the handshake; default handling sends no cert and never bypasses the pin below.
+        guard ch.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust else { return (.performDefaultHandling, nil) }
+        guard let t = ch.protectionSpace.serverTrust,
               let leaf = (SecTrustCopyCertificateChain(t) as? [SecCertificate])?.first,
               pinMatches(der: SecCertificateCopyData(leaf) as Data, fp: fp) else { return (.cancelAuthenticationChallenge, nil) }
         return (.useCredential, URLCredential(trust: t))
+    }
+    // WebSocket tasks may deliver the trust challenge at task level; same pin, same rules.
+    func urlSession(_ s: URLSession, task: URLSessionTask, didReceive ch: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
+        await urlSession(s, didReceive: ch)
     }
 }
 
@@ -204,14 +243,29 @@ final class Pinner: NSObject, URLSessionDelegate {
     @Published var goal: Goal?
     @Published var prompts: [Prompt] = []
     @Published var found: [String: Found] = [:]
+    enum Route { case lan, tailscale }
+    @Published var route: Route?
+    @Published var onWiFi = true
+    /// Why the last attempt failed, per address; shown in Settings so a dead route is visible instead of guessed.
+    @Published var lastFail: String?
 
     private var urlSession: URLSession?, sessionFp = ""
     private var ws: URLSessionWebSocketTask?
     private var followId: String?
     private var attempt = 0
     private var browser: NWBrowser?
+    private var pathMon: NWPathMonitor?
 
     var currentSess: Sess? { sessions.first { $0.id == current } }
+    /// Plain-language problem with DSH behind the gateway; nil when fine or unknown.
+    var upstreamText: String? {
+        switch upstream {
+        case "", "connected": return nil
+        case "disconnected": return String(localized: "DSH is closed or restarting on your Mac.")
+        case let s where s.hasPrefix("waiting"): return String(localized: "Turn on the Tether plugin (dsh-mobile-bridge) in DSH on your Mac.")
+        default: return String(localized: "DSH on your Mac is not responding.")
+        }
+    }
     /// What the next turn will use: live header/selection, else the session's saved selection, else DSH's default.
     var shownModel: String? { model ?? currentSess?.model ?? defaultModel }
     func title(_ id: String) -> String { sessions.first { $0.id == id }?.title ?? String(id.prefix(8)) }
@@ -238,18 +292,39 @@ final class Pinner: NSObject, URLSessionDelegate {
         return urlSession!
     }
 
+    /// Addresses to try: LAN first on Wi-Fi, Tailscale first elsewhere.
+    private func addrs(_ host: String, _ ts: String?) -> [(String, Route)] {
+        let all: [(String, Route)] = [(host, .lan)] + (ts.map { [($0, .tailscale)] } ?? [])
+        return onWiFi ? all : all.reversed()
+    }
+
     private func call(_ path: String, _ body: Any?) async throws -> Any? {
         guard let p = pairing else { throw Fail(String(localized: "Not paired")) }
-        var r = URLRequest(url: URL(string: "https://\(p.host):\(p.port)\(path)")!)
-        r.setValue("Bearer \(p.token)", forHTTPHeaderField: "Authorization")
-        if let body {
-            r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            r.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let list = addrs(p.host, p.ts)
+        var got: (Data, URLResponse)?
+        var fails: [String] = []
+        for (n, (host, rt)) in list.enumerated() {
+            var r = URLRequest(url: URL(string: "https://\(host):\(p.port)\(path)")!)
+            if n < list.count - 1 { r.timeoutInterval = 5 } // fallback exists: fail fast
+            r.setValue("Bearer \(p.token)", forHTTPHeaderField: "Authorization")
+            if let body {
+                r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                r.httpBody = try JSONSerialization.data(withJSONObject: body)
+            }
+            do { got = try await http(p.fp).data(for: r); route = rt; lastFail = nil; break }
+            catch let e as URLError {
+                fails.append("\(rt == .lan ? "LAN" : "Tailscale") \(host): \(failText(e))")
+                if n == list.count - 1 { lastFail = fails.joined(separator: "\n"); throw e }
+            }
         }
-        let (d, resp) = try await http(p.fp).data(for: r)
+        guard let (d, resp) = got else { throw Fail("Unreachable") }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0, json = try? JSONSerialization.jsonObject(with: d)
         if code == 401 { forget(String(localized: "This iPhone was revoked or its token expired. Pair again.")) }
-        guard code == 200 else { throw Fail(((json as? J)?["error"] as? String) ?? "HTTP \(code)") }
+        guard code == 200 else {
+            let m = ((json as? J)?["error"] as? String) ?? "HTTP \(code)"
+            if m == "DSH host unavailable" { upstream = "disconnected"; throw Fail(String(localized: "DSH is closed or restarting on your Mac. Try again in a moment.")) }
+            throw Fail(m)
+        }
         return json
     }
 
@@ -266,14 +341,21 @@ final class Pinner: NSObject, URLSessionDelegate {
         pairingStatus = String(localized: "Waiting for approval on your Mac…")
         defer { pairingStatus = nil }
         do {
-            var r = URLRequest(url: URL(string: "https://\(inv.host):\(inv.port)/pair")!, timeoutInterval: 150) // Mac holds the reply until approved (≤120 s)
-            r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            r.httpBody = try JSONSerialization.data(withJSONObject: ["code": inv.code, "name": UIDevice.current.name])
-            let (d, resp) = try await http(inv.fp).data(for: r)
+            let list = addrs(inv.host, inv.ts)
+            var got: (Data, URLResponse)?
+            for (n, (host, _)) in list.enumerated() {
+                // Mac holds the reply until approved (≤120 s); only the last address gets the long wait.
+                var r = URLRequest(url: URL(string: "https://\(host):\(inv.port)/pair")!, timeoutInterval: n < list.count - 1 ? 5 : 150)
+                r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                r.httpBody = try JSONSerialization.data(withJSONObject: ["code": inv.code, "name": UIDevice.current.name])
+                do { got = try await http(inv.fp).data(for: r); break }
+                catch let e as URLError where n < list.count - 1 { _ = e; continue }
+            }
+            guard let (d, resp) = got else { throw Fail("Unreachable") }
             guard (resp as? HTTPURLResponse)?.statusCode == 200, let o = try JSONSerialization.jsonObject(with: d) as? J,
                   let token = o["token"] as? String, token.count >= 40, let id = o["deviceId"] as? String
             else { throw Fail(String(localized: "Pairing was denied or the code expired. Show a fresh QR code on the Mac.")) }
-            pairing = Pairing(host: inv.host, port: inv.port, fp: inv.fp, token: token, deviceId: id, name: o["name"] as? String ?? "", expiresAt: o["expiresAt"] as? String ?? "")
+            pairing = Pairing(host: inv.host, port: inv.port, fp: inv.fp, token: token, deviceId: id, name: o["name"] as? String ?? "", expiresAt: o["expiresAt"] as? String ?? "", ts: inv.ts)
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
             connect()
         } catch { self.error = error.localizedDescription }
@@ -286,15 +368,18 @@ final class Pinner: NSObject, URLSessionDelegate {
     }
 
     func setAddress(_ host: String, _ port: Int?) {
-        guard isLANv4(host), let port, (1...65535).contains(port) else { error = String(localized: "Enter a private LAN IPv4 address and port."); return }
-        pairing?.host = host; pairing?.port = port; reconnect()
+        guard isLANv4(host) || isTailnet(host), let port, (1...65535).contains(port) else { error = String(localized: "Enter a private LAN or Tailscale address and port."); return }
+        if isLANv4(host) { pairing?.host = host } else { pairing?.ts = host }
+        pairing?.port = port; reconnect()
     }
 
     // MARK: Mux socket
 
     func connect() {
         guard let p = pairing, ws == nil else { return }
-        var r = URLRequest(url: URL(string: "wss://\(p.host):\(p.port)/api/remote.mux")!)
+        // route was picked by the last /me (drop → refreshMe → connect); before any call, guess from the network
+        let host = (route ?? (onWiFi ? .lan : .tailscale)) == .tailscale ? (p.ts ?? p.host) : p.host
+        var r = URLRequest(url: URL(string: "wss://\(host):\(p.port)/api/remote.mux")!)
         r.setValue("Bearer \(p.token)", forHTTPHeaderField: "Authorization")
         let t = http(p.fp).webSocketTask(with: r)
         t.maximumMessageSize = 16 << 20
@@ -305,7 +390,7 @@ final class Pinner: NSObject, URLSessionDelegate {
         if let s = current { openFollow(s) }
     }
 
-    func reconnect() { ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil; attempt = 0; connect() }
+    func reconnect() { ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil; attempt = 0; route = nil; connect() }
 
     /// On foreground: a socket iOS silently killed in the background is detected by a failed ping.
     func wake() {
@@ -323,7 +408,9 @@ final class Pinner: NSObject, URLSessionDelegate {
             Task { @MainActor in
                 guard t === self.ws else { return }
                 switch r {
-                case .failure: self.drop()
+                case .failure(let e):
+                    if self.state != .connected { self.lastFail = "WebSocket \(t.originalRequest?.url?.host ?? ""): \(failText(e))" }
+                    self.drop()
                 case .success(.string(let s)):
                     if let f = (try? JSONSerialization.jsonObject(with: Data(s.utf8))) as? J { self.onFrame(f) }
                     self.listen(t)
@@ -349,10 +436,10 @@ final class Pinner: NSObject, URLSessionDelegate {
     }
 
     func refreshMe() async {
-        if let me = try? await call("/me", nil) as? J {
-            upstream = me["upstream"] as? String ?? ""
-            if let e = me["expiresAt"] as? String { pairing?.expiresAt = e }
-        }
+        guard let me = try? await call("/me", nil) as? J else { upstream = ""; return } // Mac itself unreachable: don't blame DSH
+        upstream = me["upstream"] as? String ?? ""
+        if let e = me["expiresAt"] as? String { pairing?.expiresAt = e }
+        if let t = me["tailscale"] as? String, isTailnet(t), t != pairing?.ts { pairing?.ts = t } // learned without re-pairing
     }
 
     private func onFrame(_ f: J) {
@@ -361,7 +448,9 @@ final class Pinner: NSObject, URLSessionDelegate {
         case "item":
             guard let v = f["value"] as? J else { return }
             if id == "ev" { onEvent(v) } else if id == "ws" { onWorkspace(v) } else if id == followId { onFollow(v) }
-        case "error": error = (f["error"] as? J)?["message"] as? String
+        case "error":
+            let m = (f["error"] as? J)?["message"] as? String
+            if m == "DSH host unavailable" { upstream = "disconnected" } else { error = m } // banner covers it; no blocking alert
         case "end": if id == followId { followId = nil }
         default: break
         }
@@ -617,6 +706,17 @@ final class Pinner: NSObject, URLSessionDelegate {
     // MARK: Bonjour: _dshmobile._tcp with TXT fp=<sha256>, resolved to an IPv4 address.
 
     func browse() {
+        if pathMon == nil {
+            let m = NWPathMonitor()
+            m.pathUpdateHandler = { path in Task { @MainActor in
+                let w = path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet)
+                guard w != self.onWiFi else { return }
+                self.onWiFi = w
+                self.urlSession?.finishTasksAndInvalidate(); self.urlSession = nil // pooled sockets belong to the old interface; don't abort handshakes mid-flight
+                if self.pairing != nil, path.status == .satisfied { self.reconnect() } // Wi‑Fi ⇄ cellular: old route is dead, switch now
+            } }
+            m.start(queue: .main); pathMon = m
+        }
         guard browser == nil else { return }
         let b = NWBrowser(for: .bonjourWithTXTRecord(type: "_dshmobile._tcp", domain: nil), using: .tcp)
         b.browseResultsChangedHandler = { results, _ in

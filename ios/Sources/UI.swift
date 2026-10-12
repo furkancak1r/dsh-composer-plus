@@ -1,4 +1,4 @@
-// DSH Mobile views. State and networking live in Core.swift (Client).
+// Tether views. State and networking live in Core.swift (Client).
 import SwiftUI
 import PhotosUI
 import AVFoundation
@@ -27,7 +27,20 @@ struct Root: View {
                 .sheet(item: Binding(get: { c.prompts.first }, set: { _ in })) { PromptSheet(p: $0).interactiveDismissDisabled() }
             }
         }
-        .alert("Error", isPresented: Binding(get: { c.error != nil }, set: { if !$0 { c.error = nil } })) { Button("OK") {} } message: { Text(c.error ?? "") }
+        // non-blocking: errors are mostly transient (link drops, busy session), so a toast beats a modal that stalls the screen
+        .overlay(alignment: .top) {
+            if let e = c.error {
+                Label(e, systemImage: "exclamationmark.circle.fill").font(.footnote).foregroundStyle(.primary)
+                    .padding(.horizontal, 14).padding(.vertical, 10)
+                    .background(.regularMaterial, in: Capsule()).shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                    .padding(.horizontal, 16).padding(.top, 6)
+                    .onTapGesture { c.error = nil }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .task(id: e) { try? await Task.sleep(for: .seconds(5)); if c.error == e { c.error = nil } }
+                    .accessibilityAddTraits(.isStaticText).accessibilityHint(Text("Tap to dismiss"))
+            }
+        }
+        .animation(.snappy, value: c.error)
     }
 }
 
@@ -37,6 +50,29 @@ struct ConnBadge: View {
     var body: some View {
         Circle().fill(c.state == .connected ? .green : c.state == .off ? .red : .orange).frame(width: 9, height: 9)
             .accessibilityLabel(Text(LocalizedStringKey(c.state.rawValue)))
+    }
+}
+
+/// Says what is wrong with the link to the Mac, with a retry. Empty when all is well.
+struct ConnBanner: View {
+    @EnvironmentObject var c: Client
+    var body: some View {
+        // first connect stays quiet (badge shows it); only a lost link earns a banner
+        let lost = !c.onWiFi ? (c.pairing?.ts != nil ? String(localized: "Open Tailscale on this iPhone (and the Mac).")
+                                                       : String(localized: "Install Tailscale on this iPhone and the Mac to connect away from home."))
+                             : String(localized: "Can't reach your Mac. Make sure it's awake and on the same Wi‑Fi.")
+        let msg = c.upstreamText ?? (c.state == .connected || c.state == .connecting ? nil : lost)
+        if let msg {
+            HStack(spacing: 10) {
+                if c.state == .reconnecting { ProgressView().controlSize(.small) } else { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+                Text(msg).font(.footnote).frame(maxWidth: .infinity, alignment: .leading)
+                Button("Retry") { c.reconnect() }.font(.footnote.bold()).buttonStyle(.borderless)
+            }
+            .padding(.horizontal, 14).padding(.vertical, 9)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 12).padding(.top, 4)
+            .accessibilityElement(children: .combine)
+        }
     }
 }
 
@@ -51,16 +87,22 @@ struct PairView: View {
             Form {
                 Section {
                     Button { scanning = true } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
-                } footer: { Text("On your Mac run the DSH Mobile gateway, open its admin page and scan the code. The Mac must approve this iPhone.") }
+                } footer: { Text("Where's the code? On your Mac, with DSH running, open http://127.0.0.1:19391 in a browser. The QR code is on that page; after scanning, click Approve there.") }
                 Section("Or paste the pairing code") {
                     TextField("{\"v\":1,…}", text: $pasted, axis: .vertical).font(.caption.monospaced()).autocorrectionDisabled().textInputAutocapitalization(.never)
                     Button("Pair") { use(pasted) }.disabled(pasted.isEmpty)
                 }
                 if !c.found.isEmpty {
-                    Section { ForEach(Array(c.found.values)) { f in LabeledContent(f.name, value: "\(f.host):\(f.port)") } }
-                    header: { Text("Macs on this network") } footer: { Text("Pairing still needs the QR code: it carries the certificate fingerprint and one-time code.") }
+                    Section { ForEach(Array(c.found.values)) { f in
+                        Button { scanning = true } label: { LabeledContent { Image(systemName: "qrcode.viewfinder") } label: { Label(f.name, systemImage: "laptopcomputer") } }
+                    } }
+                    header: { Text("Macs on this network") } footer: { Text("Tap to scan that Mac's QR code. It carries the certificate fingerprint and one-time code.") }
                 }
-                if let s = c.pairingStatus { Section { HStack { ProgressView(); Text(s) } } }
+                if let s = c.pairingStatus {
+                    Section {
+                        HStack(spacing: 12) { ProgressView(); Text(s).bold() }
+                    } footer: { Text("Click Approve on your Mac's Tether page. The request expires after 2 minutes.") }
+                }
             }
             .navigationTitle("Pair with Mac")
             .sheet(isPresented: $scanning) {
@@ -118,13 +160,19 @@ struct ConversationView: View {
     @State private var picks: [PhotosPickerItem] = []
     @State private var images: [Data] = []
     @State private var atBottom = true
+    @State private var creating = false
     @FocusState private var focused: Bool
     var body: some View {
         transcript
+            .safeAreaInset(edge: .top) { ConnBanner() }
             .navigationTitle(c.currentSess?.title ?? String(localized: "Conversation"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .tabBar)
-            .toolbar { ToolbarItem(placement: .topBarTrailing) { ConnBadge() } }
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) { ConnBadge() }
+                ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
+            }
+            .sheet(isPresented: $creating) { NewSessionSheet() }
     }
 
     var transcript: some View {
@@ -324,10 +372,27 @@ struct Markdown: View {
                     .padding(10).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(.separator).opacity(0.5)))
                 } else {
-                    Text((try? AttributedString(markdown: b.text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(b.text))
-                        .textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(b.text.components(separatedBy: "\n").enumerated()), id: \.offset) { _, l in MdLineView(line: mdLine(l)) }
+                    }.textSelection(.enabled)
                 }
             }
+        }
+    }
+}
+
+struct MdLineView: View {
+    let line: MdLine
+    func inline(_ s: String) -> Text { Text((try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)) }
+    var body: some View {
+        switch line {
+        case .heading(let n, let s): inline(s).font(n == 1 ? .title3.bold() : n == 2 ? .headline : .subheadline.bold()).padding(.top, 4).accessibilityAddTraits(.isHeader)
+        case .bullet(let i, let s): HStack(alignment: .firstTextBaseline, spacing: 8) { Text(i == 0 ? "•" : "◦").foregroundStyle(.secondary); inline(s) }.padding(.leading, CGFloat(i) * 16)
+        case .number(let i, let n, let s): HStack(alignment: .firstTextBaseline, spacing: 6) { Text("\(n).").monospacedDigit().foregroundStyle(.secondary); inline(s) }.padding(.leading, CGFloat(i) * 16)
+        case .quote(let s): inline(s).foregroundStyle(.secondary).padding(.leading, 10).overlay(alignment: .leading) { Capsule().fill(Color(.separator)).frame(width: 3) }
+        case .rule: Divider().padding(.vertical, 4)
+        case .blank: Color.clear.frame(height: 2)
+        case .text(let s): inline(s)
         }
     }
 }
@@ -367,6 +432,8 @@ struct SessionsView: View {
     var body: some View {
         NavigationStack(path: $c.path) {
             List {
+                // in-list so it scrolls away with the content instead of pinning under the large title
+                Section { ConnBanner().listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 if query.isEmpty {
                     // offset id: two DSH workspaces may share a title
                     ForEach(Array(c.sessionGroups().enumerated()), id: \.offset) { _, g in
@@ -549,18 +616,21 @@ struct SettingsView: View {
             Form {
                 Section("Connection") {
                     LabeledContent("Status") { HStack { ConnBadge(); Text(LocalizedStringKey(c.state.rawValue)) } }
-                    LabeledContent("DSH on Mac", value: c.upstream.isEmpty ? "—" : c.upstream)
+                    LabeledContent("DSH on Mac", value: c.upstream.isEmpty ? "—" : c.upstreamText ?? String(localized: "Running"))
                     if let p = c.pairing {
                         LabeledContent("Address", value: "\(p.host):\(p.port)")
+                        if let ts = p.ts { LabeledContent("Tailscale", value: ts) }
+                        LabeledContent("Route", value: c.route == .lan ? String(localized: "Local network") : c.route == .tailscale ? "Tailscale" : "—")
+                        if c.state != .connected, let f = c.lastFail { Text(f).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                         LabeledContent("Certificate", value: String(p.fp.prefix(16)) + "…").font(.caption.monospaced())
                     }
                     Button("Reconnect") { c.reconnect() }
                 }
                 Section {
-                    TextField("IP address", text: $host).keyboardType(.decimalPad)
+                    TextField("IP or Tailscale address", text: $host).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     TextField("Port", text: $port).keyboardType(.numberPad)
                     Button("Use this address") { c.setAddress(host, Int(port)) }.disabled(host.isEmpty)
-                } header: { Text("Manual address") } footer: { Text("Only needed if the Mac's IP changed and Bonjour cannot find it. The pinned certificate is still required.") }
+                } header: { Text("Manual address") } footer: { Text("Only needed if the Mac's IP changed and Bonjour cannot find it. A LAN address or the Mac's Tailscale address (100.x or *.ts.net). The pinned certificate is still required.") }
                 if let p = c.pairing {
                     Section("This iPhone") {
                         LabeledContent("Name", value: p.name)
