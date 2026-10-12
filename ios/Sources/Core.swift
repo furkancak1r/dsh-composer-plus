@@ -538,11 +538,12 @@ final class Pinner: NSObject, URLSessionDelegate {
         return (v?["items"] as? [J] ?? []).compactMap { i in (i["sessionId"] as? String).map { Hit(session: $0, snippet: i["snippet"] as? String ?? "") } }
     }
 
-    func prompt(_ text: String, images: [Data]) async throws {
+    /// mode "steer" injects into a running turn (desktop's send-while-running); "queue" starts/queues a turn.
+    func prompt(_ text: String, images: [Data], steer: Bool = false) async throws {
         guard let sid = current else { return }
         var content: [J] = text.isEmpty ? [] : [["type": "text", "text": text]]
         content += images.map { ["type": "image", "mediaType": "image/jpeg", "data": $0.base64EncodedString()] }
-        _ = try await rpc("session/prompt", ["request": ["requestId": UUID().uuidString, "sessionId": sid, "mode": "queue", "content": content]])
+        _ = try await rpc("session/prompt", ["request": ["requestId": UUID().uuidString, "sessionId": sid, "mode": steer ? "steer" : "queue", "content": content]])
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 

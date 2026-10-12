@@ -113,6 +113,7 @@ struct ConversationView: View {
     @State private var text = ""
     @State private var picks: [PhotosPickerItem] = []
     @State private var images: [Data] = []
+    @State private var atBottom = true
     @FocusState private var focused: Bool
     var body: some View {
         transcript
@@ -133,9 +134,16 @@ struct ConversationView: View {
                         if !c.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: c.streaming)) }
                         if c.running && c.streaming.isEmpty { ProgressView().padding(.leading) }
                         Color.clear.frame(height: 1).id("end")
+                            .onAppear { atBottom = true }.onDisappear { atBottom = false }
                     }.padding()
                 }
                 .overlay { if c.transcript.isEmpty && !c.running { emptyState } }
+                .overlay(alignment: .bottomTrailing) {
+                    if !atBottom && !c.transcript.isEmpty {
+                        Button { withAnimation { proxy.scrollTo("end") } } label: { Image(systemName: "arrow.down.circle.fill").font(.title).symbolRenderingMode(.hierarchical) }
+                            .padding().accessibilityLabel("Scroll to bottom")
+                    }
+                }
                 .scrollDismissesKeyboard(.interactively)
                 // composer pinned via safeAreaInset so keyboard/tab switches never leave it floating mid-screen
                 .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -145,9 +153,11 @@ struct ConversationView: View {
                         composer
                     }.background(.bar)
                 }
-                .onChange(of: c.transcript.count) { proxy.scrollTo("end") }
-                .onChange(of: c.streaming) { proxy.scrollTo("end") }
-                .onChange(of: c.reasoning) { proxy.scrollTo("end") }
+                // only follow output while the user is at the bottom, so reading history is not yanked away
+                .onChange(of: c.transcript.count) { if atBottom { proxy.scrollTo("end") } }
+                .onChange(of: c.streaming) { if atBottom { proxy.scrollTo("end") } }
+                .onChange(of: c.reasoning) { if atBottom { proxy.scrollTo("end") } }
+                .onAppear { proxy.scrollTo("end") }
         }
     }
 
@@ -203,6 +213,9 @@ struct ConversationView: View {
                 TextField("Message", text: $text, axis: .vertical).lineLimit(1...6).focused($focused)
                     .padding(8).background(.quaternary, in: RoundedRectangle(cornerRadius: 18))
                 if c.running {
+                    if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty {
+                        Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title) }.accessibilityLabel("Send now")
+                    }
                     Button { c.run { try await c.stop() } } label: { Image(systemName: "stop.circle.fill").font(.title) }.accessibilityLabel("Stop")
                 } else {
                     Button(action: send) { Image(systemName: "arrow.up.circle.fill").font(.title) }
@@ -224,7 +237,9 @@ struct ConversationView: View {
         text = ""; images = []
         let name = t.hasPrefix("/") ? String(t.dropFirst().prefix { !$0.isWhitespace }) : ""
         if imgs.isEmpty, c.commands.contains(where: { $0.name == name }) { c.run { try await c.execute(t) }; return }
-        c.run { try await c.prompt(t, images: imgs) }
+        atBottom = true
+        let steer = c.running
+        c.run { try await c.prompt(t, images: imgs, steer: steer) }
     }
 
     /// Downscale to 1600 px and JPEG-encode so a photo stays well under the gateway's 16 MB body cap.
@@ -237,11 +252,17 @@ struct ConversationView: View {
 }
 
 struct LineView: View {
+    @EnvironmentObject var c: Client
     let line: Line
     var live = false
     @State private var open = false
     var body: some View {
-        content.contextMenu { Button { UIPasteboard.general.string = line.text } label: { Label("Copy", systemImage: "doc.on.doc") } }
+        content.contextMenu {
+            Button { UIPasteboard.general.string = line.text } label: { Label("Copy", systemImage: "doc.on.doc") }
+            if line.kind == .user {
+                Button { let t = line.text; c.run { try await c.prompt(t, images: [], steer: c.running) } } label: { Label("Resend", systemImage: "arrow.clockwise") }
+            }
+        }
     }
     @ViewBuilder var content: some View {
         switch line.kind {
@@ -343,7 +364,9 @@ struct SessionsView: View {
                     }
                 }
             }
-            .overlay { if c.sessions.isEmpty && query.isEmpty { ContentUnavailableView("No sessions", systemImage: "tray") } }
+            .overlay { if c.sessions.isEmpty && query.isEmpty {
+                ContentUnavailableView { Label("No sessions", systemImage: "tray") } actions: { Button("New session") { creating = true }.buttonStyle(.borderedProminent) }
+            } }
             .searchable(text: $query, prompt: "Search sessions")
             .onSubmit(of: .search) { let q = query; c.run { hits = try await c.search(q) } }
             .refreshable { try? await c.loadSessions() }
