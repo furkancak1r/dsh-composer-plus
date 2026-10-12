@@ -1,7 +1,7 @@
 {
   "name": "dsh-composer-plus",
-  "version": "0.2.1",
-  "description": "DeepSeek Harness composer helpers: input history, /plan toggle (Option+Tab / Shift+Tab), one-click Continue, drag-and-drop queue reordering",
+  "version": "0.2.2",
+  "description": "DeepSeek Harness composer helpers: input history, Shift+Tab /plan toggle, one-click Continue, drag-and-drop queue reordering",
   "license": "MIT",
   "type": "module",
   "keywords": ["dsh-plugin", "deepseek-harness"],
