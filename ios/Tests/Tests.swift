@@ -65,5 +65,18 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.transcript.map(\.text), ["Selam"])
         XCTAssertEqual(c.model, "deepseek-flash · high")
     }
+
+    @MainActor func testReasoningSessionModelAndGroups() {
+        let c = Client()
+        c.apply(["type": "assistant/message", "data": ["message": ["content": [["type": "reasoning", "text": "hmm"], ["type": "text", "text": "Hi"]]]]])
+        XCTAssertEqual(c.transcript.map(\.kind), [.reasoning, .assistant])
+        let mk = { (id: String) in Sess(["sessionId": id, "cwd": "/p", "projections": ["values": ["title": id,
+            "modelSelection": ["next": ["model": "m", "reasoningEffort": "max"]], "contextPressure": ["projectedTokens": 250, "contextWindow": 1000]]]])! }
+        let a = mk("a"); XCTAssertEqual(a.model, "m · max"); XCTAssertEqual(a.context, 0.25)
+        c.sessions = [a, mk("b"), mk("c"), mk("d")]
+        c.onWorkspace(["type": "baseline", "value": ["items": [["workspaceId": "w", "path": "/p/proj", "sessionIds": ["b"]]], "pinnedSessionIds": ["c"], "archivedSessionIds": ["d"]]])
+        XCTAssertEqual(c.sessionGroups().map(\.title), ["Pinned", "proj", "Other", "Archived"])
+        XCTAssertEqual(c.sessionGroups().map { $0.items.map(\.id) }, [["c"], ["b"], ["a"], ["d"]])
+    }
 }
 

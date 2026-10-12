@@ -65,6 +65,12 @@ func usageText(_ u: J) -> String {
         .compactMap { k, v in v.map { "\(k) \($0)" } }.joined(separator: " · ")
 }
 
+/// "model · effort" from a DSH model selection ({provider, model, reasoningEffort}).
+func modelLabel(_ s: J?) -> String? {
+    guard let m = s?["model"] as? String else { return nil }
+    return [m, s?["reasoningEffort"] as? String].compactMap { $0 }.joined(separator: " · ")
+}
+
 func compactJSON(_ v: Any?, limit: Int = 300) -> String {
     guard let v else { return "" }
     if let s = v as? String { return String(s.prefix(limit)) }
@@ -77,20 +83,36 @@ func compactJSON(_ v: Any?, limit: Int = 300) -> String {
 struct Pairing: Codable { var host: String; var port: Int; var fp: String; var token: String; var deviceId: String; var name: String; var expiresAt: String }
 
 struct Line: Identifiable {
-    enum Kind { case user, assistant, tool, result, error }
+    enum Kind { case user, assistant, reasoning, command, tool, result, error }
     let id = UUID(); let kind: Kind; let text: String
 }
 
 struct Sess: Identifiable {
-    let id: String, title: String, cwd: String, parent: String?, running: Bool, preset: String?
+    let id: String, title: String, cwd: String, parent: String?, running: Bool, preset: String?, model: String?, context: Double?
     init?(_ j: J) {
         guard let id = j["sessionId"] as? String else { return nil }
         let p = (j["projections"] as? J)?["values"] as? J
         self.id = id; title = (p?["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? String(localized: "Untitled")
-        cwd = j["cwd"] as? String ?? ""; parent = j["parentSessionId"] as? String
+        // shortcut: parent read from list item or subagent projection, both unverified live (no subagent sessions seen); check once a subagent runs.
+        cwd = j["cwd"] as? String ?? ""; parent = (j["parentSessionId"] ?? (p?["subagent"] as? J)?["parentSessionId"]) as? String
         running = j["running"] as? Bool ?? false; preset = p?["agentPreset"] as? String
+        let ms = p?["modelSelection"] as? J
+        model = modelLabel((ms?["next"] as? J) ?? (ms?["lastUsed"] as? J))
+        let cp = p?["contextPressure"] as? J, used = (cp?["projectedTokens"] as? NSNumber)?.doubleValue, win = (cp?["contextWindow"] as? NSNumber)?.doubleValue
+        context = used.flatMap { u in win.flatMap { $0 > 0 ? u / $0 : nil } }
     }
 }
+
+struct Workspace: Identifiable {
+    let id: String, path: String, title: String, sessions: [String]
+    init?(_ j: J?) {
+        guard let j, let id = j["workspaceId"] as? String else { return nil }
+        self.id = id; path = j["path"] as? String ?? ""; sessions = j["sessionIds"] as? [String] ?? []
+        title = (j["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? (path as NSString).lastPathComponent
+    }
+}
+
+struct Cmd: Identifiable { var id: String { name }; let name: String, desc: String, hint: String? }
 
 struct Prompt: Identifiable { let id: String; let event: String; let agentId: String?; let request: J }
 
@@ -168,10 +190,16 @@ final class Pinner: NSObject, URLSessionDelegate {
     @Published var current: String?
     @Published var transcript: [Line] = []
     @Published var streaming = ""
+    @Published var reasoning = ""
     @Published var running = false
     @Published var usage: J?
     @Published var model: String?
+    @Published var defaultModel: String?
     @Published var catalog: [ModelGroup] = []
+    @Published var workspaces: [Workspace] = []
+    @Published var pinned: [String] = []
+    @Published var archived: [String] = []
+    @Published var commands: [Cmd] = []
     @Published var presets: [Preset] = []
     @Published var goal: Goal?
     @Published var prompts: [Prompt] = []
@@ -184,7 +212,21 @@ final class Pinner: NSObject, URLSessionDelegate {
     private var browser: NWBrowser?
 
     var currentSess: Sess? { sessions.first { $0.id == current } }
+    /// What the next turn will use: live header/selection, else the session's saved selection, else DSH's default.
+    var shownModel: String? { model ?? currentSess?.model ?? defaultModel }
     func title(_ id: String) -> String { sessions.first { $0.id == id }?.title ?? String(id.prefix(8)) }
+
+    /// Sidebar order like desktop DSH: pinned, one section per project, unassigned, archived.
+    func sessionGroups() -> [(title: String, items: [Sess])] {
+        let roots = sessions.filter { $0.parent == nil }
+        let rest = roots.filter { !pinned.contains($0.id) && !archived.contains($0.id) }
+        var out = [(String(localized: "Pinned"), pinned.compactMap { id in roots.first { $0.id == id } })]
+        var used = Set<String>()
+        for w in workspaces { let s = rest.filter { w.sessions.contains($0.id) }; used.formUnion(s.map(\.id)); out.append((w.title, s)) }
+        out.append((String(localized: "Other"), rest.filter { !used.contains($0.id) }))
+        out.append((String(localized: "Archived"), roots.filter { archived.contains($0.id) }))
+        return out.filter { !$0.1.isEmpty }.map { (title: $0.0, items: $0.1) }
+    }
 
     func run(_ op: @escaping @MainActor () async throws -> Void) { Task { do { try await op() } catch { self.error = error.localizedDescription } } }
 
@@ -259,6 +301,7 @@ final class Pinner: NSObject, URLSessionDelegate {
         ws = t; state = attempt == 0 ? .connecting : .reconnecting
         t.resume(); listen(t)
         send(["type": "open", "streamId": "ev", "endpoint": "$events", "payload": ["args": J()]])
+        send(["type": "open", "streamId": "ws", "endpoint": "workspace/follow", "payload": ["args": J()]])
         if let s = current { openFollow(s) }
     }
 
@@ -317,7 +360,7 @@ final class Pinner: NSObject, URLSessionDelegate {
         switch f["type"] as? String {
         case "item":
             guard let v = f["value"] as? J else { return }
-            if id == "ev" { onEvent(v) } else if id == followId { onFollow(v) }
+            if id == "ev" { onEvent(v) } else if id == "ws" { onWorkspace(v) } else if id == followId { onFollow(v) }
         case "error": error = (f["error"] as? J)?["message"] as? String
         case "end": if id == followId { followId = nil }
         default: break
@@ -328,7 +371,7 @@ final class Pinner: NSObject, URLSessionDelegate {
         switch v["type"] as? String {
         case "ready":
             state = .connected; attempt = 0; prompts = [] // the gateway re-sends everything still pending right after ready
-            Task { await refreshMe(); try? await loadSessions() }
+            Task { await refreshMe(); try? await loadSessions(); try? await loadCatalog() }
         case "waterfall":
             guard let id = v["eventId"] as? String, let ev = v["event"] as? String, !prompts.contains(where: { $0.id == id }) else { return }
             let req = v["request"] as? J ?? [:]
@@ -345,13 +388,32 @@ final class Pinner: NSObject, URLSessionDelegate {
         }
     }
 
+    func onWorkspace(_ v: J) {
+        let base = v["type"] as? String == "baseline" ? v["value"] as? J : nil
+        let f = base ?? v
+        switch v["type"] as? String {
+        case "baseline": workspaces = (base?["items"] as? [J] ?? []).compactMap(Workspace.init)
+        case "upsert":
+            guard let w = Workspace(v["workspace"] as? J) else { break }
+            if let i = workspaces.firstIndex(where: { $0.id == w.id }) { workspaces[i] = w } else { workspaces.insert(w, at: 0) }
+        case "remove": workspaces.removeAll { $0.id == v["workspaceId"] as? String }
+        case "order":
+            let ids = v["workspaceIds"] as? [String] ?? []
+            workspaces.sort { (ids.firstIndex(of: $0.id) ?? .max) < (ids.firstIndex(of: $1.id) ?? .max) }
+        default: break
+        }
+        if let a = f["archivedSessionIds"] as? [String] { archived = a }
+        if let p = f["pinnedSessionIds"] as? [String] { pinned = p }
+    }
+
     // MARK: Conversation stream
 
     func follow(_ sid: String) {
         if let old = followId { send(["type": "cancel", "streamId": old]) }
-        current = sid; transcript = []; streaming = ""; usage = nil; model = nil; goal = nil
+        current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; model = nil; goal = nil
         running = currentSess?.running ?? false
         openFollow(sid)
+        Task { await loadCommands() }
     }
 
     private func openFollow(_ sid: String) {
@@ -364,18 +426,22 @@ final class Pinner: NSObject, URLSessionDelegate {
         switch v["type"] as? String {
         case "snapshot":
             // shortcut: only the snapshot window is shown (hasMore is ignored); page older history via session/page if long sessions need it.
-            transcript = []; streaming = ""
+            transcript = []; streaming = ""; reasoning = ""
             for r in v["records"] as? [J] ?? [] { if let e = r["event"] as? J { apply(e) } }
         case "event": if let e = v["event"] as? J { apply(e) }
         case "assistant-stream":
             let fr = v["frame"] as? J ?? [:]
             switch fr["type"] as? String {
-            case "start": streaming = ""; running = true
+            case "start": streaming = ""; reasoning = ""; running = true
             case "chunk":
                 let c = fr["chunk"] as? J ?? [:]
-                if c["type"] as? String == "text-delta", let t = c["text"] as? String { streaming += t }
-                if c["type"] as? String == "usage", let u = c["usage"] as? J { usage = u }
-            case "end": streaming = ""
+                switch c["type"] as? String {
+                case "text-delta": streaming += c["text"] as? String ?? ""
+                case "reasoning-delta": reasoning += c["text"] as? String ?? ""
+                case "usage": if let u = c["usage"] as? J { usage = u }
+                default: break
+                }
+            case "end": streaming = ""; reasoning = ""
             default: break
             }
         default: break
@@ -390,14 +456,17 @@ final class Pinner: NSObject, URLSessionDelegate {
             let kind = (d["source"] as? J)?["kind"] as? String
             if kind == nil || kind == "user" { transcript.append(Line(kind: .user, text: contentText(d["content"]))) }
         case "request/header":
-            if let c = (d["header"] as? J)?["config"] as? J, let m = c["model"] as? String {
-                model = [m, c["reasoningEffort"] as? String].compactMap { $0 }.joined(separator: " · ")
-            }
+            if let m = modelLabel((d["header"] as? J)?["config"] as? J) { model = m }
         case "request/context": if model == nil, let m = d["model"] as? String { model = m }
         case "assistant/message":
-            let t = contentText((d["message"] as? J)?["content"])
+            let content = (d["message"] as? J)?["content"]
+            let r = (content as? [J] ?? []).filter { $0["type"] as? String == "reasoning" }.compactMap { $0["text"] as? String }.joined(separator: "\n")
+            if !r.isEmpty { transcript.append(Line(kind: .reasoning, text: r)) }
+            let t = contentText(content)
             if !t.isEmpty { transcript.append(Line(kind: .assistant, text: t)) }
             if let u = d["usage"] as? J { usage = u }
+        case "command/run": transcript.append(Line(kind: .command, text: "/\(d["name"] as? String ?? "") \(d["args"] as? String ?? "")".trimmingCharacters(in: .whitespaces)))
+        case "command/done": if let t = d["text"] as? String, !t.isEmpty { transcript.append(Line(kind: d["kind"] as? String == "error" ? .error : .result, text: t)) }
         case "tool/call": transcript.append(Line(kind: .tool, text: "\(d["name"] as? String ?? "tool") \(compactJSON(d["arguments"]))"))
         case "tool/result":
             let m = d["message"] as? J
@@ -421,11 +490,42 @@ final class Pinner: NSObject, URLSessionDelegate {
         if let s = currentSess, s.running != running, streaming.isEmpty { running = s.running }
     }
 
-    func create(cwd: String?) async throws {
-        var r = J(); if let cwd, !cwd.isEmpty { r["cwd"] = cwd }
+    func create(cwd: String?, workspaceId: String? = nil) async throws {
+        var r = J(); if let cwd, !cwd.isEmpty { r["cwd"] = cwd }; if let workspaceId { r["workspaceId"] = workspaceId }
         let v = try await rpc("session/create", ["request": r]) as? J
         try await loadSessions()
         if let id = v?["sessionId"] as? String { follow(id); tab = 0 }
+    }
+
+    func fork(_ id: String) async throws {
+        let v = try await rpc("session/fork", ["request": ["sessionId": id]]) as? J
+        try await loadSessions()
+        if let n = v?["sessionId"] as? String { follow(n); tab = 0 }
+    }
+
+    // Pinned/archived lists come back through the workspace/follow stream.
+    func togglePin(_ id: String) async throws {
+        _ = try await rpc(pinned.contains(id) ? "workspace/unpinSession" : "workspace/pinSession", ["request": ["sessionId": id]])
+    }
+
+    func toggleArchive(_ id: String) async throws {
+        if archived.contains(id) { _ = try await rpc("workspace/unarchiveSession", ["request": ["sessionId": id]]) }
+        else { _ = try await rpc("workspace/archiveSession", ["request": ["sessionId": id, "stopActivity": true]]) }
+    }
+
+    func loadCommands() async {
+        guard let sid = current, let v = try? await rpc("commands/list", ["agentId": sid]) else { return }
+        commands = ((v as? [J]) ?? ((v as? J)?["commands"] as? [J]) ?? []).compactMap { c in
+            (c["name"] as? String).map { Cmd(name: $0, desc: c["description"] as? String ?? "", hint: (c["input"] as? J)?["hint"] as? String) }
+        }
+    }
+
+    /// Runs a slash command like desktop DSH; its run/done events land in the transcript via the follow stream.
+    func execute(_ line: String) async throws {
+        guard let sid = current else { return }
+        let v = try await rpc("commands/execute", ["agentId": sid, "line": line, "submittedAttachments": [J]()]) as? J
+        guard let r = v?["result"] as? J else { throw Fail(String(localized: "Unknown command")) }
+        if r["kind"] as? String == "error" { throw Fail(r["text"] as? String ?? String(localized: "Command failed")) }
     }
 
     func rename(_ id: String, _ title: String) async throws {
@@ -449,6 +549,7 @@ final class Pinner: NSObject, URLSessionDelegate {
 
     func loadCatalog() async throws {
         let v = try await rpc("session/modelCatalog") as? J
+        defaultModel = modelLabel(v?["default"] as? J)
         catalog = (v?["groups"] as? [J] ?? []).compactMap { g in
             guard let id = g["id"] as? String else { return nil }
             return ModelGroup(id: id, name: g["name"] as? String ?? id, models: (g["models"] as? [J] ?? []).compactMap { m in
@@ -462,8 +563,7 @@ final class Pinner: NSObject, URLSessionDelegate {
         guard let sid = current else { return }
         var r: J = ["sessionId": sid, "provider": provider, "model": m]; if let effort { r["reasoningEffort"] = effort }
         let v = try await rpc("session/selectModel", ["request": r]) as? J
-        let sel = v?["selected"] as? J
-        model = [sel?["model"] as? String ?? m, sel?["reasoningEffort"] as? String].compactMap { $0 }.joined(separator: " · ")
+        model = modelLabel(v?["selected"] as? J) ?? modelLabel(r)
     }
 
     func loadAgents() async {

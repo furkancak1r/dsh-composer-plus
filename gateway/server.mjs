@@ -23,7 +23,7 @@ export const RPC = new Set([
   'goals/get', 'goals/create', 'goals/edit', 'goals/pause', 'goals/resume', 'goals/complete', 'goals/clear',
   'subagents/prompt', 'subagents/interruptByParent', 'userQuestions/answer',
   'agentPresets/list', 'agentPresets/select', 'permissionPresets/catalog', 'fileUploads/upload',
-  'skills/list', 'commands/list',
+  'skills/list', 'commands/list', 'commands/execute',
 ])
 export const STREAMS = new Set(['session/follow', 'session/control', 'workspace/follow', 'userQuestions/attachWait'])
 export const EVENTS = new Set([

@@ -138,22 +138,64 @@ struct ConversationView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         ForEach(c.transcript) { LineView(line: $0) }
+                        if !c.reasoning.isEmpty { LineView(line: Line(kind: .reasoning, text: c.reasoning), live: true) }
                         if !c.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: c.streaming)) }
                         if c.running && c.streaming.isEmpty { ProgressView().padding(.leading) }
                         Color.clear.frame(height: 1).id("end")
                     }.padding()
                 }
+                .overlay { if c.transcript.isEmpty && !c.running { emptyState } }
                 .scrollDismissesKeyboard(.interactively)
                 // composer pinned via safeAreaInset so keyboard/tab switches never leave it floating mid-screen
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 0) {
-                        if let u = c.usage { Text(usageText(u)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).padding(.horizontal) }
+                        if !suggestions.isEmpty { suggestionList }
+                        statusLine
                         composer
                     }.background(.bar)
                 }
                 .onChange(of: c.transcript.count) { proxy.scrollTo("end") }
                 .onChange(of: c.streaming) { proxy.scrollTo("end") }
+                .onChange(of: c.reasoning) { proxy.scrollTo("end") }
         }
+    }
+
+    var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "sparkles").font(.largeTitle).foregroundStyle(.secondary)
+            Text(c.shownModel ?? String(localized: "Model")).font(.headline)
+            if let cwd = c.currentSess?.cwd, !cwd.isEmpty { Text(cwd).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head) }
+            Text("Type / for commands").font(.caption).foregroundStyle(.tertiary)
+        }.padding().allowsHitTesting(false)
+    }
+
+    /// Model · context % · token usage, like the desktop status bar.
+    var statusLine: some View {
+        let ctx = c.currentSess?.context.map { "ctx \(Int(($0 * 100).rounded()))%" }
+        let parts = [c.shownModel, ctx, c.usage.map(usageText)].compactMap { $0 }.filter { !$0.isEmpty }
+        return Text(parts.joined(separator: " · ")).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1).padding(.horizontal).padding(.top, 4)
+    }
+
+    var suggestions: [Cmd] {
+        guard text.hasPrefix("/"), !text.contains(" ") else { return [] }
+        let q = text.dropFirst().lowercased()
+        return c.commands.filter { q.isEmpty || $0.name.lowercased().hasPrefix(q) }
+    }
+
+    var suggestionList: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                ForEach(suggestions) { cmd in
+                    Button { text = "/\(cmd.name) " } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("/\(cmd.name)").font(.callout.monospaced()) + Text(cmd.hint.map { "  \($0)" } ?? "").font(.caption).foregroundColor(.secondary)
+                            if !cmd.desc.isEmpty { Text(cmd.desc).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+                        }.frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal).padding(.vertical, 6).contentShape(Rectangle())
+                    }.buttonStyle(.plain)
+                    Divider()
+                }
+            }
+        }.frame(maxHeight: 220)
     }
 
     var composer: some View {
@@ -189,6 +231,8 @@ struct ConversationView: View {
     func send() {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines), imgs = images
         text = ""; images = []
+        let name = t.hasPrefix("/") ? String(t.dropFirst().prefix { !$0.isWhitespace }) : ""
+        if imgs.isEmpty, c.commands.contains(where: { $0.name == name }) { c.run { try await c.execute(t) }; return }
         c.run { try await c.prompt(t, images: imgs) }
     }
 
@@ -203,15 +247,31 @@ struct ConversationView: View {
 
 struct LineView: View {
     let line: Line
+    var live = false
+    @State private var open = false
     var body: some View {
+        content.contextMenu { Button { UIPasteboard.general.string = line.text } label: { Label("Copy", systemImage: "doc.on.doc") } }
+    }
+    @ViewBuilder var content: some View {
         switch line.kind {
         case .user:
             HStack { Spacer(minLength: 40); Text(line.text).textSelection(.enabled).padding(10).background(Color.accentColor.opacity(0.18), in: RoundedRectangle(cornerRadius: 14)) }
         case .assistant: Markdown(text: line.text)
-        case .tool: Label(line.text, systemImage: "wrench.and.screwdriver").font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(3)
-        case .result: Text(line.text).font(.caption2.monospaced()).foregroundStyle(.secondary).lineLimit(6).padding(.leading, 24)
-        case .error: Label(line.text, systemImage: "exclamationmark.triangle").font(.caption.monospaced()).foregroundStyle(.red).lineLimit(6)
+        case .reasoning:
+            DisclosureGroup(isExpanded: $open) {
+                Text(line.text).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
+            } label: {
+                Label(live ? String(localized: "Thinking…") : String(localized: "Thought"), systemImage: "brain").font(.caption).foregroundStyle(.secondary)
+            }
+        case .command: Label(line.text, systemImage: "command").font(.caption.monospaced()).foregroundStyle(.tint)
+        case .tool: tap(Label(line.text, systemImage: "wrench.and.screwdriver").font(.caption.monospaced()).foregroundStyle(.secondary), 3)
+        case .result: tap(Text(line.text).font(.caption2.monospaced()).foregroundStyle(.secondary).padding(.leading, 24), 6)
+        case .error: tap(Label(line.text, systemImage: "exclamationmark.triangle").font(.caption.monospaced()).foregroundStyle(.red), 6)
         }
+    }
+    /// Long tool output stays collapsed until tapped.
+    func tap(_ v: some View, _ n: Int) -> some View {
+        v.lineLimit(open ? nil : n).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).onTapGesture { withAnimation { open.toggle() } }
     }
 }
 
@@ -249,7 +309,7 @@ struct ModelMenu: View {
                 }
             }
             if c.catalog.isEmpty { Text("Loading models…") }
-        } label: { Label(c.model ?? String(localized: "Model"), systemImage: "cpu").labelStyle(.titleAndIcon).font(.caption) }
+        } label: { Label(c.shownModel ?? String(localized: "Model"), systemImage: "cpu").labelStyle(.titleAndIcon).font(.caption).lineLimit(1) }
         .onAppear { if c.catalog.isEmpty { c.run { try await c.loadCatalog() } } }
     }
 }
@@ -267,10 +327,23 @@ struct SessionsView: View {
         NavigationStack {
             List {
                 if query.isEmpty {
-                    ForEach(c.sessions.filter { $0.parent == nil }) { s in
-                        Button { open(s.id) } label: { row(s) }
-                            .swipeActions { Button("Rename") { renaming = s; newTitle = s.title }.tint(.blue) }
-                            .contextMenu { Button("Rename") { renaming = s; newTitle = s.title } }
+                    ForEach(c.sessionGroups(), id: \.title) { g in
+                        Section(g.title) {
+                            ForEach(g.items) { s in
+                                Button { open(s.id) } label: { row(s) }
+                                    .swipeActions(edge: .leading) { Button { c.run { try await c.togglePin(s.id) } } label: { Label(pinLabel(s), systemImage: "pin") }.tint(.orange) }
+                                    .swipeActions {
+                                        Button { c.run { try await c.toggleArchive(s.id) } } label: { Label(archiveLabel(s), systemImage: "archivebox") }.tint(.gray)
+                                        Button { renaming = s; newTitle = s.title } label: { Label("Rename", systemImage: "pencil") }.tint(.blue)
+                                    }
+                                    .contextMenu {
+                                        Button { c.run { try await c.togglePin(s.id) } } label: { Label(pinLabel(s), systemImage: "pin") }
+                                        Button { renaming = s; newTitle = s.title } label: { Label("Rename", systemImage: "pencil") }
+                                        Button { c.run { try await c.fork(s.id) } } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
+                                        Button { c.run { try await c.toggleArchive(s.id) } } label: { Label(archiveLabel(s), systemImage: "archivebox") }
+                                    }
+                            }
+                        }
                     }
                 } else {
                     ForEach(hits) { h in
@@ -298,30 +371,45 @@ struct SessionsView: View {
     func row(_ s: Sess) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(s.title).foregroundStyle(.primary).lineLimit(1)
-                Text(s.cwd).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                HStack(spacing: 4) {
+                    if c.pinned.contains(s.id) { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.orange) }
+                    Text(s.title).foregroundStyle(.primary).lineLimit(1)
+                }
+                Text([s.model, (s.cwd as NSString).lastPathComponent].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             if s.running { ProgressView() }
             if s.id == c.current { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
         }
     }
+    func pinLabel(_ s: Sess) -> String { c.pinned.contains(s.id) ? String(localized: "Unpin") : String(localized: "Pin") }
+    func archiveLabel(_ s: Sess) -> String { c.archived.contains(s.id) ? String(localized: "Unarchive") : String(localized: "Archive") }
     func open(_ id: String) { c.follow(id); c.tab = 0 }
 }
 
-/// Pick an existing project (folder of a past session) or type a path.
+/// Pick a DSH project (workspace), a folder of a past session, or type a path.
 struct NewSessionSheet: View {
     @EnvironmentObject var c: Client
     @Environment(\.dismiss) var dismiss
     @State private var custom = ""
-    // shortcut: projects = folders of the loaded session page, add a workspace RPC if DSH ever exposes one
-    var projects: [String] { var seen = Set<String>(); return c.sessions.map(\.cwd).filter { !$0.isEmpty && seen.insert($0).inserted } }
+    // shortcut: extra folders come from the loaded session page only; fine until users have >1 page of sessions.
+    var projects: [String] { var seen = Set(c.workspaces.map(\.path)); return c.sessions.map(\.cwd).filter { !$0.isEmpty && seen.insert($0).inserted } }
     var body: some View {
         NavigationStack {
             List {
                 Section { Button("DSH default workspace") { create(nil) } }
-                if !projects.isEmpty {
+                if !c.workspaces.isEmpty {
                     Section("Projects") {
+                        ForEach(c.workspaces) { w in
+                            Button { create(w.path, w.id) } label: {
+                                VStack(alignment: .leading) { Text(w.title).foregroundStyle(.primary); Text(w.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head) }
+                            }
+                        }
+                    }
+                }
+                if !projects.isEmpty {
+                    Section("Recent folders") {
                         ForEach(projects, id: \.self) { p in
                             Button { create(p) } label: {
                                 VStack(alignment: .leading) { Text((p as NSString).lastPathComponent).foregroundStyle(.primary); Text(p).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head) }
@@ -338,9 +426,9 @@ struct NewSessionSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
     }
-    func create(_ cwd: String?) {
+    func create(_ cwd: String?, _ workspace: String? = nil) {
         let d = cwd?.trimmingCharacters(in: .whitespaces)
-        dismiss(); c.run { try await c.create(cwd: d) }
+        dismiss(); c.run { try await c.create(cwd: d, workspaceId: workspace) }
     }
 }
 
