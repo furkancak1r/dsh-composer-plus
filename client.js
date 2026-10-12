@@ -1,5 +1,5 @@
 /**
- * dsh-composer-plus: composer history (ArrowUp/ArrowDown), Option+Tab `/plan` toggle, a one-click
+ * dsh-composer-plus: composer history (ArrowUp/ArrowDown), `/plan` toggle (Option+Tab / Shift+Tab), a one-click
  * Continue button, and drag-and-drop reordering of queued messages. Client half only; no Host state.
  */
 window.__ModuleLoader__.load({
@@ -90,7 +90,13 @@ window.__ModuleLoader__.load({
       return match === null ? { start: 0, end: 0, text: '/plan ' } : { start: 0, end: match[0].length, text: '' };
     }
 
-    /** Option+Tab toggles a leading `/plan` and leaves the caret at the end. Rides `conversation.input.right`
+    /** Same device rule as dsh shortcuts: Electron marks the platform, the browser reports its own. */
+    const isMac = () => /darwin|mac|iphone|ipad/iu.test(document.documentElement.dataset.platform ?? navigator.platform);
+    /** Option+Tab on macOS, Shift+Tab on Windows/Linux. */
+    const isPlanKey = (event, mac) => event.key === 'Tab' && !event.ctrlKey && !event.metaKey
+      && (mac ? event.altKey && !event.shiftKey : event.shiftKey && !event.altKey);
+
+    /** The plan key toggles a leading `/plan` and leaves the caret at the end. Rides `conversation.input.right`
      * because, unlike the composer dock, it also renders on a blank chat. */
     function PlanToggle({ useInput, inputActions }) {
       const draft = useInput((state) => (state === undefined ? '' : state.draft));
@@ -101,10 +107,12 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         const seat = anchor.current === null ? null : anchor.current.closest('[data-composer-seat]');
         if (seat === null) return undefined;
+        const mac = isMac();
         const onKeyDown = (event) => {
-          if (event.key !== 'Tab' || !event.altKey || event.shiftKey || event.ctrlKey || event.metaKey) return;
+          if (!isPlanKey(event, mac)) return;
           const input = event.target instanceof Element ? event.target.closest('[data-composer-input]') : null;
           if (input === null || !input.isContentEditable || input.closest('[data-composer-seat]') !== seat) return;
+          if (!mac && seat.querySelector('[data-trigger-menu]') !== null) return; // Shift+Tab closes an open slash/@ menu
           event.preventDefault();
           event.stopPropagation();
           const { draft, inputActions } = live.current;
