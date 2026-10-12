@@ -66,6 +66,19 @@ await check('WSS session/follow', async () => {
   assert.equal(f?.type, 'item', JSON.stringify(f)); return f.value?.type
 })
 
+// Real model turn: this is what caught REQUEST_EXTENSION (plugin package.json without a version).
+await check('prompt gets an assistant reply', async () => {
+  const ws = await wsConnect('wss://' + inv.host + ':' + inv.port + '/api/remote.mux', { authorization: 'Bearer ' + token }, { rejectUnauthorized: false })
+  let end
+  ws.onText = t => { const e = JSON.parse(t).value?.event; if (e?.type === 'assistant/message' || e?.type === 'turn/end') end ??= e }
+  ws.send(JSON.stringify({ type: 'open', streamId: 'f2', endpoint: 'session/follow', payload: { args: { request: { address: { kind: 'session', sessionId: sid } } } } }))
+  await sleep(500)
+  await rpc('session/prompt', { request: { requestId: 'e2e-' + Date.now(), sessionId: sid, mode: 'queue', content: [{ type: 'text', text: 'Sadece "ok" yaz.' }] } })
+  for (let i = 0; i < 600 && !end; i++) await sleep(100)
+  ws.close()
+  assert.equal(end?.type, 'assistant/message', JSON.stringify(end?.data ?? 'timeout'))
+})
+
 await check('revoke kills token', async () => {
   await admin('/revoke', { id: dev.deviceId })
   assert.equal((await call('GET', '/me', undefined, token)).status, 401)

@@ -382,10 +382,18 @@ final class Pinner: NSObject, URLSessionDelegate {
         }
     }
 
-    private func apply(_ e: J) {
+    func apply(_ e: J) {
         let d = e["data"] as? J ?? [:]
         switch e["type"] as? String {
-        case "user/message": transcript.append(Line(kind: .user, text: contentText(d["content"])))
+        case "user/message":
+            // DSH also logs runtime-context / skill-catalog injections as user messages; show only what the user typed.
+            let kind = (d["source"] as? J)?["kind"] as? String
+            if kind == nil || kind == "user" { transcript.append(Line(kind: .user, text: contentText(d["content"]))) }
+        case "request/header":
+            if let c = (d["header"] as? J)?["config"] as? J, let m = c["model"] as? String {
+                model = [m, c["reasoningEffort"] as? String].compactMap { $0 }.joined(separator: " · ")
+            }
+        case "request/context": if model == nil, let m = d["model"] as? String { model = m }
         case "assistant/message":
             let t = contentText((d["message"] as? J)?["content"])
             if !t.isEmpty { transcript.append(Line(kind: .assistant, text: t)) }
@@ -397,6 +405,7 @@ final class Pinner: NSObject, URLSessionDelegate {
             transcript.append(Line(kind: bad ? .error : .result, text: String(contentText(m?["content"]).prefix(600))))
         case "turn/start": running = true
         case "turn/end":
+            if let m = ((d["reason"] as? J)?["error"] as? J)?["message"] as? String { transcript.append(Line(kind: .error, text: m)) }
             if running { notify(String(localized: "Turn finished"), currentSess?.title ?? "") }
             running = false
         default: break

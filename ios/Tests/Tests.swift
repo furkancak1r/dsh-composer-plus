@@ -56,5 +56,14 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(q[0].options.map(\.label), ["A", "B"])
         XCTAssertTrue(q[0].multi)
     }
+
+    @MainActor func testApplyHidesInjectedContextAndShowsModel() {
+        let c = Client()
+        c.apply(["type": "user/message", "data": ["source": ["kind": "runtime-context"], "content": [["type": "text", "text": "sys"]]]])
+        c.apply(["type": "user/message", "data": ["source": ["kind": "user"], "content": [["type": "text", "text": "Selam"]]]])
+        c.apply(["type": "request/header", "data": ["header": ["config": ["model": "deepseek-flash", "reasoningEffort": "high"]]]])
+        XCTAssertEqual(c.transcript.map(\.text), ["Selam"])
+        XCTAssertEqual(c.model, "deepseek-flash · high")
+    }
 }
 
