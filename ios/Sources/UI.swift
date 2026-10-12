@@ -134,8 +134,7 @@ struct ConversationView: View {
     }
 
     var transcript: some View {
-        VStack(spacing: 0) {
-            ScrollViewReader { proxy in
+        ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 10) {
                         ForEach(c.transcript) { LineView(line: $0) }
@@ -145,11 +144,15 @@ struct ConversationView: View {
                     }.padding()
                 }
                 .scrollDismissesKeyboard(.interactively)
+                // composer pinned via safeAreaInset so keyboard/tab switches never leave it floating mid-screen
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    VStack(spacing: 0) {
+                        if let u = c.usage { Text(usageText(u)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).padding(.horizontal) }
+                        composer
+                    }.background(.bar)
+                }
                 .onChange(of: c.transcript.count) { proxy.scrollTo("end") }
                 .onChange(of: c.streaming) { proxy.scrollTo("end") }
-            }
-            if let u = c.usage { Text(usageText(u)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).padding(.horizontal) }
-            composer
         }
     }
 
@@ -174,7 +177,7 @@ struct ConversationView: View {
                 }
             }
         }
-        .padding(8).background(.bar)
+        .padding(8)
         .onChange(of: picks) { _, items in
             Task {
                 for it in items { if let d = try? await it.loadTransferable(type: Data.self), let j = jpeg(d) { images.append(j) } }
@@ -258,7 +261,6 @@ struct SessionsView: View {
     @State private var query = ""
     @State private var hits: [Hit] = []
     @State private var creating = false
-    @State private var cwd = ""
     @State private var renaming: Sess?
     @State private var newTitle = ""
     var body: some View {
@@ -285,11 +287,7 @@ struct SessionsView: View {
                 ToolbarItem(placement: .topBarLeading) { ConnBadge() }
                 ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
             }
-            .alert("New session", isPresented: $creating) {
-                TextField("Workspace folder on Mac (optional)", text: $cwd).autocorrectionDisabled().textInputAutocapitalization(.never)
-                Button("Create") { let d = cwd; c.run { try await c.create(cwd: d) } }
-                Button("Cancel", role: .cancel) {}
-            } message: { Text("Leave empty to use DSH's default workspace.") }
+            .sheet(isPresented: $creating) { NewSessionSheet() }
             .alert("Rename session", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
                 TextField("Title", text: $newTitle)
                 Button("Save") { if let s = renaming { let t = newTitle; c.run { try await c.rename(s.id, t) } } }
@@ -309,6 +307,41 @@ struct SessionsView: View {
         }
     }
     func open(_ id: String) { c.follow(id); c.tab = 0 }
+}
+
+/// Pick an existing project (folder of a past session) or type a path.
+struct NewSessionSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) var dismiss
+    @State private var custom = ""
+    // shortcut: projects = folders of the loaded session page, add a workspace RPC if DSH ever exposes one
+    var projects: [String] { var seen = Set<String>(); return c.sessions.map(\.cwd).filter { !$0.isEmpty && seen.insert($0).inserted } }
+    var body: some View {
+        NavigationStack {
+            List {
+                Section { Button("DSH default workspace") { create(nil) } }
+                if !projects.isEmpty {
+                    Section("Projects") {
+                        ForEach(projects, id: \.self) { p in
+                            Button { create(p) } label: {
+                                VStack(alignment: .leading) { Text((p as NSString).lastPathComponent).foregroundStyle(.primary); Text(p).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head) }
+                            }
+                        }
+                    }
+                }
+                Section("Other folder on Mac") {
+                    TextField("/Users/…/project", text: $custom).autocorrectionDisabled().textInputAutocapitalization(.never).onSubmit { create(custom) }
+                    Button("Create") { create(custom) }.disabled(custom.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+            .navigationTitle("New session").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+        }
+    }
+    func create(_ cwd: String?) {
+        let d = cwd?.trimmingCharacters(in: .whitespaces)
+        dismiss(); c.run { try await c.create(cwd: d) }
+    }
 }
 
 // MARK: - Agents
