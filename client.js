@@ -1,6 +1,7 @@
 /**
  * dsh-composer-plus: composer history (ArrowUp/ArrowDown), Shift+Tab `/plan` toggle, a one-click
- * Continue button, drag-and-drop reordering of queued messages, and a session "Copy deeplink" menu item. Client half only; no Host state.
+ * Continue button, drag-and-drop reordering of queued messages, a session "Copy deeplink" menu item and an
+ * Auto Review "Allow for this chat" grant per exact tool (memory only). Client half only; no Host state.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-composer-plus',
@@ -382,6 +383,82 @@ window.__ModuleLoader__.load({
       return React.createElement(React.Fragment, null, anchor, ...portals.filter((portal) => portal !== null));
     }
 
+    /** Auto Review per-chat tool grants: session id -> exact tool names (a fresh Set per change, so React sees it).
+     * Memory only: a reload or plugin unload forgets every grant. Only Auto Review denials that reached the user are
+     * answered, through the approval card's own `answer('allowed-once')`; review failures never get that far. */
+    const grants = new Map();
+    const grantListeners = new Set();
+    const subscribeGrants = (listener) => { grantListeners.add(listener); return () => { grantListeners.delete(listener); }; };
+    const grantsChanged = () => { for (const listener of [...grantListeners]) listener(); };
+    const isGranted = (sessionId, toolName) => grants.get(sessionId)?.has(toolName) === true;
+    function grant(sessionId, toolName) {
+      grants.set(sessionId, new Set([...(grants.get(sessionId) ?? []), toolName]));
+      grantsChanged();
+    }
+    function revoke(sessionId) {
+      if (grants.delete(sessionId)) grantsChanged();
+    }
+    const AUTO_REVIEW_ASK = 'Auto review denied tool ';
+    const isAutoReviewAsk = (p) => p !== undefined && p !== null && p.kind === 'approval' && typeof p.reason === 'string' && p.reason.startsWith(AUTO_REVIEW_ASK);
+    /** Requests this plugin already answered (or is answering), so concurrent updates never answer twice. */
+    const claimed = new WeakSet();
+    /** Allow every pending Auto Review ask whose exact tool is granted in its own chat. */
+    function answerGranted(snapshot) {
+      for (const [sessionId, status] of snapshot) {
+        const p = status === undefined ? undefined : status.pendingInteraction;
+        if (!isAutoReviewAsk(p) || p.sessionId !== sessionId || !p.answerable || claimed.has(p) || !isGranted(sessionId, p.toolName)) continue;
+        claimed.add(p);
+        p.answer('allowed-once').catch(() => {}); // already settled elsewhere: nothing to do
+      }
+    }
+
+    /** "Allow for this chat" on the Auto Review approval card, plus a header chip that lists and revokes the grants.
+     * shortcut: the button is portaled into the card's button row found in the DOM (`data-approval-key`); if a dsh
+     * update changes that markup the button just stops appearing. Upgrade when dsh adds an approval action slot. */
+    function ChatToolGrants({ sessionId, useSessionStatus, t }) {
+      const pending = useSessionStatus((snapshot) => snapshot.get(sessionId)?.pendingInteraction);
+      const granted = React.useSyncExternalStore(subscribeGrants, () => grants.get(sessionId));
+      const ask = isAutoReviewAsk(pending) && pending.sessionId === sessionId && !isGranted(sessionId, pending.toolName) ? pending : null;
+      const [host, setHost] = React.useState(null);
+      const [busy, setBusy] = React.useState(false);
+      React.useEffect(() => {
+        setHost(null);
+        setBusy(false);
+        if (ask === null || createPortal === undefined) return undefined;
+        let frame = 0;
+        const find = () => {
+          const card = document.querySelector(`[data-approval-key="${CSS.escape(ask.key)}"]`);
+          const buttons = card === null ? [] : card.querySelectorAll('button');
+          if (buttons.length > 0) setHost(buttons[buttons.length - 1].parentElement); // Reject / Allow once row
+          else frame = requestAnimationFrame(find);
+        };
+        find();
+        return () => { cancelAnimationFrame(frame); };
+      }, [ask]);
+      const allow = () => {
+        if (busy || claimed.has(ask) || !ask.answerable) return;
+        setBusy(true);
+        claimed.add(ask);
+        // Grant only after this click really answered the request; a cancelled or already answered one throws.
+        ask.answer('allowed-once').then(() => { grant(sessionId, ask.toolName); }, () => { setBusy(false); });
+      };
+      const tools = [...(granted ?? [])];
+      const chip = tools.length === 0 ? null : React.createElement(primitives.Button, {
+        variant: 'toolbar',
+        size: 'sm',
+        title: t('grantsTitle', { tools: tools.join('\n') }),
+        onClick: () => { revoke(sessionId); },
+      }, t('grants', { count: String(tools.length) }));
+      const button = ask === null || host === null ? null : createPortal(React.createElement(primitives.Button, {
+        variant: 'outline',
+        disabled: busy,
+        title: t('allowChatTitle', { toolName: ask.toolName }),
+        style: { order: -1, marginRight: 'auto' },
+        onClick: allow,
+      }, t('allowChat')), host, ask.key);
+      return chip === null && button === null ? null : React.createElement(React.Fragment, null, chip, button);
+    }
+
     return {
       inject: ['slots', 'sessions', 'locale'],
       apply(ctx) {
@@ -409,9 +486,39 @@ window.__ModuleLoader__.load({
           order: 1000,
         }, ContinueButton));
         if (ctx.locale !== undefined) ctx.effect(() => ctx.locale.register(LOCALE_NS, {
-          en: { copyDeeplink: 'Copy deeplink' },
-          zh: { copyDeeplink: '复制深层链接' },
+          en: {
+            copyDeeplink: 'Copy deeplink',
+            allowChat: 'Allow for this chat',
+            allowChatTitle: 'Allow {toolName} without asking for the rest of this chat, with any arguments. If the tool can write, that includes any write.',
+            grants: '{count} tool(s) allowed · Revoke',
+            grantsTitle: 'Allowed in this chat without asking:\n{tools}\nClick to revoke all.',
+          },
+          zh: {
+            copyDeeplink: '复制深层链接',
+            allowChat: '本对话内允许',
+            allowChatTitle: '本对话剩余时间内，{toolName} 的任何参数调用都无需再询问。若该工具可写入，也包括任何写入操作。',
+            grants: '已允许 {count} 个工具 · 撤销',
+            grantsTitle: '本对话内无需询问即可使用：\n{tools}\n点击撤销全部。',
+          },
         }), 'dsh-composer-plus: dictionaries');
+        ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+          name: 'conversation.session.header.utilities',
+          id: 'chat-tool-grants',
+          order: 0,
+          locale: LOCALE_NS,
+        }, ChatToolGrants));
+        if (ctx.inject !== undefined) ctx.inject(['uiSession'], (scope) => {
+          const status = scope.uiSession.sessionStatus;
+          // Deferred so answering never re-enters the status notification that triggered it.
+          const scan = () => { queueMicrotask(() => answerGranted(status.getSnapshot())); };
+          scope.effect(() => {
+            const offStatus = status.subscribe(scan);
+            const offGrants = subscribeGrants(scan);
+            scan();
+            return () => { offStatus(); offGrants(); };
+          }, 'dsh-composer-plus: chat tool grants');
+        });
+        if (ctx.effect !== undefined) ctx.effect(() => () => { grants.clear(); grantsChanged(); }, 'dsh-composer-plus: forget grants on unload');
         ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
           name: 'sidebar.workspaces.session.menu.item',
           id: 'copy-deeplink',
