@@ -26,4 +26,16 @@ for(const o of [{repeat:true},{isComposing:true},{keyCode:229}]){const e=hit(o);
 menu={};assert.equal(hit().prevented,0,'Shift+Tab left to the open menu');assert.deepEqual(edits,[]);menu=null;
 const other=Object.assign(new Element(),{closest:()=>null});assert.equal(hit({target:other}).prevented,0,'outside composer');
 actions.insertText=()=>false;hit();assert.equal(sel.r,null,'refused edit leaves the caret');
+// In plan mode Shift+Tab leaves it via `/plan off` instead of editing the draft (issue #1).
+const executed=[];const notices=[];actions.insertText=(t,s)=>{edits.push([t,s]);return true;};
+const ctxRemote={commands:{execute:async(id,cmd,args)=>{executed.push([id,cmd,args]);return {ok:true,value:{}};}}};
+regs.length=0;plugin.apply({remote:ctxRemote,sessions:{scope:()=>undefined},slots:{inject:(name,f)=>f(),register:(o,C)=>{regs.push([o,C]);return()=>{};}}});
+const [opt2,C2]=regs.find(([o])=>o.id==='composer-plan-toggle');const extra=opt2.inject('s1');
+const mountPlan=(draft,plan)=>{effects=[];C2({useInput:f=>f({draft}),inputActions:actions,useProjection:n=>{assert.equal(n,'plan');return plan;},...extra,notify:(l,t)=>notices.push([l,t])});return effects[0]();};
+for(const plan of [{active:true,pending:false},{active:false,pending:true}]){mountPlan('',plan);const e=hit();assert.equal(e.prevented,1);assert.deepEqual(edits,[],'no draft edit in plan mode');}
+await new Promise(r=>setTimeout(r,0));assert.deepEqual(executed,[['s1','/plan off',[]],['s1','/plan off',[]]]);
+for(const plan of [{active:false,pending:false},{active:true,pending:true},undefined]){mountPlan('x',plan);hit();assert.deepEqual(edits,[['/plan ',{start:0,end:0,draftRev:7}]],'off: draft edit '+JSON.stringify(plan));}
+assert.equal(executed.length,2);
+ctxRemote.commands.execute=async()=>({ok:false,error:{message:'busy',code:'locked'}});mountPlan('',{active:true,pending:false});hit();
+await new Promise(r=>setTimeout(r,0));assert.deepEqual(notices,[['error','busy (locked)']]);
 console.log('plan-toggle checks passed');

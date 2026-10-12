@@ -3,7 +3,7 @@
 Small composer helpers for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (web / desktop UI). The client half adds the UI; a small Host half serves read-only git changes and saves Auto Review grants. No external network calls.
 
 - **Input history** – in an empty composer, `↑` / `↓` walk your previously sent messages, like a terminal. An open `/` menu or an edited draft keeps the normal keys.
-- **`/plan` toggle** – `Shift+Tab` adds `/plan ` to the start of the draft, even when it already has text; press it again to remove that leading `/plan`. The rest of the draft, file references and attachments stay intact, and the caret ends up at the end. It never sends. An open `/` or `@` menu keeps `Shift+Tab` for closing itself.
+- **Plan mode toggle** – while the chat is in plan mode, `Shift+Tab` leaves it (same as clicking the plan chip). Otherwise it adds `/plan ` to the start of the draft, even when it already has text; press it again to remove that leading `/plan`. The rest of the draft, file references and attachments stay intact, and the caret ends up at the end. It never sends. An open `/` or `@` menu keeps `Shift+Tab` for closing itself.
 - **One-click Continue** – when a turn has stopped and the composer is empty, the Send button becomes **▶**; one click sends `continue`. Hidden on a blank chat, while running, in subagent views, or once you type or attach something.
 - **Copy deeplink** – right-click a session in the sidebar (or use its `…` menu) and pick **Copy deeplink** (label follows dsh's language: English or Chinese). You get a link like `dsh-session:InNlc3Npb24t…`; paste it into another chat and dsh attaches that session as read-only context.
 - **Allow for this chat (Auto Review)** – when Auto Review denies a call and asks you, the approval card gets an **Allow for this chat** button next to Reject / Allow once. It allows this call and every later Auto Review ask for the **same exact tool in the same chat**, with any arguments (e.g. any read-only SQL query on one database tool). Other tools, other chats and non-Auto-Review approvals still ask. A header chip (“N tool(s) allowed · Revoke”) lists the grants and revokes them in one click. Grants are saved by the plugin's Host half (`$DSH_HOME/storages/dsh-composer-plus/grants.json`, user-only permissions), so they survive a restart until you revoke them. If the tool can write, the grant covers any write too.
@@ -25,7 +25,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 This adds the dependency and the profile bundle. Restart dsh.
 
-pnpm in dsh skips versions younger than 24 hours by default (`minimum-release-age`). Right after a release, name the version explicitly, e.g. `dsh-composer-plus@0.6.0`.
+pnpm in dsh skips versions younger than 24 hours by default (`minimum-release-age`). Right after a release, name the version explicitly, e.g. `dsh-composer-plus@0.6.1`.
 
 ## How it works / limits
 

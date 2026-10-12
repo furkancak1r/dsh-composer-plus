@@ -96,12 +96,16 @@ window.__ModuleLoader__.load({
     /** Shift+Tab on every platform. */
     const isPlanKey = (event) => event.key === 'Tab' && event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
 
-    /** The plan key toggles a leading `/plan` and leaves the caret at the end. Rides `conversation.input.right`
-     * because, unlike the composer dock, it also renders on a blank chat. */
-    function PlanToggle({ useInput, inputActions }) {
+    /** The plan key leaves plan mode when the chat is in it (as dsh's plan chip does: `/plan off`); otherwise it
+     * toggles a leading `/plan` and leaves the caret at the end. Rides `conversation.input.right` because, unlike
+     * the composer dock, it also renders on a blank chat. */
+    function PlanToggle({ useInput, inputActions, useProjection, exitPlanMode, notify }) {
       const draft = useInput((state) => (state === undefined ? '' : state.draft));
+      const plan = typeof useProjection === 'function' ? useProjection('plan') : undefined;
+      // Same effective target as dsh's PlanChip: a pending switch flips the folded host value.
+      const planOn = plan !== undefined && (plan.pending ? !plan.active : plan.active);
       const live = React.useRef(null);
-      live.current = { draft, inputActions };
+      live.current = { draft, inputActions, planOn, exitPlanMode, notify };
       const anchor = React.useRef(null);
 
       React.useEffect(() => {
@@ -114,8 +118,14 @@ window.__ModuleLoader__.load({
           if (seat.querySelector('[data-trigger-menu]') !== null) return; // Shift+Tab closes an open slash/@ menu
           event.preventDefault();
           event.stopPropagation();
-          const { draft, inputActions } = live.current;
-          if (event.repeat || event.isComposing || event.keyCode === 229 || inputActions === undefined) return;
+          const { draft, inputActions, planOn, exitPlanMode, notify } = live.current;
+          if (event.repeat || event.isComposing || event.keyCode === 229) return;
+          if (planOn && exitPlanMode !== undefined) {
+            exitPlanMode().then((failure) => { if (failure !== null && notify !== undefined) notify('error', failure); },
+              (reason) => { if (notify !== undefined) notify('error', reason instanceof Error ? reason.message : String(reason)); });
+            return;
+          }
+          if (inputActions === undefined) return;
           const { start, end, text } = planToggle(draft);
           // Edit only the prefix so the rest of the draft, its file chips and attachments stay intact.
           if (!inputActions.insertText(text, { ...inputActions.captureInsertion(), start, end })) return;
@@ -667,7 +677,7 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: ['slots', 'sessions', 'locale'],
+      inject: ['slots', 'sessions', 'locale', 'remote', 'remote.commands'],
       apply(ctx) {
         ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
@@ -686,6 +696,18 @@ window.__ModuleLoader__.load({
           name: 'conversation.input.right',
           id: 'composer-plan-toggle',
           order: 999,
+          inject: (sessionId) => {
+            const commands = ctx.remote === undefined ? undefined : ctx.remote.commands;
+            const actx = ctx.sessions === undefined ? undefined : ctx.sessions.scope(sessionId);
+            return {
+              exitPlanMode: commands === undefined ? undefined : async () => {
+                const result = await commands.execute(sessionId, '/plan off', []);
+                if (!result.ok) return `${result.error.message} (${result.error.code})`;
+                return result.value === undefined ? 'unknown command: /plan off' : null;
+              },
+              notify: (level, text) => { try { actx.get('conversation').input.for(actx).notify(level, text); } catch { /* notice is best-effort */ } },
+            };
+          },
         }, PlanToggle));
         ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
           name: 'conversation.input.right',
