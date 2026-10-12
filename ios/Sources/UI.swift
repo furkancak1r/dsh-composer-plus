@@ -19,11 +19,10 @@ struct Root: View {
     var body: some View {
         Group {
             if c.pairing == nil { PairView() } else {
-                TabView(selection: $c.tab) {
-                    ConversationView().tabItem { Label("Conversation", systemImage: "bubble.left.and.bubble.right") }.tag(0)
-                    SessionsView().tabItem { Label("Sessions", systemImage: "list.bullet") }.tag(1)
-                    AgentsView().tabItem { Label("Agents", systemImage: "person.2") }.tag(2)
-                    SettingsView().tabItem { Label("Settings", systemImage: "gear") }.tag(3)
+                TabView {
+                    SessionsView().tabItem { Label("Sessions", systemImage: "bubble.left.and.bubble.right") }
+                    AgentsView().tabItem { Label("Agents", systemImage: "person.2") }
+                    SettingsView().tabItem { Label("Settings", systemImage: "gear") }
                 }
                 .sheet(item: Binding(get: { c.prompts.first }, set: { _ in })) { PromptSheet(p: $0).interactiveDismissDisabled() }
             }
@@ -107,7 +106,7 @@ struct QRScanner: UIViewControllerRepresentable {
     }
 }
 
-// MARK: - Conversation
+// MARK: - Conversation (pushed from Sessions, so the system back button / edge swipe always leads out)
 
 struct ConversationView: View {
     @EnvironmentObject var c: Client
@@ -116,21 +115,13 @@ struct ConversationView: View {
     @State private var images: [Data] = []
     @FocusState private var focused: Bool
     var body: some View {
-        NavigationStack {
-            Group {
-                if c.current == nil {
-                    ContentUnavailableView { Label("No session", systemImage: "bubble.left") } description: { Text("Pick or create a session.") } actions: {
-                        Button("Sessions") { c.tab = 1 }
-                    }
-                } else { transcript }
-            }
+        transcript
             .navigationTitle(c.currentSess?.title ?? String(localized: "Conversation"))
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .tabBar)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { ConnBadge() }
-                if c.current != nil { ToolbarItem(placement: .topBarTrailing) { ModelMenu() } }
+                ToolbarItem(placement: .topBarTrailing) { HStack { ConnBadge(); ModelMenu() } }
             }
-        }
     }
 
     var transcript: some View {
@@ -324,10 +315,11 @@ struct SessionsView: View {
     @State private var renaming: Sess?
     @State private var newTitle = ""
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $c.path) {
             List {
                 if query.isEmpty {
-                    ForEach(c.sessionGroups(), id: \.title) { g in
+                    // offset id: two DSH workspaces may share a title
+                    ForEach(Array(c.sessionGroups().enumerated()), id: \.offset) { _, g in
                         Section(g.title) {
                             ForEach(g.items) { s in
                                 Button { open(s.id) } label: { row(s) }
@@ -356,6 +348,7 @@ struct SessionsView: View {
             .onSubmit(of: .search) { let q = query; c.run { hits = try await c.search(q) } }
             .refreshable { try? await c.loadSessions() }
             .navigationTitle("Sessions")
+            .navigationDestination(for: String.self) { _ in ConversationView() }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnBadge() }
                 ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
@@ -385,7 +378,7 @@ struct SessionsView: View {
     }
     func pinLabel(_ s: Sess) -> String { c.pinned.contains(s.id) ? String(localized: "Unpin") : String(localized: "Pin") }
     func archiveLabel(_ s: Sess) -> String { c.archived.contains(s.id) ? String(localized: "Unarchive") : String(localized: "Archive") }
-    func open(_ id: String) { c.follow(id); c.tab = 0 }
+    func open(_ id: String) { c.follow(id); c.path = [id] }
 }
 
 /// Pick a DSH project (workspace), a folder of a past session, or type a path.

@@ -185,7 +185,7 @@ final class Pinner: NSObject, URLSessionDelegate {
     @Published var upstream = ""
     @Published var error: String?
     @Published var pairingStatus: String?
-    @Published var tab = 0
+    @Published var path: [String] = [] // Sessions navigation stack; non-empty = conversation on screen
     @Published var sessions: [Sess] = []
     @Published var current: String?
     @Published var transcript: [Line] = []
@@ -281,7 +281,7 @@ final class Pinner: NSObject, URLSessionDelegate {
 
     func forget(_ why: String? = nil) {
         ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil
-        pairing = nil; sessions = []; transcript = []; prompts = []; current = nil; goal = nil; state = .off
+        pairing = nil; sessions = []; transcript = []; prompts = []; current = nil; path = []; goal = nil; state = .off
         if let why { error = why }
     }
 
@@ -409,6 +409,7 @@ final class Pinner: NSObject, URLSessionDelegate {
     // MARK: Conversation stream
 
     func follow(_ sid: String) {
+        if sid == current, followId != nil { return } // re-opening the live session keeps its stream and transcript
         if let old = followId { send(["type": "cancel", "streamId": old]) }
         current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; model = nil; goal = nil
         running = currentSess?.running ?? false
@@ -494,13 +495,13 @@ final class Pinner: NSObject, URLSessionDelegate {
         var r = J(); if let cwd, !cwd.isEmpty { r["cwd"] = cwd }; if let workspaceId { r["workspaceId"] = workspaceId }
         let v = try await rpc("session/create", ["request": r]) as? J
         try await loadSessions()
-        if let id = v?["sessionId"] as? String { follow(id); tab = 0 }
+        if let id = v?["sessionId"] as? String { follow(id); path = [id] }
     }
 
     func fork(_ id: String) async throws {
         let v = try await rpc("session/fork", ["request": ["sessionId": id]]) as? J
         try await loadSessions()
-        if let n = v?["sessionId"] as? String { follow(n); tab = 0 }
+        if let n = v?["sessionId"] as? String { follow(n); path = [n] }
     }
 
     // Pinned/archived lists come back through the workspace/follow stream.
