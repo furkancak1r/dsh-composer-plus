@@ -1,6 +1,6 @@
 /**
  * dsh-composer-plus: composer history (ArrowUp/ArrowDown), Shift+Tab `/plan` toggle, a one-click
- * Continue button, and drag-and-drop reordering of queued messages. Client half only; no Host state.
+ * Continue button, drag-and-drop reordering of queued messages, and a session "Copy deeplink" menu item. Client half only; no Host state.
  */
 window.__ModuleLoader__.load({
   id: 'dsh-composer-plus',
@@ -136,7 +136,55 @@ window.__ModuleLoader__.load({
       return React.createElement('span', { ref: anchor, hidden: true });
     }
 
+    const primitives = require('@deepseek-ai/dsh-client-ui-primitives');
+    /** dsh's canonical session URI: `dsh-session:` + base64url of the JSON-encoded id (as `dsh-session-reference`
+     * encodes it). Pasted into another chat, dsh attaches that session as read-only context. */
+    function sessionDeeplink(sessionId) {
+      let binary = '';
+      for (const byte of new TextEncoder().encode(JSON.stringify(sessionId))) binary += String.fromCharCode(byte);
+      return `dsh-session:${btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
+    }
+
+    /** "Copy deeplink" row in a session's "…" menu. */
+    function CopyDeeplinkItem({ sessionId, useMenuOpenState }) {
+      const [, setMenuOpen] = useMenuOpenState();
+      return React.createElement(primitives.MenuItemButton, {
+        icon: React.createElement(primitives.IconLinkOutlineRegular, {}),
+        onSelect: () => {
+          setMenuOpen(false);
+          primitives.writeClipboard(sessionDeeplink(sessionId));
+        },
+      }, COPY_DEEPLINK_LABEL);
+    }
+
+    /** Right-click on a session row opens its "…" menu; dsh rows have no context menu of their own.
+     * shortcut: finds the "…" button in the row's DOM; if a dsh update changes that markup, right-click falls back
+     * to the default menu. Upgrade when dsh adds a row context-menu slot. */
+    function RowContextMenu() {
+      const anchor = React.useRef(null);
+      React.useEffect(() => {
+        const row = anchor.current === null ? null : anchor.current.closest('[data-row-key^="session:"]');
+        if (row === null) return undefined;
+        const onContextMenu = (event) => {
+          // The "…" button is the row's only button outside a plugin slot.
+          const menuButton = [...row.querySelectorAll('button')].find((button) => {
+            const slot = button.closest('[data-slot]');
+            return slot === null || !row.contains(slot);
+          });
+          if (menuButton === undefined) return;
+          event.preventDefault();
+          menuButton.click();
+        };
+        row.addEventListener('contextmenu', onContextMenu);
+        return () => {
+          row.removeEventListener('contextmenu', onContextMenu);
+        };
+      }, []);
+      return React.createElement('span', { ref: anchor, hidden: true });
+    }
+
     const CONTINUE_TEXT = 'continue';
+    const COPY_DEEPLINK_LABEL = 'Copy deeplink';
     let createPortal;
     try { createPortal = require('react-dom').createPortal; } catch { createPortal = undefined; }
     /** The composer's Send button (class `<hash>_primary`); the stop button shares it but only while running. */
@@ -359,6 +407,16 @@ window.__ModuleLoader__.load({
           id: 'composer-continue',
           order: 1000,
         }, ContinueButton));
+        ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
+          name: 'sidebar.workspaces.session.menu.item',
+          id: 'copy-deeplink',
+          order: 350,
+        }, CopyDeeplinkItem));
+        ctx.slots.inject('sidebar.workspaces.session.row.action', () => ctx.slots.register({
+          name: 'sidebar.workspaces.session.row.action',
+          id: 'session-context-menu',
+          order: 0,
+        }, RowContextMenu));
         ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
           name: 'conversation.composer.dock',
           id: 'composer-history',

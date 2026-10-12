@@ -1,13 +1,13 @@
 {
   "name": "dsh-composer-plus",
-  "version": "0.2.2",
-  "description": "DeepSeek Harness composer helpers: input history, Shift+Tab /plan toggle, one-click Continue, drag-and-drop queue reordering",
+  "version": "0.3.0",
+  "description": "DeepSeek Harness composer helpers: input history, Shift+Tab /plan toggle, one-click Continue, drag-and-drop queue reordering, Copy deeplink",
   "license": "MIT",
   "type": "module",
   "keywords": ["dsh-plugin", "deepseek-harness"],
   "exports": { ".": "./index.js", "./client": "./client.js" },
   "files": ["index.js", "client.js", "cordis.patch.yml"],
-  "scripts": { "test": "node test/continue.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs" },
+  "scripts": { "test": "node test/continue.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs" },
   "dsh": {
     "bundle": { "patch": "./cordis.patch.yml" },
     "client": {
