@@ -232,7 +232,7 @@ final class Pinner: NSObject, URLSessionDelegate {
                   let token = o["token"] as? String, token.count >= 40, let id = o["deviceId"] as? String
             else { throw Fail(String(localized: "Pairing was denied or the code expired. Show a fresh QR code on the Mac.")) }
             pairing = Pairing(host: inv.host, port: inv.port, fp: inv.fp, token: token, deviceId: id, name: o["name"] as? String ?? "", expiresAt: o["expiresAt"] as? String ?? "")
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
             connect()
         } catch { self.error = error.localizedDescription }
     }

@@ -59,4 +59,16 @@ Kodda `shortcut:` yorumlarıyla işaretli:
 
 - Gateway: `cd gateway && npm test` → **12/12 geçti** (subnet, eşleme + hash'li saklama, yetkisiz erişim, kod tekrarı/süre/ret, MITM, allowlist, iptal + replay, LAN-only, ağ değişimi, event yönlendirme, eşzamanlılık, brute force).
 - iOS: `cd ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test CODE_SIGNING_ALLOWED=NO` → **6/6 geçti** (kendi sertifikası kabul, MITM reddi, LAN-only, QR doğrulama, Markdown blokları, içerik/soru ayrıştırma). Uygulama iOS Simulator için derleniyor (Xcode 26.6).
+- Gerçek cihaz: iPhone 13 için imzalı derleme (`-destination 'platform=iOS,name=iPhone' -allowProvisioningUpdates`), `xcrun devicectl device install app` ile kurulum ve açılış **başarılı**.
+- Canlı DSH uçtan uca (`gateway/e2e.mjs`, elle çalıştırılır) → **14/14 geçti**, gerçek DSH 0.2.0-rc.2 ve gerçek LAN adresi (192.168.1.44) üzerinde: yanlış pin reddi, eşleme + onay, kod tekrarı reddi, upstream bağlantısı, session/list·create·rename, goals/get, agentPresets/list, session/modelCatalog, allowlist dışı yöntem 403, WSS session/follow snapshot, iptal sonrası 401. Ayrıca `dns-sd -L` ile Bonjour yayını (fp TXT kaydıyla) ve `lsof` ile yalnızca `192.168.1.44:19390` + `127.0.0.1:19391` dinlendiği doğrulandı.
+
+Kendi `~/.dsh` profiline dokunmadan canlı test için DSH'yi geçici bir profil ve eklentiyi ekleyen bir patch dosyasıyla açın:
+
+```sh
+DSH_HOME=/tmp/dshe2e/home DSH_MOBILE_DIR=/tmp/dshe2e/mobile ELECTRON_RUN_AS_NODE=1 +  "/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness" +  "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js" +  web --patch /tmp/dshe2e/patch.yml --no-open --port 0
+cd gateway && DSH_MOBILE_DIR=/tmp/dshe2e/mobile node server.mjs   # ayrı terminal
+cd gateway && node e2e.mjs                                         # üçüncü terminal
+```
+
+`patch.yml`, Kurulum bölümündeki eklenti kaydının aynısıdır. Geçici profilde model hesabı olmadığından prompt gönderme bu testte denenmez.
 

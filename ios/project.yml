@@ -6,7 +6,7 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    DEVELOPMENT_TEAM: ""
+    DEVELOPMENT_TEAM: 9LYL5R6LS4
     CODE_SIGN_STYLE: Automatic
 targets:
   DSHMobile:
