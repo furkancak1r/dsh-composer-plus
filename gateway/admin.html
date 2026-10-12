@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DSH Mobile Gateway</title>
+<style>
+  :root { color-scheme: light dark; font: 14px -apple-system, system-ui, sans-serif; }
+  body { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+  table { border-collapse: collapse; width: 100%; } td, th { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid #8884; }
+  code { word-break: break-all; } img { width: 240px; image-rendering: pixelated; background: #fff; padding: 8px; }
+  button { margin-right: .4rem; } .muted { opacity: .7; }
+</style>
+<h1>DSH Mobile Gateway</h1>
+<p><button id="start">Start</button><button id="stop">Stop</button><button id="pair">New pairing code</button></p>
+<table id="status"></table>
+<section id="code" hidden>
+  <h2>Pairing code</h2>
+  <p class="muted">Scan with the DSH Mobile app. One-time, expires <span id="exp"></span>.</p>
+  <img id="qr" alt="Pairing QR code">
+  <p>Or paste this into the app: <code id="payload"></code></p>
+</section>
+<h2>Pending pairing requests</h2>
+<table id="pending"></table>
+<h2>Paired devices</h2>
+<table id="devices"></table>
+<script>
+const $ = id => document.getElementById(id)
+const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';')
+const post = (path, body) => fetch(path, { method: 'POST', headers: { 'x-dsh-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) })
+  .then(r => r.json()).then(s => s.error ? alert(s.error) : render(s))
+let lastPayload
+function render(s) {
+  $('status').innerHTML = [['Gateway', s.running ? 'running' : 'stopped'], ['IP', s.address ?? 'no Wi-Fi address'], ['Port', s.port],
+    ['TLS', s.tls], ['Fingerprint (SHA-256)', s.fingerprint ?? '-'], ['DSH host', s.upstream]]
+    .map(([k, v]) => '<tr><th>' + k + '</th><td><code>' + esc(v) + '</code></td></tr>').join('')
+  $('code').hidden = !s.code
+  if (s.code) {
+    $('exp').textContent = new Date(s.code.expiresAt).toLocaleTimeString()
+    $('payload').textContent = s.code.payload
+    if (s.code.qr && lastPayload !== s.code.payload) { lastPayload = s.code.payload; $('qr').src = '/qr.png?t=' + Date.now() }
+    $('qr').hidden = !s.code.qr
+  }
+  $('pending').innerHTML = s.pending.map(p => '<tr><td>' + esc(p.name) + '</td><td>' + esc(p.ip) + '</td><td>' +
+    '<button data-a="approve" data-id="' + esc(p.id) + '">Approve</button><button data-a="deny" data-id="' + esc(p.id) + '">Deny</button></td></tr>').join('') || '<tr><td class="muted">None</td></tr>'
+  $('devices').innerHTML = s.devices.map(d => '<tr><td>' + esc(d.name) + '</td><td class="muted">expires ' + esc(new Date(d.expiresAt).toLocaleDateString()) +
+    '</td><td>' + d.connections + ' conn.</td><td><button data-a="revoke" data-id="' + esc(d.id) + '">Revoke</button></td></tr>').join('') || '<tr><td class="muted">None</td></tr>'
+}
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return
+  if (b.dataset.a) { if (b.dataset.a !== 'revoke' || confirm('Revoke this device? Its connections close immediately.')) post('/' + b.dataset.a, { id: b.dataset.id }) }
+  else post('/' + b.id)
+})
+const poll = () => fetch('/state').then(r => r.json()).then(render).catch(() => {}).finally(() => setTimeout(poll, 1500))
+poll()
+</script>
+</html>

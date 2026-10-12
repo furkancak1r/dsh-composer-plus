@@ -1,0 +1,8 @@
+/* English is the source language: Text("…") / String(localized:) keys are the English text itself.
+   Add a <lang>.lproj/Localizable.strings with the same keys to translate. Entries below are keys that
+   are not string literals in a Text() call (connection states come from Client.Conn raw values). */
+"Not connected" = "Not connected";
+"Connecting…" = "Connecting…";
+"Connected" = "Connected";
+"Reconnecting…" = "Reconnecting…";
+

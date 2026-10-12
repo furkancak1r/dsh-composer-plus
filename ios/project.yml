@@ -1,0 +1,47 @@
+name: DSHMobile
+options:
+  bundleIdPrefix: com.furkancakir
+  deploymentTarget: { iOS: "17.0" }
+  developmentLanguage: en
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+targets:
+  DSHMobile:
+    type: application
+    platform: iOS
+    sources: [Sources, Resources]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.furkancakir.dshmobile
+        GENERATE_INFOPLIST_FILE: YES
+        MARKETING_VERSION: "1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        TARGETED_DEVICE_FAMILY: "1"
+        SWIFT_EMIT_LOC_STRINGS: YES
+        INFOPLIST_KEY_CFBundleDisplayName: DSH
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        INFOPLIST_KEY_NSCameraUsageDescription: "Scan the pairing QR code shown on your Mac."
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Connect to DeepSeek Harness running on your Mac over the local network."
+    info:
+      path: Resources/Info.plist
+      properties:
+        NSBonjourServices: [_dshmobile._tcp]
+        CFBundleDevelopmentRegion: en
+  DSHMobileTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests]
+    dependencies: [{ target: DSHMobile }]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  DSHMobile:
+    build: { targets: { DSHMobile: all, DSHMobileTests: [test] } }
+    test: { targets: [DSHMobileTests] }
+
