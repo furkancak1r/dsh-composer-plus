@@ -1,6 +1,6 @@
 {
   "name": "dsh-composer-plus",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "DeepSeek Harness helpers: Codex-style Changes panel, input history, Shift+Tab /plan, one-click Continue, queue drag-and-drop, Copy deeplink, Auto Review allow-for-chat, background notifications",
   "license": "MIT",
   "type": "module",
@@ -39,6 +39,7 @@
         "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-workspace",
         "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-api-workspace-controller",
         "@deepseek-ai/dsh-client-ui-sidebar-right",
         "@deepseek-ai/dsh-client-ui-session",
         "@deepseek-ai/dsh-api-remotes",

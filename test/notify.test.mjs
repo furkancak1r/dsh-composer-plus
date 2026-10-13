@@ -14,7 +14,7 @@ const pub=m=>{snap=m;for(const l of [...ls])l();};
 let outline=[];const list={getSnapshot:()=>({byId:{s1:{displayTitle:'Fix login'},s2:{displayTitle:'Sub',origin:'subagent'}},projectionsBySession:{s1:{values:{turnOutline:outline}}}})};
 const opened=[];const dicts={};const offs=[];
 plugin.apply({effect:f=>{const d=f();if(d)offs.push(d);},locale:{register:(ns,d)=>{dicts[ns]=d;return()=>{};},bind:ns=>(k,p={})=>dicts[ns].en[k].replace(/\{(\w+)\}/g,(_,x)=>p[x])},
- inject:(names,cb)=>{if(names.includes('sidebarRight'))return;if(names.includes('uiWorkspace'))cb({uiSession:{sessionStatus:status},sessions:{list},uiWorkspace:{openSession:id=>opened.push(id)},effect:f=>offs.push(f())});else cb({uiSession:{sessionStatus:status},effect:f=>offs.push(f())});},
+ inject:(names,cb)=>{if(names.includes('sidebarRight')||names.includes('workspaces'))return;if(names.includes('uiWorkspace'))cb({uiSession:{sessionStatus:status},sessions:{list},uiWorkspace:{openSession:id=>opened.push(id)},effect:f=>offs.push(f())});else cb({uiSession:{sessionStatus:status},effect:f=>offs.push(f())});},
  slots:{inject:(n,f)=>f(),register:()=>()=>{}}});
 const en=Object.values(dicts)[0].en,zh=Object.values(dicts)[0].zh;for(const k of ['notify.done','notify.approval','notify.question','notify.planReview'])assert.ok(en[k]&&zh[k],k);
 const st=(o={})=>({running:false,pendingInteraction:undefined,completionUnread:false,...o});

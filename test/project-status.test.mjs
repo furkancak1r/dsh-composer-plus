@@ -34,3 +34,27 @@ const out2=render();const m2=Object.fromEntries(out2.c.map(p=>[p.key,p.portal.c[
 assert.deepEqual(m2,{w1:'done',w2:'ongoing'},'unread done; subagent running counts for its parent');
 statuses.delete('a');statuses.delete('kid');assert.equal(render().c.length,0,'idle projects show nothing');
 console.log('project-status checks passed');
+
+// Active projects first: the real watcher moves running/waiting projects above idle ones with dsh's insertBefore,
+// keeps relative order, never moves a finished project down, and serializes overlapping updates.
+{
+  const listeners=[];const store=(get)=>({getSnapshot:get,subscribe:(f)=>{listeners.push(f);return()=>listeners.splice(listeners.indexOf(f),1);}});
+  let items=['p1','p2','p3','p4'].map((id,i)=>({workspaceId:id,sessionIds:['s'+(i+1)]}));
+  const byId=Object.fromEntries(['s1','s2','s3','s4'].map(id=>[id,{id,blank:false,running:false,origin:'user'}]));
+  const st=new Map();const calls=[];
+  const workspaces={list:store(()=>({items,archivedSessionIds:[]})),insertBefore:async(id,before)=>{calls.push([id,before]);
+    const ids=items.map(i=>i.workspaceId).filter(x=>x!==id);ids.splice(ids.indexOf(before),0,id);items=ids.map(x=>items.find(i=>i.workspaceId===x));}};
+  const regs2=[];let watch;
+  plugin.apply({slots:{inject:(n,f)=>f(),register:()=>()=>{}},locale:{register:()=>()=>{},bind:()=>k=>k},effect:(f)=>f(),inject:(deps,f)=>{if(deps[0]==='workspaces')watch=f;}});
+  let stop;watch({workspaces,sessions:{list:store(()=>({byId,projectionsBySession:{}}))},uiSession:{sessionStatus:store(()=>st)},effect:(f)=>{stop=f();}});
+  const tick=()=>new Promise(r=>setTimeout(r,0));
+  await tick();assert.deepEqual(calls,[],'nothing active, nothing moves');
+  byId.s3.running=true;st.set('s4',{pendingInteraction:{kind:'question'}});listeners.forEach(f=>f());await tick();await tick();
+  assert.deepEqual(items.map(i=>i.workspaceId),['p3','p4','p1','p2'],'running and waiting projects go to the top in their order');
+  calls.length=0;byId.s3.running=false;st.set('s3',{completionUnread:true});st.delete('s4');listeners.forEach(f=>f());await tick();
+  assert.deepEqual(calls,[],'finished projects stay where they are');
+  byId.s2.running=true;listeners.forEach(f=>f());listeners.forEach(f=>f());await tick();await tick();
+  assert.deepEqual(items.map(i=>i.workspaceId),['p2','p3','p4','p1']);assert.equal(calls.length,1,'overlapping updates move once');
+  stop();assert.equal(listeners.length,0,'unsubscribes');
+}
+console.log('active-first checks passed');

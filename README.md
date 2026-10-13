@@ -21,7 +21,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@0.8.0`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@0.9.0`.
 
 ## Features
 
@@ -35,6 +35,7 @@ Then restart dsh. (The CLI can't install into the desktop profile; the app manag
 | **Copy deeplink** | Right-click a chat in the sidebar → **Copy deeplink**. Paste the `dsh-session:…` link into another chat to attach that chat as read-only context. |
 | **Allow for this chat** | When Auto Review asks you, the approval card gets **Allow for this chat**: the same tool in the same chat is allowed from then on, with any arguments. A header chip lists the grants and revokes them. Grants survive a restart. |
 | **Project status** | A project row in the sidebar shows the same spinner / waiting / done marker as its chats, so a collapsed project still tells you a chat inside is working or needs you. Hover it for details. |
+| **Active projects first** | When a chat starts running or needs you, its project moves to the top of the sidebar with dsh's own row animation (the same move as dragging it there). Finished projects stay where they are; drag them anywhere as usual. |
 | **Background notifications** | While dsh is in the background you get a notification when a turn finishes (first line of the reply), or when a chat needs an approval (tool name), an answer (the question) or a plan review. The Dock/taskbar badge counts waiting chats. Clicking opens that chat. |
 
 All text — buttons, tooltips, notices, notifications and the Continue message — follows the language selected in dsh (English or Chinese, the two languages dsh ships). Switching the language in dsh settings updates it live.
@@ -64,13 +65,14 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 
 - **No notifications on macOS:** System Settings → Notifications → DeepSeek Harness → allow. Choose **Alerts** to keep them on screen.
 - **▶, queue grips, project status, Allow for this chat or right-click missing after a dsh update:** these attach to dsh's current HTML because dsh has no slot for them yet. If dsh changes that markup they hide themselves; nothing else breaks. Please open an [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
-- **Install fails right after a release:** add the version (`dsh-composer-plus@0.8.0`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@0.9.0`), see the install note above.
 
 ## Limits
 
 - dsh's queue has no `move` action, so a reorder rewrites the affected rows' text. If the agent picks up a row mid-move, the move is undone and nothing is lost. Messages with images or files can't be moved.
 - A deeplink works inside chats; clicking it does not open the chat.
 - A notification sent before a restart only brings dsh to the front when clicked.
+- Active projects are moved with dsh's saved project order, so the new order is kept after a restart. Chats outside any project ("Ungrouped") can't be moved; dsh always lists them last.
 - Built-in support is requested upstream: queue `move` in [#773](https://github.com/deepseek-ai/deepseek-harness/discussions/773), a Continue state in [#9269](https://github.com/deepseek-ai/deepseek-harness/discussions/9269).
 
 ## Development

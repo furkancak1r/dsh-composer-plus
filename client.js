@@ -605,6 +605,46 @@ window.__ModuleLoader__.load({
       if (done > 0) return { state: 'done' };
       return null;
     }
+    /** Moves that bring active projects (running or waiting for the user) to the top, keeping their relative order:
+     * each active project that sits below an idle one goes before the first idle project. */
+    function activeFirstMoves(items, active) {
+      const firstIdle = items.findIndex((item) => !active.has(item.workspaceId));
+      if (firstIdle === -1) return [];
+      const anchor = items[firstIdle].workspaceId;
+      return items.slice(firstIdle + 1).filter((item) => active.has(item.workspaceId)).map((item) => [item.workspaceId, anchor]);
+    }
+    /** Keeps active projects at the top of the sidebar with dsh's own reorder (the same move as dragging a project,
+     * so dsh animates the rows). Projects are only ever moved up; finished ones stay where they are. */
+    function watchActiveProjects(workspaces, sessionsList, status) {
+      let moving = false; let again = false;
+      const run = async () => {
+        if (moving) { again = true; return; }
+        moving = true;
+        try {
+          do {
+            again = false;
+            const snapshot = workspaces.list.getSnapshot();
+            const list = sessionsList.getSnapshot();
+            const statuses = status.getSnapshot();
+            if (snapshot?.items === undefined || list === undefined || statuses === undefined) break;
+            const archived = new Set(snapshot.archivedSessionIds ?? []);
+            const active = new Set(snapshot.items.filter((item) => {
+              const state = projectStatus(item.sessionIds, list, statuses, archived);
+              return state !== null && state.state !== 'done';
+            }).map((item) => item.workspaceId));
+            for (const [id, before] of activeFirstMoves(snapshot.items, active)) await workspaces.insertBefore(id, before);
+          } while (again);
+        } catch (error) {
+          console.warn('dsh-composer-plus: project reorder rejected', error);
+        } finally {
+          moving = false;
+        }
+      };
+      const schedule = () => { queueMicrotask(run); };
+      const stops = [workspaces.list.subscribe(schedule), sessionsList.subscribe(schedule), status.subscribe(schedule)];
+      schedule();
+      return () => { for (const stop of stops) stop(); };
+    }
     const PROJECT_STATUS = 'data-composer-plus-project-status';
     /** Shows the session status (spinner / waiting / done dot) on each project row, so a collapsed project still says
      * that one of its chats is working. dsh has no project-row slot.
@@ -908,6 +948,10 @@ window.__ModuleLoader__.load({
             (sessionId) => scope.uiWorkspace.openSession(sessionId)), 'dsh-composer-plus: attention notifications');
           // First use asks the OS once; a denied permission stays denied (re-enable it in System Settings).
           if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
+        });
+        if (ctx.inject !== undefined) ctx.inject(['workspaces', 'uiSession', 'sessions'], (scope) => {
+          scope.effect(() => watchActiveProjects(scope.workspaces, scope.sessions.list, scope.uiSession.sessionStatus),
+            'dsh-composer-plus: active projects first');
         });
         if (ctx.inject !== undefined) ctx.inject(['sidebarRight', 'sidebarRightTabs'], (scope) => {
           const t = ctx.locale.bind(LOCALE_NS);
