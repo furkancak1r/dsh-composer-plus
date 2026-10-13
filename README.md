@@ -8,6 +8,8 @@ Codex-style quality-of-life features for the [DeepSeek Harness](https://github.c
 
 **In one line:** a single DeepSeek Harness plugin (npm `dsh-composer-plus`, shown as **Composer Plus** in Settings → Plugins) that adds a git Changes panel, ↑/↓ input history, a Shift+Tab `/plan` toggle, one-click ▶ Continue, drag-and-drop queue reordering, Copy deeplink, Auto Review “Allow for this chat”, background notifications, 11 extra interface languages and automatic updates.
 
+<p align="center"><img src="docs/images/hero.webp" width="820" alt="DeepSeek Harness with Composer Plus: the running project shows a spinner in the sidebar and the Changes panel shows a git diff"></p>
+
 Unofficial community plugin. The only network calls are the update check (GitHub releases and the npm registry); switch off **Automatic updates** to stop them at startup.
 
 ## Install
@@ -48,11 +50,15 @@ Buttons, tooltips, notices and notifications follow the selected dsh language (s
 
 Every feature can be switched off on its own: dsh **Settings → Composer Plus**. Each row has a small screenshot: hover it for a larger preview, click it to open it full size (`Esc` closes). The **Search features** box at the top filters the page by name or description (any language, case- and accent-insensitive); `Esc` clears it. Each row has a switch and a short description; changes apply immediately, without a restart, and are remembered on that device. Everything is on by default.
 
+<p align="center"><img src="docs/images/settings.webp" width="720" alt="Settings → Composer Plus: feature search, language picker, update row and a switch per feature, with a screenshot preview on hover"></p>
+
 ### Application language
 
 Open **Settings → Composer Plus → Application language** and choose **System language** or one of 13 languages:
 
 English · 中文 · Türkçe · Español · Português (Brasil) · Français · Deutsch · Русский · 日本語 · 한국어 · Bahasa Indonesia · Tiếng Việt · हिन्दी
+
+<p align="center"><img src="docs/images/language-tr.webp" width="420" alt="DeepSeek Harness interface switched to Türkçe"></p>
 
 The whole app switches immediately. The choice is dsh’s own saved `locale.preference` (the same one as General → Language), so it survives restarts. **System language** clears that choice: the desktop app follows the OS language, the web UI the browser language, and an unsupported language falls back to English. Installing the plugin never overrides a language you already picked.
 
@@ -120,7 +126,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 
 ## Development
 
-Screenshots are regenerated from a throwaway dsh with a fake model and made-up demo projects (`acme-web`, `weather-cli`, `docs-site`), so they contain no real data:
+Screenshots are regenerated from a throwaway dsh with a fake model and made-up demo projects (`acme-web`, `weather-cli`, `docs-site`), so they contain no real data. Feature thumbnails go to `assets/features/` (shipped, shown in Settings); README-only pictures go to `docs/images/` (not in the npm package):
 
 ```sh
 PLAYWRIGHT=/path/to/playwright node scripts/capture-screenshots.mjs /path/to/dsh/lib/bin.js

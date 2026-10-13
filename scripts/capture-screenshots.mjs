@@ -17,6 +17,7 @@ const { chromium } = require(process.env.PLAYWRIGHT);
 const bin = process.argv[2];
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const out = join(repo, 'assets/features');
+const docs = join(repo, 'docs/images'); // README-only pictures, not shipped in the npm package
 const only = process.env.ONLY?.split(',');
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -115,11 +116,11 @@ try {
   await page.goto(url);
   for (const name of ['Continue', 'Configure later']) { const x = page.getByRole('button', { name, exact: true }); if (await x.waitFor({ timeout: 3000 }).then(() => 1, () => 0)) await x.click(); }
   const input = page.locator('[data-composer-input]'); await input.waitFor();
-  const shot = async (id, clip) => {
+  const shot = async (id, clip, dir = out) => {
     if (only && !only.includes(id)) return;
     const png = join(home, `${id}.png`);
     await page.screenshot({ path: png, ...(clip ? { clip } : {}) });
-    execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.round((clip?.width ?? 1280) * 1.25)), '0', png, '-o', join(out, `${id}.webp`)]);
+    execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.round((clip?.width ?? 1280) * 1.25)), '0', png, '-o', join(dir, `${id}.webp`)]);
     console.log('shot', id);
   };
   const say = async (text) => { await input.click(); await page.keyboard.type(text); await page.keyboard.press('Enter'); };
@@ -199,6 +200,12 @@ try {
   const proj = page.locator('[data-row-key^="workspace:"]').filter({ hasText: 'weather-cli' }).first();
   if ((await proj.getAttribute('aria-expanded')) === 'true') { await proj.click(); await page.waitForTimeout(600); }
   await shot('projectStatus', { x: 0, y: 0, width: 640, height: 420 });
+  // README hero: running project on top + Changes panel with a diff, all in one window.
+  await page.getByRole('button', { name: 'Open right sidebar' }).click(); await page.waitForTimeout(700);
+  await page.getByText('Changes', { exact: true }).first().click().catch(() => {});
+  await panel.getByText('src/auth.ts', { exact: true }).click(); await page.waitForTimeout(1200);
+  await shot('hero', whole, docs);
+  await page.getByRole('button', { name: 'Close right sidebar' }).click().catch(() => {});
   await page.getByRole('button', { name: /^Stop/ }).first().click().catch(() => {}); slow = 0; await page.waitForTimeout(1500);
 
   // Allow for this chat: Auto Review denies, the card shows the extra button.
@@ -224,6 +231,9 @@ try {
   // Settings page: language selector + updates row + switches.
   await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByText('Composer Plus', { exact: true }).click();
   await page.locator('[data-composer-plus-language]').waitFor();
+  // README Settings picture: the feature list with a hover preview open.
+  await page.locator('[data-composer-plus-shot="changesPanel"]').hover(); await page.locator('[data-composer-plus-shot-preview]').waitFor();
+  await page.waitForTimeout(400); await shot('settings', whole, docs); await page.mouse.move(5, 795);
   await page.locator('[data-composer-plus-language] button[aria-haspopup=menu]').click(); await page.waitForTimeout(400);
   await shot('language', whole); await page.keyboard.press('Escape');
   await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); await page.waitForTimeout(400);
@@ -240,6 +250,15 @@ try {
   });
   const r = await updateRow.boundingBox();
   await shot('autoUpdate', { x: r.x - 24, y: 0, width: 1280 - (r.x - 24), height: r.y + r.height + 24 });
+  // README language picture: the whole app in Türkçe (last step; later steps would need English labels).
+  // shortcut: an open Changes tab keeps its English title after a language switch (even after reload), so the right sidebar is cropped out; show it once that is fixed.
+  await page.evaluate(() => document.getElementById('demo-banner')?.remove());
+  await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); await page.waitForTimeout(400);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByText('Composer Plus', { exact: true }).click();
+  await page.locator('[data-composer-plus-language] button[aria-haspopup=menu]').click(); await page.getByText('Türkçe', { exact: true }).last().click();
+  await page.getByText('Ayarlar', { exact: true }).first().waitFor(); await page.keyboard.press('Escape');
+  await page.waitForTimeout(800);
+  await shot('language-tr', { x: 0, y: 0, width: 704, height: 800 }, docs);
   assert.deepEqual(errors, []);
   console.log('done', home);
 } finally {
