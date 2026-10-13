@@ -33,6 +33,21 @@ final class CoreTests: XCTestCase {
         }
     }
 
+    func testInboxSplice() {
+        // the live sequence DSH emitted for: run a turn, queue a 2nd prompt, edit it, turn consumes it
+        var inbox: [String: [J]] = [:]
+        applySplice(&inbox, ["target": "next-turn", "start": 0, "inserted": [["id": "a"]]])
+        applySplice(&inbox, ["target": "next-turn", "start": 0, "removedCount": 1, "inserted": [J]()])
+        applySplice(&inbox, ["target": "next-turn", "start": 0, "inserted": [["id": "b", "content": "x"]]])
+        applySplice(&inbox, ["target": "next-turn", "start": 0, "removedCount": 1, "inserted": [["id": "b", "content": "y"]], "outcome": "canceled"])
+        XCTAssertEqual(inbox["next-turn"]?.map { $0["content"] as? String }, ["y"])
+        applySplice(&inbox, ["target": "next-turn", "start": 0, "removedCount": 1, "inserted": [J]()])
+        XCTAssertEqual(inbox["next-turn"]?.count, 0)
+        // a removal for an item before the snapshot window must not crash
+        applySplice(&inbox, ["target": "next-step", "start": 3, "removedCount": 2, "inserted": [J]()])
+        XCTAssertEqual(inbox["next-step"]?.count, 0)
+    }
+
     func testInvite() {
         let good = #"{"v":1,"host":"192.168.1.44","port":19390,"fp":"C6:69:BC:96:76:F7:B7:D4:B0:DA:00:FB:BE:BC:96:30:5A:4C:BC:A9:E2:5F:24:A2:B4:E4:44:EF:12:5E:BE:74","code":"123456"}"#
         let i = parseInvite(good)
@@ -73,6 +88,10 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(mdLine("---"), .rule)
         XCTAssertEqual(mdLine("   "), .blank)
         XCTAssertEqual(mdLine("-5 degrees"), .text("-5 degrees"))
+        XCTAssertEqual(tableRow("| a | b |"), ["a", "b"])
+        XCTAssertEqual(tableRow("|---|:-:|"), [])
+        XCTAssertNil(tableRow("plain"))
+        XCTAssertEqual(mdParts("x\n| a | b |\n|---|---|\n| 1 | 2 |\ny"), [.line("x"), .table([["a", "b"], ["1", "2"]]), .line("y")])
     }
 
     func testContentAndQuestions() {
@@ -93,16 +112,54 @@ final class CoreTests: XCTestCase {
     }
 
     @MainActor func testReasoningSessionModelAndGroups() {
+        XCTAssertTrue(modelMatches("deepseek-v4 · high", "deepseek-v4"))
+        XCTAssertTrue(modelMatches("deepseek-v4 · high", "deepseek-v4", "high"))
+        XCTAssertFalse(modelMatches("deepseek-v4 · high", "deepseek-v4", "low"))
+        XCTAssertFalse(modelMatches("deepseek-v4-pro", "deepseek-v4"))
+        XCTAssertFalse(modelMatches(nil, "deepseek-v4"))
         let c = Client()
         c.apply(["type": "assistant/message", "data": ["message": ["content": [["type": "reasoning", "text": "hmm"], ["type": "text", "text": "Hi"]]]]])
         XCTAssertEqual(c.transcript.map(\.kind), [.reasoning, .assistant])
         let mk = { (id: String) in Sess(["sessionId": id, "cwd": "/p", "projections": ["values": ["title": id,
             "modelSelection": ["next": ["model": "m", "reasoningEffort": "max"]], "contextPressure": ["projectedTokens": 250, "contextWindow": 1000]]]])! }
         let a = mk("a"); XCTAssertEqual(a.model, "m · max"); XCTAssertEqual(a.context, 0.25)
+        XCTAssertNil(a.permission)
+        XCTAssertEqual(Sess(["sessionId": "p", "projections": ["values": ["permissions": ["currentValue": "read-only"]]]])?.permission, "read-only")
         c.sessions = [a, mk("b"), mk("c"), mk("d")]
         c.onWorkspace(["type": "baseline", "value": ["items": [["workspaceId": "w", "path": "/p/proj", "sessionIds": ["b"]]], "pinnedSessionIds": ["c"], "archivedSessionIds": ["d"]]])
         XCTAssertEqual(c.sessionGroups().map(\.title), ["Pinned", "proj", "Other", "Archived"])
         XCTAssertEqual(c.sessionGroups().map { $0.items.map(\.id) }, [["c"], ["b"], ["a"], ["d"]])
+        // newest first inside a group, sessions without a timestamp last
+        let t = { (id: String, ms: Double?) in Sess(["sessionId": id, "updatedAt": ms as Any, "projections": ["values": ["title": id]]])! }
+        c.sessions = [t("old", 1_000), t("none", nil), t("new", 2_000)]
+        XCTAssertEqual(c.sessionGroups().last?.items.map(\.id), ["new", "old", "none"])
+        XCTAssertEqual(t("x", 1_500).updated, Date(timeIntervalSince1970: 1.5))
+    }
+
+    @MainActor func testTodos() {
+        let c = Client()
+        XCTAssertEqual(c.shownTodos, [])
+        c.apply(["type": "todo/write", "data": ["todos": [["content": "a", "status": "completed"], ["content": "b", "status": "in_progress"]]]])
+        XCTAssertEqual(c.shownTodos.map(\.status), ["completed", "in_progress"])
+        let s = Sess(["sessionId": "t", "projections": ["values": ["todos": [["content": "x"]]]]])
+        XCTAssertEqual(s?.todos, [Todo(content: "x", status: "pending")])
+    }
+
+    @MainActor func testDrafts() {
+        let c = Client()
+        c.setDraft("half typed", "draft-test")
+        XCTAssertEqual(c.draft("draft-test"), "half typed")
+        XCTAssertEqual(c.draft(nil), "")
+        c.setDraft("", "draft-test")
+        XCTAssertEqual(c.draft("draft-test"), "")
+    }
+
+    func testGoal() {
+        XCTAssertNil(Goal(["objective": "no id"]))
+        let g = Goal(["id": "g1", "revision": 3, "objective": "ship", "phase": "paused", "roundsStarted": 2, "maxGoalRounds": 10])
+        XCTAssertEqual(g?.summary, "paused · 2/10")
+        XCTAssertEqual(g?.paused, true)
+        XCTAssertEqual(Goal(["id": "g", "revision": 1, "phase": "active"])?.summary, "active")
     }
 }
 

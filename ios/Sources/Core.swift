@@ -73,7 +73,30 @@ func mdBlocks(_ s: String) -> [(code: Bool, text: String)] {
 /// One prose line classified for block rendering (headings, lists, quotes, rules); inline syntax stays for AttributedString.
 enum MdLine: Equatable { case heading(Int, String), bullet(Int, String), number(Int, String, String), quote(String), rule, blank, text(String) }
 
-// shortcut: line-based, so tables and multi-line list items render as plain lines; switch to swift-markdown if replies lean on tables.
+/// "| a | b |" → ["a", "b"]; separator rows ("|---|:-:|") → [] so they are dropped; nil when not a table row.
+// shortcut: escaped pipes (\|) split cells; fine for model replies, switch to swift-markdown if that shows up.
+func tableRow(_ raw: String) -> [String]? {
+    let s = raw.trimmingCharacters(in: .whitespaces)
+    guard s.hasPrefix("|"), s.count > 1 else { return nil }
+    var cells = s.dropFirst().components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+    if s.hasSuffix("|") { cells.removeLast() }
+    return cells.allSatisfy { !$0.isEmpty && $0.allSatisfy { "-:".contains($0) } } ? [] : cells
+}
+
+enum MdPart: Equatable { case line(String), table([[String]]) }
+
+/// Prose split into plain lines and runs of consecutive table rows.
+func mdParts(_ prose: String) -> [MdPart] {
+    var out: [MdPart] = []
+    for l in prose.components(separatedBy: "\n") {
+        guard let row = tableRow(l) else { out.append(.line(l)); continue }
+        if case .table(var rows)? = out.last { if !row.isEmpty { rows.append(row) }; out[out.count - 1] = .table(rows) }
+        else { out.append(.table(row.isEmpty ? [] : [row])) }
+    }
+    return out
+}
+
+// shortcut: line-based, so multi-line list items render as plain lines; switch to swift-markdown if replies need nesting.
 func mdLine(_ raw: String) -> MdLine {
     let body = raw.drop { $0 == " " }, indent = (raw.count - body.count) / 2
     let s = String(body)
@@ -107,10 +130,28 @@ func usageText(_ u: J) -> String {
         .compactMap { k, v in v.map { "\(k) \($0)" } }.joined(separator: " · ")
 }
 
+/// Folds one DSH `agent/inbox/spliced` event into the pending-input lists (same splice rule as desktop's inbox projection).
+/// Out-of-range splices are clamped: a snapshot window can start after the event that queued an item.
+func applySplice(_ inbox: inout [String: [J]], _ d: J) {
+    guard let t = d["target"] as? String else { return }
+    var list = inbox[t] ?? []
+    let start = min(max(d["start"] as? Int ?? 0, 0), list.count)
+    let n = min(max(d["removedCount"] as? Int ?? 0, 0), list.count - start)
+    list.replaceSubrange(start..<start + n, with: d["inserted"] as? [J] ?? [])
+    inbox[t] = list
+}
+
 /// "model · effort" from a DSH model selection ({provider, model, reasoningEffort}).
 func modelLabel(_ s: J?) -> String? {
     guard let m = s?["model"] as? String else { return nil }
     return [m, s?["reasoningEffort"] as? String].compactMap { $0 }.joined(separator: " · ")
+}
+
+/// Whether a shown "model · effort" label is this model (and effort, when given); drives the menu checkmarks.
+func modelMatches(_ shown: String?, _ model: String, _ effort: String? = nil) -> Bool {
+    guard let shown else { return false }
+    if let effort { return shown == model + " · " + effort }
+    return shown == model || shown.hasPrefix(model + " · ")
 }
 
 func compactJSON(_ v: Any?, limit: Int = 300) -> String {
@@ -129,8 +170,14 @@ struct Line: Identifiable {
     let id = UUID(); let kind: Kind; let text: String
 }
 
+/// DSH TodoItem: status is pending | in_progress | completed.
+struct Todo: Equatable { let content: String, status: String }
+func parseTodos(_ v: Any?) -> [Todo]? {
+    (v as? [J])?.compactMap { t in (t["content"] as? String).map { Todo(content: $0, status: t["status"] as? String ?? "pending") } }
+}
+
 struct Sess: Identifiable {
-    let id: String, title: String, cwd: String, parent: String?, running: Bool, preset: String?, model: String?, context: Double?
+    let id: String, title: String, cwd: String, parent: String?, running: Bool, preset: String?, model: String?, context: Double?, permission: String?, todos: [Todo]?, updated: Date?
     init?(_ j: J) {
         guard let id = j["sessionId"] as? String else { return nil }
         let p = (j["projections"] as? J)?["values"] as? J
@@ -138,6 +185,9 @@ struct Sess: Identifiable {
         // shortcut: parent read from list item or subagent projection, both unverified live (no subagent sessions seen); check once a subagent runs.
         cwd = j["cwd"] as? String ?? ""; parent = (j["parentSessionId"] ?? (p?["subagent"] as? J)?["parentSessionId"]) as? String
         running = j["running"] as? Bool ?? false; preset = p?["agentPreset"] as? String
+        updated = (j["updatedAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
+        permission = (p?["permissions"] as? J)?["currentValue"] as? String
+        todos = parseTodos(p?["todos"])
         let ms = p?["modelSelection"] as? J
         model = modelLabel((ms?["next"] as? J) ?? (ms?["lastUsed"] as? J))
         let cp = p?["contextPressure"] as? J, used = (cp?["projectedTokens"] as? NSNumber)?.doubleValue, win = (cp?["contextWindow"] as? NSNumber)?.doubleValue
@@ -185,6 +235,9 @@ struct Goal {
         rounds = j["roundsStarted"] as? Int ?? 0; max = j["maxGoalRounds"] as? Int ?? 0
         blocked = (j["blockedReason"] as? J)?["message"] as? String
     }
+    var paused: Bool { phase == "paused" }
+    /// "paused · 2/10" for the conversation's goal card.
+    var summary: String { [phase, max > 0 ? "\(rounds)/\(max)" : rounds > 0 ? "\(rounds)" : ""].filter { !$0.isEmpty }.joined(separator: " · ") }
 }
 
 // MARK: - Keychain: one item holding the pairing (token included), this device only.
@@ -249,7 +302,14 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var archived: [String] = []
     @Published var commands: [Cmd] = []
     @Published var presets: [Preset] = []
+    @Published var perms: [Preset] = [] // permissionPresets/catalog options (id = value)
+    @Published var skills: [Cmd] = []
+    @Published var liveTodos: [Todo]? // latest todo/write in the follow stream; nil = not seen yet
+    var shownTodos: [Todo] { liveTodos ?? currentSess?.todos ?? [] }
     @Published var goal: Goal?
+    /// Pending prompts (DSH inbox): "next-turn" waits for the running turn, "next-step" is steering.
+    @Published var inbox: [String: [J]] = [:]
+    var queued: [J] { (inbox["next-step"] ?? []) + (inbox["next-turn"] ?? []) }
     @Published var prompts: [Prompt] = []
     @Published var found: [String: Found] = [:]
     enum Route { case lan, tailscale }
@@ -279,9 +339,19 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     var shownModel: String? { model ?? currentSess?.model ?? defaultModel }
     func title(_ id: String) -> String { sessions.first { $0.id == id }?.title ?? String(id.prefix(8)) }
 
+    /// Unsent composer text per session, kept across navigation and app restarts (text only).
+    func draft(_ sid: String?) -> String { (UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String])?[sid ?? ""] ?? "" }
+    func setDraft(_ t: String, _ sid: String?) {
+        guard let sid else { return }
+        var d = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:]
+        d[sid] = t.isEmpty ? nil : t
+        UserDefaults.standard.set(d, forKey: "drafts")
+    }
+
     /// Sidebar order like desktop DSH: pinned, one section per project, unassigned, archived.
     func sessionGroups() -> [(title: String, items: [Sess])] {
-        let roots = sessions.filter { $0.parent == nil }
+        // newest activity first inside each group, like the desktop sidebar; pinned keeps the user's pin order
+        let roots = sessions.filter { $0.parent == nil }.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
         let rest = roots.filter { !pinned.contains($0.id) && !archived.contains($0.id) }
         var out = [(String(localized: "Pinned"), pinned.compactMap { id in roots.first { $0.id == id } })]
         var used = Set<String>()
@@ -492,6 +562,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             if let e = v["event"] as? String, ["api-session/added", "api-session/removed", "api-session/status", "agent-preset/selected"].contains(e) {
                 Task { try? await loadSessions() }
             }
+            if v["event"] as? String == "goal/activation-changed" { Task { await loadGoal() } }
         default: break
         }
     }
@@ -519,10 +590,10 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     func follow(_ sid: String) {
         if sid == current, followId != nil { return } // re-opening the live session keeps its stream and transcript
         if let old = followId { send(["type": "cancel", "streamId": old]) }
-        current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; model = nil; goal = nil
+        current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
         running = currentSess?.running ?? false
         openFollow(sid)
-        Task { await loadCommands() }
+        Task { await loadCommands(); await loadGoal() }
     }
 
     private func openFollow(_ sid: String) {
@@ -535,7 +606,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         switch v["type"] as? String {
         case "snapshot":
             // shortcut: only the snapshot window is shown (hasMore is ignored); page older history via session/page if long sessions need it.
-            transcript = []; streaming = ""; reasoning = ""
+            transcript = []; streaming = ""; reasoning = ""; inbox = [:]; liveTodos = nil
             for r in v["records"] as? [J] ?? [] { if let e = r["event"] as? J { apply(e) } }
         case "event": if let e = v["event"] as? J { apply(e) }
         case "assistant-stream":
@@ -582,10 +653,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             let bad = m?["isError"] as? Bool == true || d["error"] != nil
             transcript.append(Line(kind: bad ? .error : .result, text: String(contentText(m?["content"]).prefix(600))))
         case "turn/start": running = true
+        case "agent/inbox/spliced": applySplice(&inbox, d)
+        case "todo/write": liveTodos = parseTodos(d["todos"]) ?? []
         case "turn/end":
             if let m = ((d["reason"] as? J)?["error"] as? J)?["message"] as? String { transcript.append(Line(kind: .error, text: m)) }
             if running { notify(String(localized: "Turn finished"), currentSess?.title ?? "") }
             running = false
+            if goal != nil { Task { await loadGoal() } } // rounds / phase move per turn
         default: break
         }
     }
@@ -657,6 +731,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     func stop() async throws { if let sid = current { _ = try await rpc("session/cancel", ["request": ["sessionId": sid]]) } }
 
+    /// Queue edits like desktop's QueueDock: action is ["kind": "edit", "content": …] / ["kind": "remove"] / ["kind": "steer"].
+    func updateQueue(_ itemId: String, _ action: J) async throws {
+        guard let sid = current else { return }
+        _ = try await rpc("session/updateQueue", ["request": ["sessionId": sid, "itemId": itemId, "action": action]])
+    }
+
     func loadCatalog() async throws {
         let v = try await rpc("session/modelCatalog") as? J
         defaultModel = modelLabel(v?["default"] as? J)
@@ -682,15 +762,32 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
                 (p["id"] as? String).map { Preset(id: $0, name: p["name"] as? String ?? $0, desc: p["description"] as? String, broken: p["broken"] as? Bool ?? false) }
             }
         }
+        if let v = try? await rpc("permissionPresets/catalog") as? J {
+            perms = (v["options"] as? [J] ?? []).compactMap { o in
+                (o["value"] as? String).map { Preset(id: $0, name: o["name"] as? String ?? $0, desc: o["description"] as? String, broken: false) }
+            }
+        }
+        skills = []
+        if let sid = current, let v = try? await rpc("skills/list", ["request": ["sessionId": sid]]) as? J {
+            skills = (v["skills"] as? [J] ?? []).compactMap { s in (s["name"] as? String).map { Cmd(name: $0, desc: s["description"] as? String ?? "", hint: nil) } }
+        }
         await loadGoal()
     }
+
+    /// Same path as desktop's /permission popup; refresh so Sess.permission picks up the new currentValue.
+    func selectPermission(_ v: String) async throws { try await execute("/permission \(v)"); try await loadSessions() }
 
     func selectPreset(_ id: String) async throws {
         guard let sid = current else { return }
         _ = try await rpc("agentPresets/select", ["agentId": sid, "agentPreset": id]); try await loadSessions()
     }
 
-    func loadGoal() async { goal = nil; if let sid = current { goal = Goal(try? await rpc("goals/get", ["agentId": sid])) } }
+    /// Only writes if the user is still on the same session, so a slow reply never shows another session's goal.
+    func loadGoal() async {
+        guard let sid = current else { goal = nil; return }
+        let g = Goal(try? await rpc("goals/get", ["agentId": sid]))
+        if current == sid { goal = g }
+    }
 
     func createGoal(_ objective: String) async throws {
         guard let sid = current else { return }

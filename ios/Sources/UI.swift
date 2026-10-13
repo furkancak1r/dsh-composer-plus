@@ -87,7 +87,7 @@ struct PairView: View {
             Form {
                 Section {
                     Button { scanning = true } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
-                } footer: { Text("Where's the code? On your Mac, with DSH running, open http://127.0.0.1:19391 in a browser. The QR code is on that page; after scanning, click Approve there.") }
+                } footer: { Text("Where's the code? In DeepSeek Harness on your Mac, click Mobile connect at the bottom left (or open http://127.0.0.1:19391). Scan the QR code there, then click Approve.") }
                 Section("Or paste the pairing code") {
                     TextField("{\"v\":1,…}", text: $pasted, axis: .vertical).font(.caption.monospaced()).autocorrectionDisabled().textInputAutocapitalization(.never)
                     Button("Pair") { use(pasted) }.disabled(pasted.isEmpty)
@@ -161,6 +161,11 @@ struct ConversationView: View {
     @State private var images: [Data] = []
     @State private var atBottom = true
     @State private var creating = false
+    @State private var editing: J?
+    @State private var editText = ""
+    @State private var showTodos = false
+    @State private var renaming = false
+    @State private var newTitle = ""
     @FocusState private var focused: Bool
     var body: some View {
         transcript
@@ -171,17 +176,44 @@ struct ConversationView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { ConnBadge() }
                 ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
+                // desktop's session menu: tap the title for rename / fork / pin / archive
+                ToolbarTitleMenu {
+                    if let id = c.current {
+                        Button { newTitle = c.currentSess?.title ?? ""; renaming = true } label: { Label("Rename", systemImage: "pencil") }
+                        Button { c.run { try await c.fork(id) } } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
+                        Button { c.run { try await c.togglePin(id) } } label: { Label(c.pinned.contains(id) ? String(localized: "Unpin") : String(localized: "Pin"), systemImage: "pin") }
+                        Button(role: .destructive) { let was = c.archived.contains(id); c.run { try await c.toggleArchive(id); if !was { c.path = [] } } } label: { Label(c.archived.contains(id) ? String(localized: "Unarchive") : String(localized: "Archive"), systemImage: "archivebox") }
+                    }
+                }
             }
             .sheet(isPresented: $creating) { NewSessionSheet() }
+            .alert("Rename session", isPresented: $renaming) {
+                TextField("Title", text: $newTitle)
+                Button("Save") { if let id = c.current { let t = newTitle; c.run { try await c.rename(id, t) } } }
+                Button("Cancel", role: .cancel) {}
+            }
+            // per-session draft: going back or switching sessions never loses typed text
+            .onAppear { text = c.draft(c.current) }
+            .onChange(of: c.current) { text = c.draft(c.current) }
+            .onChange(of: text) { c.setDraft(text, c.current) }
+            .alert("Edit queued message", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
+                TextField("Message", text: $editText, axis: .vertical)
+                Button("Save") {
+                    guard let id = editing?["id"] as? String else { return }
+                    let t = editText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    c.run { try await c.updateQueue(id, t.isEmpty ? ["kind": "remove"] : ["kind": "edit", "content": [["type": "text", "text": t]]]) }
+                }
+                Button("Cancel", role: .cancel) {}
+            }
     }
 
     var transcript: some View {
         ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
-                        ForEach(c.transcript) { LineView(line: $0) }
+                        ForEach(c.transcript) { LineView(line: $0, onEdit: { text = $0; focused = true }) }
                         if !c.reasoning.isEmpty { LineView(line: Line(kind: .reasoning, text: c.reasoning), live: true) }
-                        if !c.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: c.streaming)) }
+                        if !c.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: c.streaming), live: true) }
                         if c.running && c.streaming.isEmpty && c.reasoning.isEmpty {
                             HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Working…") }.font(.footnote).foregroundStyle(.secondary)
                         }
@@ -207,6 +239,9 @@ struct ConversationView: View {
                 // composer pinned via safeAreaInset so keyboard/tab switches never leave it floating mid-screen
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 0) {
+                        if let g = c.goal { goalCard(g) }
+                        if c.shownTodos.contains(where: { $0.status != "completed" }) { todoCard }
+                        if !c.queued.isEmpty { queueDock }
                         if !suggestions.isEmpty { suggestionList }
                         composer
                         statusLine
@@ -259,6 +294,92 @@ struct ConversationView: View {
 
     var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty }
 
+    /// Desktop goal bar: objective + phase/rounds, actions in a menu.
+    func goalCard(_ g: Goal) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: g.paused ? "pause.circle" : "target").font(.caption).foregroundStyle(g.blocked != nil ? Color.orange : Color.accentColor)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(g.objective).font(.footnote).lineLimit(1)
+                Text(g.blocked ?? g.summary).font(.caption2).foregroundStyle(g.blocked != nil ? Color.orange : Color.secondary).lineLimit(1)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            Menu {
+                if g.paused { Button { goal("resume") } label: { Label("Resume", systemImage: "play") } }
+                else { Button { goal("pause") } label: { Label("Pause", systemImage: "pause") } }
+                Button { goal("complete") } label: { Label("Complete", systemImage: "checkmark") }
+                Button(role: .destructive) { goal("clear") } label: { Label("Clear", systemImage: "xmark") }
+            } label: { Image(systemName: "ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }
+            .accessibilityLabel("Goal actions")
+        }
+        .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 4)
+        .background(Color(.secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 10).padding(.top, 6)
+        .accessibilityElement(children: .contain).accessibilityLabel(Text("Goal: \(g.objective)"))
+    }
+
+    func goal(_ verb: String) { c.run { try await c.goalAction(verb) } }
+
+    /// Desktop todo list: collapsed to "done/total · current task", tap to expand.
+    var todoCard: some View {
+        let todos = c.shownTodos
+        let done = todos.filter { $0.status == "completed" }.count
+        let current = todos.first { $0.status == "in_progress" } ?? todos.first { $0.status != "completed" }
+        return VStack(alignment: .leading, spacing: 6) {
+            Button { withAnimation(.snappy) { showTodos.toggle() } } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "checklist").font(.caption).foregroundStyle(.secondary)
+                    Text("\(done)/\(todos.count)").font(.footnote.monospacedDigit().weight(.semibold))
+                    Text(current?.content ?? "").font(.footnote).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: "chevron.up").font(.caption2.weight(.semibold)).foregroundStyle(.tertiary).rotationEffect(.degrees(showTodos ? 180 : 0))
+                }.contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(Text("Tasks \(done) of \(todos.count) done"))
+            if showTodos {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(Array(todos.enumerated()), id: \.offset) { _, t in
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Image(systemName: t.status == "completed" ? "checkmark.circle.fill" : t.status == "in_progress" ? "circle.dotted" : "circle")
+                                    .font(.caption).foregroundStyle(t.status == "completed" ? Color.green : t.status == "in_progress" ? Color.accentColor : Color.secondary)
+                                Text(t.content).font(.footnote).strikethrough(t.status == "completed")
+                                    .foregroundStyle(t.status == "completed" ? .secondary : .primary).frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .accessibilityElement(children: .combine)
+                        }
+                    }
+                }.frame(maxHeight: 180)
+            }
+        }
+        .padding(.horizontal, 14).padding(.vertical, 8)
+        .background(Color(.secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 10).padding(.top, 6)
+    }
+
+    /// Desktop QueueDock: messages typed while a turn runs wait here; send now (steer), edit or remove them.
+    var queueDock: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(c.queued.enumerated()), id: \.offset) { _, item in
+                let id = item["id"] as? String ?? ""
+                let steering = c.inbox["next-step"]?.contains { $0["id"] as? String == id } == true
+                HStack(spacing: 8) {
+                    Image(systemName: steering ? "arrow.turn.down.right" : "clock").font(.caption).foregroundStyle(.secondary)
+                    Text(contentText(item["content"])).font(.footnote).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    Menu {
+                        if !steering { Button { c.run { try await c.updateQueue(id, ["kind": "steer"]) } } label: { Label("Send now", systemImage: "arrow.up") } }
+                        Button { editText = contentText(item["content"]); editing = item } label: { Label("Edit", systemImage: "pencil") }
+                        Button(role: .destructive) { c.run { try await c.updateQueue(id, ["kind": "remove"]) } } label: { Label("Remove", systemImage: "trash") }
+                    } label: { Image(systemName: "ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }
+                    .accessibilityLabel("Queued message actions")
+                }
+                .padding(.horizontal, 14).padding(.vertical, 4)
+            }
+        }
+        .padding(.vertical, 4)
+        .background(Color(.secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 10).padding(.top, 6)
+        .accessibilityElement(children: .contain).accessibilityLabel("Queued messages")
+    }
+
     /// Codex-style card: text on top, attach · model chip · send/stop on one row below.
     var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -276,6 +397,7 @@ struct ConversationView: View {
                 .buttonStyle(.plain)
                     .accessibilityLabel("Attach image")
                 ModelMenu()
+                PermMenu()
                 Spacer(minLength: 0)
                 if c.running && canSend { roundButton("arrow.up", action: send).accessibilityLabel("Send now") }
                 if c.running { roundButton("stop.fill") { c.run { try await c.stop() } }.accessibilityLabel("Stop") }
@@ -329,11 +451,14 @@ struct LineView: View {
     @EnvironmentObject var c: Client
     let line: Line
     var live = false
+    var onEdit: ((String) -> Void)? = nil
     @State private var open = false
+    @State private var copied = false
     var body: some View {
         content.contextMenu {
             Button { UIPasteboard.general.string = line.text } label: { Label("Copy", systemImage: "doc.on.doc") }
             if line.kind == .user {
+                if let onEdit { Button { onEdit(line.text) } label: { Label("Edit", systemImage: "pencil") } }
                 Button { let t = line.text; c.run { try await c.prompt(t, images: [], steer: c.running) } } label: { Label("Resend", systemImage: "arrow.clockwise") }
             }
         }
@@ -342,7 +467,20 @@ struct LineView: View {
         switch line.kind {
         case .user:
             HStack { Spacer(minLength: 48); Text(line.text).textSelection(.enabled).padding(.horizontal, 14).padding(.vertical, 10).background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
-        case .assistant: Markdown(text: line.text).frame(maxWidth: .infinity, alignment: .leading)
+        case .assistant:
+            VStack(alignment: .leading, spacing: 6) {
+                Markdown(text: line.text).frame(maxWidth: .infinity, alignment: .leading)
+                if !live {
+                    Button {
+                        UIPasteboard.general.string = line.text; UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                        copied = true
+                        Task { try? await Task.sleep(for: .seconds(1.5)); copied = false }
+                    } label: {
+                        Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.caption).foregroundStyle(.secondary).frame(width: 32, height: 28).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain).accessibilityLabel(copied ? "Copied" : "Copy")
+                }
+            }
         case .reasoning:
             DisclosureGroup(isExpanded: $open) {
                 Text(line.text).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
@@ -379,7 +517,12 @@ struct Markdown: View {
                     .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(.separator).opacity(0.5)))
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(b.text.components(separatedBy: "\n").enumerated()), id: \.offset) { _, l in MdLineView(line: mdLine(l)) }
+                        ForEach(Array(mdParts(b.text).enumerated()), id: \.offset) { _, p in
+                            switch p {
+                            case .line(let l): MdLineView(line: mdLine(l))
+                            case .table(let rows): MdTable(rows: rows)
+                            }
+                        }
                     }.textSelection(.enabled)
                 }
             }
@@ -387,9 +530,35 @@ struct Markdown: View {
     }
 }
 
+func mdInline(_ s: String) -> Text { Text((try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)) }
+
+/// GitHub-style table: first row is the header; short rows are padded with empty cells.
+struct MdTable: View {
+    let rows: [[String]]
+    var body: some View {
+        if let head = rows.first {
+            let w = rows.map(\.count).max() ?? head.count
+            ScrollView(.horizontal) {
+                Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
+                    ForEach(Array(rows.enumerated()), id: \.offset) { i, r in
+                        GridRow {
+                            ForEach(0..<w, id: \.self) { j in
+                                mdInline(j < r.count ? r[j] : "").font(i == 0 ? .footnote.weight(.semibold) : .footnote)
+                            }
+                        }
+                        if i == 0 && rows.count > 1 { Divider() }
+                    }
+                }
+            }
+            .padding(10).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(.separator).opacity(0.5)))
+        }
+    }
+}
+
 struct MdLineView: View {
     let line: MdLine
-    func inline(_ s: String) -> Text { Text((try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)) }
+    func inline(_ s: String) -> Text { mdInline(s) }
     var body: some View {
         switch line {
         case .heading(let n, let s): inline(s).font(n == 1 ? .title3.bold() : n == 2 ? .headline : .subheadline.bold()).padding(.top, 4).accessibilityAddTraits(.isHeader)
@@ -410,8 +579,11 @@ struct ModelMenu: View {
             ForEach(c.catalog) { g in
                 Section(g.name) {
                     ForEach(g.models) { m in
-                        if m.efforts.isEmpty { Button(m.name) { c.run { try await c.selectModel(g.id, m.id, nil) } } }
-                        else { Menu(m.name) { ForEach(m.efforts, id: \.self) { e in Button(e) { c.run { try await c.selectModel(g.id, m.id, e) } } } } }
+                        if m.efforts.isEmpty { Button { c.run { try await c.selectModel(g.id, m.id, nil) } } label: { pick(m.name, modelMatches(c.shownModel, m.id)) } }
+                        else {
+                            Menu { ForEach(m.efforts, id: \.self) { e in Button { c.run { try await c.selectModel(g.id, m.id, e) } } label: { pick(e, modelMatches(c.shownModel, m.id, e)) } } }
+                            label: { pick(m.name, modelMatches(c.shownModel, m.id)) }
+                        }
                     }
                 }
             }
@@ -423,6 +595,34 @@ struct ModelMenu: View {
         }
         .accessibilityLabel(Text("Model"))
         .onAppear { if c.catalog.isEmpty { c.run { try await c.loadCatalog() } } }
+    }
+    @ViewBuilder func pick(_ t: String, _ on: Bool) -> some View { if on { Label(t, systemImage: "checkmark") } else { Text(t) } }
+}
+
+/// Codex-style permission chip next to the model; risky levels still go through a confirm.
+struct PermMenu: View {
+    @EnvironmentObject var c: Client
+    @State private var risky: Preset?
+    var body: some View {
+        let cur = c.currentSess?.permission
+        Menu {
+            ForEach(c.perms) { p in
+                Button { if ["danger-full-access", "auto"].contains(p.id) { risky = p } else { c.run { try await c.selectPermission(p.id) } } } label: {
+                    if cur == p.id { Label(p.name, systemImage: "checkmark") } else { Text(p.name) }
+                }
+            }
+            if c.perms.isEmpty { Text("Loading…") }
+        } label: {
+            Image(systemName: cur == "danger-full-access" ? "exclamationmark.shield" : cur == "read-only" ? "lock.shield" : "shield")
+                .font(.footnote.weight(.medium)).foregroundStyle(cur == "danger-full-access" ? Color.orange : Color.secondary)
+                .frame(width: 32, height: 32).background(Color(.tertiarySystemFill), in: Circle())
+        }
+        .accessibilityLabel(Text("Permissions"))
+        .accessibilityValue(Text(c.perms.first { $0.id == cur }?.name ?? ""))
+        .confirmationDialog(Text("Give the agent \(risky?.name ?? "")?"), isPresented: Binding(get: { risky != nil }, set: { if !$0 { risky = nil } }), titleVisibility: .visible, presenting: risky) { p in
+            Button("Allow", role: .destructive) { c.run { try await c.selectPermission(p.id) } }
+        } message: { _ in Text("It can change files and run commands anywhere on your Mac without asking.") }
+        .onAppear { if c.perms.isEmpty { Task { await c.loadAgents() } } }
     }
 }
 
@@ -493,8 +693,11 @@ struct SessionsView: View {
                     if c.pinned.contains(s.id) { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.orange) }
                     Text(s.title).foregroundStyle(.primary).lineLimit(1)
                 }
-                Text([s.model, (s.cwd as NSString).lastPathComponent].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                HStack(spacing: 0) {
+                    Text([s.model, (s.cwd as NSString).lastPathComponent].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                    if let d = s.updated { Text(" · ") + Text(d, format: .relative(presentation: .named, unitsStyle: .abbreviated)) }
+                }
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
             if s.running { Circle().fill(.green).frame(width: 8, height: 8).accessibilityLabel("Running") }
@@ -555,6 +758,7 @@ struct NewSessionSheet: View {
 struct AgentsView: View {
     @EnvironmentObject var c: Client
     @State private var objective = ""
+    @State private var risky: Preset? // desktop confirms before full access / auto
     var body: some View {
         NavigationStack {
             List {
@@ -568,6 +772,18 @@ struct AgentsView: View {
                                 }
                             }.disabled(p.broken)
                         }
+                    }
+                    if !c.perms.isEmpty {
+                        Section {
+                            ForEach(c.perms) { p in
+                                Button { if ["danger-full-access", "auto"].contains(p.id) { risky = p } else { c.run { try await c.selectPermission(p.id) } } } label: {
+                                    HStack {
+                                        VStack(alignment: .leading) { Text(p.name); if let d = p.desc { Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
+                                        Spacer(); if s.permission == p.id { Image(systemName: "checkmark") }
+                                    }
+                                }
+                            }
+                        } header: { Text("Permissions") } footer: { Text("What the agent may do on your Mac without asking.") }
                     }
                     Section("Goal") {
                         if let g = c.goal {
@@ -597,11 +813,21 @@ struct AgentsView: View {
                             }
                         }
                     }
+                    if !c.skills.isEmpty {
+                        Section("Skills") {
+                            ForEach(c.skills) { k in
+                                VStack(alignment: .leading, spacing: 2) { Text(k.name).font(.body.monospaced()); if !k.desc.isEmpty { Text(k.desc).font(.caption).foregroundStyle(.secondary).lineLimit(3) } }
+                            }
+                        }
+                    }
                 } else {
                     ContentUnavailableView("No session", systemImage: "person.2", description: Text("Open a session to manage its agents."))
                 }
             }
             .navigationTitle("Agents")
+            .confirmationDialog(Text("Give the agent \(risky?.name ?? "")?"), isPresented: Binding(get: { risky != nil }, set: { if !$0 { risky = nil } }), titleVisibility: .visible, presenting: risky) { p in
+                Button("Allow", role: .destructive) { c.run { try await c.selectPermission(p.id) } }
+            } message: { _ in Text("It can change files and run commands anywhere on your Mac without asking.") }
             .toolbar { ToolbarItem(placement: .topBarLeading) { ConnBadge() } }
             .refreshable { await c.loadAgents() }
             .task(id: c.current) { await c.loadAgents() }
