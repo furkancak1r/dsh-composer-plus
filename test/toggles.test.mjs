@@ -13,7 +13,7 @@ function boot(){
     inject:(deps,setup)=>{const id=deps.join(',');scopes.add(id);
       setup({effect:()=>{},uiSession:{sessionStatus:{getSnapshot:()=>new Map(),subscribe:()=>()=>{}}},sessions:{list:{getSnapshot:()=>({}),subscribe:()=>()=>{}}},
         uiWorkspace:{},workspaces:{list:{getSnapshot:()=>undefined,subscribe:()=>()=>{}}},sidebarRight:{},sidebarRightTabs:{register:()=>()=>{}}});
-      return()=>scopes.delete(id);}};
+      return{dispose:()=>scopes.delete(id)};}}; // real Cordis returns a fiber
   plugin.apply(ctx);
   const ids=()=>[...live.values()].map(o=>o.id??o.key).sort();
   const settings=[...live.values()].find(o=>o.id==='composer-plus');

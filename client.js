@@ -887,7 +887,7 @@ window.__ModuleLoader__.load({
             'feature.projectStatus': 'Project status',
             'feature.projectStatus.description': 'Show the running / waiting / done marker of a project\'s chats on the project row.',
             'feature.activeProjectsFirst': 'Active projects first',
-            'feature.activeProjectsFirst.description': 'Move a project to the top of the sidebar when one of its chats runs or needs you.',
+            'feature.activeProjectsFirst.description': 'Move a project to the top of the sidebar when one of its chats runs or needs you. Moves are saved; turning this off keeps the current order.',
             'feature.notifications': 'Background notifications',
             'feature.notifications.description': 'Notify when a chat finishes or needs you while dsh is in the background, with a Dock badge.',
             'feature.allowForChat': 'Allow for this chat',
@@ -954,7 +954,7 @@ window.__ModuleLoader__.load({
             'feature.projectStatus': '项目状态',
             'feature.projectStatus.description': '在项目行上显示其对话的进行中 / 等待 / 完成标记。',
             'feature.activeProjectsFirst': '活跃项目置顶',
-            'feature.activeProjectsFirst.description': '当项目中的对话正在运行或需要你处理时，将该项目移到侧边栏顶部。',
+            'feature.activeProjectsFirst.description': '当项目中的对话正在运行或需要你处理时，将该项目移到侧边栏顶部。移动会被保存；关闭此项后保留当前顺序。',
             'feature.notifications': '后台通知',
             'feature.notifications.description': 'dsh 在后台时，对话完成或需要你处理时发出通知，并显示程序坞角标。',
             'feature.allowForChat': '本对话内允许',
@@ -1019,7 +1019,12 @@ window.__ModuleLoader__.load({
           id: 'project-status',
           locale: LOCALE_NS,
         }, ProjectStatusMarkers))]);
-        const injectScope = (deps, setup) => (ctx.inject === undefined ? [] : [ctx.inject(deps, setup)]);
+        // ctx.inject returns a Cordis fiber, not a disposer.
+        const injectScope = (deps, setup) => {
+          if (ctx.inject === undefined) return [];
+          const fiber = ctx.inject(deps, setup);
+          return [() => fiber.dispose()];
+        };
         feature('notifications', () => injectScope(['uiSession', 'uiWorkspace', 'sessions'], (scope) => {
           const t = ctx.locale.bind(LOCALE_NS);
           scope.effect(() => watchAttention(scope.uiSession.sessionStatus, scope.sessions.list, t,

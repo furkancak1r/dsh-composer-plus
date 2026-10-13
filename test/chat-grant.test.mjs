@@ -14,7 +14,7 @@ const status={getSnapshot:()=>snap,subscribe:l=>{listeners.add(l);return()=>list
 const publish=m=>{snap=m;for(const l of [...listeners])l();};
 const dicts={};
 plugin.apply({effect:f=>{const d=f();if(d)unloads.push(d);},locale:{register:(ns,d)=>{dicts[ns]=d;return()=>{};}},
- inject:(names,cb)=>{if(!(names.length===1&&names[0]==='uiSession'))return;cb({uiSession:{sessionStatus:status},effect:f=>{const d=f();unloads.push(d);}});},
+ inject:(names,cb)=>{if(names.length===1&&names[0]==='uiSession')cb({uiSession:{sessionStatus:status},effect:f=>{const d=f();unloads.push(d);}});return{dispose(){}};},
  slots:{inject:(n,f)=>f(),register:(o,C)=>{regs.push([o,C]);return()=>{};}}});
 const [opt,Grants]=regs.find(([o])=>o.id==='chat-tool-grants');assert.equal(opt.name,'conversation.session.header.utilities');
 const en=dicts[opt.locale].en;assert.deepEqual(Object.keys(dicts[opt.locale].en).sort(),Object.keys(dicts[opt.locale].zh).sort());
@@ -54,7 +54,7 @@ for(const d of unloads)d();const a10=ask('s4',LIVE);publish(new Map([['s4',{pend
   const p2=mod2.factory(n=>n==='react'?React:n==='react-dom'?{createPortal:(el,host,key)=>({portal:el,host,key})}:{Button:'Button'});
   store={sR:[LIVE]};let ls2=new Set();let snap2=new Map();
   const st2={getSnapshot:()=>snap2,subscribe:l=>{ls2.add(l);return()=>ls2.delete(l);}};
-  const regs2=[];p2.apply({effect:f=>{f();},locale:{register:()=>()=>{}},inject:(names,cb)=>{if(names.length===1&&names[0]==='uiSession')cb({uiSession:{sessionStatus:st2},effect:f=>{f();}});},slots:{inject:(n,f)=>f(),register:(o,C)=>{regs2.push([o,C]);return()=>{};}}});
+  const regs2=[];p2.apply({effect:f=>{f();},locale:{register:()=>()=>{}},inject:(names,cb)=>{if(names.length===1&&names[0]==='uiSession')cb({uiSession:{sessionStatus:st2},effect:f=>{f();}});return{dispose(){}};},slots:{inject:(n,f)=>f(),register:(o,C)=>{regs2.push([o,C]);return()=>{};}}});
   await tick();await tick();
   const a=ask('sR',LIVE);snap2=new Map([['sR',{pendingInteraction:a}]]);for(const l of [...ls2])l();await tick();
   assert.deepEqual(a.answers,['allowed-once'],'grant loaded from the Host survives a restart');
