@@ -19,10 +19,10 @@ struct Root: View {
     var body: some View {
         Group {
             if c.pairing == nil { PairView() } else {
-                TabView {
-                    SessionsView().tabItem { Label("Sessions", systemImage: "bubble.left.and.bubble.right") }
-                    AgentsView().tabItem { Label("Agents", systemImage: "person.2") }
-                    SettingsView().tabItem { Label("Settings", systemImage: "gear") }
+                TabView(selection: $c.tab) {
+                    SessionsView().tabItem { Label("Sessions", systemImage: "bubble.left.and.bubble.right") }.tag(0)
+                    AgentsView().tabItem { Label("Agents", systemImage: "person.2") }.tag(1)
+                    SettingsView().tabItem { Label("Settings", systemImage: "gear") }.tag(2)
                 }
                 .sheet(item: Binding(get: { c.prompts.first }, set: { _ in })) { PromptSheet(p: $0).interactiveDismissDisabled() }
             }
@@ -87,7 +87,7 @@ struct PairView: View {
             Form {
                 Section {
                     Button { scanning = true } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
-                } footer: { Text("Where's the code? In DeepSeek Harness on your Mac, click Mobile connect at the bottom left (or open http://127.0.0.1:19391). Scan the QR code there, then click Approve.") }
+                } footer: { Text(verbatim: String(localized: "Where's the code? In DeepSeek Harness on your Mac, click Mobile connect at the bottom left. Scan the QR code there, then click Approve.")) }
                 Section("Or paste the pairing code") {
                     TextField("{\"v\":1,…}", text: $pasted, axis: .vertical).font(.caption.monospaced()).autocorrectionDisabled().textInputAutocapitalization(.never)
                     Button("Pair") { use(pasted) }.disabled(pasted.isEmpty)
@@ -171,6 +171,7 @@ struct ConversationView: View {
     @State private var newTitle = ""
     @State private var goalEditing = false
     @State private var goalText = ""
+    @State private var loadingOlder = false
     @FocusState private var focused: Bool
     var body: some View {
         transcript
@@ -184,6 +185,7 @@ struct ConversationView: View {
                 // desktop's session menu: tap the title for rename / fork / pin / archive
                 ToolbarTitleMenu {
                     if let id = c.current {
+                        if let p = c.currentSess?.parent { Button { c.open(p) } label: { Label("Open parent session", systemImage: "arrow.turn.left.up") } }
                         Button { newTitle = c.currentSess?.title ?? ""; renaming = true } label: { Label("Rename", systemImage: "pencil") }
                         Button { editGoal() } label: { Label(c.goal == nil ? String(localized: "Set goal…") : String(localized: "Edit goal…"), systemImage: "target") }
                         Button { c.run { try await c.fork(id) } } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
@@ -227,6 +229,17 @@ struct ConversationView: View {
         ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
+                        if c.hasOlder {
+                            Button {
+                                loadingOlder = true
+                                c.run { defer { loadingOlder = false }; try await c.loadOlder() }
+                            } label: {
+                                HStack(spacing: 6) {
+                                    if loadingOlder { ProgressView().controlSize(.small) } else { Image(systemName: "arrow.up.circle") }
+                                    Text("Load earlier messages")
+                                }.font(.footnote).frame(maxWidth: .infinity)
+                            }.buttonStyle(.bordered).disabled(loadingOlder)
+                        }
                         ForEach(c.transcript) { LineView(line: $0, onEdit: { text = $0; focused = true }) }
                         if !c.reasoning.isEmpty { LineView(line: Line(kind: .reasoning, text: c.reasoning), live: true) }
                         if !c.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: c.streaming), live: true) }
@@ -837,7 +850,7 @@ struct SessionsView: View {
     }
     func pinLabel(_ s: Sess) -> String { c.pinned.contains(s.id) ? String(localized: "Unpin") : String(localized: "Pin") }
     func archiveLabel(_ s: Sess) -> String { c.archived.contains(s.id) ? String(localized: "Unarchive") : String(localized: "Archive") }
-    func open(_ id: String) { c.follow(id); c.path = [id] }
+    func open(_ id: String) { c.open(id) }
 }
 
 /// Pick a DSH project (workspace), a folder of a past session, or type a path.
@@ -845,7 +858,7 @@ struct NewSessionSheet: View {
     @EnvironmentObject var c: Client
     @Environment(\.dismiss) var dismiss
     @State private var custom = ""
-    // shortcut: extra folders come from the loaded session page only; fine until users have >1 page of sessions.
+    // Extra folders: cwds of all sessions (session/list is unpaged), minus the DSH projects already listed.
     var projects: [String] { var seen = Set(c.workspaces.map(\.path)); return c.sessions.map(\.cwd).filter { !$0.isEmpty && seen.insert($0).inserted } }
     var body: some View {
         NavigationStack {
@@ -938,7 +951,9 @@ struct AgentsView: View {
                         if kids.isEmpty { Text("None").foregroundStyle(.secondary) }
                         ForEach(kids) { k in
                             HStack {
-                                Text(k.title).lineLimit(1); Spacer()
+                                // tap the title to read the subagent's own transcript
+                                Button { c.open(k.id) } label: { Text(k.title).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }
+                                    .buttonStyle(.borderless).foregroundStyle(.primary).accessibilityHint("Opens its conversation")
                                 if k.running {
                                     ProgressView()
                                     Button { c.run { try await c.interrupt(k) } } label: { Image(systemName: "stop.circle") }.accessibilityLabel("Interrupt").buttonStyle(.borderless)

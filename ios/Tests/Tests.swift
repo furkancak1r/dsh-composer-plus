@@ -140,6 +140,32 @@ final class CoreTests: XCTestCase {
         XCTAssertNil(Client.subagentRequest(Sess(["sessionId": "root"])!, "x"))
     }
 
+    @MainActor func testOpenFromOtherTab() {
+        let c = Client()
+        c.tab = 1
+        c.open("x")
+        XCTAssertEqual(c.tab, 0)
+        XCTAssertEqual(c.path, ["x"])
+        XCTAssertEqual(c.current, "x")
+    }
+
+    @MainActor func testPrependHistoryKeepsLiveState() {
+        let c = Client()
+        c.transcript = [Line(kind: .user, text: "new")]; c.running = true; c.model = "deepseek-v4"
+        c.prependHistory([
+            ["type": "turn/start", "seq": 3, "data": J()],
+            ["type": "user/message", "seq": 4, "data": ["content": "old"]],
+            ["type": "request/context", "seq": 5, "data": ["model": "other"]],
+            ["type": "turn/end", "seq": 6, "data": J()],
+        ])
+        XCTAssertEqual(c.transcript.map(\.text), ["old", "new"])
+        XCTAssertTrue(c.running)
+        XCTAssertEqual(c.model, "deepseek-v4")
+        let r = Client.pageRequest("s", through: 9, before: 3)["request"] as? J
+        XCTAssertEqual(r?["beforeSeq"] as? Int, 3)
+        XCTAssertEqual(r?["throughSeq"] as? Int, 9)
+    }
+
     @MainActor func testReasoningSessionModelAndGroups() {
         XCTAssertTrue(modelMatches("deepseek-v4 · high", "deepseek-v4"))
         XCTAssertTrue(modelMatches("deepseek-v4 · high", "deepseek-v4", "high"))

@@ -313,6 +313,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var error: String?
     @Published var pairingStatus: String?
     @Published var path: [String] = [] // Sessions navigation stack; non-empty = conversation on screen
+    @Published var tab = 0 // 0 Sessions, 1 Agents, 2 Settings
     @Published var sessions: [Sess] = []
     @Published var current: String?
     @Published var transcript: [Line] = []
@@ -335,6 +336,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var liveTodos: [Todo]? // latest todo/write in the follow stream; nil = not seen yet
     var shownTodos: [Todo] { liveTodos ?? currentSess?.todos ?? [] }
     @Published var goal: Goal?
+    /// The follow snapshot is a window; true when DSH has earlier history to page in via session/page.
+    @Published var hasOlder = false
+    private var oldestSeq: Int?, throughSeq: Int?, replaying = false
     /// Pending prompts (DSH inbox): "next-turn" waits for the running turn, "next-step" is steering.
     @Published var inbox: [String: [J]] = [:]
     var queued: [J] { (inbox["next-step"] ?? []) + (inbox["next-turn"] ?? []) }
@@ -623,10 +627,14 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     // MARK: Conversation stream
 
+    /// Show a session's conversation from any tab (e.g. a subagent row in Agents).
+    func open(_ sid: String) { follow(sid); path = [sid]; tab = 0 }
+
     func follow(_ sid: String) {
         if sid == current, followId != nil { return } // re-opening the live session keeps its stream and transcript
         if let old = followId { send(["type": "cancel", "streamId": old]) }
         current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
+        hasOlder = false; oldestSeq = nil; throughSeq = nil
         running = currentSess?.running ?? false
         openFollow(sid)
         Task { await loadCommands(); await loadGoal() }
@@ -641,9 +649,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private func onFollow(_ v: J) {
         switch v["type"] as? String {
         case "snapshot":
-            // shortcut: only the snapshot window is shown (hasMore is ignored); page older history via session/page if long sessions need it.
             transcript = []; streaming = ""; reasoning = ""; inbox = [:]; liveTodos = nil
-            for r in v["records"] as? [J] ?? [] { if let e = r["event"] as? J { apply(e) } }
+            let events = (v["records"] as? [J] ?? []).compactMap { $0["event"] as? J }
+            events.forEach(apply)
+            oldestSeq = events.first?["seq"] as? Int; throughSeq = events.last?["seq"] as? Int
+            hasOlder = v["hasMore"] as? Bool == true && oldestSeq != nil
         case "event": if let e = v["event"] as? J { apply(e) }
         case "assistant-stream":
             let fr = v["frame"] as? J ?? [:]
@@ -696,17 +706,42 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         case "todo/write": liveTodos = parseTodos(d["todos"]) ?? []
         case "turn/end":
             if let m = ((d["reason"] as? J)?["error"] as? J)?["message"] as? String { transcript.append(Line(kind: .error, text: m)) }
-            if running { notify(String(localized: "Turn finished"), currentSess?.title ?? "") }
+            if running, !replaying { notify(String(localized: "Turn finished"), currentSess?.title ?? "") }
             running = false
-            if goal != nil { Task { await loadGoal() } } // rounds / phase move per turn
+            if goal != nil, !replaying { Task { await loadGoal() } } // rounds / phase move per turn
         default: break
         }
+    }
+
+    /// DSH desktop's history page shape: up to 500 messages, at least 2 whole turns.
+    static func pageRequest(_ sid: String, through: Int, before: Int) -> J {
+        ["request": ["address": ["kind": "session", "sessionId": sid], "throughSeq": through, "beforeSeq": before,
+                     "maxMessages": 500, "turnWindow": ["minMessages": 50, "minTurns": 2]]]
+    }
+
+    func loadOlder() async throws {
+        guard let sid = current, let before = oldestSeq, let through = throughSeq else { return }
+        let v = try await rpc("session/page", Self.pageRequest(sid, through: through, before: before)) as? J
+        guard current == sid, oldestSeq == before else { return } // session switched or snapshot replaced meanwhile
+        prependHistory((v?["records"] as? [J] ?? []).compactMap { $0["event"] as? J })
+        hasOlder = v?["hasMore"] as? Bool == true
+    }
+
+    /// Old events build lines only; live state (running, model, usage, todos, inbox, goal) stays as the snapshot left it.
+    func prependHistory(_ events: [J]) {
+        guard !events.isEmpty else { return }
+        let keep = (transcript, running, model, usage, liveTodos, inbox, goal)
+        replaying = true; transcript = []
+        events.forEach(apply)
+        replaying = false
+        transcript += keep.0; running = keep.1; model = keep.2; usage = keep.3; liveTodos = keep.4; inbox = keep.5; goal = keep.6
+        oldestSeq = events.first?["seq"] as? Int ?? oldestSeq
     }
 
     // MARK: Actions (wire shapes from the DSH host types)
 
     func loadSessions() async throws {
-        // shortcut: first page of session/list only; follow the cursor once users have hundreds of sessions.
+        // Remote session/list returns every visible session with no cursor (e2e asserts this).
         let v = try await rpc("session/list", ["_request": J()]) as? J
         sessions = (v?["items"] as? [J] ?? []).compactMap(Sess.init)
         if let s = currentSess, s.running != running, streaming.isEmpty { running = s.running }
@@ -716,13 +751,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         var r = J(); if let cwd, !cwd.isEmpty { r["cwd"] = cwd }; if let workspaceId { r["workspaceId"] = workspaceId }
         let v = try await rpc("session/create", ["request": r]) as? J
         try await loadSessions()
-        if let id = v?["sessionId"] as? String { follow(id); path = [id] }
+        if let id = v?["sessionId"] as? String { open(id) }
     }
 
     func fork(_ id: String) async throws {
         let v = try await rpc("session/fork", ["request": ["sessionId": id]]) as? J
         try await loadSessions()
-        if let n = v?["sessionId"] as? String { follow(n); path = [n] }
+        if let n = v?["sessionId"] as? String { open(n) }
     }
 
     // Pinned/archived lists come back through the workspace/follow stream.
@@ -795,14 +830,14 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         try await prompt(line.text, images: imgs, steer: running)
     }
 
-    // shortcut: never evicted, fine for one chat's images; switch to NSCache if memory warnings show up.
-    private var imageCache: [String: UIImage] = [:]
+    /// NSCache evicts under memory pressure, so long chats with many images can't grow memory unbounded.
+    private let imageCache = NSCache<NSString, UIImage>()
     /// Bytes of one image the current session references (desktop's readAttachment); cached per attachment id.
     func image(_ id: String) async -> UIImage? {
-        if let i = imageCache[id] { return i }
+        if let i = imageCache.object(forKey: id as NSString) { return i }
         guard let sid = current, let v = try? await rpc("session/attachment", ["request": ["sessionId": sid, "attachmentId": id]]) as? J,
               let b = v["data"] as? String, let d = Data(base64Encoded: b), let i = UIImage(data: d) else { return nil }
-        imageCache[id] = i
+        imageCache.setObject(i, forKey: id as NSString)
         return i
     }
 
