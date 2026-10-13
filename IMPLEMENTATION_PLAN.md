@@ -106,3 +106,8 @@ Live install (2026-10-13): installed after DSH_IDLE with backup; live client/ind
 - Continue fix: the wake marker is replaced in agent/pre-step by a fresh, hidden context message ("continue from where it stopped"). Root cause of the live 400: the stopped turn ended on an assistant message, so the request sent to Claude ended with an assistant turn, which Claude rejects. Typing "devam et" worked because it adds a user turn. E2E with a provider that rejects assistant-last requests: stop, HTTP error and mid-stream stop all resume, nothing shown in Chat.
 - Language selector: 30px pill, 13px text.
 - Shipped: GitHub main 4d64883 (CI green); live desktop plugin installed after DSH_IDLE (backup work/backup-before-v110-20261013-163213; desktop restart needed). npm 1.1.0 publish blocked on the account's one-time password (EOTP); package is ready (540 kB, 7 files).
+
+## 1.1.1 — notify only when the user is really needed (2026-10-13)
+- Cause: the notifier fired the moment an approval appeared. With Auto Review + "Allow for this chat", the reviewer denies, dsh shows the card, and the grant answers it within milliseconds (live logs: 18 of 31 approvals decided in 0.0 s). The user got "Approve …?" but found nothing in dsh.
+- Fix: a request notifies only if it is still open and answerable 1.5 s later (same request = same `key`); a delivered request notification is closed and its badge cleared once the request is answered or replaced.
+- Checks: test/notify.test.mjs (grace period, auto-answered silent, answerable=false silent, withdrawal, badge); real dsh 0.2.0-rc.2 + 0.2.1-alpha.2 with Auto Review and a denying fake reviewer: real wait notifies once and is withdrawn, granted repeat is silent. The same E2E fails on 1.1.0.

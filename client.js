@@ -574,9 +574,13 @@ window.__ModuleLoader__.load({
      * a question or a plan review. Built on dsh's own Session status (`running`, `pendingInteraction`);
      * clicking a notification focuses dsh and opens that chat. Uses the web Notification API, which the desktop
      * app permits. Nothing is shown while the dsh window is focused. */
+    /** Same request across snapshots: dsh may rebuild the object, but the key stays. */
+    const sameAsk = (a, b) => a === b || (a != null && b != null && a.key !== undefined && a.key === b.key);
+    /** Still waiting for the user: present, unchanged and not answered yet. */
+    const stillWaiting = (pending, current) => pending != null && sameAsk(pending, current?.pendingInteraction) && pending.answerable !== false;
     function attentionKind(previous, status) {
       const pending = status === undefined ? undefined : status.pendingInteraction;
-      if (pending !== undefined && pending !== null && (previous === undefined || previous.pendingInteraction !== pending)) {
+      if (pending !== undefined && pending !== null && (previous === undefined || !sameAsk(previous.pendingInteraction, pending))) {
         return pending.kind === 'approval' ? 'approval' : pending.kind === 'plan-review' ? 'planReview' : 'question';
       }
       // dsh sets `completionUnread` only for chats that are not open, so the open chat's finish is its running → idle edge.
@@ -607,42 +611,73 @@ window.__ModuleLoader__.load({
       const outline = sessionsList.getSnapshot().projectionsBySession?.[sessionId]?.values?.turnOutline;
       return Array.isArray(outline) && outline.length > 0 ? outline[outline.length - 1]?.response : undefined;
     };
+    /** Requests answered within this grace period never notify: "Allow for this chat" grants, Rewind and other
+     * plugins answer an approval in milliseconds, and a notification for a request that is already gone is noise. */
+    const ATTENTION_GRACE_MS = 1500;
     function watchAttention(status, sessionsList, t, open) {
       let last = status.getSnapshot();
+      /** Per chat: the delivered notification and the request it was for (undefined for "finished"). */
       const shown = new Map();
-      const notify = () => {
-        const next = status.getSnapshot();
-        const before = last;
-        last = next;
-        if (typeof Notification === 'undefined' || Notification.permission !== 'granted' || document.hasFocus()) return;
-        for (const [sessionId, current] of next) {
-          const kind = attentionKind(before.get(sessionId), current);
-          if (kind === null) continue;
-          const row = sessionsList.getSnapshot().byId[sessionId];
-          if (row !== undefined && row.origin === 'subagent') continue; // the parent chat reports for its children
-          const title = row === undefined ? 'DeepSeek Harness' : row.displayTitle;
-          shown.get(sessionId)?.close();
-          const body = attentionBody(kind, current.pendingInteraction, kind === 'done' ? replyOf(sessionsList, sessionId) : undefined, t);
-          const n = new Notification(title, { body, tag: `dsh:${sessionId}`, silent: false });
-          n.onclick = () => { window.focus(); open(sessionId); n.close(); unread.delete(sessionId); badge(); };
-          shown.set(sessionId, n);
-          unread.add(sessionId);
-        }
-        badge();
-      };
-      // Dock / taskbar badge: chats that notified while dsh was in the background. Cleared when dsh is focused.
+      /** Per chat: a request waiting out the grace period before it may notify. */
+      const waiting = new Map();
       const unread = new Set();
+      // Dock / taskbar badge: chats that notified while dsh was in the background. Cleared when dsh is focused.
       const badge = () => {
         try {
           if (unread.size === 0) navigator.clearAppBadge?.()?.catch?.(() => {});
           else navigator.setAppBadge?.(unread.size)?.catch?.(() => {});
         } catch { /* badges are best-effort */ }
       };
+      const deliver = (sessionId, kind, pending, current) => {
+        if (typeof Notification === 'undefined' || Notification.permission !== 'granted' || document.hasFocus()) return;
+        const row = sessionsList.getSnapshot().byId[sessionId];
+        if (row !== undefined && row.origin === 'subagent') return; // the parent chat reports for its children
+        const title = row === undefined ? 'DeepSeek Harness' : row.displayTitle;
+        shown.get(sessionId)?.notification.close();
+        const body = attentionBody(kind, current.pendingInteraction, kind === 'done' ? replyOf(sessionsList, sessionId) : undefined, t);
+        const notification = new Notification(title, { body, tag: `dsh:${sessionId}`, silent: false });
+        notification.onclick = () => { window.focus(); open(sessionId); notification.close(); shown.delete(sessionId); unread.delete(sessionId); badge(); };
+        shown.set(sessionId, { notification, pending });
+        unread.add(sessionId);
+        badge();
+      };
+      const notify = () => {
+        const next = status.getSnapshot();
+        const before = last;
+        last = next;
+        for (const [sessionId, entry] of [...waiting]) {
+          if (stillWaiting(entry.pending, next.get(sessionId))) continue;
+          clearTimeout(entry.timer); waiting.delete(sessionId);
+        }
+        // A request answered after its notification went out (here, elsewhere, or by a plugin): withdraw it.
+        for (const [sessionId, entry] of [...shown]) {
+          if (entry.pending === undefined || stillWaiting(entry.pending, next.get(sessionId))) continue;
+          entry.notification.close(); shown.delete(sessionId);
+          if (unread.delete(sessionId)) badge();
+        }
+        for (const [sessionId, current] of next) {
+          const kind = attentionKind(before.get(sessionId), current);
+          if (kind === null) continue;
+          if (kind === 'done') { deliver(sessionId, kind, undefined, current); continue; }
+          const pending = current.pendingInteraction;
+          clearTimeout(waiting.get(sessionId)?.timer);
+          const timer = setTimeout(() => {
+            waiting.delete(sessionId);
+            const latest = status.getSnapshot().get(sessionId);
+            if (stillWaiting(pending, latest)) deliver(sessionId, kind, pending, latest);
+          }, ATTENTION_GRACE_MS);
+          waiting.set(sessionId, { pending, timer });
+        }
+      };
       const onFocus = () => { if (unread.size > 0) { unread.clear(); badge(); } };
       window.addEventListener('focus', onFocus);
-      // Delivered notifications stay in Notification Center until clicked; only a newer one for the same chat replaces them.
+      // Delivered notifications stay in Notification Center until clicked, answered, or replaced by a newer one.
       const off = status.subscribe(notify);
-      return () => { off(); window.removeEventListener('focus', onFocus); unread.clear(); badge(); };
+      return () => {
+        off(); window.removeEventListener('focus', onFocus);
+        for (const entry of waiting.values()) clearTimeout(entry.timer);
+        waiting.clear(); unread.clear(); badge();
+      };
     }
 
     /** Codex-style "Changes" page in the right sidebar: Uncommitted / Unstaged / Staged / Branch (vs upstream) with
