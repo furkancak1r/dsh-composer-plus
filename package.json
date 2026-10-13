@@ -2,6 +2,7 @@
   "name": "dsh-composer-plus",
   "version": "1.2.0",
   "description": "DeepSeek Harness helpers: 11 extra UI languages (Türkçe, Español, Français, Deutsch, 日本語…), Changes panel, input history, Shift+Tab /plan, one-click Continue, queue drag-and-drop, deeplinks, Auto Review allow-for-chat, notifications, automatic updates",
+  "icon": "./assets/icon.svg",
   "license": "MIT",
   "type": "module",
   "keywords": [
@@ -18,18 +19,22 @@
   ],
   "exports": {
     ".": "./index.js",
-    "./client": "./client.js"
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
   },
   "files": [
     "index.js",
     "client.js",
+    "locale/*.json",
+    "assets/icon.svg",
     "cordis.patch.yml",
     "README.md",
     "LICENSE",
     "locales/LICENSE"
   ],
   "scripts": {
-    "test": "node scripts/build-locales.mjs --check && node test/locale.test.mjs && node test/continue.test.mjs && node test/continue-host.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs && node test/changes.test.mjs && node test/project-status.test.mjs && node test/toggles.test.mjs && node test/update.test.mjs",
+    "test": "node scripts/build-locales.mjs --check && node test/locale.test.mjs && node test/continue.test.mjs && node test/continue-host.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs && node test/changes.test.mjs && node test/project-status.test.mjs && node test/toggles.test.mjs && node test/update.test.mjs && node test/meta.test.mjs",
     "build:locales": "node scripts/build-locales.mjs",
     "prepublishOnly": "npm test"
   },

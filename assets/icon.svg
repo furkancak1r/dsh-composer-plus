@@ -1,0 +1,13 @@
+<svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g transform="translate(18 18) scale(0.9286) translate(-18 -18)">
+    <rect x="4" y="4" width="28" height="28" rx="8" fill="url(#composer_plus)" />
+    <path d="M11 12.5a2.5 2.5 0 0 1 2.5-2.5h9a2.5 2.5 0 0 1 2.5 2.5v6a2.5 2.5 0 0 1-2.5 2.5h-5.5l-4 3.5V21a2.5 2.5 0 0 1-2-2.5z" stroke="#FFFFFF" stroke-width="1.6" stroke-linejoin="round" />
+    <path d="M18 12.75v5.5M15.25 15.5h5.5" stroke="#FFFFFF" stroke-width="1.6" stroke-linecap="round" />
+  </g>
+  <defs>
+    <linearGradient id="composer_plus" x1="18" y1="4" x2="18" y2="32" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7C8CFF" />
+      <stop offset="1" stop-color="#5B3FE0" />
+    </linearGradient>
+  </defs>
+</svg>
