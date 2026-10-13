@@ -172,6 +172,8 @@ struct ConversationView: View {
     @State private var goalEditing = false
     @State private var goalText = ""
     @State private var loadingOlder = false
+    // shortcut: timer starts when this screen first sees the turn running, so opening mid-turn undercounts; send the turn's start time from the gateway if that matters.
+    @State private var turnStart: Date?
     @FocusState private var focused: Bool
     var body: some View {
         transcript
@@ -245,7 +247,13 @@ struct ConversationView: View {
                         if !c.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: c.streaming), live: true) }
                         // upload/send progress first, so a large file never looks like a dead Send button
                         if let s = c.sendStatus ?? (c.running && c.streaming.isEmpty && c.reasoning.isEmpty ? String(localized: "Working…") : nil) {
-                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text(s) }.font(.footnote).foregroundStyle(.secondary)
+                            HStack(spacing: 6) {
+                                ProgressView().controlSize(.small); Text(s)
+                                // elapsed time tells a slow turn apart from a stuck one
+                                if c.running, let t = turnStart {
+                                    TimelineView(.periodic(from: t, by: 1)) { ctx in Text(elapsedText(Int(ctx.date.timeIntervalSince(t)))).monospacedDigit().foregroundStyle(.tertiary) }
+                                }
+                            }.font(.footnote).foregroundStyle(.secondary)
                         }
                         // shortcut: 80 pt tall marker pulled up over the content = "near bottom" tolerance, so a streaming delta never flips atBottom off; use onScrollGeometryChange once iOS 18 is the floor.
                         Color.clear.frame(height: 80).padding(.top, -80).id("end")
@@ -282,6 +290,7 @@ struct ConversationView: View {
                 .onChange(of: c.streaming) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
                 .onChange(of: c.reasoning) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
                 .onChange(of: c.sendStatus) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
+                .onChange(of: c.running, initial: true) { turnStart = c.running ? (turnStart ?? .now) : nil }
         }
     }
 
@@ -296,8 +305,11 @@ struct ConversationView: View {
 
     /// Model · context % · token usage, like the desktop status bar.
     var statusLine: some View {
-        let ctx = c.currentSess?.context.map { "ctx \(Int(($0 * 100).rounded()))%" }
-        let parts = [c.shownModel, ctx, c.usage.map(usageText)].compactMap { $0 }.filter { !$0.isEmpty }
+        // live while streaming; the session list's projected figure covers logs whose request/context fell outside the snapshot window
+        let ctx = (contextShare(c.usage, window: c.contextWindow) ?? c.currentSess?.context).map { "ctx \(Int(($0 * 100).rounded()))%" }
+        // project folder first, like the desktop status bar, so the cwd stays visible once the transcript fills up
+        let folder = c.currentSess.map { ($0.cwd as NSString).lastPathComponent }
+        let parts = [folder, c.shownModel, ctx, c.usage.map(usageText)].compactMap { $0 }.filter { !$0.isEmpty }
         return Text(parts.joined(separator: " · ")).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary).lineLimit(1).padding(.horizontal).padding(.bottom, 4)
     }
 
@@ -509,9 +521,13 @@ struct LineView: View {
     var body: some View {
         content.contextMenu {
             Button { UIPasteboard.general.string = [line.text, line.output].compactMap { $0 }.joined(separator: "\n\n") } label: { Label("Copy", systemImage: "doc.on.doc") }
+            if line.kind == .assistant, !live { ShareLink(item: line.text) { Label("Share", systemImage: "square.and.arrow.up") } }
             if line.kind == .user {
                 if let onEdit { Button { onEdit(line.text) } label: { Label("Edit", systemImage: "pencil") } }
                 Button { let l = line; c.run { try await c.resend(l) } } label: { Label("Resend", systemImage: "arrow.clockwise") }
+            }
+            if line.kind == .assistant, let p = promptLine(before: line.id, in: c.transcript) {
+                Button { c.run { try await c.resend(p) } } label: { Label("Regenerate", systemImage: "arrow.triangle.2.circlepath") }
             }
         }
     }
@@ -556,13 +572,18 @@ struct LineView: View {
             // Codex-style: one row per call, status icon, tap to see full arguments + output.
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 6) {
-                    if line.output == nil && c.running { ProgressView().controlSize(.mini) }
+                    // an interrupted call from an earlier turn never gets output; only the turn in flight may spin
+                    if line.output == nil && c.running && inCurrentTurn(line.id, in: c.transcript) { ProgressView().controlSize(.mini) }
                     else { Image(systemName: line.failed ? "xmark.circle" : line.output == nil ? "terminal" : "checkmark.circle").foregroundStyle(line.failed ? Color.red : .secondary) }
                     Text(line.text).lineLimit(open ? nil : 1)
                     Spacer(minLength: 0)
-                    if line.output?.isEmpty == false { Image(systemName: "chevron.right").font(.caption2).rotationEffect(.degrees(open ? 90 : 0)) }
+                    if line.output?.isEmpty == false || line.args?.isEmpty == false { Image(systemName: "chevron.right").font(.caption2).rotationEffect(.degrees(open ? 90 : 0)) }
                 }
                 .font(.footnote.monospaced()).foregroundStyle(.secondary)
+                if open, let a = line.args, !a.isEmpty {
+                    Text(a).font(.caption.monospaced()).foregroundStyle(.tertiary).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.leading, 22)
+                }
                 if open, let o = line.output, !o.isEmpty {
                     Text(o).font(.caption.monospaced()).foregroundStyle(line.failed ? .red : .secondary).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading).padding(8)
@@ -620,12 +641,7 @@ struct Markdown: View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(mdBlocks(text).enumerated()), id: \.offset) { _, b in
                 if b.code {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Button { UIPasteboard.general.string = b.text; UIImpactFeedbackGenerator(style: .light).impactOccurred() } label: { Label("Copy", systemImage: "doc.on.doc").font(.caption) }
-                        ScrollView(.horizontal) { Text(b.text).font(.caption.monospaced()).textSelection(.enabled) }
-                    }
-                    .padding(10).background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(.separator).opacity(0.5)))
+                    CodeBlock(text: b.text, lang: b.lang)
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
                         ForEach(Array(mdParts(b.text).enumerated()), id: \.offset) { _, p in
@@ -638,6 +654,31 @@ struct Markdown: View {
                 }
             }
         }
+    }
+}
+
+/// Codex-style fenced code: language label + Copy (flips to "Copied") in a header bar, code scrolls sideways.
+struct CodeBlock: View {
+    let text: String, lang: String
+    @State private var copied = false
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(lang.isEmpty ? "code" : lang).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                Spacer()
+                Button {
+                    UIPasteboard.general.string = text; UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    copied = true
+                    Task { try? await Task.sleep(for: .seconds(1.5)); copied = false }
+                } label: { Label(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc").font(.caption) }
+                .buttonStyle(.plain).foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 10).padding(.vertical, 6).background(Color(.tertiarySystemFill))
+            ScrollView(.horizontal) { Text(text).font(.caption.monospaced()).textSelection(.enabled).padding(10) }
+        }
+        .background(Color(.secondarySystemBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color(.separator).opacity(0.5)))
     }
 }
 

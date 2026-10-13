@@ -32,6 +32,7 @@ async function mockDsh() {
   })
   http.on('upgrade', (req, sock, head) => {
     if (!authed(req)) return sock.end('HTTP/1.1 401 Unauthorized\r\n\r\n')
+    if (m.refuseMux) return sock.end('HTTP/1.1 503 Service Unavailable\r\n\r\n')
     const ws = acceptWs(req, sock, head)
     m.muxes.add(ws); ws.onClose = () => m.muxes.delete(ws)
     ws.onText = t => {
@@ -203,6 +204,24 @@ test('allowlist: disallowed RPC and stream are refused, bad frames close the soc
     assert.deepEqual(ws.frames[1], { type: 'item', streamId: 's2', value: { echo: 'session/follow' } })
     ws.json({ type: 'open', streamId: 's3', endpoint: 'session/follow', payload: {}, extra: 1 })
     await waitFor(() => ws.closed)
+  } finally { await t.done() }
+})
+
+test('a failed upstream connect is retried on the next stream open', async () => {
+  const t = await setup()
+  try {
+    const { token } = await pairDevice(t.gw)
+    await waitFor(() => t.gw.state().upstream === 'connected')
+    const ws = await phoneWs(t.gw, token)
+    t.dsh.refuseMux = true
+    ws.json({ type: 'open', streamId: 'a', endpoint: 'session/follow', payload: {} })
+    await waitFor(() => ws.frames.length)
+    assert.equal(ws.frames[0].error.message, 'DSH host unavailable')
+    t.dsh.refuseMux = false
+    ws.json({ type: 'open', streamId: 'b', endpoint: 'session/follow', payload: {} })
+    await waitFor(() => ws.frames.length === 2)
+    assert.deepEqual(ws.frames[1], { type: 'item', streamId: 'b', value: { echo: 'session/follow' } })
+    ws.close()
   } finally { await t.done() }
 })
 

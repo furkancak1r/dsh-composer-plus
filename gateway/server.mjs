@@ -425,7 +425,8 @@ export function createGateway(opts = {}) {
   function phoneMux(ws) {
     const mine = new Set(), subs = new Map()
     let upP, up
-    const getUp = () => upP ??= upstream.mux().then(u => { up = u; u.onText = t => ws.send(t); u.onClose = () => ws.close(1011); return u })
+    // A failed connect (DSH restarting) is forgotten so the next stream open retries instead of failing forever.
+    const getUp = () => upP ??= upstream.mux().then(u => { up = u; u.onText = t => ws.send(t); u.onClose = () => ws.close(1011); return u }, e => { upP = null; throw e })
     const err = (streamId, message) => ws.send(JSON.stringify({ type: 'error', streamId, error: { code: 'mobile/forbidden', message } }))
     const unsub = id => { const s = subs.get(id); if (!s) return; subs.delete(id); evSubs.delete(s); if (!evSubs.size) for (const e of [...pendingEv.keys()]) dropPending(e, { kind: 'next' }) }
     ws.onText = async text => {

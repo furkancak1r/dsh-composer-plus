@@ -60,13 +60,13 @@ func parseInvite(_ s: String) -> Invite? {
     return Invite(v: 1, host: i.host, port: i.port, fp: fp, code: i.code, ts: i.ts)
 }
 
-/// Splits on triple-backtick fences: prose blocks and code blocks (language tag dropped).
-func mdBlocks(_ s: String) -> [(code: Bool, text: String)] {
+/// Splits on triple-backtick fences: prose blocks and code blocks; lang is the fence's language tag ("" if none).
+func mdBlocks(_ s: String) -> [(code: Bool, text: String, lang: String)] {
     s.components(separatedBy: "```").enumerated().compactMap { i, part in
-        if i % 2 == 0 { let t = part.trimmingCharacters(in: .newlines); return t.isEmpty ? nil : (false, t) }
+        if i % 2 == 0 { let t = part.trimmingCharacters(in: .newlines); return t.isEmpty ? nil : (false, t, "") }
         var lines = part.components(separatedBy: "\n")
-        if lines.count > 1 { lines.removeFirst() }
-        return (true, lines.joined(separator: "\n").trimmingCharacters(in: .newlines))
+        let lang = lines.count > 1 ? lines.removeFirst().trimmingCharacters(in: .whitespaces) : ""
+        return (true, lines.joined(separator: "\n").trimmingCharacters(in: .newlines), lang)
     }
 }
 
@@ -74,29 +74,35 @@ func mdBlocks(_ s: String) -> [(code: Bool, text: String)] {
 enum MdLine: Equatable { case heading(Int, String), bullet(Int, String), number(Int, String, String), quote(String), rule, blank, text(String) }
 
 /// "| a | b |" → ["a", "b"]; separator rows ("|---|:-:|") → [] so they are dropped; nil when not a table row.
-// shortcut: escaped pipes (\|) split cells; fine for model replies, switch to swift-markdown if that shows up.
+/// Escaped pipes (\|) stay inside the cell as a literal "|".
 func tableRow(_ raw: String) -> [String]? {
-    let s = raw.trimmingCharacters(in: .whitespaces)
+    let s = raw.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "\\|", with: "\u{E000}")
     guard s.hasPrefix("|"), s.count > 1 else { return nil }
-    var cells = s.dropFirst().components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+    var cells = s.dropFirst().components(separatedBy: "|").map { $0.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: "\u{E000}", with: "|") }
     if s.hasSuffix("|") { cells.removeLast() }
     return cells.allSatisfy { !$0.isEmpty && $0.allSatisfy { "-:".contains($0) } } ? [] : cells
 }
 
 enum MdPart: Equatable { case line(String), table([[String]]) }
 
-/// Prose split into plain lines and runs of consecutive table rows.
+/// Prose split into plain lines and runs of consecutive table rows; an indented plain line continues the list item above it.
 func mdParts(_ prose: String) -> [MdPart] {
     var out: [MdPart] = []
     for l in prose.components(separatedBy: "\n") {
-        guard let row = tableRow(l) else { out.append(.line(l)); continue }
+        guard let row = tableRow(l) else {
+            if l.hasPrefix("  "), case .text(let t) = mdLine(l), case .line(let p)? = out.last {
+                switch mdLine(p) { case .bullet, .number: out[out.count - 1] = .line(p + " " + t); continue
+                default: break }
+            }
+            out.append(.line(l)); continue
+        }
         if case .table(var rows)? = out.last { if !row.isEmpty { rows.append(row) }; out[out.count - 1] = .table(rows) }
         else { out.append(.table(row.isEmpty ? [] : [row])) }
     }
     return out
 }
 
-// shortcut: line-based, so multi-line list items render as plain lines; switch to swift-markdown if replies need nesting.
+// shortcut: line-based (list continuations are joined in mdParts); switch to swift-markdown if replies need nested blocks inside items.
 func mdLine(_ raw: String) -> MdLine {
     let body = raw.drop { $0 == " " }, indent = (raw.count - body.count) / 2
     let s = String(body)
@@ -131,9 +137,15 @@ func imageIds(_ c: Any?) -> [String] {
 
 func usageText(_ u: J) -> String {
     let n = { (k: String) in (u[k] as? Int).map { "\($0)" } }
-    // shortcut: DSH exposes no context-window size, so only raw token counts are shown; add a % bar once the model catalog carries a limit.
     return [("in", n("inputTokens")), ("out", n("outputTokens")), ("cache", n("cacheReadTokens")), ("reasoning", n("reasoningTokens")), ("total", n("totalTokens"))]
         .compactMap { k, v in v.map { "\(k) \($0)" } }.joined(separator: " · ")
+}
+
+/// Context occupancy 0…1 from the newest usage sample, using desktop's pressure formula (input + cache read + cache write) / window.
+func contextShare(_ u: J?, window: Double?) -> Double? {
+    guard let u, let win = window, win > 0, let input = (u["inputTokens"] as? NSNumber)?.doubleValue else { return nil }
+    let cache = ["cacheReadTokens", "cacheWriteTokens"].compactMap { (u[$0] as? NSNumber)?.doubleValue }.reduce(0, +)
+    return min(1, (input + cache) / win)
 }
 
 /// Folds one DSH `agent/inbox/spliced` event into the pending-input lists (same splice rule as desktop's inbox projection).
@@ -167,6 +179,13 @@ func compactJSON(_ v: Any?, limit: Int = 300) -> String {
     return String(decoding: d, as: UTF8.self).prefix(limit).description
 }
 
+/// Codex-style tool row title: "name  <main argument>" (command, path, query…); raw JSON only when no known key is present.
+func toolSummary(_ name: String, _ args: Any?) -> String {
+    let a = args as? J ?? [:]
+    let main = ["command", "cmd", "path", "file_path", "filePath", "pattern", "query", "url", "prompt", "description"].lazy.compactMap { a[$0] as? String }.first
+    return "\(name) \(main.map { String($0.prefix(300)) } ?? compactJSON(args))".trimmingCharacters(in: .whitespaces)
+}
+
 // MARK: - Models
 
 struct Pairing: Codable { var host: String; var port: Int; var fp: String; var token: String; var deviceId: String; var name: String; var expiresAt: String; var ts: String? = nil }
@@ -191,9 +210,29 @@ struct Line: Identifiable {
     enum Kind { case user, assistant, reasoning, command, tool, result, error }
     let id = UUID(); let kind: Kind; let text: String
     /// Tool rows only: the result is folded into its call (matched by callId) instead of a separate line.
-    var callId: String? = nil; var output: String? = nil; var failed = false
+    var callId: String? = nil; var args: String? = nil; var output: String? = nil; var failed = false
     /// User rows only: image attachment ids, fetched lazily via session/attachment.
     var images: [String] = []
+}
+
+/// Regenerate: the user message that produced `id` (nearest user row above it).
+func promptLine(before id: UUID, in t: [Line]) -> Line? {
+    guard let i = t.firstIndex(where: { $0.id == id }) else { return nil }
+    return t[..<i].last { $0.kind == .user }
+}
+
+/// True when no user prompt follows the line, i.e. it belongs to the turn in flight.
+func inCurrentTurn(_ id: UUID, in t: [Line]) -> Bool {
+    guard let i = t.firstIndex(where: { $0.id == id }) else { return false }
+    return !t[(i + 1)...].contains { $0.kind == .user }
+}
+
+/// Codex-style turn timer: "7s", "1m 05s", "1h 02m".
+func elapsedText(_ s: Int) -> String {
+    let s = max(0, s)
+    if s < 60 { return "\(s)s" }
+    if s < 3600 { return String(format: "%dm %02ds", s / 60, s % 60) }
+    return String(format: "%dh %02dm", s / 3600, s % 3600 / 60)
 }
 
 /// DSH TodoItem: status is pending | in_progress | completed.
@@ -323,6 +362,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// What prompt() is doing right now ("Uploading x…" / "Sending…"), shown under the optimistic bubble.
     @Published var sendStatus: String?
     @Published var usage: J?
+    /// Context-window size from the newest `request/context` record; nil until one is seen in this session's log.
+    @Published var contextWindow: Double?
     @Published var model: String?
     @Published var defaultModel: String?
     @Published var catalog: [ModelGroup] = []
@@ -580,6 +621,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         case "error":
             let m = (f["error"] as? J)?["message"] as? String
             if m == "DSH host unavailable" { upstream = "disconnected" } else { error = m } // banner covers it; no blocking alert
+            // A failed follow must not leave followId set, or follow() thinks the conversation is live and never reopens it.
+            if id == followId, let s = current {
+                followId = nil
+                Task { try? await Task.sleep(for: .seconds(3)); if self.current == s, self.followId == nil, self.ws != nil { self.openFollow(s) } }
+            }
         case "end": if id == followId { followId = nil }
         default: break
         }
@@ -633,7 +679,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     func follow(_ sid: String) {
         if sid == current, followId != nil { return } // re-opening the live session keeps its stream and transcript
         if let old = followId { send(["type": "cancel", "streamId": old]) }
-        current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
+        current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; contextWindow = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
         hasOlder = false; oldestSeq = nil; throughSeq = nil
         running = currentSess?.running ?? false
         openFollow(sid)
@@ -649,10 +695,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private func onFollow(_ v: J) {
         switch v["type"] as? String {
         case "snapshot":
-            transcript = []; streaming = ""; reasoning = ""; inbox = [:]; liveTodos = nil
             let events = (v["records"] as? [J] ?? []).compactMap { $0["event"] as? J }
-            events.forEach(apply)
-            oldestSeq = events.first?["seq"] as? Int; throughSeq = events.last?["seq"] as? Int
+            replaySnapshot(events)
             hasOlder = v["hasMore"] as? Bool == true && oldestSeq != nil
         case "event": if let e = v["event"] as? J { apply(e) }
         case "assistant-stream":
@@ -674,6 +718,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         }
     }
 
+    /// History replay: rebuilds lines and live state but never re-fires per-turn side effects (notification, haptic, goal reload).
+    func replaySnapshot(_ events: [J]) {
+        transcript = []; streaming = ""; reasoning = ""; inbox = [:]; liveTodos = nil
+        replaying = true; events.forEach(apply); replaying = false
+        oldestSeq = events.first?["seq"] as? Int; throughSeq = events.last?["seq"] as? Int
+    }
+
     func apply(_ e: J) {
         let d = e["data"] as? J ?? [:]
         switch e["type"] as? String {
@@ -683,7 +734,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             if kind == nil || kind == "user" { transcript.append(Line(kind: .user, text: contentText(d["content"], imageMarker: false), images: imageIds(d["content"]))) }
         case "request/header":
             if let m = modelLabel((d["header"] as? J)?["config"] as? J) { model = m }
-        case "request/context": if model == nil, let m = d["model"] as? String { model = m }
+        case "request/context":
+            if model == nil, let m = d["model"] as? String { model = m }
+            if let w = (d["contextWindow"] as? NSNumber)?.doubleValue { contextWindow = w }
         case "assistant/message":
             let content = (d["message"] as? J)?["content"]
             let r = (content as? [J] ?? []).filter { $0["type"] as? String == "reasoning" }.compactMap { $0["text"] as? String }.joined(separator: "\n")
@@ -693,7 +746,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             if let u = d["usage"] as? J { usage = u }
         case "command/run": transcript.append(Line(kind: .command, text: "/\(d["name"] as? String ?? "") \(d["args"] as? String ?? "")".trimmingCharacters(in: .whitespaces)))
         case "command/done": if let t = d["text"] as? String, !t.isEmpty { transcript.append(Line(kind: d["kind"] as? String == "error" ? .error : .result, text: t)) }
-        case "tool/call": transcript.append(Line(kind: .tool, text: "\(d["name"] as? String ?? "tool") \(compactJSON(d["arguments"]))", callId: d["callId"] as? String))
+        case "tool/call": transcript.append(Line(kind: .tool, text: toolSummary(d["name"] as? String ?? "tool", d["arguments"]), callId: d["callId"] as? String, args: compactJSON(d["arguments"], limit: 4000)))
         case "tool/result":
             let m = d["message"] as? J
             let bad = m?["isError"] as? Bool == true || d["error"] != nil
@@ -706,7 +759,10 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         case "todo/write": liveTodos = parseTodos(d["todos"]) ?? []
         case "turn/end":
             if let m = ((d["reason"] as? J)?["error"] as? J)?["message"] as? String { transcript.append(Line(kind: .error, text: m)) }
-            if running, !replaying { notify(String(localized: "Turn finished"), currentSess?.title ?? "") }
+            if running, !replaying {
+                notify(String(localized: "Turn finished"), currentSess?.title ?? "")
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+            }
             running = false
             if goal != nil, !replaying { Task { await loadGoal() } } // rounds / phase move per turn
         default: break
@@ -730,11 +786,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// Old events build lines only; live state (running, model, usage, todos, inbox, goal) stays as the snapshot left it.
     func prependHistory(_ events: [J]) {
         guard !events.isEmpty else { return }
-        let keep = (transcript, running, model, usage, liveTodos, inbox, goal)
+        let keep = (transcript, running, model, usage, liveTodos, inbox, goal, contextWindow)
         replaying = true; transcript = []
         events.forEach(apply)
         replaying = false
         transcript += keep.0; running = keep.1; model = keep.2; usage = keep.3; liveTodos = keep.4; inbox = keep.5; goal = keep.6
+        contextWindow = keep.7
         oldestSeq = events.first?["seq"] as? Int ?? oldestSeq
     }
 

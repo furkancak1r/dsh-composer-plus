@@ -77,6 +77,8 @@ final class CoreTests: XCTestCase {
         let b = mdBlocks("Intro **bold**\n```swift\nlet x = 1\n```\nAfter")
         XCTAssertEqual(b.map(\.code), [false, true, false])
         XCTAssertEqual(b[1].text, "let x = 1")
+        XCTAssertEqual(b[1].lang, "swift")
+        XCTAssertEqual(mdBlocks("```\nx\n```")[0].lang, "")
         XCTAssertEqual(b[2].text, "After")
         XCTAssertEqual(mdBlocks("plain").count, 1)
         XCTAssertEqual(mdLine("## Plan"), .heading(2, "Plan"))
@@ -91,6 +93,8 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(tableRow("| a | b |"), ["a", "b"])
         XCTAssertEqual(tableRow("|---|:-:|"), [])
         XCTAssertNil(tableRow("plain"))
+        XCTAssertEqual(tableRow("| a \\| b | c |"), ["a | b", "c"])
+        XCTAssertEqual(mdParts("- one\n  more\n  - two\n\nplain"), [.line("- one more"), .line("  - two"), .line(""), .line("plain")])
         XCTAssertEqual(mdParts("x\n| a | b |\n|---|---|\n| 1 | 2 |\ny"), [.line("x"), .table([["a", "b"], ["1", "2"]]), .line("y")])
     }
 
@@ -150,6 +154,13 @@ final class CoreTests: XCTestCase {
     }
 
     @MainActor func testPrependHistoryKeepsLiveState() {
+        // snapshot replay: a finished turn ends not-running; a trailing open turn stays running
+        let s = Client()
+        s.replaySnapshot([["type": "turn/start", "seq": 1, "data": J()], ["type": "turn/end", "seq": 2, "data": J()]])
+        XCTAssertFalse(s.running)
+        s.replaySnapshot([["type": "turn/start", "seq": 7, "data": J()]])
+        XCTAssertTrue(s.running)
+
         let c = Client()
         c.transcript = [Line(kind: .user, text: "new")]; c.running = true; c.model = "deepseek-v4"
         c.prependHistory([
@@ -184,6 +195,23 @@ final class CoreTests: XCTestCase {
         let mk = { (id: String) in Sess(["sessionId": id, "cwd": "/p", "projections": ["values": ["title": id,
             "modelSelection": ["next": ["model": "m", "reasoningEffort": "max"]], "contextPressure": ["projectedTokens": 250, "contextWindow": 1000]]]])! }
         let a = mk("a"); XCTAssertEqual(a.model, "m · max"); XCTAssertEqual(a.context, 0.25)
+        XCTAssertEqual(contextShare(["inputTokens": 100, "cacheReadTokens": 300, "cacheWriteTokens": 100], window: 1000), 0.5)
+        XCTAssertEqual(toolSummary("bash", ["command": "ls -la", "timeout": 5]), "bash ls -la")
+        XCTAssertEqual(toolSummary("x", ["n": 1]), "x {\"n\":1}")
+        XCTAssertEqual(toolSummary("noargs", nil), "noargs")
+        let u1 = Line(kind: .user, text: "a"), a1 = Line(kind: .assistant, text: "x"), u2 = Line(kind: .user, text: "b"), a2 = Line(kind: .assistant, text: "y")
+        XCTAssertEqual(promptLine(before: a2.id, in: [u1, a1, u2, a2])?.text, "b")
+        XCTAssertEqual(promptLine(before: a1.id, in: [u1, a1, u2, a2])?.text, "a")
+        XCTAssertNil(promptLine(before: u1.id, in: [u1, a1]))
+        let t1 = Line(kind: .tool, text: "x"), t2 = Line(kind: .tool, text: "y")
+        XCTAssertFalse(inCurrentTurn(t1.id, in: [u1, t1, u2, t2]))
+        XCTAssertTrue(inCurrentTurn(t2.id, in: [u1, t1, u2, t2]))
+        XCTAssertEqual(elapsedText(7), "7s")
+        XCTAssertEqual(elapsedText(65), "1m 05s")
+        XCTAssertEqual(elapsedText(3720), "1h 02m")
+        XCTAssertEqual(contextShare(["inputTokens": 5000], window: 1000), 1)
+        XCTAssertNil(contextShare(["inputTokens": 5], window: nil))
+        c.apply(["type": "request/context", "data": ["model": "m", "contextWindow": 2000]]); XCTAssertEqual(c.contextWindow, 2000)
         XCTAssertNil(a.permission)
         XCTAssertEqual(Sess(["sessionId": "p", "projections": ["values": ["permissions": ["currentValue": "read-only"]]]])?.permission, "read-only")
         c.sessions = [a, mk("b"), mk("c"), mk("d")]
