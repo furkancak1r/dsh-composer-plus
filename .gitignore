@@ -3,3 +3,11 @@ DerivedData/
 xcuserdata/
 node_modules/
 .DS_Store
+.env*
+*.pem
+*.key
+*.p12
+*.mobileprovision
+*.log
+.codex/
+.agents/
