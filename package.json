@@ -1,7 +1,7 @@
 {
   "name": "dsh-composer-plus",
-  "version": "1.0.2",
-  "description": "DeepSeek Harness helpers: Codex-style Changes panel, input history, Shift+Tab /plan, one-click Continue, queue drag-and-drop, Copy deeplink, Auto Review allow-for-chat, background notifications",
+  "version": "1.1.0",
+  "description": "DeepSeek Harness helpers: 11 extra UI languages (Türkçe, Español, Français, Deutsch, 日本語…), Changes panel, input history, Shift+Tab /plan, one-click Continue, queue drag-and-drop, deeplinks, Auto Review allow-for-chat, notifications",
   "license": "MIT",
   "type": "module",
   "keywords": [
@@ -10,8 +10,11 @@
     "dsh",
     "dsh-plugin",
     "git",
+    "i18n",
+    "localization",
     "notifications",
-    "plugin"
+    "plugin",
+    "translation"
   ],
   "exports": {
     ".": "./index.js",
@@ -22,10 +25,13 @@
     "client.js",
     "cordis.patch.yml",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "locales/LICENSE"
   ],
   "scripts": {
-    "test": "node test/continue.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs && node test/changes.test.mjs && node test/project-status.test.mjs && node test/toggles.test.mjs"
+    "test": "node scripts/build-locales.mjs --check && node test/locale.test.mjs && node test/continue.test.mjs && node test/continue-host.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs && node test/changes.test.mjs && node test/project-status.test.mjs && node test/toggles.test.mjs",
+    "build:locales": "node scripts/build-locales.mjs",
+    "prepublishOnly": "npm test"
   },
   "dsh": {
     "bundle": {
@@ -43,7 +49,8 @@
         "@deepseek-ai/dsh-client-ui-sidebar-right",
         "@deepseek-ai/dsh-client-ui-session",
         "@deepseek-ai/dsh-api-remotes",
-        "@deepseek-ai/dsh-api-session-controller"
+        "@deepseek-ai/dsh-api-session-controller",
+        "@deepseek-ai/dsh-client-ui-settings"
       ]
     }
   },

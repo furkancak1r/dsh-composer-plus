@@ -21,7 +21,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.0.2`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.1.0`.
 
 ## Features
 
@@ -30,7 +30,7 @@ Then restart dsh. (The CLI can't install into the desktop profile; the app manag
 | **Changes panel** | Right sidebar → `+` → **Changes**. Pick **Uncommitted**, **Unstaged**, **Staged** or **Branch** to see changed files with `+/-` counts; click a file for its diff. **Last Turn** opens dsh's own review of the latest turn. |
 | **Input history** | In an empty composer, press `↑` / `↓` to walk through messages you sent, like a terminal. |
 | **Plan mode shortcut** | `Shift+Tab` adds `/plan ` to the start of the draft (press again to remove it). If the chat is already in plan mode, `Shift+Tab` leaves it. |
-| **One-click Continue** | When the last turn was stopped, failed or cut off and the composer is empty, Send turns into **▶**. One click sends “continue” in dsh's language (`continue` / `继续`). A turn that finished normally keeps the regular Send button. |
+| **One-click Continue** | After a stopped, failed or cut-off turn, an empty composer shows **▶**. One click resumes from the existing conversation without writing in the input or adding a visible chat message (the model receives a short hidden “continue from where it stopped” note, because some providers, such as Claude, reject a request that ends on an assistant reply). A completed turn keeps the regular Send button. |
 | **Queue drag-and-drop** | Queued messages get a grip (⠿). Drag to reorder, or focus the grip and press `↑` / `↓`. `Esc` cancels. |
 | **Copy deeplink** | Right-click a chat in the sidebar → **Copy deeplink**. Paste the `dsh-session:…` link into another chat to attach that chat as read-only context. |
 | **Allow for this chat** | When Auto Review asks you, the approval card gets **Allow for this chat**: the same tool in the same chat is allowed from then on, with any arguments. A header chip lists the grants and revokes them. Grants survive a restart. |
@@ -38,11 +38,21 @@ Then restart dsh. (The CLI can't install into the desktop profile; the app manag
 | **Active projects first** | When a chat starts running or needs you, its project moves to the top of the sidebar with dsh's own row animation (the same move as dragging it there). Finished projects stay where they are; drag them anywhere as usual. Moves are saved to dsh's project order, so turning this off keeps the current order. |
 | **Background notifications** | While dsh is in the background you get a notification when a turn finishes (first line of the reply), or when a chat needs an approval (tool name), an answer (the question) or a plan review. The Dock/taskbar badge counts waiting chats. Clicking opens that chat. |
 
-All text — buttons, tooltips, notices, notifications and the Continue message — follows the language selected in dsh (English or Chinese, the two languages dsh ships). Switching the language in dsh settings updates it live.
+Buttons, tooltips, notices and notifications follow the selected dsh language (see Application language below).
 
 ## Settings
 
 Every feature can be switched off on its own: dsh **Settings → Composer Plus**. Each row has a switch and a short description; changes apply immediately, without a restart, and are remembered on that device. Everything is on by default.
+
+### Application language
+
+Open **Settings → Composer Plus → Application language** and choose **System language** or one of 13 languages:
+
+English · 中文 · Türkçe · Español · Português (Brasil) · Français · Deutsch · Русский · 日本語 · 한국어 · Bahasa Indonesia · Tiếng Việt · हिन्दी
+
+The whole app switches immediately. The choice is dsh’s own saved `locale.preference` (the same one as General → Language), so it survives restarts. **System language** clears that choice: the desktop app follows the OS language, the web UI the browser language, and an unsupported language falls back to English. Installing the plugin never overrides a language you already picked.
+
+Each pack covers all 2,872 UI strings of dsh `0.2.0-rc.2` and `0.2.1-alpha.2` (chats, sidebar, settings, approvals, schedules, file previews, plugin manager), the plugin’s own controls, and the popular [dsh-rewind](https://github.com/SiriLee/dsh-rewind) plugin. Not translated: your messages, model output, code, slash-command names (`/plan`, `/compact`), provider-owned labels such as the `High` reasoning effort, other plugins’ texts, and the desktop app’s native menus/update dialogs (dsh ships those in English/Chinese only). Strings added by a newer dsh show in English until the packs are updated. If another plugin already provides a language, that plugin keeps it.
 
 ## Keyboard shortcuts
 
@@ -61,6 +71,8 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 
 ## Privacy and security
 
+- **Continue:** the authenticated local endpoint resumes only the last interrupted turn, rejects stale or duplicate requests, and preserves the existing approval hooks. It does not send a new user message.
+
 - **Changes panel:** git runs read-only on your machine, in the chat's own folder, through dsh's authenticated `/api` channel. It never commits, stages or fetches, and only shows paths git itself listed.
 - **Allow for this chat:** grants are stored in `$DSH_HOME/storages/dsh-composer-plus/grants.json` (owner-only permissions). A grant covers **one exact tool in one chat**. If that tool can write, the grant covers any write too. Revoke it from the header chip.
 - Auto Review still runs on every call; review failures are never auto-allowed.
@@ -69,9 +81,11 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 
 - **No notifications on macOS:** System Settings → Notifications → DeepSeek Harness → allow. Choose **Alerts** to keep them on screen.
 - **▶, queue grips, project status, Allow for this chat or right-click missing after a dsh update:** these attach to dsh's current HTML because dsh has no slot for them yet. If dsh changes that markup they hide themselves; nothing else breaks. Please open an [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
-- **Install fails right after a release:** add the version (`dsh-composer-plus@1.0.2`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.1.0`), see the install note above.
 
 ## Limits
+
+- Message-free Continue relies on dsh’s `agent/pre-step` → `agent/request` lifecycle. Recheck compatibility when upgrading dsh.
 
 - dsh's queue has no `move` action, so a reorder rewrites the affected rows' text. If the agent picks up a row mid-move, the move is undone and nothing is lost. Messages with images or files can't be moved.
 - A deeplink works inside chats; clicking it does not open the chat.
@@ -82,10 +96,17 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 ## Development
 
 ```sh
+npm run build:locales # after editing locales/<id>.json
 npm test
 ```
 
 The tests run the real `client.js` against a fake React/DOM and the real `index.js` (Host half) against a temporary git repository. `node test/browser-history.mjs '<dsh web URL with ?token=…>'` checks input history in a real browser against a throwaway `dsh web` with its own `DSH_HOME`.
+
+Language packs are data-only JSON in `locales/<id>.json`, embedded into the single client entry by `npm run build:locales` (no translation service or runtime download). `npm test` checks every pack for full key coverage, identical placeholders and line breaks, and the system/override behaviour. For isolated real-app checks with a locally installed Playwright:
+
+```sh
+PLAYWRIGHT=/path/to/playwright node test/browser-language.mjs /path/to/dsh/lib/bin.js
+```
 
 ## License
 

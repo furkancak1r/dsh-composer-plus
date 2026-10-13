@@ -9,7 +9,7 @@ const plugin=mod.factory(n=>n==='react'?React:n==='@deepseek-ai/dsh-client-ui-pr
 function boot(){
   const live=new Map();let next=0;const scopes=new Set();const effects=[];
   const slots={inject:(name,f)=>{const off=f();return()=>off();},register:(o)=>{const key=`${o.name}#${o.id??o.key}#${next++}`;live.set(key,o);return()=>live.delete(key);}};
-  const ctx={slots,effect:(f)=>{effects.push(f());},locale:{register:()=>()=>{},bind:()=>(k)=>k},
+  const ctx={slots,configForms:{get:()=>({})},effect:(f)=>{effects.push(f());},locale:{register:()=>()=>{},bind:()=>(k)=>k},
     inject:(deps,setup)=>{const id=deps.join(',');scopes.add(id);
       setup({effect:()=>{},uiSession:{sessionStatus:{getSnapshot:()=>new Map(),subscribe:()=>()=>{}}},sessions:{list:{getSnapshot:()=>({}),subscribe:()=>()=>{}}},
         uiWorkspace:{},workspaces:{list:{getSnapshot:()=>undefined,subscribe:()=>()=>{}}},sidebarRight:{},sidebarRightTabs:{register:()=>()=>{}}});
@@ -38,7 +38,7 @@ app=boot();assert.ok(app.ids().includes('copy-deeplink'));assert.ok(!app.scopes.
 let renders=[];const row=app.settings;const C=(() => { let comp; const slots={inject:(n,f)=>f(),register:(o,Comp)=>{if(o.id==='composer-plus')comp=Comp;return()=>{};}};
   plugin.apply({slots,effect:()=>{},locale:{register:()=>()=>{},bind:()=>k=>k}});return comp; })();
 const calls=[];const tree=C({useComposerPlusToggles:f=>f({planToggle:false}),setFeature:(id,on)=>calls.push([id,on]),t:k=>k});
-const switches=tree.c.slice(1).map(r=>r.c[1]);assert.equal(switches.length,10);
+const switches=tree.c.slice(2).map(r=>r.c[1]);assert.equal(switches.length,10);
 const plan=switches.find(s=>s.p.label==='feature.planToggle');assert.equal(plan.p.checked,false);assert.equal(switches.filter(s=>s.p.checked).length,9);
 plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
 console.log('toggle checks passed');

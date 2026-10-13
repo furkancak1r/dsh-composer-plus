@@ -1,18 +1,25 @@
 /**
  * Host half of dsh-composer-plus.
+ * - Message-free Continue: authenticated resume through public agent lifecycle hooks.
  * - Changes panel: read-only git status/diff for a session's working directory, served on the authenticated `/api` channel.
  * - Persistent Auto Review grants: per-session tool names saved under the dsh home, so "Allow for this chat" survives a restart.
  */
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 export const name = 'dsh-composer-plus';
-export const inject = ['connection', 'subprocess', 'sessionQuery'];
+export const inject = ['connection', 'subprocess', 'sessionQuery', 'sessionController'];
 
 export const CHANGES_PATH = '/api/composer-plus.changes';
 export const DIFF_PATH = '/api/composer-plus.diff';
 export const GRANTS_PATH = '/api/composer-plus.grants';
+export const CONTINUE_PATH = '/api/composer-plus.continue';
+const CONTINUE_SOURCE = 'composer-plus-continue';
+const CONTINUE_TEXT = 'The previous turn stopped before it finished (it was interrupted or failed). Continue the task from where it stopped. Do not repeat completed work.';
+const continueMessage = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: CONTINUE_TEXT })]),
+  source: Object.freeze({ kind: 'composer-plus-resume', form: 'snapshot' }) });
 export const MODES = ['uncommitted', 'unstaged', 'staged', 'branch'];
 const MAX_OUTPUT = 4 * 1024 * 1024;
 const MAX_FILES = 500;
@@ -155,6 +162,37 @@ const json = (value, status = 200) => Response.json(value, { status, headers: { 
 const isText = (v, max = 512) => typeof v === 'string' && v.length > 0 && v.length <= max;
 
 export function apply(ctx) {
+  // The empty wake marker opens the step; it is then replaced by a fresh context message. Only messages
+  // claimed from the inbox render as a chat bubble, so the replacement stays out of Chat, but it gives the
+  // model a final user turn: providers such as Claude reject a request that ends on an assistant message.
+  ctx.on('agent/pre-step', async (payload, next) => {
+    const decision = await next();
+    if (decision.kind !== 'enter' || !decision.messages.some((m) => m.source?.kind === CONTINUE_SOURCE)) return decision;
+    return { ...decision, messages: decision.messages.map((m) => (m.source?.kind === CONTINUE_SOURCE ? continueMessage() : m)) };
+  }, true);
+  ctx.connection.fetch.register({
+    path: CONTINUE_PATH, methods: ['POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      if (!isText(body?.sessionId) || !Number.isSafeInteger(body?.afterSeq) || body.afterSeq < 0) return json({ error: 'bad request' }, 400);
+      try {
+        const found = await ctx.sessionController.resolveAgent(body.sessionId);
+        if ('error' in found) return json({ error: 'session unavailable' }, 409);
+        const { agent } = found;
+        const observation = await ctx.sessionQuery.observeSession(body.sessionId, { signal: request.signal, projectionMode: 'none' });
+        try {
+          const last = observation.events.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
+          if (agent.status !== 'idle' || last?.seq !== body.afterSeq || (last.type === 'turn/end' && last.data?.reason?.kind === 'completed')) {
+            return json({ error: 'session no longer needs continuation' }, 409);
+          }
+          request.signal.throwIfAborted();
+          agent.steer({ id: randomUUID(), role: 'user', content: [], source: { kind: CONTINUE_SOURCE } });
+          return json({ accepted: true });
+        } finally { observation[Symbol.dispose]?.(); }
+      } catch { return json({ error: 'continuation failed' }, 500); }
+    },
+  });
   /** The session's own working directory (the endpoint never takes a path from the browser) and its newest
    * `workspace/changes` event, which dsh's own review tab opens as "Last turn". */
   const sessionFacts = async (sessionId, signal) => {

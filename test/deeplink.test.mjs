@@ -9,7 +9,7 @@ const React={useRef:()=>({current:anchorEl}),useEffect:f=>effects.push(f),create
 const plugin=mod.factory(n=>n==='react'?React:n==='@deepseek-ai/dsh-client-ui-primitives'?primitives:{});
 const dicts={};const regs=[];plugin.apply({effect:f=>f(),locale:{register:(ns,d)=>{dicts[ns]=d;return()=>{};}},sessions:{scope:()=>undefined},slots:{inject:(n,f)=>f(),register:(o,C)=>{regs.push([o,C]);return()=>{};}}});
 const [opt,Item]=regs.find(([o])=>o.id==='copy-deeplink');assert.equal(opt.name,'sidebar.workspaces.session.menu.item');
-assert.deepEqual(Object.keys(dicts[opt.locale]).sort(),['en','zh'],'en + zh dictionaries');for(const d of Object.values(dicts[opt.locale]))assert.ok(d.copyDeeplink,'label in every language');
+assert.deepEqual(Object.keys(dicts[opt.locale]).sort(),['en','zh'],'en + zh here; other languages come from locales/');for(const d of Object.values(dicts[opt.locale]))assert.ok(d.copyDeeplink,'label in every language');
 const t=k=>dicts[opt.locale].en[k];
 const ids=['session-fd7c92c7-787f-40dc-b837-95b53cc19c98','ğüş "quoted" ✓','a'];
 const decode=uri=>JSON.parse(Buffer.from(uri.slice('dsh-session:'.length),'base64url').toString('utf8'));

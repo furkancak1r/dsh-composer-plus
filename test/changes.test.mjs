@@ -68,7 +68,7 @@ try {
   // Routes: only the session's own cwd is used; bad input is rejected.
   const routes = new Map();
   process.env.DSH_HOME = join(root, 'home');
-  apply({ connection: { fetch: { register: (r) => routes.set(r.path, r) } }, subprocess,
+  apply({on:()=>{},connection: { fetch: { register: (r) => routes.set(r.path, r) } }, subprocess,
     sessionQuery: { observeSession: async (id) => ({ header: { cwd: id === 'S' ? repo : undefined }, events: id === 'S' ? [{ type: 'workspace/changes', seq: 7, data: { turn: 2 } }, { type: 'turn/end', seq: 9, data: {} }] : [], [Symbol.dispose]() {} }) } });
   const call = async (path, query, init) => routes.get(path).fetch(new Request(`http://h${path}?${query}`, init));
   let r = await call(CHANGES_PATH, 'sessionId=S&mode=uncommitted'); assert.equal(r.status, 200); { const v = await r.json(); assert.equal(v.total, 3); assert.deepEqual(v.lastTurn, { seq: 7, turn: 2 }); }

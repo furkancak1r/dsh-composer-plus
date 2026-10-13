@@ -12,7 +12,7 @@ if (!url) throw new Error('usage: node check.mjs <dsh web URL with ?token=...>')
 
 const browser = await chromium.launch({ channel: 'chrome' });
 try {
-  const page = await browser.newPage();
+  const page = await browser.newPage({ locale: 'en-US' });
   const errors = [];
   page.on('pageerror', (error) => errors.push(String(error)));
   page.on('console', (message) => { if (message.type() === 'error') errors.push(message.text()); });
