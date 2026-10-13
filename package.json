@@ -1,7 +1,7 @@
 {
   "name": "dsh-composer-plus",
-  "version": "1.1.1",
-  "description": "DeepSeek Harness helpers: 11 extra UI languages (Türkçe, Español, Français, Deutsch, 日本語…), Changes panel, input history, Shift+Tab /plan, one-click Continue, queue drag-and-drop, deeplinks, Auto Review allow-for-chat, notifications",
+  "version": "1.2.0",
+  "description": "DeepSeek Harness helpers: 11 extra UI languages (Türkçe, Español, Français, Deutsch, 日本語…), Changes panel, input history, Shift+Tab /plan, one-click Continue, queue drag-and-drop, deeplinks, Auto Review allow-for-chat, notifications, automatic updates",
   "license": "MIT",
   "type": "module",
   "keywords": [
@@ -29,7 +29,7 @@
     "locales/LICENSE"
   ],
   "scripts": {
-    "test": "node scripts/build-locales.mjs --check && node test/locale.test.mjs && node test/continue.test.mjs && node test/continue-host.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs && node test/changes.test.mjs && node test/project-status.test.mjs && node test/toggles.test.mjs",
+    "test": "node scripts/build-locales.mjs --check && node test/locale.test.mjs && node test/continue.test.mjs && node test/continue-host.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs && node test/changes.test.mjs && node test/project-status.test.mjs && node test/toggles.test.mjs && node test/update.test.mjs",
     "build:locales": "node scripts/build-locales.mjs",
     "prepublishOnly": "npm test"
   },

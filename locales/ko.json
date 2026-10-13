@@ -1509,7 +1509,22 @@
     "language.title": "애플리케이션 언어",
     "language.system": "시스템 언어",
     "language.description": "컴퓨터의 언어를 사용하거나 앱 전체에 사용할 언어를 선택합니다.",
-    "language.failed": "언어 환경설정을 저장할 수 없습니다. 다시 시도하세요."
+    "language.failed": "언어 환경설정을 저장할 수 없습니다. 다시 시도하세요.",
+    "notify.updated": "Composer Plus {version}이(가) 설치되었습니다. 사용하려면 dsh를 다시 시작하세요.",
+    "feature.autoUpdate": "자동 업데이트",
+    "feature.autoUpdate.description": "dsh를 시작할 때 최신 Composer Plus를 설치하고 알려 줍니다. 사용하려면 dsh를 다시 시작하세요.",
+    "update.title": "Composer Plus 업데이트",
+    "update.version": "버전 {version}",
+    "update.checking": "업데이트 확인 중…",
+    "update.current": "최신 버전을 사용 중입니다.",
+    "update.available": "버전 {version}을(를) 사용할 수 있습니다.",
+    "update.installing": "{version} 설치 중…",
+    "update.restart": "버전 {version}이(가) 설치되었습니다. 사용하려면 dsh를 다시 시작하세요.",
+    "update.manual": "버전 {version}을(를) 사용할 수 있습니다. 이 사본은 npm에서 설치되지 않았으므로 설정 → 플러그인에서 업데이트하세요.",
+    "update.failed": "업데이트 실패: {error}",
+    "update.check": "업데이트 확인",
+    "update.install": "지금 업데이트",
+    "update.notes": "릴리스 노트"
   },
   "common": {
     "ok": "확인",

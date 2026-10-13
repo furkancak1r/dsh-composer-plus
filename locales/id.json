@@ -1509,7 +1509,22 @@
     "language.title": "Bahasa aplikasi",
     "language.system": "Bahasa sistem",
     "language.description": "Gunakan bahasa komputer Anda, atau pilih bahasa untuk seluruh aplikasi.",
-    "language.failed": "Tidak dapat menyimpan preferensi bahasa. Silakan coba lagi."
+    "language.failed": "Tidak dapat menyimpan preferensi bahasa. Silakan coba lagi.",
+    "notify.updated": "Composer Plus {version} telah terpasang. Mulai ulang dsh untuk menggunakannya.",
+    "feature.autoUpdate": "Pembaruan otomatis",
+    "feature.autoUpdate.description": "Saat dsh dimulai, pasang rilis Composer Plus yang lebih baru dan beri tahu Anda. Mulai ulang dsh untuk menggunakannya.",
+    "update.title": "Pembaruan Composer Plus",
+    "update.version": "Versi {version}",
+    "update.checking": "Memeriksa pembaruan…",
+    "update.current": "Anda memakai versi terbaru.",
+    "update.available": "Versi {version} tersedia.",
+    "update.installing": "Memasang {version}…",
+    "update.restart": "Versi {version} telah terpasang. Mulai ulang dsh untuk menggunakannya.",
+    "update.manual": "Versi {version} tersedia. Salinan ini tidak dipasang dari npm; perbarui dari Pengaturan → Plugin.",
+    "update.failed": "Pembaruan gagal: {error}",
+    "update.check": "Periksa pembaruan",
+    "update.install": "Perbarui sekarang",
+    "update.notes": "Catatan rilis"
   },
   "common": {
     "ok": "OK",

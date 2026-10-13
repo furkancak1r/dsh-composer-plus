@@ -3,7 +3,10 @@
  * - Message-free Continue: authenticated resume through public agent lifecycle hooks.
  * - Changes panel: read-only git status/diff for a session's working directory, served on the authenticated `/api` channel.
  * - Persistent Auto Review grants: per-session tool names saved under the dsh home, so "Allow for this chat" survives a restart.
+ * - Update check: the latest GitHub release, offered only once npm serves that exact version (the client installs it
+ *   through dsh's own plugin manager).
  */
+import { readFileSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -16,6 +19,10 @@ export const CHANGES_PATH = '/api/composer-plus.changes';
 export const DIFF_PATH = '/api/composer-plus.diff';
 export const GRANTS_PATH = '/api/composer-plus.grants';
 export const CONTINUE_PATH = '/api/composer-plus.continue';
+export const UPDATE_PATH = '/api/composer-plus.update';
+const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+const NPM_NAME = 'dsh-composer-plus';
+const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
 const CONTINUE_SOURCE = 'composer-plus-continue';
 const CONTINUE_TEXT = 'The previous turn stopped before it finished (it was interrupted or failed). Continue the task from where it stopped. Do not repeat completed work.';
 const continueMessage = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: CONTINUE_TEXT })]),
@@ -158,6 +165,31 @@ export function grantsStore(file) {
   };
 }
 
+/** `1.2.3` / `v1.2.3` -> [1, 2, 3]; anything else (pre-releases, ranges) is not an update target. */
+export const parseVersion = (text) => {
+  const m = /^v?(\d{1,6})\.(\d{1,6})\.(\d{1,6})$/.exec(String(text ?? '').trim());
+  return m === null ? undefined : m.slice(1).map(Number);
+};
+export const newer = (a, b) => { for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
+/** Latest GitHub release vs this copy. `managed` is false for a renamed or linked local copy, which pnpm can't upgrade. */
+export async function checkUpdate(fetchImpl = fetch, pkg = PACKAGE, signal) {
+  const current = parseVersion(pkg.version);
+  const managed = pkg.name === NPM_NAME && current !== undefined;
+  const timeout = AbortSignal.timeout(10000);
+  const opts = { signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]) };
+  const response = await fetchImpl(RELEASES_URL, { ...opts, headers: { accept: 'application/vnd.github+json', 'user-agent': NPM_NAME } });
+  if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
+  const release = await response.json();
+  const latest = parseVersion(release?.tag_name);
+  if (latest === undefined) throw new Error('latest release has no x.y.z tag');
+  const info = { name: NPM_NAME, current: pkg.version, latest: latest.join('.'), managed, newer: false,
+    url: typeof release.html_url === 'string' && release.html_url.startsWith('https://github.com/') ? release.html_url : undefined };
+  if (current === undefined || !newer(latest, current)) return info;
+  // A release can go out before `npm publish`; offer only what pnpm can install.
+  const npm = await fetchImpl(`https://registry.npmjs.org/${NPM_NAME}/${info.latest}`, opts);
+  return { ...info, newer: npm.ok };
+}
+
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const isText = (v, max = 512) => typeof v === 'string' && v.length > 0 && v.length <= max;
 
@@ -237,6 +269,12 @@ export function apply(ctx) {
         const diff = cwd === undefined ? undefined : await fileDiff(ctx.subprocess, cwd, p.mode, p.path, request.signal);
         return diff === undefined ? json({ error: 'not found' }, 404) : json(diff);
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+    },
+  });
+  ctx.connection.fetch.register({
+    path: UPDATE_PATH, methods: ['GET'], requestBody: 'buffered',
+    fetch: async (request) => {
+      try { return json(await checkUpdate(fetch, PACKAGE, request.signal)); } catch (error) { return json({ error: String(error?.message ?? error) }, 502); }
     },
   });
   const store = grantsStore(join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'storages', 'dsh-composer-plus', 'grants.json'));

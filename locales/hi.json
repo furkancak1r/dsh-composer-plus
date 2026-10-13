@@ -1509,7 +1509,22 @@
     "language.title": "ऐप्लिकेशन की भाषा",
     "language.system": "सिस्टम की भाषा",
     "language.description": "अपने कंप्यूटर की भाषा उपयोग करें, या पूरे ऐप के लिए कोई भाषा चुनें।",
-    "language.failed": "भाषा की प्राथमिकता सेव नहीं हो सकी। कृपया फिर से कोशिश करें।"
+    "language.failed": "भाषा की प्राथमिकता सेव नहीं हो सकी। कृपया फिर से कोशिश करें।",
+    "notify.updated": "Composer Plus {version} इंस्टॉल हो गया है। इसका उपयोग करने के लिए dsh रीस्टार्ट करें।",
+    "feature.autoUpdate": "अपने-आप अपडेट",
+    "feature.autoUpdate.description": "dsh शुरू होने पर Composer Plus का नया रिलीज़ इंस्टॉल करता है और आपको सूचित करता है। इसका उपयोग करने के लिए dsh रीस्टार्ट करें।",
+    "update.title": "Composer Plus अपडेट",
+    "update.version": "वर्शन {version}",
+    "update.checking": "अपडेट जांचे जा रहे हैं…",
+    "update.current": "आपके पास नवीनतम वर्शन है।",
+    "update.available": "वर्शन {version} उपलब्ध है।",
+    "update.installing": "{version} इंस्टॉल हो रहा है…",
+    "update.restart": "वर्शन {version} इंस्टॉल हो गया है। इसका उपयोग करने के लिए dsh रीस्टार्ट करें।",
+    "update.manual": "वर्शन {version} उपलब्ध है। यह कॉपी npm से इंस्टॉल नहीं की गई थी; इसे सेटिंग्स → प्लगइन से अपडेट करें।",
+    "update.failed": "अपडेट विफल रहा: {error}",
+    "update.check": "अपडेट जांचें",
+    "update.install": "अभी अपडेट करें",
+    "update.notes": "रिलीज़ नोट्स"
   },
   "common": {
     "ok": "ठीक है",

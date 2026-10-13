@@ -2939,7 +2939,22 @@
     "changes.binary": "ikili dosya",
     "changes.truncated": "Fark kısaltıldı.",
     "changes.more": "{count} dosya daha gösterilmiyor",
-    "changes.refresh": "Yenile"
+    "changes.refresh": "Yenile",
+    "notify.updated": "Composer Plus {version} yüklendi. Kullanmak için dsh’yi yeniden başlatın.",
+    "feature.autoUpdate": "Otomatik güncellemeler",
+    "feature.autoUpdate.description": "dsh açıldığında daha yeni Composer Plus sürümünü yükler ve size bildirir. Kullanmak için dsh’yi yeniden başlatın.",
+    "update.title": "Composer Plus güncellemeleri",
+    "update.version": "Sürüm {version}",
+    "update.checking": "Güncellemeler denetleniyor…",
+    "update.current": "En son sürümü kullanıyorsunuz.",
+    "update.available": "{version} sürümü kullanılabilir.",
+    "update.installing": "{version} yükleniyor…",
+    "update.restart": "{version} sürümü yüklendi. Kullanmak için dsh’yi yeniden başlatın.",
+    "update.manual": "{version} sürümü kullanılabilir. Bu kopya npm’den yüklenmedi; Ayarlar → Eklentiler’den güncelleyin.",
+    "update.failed": "Güncelleme başarısız: {error}",
+    "update.check": "Güncellemeleri denetle",
+    "update.install": "Şimdi güncelle",
+    "update.notes": "Sürüm notları"
   },
   "directory-browser": {
     "browser.title": "Çalışma alanı klasörünü seçin",

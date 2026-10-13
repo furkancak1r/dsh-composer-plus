@@ -1509,7 +1509,22 @@
     "language.title": "Язык приложения",
     "language.system": "Язык системы",
     "language.description": "Используйте язык компьютера или выберите язык для всего приложения.",
-    "language.failed": "Не удалось сохранить выбор языка. Повторите попытку."
+    "language.failed": "Не удалось сохранить выбор языка. Повторите попытку.",
+    "notify.updated": "Composer Plus {version} установлен. Перезапустите dsh, чтобы начать его использовать.",
+    "feature.autoUpdate": "Автоматические обновления",
+    "feature.autoUpdate.description": "При запуске dsh устанавливает более новую версию Composer Plus и уведомляет вас. Перезапустите dsh, чтобы её использовать.",
+    "update.title": "Обновления Composer Plus",
+    "update.version": "Версия {version}",
+    "update.checking": "Проверка обновлений…",
+    "update.current": "У вас последняя версия.",
+    "update.available": "Доступна версия {version}.",
+    "update.installing": "Установка {version}…",
+    "update.restart": "Версия {version} установлена. Перезапустите dsh, чтобы её использовать.",
+    "update.manual": "Доступна версия {version}. Эта копия установлена не из npm; обновите её в разделе Настройки → Плагины.",
+    "update.failed": "Не удалось обновить: {error}",
+    "update.check": "Проверить обновления",
+    "update.install": "Обновить сейчас",
+    "update.notes": "Примечания к выпуску"
   },
   "common": {
     "ok": "OK",

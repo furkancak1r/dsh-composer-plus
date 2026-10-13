@@ -1509,7 +1509,22 @@
     "language.title": "Ngôn ngữ ứng dụng",
     "language.system": "Ngôn ngữ hệ thống",
     "language.description": "Dùng ngôn ngữ của máy tính, hoặc chọn một ngôn ngữ cho toàn bộ ứng dụng.",
-    "language.failed": "Không thể lưu tùy chọn ngôn ngữ. Vui lòng thử lại."
+    "language.failed": "Không thể lưu tùy chọn ngôn ngữ. Vui lòng thử lại.",
+    "notify.updated": "Đã cài Composer Plus {version}. Khởi động lại dsh để sử dụng.",
+    "feature.autoUpdate": "Tự động cập nhật",
+    "feature.autoUpdate.description": "Khi dsh khởi động, cài bản Composer Plus mới hơn và thông báo cho bạn. Khởi động lại dsh để sử dụng.",
+    "update.title": "Cập nhật Composer Plus",
+    "update.version": "Phiên bản {version}",
+    "update.checking": "Đang kiểm tra cập nhật…",
+    "update.current": "Bạn đang dùng phiên bản mới nhất.",
+    "update.available": "Đã có phiên bản {version}.",
+    "update.installing": "Đang cài {version}…",
+    "update.restart": "Đã cài phiên bản {version}. Khởi động lại dsh để sử dụng.",
+    "update.manual": "Đã có phiên bản {version}. Bản sao này không được cài từ npm; hãy cập nhật trong Cài đặt → Plugin.",
+    "update.failed": "Cập nhật thất bại: {error}",
+    "update.check": "Kiểm tra cập nhật",
+    "update.install": "Cập nhật ngay",
+    "update.notes": "Ghi chú phát hành"
   },
   "common": {
     "ok": "OK",

@@ -1509,7 +1509,22 @@
     "language.title": "Idioma do aplicativo",
     "language.system": "Idioma do sistema",
     "language.description": "Use o idioma do seu computador ou escolha um idioma para todo o app.",
-    "language.failed": "Não foi possível salvar a preferência de idioma. Tente novamente."
+    "language.failed": "Não foi possível salvar a preferência de idioma. Tente novamente.",
+    "notify.updated": "O Composer Plus {version} foi instalado. Reinicie o dsh para usá-lo.",
+    "feature.autoUpdate": "Atualizações automáticas",
+    "feature.autoUpdate.description": "Ao iniciar o dsh, instala uma versão mais recente do Composer Plus e avisa você. Reinicie o dsh para usá-la.",
+    "update.title": "Atualizações do Composer Plus",
+    "update.version": "Versão {version}",
+    "update.checking": "Verificando atualizações…",
+    "update.current": "Você tem a versão mais recente.",
+    "update.available": "A versão {version} está disponível.",
+    "update.installing": "Instalando {version}…",
+    "update.restart": "A versão {version} foi instalada. Reinicie o dsh para usá-la.",
+    "update.manual": "A versão {version} está disponível. Esta cópia não foi instalada pelo npm; atualize em Configurações → Plugins.",
+    "update.failed": "Falha na atualização: {error}",
+    "update.check": "Verificar atualizações",
+    "update.install": "Atualizar agora",
+    "update.notes": "Notas da versão"
   },
   "common": {
     "ok": "OK",

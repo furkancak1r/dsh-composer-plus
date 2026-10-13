@@ -1509,7 +1509,22 @@
     "language.title": "アプリケーションの言語",
     "language.system": "システムの言語",
     "language.description": "コンピュータの言語を使用するか、アプリ全体の言語を選択します。",
-    "language.failed": "言語の設定を保存できませんでした。もう一度お試しください。"
+    "language.failed": "言語の設定を保存できませんでした。もう一度お試しください。",
+    "notify.updated": "Composer Plus {version} をインストールしました。使用するには dsh を再起動してください。",
+    "feature.autoUpdate": "自動アップデート",
+    "feature.autoUpdate.description": "dsh の起動時に新しい Composer Plus をインストールして通知します。使用するには dsh を再起動してください。",
+    "update.title": "Composer Plus のアップデート",
+    "update.version": "バージョン {version}",
+    "update.checking": "アップデートを確認しています…",
+    "update.current": "最新バージョンです。",
+    "update.available": "バージョン {version} を利用できます。",
+    "update.installing": "{version} をインストールしています…",
+    "update.restart": "バージョン {version} をインストールしました。使用するには dsh を再起動してください。",
+    "update.manual": "バージョン {version} を利用できます。このコピーは npm からインストールされていないため、設定 → プラグインで更新してください。",
+    "update.failed": "アップデートに失敗しました: {error}",
+    "update.check": "アップデートを確認",
+    "update.install": "今すぐアップデート",
+    "update.notes": "リリースノート"
   },
   "common": {
     "ok": "OK",
