@@ -799,10 +799,49 @@ window.__ModuleLoader__.load({
       return React.createElement('section', { 'data-composer-plus-changes': '', style: { height: '100%', overflowY: 'auto', fontSize: 13 } }, header, body);
     }
 
+    /** Feature switches, in Settings order. Every feature is on until switched off. */
+    const FEATURES = ['changesPanel', 'projectStatus', 'activeProjectsFirst', 'notifications', 'allowForChat', 'continueButton',
+      'inputHistory', 'planToggle', 'queueReorder', 'copyDeeplink'];
+    const TOGGLES_KEY = 'dsh-composer-plus.features';
+    /** `{ [feature]: false }` for switched-off features, kept in the app's own browser storage (per device). */
+    function createToggles() {
+      let state = {};
+      try { const raw = localStorage.getItem(TOGGLES_KEY); if (raw !== null) state = JSON.parse(raw) ?? {}; } catch { state = {}; }
+      const listeners = new Set();
+      return {
+        getSnapshot: () => state,
+        subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
+        update: (mutate) => {
+          const next = { ...state }; mutate(next);
+          for (const key of Object.keys(next)) if (next[key] !== false) delete next[key];
+          state = next;
+          try { localStorage.setItem(TOGGLES_KEY, JSON.stringify(state)); } catch { /* storage full or blocked: keep in memory */ }
+          for (const fn of [...listeners]) fn();
+        },
+      };
+    }
+    /** Settings → Composer Plus: one switch per feature, styled like dsh's own preference rows. */
+    function FeatureSettings({ useComposerPlusToggles, setFeature, t }) {
+      const enabled = useComposerPlusToggles((state) => state);
+      const row = { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 24, padding: '16px 0',
+        borderBottom: '.5px solid var(--dsw-alias-border-l2)' };
+      return React.createElement('div', { 'data-composer-plus-settings': '' },
+        React.createElement('div', { style: { color: 'var(--dsw-alias-label-secondary)', fontSize: 12, lineHeight: '18px', paddingBottom: 4 } }, t('settings.intro')),
+        ...FEATURES.map((id) => React.createElement('div', { key: id, style: row },
+          React.createElement('div', null,
+            React.createElement('div', { style: { fontSize: 14, lineHeight: '20px' } }, t(`feature.${id}`)),
+            React.createElement('div', { style: { color: 'var(--dsw-alias-label-secondary)', marginTop: 4, fontSize: 12, lineHeight: '18px' } }, t(`feature.${id}.description`))),
+          React.createElement(primitives.Switch, { checked: enabled[id] !== false, label: t(`feature.${id}`), onChange: (on) => setFeature(id, on) }))));
+    }
+
     return {
       inject: ['slots', 'sessions', 'locale', 'remote', 'remote.commands'],
       apply(ctx) {
-        ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
+        // Each feature installs through `feature(id, setup)`: setup returns its disposers, and a switch in
+        // Settings → Composer Plus removes or reinstalls just that feature, live.
+        const features = [];
+        const feature = (id, setup) => { features.push({ id, setup, off: null }); };
+        feature('queueReorder', () => [ctx.slots.inject('conversation.input.dock', () => ctx.slots.register({
           name: 'conversation.input.dock',
           id: 'queue-reorder',
           order: 21,
@@ -815,8 +854,8 @@ window.__ModuleLoader__.load({
               notify: (level, text) => { try { conversation.input.for(actx).notify(level, text); } catch { /* notice is best-effort */ } },
             };
           },
-        }, QueueReorder));
-        ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
+        }, QueueReorder))]);
+        feature('planToggle', () => [ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
           name: 'conversation.input.right',
           id: 'composer-plan-toggle',
           order: 999,
@@ -832,15 +871,37 @@ window.__ModuleLoader__.load({
               notify: (level, text) => { try { actx.get('conversation').input.for(actx).notify(level, text); } catch { /* notice is best-effort */ } },
             };
           },
-        }, PlanToggle));
-        ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
+        }, PlanToggle))]);
+        feature('continueButton', () => [ctx.slots.inject('conversation.input.right', () => ctx.slots.register({
           name: 'conversation.input.right',
           id: 'composer-continue',
           order: 1000,
           locale: LOCALE_NS,
-        }, ContinueButton));
+        }, ContinueButton))]);
         if (ctx.locale !== undefined) ctx.effect(() => ctx.locale.register(LOCALE_NS, {
           en: {
+            'settings.nav': 'Composer Plus',
+            'settings.intro': 'Turn individual dsh-composer-plus features on or off. Changes apply immediately on this device.',
+            'feature.changesPanel': 'Changes panel',
+            'feature.changesPanel.description': 'Right sidebar page with uncommitted, staged and branch changes and their diffs.',
+            'feature.projectStatus': 'Project status',
+            'feature.projectStatus.description': 'Show the running / waiting / done marker of a project\'s chats on the project row.',
+            'feature.activeProjectsFirst': 'Active projects first',
+            'feature.activeProjectsFirst.description': 'Move a project to the top of the sidebar when one of its chats runs or needs you.',
+            'feature.notifications': 'Background notifications',
+            'feature.notifications.description': 'Notify when a chat finishes or needs you while dsh is in the background, with a Dock badge.',
+            'feature.allowForChat': 'Allow for this chat',
+            'feature.allowForChat.description': 'Add “Allow for this chat” to Auto Review approvals and auto-allow granted tools.',
+            'feature.continueButton': 'One-click Continue',
+            'feature.continueButton.description': 'Turn Send into ▶ after a stopped turn; one click sends “continue”.',
+            'feature.inputHistory': 'Input history',
+            'feature.inputHistory.description': 'Use ↑ / ↓ in an empty composer to reuse messages you sent.',
+            'feature.planToggle': 'Shift+Tab plan mode',
+            'feature.planToggle.description': 'Shift+Tab adds or removes /plan, or leaves plan mode.',
+            'feature.queueReorder': 'Queue drag-and-drop',
+            'feature.queueReorder.description': 'Reorder queued messages by dragging their grip.',
+            'feature.copyDeeplink': 'Copy deeplink',
+            'feature.copyDeeplink.description': 'Right-click a chat in the sidebar to copy a link to it.',
             'project.running': '{count} chat(s) running',
             'project.approval': 'A chat is waiting for approval',
             'project.plan-review': 'A plan is waiting for review',
@@ -886,6 +947,28 @@ window.__ModuleLoader__.load({
             'changes.refresh': 'Refresh',
           },
           zh: {
+            'settings.nav': 'Composer Plus',
+            'settings.intro': '单独开启或关闭 dsh-composer-plus 的各项功能。更改会立即在本设备生效。',
+            'feature.changesPanel': '改动面板',
+            'feature.changesPanel.description': '右侧边栏页面，显示未提交、已暂存和分支改动及其差异。',
+            'feature.projectStatus': '项目状态',
+            'feature.projectStatus.description': '在项目行上显示其对话的进行中 / 等待 / 完成标记。',
+            'feature.activeProjectsFirst': '活跃项目置顶',
+            'feature.activeProjectsFirst.description': '当项目中的对话正在运行或需要你处理时，将该项目移到侧边栏顶部。',
+            'feature.notifications': '后台通知',
+            'feature.notifications.description': 'dsh 在后台时，对话完成或需要你处理时发出通知，并显示程序坞角标。',
+            'feature.allowForChat': '本对话内允许',
+            'feature.allowForChat.description': '在 Auto Review 审批中添加“本对话内允许”，并自动允许已授权的工具。',
+            'feature.continueButton': '一键继续',
+            'feature.continueButton.description': '回合停止后，发送按钮变为 ▶，点击即发送“继续”。',
+            'feature.inputHistory': '输入历史',
+            'feature.inputHistory.description': '在空输入框中按 ↑ / ↓ 复用已发送的消息。',
+            'feature.planToggle': 'Shift+Tab 计划模式',
+            'feature.planToggle.description': 'Shift+Tab 添加或移除 /plan，或退出计划模式。',
+            'feature.queueReorder': '队列拖拽排序',
+            'feature.queueReorder.description': '拖动排队消息的把手以调整顺序。',
+            'feature.copyDeeplink': '复制深层链接',
+            'feature.copyDeeplink.description': '在侧边栏右键点击对话以复制其链接。',
             'project.running': '{count} 个对话进行中',
             'project.approval': '有对话等待审批',
             'project.plan-review': '有计划等待审阅',
@@ -931,29 +1014,24 @@ window.__ModuleLoader__.load({
             'changes.refresh': '刷新',
           },
         }), 'dsh-composer-plus: dictionaries');
-        ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+        feature('projectStatus', () => [ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay',
           id: 'project-status',
           locale: LOCALE_NS,
-        }, ProjectStatusMarkers));
-        ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
-          name: 'conversation.session.header.utilities',
-          id: 'chat-tool-grants',
-          order: 0,
-          locale: LOCALE_NS,
-        }, ChatToolGrants));
-        if (ctx.inject !== undefined) ctx.inject(['uiSession', 'uiWorkspace', 'sessions'], (scope) => {
+        }, ProjectStatusMarkers))]);
+        const injectScope = (deps, setup) => (ctx.inject === undefined ? [] : [ctx.inject(deps, setup)]);
+        feature('notifications', () => injectScope(['uiSession', 'uiWorkspace', 'sessions'], (scope) => {
           const t = ctx.locale.bind(LOCALE_NS);
           scope.effect(() => watchAttention(scope.uiSession.sessionStatus, scope.sessions.list, t,
             (sessionId) => scope.uiWorkspace.openSession(sessionId)), 'dsh-composer-plus: attention notifications');
           // First use asks the OS once; a denied permission stays denied (re-enable it in System Settings).
           if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
-        });
-        if (ctx.inject !== undefined) ctx.inject(['workspaces', 'uiSession', 'sessions'], (scope) => {
+        }));
+        feature('activeProjectsFirst', () => injectScope(['workspaces', 'uiSession', 'sessions'], (scope) => {
           scope.effect(() => watchActiveProjects(scope.workspaces, scope.sessions.list, scope.uiSession.sessionStatus),
             'dsh-composer-plus: active projects first');
-        });
-        if (ctx.inject !== undefined) ctx.inject(['sidebarRight', 'sidebarRightTabs'], (scope) => {
+        }));
+        feature('changesPanel', () => injectScope(['sidebarRight', 'sidebarRightTabs'], (scope) => {
           const t = ctx.locale.bind(LOCALE_NS);
           scope.effect(() => scope.sidebarRightTabs.register({
             id: CHANGES_ID,
@@ -972,8 +1050,13 @@ window.__ModuleLoader__.load({
               openLastTurn: (sessionId, { seq, turn }) => scope.sidebarRight.openResource(`dsh-resource://changes-review/session/${encodeURIComponent(sessionId)}/${seq}/${turn}`),
             }),
           }, ChangesTab)), 'dsh-composer-plus: changes tab body');
-        });
-        if (ctx.inject !== undefined) ctx.inject(['uiSession'], (scope) => {
+        }));
+        feature('allowForChat', () => [ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+          name: 'conversation.session.header.utilities',
+          id: 'chat-tool-grants',
+          order: 0,
+          locale: LOCALE_NS,
+        }, ChatToolGrants)), ...injectScope(['uiSession'], (scope) => {
           const status = scope.uiSession.sessionStatus;
           // Deferred so answering never re-enters the status notification that triggered it.
           const scan = () => { queueMicrotask(() => answerGranted(status.getSnapshot())); };
@@ -983,25 +1066,44 @@ window.__ModuleLoader__.load({
             scan();
             return () => { offStatus(); offGrants(); };
           }, 'dsh-composer-plus: chat tool grants');
-        });
+        })]);
         if (ctx.effect !== undefined) ctx.effect(() => () => { grants.clear(); grantsChanged(); }, 'dsh-composer-plus: forget grants on unload');
         if (typeof fetch === 'function') loadGrants();
-        ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
+        feature('copyDeeplink', () => [ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
           name: 'sidebar.workspaces.session.menu.item',
           id: 'copy-deeplink',
           order: 350,
           locale: LOCALE_NS,
-        }, CopyDeeplinkItem));
-        ctx.slots.inject('sidebar.workspaces.session.row.action', () => ctx.slots.register({
+        }, CopyDeeplinkItem)), ctx.slots.inject('sidebar.workspaces.session.row.action', () => ctx.slots.register({
           name: 'sidebar.workspaces.session.row.action',
           id: 'session-context-menu',
           order: 0,
-        }, RowContextMenu));
-        ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+        }, RowContextMenu))]);
+        feature('inputHistory', () => [ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
           name: 'conversation.composer.dock',
           id: 'composer-history',
           order: 20,
-        }, ComposerHistory));
+        }, ComposerHistory))]);
+        const toggles = createToggles();
+        const apply = () => {
+          const enabled = toggles.getSnapshot();
+          for (const f of features) {
+            const on = enabled[f.id] !== false;
+            if (on && f.off === null) { const offs = f.setup(); f.off = () => { for (const off of offs.reverse()) off?.(); }; }
+            else if (!on && f.off !== null) { f.off(); f.off = null; }
+          }
+        };
+        apply();
+        const offToggles = toggles.subscribe(apply);
+        if (ctx.effect !== undefined) ctx.effect(() => () => { offToggles(); for (const f of features) if (f.off !== null) { f.off(); f.off = null; } }, 'dsh-composer-plus: feature toggles');
+        ctx.slots.inject('settings.section', () => ctx.slots.register({
+          name: 'settings.section',
+          id: 'composer-plus',
+          order: 90,
+          label: () => (ctx.locale === undefined ? 'Composer Plus' : ctx.locale.bind(LOCALE_NS)('settings.nav')),
+          locale: LOCALE_NS,
+          inject: () => ({ hooks: { composerPlusToggles: toggles }, setFeature: (id, on) => toggles.update((draft) => { draft[id] = on; }) }),
+        }, FeatureSettings));
       },
     };
   },

@@ -21,7 +21,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@0.9.0`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.0.0`.
 
 ## Features
 
@@ -39,6 +39,10 @@ Then restart dsh. (The CLI can't install into the desktop profile; the app manag
 | **Background notifications** | While dsh is in the background you get a notification when a turn finishes (first line of the reply), or when a chat needs an approval (tool name), an answer (the question) or a plan review. The Dock/taskbar badge counts waiting chats. Clicking opens that chat. |
 
 All text — buttons, tooltips, notices, notifications and the Continue message — follows the language selected in dsh (English or Chinese, the two languages dsh ships). Switching the language in dsh settings updates it live.
+
+## Settings
+
+Every feature can be switched off on its own: dsh **Settings → Composer Plus**. Each row has a switch and a short description; changes apply immediately, without a restart, and are remembered on that device. Everything is on by default.
 
 ## Keyboard shortcuts
 
@@ -65,7 +69,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 
 - **No notifications on macOS:** System Settings → Notifications → DeepSeek Harness → allow. Choose **Alerts** to keep them on screen.
 - **▶, queue grips, project status, Allow for this chat or right-click missing after a dsh update:** these attach to dsh's current HTML because dsh has no slot for them yet. If dsh changes that markup they hide themselves; nothing else breaks. Please open an [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
-- **Install fails right after a release:** add the version (`dsh-composer-plus@0.9.0`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.0.0`), see the install note above.
 
 ## Limits
 
