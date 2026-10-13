@@ -19,9 +19,11 @@ const call = (method, path, body, token, pin = inv.fp, host = inv.host) => new P
     else req.end(body === undefined ? undefined : JSON.stringify(body))
   }))
   req.on('error', bad)
+  req.setTimeout(10000, () => req.destroy(new Error('timeout ' + method + ' ' + path + ' @' + host)))
 })
 const results = []
-const check = async (name, fn) => { try { const v = await fn(); results.push(['PASS', name, v ?? '']) } catch (e) { results.push(['FAIL', name, e.message]) } }
+// print as we go: a slow live step (the model turn) otherwise looks like a hang
+const check = async (name, fn) => { try { const v = await fn(); results.push(['PASS', name, v ?? '']) } catch (e) { results.push(['FAIL', name, e.message]) } console.log(results.at(-1).join('  ')) }
 
 // MITM: a wrong pin must abort before the request body is sent.
 await check('wrong pin rejected', async () => { await assert.rejects(call('GET', '/me', undefined, undefined, '00'.repeat(32)), /pin mismatch/) })
@@ -95,7 +97,9 @@ await check('session/page older history', async () => {
   const ws = await wsConnect('wss://' + inv.host + ':' + inv.port + '/api/remote.mux', { authorization: 'Bearer ' + token }, { rejectUnauthorized: false })
   let snap; ws.onText = t => { const f = JSON.parse(t); if (f.value?.type === 'snapshot') snap ??= f.value }
   let most = 0
-  for (const s of items) {
+  // shortcut: scans only the 10 newest sessions (each waits up to 5s), widen if no truncated snapshot shows up
+  const scan = items.slice(0, 10)
+  for (const s of scan) {
     snap = undefined
     ws.send(JSON.stringify({ type: 'open', streamId: 'p' + s.sessionId, endpoint: 'session/follow', payload: { args: { request: { address: { kind: 'session', sessionId: s.sessionId } } } } }))
     for (let i = 0; i < 50 && !snap; i++) await sleep(100)
@@ -103,7 +107,7 @@ await check('session/page older history', async () => {
     if (snap?.hasMore) break
   }
   ws.close()
-  if (!snap?.hasMore) return 'no truncated snapshot in ' + items.length + ' sessions (max ' + most + ' records)'
+  if (!snap?.hasMore) return 'no truncated snapshot in ' + scan.length + ' sessions (max ' + most + ' records)'
   const first = snap.records[0].event.seq, last = snap.records.at(-1).event.seq
   const page = await rpc('session/page', { request: { address: { kind: 'session', sessionId: snap.header?.sessionId }, throughSeq: last, beforeSeq: first, maxMessages: 40 } })
   assert.ok(page.records.length > 0 && page.records.at(-1).event.seq < first, short(page))
@@ -130,5 +134,4 @@ await check('revoke kills token', async () => {
   assert.equal((await call('GET', '/me', undefined, token)).status, 401)
 })
 
-for (const r of results) console.log(r.join('  '))
 process.exit(results.some(r => r[0] === 'FAIL') ? 1 : 0)

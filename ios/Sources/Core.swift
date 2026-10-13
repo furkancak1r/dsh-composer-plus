@@ -334,12 +334,16 @@ struct Prompt: Identifiable { let id: String; let event: String; let agentId: St
 struct Question: Identifiable {
     struct Opt: Identifiable { var id: String { label }; let label: String; let desc: String? }
     let id: String, question: String, detail: String?, header: String?, multi: Bool, options: [Opt]
+    /// DSH plan-review intent: the label that approves the plan in one tap.
+    var approve: String? = nil
     static func parse(_ r: J) -> [Question] {
         (r["questions"] as? [J] ?? []).compactMap { q in
             guard let id = q["id"] as? String else { return nil }
+            let intent = q["intent"] as? J
             return Question(id: id, question: q["question"] as? String ?? "", detail: q["detail"] as? String, header: q["header"] as? String,
                             multi: q["multiSelect"] as? Bool ?? false,
-                            options: (q["options"] as? [J] ?? []).compactMap { o in (o["label"] as? String).map { Opt(label: $0, desc: o["description"] as? String) } })
+                            options: (q["options"] as? [J] ?? []).compactMap { o in (o["label"] as? String).map { Opt(label: $0, desc: o["description"] as? String) } },
+                            approve: intent?["kind"] as? String == "plan-review" ? intent?["approve"] as? String : nil)
         }
     }
 }

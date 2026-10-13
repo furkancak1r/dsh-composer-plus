@@ -106,6 +106,9 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(q.count, 1)
         XCTAssertEqual(q[0].options.map(\.label), ["A", "B"])
         XCTAssertTrue(q[0].multi)
+        XCTAssertNil(q[0].approve)
+        let plan = Question.parse(["questions": [["id": "p", "question": "Plan?", "intent": ["kind": "plan-review", "approve": "Approve plan"]]]])
+        XCTAssertEqual(plan[0].approve, "Approve plan")
     }
 
     @MainActor func testApplyHidesInjectedContextAndShowsModel() {

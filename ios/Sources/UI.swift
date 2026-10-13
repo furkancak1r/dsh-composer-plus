@@ -1288,6 +1288,9 @@ struct PromptSheet: View {
                         Section {
                             Text(q.question).bold()
                             if let d = q.detail { Text(d).font(.caption).foregroundStyle(.secondary) }
+                            if let ap = q.approve {
+                                Button { sendAnswers([q.id: [ap]]) } label: { Label(ap, systemImage: "checkmark.circle.fill").bold() }
+                            }
                             ForEach(q.options) { o in
                                 Button { toggle(q, o.label) } label: {
                                     HStack {
@@ -1316,9 +1319,9 @@ struct PromptSheet: View {
         UINotificationFeedbackGenerator().notificationOccurred(v == "rejected" ? .warning : .success)
         c.run { try await c.answer(p, v) }
     }
-    func sendAnswers() {
+    func sendAnswers(_ override: [String: Set<String>] = [:]) {
         let a: [J] = Question.parse(p.request).map { q in
-            var item: J = ["id": q.id, "selected": Array(picked[q.id, default: []])]
+            var item: J = ["id": q.id, "selected": Array(override[q.id] ?? picked[q.id, default: []])]
             if let t = custom[q.id]?.trimmingCharacters(in: .whitespaces), !t.isEmpty { item["custom"] = t }
             return item
         }

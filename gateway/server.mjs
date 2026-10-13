@@ -261,7 +261,10 @@ export function createGateway(opts = {}) {
   function auth(req) {
     const m = /^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization ?? '')
     const d = m && devices.find(d => d.tokenHash === sha(m[1]))
-    return d && Date.parse(d.expiresAt) > Date.now() ? d : undefined
+    if (!d || Date.parse(d.expiresAt) <= Date.now()) return undefined
+    // Sliding renewal: an actively used phone never gets force-unpaired; one idle for TOKEN_TTL still expires.
+    if (Date.parse(d.expiresAt) - Date.now() < TOKEN_TTL / 2) { d.expiresAt = new Date(Date.now() + TOKEN_TTL).toISOString(); saveDevices() }
+    return d
   }
   function track(id, socket) {
     let s = devSockets.get(id)

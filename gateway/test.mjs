@@ -305,3 +305,27 @@ test('brute force: repeated bad auth blocks the IP', async () => {
     assert.equal((await rpc(t.gw, token, 'session/list')).status, 429)
   } finally { await t.done() }
 })
+
+test('token: renews when half-expired, rejects when expired', async () => {
+  const t = await setup()
+  const opts = { dir: t.dir, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0' }) }
+  const { token, deviceId } = await pairDevice(t.gw)
+  await t.gw.close()
+  const file = join(t.dir, 'devices.json')
+  const restart = async days => {
+    const devs = JSON.parse(readFileSync(file, 'utf8'))
+    devs.find(d => d.id === deviceId).expiresAt = new Date(Date.now() + days * 864e5).toISOString()
+    writeFileSync(file, JSON.stringify(devs))
+    const gw = createGateway(opts); await gw.start(); return gw
+  }
+  let gw = await restart(1)
+  try {
+    const me = await call(gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + token })
+    assert.equal(me.status, 200)
+    assert.ok(Date.parse(me.json.expiresAt) - Date.now() > 20 * 864e5)
+    assert.ok(Date.parse(JSON.parse(readFileSync(file, 'utf8')).find(d => d.id === deviceId).expiresAt) - Date.now() > 20 * 864e5)
+    await gw.close()
+    gw = await restart(-1)
+    assert.equal((await call(gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + token })).status, 401)
+  } finally { await gw.close(); t.dsh.close() }
+})
