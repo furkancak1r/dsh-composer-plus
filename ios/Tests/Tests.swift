@@ -29,6 +29,11 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(lostHint(onWiFi: true, hasTailnet: true).contains("Tailscale"))
         XCTAssertTrue(lostHint(onWiFi: false, hasTailnet: false).contains("Install Tailscale"))
         XCTAssertFalse(lostHint(onWiFi: true, hasTailnet: false).contains("Tailscale"))
+        // a hung first connect gets the hint; a fresh one and a live link stay quiet
+        XCTAssertFalse(showsLostHint(.connecting, slow: false))
+        XCTAssertTrue(showsLostHint(.connecting, slow: true))
+        XCTAssertFalse(showsLostHint(.connected, slow: true))
+        XCTAssertTrue(showsLostHint(.reconnecting, slow: false))
         for ok in ["10.0.0.1", "172.16.4.2", "172.31.255.255", "192.168.1.44", "169.254.10.3"] { XCTAssertTrue(isLANv4(ok), ok) }
         for bad in ["8.8.8.8", "172.32.0.1", "192.169.0.1", "127.0.0.1", "0.0.0.0", "10.0.0", "10.0.0.256", "evil.com", "10.0.0.1.nip.io", "::1", " 10.0.0.1", "１0.0.0.1"] {
             XCTAssertFalse(isLANv4(bad), bad)
@@ -261,6 +266,17 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(s?.todos, [Todo(content: "x", status: "pending")])
     }
 
+    func testQuestions() {
+        let row: J = ["callId": "c1", "questions": [["id": "q", "question": "?"]]]
+        let w = parseQuestions(["val": ["active": [row, ["questions": []]]]], session: "s")
+        XCTAssertEqual(w.map(\.id), ["c1"])
+        XCTAssertEqual(w.first?.agentId, "s")
+        XCTAssertEqual(w.first?.event, "userQuestions/answer")
+        XCTAssertEqual(parseQuestions(["active": [row]], session: "s").count, 1)
+        XCTAssertTrue(parseQuestions(nil, session: "s").isEmpty)
+        XCTAssertEqual(Sess(["sessionId": "t", "projections": ["values": ["userQuestions": ["active": [row]]]]])?.questions.count, 1)
+    }
+
     @MainActor func testDrafts() {
         let c = Client()
         c.setDraft("half typed", "draft-test")
@@ -287,15 +303,31 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(g?.summary, "paused · 2/10")
         XCTAssertEqual(g?.paused, true)
         XCTAssertEqual(Goal(["id": "g", "revision": 1, "phase": "active"])?.summary, "active")
+        let s = Sess(["sessionId": "t", "projections": ["values": ["goal": ["val": ["goal": ["id": "g", "revision": 1, "phase": "paused", "maxGoalRounds": 10], "roundsStarted": 2]]]]])
+        XCTAssertEqual(s?.goal?.summary, "paused · 2/10")
+        XCTAssertNil(Sess(["sessionId": "t"])?.goal)
     }
 
     func testZoomClamp() {
+        // preset labels (kept here to share the CoreTests class)
+        XCTAssertEqual(presetLabel("ptc"), "PTC")
+        XCTAssertEqual(presetLabel("standard"), "Standard")
+        XCTAssertEqual(presetLabel(""), "")
+        let ps = [Preset(id: "standard", name: "Standard", desc: nil, broken: false, isDefault: true), Preset(id: "ptc", name: "PTC", desc: nil, broken: false)]
+        XCTAssertNil(customPreset(nil, ps))
+        XCTAssertNil(customPreset("standard", ps))
+        XCTAssertEqual(customPreset("ptc", ps)?.name, "PTC")
+        XCTAssertNil(customPreset("gone", ps))
         XCTAssertEqual(zoomClamp(0.3), 1)
         XCTAssertEqual(zoomClamp(2), 2)
         XCTAssertEqual(zoomClamp(9), 5)
     }
 
     @MainActor func testJustFinished() {
+        XCTAssertEqual(sessionsPlaceholder(loaded: false, count: 0, state: .connecting), .loading)
+        XCTAssertEqual(sessionsPlaceholder(loaded: false, count: 0, state: .off), SessionsPlaceholder.none)
+        XCTAssertEqual(sessionsPlaceholder(loaded: true, count: 0, state: .reconnecting), .empty)
+        XCTAssertEqual(sessionsPlaceholder(loaded: true, count: 3, state: .connected), SessionsPlaceholder.none)
         let s = { (id: String, run: Bool) in Sess(["sessionId": id, "running": run])! }
         let old = [s("a", true), s("b", true), s("c", false), s("d", true)]
         let new = [s("a", false), s("b", true), s("c", false), s("d", false)]
@@ -303,6 +335,11 @@ final class CoreTests: XCTestCase {
         // A whole turn between refreshes: idle both times but updatedAt moved; a rename alone doesn't count.
         let t = { (id: String, at: Int, title: String) in Sess(["sessionId": id, "updatedAt": at, "projections": ["values": ["title": title]]])! }
         XCTAssertEqual(Client.justFinished(old: [t("e", 1, "x"), t("f", 1, "x"), t("g", 1, "x")], new: [t("e", 2, "x"), t("f", 2, "y"), t("g", 1, "x")], current: nil), ["e"])
+        // Cold start: the persisted snapshot round-trips through UserDefaults and Sess.init.
+        let saved = UserDefaults(suiteName: "test")!
+        saved.set(Client.snapshot([s("h", true), t("i", 1, "x")]), forKey: "seen")
+        let back = (saved.array(forKey: "seen") as? [J] ?? []).compactMap(Sess.init)
+        XCTAssertEqual(Client.justFinished(old: back, new: [s("h", false), t("i", 2, "x")], current: nil), ["h", "i"])
     }
 }
 
@@ -311,6 +348,10 @@ final class UserTextTests: XCTestCase {
         XCTAssertTrue(userText(URLError(.timedOut)).contains("too long"))
         XCTAssertTrue(userText(URLError(.cannotConnectToHost)).contains("reach the Mac"))
         XCTAssertEqual(userText(Fail("x")), "x")
+        XCTAssertTrue(gatewayText(429, "rate limited").contains("Too many"))
+        XCTAssertTrue(gatewayText(403, "endpoint not allowed").contains("phone"))
+        XCTAssertTrue(gatewayText(400, "body too large").contains("too large to send"))
+        XCTAssertEqual(gatewayText(500, "HTTP 500"), "HTTP 500")
     }
 }
 

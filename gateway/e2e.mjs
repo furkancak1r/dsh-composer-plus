@@ -54,6 +54,8 @@ const short = v => String(JSON.stringify(v) ?? 'none').slice(0, 100)
 let sid, receipt
 // the phone reads only the first page; flag the day DSH starts paging this list
 await check('session/list', async () => { const l = await rpc('session/list', { _request: {} }); assert.ok(!l.cursor && !l.nextCursor, 'session/list now pages: follow the cursor in Client.loadSessions'); return l.items.length + ' sessions' })
+// Client.loadSessions reads late questions from projections.values.userQuestions
+await check('session/list userQuestions projection', async () => { const s = (await rpc('session/list', { _request: {} })).items[0]; const q = s.projections.values.userQuestions; assert.ok(Array.isArray((q?.val ?? q)?.active), 'parseQuestions shape changed: ' + short(q)); return short(q) })
 await check('session/create', async () => { sid = (await rpc('session/create', { request: { cwd: '/tmp' } })).sessionId; assert.ok(sid); return sid })
 await check('session/rename', async () => { await rpc('session/rename', { request: { sessionId: sid, title: 'E2E mobile' } }) })
 await check('rename visible in list', async () => { const s = (await rpc('session/list', { _request: {} })).items.find(s => s.sessionId === sid); assert.ok(JSON.stringify(s).includes('E2E mobile')) })
@@ -69,9 +71,15 @@ await check('goals create/edit/clear', async () => {
   const g = await rpc('goals/get', { agentId: sid })
   const e = await rpc('goals/edit', { agentId: sid, ref: { id: g.id, revision: g.revision }, request: { objective: 'e2e B' } })
   assert.equal(e.objective, 'e2e B')
+  // Sess.goal reads projections.values.goal ({val:}?{goal:{id,revision,phase}, roundsStarted}); the row badge depends on it
+  let pv
+  for (let i = 0; i < 20 && !pv; i++) { const s = (await rpc('session/list', { _request: {} })).items.find(s => s.sessionId === sid); const v = s?.projections?.values?.goal; pv = (v?.val ?? v)?.goal; if (!pv) await sleep(150) }
+  assert.ok(pv?.id && typeof pv.phase === 'string', 'goal projection shape changed: ' + short(pv))
   await rpc('goals/clear', { agentId: sid, ref: { id: e.id, revision: e.revision } })
+  return 'projection phase=' + pv.phase
 })
-await check('agentPresets/list', async () => short(await rpc('agentPresets/list')))
+// Client.loadAgents reads presets[].{id,isDefault} (name is optional, falls back to id)
+await check('agentPresets/list', async () => { const p = (await rpc('agentPresets/list')).presets; assert.ok(Array.isArray(p) && p.every(x => x.id) && p.filter(x => x.isDefault).length === 1, 'preset shape changed: ' + short(p)); return p.map(x => x.id + (x.isDefault ? '*' : '')).join(', ') })
 // Client.image's thumbnail fetch: allowlisted (200, not 403) and DSH answers with a structured error for an unknown id
 await check('session/attachment reachable', async () => {
   const r = await call('POST', '/api/session/attachment', { type: 'client-request', rpcId: 'e2e-att', method: 'session/attachment', payload: { args: { request: { sessionId: sid, attachmentId: 'nope' } } } }, token)

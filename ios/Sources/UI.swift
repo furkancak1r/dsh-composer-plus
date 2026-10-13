@@ -58,21 +58,23 @@ struct ConnBadge: View {
 /// Says what is wrong with the link to the Mac, with a retry. Empty when all is well.
 struct ConnBanner: View {
     @EnvironmentObject var c: Client
+    @State private var slow = false
     var body: some View {
-        // first connect stays quiet (badge shows it); only a lost link earns a banner
+        // first connect stays quiet (badge shows it) until it hangs; a lost link earns a banner
         let lost = lostHint(onWiFi: c.onWiFi, hasTailnet: c.pairing?.ts != nil)
-        let msg = c.upstreamText ?? (c.state == .connected || c.state == .connecting ? nil : lost)
-        if let msg {
+        let msg = c.upstreamText ?? (showsLostHint(c.state, slow: slow) ? lost : nil)
+        Group { if let msg {
             HStack(spacing: 10) {
-                if c.state == .reconnecting { ProgressView().controlSize(.small) } else { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange) }
+                if c.state == .reconnecting { ProgressView().controlSize(.small) } else { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).accessibilityHidden(true) }
                 Text(msg).font(.footnote).frame(maxWidth: .infinity, alignment: .leading)
                 Button("Retry") { c.reconnect() }.font(.footnote.bold()).buttonStyle(.borderless)
             }
             .padding(.horizontal, 14).padding(.vertical, 9)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
             .padding(.horizontal, 12).padding(.top, 4)
-            .accessibilityElement(children: .combine)
-        }
+            .accessibilityElement(children: .contain) // keep Retry its own VoiceOver target
+        } }
+        .task(id: c.state) { slow = false; if c.state == .connecting { try? await Task.sleep(for: .seconds(8)); if !Task.isCancelled { slow = true } } }
     }
 }
 
@@ -538,6 +540,7 @@ struct ConversationView: View {
                 }
                 ModelMenu()
                 PermMenu()
+                PresetMenu()
                 Spacer(minLength: 0)
                 if c.running && canSend { roundButton("arrow.up", action: send).accessibilityLabel("Send now") }
                 if c.running { roundButton("stop.fill") { c.run { try await c.stop() } }.accessibilityLabel("Stop") }
@@ -897,7 +900,8 @@ struct ModelMenu: View {
             }
             if c.catalog.isEmpty { Text("Loading models…") }
         } label: {
-            HStack(spacing: 3) { Text(c.shownModel ?? String(localized: "Model")).lineLimit(1); Image(systemName: "chevron.down").imageScale(.small) }
+            // maxWidth keeps a long model name from squeezing the preset chip and buttons on small phones
+            HStack(spacing: 3) { Text(c.shownModel ?? String(localized: "Model")).lineLimit(1).truncationMode(.middle).frame(maxWidth: 150); Image(systemName: "chevron.down").imageScale(.small) }
                 .font(.footnote.weight(.medium)).foregroundStyle(.secondary)
                 .padding(.horizontal, 10).frame(height: 32).background(Color(.tertiarySystemFill), in: Capsule())
         }
@@ -935,6 +939,29 @@ struct PermMenu: View {
 }
 
 // MARK: - Sessions
+
+/// Agent preset chip; only appears when the chat runs a non-default preset (e.g. PTC), so the default composer stays clean.
+struct PresetMenu: View {
+    @EnvironmentObject var c: Client
+    var body: some View {
+        let cur = c.currentSess?.preset
+        if let p = customPreset(cur, c.presets) {
+            Menu {
+                ForEach(c.presets) { q in
+                    Button { c.run { try await c.selectPreset(q.id) } } label: {
+                        if cur == q.id { Label(q.name, systemImage: "checkmark") } else { Text(q.name) }
+                    }.disabled(q.broken)
+                }
+            } label: {
+                Text(p.name).lineLimit(1).frame(maxWidth: 90)
+                    .font(.footnote.weight(.medium)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 10).frame(height: 32).background(Color(.tertiarySystemFill), in: Capsule())
+            }
+            .accessibilityLabel(Text("Agent preset"))
+            .accessibilityValue(Text(p.name))
+        }
+    }
+}
 
 struct SessionsView: View {
     @EnvironmentObject var c: Client
@@ -983,8 +1010,12 @@ struct SessionsView: View {
                     }
                 }
             }
-            .overlay { if c.sessions.isEmpty && query.isEmpty {
-                ContentUnavailableView { Label("No sessions", systemImage: "tray") } actions: { Button("New session") { creating = true }.buttonStyle(.borderedProminent) }
+            .overlay { if query.isEmpty {
+                switch sessionsPlaceholder(loaded: c.sessionsLoaded, count: c.sessions.count, state: c.state) {
+                case .empty: ContentUnavailableView { Label("No sessions", systemImage: "tray") } actions: { Button("New session") { creating = true }.buttonStyle(.borderedProminent) }
+                case .loading: ProgressView("Loading sessions…")
+                case .none: EmptyView()
+                }
             } }
             .searchable(text: $query, prompt: "Search sessions")
             .task(id: query) {
@@ -1043,6 +1074,7 @@ struct SessionsView: View {
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
+            if let g = s.goal, !g.phase.hasPrefix("complete") { Image(systemName: "target").font(.caption).foregroundStyle(g.paused ? Color.secondary : Color.accentColor).accessibilityLabel("Goal: \(g.summary)") }
             if c.prompts.contains(where: { $0.agentId == s.id }) { Image(systemName: "hand.raised.fill").foregroundStyle(.orange).accessibilityLabel("Waiting for you") }
             if s.running { Circle().fill(.green).frame(width: 8, height: 8).accessibilityLabel("Running") }
             else if c.finished.contains(s.id) { Circle().fill(Color.accentColor).frame(width: 8, height: 8).accessibilityLabel("Finished") }
@@ -1115,8 +1147,8 @@ struct AgentsView: View {
                         ForEach(c.presets) { p in
                             Button { c.run { try await c.selectPreset(p.id) } } label: {
                                 HStack {
-                                    VStack(alignment: .leading) { Text(p.name); if let d = p.desc { Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
-                                    Spacer(); if s.preset == p.id { Image(systemName: "checkmark") }
+                                    VStack(alignment: .leading) { Text(p.name); if let d = p.desc ?? (p.isDefault ? "Default" : nil) { Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
+                                    Spacer(); if s.preset == p.id || (s.preset == nil && p.isDefault) { Image(systemName: "checkmark") }
                                 }
                             }.disabled(p.broken)
                         }
@@ -1304,7 +1336,10 @@ struct PromptSheet: View {
                     }
                     Section { Button("Send answer") { sendAnswers() }.bold() }
                 }
-                Section { Button("Decide on Mac") { c.run { try await c.answer(p, nil) } } } footer: { Text("Hands this prompt back to the DSH window on your Mac.") }
+                // Projection questions have no "next handler"; they stay open on the Mac and would just reappear on the next refresh.
+                if p.event != "userQuestions/answer" {
+                    Section { Button("Decide on Mac") { c.run { try await c.answer(p, nil) } } } footer: { Text("Hands this prompt back to the DSH window on your Mac.") }
+                }
             }
             .navigationTitle(p.event == "approval/request" ? "Approval needed" : "Question")
             .navigationBarTitleDisplayMode(.inline)

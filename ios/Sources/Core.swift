@@ -38,6 +38,13 @@ func userText(_ e: Error) -> String {
     default: return e.localizedDescription
     }
 }
+/// Gateway refusals (raw English from server.mjs) become one plain sentence; unknown messages pass through.
+func gatewayText(_ code: Int, _ m: String) -> String {
+    if code == 429 { return String(localized: "Too many requests. Wait a few seconds and try again.") }
+    if code == 403, m == "endpoint not allowed" { return String(localized: "This action isn't available from the phone yet.") }
+    if code == 413 || m.contains("too large") { return String(localized: "That's too large to send.") }
+    return m
+}
 
 /// What the banner tells the user when the Mac is unreachable. On Wi‑Fi with a tailnet address we still
 /// point at Tailscale: "same Wi‑Fi" is wrong advice on office/café Wi‑Fi.
@@ -46,6 +53,17 @@ func lostHint(onWiFi: Bool, hasTailnet: Bool) -> String {
                                    : String(localized: "Install Tailscale on this iPhone and the Mac to connect away from home.") }
     return onWiFi ? String(localized: "Can't reach your Mac. On the same Wi‑Fi, check it's awake; elsewhere, open Tailscale on both.")
                   : String(localized: "Open Tailscale on this iPhone (and the Mac).")
+}
+
+/// Whether the banner explains the lost link: never when connected; a first connect only once it has hung (slow).
+func showsLostHint(_ s: Client.Conn, slow: Bool) -> Bool { s == .off || s == .reconnecting || (s == .connecting && slow) }
+/// What the empty Sessions list shows: "No sessions" only after a list really came back empty; before that a spinner
+/// while a link is up or being made, nothing when off (the banner explains why).
+enum SessionsPlaceholder { case none, loading, empty }
+func sessionsPlaceholder(loaded: Bool, count: Int, state: Client.Conn) -> SessionsPlaceholder {
+    if count > 0 { return .none }
+    if loaded { return .empty }
+    return state == .off ? .none : .loading
 }
 
 /// Session title as typed: trimmed, nil when blank (a blank title would leave an unnamed row).
@@ -299,8 +317,15 @@ func parseTodos(_ v: Any?) -> [Todo]? {
     (v as? [J])?.compactMap { t in (t["content"] as? String).map { Todo(content: $0, status: t["status"] as? String ?? "pending") } }
 }
 
+/// DSH userQuestions projection: {active:[{callId, questions, state}]}, possibly wrapped in {val:…}. Every active row is still answerable,
+/// so a phone that connects after the question was asked can still answer it (waterfall events only reach clients online at the time).
+func parseQuestions(_ v: Any?, session: String) -> [Prompt] {
+    let j = v as? J, a = ((j?["val"] as? J) ?? j)?["active"] as? [J] ?? []
+    return a.compactMap { r in (r["callId"] as? String).map { Prompt(id: $0, event: "userQuestions/answer", agentId: session, request: r) } }
+}
+
 struct Sess: Identifiable {
-    let id: String, title: String, cwd: String, parent: String?, running: Bool, preset: String?, model: String?, context: Double?, permission: String?, todos: [Todo]?, updated: Date?
+    let id: String, title: String, cwd: String, parent: String?, running: Bool, preset: String?, model: String?, context: Double?, permission: String?, todos: [Todo]?, updated: Date?, questions: [Prompt], goal: Goal?
     init?(_ j: J) {
         guard let id = j["sessionId"] as? String else { return nil }
         let p = (j["projections"] as? J)?["values"] as? J
@@ -311,6 +336,10 @@ struct Sess: Identifiable {
         updated = (j["updatedAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
         permission = (p?["permissions"] as? J)?["currentValue"] as? String
         todos = parseTodos(p?["todos"])
+        questions = parseQuestions(p?["userQuestions"], session: id)
+        // Projection nests the goal: {val?:{goal:{id,revision,phase,...}, roundsStarted}}; flatten for Goal.
+        let gv = (p?["goal"] as? J).map { ($0["val"] as? J) ?? $0 }
+        goal = Goal((gv?["goal"] as? J)?.merging(gv ?? [:]) { a, _ in a })
         let ms = p?["modelSelection"] as? J
         model = modelLabel((ms?["next"] as? J) ?? (ms?["lastUsed"] as? J))
         let cp = p?["contextPressure"] as? J, used = (cp?["projectedTokens"] as? NSNumber)?.doubleValue, win = (cp?["contextWindow"] as? NSNumber)?.doubleValue
@@ -350,7 +379,14 @@ struct Question: Identifiable {
 
 struct ModelGroup: Identifiable { let id: String, name: String; let models: [Model] }
 struct Model: Identifiable { let id: String, name: String; let efforts: [String] }
-struct Preset: Identifiable { let id: String, name: String; let desc: String?; let broken: Bool }
+struct Preset: Identifiable { let id: String, name: String; let desc: String?; let broken: Bool; var isDefault = false }
+/// DSH presets often ship only an id ("ptc", "standard"); show "PTC" / "Standard" instead of raw ids.
+func presetLabel(_ id: String) -> String { id.count <= 3 ? id.uppercased() : id.prefix(1).uppercased() + id.dropFirst() }
+/// The session's preset only when it isn't the default one; the composer chip shows nothing otherwise.
+func customPreset(_ cur: String?, _ presets: [Preset]) -> Preset? {
+    guard let cur, presets.first(where: { $0.isDefault })?.id != cur else { return nil }
+    return presets.first { $0.id == cur }
+}
 struct Hit: Identifiable { let id = UUID(); let session: String, snippet: String }
 struct Found: Identifiable { var id: String { fp }; let fp: String, name: String, host: String; let port: Int }
 
@@ -416,6 +452,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var path: [String] = [] // Sessions navigation stack; non-empty = conversation on screen
     @Published var tab = 0 // 0 Sessions, 1 Agents, 2 Settings
     @Published var sessions: [Sess] = []
+    @Published var sessionsLoaded = false // a session/list reply arrived for this pairing
     /// Sessions whose turn ended while you were elsewhere; cleared when opened (desktop's unread dot).
     @Published var finished = Set(UserDefaults.standard.stringArray(forKey: "finished") ?? []) {
         didSet { UserDefaults.standard.set(Array(finished), forKey: "finished") }
@@ -551,7 +588,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         guard code == 200 else {
             let m = ((json as? J)?["error"] as? String) ?? "HTTP \(code)"
             if m == "DSH host unavailable" { upstream = "disconnected"; throw Fail(String(localized: "DSH is closed or restarting on your Mac. Try again in a moment.")) }
-            throw Fail(m)
+            throw Fail(gatewayText(code, m))
         }
         return json
     }
@@ -591,7 +628,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     func forget(_ why: String? = nil) {
         ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil
-        pairing = nil; sessions = []; transcript = []; prompts = []; current = nil; path = []; goal = nil; state = .off
+        pairing = nil; sessions = []; sessionsLoaded = false; transcript = []; prompts = []; current = nil; path = []; goal = nil; state = .off
+        UserDefaults.standard.removeObject(forKey: "seenSessions")
         if let why { error = why }
     }
 
@@ -718,6 +756,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             }
             if v["event"] as? String == "api-session/error" { sessionError(v["args"] as? [Any] ?? []) }
             if v["event"] as? String == "goal/activation-changed" { Task { await loadGoal() } }
+            // Desktop edited slash commands / permission presets: refresh so the phone's pickers don't go stale.
+            if v["event"] as? String == "commands/change" { Task { await loadCommands() } }
+            if v["event"] as? String == "permission-presets/catalog-changed" { Task { await loadAgents() } }
         default: break
         }
     }
@@ -884,14 +925,29 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         // Remote session/list returns every visible session with no cursor (e2e asserts this).
         let v = try await rpc("session/list", ["_request": J()]) as? J
         let fresh = (v?["items"] as? [J] ?? []).compactMap(Sess.init)
+        // Cold start: compare against the last list seen before the app was closed, so turns that finished meanwhile still get a dot.
+        let old = sessions.isEmpty ? (UserDefaults.standard.array(forKey: "seenSessions") as? [J] ?? []).compactMap(Sess.init) : sessions
         // Drop dots for sessions that vanished (archived elsewhere) so the badge can't stick.
-        finished = finished.intersection(fresh.map(\.id)).union(Self.justFinished(old: sessions, new: fresh, current: current))
+        finished = finished.intersection(fresh.map(\.id)).union(Self.justFinished(old: old, new: fresh, current: current))
         sessions = fresh
+        sessionsLoaded = true
+        // session/list carries projections.values.userQuestions ({active, settled}, verified live by gateway/e2e.mjs).
+        let live = prompts.filter { $0.event != "userQuestions/answer" }, waiting = Set(live.compactMap(\.agentId))
+        prompts = live + fresh.flatMap(\.questions).filter { !waiting.contains($0.agentId ?? "") }
+        UserDefaults.standard.set(Self.snapshot(fresh), forKey: "seenSessions")
         if let s = currentSess, s.running != running, streaming.isEmpty { running = s.running }
     }
 
+    /// Just the fields justFinished compares, in the wire shape Sess.init reads back.
+    static func snapshot(_ s: [Sess]) -> [J] {
+        s.map { s in
+            var j: J = ["sessionId": s.id, "running": s.running, "projections": ["values": ["title": s.title]]]
+            if let u = s.updated { j["updatedAt"] = u.timeIntervalSince1970 * 1000 }
+            return j
+        }
+    }
+
     /// Not the open chat, idle now, and either was running last list or got a newer updatedAt (a whole turn between two refreshes) without a rename.
-    /// shortcut: turns that finish while the app is closed are missed (no lastSeen persisted), store per-session updatedAt if that matters.
     static func justFinished(old: [Sess], new: [Sess], current: String?) -> Set<String> {
         let prev = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         return Set(new.filter { n in
@@ -1030,7 +1086,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     func loadAgents() async {
         if let v = try? await rpc("agentPresets/list") as? J {
             presets = (v["presets"] as? [J] ?? []).compactMap { p in
-                (p["id"] as? String).map { Preset(id: $0, name: p["name"] as? String ?? $0, desc: p["description"] as? String, broken: p["broken"] as? Bool ?? false) }
+                (p["id"] as? String).map { Preset(id: $0, name: p["name"] as? String ?? presetLabel($0), desc: p["description"] as? String, broken: p["broken"] as? Bool ?? false, isDefault: p["isDefault"] as? Bool ?? false) }
             }
         }
         if let v = try? await rpc("permissionPresets/catalog") as? J {
@@ -1099,6 +1155,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// value nil = "let the Mac decide" (next handler, i.e. the desktop prompt).
     func answer(_ p: Prompt, _ value: Any?) async throws {
         prompts.removeAll { $0.id == p.id }
+        if p.event == "userQuestions/answer" {
+            // Projection question: nil = leave it for the Mac (nothing to hand back), value = answer directly.
+            guard let value, let agent = p.agentId else { return }
+            _ = try await rpc("userQuestions/answer", ["agentId": agent, "callId": p.id, "answer": value]); return
+        }
         let outcome: J = value.map { ["kind": "result", "value": $0] } ?? ["kind": "next"]
         _ = try await rpc("$events/result", ["clientId": "mobile", "eventId": p.id, "outcome": outcome])
     }

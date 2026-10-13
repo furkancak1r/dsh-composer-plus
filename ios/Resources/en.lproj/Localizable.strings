@@ -16,4 +16,7 @@
 "No network connection. Try again when you're back online." = "No network connection. Try again when you're back online.";
 "Can't reach the Mac. Is DSH open and Tailscale or Wi-Fi on?" = "Can't reach the Mac. Is DSH open and Tailscale or Wi-Fi on?";
 "The Mac's certificate didn't match. Pair again with a fresh QR code." = "The Mac's certificate didn't match. Pair again with a fresh QR code.";
+"Too many requests. Wait a few seconds and try again." = "Too many requests. Wait a few seconds and try again.";
+"This action isn't available from the phone yet." = "This action isn't available from the phone yet.";
+"That's too large to send." = "That's too large to send.";
 
