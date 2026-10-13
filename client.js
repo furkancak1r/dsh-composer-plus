@@ -207,12 +207,25 @@ window.__ModuleLoader__.load({
       const buttons = [...seat.querySelectorAll('button')].filter((b) => /(^|\s)\w+_primary(\s|$)/.test(b.className));
       return buttons.length === 0 ? null : buttons[buttons.length - 1];
     }
-    /** Codex-style resume: when the turn has stopped, the composer is empty and the chat has history,
-     * Send turns into a play button that submits "continue". Send is not a slot, so the play button is
-     * portaled into Send's row with Send's own class and Send is hidden meanwhile.
-     * Hidden on a blank chat, while running, in subagent views, or as soon as the user types or attaches. */
-    function ContinueButton({ useSession, useInput, inputActions, t }) {
-      const show = useSession((s) => s !== undefined && !s.blank && !s.running && s.subagent === null && !s.removed);
+    /** True when the newest turn in the loaded window did not finish normally: stopped, failed, cut by a token
+     * limit, or still open without a running agent (lost connection). A completed turn needs no resume. */
+    function needsResume(entries) {
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const event = entries[i].event;
+        if (event.type === 'turn/end') return event.data?.reason?.kind !== 'completed';
+        if (event.type === 'turn/start') return true;
+      }
+      return false;
+    }
+    /** Codex-style resume: when the last turn was stopped or failed, the composer is empty and the chat has
+     * history, Send turns into a play button that submits "continue". A normally completed turn keeps dsh's
+     * own Send. Send is not a slot, so the play button is portaled into Send's row with Send's own class and
+     * Send is hidden meanwhile. Hidden on a blank chat, while running, in subagent views, or as soon as the
+     * user types or attaches. */
+    function ContinueButton({ useSession, useInput, useTurnEnd, inputActions, t }) {
+      const ended = typeof useTurnEnd === 'function' ? useTurnEnd((window) => window !== undefined && needsResume(window.entries)) : false;
+      const failed = useSession((s) => s !== undefined && (s.lastAgentError != null || s.promptError != null));
+      const show = useSession((s) => s !== undefined && !s.blank && !s.running && s.subagent === null && !s.removed) && (ended || failed);
       const idle = useInput((s) => s !== undefined && s.phase === 'plain' && s.draft.trim() === '' && s.attachmentIds.length === 0);
       const visible = show && idle && inputActions !== undefined;
       const anchorRef = React.useRef(null);
@@ -877,6 +890,11 @@ window.__ModuleLoader__.load({
           id: 'composer-continue',
           order: 1000,
           locale: LOCALE_NS,
+          inject: (sessionId) => {
+            // The session's loaded event window; its newest turn/end says how the last turn finished.
+            const source = ctx.sessions?.binding?.(sessionId)?.eventSource;
+            return source === undefined ? {} : { hooks: { turnEnd: source } };
+          },
         }, ContinueButton))]);
         if (ctx.locale !== undefined) ctx.effect(() => ctx.locale.register(LOCALE_NS, {
           en: {
@@ -893,7 +911,7 @@ window.__ModuleLoader__.load({
             'feature.allowForChat': 'Allow for this chat',
             'feature.allowForChat.description': 'Add “Allow for this chat” to Auto Review approvals and auto-allow granted tools.',
             'feature.continueButton': 'One-click Continue',
-            'feature.continueButton.description': 'Turn Send into ▶ after a stopped turn; one click sends “continue”.',
+            'feature.continueButton.description': 'Turn Send into ▶ after a stopped or failed turn; one click sends “continue”.',
             'feature.inputHistory': 'Input history',
             'feature.inputHistory.description': 'Use ↑ / ↓ in an empty composer to reuse messages you sent.',
             'feature.planToggle': 'Shift+Tab plan mode',
@@ -960,7 +978,7 @@ window.__ModuleLoader__.load({
             'feature.allowForChat': '本对话内允许',
             'feature.allowForChat.description': '在 Auto Review 审批中添加“本对话内允许”，并自动允许已授权的工具。',
             'feature.continueButton': '一键继续',
-            'feature.continueButton.description': '回合停止后，发送按钮变为 ▶，点击即发送“继续”。',
+            'feature.continueButton.description': '回合被停止或出错后，发送按钮变为 ▶，点击即发送“继续”。',
             'feature.inputHistory': '输入历史',
             'feature.inputHistory.description': '在空输入框中按 ↑ / ↓ 复用已发送的消息。',
             'feature.planToggle': 'Shift+Tab 计划模式',
