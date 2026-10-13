@@ -282,5 +282,11 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(g?.paused, true)
         XCTAssertEqual(Goal(["id": "g", "revision": 1, "phase": "active"])?.summary, "active")
     }
+
+    func testZoomClamp() {
+        XCTAssertEqual(zoomClamp(0.3), 1)
+        XCTAssertEqual(zoomClamp(2), 2)
+        XCTAssertEqual(zoomClamp(9), 5)
+    }
 }
 

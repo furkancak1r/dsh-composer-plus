@@ -179,6 +179,7 @@ struct ConversationView: View {
     @State private var text = ""
     @State private var picks: [PhotosPickerItem] = []
     @State private var images: [Data] = []
+    @State private var preview: UIImage?
     @State private var files: [Attachment] = []
     @State private var importing = false
     @State private var showPhotos = false
@@ -192,6 +193,7 @@ struct ConversationView: View {
     @State private var newTitle = ""
     @State private var goalEditing = false
     @State private var goalText = ""
+    @State private var confirmClearGoal = false
     @State private var loadingOlder = false
     @State private var showUsage = false
     // fallback only: used when the turn/start event carried no time
@@ -215,6 +217,10 @@ struct ConversationView: View {
                         Button { c.run { try await c.fork(id) } } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
                         Button { c.run { try await c.togglePin(id) } } label: { Label(c.pinned.contains(id) ? String(localized: "Unpin") : String(localized: "Pin"), systemImage: "pin") }
                         if c.transcript.contains(where: { $0.kind == .assistant }) {
+                            Button {
+                                UIPasteboard.general.string = transcriptMarkdown(c.transcript, title: c.currentSess?.title ?? String(localized: "Conversation"))
+                                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                            } label: { Label("Copy conversation", systemImage: "doc.on.doc") }
                             ShareLink(item: transcriptMarkdown(c.transcript, title: c.currentSess?.title ?? String(localized: "Conversation"))) { Label("Share conversation", systemImage: "square.and.arrow.up") }
                         }
                         Button(role: .destructive) { let was = c.archived.contains(id); c.run { try await c.toggleArchive(id); if !was { c.path = [] } } } label: { Label(c.archived.contains(id) ? String(localized: "Unarchive") : String(localized: "Archive"), systemImage: "archivebox") }
@@ -384,10 +390,13 @@ struct ConversationView: View {
                 if g.paused { Button { goal("resume") } label: { Label("Resume", systemImage: "play") } }
                 else { Button { goal("pause") } label: { Label("Pause", systemImage: "pause") } }
                 Button { goal("complete") } label: { Label("Complete", systemImage: "checkmark") }
-                Button(role: .destructive) { goal("clear") } label: { Label("Clear", systemImage: "xmark") }
+                Button(role: .destructive) { confirmClearGoal = true } label: { Label("Clear", systemImage: "xmark") }
             } label: { Image(systemName: "ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }
             .accessibilityLabel("Goal actions")
         }
+        .confirmationDialog("Clear this goal?", isPresented: $confirmClearGoal, titleVisibility: .visible) {
+            Button("Clear goal", role: .destructive) { goal("clear") }
+        } message: { Text("The agent stops working toward it. This can't be undone.") }
         .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 4)
         .background(Color(.secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .padding(.horizontal, 10).padding(.top, 6)
@@ -465,6 +474,8 @@ struct ConversationView: View {
             if !images.isEmpty || !files.isEmpty {
                 ScrollView(.horizontal) { HStack { ForEach(images.indices, id: \.self) { i in
                     Image(uiImage: UIImage(data: images[i]) ?? UIImage()).resizable().scaledToFill().frame(width: 52, height: 52).clipShape(RoundedRectangle(cornerRadius: 8))
+                        .contentShape(Rectangle()).onTapGesture { preview = UIImage(data: images[i]) }
+                        .accessibilityAddTraits(.isButton).accessibilityLabel("Preview image")
                         .overlay(alignment: .topTrailing) { Button { images.remove(at: i) } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Remove image") }
                 }
                     ForEach(files) { f in
@@ -477,8 +488,12 @@ struct ConversationView: View {
                         .padding(.horizontal, 10).frame(height: 52).background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
                     }
                 } }
+                .fullScreenCover(isPresented: Binding(get: { preview != nil }, set: { if !$0 { preview = nil } })) {
+                    if let preview { ImageViewer(img: preview) { self.preview = nil } }
+                }
             }
-            TextField("Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4)
+            // while a turn runs, typing steers it (send() passes steer: c.running), so say so
+            TextField(c.running ? "Steer the running turn…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4)
             HStack(spacing: 10) {
                 Menu {
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -561,9 +576,11 @@ struct LineView: View {
     var onEdit: ((String) -> Void)? = nil
     @State private var open = false
     @State private var copied = false
+    @State private var selecting = false
     var body: some View {
         content.contextMenu {
             Button { UIPasteboard.general.string = [line.text, line.output].compactMap { $0 }.joined(separator: "\n\n") } label: { Label("Copy", systemImage: "doc.on.doc") }
+            if line.kind == .assistant || line.kind == .reasoning, !live { Button { selecting = true } label: { Label("Select Text", systemImage: "selection.pin.in.out") } }
             if line.kind == .assistant, !live { ShareLink(item: line.text) { Label("Share", systemImage: "square.and.arrow.up") } }
             if line.kind == .user {
                 if let onEdit { Button { onEdit(line.text) } label: { Label("Edit", systemImage: "pencil") } }
@@ -571,6 +588,13 @@ struct LineView: View {
             }
             if line.kind == .assistant, let p = promptLine(before: line.id, in: c.transcript) {
                 Button { c.run { try await c.resend(p) } } label: { Label("Regenerate", systemImage: "arrow.triangle.2.circlepath") }
+            }
+        }
+        .sheet(isPresented: $selecting) {
+            NavigationStack {
+                SelectableText(text: line.text)
+                    .navigationTitle("Select Text").navigationBarTitleDisplayMode(.inline)
+                    .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { selecting = false } } }
             }
         }
     }
@@ -629,8 +653,19 @@ struct LineView: View {
                 }
                 if open, let o = line.output, !o.isEmpty {
                     Text(o).font(.caption.monospaced()).foregroundStyle(line.failed ? .red : .secondary).textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading).padding(8)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(8).padding(.trailing, 28)
                         .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(alignment: .topTrailing) {
+                            // output only; the context menu's Copy still copies call + output
+                            Button {
+                                UIPasteboard.general.string = o; UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                                copied = true
+                                Task { try? await Task.sleep(for: .seconds(1.5)); copied = false }
+                            } label: {
+                                Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.caption2).foregroundStyle(.secondary).frame(width: 32, height: 28).contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain).accessibilityLabel(copied ? "Copied" : "Copy output")
+                        }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
@@ -675,12 +710,65 @@ struct Thumb: View {
         .accessibilityElement().accessibilityLabel("Image").accessibilityAddTraits(.isButton)
         .task { img = await c.image(id); failed = img == nil }
         .fullScreenCover(isPresented: $full) {
-            ZStack(alignment: .topTrailing) {
-                Color.black.ignoresSafeArea()
-                if let img { Image(uiImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity) }
-                Button { full = false } label: { Image(systemName: "xmark.circle.fill").font(.title).symbolRenderingMode(.palette).foregroundStyle(.white, .white.opacity(0.25)) }
-                    .padding().accessibilityLabel("Close")
-            }
+            if let img { ImageViewer(img: img) { full = false } }
+        }
+    }
+}
+
+/// Pinch/double-tap zoom + share; zoom is clamped to 1…5×.
+func zoomClamp(_ s: CGFloat) -> CGFloat { min(max(s, 1), 5) }
+
+/// Read-only UITextView: SwiftUI Text only selects whole blocks, this allows partial selection like ChatGPT's "Select Text".
+struct SelectableText: UIViewRepresentable {
+    let text: String
+    func makeUIView(context: Context) -> UITextView {
+        let v = UITextView()
+        v.isEditable = false; v.isSelectable = true; v.alwaysBounceVertical = true
+        v.font = .preferredFont(forTextStyle: .body); v.adjustsFontForContentSizeCategory = true
+        v.textContainerInset = UIEdgeInsets(top: 16, left: 12, bottom: 24, right: 12)
+        v.text = text
+        return v
+    }
+    func updateUIView(_ v: UITextView, context: Context) { if v.text != text { v.text = text } }
+}
+
+struct ImageViewer: View {
+    let img: UIImage
+    let close: () -> Void
+    @State private var scale: CGFloat = 1
+    @State private var base: CGFloat = 1
+    @State private var off: CGSize = .zero
+    @State private var offBase: CGSize = .zero
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea()
+            Image(uiImage: img).resizable().scaledToFit()
+                .scaleEffect(scale).offset(off)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .gesture(MagnifyGesture()
+                    .onChanged { scale = zoomClamp(base * $0.magnification) }
+                    .onEnded { _ in base = scale; if scale == 1 { off = .zero; offBase = .zero } })
+                .simultaneousGesture(DragGesture()
+                    .onChanged { g in
+                        if scale > 1 { off = CGSize(width: offBase.width + g.translation.width, height: offBase.height + g.translation.height) }
+                    }
+                    .onEnded { g in
+                        if scale > 1 { offBase = off } else if g.translation.height > 120 { close() }
+                    })
+                .onTapGesture(count: 2) {
+                    withAnimation(.spring(duration: 0.3)) {
+                        scale = scale > 1 ? 1 : 2.5; base = scale; off = .zero; offBase = .zero
+                    }
+                }
+                .accessibilityLabel("Image")
+            HStack {
+                Button(action: close) { Image(systemName: "xmark.circle.fill").font(.title).symbolRenderingMode(.palette).foregroundStyle(.white, .white.opacity(0.25)) }
+                    .accessibilityLabel("Close")
+                Spacer()
+                ShareLink(item: Image(uiImage: img), preview: SharePreview("Image", image: Image(uiImage: img))) {
+                    Image(systemName: "square.and.arrow.up.circle.fill").font(.title).symbolRenderingMode(.palette).foregroundStyle(.white, .white.opacity(0.25))
+                }.accessibilityLabel("Share")
+            }.padding()
         }
     }
 }
@@ -918,6 +1006,7 @@ struct SessionsView: View {
                 Button { c.run { try await c.togglePin(s.id) } } label: { Label(pinLabel(s), systemImage: "pin") }
                 Button { renaming = s; newTitle = s.title } label: { Label("Rename", systemImage: "pencil") }
                 Button { c.run { try await c.fork(s.id) } } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
+                if !s.cwd.isEmpty { Button { c.run { try await c.create(cwd: s.cwd) } } label: { Label("New session in this folder", systemImage: "plus.bubble") } }
                 Button { c.run { try await c.toggleArchive(s.id) } } label: { Label(archiveLabel(s), systemImage: "archivebox") }
             }
     }

@@ -884,6 +884,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     func loadCommands() async {
         guard let sid = current, let v = try? await rpc("commands/list", ["agentId": sid]) else { return }
+        guard current == sid else { return } // session switched while loading; don't show the old session's commands
         commands = ((v as? [J]) ?? ((v as? J)?["commands"] as? [J]) ?? []).compactMap { c in
             (c["name"] as? String).map { Cmd(name: $0, desc: c["description"] as? String ?? "", hint: (c["input"] as? J)?["hint"] as? String) }
         }
