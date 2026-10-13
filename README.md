@@ -4,7 +4,7 @@
 [![test](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml/badge.svg)](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Codex-style quality-of-life features for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) desktop and web UI: a Changes panel, input history, a plan-mode shortcut, one-click Continue, queue drag-and-drop, session deeplinks, per-chat Auto Review grants and background notifications.
+Codex-style quality-of-life features for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) desktop and web UI: a Changes panel, project status in the sidebar, input history, a plan-mode shortcut, one-click Continue, queue drag-and-drop, session deeplinks, per-chat Auto Review grants and background notifications.
 
 Unofficial community plugin. No external network calls.
 
@@ -21,7 +21,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@0.7.0`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@0.8.0`.
 
 ## Features
 
@@ -34,6 +34,7 @@ Then restart dsh. (The CLI can't install into the desktop profile; the app manag
 | **Queue drag-and-drop** | Queued messages get a grip (⠿). Drag to reorder, or focus the grip and press `↑` / `↓`. `Esc` cancels. |
 | **Copy deeplink** | Right-click a chat in the sidebar → **Copy deeplink**. Paste the `dsh-session:…` link into another chat to attach that chat as read-only context. |
 | **Allow for this chat** | When Auto Review asks you, the approval card gets **Allow for this chat**: the same tool in the same chat is allowed from then on, with any arguments. A header chip lists the grants and revokes them. Grants survive a restart. |
+| **Project status** | A project row in the sidebar shows the same spinner / waiting / done marker as its chats, so a collapsed project still tells you a chat inside is working or needs you. Hover it for details. |
 | **Background notifications** | While dsh is in the background you get a notification when a turn finishes (first line of the reply), or when a chat needs an approval (tool name), an answer (the question) or a plan review. The Dock/taskbar badge counts waiting chats. Clicking opens that chat. |
 
 All text — buttons, tooltips, notices, notifications and the Continue message — follows the language selected in dsh (English or Chinese, the two languages dsh ships). Switching the language in dsh settings updates it live.
@@ -62,8 +63,8 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 ## Troubleshooting
 
 - **No notifications on macOS:** System Settings → Notifications → DeepSeek Harness → allow. Choose **Alerts** to keep them on screen.
-- **▶, queue grips, Allow for this chat or right-click missing after a dsh update:** these attach to dsh's current HTML because dsh has no slot for them yet. If dsh changes that markup they hide themselves; nothing else breaks. Please open an [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
-- **Install fails right after a release:** add the version (`dsh-composer-plus@0.7.0`), see the install note above.
+- **▶, queue grips, project status, Allow for this chat or right-click missing after a dsh update:** these attach to dsh's current HTML because dsh has no slot for them yet. If dsh changes that markup they hide themselves; nothing else breaks. Please open an [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
+- **Install fails right after a release:** add the version (`dsh-composer-plus@0.8.0`), see the install note above.
 
 ## Limits
 

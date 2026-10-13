@@ -584,6 +584,88 @@ window.__ModuleLoader__.load({
       const start = lines.findIndex((l) => l.startsWith('@@'));
       return start === -1 ? [] : lines.slice(start).filter((l, i, all) => !(i === all.length - 1 && l === ''));
     }
+    /** One project's status from its visible chats, with dsh's session-row precedence: a pending question/approval/
+     * plan review wins, then running (a chat or its subagents), then unread completion. Archived and blank chats
+     * never show status in dsh, so they don't count here either. */
+    function projectStatus(sessionIds, list, statuses, archived) {
+      let pending; let running = 0; let done = 0;
+      for (const id of sessionIds) {
+        const summary = list.byId[id];
+        if (summary === undefined || summary.blank || summary.origin === 'subagent' || archived.has(id)) continue;
+        const status = statuses.get(id);
+        const kind = status?.pendingInteraction?.kind;
+        if (pending === undefined && (kind === 'approval' || kind === 'plan-review' || kind === 'question')) pending = kind;
+        const children = list.projectionsBySession?.[id]?.values?.subagentCatalog ?? [];
+        if ((status?.running ?? summary.running) === true
+          || children.some((child) => (statuses.get(child.id)?.running ?? list.byId[child.id]?.running) === true)) running += 1;
+        if (status?.completionUnread === true) done += 1;
+      }
+      if (pending !== undefined) return { state: 'warning', pending, running };
+      if (running > 0) return { state: 'ongoing', running };
+      if (done > 0) return { state: 'done' };
+      return null;
+    }
+    const PROJECT_STATUS = 'data-composer-plus-project-status';
+    /** Shows the session status (spinner / waiting / done dot) on each project row, so a collapsed project still says
+     * that one of its chats is working. dsh has no project-row slot.
+     * shortcut: portals into rows found by `data-row-key="workspace:<id>"`; if dsh changes that markup the marker just
+     * stops appearing. Upgrade when dsh adds a project-row slot. */
+    function ProjectStatusMarkers({ useWorkspaces, useSessions, useSessionStatus, t }) {
+      const workspaces = useWorkspaces((state) => state);
+      const list = useSessions((state) => state);
+      const statuses = useSessionStatus((state) => state);
+      const byKey = React.useMemo(() => {
+        const archived = new Set(workspaces?.archivedSessionIds ?? []);
+        const out = new Map();
+        for (const workspace of workspaces?.items ?? []) {
+          const status = list === undefined || statuses === undefined ? null : projectStatus(workspace.sessionIds, list, statuses, archived);
+          if (status !== null) out.set(workspace.workspaceId, status);
+        }
+        return out;
+      }, [workspaces, list, statuses]);
+      const [hosts, setHosts] = React.useState(new Map());
+      React.useLayoutEffect(() => {
+        if (createPortal === undefined) return undefined;
+        const scan = () => {
+          const next = new Map();
+          for (const row of document.querySelectorAll('[data-row-key^="workspace:"]')) {
+            const key = row.getAttribute('data-row-key').slice('workspace:'.length);
+            let host = row.querySelector(`:scope > [${PROJECT_STATUS}]`);
+            if (host === null) {
+              host = document.createElement('span');
+              host.setAttribute(PROJECT_STATUS, '');
+              host.style.cssText = 'display:inline-flex;align-items:center;gap:4px;flex:none;margin-left:4px';
+              // Before the hover actions, so the marker sits where a session row shows its status.
+              const actions = [...row.children].find((child) => child.querySelector('button') !== null);
+              row.insertBefore(host, actions ?? null);
+            }
+            next.set(key, host);
+          }
+          setHosts((prev) => (prev.size === next.size && [...next].every(([k, h]) => prev.get(k) === h) ? prev : next));
+        };
+        scan();
+        const observer = new MutationObserver(scan);
+        observer.observe(document.body, { childList: true, subtree: true });
+        return () => {
+          observer.disconnect();
+          for (const host of document.querySelectorAll(`[${PROJECT_STATUS}]`)) host.remove();
+        };
+      }, []);
+      if (createPortal === undefined || primitives.StateDot === undefined) return null;
+      const portals = [];
+      for (const [key, host] of hosts) {
+        const status = byKey.get(key);
+        if (status === undefined || !host.isConnected) continue;
+        const label = status.state === 'warning' ? t(`project.${status.pending}`)
+          : status.state === 'ongoing' ? t('project.running', { count: String(status.running) }) : t('project.done');
+        portals.push(createPortal(React.createElement('span', { title: label, style: { display: 'inline-flex', alignItems: 'center', gap: 4 } },
+          React.createElement(primitives.StateDot, { state: status.state }),
+          React.createElement('span', { style: { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' } }, label)),
+        host, key));
+      }
+      return React.createElement(React.Fragment, null, ...portals);
+    }
+
     function ChangesDiff({ sessionId, mode, file, t }) {
       const [state, setState] = React.useState({ status: 'loading' });
       React.useEffect(() => {
@@ -719,6 +801,11 @@ window.__ModuleLoader__.load({
         }, ContinueButton));
         if (ctx.locale !== undefined) ctx.effect(() => ctx.locale.register(LOCALE_NS, {
           en: {
+            'project.running': '{count} chat(s) running',
+            'project.approval': 'A chat is waiting for approval',
+            'project.plan-review': 'A plan is waiting for review',
+            'project.question': 'A chat is waiting for your answer',
+            'project.done': 'A chat finished',
             'continue.label': 'Continue',
             'continue.message': 'continue',
             'queue.drag': 'Drag to reorder (or ↑/↓)',
@@ -759,6 +846,11 @@ window.__ModuleLoader__.load({
             'changes.refresh': 'Refresh',
           },
           zh: {
+            'project.running': '{count} 个对话进行中',
+            'project.approval': '有对话等待审批',
+            'project.plan-review': '有计划等待审阅',
+            'project.question': '有对话等待回答',
+            'project.done': '有对话已完成',
             'continue.label': '继续',
             'continue.message': '继续',
             'queue.drag': '拖动以排序（或按 ↑/↓）',
@@ -799,6 +891,11 @@ window.__ModuleLoader__.load({
             'changes.refresh': '刷新',
           },
         }), 'dsh-composer-plus: dictionaries');
+        ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+          name: 'shell.overlay',
+          id: 'project-status',
+          locale: LOCALE_NS,
+        }, ProjectStatusMarkers));
         ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
           name: 'conversation.session.header.utilities',
           id: 'chat-tool-grants',
