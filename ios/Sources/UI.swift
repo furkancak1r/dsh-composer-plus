@@ -231,6 +231,7 @@ struct ConversationView: View {
             .alert("Rename session", isPresented: $renaming) {
                 TextField("Title", text: $newTitle)
                 Button("Save") { if let id = c.current { let t = newTitle; c.run { try await c.rename(id, t) } } }
+                    .disabled(cleanTitle(newTitle) == nil)
                 Button("Cancel", role: .cancel) {}
             }
             .alert(c.goal == nil ? "Set goal" : "Edit goal", isPresented: $goalEditing) {
@@ -1008,6 +1009,7 @@ struct SessionsView: View {
             .alert("Rename session", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
                 TextField("Title", text: $newTitle)
                 Button("Save") { if let s = renaming { let t = newTitle; c.run { try await c.rename(s.id, t) } } }
+                    .disabled(cleanTitle(newTitle) == nil)
                 Button("Cancel", role: .cancel) {}
             }
         }

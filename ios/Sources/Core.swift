@@ -39,7 +39,6 @@ func userText(_ e: Error) -> String {
     }
 }
 
-/// RFC 1918 + link-local IPv4 only: a pairing QR can never point the app at the internet.
 /// What the banner tells the user when the Mac is unreachable. On Wi‑Fi with a tailnet address we still
 /// point at Tailscale: "same Wi‑Fi" is wrong advice on office/café Wi‑Fi.
 func lostHint(onWiFi: Bool, hasTailnet: Bool) -> String {
@@ -49,6 +48,10 @@ func lostHint(onWiFi: Bool, hasTailnet: Bool) -> String {
                   : String(localized: "Open Tailscale on this iPhone (and the Mac).")
 }
 
+/// Session title as typed: trimmed, nil when blank (a blank title would leave an unnamed row).
+func cleanTitle(_ s: String) -> String? { let t = s.trimmingCharacters(in: .whitespacesAndNewlines); return t.isEmpty ? nil : t }
+
+/// RFC 1918 + link-local IPv4 only: a pairing QR can never point the app at the internet.
 func isLANv4(_ h: String) -> Bool {
     let o = h.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) ?? -1 }
     guard o.count == 4, o.allSatisfy({ (0...255).contains($0) }), h.allSatisfy({ $0.isASCII && ($0.isNumber || $0 == ".") }) else { return false }
@@ -935,7 +938,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
 
     func rename(_ id: String, _ title: String) async throws {
-        _ = try await rpc("session/rename", ["request": ["sessionId": id, "title": title]]); try await loadSessions()
+        guard let t = cleanTitle(title) else { return }
+        _ = try await rpc("session/rename", ["request": ["sessionId": id, "title": t]]); try await loadSessions()
     }
 
     func search(_ q: String) async throws -> [Hit] {

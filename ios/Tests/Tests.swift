@@ -23,6 +23,8 @@ final class CoreTests: XCTestCase {
     }
 
     func testLANOnly() {
+        XCTAssertEqual(cleanTitle("  Fix login \n"), "Fix login")
+        XCTAssertNil(cleanTitle(" \n\t "))
         // office Wi‑Fi with a tailnet address must not say "same Wi‑Fi" only
         XCTAssertTrue(lostHint(onWiFi: true, hasTailnet: true).contains("Tailscale"))
         XCTAssertTrue(lostHint(onWiFi: false, hasTailnet: false).contains("Install Tailscale"))
