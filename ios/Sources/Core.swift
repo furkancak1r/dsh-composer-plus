@@ -24,6 +24,20 @@ func failText(_ e: Error) -> String {
     let n = e as NSError, u = n.userInfo[NSUnderlyingErrorKey] as? NSError
     return "\(n.localizedDescription) [\(n.code)\(u.map { " / \($0.domain) \($0.code)" } ?? "")]"
 }
+/// Toast text: network failures become one plain sentence; everything else keeps its own message.
+func userText(_ e: Error) -> String {
+    guard let u = e as? URLError else { return e.localizedDescription }
+    switch u.code {
+    case .timedOut: return String(localized: "The Mac took too long to answer. Check that DSH is running.")
+    case .notConnectedToInternet, .networkConnectionLost, .dataNotAllowed:
+        return String(localized: "No network connection. Try again when you're back online.")
+    case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+        return String(localized: "Can't reach the Mac. Is DSH open and Tailscale or Wi-Fi on?")
+    case .serverCertificateUntrusted, .serverCertificateHasBadDate, .serverCertificateNotYetValid, .serverCertificateHasUnknownRoot, .secureConnectionFailed:
+        return String(localized: "The Mac's certificate didn't match. Pair again with a fresh QR code.")
+    default: return e.localizedDescription
+    }
+}
 
 /// RFC 1918 + link-local IPv4 only: a pairing QR can never point the app at the internet.
 /// What the banner tells the user when the Mac is unreachable. On Wi‑Fi with a tailnet address we still
@@ -161,6 +175,9 @@ func contextShare(_ u: J?, window: Double?) -> Double? {
     let cache = ["cacheReadTokens", "cacheWriteTokens"].compactMap { (u[$0] as? NSNumber)?.doubleValue }.reduce(0, +)
     return min(1, (input + cache) / win)
 }
+
+/// Context is nearly full: warn and offer /compact before the model starts losing history.
+func contextHot(_ share: Double?) -> Bool { (share ?? 0) >= 0.8 }
 
 /// Folds one DSH `agent/inbox/spliced` event into the pending-input lists (same splice rule as desktop's inbox projection).
 /// Out-of-range splices are clamped: a snapshot window can start after the event that queued an item.
@@ -486,7 +503,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             .sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
     }
 
-    func run(_ op: @escaping @MainActor () async throws -> Void) { Task { do { try await op() } catch { self.error = error.localizedDescription } } }
+    func run(_ op: @escaping @MainActor () async throws -> Void) { Task { do { try await op() } catch { self.error = userText(error) } } }
 
     private func http(_ fp: String) -> URLSession {
         if urlSession == nil || fp != sessionFp {
@@ -562,7 +579,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             pairing = Pairing(host: inv.host, port: inv.port, fp: inv.fp, token: token, deviceId: id, name: o["name"] as? String ?? "", expiresAt: o["expiresAt"] as? String ?? "", ts: inv.ts)
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
             connect()
-        } catch { self.error = error.localizedDescription }
+        } catch { self.error = userText(error) }
     }
 
     func forget(_ why: String? = nil) {

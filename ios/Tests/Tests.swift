@@ -230,6 +230,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(usageDetail(["inputTokens": 12, "cacheReadTokens": 5, "reasoningTokens": 3]), "Input: 12\nCache read: 5\nReasoning: 3")
         XCTAssertEqual(contextShare(["inputTokens": 5000], window: 1000), 1)
         XCTAssertNil(contextShare(["inputTokens": 5], window: nil))
+        XCTAssertTrue(contextHot(0.8)); XCTAssertFalse(contextHot(0.79)); XCTAssertFalse(contextHot(nil))
         c.apply(["type": "request/context", "data": ["model": "m", "contextWindow": 2000]]); XCTAssertEqual(c.contextWindow, 2000)
         XCTAssertNil(a.permission)
         XCTAssertEqual(Sess(["sessionId": "p", "projections": ["values": ["permissions": ["currentValue": "read-only"]]]])?.permission, "read-only")
@@ -297,6 +298,14 @@ final class CoreTests: XCTestCase {
         // A whole turn between refreshes: idle both times but updatedAt moved; a rename alone doesn't count.
         let t = { (id: String, at: Int, title: String) in Sess(["sessionId": id, "updatedAt": at, "projections": ["values": ["title": title]]])! }
         XCTAssertEqual(Client.justFinished(old: [t("e", 1, "x"), t("f", 1, "x"), t("g", 1, "x")], new: [t("e", 2, "x"), t("f", 2, "y"), t("g", 1, "x")], current: nil), ["e"])
+    }
+}
+
+final class UserTextTests: XCTestCase {
+    func testUserText() {
+        XCTAssertTrue(userText(URLError(.timedOut)).contains("too long"))
+        XCTAssertTrue(userText(URLError(.cannotConnectToHost)).contains("reach the Mac"))
+        XCTAssertEqual(userText(Fail("x")), "x")
     }
 }
 

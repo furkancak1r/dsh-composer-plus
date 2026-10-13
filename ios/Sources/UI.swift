@@ -327,28 +327,45 @@ struct ConversationView: View {
 
     var emptyState: some View {
         VStack(spacing: 8) {
-            Image(systemName: "sparkles").font(.largeTitle).foregroundStyle(.secondary)
-            Text(c.shownModel ?? String(localized: "Model")).font(.headline)
-            if let cwd = c.currentSess?.cwd, !cwd.isEmpty { Text(cwd).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head) }
-            Text("Type / for commands").font(.caption).foregroundStyle(.tertiary)
-        }.padding().allowsHitTesting(false)
+            Group {
+                Image(systemName: "sparkles").font(.largeTitle).foregroundStyle(.secondary)
+                Text(c.shownModel ?? String(localized: "Model")).font(.headline)
+                if let cwd = c.currentSess?.cwd, !cwd.isEmpty { Text(cwd).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head) }
+                Text("Type / for commands").font(.caption).foregroundStyle(.tertiary)
+            }.allowsHitTesting(false)
+            // starter prompts fill the composer (not send) so they can be edited first
+            VStack(spacing: 6) {
+                ForEach([String(localized: "Explain this project"), String(localized: "Find and fix a bug"), String(localized: "Write tests for recent changes")], id: \.self) { s in
+                    Button { text = s; focused = true } label: { Text(s).font(.footnote) }
+                        .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                }
+            }.padding(.top, 8)
+        }.padding()
     }
 
     /// Model · context % · token usage, like the desktop status bar.
     var statusLine: some View {
         // live while streaming; the session list's projected figure covers logs whose request/context fell outside the snapshot window
-        let ctx = (contextShare(c.usage, window: c.contextWindow) ?? c.currentSess?.context).map { "ctx \(Int(($0 * 100).rounded()))%" }
+        let share = contextShare(c.usage, window: c.contextWindow) ?? c.currentSess?.context
+        let ctx = share.map { "ctx \(Int(($0 * 100).rounded()))%" }
+        let hot = contextHot(share)
+        let canCompact = c.commands.contains { $0.name == "compact" } && !c.running
         // project folder first, like the desktop status bar, so the cwd stays visible once the transcript fills up
         let folder = c.currentSess.map { ($0.cwd as NSString).lastPathComponent }
         let parts = [folder, c.shownModel, ctx, c.usage.map(usageText)].compactMap { $0 }.filter { !$0.isEmpty }
-        return Text(parts.joined(separator: " · ")).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary).lineLimit(1).padding(.horizontal).padding(.bottom, 4)
+        return Text(parts.joined(separator: " · ")).font(.caption2.monospacedDigit()).foregroundStyle(hot ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary)).lineLimit(1).padding(.horizontal).padding(.bottom, 4)
             .contentShape(Rectangle())
-            .onTapGesture { if c.usage != nil { showUsage = true } }
-            .accessibilityHint(c.usage != nil ? "Shows token details" : "")
+            .onTapGesture { if c.usage != nil || hot { showUsage = true } }
+            .accessibilityHint(c.usage != nil || hot ? "Shows token details" : "")
             .popover(isPresented: $showUsage) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text([folder, c.shownModel, ctx].compactMap { $0 }.joined(separator: " · ")).font(.footnote.weight(.semibold))
-                    Text(c.usage.map(usageDetail) ?? "").font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+                    if let u = c.usage { Text(usageDetail(u)).font(.footnote.monospacedDigit()).foregroundStyle(.secondary) }
+                    if hot { Text("Context is almost full. Compacting summarizes older turns so the session can continue.").font(.footnote).foregroundStyle(.orange).fixedSize(horizontal: false, vertical: true) }
+                    if canCompact {
+                        Button { showUsage = false; c.run { try await c.execute("/compact") } } label: { Label("Compact context", systemImage: "arrow.down.right.and.arrow.up.left") }
+                            .buttonStyle(.bordered).controlSize(.small).padding(.top, 2)
+                    }
                 }.padding().presentationCompactAdaptation(.popover)
             }
     }
