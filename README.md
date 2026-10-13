@@ -46,7 +46,7 @@ Buttons, tooltips, notices and notifications follow the selected dsh language (s
 
 ## Settings
 
-Every feature can be switched off on its own: dsh **Settings → Composer Plus**. Each row has a switch and a short description; changes apply immediately, without a restart, and are remembered on that device. Everything is on by default.
+Every feature can be switched off on its own: dsh **Settings → Composer Plus**. The **Search features** box at the top filters the page by name or description (any language, case- and accent-insensitive); `Esc` clears it. Each row has a switch and a short description; changes apply immediately, without a restart, and are remembered on that device. Everything is on by default.
 
 ### Application language
 

@@ -1524,7 +1524,9 @@
     "update.failed": "업데이트 실패: {error}",
     "update.check": "업데이트 확인",
     "update.install": "지금 업데이트",
-    "update.notes": "릴리스 노트"
+    "update.notes": "릴리스 노트",
+    "settings.search": "기능 검색",
+    "settings.searchEmpty": "일치하는 기능이 없습니다."
   },
   "common": {
     "ok": "확인",

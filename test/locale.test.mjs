@@ -45,7 +45,7 @@ function boot(locale = makeLocale()) {
   });
   const section = entries.find((entry) => entry.id === 'composer-plus');
   const tree = section.Component({ ...section.inject(), useComposerPlusToggles: (select) => select({}), t: (key) => key });
-  const language = tree.children[1];
+  const language = tree.children[2]; // intro, search, language
   return { locale, form, writes, changeWrite: (fn) => { nextWrite = fn; },
     render: () => { si = ri = 0; return language.type(language.props); },
     unload: () => effects.reverse().forEach((fn) => fn?.()),

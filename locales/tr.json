@@ -2954,7 +2954,9 @@
     "update.failed": "Güncelleme başarısız: {error}",
     "update.check": "Güncellemeleri denetle",
     "update.install": "Şimdi güncelle",
-    "update.notes": "Sürüm notları"
+    "update.notes": "Sürüm notları",
+    "settings.search": "Özellik ara",
+    "settings.searchEmpty": "Eşleşen özellik yok."
   },
   "directory-browser": {
     "browser.title": "Çalışma alanı klasörünü seçin",

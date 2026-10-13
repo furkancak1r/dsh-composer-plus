@@ -1524,7 +1524,9 @@
     "update.failed": "Update fehlgeschlagen: {error}",
     "update.check": "Nach Updates suchen",
     "update.install": "Jetzt aktualisieren",
-    "update.notes": "Versionshinweise"
+    "update.notes": "Versionshinweise",
+    "settings.search": "Funktionen suchen",
+    "settings.searchEmpty": "Keine passenden Funktionen."
   },
   "common": {
     "ok": "OK",

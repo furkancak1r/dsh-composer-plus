@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
 const src=readFileSync(new URL('../client.js',import.meta.url),'utf8');
 const mem=new Map();globalThis.localStorage={getItem:k=>mem.has(k)?mem.get(k):null,setItem:(k,v)=>mem.set(k,String(v))};
 let mod;globalThis.window={__ModuleLoader__:{load:m=>{mod=m;}}};eval(src);
-const React={createElement:(t,p,...c)=>({t,p,c})};
+let q='';const React={createElement:(t,p,...c)=>({t,p,c}),useState:v=>[q,x=>{q=x;}]};
 const plugin=mod.factory(n=>n==='react'?React:n==='@deepseek-ai/dsh-client-ui-primitives'?{Switch:'Switch'}:{});
 function boot(){
   const live=new Map();let next=0;const scopes=new Set();const effects=[];
@@ -38,7 +38,24 @@ app=boot();assert.ok(app.ids().includes('copy-deeplink'));assert.ok(!app.scopes.
 let renders=[];const row=app.settings;const C=(() => { let comp; const slots={inject:(n,f)=>f(),register:(o,Comp)=>{if(o.id==='composer-plus')comp=Comp;return()=>{};}};
   plugin.apply({slots,effect:()=>{},locale:{register:()=>()=>{},bind:()=>k=>k}});return comp; })();
 const calls=[];const tree=C({useComposerPlusToggles:f=>f({planToggle:false}),setFeature:(id,on)=>calls.push([id,on]),t:k=>k});
-assert.equal(tree.c[2],null,'no update row without an updater');const switches=tree.c.slice(3).map(r=>r.c[1]);assert.equal(switches.length,11);
+assert.equal(tree.c[1].p['data-composer-plus-search'],'');assert.equal(tree.c[3],null,'no update row without an updater');assert.equal(tree.c[4],null,'no empty notice');const switches=tree.c.slice(5).map(r=>r.c[1]);assert.equal(switches.length,11);
 const plan=switches.find(s=>s.p.label==='feature.planToggle');assert.equal(plan.p.checked,false);assert.equal(switches.filter(s=>s.p.checked).length,10);
 plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
+// Settings search: filters by title, description or id; accent/case/Turkish-ı insensitive; Esc clears; empty notice.
+{ q='';let C2;const sl={inject:(n,f)=>f(),register:(o,Comp)=>{if(o.id==='composer-plus')C2=Comp;return()=>{};}};
+  plugin.apply({slots:sl,effect:()=>{},locale:{register:()=>()=>{},bind:()=>k=>k}});
+  const tr={'feature.notifications':'Arka plan bildirimleri','feature.notifications.description':'Dock rozeti','feature.changesPanel':'Değişiklikler paneli','language.title':'Uygulama dili'};
+  const tt=k=>tr[k]??k;
+  const render=()=>{return C2({useComposerPlusToggles:f=>f({}),setFeature:()=>{},updater:{subscribe:()=>()=>{},getSnapshot:()=>({status:'current'}),check(){}},t:tt});};
+  const ids=(tree)=>tree.c.slice(5).map(r=>r.p.key);
+  let tree=render();assert.equal(ids(tree).length,11,'empty query shows all');assert.ok(tree.c[2]&&tree.c[3],'language + update rows');
+  const input=tree.c[1].c[0];assert.equal(input.p.type,'search');
+  input.p.onChange({target:{value:'BİLDİRİM'}});tree=render();assert.deepEqual(ids(tree),['notifications'],'case + dotted İ');
+  input.p.onChange({target:{value:'degisiklik'}});tree=render();assert.deepEqual(ids(tree),['changesPanel'],'accent-insensitive ğ/ş');
+  input.p.onChange({target:{value:'dock'}});tree=render();assert.deepEqual(ids(tree),['notifications'],'description match');
+  input.p.onChange({target:{value:'dil'}});tree=render();assert.ok(tree.c[2]!==null&&ids(tree).length===0,'language row found');
+  input.p.onChange({target:{value:'zzzz'}});tree=render();assert.equal(tree.c[4].p.role,'status');assert.equal(tree.c[2],null);assert.equal(tree.c[3],null);
+  let stopped=0;tree.c[1].c[0].p.onKeyDown({key:'Escape',preventDefault(){},stopPropagation(){stopped++;}});assert.equal(q,'');assert.equal(stopped,1,'Esc clears without closing Settings');
+  tree=render();tree.c[1].c[0].p.onKeyDown({key:'Escape',preventDefault(){throw Error('must not trap Esc when empty');},stopPropagation(){}});
+}
 console.log('toggle checks passed');

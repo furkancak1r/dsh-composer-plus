@@ -1524,7 +1524,9 @@
     "update.failed": "アップデートに失敗しました: {error}",
     "update.check": "アップデートを確認",
     "update.install": "今すぐアップデート",
-    "update.notes": "リリースノート"
+    "update.notes": "リリースノート",
+    "settings.search": "機能を検索",
+    "settings.searchEmpty": "一致する機能はありません。"
   },
   "common": {
     "ok": "OK",

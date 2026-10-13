@@ -1524,7 +1524,9 @@
     "update.failed": "Pembaruan gagal: {error}",
     "update.check": "Periksa pembaruan",
     "update.install": "Perbarui sekarang",
-    "update.notes": "Catatan rilis"
+    "update.notes": "Catatan rilis",
+    "settings.search": "Cari fitur",
+    "settings.searchEmpty": "Tidak ada fitur yang cocok."
   },
   "common": {
     "ok": "OK",

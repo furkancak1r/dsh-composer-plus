@@ -1524,7 +1524,9 @@
     "update.failed": "Не удалось обновить: {error}",
     "update.check": "Проверить обновления",
     "update.install": "Обновить сейчас",
-    "update.notes": "Примечания к выпуску"
+    "update.notes": "Примечания к выпуску",
+    "settings.search": "Поиск функций",
+    "settings.searchEmpty": "Нет подходящих функций."
   },
   "common": {
     "ok": "OK",

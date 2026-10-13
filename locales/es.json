@@ -1524,7 +1524,9 @@
     "update.failed": "Error al actualizar: {error}",
     "update.check": "Buscar actualizaciones",
     "update.install": "Actualizar ahora",
-    "update.notes": "Notas de la versión"
+    "update.notes": "Notas de la versión",
+    "settings.search": "Buscar funciones",
+    "settings.searchEmpty": "No hay funciones que coincidan."
   },
   "common": {
     "ok": "Aceptar",

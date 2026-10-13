@@ -1524,7 +1524,9 @@
     "update.failed": "अपडेट विफल रहा: {error}",
     "update.check": "अपडेट जांचें",
     "update.install": "अभी अपडेट करें",
-    "update.notes": "रिलीज़ नोट्स"
+    "update.notes": "रिलीज़ नोट्स",
+    "settings.search": "सुविधाएं खोजें",
+    "settings.searchEmpty": "कोई मिलती-जुलती सुविधा नहीं।"
   },
   "common": {
     "ok": "ठीक है",

@@ -1524,7 +1524,9 @@
     "update.failed": "Échec de la mise à jour : {error}",
     "update.check": "Rechercher des mises à jour",
     "update.install": "Mettre à jour",
-    "update.notes": "Notes de version"
+    "update.notes": "Notes de version",
+    "settings.search": "Rechercher des fonctionnalités",
+    "settings.searchEmpty": "Aucune fonctionnalité correspondante."
   },
   "common": {
     "ok": "OK",

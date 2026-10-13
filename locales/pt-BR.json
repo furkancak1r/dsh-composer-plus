@@ -1524,7 +1524,9 @@
     "update.failed": "Falha na atualização: {error}",
     "update.check": "Verificar atualizações",
     "update.install": "Atualizar agora",
-    "update.notes": "Notas da versão"
+    "update.notes": "Notas da versão",
+    "settings.search": "Pesquisar recursos",
+    "settings.searchEmpty": "Nenhum recurso corresponde."
   },
   "common": {
     "ok": "OK",

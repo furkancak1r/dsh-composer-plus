@@ -1524,7 +1524,9 @@
     "update.failed": "Cập nhật thất bại: {error}",
     "update.check": "Kiểm tra cập nhật",
     "update.install": "Cập nhật ngay",
-    "update.notes": "Ghi chú phát hành"
+    "update.notes": "Ghi chú phát hành",
+    "settings.search": "Tìm tính năng",
+    "settings.searchEmpty": "Không có tính năng phù hợp."
   },
   "common": {
     "ok": "OK",
