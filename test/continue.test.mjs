@@ -15,12 +15,13 @@ const [opt,C]=regs.find(([o])=>o.id==='composer-continue');assert.equal(opt.name
 const actions={setDraft:t=>calls.push(['set',t]),submit:()=>calls.push(['submit'])};
 const sess=(o={})=>sel=>sel({blank:false,running:false,subagent:null,removed:false,...o});
 const inp=(o={})=>sel=>sel({phase:'plain',draft:'',attachmentIds:[],...o});
-const r=(s,i)=>{si=0;layout=[];const out=C({useSession:s,useInput:i,inputActions:actions});return out;};
+const r=(s,i)=>{si=0;layout=[];const out=C({useSession:s,useInput:i,inputActions:actions,t:k=>({'continue.message':'devam et','continue.label':'Devam'})[k]});return out;};
 const isPortal=o=>o.t==='F';
 // visible: first render anchor, effect hides Send and stores host, second render portals play button
 r(sess(),inp());const cleanup=layout[0]();assert.equal(send.style.display,'none');
 const out=r(sess(),inp());assert.ok(isPortal(out));const p=out.c[1];assert.equal(p.host,row);assert.equal(p.portal.p.className,'uV2eYG_primary');
-p.portal.p.onClick();assert.deepEqual(calls,[['set','continue'],['submit']]);
+assert.equal(p.portal.p['aria-label'],'Devam','label follows dsh language');
+p.portal.p.onClick();assert.deepEqual(calls,[['set','devam et'],['submit']],'message follows dsh language');
 cleanup();assert.equal(send.style.display,'');
 for(const [s,i,why] of [[sess({blank:true}),inp(),'blank chat'],[sess({running:true}),inp(),'running'],[sess({subagent:{}}),inp(),'subagent'],[sess(),inp({draft:'x'}),'typed'],[sess(),inp({attachmentIds:['a']}),'attachment'],[sess(),inp({phase:'submitting'}),'submitting'],[s=>s(undefined),inp(),'no session']]){
  state=[];r(s,i);layout[0]();assert.equal(send.style.display,'',why);assert.ok(!isPortal(r(s,i)),why);}

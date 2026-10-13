@@ -18,7 +18,7 @@ const [,C]=regs.find(([o])=>o.id==='queue-reorder');
 const row=(id,text)=>({id,source:{kind:'user'},content:[{type:'text',text}]});
 let rows=['A','B','C','D'].map((t,i)=>row('r'+i,t));let calls=[],fail=null,notes=[];
 const updateQueue=async(id,a)=>{calls.push([id,a.content[0].text]);if(fail?.(id,calls.length))throw Error('claimed');};
-const render=()=>{si=0;layout=[];return C({useSession:s=>s({pendingSubmissions:[],subagent:null}),useProjection:()=>({'next-turn':rows}),updateQueue,notify:(l,t)=>notes.push(t)});};
+const render=()=>{si=0;layout=[];return C({useSession:s=>s({pendingSubmissions:[],subagent:null}),useProjection:()=>({'next-turn':rows}),updateQueue,notify:(l,t)=>notes.push(t),t:k=>k});};
 render();const cleanup=layout[0]();let out=render();
 assert.ok(lis.every(li=>li.children[0].hasAttribute('data-queue-grip')),'grip host is the first (leftmost) child');
 assert.equal(out.c.length,5);const grip=i=>out.c[1+i].portal;assert.equal(out.c[1].host,lis[0].children[0]);

@@ -21,7 +21,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@0.6.2`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@0.7.0`.
 
 ## Features
 
@@ -30,13 +30,13 @@ Then restart dsh. (The CLI can't install into the desktop profile; the app manag
 | **Changes panel** | Right sidebar → `+` → **Changes**. Pick **Uncommitted**, **Unstaged**, **Staged** or **Branch** to see changed files with `+/-` counts; click a file for its diff. **Last Turn** opens dsh's own review of the latest turn. |
 | **Input history** | In an empty composer, press `↑` / `↓` to walk through messages you sent, like a terminal. |
 | **Plan mode shortcut** | `Shift+Tab` adds `/plan ` to the start of the draft (press again to remove it). If the chat is already in plan mode, `Shift+Tab` leaves it. |
-| **One-click Continue** | When a turn has stopped and the composer is empty, Send turns into **▶**. One click sends `continue`. |
+| **One-click Continue** | When a turn has stopped and the composer is empty, Send turns into **▶**. One click sends “continue” in dsh's language (`continue` / `继续`). |
 | **Queue drag-and-drop** | Queued messages get a grip (⠿). Drag to reorder, or focus the grip and press `↑` / `↓`. `Esc` cancels. |
 | **Copy deeplink** | Right-click a chat in the sidebar → **Copy deeplink**. Paste the `dsh-session:…` link into another chat to attach that chat as read-only context. |
 | **Allow for this chat** | When Auto Review asks you, the approval card gets **Allow for this chat**: the same tool in the same chat is allowed from then on, with any arguments. A header chip lists the grants and revokes them. Grants survive a restart. |
 | **Background notifications** | While dsh is in the background you get a notification when a turn finishes (first line of the reply), or when a chat needs an approval (tool name), an answer (the question) or a plan review. The Dock/taskbar badge counts waiting chats. Clicking opens that chat. |
 
-Labels follow dsh's language (English or Chinese).
+All text — buttons, tooltips, notices, notifications and the Continue message — follows the language selected in dsh (English or Chinese, the two languages dsh ships). Switching the language in dsh settings updates it live.
 
 ## Keyboard shortcuts
 
@@ -63,7 +63,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 
 - **No notifications on macOS:** System Settings → Notifications → DeepSeek Harness → allow. Choose **Alerts** to keep them on screen.
 - **▶, queue grips, Allow for this chat or right-click missing after a dsh update:** these attach to dsh's current HTML because dsh has no slot for them yet. If dsh changes that markup they hide themselves; nothing else breaks. Please open an [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
-- **Install fails right after a release:** add the version (`dsh-composer-plus@0.6.2`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@0.7.0`), see the install note above.
 
 ## Limits
 

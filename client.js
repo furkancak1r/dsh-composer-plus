@@ -196,7 +196,6 @@ window.__ModuleLoader__.load({
       return React.createElement('span', { ref: anchor, hidden: true });
     }
 
-    const CONTINUE_TEXT = 'continue';
     /** Dictionary namespace for this plugin's menu copy; dsh ships `en` and `zh`. */
     const LOCALE_NS = 'dsh-composer-plus';
     let createPortal;
@@ -212,7 +211,7 @@ window.__ModuleLoader__.load({
      * Send turns into a play button that submits "continue". Send is not a slot, so the play button is
      * portaled into Send's row with Send's own class and Send is hidden meanwhile.
      * Hidden on a blank chat, while running, in subagent views, or as soon as the user types or attaches. */
-    function ContinueButton({ useSession, useInput, inputActions }) {
+    function ContinueButton({ useSession, useInput, inputActions, t }) {
       const show = useSession((s) => s !== undefined && !s.blank && !s.running && s.subagent === null && !s.removed);
       const idle = useInput((s) => s !== undefined && s.phase === 'plain' && s.draft.trim() === '' && s.attachmentIds.length === 0);
       const visible = show && idle && inputActions !== undefined;
@@ -228,15 +227,17 @@ window.__ModuleLoader__.load({
       const anchor = React.createElement('span', { ref: anchorRef, hidden: true, 'aria-hidden': true });
       if (!visible || host === null) return anchor;
       const onClick = () => {
-        if (React.flushSync !== undefined) React.flushSync(() => inputActions.setDraft(CONTINUE_TEXT));
-        else inputActions.setDraft(CONTINUE_TEXT);
+        // The sent message follows dsh's language, so the model reads it in the user's own language.
+        const text = t('continue.message');
+        if (React.flushSync !== undefined) React.flushSync(() => inputActions.setDraft(text));
+        else inputActions.setDraft(text);
         inputActions.submit();
       };
       const button = React.createElement('button', {
         type: 'button',
         className: host.className,
-        title: 'Continue',
-        'aria-label': 'Continue',
+        title: t('continue.label'),
+        'aria-label': t('continue.label'),
         onMouseDown: (event) => event.preventDefault(),
         onClick,
       }, React.createElement('svg', { viewBox: '0 0 16 16', width: 16, height: 16, 'aria-hidden': true },
@@ -255,7 +256,7 @@ window.__ModuleLoader__.load({
      * so nothing is lost or duplicated.
      * shortcut: grips are portaled into QueueDock rows found in the DOM; if a dsh update changes that markup the
      * grips just stop appearing — upgrade when dsh exposes a queue row slot or a native move action. */
-    function QueueReorder({ useSession, useProjection, updateQueue, notify }) {
+    function QueueReorder({ useSession, useProjection, updateQueue, notify, t }) {
       const inbox = useProjection('inbox');
       const pending = useSession((s) => (s === undefined ? undefined : s.pendingSubmissions));
       const mutable = useSession((s) => s !== undefined && (s.subagent === null || s.subagent.address.mode === 'continuable'));
@@ -320,7 +321,7 @@ window.__ModuleLoader__.load({
           }
         } catch {
           for (const change of done.reverse()) await edit(change.row, change.prev).catch(() => undefined);
-          notify('error', 'Reorder failed: a message may have already started sending.');
+          notify('error', t('queue.failed'));
         } finally {
           setBusy(false);
         }
@@ -375,8 +376,8 @@ window.__ModuleLoader__.load({
         const draggable = texts[index] !== null && !busy;
         const grip = React.createElement('button', {
           type: 'button',
-          title: draggable ? 'Drag to reorder (or ↑/↓)' : 'Messages with images/files cannot be moved',
-          'aria-label': 'Reorder queued message',
+          title: draggable ? t('queue.drag') : t('queue.locked'),
+          'aria-label': t('queue.grip'),
           disabled: !draggable,
           onPointerDown: (event) => startDrag(index, event),
           onKeyDown: (event) => {
@@ -683,6 +684,7 @@ window.__ModuleLoader__.load({
           name: 'conversation.input.dock',
           id: 'queue-reorder',
           order: 21,
+          locale: LOCALE_NS,
           inject: (sessionId) => {
             const actx = ctx.sessions.scope(sessionId);
             const conversation = actx === undefined ? undefined : actx.get('conversation');
@@ -713,9 +715,16 @@ window.__ModuleLoader__.load({
           name: 'conversation.input.right',
           id: 'composer-continue',
           order: 1000,
+          locale: LOCALE_NS,
         }, ContinueButton));
         if (ctx.locale !== undefined) ctx.effect(() => ctx.locale.register(LOCALE_NS, {
           en: {
+            'continue.label': 'Continue',
+            'continue.message': 'continue',
+            'queue.drag': 'Drag to reorder (or ↑/↓)',
+            'queue.locked': 'Messages with images/files cannot be moved',
+            'queue.grip': 'Reorder queued message',
+            'queue.failed': 'Reorder failed: a message may have already started sending.',
             copyDeeplink: 'Copy deeplink',
             allowChat: 'Allow for this chat',
             allowChatTitle: 'Allow {toolName} without asking for the rest of this chat, with any arguments. If the tool can write, that includes any write.',
@@ -750,6 +759,12 @@ window.__ModuleLoader__.load({
             'changes.refresh': 'Refresh',
           },
           zh: {
+            'continue.label': '继续',
+            'continue.message': '继续',
+            'queue.drag': '拖动以排序（或按 ↑/↓）',
+            'queue.locked': '含图片或文件的消息无法移动',
+            'queue.grip': '调整排队消息顺序',
+            'queue.failed': '排序失败：某条消息可能已开始发送。',
             copyDeeplink: '复制深层链接',
             allowChat: '本对话内允许',
             allowChatTitle: '本对话剩余时间内，{toolName} 的任何参数调用都无需再询问。若该工具可写入，也包括任何写入操作。',
