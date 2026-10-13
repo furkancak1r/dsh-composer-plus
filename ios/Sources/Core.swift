@@ -361,6 +361,14 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         return out.filter { !$0.1.isEmpty }.map { (title: $0.0, items: $0.1) }
     }
 
+    /// Instant title filter while typing; server search adds content hits after a pause.
+    func titleMatches(_ q: String) -> [Sess] {
+        let q = q.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return [] }
+        return sessions.filter { $0.parent == nil && $0.title.localizedStandardContains(q) }
+            .sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
+    }
+
     func run(_ op: @escaping @MainActor () async throws -> Void) { Task { do { try await op() } catch { self.error = error.localizedDescription } } }
 
     private func http(_ fp: String) -> URLSession {
@@ -792,6 +800,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     func createGoal(_ objective: String) async throws {
         guard let sid = current else { return }
         _ = try await rpc("goals/create", ["agentId": sid, "request": ["objective": objective]]); await loadGoal()
+    }
+
+    /// New objective for the current goal; rounds and phase stay as they are.
+    func editGoal(_ objective: String) async throws {
+        guard let sid = current, let g = goal else { return }
+        _ = try await rpc("goals/edit", ["agentId": sid, "ref": g.ref, "request": ["objective": objective]]); await loadGoal()
     }
 
     /// verb: pause | resume | complete | clear

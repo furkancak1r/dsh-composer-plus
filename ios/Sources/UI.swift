@@ -166,6 +166,8 @@ struct ConversationView: View {
     @State private var showTodos = false
     @State private var renaming = false
     @State private var newTitle = ""
+    @State private var goalEditing = false
+    @State private var goalText = ""
     @FocusState private var focused: Bool
     var body: some View {
         transcript
@@ -180,6 +182,7 @@ struct ConversationView: View {
                 ToolbarTitleMenu {
                     if let id = c.current {
                         Button { newTitle = c.currentSess?.title ?? ""; renaming = true } label: { Label("Rename", systemImage: "pencil") }
+                        Button { editGoal() } label: { Label(c.goal == nil ? String(localized: "Set goal…") : String(localized: "Edit goal…"), systemImage: "target") }
                         Button { c.run { try await c.fork(id) } } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
                         Button { c.run { try await c.togglePin(id) } } label: { Label(c.pinned.contains(id) ? String(localized: "Unpin") : String(localized: "Pin"), systemImage: "pin") }
                         Button(role: .destructive) { let was = c.archived.contains(id); c.run { try await c.toggleArchive(id); if !was { c.path = [] } } } label: { Label(c.archived.contains(id) ? String(localized: "Unarchive") : String(localized: "Archive"), systemImage: "archivebox") }
@@ -192,6 +195,16 @@ struct ConversationView: View {
                 Button("Save") { if let id = c.current { let t = newTitle; c.run { try await c.rename(id, t) } } }
                 Button("Cancel", role: .cancel) {}
             }
+            .alert(c.goal == nil ? "Set goal" : "Edit goal", isPresented: $goalEditing) {
+                TextField("Objective", text: $goalText, axis: .vertical)
+                Button("Save") {
+                    let o = goalText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !o.isEmpty else { return }
+                    let has = c.goal != nil
+                    c.run { if has { try await c.editGoal(o) } else { try await c.createGoal(o) } }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { Text("The agent keeps working toward this until it is complete.") }
             // per-session draft: going back or switching sessions never loses typed text
             .onAppear { text = c.draft(c.current) }
             .onChange(of: c.current) { text = c.draft(c.current) }
@@ -303,6 +316,7 @@ struct ConversationView: View {
                 Text(g.blocked ?? g.summary).font(.caption2).foregroundStyle(g.blocked != nil ? Color.orange : Color.secondary).lineLimit(1)
             }.frame(maxWidth: .infinity, alignment: .leading)
             Menu {
+                Button { editGoal() } label: { Label("Edit objective", systemImage: "pencil") }
                 if g.paused { Button { goal("resume") } label: { Label("Resume", systemImage: "play") } }
                 else { Button { goal("pause") } label: { Label("Pause", systemImage: "pause") } }
                 Button { goal("complete") } label: { Label("Complete", systemImage: "checkmark") }
@@ -317,6 +331,7 @@ struct ConversationView: View {
     }
 
     func goal(_ verb: String) { c.run { try await c.goalAction(verb) } }
+    func editGoal() { goalText = c.goal?.objective ?? ""; goalEditing = true }
 
     /// Desktop todo list: collapsed to "done/total · current task", tap to expand.
     var todoCard: some View {
@@ -632,6 +647,8 @@ struct SessionsView: View {
     @EnvironmentObject var c: Client
     @State private var query = ""
     @State private var hits: [Hit] = []
+    @State private var searching = false
+    @State private var showArchived = false
     @State private var creating = false
     @State private var renaming: Sess?
     @State private var newTitle = ""
@@ -643,26 +660,33 @@ struct SessionsView: View {
                 if query.isEmpty {
                     // offset id: two DSH workspaces may share a title
                     ForEach(Array(c.sessionGroups().enumerated()), id: \.offset) { _, g in
-                        Section(g.title) {
-                            ForEach(g.items) { s in
-                                Button { open(s.id) } label: { row(s) }
-                                    .swipeActions(edge: .leading) { Button { c.run { try await c.togglePin(s.id) } } label: { Label(pinLabel(s), systemImage: "pin") }.tint(.orange) }
-                                    .swipeActions {
-                                        Button { c.run { try await c.toggleArchive(s.id) } } label: { Label(archiveLabel(s), systemImage: "archivebox") }.tint(.gray)
-                                        Button { renaming = s; newTitle = s.title } label: { Label("Rename", systemImage: "pencil") }.tint(.blue)
-                                    }
-                                    .contextMenu {
-                                        Button { c.run { try await c.togglePin(s.id) } } label: { Label(pinLabel(s), systemImage: "pin") }
-                                        Button { renaming = s; newTitle = s.title } label: { Label("Rename", systemImage: "pencil") }
-                                        Button { c.run { try await c.fork(s.id) } } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
-                                        Button { c.run { try await c.toggleArchive(s.id) } } label: { Label(archiveLabel(s), systemImage: "archivebox") }
-                                    }
-                            }
+                        // archived sessions stay folded like the desktop sidebar; current one shows anyway
+                        let isArchive = g.title == String(localized: "Archived")
+                        let folded = isArchive && !showArchived
+                        Section {
+                            ForEach(folded ? g.items.filter { $0.id == c.current } : g.items) { s in sessionRow(s) }
+                        } header: {
+                            if isArchive {
+                                Button { withAnimation { showArchived.toggle() } } label: {
+                                    HStack { Text("\(g.title) (\(g.items.count))"); Spacer(); Image(systemName: showArchived ? "chevron.down" : "chevron.right") }
+                                }
+                                .accessibilityHint(showArchived ? "Hides archived sessions" : "Shows archived sessions")
+                            } else { Text(g.title) }
                         }
                     }
                 } else {
-                    ForEach(hits) { h in
-                        Button { open(h.session) } label: { VStack(alignment: .leading) { Text(c.title(h.session)); Text(h.snippet).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
+                    let titles = c.titleMatches(query)
+                    let ids = Set(titles.map(\.id))
+                    let content = hits.filter { !ids.contains($0.session) }
+                    if !titles.isEmpty { Section("Titles") { ForEach(titles) { s in sessionRow(s) } } }
+                    Section {
+                        ForEach(content) { h in
+                            Button { open(h.session) } label: { VStack(alignment: .leading) { Text(c.title(h.session)).foregroundStyle(.primary).lineLimit(1); Text(h.snippet).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
+                        }
+                        if searching { HStack { ProgressView(); Text("Searching messages…").foregroundStyle(.secondary) } }
+                    } header: { if !content.isEmpty { Text("Messages") } }
+                    if !searching && titles.isEmpty && content.isEmpty {
+                        ContentUnavailableView.search(text: query).listRowBackground(Color.clear)
                     }
                 }
             }
@@ -670,7 +694,17 @@ struct SessionsView: View {
                 ContentUnavailableView { Label("No sessions", systemImage: "tray") } actions: { Button("New session") { creating = true }.buttonStyle(.borderedProminent) }
             } }
             .searchable(text: $query, prompt: "Search sessions")
-            .onSubmit(of: .search) { let q = query; c.run { hits = try await c.search(q) } }
+            .task(id: query) {
+                hits = []
+                let q = query.trimmingCharacters(in: .whitespaces)
+                guard !q.isEmpty else { searching = false; return }
+                searching = true
+                try? await Task.sleep(for: .milliseconds(350)) // debounce; a newer keystroke cancels this task
+                guard !Task.isCancelled else { return }
+                let r = try? await c.search(q)
+                guard !Task.isCancelled else { return }
+                hits = r ?? []; searching = false
+            }
             .refreshable { try? await c.loadSessions() }
             .navigationTitle("Sessions")
             .navigationDestination(for: String.self) { _ in ConversationView() }
@@ -685,6 +719,20 @@ struct SessionsView: View {
                 Button("Cancel", role: .cancel) {}
             }
         }
+    }
+    func sessionRow(_ s: Sess) -> some View {
+        Button { open(s.id) } label: { row(s) }
+            .swipeActions(edge: .leading) { Button { c.run { try await c.togglePin(s.id) } } label: { Label(pinLabel(s), systemImage: "pin") }.tint(.orange) }
+            .swipeActions {
+                Button { c.run { try await c.toggleArchive(s.id) } } label: { Label(archiveLabel(s), systemImage: "archivebox") }.tint(.gray)
+                Button { renaming = s; newTitle = s.title } label: { Label("Rename", systemImage: "pencil") }.tint(.blue)
+            }
+            .contextMenu {
+                Button { c.run { try await c.togglePin(s.id) } } label: { Label(pinLabel(s), systemImage: "pin") }
+                Button { renaming = s; newTitle = s.title } label: { Label("Rename", systemImage: "pencil") }
+                Button { c.run { try await c.fork(s.id) } } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
+                Button { c.run { try await c.toggleArchive(s.id) } } label: { Label(archiveLabel(s), systemImage: "archivebox") }
+            }
     }
     func row(_ s: Sess) -> some View {
         HStack {

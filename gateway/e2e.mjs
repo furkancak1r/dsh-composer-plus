@@ -56,6 +56,14 @@ await check('session/create', async () => { sid = (await rpc('session/create', {
 await check('session/rename', async () => { await rpc('session/rename', { request: { sessionId: sid, title: 'E2E mobile' } }) })
 await check('rename visible in list', async () => { const s = (await rpc('session/list', { _request: {} })).items.find(s => s.sessionId === sid); assert.ok(JSON.stringify(s).includes('E2E mobile')) })
 await check('goals/get', async () => short(await rpc('goals/get', { agentId: sid })))
+// the phone's goal flow on the temp session: create -> edit objective (same shapes as Client.createGoal/editGoal) -> clear
+await check('goals create/edit/clear', async () => {
+  await rpc('goals/create', { agentId: sid, request: { objective: 'e2e A' } })
+  const g = await rpc('goals/get', { agentId: sid })
+  const e = await rpc('goals/edit', { agentId: sid, ref: { id: g.id, revision: g.revision }, request: { objective: 'e2e B' } })
+  assert.equal(e.objective, 'e2e B')
+  await rpc('goals/clear', { agentId: sid, ref: { id: e.id, revision: e.revision } })
+})
 await check('agentPresets/list', async () => short(await rpc('agentPresets/list')))
 await check('session/modelCatalog', async () => short(await rpc('session/modelCatalog')))
 await check('non-allowlisted method -> 403', async () => { assert.equal((await call('POST', '/api/host/shutdown', { type: 'client-request', rpcId: 'x', method: 'host/shutdown', payload: { args: {} } }, token)).status, 403) })

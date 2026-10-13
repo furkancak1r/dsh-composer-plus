@@ -133,6 +133,8 @@ final class CoreTests: XCTestCase {
         let t = { (id: String, ms: Double?) in Sess(["sessionId": id, "updatedAt": ms as Any, "projections": ["values": ["title": id]]])! }
         c.sessions = [t("old", 1_000), t("none", nil), t("new", 2_000)]
         XCTAssertEqual(c.sessionGroups().last?.items.map(\.id), ["new", "old", "none"])
+        XCTAssertEqual(c.titleMatches(" OL ").map(\.id), ["old"])
+        XCTAssertTrue(c.titleMatches("  ").isEmpty)
         XCTAssertEqual(t("x", 1_500).updated, Date(timeIntervalSince1970: 1.5))
     }
 
