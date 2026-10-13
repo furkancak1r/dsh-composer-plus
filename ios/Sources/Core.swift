@@ -111,16 +111,22 @@ func mdLine(_ raw: String) -> MdLine {
     return .text(s)
 }
 
-/// DSH message content is a string or [ContentBlock]; only text is rendered, images become a marker.
-func contentText(_ c: Any?) -> String {
+/// DSH message content is a string or [ContentBlock]; only text is rendered, images become a marker (or nothing when shown as thumbnails).
+func contentText(_ c: Any?, imageMarker: Bool = true) -> String {
     if let s = c as? String { return s }
     return (c as? [J] ?? []).compactMap { b -> String? in
         switch b["type"] as? String {
         case "text": return b["text"] as? String
-        case "image": return "🖼"
+        case "image": return imageMarker ? "🖼" : nil
+        case "file": return "📎 " + (((b["attachment"] as? J)?["name"] as? String) ?? "file")
         default: return nil
         }
     }.joined(separator: "\n")
+}
+
+/// Attachment ids of the image blocks in a folded-log message (`{type:"image", attachment:{attachmentId}}`).
+func imageIds(_ c: Any?) -> [String] {
+    (c as? [J] ?? []).compactMap { $0["type"] as? String == "image" ? ($0["attachment"] as? J)?["attachmentId"] as? String : nil }
 }
 
 func usageText(_ u: J) -> String {
@@ -165,9 +171,29 @@ func compactJSON(_ v: Any?, limit: Int = 300) -> String {
 
 struct Pairing: Codable { var host: String; var port: Int; var fp: String; var token: String; var deviceId: String; var name: String; var expiresAt: String; var ts: String? = nil }
 
+/// A picked file waiting to be uploaded with the next prompt.
+struct Attachment: Identifiable {
+    let id = UUID(); let name: String; let data: Data
+    /// base64 grows ~33%, so 10 MB stays under the gateway's 16 MB body cap.
+    static let maxBytes = 10 << 20
+    static func load(_ url: URL) throws -> Attachment {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let size = (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        guard size <= maxBytes else { throw Fail(String(localized: "\(url.lastPathComponent) is larger than 10 MB")) }
+        let d = try Data(contentsOf: url)
+        guard d.count <= maxBytes else { throw Fail(String(localized: "\(url.lastPathComponent) is larger than 10 MB")) }
+        return Attachment(name: url.lastPathComponent, data: d)
+    }
+}
+
 struct Line: Identifiable {
     enum Kind { case user, assistant, reasoning, command, tool, result, error }
     let id = UUID(); let kind: Kind; let text: String
+    /// Tool rows only: the result is folded into its call (matched by callId) instead of a separate line.
+    var callId: String? = nil; var output: String? = nil; var failed = false
+    /// User rows only: image attachment ids, fetched lazily via session/attachment.
+    var images: [String] = []
 }
 
 /// DSH TodoItem: status is pending | in_progress | completed.
@@ -293,6 +319,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var streaming = ""
     @Published var reasoning = ""
     @Published var running = false
+    /// What prompt() is doing right now ("Uploading x…" / "Sending…"), shown under the optimistic bubble.
+    @Published var sendStatus: String?
     @Published var usage: J?
     @Published var model: String?
     @Published var defaultModel: String?
@@ -642,7 +670,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         case "user/message":
             // DSH also logs runtime-context / skill-catalog injections as user messages; show only what the user typed.
             let kind = (d["source"] as? J)?["kind"] as? String
-            if kind == nil || kind == "user" { transcript.append(Line(kind: .user, text: contentText(d["content"]))) }
+            if kind == nil || kind == "user" { transcript.append(Line(kind: .user, text: contentText(d["content"], imageMarker: false), images: imageIds(d["content"]))) }
         case "request/header":
             if let m = modelLabel((d["header"] as? J)?["config"] as? J) { model = m }
         case "request/context": if model == nil, let m = d["model"] as? String { model = m }
@@ -655,11 +683,14 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             if let u = d["usage"] as? J { usage = u }
         case "command/run": transcript.append(Line(kind: .command, text: "/\(d["name"] as? String ?? "") \(d["args"] as? String ?? "")".trimmingCharacters(in: .whitespaces)))
         case "command/done": if let t = d["text"] as? String, !t.isEmpty { transcript.append(Line(kind: d["kind"] as? String == "error" ? .error : .result, text: t)) }
-        case "tool/call": transcript.append(Line(kind: .tool, text: "\(d["name"] as? String ?? "tool") \(compactJSON(d["arguments"]))"))
+        case "tool/call": transcript.append(Line(kind: .tool, text: "\(d["name"] as? String ?? "tool") \(compactJSON(d["arguments"]))", callId: d["callId"] as? String))
         case "tool/result":
             let m = d["message"] as? J
             let bad = m?["isError"] as? Bool == true || d["error"] != nil
-            transcript.append(Line(kind: bad ? .error : .result, text: String(contentText(m?["content"]).prefix(600))))
+            let out = String(contentText(m?["content"]).prefix(600))
+            if let cid = (m?["toolCallId"] ?? (m?["source"] as? J)?["callId"]) as? String, let i = transcript.lastIndex(where: { $0.callId == cid }) {
+                transcript[i].output = out; transcript[i].failed = bad
+            } else { transcript.append(Line(kind: bad ? .error : .result, text: out)) }
         case "turn/start": running = true
         case "agent/inbox/spliced": applySplice(&inbox, d)
         case "todo/write": liveTodos = parseTodos(d["todos"]) ?? []
@@ -729,15 +760,51 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
 
     /// mode "steer" injects into a running turn (desktop's send-while-running); "queue" starts/queues a turn.
-    func prompt(_ text: String, images: [Data], steer: Bool = false) async throws {
+    func prompt(_ text: String, images: [Data], files: [Attachment] = [], steer: Bool = false) async throws {
         guard let sid = current else { return }
-        var content: [J] = text.isEmpty ? [] : [["type": "text", "text": text]]
-        content += images.map { ["type": "image", "mediaType": "image/jpeg", "data": $0.base64EncodedString()] }
+        defer { sendStatus = nil }
+        var receipts: [String] = []
+        // receipts are scoped to this session; the host resolves them when the prompt arrives
+        for f in files {
+            sendStatus = String(localized: "Uploading \(f.name)…")
+            let v = try await rpc("fileUploads/upload", ["agentId": sid, "request": ["data": f.data.base64EncodedString(), "name": f.name]]) as? J
+            guard let r = v?["receiptId"] as? String else { throw Fail(String(localized: "Upload failed: \(f.name)")) }
+            receipts.append(r)
+        }
+        sendStatus = String(localized: "Sending…")
+        let content = Self.promptContent(text, images: images, receipts: receipts)
         _ = try await rpc("session/prompt", ["request": ["requestId": UUID().uuidString, "sessionId": sid, "mode": steer ? "steer" : "queue", "content": content]])
         UINotificationFeedbackGenerator().notificationOccurred(.success)
     }
 
+    static func promptContent(_ text: String, images: [Data], receipts: [String]) -> [J] {
+        (text.isEmpty ? [] : [["type": "text", "text": text]])
+            + images.map { ["type": "image", "mediaType": "image/jpeg", "data": $0.base64EncodedString()] }
+            + receipts.map { ["type": "file", "receiptId": $0] }
+    }
+
     func stop() async throws { if let sid = current { _ = try await rpc("session/cancel", ["request": ["sessionId": sid]]) } }
+
+    /// Re-send a user line with its images (refetched from the host); fails instead of silently dropping one.
+    func resend(_ line: Line) async throws {
+        var imgs: [Data] = []
+        for id in line.images {
+            guard let d = await image(id)?.jpegData(compressionQuality: 0.8) else { throw Fail(String(localized: "Couldn't load an attached image")) }
+            imgs.append(d)
+        }
+        try await prompt(line.text, images: imgs, steer: running)
+    }
+
+    // shortcut: never evicted, fine for one chat's images; switch to NSCache if memory warnings show up.
+    private var imageCache: [String: UIImage] = [:]
+    /// Bytes of one image the current session references (desktop's readAttachment); cached per attachment id.
+    func image(_ id: String) async -> UIImage? {
+        if let i = imageCache[id] { return i }
+        guard let sid = current, let v = try? await rpc("session/attachment", ["request": ["sessionId": sid, "attachmentId": id]]) as? J,
+              let b = v["data"] as? String, let d = Data(base64Encoded: b), let i = UIImage(data: d) else { return nil }
+        imageCache[id] = i
+        return i
+    }
 
     /// Queue edits like desktop's QueueDock: action is ["kind": "edit", "content": …] / ["kind": "remove"] / ["kind": "steer"].
     func updateQueue(_ itemId: String, _ action: J) async throws {
@@ -817,6 +884,20 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     func interrupt(_ child: Sess) async throws {
         guard let parent = child.parent else { return }
         _ = try await rpc("subagents/interruptByParent", ["childSessionId": child.id, "parentSessionId": parent, "mode": "continuable"])
+    }
+
+    /// Desktop's "message subagent": queue (or steer into a running turn) a prompt on a child session.
+    func promptSubagent(_ child: Sess, _ text: String) async throws {
+        guard let r = Self.subagentRequest(child, text) else { return }
+        _ = try await rpc("subagents/prompt", ["request": r])
+    }
+
+    static func subagentRequest(_ child: Sess, _ text: String) -> J? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let parent = child.parent, !t.isEmpty else { return nil }
+        return ["requestId": UUID().uuidString, "parentSessionId": parent, "childSessionId": child.id, "mode": "continuable",
+                "delivery": child.running ? "steer" : "queue", "content": promptContent(t, images: [], receipts: []),
+                "clientTimeZone": TimeZone.current.identifier]
     }
 
     /// value nil = "let the Mac decide" (next handler, i.e. the desktop prompt).

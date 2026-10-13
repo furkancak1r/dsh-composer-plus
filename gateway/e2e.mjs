@@ -49,13 +49,18 @@ const rpc = async (method, args = {}) => {
   return r.json.result.value
 }
 const short = v => String(JSON.stringify(v) ?? 'none').slice(0, 100)
-let sid
+let sid, receipt
 // the phone reads only the first page; flag the day DSH starts paging this list
 await check('session/list', async () => { const l = await rpc('session/list', { _request: {} }); assert.ok(!l.cursor && !l.nextCursor, 'session/list now pages: follow the cursor in Client.loadSessions'); return l.items.length + ' sessions' })
 await check('session/create', async () => { sid = (await rpc('session/create', { request: { cwd: '/tmp' } })).sessionId; assert.ok(sid); return sid })
 await check('session/rename', async () => { await rpc('session/rename', { request: { sessionId: sid, title: 'E2E mobile' } }) })
 await check('rename visible in list', async () => { const s = (await rpc('session/list', { _request: {} })).items.find(s => s.sessionId === sid); assert.ok(JSON.stringify(s).includes('E2E mobile')) })
 await check('goals/get', async () => short(await rpc('goals/get', { agentId: sid })))
+// Client.prompt's file path: upload first, then the receipt rides in the prompt as {type:'file', receiptId}
+await check('fileUploads/upload', async () => {
+  const r = await rpc('fileUploads/upload', { agentId: sid, request: { data: Buffer.from('hello').toString('base64'), name: 'e2e.txt' } })
+  assert.ok(r.receiptId); assert.equal(r.file.bytes, 5); receipt = r.receiptId; return r.file.name
+})
 // the phone's goal flow on the temp session: create -> edit objective (same shapes as Client.createGoal/editGoal) -> clear
 await check('goals create/edit/clear', async () => {
   await rpc('goals/create', { agentId: sid, request: { objective: 'e2e A' } })
@@ -65,6 +70,11 @@ await check('goals create/edit/clear', async () => {
   await rpc('goals/clear', { agentId: sid, ref: { id: e.id, revision: e.revision } })
 })
 await check('agentPresets/list', async () => short(await rpc('agentPresets/list')))
+// Client.image's thumbnail fetch: allowlisted (200, not 403) and DSH answers with a structured error for an unknown id
+await check('session/attachment reachable', async () => {
+  const r = await call('POST', '/api/session/attachment', { type: 'client-request', rpcId: 'e2e-att', method: 'session/attachment', payload: { args: { request: { sessionId: sid, attachmentId: 'nope' } } } }, token)
+  assert.equal(r.status, 200); assert.equal(r.json.result?.ok, false); return short(r.json.result?.error)
+})
 await check('session/modelCatalog', async () => short(await rpc('session/modelCatalog')))
 await check('non-allowlisted method -> 403', async () => { assert.equal((await call('POST', '/api/host/shutdown', { type: 'client-request', rpcId: 'x', method: 'host/shutdown', payload: { args: {} } }, token)).status, 403) })
 
@@ -106,7 +116,8 @@ await check('prompt gets an assistant reply', async () => {
   ws.onText = t => { const e = JSON.parse(t).value?.event; if (e?.type === 'assistant/message' || e?.type === 'turn/end') end ??= e }
   ws.send(JSON.stringify({ type: 'open', streamId: 'f2', endpoint: 'session/follow', payload: { args: { request: { address: { kind: 'session', sessionId: sid } } } } }))
   await sleep(500)
-  await rpc('session/prompt', { request: { requestId: 'e2e-' + Date.now(), sessionId: sid, mode: 'queue', content: [{ type: 'text', text: 'Sadece "ok" yaz.' }] } })
+  const file = receipt ? [{ type: 'file', receiptId: receipt }] : []
+  await rpc('session/prompt', { request: { requestId: 'e2e-' + Date.now(), sessionId: sid, mode: 'queue', content: [{ type: 'text', text: 'Sadece "ok" yaz.' }, ...file] } })
   for (let i = 0; i < 600 && !end; i++) await sleep(100)
   ws.close()
   assert.equal(end?.type, 'assistant/message', JSON.stringify(end?.data ?? 'timeout'))

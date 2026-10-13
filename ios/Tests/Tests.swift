@@ -111,6 +111,35 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.model, "deepseek-flash · high")
     }
 
+    @MainActor func testAttachments() throws {
+        let c = Client.promptContent("hi", images: [Data([1])], receipts: ["r1"])
+        XCTAssertEqual(c.map { $0["type"] as? String }, ["text", "image", "file"])
+        XCTAssertEqual(c[2]["receiptId"] as? String, "r1")
+        XCTAssertTrue(Client.promptContent("", images: [], receipts: []).isEmpty)
+        XCTAssertEqual(contentText([["type": "text", "text": "a"], ["type": "file", "attachment": ["name": "x.pdf"]]]), "a\n📎 x.pdf")
+        let withImg: [J] = [["type": "image", "attachment": ["attachmentId": "a1"]], ["type": "text", "text": "x"]]
+        XCTAssertEqual(imageIds(withImg), ["a1"])
+        XCTAssertEqual(contentText(withImg, imageMarker: false), "x")
+        XCTAssertTrue(contentText(withImg).contains("🖼"))
+        let dir = FileManager.default.temporaryDirectory
+        let small = dir.appendingPathComponent("a.txt"), big = dir.appendingPathComponent("big.bin")
+        try Data("ok".utf8).write(to: small)
+        try Data(count: Attachment.maxBytes + 1).write(to: big)
+        XCTAssertEqual(try Attachment.load(small).name, "a.txt")
+        XCTAssertThrowsError(try Attachment.load(big))
+    }
+
+    @MainActor func testSubagentPrompt() {
+        let kid = Sess(["sessionId": "k", "parentSessionId": "p", "projections": ["values": ["title": "k"]]])!
+        let r = Client.subagentRequest(kid, "  go on ")
+        XCTAssertEqual(r?["parentSessionId"] as? String, "p")
+        XCTAssertEqual(r?["childSessionId"] as? String, "k")
+        XCTAssertEqual(r?["delivery"] as? String, "queue")
+        XCTAssertEqual((r?["content"] as? [J])?.first?["text"] as? String, "go on")
+        XCTAssertNil(Client.subagentRequest(kid, "  "))
+        XCTAssertNil(Client.subagentRequest(Sess(["sessionId": "root"])!, "x"))
+    }
+
     @MainActor func testReasoningSessionModelAndGroups() {
         XCTAssertTrue(modelMatches("deepseek-v4 · high", "deepseek-v4"))
         XCTAssertTrue(modelMatches("deepseek-v4 · high", "deepseek-v4", "high"))
@@ -120,6 +149,12 @@ final class CoreTests: XCTestCase {
         let c = Client()
         c.apply(["type": "assistant/message", "data": ["message": ["content": [["type": "reasoning", "text": "hmm"], ["type": "text", "text": "Hi"]]]]])
         XCTAssertEqual(c.transcript.map(\.kind), [.reasoning, .assistant])
+        // tool result folds into its call by callId; an orphan result still shows on its own
+        c.apply(["type": "tool/call", "data": ["callId": "k1", "name": "read", "arguments": ["path": "a"]]])
+        c.apply(["type": "tool/result", "data": ["message": ["toolCallId": "k1", "isError": true, "content": [["type": "text", "text": "nope"]]]]])
+        c.apply(["type": "tool/result", "data": ["message": ["toolCallId": "zz", "content": [["type": "text", "text": "x"]]]]])
+        XCTAssertEqual(c.transcript.map(\.kind), [.reasoning, .assistant, .tool, .result])
+        XCTAssertEqual(c.transcript[2].output, "nope"); XCTAssertTrue(c.transcript[2].failed)
         let mk = { (id: String) in Sess(["sessionId": id, "cwd": "/p", "projections": ["values": ["title": id,
             "modelSelection": ["next": ["model": "m", "reasoningEffort": "max"]], "contextPressure": ["projectedTokens": 250, "contextWindow": 1000]]]])! }
         let a = mk("a"); XCTAssertEqual(a.model, "m · max"); XCTAssertEqual(a.context, 0.25)

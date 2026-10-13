@@ -159,6 +159,9 @@ struct ConversationView: View {
     @State private var text = ""
     @State private var picks: [PhotosPickerItem] = []
     @State private var images: [Data] = []
+    @State private var files: [Attachment] = []
+    @State private var importing = false
+    @State private var showPhotos = false
     @State private var atBottom = true
     @State private var creating = false
     @State private var editing: J?
@@ -227,8 +230,9 @@ struct ConversationView: View {
                         ForEach(c.transcript) { LineView(line: $0, onEdit: { text = $0; focused = true }) }
                         if !c.reasoning.isEmpty { LineView(line: Line(kind: .reasoning, text: c.reasoning), live: true) }
                         if !c.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: c.streaming), live: true) }
-                        if c.running && c.streaming.isEmpty && c.reasoning.isEmpty {
-                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Working…") }.font(.footnote).foregroundStyle(.secondary)
+                        // upload/send progress first, so a large file never looks like a dead Send button
+                        if let s = c.sendStatus ?? (c.running && c.streaming.isEmpty && c.reasoning.isEmpty ? String(localized: "Working…") : nil) {
+                            HStack(spacing: 6) { ProgressView().controlSize(.small); Text(s) }.font(.footnote).foregroundStyle(.secondary)
                         }
                         // shortcut: 80 pt tall marker pulled up over the content = "near bottom" tolerance, so a streaming delta never flips atBottom off; use onScrollGeometryChange once iOS 18 is the floor.
                         Color.clear.frame(height: 80).padding(.top, -80).id("end")
@@ -264,6 +268,7 @@ struct ConversationView: View {
                 .onChange(of: c.transcript.count) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
                 .onChange(of: c.streaming) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
                 .onChange(of: c.reasoning) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
+                .onChange(of: c.sendStatus) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
         }
     }
 
@@ -305,7 +310,7 @@ struct ConversationView: View {
         }.frame(maxHeight: 220).background(.bar)
     }
 
-    var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty }
+    var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty || !files.isEmpty }
 
     /// Desktop goal bar: objective + phase/rounds, actions in a menu.
     func goalCard(_ g: Goal) -> some View {
@@ -398,19 +403,38 @@ struct ConversationView: View {
     /// Codex-style card: text on top, attach · model chip · send/stop on one row below.
     var composer: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if !images.isEmpty {
+            if !images.isEmpty || !files.isEmpty {
                 ScrollView(.horizontal) { HStack { ForEach(images.indices, id: \.self) { i in
                     Image(uiImage: UIImage(data: images[i]) ?? UIImage()).resizable().scaledToFill().frame(width: 52, height: 52).clipShape(RoundedRectangle(cornerRadius: 8))
                         .overlay(alignment: .topTrailing) { Button { images.remove(at: i) } label: { Image(systemName: "xmark.circle.fill") }.accessibilityLabel("Remove image") }
-                } } }
+                }
+                    ForEach(files) { f in
+                        HStack(spacing: 6) {
+                            Image(systemName: "doc").foregroundStyle(.secondary)
+                            Text(f.name).font(.footnote).lineLimit(1).frame(maxWidth: 140)
+                            Button { files.removeAll { $0.id == f.id } } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                                .buttonStyle(.plain).accessibilityLabel("Remove \(f.name)")
+                        }
+                        .padding(.horizontal, 10).frame(height: 52).background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                } }
             }
             TextField("Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4)
             HStack(spacing: 10) {
-                PhotosPicker(selection: $picks, maxSelectionCount: 4, matching: .images) {
+                Menu {
+                    Button { showPhotos = true } label: { Label("Photos", systemImage: "photo") }
+                    Button { importing = true } label: { Label("Files", systemImage: "doc") }
+                } label: {
                     Image(systemName: "plus").font(.body.weight(.medium)).frame(width: 32, height: 32).background(Color(.tertiarySystemFill), in: Circle())
                 }
                 .buttonStyle(.plain)
-                    .accessibilityLabel("Attach image")
+                .accessibilityLabel("Attach")
+                .photosPicker(isPresented: $showPhotos, selection: $picks, maxSelectionCount: 4, matching: .images)
+                .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { res in
+                    c.run {
+                        for url in try res.get() { files.append(try Attachment.load(url)) }
+                    }
+                }
                 ModelMenu()
                 PermMenu()
                 Spacer(minLength: 0)
@@ -440,17 +464,17 @@ struct ConversationView: View {
     }
 
     func send() {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines), imgs = images
-        text = ""; images = []
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines), imgs = images, fs = files
+        text = ""; images = []; files = []
         let name = t.hasPrefix("/") ? String(t.dropFirst().prefix { !$0.isWhitespace }) : ""
         // a failed send (link down, Mac asleep) puts the draft back instead of losing it
-        let restore = { if text.isEmpty && images.isEmpty { text = t; images = imgs } }
-        if imgs.isEmpty, c.commands.contains(where: { $0.name == name }) {
+        let restore = { if text.isEmpty && images.isEmpty && files.isEmpty { text = t; images = imgs; files = fs } }
+        if imgs.isEmpty, fs.isEmpty, c.commands.contains(where: { $0.name == name }) {
             c.run { do { try await c.execute(t) } catch { restore(); throw error } }; return
         }
         atBottom = true
         let steer = c.running
-        c.run { do { try await c.prompt(t, images: imgs, steer: steer) } catch { restore(); throw error } }
+        c.run { do { try await c.prompt(t, images: imgs, files: fs, steer: steer) } catch { restore(); throw error } }
     }
 
     /// Downscale to 1600 px and JPEG-encode so a photo stays well under the gateway's 16 MB body cap.
@@ -471,17 +495,27 @@ struct LineView: View {
     @State private var copied = false
     var body: some View {
         content.contextMenu {
-            Button { UIPasteboard.general.string = line.text } label: { Label("Copy", systemImage: "doc.on.doc") }
+            Button { UIPasteboard.general.string = [line.text, line.output].compactMap { $0 }.joined(separator: "\n\n") } label: { Label("Copy", systemImage: "doc.on.doc") }
             if line.kind == .user {
                 if let onEdit { Button { onEdit(line.text) } label: { Label("Edit", systemImage: "pencil") } }
-                Button { let t = line.text; c.run { try await c.prompt(t, images: [], steer: c.running) } } label: { Label("Resend", systemImage: "arrow.clockwise") }
+                Button { let l = line; c.run { try await c.resend(l) } } label: { Label("Resend", systemImage: "arrow.clockwise") }
             }
         }
     }
     @ViewBuilder var content: some View {
         switch line.kind {
         case .user:
-            HStack { Spacer(minLength: 48); Text(line.text).textSelection(.enabled).padding(.horizontal, 14).padding(.vertical, 10).background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
+            VStack(alignment: .trailing, spacing: 6) {
+                if !line.images.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) { ForEach(line.images, id: \.self) { Thumb(id: $0) } }
+                    }
+                    .defaultScrollAnchor(.trailing).padding(.leading, 48)
+                }
+                if !line.text.isEmpty {
+                    HStack { Spacer(minLength: 48); Text(line.text).textSelection(.enabled).padding(.horizontal, 14).padding(.vertical, 10).background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
+                }
+            }.frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant:
             VStack(alignment: .leading, spacing: 6) {
                 Markdown(text: line.text).frame(maxWidth: .infinity, alignment: .leading)
@@ -505,7 +539,26 @@ struct LineView: View {
             }
             .tint(.secondary)
         case .command: Label(line.text, systemImage: "chevron.right").font(.footnote.monospaced()).foregroundStyle(.secondary)
-        case .tool: tap(Label(line.text, systemImage: "terminal").font(.footnote.monospaced()).foregroundStyle(.secondary), 2)
+        case .tool:
+            // Codex-style: one row per call, status icon, tap to see full arguments + output.
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    if line.output == nil && c.running { ProgressView().controlSize(.mini) }
+                    else { Image(systemName: line.failed ? "xmark.circle" : line.output == nil ? "terminal" : "checkmark.circle").foregroundStyle(line.failed ? Color.red : .secondary) }
+                    Text(line.text).lineLimit(open ? nil : 1)
+                    Spacer(minLength: 0)
+                    if line.output?.isEmpty == false { Image(systemName: "chevron.right").font(.caption2).rotationEffect(.degrees(open ? 90 : 0)) }
+                }
+                .font(.footnote.monospaced()).foregroundStyle(.secondary)
+                if open, let o = line.output, !o.isEmpty {
+                    Text(o).font(.caption.monospaced()).foregroundStyle(line.failed ? .red : .secondary).textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(8)
+                        .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
+            .onTapGesture { withAnimation { open.toggle() } }
+            .accessibilityAddTraits(.isButton)
         case .result: tap(Text(line.text).font(.caption.monospaced()).foregroundStyle(.secondary).padding(8)
             .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous)), 6)
         case .error: tap(Label(line.text, systemImage: "exclamationmark.triangle").font(.caption.monospaced()).foregroundStyle(.red), 6)
@@ -518,6 +571,36 @@ struct LineView: View {
 }
 
 /// Inline Markdown via AttributedString; fenced code blocks get a monospaced box with a Copy button.
+/// Sent-image thumbnail, fetched lazily from DSH; tap for full screen.
+struct Thumb: View {
+    @EnvironmentObject var c: Client
+    let id: String
+    @State private var img: UIImage?
+    @State private var failed = false
+    @State private var full = false
+    var body: some View {
+        Group {
+            if let img { Image(uiImage: img).resizable().scaledToFill() }
+            else if failed { Image(systemName: "photo").font(.title2).foregroundStyle(.secondary) }
+            else { ProgressView() }
+        }
+        .frame(width: 120, height: 160).background(Color(.secondarySystemFill))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .contentShape(Rectangle())
+        .onTapGesture { if img != nil { full = true } }
+        .accessibilityElement().accessibilityLabel("Image").accessibilityAddTraits(.isButton)
+        .task { img = await c.image(id); failed = img == nil }
+        .fullScreenCover(isPresented: $full) {
+            ZStack(alignment: .topTrailing) {
+                Color.black.ignoresSafeArea()
+                if let img { Image(uiImage: img).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity) }
+                Button { full = false } label: { Image(systemName: "xmark.circle.fill").font(.title).symbolRenderingMode(.palette).foregroundStyle(.white, .white.opacity(0.25)) }
+                    .padding().accessibilityLabel("Close")
+            }
+        }
+    }
+}
+
 struct Markdown: View {
     let text: String
     var body: some View {
@@ -807,6 +890,8 @@ struct AgentsView: View {
     @EnvironmentObject var c: Client
     @State private var objective = ""
     @State private var risky: Preset? // desktop confirms before full access / auto
+    @State private var messaging: Sess?
+    @State private var subText = ""
     var body: some View {
         NavigationStack {
             List {
@@ -858,6 +943,7 @@ struct AgentsView: View {
                                     ProgressView()
                                     Button { c.run { try await c.interrupt(k) } } label: { Image(systemName: "stop.circle") }.accessibilityLabel("Interrupt").buttonStyle(.borderless)
                                 }
+                                Button { subText = ""; messaging = k } label: { Image(systemName: "bubble.left") }.accessibilityLabel("Message subagent").buttonStyle(.borderless)
                             }
                         }
                     }
@@ -873,6 +959,11 @@ struct AgentsView: View {
                 }
             }
             .navigationTitle("Agents")
+            .alert(Text("Message \(messaging?.title ?? "")"), isPresented: Binding(get: { messaging != nil }, set: { if !$0 { messaging = nil } }), presenting: messaging) { k in
+                TextField("Message", text: $subText, axis: .vertical)
+                Button("Send") { let t = subText; c.run { try await c.promptSubagent(k, t) } }
+                Button("Cancel", role: .cancel) {}
+            } message: { k in Text(k.running ? "Steers its running turn." : "Queued as its next turn.") }
             .confirmationDialog(Text("Give the agent \(risky?.name ?? "")?"), isPresented: Binding(get: { risky != nil }, set: { if !$0 { risky = nil } }), titleVisibility: .visible, presenting: risky) { p in
                 Button("Allow", role: .destructive) { c.run { try await c.selectPermission(p.id) } }
             } message: { _ in Text("It can change files and run commands anywhere on your Mac without asking.") }
