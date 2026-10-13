@@ -136,9 +136,23 @@ func imageIds(_ c: Any?) -> [String] {
 }
 
 func usageText(_ u: J) -> String {
-    let n = { (k: String) in (u[k] as? Int).map { "\($0)" } }
-    return [("in", n("inputTokens")), ("out", n("outputTokens")), ("cache", n("cacheReadTokens")), ("reasoning", n("reasoningTokens")), ("total", n("totalTokens"))]
+    // status line is one lineLimit(1) row: compact counts, cache/reasoning dropped so model + ctx never truncate
+    let n = { (k: String) in (u[k] as? Int).map(compactCount) }
+    return [("in", n("inputTokens")), ("out", n("outputTokens")), ("total", n("totalTokens"))]
         .compactMap { k, v in v.map { "\(k) \($0)" } }.joined(separator: " · ")
+}
+
+/// Full per-field usage, one per line, for the tap-to-expand status detail (the one-line row drops cache/reasoning).
+func usageDetail(_ u: J) -> String {
+    [("Input", "inputTokens"), ("Output", "outputTokens"), ("Cache read", "cacheReadTokens"), ("Cache write", "cacheWriteTokens"), ("Reasoning", "reasoningTokens"), ("Total", "totalTokens")]
+        .compactMap { label, k in (u[k] as? Int).map { "\(label): \($0.formatted())" } }.joined(separator: "\n")
+}
+
+/// 950 → "950", 1_234 → "1.2k", 12_345 → "12k", 1_260_000 → "1.3M".
+func compactCount(_ n: Int) -> String {
+    if n < 1000 { return "\(n)" }
+    if n < 1_000_000 { return String(format: n < 10_000 ? "%.1fk" : "%.0fk", Double(n) / 1000).replacingOccurrences(of: ".0k", with: "k") }
+    return String(format: "%.1fM", Double(n) / 1_000_000).replacingOccurrences(of: ".0M", with: "M")
 }
 
 /// Context occupancy 0…1 from the newest usage sample, using desktop's pressure formula (input + cache read + cache write) / window.
@@ -221,10 +235,34 @@ func promptLine(before id: UUID, in t: [Line]) -> Line? {
     return t[..<i].last { $0.kind == .user }
 }
 
+/// Retry for a failed turn: only the transcript's last line, and only when it is an error, offers re-sending its prompt.
+func retryPrompt(for id: UUID, in t: [Line]) -> Line? {
+    guard let last = t.last, last.id == id, last.kind == .error else { return nil }
+    return promptLine(before: id, in: t)
+}
+
 /// True when no user prompt follows the line, i.e. it belongs to the turn in flight.
 func inCurrentTurn(_ id: UUID, in t: [Line]) -> Bool {
     guard let i = t.firstIndex(where: { $0.id == id }) else { return false }
     return !t[(i + 1)...].contains { $0.kind == .user }
+}
+
+/// Approval sheet: the pending tool call's summary and arguments, so the user sees what they allow (matched by callId).
+func approvalCall(_ req: J, in t: [Line]) -> Line? {
+    guard let cid = req["callId"] as? String else { return nil }
+    return t.last { $0.kind == .tool && $0.callId == cid }
+}
+
+/// Share conversation: user/assistant turns as Markdown; tool, reasoning and error rows are left out.
+func transcriptMarkdown(_ t: [Line], title: String) -> String {
+    let body = t.compactMap { l -> String? in
+        switch l.kind {
+        case .user: return "**You:** " + l.text
+        case .assistant: return l.text
+        default: return nil
+        }
+    }
+    return (["# " + title] + body).joined(separator: "\n\n")
 }
 
 /// Codex-style turn timer: "7s", "1m 05s", "1h 02m".
@@ -359,6 +397,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var streaming = ""
     @Published var reasoning = ""
     @Published var running = false
+    /// DSH's own turn/start time (event `time`, ms), so the turn timer is right even when the chat is opened mid-turn.
+    @Published var turnStartedAt: Date?
     /// What prompt() is doing right now ("Uploading x…" / "Sending…"), shown under the optimistic bubble.
     @Published var sendStatus: String?
     @Published var usage: J?
@@ -645,11 +685,23 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             else { notify(String(localized: "DSH has a question"), Question.parse(req).first?.question ?? "") }
         case "cancel": prompts.removeAll { $0.id == v["eventId"] as? String }
         case "emit":
-            if let e = v["event"] as? String, ["api-session/added", "api-session/removed", "api-session/status", "agent-preset/selected"].contains(e) {
+            if let e = v["event"] as? String, ["api-session/added", "api-session/removed", "api-session/status", "api-session/activity", "agent-preset/selected"].contains(e) {
                 Task { try? await loadSessions() }
             }
+            if v["event"] as? String == "api-session/error" { sessionError(v["args"] as? [Any] ?? []) }
             if v["event"] as? String == "goal/activation-changed" { Task { await loadGoal() } }
         default: break
+        }
+    }
+
+    /// DSH's live failures with no turn position (agent crash, provider/activation error): args = [sessionId, message].
+    func sessionError(_ args: [Any]) {
+        guard args.count >= 2, let sid = args[0] as? String, let m = args[1] as? String, !m.isEmpty else { return }
+        if sid == current {
+            if transcript.last?.kind != .error || transcript.last?.text != m { transcript.append(Line(kind: .error, text: m)) }
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+        } else {
+            notify(String(localized: "DSH error"), (sessions.first { $0.id == sid }?.title).map { "\($0): \(m)" } ?? m)
         }
     }
 
@@ -720,7 +772,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     /// History replay: rebuilds lines and live state but never re-fires per-turn side effects (notification, haptic, goal reload).
     func replaySnapshot(_ events: [J]) {
-        transcript = []; streaming = ""; reasoning = ""; inbox = [:]; liveTodos = nil
+        transcript = []; streaming = ""; reasoning = ""; inbox = [:]; liveTodos = nil; turnStartedAt = nil
         replaying = true; events.forEach(apply); replaying = false
         oldestSeq = events.first?["seq"] as? Int; throughSeq = events.last?["seq"] as? Int
     }
@@ -754,7 +806,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             if let cid = (m?["toolCallId"] ?? (m?["source"] as? J)?["callId"]) as? String, let i = transcript.lastIndex(where: { $0.callId == cid }) {
                 transcript[i].output = out; transcript[i].failed = bad
             } else { transcript.append(Line(kind: bad ? .error : .result, text: out)) }
-        case "turn/start": running = true
+        case "turn/start":
+            running = true
+            turnStartedAt = (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
         case "agent/inbox/spliced": applySplice(&inbox, d)
         case "todo/write": liveTodos = parseTodos(d["todos"]) ?? []
         case "turn/end":
@@ -764,6 +818,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
             running = false
+            turnStartedAt = nil
             if goal != nil, !replaying { Task { await loadGoal() } } // rounds / phase move per turn
         default: break
         }
@@ -786,12 +841,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// Old events build lines only; live state (running, model, usage, todos, inbox, goal) stays as the snapshot left it.
     func prependHistory(_ events: [J]) {
         guard !events.isEmpty else { return }
-        let keep = (transcript, running, model, usage, liveTodos, inbox, goal, contextWindow)
+        let keep = (transcript, running, model, usage, liveTodos, inbox, goal, contextWindow, turnStartedAt)
         replaying = true; transcript = []
         events.forEach(apply)
         replaying = false
         transcript += keep.0; running = keep.1; model = keep.2; usage = keep.3; liveTodos = keep.4; inbox = keep.5; goal = keep.6
-        contextWindow = keep.7
+        contextWindow = keep.7; turnStartedAt = keep.8
         oldestSeq = events.first?["seq"] as? Int ?? oldestSeq
     }
 

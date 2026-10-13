@@ -116,6 +116,26 @@ struct PairView: View {
     }
 }
 
+/// System camera for attaching a fresh photo to the prompt.
+struct CameraPicker: UIViewControllerRepresentable {
+    let onImage: (Data) -> Void
+    @Environment(\.dismiss) private var dismiss
+    func makeCoordinator() -> Delegate { Delegate(self) }
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let p = UIImagePickerController(); p.sourceType = .camera; p.delegate = context.coordinator; return p
+    }
+    func updateUIViewController(_ p: UIImagePickerController, context: Context) {}
+    final class Delegate: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraPicker
+        init(_ p: CameraPicker) { parent = p }
+        func imagePickerController(_ p: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let d = (info[.originalImage] as? UIImage)?.jpegData(compressionQuality: 0.9) { parent.onImage(d) }
+            parent.dismiss()
+        }
+        func imagePickerControllerDidCancel(_ p: UIImagePickerController) { parent.dismiss() }
+    }
+}
+
 struct QRScanner: UIViewControllerRepresentable {
     let onCode: (String) -> Void
     func makeCoordinator() -> Coord { Coord(onCode) }
@@ -162,6 +182,7 @@ struct ConversationView: View {
     @State private var files: [Attachment] = []
     @State private var importing = false
     @State private var showPhotos = false
+    @State private var shooting = false
     @State private var atBottom = true
     @State private var creating = false
     @State private var editing: J?
@@ -172,7 +193,8 @@ struct ConversationView: View {
     @State private var goalEditing = false
     @State private var goalText = ""
     @State private var loadingOlder = false
-    // shortcut: timer starts when this screen first sees the turn running, so opening mid-turn undercounts; send the turn's start time from the gateway if that matters.
+    @State private var showUsage = false
+    // fallback only: used when the turn/start event carried no time
     @State private var turnStart: Date?
     @FocusState private var focused: Bool
     var body: some View {
@@ -192,6 +214,9 @@ struct ConversationView: View {
                         Button { editGoal() } label: { Label(c.goal == nil ? String(localized: "Set goal…") : String(localized: "Edit goal…"), systemImage: "target") }
                         Button { c.run { try await c.fork(id) } } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
                         Button { c.run { try await c.togglePin(id) } } label: { Label(c.pinned.contains(id) ? String(localized: "Unpin") : String(localized: "Pin"), systemImage: "pin") }
+                        if c.transcript.contains(where: { $0.kind == .assistant }) {
+                            ShareLink(item: transcriptMarkdown(c.transcript, title: c.currentSess?.title ?? String(localized: "Conversation"))) { Label("Share conversation", systemImage: "square.and.arrow.up") }
+                        }
                         Button(role: .destructive) { let was = c.archived.contains(id); c.run { try await c.toggleArchive(id); if !was { c.path = [] } } } label: { Label(c.archived.contains(id) ? String(localized: "Unarchive") : String(localized: "Archive"), systemImage: "archivebox") }
                     }
                 }
@@ -250,7 +275,7 @@ struct ConversationView: View {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small); Text(s)
                                 // elapsed time tells a slow turn apart from a stuck one
-                                if c.running, let t = turnStart {
+                                if c.running, let t = c.turnStartedAt ?? turnStart {
                                     TimelineView(.periodic(from: t, by: 1)) { ctx in Text(elapsedText(Int(ctx.date.timeIntervalSince(t)))).monospacedDigit().foregroundStyle(.tertiary) }
                                 }
                             }.font(.footnote).foregroundStyle(.secondary)
@@ -311,6 +336,15 @@ struct ConversationView: View {
         let folder = c.currentSess.map { ($0.cwd as NSString).lastPathComponent }
         let parts = [folder, c.shownModel, ctx, c.usage.map(usageText)].compactMap { $0 }.filter { !$0.isEmpty }
         return Text(parts.joined(separator: " · ")).font(.caption2.monospacedDigit()).foregroundStyle(.tertiary).lineLimit(1).padding(.horizontal).padding(.bottom, 4)
+            .contentShape(Rectangle())
+            .onTapGesture { if c.usage != nil { showUsage = true } }
+            .accessibilityHint(c.usage != nil ? "Shows token details" : "")
+            .popover(isPresented: $showUsage) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text([folder, c.shownModel, ctx].compactMap { $0 }.joined(separator: " · ")).font(.footnote.weight(.semibold))
+                    Text(c.usage.map(usageDetail) ?? "").font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+                }.padding().presentationCompactAdaptation(.popover)
+            }
     }
 
     var suggestions: [Cmd] {
@@ -447,13 +481,22 @@ struct ConversationView: View {
             TextField("Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4)
             HStack(spacing: 10) {
                 Menu {
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                        Button { shooting = true } label: { Label("Camera", systemImage: "camera") }
+                    }
                     Button { showPhotos = true } label: { Label("Photos", systemImage: "photo") }
                     Button { importing = true } label: { Label("Files", systemImage: "doc") }
+                    if UIPasteboard.general.hasImages {
+                        Button { images += (UIPasteboard.general.images ?? []).prefix(4).compactMap { $0.jpegData(compressionQuality: 0.9).flatMap(jpeg) } } label: { Label("Paste image", systemImage: "doc.on.clipboard") }
+                    }
                 } label: {
                     Image(systemName: "plus").font(.body.weight(.medium)).frame(width: 32, height: 32).background(Color(.tertiarySystemFill), in: Circle())
                 }
                 .buttonStyle(.plain)
                 .accessibilityLabel("Attach")
+                .fullScreenCover(isPresented: $shooting) {
+                    CameraPicker { d in if let j = jpeg(d) { images.append(j) } }.ignoresSafeArea()
+                }
                 .photosPicker(isPresented: $showPhotos, selection: $picks, maxSelectionCount: 4, matching: .images)
                 .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { res in
                     c.run {
@@ -595,7 +638,14 @@ struct LineView: View {
             .accessibilityAddTraits(.isButton)
         case .result: tap(Text(line.text).font(.caption.monospaced()).foregroundStyle(.secondary).padding(8)
             .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous)), 6)
-        case .error: tap(Label(line.text, systemImage: "exclamationmark.triangle").font(.caption.monospaced()).foregroundStyle(.red), 6)
+        case .error:
+            VStack(alignment: .leading, spacing: 6) {
+                tap(Label(line.text, systemImage: "exclamationmark.triangle").font(.caption.monospaced()).foregroundStyle(.red), 6)
+                if !c.running, let p = retryPrompt(for: line.id, in: c.transcript) {
+                    Button { c.run { try await c.resend(p) } } label: { Label("Retry", systemImage: "arrow.clockwise").font(.footnote.weight(.medium)) }
+                        .buttonStyle(.bordered).controlSize(.small).tint(.secondary)
+                }
+            }
         }
     }
     /// Long tool output stays collapsed until tapped.
@@ -885,6 +935,7 @@ struct SessionsView: View {
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             Spacer()
+            if c.prompts.contains(where: { $0.agentId == s.id }) { Image(systemName: "hand.raised.fill").foregroundStyle(.orange).accessibilityLabel("Waiting for you") }
             if s.running { Circle().fill(.green).frame(width: 8, height: 8).accessibilityLabel("Running") }
             if s.id == c.current { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
         }
@@ -1092,11 +1143,22 @@ struct PromptSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                if let a = p.agentId { LabeledContent("Session", value: c.title(a)) }
+                if let a = p.agentId {
+                    LabeledContent("Session", value: c.title(a))
+                    // The command is only known from the session's transcript; load it so the user can see what they allow.
+                    if p.event == "approval/request", a != c.current { Button("Show the command") { c.open(a) } }
+                }
                 if p.event == "approval/request" {
                     Section("Tool") {
                         Text(p.request["toolName"] as? String ?? "?").font(.headline.monospaced())
                         if let r = ((p.request["displayReason"] as? J)?["en"] as? String) ?? p.request["reason"] as? String { Text(r) }
+                        if p.agentId == c.current, let call = approvalCall(p.request, in: c.transcript) {
+                            Text(call.text).font(.subheadline)
+                            if let a = call.args, !a.isEmpty {
+                                ScrollView { Text(a).font(.caption.monospaced()).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }
+                                    .frame(maxHeight: 180)
+                            }
+                        }
                     }
                     Section {
                         Button("Allow once") { send("allowed-once") }.bold()

@@ -158,8 +158,11 @@ final class CoreTests: XCTestCase {
         let s = Client()
         s.replaySnapshot([["type": "turn/start", "seq": 1, "data": J()], ["type": "turn/end", "seq": 2, "data": J()]])
         XCTAssertFalse(s.running)
-        s.replaySnapshot([["type": "turn/start", "seq": 7, "data": J()]])
+        s.replaySnapshot([["type": "turn/start", "seq": 7, "time": 1_700_000_000_000, "data": J()]])
         XCTAssertTrue(s.running)
+        XCTAssertEqual(s.turnStartedAt, Date(timeIntervalSince1970: 1_700_000_000)) // timer counts from DSH's start, not from opening the chat
+        s.apply(["type": "turn/end", "data": J()])
+        XCTAssertNil(s.turnStartedAt)
 
         let c = Client()
         c.transcript = [Line(kind: .user, text: "new")]; c.running = true; c.model = "deepseek-v4"
@@ -178,6 +181,11 @@ final class CoreTests: XCTestCase {
     }
 
     @MainActor func testReasoningSessionModelAndGroups() {
+        let md = transcriptMarkdown([Line(kind: .user, text: "hi"), Line(kind: .tool, text: "ls"), Line(kind: .assistant, text: "hello")], title: "T")
+        XCTAssertEqual(md, "# T\n\n**You:** hi\n\nhello")
+        let calls = [Line(kind: .tool, text: "old", callId: "c1"), Line(kind: .tool, text: "rm -rf build", callId: "c2", args: "{}")]
+        XCTAssertEqual(approvalCall(["callId": "c2"], in: calls)?.text, "rm -rf build")
+        XCTAssertNil(approvalCall(["toolName": "bash"], in: calls))
         XCTAssertTrue(modelMatches("deepseek-v4 · high", "deepseek-v4"))
         XCTAssertTrue(modelMatches("deepseek-v4 · high", "deepseek-v4", "high"))
         XCTAssertFalse(modelMatches("deepseek-v4 · high", "deepseek-v4", "low"))
@@ -203,12 +211,23 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(promptLine(before: a2.id, in: [u1, a1, u2, a2])?.text, "b")
         XCTAssertEqual(promptLine(before: a1.id, in: [u1, a1, u2, a2])?.text, "a")
         XCTAssertNil(promptLine(before: u1.id, in: [u1, a1]))
+        let err = Line(kind: .error, text: "rate limited")
+        XCTAssertEqual(retryPrompt(for: err.id, in: [u1, a1, u2, err])?.text, "b")
+        XCTAssertNil(retryPrompt(for: err.id, in: [u1, err, u2]), "an error followed by a newer prompt is stale")
+        XCTAssertNil(retryPrompt(for: a2.id, in: [u2, a2]), "only error rows offer retry")
         let t1 = Line(kind: .tool, text: "x"), t2 = Line(kind: .tool, text: "y")
         XCTAssertFalse(inCurrentTurn(t1.id, in: [u1, t1, u2, t2]))
         XCTAssertTrue(inCurrentTurn(t2.id, in: [u1, t1, u2, t2]))
         XCTAssertEqual(elapsedText(7), "7s")
         XCTAssertEqual(elapsedText(65), "1m 05s")
         XCTAssertEqual(elapsedText(3720), "1h 02m")
+        XCTAssertEqual(compactCount(950), "950")
+        XCTAssertEqual(compactCount(1_000), "1k")
+        XCTAssertEqual(compactCount(1_234), "1.2k")
+        XCTAssertEqual(compactCount(12_345), "12k")
+        XCTAssertEqual(compactCount(1_260_000), "1.3M")
+        XCTAssertEqual(usageText(["inputTokens": 12_345, "outputTokens": 800, "cacheReadTokens": 5]), "in 12k · out 800")
+        XCTAssertEqual(usageDetail(["inputTokens": 12, "cacheReadTokens": 5, "reasoningTokens": 3]), "Input: 12\nCache read: 5\nReasoning: 3")
         XCTAssertEqual(contextShare(["inputTokens": 5000], window: 1000), 1)
         XCTAssertNil(contextShare(["inputTokens": 5], window: nil))
         c.apply(["type": "request/context", "data": ["model": "m", "contextWindow": 2000]]); XCTAssertEqual(c.contextWindow, 2000)
@@ -243,6 +262,17 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.draft(nil), "")
         c.setDraft("", "draft-test")
         XCTAssertEqual(c.draft("draft-test"), "")
+    }
+
+    @MainActor func testSessionErrorShownOnceInOpenChat() {
+        let c = Client()
+        c.current = "s1"
+        c.sessionError(["s1", "provider down"])
+        c.sessionError(["s1", "provider down"])
+        c.sessionError(["s1"]) // malformed
+        XCTAssertEqual(c.transcript.filter { $0.kind == .error }.map(\.text), ["provider down"])
+        c.sessionError(["other", "x"]) // other session: notification only
+        XCTAssertEqual(c.transcript.count, 1)
     }
 
     func testGoal() {

@@ -221,7 +221,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Tether;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Scan the pairing QR code shown on your Mac.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan the pairing QR code and take photos to send to DeepSeek.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to DeepSeek Harness running on your Mac over the local network.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -264,7 +264,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Resources/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Tether;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Scan the pairing QR code shown on your Mac.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Scan the pairing QR code and take photos to send to DeepSeek.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to DeepSeek Harness running on your Mac over the local network.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
