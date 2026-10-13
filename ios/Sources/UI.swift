@@ -20,7 +20,7 @@ struct Root: View {
         Group {
             if c.pairing == nil { PairView() } else {
                 TabView(selection: $c.tab) {
-                    SessionsView().tabItem { Label("Sessions", systemImage: "bubble.left.and.bubble.right") }.tag(0)
+                    SessionsView().tabItem { Label("Sessions", systemImage: "bubble.left.and.bubble.right") }.badge(c.finished.count).tag(0)
                     AgentsView().tabItem { Label("Agents", systemImage: "person.2") }.tag(1)
                     SettingsView().tabItem { Label("Settings", systemImage: "gear") }.tag(2)
                 }
@@ -1026,6 +1026,7 @@ struct SessionsView: View {
             Spacer()
             if c.prompts.contains(where: { $0.agentId == s.id }) { Image(systemName: "hand.raised.fill").foregroundStyle(.orange).accessibilityLabel("Waiting for you") }
             if s.running { Circle().fill(.green).frame(width: 8, height: 8).accessibilityLabel("Running") }
+            else if c.finished.contains(s.id) { Circle().fill(Color.accentColor).frame(width: 8, height: 8).accessibilityLabel("Finished") }
             if s.id == c.current { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
         }
     }
@@ -1083,6 +1084,7 @@ struct NewSessionSheet: View {
 struct AgentsView: View {
     @EnvironmentObject var c: Client
     @State private var objective = ""
+    @State private var confirmClear = false
     @State private var risky: Preset? // desktop confirms before full access / auto
     @State private var messaging: Sess?
     @State private var subText = ""
@@ -1119,8 +1121,8 @@ struct AgentsView: View {
                             LabeledContent("Rounds", value: g.max > 0 ? "\(g.rounds)/\(g.max)" : "\(g.rounds)")
                             if let b = g.blocked { Text(b).font(.caption).foregroundStyle(.orange) }
                             HStack {
-                                Button("Pause") { act("pause") }; Button("Resume") { act("resume") }
-                                Button("Complete") { act("complete") }; Button("Clear", role: .destructive) { act("clear") }
+                                if g.paused { Button("Resume") { act("resume") } } else { Button("Pause") { act("pause") } }
+                                Button("Complete") { act("complete") }; Button("Clear", role: .destructive) { confirmClear = true }
                             }.buttonStyle(.bordered).font(.caption)
                         } else {
                             TextField("Objective", text: $objective, axis: .vertical)
@@ -1163,6 +1165,9 @@ struct AgentsView: View {
             .confirmationDialog(Text("Give the agent \(risky?.name ?? "")?"), isPresented: Binding(get: { risky != nil }, set: { if !$0 { risky = nil } }), titleVisibility: .visible, presenting: risky) { p in
                 Button("Allow", role: .destructive) { c.run { try await c.selectPermission(p.id) } }
             } message: { _ in Text("It can change files and run commands anywhere on your Mac without asking.") }
+            .confirmationDialog("Clear this goal?", isPresented: $confirmClear, titleVisibility: .visible) {
+                Button("Clear goal", role: .destructive) { act("clear") }
+            } message: { Text("The agent stops working toward it. This can't be undone.") }
             .toolbar { ToolbarItem(placement: .topBarLeading) { ConnBadge() } }
             .refreshable { await c.loadAgents() }
             .task(id: c.current) { await c.loadAgents() }
@@ -1185,8 +1190,8 @@ struct SettingsView: View {
                     LabeledContent("Status") { HStack { ConnBadge(); Text(LocalizedStringKey(c.state.rawValue)) } }
                     LabeledContent("DSH on Mac", value: c.upstream.isEmpty ? "—" : c.upstreamText ?? String(localized: "Running"))
                     if let p = c.pairing {
-                        LabeledContent("Local network", value: "\(p.host):\(p.port)")
-                        LabeledContent("Tailscale", value: p.ts.map { "\($0):\(p.port)" } ?? "—")
+                        LabeledContent("Local network", value: "\(p.host):\(p.port)").textSelection(.enabled)
+                        LabeledContent("Tailscale", value: p.ts.map { "\($0):\(p.port)" } ?? "—").textSelection(.enabled)
                         LabeledContent("Route", value: c.route == .lan ? String(localized: "Local network") : c.route == .tailscale ? "Tailscale" : "—")
                         if c.state != .connected, let f = c.lastFail { Text(f).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                         LabeledContent("Certificate", value: String(p.fp.prefix(16)) + "…").font(.caption.monospaced())
@@ -1206,7 +1211,13 @@ struct SettingsView: View {
                 if let p = c.pairing {
                     Section("This iPhone") {
                         LabeledContent("Name", value: p.name)
-                        LabeledContent("Token expires", value: (try? Date(p.expiresAt, strategy: .iso8601))?.formatted(date: .abbreviated, time: .shortened) ?? p.expiresAt)
+                        let exp = try? Date(p.expiresAt, strategy: .iso8601)
+                        LabeledContent("Token expires") {
+                            // Warn a week ahead so the user re-pairs at home instead of losing access while away.
+                            Text(exp?.formatted(date: .abbreviated, time: .shortened) ?? p.expiresAt)
+                                .foregroundStyle(exp.map { $0.timeIntervalSinceNow < 7 * 86400 } == true ? .orange : .secondary)
+                        }
+                        LabeledContent("App version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "?")
                         Button("Unpair", role: .destructive) { confirmUnpair = true }
                     }
                 }
@@ -1282,13 +1293,17 @@ struct PromptSheet: View {
         if s.contains(l) { s.remove(l) } else { if !q.multi { s = [] }; s.insert(l) }
         picked[q.id] = s; UISelectionFeedbackGenerator().selectionChanged()
     }
-    func send(_ v: String) { c.run { try await c.answer(p, v) } }
+    func send(_ v: String) {
+        UINotificationFeedbackGenerator().notificationOccurred(v == "rejected" ? .warning : .success)
+        c.run { try await c.answer(p, v) }
+    }
     func sendAnswers() {
         let a: [J] = Question.parse(p.request).map { q in
             var item: J = ["id": q.id, "selected": Array(picked[q.id, default: []])]
             if let t = custom[q.id]?.trimmingCharacters(in: .whitespaces), !t.isEmpty { item["custom"] = t }
             return item
         }
+        UINotificationFeedbackGenerator().notificationOccurred(.success)
         c.run { try await c.answer(p, ["answers": a]) }
     }
 }

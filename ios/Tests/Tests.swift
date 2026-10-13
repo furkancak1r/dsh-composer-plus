@@ -288,5 +288,15 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(zoomClamp(2), 2)
         XCTAssertEqual(zoomClamp(9), 5)
     }
+
+    @MainActor func testJustFinished() {
+        let s = { (id: String, run: Bool) in Sess(["sessionId": id, "running": run])! }
+        let old = [s("a", true), s("b", true), s("c", false), s("d", true)]
+        let new = [s("a", false), s("b", true), s("c", false), s("d", false)]
+        XCTAssertEqual(Client.justFinished(old: old, new: new, current: "d"), ["a"])
+        // A whole turn between refreshes: idle both times but updatedAt moved; a rename alone doesn't count.
+        let t = { (id: String, at: Int, title: String) in Sess(["sessionId": id, "updatedAt": at, "projections": ["values": ["title": title]]])! }
+        XCTAssertEqual(Client.justFinished(old: [t("e", 1, "x"), t("f", 1, "x"), t("g", 1, "x")], new: [t("e", 2, "x"), t("f", 2, "y"), t("g", 1, "x")], current: nil), ["e"])
+    }
 }
 

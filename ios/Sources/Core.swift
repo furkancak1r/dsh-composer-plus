@@ -392,6 +392,10 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var path: [String] = [] // Sessions navigation stack; non-empty = conversation on screen
     @Published var tab = 0 // 0 Sessions, 1 Agents, 2 Settings
     @Published var sessions: [Sess] = []
+    /// Sessions whose turn ended while you were elsewhere; cleared when opened (desktop's unread dot).
+    @Published var finished = Set(UserDefaults.standard.stringArray(forKey: "finished") ?? []) {
+        didSet { UserDefaults.standard.set(Array(finished), forKey: "finished") }
+    }
     @Published var current: String?
     @Published var transcript: [Line] = []
     @Published var streaming = ""
@@ -726,7 +730,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     // MARK: Conversation stream
 
     /// Show a session's conversation from any tab (e.g. a subagent row in Agents).
-    func open(_ sid: String) { follow(sid); path = [sid]; tab = 0 }
+    func open(_ sid: String) { finished.remove(sid); follow(sid); path = [sid]; tab = 0 }
 
     func follow(_ sid: String) {
         if sid == current, followId != nil { return } // re-opening the live session keeps its stream and transcript
@@ -855,8 +859,23 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     func loadSessions() async throws {
         // Remote session/list returns every visible session with no cursor (e2e asserts this).
         let v = try await rpc("session/list", ["_request": J()]) as? J
-        sessions = (v?["items"] as? [J] ?? []).compactMap(Sess.init)
+        let fresh = (v?["items"] as? [J] ?? []).compactMap(Sess.init)
+        // Drop dots for sessions that vanished (archived elsewhere) so the badge can't stick.
+        finished = finished.intersection(fresh.map(\.id)).union(Self.justFinished(old: sessions, new: fresh, current: current))
+        sessions = fresh
         if let s = currentSess, s.running != running, streaming.isEmpty { running = s.running }
+    }
+
+    /// Not the open chat, idle now, and either was running last list or got a newer updatedAt (a whole turn between two refreshes) without a rename.
+    /// shortcut: turns that finish while the app is closed are missed (no lastSeen persisted), store per-session updatedAt if that matters.
+    static func justFinished(old: [Sess], new: [Sess], current: String?) -> Set<String> {
+        let prev = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        return Set(new.filter { n in
+            guard !n.running, n.id != current, let o = prev[n.id] else { return false }
+            if o.running { return true }
+            guard let a = o.updated, let b = n.updated else { return false }
+            return b > a && o.title == n.title
+        }.map(\.id))
     }
 
     func create(cwd: String?, workspaceId: String? = nil) async throws {
@@ -931,7 +950,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             + receipts.map { ["type": "file", "receiptId": $0] }
     }
 
-    func stop() async throws { if let sid = current { _ = try await rpc("session/cancel", ["request": ["sessionId": sid]]) } }
+    func stop() async throws {
+        guard let sid = current else { return }
+        _ = try await rpc("session/cancel", ["request": ["sessionId": sid]])
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+    }
 
     /// Re-send a user line with its images (refetched from the host); fails instead of silently dropping one.
     func resend(_ line: Line) async throws {
