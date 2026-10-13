@@ -58,4 +58,10 @@ plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
   let stopped=0;tree.c[1].c[0].p.onKeyDown({key:'Escape',preventDefault(){},stopPropagation(){stopped++;}});assert.equal(q,'');assert.equal(stopped,1,'Esc clears without closing Settings');
   tree=render();tree.c[1].c[0].p.onKeyDown({key:'Escape',preventDefault(){throw Error('must not trap Esc when empty');},stopPropagation(){}});
 }
+// Changes tab chip title: its own seat, so it follows a language switch instead of dsh's title saved when the tab opened.
+{ const regs=[];const ctx={slots:{inject:(n,f)=>f(),register:(o,Comp)=>{regs.push([o,Comp]);return()=>{};}},configForms:{get:()=>({})},effect:()=>{},locale:{register:()=>()=>{},bind:()=>k=>k},
+    inject:(deps,setup)=>{if(deps.includes('sidebarRightTabs'))setup({effect:f=>f(),sidebarRight:{},sidebarRightTabs:{register:()=>()=>{}}});return{dispose(){}};}};
+  plugin.apply(ctx);const title=regs.find(([o])=>o.name==='sidebar.right.pane.tab.title');
+  assert.ok(title,'title seat registered');assert.equal(title[0].key,'dsh-composer-plus/changes');assert.equal(title[0].locale,'dsh-composer-plus');
+  assert.equal(title[1]({t:k=>({'changes.title':'Değişiklikler'})[k]}),'Değişiklikler'); }
 console.log('toggle checks passed');

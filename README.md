@@ -25,7 +25,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.2.0`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.2.1`.
 
 ## Features
 
@@ -58,7 +58,7 @@ Open **Settings → Composer Plus → Application language** and choose **System
 
 English · 中文 · Türkçe · Español · Português (Brasil) · Français · Deutsch · Русский · 日本語 · 한국어 · Bahasa Indonesia · Tiếng Việt · हिन्दी
 
-<p align="center"><img src="docs/images/language-tr.webp" width="420" alt="DeepSeek Harness interface switched to Türkçe"></p>
+<p align="center"><img src="docs/images/language-tr.webp" width="720" alt="DeepSeek Harness interface switched to Türkçe"></p>
 
 The whole app switches immediately. The choice is dsh’s own saved `locale.preference` (the same one as General → Language), so it survives restarts. **System language** clears that choice: the desktop app follows the OS language, the web UI the browser language, and an unsupported language falls back to English. Installing the plugin never overrides a language you already picked.
 
@@ -93,7 +93,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 - **No notifications on macOS:** System Settings → Notifications → DeepSeek Harness → allow. Choose **Alerts** to keep them on screen.
 - **▶, queue grips, project status, Allow for this chat or right-click missing after a dsh update:** these attach to dsh's current HTML because dsh has no slot for them yet. If dsh changes that markup they hide themselves; nothing else breaks. Please open an [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
 - **"Update failed" or "not installed from npm":** a copy linked from a local folder or renamed can't update itself; reinstall `dsh-composer-plus` from Settings → Plugins. Otherwise the message shows the first line of pnpm's error; **Check for updates** retries.
-- **Install fails right after a release:** add the version (`dsh-composer-plus@1.2.0`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.2.1`), see the install note above.
 
 ## Limits
 

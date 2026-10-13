@@ -251,14 +251,14 @@ try {
   const r = await updateRow.boundingBox();
   await shot('autoUpdate', { x: r.x - 24, y: 0, width: 1280 - (r.x - 24), height: r.y + r.height + 24 });
   // README language picture: the whole app in Türkçe (last step; later steps would need English labels).
-  // shortcut: an open Changes tab keeps its English title after a language switch (even after reload), so the right sidebar is cropped out; show it once that is fixed.
   await page.evaluate(() => document.getElementById('demo-banner')?.remove());
   await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); await page.waitForTimeout(400);
   await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByText('Composer Plus', { exact: true }).click();
   await page.locator('[data-composer-plus-language] button[aria-haspopup=menu]').click(); await page.getByText('Türkçe', { exact: true }).last().click();
   await page.getByText('Ayarlar', { exact: true }).first().waitFor(); await page.keyboard.press('Escape');
+  await page.getByText('Değişiklikler', { exact: true }).first().waitFor({ timeout: 5000 }); // open Changes tab title follows the language
   await page.waitForTimeout(800);
-  await shot('language-tr', { x: 0, y: 0, width: 704, height: 800 }, docs);
+  await shot('language-tr', whole, docs);
   assert.deepEqual(errors, []);
   console.log('done', home);
 } finally {

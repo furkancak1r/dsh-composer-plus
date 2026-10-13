@@ -901,6 +901,7 @@ window.__ModuleLoader__.load({
       }, rows.map((line, i) => React.createElement('div', { key: i, style: { padding: '0 12px', whiteSpace: 'pre', ...(LINE_COLORS[line[0]] ?? {}) } }, line === '' ? ' ' : line)),
       state.value.truncated ? React.createElement('div', { style: { padding: '4px 12px', opacity: 0.7 } }, t('changes.truncated')) : null);
     }
+    function ChangesTitle({ t }) { return t('changes.title'); }
     function ChangesTab({ sessionId, t, openLastTurn }) {
       const [mode, setMode] = React.useState('uncommitted');
       const [menuOpen, setMenuOpen] = React.useState(false);
@@ -1397,6 +1398,12 @@ window.__ModuleLoader__.load({
               openLastTurn: (sessionId, { seq, turn }) => scope.sidebarRight.openResource(`dsh-resource://changes-review/session/${encodeURIComponent(sessionId)}/${seq}/${turn}`),
             }),
           }, ChangesTab)), 'dsh-composer-plus: changes tab body');
+          // dsh stores a tab's title once, when it opens; this seat keeps the chip in the current UI language.
+          scope.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
+            name: 'sidebar.right.pane.tab.title',
+            key: CHANGES_ID,
+            locale: LOCALE_NS,
+          }, ChangesTitle)), 'dsh-composer-plus: changes tab title');
         }));
         feature('allowForChat', () => [ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
           name: 'conversation.session.header.utilities',
