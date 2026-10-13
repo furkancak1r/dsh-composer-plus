@@ -26,7 +26,7 @@ Mac tarayıcısı ──▶ http://127.0.0.1:19391/  (admin: QR, eşleme onayı,
    ```
    DSH'yi yeniden başlat. Gateway artık eklentinin içinde çalışır: DSH açılınca başlar, kapanınca durur; ayrıca bir şey çalıştırmaya gerek yok.
 2. (İsteğe bağlı) Gateway'i ayrı çalıştırmak için DSH'yi `DSH_MOBILE_STANDALONE=1` ile başlat ve `cd gateway && npm start`. `openssl` ilk çalıştırmada self-signed sertifika üretir. Ortam değişkenleri: `DSH_MOBILE_IFACE` (varsayılan `en0`), `DSH_MOBILE_PORT` (19390), `DSH_MOBILE_DIR` (`~/.dsh-mobile`).
-3. Mac'te `http://127.0.0.1:19391/` aç; QR görünür.
+3. Mac'te `http://127.0.0.1:19391/` aç ya da DSH'de sol alttaki **Mobile connect** butonuna bas; QR, cihazlar ve Tailscale durumu görünür.
 4. iOS: `ios/DSHMobile.xcodeproj` aç, gerçek cihaz için Signing Team seç, çalıştır. QR'ı tara (veya içeriğini yapıştır / Bonjour listesinden seç), Mac'teki admin sayfasında **Onayla**.
 5. Proje dosyası `ios/project.yml`'den üretilir: değişiklikten sonra `cd ios && xcodegen generate`.
 

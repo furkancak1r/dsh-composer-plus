@@ -26,6 +26,15 @@ func failText(_ e: Error) -> String {
 }
 
 /// RFC 1918 + link-local IPv4 only: a pairing QR can never point the app at the internet.
+/// What the banner tells the user when the Mac is unreachable. On Wi‑Fi with a tailnet address we still
+/// point at Tailscale: "same Wi‑Fi" is wrong advice on office/café Wi‑Fi.
+func lostHint(onWiFi: Bool, hasTailnet: Bool) -> String {
+    if !hasTailnet { return onWiFi ? String(localized: "Can't reach your Mac. Make sure it's awake and on the same Wi‑Fi.")
+                                   : String(localized: "Install Tailscale on this iPhone and the Mac to connect away from home.") }
+    return onWiFi ? String(localized: "Can't reach your Mac. On the same Wi‑Fi, check it's awake; elsewhere, open Tailscale on both.")
+                  : String(localized: "Open Tailscale on this iPhone (and the Mac).")
+}
+
 func isLANv4(_ h: String) -> Bool {
     let o = h.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) ?? -1 }
     guard o.count == 4, o.allSatisfy({ (0...255).contains($0) }), h.allSatisfy({ $0.isASCII && ($0.isNumber || $0 == ".") }) else { return false }
@@ -252,7 +261,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private var urlSession: URLSession?, sessionFp = ""
     private var ws: URLSessionWebSocketTask?
     private var followId: String?
-    private var attempt = 0
+    private var attempt = 0, probing = false
     private var browser: NWBrowser?
     private var pathMon: NWPathMonitor?
 
@@ -369,16 +378,26 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     func setAddress(_ host: String, _ port: Int?) {
         guard isLANv4(host) || isTailnet(host), let port, (1...65535).contains(port) else { error = String(localized: "Enter a private LAN or Tailscale address and port."); return }
-        if isLANv4(host) { pairing?.host = host } else { pairing?.ts = host }
-        pairing?.port = port; reconnect()
+        let lan = isLANv4(host)
+        if lan { pairing?.host = host } else { pairing?.ts = host }
+        pairing?.port = port; lastFail = nil
+        reconnect(via: lan ? .lan : .tailscale) // try the address the user just typed first, no LAN probe
     }
 
     // MARK: Mux socket
 
     func connect() {
         guard let p = pairing, ws == nil else { return }
-        // route was picked by the last /me (drop → refreshMe → connect); before any call, guess from the network
-        let host = (route ?? (onWiFi ? .lan : .tailscale)) == .tailscale ? (p.ts ?? p.host) : p.host
+        // Unknown route + a fallback exists: probe /me first (5 s per address) instead of guessing. Guessing LAN on a
+        // foreign Wi‑Fi (office) left the socket stuck on "connecting" for the full timeout.
+        if route == nil, p.ts != nil {
+            guard !probing else { return }
+            probing = true
+            state = attempt == 0 ? .connecting : .reconnecting
+            Task { await self.refreshMe(); self.probing = false; if self.route == nil { self.route = self.onWiFi ? .lan : .tailscale }; self.connect() }
+            return
+        }
+        let host = (route ?? .lan) == .tailscale ? (p.ts ?? p.host) : p.host
         var r = URLRequest(url: URL(string: "wss://\(host):\(p.port)/api/remote.mux")!)
         r.setValue("Bearer \(p.token)", forHTTPHeaderField: "Authorization")
         let t = http(p.fp).webSocketTask(with: r)
@@ -390,7 +409,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let s = current { openFollow(s) }
     }
 
-    func reconnect() { ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil; attempt = 0; route = nil; connect() }
+    func reconnect(via r: Route? = nil) { ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil; attempt = 0; route = r; connect() }
 
     /// On foreground: a socket iOS silently killed in the background is detected by a failed ping.
     func wake() {

@@ -50,7 +50,8 @@ const rpc = async (method, args = {}) => {
 }
 const short = v => String(JSON.stringify(v) ?? 'none').slice(0, 100)
 let sid
-await check('session/list', async () => (await rpc('session/list', { _request: {} })).items.length + ' sessions')
+// the phone reads only the first page; flag the day DSH starts paging this list
+await check('session/list', async () => { const l = await rpc('session/list', { _request: {} }); assert.ok(!l.cursor && !l.nextCursor, 'session/list now pages: follow the cursor in Client.loadSessions'); return l.items.length + ' sessions' })
 await check('session/create', async () => { sid = (await rpc('session/create', { request: { cwd: '/tmp' } })).sessionId; assert.ok(sid); return sid })
 await check('session/rename', async () => { await rpc('session/rename', { request: { sessionId: sid, title: 'E2E mobile' } }) })
 await check('rename visible in list', async () => { const s = (await rpc('session/list', { _request: {} })).items.find(s => s.sessionId === sid); assert.ok(JSON.stringify(s).includes('E2E mobile')) })
@@ -70,6 +71,27 @@ await check('WSS session/follow', async () => {
 })
 
 // Real model turn: this is what caught REQUEST_EXTENSION (plugin package.json without a version).
+// Older history: snapshot is a window (hasMore); session/page with beforeSeq = first snapshot seq returns earlier events.
+await check('session/page older history', async () => {
+  const items = (await rpc('session/list', { _request: {} })).items
+  const ws = await wsConnect('wss://' + inv.host + ':' + inv.port + '/api/remote.mux', { authorization: 'Bearer ' + token }, { rejectUnauthorized: false })
+  let snap; ws.onText = t => { const f = JSON.parse(t); if (f.value?.type === 'snapshot') snap ??= f.value }
+  let most = 0
+  for (const s of items) {
+    snap = undefined
+    ws.send(JSON.stringify({ type: 'open', streamId: 'p' + s.sessionId, endpoint: 'session/follow', payload: { args: { request: { address: { kind: 'session', sessionId: s.sessionId } } } } }))
+    for (let i = 0; i < 50 && !snap; i++) await sleep(100)
+    most = Math.max(most, snap?.records.length ?? 0)
+    if (snap?.hasMore) break
+  }
+  ws.close()
+  if (!snap?.hasMore) return 'no truncated snapshot in ' + items.length + ' sessions (max ' + most + ' records)'
+  const first = snap.records[0].event.seq, last = snap.records.at(-1).event.seq
+  const page = await rpc('session/page', { request: { address: { kind: 'session', sessionId: snap.header?.sessionId }, throughSeq: last, beforeSeq: first, maxMessages: 40 } })
+  assert.ok(page.records.length > 0 && page.records.at(-1).event.seq < first, short(page))
+  return page.records.length + ' older records, hasMore=' + page.hasMore + ', header: ' + short(snap.header)
+})
+
 await check('prompt gets an assistant reply', async () => {
   const ws = await wsConnect('wss://' + inv.host + ':' + inv.port + '/api/remote.mux', { authorization: 'Bearer ' + token }, { rejectUnauthorized: false })
   let end
@@ -83,6 +105,8 @@ await check('prompt gets an assistant reply', async () => {
 })
 
 await check('revoke kills token', async () => {
+  // keep the user's DSH session list clean: archive what session/create made (archived, not deleted)
+  if (sid) await rpc('workspace/archiveSession', { request: { sessionId: sid, stopActivity: true } }).catch(() => {})
   await admin('/revoke', { id: dev.deviceId })
   assert.equal((await call('GET', '/me', undefined, token)).status, 401)
 })

@@ -27,6 +27,8 @@ struct Root: View {
                 .sheet(item: Binding(get: { c.prompts.first }, set: { _ in })) { PromptSheet(p: $0).interactiveDismissDisabled() }
             }
         }
+        // every Form/List/ScrollView: dragging the content closes the keyboard
+        .scrollDismissesKeyboard(.interactively)
         // non-blocking: errors are mostly transient (link drops, busy session), so a toast beats a modal that stalls the screen
         .overlay(alignment: .top) {
             if let e = c.error {
@@ -58,9 +60,7 @@ struct ConnBanner: View {
     @EnvironmentObject var c: Client
     var body: some View {
         // first connect stays quiet (badge shows it); only a lost link earns a banner
-        let lost = !c.onWiFi ? (c.pairing?.ts != nil ? String(localized: "Open Tailscale on this iPhone (and the Mac).")
-                                                       : String(localized: "Install Tailscale on this iPhone and the Mac to connect away from home."))
-                             : String(localized: "Can't reach your Mac. Make sure it's awake and on the same Wi‑Fi.")
+        let lost = lostHint(onWiFi: c.onWiFi, hasTailnet: c.pairing?.ts != nil)
         let msg = c.upstreamText ?? (c.state == .connected || c.state == .connecting ? nil : lost)
         if let msg {
             HStack(spacing: 10) {
@@ -190,6 +190,8 @@ struct ConversationView: View {
                             .onAppear { atBottom = true }.onDisappear { atBottom = false }
                     }.padding(.horizontal, 16).padding(.vertical, 12)
                 }
+                // tapping the transcript closes the keyboard; simultaneous so links/selection keep working
+                .simultaneousGesture(TapGesture().onEnded { focused = false })
                 .defaultScrollAnchor(.bottom)
                 .overlay { if c.transcript.isEmpty && !c.running { emptyState } }
                 .overlay(alignment: .bottomTrailing) {
@@ -304,10 +306,14 @@ struct ConversationView: View {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines), imgs = images
         text = ""; images = []
         let name = t.hasPrefix("/") ? String(t.dropFirst().prefix { !$0.isWhitespace }) : ""
-        if imgs.isEmpty, c.commands.contains(where: { $0.name == name }) { c.run { try await c.execute(t) }; return }
+        // a failed send (link down, Mac asleep) puts the draft back instead of losing it
+        let restore = { if text.isEmpty && images.isEmpty { text = t; images = imgs } }
+        if imgs.isEmpty, c.commands.contains(where: { $0.name == name }) {
+            c.run { do { try await c.execute(t) } catch { restore(); throw error } }; return
+        }
         atBottom = true
         let steer = c.running
-        c.run { try await c.prompt(t, images: imgs, steer: steer) }
+        c.run { do { try await c.prompt(t, images: imgs, steer: steer) } catch { restore(); throw error } }
     }
 
     /// Downscale to 1600 px and JPEG-encode so a photo stays well under the gateway's 16 MB body cap.
@@ -618,8 +624,8 @@ struct SettingsView: View {
                     LabeledContent("Status") { HStack { ConnBadge(); Text(LocalizedStringKey(c.state.rawValue)) } }
                     LabeledContent("DSH on Mac", value: c.upstream.isEmpty ? "—" : c.upstreamText ?? String(localized: "Running"))
                     if let p = c.pairing {
-                        LabeledContent("Address", value: "\(p.host):\(p.port)")
-                        if let ts = p.ts { LabeledContent("Tailscale", value: ts) }
+                        LabeledContent("Local network", value: "\(p.host):\(p.port)")
+                        LabeledContent("Tailscale", value: p.ts.map { "\($0):\(p.port)" } ?? "—")
                         LabeledContent("Route", value: c.route == .lan ? String(localized: "Local network") : c.route == .tailscale ? "Tailscale" : "—")
                         if c.state != .connected, let f = c.lastFail { Text(f).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                         LabeledContent("Certificate", value: String(p.fp.prefix(16)) + "…").font(.caption.monospaced())
@@ -629,7 +635,12 @@ struct SettingsView: View {
                 Section {
                     TextField("IP or Tailscale address", text: $host).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
                     TextField("Port", text: $port).keyboardType(.numberPad)
-                    Button("Use this address") { c.setAddress(host, Int(port)) }.disabled(host.isEmpty)
+                    Button("Use this address") {
+                        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        // accept "100.x.y.z:19390" pasted into the address field too
+                        let parts = host.trimmingCharacters(in: .whitespaces).lowercased().split(separator: ":", maxSplits: 1).map(String.init)
+                        c.setAddress(parts.first ?? "", Int(parts.count > 1 ? parts[1] : port))
+                    }.disabled(host.isEmpty)
                 } header: { Text("Manual address") } footer: { Text("Only needed if the Mac's IP changed and Bonjour cannot find it. A LAN address or the Mac's Tailscale address (100.x or *.ts.net). The pinned certificate is still required.") }
                 if let p = c.pairing {
                     Section("This iPhone") {
@@ -640,6 +651,8 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            // number pad has no return key, so give it a Done button
+            .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) } } }
             .onAppear { if let p = c.pairing { host = p.host; port = "\(p.port)" } }
             .confirmationDialog("Unpair this iPhone?", isPresented: $confirmUnpair, titleVisibility: .visible) {
                 Button("Unpair", role: .destructive) { c.forget() }

@@ -19,7 +19,10 @@
   ol { padding-left: 1.2rem; margin: .4rem 0; } li { margin: .3rem 0; }
   .alert { border-color: #ff9f0a; background: #ff9f0a22; }
   details summary { cursor: pointer; }
+  /* ?embed=1: shown inside DSH's "Mobile connect" popover */
+  .embed body { max-width: none; margin: 0; padding: 0 12px 12px; background: transparent; } .embed h1 { display: none; }
 </style>
+<script>if (/[?&]embed\b/.test(location.search)) document.documentElement.classList.add('embed')</script>
 <h1>Tether</h1>
 <p class="muted" id="summary">Loading…</p>
 <p class="muted" id="remote"></p>

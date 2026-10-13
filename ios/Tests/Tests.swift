@@ -23,6 +23,10 @@ final class CoreTests: XCTestCase {
     }
 
     func testLANOnly() {
+        // office Wi‑Fi with a tailnet address must not say "same Wi‑Fi" only
+        XCTAssertTrue(lostHint(onWiFi: true, hasTailnet: true).contains("Tailscale"))
+        XCTAssertTrue(lostHint(onWiFi: false, hasTailnet: false).contains("Install Tailscale"))
+        XCTAssertFalse(lostHint(onWiFi: true, hasTailnet: false).contains("Tailscale"))
         for ok in ["10.0.0.1", "172.16.4.2", "172.31.255.255", "192.168.1.44", "169.254.10.3"] { XCTAssertTrue(isLANv4(ok), ok) }
         for bad in ["8.8.8.8", "172.32.0.1", "192.169.0.1", "127.0.0.1", "0.0.0.0", "10.0.0", "10.0.0.256", "evil.com", "10.0.0.1.nip.io", "::1", " 10.0.0.1", "１0.0.0.1"] {
             XCTAssertFalse(isLANv4(bad), bad)
