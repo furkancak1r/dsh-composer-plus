@@ -118,3 +118,12 @@ Live install (2026-10-13): installed after DSH_IDLE with backup; live client/ind
 - Bug found by E2E and fixed before release: Client remotes answer `{ ok, value }`; reading `application` directly treated a failed pnpm run as success.
 - Checks: test/update.test.mjs (version compare, npm gate, no downgrade, unmanaged copy, transport/pnpm failure, remembered install, switch off); real dsh 0.2.0-rc.2 web, isolated profile with 1.1.0 from a tarball: auto-installed 1.1.1 from npm in ~14 s, package.json updated, bundle stays enabled, notification sent.
 - Plugins page identity: dsh's `readPluginMeta` shows the raw package name unless the package exports `package.json` (with `icon`) and `locale/<id>.json` files with `meta.title/description`. Added `assets/icon.svg`, 13 `locale/*.json` meta files and the two exports. Checks: test/meta.test.mjs; real dsh web (tr-TR): row shows "Composer Plus", Turkish description and the icon.
+
+## Feature screenshots in Settings (2026-10-13)
+Objective: every feature row in Settings → Composer Plus has a small screenshot thumbnail; hover enlarges it, click opens it full size.
+Invariants: screenshots come from an isolated throwaway dsh (fake model, synthetic demo projects such as `acme-web`, `weather-cli`); no personal names, paths, chats or accounts. Images ship inside the package (no network). Reuse dsh primitives (`HoverCard`, `ImageLightbox`); no new dependency. English UI in images (one set for all languages).
+Phases:
+1. Capture script `scripts/capture-screenshots.mjs` (Playwright + dsh bin + fake model) → `assets/features/<id>.webp` (cwebp, ≤ ~60 kB each). Check: files exist, sizes, visual review of each.
+2. Host route `GET /api/composer-plus.shot?id=<feature>` serving only whitelisted files (no path input). Client `FeatureShot` thumbnail with HoverCard preview and ImageLightbox. Check: unit test (whitelist, 404, content-type), toggles test, real-dsh browser test (thumb visible, hover preview, click dialog, Esc closes, Settings stays open).
+3. README feature table gets the same images. Check: links resolve in repo.
+Risks: HoverCard/ImageLightbox props may change across dsh versions → fall back to a plain image link when absent.

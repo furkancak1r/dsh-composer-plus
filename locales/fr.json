@@ -1526,7 +1526,11 @@
     "update.install": "Mettre à jour",
     "update.notes": "Notes de version",
     "settings.search": "Rechercher des fonctionnalités",
-    "settings.searchEmpty": "Aucune fonctionnalité correspondante."
+    "settings.searchEmpty": "Aucune fonctionnalité correspondante.",
+    "shot.alt": "Capture d’écran : {feature}",
+    "shot.open": "Survolez pour un aperçu, cliquez pour agrandir",
+    "shot.openFeature": "Voir la capture : {feature}",
+    "shot.close": "Fermer"
   },
   "common": {
     "ok": "OK",

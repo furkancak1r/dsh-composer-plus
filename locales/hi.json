@@ -1526,7 +1526,11 @@
     "update.install": "अभी अपडेट करें",
     "update.notes": "रिलीज़ नोट्स",
     "settings.search": "सुविधाएं खोजें",
-    "settings.searchEmpty": "कोई मिलती-जुलती सुविधा नहीं।"
+    "settings.searchEmpty": "कोई मिलती-जुलती सुविधा नहीं।",
+    "shot.alt": "स्क्रीनशॉट: {feature}",
+    "shot.open": "पूर्वावलोकन के लिए होवर करें, बड़ा करने के लिए क्लिक करें",
+    "shot.openFeature": "स्क्रीनशॉट दिखाएं: {feature}",
+    "shot.close": "बंद करें"
   },
   "common": {
     "ok": "ठीक है",

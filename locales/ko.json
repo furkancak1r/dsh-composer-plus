@@ -1526,7 +1526,11 @@
     "update.install": "지금 업데이트",
     "update.notes": "릴리스 노트",
     "settings.search": "기능 검색",
-    "settings.searchEmpty": "일치하는 기능이 없습니다."
+    "settings.searchEmpty": "일치하는 기능이 없습니다.",
+    "shot.alt": "스크린샷: {feature}",
+    "shot.open": "마우스를 올려 미리 보고 클릭해 확대",
+    "shot.openFeature": "스크린샷 보기: {feature}",
+    "shot.close": "닫기"
   },
   "common": {
     "ok": "확인",

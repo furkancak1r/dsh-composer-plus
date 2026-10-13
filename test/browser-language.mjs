@@ -50,18 +50,18 @@ try {
         await page.locator('[data-composer-plus-language]').waitFor();
       };
       const choose = async (page, label) => {
-        await page.locator('[data-composer-plus-language] button').click();
+        await page.locator('[data-composer-plus-language] button[aria-haspopup=menu]').click();
         await page.getByRole('menuitem', { name: label, exact: true }).click();
       };
       const tr = await open('tr-TR'); await languageIs(tr, 'tr'); await settings(tr);
       assert.ok((await tr.locator('[data-composer-plus-settings]').innerText()).includes('Uygulama dili'));
       assert.ok(await tr.getByText('Genel', { exact: true }).isVisible(), 'native General tab translated');
       assert.ok(await tr.getByText('Modeller', { exact: true }).isVisible(), 'native Models tab translated');
-      assert.ok((await tr.locator('[data-composer-plus-language] button').innerText()).includes('Sistem dili'));
+      assert.ok((await tr.locator('[data-composer-plus-language] button[aria-haspopup=menu]').innerText()).includes('Sistem dili'));
       await choose(tr, 'English'); await languageIs(tr, 'en');
       assert.ok((await tr.locator('[data-composer-plus-settings]').innerText()).includes('Application language'));
       await tr.reload(); await languageIs(tr, 'en'); await settings(tr);
-      assert.ok((await tr.locator('[data-composer-plus-language] button').innerText()).includes('English'));
+      assert.ok((await tr.locator('[data-composer-plus-language] button[aria-haspopup=menu]').innerText()).includes('English'));
       const other = await open('zh-CN'); await languageIs(other, 'en'); await other.close();
       await choose(tr, 'System language'); await languageIs(tr, 'tr');
       await tr.reload(); await languageIs(tr, 'tr');
@@ -73,7 +73,7 @@ try {
       await choose(native, '中文'); await languageIs(native, 'zh-CN');
       await choose(native, 'Türkçe'); await languageIs(native, 'tr');
       assert.ok((await native.locator('[data-composer-plus-settings]').innerText()).includes('Tek tıkla devam'));
-      const box = await native.locator('[data-composer-plus-language] button').boundingBox();
+      const box = await native.locator('[data-composer-plus-language] button[aria-haspopup=menu]').boundingBox();
       assert.ok(box.height <= 32, `language selector stays compact (${box.height}px)`);
       await native.screenshot({ path: join(home, 'turkish-settings.png') });
       assert.deepEqual(errors, [], 'no browser exceptions');

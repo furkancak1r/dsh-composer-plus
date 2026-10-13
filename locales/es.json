@@ -1526,7 +1526,11 @@
     "update.install": "Actualizar ahora",
     "update.notes": "Notas de la versión",
     "settings.search": "Buscar funciones",
-    "settings.searchEmpty": "No hay funciones que coincidan."
+    "settings.searchEmpty": "No hay funciones que coincidan.",
+    "shot.alt": "Captura: {feature}",
+    "shot.open": "Pasa el cursor para ver, haz clic para ampliar",
+    "shot.openFeature": "Ver captura: {feature}",
+    "shot.close": "Cerrar"
   },
   "common": {
     "ok": "Aceptar",

@@ -47,10 +47,11 @@
     "cordis.patch.yml",
     "README.md",
     "LICENSE",
-    "locales/LICENSE"
+    "locales/LICENSE",
+    "assets/features/*.webp"
   ],
   "scripts": {
-    "test": "node scripts/build-locales.mjs --check && node test/locale.test.mjs && node test/continue.test.mjs && node test/continue-host.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs && node test/changes.test.mjs && node test/project-status.test.mjs && node test/toggles.test.mjs && node test/update.test.mjs && node test/meta.test.mjs",
+    "test": "node scripts/build-locales.mjs --check && node test/locale.test.mjs && node test/continue.test.mjs && node test/continue-host.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs && node test/changes.test.mjs && node test/project-status.test.mjs && node test/toggles.test.mjs && node test/update.test.mjs && node test/meta.test.mjs && node test/shots.test.mjs",
     "build:locales": "node scripts/build-locales.mjs",
     "prepublishOnly": "npm test"
   },

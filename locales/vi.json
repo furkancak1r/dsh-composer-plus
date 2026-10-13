@@ -1526,7 +1526,11 @@
     "update.install": "Cập nhật ngay",
     "update.notes": "Ghi chú phát hành",
     "settings.search": "Tìm tính năng",
-    "settings.searchEmpty": "Không có tính năng phù hợp."
+    "settings.searchEmpty": "Không có tính năng phù hợp.",
+    "shot.alt": "Ảnh chụp màn hình: {feature}",
+    "shot.open": "Di chuột để xem trước, nhấp để phóng to",
+    "shot.openFeature": "Xem ảnh chụp: {feature}",
+    "shot.close": "Đóng"
   },
   "common": {
     "ok": "OK",

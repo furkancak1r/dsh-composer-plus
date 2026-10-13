@@ -20,6 +20,10 @@ export const DIFF_PATH = '/api/composer-plus.diff';
 export const GRANTS_PATH = '/api/composer-plus.grants';
 export const CONTINUE_PATH = '/api/composer-plus.continue';
 export const UPDATE_PATH = '/api/composer-plus.update';
+export const SHOT_PATH = '/api/composer-plus.shot';
+/** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
+export const SHOTS = ['changesPanel', 'projectStatus', 'notifications', 'allowForChat', 'continueButton', 'inputHistory', 'planToggle',
+  'queueReorder', 'copyDeeplink', 'language', 'autoUpdate'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -269,6 +273,17 @@ export function apply(ctx) {
         const diff = cwd === undefined ? undefined : await fileDiff(ctx.subprocess, cwd, p.mode, p.path, request.signal);
         return diff === undefined ? json({ error: 'not found' }, 404) : json(diff);
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+    },
+  });
+  ctx.connection.fetch.register({
+    path: SHOT_PATH, methods: ['GET'], requestBody: 'buffered',
+    fetch: async (request) => {
+      const id = new URL(request.url).searchParams.get('id');
+      if (!SHOTS.includes(id)) return json({ error: 'not found' }, 404);
+      try {
+        const bytes = await readFile(new URL(`./assets/features/${id}.webp`, import.meta.url));
+        return new Response(bytes, { headers: { 'content-type': 'image/webp', 'cache-control': 'private, max-age=86400' } });
+      } catch { return json({ error: 'not found' }, 404); }
     },
   });
   ctx.connection.fetch.register({

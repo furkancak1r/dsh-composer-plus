@@ -1526,7 +1526,11 @@
     "update.install": "Обновить сейчас",
     "update.notes": "Примечания к выпуску",
     "settings.search": "Поиск функций",
-    "settings.searchEmpty": "Нет подходящих функций."
+    "settings.searchEmpty": "Нет подходящих функций.",
+    "shot.alt": "Снимок экрана: {feature}",
+    "shot.open": "Наведите для просмотра, нажмите для увеличения",
+    "shot.openFeature": "Показать снимок: {feature}",
+    "shot.close": "Закрыть"
   },
   "common": {
     "ok": "OK",

@@ -1526,7 +1526,11 @@
     "update.install": "Perbarui sekarang",
     "update.notes": "Catatan rilis",
     "settings.search": "Cari fitur",
-    "settings.searchEmpty": "Tidak ada fitur yang cocok."
+    "settings.searchEmpty": "Tidak ada fitur yang cocok.",
+    "shot.alt": "Tangkapan layar: {feature}",
+    "shot.open": "Arahkan untuk pratinjau, klik untuk memperbesar",
+    "shot.openFeature": "Tampilkan tangkapan layar: {feature}",
+    "shot.close": "Tutup"
   },
   "common": {
     "ok": "OK",

@@ -71,7 +71,7 @@ for (const id of ids) {
   }
 }
 assert.equal(app.writes.length, 0, 'loading a language pack never overwrites a preference');
-const menu = () => app.render().children[0].children[1];
+const menu = () => app.render().children[0].children[2]; // shot, text, menu
 assert.deepEqual(menu().props.items.map((x) => x.id), ['system', 'en', 'zh', ...ids]);
 assert.equal(menu().props.selectedId, 'system');
 assert.equal(menu().props.anchor.type, 'button', 'native Menu renders its anchor prop, not its children');

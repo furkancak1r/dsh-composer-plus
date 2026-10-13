@@ -1526,7 +1526,11 @@
     "update.install": "今すぐアップデート",
     "update.notes": "リリースノート",
     "settings.search": "機能を検索",
-    "settings.searchEmpty": "一致する機能はありません。"
+    "settings.searchEmpty": "一致する機能はありません。",
+    "shot.alt": "スクリーンショット: {feature}",
+    "shot.open": "ホバーでプレビュー、クリックで拡大",
+    "shot.openFeature": "スクリーンショットを表示: {feature}",
+    "shot.close": "閉じる"
   },
   "common": {
     "ok": "OK",

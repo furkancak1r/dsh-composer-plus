@@ -1526,7 +1526,11 @@
     "update.install": "Atualizar agora",
     "update.notes": "Notas da versão",
     "settings.search": "Pesquisar recursos",
-    "settings.searchEmpty": "Nenhum recurso corresponde."
+    "settings.searchEmpty": "Nenhum recurso corresponde.",
+    "shot.alt": "Captura de tela: {feature}",
+    "shot.open": "Passe o mouse para ver, clique para ampliar",
+    "shot.openFeature": "Ver captura de tela: {feature}",
+    "shot.close": "Fechar"
   },
   "common": {
     "ok": "OK",

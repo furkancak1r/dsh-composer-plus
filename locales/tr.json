@@ -2956,7 +2956,11 @@
     "update.install": "Şimdi güncelle",
     "update.notes": "Sürüm notları",
     "settings.search": "Özellik ara",
-    "settings.searchEmpty": "Eşleşen özellik yok."
+    "settings.searchEmpty": "Eşleşen özellik yok.",
+    "shot.alt": "Ekran görüntüsü: {feature}",
+    "shot.open": "Önizlemek için üzerine gelin, büyütmek için tıklayın",
+    "shot.openFeature": "Ekran görüntüsünü göster: {feature}",
+    "shot.close": "Kapat"
   },
   "directory-browser": {
     "browser.title": "Çalışma alanı klasörünü seçin",

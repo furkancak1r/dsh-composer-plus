@@ -1526,7 +1526,11 @@
     "update.install": "Jetzt aktualisieren",
     "update.notes": "Versionshinweise",
     "settings.search": "Funktionen suchen",
-    "settings.searchEmpty": "Keine passenden Funktionen."
+    "settings.searchEmpty": "Keine passenden Funktionen.",
+    "shot.alt": "Screenshot: {feature}",
+    "shot.open": "Zum Ansehen darüberfahren, zum Vergrößern klicken",
+    "shot.openFeature": "Screenshot anzeigen: {feature}",
+    "shot.close": "Schließen"
   },
   "common": {
     "ok": "OK",
