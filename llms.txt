@@ -1,0 +1,30 @@
+# dsh-composer-plus
+
+> Composer Plus: a community plugin for DeepSeek Harness (dsh), DeepSeek's open-source agent harness. One install adds Codex-style quality-of-life features to the dsh desktop app and web UI. npm package: `dsh-composer-plus`. MIT license. Unofficial.
+
+Install in the dsh desktop app: Settings → Plugins → Add plugin → `dsh-composer-plus` → Enable now. Install in a web/CLI profile: `dsh plugin --profile web add dsh-composer-plus`, then restart dsh. Requires dsh >= 0.2.0-rc.2 and Node.js >= 22.
+
+Features (each one can be switched off in Settings → Composer Plus):
+
+- Changes panel: right sidebar page with uncommitted / unstaged / staged / branch git changes and per-file diffs; read-only git.
+- Input history: ↑ / ↓ in an empty composer recalls messages you sent.
+- Plan mode shortcut: Shift+Tab adds or removes `/plan ` at the start of the draft, or leaves plan mode.
+- One-click Continue: after a stopped, failed or cut-off turn the Send button becomes ▶ and resumes without a visible chat message.
+- Queue drag-and-drop: reorder queued messages by dragging the ⠿ grip or with ↑ / ↓.
+- Copy deeplink: right-click a chat to copy a `dsh-session:` link that attaches it to another chat as read-only context.
+- Auto Review "Allow for this chat": allow one exact tool for the rest of one chat; revocable; saved across restarts.
+- Project status and active projects first: sidebar project rows show running / waiting / done, and active projects move to the top.
+- Background notifications: OS notification and Dock badge when a chat finishes or really waits for an approval, a question or a plan review; click opens the chat.
+- 11 extra UI languages for the whole dsh interface: Türkçe, Español, Português (Brasil), Français, Deutsch, Русский, 日本語, 한국어, Bahasa Indonesia, Tiếng Việt, हिन्दी.
+- Automatic updates: at dsh start, installs the newest GitHub release (once it is on npm) through dsh's own plugin manager and notifies; restart dsh to load it.
+
+## Docs
+
+- [README](https://github.com/furkancak1r/dsh-composer-plus/blob/main/README.md): install, features, settings, shortcuts, privacy, troubleshooting, limits, FAQ
+- [Releases](https://github.com/furkancak1r/dsh-composer-plus/releases): changelog per version
+- [npm package](https://www.npmjs.com/package/dsh-composer-plus)
+
+## Optional
+
+- [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness): the host application
+- [Plugin announcement](https://github.com/deepseek-ai/deepseek-harness/discussions/9277): discussion in the dsh "Show your plugins" category
