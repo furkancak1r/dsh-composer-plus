@@ -19,12 +19,12 @@ window.__ModuleLoader__.load({
 .dshm-badge{width:calc(100% + 4px);height:42px;color:var(--dsw-alias-label-primary);cursor:pointer;background:0 0;border:none;border-radius:12px;align-items:center;gap:8px;margin:0 -2px;padding:0 10px 0 8px;font-family:inherit;font-size:14px;display:inline-flex;overflow:hidden}
 .dshm-badge:hover,.dshm-badge[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover)}
 .dshm-rail .dshm-badge{border-radius:50%;justify-content:center;gap:0;width:36px;height:36px;padding:0}
-.dshm-panel{isolation:isolate;z-index:30;width:440px;max-width:calc(100vw - 24px);height:min(640px,80vh);box-shadow:var(--dsw-elevation-prominent);border-radius:12px;flex-direction:column;display:flex;position:fixed;overflow:hidden}
+.dshm-panel{isolation:isolate;z-index:30;width:400px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);box-shadow:var(--dsw-elevation-prominent);border-radius:12px;flex-direction:column;display:flex;position:fixed;overflow:hidden}
 .dshm-panel:before{z-index:-1;border-radius:inherit;background:var(--dsw-specific-menu);backdrop-filter:var(--dsw-menu-backdrop-filter);content:"";pointer-events:none;position:absolute;inset:0}
-.dshm-head{min-height:44px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.dshm-head{min-height:36px;padding:8px 12px 4px;display:flex;justify-content:space-between;align-items:center;gap:8px}
 .dshm-title{font-size:14px;font-weight:500}
 .dshm-head a{font-size:12px;color:var(--dsw-alias-label-tertiary)}
-.dshm-frame{flex:1;min-height:0;width:100%;border:0;background:transparent}
+.dshm-frame{flex:none;width:100%;border:0;background:transparent}
 .dshm-down{padding:0 12px 12px;font-size:13px;color:var(--dsw-alias-state-warn-label)}`
     if (typeof document !== 'undefined' && !document.querySelector('style[data-plugin-css="dsh-mobile-bridge"]')) {
       const tag = document.createElement('style'); tag.dataset.pluginCss = 'dsh-mobile-bridge'; tag.textContent = css; document.head.appendChild(tag)
@@ -37,7 +37,15 @@ window.__ModuleLoader__.load({
       const [open, setOpen] = React.useState(false)
       const [down, setDown] = React.useState(false)
       const [anchor, setAnchor] = React.useState()
-      const rootRef = React.useRef(null)
+      const [frameH, setFrameH] = React.useState(300)
+      const rootRef = React.useRef(null), frameRef = React.useRef(null)
+      // The admin page posts its content height; size the iframe to it so the popover never scrolls.
+      React.useEffect(() => {
+        if (!open) return
+        const on = e => { if (e.source === frameRef.current?.contentWindow && e.data?.type === 'dshm-height') setFrameH(Math.min(Number(e.data.h) || 300, 2000)) }
+        window.addEventListener('message', on)
+        return () => window.removeEventListener('message', on)
+      }, [open])
       React.useLayoutEffect(() => {
         if (!open) return
         const place = () => { const r = rootRef.current?.getBoundingClientRect(); if (r) setAnchor({ left: r.left, bottom: window.innerHeight - r.top + 8 }) }
@@ -57,7 +65,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'dshm-head' }, h('span', { className: 'dshm-title' }, t('title')),
             h('a', { href: ADMIN, target: '_blank', rel: 'noopener' }, t('open'))),
           down ? h('p', { className: 'dshm-down' }, t('down'))
-            : h('iframe', { className: 'dshm-frame', src: ADMIN + '?embed=1', title: t('title') })),
+            : h('iframe', { ref: frameRef, className: 'dshm-frame', src: ADMIN + '?embed=1', title: t('title'), style: { height: frameH } })),
         h('button', { type: 'button', className: 'dshm-badge', 'aria-label': t('label'), 'aria-expanded': open, onClick: () => setOpen(v => !v) },
           h(Phone, { size: wide ? 16 : 18 }), wide && h('span', null, t('label'))))
     }

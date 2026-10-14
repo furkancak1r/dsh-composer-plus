@@ -20,7 +20,13 @@
   .alert { border-color: #ff9f0a; background: #ff9f0a22; }
   details summary { cursor: pointer; }
   /* ?embed=1: shown inside DSH's "Mobile connect" popover */
-  .embed body { max-width: none; margin: 0; padding: 0 12px 12px; background: transparent; } .embed h1 { display: none; }
+  .embed body { max-width: none; margin: 0; padding: 0 12px 12px; background: transparent; font-size: 13px; overflow: hidden; }
+  .embed h1, .embed ol, .embed #gw, .embed #remote:empty { display: none; }
+  .embed p { margin: 0 0 4px; } .embed h2 { font-size: 13px; margin: 10px 0 4px; }
+  .embed .card { padding: 10px; margin: 8px 0; border-radius: 12px; }
+  .embed #pair-card { flex-wrap: nowrap; gap: 12px; } .embed #qr { width: 132px; height: 132px; padding: 6px; }
+  .embed td, .embed th { padding: .3rem .4rem; } .embed button { padding: .25rem .65rem; }
+  .embed-only { display: none; } .embed .embed-only { display: block; }
 </style>
 <script>if (/[?&]embed\b/.test(location.search)) document.documentElement.classList.add('embed')</script>
 <h1>Tether</h1>
@@ -34,6 +40,7 @@
   <img id="qr" alt="Pairing QR code" hidden>
   <div>
     <strong>Pair an iPhone</strong>
+    <p class="muted embed-only">Scan in Tether, then Approve here.</p>
     <ol>
       <li>Open Tether on the iPhone (same Wi-Fi as this Mac, or Tailscale on both).</li>
       <li>Tap <em>Scan QR code</em> and point it at this code.</li>
@@ -46,7 +53,7 @@
 </section>
 <h2>Paired devices</h2>
 <table id="devices"></table>
-<details><summary class="muted">Gateway details</summary>
+<details id="gw"><summary class="muted">Gateway details</summary>
   <p><button id="start">Start</button><button id="stop">Stop</button></p>
   <table id="status"></table>
 </details>
@@ -56,9 +63,11 @@ const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';'
 const post = (path, body) => fetch(path, { method: 'POST', headers: { 'x-dsh-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) })
   .then(r => r.json()).then(s => s.error ? alert(s.error) : render(s))
 let lastPayload, expiresAt, asking = false
+const embed = document.documentElement.classList.contains('embed')
 function render(s) {
   const t = s.tailscale ?? {}
-  $('remote').innerHTML = 'Remote access: ' + (!t.installed ? 'install <a href="https://tailscale.com/download" target="_blank" rel="noopener">Tailscale</a> on this Mac and the iPhone (same account) to connect away from home.'
+  $('remote').innerHTML = embed ? (t.online && t.ip ? '<span class="dot ok"></span>Tailscale <code>' + esc(t.ip) + '</code>' : t.installed ? '<span class="dot warn"></span>Tailscale off' : '')
+    : 'Remote access: ' + (!t.installed ? 'install <a href="https://tailscale.com/download" target="_blank" rel="noopener">Tailscale</a> on this Mac and the iPhone (same account) to connect away from home.'
     : !t.online || !t.ip ? '<span class="dot warn"></span>Tailscale is off. Turn it on to reach this Mac away from home.'
     : '<span class="dot ok"></span>Phones connect remotely via <code>' + esc(t.ip + ':' + s.port) + '</code>' + (t.name ? ' (' + esc(t.name) + ')' : ''))
   $('status').innerHTML = [['Gateway', s.running ? 'running' : 'stopped'], ['IP', s.address ?? 'no Wi-Fi address'], ['Port', s.port],
@@ -67,7 +76,7 @@ function render(s) {
   const dsh = s.upstream === 'connected'
   $('summary').innerHTML = !s.running ? '<span class="dot bad"></span>Gateway stopped' + (s.address ? '' : ' (no Wi-Fi address)')
     : '<span class="dot ' + (dsh ? 'ok' : 'warn') + '"></span>' + (dsh ? 'Ready' : 'DSH not reachable: ' + esc(s.upstream)) +
-      ' · phones connect to <code>' + esc(s.address + ':' + s.port) + '</code>'
+      (embed ? ' · Wi-Fi <code>' : ' · phones connect to <code>') + esc(s.address + ':' + s.port) + '</code>'
   // Keep a fresh code on screen while this page is open; codes are one-time and still need Approve.
   if (!s.code && s.running && !asking && document.visibilityState === 'visible') { asking = true; post('/pair').finally(() => { asking = false }) }
   expiresAt = s.code && Date.parse(s.code.expiresAt)
@@ -81,12 +90,20 @@ function render(s) {
   $('pending').innerHTML = s.pending.map(p => '<tr><td>' + esc(p.name) + '</td><td class="muted">' + esc(p.ip) + '</td><td>' +
     '<button class="primary" data-a="approve" data-id="' + esc(p.id) + '">Approve</button><button data-a="deny" data-id="' + esc(p.id) + '">Deny</button></td></tr>').join('')
   $('devices').innerHTML = s.devices.map(d => '<tr><td><span class="dot ' + (d.connections ? 'ok' : 'bad') + '"></span>' + esc(d.name) + '</td><td class="muted">' +
-    (d.connections ? 'online' : 'offline') + ' · expires ' + esc(new Date(d.expiresAt).toLocaleDateString()) +
+    (d.connections ? 'online' : 'offline') + (embed ? '' : ' · expires ' + esc(new Date(d.expiresAt).toLocaleDateString())) +
     '</td><td><button data-a="revoke" data-id="' + esc(d.id) + '">Revoke</button></td></tr>').join('') || '<tr><td class="muted">No iPhone paired yet</td></tr>'
 }
 function tick() {
   const left = expiresAt ? Math.max(0, Math.round((expiresAt - Date.now()) / 1000)) : 0
-  $('exp').textContent = left ? 'One-time code, valid for ' + Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0') : 'Preparing a code…'
+  const mmss = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0')
+  $('exp').textContent = left ? (embed ? 'Code valid ' : 'One-time code, valid for ') + mmss : 'Preparing a code…'
+}
+// Embedded in DSH: report our height so the popover fits the content and never scrolls.
+if (embed && parent !== window) {
+  let last = 0
+  // body's own box, not scrollHeight: scrollHeight never drops below the iframe's current height
+  const report = () => { const h = Math.ceil(document.body.getBoundingClientRect().height); if (h !== last) { last = h; parent.postMessage({ type: 'dshm-height', h }, '*') } }
+  new ResizeObserver(report).observe(document.body); addEventListener('load', report)
 }
 setInterval(tick, 1000)
 document.addEventListener('click', e => {

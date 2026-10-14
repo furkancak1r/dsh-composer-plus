@@ -1048,7 +1048,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         return (v?["items"] as? [J] ?? []).compactMap { i in (i["sessionId"] as? String).map { Hit(session: $0, snippet: i["snippet"] as? String ?? "") } }
     }
 
-    /// mode "steer" injects into a running turn (desktop's send-while-running); "queue" starts/queues a turn.
+    /// mode "queue" starts a turn or waits behind the running one (desktop's default busy-Enter, shown in its QueueDock);
+    /// "steer" injects into the running turn. Composer sends always queue; the queue dock's "Send now" steers.
     func prompt(_ text: String, images: [Data], files: [Attachment] = [], steer: Bool = false) async throws {
         guard let sid = current else { return }
         defer { sendStatus = nil }
@@ -1085,7 +1086,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             guard let d = await image(id)?.jpegData(compressionQuality: 0.8) else { throw Fail(String(localized: "Couldn't load an attached image")) }
             imgs.append(d)
         }
-        try await prompt(line.text, images: imgs, steer: running)
+        try await prompt(line.text, images: imgs)
     }
 
     /// NSCache evicts under memory pressure, so long chats with many images can't grow memory unbounded.

@@ -512,8 +512,8 @@ struct ConversationView: View {
                     if let preview { ImageViewer(img: preview) { self.preview = nil } }
                 }
             }
-            // while a turn runs, typing steers it (send() passes steer: c.running), so say so
-            TextField(c.running ? "Steer the running turn…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4)
+            // while a turn runs, sending queues the next turn like desktop's default busy-Enter; the queue dock's "Send now" steers
+            TextField(c.running ? "Queue a message…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4)
             HStack(spacing: 10) {
                 Menu {
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -542,7 +542,7 @@ struct ConversationView: View {
                 PermMenu()
                 PresetMenu()
                 Spacer(minLength: 0)
-                if c.running && canSend { roundButton("arrow.up", action: send).accessibilityLabel("Send now") }
+                if c.running && canSend { roundButton("arrow.up", action: send).accessibilityLabel("Queue") }
                 if c.running { roundButton("stop.fill") { c.run { try await c.stop() } }.accessibilityLabel("Stop") }
                 else { roundButton("arrow.up", action: send).disabled(!canSend).accessibilityLabel("Send") }
             }
@@ -577,8 +577,7 @@ struct ConversationView: View {
             c.run { do { try await c.execute(t) } catch { restore(); throw error } }; return
         }
         atBottom = true
-        let steer = c.running
-        c.run { do { try await c.prompt(t, images: imgs, files: fs, steer: steer) } catch { restore(); throw error } }
+        c.run { do { try await c.prompt(t, images: imgs, files: fs) } catch { restore(); throw error } }
     }
 
     /// Downscale to 1600 px and JPEG-encode so a photo stays well under the gateway's 16 MB body cap.
