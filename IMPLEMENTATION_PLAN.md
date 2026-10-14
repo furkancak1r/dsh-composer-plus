@@ -152,4 +152,4 @@ Last checkpoint (2026-10-14): `npm test` passes (17 files, 14 shots). test/brows
 ## 1.3.0 release (2026-10-14)
 - Shipped: GitHub main 3d5aa9e (CI green), release v1.3.0 (Latest). Semgrep: 0 findings.
 - Live desktop copy installed: client, host, manifest and 14 shots; the module id stays `@local/dsh-composer-history`. Backup: `~/Documents/testdeepseekharness/backup-before-v130-20261014-135030`. dsh was not restarted; a desktop reload loads the new code.
-- npm 1.3.0: the account requires a one-time password (EOTP). The user publishes it with `npm publish /tmp/dsh-composer-plus-1.3.0.tgz --access public`. Until npm serves 1.3.0, Automatic updates do not offer it (the npm gate).
+- npm 1.3.0: published with npm's browser sign-in (`--auth-type=web`, the user approved it in the browser); `latest` = 1.3.0, shasum 61248ec (same tarball as tested). The first attempt failed with E404 because npm's sign-in request expired after 5 minutes without an approval. The update check of a 1.2.1 copy now reports 1.3.0 as newer.
