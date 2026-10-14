@@ -160,4 +160,9 @@ Root cause (1): staleProjects() kept a project that was added in the last 2 hour
 Decisions (2): CSS `order` on the flat list's row wrappers (`[role="tree"][class*="_flatList"] > :has(> [data-row-key="session:<id>"])`), dsh's data and saved order are untouched. The item goes after dsh's "Last updated"; dsh's Manual/Last updated rows are marked, their check is hidden while By status is on, and a click on them turns By status off. Pinned and archived chats keep dsh's place. Automation = an active task in `remote.schedule.catalog()`, refreshed on `schedule/changed`; Schedule is optional (`ctx.inject(['remote.schedule'])`). Errors: dsh's list has no error flag; per the user's choice, a failed turn counts through dsh's done dot.
 Decisions (3): `autoUpdate` gets the autoUpdate shot; test/shots.test.mjs fails when a FEATURES id has no SHOT_OF entry or shipped image (checked by removing one: it fails); test/browser-settings-shots.mjs checks the real page; AGENTS.md lists the rules.
 Checks: `npm test` (18 files, 15 shots). Real dsh 0.2.0-rc.2 and 0.2.1-alpha.2: test/browser-status-order.mjs (fake model, schedule_create, finished → running → automated → plain, reload, Last updated restores), test/browser-sidebar-projects.mjs, test/browser-settings-shots.mjs (15 rows, all images load).
-Last checkpoint: all checks above pass. Not committed, released or installed live yet.
+Last checkpoint: all checks above pass.
+
+## 1.4.0 release (2026-10-14)
+- Shipped: GitHub main 387dcb4 (rebased on the remote release.yml commit 48b2f94; CI green), release v1.4.0 (Latest). Semgrep: 0 findings.
+- release.yml (npm trusted publishing) was skipped: the repository variable NPM_TRUSTED_PUBLISHING is not "on" yet. npm 1.4.0 was published with the browser sign-in instead (`--auth-type=web`); `latest` = 1.4.0, shasum 94a93f5 (the tested tarball). A 1.3.0 copy now sees 1.4.0 as newer.
+- Live desktop copy installed (client, host, manifest, 15 shots; module id `@local/dsh-composer-history`). Backup: `~/Documents/testdeepseekharness/backup-before-v140-20261014-163127`. dsh not restarted; a desktop reload loads it.
