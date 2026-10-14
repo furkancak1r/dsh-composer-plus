@@ -84,16 +84,16 @@ assert.equal(item.t, 'MenuItemButton'); assert.equal(item.p.icon.t, 'Clock'); as
 // Select: stale projects hide, the choice is stored, the state is announced.
 item.p.onSelect(); out = settle();
 assert.equal(mem.get('dsh-composer-plus.recentProjects'), '1');
-assert.deepEqual(hiddenKeys(out), ['', 'archived', 'blank', 'old', 'prefix', 'subagent'],
-  'kept: recent chat, running, waiting, open chat, just added, parent folder of a recent project');
+assert.deepEqual(hiddenKeys(out), ['', 'added', 'archived', 'blank', 'old', 'parent', 'prefix', 'subagent'],
+  'kept only with an active chat (recent, running, waiting, open); a new or parent project without chats is hidden');
 assert.match(style(out), /^\[style\*="--dsh-workspace-indent"\]:has\(> \[data-row-key="workspace:old"\], > \* > \[data-row-key="workspace:old"\]\)/m);
 assert.match(style(out), /\{ display: none !important; \}$/);
 assert.ok(text(optionOf(out)).endsWith('recentProjects.selected'), 'selected state for screen readers');
 assert.equal(optionOf(out).c[0].c[1].c[0].t, 'Check', 'visible check mark');
 
-// Time passes: chats from 1 and 1.5 hours ago become older than 2 hours; the parent folder follows its child.
+// Time passes: chats from 1 and 1.5 hours ago become older than 2 hours.
 now += 1.2 * H; tick(); out = settle();
-assert.deepEqual(hiddenKeys(out), ['', 'archived', 'blank', 'child', 'old', 'parent', 'prefix', 'recent', 'subagent']);
+assert.deepEqual(hiddenKeys(out), ['', 'added', 'archived', 'blank', 'child', 'old', 'parent', 'prefix', 'recent', 'subagent']);
 
 // Unmount (feature switched off or page closed) and mount again: cleanup, then the stored choice applies.
 for (const c of cleanups) c?.(); cleanups = []; prevDeps = [];

@@ -5,6 +5,13 @@ const files = readdirSync(new URL('../assets/features/', import.meta.url)).filte
 assert.deepEqual([...SHOTS].sort(), files, 'every listed shot ships, every shipped shot is listed');
 for (const f of files) { const b = readFileSync(new URL(`../assets/features/${f}.webp`, import.meta.url)); assert.equal(b.subarray(8, 12).toString(), 'WEBP', f); assert.ok(b.length < 80 * 1024, `${f} stays small`); }
 assert.ok(JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).files.includes('assets/features/*.webp'), 'published with the package');
+// Rule: every Settings feature row has a screenshot, and every row's image ships. Add the image with the feature.
+{ const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
+  const list = (name) => [...src.match(new RegExp(`const ${name} = (\\[[^\\]]*\\]|\\{[^}]*\\})`))[1].matchAll(/(\w+)(?=['":])|'(\w+)'/g)];
+  const features = [...src.match(/const FEATURES = \[([^\]]*)\]/)[1].matchAll(/'(\w+)'/g)].map((m) => m[1]);
+  const shotOf = Object.fromEntries([...src.match(/const SHOT_OF = \{([^}]*)\}/)[1].matchAll(/(\w+): '(\w+)'/g)].map((m) => [m[1], m[2]]));
+  for (const id of features) { assert.ok(shotOf[id], `feature "${id}" has a Settings screenshot (SHOT_OF)`); assert.ok(SHOTS.includes(shotOf[id]) && files.includes(shotOf[id]), `${shotOf[id]}.webp ships and is served`); }
+  void list; }
 const routes = new Map();
 apply({ on() {}, connection: { fetch: { register: (r) => routes.set(r.path, r) } }, sessionController: {}, sessionQuery: {}, subprocess: {} });
 const get = (q) => routes.get(SHOT_PATH).fetch(new Request(`http://h${SHOT_PATH}?${q}`));
