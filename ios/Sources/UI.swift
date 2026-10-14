@@ -925,7 +925,7 @@ struct PermMenu: View {
             }
             if c.perms.isEmpty { Text("Loading…") }
         } label: {
-            Image(systemName: cur == "danger-full-access" ? "exclamationmark.shield" : cur == "read-only" ? "lock.shield" : "shield")
+            Image(systemName: cur == "danger-full-access" ? "exclamationmark.shield" : cur == "auto" ? "checkmark.shield" : cur == "read-only" ? "lock.shield" : "shield")
                 .font(.footnote.weight(.medium)).foregroundStyle(cur == "danger-full-access" ? Color.orange : Color.secondary)
                 .frame(width: 32, height: 32).background(Color(.tertiarySystemFill), in: Circle())
         }
@@ -933,7 +933,7 @@ struct PermMenu: View {
         .accessibilityValue(Text(c.perms.first { $0.id == cur }?.name ?? ""))
         .confirmationDialog(Text("Give the agent \(risky?.name ?? "")?"), isPresented: Binding(get: { risky != nil }, set: { if !$0 { risky = nil } }), titleVisibility: .visible, presenting: risky) { p in
             Button("Allow", role: .destructive) { c.run { try await c.selectPermission(p.id) } }
-        } message: { _ in Text("It can change files and run commands anywhere on your Mac without asking.") }
+        } message: { p in Text(p.id == "auto" ? "Actions run after an automatic safety review instead of asking you. Experimental." : "It can change files and run commands anywhere on your Mac without asking.") }
         .onAppear { if c.perms.isEmpty { Task { await c.loadAgents() } } }
     }
 }
@@ -968,9 +968,12 @@ struct SessionsView: View {
     @State private var query = ""
     @State private var hits: [Hit] = []
     @State private var searching = false
-    @State private var showArchived = false
+    @AppStorage("foldToggles") private var folds = ""
+    // @AppStorage writes land outside the withAnimation transaction, so List rows snapped instead of sliding; animate a @State mirror
+    @State private var shownFolds = ""
     @State private var creating = false
     @State private var renaming: Sess?
+    @AppStorage("sessionProject") private var project = ""
     @State private var newTitle = ""
     var body: some View {
         NavigationStack(path: $c.path) {
@@ -979,25 +982,35 @@ struct SessionsView: View {
                 Section { ConnBanner().listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
                 if query.isEmpty {
                     // offset id: two DSH workspaces may share a title
-                    ForEach(Array(c.sessionGroups().enumerated()), id: \.offset) { _, g in
-                        // archived sessions stay folded like the desktop sidebar; current one shows anyway
-                        let isArchive = g.title == String(localized: "Archived")
-                        let folded = isArchive && !showArchived
+                    ForEach(Array(c.sessionGroups(project: project.isEmpty ? nil : project).enumerated()), id: \.offset) { _, g in
+                        // accordion like the desktop sidebar; Archived starts folded; a folded group still shows the open session
+                        let folded = groupFolded(shownFolds, g.title)
                         Section {
+                            // List's own row insert animation; a custom .move transition made rows pop in on expand
                             ForEach(folded ? g.items.filter { $0.id == c.current } : g.items) { s in sessionRow(s) }
                         } header: {
-                            if isArchive {
-                                Button { withAnimation { showArchived.toggle() } } label: {
-                                    HStack { Text("\(g.title) (\(g.items.count))"); Spacer(); Image(systemName: showArchived ? "chevron.down" : "chevron.right") }
+                            Button {
+                                withAnimation(.snappy(duration: 0.3)) { shownFolds = toggledFold(shownFolds, g.title) }
+                                folds = shownFolds
+                            } label: {
+                                HStack {
+                                    Label("\(g.title) (\(g.items.count))", systemImage: groupIcon(g.title))
+                                    Spacer()
+                                    Image(systemName: "chevron.right").rotationEffect(.degrees(folded ? 0 : 90))
                                 }
-                                .accessibilityHint(showArchived ? "Hides archived sessions" : "Shows archived sessions")
-                            } else { Text(g.title) }
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .accessibilityValue(folded ? "Collapsed" : "Expanded")
+                            .accessibilityHint(folded ? "Shows this group's sessions" : "Hides this group's sessions")
                         }
                     }
                 } else {
-                    let titles = c.titleMatches(query)
+                    let titles = c.titleMatches(query, project: project.isEmpty ? nil : project)
                     let ids = Set(titles.map(\.id))
-                    let content = hits.filter { !ids.contains($0.session) }
+                    let only = c.workspaces.first { $0.id == project }
+                    let content = hits.filter { !ids.contains($0.session) && (only?.sessions.contains($0.session) ?? true) }
                     if !titles.isEmpty { Section("Titles") { ForEach(titles) { s in sessionRow(s) } } }
                     Section {
                         ForEach(content) { h in
@@ -1018,6 +1031,7 @@ struct SessionsView: View {
                 }
             } }
             .searchable(text: $query, prompt: "Search sessions")
+            .onChange(of: folds, initial: true) { _, v in if v != shownFolds { shownFolds = v } }
             .task(id: query) {
                 hits = []
                 let q = query.trimmingCharacters(in: .whitespaces)
@@ -1034,6 +1048,19 @@ struct SessionsView: View {
             .navigationDestination(for: String.self) { _ in ConversationView() }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnBadge() }
+                if !c.workspaces.isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        let active = c.workspaces.first { $0.id == project }
+                        Menu {
+                            Picker("Project", selection: $project) {
+                                Text("All projects").tag("")
+                                ForEach(c.workspaces) { Text($0.title).tag($0.id) }
+                            }
+                        } label: { Image(systemName: active == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill") }
+                        .accessibilityLabel("Filter sessions")
+                        .accessibilityValue(Text(active?.title ?? String(localized: "All projects")))
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
             }
             .sheet(isPresented: $creating) { NewSessionSheet() }
@@ -1086,47 +1113,75 @@ struct SessionsView: View {
     func open(_ id: String) { c.open(id) }
 }
 
-/// Pick a DSH project (workspace), a folder of a past session, or type a path.
+/// Pick a DSH project (workspace), a folder of a past session, or type a path. Search filters both lists.
 struct NewSessionSheet: View {
     @EnvironmentObject var c: Client
     @Environment(\.dismiss) var dismiss
+    @AppStorage("sessionProject") private var filter = ""
     @State private var custom = ""
+    @State private var q = ""
+    func hit(_ s: String...) -> Bool { q.isEmpty || s.contains { $0.localizedCaseInsensitiveContains(q) } }
     // Extra folders: cwds of all sessions (session/list is unpaged), minus the DSH projects already listed.
-    var projects: [String] { var seen = Set(c.workspaces.map(\.path)); return c.sessions.map(\.cwd).filter { !$0.isEmpty && seen.insert($0).inserted } }
+    var folders: [String] { recentFolders(c.sessions, excluding: Set(c.workspaces.map(\.path))).filter { hit($0) } }
+    var projects: [Workspace] { c.workspaces.filter { hit($0.title, $0.path) } }
     var body: some View {
         NavigationStack {
             List {
-                Section { Button("DSH default workspace") { create(nil) } }
-                if !c.workspaces.isEmpty {
-                    Section("Projects") {
-                        ForEach(c.workspaces) { w in
-                            Button { create(w.path, w.id) } label: {
-                                VStack(alignment: .leading) { Text(w.title).foregroundStyle(.primary); Text(w.path).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head) }
-                            }
-                        }
+                if q.isEmpty {
+                    Section {
+                        Button { create(nil) } label: { row(Text("Quick chat"), Text("DSH default workspace, no project"), "bubble.left") }
                     }
                 }
                 if !projects.isEmpty {
-                    Section("Recent folders") {
-                        ForEach(projects, id: \.self) { p in
-                            Button { create(p) } label: {
-                                VStack(alignment: .leading) { Text((p as NSString).lastPathComponent).foregroundStyle(.primary); Text(p).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head) }
-                            }
+                    Section("Projects") {
+                        ForEach(projects) { w in
+                            Button { create(w.path, w.id) } label: { row(Text(verbatim: w.title), Text(verbatim: w.path), "folder.fill", checked: w.id == filter) }
                         }
                     }
                 }
-                Section("Other folder on Mac") {
-                    TextField("/Users/…/project", text: $custom).autocorrectionDisabled().textInputAutocapitalization(.never).onSubmit { create(custom) }
-                    Button("Create") { create(custom) }.disabled(custom.trimmingCharacters(in: .whitespaces).isEmpty)
+                if !folders.isEmpty {
+                    Section("Recent folders") {
+                        ForEach(folders, id: \.self) { p in
+                            Button { create(p) } label: { row(Text(verbatim: (p as NSString).lastPathComponent), Text(verbatim: p), "clock") }
+                        }
+                    }
+                }
+                if !q.isEmpty && projects.isEmpty && folders.isEmpty {
+                    ContentUnavailableView.search(text: q)
+                }
+                Section {
+                    TextField("/Users/…/project", text: $custom).font(.body.monospaced())
+                        .autocorrectionDisabled().textInputAutocapitalization(.never).keyboardType(.URL).submitLabel(.go)
+                        .onSubmit { if let p = macPath(custom) { create(p) } }
+                    Button { if let p = macPath(custom) { create(p) } } label: { Label("Start session here", systemImage: "arrow.right.circle.fill") }
+                        .disabled(macPath(custom) == nil)
+                } header: { Text("Other folder on Mac") } footer: {
+                    if !custom.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && macPath(custom) == nil {
+                        Text("Path must start with / or ~").foregroundStyle(.red)
+                    } else { Text("Absolute path of a folder on your Mac") }
                 }
             }
+            .searchable(text: $q, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search projects and folders")
             .navigationTitle("New session").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }
+        .presentationDetents([.medium, .large])
+    }
+    // Text params: literals localize, paths/titles stay verbatim.
+    func row(_ title: Text, _ sub: Text, _ icon: String, checked: Bool = false) -> some View {
+        Label {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    title.foregroundStyle(.primary).lineLimit(1)
+                    sub.font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                }
+                Spacer()
+                if checked { Image(systemName: "checkmark").foregroundStyle(.tint).accessibilityLabel("Current filter") }
+            }
+        } icon: { Image(systemName: icon).foregroundStyle(.tint) }
     }
     func create(_ cwd: String?, _ workspace: String? = nil) {
-        let d = cwd?.trimmingCharacters(in: .whitespaces)
-        dismiss(); c.run { try await c.create(cwd: d, workspaceId: workspace) }
+        dismiss(); c.run { try await c.create(cwd: cwd, workspaceId: workspace) }
     }
 }
 
@@ -1215,7 +1270,7 @@ struct AgentsView: View {
             } message: { k in Text(k.running ? "Steers its running turn." : "Queued as its next turn.") }
             .confirmationDialog(Text("Give the agent \(risky?.name ?? "")?"), isPresented: Binding(get: { risky != nil }, set: { if !$0 { risky = nil } }), titleVisibility: .visible, presenting: risky) { p in
                 Button("Allow", role: .destructive) { c.run { try await c.selectPermission(p.id) } }
-            } message: { _ in Text("It can change files and run commands anywhere on your Mac without asking.") }
+            } message: { p in Text(p.id == "auto" ? "Actions run after an automatic safety review instead of asking you. Experimental." : "It can change files and run commands anywhere on your Mac without asking.") }
             .confirmationDialog("Clear this goal?", isPresented: $confirmClear, titleVisibility: .visible) {
                 Button("Clear goal", role: .destructive) { act("clear") }
             } message: { Text("The agent stops working toward it. This can't be undone.") }

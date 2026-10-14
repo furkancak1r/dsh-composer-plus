@@ -250,8 +250,17 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(Sess(["sessionId": "p", "projections": ["values": ["permissions": ["currentValue": "read-only"]]]])?.permission, "read-only")
         c.sessions = [a, mk("b"), mk("c"), mk("d")]
         c.onWorkspace(["type": "baseline", "value": ["items": [["workspaceId": "w", "path": "/p/proj", "sessionIds": ["b"]]], "pinnedSessionIds": ["c"], "archivedSessionIds": ["d"]]])
-        XCTAssertEqual(c.sessionGroups().map(\.title), ["Pinned", "proj", "Other", "Archived"])
+        XCTAssertEqual(c.sessionGroups().map(\.title), ["Pinned", "proj", "Ungrouped", "Archived"])
+        XCTAssertTrue(groupFolded("", "Archived")); XCTAssertFalse(groupFolded("", "proj"))
+        let f = toggledFold("", "proj"); XCTAssertTrue(groupFolded(f, "proj")); XCTAssertEqual(toggledFold(f, "proj"), "")
+        XCTAssertFalse(groupFolded(toggledFold(f, "Archived"), "Archived")); XCTAssertEqual(groupIcon("Ungrouped"), "tray")
+        let fs = [Sess(["sessionId": "1", "cwd": "/old", "updatedAt": 1_000])!, Sess(["sessionId": "2", "cwd": "/new", "updatedAt": 3_000])!,
+                  Sess(["sessionId": "3", "cwd": "/old", "updatedAt": 2_000])!, Sess(["sessionId": "4", "cwd": "/p", "updatedAt": 4_000])!]
+        XCTAssertEqual(recentFolders(fs, excluding: ["/p"]), ["/new", "/old"])
+        XCTAssertEqual(macPath("  ~/code\n"), "~/code"); XCTAssertNil(macPath("code")); XCTAssertNil(macPath("  "))
         XCTAssertEqual(c.sessionGroups().map { $0.items.map(\.id) }, [["c"], ["b"], ["a"], ["d"]])
+        XCTAssertEqual(c.sessionGroups(project: "w").map { $0.items.map(\.id) }, [["b"]])
+        XCTAssertEqual(c.sessionGroups(project: "nope").count, 4)
         // newest first inside a group, sessions without a timestamp last
         let t = { (id: String, ms: Double?) in Sess(["sessionId": id, "updatedAt": ms as Any, "projections": ["values": ["title": id]]])! }
         c.sessions = [t("old", 1_000), t("none", nil), t("new", 2_000)]
@@ -317,6 +326,10 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(presetLabel("ptc"), "PTC")
         XCTAssertEqual(presetLabel("standard"), "Standard")
         XCTAssertEqual(presetLabel(""), "")
+        XCTAssertEqual(permLabel("auto", "auto"), "Auto review (experimental)")
+        XCTAssertEqual(permLabel("danger-full-access", nil), "Full access")
+        XCTAssertEqual(permLabel("auto", "Smart"), "Smart")
+        XCTAssertEqual(permLabel("custom", nil), "custom")
         let ps = [Preset(id: "standard", name: "Standard", desc: nil, broken: false, isDefault: true), Preset(id: "ptc", name: "PTC", desc: nil, broken: false)]
         XCTAssertNil(customPreset(nil, ps))
         XCTAssertNil(customPreset("standard", ps))

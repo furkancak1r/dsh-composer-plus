@@ -80,6 +80,8 @@ await check('goals create/edit/clear', async () => {
 })
 // Client.loadAgents reads presets[].{id,isDefault} (name is optional, falls back to id)
 await check('agentPresets/list', async () => { const p = (await rpc('agentPresets/list')).presets; assert.ok(Array.isArray(p) && p.every(x => x.id) && p.filter(x => x.isDefault).length === 1, 'preset shape changed: ' + short(p)); return p.map(x => x.id + (x.isDefault ? '*' : '')).join(', ') })
+// Client.loadAgents maps permission options[].{value,name,description}
+await check('permissionPresets/catalog', async () => { const v = await rpc('permissionPresets/catalog'); assert.ok(Array.isArray(v.options) && v.options.every(o => o.value), 'catalog shape changed: ' + short(v)); return v.options.map(o => o.value + '=' + (o.name ?? '')).join(', ') })
 // Client.image's thumbnail fetch: allowlisted (200, not 403) and DSH answers with a structured error for an unknown id
 await check('session/attachment reachable', async () => {
   const r = await call('POST', '/api/session/attachment', { type: 'client-request', rpcId: 'e2e-att', method: 'session/attachment', payload: { args: { request: { sessionId: sid, attachmentId: 'nope' } } } }, token)

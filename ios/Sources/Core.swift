@@ -69,6 +69,34 @@ func sessionsPlaceholder(loaded: Bool, count: Int, state: Client.Conn) -> Sessio
 /// Session title as typed: trimmed, nil when blank (a blank title would leave an unnamed row).
 func cleanTitle(_ s: String) -> String? { let t = s.trimmingCharacters(in: .whitespacesAndNewlines); return t.isEmpty ? nil : t }
 
+/// Sidebar accordion: `raw` is newline-joined titles the user toggled; Archived starts folded, others open.
+/// shortcut: keyed by title, two workspaces with the same title fold together; key by workspace id if that matters.
+func groupFolded(_ raw: String, _ title: String) -> Bool { raw.split(separator: "\n").contains { $0 == title } != (title == String(localized: "Archived")) }
+func toggledFold(_ raw: String, _ title: String) -> String {
+    var s = raw.split(separator: "\n").map(String.init)
+    if let i = s.firstIndex(of: title) { s.remove(at: i) } else { s.append(title) }
+    return s.joined(separator: "\n")
+}
+func groupIcon(_ title: String) -> String {
+    switch title {
+    case String(localized: "Pinned"): "pin"
+    case String(localized: "Archived"): "archivebox"
+    case String(localized: "Ungrouped"): "tray"
+    default: "folder"
+    }
+}
+
+/// New-session sheet: folders of past sessions, newest first, each once, minus `excluding` (DSH projects).
+func recentFolders(_ sessions: [Sess], excluding: Set<String>) -> [String] {
+    var seen = excluding
+    return sessions.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }.map(\.cwd).filter { !$0.isEmpty && seen.insert($0).inserted }
+}
+/// Typed Mac folder: trimmed, nil unless absolute or home-relative (a bare name would land in DSH's cwd).
+func macPath(_ s: String) -> String? {
+    let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+    return t.hasPrefix("/") || t.hasPrefix("~") ? t : nil
+}
+
 /// RFC 1918 + link-local IPv4 only: a pairing QR can never point the app at the internet.
 func isLANv4(_ h: String) -> Bool {
     let o = h.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) ?? -1 }
@@ -386,6 +414,12 @@ struct Model: Identifiable { let id: String, name: String; let efforts: [String]
 struct Preset: Identifiable { let id: String, name: String; let desc: String?; let broken: Bool; var isDefault = false }
 /// DSH presets often ship only an id ("ptc", "standard"); show "PTC" / "Standard" instead of raw ids.
 func presetLabel(_ id: String) -> String { id.count <= 3 ? id.uppercased() : id.prefix(1).uppercased() + id.dropFirst() }
+// The catalog sends raw ids as names; DSH desktop labels them itself, so mirror its labels.
+func permLabel(_ id: String, _ name: String?) -> String {
+    let known = ["read-only": "Read only", "workspace-write": "Workspace write", "danger-full-access": "Full access", "auto": "Auto review (experimental)"]
+    if let n = name, n != id, !n.isEmpty { return n }
+    return known[id] ?? id
+}
 /// The session's preset only when it isn't the default one; the composer chip shows nothing otherwise.
 func customPreset(_ cur: String?, _ presets: [Preset]) -> Preset? {
     guard let cur, presets.first(where: { $0.isDefault })?.id != cur else { return nil }
@@ -531,23 +565,26 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
 
     /// Sidebar order like desktop DSH: pinned, one section per project, unassigned, archived.
-    func sessionGroups() -> [(title: String, items: [Sess])] {
+    /// `project` (a workspace id) narrows every group to that project; an unknown id shows everything.
+    func sessionGroups(project: String? = nil) -> [(title: String, items: [Sess])] {
         // newest activity first inside each group, like the desktop sidebar; pinned keeps the user's pin order
-        let roots = sessions.filter { $0.parent == nil }.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
+        let only = workspaces.first { $0.id == project }
+        let roots = sessions.filter { $0.parent == nil && (only?.sessions.contains($0.id) ?? true) }.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
         let rest = roots.filter { !pinned.contains($0.id) && !archived.contains($0.id) }
         var out = [(String(localized: "Pinned"), pinned.compactMap { id in roots.first { $0.id == id } })]
         var used = Set<String>()
         for w in workspaces { let s = rest.filter { w.sessions.contains($0.id) }; used.formUnion(s.map(\.id)); out.append((w.title, s)) }
-        out.append((String(localized: "Other"), rest.filter { !used.contains($0.id) }))
+        out.append((String(localized: "Ungrouped"), rest.filter { !used.contains($0.id) }))
         out.append((String(localized: "Archived"), roots.filter { archived.contains($0.id) }))
         return out.filter { !$0.1.isEmpty }.map { (title: $0.0, items: $0.1) }
     }
 
     /// Instant title filter while typing; server search adds content hits after a pause.
-    func titleMatches(_ q: String) -> [Sess] {
+    func titleMatches(_ q: String, project: String? = nil) -> [Sess] {
         let q = q.trimmingCharacters(in: .whitespaces)
         guard !q.isEmpty else { return [] }
-        return sessions.filter { $0.parent == nil && $0.title.localizedStandardContains(q) }
+        let only = workspaces.first { $0.id == project }
+        return sessions.filter { $0.parent == nil && (only?.sessions.contains($0.id) ?? true) && $0.title.localizedStandardContains(q) }
             .sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
     }
 
@@ -1095,7 +1132,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         }
         if let v = try? await rpc("permissionPresets/catalog") as? J {
             perms = (v["options"] as? [J] ?? []).compactMap { o in
-                (o["value"] as? String).map { Preset(id: $0, name: o["name"] as? String ?? $0, desc: o["description"] as? String, broken: false) }
+                (o["value"] as? String).map { Preset(id: $0, name: permLabel($0, o["name"] as? String), desc: o["description"] as? String, broken: false) }
             }
         }
         skills = []
