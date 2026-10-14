@@ -55,15 +55,36 @@ func lostHint(onWiFi: Bool, hasTailnet: Bool) -> String {
                   : String(localized: "Open Tailscale on this iPhone (and the Mac).")
 }
 
+/// iOS lets no app switch another app's VPN on, and a bare tailscale:// is Tailscale's tailnet-lock signing deeplink
+/// ("Could not sign device"). So Tether ships a signed one-step Shortcut (Tailscale › Connect, runs without opening
+/// Tailscale); run-shortcut executes it with no prompt and returns to tether://tailscale/<ok|error|cancel>.
+let tsShortcutName = "Tether Tailscale"
+func tailscaleShortcutURL() -> URL {
+    var u = URLComponents(string: "shortcuts://x-callback-url/run-shortcut")!
+    u.queryItems = [.init(name: "name", value: tsShortcutName)]
+        + [("success", "ok"), ("error", "error"), ("cancel", "cancel")].map { .init(name: "x-" + $0.0, value: "tether://tailscale/" + $0.1) }
+    return u.url!
+}
+/// Tunnel interfaces on the current path. iOS keeps a few utun up for its own services, so callers compare sets:
+/// a new utun appearing is a VPN (Tailscale) coming up.
+func vpnTunnels(_ names: [String]) -> Set<String> { Set(names.filter { $0.hasPrefix("utun") || $0.hasPrefix("ipsec") }) }
+let tailscaleStoreURL = URL(string: "https://apps.apple.com/app/id1470499037")!
+/// Auto-run only off Wi‑Fi (home LAN needs no tunnel), once per outage, and only once the Shortcut has proven it works
+/// (a missing Shortcut would strand the user in the Shortcuts app).
+func shouldAutoTailscale(onWiFi: Bool, hasTailnet: Bool, auto: Bool, ready: Bool, tried: Bool) -> Bool {
+    !onWiFi && hasTailnet && auto && ready && !tried
+}
 /// Whether the banner explains the lost link: never when connected; a first connect only once it has hung (slow).
 func showsLostHint(_ s: Client.Conn, slow: Bool) -> Bool { s == .off || s == .reconnecting || (s == .connecting && slow) }
-/// What the empty Sessions list shows: "No sessions" only after a list really came back empty; before that a spinner
-/// while a link is up or being made, nothing when off (the banner explains why).
-enum SessionsPlaceholder { case none, loading, empty }
+/// What the Sessions tab shows instead of rows. Sessions need a live link: a cached list while off/reconnecting would
+/// look usable but every tap fails, so it is replaced by the offline view. "No sessions" only after a real empty reply.
+enum SessionsPlaceholder { case none, loading, empty, offline }
 func sessionsPlaceholder(loaded: Bool, count: Int, state: Client.Conn) -> SessionsPlaceholder {
-    if count > 0 { return .none }
-    if loaded { return .empty }
-    return state == .off ? .none : .loading
+    switch state {
+    case .off, .reconnecting: return .offline
+    case .connecting: return .loading
+    case .connected: return count > 0 ? .none : loaded ? .empty : .loading
+    }
 }
 
 /// Session title as typed: trimmed, nil when blank (a blank title would leave an unnamed row).
@@ -533,6 +554,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var onWiFi = true
     /// Why the last attempt failed, per address; shown in Settings so a dead route is visible instead of guessed.
     @Published var lastFail: String?
+    /// Off Wi‑Fi with the Mac unreachable: run the Tailscale Shortcut once per outage (re-armed when connected or on Wi‑Fi).
+    // off by default: it brings the Shortcuts app to the front; a Shortcuts automation or VPN On Demand does it silently
+    // new key: the previous build stored "tsAuto" defaulting to on
+    @Published var tsAuto = UserDefaults.standard.bool(forKey: "tsAutoShortcut") { didSet { UserDefaults.standard.set(tsAuto, forKey: "tsAutoShortcut") } }
+    /// The Shortcut came back with x-success at least once, so it is installed and allowed to run unattended.
+    @Published var tsReady = UserDefaults.standard.bool(forKey: "tsReady") { didSet { UserDefaults.standard.set(tsReady, forKey: "tsReady") } }
+    private var tsTried = false
 
     private var urlSession: URLSession?, sessionFp = ""
     private var ws: URLSessionWebSocketTask?
@@ -540,6 +568,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private var attempt = 0, probing = false
     private var browser: NWBrowser?
     private var pathMon: NWPathMonitor?
+    private var tunnels: Set<String> = []
 
     var currentSess: Sess? { sessions.first { $0.id == current } }
     /// Plain-language problem with DSH behind the gateway; nil when fine or unknown.
@@ -741,6 +770,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil
         guard pairing != nil else { state = .off; return }
         state = .reconnecting; attempt += 1
+        if attempt >= 2 { maybeAutoTailscale() } // one blip isn't an outage; two failed sockets off Wi‑Fi are
         let delay = Double(min(30, 1 << min(attempt, 5)))
         Task {
             try? await Task.sleep(for: .seconds(delay))
@@ -750,6 +780,30 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             await self.refreshMe() // a 401 here means revoked/expired → unpairs instead of looping
             self.connect()
         }
+    }
+
+    var tailscaleInstalled: Bool { UIApplication.shared.canOpenURL(URL(string: "tailscale://")!) } // canOpen only; never opened
+    /// Runs the Tether Tailscale Shortcut (connects, comes back); App Store when Tailscale itself is missing.
+    func openTailscale() {
+        tsTried = true
+        UIApplication.shared.open(tailscaleInstalled ? tailscaleShortcutURL() : tailscaleStoreURL)
+    }
+    /// tether://tailscale/<result> from the Shortcut. ok: tunnel is up, go straight to the tailnet address.
+    func tailscaleReturned(_ result: String) {
+        switch result {
+        case "ok":
+            tsReady = true
+            if pairing?.ts != nil { reconnect(via: onWiFi ? nil : .tailscale) }
+        case "error":
+            tsReady = false
+            error = String(localized: "Couldn't run the Tether Tailscale shortcut. Install it again from Settings › Tailscale.")
+        default: break
+        }
+    }
+    private func maybeAutoTailscale() {
+        guard UIApplication.shared.applicationState == .active,
+              shouldAutoTailscale(onWiFi: onWiFi, hasTailnet: pairing?.ts != nil, auto: tsAuto, ready: tsReady, tried: tsTried) else { return }
+        openTailscale()
     }
 
     func refreshMe() async {
@@ -781,7 +835,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private func onEvent(_ v: J) {
         switch v["type"] as? String {
         case "ready":
-            state = .connected; attempt = 0; prompts = [] // the gateway re-sends everything still pending right after ready
+            state = .connected; attempt = 0; prompts = []; tsTried = false // the gateway re-sends everything still pending right after ready
             Task { await refreshMe(); try? await loadSessions(); try? await loadCatalog() }
         case "waterfall":
             guard let id = v["eventId"] as? String, let ev = v["event"] as? String, !prompts.contains(where: { $0.id == id }) else { return }
@@ -1220,10 +1274,16 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             let m = NWPathMonitor()
             m.pathUpdateHandler = { path in Task { @MainActor in
                 let w = path.usesInterfaceType(.wifi) || path.usesInterfaceType(.wiredEthernet)
-                guard w != self.onWiFi else { return }
-                self.onWiFi = w
-                self.urlSession?.finishTasksAndInvalidate(); self.urlSession = nil // pooled sockets belong to the old interface; don't abort handshakes mid-flight
-                if self.pairing != nil, path.status == .satisfied { self.reconnect() } // Wi‑Fi ⇄ cellular: old route is dead, switch now
+                let tunnels = vpnTunnels(path.availableInterfaces.map(\.name))
+                let tunnelsChanged = tunnels != self.tunnels; self.tunnels = tunnels
+                if w != self.onWiFi {
+                    self.onWiFi = w; if w { self.tsTried = false }
+                    self.urlSession?.finishTasksAndInvalidate(); self.urlSession = nil // pooled sockets belong to the old interface; don't abort handshakes mid-flight
+                    if self.pairing != nil, path.status == .satisfied { self.reconnect() } // Wi‑Fi ⇄ cellular: old route is dead, switch now
+                } else if tunnelsChanged, self.state != .connected, self.pairing?.ts != nil, path.status == .satisfied {
+                    // a tunnel just came up (Tailscale turned on by the user, an automation, or On Demand): don't sit out the backoff
+                    self.reconnect(via: w ? nil : .tailscale)
+                }
             } }
             m.start(queue: .main); pathMon = m
         }

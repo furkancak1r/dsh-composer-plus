@@ -35,6 +35,9 @@ targets:
         # even after Pinner accepted it. ATS exceptions can't name IPs, so it's off; every request still goes through Pinner.
         NSAppTransportSecurity: { NSAllowsArbitraryLoads: true }
         CFBundleDevelopmentRegion: en
+        # tether://tailscale: return URL for the "Tailscale Connect" Shortcut; queried schemes let canOpen/open fall back cleanly
+        CFBundleURLTypes: [{ CFBundleURLName: com.furkancakir.dshmobile, CFBundleURLSchemes: [tether] }]
+        LSApplicationQueriesSchemes: [tailscale, shortcuts]
   DSHMobileTests:
     type: bundle.unit-test
     platform: iOS

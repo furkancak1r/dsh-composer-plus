@@ -10,6 +10,8 @@ import AVFoundation
         WindowGroup {
             Root().environmentObject(client)
                 .onChange(of: phase, initial: true) { _, p in if p == .active { client.browse(); client.wake() } }
+                // tether://tailscale/<ok|error|cancel>: the Tether Tailscale Shortcut finished and bounced back here
+                .onOpenURL { u in if u.scheme == "tether", u.host == "tailscale" { client.tailscaleReturned(u.lastPathComponent) } }
         }
     }
 }
@@ -55,6 +57,36 @@ struct ConnBadge: View {
     }
 }
 
+/// Full-screen stand-in while the Mac is unreachable: nothing stale is shown, and off Wi‑Fi the one obvious action is
+/// turning Tailscale on (the Shortcut connects it and comes straight back).
+struct OfflineView: View {
+    @EnvironmentObject var c: Client
+    var body: some View {
+        let remote = !c.onWiFi && c.pairing?.ts != nil
+        ContentUnavailableView {
+            Label(c.state == .reconnecting ? "Connecting to your Mac…" : "Not connected", systemImage: remote ? "network.slash" : "wifi.slash")
+        } description: {
+            Text(c.upstreamText ?? lostHint(onWiFi: c.onWiFi, hasTailnet: c.pairing?.ts != nil))
+        } actions: {
+            if remote || (!c.onWiFi && c.pairing?.ts == nil) {
+                Button { c.openTailscale() } label: { Label("Open Tailscale", systemImage: "point.3.connected.trianglepath.dotted") }
+                    .buttonStyle(.borderedProminent)
+                if !c.tsReady, c.tailscaleInstalled { TailscaleShortcutLink().font(.footnote) }
+            }
+            Button("Retry") { c.reconnect() }
+        }
+    }
+}
+
+/// Hands the bundled, signed "Tether Tailscale" Shortcut to the share sheet; picking Shortcuts adds it in one tap.
+struct TailscaleShortcutLink: View {
+    var body: some View {
+        if let u = Bundle.main.url(forResource: tsShortcutName, withExtension: "shortcut") {
+            ShareLink(item: u) { Label("Add the Tailscale shortcut", systemImage: "square.and.arrow.down") }
+        }
+    }
+}
+
 /// Says what is wrong with the link to the Mac, with a retry. Empty when all is well.
 struct ConnBanner: View {
     @EnvironmentObject var c: Client
@@ -67,6 +99,8 @@ struct ConnBanner: View {
             HStack(spacing: 10) {
                 if c.state == .reconnecting { ProgressView().controlSize(.small) } else { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).accessibilityHidden(true) }
                 Text(msg).font(.footnote).frame(maxWidth: .infinity, alignment: .leading)
+                // off Wi‑Fi the fix is almost always "turn Tailscale on": one tap instead of leaving to find the app
+                if c.upstreamText == nil, !c.onWiFi { Button("Tailscale") { c.openTailscale() }.font(.footnote.bold()).buttonStyle(.borderless) }
                 Button("Retry") { c.reconnect() }.font(.footnote.bold()).buttonStyle(.borderless)
             }
             .padding(.horizontal, 14).padding(.vertical, 9)
@@ -202,8 +236,9 @@ struct ConversationView: View {
     @State private var turnStart: Date?
     @FocusState private var focused: Bool
     var body: some View {
-        transcript
-            .safeAreaInset(edge: .top) { ConnBanner() }
+        // no stale chat while unreachable: the Mac is the source of truth and every action would fail anyway
+        Group { if c.state == .connected || c.state == .connecting { transcript } else { OfflineView() } }
+            .safeAreaInset(edge: .top) { if c.state == .connecting { ConnBanner() } }
             .navigationTitle(c.currentSess?.title ?? String(localized: "Conversation"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .tabBar)
@@ -978,8 +1013,11 @@ struct SessionsView: View {
         NavigationStack(path: $c.path) {
             List {
                 // in-list so it scrolls away with the content instead of pinning under the large title
-                Section { ConnBanner().listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
-                if query.isEmpty {
+                // offline: the centered OfflineView says it; a banner on top would repeat it
+                if c.state == .connected || c.state == .connecting { Section { ConnBanner().listRowInsets(EdgeInsets()).listRowBackground(Color.clear) } }
+                if c.state != .connected {
+                    // sessions need a live link: no cached rows, the overlay explains and offers Tailscale
+                } else if query.isEmpty {
                     // offset id: two DSH workspaces may share a title
                     ForEach(Array(c.sessionGroups(project: project.isEmpty ? nil : project).enumerated()), id: \.offset) { _, g in
                         // accordion like the desktop sidebar; Archived starts folded; a folded group still shows the open session
@@ -1022,8 +1060,9 @@ struct SessionsView: View {
                     }
                 }
             }
-            .overlay { if query.isEmpty {
+            .overlay { if query.isEmpty || c.state != .connected {
                 switch sessionsPlaceholder(loaded: c.sessionsLoaded, count: c.sessions.count, state: c.state) {
+                case .offline: OfflineView()
                 case .empty: ContentUnavailableView { Label("No sessions", systemImage: "tray") } actions: { Button("New session") { creating = true }.buttonStyle(.borderedProminent) }
                 case .loading: ProgressView("Loading sessions…")
                 case .none: EmptyView()
@@ -1302,6 +1341,16 @@ struct SettingsView: View {
                         LabeledContent("Certificate", value: String(p.fp.prefix(16)) + "…").font(.caption.monospaced())
                     }
                     Button("Reconnect") { c.reconnect() }
+                }
+                if c.pairing != nil {
+                    Section {
+                        LabeledContent("Shortcut", value: c.tsReady ? String(localized: "Ready") : String(localized: "Not added"))
+                        TailscaleShortcutLink()
+                        Button("Connect Tailscale now") { c.openTailscale() }
+                        Toggle("Run the shortcut when the Mac is unreachable", isOn: $c.tsAuto).disabled(!c.tsReady)
+                    } header: { Text("Tailscale") } footer: {
+                        Text("Silent, no app switching: in Shortcuts › Automation › + › App › Tether › Is Opened › Run Immediately, add Tailscale › Connect. Tailscale connects in the background with just a banner, and Tether reconnects the moment the tunnel is up. Or turn on VPN On Demand in Tailscale's settings. The toggle above opens the Shortcuts app instead, so leave it off with an automation.")
+                    }
                 }
                 Section {
                     TextField("IP or Tailscale address", text: $host).keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()

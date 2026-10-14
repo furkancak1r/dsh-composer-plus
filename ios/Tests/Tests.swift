@@ -29,6 +29,22 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(lostHint(onWiFi: true, hasTailnet: true).contains("Tailscale"))
         XCTAssertTrue(lostHint(onWiFi: false, hasTailnet: false).contains("Install Tailscale"))
         XCTAssertFalse(lostHint(onWiFi: true, hasTailnet: false).contains("Tailscale"))
+        // Tailscale: never the bare tailscale:// (that is Tailscale's tailnet-lock signing link); run the bundled Shortcut
+        let sc = URLComponents(url: tailscaleShortcutURL(), resolvingAgainstBaseURL: false)!
+        XCTAssertEqual(sc.scheme, "shortcuts"); XCTAssertEqual(sc.queryItems?.first { $0.name == "name" }?.value, "Tether Tailscale")
+        XCTAssertEqual(sc.queryItems?.first { $0.name == "x-success" }?.value, "tether://tailscale/ok")
+        XCTAssertEqual(sc.queryItems?.first { $0.name == "x-error" }?.value, "tether://tailscale/error")
+        XCTAssertNotNil(Bundle(for: Client.self).url(forResource: tsShortcutName, withExtension: "shortcut"), "signed shortcut bundled")
+        // a VPN coming up shows as a new utun; other interfaces don't count
+        XCTAssertEqual(vpnTunnels(["en0", "pdp_ip0", "utun0", "utun3", "ipsec1", "lo0"]), ["utun0", "utun3", "ipsec1"])
+        XCTAssertNotEqual(vpnTunnels(["pdp_ip0", "utun0"]), vpnTunnels(["pdp_ip0", "utun0", "utun4"]))
+        // auto-run only off Wi‑Fi, with a tailnet address, a proven Shortcut, and once per outage
+        XCTAssertTrue(shouldAutoTailscale(onWiFi: false, hasTailnet: true, auto: true, ready: true, tried: false))
+        XCTAssertFalse(shouldAutoTailscale(onWiFi: true, hasTailnet: true, auto: true, ready: true, tried: false))
+        XCTAssertFalse(shouldAutoTailscale(onWiFi: false, hasTailnet: true, auto: true, ready: true, tried: true))
+        XCTAssertFalse(shouldAutoTailscale(onWiFi: false, hasTailnet: true, auto: true, ready: false, tried: false))
+        XCTAssertFalse(shouldAutoTailscale(onWiFi: false, hasTailnet: false, auto: true, ready: true, tried: false))
+        XCTAssertFalse(shouldAutoTailscale(onWiFi: false, hasTailnet: true, auto: false, ready: true, tried: false))
         // a hung first connect gets the hint; a fresh one and a live link stay quiet
         XCTAssertFalse(showsLostHint(.connecting, slow: false))
         XCTAssertTrue(showsLostHint(.connecting, slow: true))
@@ -342,8 +358,12 @@ final class CoreTests: XCTestCase {
 
     @MainActor func testJustFinished() {
         XCTAssertEqual(sessionsPlaceholder(loaded: false, count: 0, state: .connecting), .loading)
-        XCTAssertEqual(sessionsPlaceholder(loaded: false, count: 0, state: .off), SessionsPlaceholder.none)
-        XCTAssertEqual(sessionsPlaceholder(loaded: true, count: 0, state: .reconnecting), .empty)
+        // no cached sessions without a live link, even when a list was loaded before
+        XCTAssertEqual(sessionsPlaceholder(loaded: false, count: 0, state: .off), .offline)
+        XCTAssertEqual(sessionsPlaceholder(loaded: true, count: 3, state: .reconnecting), .offline)
+        XCTAssertEqual(sessionsPlaceholder(loaded: true, count: 3, state: .off), .offline)
+        XCTAssertEqual(sessionsPlaceholder(loaded: true, count: 0, state: .connected), .empty)
+        XCTAssertEqual(sessionsPlaceholder(loaded: false, count: 0, state: .connected), .loading)
         XCTAssertEqual(sessionsPlaceholder(loaded: true, count: 3, state: .connected), SessionsPlaceholder.none)
         let s = { (id: String, run: Bool) in Sess(["sessionId": id, "running": run])! }
         let old = [s("a", true), s("b", true), s("c", false), s("d", true)]
