@@ -25,7 +25,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.2.1`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.3.0`.
 
 ## Features
 
@@ -37,9 +37,12 @@ Then restart dsh. (The CLI can't install into the desktop profile; the app manag
 | **One-click Continue** | After a stopped, failed or cut-off turn, an empty composer shows **▶**. One click resumes from the existing conversation without writing in the input or adding a visible chat message (the model receives a short hidden “continue from where it stopped” note, because some providers, such as Claude, reject a request that ends on an assistant reply). A completed turn keeps the regular Send button. | <a href="assets/features/continueButton.webp"><img src="assets/features/continueButton.webp" width="160" alt="One-click Continue screenshot"></a> |
 | **Queue drag-and-drop** | Queued messages get a grip (⠿). Drag to reorder, or focus the grip and press `↑` / `↓`. `Esc` cancels. | <a href="assets/features/queueReorder.webp"><img src="assets/features/queueReorder.webp" width="160" alt="Queue drag-and-drop screenshot"></a> |
 | **Copy deeplink** | Right-click a chat in the sidebar → **Copy deeplink**. Paste the `dsh-session:…` link into another chat to attach that chat as read-only context. | <a href="assets/features/copyDeeplink.webp"><img src="assets/features/copyDeeplink.webp" width="160" alt="Copy deeplink screenshot"></a> |
+| **Copy project path** | Right-click a project in the sidebar → **Copy path** copies the full path of its folder. | <a href="assets/features/copyProjectPath.webp"><img src="assets/features/copyProjectPath.webp" width="160" alt="Copy project path screenshot"></a> |
 | **Allow for this chat** | When Auto Review asks you, the approval card gets **Allow for this chat**: the same tool in the same chat is allowed from then on, with any arguments. A header chip lists the grants and revokes them. Grants survive a restart. | <a href="assets/features/allowForChat.webp"><img src="assets/features/allowForChat.webp" width="160" alt="Allow for this chat screenshot"></a> |
 | **Project status** | A project row in the sidebar shows the same spinner / waiting / done marker as its chats, so a collapsed project still tells you a chat inside is working or needs you. Hover it for details. | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="Project status screenshot"></a> |
 | **Active projects first** | When a chat starts running or needs you, its project moves to the top of the sidebar with dsh's own row animation (the same move as dragging it there). Finished projects stay where they are; drag them anywhere as usual. Moves are saved to dsh's project order, so turning this off keeps the current order. | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="Active projects first screenshot"></a> |
+| **Recent projects filter** | Sidebar → view options (sliders icon) → **Active in the last 2 hours**. While it is selected, the sidebar shows only projects with chat activity in the last 2 hours: a chat updated in that time, a running or waiting chat, the open chat, or a project added in that time. Select it again to show all projects. The choice is kept on this device. | <a href="assets/features/recentProjects.webp"><img src="assets/features/recentProjects.webp" width="160" alt="Recent projects filter screenshot"></a> |
+| **Collapse all projects** | While a project is open in the sidebar, a button appears next to the view options (sliders icon). Click it to close every open project at once, for example 3 open projects out of 5. The button hides again when no project is open. | <a href="assets/features/collapseProjects.webp"><img src="assets/features/collapseProjects.webp" width="160" alt="Collapse all projects screenshot"></a> |
 | **Background notifications** | While dsh is in the background you get a notification when a turn finishes (first line of the reply), or when a chat really waits for you: an approval (tool name), an answer (the question) or a plan review. A request must still be open 1.5 s later, so approvals answered automatically (Auto Review grants, other plugins) stay silent, and a notification is withdrawn as soon as its request is answered. The Dock/taskbar badge counts waiting chats. Clicking opens that chat. | <a href="assets/features/notifications.webp"><img src="assets/features/notifications.webp" width="160" alt="Background notifications screenshot"></a> |
 | **11 extra UI languages** | Settings → Composer Plus → **Application language** switches the whole dsh interface to Türkçe, Español, Português (Brasil), Français, Deutsch, Русский, 日本語, 한국어, Bahasa Indonesia, Tiếng Việt or हिन्दी (see below). | <a href="assets/features/language.webp"><img src="assets/features/language.webp" width="160" alt="11 extra UI languages screenshot"></a> |
 | **Automatic updates** | When dsh starts, the plugin checks the [latest GitHub release](https://github.com/furkancak1r/dsh-composer-plus/releases/latest). If it is newer and already on npm, it installs that exact version through dsh's own plugin manager (the same path as Settings → Plugins) and notifies you. **Restart dsh** to load it. **Settings → Composer Plus → Composer Plus updates** shows the version and has **Check for updates** / **Update now**. | <a href="assets/features/autoUpdate.webp"><img src="assets/features/autoUpdate.webp" width="160" alt="Automatic updates screenshot"></a> |
@@ -91,9 +94,9 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 ## Troubleshooting
 
 - **No notifications on macOS:** System Settings → Notifications → DeepSeek Harness → allow. Choose **Alerts** to keep them on screen.
-- **▶, queue grips, project status, Allow for this chat or right-click missing after a dsh update:** these attach to dsh's current HTML because dsh has no slot for them yet. If dsh changes that markup they hide themselves; nothing else breaks. Please open an [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
+- **▶, queue grips, project status, the recent projects option, Collapse all projects, Copy path, Allow for this chat or right-click missing after a dsh update:** these attach to dsh's current HTML because dsh has no slot for them yet. If dsh changes that markup they hide themselves; nothing else breaks. Please open an [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
 - **"Update failed" or "not installed from npm":** a copy linked from a local folder or renamed can't update itself; reinstall `dsh-composer-plus` from Settings → Plugins. Otherwise the message shows the first line of pnpm's error; **Check for updates** retries.
-- **Install fails right after a release:** add the version (`dsh-composer-plus@1.2.1`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.3.0`), see the install note above.
 
 ## Limits
 
@@ -104,6 +107,8 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 - A deeplink works inside chats; clicking it does not open the chat.
 - A notification sent before a restart only brings dsh to the front when clicked.
 - Active projects are moved with dsh's saved project order, so the new order is kept after a restart. Chats outside any project ("Ungrouped") can't be moved; dsh always lists them last.
+- dsh has no extension point in the sidebar's view options menu, so the recent projects option is added to dsh's own menu. If a dsh update changes that menu, the option is not shown and all projects stay visible. The filter works on project rows, so **In one list** is not filtered. In the **WorkSpace** grouping, a parent folder of a recently active project also stays visible.
+- dsh has no project-row menu or Workspaces header slot either. **Copy path** finds the project row by dsh's row markup, and **Collapse all projects** goes into dsh's header and closes each open project with the same click as the project row. If a dsh update changes that markup, right-click shows the browser's menu and the button is not shown.
 - Built-in support is requested upstream: queue `move` in [#773](https://github.com/deepseek-ai/deepseek-harness/discussions/773), a Continue state in [#9269](https://github.com/deepseek-ai/deepseek-harness/discussions/9269).
 
 ## FAQ
@@ -118,6 +123,12 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 
 **How do I stop Auto Review asking about the same tool in one chat?** Click **Allow for this chat** on the approval card. It covers that exact tool in that chat only; revoke it from the header chip.
 
+**How do I show only the projects I used today in the dsh sidebar?** Sidebar → view options (sliders icon) → **Active in the last 2 hours**. Select it again to show all projects.
+
+**How do I copy a project's folder path in dsh?** Right-click the project in the sidebar → **Copy path**.
+
+**How do I collapse all projects in the dsh sidebar at once?** Click the collapse button next to the view options (sliders icon). It shows while at least one project is open.
+
 **How do I get macOS / Windows notifications when a dsh task finishes or needs approval?** Keep **Background notifications** on (default) and allow notifications for DeepSeek Harness in the OS settings.
 
 **How do I switch the DeepSeek Harness interface to Turkish, Spanish, Japanese…?** Settings → Composer Plus → **Application language**.
@@ -130,6 +141,8 @@ Screenshots are regenerated from a throwaway dsh with a fake model and made-up d
 
 ```sh
 PLAYWRIGHT=/path/to/playwright node scripts/capture-screenshots.mjs /path/to/dsh/lib/bin.js
+# sidebar project features (recent filter, Copy path, Collapse all): real-app test + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-sidebar-projects.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh

@@ -14,6 +14,9 @@ Features (each one can be switched off in Settings → Composer Plus):
 - Copy deeplink: right-click a chat to copy a `dsh-session:` link that attaches it to another chat as read-only context.
 - Auto Review "Allow for this chat": allow one exact tool for the rest of one chat; revocable; saved across restarts.
 - Project status and active projects first: sidebar project rows show running / waiting / done, and active projects move to the top.
+- Recent projects filter: "Active in the last 2 hours" in the sidebar's view options hides projects with no chat activity in the last 2 hours.
+- Copy project path: right-click a project in the sidebar → Copy path copies its full folder path.
+- Collapse all projects: a sidebar header button, shown while a project is open, closes every open project.
 - Background notifications: OS notification and Dock badge when a chat finishes or really waits for an approval, a question or a plan review; click opens the chat.
 - 11 extra UI languages for the whole dsh interface: Türkçe, Español, Português (Brasil), Français, Deutsch, Русский, 日本語, 한국어, Bahasa Indonesia, Tiếng Việt, हिन्दी.
 - Automatic updates: at dsh start, installs the newest GitHub release (once it is on npm) through dsh's own plugin manager and notifies; restart dsh to load it.
