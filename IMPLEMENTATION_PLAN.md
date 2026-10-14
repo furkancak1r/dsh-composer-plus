@@ -137,7 +137,7 @@ Phases and checks:
 2. [done] Real dsh web in an isolated home: test/browser-sidebar-projects.mjs (en + tr option, stale projects hidden, state announced, reload, deselect, native rows, no page errors). Screenshot assets/features/recentProjects.webp (SHOT=1).
 3. [open] Live desktop copy only with the user's approval: back up first, never restart dsh; a desktop reload loads it.
 Decision: selecting the option keeps dsh's menu open (dsh closes it on its own rows), so the result shows at once and the focus stays on the row.
-Last checkpoint (2026-10-14): `npm test` passes (16 files, 12 shots). test/browser-sidebar-projects.mjs passes on dsh 0.2.0-rc.2 and 0.2.1-alpha.2; en/tr screenshots checked visually. Not committed, pushed, published or installed live.
+Last checkpoint (2026-10-14): `npm test` passes (16 files, 12 shots). test/browser-sidebar-projects.mjs passes on dsh 0.2.0-rc.2 and 0.2.1-alpha.2; en/tr screenshots checked visually. Shipped in 1.3.0 (see the release section below).
 
 ## Copy project path + Collapse all projects (2026-10-14)
 Objective: (1) Right-click a sidebar project row → a menu at the pointer with "Copy path"; a click copies the project's absolute folder path. (2) A "Collapse all projects" button in the Workspaces header, shown only while at least one project is open; a click closes every open project (example: 3 of 5 open → all 5 closed).
@@ -147,4 +147,9 @@ Phases and checks:
 1. client.js, 13 languages, Settings rows and shots, README, llms.txt. Check: test/project-tools.test.mjs, test/toggles.test.mjs, locale coverage, `npm test`.
 2. Real dsh 0.2.0-rc.2 and 0.2.1-alpha.2 web, isolated home: test/browser-sidebar-projects.mjs (also covers the recent projects filter; renamed from test/browser-recent-projects.mjs): clipboard holds the path, 3 open → 0 open, button hidden then shown again, header buttons not clipped, Turkish labels, no page errors. Screenshots with SHOT=1.
 3. Live desktop copy only with the user's approval.
-Last checkpoint (2026-10-14): `npm test` passes (17 files, 14 shots). test/browser-sidebar-projects.mjs passes on dsh 0.2.0-rc.2 and 0.2.1-alpha.2 (clipboard = project folder, Esc copies nothing, 3 open → 0, closed state saved after reload, button hidden when none open, keyboard Enter moves focus to View options, Turkish labels, no page errors). en/tr screenshots checked visually. Not committed, pushed, published or installed live.
+Last checkpoint (2026-10-14): `npm test` passes (17 files, 14 shots). test/browser-sidebar-projects.mjs passes on dsh 0.2.0-rc.2 and 0.2.1-alpha.2 (clipboard = project folder, Esc copies nothing, 3 open → 0, closed state saved after reload, button hidden when none open, keyboard Enter moves focus to View options, Turkish labels, no page errors). en/tr screenshots checked visually.
+
+## 1.3.0 release (2026-10-14)
+- Shipped: GitHub main 3d5aa9e (CI green), release v1.3.0 (Latest). Semgrep: 0 findings.
+- Live desktop copy installed: client, host, manifest and 14 shots; the module id stays `@local/dsh-composer-history`. Backup: `~/Documents/testdeepseekharness/backup-before-v130-20261014-135030`. dsh was not restarted; a desktop reload loads the new code.
+- npm 1.3.0: the account requires a one-time password (EOTP). The user publishes it with `npm publish /tmp/dsh-composer-plus-1.3.0.tgz --access public`. Until npm serves 1.3.0, Automatic updates do not offer it (the npm gate).
