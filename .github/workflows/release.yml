@@ -1,0 +1,46 @@
+name: release
+# Publishes each GitHub release to npm with trusted publishing (OIDC). No npm token is stored.
+# Release events publish only when the repository variable NPM_TRUSTED_PUBLISHING is "on".
+# One-time setup (npm asks for 2FA once): ~/ai-maintenance/dsh-composer-plus/bin/npm-setup.sh
+# Manual run: tag = vX.Y.Z publishes that release again if npm does not have it.
+# No tag = check publish <x.y.z>-trust.<run> with npm tag "trust-check"; the plugin and "npm install" ignore it.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (vX.Y.Z). Empty = check publish.
+        required: false
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    if: vars.NPM_TRUSTED_PUBLISHING == 'on' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: git config --global user.email ci@example.com && git config --global user.name ci
+      - run: npm test
+      - name: Publish
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if [ -z "$TAG" ]; then
+            npm version "$VERSION-trust.$GITHUB_RUN_NUMBER" --no-git-tag-version
+            npm publish --tag trust-check
+          elif [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::tag $TAG does not match package.json version $VERSION"; exit 1
+          elif npm view "dsh-composer-plus@$VERSION" version >/dev/null 2>&1; then
+            echo "npm already has $VERSION"
+          else
+            npm publish
+          fi
