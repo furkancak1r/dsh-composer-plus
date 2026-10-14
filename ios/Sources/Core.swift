@@ -76,6 +76,10 @@ func isLANv4(_ h: String) -> Bool {
     return o[0] == 10 || (o[0] == 172 && (16...31).contains(o[1])) || (o[0] == 192 && o[1] == 168) || (o[0] == 169 && o[1] == 254)
 }
 
+/// Bonjour may resolve the Mac over the USB cable (169.254.x link-local); the gateway only listens on its Wi‑Fi
+/// subnet, so adopting that address would replace a working LAN host with one that always fails.
+func bonjourHost(_ h: String) -> Bool { isLANv4(h) && !h.hasPrefix("169.254.") }
+
 /// Tailscale CGNAT IPv4 (100.64.0.0/10) or a lowercase MagicDNS name (*.ts.net): reachable only inside the user's tailnet.
 func isTailnet(_ h: String) -> Bool {
     let o = h.split(separator: ".", omittingEmptySubsequences: false).map { Int($0) ?? -1 }
@@ -1207,7 +1211,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             case .ready:
                 if case let .hostPort(host, port)? = c.currentPath?.remoteEndpoint, case let .ipv4(a) = host {
                     let h = "\(a)".components(separatedBy: "%")[0]
-                    if isLANv4(h) { MainActor.assumeIsolated { self.found[fp] = Found(fp: fp, name: name, host: h, port: Int(port.rawValue)) } }
+                    if bonjourHost(h) { MainActor.assumeIsolated { self.found[fp] = Found(fp: fp, name: name, host: h, port: Int(port.rawValue)) } }
                 }
                 c.cancel()
             case .failed, .waiting: c.cancel()

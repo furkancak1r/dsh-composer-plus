@@ -38,6 +38,10 @@ final class CoreTests: XCTestCase {
         for bad in ["8.8.8.8", "172.32.0.1", "192.169.0.1", "127.0.0.1", "0.0.0.0", "10.0.0", "10.0.0.256", "evil.com", "10.0.0.1.nip.io", "::1", " 10.0.0.1", "１0.0.0.1"] {
             XCTAssertFalse(isLANv4(bad), bad)
         }
+        // Bonjour over the USB cable resolves to 169.254.x, where the gateway never listens
+        XCTAssertTrue(bonjourHost("192.168.1.44"))
+        XCTAssertFalse(bonjourHost("169.254.61.172"))
+        XCTAssertFalse(bonjourHost("8.8.8.8"))
     }
 
     func testInboxSplice() {

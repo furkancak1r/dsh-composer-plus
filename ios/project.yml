@@ -31,6 +31,9 @@ targets:
       path: Resources/Info.plist
       properties:
         NSBonjourServices: [_dshmobile._tcp]
+        # ATS exempts RFC 1918 IPs but not Tailscale's 100.64/10, and rejects the self-signed cert there (-9802)
+        # even after Pinner accepted it. ATS exceptions can't name IPs, so it's off; every request still goes through Pinner.
+        NSAppTransportSecurity: { NSAllowsArbitraryLoads: true }
         CFBundleDevelopmentRegion: en
   DSHMobileTests:
     type: bundle.unit-test
