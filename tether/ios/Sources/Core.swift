@@ -576,7 +576,6 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         switch upstream {
         case "", "connected": return nil
         case "disconnected": return String(localized: "DSH is closed or restarting on your Mac.")
-        case let s where s.hasPrefix("waiting"): return String(localized: "Turn on the Tether plugin (dsh-mobile-bridge) in DSH on your Mac.")
         default: return String(localized: "DSH on your Mac is not responding.")
         }
     }

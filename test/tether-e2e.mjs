@@ -1,9 +1,9 @@
 // Manual live check against a REAL running DSH + gateway (not part of npm test).
-// Usage: start DSH with the plugin and node server.mjs, then:  node e2e.mjs
+// Usage: start a dsh with dsh-composer-plus and Mobile connect switched on (see tether/README.md), then:  node test/tether-e2e.mjs
 // Pairs a fake phone via the admin API, then drives allowlisted RPCs and a session/follow stream over pinned HTTPS/WSS.
 import { request } from 'node:https'
 import assert from 'node:assert/strict'
-import { wsConnect, normFp } from './server.mjs'
+import { wsConnect, normFp } from '../tether/gateway/server.mjs'
 
 const ADMIN = 'http://127.0.0.1:' + (process.env.DSH_MOBILE_ADMIN_PORT ?? 19391)
 const admin = async (path, body) => (await fetch(ADMIN + path, body === undefined ? {} : { method: 'POST', headers: { 'x-dsh-admin': '1' }, body: JSON.stringify(body) })).json()

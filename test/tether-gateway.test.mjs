@@ -7,7 +7,7 @@ import { connect } from 'node:tls'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createGateway, acceptWs, wsConnect, inSubnet, isTailnet, allowed, normFp, RPC, STREAMS } from './server.mjs'
+import { createGateway, acceptWs, wsConnect, inSubnet, isTailnet, allowed, normFp, RPC, STREAMS } from '../tether/gateway/server.mjs'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 async function waitFor(fn, ms = 3000) {
@@ -53,8 +53,7 @@ async function mockDsh() {
 async function setup(extra = {}) {
   const dsh = await mockDsh()
   const dir = mkdtempSync(join(tmpdir(), 'dshm-'))
-  writeFileSync(join(dir, 'upstream.url'), dsh.url)
-  const gw = createGateway({ dir, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0' }), ...extra })
+  const gw = createGateway({ dir, upstreamUrl: () => dsh.url, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0' }), ...extra })
   await gw.start()
   return { gw, dsh, dir, done: async () => { await gw.close(); dsh.close() } }
 }
@@ -308,7 +307,7 @@ test('brute force: repeated bad auth blocks the IP', async () => {
 
 test('token: renews when half-expired, rejects when expired', async () => {
   const t = await setup()
-  const opts = { dir: t.dir, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0' }) }
+  const opts = { dir: t.dir, upstreamUrl: () => t.dsh.url, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0' }) }
   const { token, deviceId } = await pairDevice(t.gw)
   await t.gw.close()
   const file = join(t.dir, 'devices.json')

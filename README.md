@@ -4,13 +4,13 @@
 [![test](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml/badge.svg)](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Codex-style quality-of-life features for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) desktop and web UI: a Changes panel, project status in the sidebar, input history, a plan-mode shortcut, one-click Continue, queue drag-and-drop, session deeplinks, per-chat Auto Review grants, background notifications and automatic updates.
+Codex-style quality-of-life features for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) desktop and web UI: a Changes panel, project status in the sidebar, input history, a plan-mode shortcut, one-click Continue, queue drag-and-drop, session deeplinks, per-chat Auto Review grants, background notifications, iPhone access with the Tether app and automatic updates.
 
-**In one line:** a single DeepSeek Harness plugin (npm `dsh-composer-plus`, shown as **Composer Plus** in Settings → Plugins) that adds a git Changes panel, ↑/↓ input history, a Shift+Tab `/plan` toggle, one-click ▶ Continue, drag-and-drop queue reordering, Copy deeplink, Auto Review “Allow for this chat”, background notifications, 11 extra interface languages and automatic updates.
+**In one line:** a single DeepSeek Harness plugin (npm `dsh-composer-plus`, shown as **Composer Plus** in Settings → Plugins) that adds a git Changes panel, ↑/↓ input history, a Shift+Tab `/plan` toggle, one-click ▶ Continue, drag-and-drop queue reordering, Copy deeplink, Auto Review “Allow for this chat”, background notifications, iPhone access (Mobile connect, Tether app), 11 extra interface languages and automatic updates.
 
 <p align="center"><img src="docs/images/hero.webp" width="820" alt="DeepSeek Harness with Composer Plus: the running project shows a spinner in the sidebar and the Changes panel shows a git diff"></p>
 
-Unofficial community plugin. The only network calls are the update check (GitHub releases and the npm registry); switch off **Automatic updates** to stop them at startup.
+Unofficial community plugin. The only network calls are the update check (GitHub releases and the npm registry); switch off **Automatic updates** to stop them at startup. **Mobile connect** (off by default) accepts iPhone connections from your local network or tailnet only after you switch it on.
 
 ## Install
 
@@ -25,7 +25,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.4.1`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.5.0`.
 
 ## Features
 
@@ -47,13 +47,14 @@ Then restart dsh. (The CLI can't install into the desktop profile; the app manag
 | **Order by status** | Sidebar → view options → **Order by** → **By status** (with **In one list**). Finished chats come first (dsh's “done” dot, which a turn that ended with an error also gets), then running or waiting chats, then chats with an active automation (Schedule), then the rest in dsh's order. Opening a finished chat moves it down. Only the view changes: select **Manual** or **Last updated** to go back. | <a href="assets/features/statusOrder.webp"><img src="assets/features/statusOrder.webp" width="160" alt="Order by status screenshot"></a> |
 | **Background notifications** | While dsh is in the background you get a notification when a turn finishes (first line of the reply), or when a chat really waits for you: an approval (tool name), an answer (the question) or a plan review. A request must still be open 1.5 s later, so approvals answered automatically (Auto Review grants, other plugins) stay silent, and a notification is withdrawn as soon as its request is answered. The Dock/taskbar badge counts waiting chats. Clicking opens that chat. | <a href="assets/features/notifications.webp"><img src="assets/features/notifications.webp" width="160" alt="Background notifications screenshot"></a> |
 | **11 extra UI languages** | Settings → Composer Plus → **Application language** switches the whole dsh interface to Türkçe, Español, Português (Brasil), Français, Deutsch, Русский, 日本語, 한국어, Bahasa Indonesia, Tiếng Việt or हिन्दी (see below). | <a href="assets/features/language.webp"><img src="assets/features/language.webp" width="160" alt="11 extra UI languages screenshot"></a> |
+| **Mobile connect (iPhone)** | Use dsh from your iPhone with the [Tether](tether/) app, on the same Wi-Fi or over [Tailscale](https://tailscale.com). Switch it on in **Settings → Composer Plus** (it is off by default, because it opens a network port on this Mac). Then click **Mobile connect** at the bottom left of the sidebar: scan the QR code in Tether and click **Approve**. The phone shows your chats, sends messages, answers approvals and questions, and switches models and agents. | <a href="assets/features/mobileConnect.webp"><img src="assets/features/mobileConnect.webp" width="160" alt="Mobile connect screenshot"></a> |
 | **Automatic updates** | When dsh starts, the plugin checks the [latest GitHub release](https://github.com/furkancak1r/dsh-composer-plus/releases/latest). If it is newer and already on npm, it installs that exact version through dsh's own plugin manager (the same path as Settings → Plugins) and notifies you. **Restart dsh** to load it. **Settings → Composer Plus → Composer Plus updates** shows the version and has **Check for updates** / **Update now**. | <a href="assets/features/autoUpdate.webp"><img src="assets/features/autoUpdate.webp" width="160" alt="Automatic updates screenshot"></a> |
 
 Buttons, tooltips, notices and notifications follow the selected dsh language (see Application language below).
 
 ## Settings
 
-Every feature can be switched off on its own: dsh **Settings → Composer Plus**. Each row has a small screenshot: hover it for a larger preview, click it to open it full size (`Esc` closes). The **Search features** box at the top filters the page by name or description (any language, case- and accent-insensitive); `Esc` clears it. Each row has a switch and a short description; changes apply immediately, without a restart, and are remembered on that device. Everything is on by default.
+Every feature can be switched on or off on its own: dsh **Settings → Composer Plus**. Each row has a small screenshot: hover it for a larger preview, click it to open it full size (`Esc` closes). The **Search features** box at the top filters the page by name or description (any language, case- and accent-insensitive); `Esc` clears it. Each row has a switch and a short description; changes apply immediately, without a restart, and are remembered on that device. Everything is on by default, except **Mobile connect**: dsh's Host keeps that switch, so it applies to every window and survives a restart.
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="Settings → Composer Plus: feature search, language picker, update row and a switch per feature, with a screenshot preview on hover"></p>
 
@@ -91,6 +92,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 - **Changes panel:** git runs read-only on your machine, in the chat's own folder, through dsh's authenticated `/api` channel. It never commits, stages or fetches, and only shows paths git itself listed.
 - **Allow for this chat:** grants are stored in `$DSH_HOME/storages/dsh-composer-plus/grants.json` (owner-only permissions). A grant covers **one exact tool in one chat**. If that tool can write, the grant covers any write too. Revoke it from the header chip.
 - Auto Review still runs on every call; review failures are never auto-allowed.
+- **Mobile connect:** off until you switch it on. While it is on, the Host half runs the Tether gateway: HTTPS on port 19390 that accepts only your Wi-Fi subnet and your tailnet (100.64.0.0/10), and a pairing page on `127.0.0.1:19391` (this Mac only). A phone needs a one-time code from the QR code (5 minutes) and your **Approve** on the Mac. The phone pins the gateway's certificate. The Mac keeps only a hash of each phone's token (30 days, renewed while used); **Revoke** closes that phone's connections at once. Phones can call only an allowlist of dsh methods (chats, prompts, attachments, slash commands, approvals, questions, models, agents, goals), not settings, credentials, the file browser or the terminal. Data: `$DSH_HOME/storages/dsh-composer-plus/mobile/`. Details: [tether/README.md](tether/README.md).
 - **Updates:** the Host half asks `api.github.com` for the latest release and `registry.npmjs.org` for that exact version; nothing about you or your chats is sent. Installation uses dsh's plugin manager (`pnpm add dsh-composer-plus@<version>`), so dsh's own registry, script and version-compatibility checks apply. Pre-release tags and older versions are never installed.
 
 ## Troubleshooting
@@ -98,7 +100,9 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 - **No notifications on macOS:** System Settings → Notifications → DeepSeek Harness → allow. Choose **Alerts** to keep them on screen.
 - **▶, queue grips, project status, the recent projects option, Collapse all projects, Copy path, Allow for this chat or right-click missing after a dsh update:** these attach to dsh's current HTML because dsh has no slot for them yet. If dsh changes that markup they hide themselves; nothing else breaks. Please open an [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
 - **"Update failed" or "not installed from npm":** a copy linked from a local folder or renamed can't update itself; reinstall `dsh-composer-plus` from Settings → Plugins. Otherwise the message shows the first line of pnpm's error; **Check for updates** retries.
-- **Install fails right after a release:** add the version (`dsh-composer-plus@1.4.1`), see the install note above.
+- **Mobile connect says the gateway is not running:** "no IPv4 address on en0" means this Mac has no Wi-Fi/Ethernet address; "EADDRINUSE" means another dsh (or app) uses port 19390 or 19391. Only one dsh can run Mobile connect at a time.
+- **Mobile connect says "Restart dsh":** the plugin was updated while dsh was running; the new Host half loads after a restart.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.5.0`), see the install note above.
 
 ## Limits
 
@@ -107,6 +111,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 - dsh's queue has no `move` action, so a reorder rewrites the affected rows' text. If the agent picks up a row mid-move, the move is undone and nothing is lost. Messages with images or files can't be moved.
 - An update needs a dsh restart to take effect; the plugin never restarts dsh for you. Web/CLI profiles without dsh's plugin manager only report a new version.
 - **Keep composer focus** gives the focus back only after a `/` command or skill. While dsh resolves the command, the composer stays read-only for a few milliseconds, so keys pressed in that time are lost. If dsh's `/` menu is still open, `Enter` picks the highlighted row and does not send.
+- **Mobile connect** works on macOS only (it uses `en0`, `openssl`, `swift` and `dns-sd`). It uses fixed ports 19390 and 19391, so only one dsh can run it at a time. The phone gets notifications only while Tether is open or just went to the background (no push service). The iOS app is not on the App Store yet: build it from `tether/ios` with Xcode.
 - A deeplink works inside chats; clicking it does not open the chat.
 - A notification sent before a restart only brings dsh to the front when clicked.
 - Active projects are moved with dsh's saved project order, so the new order is kept after a restart. Chats outside any project ("Ungrouped") can't be moved; dsh always lists them last.
@@ -136,6 +141,8 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 
 **How do I switch the DeepSeek Harness interface to Turkish, Spanish, Japanese…?** Settings → Composer Plus → **Application language**.
 
+**How do I use dsh from my iPhone?** Build the Tether app from `tether/ios` (Xcode), switch on **Settings → Composer Plus → Mobile connect (iPhone)**, click **Mobile connect** at the bottom left, scan the QR code in Tether and click **Approve**. Away from home, use Tailscale on both devices.
+
 **Does it work with the desktop app?** Yes: Settings → Plugins → **Add plugin** → `dsh-composer-plus`. Tested on dsh 0.2.0-rc.2 (desktop and web) and 0.2.1-alpha.2 (web).
 
 ## Development
@@ -154,6 +161,8 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-status-order.mjs /path/t
 PLAYWRIGHT=/path/to/playwright node test/browser-settings-shots.mjs /path/to/dsh/lib/bin.js
 # Keep composer focus (fake model + demo skill): typing goes on after a / command + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/dsh/lib/bin.js
+# Mobile connect: switch on, QR popover, a fake iPhone pairs and calls dsh through the gateway, switch off + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
@@ -163,7 +172,7 @@ npm test
 
 **Rule for new features:** every feature row in Settings → Composer Plus shows a screenshot. Add the feature id to `SHOT_OF` in `client.js` and to `SHOTS` in `index.js`, and ship `assets/features/<id>.webp` (taken from the throwaway demo dsh, English UI, about 60 kB or less). Add the feature to the README table with the same image. `test/shots.test.mjs` fails when a feature has no screenshot, and `test/browser-settings-shots.mjs` checks the real Settings page. The full checklist for every change is in [AGENTS.md](AGENTS.md).
 
-The tests run the real `client.js` against a fake React/DOM and the real `index.js` (Host half) against a temporary git repository. `node test/browser-history.mjs '<dsh web URL with ?token=…>'` checks input history in a real browser against a throwaway `dsh web` with its own `DSH_HOME`.
+The tests run the real `client.js` against a fake React/DOM and the real `index.js` (Host half) against a temporary git repository. The Tether gateway tests (`test/tether-gateway.test.mjs`) use a mock dsh host and a real TLS gateway. The iPhone app is in `tether/ios` (see [tether/README.md](tether/README.md) and [tether/AGENTS.md](tether/AGENTS.md)). `node test/browser-history.mjs '<dsh web URL with ?token=…>'` checks input history in a real browser against a throwaway `dsh web` with its own `DSH_HOME`.
 
 Language packs are data-only JSON in `locales/<id>.json`, embedded into the single client entry by `npm run build:locales` (no translation service or runtime download). `npm test` checks every pack for full key coverage, identical placeholders and line breaks, and the system/override behaviour. For isolated real-app checks with a locally installed Playwright:
 

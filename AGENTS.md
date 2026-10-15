@@ -1,8 +1,10 @@
 # dsh-composer-plus: rules for every change
 
+The Tether iPhone app and its Mac gateway are in `tether/` (Mobile connect). Read `tether/AGENTS.md` before you work there.
+
 ## Each new or changed feature
 
-1. Give it its own switch: add the id to `FEATURES` in `client.js` and install it with `feature(id, setup)`. Switching it off must remove every listener, observer, DOM host and style it added.
+1. Give it its own switch: add the id to `FEATURES` in `client.js` and install it with `feature(id, setup)`. Switching it off must remove every listener, observer, DOM host and style it added. A feature that opens a network port or runs a server stays off until the user switches it on (`OFF_BY_DEFAULT`).
 2. Give it a Settings screenshot. This rule has no exceptions:
    - add `<id>: '<shot>'` to `SHOT_OF` in `client.js`;
    - add `<shot>` to `SHOTS` in `index.js`;
@@ -19,3 +21,4 @@
 - Run `npm test`, then commit and push. CI must pass before you create the GitHub release `vX.Y.Z`.
 - npm needs the owner's browser approval: run `npm publish --access public --auth-type=web` in a terminal (TTY).
 - Live desktop copy: back it up first, and keep its module id `@local/dsh-composer-history`. Never restart dsh.
+- The npm package ships only `tether/gateway/{server.mjs,admin.html,qr.swift}` from `tether/` (see `files` in `package.json`). Check with `npm pack --dry-run`.

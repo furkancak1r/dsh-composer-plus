@@ -2,6 +2,8 @@
 
 DeepSeek Harness için resmi olmayan uzaktan kumanda; DeepSeek ile bağlantısı yoktur.
 
+Tether, [dsh-composer-plus](../README.md) eklentisinin bir parçasıdır. Mac tarafı ayrı bir eklenti değildir: dsh-composer-plus kuruluyken **Ayarlar → Composer Plus → Mobile connect (iPhone)** anahtarını açın. Anahtar varsayılan olarak kapalıdır, çünkü bu Mac'te bir ağ portu açar.
+
 Mac'te çalışan DeepSeek Harness'ı (DSH) aynı yerel ağdaki iPhone'dan kontrol etmek için native SwiftUI iOS uygulaması (iOS 17+) ve küçük bir Mac gateway'i. Yeni bağımlılık yok: gateway yalnızca Node stdlib, iOS yalnızca Apple framework'leri.
 
 ## Mimari
@@ -10,30 +12,28 @@ Mac'te çalışan DeepSeek Harness'ı (DSH) aynı yerel ağdaki iPhone'dan kontr
 iPhone (SwiftUI)  ──HTTPS/WSS, sertifika pin'li, Bearer token──▶  gateway/server.mjs (Mac, :19390, yalnızca LAN alt ağı)
                                                                    │  loopback HTTP + DSH'nin kendi auth URL'si
                                                                    ▼
-                                                   DSH host (127.0.0.1)  ◀── gateway/dsh-plugin (upstream.url yazar)
+                                                   DSH host (127.0.0.1)  ◀── dsh-composer-plus Host yarısı (index.js) gateway'i çalıştırır
 Mac tarayıcısı ──▶ http://127.0.0.1:19391/  (admin: QR, eşleme onayı, cihaz iptali)
 ```
 
-- **dsh-plugin/index.js**: DSH içinde çalışır, host'un kimlik doğrulamalı loopback URL'sini `~/.dsh-mobile/upstream.url` dosyasına (0600) yazar, DSH kapanınca siler.
+- **dsh-composer-plus (`../index.js`)**: Mobile connect açıkken gateway'i DSH'nin kendi sürecinde çalıştırır. DSH'nin kimlik doğrulamalı loopback URL'sini gateway'e bellekten verir (diske token yazılmaz). Anahtar kapanınca, eklenti kaldırılınca veya DSH kapanınca gateway durur.
 - **server.mjs**: telefonlara tek kapı. `POST /pair`, `GET /me`, `POST /api/<method>` (allowlist), WSS `/api/remote.mux` (allowlist'li stream'ler) ve DSH `$events` akışını (onay / soru istekleri) telefonlara dağıtır. Bonjour `_dshmobile._tcp` (TXT `fp=`).
 - **ios/**: Sohbet, Oturumlar, Ajanlar, Ayarlar sekmeleri; QR / yapıştır / Bonjour ile eşleme; otomatik yeniden bağlanma.
 
 ## Kurulum
 
-1. DSH profiline eklentiyi ekle, `~/.dsh/profiles/desktop/cordis.patch.yml`:
-   ```yaml
-   - insert: [{id: dsh-mobile-bridge, name: /MUTLAK/YOL/dsh-mobil/gateway/dsh-plugin/index.js}]
-   ```
-   DSH'yi yeniden başlat. Gateway artık eklentinin içinde çalışır: DSH açılınca başlar, kapanınca durur; ayrıca bir şey çalıştırmaya gerek yok.
-2. (İsteğe bağlı) Gateway'i ayrı çalıştırmak için DSH'yi `DSH_MOBILE_STANDALONE=1` ile başlat ve `cd gateway && npm start`. `openssl` ilk çalıştırmada self-signed sertifika üretir. Ortam değişkenleri: `DSH_MOBILE_IFACE` (varsayılan `en0`), `DSH_MOBILE_PORT` (19390), `DSH_MOBILE_DIR` (`~/.dsh-mobile`).
-3. Mac'te `http://127.0.0.1:19391/` aç ya da DSH'de sol alttaki **Mobile connect** butonuna bas; QR, cihazlar ve Tailscale durumu görünür.
+1. DSH'ye dsh-composer-plus eklentisini kur: Ayarlar → Eklentiler → **Eklenti ekle** → `dsh-composer-plus`.
+2. **Ayarlar → Composer Plus → Mobile connect (iPhone)** anahtarını aç. Gateway hemen başlar ve DSH yeniden açıldığında da başlar. `openssl` ilk açılışta self-signed sertifika üretir. Veriler `$DSH_HOME/storages/dsh-composer-plus/mobile/` klasöründedir (cihazlar, sertifika, QR). Ortam değişkenleri: `DSH_MOBILE_IFACE` (varsayılan `en0`), `DSH_MOBILE_PORT` (19390), `DSH_MOBILE_ADMIN_PORT` (19391), `DSH_MOBILE_DIR`.
+3. DSH'de sol alttaki **Mobile connect** düğmesine bas ya da Mac'te `http://127.0.0.1:19391/` adresini aç. QR, cihazlar ve Tailscale durumu görünür.
 4. iOS: `ios/DSHMobile.xcodeproj` aç, gerçek cihaz için Signing Team seç, çalıştır. QR'ı tara (veya içeriğini yapıştır / Bonjour listesinden seç), Mac'teki admin sayfasında **Onayla**.
 5. Proje dosyası `ios/project.yml`'den üretilir: değişiklikten sonra `cd ios && xcodegen generate`.
+
+Eski `dsh-mobile-bridge` eklentisini kullandıysan, `cordis.patch.yml` içindeki kaydını sil. Eski `~/.dsh-mobile` klasörü artık okunmaz: telefonu yeni QR koduyla bir kez daha eşleştir.
 
 ## Uzaktan erişim (Tailscale)
 
 1. Mac'e ve iPhone'a [Tailscale](https://tailscale.com/download) kur, ikisinde de aynı hesapla giriş yap.
-2. DSH'yi yeniden başlat. Admin sayfasındaki "Remote access" satırı Tailscale adresini gösterir.
+2. Mobile connect anahtarını kapatıp aç ya da DSH'yi yeniden başlat. Admin sayfasındaki "Remote access" satırı Tailscale adresini gösterir.
 3. Önceden eşleşmiş telefonun bir kez evde (aynı Wi‑Fi'de) bağlanması yeterli, Tailscale adresini kendisi öğrenir. Yeni QR da olur.
 4. Bitti: Wi‑Fi dışındayken uygulama Tailscale üzerinden bağlanır, Ayarlar'da "Route" hangi yolun kullanıldığını gösterir.
 
@@ -66,20 +66,29 @@ Kodda `shortcut:` yorumlarıyla işaretli:
 
 İnternet / uzaktan erişim (relay, VPN), çoklu Mac, dosya gezgini / terminal, eski geçmişi sayfalama, arka plan push bildirimleri, ses girişi, iPad'e özel düzen.
 
-## Testler
+## Ajanla iPhone testi (agent-device)
 
-- Gateway: `cd gateway && npm test` → **12/12 geçti** (subnet, eşleme + hash'li saklama, yetkisiz erişim, kod tekrarı/süre/ret, MITM, allowlist, iptal + replay, LAN-only, ağ değişimi, event yönlendirme, eşzamanlılık, brute force).
-- iOS: `cd ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test CODE_SIGNING_ALLOWED=NO` → **6/6 geçti** (kendi sertifikası kabul, MITM reddi, LAN-only, QR doğrulama, Markdown blokları, içerik/soru ayrıştırma). Uygulama iOS Simulator için derleniyor (Xcode 26.6).
-- Gerçek cihaz: iPhone 13 için imzalı derleme (`-destination 'platform=iOS,name=iPhone' -allowProvisioningUpdates`), `xcrun devicectl device install app` ile kurulum ve açılış **başarılı**.
-- Canlı DSH uçtan uca (`gateway/e2e.mjs`, elle çalıştırılır) → **14/14 geçti**, gerçek DSH 0.2.0-rc.2 ve gerçek LAN adresi (192.168.1.44) üzerinde: yanlış pin reddi, eşleme + onay, kod tekrarı reddi, upstream bağlantısı, session/list·create·rename, goals/get, agentPresets/list, session/modelCatalog, allowlist dışı yöntem 403, WSS session/follow snapshot, iptal sonrası 401. Ayrıca `dns-sd -L` ile Bonjour yayını (fp TXT kaydıyla) ve `lsof` ile yalnızca `192.168.1.44:19390` + `127.0.0.1:19391` dinlendiği doğrulandı.
+Uygulamayı iPhone'da veya iOS simülatöründe açan, kullanan ya da kontrol eden ajanlar [agent-device](https://github.com/callstack/agent-device) kullanır. Derleme, kurulum ve kullanım adımları ile kurallar [AGENTS.md](AGENTS.md) dosyasındadır.
 
-Kendi `~/.dsh` profiline dokunmadan canlı test için DSH'yi geçici bir profil ve eklentiyi ekleyen bir patch dosyasıyla açın:
+Bir kez kurun (Node.js 22.12 veya üstü gerekir):
 
 ```sh
-DSH_HOME=/tmp/dshe2e/home DSH_MOBILE_DIR=/tmp/dshe2e/mobile ELECTRON_RUN_AS_NODE=1 +  "/Applications/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness" +  "/Applications/DeepSeek Harness.app/Contents/Resources/app.asar/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js" +  web --patch /tmp/dshe2e/patch.yml --no-open --port 0
-cd gateway && DSH_MOBILE_DIR=/tmp/dshe2e/mobile node server.mjs   # ayrı terminal
-cd gateway && node e2e.mjs                                         # üçüncü terminal
+npm install -g agent-device@latest
+agent-device doctor
 ```
 
-`patch.yml`, Kurulum bölümündeki eklenti kaydının aynısıdır. Geçici profilde model hesabı olmadığından prompt gönderme bu testte denenmez.
+Gerçek iPhone için:
+
+- iPhone eşleşmiş ve güvenilir olmalı, Geliştirici Modu açık olmalı.
+- agent-device, iPhone'a kendi runner uygulamasını kurar. Bu uygulamayı imzalamak için `AGENT_DEVICE_IOS_TEAM_ID` ve `AGENT_DEVICE_IOS_BUNDLE_ID` değişkenlerini ayarlayın. Değerler AGENTS.md dosyasındadır.
+
+## Testler
+
+- Gateway: depo kökünde `npm test` (`test/tether-gateway.test.mjs`: subnet, tailnet, eşleme + hash'li saklama, yetkisiz erişim, kod tekrarı/süre/ret, MITM, allowlist, iptal + replay, LAN-only, ağ değişimi, event yönlendirme, eşzamanlılık, brute force, token yenileme) ve `test/mobile-connect.test.mjs` (anahtar, gateway yaşam döngüsü, Ayarlar satırı, kenar çubuğu düğmesi).
+- Gerçek DSH ile eklenti içinden uçtan uca: `PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js` (varsayılan kapalı, anahtarı açma, QR'lı açılır pencere, sahte iPhone eşleme + `session/list`, allowlist 403, kapatınca portların kapanması). Mac'in Wi-Fi adresi gerekir.
+- iOS: `cd ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test CODE_SIGNING_ALLOWED=NO` → **6/6 geçti** (kendi sertifikası kabul, MITM reddi, LAN-only, QR doğrulama, Markdown blokları, içerik/soru ayrıştırma). Uygulama iOS Simulator için derleniyor (Xcode 26.6).
+- Gerçek cihaz: iPhone 13 için imzalı derleme (`-destination 'platform=iOS,name=iPhone' -allowProvisioningUpdates`), `xcrun devicectl device install app` ile kurulum ve açılış **başarılı**.
+- Canlı DSH uçtan uca (`test/tether-e2e.mjs`, elle çalıştırılır; birleşmeden önceki sonuç) → **14/14 geçti**, gerçek DSH 0.2.0-rc.2 ve gerçek LAN adresi (192.168.1.44) üzerinde: yanlış pin reddi, eşleme + onay, kod tekrarı reddi, upstream bağlantısı, session/list·create·rename, goals/get, agentPresets/list, session/modelCatalog, allowlist dışı yöntem 403, WSS session/follow snapshot, iptal sonrası 401. Ayrıca `dns-sd -L` ile Bonjour yayını (fp TXT kaydıyla) ve `lsof` ile yalnızca `192.168.1.44:19390` + `127.0.0.1:19391` dinlendiği doğrulandı.
+
+`test/tether-e2e.mjs`, Mobile connect anahtarı açık ve model hesabı olan bir DSH'ye bağlanır, gerçek bir model turu da dener. Kendi profilin yerine geçici bir `DSH_HOME` kullan.
 

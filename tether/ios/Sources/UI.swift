@@ -123,7 +123,7 @@ struct PairView: View {
             Form {
                 Section {
                     Button { scanning = true } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
-                } footer: { Text(verbatim: String(localized: "Where's the code? In DeepSeek Harness on your Mac, click Mobile connect at the bottom left. Scan the QR code there, then click Approve.")) }
+                } footer: { Text(verbatim: String(localized: "Where's the code? In DeepSeek Harness on your Mac, turn on Settings → Composer Plus → Mobile connect (iPhone). Then click Mobile connect at the bottom left, scan the QR code and click Approve.")) }
                 Section("Or paste the pairing code") {
                     TextField("{\"v\":1,…}", text: $pasted, axis: .vertical).font(.caption.monospaced()).autocorrectionDisabled().textInputAutocapitalization(.never)
                     Button("Pair") { use(pasted) }.disabled(pasted.isEmpty)

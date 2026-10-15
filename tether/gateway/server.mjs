@@ -1,6 +1,6 @@
-#!/usr/bin/env node
 // Tether gateway: LAN-only HTTPS/WSS front door for the DeepSeek Harness host running on this Mac.
-// Phones talk to this process; it talks to DSH on 127.0.0.1 with the host's own auth cookie.
+// It runs in dsh-composer-plus's Host half while Mobile connect is on (see index.js). Phones talk to it; it talks to
+// DSH on 127.0.0.1 with the host's own auth cookie.
 import { createServer as createHttps, request as httpsRequest } from 'node:https'
 import { createServer as createHttp, request as httpRequest } from 'node:http'
 import { createHash, randomBytes, randomUUID, timingSafeEqual, X509Certificate } from 'node:crypto'
@@ -171,7 +171,7 @@ export function wsConnect(url, headers = {}, tls = {}) {
   })
 }
 
-// ---- Upstream: the DSH host on loopback, authenticated with the URL the dsh-mobile-bridge plugin writes. ----
+// ---- Upstream: the DSH host on loopback, authenticated with the URL that dsh-composer-plus (Mobile connect) gives. ----
 function send(method, url, body, headers = {}) {
   return new Promise((ok, bad) => {
     const r = httpRequest(url, { method, headers, agent: false }, res => {
@@ -184,10 +184,10 @@ function send(method, url, body, headers = {}) {
     r.end(body)
   })
 }
-function makeUpstream(file) {
+function makeUpstream(upstreamUrl) {
   let base, cookie
   async function login() {
-    const raw = readFileSync(file, 'utf8').trim()
+    const raw = String(await upstreamUrl()).trim()
     const u = new URL(raw)
     if (u.protocol !== 'http:' || !['127.0.0.1', 'localhost'].includes(u.hostname)) throw new Error('upstream must be loopback http')
     const res = await send('GET', raw) // 303 + cookie; never follow the redirect
@@ -214,7 +214,7 @@ function makeUpstream(file) {
 
 // ---- Gateway ----
 export function createGateway(opts = {}) {
-  const dir = opts.dir ?? process.env.DSH_MOBILE_DIR ?? join(homedir(), '.dsh-mobile')
+  const dir = opts.dir ?? process.env.DSH_MOBILE_DIR ?? join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'storages', 'dsh-composer-plus', 'mobile')
   const iface = opts.iface ?? process.env.DSH_MOBILE_IFACE ?? 'en0'
   const netInfo = opts.netInfo ?? (() => {
     const a = (networkInterfaces()[iface] ?? []).find(i => i.family === 'IPv4' && !i.internal)
@@ -223,7 +223,7 @@ export function createGateway(opts = {}) {
   const codeTtl = opts.codeTtlMs ?? 5 * 60e3
   const waterfallTtl = opts.waterfallTimeoutMs ?? 10 * 60e3
   mkdirSync(dir, { recursive: true, mode: 0o700 })
-  const upstream = makeUpstream(opts.upstreamFile ?? join(dir, 'upstream.url'))
+  const upstream = makeUpstream(opts.upstreamUrl)
   const devFile = join(dir, 'devices.json')
   let devices = existsSync(devFile) ? JSON.parse(readFileSync(devFile, 'utf8')) : []
   const saveDevices = () => writeFileSync(devFile, JSON.stringify(devices, null, 2), { mode: 0o600 })
@@ -367,7 +367,7 @@ export function createGateway(opts = {}) {
       }
       u.send(JSON.stringify({ type: 'open', streamId: 'events', endpoint: '$events', payload: { args: {} } }))
     }, e => {
-      upState = e.code === 'ENOENT' ? 'waiting for dsh-mobile-bridge plugin' : 'unavailable: ' + e.message
+      upState = 'unavailable: ' + e.message
       if (running) evTimer = setTimeout(connectEvents, 3000)
     })
   }
@@ -536,20 +536,12 @@ export function createGateway(opts = {}) {
       reply(res, 200, state())
     } catch (e) { reply(res, 500, { error: e.message }) }
   }
-  function listenAdmin(p = opts.adminPort ?? 19391) {
+  function listenAdmin(p = opts.adminPort ?? Number(process.env.DSH_MOBILE_ADMIN_PORT ?? 19391)) {
     adminServer = createHttp(onAdmin)
     return new Promise((ok, bad) => { adminServer.once('error', bad); adminServer.listen(p, '127.0.0.1', () => ok(adminServer.address().port)) })
   }
-  async function close() { clearInterval(watch); await stop(); for (const p of pending.values()) p.res.destroy(); adminServer?.close() }
+  async function close() { clearInterval(watch); await stop(); for (const p of pending.values()) p.res.destroy(); adminServer?.close(); adminServer?.closeAllConnections() }
 
   return { start, stop, close, state, newCode, settle, revoke, listenAdmin, get port() { return port }, get fingerprint() { return fp } }
 }
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const gw = createGateway()
-  const adminPort = await gw.listenAdmin()
-  console.log('Tether admin: http://127.0.0.1:' + adminPort + '/')
-  try { await gw.start(); console.log('Gateway listening on https://' + gw.state().address + ':' + gw.port) } catch (e) { console.error('Gateway not started:', e.message) }
-  const quit = () => gw.close().then(() => process.exit(0))
-  process.on('SIGINT', quit); process.on('SIGTERM', quit)
-}

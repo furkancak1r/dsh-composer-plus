@@ -5,12 +5,15 @@
  * - Persistent Auto Review grants: per-session tool names saved under the dsh home, so "Allow for this chat" survives a restart.
  * - Update check: the latest GitHub release, offered only once npm serves that exact version (the client installs it
  *   through dsh's own plugin manager).
+ * - Mobile connect (Tether): runs the iPhone gateway (tether/gateway/server.mjs) in this process while the user switches it
+ *   on; the switch is saved under the dsh home and is off by default.
  */
 import { readFileSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { createGateway } from './tether/gateway/server.mjs';
 
 export const name = 'dsh-composer-plus';
 export const inject = ['connection', 'subprocess', 'sessionQuery', 'sessionController'];
@@ -21,9 +24,10 @@ export const GRANTS_PATH = '/api/composer-plus.grants';
 export const CONTINUE_PATH = '/api/composer-plus.continue';
 export const UPDATE_PATH = '/api/composer-plus.update';
 export const SHOT_PATH = '/api/composer-plus.shot';
+export const MOBILE_PATH = '/api/composer-plus.mobile';
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'inputHistory', 'planToggle', 'keepFocus',
-  'queueReorder', 'copyDeeplink', 'copyProjectPath', 'language', 'autoUpdate'];
+  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'language', 'autoUpdate'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -194,10 +198,64 @@ export async function checkUpdate(fetchImpl = fetch, pkg = PACKAGE, signal) {
   return { ...info, newer: npm.ok };
 }
 
+/** Mobile connect switch: `{ on: true }` in a JSON file, off when the file is missing or unreadable. */
+export function mobileSwitch(file) {
+  return {
+    read: async () => { try { return JSON.parse(await readFile(file, 'utf8'))?.on === true; } catch { return false; } },
+    write: async (on) => {
+      await mkdir(dirname(file), { recursive: true });
+      const tmp = `${file}.${process.pid}.tmp`;
+      await writeFile(tmp, JSON.stringify({ on }), { mode: 0o600 });
+      await rename(tmp, file);
+    },
+  };
+}
+
+/** Mobile connect: one gateway at a time. Start and stop calls run in order, so a fast toggle never leaves two gateways or a
+ * half-closed one. `upstreamUrl` gives dsh's authenticated loopback URL; it is asked again at each DSH login. */
+export function mobileGateway({ upstreamUrl, dir, make = createGateway, retryMs = 300 }) {
+  let gateway, admin, error, closed = false, queue = Promise.resolve();
+  const run = (fn) => (queue = queue.then(fn, fn));
+  // A plugin reload starts the new gateway while the old one still closes its pairing page: wait for the port (about 3 s).
+  const listenAdmin = async (g) => {
+    for (let attempt = 1; ; attempt++) {
+      try { return await g.listenAdmin(); } catch (e) {
+        if (e?.code !== 'EADDRINUSE' || attempt >= 10) throw e;
+        await new Promise((resolve) => setTimeout(resolve, retryMs));
+      }
+    }
+  };
+  const stop = async () => {
+    const g = gateway;
+    gateway = undefined; admin = undefined;
+    if (g !== undefined) await g.close().catch(() => {});
+  };
+  return {
+    start: () => run(async () => {
+      if (gateway !== undefined || closed) return;
+      error = undefined;
+      try {
+        gateway = make({ dir, upstreamUrl });
+        admin = `http://127.0.0.1:${await listenAdmin(gateway)}/`;
+        await gateway.start();
+      } catch (e) { error = String(e?.message ?? e); if (admin === undefined) await stop(); }
+    }),
+    stop: () => run(stop),
+    /** Plugin unload: stop, and ignore any start that comes later. */
+    close: () => { closed = true; return run(stop); },
+    state: () => {
+      const running = gateway?.state().running === true;
+      // The gateway retries by itself (for example when Wi-Fi comes back): a running gateway has no error to show.
+      return { running, admin, ...(error === undefined || running ? {} : { error }) };
+    },
+  };
+}
+
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const isText = (v, max = 512) => typeof v === 'string' && v.length > 0 && v.length <= max;
 
 export function apply(ctx) {
+  const home = process.env.DSH_HOME || join(homedir(), '.dsh');
   // The empty wake marker opens the step; it is then replaced by a fresh context message. Only messages
   // claimed from the inbox render as a chat bubble, so the replacement stays out of Chat, but it gives the
   // model a final user turn: providers such as Claude reject a request that ends on an assistant message.
@@ -292,7 +350,7 @@ export function apply(ctx) {
       try { return json(await checkUpdate(fetch, PACKAGE, request.signal)); } catch (error) { return json({ error: String(error?.message ?? error) }, 502); }
     },
   });
-  const store = grantsStore(join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'storages', 'dsh-composer-plus', 'grants.json'));
+  const store = grantsStore(join(home, 'storages', 'dsh-composer-plus', 'grants.json'));
   ctx.connection.fetch.register({
     path: GRANTS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     fetch: async (request) => {
@@ -302,6 +360,46 @@ export function apply(ctx) {
       if (body?.action === 'grant' && isText(body.sessionId) && isText(body.tool)) return json(await store.grant(body.sessionId, body.tool));
       if (body?.action === 'revoke' && isText(body.sessionId)) return json(await store.revoke(body.sessionId));
       return json({ error: 'bad request' }, 400);
+    },
+  });
+  // Mobile connect (Tether). The phone gateway needs dsh's web server for its loopback URL; a profile without one
+  // (headless) never starts it. Off until the user switches it on in Settings.
+  const mobileSaved = mobileSwitch(join(home, 'storages', 'dsh-composer-plus', 'mobile.json'));
+  let mobile;
+  let mobileOn; // the user's choice; the saved value applies only until the user changes it
+  const mobileRead = mobileSaved.read().then((on) => { mobileOn ??= on; });
+  let mobileQueue = Promise.resolve(); // one switch change at a time: save, then start or stop
+  ctx.inject?.(['webServer'], (webCtx) => {
+    const gateway = mobileGateway({
+      dir: process.env.DSH_MOBILE_DIR || join(home, 'storages', 'dsh-composer-plus', 'mobile'),
+      upstreamUrl: () => ctx.connection.authenticatedUrl(`http://127.0.0.1:${webCtx.webServer.port}`),
+    });
+    mobile = gateway;
+    webCtx.effect(() => {
+      mobileRead.then(() => { if (mobileOn && mobile === gateway) gateway.start(); });
+      return () => { if (mobile === gateway) mobile = undefined; gateway.close(); };
+    }, 'dsh-composer-plus: mobile connect');
+  });
+  ctx.connection.fetch.register({
+    path: MOBILE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (typeof body?.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        const change = async () => {
+          await mobileRead;
+          await mobileSaved.write(body.on); // a failed save changes nothing
+          mobileOn = body.on;
+          if (mobile !== undefined) await (body.on ? mobile.start() : mobile.stop());
+        };
+        const done = mobileQueue.then(change);
+        mobileQueue = done.catch(() => {}); // a failed save answers only its own request
+        try { await done; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      await mobileRead;
+      const on = mobileOn === true;
+      return json({ on, available: mobile !== undefined, ...(on && mobile !== undefined ? mobile.state() : { running: false }) });
     },
   });
 }

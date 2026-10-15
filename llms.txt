@@ -1,6 +1,6 @@
 # dsh-composer-plus
 
-> Composer Plus: a community plugin for DeepSeek Harness (dsh), DeepSeek's open-source agent harness. One install adds Codex-style quality-of-life features to the dsh desktop app and web UI. npm package: `dsh-composer-plus`. MIT license. Unofficial.
+> Composer Plus: a community plugin for DeepSeek Harness (dsh), DeepSeek's open-source agent harness. One install adds Codex-style quality-of-life features to the dsh desktop app and web UI, and iPhone access with the Tether app. npm package: `dsh-composer-plus`. MIT license. Unofficial.
 
 Install in the dsh desktop app: Settings → Plugins → Add plugin → `dsh-composer-plus` → Enable now. Install in a web/CLI profile: `dsh plugin --profile web add dsh-composer-plus`, then restart dsh. Requires dsh >= 0.2.0-rc.2 and Node.js >= 22.
 
@@ -21,6 +21,7 @@ Features (each one can be switched off in Settings → Composer Plus):
 - Order by status: "By status" in the sidebar's Order by puts finished, then running or waiting, then automated chats first in "In one list" (view only).
 - Background notifications: OS notification and Dock badge when a chat finishes or really waits for an approval, a question or a plan review; click opens the chat.
 - 11 extra UI languages for the whole dsh interface: Türkçe, Español, Português (Brasil), Français, Deutsch, Русский, 日本語, 한국어, Bahasa Indonesia, Tiếng Việt, हिन्दी.
+- Mobile connect (iPhone, Tether): use dsh from the Tether iPhone app on the same Wi-Fi or over Tailscale. Switch it on in Settings → Composer Plus (off by default, it opens a network port on the Mac); a "Mobile connect" button at the bottom left shows the pairing QR code. Pinned TLS, one-time pairing code approved on the Mac, hashed device tokens, RPC allowlist. The iOS app source is in tether/ios.
 - Automatic updates: at dsh start, installs the newest GitHub release (once it is on npm) through dsh's own plugin manager and notifies; restart dsh to load it.
 
 ## Docs
