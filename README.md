@@ -25,7 +25,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.4.0`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.4.1`.
 
 ## Features
 
@@ -41,7 +41,7 @@ Then restart dsh. (The CLI can't install into the desktop profile; the app manag
 | **Allow for this chat** | When Auto Review asks you, the approval card gets **Allow for this chat**: the same tool in the same chat is allowed from then on, with any arguments. A header chip lists the grants and revokes them. Grants survive a restart. | <a href="assets/features/allowForChat.webp"><img src="assets/features/allowForChat.webp" width="160" alt="Allow for this chat screenshot"></a> |
 | **Project status** | A project row in the sidebar shows the same spinner / waiting / done marker as its chats, so a collapsed project still tells you a chat inside is working or needs you. Hover it for details. | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="Project status screenshot"></a> |
 | **Active projects first** | When a chat starts running or needs you, its project moves to the top of the sidebar with dsh's own row animation (the same move as dragging it there). Finished projects stay where they are; drag them anywhere as usual. Moves are saved to dsh's project order, so turning this off keeps the current order. | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="Active projects first screenshot"></a> |
-| **Recent projects filter** | Sidebar → view options (sliders icon) → **Active in the last 2 hours**. While it is selected, the sidebar shows only projects with a chat that was active in the last 2 hours: a chat updated in that time, a running or waiting chat, or the open chat. Projects without such a chat are hidden, also new and empty ones. Select it again to show all projects. The choice is kept on this device. | <a href="assets/features/recentProjects.webp"><img src="assets/features/recentProjects.webp" width="160" alt="Recent projects filter screenshot"></a> |
+| **Recent projects filter** | Sidebar → view options (sliders icon) → **Active in the last 2 hours**. While it is selected, the sidebar shows only projects with a chat that was active in the last 2 hours: a chat updated in that time, a running or waiting chat, the open chat, or a finished chat that you did not open yet (dsh's green “done” dot), also after the 2 hours. Projects without such a chat are hidden, also new and empty ones. Select it again to show all projects. The choice is kept on this device. | <a href="assets/features/recentProjects.webp"><img src="assets/features/recentProjects.webp" width="160" alt="Recent projects filter screenshot"></a> |
 | **Collapse all projects** | While a project is open in the sidebar, a button appears next to the view options (sliders icon). Click it to close every open project at once, for example 3 open projects out of 5. The button hides again when no project is open. | <a href="assets/features/collapseProjects.webp"><img src="assets/features/collapseProjects.webp" width="160" alt="Collapse all projects screenshot"></a> |
 | **Order by status** | Sidebar → view options → **Order by** → **By status** (with **In one list**). Finished chats come first (dsh's “done” dot, which a turn that ended with an error also gets), then running or waiting chats, then chats with an active automation (Schedule), then the rest in dsh's order. Opening a finished chat moves it down. Only the view changes: select **Manual** or **Last updated** to go back. | <a href="assets/features/statusOrder.webp"><img src="assets/features/statusOrder.webp" width="160" alt="Order by status screenshot"></a> |
 | **Background notifications** | While dsh is in the background you get a notification when a turn finishes (first line of the reply), or when a chat really waits for you: an approval (tool name), an answer (the question) or a plan review. A request must still be open 1.5 s later, so approvals answered automatically (Auto Review grants, other plugins) stay silent, and a notification is withdrawn as soon as its request is answered. The Dock/taskbar badge counts waiting chats. Clicking opens that chat. | <a href="assets/features/notifications.webp"><img src="assets/features/notifications.webp" width="160" alt="Background notifications screenshot"></a> |
@@ -97,7 +97,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 - **No notifications on macOS:** System Settings → Notifications → DeepSeek Harness → allow. Choose **Alerts** to keep them on screen.
 - **▶, queue grips, project status, the recent projects option, Collapse all projects, Copy path, Allow for this chat or right-click missing after a dsh update:** these attach to dsh's current HTML because dsh has no slot for them yet. If dsh changes that markup they hide themselves; nothing else breaks. Please open an [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
 - **"Update failed" or "not installed from npm":** a copy linked from a local folder or renamed can't update itself; reinstall `dsh-composer-plus` from Settings → Plugins. Otherwise the message shows the first line of pnpm's error; **Check for updates** retries.
-- **Install fails right after a release:** add the version (`dsh-composer-plus@1.4.0`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.4.1`), see the install note above.
 
 ## Limits
 
@@ -144,6 +144,8 @@ Screenshots are regenerated from a throwaway dsh with a fake model and made-up d
 PLAYWRIGHT=/path/to/playwright node scripts/capture-screenshots.mjs /path/to/dsh/lib/bin.js
 # sidebar project features (recent filter, Copy path, Collapse all): real-app test + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-sidebar-projects.mjs /path/to/dsh/lib/bin.js
+# recent filter + a finished chat older than 2 hours (fake model): the project stays until you open the chat
+PLAYWRIGHT=/path/to/playwright node test/browser-recent-finished.mjs /path/to/dsh/lib/bin.js
 # Order by status (fake model + Schedule): real-app test + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-status-order.mjs /path/to/dsh/lib/bin.js
 # every Settings feature row shows a loading screenshot

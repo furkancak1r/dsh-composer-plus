@@ -162,6 +162,13 @@ Decisions (3): `autoUpdate` gets the autoUpdate shot; test/shots.test.mjs fails 
 Checks: `npm test` (18 files, 15 shots). Real dsh 0.2.0-rc.2 and 0.2.1-alpha.2: test/browser-status-order.mjs (fake model, schedule_create, finished → running → automated → plain, reload, Last updated restores), test/browser-sidebar-projects.mjs, test/browser-settings-shots.mjs (15 rows, all images load).
 Last checkpoint: all checks above pass.
 
+## Recent filter hid finished chats (2026-10-15)
+Issue: with "Active in the last 2 hours" selected, a project disappeared when its chat finished more than 2 hours ago and the user did not open it yet, although dsh still showed the green done dot on that chat row.
+Root cause: staleProjects() kept a project only for an open, recently updated, running or waiting chat. A finished, unread chat (dsh `completionUnread`, the done dot) did not count, so after 2 hours its project was hidden. The live desktop copy is 1.4.0 with this code; dsh 0.2.0-rc.2 and 0.2.1-alpha.2 have the same completionUnread logic.
+Fix: a project stays while projectStatus() returns any state (waiting, running or done), so the filter follows the same dot as dsh's own chat row. When you open the chat, dsh clears the dot; after that the normal 2-hour rule applies.
+Checks: test/recent-projects.test.mjs (a finished chat 3 h old keeps its project; a read one does not) fails on 1.4.0 and passes now. test/browser-recent-finished.mjs (real dsh web, fake model, page clock 2.5 h ahead from the first render) fails on 1.4.0 and passes now, on 0.2.0-rc.2 and 0.2.1-alpha.2. `npm test` passes.
+Texts: the Settings description in 13 languages, README and llms.txt name the finished-chat rule. The screenshot is unchanged (the menu is the same).
+
 ## 1.4.0 release (2026-10-14)
 - Shipped: GitHub main 387dcb4 (rebased on the remote release.yml commit 48b2f94; CI green), release v1.4.0 (Latest). Semgrep: 0 findings.
 - release.yml (npm trusted publishing) was skipped: the repository variable NPM_TRUSTED_PUBLISHING is not "on" yet. npm 1.4.0 was published with the browser sign-in instead (`--auth-type=web`); `latest` = 1.4.0, shasum 94a93f5 (the tested tarball). A 1.3.0 copy now sees 1.4.0 as newer.

@@ -1450,7 +1450,7 @@
     "feature.activeProjectsFirst": "Projetos ativos primeiro",
     "feature.activeProjectsFirst.description": "Move um projeto para o topo da barra lateral quando um de seus chats está em execução ou precisa de você. As movimentações são salvas; desativar mantém a ordem atual.",
     "feature.recentProjects": "Filtro de projetos recentes",
-    "feature.recentProjects.description": "Adiciona “Ativos nas últimas 2 horas” às opções de exibição da barra lateral. Enquanto estiver selecionado, só aparecem os projetos com um chat ativo nas últimas 2 horas.",
+    "feature.recentProjects.description": "Adiciona “Ativos nas últimas 2 horas” às opções de exibição da barra lateral. Enquanto estiver selecionado, só aparecem os projetos com um chat ativo nas últimas 2 horas. Um chat concluído que você ainda não abriu (ponto verde) mantém o projeto visível, mesmo depois das 2 horas.",
     "feature.collapseProjects": "Recolher todos os projetos",
     "feature.collapseProjects.description": "Um botão ao lado das opções de exibição da barra lateral fecha todos os projetos abertos. Ele só aparece enquanto houver um projeto aberto.",
     "feature.statusOrder": "Ordenar por status",

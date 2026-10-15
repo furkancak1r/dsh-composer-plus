@@ -1450,7 +1450,7 @@
     "feature.activeProjectsFirst": "Ưu tiên dự án đang hoạt động",
     "feature.activeProjectsFirst.description": "Đưa dự án lên đầu thanh bên khi một cuộc trò chuyện của dự án đang chạy hoặc cần bạn. Vị trí di chuyển được lưu; tắt tính năng này sẽ giữ thứ tự hiện tại.",
     "feature.recentProjects": "Bộ lọc dự án gần đây",
-    "feature.recentProjects.description": "Thêm “Hoạt động trong 2 giờ qua” vào tùy chọn hiển thị của thanh bên. Khi tùy chọn này được chọn, chỉ hiện các dự án có cuộc trò chuyện hoạt động trong 2 giờ qua.",
+    "feature.recentProjects.description": "Thêm “Hoạt động trong 2 giờ qua” vào tùy chọn hiển thị của thanh bên. Khi tùy chọn này được chọn, chỉ hiện các dự án có cuộc trò chuyện hoạt động trong 2 giờ qua. Cuộc trò chuyện đã hoàn tất mà bạn chưa mở (chấm xanh) vẫn giữ dự án hiển thị, kể cả sau 2 giờ.",
     "feature.collapseProjects": "Thu gọn tất cả dự án",
     "feature.collapseProjects.description": "Nút bên cạnh tùy chọn hiển thị của thanh bên sẽ thu gọn mọi dự án đang mở. Nút chỉ xuất hiện khi có dự án đang mở.",
     "feature.statusOrder": "Sắp xếp theo trạng thái",

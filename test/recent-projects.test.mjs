@@ -42,16 +42,19 @@ assert.equal(opt.name, 'shell.overlay'); assert.equal(opt.locale, 'dsh-composer-
 const H = 3600e3; let now = Date.UTC(2026, 9, 14, 12); Date.now = () => now;
 const at = (hours) => now - hours * H;
 const summary = (id, o = {}) => [id, { id, blank: false, running: false, origin: 'user', updatedAt: at(5), retainedBy: {}, ...o }];
-const list = { phase: 'ready', ids: ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10'], projectionsBySession: {}, byId: Object.fromEntries([
+const list = { phase: 'ready', ids: ['s1', 's2', 's3', 's4', 's5', 's6', 's7', 's8', 's9', 's10', 's11'], projectionsBySession: {}, byId: Object.fromEntries([
   summary('s1', { updatedAt: at(1) }), summary('s2', { updatedAt: at(3) }), summary('s3', { running: true }), summary('s4'),
   summary('s5', { updatedAt: at(0.5) }), summary('s6', { blank: true, updatedAt: at(0.1) }), summary('s7', { retainedBy: { mainView: 1 } }),
-  summary('s8', { updatedAt: at(1.5) }), summary('s9', { origin: 'subagent', updatedAt: at(0.2) }), summary('s10')]) };
-const statuses = new Map([['s4', { pendingInteraction: { kind: 'approval' } }]]);
+  summary('s8', { updatedAt: at(1.5) }), summary('s9', { origin: 'subagent', updatedAt: at(0.2) }), summary('s10'),
+  summary('s11', { updatedAt: at(3) })]) };
+// s11 finished 3 hours ago and was not opened since: dsh still shows its done dot.
+const statuses = new Map([['s4', { pendingInteraction: { kind: 'approval' } }], ['s11', { running: false, completionUnread: true }]]);
 const ws = (workspaceId, path, sessionIds, added = at(9)) => ({ workspaceId, path, sessionIds, createdAt: new Date(added).toISOString() });
 const workspaces = { phase: 'ready', archivedSessionIds: ['s5'], items: [
   ws('recent', '/p/web', ['s1']), ws('old', '/p/old', ['s2']), ws('running', '/p/run', ['s3']), ws('waiting', '/p/wait', ['s4']),
   ws('archived', '/p/arch', ['s5']), ws('blank', '/p/blank', ['s6']), ws('open', '/p/open', ['s7']), ws('added', '/p/new', [], at(0.5)),
-  ws('parent', '/p/mono/', []), ws('child', '/p/mono/app', ['s8']), ws('prefix', '/p/mon', []), ws('subagent', '/p/sub', ['s9'])] };
+  ws('parent', '/p/mono/', []), ws('child', '/p/mono/app', ['s8']), ws('prefix', '/p/mon', []), ws('subagent', '/p/sub', ['s9']),
+  ws('finished', '/p/done', ['s11'])] };
 
 const props = { useWorkspaces: (f) => f(workspaces), useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), t: (k) => k };
 const render = () => {
@@ -85,15 +88,19 @@ assert.equal(item.t, 'MenuItemButton'); assert.equal(item.p.icon.t, 'Clock'); as
 item.p.onSelect(); out = settle();
 assert.equal(mem.get('dsh-composer-plus.recentProjects'), '1');
 assert.deepEqual(hiddenKeys(out), ['', 'added', 'archived', 'blank', 'old', 'parent', 'prefix', 'subagent'],
-  'kept only with an active chat (recent, running, waiting, open); a new or parent project without chats is hidden');
+  'kept only with an active chat (recent, running, waiting, open, finished and not opened); a new or parent project without chats is hidden');
 assert.match(style(out), /^\[style\*="--dsh-workspace-indent"\]:has\(> \[data-row-key="workspace:old"\], > \* > \[data-row-key="workspace:old"\]\)/m);
 assert.match(style(out), /\{ display: none !important; \}$/);
 assert.ok(text(optionOf(out)).endsWith('recentProjects.selected'), 'selected state for screen readers');
 assert.equal(optionOf(out).c[0].c[1].c[0].t, 'Check', 'visible check mark');
 
-// Time passes: chats from 1 and 1.5 hours ago become older than 2 hours.
+// Time passes: chats from 1 and 1.5 hours ago become older than 2 hours. The finished chat keeps its project shown.
 now += 1.2 * H; tick(); out = settle();
 assert.deepEqual(hiddenKeys(out), ['', 'added', 'archived', 'blank', 'child', 'old', 'parent', 'prefix', 'recent', 'subagent']);
+// You open the finished chat and move on: dsh clears its done dot, so with no other activity the project hides.
+statuses.set('s11', { running: false, completionUnread: false }); out = settle();
+assert.ok(hiddenKeys(out).includes('finished'), 'a read finished chat older than 2 hours does not keep its project');
+statuses.set('s11', { running: false, completionUnread: true });
 
 // Unmount (feature switched off or page closed) and mount again: cleanup, then the stored choice applies.
 for (const c of cleanups) c?.(); cleanups = []; prevDeps = [];

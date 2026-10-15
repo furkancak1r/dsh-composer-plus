@@ -1450,7 +1450,7 @@
     "feature.activeProjectsFirst": "활성 프로젝트 우선",
     "feature.activeProjectsFirst.description": "프로젝트의 채팅이 실행 중이거나 사용자의 조치가 필요하면 해당 프로젝트를 사이드바 맨 위로 이동합니다. 이동한 순서는 저장되며, 이 기능을 꺼도 현재 순서는 유지됩니다.",
     "feature.recentProjects": "최근 프로젝트 필터",
-    "feature.recentProjects.description": "사이드바 보기 옵션에 ‘최근 2시간 내 활성’을 추가합니다. 선택하면 최근 2시간 동안 활성 채팅이 있는 프로젝트만 표시됩니다.",
+    "feature.recentProjects.description": "사이드바 보기 옵션에 ‘최근 2시간 내 활성’을 추가합니다. 선택하면 최근 2시간 동안 활성 채팅이 있는 프로젝트만 표시됩니다. 완료되었지만 아직 열지 않은 채팅(초록색 점)이 있는 프로젝트는 2시간이 지나도 계속 표시됩니다.",
     "feature.collapseProjects": "모든 프로젝트 접기",
     "feature.collapseProjects.description": "사이드바 보기 옵션 옆의 버튼으로 열려 있는 모든 프로젝트를 접습니다. 이 버튼은 열린 프로젝트가 있을 때만 표시됩니다.",
     "feature.statusOrder": "상태별 정렬",

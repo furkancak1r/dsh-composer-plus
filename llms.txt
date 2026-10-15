@@ -14,7 +14,7 @@ Features (each one can be switched off in Settings → Composer Plus):
 - Copy deeplink: right-click a chat to copy a `dsh-session:` link that attaches it to another chat as read-only context.
 - Auto Review "Allow for this chat": allow one exact tool for the rest of one chat; revocable; saved across restarts.
 - Project status and active projects first: sidebar project rows show running / waiting / done, and active projects move to the top.
-- Recent projects filter: "Active in the last 2 hours" in the sidebar's view options shows only projects with a chat active in the last 2 hours.
+- Recent projects filter: "Active in the last 2 hours" in the sidebar's view options shows only projects with a chat active in the last 2 hours; a finished chat that was not opened yet keeps its project shown.
 - Copy project path: right-click a project in the sidebar → Copy path copies its full folder path.
 - Collapse all projects: a sidebar header button, shown while a project is open, closes every open project.
 - Order by status: "By status" in the sidebar's Order by puts finished, then running or waiting, then automated chats first in "In one list" (view only).

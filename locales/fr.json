@@ -1450,7 +1450,7 @@
     "feature.activeProjectsFirst": "Projets actifs en premier",
     "feature.activeProjectsFirst.description": "Place un projet en haut de la barre latérale lorsqu’une de ses discussions s’exécute ou a besoin de vous. Les déplacements sont enregistrés ; la désactivation conserve l’ordre actuel.",
     "feature.recentProjects": "Filtre des projets récents",
-    "feature.recentProjects.description": "Ajoute « Actifs au cours des 2 dernières heures » aux options d’affichage de la barre latérale. Tant que cette option est sélectionnée, seuls les projets avec une discussion active au cours des 2 dernières heures sont affichés.",
+    "feature.recentProjects.description": "Ajoute « Actifs au cours des 2 dernières heures » aux options d’affichage de la barre latérale. Tant que cette option est sélectionnée, seuls les projets avec une discussion active au cours des 2 dernières heures sont affichés. Une discussion terminée que vous n’avez pas encore ouverte (point vert) garde son projet affiché, même après les 2 heures.",
     "feature.collapseProjects": "Réduire tous les projets",
     "feature.collapseProjects.description": "Un bouton à côté des options d’affichage de la barre latérale ferme tous les projets ouverts. Il n’apparaît que lorsqu’un projet est ouvert.",
     "feature.statusOrder": "Trier par état",

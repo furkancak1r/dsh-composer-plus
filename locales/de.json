@@ -1450,7 +1450,7 @@
     "feature.activeProjectsFirst": "Aktive Projekte zuerst",
     "feature.activeProjectsFirst.description": "Ein Projekt an den Anfang der Seitenleiste verschieben, wenn einer seiner Chats läuft oder Ihre Aufmerksamkeit braucht. Die Reihenfolge wird gespeichert; beim Ausschalten bleibt die aktuelle Reihenfolge erhalten.",
     "feature.recentProjects": "Filter für aktuelle Projekte",
-    "feature.recentProjects.description": "Fügt den Ansichtsoptionen der Seitenleiste „In den letzten 2 Stunden aktiv“ hinzu. Solange diese Option ausgewählt ist, werden nur Projekte mit einem in den letzten 2 Stunden aktiven Chat angezeigt.",
+    "feature.recentProjects.description": "Fügt den Ansichtsoptionen der Seitenleiste „In den letzten 2 Stunden aktiv“ hinzu. Solange diese Option ausgewählt ist, werden nur Projekte mit einem in den letzten 2 Stunden aktiven Chat angezeigt. Ein fertiger Chat, den Sie noch nicht geöffnet haben (grüner Punkt), hält sein Projekt sichtbar, auch nach den 2 Stunden.",
     "feature.collapseProjects": "Alle Projekte einklappen",
     "feature.collapseProjects.description": "Eine Schaltfläche neben den Ansichtsoptionen der Seitenleiste klappt alle geöffneten Projekte ein. Sie erscheint nur, solange ein Projekt geöffnet ist.",
     "feature.statusOrder": "Nach Status sortieren",

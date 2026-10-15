@@ -1450,7 +1450,7 @@
     "feature.activeProjectsFirst": "アクティブなプロジェクトを先頭に表示",
     "feature.activeProjectsFirst.description": "プロジェクト内のチャットが実行中、または操作が必要になると、そのプロジェクトをサイドバーの先頭に移動します。移動は保存され、オフにしても現在の順序は維持されます。",
     "feature.recentProjects": "最近のプロジェクトのフィルター",
-    "feature.recentProjects.description": "サイドバーの表示オプションに「過去 2 時間以内にアクティブ」を追加します。選択中は、過去 2 時間以内にアクティブなチャットがあるプロジェクトだけを表示します。",
+    "feature.recentProjects.description": "サイドバーの表示オプションに「過去 2 時間以内にアクティブ」を追加します。選択中は、過去 2 時間以内にアクティブなチャットがあるプロジェクトだけを表示します。完了したがまだ開いていないチャット（緑の点）があるプロジェクトは、2 時間を過ぎても表示されたままです。",
     "feature.collapseProjects": "すべてのプロジェクトを折りたたむ",
     "feature.collapseProjects.description": "サイドバーの表示オプションの横にあるボタンで、開いているすべてのプロジェクトを折りたたみます。ボタンはプロジェクトが開いているときだけ表示されます。",
     "feature.statusOrder": "状態で並べ替え",

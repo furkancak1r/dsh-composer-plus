@@ -1450,7 +1450,7 @@
     "feature.activeProjectsFirst": "Proyek aktif di atas",
     "feature.activeProjectsFirst.description": "Pindahkan proyek ke bagian atas bilah samping saat salah satu obrolannya berjalan atau memerlukan Anda. Perpindahan disimpan; menonaktifkan fitur ini mempertahankan urutan saat ini.",
     "feature.recentProjects": "Filter proyek terbaru",
-    "feature.recentProjects.description": "Menambahkan “Aktif dalam 2 jam terakhir” ke opsi tampilan bilah samping. Selama dipilih, hanya proyek dengan obrolan yang aktif dalam 2 jam terakhir yang ditampilkan.",
+    "feature.recentProjects.description": "Menambahkan “Aktif dalam 2 jam terakhir” ke opsi tampilan bilah samping. Selama dipilih, hanya proyek dengan obrolan yang aktif dalam 2 jam terakhir yang ditampilkan. Obrolan selesai yang belum Anda buka (titik hijau) membuat proyeknya tetap terlihat, juga setelah 2 jam.",
     "feature.collapseProjects": "Ciutkan semua proyek",
     "feature.collapseProjects.description": "Tombol di samping opsi tampilan bilah samping menutup semua proyek yang terbuka. Tombol hanya muncul saat ada proyek yang terbuka.",
     "feature.statusOrder": "Urutkan menurut status",

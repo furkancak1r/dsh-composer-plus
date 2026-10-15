@@ -2884,7 +2884,7 @@
     "feature.activeProjectsFirst": "Etkin projeler üstte",
     "feature.activeProjectsFirst.description": "Bir sohbet çalışırken veya sizi beklerken projeyi en üste taşır. Sıralama kaydedilir; kapatmak mevcut sıralamayı değiştirmez.",
     "feature.recentProjects": "Yakın zamanda aktif proje filtresi",
-    "feature.recentProjects.description": "Kenar çubuğundaki görünüm seçeneklerine “Son 2 saatte aktif olanlar” seçeneğini ekler. Seçiliyken yalnızca son 2 saatte etkin bir sohbeti olan projeler görünür.",
+    "feature.recentProjects.description": "Kenar çubuğundaki görünüm seçeneklerine “Son 2 saatte aktif olanlar” seçeneğini ekler. Seçiliyken yalnızca son 2 saatte etkin bir sohbeti olan projeler görünür. Bitmiş ama henüz açmadığınız bir sohbet (yeşil nokta), 2 saat geçse de projesini görünür tutar.",
     "feature.collapseProjects": "Tüm projeleri daralt",
     "feature.collapseProjects.description": "Kenar çubuğundaki görünüm seçeneklerinin yanındaki düğme, açık olan tüm projeleri kapatır. Düğme yalnızca açık bir proje varken görünür.",
     "feature.statusOrder": "Duruma göre sıralama",
