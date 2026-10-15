@@ -168,6 +168,12 @@ Root cause: staleProjects() kept a project only for an open, recently updated, r
 Fix: a project stays while projectStatus() returns any state (waiting, running or done), so the filter follows the same dot as dsh's own chat row. When you open the chat, dsh clears the dot; after that the normal 2-hour rule applies.
 Checks: test/recent-projects.test.mjs (a finished chat 3 h old keeps its project; a read one does not) fails on 1.4.0 and passes now. test/browser-recent-finished.mjs (real dsh web, fake model, page clock 2.5 h ahead from the first render) fails on 1.4.0 and passes now, on 0.2.0-rc.2 and 0.2.1-alpha.2. `npm test` passes.
 Texts: the Settings description in 13 languages, README and llms.txt name the finished-chat rule. The screenshot is unchanged (the menu is the same).
+Regression: test/browser-sidebar-projects.mjs passes on both dsh versions.
+
+## 1.4.1 release (2026-10-15)
+- Shipped: GitHub main d533877 (CI green), release v1.4.1. Semgrep: 0 findings.
+- npm: release.yml (trusted publishing) published 1.4.1 from the release; `latest` = 1.4.1, shasum c8c06a2.
+- Live desktop copy: only client.js (module id `@local/dsh-composer-history` kept) and the manifest version changed; index.js, locale files and shots are the same as 1.4.0. Backup: `~/Documents/testdeepseekharness/backup-before-v141-20261015-105124`. dsh not restarted; a desktop reload (Cmd+R) loads it.
 
 ## 1.4.0 release (2026-10-14)
 - Shipped: GitHub main 387dcb4 (rebased on the remote release.yml commit 48b2f94; CI green), release v1.4.0 (Latest). Semgrep: 0 findings.
