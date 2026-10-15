@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tether</title>
+<style>
+  :root { color-scheme: light dark; font: 14px -apple-system, system-ui, sans-serif; --line: #8883; --card: #8881; }
+  body { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 1.4rem; margin-bottom: .2rem; } h2 { font-size: 1rem; margin: 1.6rem 0 .5rem; }
+  table { border-collapse: collapse; width: 100%; } td, th { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--line); }
+  code { word-break: break-all; font-size: 12px; } .muted { opacity: .65; }
+  button { font: inherit; padding: .35rem .8rem; border-radius: 8px; border: 1px solid var(--line); background: var(--card); cursor: pointer; margin-right: .4rem; }
+  button.primary { background: #0a84ff; color: #fff; border-color: #0a84ff; }
+  .card { border: 1px solid var(--line); background: var(--card); border-radius: 14px; padding: 1rem 1.2rem; margin: 1rem 0; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: .4rem; vertical-align: middle; }
+  .ok { background: #30d158; } .bad { background: #ff453a; } .warn { background: #ff9f0a; }
+  #pair-card { display: flex; gap: 1.4rem; align-items: center; flex-wrap: wrap; }
+  #qr { width: 220px; height: 220px; image-rendering: pixelated; background: #fff; padding: 8px; border-radius: 10px; }
+  ol { padding-left: 1.2rem; margin: .4rem 0; } li { margin: .3rem 0; }
+  .alert { border-color: #ff9f0a; background: #ff9f0a22; }
+  details summary { cursor: pointer; }
+  /* ?embed=1: shown inside DSH's "Mobile connect" popover */
+  .embed body { max-width: none; margin: 0; padding: 0 12px 12px; background: transparent; font-size: 13px; overflow: hidden; }
+  .embed h1, .embed ol, .embed #gw, .embed #remote:empty { display: none; }
+  .embed p { margin: 0 0 4px; } .embed h2 { font-size: 13px; margin: 10px 0 4px; }
+  .embed .card { padding: 10px; margin: 8px 0; border-radius: 12px; }
+  .embed #pair-card { flex-wrap: nowrap; gap: 12px; } .embed #qr { width: 132px; height: 132px; padding: 6px; }
+  .embed td, .embed th { padding: .3rem .4rem; } .embed button { padding: .25rem .65rem; }
+  .embed-only { display: none; } .embed .embed-only { display: block; }
+</style>
+<script>if (/[?&]embed\b/.test(location.search)) document.documentElement.classList.add('embed')</script>
+<h1>Tether</h1>
+<p class="muted" id="summary">Loading…</p>
+<p class="muted" id="remote"></p>
+<section id="pending-card" class="card alert" hidden>
+  <strong>An iPhone wants to connect</strong>
+  <table id="pending"></table>
+</section>
+<section class="card" id="pair-card">
+  <img id="qr" alt="Pairing QR code" hidden>
+  <div>
+    <strong>Pair an iPhone</strong>
+    <p class="muted embed-only">Scan in Tether, then Approve here.</p>
+    <ol>
+      <li>Open Tether on the iPhone (same Wi-Fi as this Mac, or Tailscale on both).</li>
+      <li>Tap <em>Scan QR code</em> and point it at this code.</li>
+      <li>Click <em>Approve</em> here when the request appears.</li>
+    </ol>
+    <p class="muted" id="exp"></p>
+    <button id="pair">New code</button>
+    <details><summary class="muted">Can't scan? Paste this code instead</summary><code id="payload"></code></details>
+  </div>
+</section>
+<h2>Paired devices</h2>
+<table id="devices"></table>
+<details id="gw"><summary class="muted">Gateway details</summary>
+  <p><button id="start">Start</button><button id="stop">Stop</button></p>
+  <table id="status"></table>
+</details>
+<script>
+const $ = id => document.getElementById(id)
+const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';')
+const post = (path, body) => fetch(path, { method: 'POST', headers: { 'x-dsh-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) })
+  .then(r => r.json()).then(s => s.error ? alert(s.error) : render(s))
+let lastPayload, expiresAt, asking = false
+const embed = document.documentElement.classList.contains('embed')
+function render(s) {
+  const t = s.tailscale ?? {}
+  $('remote').innerHTML = embed ? (t.online && t.ip ? '<span class="dot ok"></span>Tailscale <code>' + esc(t.ip) + '</code>' : t.installed ? '<span class="dot warn"></span>Tailscale off' : '')
+    : 'Remote access: ' + (!t.installed ? 'install <a href="https://tailscale.com/download" target="_blank" rel="noopener">Tailscale</a> on this Mac and the iPhone (same account) to connect away from home.'
+    : !t.online || !t.ip ? '<span class="dot warn"></span>Tailscale is off. Turn it on to reach this Mac away from home.'
+    : '<span class="dot ok"></span>Phones connect remotely via <code>' + esc(t.ip + ':' + s.port) + '</code>' + (t.name ? ' (' + esc(t.name) + ')' : ''))
+  $('status').innerHTML = [['Gateway', s.running ? 'running' : 'stopped'], ['IP', s.address ?? 'no Wi-Fi address'], ['Port', s.port],
+    ['TLS', s.tls], ['Fingerprint (SHA-256)', s.fingerprint ?? '-'], ['DSH host', s.upstream]]
+    .map(([k, v]) => '<tr><th>' + k + '</th><td><code>' + esc(v) + '</code></td></tr>').join('')
+  const dsh = s.upstream === 'connected'
+  $('summary').innerHTML = !s.running ? '<span class="dot bad"></span>Gateway stopped' + (s.address ? '' : ' (no Wi-Fi address)')
+    : '<span class="dot ' + (dsh ? 'ok' : 'warn') + '"></span>' + (dsh ? 'Ready' : 'DSH not reachable: ' + esc(s.upstream)) +
+      (embed ? ' · Wi-Fi <code>' : ' · phones connect to <code>') + esc(s.address + ':' + s.port) + '</code>'
+  // Keep a fresh code on screen while this page is open; codes are one-time and still need Approve.
+  if (!s.code && s.running && !asking && document.visibilityState === 'visible') { asking = true; post('/pair').finally(() => { asking = false }) }
+  expiresAt = s.code && Date.parse(s.code.expiresAt)
+  if (s.code) {
+    $('payload').textContent = s.code.payload
+    if (s.code.qr && lastPayload !== s.code.payload) { lastPayload = s.code.payload; $('qr').src = '/qr.png?t=' + Date.now() }
+  }
+  $('qr').hidden = !s.code?.qr
+  tick()
+  $('pending-card').hidden = !s.pending.length
+  $('pending').innerHTML = s.pending.map(p => '<tr><td>' + esc(p.name) + '</td><td class="muted">' + esc(p.ip) + '</td><td>' +
+    '<button class="primary" data-a="approve" data-id="' + esc(p.id) + '">Approve</button><button data-a="deny" data-id="' + esc(p.id) + '">Deny</button></td></tr>').join('')
+  $('devices').innerHTML = s.devices.map(d => '<tr><td><span class="dot ' + (d.connections ? 'ok' : 'bad') + '"></span>' + esc(d.name) + '</td><td class="muted">' +
+    (d.connections ? 'online' : 'offline') + (embed ? '' : ' · expires ' + esc(new Date(d.expiresAt).toLocaleDateString())) +
+    '</td><td><button data-a="revoke" data-id="' + esc(d.id) + '">Revoke</button></td></tr>').join('') || '<tr><td class="muted">No iPhone paired yet</td></tr>'
+}
+function tick() {
+  const left = expiresAt ? Math.max(0, Math.round((expiresAt - Date.now()) / 1000)) : 0
+  const mmss = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0')
+  $('exp').textContent = left ? (embed ? 'Code valid ' : 'One-time code, valid for ') + mmss : 'Preparing a code…'
+}
+// Embedded in DSH: report our height so the popover fits the content and never scrolls.
+if (embed && parent !== window) {
+  let last = 0
+  // body's own box, not scrollHeight: scrollHeight never drops below the iframe's current height
+  const report = () => { const h = Math.ceil(document.body.getBoundingClientRect().height); if (h !== last) { last = h; parent.postMessage({ type: 'dshm-height', h }, '*') } }
+  new ResizeObserver(report).observe(document.body); addEventListener('load', report)
+}
+setInterval(tick, 1000)
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return
+  if (b.dataset.a) { if (b.dataset.a !== 'revoke' || confirm('Revoke this device? Its connections close immediately.')) post('/' + b.dataset.a, { id: b.dataset.id }) }
+  else post('/' + b.id)
+})
+const poll = () => fetch('/state').then(r => r.json()).then(render).catch(() => {}).finally(() => setTimeout(poll, 1500))
+poll()
+</script>
+</html>
