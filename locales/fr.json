@@ -1467,6 +1467,8 @@
     "feature.inputHistory.description": "Utilisez ↑ / ↓ dans la zone de saisie vide pour réutiliser les messages envoyés.",
     "feature.planToggle": "Mode plan avec Shift+Tab",
     "feature.planToggle.description": "Shift+Tab ajoute ou retire /plan, ou quitte le mode plan.",
+    "feature.keepFocus": "Garder le focus dans la zone de saisie",
+    "feature.keepFocus.description": "Après l’envoi d’une commande /, le curseur reste dans la zone de saisie.",
     "feature.queueReorder": "Glisser-déposer dans la file",
     "feature.queueReorder.description": "Réordonnez les messages en file d’attente en faisant glisser leur poignée.",
     "feature.copyDeeplink": "Copier le lien profond",

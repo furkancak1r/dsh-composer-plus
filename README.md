@@ -34,6 +34,7 @@ Then restart dsh. (The CLI can't install into the desktop profile; the app manag
 | **Changes panel** | Right sidebar → `+` → **Changes**. Pick **Uncommitted**, **Unstaged**, **Staged** or **Branch** to see changed files with `+/-` counts; click a file for its diff. **Last Turn** opens dsh's own review of the latest turn. | <a href="assets/features/changesPanel.webp"><img src="assets/features/changesPanel.webp" width="160" alt="Changes panel screenshot"></a> |
 | **Input history** | In an empty composer, press `↑` / `↓` to walk through messages you sent, like a terminal. | <a href="assets/features/inputHistory.webp"><img src="assets/features/inputHistory.webp" width="160" alt="Input history screenshot"></a> |
 | **Plan mode shortcut** | `Shift+Tab` adds `/plan ` to the start of the draft (press again to remove it). If the chat is already in plan mode, `Shift+Tab` leaves it. | <a href="assets/features/planToggle.webp"><img src="assets/features/planToggle.webp" width="160" alt="Plan mode shortcut screenshot"></a> |
+| **Keep composer focus** | After you send a `/` command or skill, the cursor stays in the composer, and you can type again at once. This also works for keyboard macros that type a command and press `Enter`. dsh makes the composer read-only while it resolves the command, and the browser then removes the focus. This feature puts the focus back, unless a menu, a dialog or another field has it. | <a href="assets/features/keepFocus.webp"><img src="assets/features/keepFocus.webp" width="160" alt="Keep composer focus screenshot"></a> |
 | **One-click Continue** | After a stopped, failed or cut-off turn, an empty composer shows **▶**. One click resumes from the existing conversation without writing in the input or adding a visible chat message (the model receives a short hidden “continue from where it stopped” note, because some providers, such as Claude, reject a request that ends on an assistant reply). A completed turn keeps the regular Send button. | <a href="assets/features/continueButton.webp"><img src="assets/features/continueButton.webp" width="160" alt="One-click Continue screenshot"></a> |
 | **Queue drag-and-drop** | Queued messages get a grip (⠿). Drag to reorder, or focus the grip and press `↑` / `↓`. `Esc` cancels. | <a href="assets/features/queueReorder.webp"><img src="assets/features/queueReorder.webp" width="160" alt="Queue drag-and-drop screenshot"></a> |
 | **Copy deeplink** | Right-click a chat in the sidebar → **Copy deeplink**. Paste the `dsh-session:…` link into another chat to attach that chat as read-only context. | <a href="assets/features/copyDeeplink.webp"><img src="assets/features/copyDeeplink.webp" width="160" alt="Copy deeplink screenshot"></a> |
@@ -105,6 +106,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 
 - dsh's queue has no `move` action, so a reorder rewrites the affected rows' text. If the agent picks up a row mid-move, the move is undone and nothing is lost. Messages with images or files can't be moved.
 - An update needs a dsh restart to take effect; the plugin never restarts dsh for you. Web/CLI profiles without dsh's plugin manager only report a new version.
+- **Keep composer focus** gives the focus back only after a `/` command or skill. While dsh resolves the command, the composer stays read-only for a few milliseconds, so keys pressed in that time are lost. If dsh's `/` menu is still open, `Enter` picks the highlighted row and does not send.
 - A deeplink works inside chats; clicking it does not open the chat.
 - A notification sent before a restart only brings dsh to the front when clicked.
 - Active projects are moved with dsh's saved project order, so the new order is kept after a restart. Chats outside any project ("Ungrouped") can't be moved; dsh always lists them last.
@@ -150,6 +152,8 @@ PLAYWRIGHT=/path/to/playwright node test/browser-recent-finished.mjs /path/to/ds
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-status-order.mjs /path/to/dsh/lib/bin.js
 # every Settings feature row shows a loading screenshot
 PLAYWRIGHT=/path/to/playwright node test/browser-settings-shots.mjs /path/to/dsh/lib/bin.js
+# Keep composer focus (fake model + demo skill): typing goes on after a / command + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh

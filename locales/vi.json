@@ -1467,6 +1467,8 @@
     "feature.inputHistory.description": "Dùng ↑ / ↓ trong khung soạn thảo trống để dùng lại các tin nhắn đã gửi.",
     "feature.planToggle": "Chế độ kế hoạch bằng Shift+Tab",
     "feature.planToggle.description": "Shift+Tab thêm hoặc xóa /plan, hoặc thoát chế độ kế hoạch.",
+    "feature.keepFocus": "Giữ con trỏ trong khung soạn thảo",
+    "feature.keepFocus.description": "Sau khi bạn gửi lệnh /, con trỏ vẫn ở trong khung soạn thảo.",
     "feature.queueReorder": "Kéo thả hàng đợi",
     "feature.queueReorder.description": "Sắp xếp lại tin nhắn trong hàng đợi bằng cách kéo tay nắm.",
     "feature.copyDeeplink": "Sao chép deeplink",

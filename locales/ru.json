@@ -1467,6 +1467,8 @@
     "feature.inputHistory.description": "Используйте ↑ / ↓ в пустом поле ввода, чтобы повторно использовать отправленные сообщения.",
     "feature.planToggle": "Режим плана по Shift+Tab",
     "feature.planToggle.description": "Shift+Tab добавляет или удаляет /plan либо выходит из режима плана.",
+    "feature.keepFocus": "Сохранять фокус в поле ввода",
+    "feature.keepFocus.description": "После отправки команды / курсор остаётся в поле ввода.",
     "feature.queueReorder": "Перетаскивание в очереди",
     "feature.queueReorder.description": "Меняйте порядок сообщений в очереди, перетаскивая их за маркер.",
     "feature.copyDeeplink": "Копировать прямую ссылку",

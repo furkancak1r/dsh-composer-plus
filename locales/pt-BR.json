@@ -1467,6 +1467,8 @@
     "feature.inputHistory.description": "Use ↑ / ↓ no editor de mensagens vazio para reutilizar mensagens enviadas.",
     "feature.planToggle": "Modo de plano com Shift+Tab",
     "feature.planToggle.description": "Shift+Tab adiciona ou remove /plan, ou sai do modo de plano.",
+    "feature.keepFocus": "Manter o foco no editor",
+    "feature.keepFocus.description": "Depois de enviar um comando /, o cursor continua no editor de mensagens.",
     "feature.queueReorder": "Arrastar e soltar na fila",
     "feature.queueReorder.description": "Reordene as mensagens na fila arrastando a alça.",
     "feature.copyDeeplink": "Copiar deeplink",

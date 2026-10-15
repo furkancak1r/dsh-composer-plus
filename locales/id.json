@@ -1467,6 +1467,8 @@
     "feature.inputHistory.description": "Gunakan ↑ / ↓ di composer kosong untuk menggunakan kembali pesan yang telah Anda kirim.",
     "feature.planToggle": "Mode rencana Shift+Tab",
     "feature.planToggle.description": "Shift+Tab menambahkan atau menghapus /plan, atau keluar dari mode rencana.",
+    "feature.keepFocus": "Pertahankan fokus composer",
+    "feature.keepFocus.description": "Setelah Anda mengirim perintah /, kursor tetap berada di composer.",
     "feature.queueReorder": "Seret dan lepas antrean",
     "feature.queueReorder.description": "Ubah urutan pesan dalam antrean dengan menyeret pegangannya.",
     "feature.copyDeeplink": "Salin deeplink",

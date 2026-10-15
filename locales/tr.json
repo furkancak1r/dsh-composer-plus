@@ -2901,6 +2901,8 @@
     "feature.inputHistory.description": "Boş mesaj alanında ↑ / ↓ ile önceki mesajlarınızı yeniden kullanın.",
     "feature.planToggle": "Shift+Tab ile plan modu",
     "feature.planToggle.description": "Shift+Tab, /plan komutunu ekler veya kaldırır; plan modundan da çıkabilir.",
+    "feature.keepFocus": "Mesaj alanında odağı koru",
+    "feature.keepFocus.description": "/ komutu gönderdikten sonra imleç mesaj alanında kalır.",
     "feature.queueReorder": "Kuyrukta sürükle bırak",
     "feature.queueReorder.description": "Tutamacı sürükleyerek sıradaki mesajların yerini değiştirin.",
     "feature.copyDeeplink": "Sohbet bağlantısını kopyala",

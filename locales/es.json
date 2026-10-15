@@ -1467,6 +1467,8 @@
     "feature.inputHistory.description": "Usa ↑ / ↓ en el editor vacío para reutilizar los mensajes que enviaste.",
     "feature.planToggle": "Modo plan con Shift+Tab",
     "feature.planToggle.description": "Shift+Tab añade o quita /plan, o sale del modo plan.",
+    "feature.keepFocus": "Mantener el foco en el editor",
+    "feature.keepFocus.description": "Después de enviar un comando /, el cursor se queda en el editor.",
     "feature.queueReorder": "Arrastrar y soltar en la cola",
     "feature.queueReorder.description": "Reordena los mensajes en cola arrastrándolos por su asa.",
     "feature.copyDeeplink": "Copiar enlace profundo",

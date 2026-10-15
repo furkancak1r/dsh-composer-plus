@@ -1467,6 +1467,8 @@
     "feature.inputHistory.description": "भेजे गए संदेश दोबारा उपयोग करने के लिए खाली कंपोज़र में ↑ / ↓ का उपयोग करें।",
     "feature.planToggle": "Shift+Tab प्लान मोड",
     "feature.planToggle.description": "Shift+Tab /plan जोड़ता या हटाता है, या प्लान मोड से बाहर निकालता है।",
+    "feature.keepFocus": "कंपोज़र में फ़ोकस बनाए रखें",
+    "feature.keepFocus.description": "/ कमांड भेजने के बाद कर्सर कंपोज़र में ही रहता है।",
     "feature.queueReorder": "कतार में खींचकर छोड़ें",
     "feature.queueReorder.description": "कतार वाले संदेशों को उनके हैंडल से खींचकर क्रम बदलें।",
     "feature.copyDeeplink": "डीपलिंक कॉपी करें",

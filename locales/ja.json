@@ -1467,6 +1467,8 @@
     "feature.inputHistory.description": "入力欄が空のときに ↑ / ↓ で送信済みのメッセージを再利用します。",
     "feature.planToggle": "Shift+Tab で計画モード",
     "feature.planToggle.description": "Shift+Tab で /plan を追加・削除するか、計画モードを終了します。",
+    "feature.keepFocus": "入力欄のフォーカスを維持",
+    "feature.keepFocus.description": "/ コマンドを送信した後も、カーソルは入力欄に残ります。",
     "feature.queueReorder": "キューのドラッグ＆ドロップ",
     "feature.queueReorder.description": "ハンドルをドラッグしてキュー内のメッセージを並べ替えます。",
     "feature.copyDeeplink": "ディープリンクをコピー",

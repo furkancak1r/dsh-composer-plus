@@ -22,7 +22,7 @@ export const CONTINUE_PATH = '/api/composer-plus.continue';
 export const UPDATE_PATH = '/api/composer-plus.update';
 export const SHOT_PATH = '/api/composer-plus.shot';
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
-export const SHOTS = ['changesPanel', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'inputHistory', 'planToggle',
+export const SHOTS = ['changesPanel', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'inputHistory', 'planToggle', 'keepFocus',
   'queueReorder', 'copyDeeplink', 'copyProjectPath', 'language', 'autoUpdate'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';

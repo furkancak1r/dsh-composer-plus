@@ -1467,6 +1467,8 @@
     "feature.inputHistory.description": "In einem leeren Eingabefeld mit ↑ / ↓ gesendete Nachrichten wiederverwenden.",
     "feature.planToggle": "Planmodus mit Shift+Tab",
     "feature.planToggle.description": "Shift+Tab fügt /plan hinzu oder entfernt es bzw. verlässt den Planmodus.",
+    "feature.keepFocus": "Fokus im Eingabefeld behalten",
+    "feature.keepFocus.description": "Nach dem Senden eines /-Befehls bleibt der Cursor im Eingabefeld.",
     "feature.queueReorder": "Warteschlange per Drag-and-drop",
     "feature.queueReorder.description": "Eingereihte Nachrichten über ihren Griff per Ziehen neu anordnen.",
     "feature.copyDeeplink": "Deeplink kopieren",
