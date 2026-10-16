@@ -7,6 +7,8 @@
  *   through dsh's own plugin manager).
  * - Mobile connect (Tether): runs the iPhone gateway (tether/gateway/server.mjs) in this process while the user switches it
  *   on; the switch is saved under the dsh home and is off by default.
+ * - Resume after restart: remembers the chats that were running when dsh quit and continues them at the next start; off by
+ *   default (it starts model turns without a click).
  */
 import { readFileSync } from 'node:fs';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
@@ -25,8 +27,9 @@ export const CONTINUE_PATH = '/api/composer-plus.continue';
 export const UPDATE_PATH = '/api/composer-plus.update';
 export const SHOT_PATH = '/api/composer-plus.shot';
 export const MOBILE_PATH = '/api/composer-plus.mobile';
+export const RESUME_PATH = '/api/composer-plus.resume';
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
-export const SHOTS = ['changesPanel', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'inputHistory', 'planToggle', 'keepFocus',
+export const SHOTS = ['changesPanel', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
   'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'language', 'autoUpdate'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
@@ -251,6 +254,127 @@ export function mobileGateway({ upstreamUrl, dir, make = createGateway, retryMs 
   };
 }
 
+/** Resume after restart: `{ on, sessions: [{ id, at }] }` in one owner-only JSON file. A missing or broken file is off. */
+export function resumeStore(file) {
+  let queue = Promise.resolve();
+  return {
+    async read() {
+      try {
+        const data = JSON.parse(await readFile(file, 'utf8'));
+        const sessions = Array.isArray(data?.sessions) ? data.sessions.filter((s) => isText(s?.id) && Number.isFinite(s?.at)) : [];
+        return { on: data?.on === true, sessions };
+      } catch { return { on: false, sessions: [] }; }
+    },
+    /** Writes run in order, each replacing the file atomically, so a quit in the middle never leaves a half-written file. */
+    write(data) {
+      const done = queue.then(async () => {
+        await mkdir(dirname(file), { recursive: true });
+        const tmp = `${file}.${process.pid}.tmp`;
+        await writeFile(tmp, JSON.stringify(data), { mode: 0o600 });
+        await rename(tmp, file);
+      });
+      queue = done.catch(() => {});
+      return done;
+    },
+    flush: () => queue,
+  };
+}
+
+/** At most this many chats continue at one start (newest first): a safety cap, not a queue. */
+export const RESUME_MAX = 20;
+/** A turn end that dsh caused, not the user: a quit (`aborted`, cause `disposed`; the goal driver's own shutdown cancels a
+ * goal round with cause `parent`) or a crash (`interrupted`, written when dsh opens the chat again). */
+export const stoppedByDsh = (end) => end?.kind === 'interrupted' || (end?.kind === 'aborted' && ['disposed', 'parent'].includes(end.reason?.kind));
+
+/** Resume after restart. `status()` and `turnEnd()` follow the top-level chats; `wake()` continues, once per start, the chats
+ * that were running when dsh stopped. A chat stays listed while it runs and when dsh stops its turn; any other turn end
+ * (done, failed, stopped by you) removes it. The list is saved at each change, so a crash keeps it too. */
+export function resumeTracker({ store, isRoot, running = () => [], wakeOne, log = () => {}, now = Date.now }) {
+  let on = false;
+  let closed = false;
+  let carried = []; // the previous run's chats, until wake() takes them
+  const live = new Map(); // id → time it started running
+  const ends = new Map(); // id → newest turn end of this run; null while a turn is open
+  const list = () => [...carried.filter((s) => !live.has(s.id)), ...[...live].map(([id, at]) => ({ id, at }))];
+  const save = () => { if (!closed) store.write({ on, sessions: list() }).catch((error) => log(`resume list not saved: ${error?.message ?? error}`)); };
+  // Chats already running (switched on mid-turn, or a plugin reload) are tracked from now on.
+  const adopt = () => {
+    try { for (const id of running()) if (!live.has(id)) { live.set(id, now()); ends.set(id, null); } } catch { /* services gone */ }
+  };
+  const ready = store.read().then((data) => { on = data.on; carried = data.on ? data.sessions : []; if (on) adopt(); });
+  return {
+    ready,
+    isOn: () => on,
+    /** Save the switch; a failed save changes nothing. Switching off forgets the list. */
+    async setOn(next) {
+      await ready;
+      const before = { on, carried, live: [...live] };
+      on = next;
+      if (next) adopt(); else { carried = []; live.clear(); }
+      try { await store.write({ on, sessions: list() }); } catch (error) {
+        on = before.on; carried = before.carried; live.clear(); for (const [id, at] of before.live) live.set(id, at);
+        throw error;
+      }
+    },
+    status(agent, status) {
+      const end = ends.get(agent.id);
+      if (status !== 'running') ends.delete(agent.id);
+      if (!on || closed || !isRoot(agent)) return;
+      if (status === 'running') { if (!live.has(agent.id)) { live.set(agent.id, now()); save(); } }
+      // An open turn without an end: the shutdown could not write it (dsh 0.2.0-rc.2 closes it as `interrupted` at the next
+      // start). Keep the chat; wakeSession() reads the saved log before it continues anything.
+      else if (end !== null && !stoppedByDsh(end) && live.delete(agent.id)) save();
+    },
+    turnStart(id) { ends.set(id, null); },
+    turnEnd(id, reason) { ends.set(id, reason); },
+    /** Plugin unload: no more writes (dsh's shutdown makes every chat idle); waits for the last write. */
+    close() { closed = true; return store.flush(); },
+    async wake() {
+      await ready;
+      const queue = [...carried].sort((a, b) => b.at - a.at).slice(0, RESUME_MAX);
+      if (queue.length === 0) return [];
+      carried = [];
+      save(); // forget them first: a crash while waking never continues the same chats twice
+      const results = [];
+      for (const { id } of queue) {
+        if (closed || !on) break;
+        try { results.push({ id, result: await wakeOne(id) }); } catch (error) { results.push({ id, result: 'failed' }); log(`resume ${id} failed: ${error?.message ?? error}`); }
+      }
+      return results;
+    },
+  };
+}
+
+/** Continue one chat after a restart, if dsh (not the user) stopped its last turn: the chat gets the same hidden "continue"
+ * step as One-click Continue. When the stopped turn was a goal round, the goal is armed again instead (dsh disarms goals at
+ * every start and waits for `/goal resume`), and dsh's goal driver starts the next round, so the model can still mark the
+ * goal complete. A goal is never armed for an ordinary turn: dsh does not keep whether it was armed before the quit. */
+export async function wakeSession({ sessionController, sessionQuery, goals, archived = () => false }, id) {
+  if (archived(id)) return 'archived';
+  const found = await sessionController.resolveAgent(id); // opens the chat; a crashed turn is closed as `interrupted` here
+  if ('error' in found) return 'unavailable';
+  const { agent } = found;
+  if (agent.status !== 'idle') return 'busy';
+  const observation = await sessionQuery.observeSession(id, { projectionMode: 'none' });
+  let start, end, goalRound;
+  try {
+    const events = observation.events;
+    end = events.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
+    start = events.findLast((e) => e.type === 'turn/start');
+    goalRound = start !== undefined && events.some((e) => e.seq > start.seq && e.type === 'user/message' && e.data?.source?.kind === 'goal');
+  } finally { observation[Symbol.dispose]?.(); }
+  if (end?.type !== 'turn/end' || !stoppedByDsh(end.data?.reason)) return 'skipped';
+  let goal;
+  try { goal = goalRound ? goals?.get(agent) : undefined; } catch { goal = undefined; }
+  // A pause during the stopped turn would have ended it as stopped by the user; so a goal paused after that turn started was
+  // paused by dsh's shutdown (its goal driver pauses a round it cancels).
+  if (goal !== undefined && ((goal.phase === 'active' && goal.activation !== 'armed') || (goal.phase === 'paused' && goal.updatedAt >= start.time))) {
+    try { goals.resume(agent, { id: goal.id, revision: goal.revision }); return 'goal'; } catch { /* no goal rounds left: continue the turn */ }
+  }
+  agent.steer({ id: randomUUID(), role: 'user', content: [], source: { kind: CONTINUE_SOURCE } });
+  return 'continued';
+}
+
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const isText = (v, max = 512) => typeof v === 'string' && v.length > 0 && v.length <= max;
 
@@ -400,6 +524,52 @@ export function apply(ctx) {
       await mobileRead;
       const on = mobileOn === true;
       return json({ on, available: mobile !== undefined, ...(on && mobile !== undefined ? mobile.state() : { running: false }) });
+    },
+  });
+  installResume(ctx, home);
+}
+
+/** Resume after restart: follow the top-level chats, and once dsh is ready, continue the ones its last shutdown stopped.
+ * Services that a profile may not have (`agents`, `goals`, `workspaceRegistry`, `appReady`) are read with `ctx.get`. */
+function installResume(ctx, home) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const isRoot = (agent) => {
+    const agents = get('agents');
+    return agents?.roots?.().includes(agent) === true && agent.session?.header?.origin !== 'subagent';
+  };
+  const tracker = resumeTracker({
+    store: resumeStore(join(home, 'storages', 'dsh-composer-plus', 'resume.json')),
+    isRoot,
+    running: () => (get('agents')?.roots?.() ?? []).filter((a) => a.status === 'running' && isRoot(a)).map((a) => a.id),
+    // ponytail: an unreadable archive list counts as "not archived"; dsh's own archived-session gate still blocks the step.
+    wakeOne: (id) => wakeSession({ sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, goals: get('goals'),
+      archived: (sid) => { try { return get('workspaceRegistry')?.archivedSessionIds?.includes(sid) === true; } catch { return false; } } }, id),
+    log: (text) => ctx.logger?.warn?.(`dsh-composer-plus: ${text}`),
+  });
+  ctx.on('agent/status', ({ agent, status }) => tracker.status(agent, status));
+  ctx.on('session/event', (session, event) => {
+    if (event.type === 'turn/start') tracker.turnStart(session.id);
+    else if (event.type === 'turn/end') tracker.turnEnd(session.id, event.data?.reason);
+  });
+  // Wake after dsh's own startup (web server, plugins) is done; a profile without the ready signal waits a moment instead.
+  ctx.effect?.(() => {
+    let done = false;
+    const run = () => { if (!done) { done = true; tracker.wake().catch(() => {}); } };
+    const ready = get('appReady');
+    const cancel = ready?.onReady !== undefined ? ready.onReady(run) : (() => { const t = setTimeout(run, 3000); return () => clearTimeout(t); })();
+    return () => { done = true; cancel?.(); tracker.close(); };
+  }, 'dsh-composer-plus: resume after restart');
+  ctx.connection.fetch.register({
+    path: RESUME_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (typeof body?.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        try { await tracker.setOn(body.on); } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      await tracker.ready;
+      return json({ on: tracker.isOn() });
     },
   });
 }

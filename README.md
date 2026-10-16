@@ -4,9 +4,9 @@
 [![test](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml/badge.svg)](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Codex-style quality-of-life features for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) desktop and web UI: a Changes panel, project status in the sidebar, input history, a plan-mode shortcut, one-click Continue, queue drag-and-drop, session deeplinks, per-chat Auto Review grants, background notifications, iPhone access with the Tether app and automatic updates.
+Codex-style quality-of-life features for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) desktop and web UI: a Changes panel, project status in the sidebar, input history, a plan-mode shortcut, one-click Continue, resume running chats after a restart, queue drag-and-drop, session deeplinks, per-chat Auto Review grants, background notifications, iPhone access with the Tether app and automatic updates.
 
-**In one line:** a single DeepSeek Harness plugin (npm `dsh-composer-plus`, shown as **Composer Plus** in Settings → Plugins) that adds a git Changes panel, ↑/↓ input history, a Shift+Tab `/plan` toggle, one-click ▶ Continue, drag-and-drop queue reordering, Copy deeplink, Auto Review “Allow for this chat”, background notifications, iPhone access (Mobile connect, Tether app), 11 extra interface languages and automatic updates.
+**In one line:** a single DeepSeek Harness plugin (npm `dsh-composer-plus`, shown as **Composer Plus** in Settings → Plugins) that adds a git Changes panel, ↑/↓ input history, a Shift+Tab `/plan` toggle, one-click ▶ Continue, Resume after restart, drag-and-drop queue reordering, Copy deeplink, Auto Review “Allow for this chat”, background notifications, iPhone access (Mobile connect, Tether app), 11 extra interface languages and automatic updates.
 
 <p align="center"><img src="docs/images/hero.webp" width="820" alt="DeepSeek Harness with Composer Plus: the running project shows a spinner in the sidebar and the Changes panel shows a git diff"></p>
 
@@ -25,7 +25,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.5.0`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.6.0`.
 
 ## Features
 
@@ -36,6 +36,7 @@ Then restart dsh. (The CLI can't install into the desktop profile; the app manag
 | **Plan mode shortcut** | `Shift+Tab` adds `/plan ` to the start of the draft (press again to remove it). If the chat is already in plan mode, `Shift+Tab` leaves it. | <a href="assets/features/planToggle.webp"><img src="assets/features/planToggle.webp" width="160" alt="Plan mode shortcut screenshot"></a> |
 | **Keep composer focus** | After you send a `/` command or skill, the cursor stays in the composer, and you can type again at once. This also works for keyboard macros that type a command and press `Enter`. dsh makes the composer read-only while it resolves the command, and the browser then removes the focus. This feature puts the focus back, unless a menu, a dialog or another field has it. | <a href="assets/features/keepFocus.webp"><img src="assets/features/keepFocus.webp" width="160" alt="Keep composer focus screenshot"></a> |
 | **One-click Continue** | After a stopped, failed or cut-off turn, an empty composer shows **▶**. One click resumes from the existing conversation without writing in the input or adding a visible chat message (the model receives a short hidden “continue from where it stopped” note, because some providers, such as Claude, reject a request that ends on an assistant reply). A completed turn keeps the regular Send button. | <a href="assets/features/continueButton.webp"><img src="assets/features/continueButton.webp" width="160" alt="One-click Continue screenshot"></a> |
+| **Resume after restart** | Off by default: switch it on in **Settings → Composer Plus**. If you quit dsh (or it closes) while a chat is working, that chat continues by itself when you open dsh again, with the same hidden note as One-click Continue. If a goal round (`/goal`) was running, the goal goes on with its next round (dsh pauses goals at every start until you resume them). Chats that you stopped, that finished or that failed do not continue. dsh itself has no setting for this: it only marks such a turn as interrupted. | <a href="assets/features/resumeAfterRestart.webp"><img src="assets/features/resumeAfterRestart.webp" width="160" alt="Resume after restart screenshot"></a> |
 | **Queue drag-and-drop** | Queued messages get a grip (⠿). Drag to reorder, or focus the grip and press `↑` / `↓`. `Esc` cancels. | <a href="assets/features/queueReorder.webp"><img src="assets/features/queueReorder.webp" width="160" alt="Queue drag-and-drop screenshot"></a> |
 | **Copy deeplink** | Right-click a chat in the sidebar → **Copy deeplink**. Paste the `dsh-session:…` link into another chat to attach that chat as read-only context. | <a href="assets/features/copyDeeplink.webp"><img src="assets/features/copyDeeplink.webp" width="160" alt="Copy deeplink screenshot"></a> |
 | **Copy project path** | Right-click a project in the sidebar → **Copy path** copies the full path of its folder. | <a href="assets/features/copyProjectPath.webp"><img src="assets/features/copyProjectPath.webp" width="160" alt="Copy project path screenshot"></a> |
@@ -54,7 +55,7 @@ Buttons, tooltips, notices and notifications follow the selected dsh language (s
 
 ## Settings
 
-Every feature can be switched on or off on its own: dsh **Settings → Composer Plus**. Each row has a small screenshot: hover it for a larger preview, click it to open it full size (`Esc` closes). The **Search features** box at the top filters the page by name or description (any language, case- and accent-insensitive); `Esc` clears it. Each row has a switch and a short description; changes apply immediately, without a restart, and are remembered on that device. Everything is on by default, except **Mobile connect**: dsh's Host keeps that switch, so it applies to every window and survives a restart.
+Every feature can be switched on or off on its own: dsh **Settings → Composer Plus**. Each row has a small screenshot: hover it for a larger preview, click it to open it full size (`Esc` closes). The **Search features** box at the top filters the page by name or description (any language, case- and accent-insensitive); `Esc` clears it. Each row has a switch and a short description; changes apply immediately, without a restart, and are remembered on that device. Everything is on by default, except **Mobile connect** and **Resume after restart**: dsh's Host keeps these two switches, so they apply to every window and survive a restart.
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="Settings → Composer Plus: feature search, language picker, update row and a switch per feature, with a screenshot preview on hover"></p>
 
@@ -88,6 +89,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 ## Privacy and security
 
 - **Continue:** the authenticated local endpoint resumes only the last interrupted turn, rejects stale or duplicate requests, and preserves the existing approval hooks. It does not send a new user message.
+- **Resume after restart:** off until you switch it on. The Host half keeps only chat ids and start times in `$DSH_HOME/storages/dsh-composer-plus/resume.json` (owner-only permissions), and nothing leaves your machine. It continues a chat only when dsh's own log says that dsh (not you) stopped its last turn. Approvals and Auto Review apply to the continued turn as usual.
 
 - **Changes panel:** git runs read-only on your machine, in the chat's own folder, through dsh's authenticated `/api` channel. It never commits, stages or fetches, and only shows paths git itself listed.
 - **Allow for this chat:** grants are stored in `$DSH_HOME/storages/dsh-composer-plus/grants.json` (owner-only permissions). A grant covers **one exact tool in one chat**. If that tool can write, the grant covers any write too. Revoke it from the header chip.
@@ -101,12 +103,14 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 - **▶, queue grips, project status, the recent projects option, Collapse all projects, Copy path, Allow for this chat or right-click missing after a dsh update:** these attach to dsh's current HTML because dsh has no slot for them yet. If dsh changes that markup they hide themselves; nothing else breaks. Please open an [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
 - **"Update failed" or "not installed from npm":** a copy linked from a local folder or renamed can't update itself; reinstall `dsh-composer-plus` from Settings → Plugins. Otherwise the message shows the first line of pnpm's error; **Check for updates** retries.
 - **Mobile connect says the gateway is not running:** "no IPv4 address on en0" means this Mac has no Wi-Fi/Ethernet address; "EADDRINUSE" means another dsh (or app) uses port 19390 or 19391. Only one dsh can run Mobile connect at a time.
-- **Mobile connect says "Restart dsh":** the plugin was updated while dsh was running; the new Host half loads after a restart.
-- **Install fails right after a release:** add the version (`dsh-composer-plus@1.5.0`), see the install note above.
+- **Mobile connect or Resume after restart says "Restart dsh":** the plugin was updated while dsh was running; the new Host half loads after a restart.
+- **A chat did not continue after a restart:** Resume after restart was off when dsh quit, you stopped that turn yourself, the turn had ended (done or failed), the chat was archived, or more than 20 chats were running (the newest 20 continue).
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.6.0`), see the install note above.
 
 ## Limits
 
 - Message-free Continue relies on dsh’s `agent/pre-step` → `agent/request` lifecycle. Recheck compatibility when upgrading dsh.
+- **Resume after restart** continues the turn; it does not replay it. A tool call that was running at the quit ends with dsh's “outcome unknown” result, and the model is told not to repeat finished work, but a command that is not safe to run twice can run again. Subagents, approvals and questions that were open are not restored: their parent chat continues and asks again. At most 20 chats continue at one start.
 
 - dsh's queue has no `move` action, so a reorder rewrites the affected rows' text. If the agent picks up a row mid-move, the move is undone and nothing is lost. Messages with images or files can't be moved.
 - An update needs a dsh restart to take effect; the plugin never restarts dsh for you. Web/CLI profiles without dsh's plugin manager only report a new version.
@@ -126,6 +130,8 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 **How do I get ↑/↓ message history in the dsh composer?** Install this plugin; in an empty composer `↑` / `↓` walk through messages you sent.
 
 **How do I continue a stopped or failed dsh turn without typing "continue"?** With this plugin the Send button becomes **▶** after a stopped, failed or cut-off turn; one click resumes it.
+
+**Does dsh continue running chats after I quit and open it again?** Not by itself: dsh marks such a turn as interrupted and waits (a goal also waits for `/goal resume`). Switch on **Settings → Composer Plus → Resume after restart**: the chats that were working when dsh quit then continue by themselves at the next start.
 
 **How do I reorder queued messages in dsh?** Drag the ⠿ grip on a queued message, or focus it and press `↑` / `↓`.
 
@@ -163,6 +169,8 @@ PLAYWRIGHT=/path/to/playwright node test/browser-settings-shots.mjs /path/to/dsh
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/dsh/lib/bin.js
 # Mobile connect: switch on, QR popover, a fake iPhone pairs and calls dsh through the gateway, switch off + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js
+# Resume after restart (fake slow model, real quit and start): a running chat and a goal continue, a stopped chat does not
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-resume-restart.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
