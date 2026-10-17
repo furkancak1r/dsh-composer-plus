@@ -13,6 +13,13 @@ if (!process.env.PLAYWRIGHT || process.argv.length < 3) throw Error('Set PLAYWRI
 const { chromium } = require(process.env.PLAYWRIGHT);
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Since 0.2.1-alpha.3 the web app has dsh's account menu (Settings is its first item) in place of the Settings button.
+const openSettings = async (page) => {
+  const direct = page.getByRole('button', { name: 'Settings', exact: true });
+  if (await direct.isVisible()) return direct.click();
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Settings/ }).click();
+};
 const browser = await chromium.launch({ channel: 'chrome' });
 try {
   for (const bin of process.argv.slice(2)) {
@@ -34,7 +41,10 @@ try {
       const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       await page.goto(url);
       for (const name of ['Continue', 'Configure later']) { const b = page.getByRole('button', { name, exact: true }); if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) await b.click(); }
-      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+      // 0.2.1-alpha.3+ opens a "Get started" sign-in dialog instead (no model here): close it.
+      const close = page.getByRole('dialog', { name: 'Get started' }).getByRole('button', { name: 'Close', exact: true });
+      if (await close.waitFor({ timeout: 2000 }).then(() => true, () => false)) { await close.click(); await close.waitFor({ state: 'hidden' }); }
+      await openSettings(page);
       await page.getByText('Composer Plus', { exact: true }).click();
       const settings = page.locator('[data-composer-plus-settings]'); await settings.waitFor();
       // Every row with a switch (one per feature) also holds a thumbnail; every thumbnail image decodes.

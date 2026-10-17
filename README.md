@@ -25,7 +25,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.6.0`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.6.1`.
 
 ## Features
 
@@ -69,7 +69,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 The whole app switches immediately. The choice is dsh’s own saved `locale.preference` (the same one as General → Language), so it survives restarts. **System language** clears that choice: the desktop app follows the OS language, the web UI the browser language, and an unsupported language falls back to English. Installing the plugin never overrides a language you already picked.
 
-Each pack covers all 2,872 UI strings of dsh `0.2.0-rc.2` and `0.2.1-alpha.2` (chats, sidebar, settings, approvals, schedules, file previews, plugin manager), the plugin’s own controls, and the popular [dsh-rewind](https://github.com/SiriLee/dsh-rewind) plugin. Not translated: your messages, model output, code, slash-command names (`/plan`, `/compact`), provider-owned labels such as the `High` reasoning effort, other plugins’ texts, and the desktop app’s native menus/update dialogs (dsh ships those in English/Chinese only). Strings added by a newer dsh show in English until the packs are updated. If another plugin already provides a language, that plugin keeps it.
+Each pack covers all 3,069 UI strings of dsh `0.2.0-rc.2` and `0.2.1-rc.2` (chats, sidebar, settings, approvals, schedules, file previews, plugin manager, plugin market), the plugin’s own controls, and the popular [dsh-rewind](https://github.com/SiriLee/dsh-rewind) plugin. Not translated: your messages, model output, code, slash-command names (`/plan`, `/compact`), provider-owned labels such as the `High` reasoning effort, other plugins’ texts, and the desktop app’s native menus/update dialogs (dsh ships those in English/Chinese only). Strings added by a newer dsh show in English until the packs are updated. If another plugin already provides a language, that plugin keeps it.
 
 ## Keyboard shortcuts
 
@@ -84,7 +84,7 @@ An open `/` or `@` menu keeps these keys for itself.
 
 ## Compatibility
 
-Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs the tests on every push.
+Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-rc.2` (web). CI runs the tests on every push.
 
 ## Privacy and security
 
@@ -105,7 +105,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 - **Mobile connect says the gateway is not running:** "no IPv4 address on en0" means this Mac has no Wi-Fi/Ethernet address; "EADDRINUSE" means another dsh (or app) uses port 19390 or 19391. Only one dsh can run Mobile connect at a time.
 - **Mobile connect or Resume after restart says "Restart dsh":** the plugin was updated while dsh was running; the new Host half loads after a restart.
 - **A chat did not continue after a restart:** Resume after restart was off when dsh quit, you stopped that turn yourself, the turn had ended (done or failed), the chat was archived, or more than 20 chats were running (the newest 20 continue).
-- **Install fails right after a release:** add the version (`dsh-composer-plus@1.6.0`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.6.1`), see the install note above.
 
 ## Limits
 
@@ -149,7 +149,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-alpha.2` (web). CI runs 
 
 **How do I use dsh from my iPhone?** Build the Tether app from `tether/ios` (Xcode), switch on **Settings → Composer Plus → Mobile connect (iPhone)**, click **Mobile connect** at the bottom left, scan the QR code in Tether and click **Approve**. Away from home, use Tailscale on both devices.
 
-**Does it work with the desktop app?** Yes: Settings → Plugins → **Add plugin** → `dsh-composer-plus`. Tested on dsh 0.2.0-rc.2 (desktop and web) and 0.2.1-alpha.2 (web).
+**Does it work with the desktop app?** Yes: Settings → Plugins → **Add plugin** → `dsh-composer-plus`. Tested on dsh 0.2.0-rc.2 (desktop and web) and 0.2.1-rc.2 (web).
 
 ## Development
 

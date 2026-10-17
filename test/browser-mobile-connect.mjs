@@ -21,6 +21,14 @@ if (!process.env.PLAYWRIGHT || process.argv.length < 3) throw Error('Set PLAYWRI
 const { chromium } = require(process.env.PLAYWRIGHT);
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Since 0.2.1-alpha.3 the web app has dsh's account menu (Settings is its first item) in place of the Settings button.
+const settingsLauncher = (page) => page.getByRole('button', { name: /^(Settings|Account menu)$/ });
+const openSettings = async (page) => {
+  const direct = page.getByRole('button', { name: 'Settings', exact: true });
+  if (await direct.isVisible()) return direct.click();
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Settings/ }).click();
+};
 const listening = (port) => new Promise((resolve) => {
   const socket = createConnection({ host: '127.0.0.1', port }, () => { socket.destroy(); resolve(true); });
   socket.on('error', () => resolve(false));
@@ -82,14 +90,17 @@ try {
       const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       await page.goto(url);
       for (const name of ['Continue', 'Configure later']) { const b = page.getByRole('button', { name, exact: true }); if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) await b.click(); }
+      // 0.2.1-alpha.3+ opens a "Get started" sign-in dialog instead (no model here): close it.
+      const close = page.getByRole('dialog', { name: 'Get started' }).getByRole('button', { name: 'Close', exact: true });
+      if (await close.waitFor({ timeout: 2000 }).then(() => true, () => false)) { await close.click(); await close.waitFor({ state: 'hidden' }); }
       const button = page.getByRole('button', { name: 'Mobile connect', exact: true });
-      await page.getByRole('button', { name: 'Settings', exact: true }).waitFor();
+      await settingsLauncher(page).waitFor();
       await pause(1500);
       assert.equal(await button.count(), 0, 'off by default: no sidebar button');
       assert.equal(await listening(19391), false, 'off by default: no listener');
 
       // Switch it on in Settings → Composer Plus.
-      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+      await openSettings(page);
       await page.getByText('Composer Plus', { exact: true }).click();
       const settings = page.locator('[data-composer-plus-settings]'); await settings.waitFor();
       const toggle = settings.getByRole('switch', { name: 'Mobile connect (iPhone)' });
@@ -139,7 +150,7 @@ try {
 
       // Switch off: the button goes, the ports close, the phone can no longer reach dsh.
       await page.keyboard.press('Escape');
-      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+      await openSettings(page);
       await page.getByText('Composer Plus', { exact: true }).click();
       await settings.waitFor();
       await toggle.click();

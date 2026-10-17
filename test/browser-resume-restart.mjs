@@ -20,6 +20,13 @@ if (!process.env.PLAYWRIGHT || process.argv.length < 3) throw Error('Set PLAYWRI
 const { chromium } = require(process.env.PLAYWRIGHT);
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// Since 0.2.1-alpha.3 the web app has dsh's account menu (Settings is its first item) in place of the Settings button.
+const openSettings = async (page) => {
+  const direct = page.getByRole('button', { name: 'Settings', exact: true });
+  if (await direct.isVisible()) return direct.click();
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Settings/ }).click();
+};
 
 const CHATS = { long: 'Migrate the build to the new bundler', stopped: 'Draft the weekly status report', goal: 'Ship the release checklist' };
 const NOTE = 'Continue the task from where it stopped';
@@ -114,7 +121,7 @@ try {
     const newChat = async (page) => { await page.locator('button:visible', { hasText: 'New Session' }).first().click(); await pause(600); };
     const row = (page, title) => page.locator('[data-row-key^="session:"]').filter({ hasText: title }).first();
     const setSwitch = async (page, on) => {
-      await page.getByRole('button', { name: 'Settings', exact: true }).click();
+      await openSettings(page);
       await page.getByText('Composer Plus', { exact: true }).click();
       const sw = page.locator('[data-composer-plus-settings]').getByRole('switch', { name: 'Resume after restart' });
       await sw.waitFor();

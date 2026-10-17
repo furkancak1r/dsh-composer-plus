@@ -33,6 +33,9 @@ try {
           const button = page.getByRole('button', { name, exact: true });
           if (await button.waitFor({ timeout: 1500 }).then(() => true, () => false)) { await button.click(); await button.waitFor({ state: 'hidden' }); }
         }
+        // 0.2.1-alpha.3+ opens a "Get started" sign-in dialog instead (no model here): close it.
+        const close = page.getByRole('dialog', { name: /^(Get started|Başlayın|开始使用)$/ }).getByRole('button', { name: /^(Close|Kapat|关闭)$/ });
+        if (await close.waitFor({ timeout: 1500 }).then(() => true, () => false)) { await close.click(); await close.waitFor({ state: 'hidden' }); }
       };
       const open = async (locale, nativeLanguages) => {
         const context = await browser.newContext({ locale, viewport: { width: 1500, height: 1000 } }); contexts.push(context);
@@ -45,7 +48,13 @@ try {
       const languageIs = async (page, id) => { await page.waitForFunction((lang) => document.documentElement.lang === lang, id); };
       const settings = async (page) => {
         await dismissSetup(page);
-        await page.getByRole('button', { name: /^(Settings|Ayarlar|设置)$/, exact: true }).click();
+        // Since 0.2.1-alpha.3 the web app has dsh's account menu (Settings is its first item) in place of the Settings button.
+        const direct = page.getByRole('button', { name: /^(Settings|Ayarlar|设置)$/, exact: true });
+        if (await direct.isVisible()) await direct.click();
+        else {
+          await page.getByRole('button', { name: /^(Account menu|Hesap menüsü|账号菜单)$/ }).click();
+          await page.getByRole('menuitem', { name: /^(Settings|Ayarlar|设置)/ }).click();
+        }
         await page.getByText('Composer Plus', { exact: true }).click();
         await page.locator('[data-composer-plus-language]').waitFor();
       };

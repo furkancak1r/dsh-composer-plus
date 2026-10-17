@@ -49,6 +49,9 @@ try {
           const button = page.getByRole('button', { name });
           if (await button.waitFor({ timeout: 2000 }).then(() => true, () => false)) { await button.click(); await button.waitFor({ state: 'hidden' }); }
         }
+        // 0.2.1-alpha.3+ opens a "Get started" sign-in dialog instead: close it.
+        const close = page.getByRole('dialog', { name: /^(Get started|Başlayın)$/ }).getByRole('button', { name: /^(Close|Kapat)$/ });
+        if (await close.waitFor({ timeout: 2000 }).then(() => true, () => false)) { await close.click(); await close.waitFor({ state: 'hidden' }); }
         await page.locator('[data-row-key^="workspace:"]').first().waitFor();
       };
       const open = async (locale) => {

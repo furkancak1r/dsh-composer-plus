@@ -13,7 +13,7 @@ The Tether iPhone app and its Mac gateway are in `tether/` (Mobile connect). Rea
    - `test/shots.test.mjs` fails when a feature has no screenshot.
 3. Add its texts to `en` and `zh` in `client.js` and to all 11 files in `locales/<id>.json`. Then run `npm run build:locales`.
 4. Document it in `README.md` (feature table with the same image, limits, FAQ when useful) and in `llms.txt`.
-5. Add a unit test in `test/` and add it to the `test` script in `package.json`. When the feature touches dsh's markup or its agent lifecycle, also check it in a real isolated dsh on 0.2.0-rc.2 and 0.2.1-alpha.2.
+5. Add a unit test in `test/` and add it to the `test` script in `package.json`. When the feature touches dsh's markup or its agent lifecycle, also check it in a real isolated dsh on 0.2.0-rc.2 and 0.2.1-rc.2.
 
 ## Release
 
