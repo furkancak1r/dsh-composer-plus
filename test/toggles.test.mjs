@@ -38,8 +38,8 @@ app=boot();assert.ok(app.ids().includes('copy-deeplink'));assert.ok(!app.scopes.
 let renders=[];const row=app.settings;const C=(() => { let comp; const slots={inject:(n,f)=>f(),register:(o,Comp)=>{if(o.id==='composer-plus')comp=Comp;return()=>{};}};
   plugin.apply({slots,effect:()=>{},locale:{register:()=>()=>{},bind:()=>k=>k}});return comp; })();
 const calls=[];const tree=C({useComposerPlusToggles:f=>f({planToggle:false}),setFeature:(id,on)=>calls.push([id,on]),t:k=>k});
-assert.equal(tree.c[1].p['data-composer-plus-search'],'');assert.equal(tree.c[3],null,'no update row without an updater');assert.equal(tree.c[4],null,'no empty notice');const switches=tree.c.slice(5).map(r=>r.c[2]);assert.equal(tree.c.slice(5).filter(r=>r.c[0].p.id!==undefined).length,18,'every feature row has a screenshot (the auto-update switch shows the update row\'s)');assert.equal(switches.length,18);
-const plan=switches.find(s=>s.p.label==='feature.planToggle');assert.equal(plan.p.checked,false);assert.equal(switches.filter(s=>s.p.checked).length,15,'plan mode is off here; Mobile connect and Resume after restart are off by default');
+assert.equal(tree.c[1].p['data-composer-plus-search'],'');assert.equal(tree.c[3],null,'no update row without an updater');assert.equal(tree.c[4],null,'no empty notice');const switches=tree.c.slice(5).map(r=>r.c[2]);assert.equal(tree.c.slice(5).filter(r=>r.c[0].p.id!==undefined).length,19,'every feature row has a screenshot (the auto-update switch shows the update row\'s)');assert.equal(switches.length,19);
+const plan=switches.find(s=>s.p.label==='feature.planToggle');assert.equal(plan.p.checked,false);assert.equal(switches.filter(s=>s.p.checked).length,16,'plan mode is off here; Mobile connect and Resume after restart are off by default');
 assert.equal(switches.find(s=>s.p.label==='feature.mobileConnect').p.checked,false);assert.equal(switches.find(s=>s.p.label==='feature.resumeAfterRestart').p.checked,false);
 plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
 // Settings search: filters by title, description or id; accent/case/Turkish-ı insensitive; Esc clears; empty notice.
@@ -49,7 +49,7 @@ plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
   const tt=k=>tr[k]??k;
   const render=()=>{return C2({useComposerPlusToggles:f=>f({}),setFeature:()=>{},updater:{subscribe:()=>()=>{},getSnapshot:()=>({status:'current'}),check(){}},t:tt});};
   const ids=(tree)=>tree.c.slice(5).map(r=>r.p.key);
-  let tree=render();assert.equal(ids(tree).length,18,'empty query shows all');assert.ok(tree.c[2]&&tree.c[3],'language + update rows');
+  let tree=render();assert.equal(ids(tree).length,19,'empty query shows all');assert.ok(tree.c[2]&&tree.c[3],'language + update rows');
   const input=tree.c[1].c[0];assert.equal(input.p.type,'search');
   input.p.onChange({target:{value:'BİLDİRİM'}});tree=render();assert.deepEqual(ids(tree),['notifications'],'case + dotted İ');
   input.p.onChange({target:{value:'degisiklik'}});tree=render();assert.deepEqual(ids(tree),['changesPanel'],'accent-insensitive ğ/ş');

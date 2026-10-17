@@ -60,7 +60,7 @@ try {
           language: root.querySelector('[data-composer-plus-language] [data-composer-plus-shot]') !== null,
         };
       });
-      assert.ok(report.rows >= 18, `all feature rows rendered (${report.rows})`);
+      assert.ok(report.rows >= 19, `all feature rows rendered (${report.rows})`);
       assert.deepEqual(report.missing, [], 'every feature row has a screenshot');
       assert.deepEqual(report.broken, [], 'every screenshot loads');
       assert.ok(report.update && report.language, 'the update and language rows have one too');

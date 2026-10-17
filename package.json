@@ -1,7 +1,7 @@
 {
   "name": "dsh-composer-plus",
   "version": "1.6.1",
-  "description": "DeepSeek Harness helpers: 11 extra UI languages (Türkçe, Español, Français, Deutsch, 日本語…), Changes panel, input history, Shift+Tab /plan, one-click Continue, resume running chats after a restart, queue drag-and-drop, deeplinks, Auto Review allow-for-chat, notifications, iPhone access with the Tether app, automatic updates",
+  "description": "DeepSeek Harness helpers: 11 extra UI languages (Türkçe, Español, Français, Deutsch, 日本語…), Changes panel, swipe-card feature ideas, input history, Shift+Tab /plan, one-click Continue, resume running chats after a restart, queue drag-and-drop, deeplinks, Auto Review allow-for-chat, notifications, iPhone access with the Tether app, automatic updates",
   "icon": "./assets/icon.svg",
   "license": "MIT",
   "type": "module",
@@ -24,6 +24,7 @@
     "dsh-composer-plus",
     "dsh-plugin",
     "dsh-plugins",
+    "feature-ideas",
     "git",
     "git-diff",
     "i18n",
@@ -66,7 +67,7 @@
     "assets/features/*.webp"
   ],
   "scripts": {
-    "test": "node scripts/build-locales.mjs --check && node test/locale.test.mjs && node test/continue.test.mjs && node test/continue-host.test.mjs && node test/resume-restart.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/keep-focus.test.mjs && node test/mobile-connect.test.mjs && node test/tether-gateway.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs && node test/changes.test.mjs && node test/project-status.test.mjs && node test/recent-projects.test.mjs && node test/project-tools.test.mjs && node test/status-order.test.mjs && node test/toggles.test.mjs && node test/update.test.mjs && node test/meta.test.mjs && node test/shots.test.mjs",
+    "test": "node scripts/build-locales.mjs --check && node test/locale.test.mjs && node test/continue.test.mjs && node test/continue-host.test.mjs && node test/resume-restart.test.mjs && node test/queue-drag.test.mjs && node test/plan-toggle.test.mjs && node test/keep-focus.test.mjs && node test/mobile-connect.test.mjs && node test/tether-gateway.test.mjs && node test/deeplink.test.mjs && node test/chat-grant.test.mjs && node test/notify.test.mjs && node test/changes.test.mjs && node test/feature-ideas.test.mjs && node test/feature-ideas-client.test.mjs && node test/project-status.test.mjs && node test/recent-projects.test.mjs && node test/project-tools.test.mjs && node test/status-order.test.mjs && node test/toggles.test.mjs && node test/update.test.mjs && node test/meta.test.mjs && node test/shots.test.mjs",
     "build:locales": "node scripts/build-locales.mjs",
     "prepublishOnly": "npm test"
   },

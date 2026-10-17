@@ -4,13 +4,13 @@
 [![test](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml/badge.svg)](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Codex-style quality-of-life features for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) desktop and web UI: a Changes panel, project status in the sidebar, input history, a plan-mode shortcut, one-click Continue, resume running chats after a restart, queue drag-and-drop, session deeplinks, per-chat Auto Review grants, background notifications, iPhone access with the Tether app and automatic updates.
+Codex-style quality-of-life features for the [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) desktop and web UI: a Changes panel, swipe-card feature ideas, project status in the sidebar, input history, a plan-mode shortcut, one-click Continue, resume running chats after a restart, queue drag-and-drop, session deeplinks, per-chat Auto Review grants, background notifications, iPhone access with the Tether app and automatic updates.
 
-**In one line:** a single DeepSeek Harness plugin (npm `dsh-composer-plus`, shown as **Composer Plus** in Settings → Plugins) that adds a git Changes panel, ↑/↓ input history, a Shift+Tab `/plan` toggle, one-click ▶ Continue, Resume after restart, drag-and-drop queue reordering, Copy deeplink, Auto Review “Allow for this chat”, background notifications, iPhone access (Mobile connect, Tether app), 11 extra interface languages and automatic updates.
+**In one line:** a single DeepSeek Harness plugin (npm `dsh-composer-plus`, shown as **Composer Plus** in Settings → Plugins) that adds a git Changes panel, Tinder-style feature idea cards, ↑/↓ input history, a Shift+Tab `/plan` toggle, one-click ▶ Continue, Resume after restart, drag-and-drop queue reordering, Copy deeplink, Auto Review “Allow for this chat”, background notifications, iPhone access (Mobile connect, Tether app), 11 extra interface languages and automatic updates.
 
 <p align="center"><img src="docs/images/hero.webp" width="820" alt="DeepSeek Harness with Composer Plus: the running project shows a spinner in the sidebar and the Changes panel shows a git diff"></p>
 
-Unofficial community plugin. The only network calls are the update check (GitHub releases and the npm registry); switch off **Automatic updates** to stop them at startup. **Mobile connect** (off by default) accepts iPhone connections from your local network or tailnet only after you switch it on.
+Unofficial community plugin. The only network calls are the update check (GitHub releases and the npm registry); switch off **Automatic updates** to stop them at startup. **Feature ideas** calls your chat's own model only when you click **Suggest features**. **Mobile connect** (off by default) accepts iPhone connections from your local network or tailnet only after you switch it on.
 
 ## Install
 
@@ -32,6 +32,7 @@ Then restart dsh. (The CLI can't install into the desktop profile; the app manag
 | Feature | How to use it | Screenshot |
 |---|---|---|
 | **Changes panel** | Right sidebar → `+` → **Changes**. Pick **Uncommitted**, **Unstaged**, **Staged** or **Branch** to see changed files with `+/-` counts; click a file for its diff. **Last Turn** opens dsh's own review of the latest turn. | <a href="assets/features/changesPanel.webp"><img src="assets/features/changesPanel.webp" width="160" alt="Changes panel screenshot"></a> |
+| **Feature ideas** | Right sidebar → `+` → **Feature ideas** → **Suggest features**. The chat's own model reads a short summary of the chat's project (top-level files, the README and manifest heads, the last 15 commits) and suggests up to 8 features, shown as a stack of cards. Swipe a card right (or click **✓**, or press `→`) to start a new chat in the same project: it starts in plan mode with the idea as the request, so nothing changes before you approve the plan. Swipe left (or **✕**, or `←`) to skip; **Undo** (or `Z`) brings a skipped card back. **More ideas** adds cards. The model runs only when you click. | <a href="assets/features/featureIdeas.webp"><img src="assets/features/featureIdeas.webp" width="160" alt="Feature ideas screenshot"></a> |
 | **Input history** | In an empty composer, press `↑` / `↓` to walk through messages you sent, like a terminal. | <a href="assets/features/inputHistory.webp"><img src="assets/features/inputHistory.webp" width="160" alt="Input history screenshot"></a> |
 | **Plan mode shortcut** | `Shift+Tab` adds `/plan ` to the start of the draft (press again to remove it). If the chat is already in plan mode, `Shift+Tab` leaves it. | <a href="assets/features/planToggle.webp"><img src="assets/features/planToggle.webp" width="160" alt="Plan mode shortcut screenshot"></a> |
 | **Keep composer focus** | After you send a `/` command or skill, the cursor stays in the composer, and you can type again at once. This also works for keyboard macros that type a command and press `Enter`. dsh makes the composer read-only while it resolves the command, and the browser then removes the focus. This feature puts the focus back, unless a menu, a dialog or another field has it. | <a href="assets/features/keepFocus.webp"><img src="assets/features/keepFocus.webp" width="160" alt="Keep composer focus screenshot"></a> |
@@ -79,6 +80,8 @@ Each pack covers all 3,069 UI strings of dsh `0.2.0-rc.2` and `0.2.1-rc.2` (chat
 | `Shift+Tab` | composer | add/remove `/plan `, or leave plan mode |
 | `↑` / `↓` | focused queue grip | move the queued message |
 | `Esc` | while dragging | cancel the move |
+| `→` / `←` | Feature ideas page | build / skip the top card |
+| `Z` | Feature ideas page | bring back the last skipped card |
 
 An open `/` or `@` menu keeps these keys for itself.
 
@@ -92,6 +95,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-rc.2` (web). CI runs the
 - **Resume after restart:** off until you switch it on. The Host half keeps only chat ids and start times in `$DSH_HOME/storages/dsh-composer-plus/resume.json` (owner-only permissions), and nothing leaves your machine. It continues a chat only when dsh's own log says that dsh (not you) stopped its last turn. Approvals and Auto Review apply to the continued turn as usual.
 
 - **Changes panel:** git runs read-only on your machine, in the chat's own folder, through dsh's authenticated `/api` channel. It never commits, stages or fetches, and only shows paths git itself listed.
+- **Feature ideas:** nothing runs until you click **Suggest features**. Then the Host half reads only the chat's own folder (the browser never sends a path): the names of the top-level entries, the first 6 kB of the README, AGENTS.md and the manifest (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, …) and `git log --oneline -15`, at most 16 kB in total. It skips `.env*`, key files and folders such as `node_modules`. This summary goes to the model that the chat uses, through dsh's own provider settings, as one request; it is not added to any chat. Nothing in the project is written. A swiped-right idea starts a new chat in plan mode, so approvals and plan review apply as usual.
 - **Allow for this chat:** grants are stored in `$DSH_HOME/storages/dsh-composer-plus/grants.json` (owner-only permissions). A grant covers **one exact tool in one chat**. If that tool can write, the grant covers any write too. Revoke it from the header chip.
 - Auto Review still runs on every call; review failures are never auto-allowed.
 - **Mobile connect:** off until you switch it on. While it is on, the Host half runs the Tether gateway: HTTPS on port 19390 that accepts only your Wi-Fi subnet and your tailnet (100.64.0.0/10), and a pairing page on `127.0.0.1:19391` (this Mac only). A phone needs a one-time code from the QR code (5 minutes) and your **Approve** on the Mac. The phone pins the gateway's certificate. The Mac keeps only a hash of each phone's token (30 days, renewed while used); **Revoke** closes that phone's connections at once. Phones can call only an allowlist of dsh methods (chats, prompts, attachments, slash commands, approvals, questions, models, agents, goals), not settings, credentials, the file browser or the terminal. Data: `$DSH_HOME/storages/dsh-composer-plus/mobile/`. Details: [tether/README.md](tether/README.md).
@@ -110,6 +114,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-rc.2` (web). CI runs the
 ## Limits
 
 - Message-free Continue relies on dsh’s `agent/pre-step` → `agent/request` lifecycle. Recheck compatibility when upgrading dsh.
+- **Feature ideas** keeps the cards in memory for each chat until dsh or the page reloads; then **Suggest features** asks the model again. The model sees only the short project summary, not the code, so an idea can repeat something the project already has: skip it. The new chat runs in plan mode only when the profile has dsh's `/plan` command; otherwise the idea goes as an ordinary first message.
 - **Resume after restart** continues the turn; it does not replay it. A tool call that was running at the quit ends with dsh's “outcome unknown” result, and the model is told not to repeat finished work, but a command that is not safe to run twice can run again. Subagents, approvals and questions that were open are not restored: their parent chat continues and asks again. At most 20 chats continue at one start.
 
 - dsh's queue has no `move` action, so a reorder rewrites the affected rows' text. If the agent picks up a row mid-move, the move is undone and nothing is lost. Messages with images or files can't be moved.
@@ -126,6 +131,8 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-rc.2` (web). CI runs the
 ## FAQ
 
 **How do I add a Changes / git diff panel to DeepSeek Harness?** Install `dsh-composer-plus`, then right sidebar → `+` → **Changes**.
+
+**Can dsh suggest features for my project, like swiping Tinder cards?** Yes: right sidebar → `+` → **Feature ideas** → **Suggest features**. Swipe right to start a new chat that plans the feature, swipe left to skip.
 
 **How do I get ↑/↓ message history in the dsh composer?** Install this plugin; in an empty composer `↑` / `↓` walk through messages you sent.
 
@@ -171,6 +178,8 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js
 # Resume after restart (fake slow model, real quit and start): a running chat and a goal continue, a stopped chat does not
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-resume-restart.mjs /path/to/dsh/lib/bin.js
+# Feature ideas (fake model, made-up project): suggest, drag left, Undo, ✓ starts a new chat in plan mode + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh

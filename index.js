@@ -9,9 +9,11 @@
  *   on; the switch is saved under the dsh home and is off by default.
  * - Resume after restart: remembers the chats that were running when dsh quit and continues them at the next start; off by
  *   default (it starts model turns without a click).
+ * - Feature ideas: on a click, one model call (the chat's own model) reads a short brief of the chat's project and returns
+ *   feature ideas as cards. Read-only: no chat message, nothing written to the project.
  */
 import { readFileSync } from 'node:fs';
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, open, readdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -28,8 +30,9 @@ export const UPDATE_PATH = '/api/composer-plus.update';
 export const SHOT_PATH = '/api/composer-plus.shot';
 export const MOBILE_PATH = '/api/composer-plus.mobile';
 export const RESUME_PATH = '/api/composer-plus.resume';
+export const IDEAS_PATH = '/api/composer-plus.ideas';
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
-export const SHOTS = ['changesPanel', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
+export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
   'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'language', 'autoUpdate'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
@@ -375,6 +378,149 @@ export async function wakeSession({ sessionController, sessionQuery, goals, arch
   return 'continued';
 }
 
+/** Feature ideas: at most this many cards per call; the brief and the answer are bounded too. */
+export const IDEAS_MAX = 8;
+const BRIEF_FILE_BYTES = 6000;
+const BRIEF_MAX = 16000;
+const IDEAS_TIMEOUT_MS = 90000;
+const IDEAS_MAX_TOKENS = 4000;
+/** Top-level names that never go into the brief: secrets and bulky generated folders. */
+const BRIEF_SKIP = /^(\.env.*|.*\.(pem|key|p12|pfx)|id_[a-z0-9]+|\.git|node_modules|dist|build|coverage|\.next|\.venv|venv|__pycache__|\.DS_Store)$/i;
+const BRIEF_FILES = ['README.md', 'readme.md', 'README', 'AGENTS.md', 'package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'composer.json', 'pom.xml'];
+
+/** The first `max` bytes of one file, or undefined when it is missing or not a regular file. */
+async function head(path, max) {
+  let file;
+  try {
+    file = await open(path, 'r');
+    if (!(await file.stat()).isFile()) return undefined;
+    const buffer = Buffer.alloc(max);
+    const { bytesRead } = await file.read(buffer, 0, max, 0);
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } catch { return undefined; } finally { await file?.close().catch(() => {}); }
+}
+
+/** A short, read-only picture of a project for the idea prompt: top-level entries, the main docs and manifests (heads
+ * only), and the latest commits. Secrets files and generated folders are skipped; the whole brief is bounded. */
+export async function projectBrief(cwd, { subprocess, signal } = {}) {
+  const parts = [];
+  try {
+    const entries = (await readdir(cwd, { withFileTypes: true })).filter((e) => !BRIEF_SKIP.test(e.name)).slice(0, 80);
+    parts.push(`Top-level entries:\n${entries.map((e) => `${e.name}${e.isDirectory() ? '/' : ''}`).join('\n')}`);
+  } catch { /* unreadable folder: the brief says less */ }
+  const seen = new Set();
+  for (const name of BRIEF_FILES) {
+    const text = await head(join(cwd, name), BRIEF_FILE_BYTES);
+    // Case-insensitive file systems answer README.md and readme.md with the same file.
+    if (text === undefined || text.trim() === '' || seen.has(text)) continue;
+    seen.add(text);
+    parts.push(`--- ${name} (first ${BRIEF_FILE_BYTES} bytes) ---\n${text}`);
+  }
+  if (subprocess !== undefined) {
+    try {
+      const log = await runGit(subprocess, cwd, ['log', '--oneline', '--no-color', '-15'], signal);
+      if (log.code === 0 && log.stdout.trim() !== '') parts.push(`Latest commits:\n${log.stdout.trim()}`);
+    } catch { /* not a repository, or git is missing */ }
+  }
+  return parts.join('\n\n').slice(0, BRIEF_MAX);
+}
+
+const IDEAS_SYSTEM = `You suggest new features for a software project. Read the project brief and suggest ${IDEAS_MAX} specific features that fit this project and its users. Prefer small, useful, concrete features over rewrites. Do not suggest a feature that the brief shows the project already has.
+Answer with one JSON array only, with no other text. Each element is an object with these keys:
+- "title": the feature name, at most 8 words.
+- "summary": what the feature does, 1 or 2 sentences.
+- "why": the benefit for the users, 1 sentence.
+- "effort": one of "small", "medium", "large".
+Write the text values in the language of the project brief.`;
+
+const clip = (value, max) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : '');
+/** Ideas from the model's answer: the first JSON array in it (a code fence is fine), each idea cleaned and bounded. Throws
+ * when the answer holds no usable idea. */
+export function parseIdeas(text) {
+  const raw = String(text ?? '');
+  const start = raw.indexOf('[');
+  const end = raw.lastIndexOf(']');
+  let list;
+  try { list = start === -1 || end <= start ? undefined : JSON.parse(raw.slice(start, end + 1)); } catch { list = undefined; }
+  if (!Array.isArray(list)) throw new Error('the model did not answer with a list of ideas');
+  const ideas = [];
+  for (const item of list) {
+    const title = clip(item?.title, 120);
+    const summary = clip(item?.summary, 600);
+    if (title === '' || summary === '') continue;
+    const effort = ['small', 'medium', 'large'].includes(item?.effort) ? item.effort : undefined;
+    ideas.push({ id: randomUUID(), title, summary, ...(clip(item?.why, 300) === '' ? {} : { why: clip(item.why, 300) }), ...(effort === undefined ? {} : { effort }) });
+    if (ideas.length === IDEAS_MAX) break;
+  }
+  if (ideas.length === 0) throw new Error('the model answered without a usable idea');
+  return ideas;
+}
+
+/** The chat's own model: the newest logged request header, else dsh's default model. */
+function ideasRoute(events, defaultModel) {
+  const header = events.findLast((e) => e.type === 'request/header')?.data?.header?.config;
+  if (isText(header?.provider) && isText(header?.model)) return { provider: header.provider, model: header.model };
+  const selection = defaultModel?.currentSelection?.();
+  if (isText(selection?.provider) && isText(selection?.model)) return { provider: selection.provider, model: selection.model };
+  return undefined;
+}
+
+/** One model call for feature ideas about the chat's project. Read-only: no chat message, nothing written to the project. */
+export async function suggestIdeas({ llm, sessionQuery, subprocess, defaultModel }, sessionId, signal) {
+  const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
+  let cwd, route;
+  try { cwd = observation.header?.cwd; route = ideasRoute(observation.events ?? [], defaultModel); } finally { observation[Symbol.dispose]?.(); }
+  if (!isText(cwd, 4096)) throw Object.assign(new Error('this chat has no project folder'), { status: 409 });
+  if (route === undefined) throw Object.assign(new Error('no model is selected'), { status: 409 });
+  const brief = await projectBrief(cwd, { subprocess, signal });
+  const timeout = AbortSignal.timeout(IDEAS_TIMEOUT_MS);
+  const callSignal = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
+  const call = await llm.prepareCall(route, callSignal, (controls, model) => {
+    // The lowest reasoning effort keeps the answer fast; the model only reads a short brief. The output cap never goes
+    // above the model's own default.
+    const first = model?.reasoning?.efforts?.[0];
+    const cap = Number.isSafeInteger(model?.defaultMaxTokens) && model.defaultMaxTokens > 0 ? Math.min(IDEAS_MAX_TOKENS, model.defaultMaxTokens) : IDEAS_MAX_TOKENS;
+    return { ...controls, maxTokens: cap, ...(first === undefined ? {} : { reasoningEffort: first.id }) };
+  });
+  let text = '';
+  let finish;
+  for await (const chunk of call.stream({ ...call.config, system: IDEAS_SYSTEM, signal: callSignal,
+    messages: [{ role: 'user', content: [{ type: 'text', text: `Project folder name: ${cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? ''}\n\n${brief}` }] }] })) {
+    if (chunk.type === 'text-delta') text += chunk.text;
+    else if (chunk.type === 'finish') finish = chunk.reason;
+  }
+  if (finish?.kind === 'error' || finish?.kind === 'aborted') throw new Error(finish.failure?.message || `the model call ended: ${finish.kind}`);
+  return { ideas: parseIdeas(text), model: route.model };
+}
+
+/** The first message of the chat that works on an accepted idea. It starts in plan mode, so nothing changes before the user
+ * approves the plan. */
+export function ideaPrompt(idea) {
+  return [`Implement this feature in this project: ${idea.title}`, '', idea.summary, ...(idea.why ? ['', `Why: ${idea.why}`] : []), '',
+    'First read the related code. Then plan the smallest change that delivers this feature, with the checks that prove it works.'].join('\n');
+}
+
+/** Start a new chat in the same project (the same sidebar group as the source chat) for one accepted idea, and enter plan
+ * mode with the idea as the request. When the profile has no /plan command, or /plan fails, the idea goes as an ordinary
+ * message. */
+export async function startIdeaChat({ sessionController, sessionQuery, commands, workspaces }, sessionId, idea, signal = new AbortController().signal) {
+  const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
+  let cwd;
+  try { cwd = observation.header?.cwd; } finally { observation[Symbol.dispose]?.(); }
+  if (!isText(cwd, 4096)) throw Object.assign(new Error('this chat has no project folder'), { status: 409 });
+  let workspace;
+  try { workspace = workspaces?.list?.().find((w) => w.sessionIds.includes(sessionId)); } catch { workspace = undefined; }
+  const { sessionId: created } = await sessionController.create(workspace === undefined ? { cwd } : { workspaceId: workspace.id });
+  const found = await sessionController.resolveAgent(created);
+  if ('error' in found) throw new Error('the new chat could not start');
+  const text = ideaPrompt(idea);
+  let planned;
+  try { planned = commands?.find?.(found.agent, 'plan') === undefined ? undefined : await commands.execute(found.agent, `/plan ${text}`, [], signal); } catch { planned = undefined; }
+  const plan = planned?.result?.kind === 'success';
+  if (!plan) await sessionController.prompt({ requestId: randomUUID(), sessionId: created, mode: 'queue', content: [{ type: 'text', text }] }, signal);
+  return { sessionId: created, plan };
+}
+
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const isText = (v, max = 512) => typeof v === 'string' && v.length > 0 && v.length <= max;
 
@@ -527,6 +673,35 @@ export function apply(ctx) {
     },
   });
   installResume(ctx, home);
+  installIdeas(ctx);
+}
+
+/** Feature ideas: `POST {sessionId}` asks the chat's model for ideas; `POST {sessionId, idea}` starts a chat for one idea.
+ * Both act only on the chat's own project folder; the browser never sends a path. */
+function installIdeas(ctx) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const status = (error) => (Number.isInteger(error?.status) ? error.status : 502);
+  ctx.connection.fetch.register({
+    path: IDEAS_PATH, methods: ['POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      if (!isText(body?.sessionId)) return json({ error: 'bad request' }, 400);
+      if (body.idea !== undefined) {
+        const idea = { title: clip(body.idea?.title, 120), summary: clip(body.idea?.summary, 600), why: clip(body.idea?.why, 300) || undefined };
+        if (idea.title === '' || idea.summary === '') return json({ error: 'bad request' }, 400);
+        try {
+          return json(await startIdeaChat({ sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, commands: get('commands'), workspaces: get('workspaceRegistry') },
+            body.sessionId, idea, request.signal));
+        } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
+      }
+      const llm = get('llm');
+      if (llm === undefined) return json({ error: 'this dsh profile cannot call a model' }, 409);
+      try {
+        return json(await suggestIdeas({ llm, sessionQuery: ctx.sessionQuery, subprocess: ctx.subprocess, defaultModel: get('agentDefaultModel') }, body.sessionId, request.signal));
+      } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
+    },
+  });
 }
 
 /** Resume after restart: follow the top-level chats, and once dsh is ready, continue the ones its last shutdown stopped.
