@@ -51,6 +51,8 @@ try {
       const report = await settings.evaluate(async (root) => {
         const rows = [...root.querySelectorAll('[role="switch"]')].map((s) => s.parentElement);
         const shots = [...root.querySelectorAll('[data-composer-plus-shot] img')];
+        // The thumbnails load lazily: rows below the fold never start. Ask each one to load now, then wait.
+        for (const img of shots) img.loading = 'eager';
         await Promise.all(shots.map((img) => (img.complete ? null : new Promise((r) => { img.onload = r; img.onerror = r; }))));
         return {
           rows: rows.length,
@@ -60,7 +62,7 @@ try {
           language: root.querySelector('[data-composer-plus-language] [data-composer-plus-shot]') !== null,
         };
       });
-      assert.ok(report.rows >= 19, `all feature rows rendered (${report.rows})`);
+      assert.ok(report.rows >= 20, `all feature rows rendered (${report.rows})`);
       assert.deepEqual(report.missing, [], 'every feature row has a screenshot');
       assert.deepEqual(report.broken, [], 'every screenshot loads');
       assert.ok(report.update && report.language, 'the update and language rows have one too');

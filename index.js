@@ -33,9 +33,10 @@ export const MOBILE_PATH = '/api/composer-plus.mobile';
 export const RESUME_PATH = '/api/composer-plus.resume';
 export const IDEAS_PATH = '/api/composer-plus.ideas';
 export const LATER_PATH = '/api/composer-plus.later';
+export const CONTENT_SEARCH_PATH = '/api/composer-plus.content-search';
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
-  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'language', 'autoUpdate'];
+  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'language', 'autoUpdate', 'contentSearch'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -206,10 +207,11 @@ export async function checkUpdate(fetchImpl = fetch, pkg = PACKAGE, signal) {
   return { ...info, newer: npm.ok };
 }
 
-/** Mobile connect switch: `{ on: true }` in a JSON file, off when the file is missing or unreadable. */
-export function mobileSwitch(file) {
+/** A Host switch (Mobile connect, Content search): `{ on }` in an owner-only JSON file. A missing or unreadable file, or
+ * any value other than the opposite of `fallback`, reads as `fallback`. */
+export function mobileSwitch(file, fallback = false) {
   return {
-    read: async () => { try { return JSON.parse(await readFile(file, 'utf8'))?.on === true; } catch { return false; } },
+    read: async () => { try { const on = JSON.parse(await readFile(file, 'utf8'))?.on; return fallback ? on !== false : on === true; } catch { return fallback; } },
     write: async (on) => {
       await mkdir(dirname(file), { recursive: true });
       const tmp = `${file}.${process.pid}.tmp`;
@@ -743,6 +745,30 @@ export function apply(ctx) {
   });
   installResume(ctx, home);
   installIdeas(ctx, home);
+  installContentSearch(ctx, home);
+}
+
+/** Content search: dsh's own sidebar search also looks in message text. The work is dsh's (`cordis.patch.yml` opens its
+ * SQLite index when this switch is on); the Host only keeps the switch, on by default. dsh reads it at start, so
+ * `GET/POST {on}` also tells whether the running index is open (`active`; undefined when dsh does not say). */
+function installContentSearch(ctx, home) {
+  const saved = mobileSwitch(join(home, 'storages', 'dsh-composer-plus', 'content-search.json'), true);
+  const active = () => { try { const openAt = ctx.sessionQuery?.config?.openAt; return typeof openAt === 'string' ? openAt !== 'never' : undefined; } catch { return undefined; } };
+  let queue = Promise.resolve(); // one save at a time: they share a temp file name
+  ctx.connection.fetch.register({
+    path: CONTENT_SEARCH_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (typeof body?.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        const done = queue.then(() => saved.write(body.on));
+        queue = done.catch(() => {});
+        try { await done; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      return json({ on: await saved.read(), active: active() });
+    },
+  });
 }
 
 /** Feature ideas: `POST {sessionId, locale?}` asks the chat's model for ideas; `POST {sessionId, idea}` starts a chat for one idea.

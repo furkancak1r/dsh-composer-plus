@@ -1,3 +1,15 @@
 - insert:
     - id: composer-plus
       name: dsh-composer-plus
+
+# Content search: dsh's own sidebar search (Cmd+K) also finds chats by the words in their messages. dsh ships the index
+# off (`openAt: never`, `:memory:`); this later layer switches it on with a durable, owner-only file under the dsh home.
+# The index opens at the first search, not at start. Settings → Composer Plus → Content search writes
+# `storages/dsh-composer-plus/content-search.json`; `{ "on": false }` keeps dsh's default (titles only). Read at start only.
+# `journalMode: delete`: a rebuildable index needs no write-ahead log; WAL kept a second file as large as the index
+# (measured: 166 MB next to a 165 MB index) until dsh quit.
+- id: session-query-sqlite
+  config:
+    path: !!js dshHomePath('cache', 'composer-plus', 'session-search.db')
+    openAt: !!js "(() => { try { return JSON.parse(process.getBuiltinModule('node:fs').readFileSync(dshHomePath('storages', 'dsh-composer-plus', 'content-search.json'), 'utf8'))?.on === false ? 'never' : 'first-search' } catch { return 'first-search' } })()"
+    journalMode: delete
