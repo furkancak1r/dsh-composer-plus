@@ -12,11 +12,11 @@
  * - Feature ideas: on a click, one model call (the chat's own model) reads a short brief of the chat's project and returns
  *   feature ideas as cards. Read-only: no chat message, nothing written to the project.
  */
-import { readFileSync } from 'node:fs';
-import { mkdir, open, readdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { constants, readFileSync } from 'node:fs';
+import { mkdir, open, readdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { createGateway } from './tether/gateway/server.mjs';
 
 export const name = 'dsh-composer-plus';
@@ -388,11 +388,15 @@ const IDEAS_MAX_TOKENS = 4000;
 const BRIEF_SKIP = /^(\.env.*|.*\.(pem|key|p12|pfx)|id_[a-z0-9]+|\.git|node_modules|dist|build|coverage|\.next|\.venv|venv|__pycache__|\.DS_Store)$/i;
 const BRIEF_FILES = ['README.md', 'readme.md', 'README', 'AGENTS.md', 'package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'composer.json', 'pom.xml'];
 
-/** The first `max` bytes of one file, or undefined when it is missing or not a regular file. */
-async function head(path, max) {
+/** The first `max` bytes of one regular file whose real path starts with `prefix` (the chat folder's real path and a
+ * separator), or undefined. A symlink counts only when it ends inside the folder. A FIFO or device is never opened;
+ * O_NOFOLLOW and O_NONBLOCK keep a file swapped in after the check from escaping or blocking. */
+async function head(path, max, prefix) {
   let file;
   try {
-    file = await open(path, 'r');
+    const real = await realpath(path);
+    if (!real.startsWith(prefix) || !(await stat(real)).isFile()) return undefined;
+    file = await open(real, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
     if (!(await file.stat()).isFile()) return undefined;
     const buffer = Buffer.alloc(max);
     const { bytesRead } = await file.read(buffer, 0, max, 0);
@@ -409,8 +413,9 @@ export async function projectBrief(cwd, { subprocess, signal } = {}) {
     parts.push(`Top-level entries:\n${entries.map((e) => `${e.name}${e.isDirectory() ? '/' : ''}`).join('\n')}`);
   } catch { /* unreadable folder: the brief says less */ }
   const seen = new Set();
-  for (const name of BRIEF_FILES) {
-    const text = await head(join(cwd, name), BRIEF_FILE_BYTES);
+  const prefix = await realpath(cwd).then((real) => (real.endsWith(sep) ? real : real + sep), () => undefined);
+  for (const name of prefix === undefined ? [] : BRIEF_FILES) {
+    const text = await head(join(cwd, name), BRIEF_FILE_BYTES, prefix);
     // Case-insensitive file systems answer README.md and readme.md with the same file.
     if (text === undefined || text.trim() === '' || seen.has(text)) continue;
     seen.add(text);

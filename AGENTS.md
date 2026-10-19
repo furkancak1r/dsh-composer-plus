@@ -14,6 +14,8 @@ The Tether iPhone app and its Mac gateway are in `tether/` (Mobile connect). Rea
 3. Add its texts to `en` and `zh` in `client.js` and to all 11 files in `locales/<id>.json`. Then run `npm run build:locales`.
 4. Document it in `README.md` (feature table with the same image, limits, FAQ when useful) and in `llms.txt`.
 5. Add a unit test in `test/` and add it to the `test` script in `package.json`. When the feature touches dsh's markup or its agent lifecycle, also check it in a real isolated dsh on 0.2.0-rc.2 and 0.2.1-rc.2.
+6. When the Host half reads project files (for a model prompt or a response), read only regular files that stay inside the chat's folder. Before you open a file, resolve it with `realpath` and check that the result is inside the folder's real path and is a regular file. Open it with `O_NOFOLLOW | O_NONBLOCK`, so a swapped-in symlink or FIFO cannot block or escape. Test it with a symlink to a file outside the folder and with a FIFO; make a red FIFO test end (open the FIFO for writing after a timeout) instead of hanging.
+7. A client store that more than one async action can change at the same time must not overwrite a state that another action set. Merge the state, and block a new action that changes the same state while one is running. Check the guard in every entry point (button, key, pointer drag), not only in the UI.
 
 ## Release
 

@@ -49,6 +49,28 @@ reply = () => ({ status: 200, body: { ideas: ideas(2, 10) } }); await suggestIde
 assert.deepEqual(deck.cards.map((c) => c.id), ['i1', 'i2', 'i10', 'i11']); assert.equal(deck.error, undefined);
 const empty = ideaDeck('chat-3'); reply = () => ({ status: 502, body: { error: 'rate limited' } }); await suggestIdeas(empty, 'chat-3');
 assert.equal(empty.status, 'idle'); assert.equal(empty.error, 'rate limited');
+// One network action per deck: no swipe while ideas load, no load while a chat starts, Undo history survives a load.
+{
+  const realFetch = globalThis.fetch; const gate = () => { let go; const p = new Promise((r) => { go = r; }); return { p, go }; };
+  let loads = 0, starts = 0, loadGate, startGate;
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    if (body.idea) { starts++; await startGate?.p; return { ok: true, status: 200, json: async () => ({ sessionId: `n-${starts}` }) }; }
+    loads++; await loadGate?.p; return { ok: true, status: 200, json: async () => ({ ideas: ideas(2, 100 + 10 * loads) }) };
+  };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  const a = ideaDeck('race-a'); await suggestIdeas(a, 'race-a'); await decideIdea(a, 'race-a', 'left');
+  loadGate = gate(); const more = suggestIdeas(a, 'race-a'); await tick();
+  await decideIdea(a, 'race-a', 'right'); assert.equal(starts, 0, 'no start while ideas load');
+  loadGate.go(); await more; loadGate = undefined;
+  assert.equal(a.history.length, 1, 'More ideas keeps the Undo history'); assert.equal(a.status, 'ready');
+  startGate = gate(); const s1 = decideIdea(a, 'race-a', 'right'); await tick();
+  const s2 = decideIdea(a, 'race-a', 'right'); await suggestIdeas(a, 'race-a');
+  assert.equal(starts, 1, 'one start at a time'); assert.equal(loads, 2, 'no load while a chat starts'); assert.equal(a.status, 'starting');
+  startGate.go(); await Promise.all([s1, s2]);
+  assert.equal(a.status, 'ready'); assert.equal(a.accepted.length, 1);
+  globalThis.fetch = realFetch;
+}
 
 // Rendered page.
 const t = (k, p) => (p ? `${k}:${Object.values(p).join(',')}` : k);

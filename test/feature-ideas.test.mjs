@@ -1,7 +1,8 @@
 // Feature ideas, Host half: the project brief (read-only, bounded, no secrets), the model call (the chat's own model, one
 // call, no chat message), answer parsing, the new chat for an accepted idea (same project, plan mode first) and the route.
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, symlink, open } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, IDEAS_PATH, IDEAS_MAX, projectBrief, parseIdeas, ideaPrompt, suggestIdeas, startIdeaChat } from '../index.js';
@@ -21,6 +22,22 @@ try {
   for (const hidden of ['.env', 'SECRET_TOKEN', 'server.pem', 'node_modules']) assert.ok(!brief.includes(hidden), `brief skips ${hidden}`);
   assert.ok(brief.length <= 16000 && !brief.includes('x'.repeat(6001)), 'file heads and the brief are bounded');
   assert.equal(await projectBrief(join(dir, 'missing')), '', 'a missing folder gives an empty brief, not an error');
+
+  // Brief files stay inside the chat's folder: a symlink out is skipped, a symlink inside is read, a FIFO never blocks.
+  if (process.platform !== 'win32') {
+    await writeFile(join(dir, 'outside.txt'), 'OUTSIDE-SECRET');
+    const p = join(dir, 'linked'); await mkdir(join(p, 'docs'), { recursive: true });
+    await writeFile(join(p, 'docs', 'guide.md'), '# Inside guide');
+    await symlink(join(dir, 'outside.txt'), join(p, 'README.md'));
+    await symlink(join(p, 'docs', 'guide.md'), join(p, 'AGENTS.md'));
+    const fifo = join(p, 'package.json'); execFileSync('mkfifo', [fifo]);
+    const run = projectBrief(p);
+    const linked = await Promise.race([run, new Promise((r) => setTimeout(() => r(undefined), 2000))]);
+    // A red run must end: give the blocked open() a writer, then fail.
+    if (linked === undefined) { await (await open(fifo, 'w')).close(); await run; assert.fail('projectBrief waited on a FIFO'); }
+    assert.ok(!linked.includes('OUTSIDE-SECRET'), 'a symlink out of the folder is skipped');
+    assert.match(linked, /# Inside guide/, 'a symlink inside the folder is read');
+  }
 
   // Parsing: a fenced JSON array, junk around it, cleaning and bounds.
   const many = Array.from({ length: 12 }, (_, i) => ({ title: `Idea ${i}`, summary: 'Does a thing.', why: 'Saves time.', effort: 'small' }));

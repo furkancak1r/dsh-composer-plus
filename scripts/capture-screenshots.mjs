@@ -33,7 +33,8 @@ const fake = createServer((req, res) => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
     const payload = JSON.parse(body); const msgs = payload.messages ?? []; const last = msgs.at(-1);
     const users = msgs.filter((m) => m.role === 'user').map((m) => JSON.stringify(m.content));
-    const lastUser = users.filter((u) => !/runtime context|session title/i.test(u)).at(-1) ?? '';
+    // dsh 0.2.1 also adds a "Time sampled …" user message after the prompt: skip it like the runtime context.
+    const lastUser = users.filter((u) => !/runtime context|session title|Time sampled while preparing/i.test(u)).at(-1) ?? '';
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const base = { id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo' };
     const send = (delta, finish) => res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 120, completion_tokens: 40, total_tokens: 160 } } : {}) })}\n\n`);
@@ -123,6 +124,13 @@ try {
     execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.round((clip?.width ?? 1280) * 1.25)), '0', png, '-o', join(dir, `${id}.webp`)]);
     console.log('shot', id);
   };
+  // Since 0.2.1-alpha.3 the web app has dsh's account menu (Settings is its first item) in place of the Settings button.
+  const openSettings = async () => {
+    const direct = page.getByRole('button', { name: 'Settings', exact: true });
+    if (await direct.isVisible()) return direct.click();
+    await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+    await page.getByRole('menuitem', { name: /^Settings/ }).click();
+  };
   const say = async (text) => { await input.click(); await page.keyboard.type(text); await page.keyboard.press('Enter'); };
   const box = async (locator, pad = 24) => { const b = await locator.boundingBox(); return { x: Math.max(0, b.x - pad), y: Math.max(0, b.y - pad), width: Math.min(1280 - Math.max(0, b.x - pad), b.width + pad * 2), height: Math.min(800 - Math.max(0, b.y - pad), b.height + pad * 2) }; };
   const whole = { x: 0, y: 0, width: 1280, height: 800 };
@@ -172,10 +180,12 @@ try {
   await shot('changesPanel', whole);
   await page.getByRole('button', { name: 'Close right sidebar' }).click().catch(() => {});
 
-  // Copy deeplink: right-click the chat row.
+  // Copy session link: right-click the chat row. The item sits after dsh's own "Copy Session ID" (dsh 0.2.1+), so
+  // the picture reaches down to the item.
   const row = page.locator('[data-row-key^="session:"]').first();
-  await row.click({ button: 'right' }); await page.getByText('Copy deeplink').first().waitFor();
-  await shot('copyDeeplink', { x: 0, y: 0, width: 640, height: 420 });
+  await row.click({ button: 'right' }); const item = page.getByText('Copy session link').first(); await item.waitFor();
+  const itemBox = await item.boundingBox();
+  await shot('copyDeeplink', { x: 0, y: 0, width: 640, height: Math.min(800, Math.max(420, Math.ceil(itemBox.y + itemBox.height + 24))) });
   await page.keyboard.press('Escape');
 
   // Continue: a stopped turn shows ▶.
@@ -229,7 +239,7 @@ try {
   await page.evaluate(() => document.getElementById('demo-banner')?.remove());
 
   // Settings page: language selector + updates row + switches.
-  await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByText('Composer Plus', { exact: true }).click();
+  await openSettings(); await page.getByText('Composer Plus', { exact: true }).click();
   await page.locator('[data-composer-plus-language]').waitFor();
   // README Settings picture: the feature list with a hover preview open.
   await page.locator('[data-composer-plus-shot="changesPanel"]').hover(); await page.locator('[data-composer-plus-shot-preview]').waitFor();
@@ -240,7 +250,7 @@ try {
   // Updates: answer the check with a newer demo release so the row shows "available" + "Update now", plus the notification.
   await page.route('**/api/composer-plus.update', (route) => route.fulfill({ json: { name: 'dsh-composer-plus', current: '1.2.0', latest: '1.3.0', managed: true, newer: true, url: 'https://github.com/furkancak1r/dsh-composer-plus/releases' } }));
   await page.reload(); await page.waitForTimeout(1500);
-  await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByText('Composer Plus', { exact: true }).click();
+  await openSettings(); await page.getByText('Composer Plus', { exact: true }).click();
   const updateRow = page.locator('[data-composer-plus-update]'); await updateRow.waitFor(); await updateRow.getByText('Update now').waitFor({ timeout: 8000 });
   await page.evaluate(() => {
     const n = document.createElement('div'); n.id = 'demo-banner';
@@ -253,7 +263,7 @@ try {
   // README language picture: the whole app in Türkçe (last step; later steps would need English labels).
   await page.evaluate(() => document.getElementById('demo-banner')?.remove());
   await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); await page.waitForTimeout(400);
-  await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByText('Composer Plus', { exact: true }).click();
+  await openSettings(); await page.getByText('Composer Plus', { exact: true }).click();
   await page.locator('[data-composer-plus-language] button[aria-haspopup=menu]').click(); await page.getByText('Türkçe', { exact: true }).last().click();
   await page.getByText('Ayarlar', { exact: true }).first().waitFor(); await page.keyboard.press('Escape');
   await page.getByText('Değişiklikler', { exact: true }).first().waitFor({ timeout: 5000 }); // open Changes tab title follows the language

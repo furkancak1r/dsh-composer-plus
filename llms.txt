@@ -7,14 +7,14 @@ Install in the dsh desktop app: Settings → Plugins → Add plugin → `dsh-com
 Features (each one can be switched off in Settings → Composer Plus):
 
 - Changes panel: right sidebar page with uncommitted / unstaged / staged / branch git changes and per-file diffs; read-only git.
-- Feature ideas (Tinder-style cards): right sidebar page; on a click, the chat's own model reads a short read-only summary of the project (top-level names, README/manifest heads, recent commits; no .env or key files) and suggests up to 8 features as swipeable cards. Swipe right (✓ or →) starts a new chat in the same project in plan mode with the idea; swipe left (✕ or ←) skips; Undo (Z) brings a card back. No model call before the click; nothing in the project is written.
+- Feature ideas (Tinder-style cards): right sidebar page; on a click, the chat's own model reads a short read-only summary of the project (top-level names, README/manifest heads, recent commits; no .env or key files, no symlink out of the project, no FIFO) and suggests up to 8 features as swipeable cards. Swipe right (✓ or →) starts a new chat in the same project in plan mode with the idea; swipe left (✕ or ←) skips; Undo (Z) brings a card back. No model call before the click; nothing in the project is written.
 - Input history: ↑ / ↓ in an empty composer recalls messages you sent.
 - Plan mode shortcut: Shift+Tab adds or removes `/plan ` at the start of the draft, or leaves plan mode.
 - Keep composer focus: after you send a `/` command or skill, the cursor goes back to the composer, unless a menu, a dialog or another field has the focus. (dsh makes the composer read-only while it resolves the command, and the browser removes the focus.)
 - One-click Continue: after a stopped, failed or cut-off turn the Send button becomes ▶ and resumes without a visible chat message.
 - Resume after restart (off by default): chats that were working when dsh quit or closed continue by themselves at the next start; a running `/goal` round goes on with the next goal round. Chats you stopped, finished or failed chats do not continue. dsh has no built-in setting for this.
 - Queue drag-and-drop: reorder queued messages by dragging the ⠿ grip or with ↑ / ↓.
-- Copy deeplink: right-click a chat to copy a `dsh-session:` link that attaches it to another chat as read-only context.
+- Copy session link: right-click a chat to copy a `dsh-session:` link that attaches it to another chat as read-only context. dsh 0.2.1's own "Copy Session ID" copies only the plain id; this item comes right after it.
 - Auto Review "Allow for this chat": allow one exact tool for the rest of one chat; revocable; saved across restarts.
 - Project status and active projects first: sidebar project rows show running / waiting / done, and active projects move to the top.
 - Recent projects filter: "Active in the last 2 hours" in the sidebar's view options shows only projects with a chat active in the last 2 hours; a finished chat that was not opened yet keeps its project shown.
