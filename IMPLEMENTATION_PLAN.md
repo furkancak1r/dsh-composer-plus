@@ -310,3 +310,28 @@ Checkpoint (phases 1–4 done, 2026-10-19; not committed):
 - Client: `hostJson`, `loadLater` (seq: a read that overlaps a change is ignored), `changeLater`/`laterIdea`/`startLater`/`removeLater` (one action per deck, `saving` counts as busy), ↓ button and `ArrowDown` fly the card down (fade), "Later (N)" head button, list view (Plan / Remove, back to cards, empty list goes back). Texts: 9 new keys + `ideas.hint` + description in en, zh and 11 locales (3,106 strings each).
 - Checks: new cases in `test/feature-ideas.test.mjs` and `test/feature-ideas-client.test.mjs` fail on HEAD (missing exports / helpers) and pass now; `npm test` exit 0; `test/browser-feature-ideas.mjs` PASS on dsh 0.2.0-rc.2 and 0.2.1-rc.2 (↓ flies down, `later.json` 0600 under the project path, reload keeps "Later (1)" in another chat of the project, Plan starts a plan-mode chat with "Pantry tracker", list empty, no page errors); `featureIdeas.webp` 15.4 kB with the ↓ button (checked visually); Semgrep `--max-target-bytes 0`: only the old `eval` test-harness finding; `npm pack --dry-run` 43 files.
 - Known limit: if the list file breaks between start and remove, the chat starts but the answer is 500 and the idea stays (the user can remove it).
+
+## Tether: more than one Mac (2026-10-19)
+Request (user): "2 PCs, I must connect to both; select the PC at the top" → then "not only 2: dynamic, unlimited".
+Scope: the iPhone app keeps any number of pairings and shows one at a time; a Mac picker at the top of every tab switches it. One gateway per Mac stays as it is (each dsh with Mobile connect on is one Mac).
+Invariants:
+- Each Mac keeps its own certificate pin, token, addresses and Tailscale address. A switch never sends one Mac's token to another Mac.
+- Per-Mac phone state (unread dots, last seen list, drafts) is keyed by the Mac: a session id of Mac A never marks a row of Mac B.
+- The old single pairing (Keychain account "pairing") migrates once to the new list, so an existing iPhone stays paired.
+- No new dependency; gateway stays Node stdlib.
+Design:
+- Gateway: `/pair` and `/me` also return `mac` (the computer name, `scutil --get ComputerName`, else `os.hostname()`); Bonjour advertises that name instead of "Tether". The phone uses it as the default label; the user can rename.
+- iOS Core: `Keychain` stores `[Pairing]` (account "pairings") plus the active fingerprint (`UserDefaults` "activeMac"). `Client.pairing` stays the active one (all existing code keeps working); `pairings` holds all. `switchMac(fp)` closes the socket, clears the screen state, loads that Mac's per-Mac defaults and connects. Pairing a new Mac adds it (same fingerprint replaces). `forget()` removes only the active Mac and switches to the next one.
+- iOS UI: `MacPicker` (menu in the leading toolbar slot of Sessions, Agents and Settings, next to the connection badge): every Mac with a check on the active one, "Add a Mac…" (opens the pair sheet). Settings gets a "Macs" section: rename, remove. `PairView` becomes a sheet when at least one Mac is paired.
+Phases:
+1. Gateway `mac` name + Bonjour name + test (`test/tether-gateway.test.mjs`).
+2. iOS Core: storage, migration, switch, per-Mac keys + unit tests in `Tests.swift`.
+3. iOS UI: picker, add/rename/remove.
+4. Checks: `npm test`; iOS build for device (`xcodebuild … -sdk iphoneos`); unit tests need a simulator runtime (none installed on this Mac: report it); docs (`tether/README.md`, README Mobile connect row, llms.txt).
+Allowed paths: `tether/**`, `test/tether-gateway.test.mjs`, `README.md`, `llms.txt`, `IMPLEMENTATION_PLAN.md`, `package.json` (version).
+Risks: the iPhone app is installed by hand (Xcode / devicectl); the user must update it. A gateway older than this change sends no `mac`: the phone falls back to the Bonjour name or the host address.
+Work happens on branch `feat/tether-multi-mac` in `/tmp/cp-multi-mac` (another session commits on main in parallel).
+Result (2026-10-19): all 4 phases done on `feat/tether-multi-mac`.
+- Checks: `npm test` exit 0 (gateway 17/17 incl. the new Mac-name test); iOS `swiftc -typecheck` for iOS 17 passes; the whole iOS XCTest suite (24 tests, incl. `testManyMacs`, `testSwitchMacClearsScreen`) runs and passes when built for Mac Catalyst (`-target arm64-apple-ios17.0-macabi`): this Mac has no iOS simulator runtime and no iOS 26.5 device platform, so `xcodebuild` for the iPhone or a simulator cannot run here. Semgrep: only the 4 old `bypass-tls-verification` findings in `test/tether-gateway.test.mjs` (the pin tests; same count before the change).
+- Late replies after a Mac switch: `call()` stops before each address try and after the reply when `activeFp` changed (CancellationError, ignored by `run()`); a 401 unpairs only the Mac that answered; `refreshMe`, `drop`'s retry and the `/me` probe in `connect` check the Mac before they write or reconnect.
+- Not done: the iPhone app on the user's phone must be rebuilt and installed from Xcode (needs Xcode > Settings > Components > iOS 26.5).

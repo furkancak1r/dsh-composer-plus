@@ -18,7 +18,7 @@ Mac tarayıcısı ──▶ http://127.0.0.1:19391/  (admin: QR, eşleme onayı,
 
 - **dsh-composer-plus (`../index.js`)**: Mobile connect açıkken gateway'i DSH'nin kendi sürecinde çalıştırır. DSH'nin kimlik doğrulamalı loopback URL'sini gateway'e bellekten verir (diske token yazılmaz). Anahtar kapanınca, eklenti kaldırılınca veya DSH kapanınca gateway durur.
 - **server.mjs**: telefonlara tek kapı. `POST /pair`, `GET /me`, `POST /api/<method>` (allowlist), WSS `/api/remote.mux` (allowlist'li stream'ler) ve DSH `$events` akışını (onay / soru istekleri) telefonlara dağıtır. Bonjour `_dshmobile._tcp` (TXT `fp=`).
-- **ios/**: Sohbet, Oturumlar, Ajanlar, Ayarlar sekmeleri; QR / yapıştır / Bonjour ile eşleme; otomatik yeniden bağlanma.
+- **ios/**: Sohbet, Oturumlar, Ajanlar, Ayarlar sekmeleri; QR / yapıştır / Bonjour ile eşleme; otomatik yeniden bağlanma; sınırsız sayıda Mac.
 
 ## Kurulum
 
@@ -29,6 +29,21 @@ Mac tarayıcısı ──▶ http://127.0.0.1:19391/  (admin: QR, eşleme onayı,
 5. Proje dosyası `ios/project.yml`'den üretilir: değişiklikten sonra `cd ios && xcodegen generate`.
 
 Eski `dsh-mobile-bridge` eklentisini kullandıysan, `cordis.patch.yml` içindeki kaydını sil. Eski `~/.dsh-mobile` klasörü artık okunmaz: telefonu yeni QR koduyla bir kez daha eşleştir.
+
+## Birden fazla Mac
+
+Telefon istediğiniz kadar Mac'e eşleşebilir. Sınır yoktur.
+
+1. Her Mac'te dsh-composer-plus kurulu olsun ve **Mobile connect** açık olsun.
+2. Tether'de sol üstteki Mac adına dokunun, **Add a Mac…** seçin. O Mac'in QR kodunu tarayın ve Mac'te **Onayla**'ya basın.
+3. Sol üstteki Mac adından Mac'ler arasında geçin. Ayarlar → **Macs** bölümünde bir Mac'i yeniden adlandırabilir (yalnız bu iPhone'da) ya da eşleşmesini kaldırabilirsiniz.
+
+- Her Mac kendi sertifika parmak izini, token'ını ve adreslerini (LAN, Tailscale) ayrı saklar. Bir Mac'in token'ı başka bir Mac'e hiç gönderilmez.
+- Aynı anda yalnız ekrandaki Mac'e bağlanılır. Geçişte eski Mac'in bağlantısı kapanır, ekran temizlenir ve yeni Mac'e bağlanılır. Geç gelen eski yanıtlar yok sayılır.
+- Okunmamış noktaları, son görülen liste ve taslaklar Mac'e göre ayrı tutulur.
+- Gateway, Mac'in adını (`scutil --get ComputerName`) QR koduna, `/pair` ve `/me` yanıtlarına ve Bonjour ilanına ekler. Eski bir gateway ad göndermezse telefon Mac'in adresini gösterir.
+- Eski sürümle eşleşmiş iPhone'un eşleşmesi ilk açılışta listeye taşınır; yeniden eşleşme gerekmez.
+- Sınır: ekrandaki Mac dışındaki Mac'lerden onay ve soru bildirimi gelmez. Onları görmek için o Mac'e geçin.
 
 ## Uzaktan erişim (Tailscale)
 
@@ -64,7 +79,7 @@ Kodda `shortcut:` yorumlarıyla işaretli:
 
 ## Desteklenmeyenler
 
-İnternet / uzaktan erişim (relay, VPN), çoklu Mac, dosya gezgini / terminal, eski geçmişi sayfalama, arka plan push bildirimleri, ses girişi, iPad'e özel düzen.
+İnternet / uzaktan erişim (relay, VPN), aynı anda birden fazla Mac'e bağlı kalma, dosya gezgini / terminal, eski geçmişi sayfalama, arka plan push bildirimleri, ses girişi, iPad'e özel düzen.
 
 ## Ajanla iPhone testi (agent-device)
 
@@ -86,7 +101,7 @@ Gerçek iPhone için:
 
 - Gateway: depo kökünde `npm test` (`test/tether-gateway.test.mjs`: subnet, tailnet, eşleme + hash'li saklama, yetkisiz erişim, kod tekrarı/süre/ret, MITM, allowlist, iptal + replay, LAN-only, ağ değişimi, event yönlendirme, eşzamanlılık, brute force, token yenileme) ve `test/mobile-connect.test.mjs` (anahtar, gateway yaşam döngüsü, Ayarlar satırı, kenar çubuğu düğmesi).
 - Gerçek DSH ile eklenti içinden uçtan uca: `PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js` (varsayılan kapalı, anahtarı açma, QR'lı açılır pencere, sahte iPhone eşleme + `session/list`, allowlist 403, kapatınca portların kapanması). Mac'in Wi-Fi adresi gerekir.
-- iOS: `cd ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test CODE_SIGNING_ALLOWED=NO` → **6/6 geçti** (kendi sertifikası kabul, MITM reddi, LAN-only, QR doğrulama, Markdown blokları, içerik/soru ayrıştırma). Uygulama iOS Simulator için derleniyor (Xcode 26.6).
+- iOS: `cd ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test CODE_SIGNING_ALLOWED=NO` → **6/6 geçti** (kendi sertifikası kabul, MITM reddi, LAN-only, QR doğrulama, Markdown blokları, içerik/soru ayrıştırma). Birden fazla Mac testleri (`testManyMacs`, `testSwitchMacClearsScreen`) de bu pakettedir. Simülatör yoksa paket Mac Catalyst hedefiyle (`-target arm64-apple-ios17.0-macabi`) derlenip çalıştırılabilir. Uygulama iOS Simulator için derleniyor (Xcode 26.6).
 - Gerçek cihaz: iPhone 13 için imzalı derleme (`-destination 'platform=iOS,name=iPhone' -allowProvisioningUpdates`), `xcrun devicectl device install app` ile kurulum ve açılış **başarılı**.
 - Canlı DSH uçtan uca (`test/tether-e2e.mjs`, elle çalıştırılır; birleşmeden önceki sonuç) → **14/14 geçti**, gerçek DSH 0.2.0-rc.2 ve gerçek LAN adresi (192.168.1.44) üzerinde: yanlış pin reddi, eşleme + onay, kod tekrarı reddi, upstream bağlantısı, session/list·create·rename, goals/get, agentPresets/list, session/modelCatalog, allowlist dışı yöntem 403, WSS session/follow snapshot, iptal sonrası 401. Ayrıca `dns-sd -L` ile Bonjour yayını (fp TXT kaydıyla) ve `lsof` ile yalnızca `192.168.1.44:19390` + `127.0.0.1:19391` dinlendiği doğrulandı.
 

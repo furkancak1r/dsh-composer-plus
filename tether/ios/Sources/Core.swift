@@ -139,13 +139,41 @@ func isTailnet(_ h: String) -> Bool {
         && h.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "." || $0 == "-") })
 }
 
-struct Invite: Decodable { let v: Int; let host: String; let port: Int; let fp: String; let code: String; var ts: String? = nil }
-/// QR / pasted payload from the Mac: {"v":1,"host","port","fp","code","ts"?}; ts = the Mac's Tailscale IP.
+struct Invite: Decodable { let v: Int; let host: String; let port: Int; let fp: String; let code: String; var ts: String? = nil; var mac: String? = nil }
+/// QR / pasted payload from the Mac: {"v":1,"host","port","fp","code","ts"?,"mac"?}; ts = the Mac's Tailscale IP, mac = its name.
 func parseInvite(_ s: String) -> Invite? {
     guard let d = s.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
           let i = try? JSONDecoder().decode(Invite.self, from: d), i.v == 1, isLANv4(i.host),
           (1...65535).contains(i.port), let fp = normFp(i.fp), (1...128).contains(i.code.count), i.ts.map(isTailnet) ?? true else { return nil }
-    return Invite(v: 1, host: i.host, port: i.port, fp: fp, code: i.code, ts: i.ts)
+    return Invite(v: 1, host: i.host, port: i.port, fp: fp, code: i.code, ts: i.ts, mac: i.mac.flatMap(macLabel))
+}
+
+/// A Mac name from the gateway or the user: trimmed, no control characters, at most 64 characters; nil when blank.
+func macLabel(_ s: String) -> String? {
+    let t = String(String.UnicodeScalarView(s.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })).trimmingCharacters(in: .whitespacesAndNewlines)
+    return t.isEmpty ? nil : String(t.prefix(64))
+}
+
+/// Pairings in the picker's order. A new pairing for a Mac that is already in the list (same certificate) replaces it in
+/// place and keeps the user's own label; any other Mac is added at the end. There is no limit on the count.
+func upserted(_ list: [Pairing], _ p: Pairing) -> [Pairing] {
+    guard let i = list.firstIndex(where: { $0.fp == p.fp }) else { return list + [p] }
+    var out = list, n = p
+    n.label = list[i].label ?? p.label
+    out[i] = n
+    return out
+}
+/// The Mac to show after `fp` is unpaired: the one that came after it in the list, else the one before it.
+func nextActive(_ list: [Pairing], removed fp: String) -> String? {
+    guard let i = list.firstIndex(where: { $0.fp == fp }) else { return list.first?.fp }
+    let rest = list.filter { $0.fp != fp }
+    return rest.isEmpty ? nil : rest[min(i, rest.count - 1)].fp
+}
+/// UserDefaults key of one per-Mac value. Session ids are unique only inside one DSH, so unread dots, the last seen list
+/// and drafts of two Macs must not share a key. The first Mac (migrated from the one-Mac build) keeps the old bare key.
+func macKey(_ key: String, _ fp: String?, legacy: String?) -> String {
+    guard let fp, fp != legacy else { return key }
+    return "\(key).\(fp.prefix(16))"
 }
 
 /// Splits on triple-backtick fences: prose blocks and code blocks; lang is the fence's language tag ("" if none).
@@ -293,7 +321,13 @@ func toolSummary(_ name: String, _ args: Any?) -> String {
 
 // MARK: - Models
 
-struct Pairing: Codable { var host: String; var port: Int; var fp: String; var token: String; var deviceId: String; var name: String; var expiresAt: String; var ts: String? = nil }
+/// One paired Mac. `mac` is the name the Mac reports; `label` is the user's own name for it (wins when set).
+struct Pairing: Codable, Identifiable {
+    var host: String; var port: Int; var fp: String; var token: String; var deviceId: String; var name: String; var expiresAt: String; var ts: String? = nil
+    var mac: String? = nil; var label: String? = nil
+    var id: String { fp }
+    var title: String { label ?? mac ?? host }
+}
 
 /// A picked file waiting to be uploaded with the next prompt.
 struct Attachment: Identifiable {
@@ -462,20 +496,31 @@ struct Goal {
     var summary: String { [phase, max > 0 ? "\(rounds)/\(max)" : rounds > 0 ? "\(rounds)" : ""].filter { !$0.isEmpty }.joined(separator: " · ") }
 }
 
-// MARK: - Keychain: one item holding the pairing (token included), this device only.
+// MARK: - Keychain: one item holding every pairing (tokens included), this device only.
 
 enum Keychain {
-    static let base: J = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "dsh-mobile", kSecAttrAccount as String: "pairing"]
-    static func load() -> Pairing? {
-        var q = base; q[kSecReturnData as String] = true
+    static func item(_ account: String) -> J { [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "dsh-mobile", kSecAttrAccount as String: account] }
+    private static func read(_ account: String) -> Data? {
+        var q = item(account); q[kSecReturnData as String] = true
         var out: AnyObject?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let d = out as? Data else { return nil }
-        return try? JSONDecoder().decode(Pairing.self, from: d)
+        return SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess ? out as? Data : nil
     }
-    static func save(_ p: Pairing?) {
-        SecItemDelete(base as CFDictionary)
-        guard let p, let d = try? JSONEncoder().encode(p) else { return }
-        var a = base; a[kSecValueData as String] = d; a[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    /// Every paired Mac. The one-Mac build stored a single pairing under "pairing": it moves into the list once, and
+    /// `legacy` returns its fingerprint so that Mac keeps its old UserDefaults keys.
+    static func load() -> (list: [Pairing], legacy: String?) {
+        if let d = read("pairings"), let list = try? JSONDecoder().decode([Pairing].self, from: d) {
+            return (list, UserDefaults.standard.string(forKey: "legacyMac"))
+        }
+        guard let d = read("pairing"), let one = try? JSONDecoder().decode(Pairing.self, from: d) else { return ([], nil) }
+        save([one]); UserDefaults.standard.set(one.fp, forKey: "legacyMac")
+        // Delete the old item only when the list is really saved; otherwise the next launch tries again.
+        if read("pairings") != nil { SecItemDelete(item("pairing") as CFDictionary) }
+        return ([one], one.fp)
+    }
+    static func save(_ list: [Pairing]) {
+        SecItemDelete(item("pairings") as CFDictionary)
+        guard !list.isEmpty, let d = try? JSONEncoder().encode(list) else { return }
+        var a = item("pairings"); a[kSecValueData as String] = d; a[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         SecItemAdd(a as CFDictionary, nil)
     }
 }
@@ -503,18 +548,44 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 @MainActor final class Client: ObservableObject {
     enum Conn: String { case off = "Not connected", connecting = "Connecting…", connected = "Connected", reconnecting = "Reconnecting…" }
 
-    @Published var pairing: Pairing? = Keychain.load() { didSet { Keychain.save(pairing) } }
+    /// Every paired Mac, in the picker's order; no limit. Saved in the Keychain as one item.
+    @Published var pairings: [Pairing] { didSet { Keychain.save(pairings) } }
+    /// The Mac on screen. Every request, socket and list uses only this Mac's address, pin and token.
+    @Published var activeFp: String? { didSet { UserDefaults.standard.set(activeFp, forKey: "activeMac") } }
+    /// The Mac paired by the one-Mac build: it keeps the old bare UserDefaults keys (see macKey).
+    private let legacyFp: String?
+    /// The active Mac's pairing. Writes go into `pairings` (address learned from Bonjour, Tailscale, renewed token).
+    var pairing: Pairing? {
+        get { pairings.first { $0.fp == activeFp } }
+        set {
+            if let n = newValue { pairings = upserted(pairings, n); activeFp = n.fp }
+            else if let fp = activeFp { pairings.removeAll { $0.fp == fp }; activeFp = nil }
+        }
+    }
+    private func key(_ k: String) -> String { macKey(k, activeFp, legacy: legacyFp) }
+
+    init() {
+        let (list, legacy) = Keychain.load()
+        pairings = list; legacyFp = legacy
+        let saved = UserDefaults.standard.string(forKey: "activeMac")
+        activeFp = list.contains { $0.fp == saved } ? saved : list.first?.fp
+        finished = Set(UserDefaults.standard.stringArray(forKey: macKey("finished", activeFp, legacy: legacy)) ?? [])
+    }
+
     @Published var state = Conn.off
     @Published var upstream = ""
     @Published var error: String?
     @Published var pairingStatus: String?
+    /// The "Add a Mac" pair sheet is open (from the Mac picker or Settings).
+    @Published var addingMac = false
     @Published var path: [String] = [] // Sessions navigation stack; non-empty = conversation on screen
     @Published var tab = 0 // 0 Sessions, 1 Agents, 2 Settings
     @Published var sessions: [Sess] = []
     @Published var sessionsLoaded = false // a session/list reply arrived for this pairing
     /// Sessions whose turn ended while you were elsewhere; cleared when opened (desktop's unread dot).
-    @Published var finished = Set(UserDefaults.standard.stringArray(forKey: "finished") ?? []) {
-        didSet { UserDefaults.standard.set(Array(finished), forKey: "finished") }
+    @Published var finished = Set<String>() {
+        // no Mac on screen (last one unpaired): nothing to save, and the bare key may still belong to the migrated Mac
+        didSet { if activeFp != nil { UserDefaults.standard.set(Array(finished), forKey: key("finished")) } }
     }
     @Published var current: String?
     @Published var transcript: [Line] = []
@@ -583,13 +654,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     var shownModel: String? { model ?? currentSess?.model ?? defaultModel }
     func title(_ id: String) -> String { sessions.first { $0.id == id }?.title ?? String(id.prefix(8)) }
 
-    /// Unsent composer text per session, kept across navigation and app restarts (text only).
-    func draft(_ sid: String?) -> String { (UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String])?[sid ?? ""] ?? "" }
+    /// Unsent composer text per session of the active Mac, kept across navigation and app restarts (text only).
+    func draft(_ sid: String?) -> String { (UserDefaults.standard.dictionary(forKey: key("drafts")) as? [String: String])?[sid ?? ""] ?? "" }
     func setDraft(_ t: String, _ sid: String?) {
         guard let sid else { return }
-        var d = UserDefaults.standard.dictionary(forKey: "drafts") as? [String: String] ?? [:]
+        var d = UserDefaults.standard.dictionary(forKey: key("drafts")) as? [String: String] ?? [:]
         d[sid] = t.isEmpty ? nil : t
-        UserDefaults.standard.set(d, forKey: "drafts")
+        UserDefaults.standard.set(d, forKey: key("drafts"))
     }
 
     /// Sidebar order like desktop DSH: pinned, one section per project, unassigned, archived.
@@ -616,7 +687,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             .sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
     }
 
-    func run(_ op: @escaping @MainActor () async throws -> Void) { Task { do { try await op() } catch { self.error = userText(error) } } }
+    func run(_ op: @escaping @MainActor () async throws -> Void) { Task { do { try await op() } catch is CancellationError {} catch { self.error = userText(error) } } }
 
     private func http(_ fp: String) -> URLSession {
         if urlSession == nil || fp != sessionFp {
@@ -638,6 +709,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         var got: (Data, URLResponse)?
         var fails: [String] = []
         for (n, (host, rt)) in list.enumerated() {
+            // Switched Macs: stop here. A fallback try would rebuild the shared URLSession with the old pin and cancel
+            // the new Mac's requests.
+            guard activeFp == p.fp else { throw CancellationError() }
             var r = URLRequest(url: URL(string: "https://\(host):\(p.port)\(path)")!)
             if n < list.count - 1 { r.timeoutInterval = 5 } // fallback exists: fail fast
             r.setValue("Bearer \(p.token)", forHTTPHeaderField: "Authorization")
@@ -645,15 +719,17 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
                 r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 r.httpBody = try JSONSerialization.data(withJSONObject: body)
             }
-            do { got = try await http(p.fp).data(for: r); route = rt; lastFail = nil; break }
+            do { got = try await http(p.fp).data(for: r); if activeFp == p.fp { route = rt; lastFail = nil }; break }
             catch let e as URLError {
                 fails.append("\(rt == .lan ? "LAN" : "Tailscale") \(host): \(failText(e))")
-                if n == list.count - 1 { lastFail = fails.joined(separator: "\n"); throw e }
+                if n == list.count - 1 { if activeFp == p.fp { lastFail = fails.joined(separator: "\n") }; throw e }
             }
         }
         guard let (d, resp) = got else { throw Fail("Unreachable") }
+        // The user may have switched Macs while this request ran: its answer must not touch the Mac now on screen.
+        guard activeFp == p.fp else { throw CancellationError() }
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0, json = try? JSONSerialization.jsonObject(with: d)
-        if code == 401 { forget(String(localized: "This iPhone was revoked or its token expired. Pair again.")) }
+        if code == 401 { forget(String(localized: "This iPhone was revoked or its token expired. Pair again."), fp: p.fp) }
         guard code == 200 else {
             let m = ((json as? J)?["error"] as? String) ?? "HTTP \(code)"
             if m == "DSH host unavailable" { upstream = "disconnected"; throw Fail(String(localized: "DSH is closed or restarting on your Mac. Try again in a moment.")) }
@@ -671,7 +747,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     // MARK: Pairing
 
-    func pair(_ inv: Invite) async {
+    /// True when the Mac approved this iPhone; the Mac is then on screen.
+    @discardableResult func pair(_ inv: Invite) async -> Bool {
         pairingStatus = String(localized: "Waiting for approval on your Mac…")
         defer { pairingStatus = nil }
         do {
@@ -689,16 +766,54 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             guard (resp as? HTTPURLResponse)?.statusCode == 200, let o = try JSONSerialization.jsonObject(with: d) as? J,
                   let token = o["token"] as? String, token.count >= 40, let id = o["deviceId"] as? String
             else { throw Fail(String(localized: "Pairing was denied or the code expired. Show a fresh QR code on the Mac.")) }
-            pairing = Pairing(host: inv.host, port: inv.port, fp: inv.fp, token: token, deviceId: id, name: o["name"] as? String ?? "", expiresAt: o["expiresAt"] as? String ?? "", ts: inv.ts)
+            let mac = (o["mac"] as? String).flatMap(macLabel) ?? inv.mac
+            let p = Pairing(host: inv.host, port: inv.port, fp: inv.fp, token: token, deviceId: id, name: o["name"] as? String ?? "", expiresAt: o["expiresAt"] as? String ?? "", ts: inv.ts, mac: mac)
+            pairings = upserted(pairings, p)
+            switchMac(p.fp, force: true) // the new (or re-paired) Mac goes on screen
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
-            connect()
-        } catch { self.error = userText(error) }
+            return true
+        } catch { self.error = userText(error); return false }
     }
 
-    func forget(_ why: String? = nil) {
+    /// Show another paired Mac: close this Mac's socket, clear everything on screen, load that Mac's own unread dots, and
+    /// connect with that Mac's address, pin and token only. `force` reconnects even when it is already the active Mac.
+    func switchMac(_ fp: String, force: Bool = false) {
+        guard pairings.contains(where: { $0.fp == fp }), force || fp != activeFp else { return }
+        closeScreen()
+        activeFp = fp
+        finished = Set(UserDefaults.standard.stringArray(forKey: key("finished")) ?? [])
+        connect()
+    }
+
+    /// Drop the socket and every per-Mac value on screen. A stale reply from the old Mac checks `ws` / `current` and stops.
+    private func closeScreen() {
         ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil
-        pairing = nil; sessions = []; sessionsLoaded = false; transcript = []; prompts = []; current = nil; path = []; goal = nil; state = .off
-        UserDefaults.standard.removeObject(forKey: "seenSessions")
+        urlSession?.invalidateAndCancel(); urlSession = nil // pooled TLS sockets belong to the old Mac's pin
+        sessions = []; sessionsLoaded = false; transcript = []; streaming = ""; reasoning = ""; running = false; prompts = []
+        current = nil; path = []; goal = nil; state = .off; upstream = ""; route = nil; lastFail = nil; attempt = 0; probing = false
+        workspaces = []; pinned = []; archived = []; commands = []; catalog = []; presets = []; perms = []; skills = []
+        usage = nil; model = nil; defaultModel = nil; inbox = [:]; liveTodos = nil; contextWindow = nil; turnStartedAt = nil; hasOlder = false
+    }
+
+    /// Rename a paired Mac on this iPhone only; a blank name goes back to the name the Mac reports.
+    func renameMac(_ fp: String, _ name: String) {
+        guard let i = pairings.firstIndex(where: { $0.fp == fp }) else { return }
+        pairings[i].label = macLabel(name)
+    }
+
+    /// Unpair the active Mac (or `fp`): its token leaves this iPhone and its per-Mac keys are deleted. Then the next Mac
+    /// in the list goes on screen; with none left, the pair screen shows.
+    func forget(_ why: String? = nil, fp: String? = nil) {
+        guard let gone = fp ?? activeFp else { return }
+        let next = nextActive(pairings, removed: gone)
+        let wasActive = gone == activeFp
+        for k in ["seenSessions", "finished", "drafts"] { UserDefaults.standard.removeObject(forKey: macKey(k, gone, legacy: legacyFp)) }
+        if wasActive { closeScreen() }
+        pairings.removeAll { $0.fp == gone }
+        if wasActive {
+            activeFp = nil
+            if let next { switchMac(next, force: true) } else { finished = [] }
+        }
         if let why { error = why }
     }
 
@@ -720,7 +835,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             guard !probing else { return }
             probing = true
             state = attempt == 0 ? .connecting : .reconnecting
-            Task { await self.refreshMe(); self.probing = false; if self.route == nil { self.route = self.onWiFi ? .lan : .tailscale }; self.connect() }
+            let mac = p.fp
+            Task {
+                await self.refreshMe()
+                guard self.activeFp == mac else { return } // switched meanwhile: switchMac already reset probing and connected
+                self.probing = false; if self.route == nil { self.route = self.onWiFi ? .lan : .tailscale }; self.connect()
+            }
             return
         }
         let host = (route ?? .lan) == .tailscale ? (p.ts ?? p.host) : p.host
@@ -770,13 +890,14 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         guard pairing != nil else { state = .off; return }
         state = .reconnecting; attempt += 1
         if attempt >= 2 { maybeAutoTailscale() } // one blip isn't an outage; two failed sockets off Wi‑Fi are
-        let delay = Double(min(30, 1 << min(attempt, 5)))
+        let delay = Double(min(30, 1 << min(attempt, 5))), mac = activeFp
         Task {
             try? await Task.sleep(for: .seconds(delay))
-            guard self.ws == nil, let p = self.pairing else { return }
+            guard self.ws == nil, self.activeFp == mac, let p = self.pairing else { return } // a Mac switch connects on its own
             // Bonjour fallback: same pinned certificate seen at a new address (DHCP change) → follow it. Pinning keeps this safe.
             if let f = self.found[p.fp], f.host != p.host || f.port != p.port { self.pairing?.host = f.host; self.pairing?.port = f.port }
             await self.refreshMe() // a 401 here means revoked/expired → unpairs instead of looping
+            guard self.activeFp == mac else { return }
             self.connect()
         }
     }
@@ -806,10 +927,14 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
 
     func refreshMe() async {
-        guard let me = try? await call("/me", nil) as? J else { upstream = ""; return } // Mac itself unreachable: don't blame DSH
+        let mac = activeFp
+        let me = try? await call("/me", nil) as? J
+        guard activeFp == mac else { return } // another Mac is on screen now
+        guard let me else { upstream = ""; return } // Mac itself unreachable: don't blame DSH
         upstream = me["upstream"] as? String ?? ""
         if let e = me["expiresAt"] as? String { pairing?.expiresAt = e }
         if let t = me["tailscale"] as? String, isTailnet(t), t != pairing?.ts { pairing?.ts = t } // learned without re-pairing
+        if let m = (me["mac"] as? String).flatMap(macLabel), m != pairing?.mac { pairing?.mac = m } // a gateway that reports its name
     }
 
     private func onFrame(_ f: J) {
@@ -1017,10 +1142,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     func loadSessions() async throws {
         // Remote session/list returns every visible session with no cursor (e2e asserts this).
+        // A reply that arrives after a Mac switch throws CancellationError in call(): it never reaches this list.
         let v = try await rpc("session/list", ["_request": J()]) as? J
         let fresh = (v?["items"] as? [J] ?? []).compactMap(Sess.init)
         // Cold start: compare against the last list seen before the app was closed, so turns that finished meanwhile still get a dot.
-        let old = sessions.isEmpty ? (UserDefaults.standard.array(forKey: "seenSessions") as? [J] ?? []).compactMap(Sess.init) : sessions
+        let old = sessions.isEmpty ? (UserDefaults.standard.array(forKey: key("seenSessions")) as? [J] ?? []).compactMap(Sess.init) : sessions
         // Drop dots for sessions that vanished (archived elsewhere) so the badge can't stick.
         finished = finished.intersection(fresh.map(\.id)).union(Self.justFinished(old: old, new: fresh, current: current))
         sessions = fresh
@@ -1028,7 +1154,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         // session/list carries projections.values.userQuestions ({active, settled}, verified live by gateway/e2e.mjs).
         let live = prompts.filter { $0.event != "userQuestions/answer" }, waiting = Set(live.compactMap(\.agentId))
         prompts = live + fresh.flatMap(\.questions).filter { !waiting.contains($0.agentId ?? "") }
-        UserDefaults.standard.set(Self.snapshot(fresh), forKey: "seenSessions")
+        UserDefaults.standard.set(Self.snapshot(fresh), forKey: key("seenSessions"))
         if let s = currentSess, s.running != running, streaming.isEmpty { running = s.running }
     }
 

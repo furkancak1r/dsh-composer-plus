@@ -98,6 +98,58 @@ final class CoreTests: XCTestCase {
         }
         let old = #"{"host":"192.168.1.44","port":19390,"fp":"x","token":"t","deviceId":"d","name":"n","expiresAt":""}"#
         XCTAssertNotNil(try? JSONDecoder().decode(Pairing.self, from: Data(old.utf8)), "Keychain pairing from before Tailscale")
+        XCTAssertEqual(try? JSONDecoder().decode(Pairing.self, from: Data(old.utf8)).title, "192.168.1.44", "one-Mac pairing has no name: the address")
+    }
+
+    func testManyMacs() {
+        let p = { (fp: String, mac: String?) in Pairing(host: "192.168.1.\(fp.count)", port: 19390, fp: fp, token: "t-" + fp, deviceId: "d", name: "n", expiresAt: "", mac: mac) }
+        // No limit: every new certificate is one more Mac, in pairing order.
+        var list: [Pairing] = []
+        for i in 0..<12 { list = upserted(list, p("fp\(i)", "Mac \(i)")) }
+        XCTAssertEqual(list.map(\.fp), (0..<12).map { "fp\($0)" })
+        // Pairing the same Mac again replaces it in place (new token) and keeps the user's label.
+        list[3].label = "Office"
+        list = upserted(list, p("fp3", "Mac 3 renamed"))
+        XCTAssertEqual(list.count, 12); XCTAssertEqual(list[3].token, "t-fp3"); XCTAssertEqual(list[3].title, "Office"); XCTAssertEqual(list[3].mac, "Mac 3 renamed")
+        XCTAssertEqual(list[4].title, "Mac 4", "no label: the name the Mac reports")
+        // After unpairing, the next Mac in the list goes on screen; the last one falls back to the one before it.
+        XCTAssertEqual(nextActive(list, removed: "fp3"), "fp4")
+        XCTAssertEqual(nextActive(list, removed: "fp11"), "fp10")
+        XCTAssertNil(nextActive([p("only", nil)], removed: "only"))
+        // Per-Mac keys: the first (migrated) Mac keeps the old key; others get their own; no Mac = old key.
+        XCTAssertEqual(macKey("finished", "fp0", legacy: "fp0"), "finished")
+        XCTAssertEqual(macKey("finished", nil, legacy: "fp0"), "finished")
+        XCTAssertNotEqual(macKey("finished", "aaaaaaaaaaaaaaaa1", legacy: nil), macKey("finished", "bbbbbbbbbbbbbbbb1", legacy: nil))
+        XCTAssertEqual(macKey("drafts", "0123456789abcdef0123", legacy: nil), "drafts.0123456789abcdef")
+        // Names: trimmed, no control characters, at most 64, blank = none.
+        XCTAssertEqual(macLabel("  Studio \n"), "Studio"); XCTAssertNil(macLabel("  \n")); XCTAssertEqual(macLabel("A\u{7}B"), "AB")
+        XCTAssertEqual(macLabel(String(repeating: "x", count: 90))?.count, 64)
+        // A QR from a gateway with a name carries it; an old QR still parses without one.
+        let qr = #"{"v":1,"host":"192.168.1.44","port":19390,"fp":"C6:69:BC:96:76:F7:B7:D4:B0:DA:00:FB:BE:BC:96:30:5A:4C:BC:A9:E2:5F:24:A2:B4:E4:44:EF:12:5E:BE:74","code":"123456","mac":" Studio "}"#
+        XCTAssertEqual(parseInvite(qr)?.mac, "Studio")
+    }
+
+    @MainActor func testSwitchMacClearsScreen() {
+        let c = Client()
+        let saved = c.pairings
+        defer { c.pairings = saved } // the Keychain item belongs to the real app
+        c.pairings = [Pairing(host: "192.168.1.2", port: 19390, fp: "a1", token: "ta", deviceId: "d", name: "n", expiresAt: "", mac: "A"),
+                      Pairing(host: "192.168.1.3", port: 19390, fp: "b2", token: "tb", deviceId: "d", name: "n", expiresAt: "", mac: "B")]
+        c.activeFp = "a1"
+        c.open("x"); c.transcript = [Line(kind: .user, text: "hi")]
+        XCTAssertEqual(c.pairing?.token, "ta")
+        c.switchMac("b2")
+        XCTAssertEqual(c.activeFp, "b2"); XCTAssertEqual(c.pairing?.token, "tb", "requests now use B's token")
+        XCTAssertNil(c.current); XCTAssertTrue(c.transcript.isEmpty); XCTAssertTrue(c.path.isEmpty, "nothing of A stays on screen")
+        // A write through `pairing` changes only the active Mac.
+        c.pairing?.ts = "100.90.0.7"
+        XCTAssertEqual(c.pairings.first { $0.fp == "b2" }?.ts, "100.90.0.7"); XCTAssertNil(c.pairings.first { $0.fp == "a1" }?.ts)
+        // Unpair a Mac that is not on screen: the screen stays on B.
+        c.forget(fp: "a1")
+        XCTAssertEqual(c.pairings.map(\.fp), ["b2"]); XCTAssertEqual(c.activeFp, "b2")
+        // Unpair the last Mac: no Mac on screen (the pair screen shows).
+        c.forget()
+        XCTAssertTrue(c.pairings.isEmpty); XCTAssertNil(c.pairing)
     }
 
     func testMarkdownBlocks() {

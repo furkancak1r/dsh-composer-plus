@@ -6,13 +6,21 @@ import { createServer as createHttp, request as httpRequest } from 'node:http'
 import { createHash, randomBytes, randomUUID, timingSafeEqual, X509Certificate } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { execFile, execFileSync, spawn } from 'node:child_process'
-import { homedir, networkInterfaces } from 'node:os'
+import { homedir, hostname, networkInterfaces } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const TOKEN_TTL = 30 * 864e5
 const MAX_BODY = 16 << 20
+
+/** The name the phone shows for this Mac in its Mac picker: the Mac's own "Computer Name", else the host name. */
+export function macName(read = () => execFileSync('scutil', ['--get', 'ComputerName'], { encoding: 'utf8', timeout: 2000 })) {
+  let n = ''
+  try { n = String(read()).trim() } catch {}
+  if (!n) n = hostname().replace(/\.local$/i, '')
+  return n.replace(/[\u0000-\u001f]/g, '').slice(0, 64) || 'Mac'
+}
 
 // Allowlisted DSH remote methods. Everything else is 403.
 export const RPC = new Set([
@@ -220,6 +228,7 @@ export function createGateway(opts = {}) {
     const a = (networkInterfaces()[iface] ?? []).find(i => i.family === 'IPv4' && !i.internal)
     return a && { address: a.address, netmask: a.netmask }
   })
+  const mac = opts.macName ?? macName()
   const codeTtl = opts.codeTtlMs ?? 5 * 60e3
   const waterfallTtl = opts.waterfallTimeoutMs ?? 10 * 60e3
   mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -290,7 +299,7 @@ export function createGateway(opts = {}) {
   function newCode() {
     const net = bound ?? netInfo()
     code = { value: randomBytes(16).toString('base64url'), expires: Date.now() + codeTtl }
-    code.payload = JSON.stringify({ v: 1, host: net?.address, port, fp, code: code.value, ...(ts.online && ts.ip ? { ts: ts.ip } : {}) })
+    code.payload = JSON.stringify({ v: 1, host: net?.address, port, fp, code: code.value, mac, ...(ts.online && ts.ip ? { ts: ts.ip } : {}) })
     qrReady = false
     if (opts.qr !== false) {
       const c = code
@@ -320,7 +329,7 @@ export function createGateway(opts = {}) {
     const token = randomBytes(32).toString('base64url') // 256-bit; only its hash is stored
     const d = { id: randomUUID(), name: p.name, tokenHash: sha(token), createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + TOKEN_TTL).toISOString() }
     devices.push(d); saveDevices()
-    reply(p.res, 200, { token, deviceId: d.id, name: d.name, expiresAt: d.expiresAt })
+    reply(p.res, 200, { token, deviceId: d.id, name: d.name, expiresAt: d.expiresAt, mac })
     return true
   }
 
@@ -395,7 +404,7 @@ export function createGateway(opts = {}) {
     const dev = auth(req)
     if (!dev) { fail(ip); return reply(res, 401, { error: 'unauthorized' }) }
     track(dev.id, req.socket)
-    if (req.method === 'GET' && path === '/me') return reply(res, 200, { deviceId: dev.id, name: dev.name, expiresAt: dev.expiresAt, upstream: upState, tailscale: ts.online ? ts.ip : null })
+    if (req.method === 'GET' && path === '/me') return reply(res, 200, { deviceId: dev.id, name: dev.name, expiresAt: dev.expiresAt, upstream: upState, tailscale: ts.online ? ts.ip : null, mac })
     if (req.method !== 'POST' || !path.startsWith('/api/')) return reply(res, 404, { error: 'not found' })
     const method = path.slice(5)
     let body
@@ -475,7 +484,8 @@ export function createGateway(opts = {}) {
     await new Promise((ok, bad) => { s.once('error', bad); s.listen(port, net.bind ?? '::', ok) })
     server = s; bound = net; port = s.address().port; running = true
     if (opts.bonjour !== false) {
-      bonjour = spawn('dns-sd', ['-R', 'Tether', '_dshmobile._tcp', 'local', String(port), 'fp=' + fp], { stdio: 'ignore' })
+      // The service name is the Mac's name, so the phone's "Macs on this network" list tells two Macs apart.
+      bonjour = spawn('dns-sd', ['-R', mac, '_dshmobile._tcp', 'local', String(port), 'fp=' + fp], { stdio: 'ignore' })
       bonjour.on('error', () => {})
     }
     connectEvents()
@@ -505,7 +515,7 @@ export function createGateway(opts = {}) {
   watch.unref()
 
   const state = () => ({
-    running, address: bound?.address ?? netInfo()?.address ?? null, port, tls: running ? 'TLS 1.2+, self-signed' : 'off',
+    mac, running, address: bound?.address ?? netInfo()?.address ?? null, port, tls: running ? 'TLS 1.2+, self-signed' : 'off',
     fingerprint: fp ?? null, upstream: upState, tailscale: ts, lastTlsError,
     code: code && Date.now() < code.expires ? { payload: code.payload, expiresAt: new Date(code.expires).toISOString(), qr: qrReady } : null,
     pending: [...pending.values()].map(({ id, name, ip, at }) => ({ id, name, ip, at })),

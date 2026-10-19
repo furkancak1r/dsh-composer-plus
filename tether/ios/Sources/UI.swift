@@ -26,7 +26,10 @@ struct Root: View {
                     AgentsView().tabItem { Label("Agents", systemImage: "person.2") }.tag(1)
                     SettingsView().tabItem { Label("Settings", systemImage: "gear") }.tag(2)
                 }
+                // a new view tree per Mac: no scroll position, search text or sheet of one Mac stays on screen for another
+                .id(c.activeFp)
                 .sheet(item: Binding(get: { c.prompts.first }, set: { _ in })) { PromptSheet(p: $0).interactiveDismissDisabled() }
+                .sheet(isPresented: $c.addingMac) { PairView(adding: true) }
             }
         }
         // every Form/List/ScrollView: dragging the content closes the keyboard
@@ -54,6 +57,31 @@ struct ConnBadge: View {
     var body: some View {
         Circle().fill(c.state == .connected ? .green : c.state == .off ? .red : .orange).frame(width: 9, height: 9)
             .accessibilityLabel(Text(LocalizedStringKey(c.state.rawValue)))
+    }
+}
+
+/// Top-left of every tab: the connection badge and the Mac on screen. Tap to switch to another paired Mac or add one.
+/// Any number of Macs; only the one on screen is connected.
+struct MacPicker: View {
+    @EnvironmentObject var c: Client
+    var body: some View {
+        Menu {
+            Picker("Mac", selection: Binding(get: { c.activeFp ?? "" }, set: { c.switchMac($0) })) {
+                ForEach(c.pairings) { p in Label(p.title, systemImage: "laptopcomputer").tag(p.fp) }
+            }
+            Divider()
+            Button { c.addingMac = true } label: { Label("Add a Mac…", systemImage: "plus") }
+        } label: {
+            HStack(spacing: 6) {
+                ConnBadge()
+                Text(c.pairing?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1).frame(maxWidth: 150, alignment: .leading)
+                Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+            }
+            .foregroundStyle(.primary)
+        }
+        .accessibilityLabel("Mac")
+        .accessibilityValue(Text("\(c.pairing?.title ?? ""), \(String(localized: String.LocalizationValue(c.state.rawValue)))"))
+        .accessibilityHint("Switches to another Mac")
     }
 }
 
@@ -116,6 +144,9 @@ struct ConnBanner: View {
 
 struct PairView: View {
     @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    /// Shown as a sheet from the Mac picker to pair one more Mac; the Macs already paired stay.
+    var adding = false
     @State private var scanning = false
     @State private var pasted = ""
     var body: some View {
@@ -128,8 +159,10 @@ struct PairView: View {
                     TextField("{\"v\":1,…}", text: $pasted, axis: .vertical).font(.caption.monospaced()).autocorrectionDisabled().textInputAutocapitalization(.never)
                     Button("Pair") { use(pasted) }.disabled(pasted.isEmpty)
                 }
-                if !c.found.isEmpty {
-                    Section { ForEach(Array(c.found.values)) { f in
+                // Macs already paired are not offered again (same certificate fingerprint).
+                let fresh = c.found.values.filter { f in !c.pairings.contains { $0.fp == f.fp } }.sorted { $0.name < $1.name }
+                if !fresh.isEmpty {
+                    Section { ForEach(fresh) { f in
                         Button { scanning = true } label: { LabeledContent { Image(systemName: "qrcode.viewfinder") } label: { Label(f.name, systemImage: "laptopcomputer") } }
                     } }
                     header: { Text("Macs on this network") } footer: { Text("Tap to scan that Mac's QR code. It carries the certificate fingerprint and one-time code.") }
@@ -140,7 +173,8 @@ struct PairView: View {
                     } footer: { Text("Click Approve on your Mac's Tether page. The request expires after 2 minutes.") }
                 }
             }
-            .navigationTitle("Pair with Mac")
+            .navigationTitle(adding ? "Add a Mac" : "Pair with Mac")
+            .toolbar { if adding { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } } }
             .sheet(isPresented: $scanning) {
                 QRScanner { s in scanning = false; use(s) }.ignoresSafeArea()
             }
@@ -148,7 +182,7 @@ struct PairView: View {
     }
     func use(_ s: String) {
         guard let inv = parseInvite(s) else { c.error = String(localized: "That is not a valid DSH pairing code for a local network."); return }
-        Task { await c.pair(inv) }
+        Task { if await c.pair(inv), adding { dismiss() } } // paired: the new Mac is on screen
     }
 }
 
@@ -235,6 +269,8 @@ struct ConversationView: View {
     // fallback only: used when the turn/start event carried no time
     @State private var turnStart: Date?
     @FocusState private var focused: Bool
+    /// With more than one Mac, the chat says which Mac it runs on.
+    private var macSubtitle: String { c.pairings.count > 1 ? c.pairing?.title ?? "" : "" }
     var body: some View {
         // no stale chat while unreachable: the Mac is the source of truth and every action would fail anyway
         Group { if c.state == .connected || c.state == .connecting { transcript } else { OfflineView() } }
@@ -247,6 +283,7 @@ struct ConversationView: View {
                 ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
                 // desktop's session menu: tap the title for rename / fork / pin / archive
                 ToolbarTitleMenu {
+                    if !macSubtitle.isEmpty { Label(macSubtitle, systemImage: "laptopcomputer") }
                     if let id = c.current {
                         if let p = c.currentSess?.parent { Button { c.open(p) } label: { Label("Open parent session", systemImage: "arrow.turn.left.up") } }
                         Button { newTitle = c.currentSess?.title ?? ""; renaming = true } label: { Label("Rename", systemImage: "pencil") }
@@ -1085,7 +1122,7 @@ struct SessionsView: View {
             .navigationTitle("Sessions")
             .navigationDestination(for: String.self) { _ in ConversationView() }
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) { ConnBadge() }
+                ToolbarItem(placement: .topBarLeading) { MacPicker() }
                 if !c.workspaces.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
                         let active = c.workspaces.first { $0.id == project }
@@ -1312,7 +1349,7 @@ struct AgentsView: View {
             .confirmationDialog("Clear this goal?", isPresented: $confirmClear, titleVisibility: .visible) {
                 Button("Clear goal", role: .destructive) { act("clear") }
             } message: { Text("The agent stops working toward it. This can't be undone.") }
-            .toolbar { ToolbarItem(placement: .topBarLeading) { ConnBadge() } }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { MacPicker() } }
             .refreshable { await c.loadAgents() }
             .task(id: c.current) { await c.loadAgents() }
         }
@@ -1327,9 +1364,32 @@ struct SettingsView: View {
     @State private var host = ""
     @State private var port = ""
     @State private var confirmUnpair = false
+    @State private var renaming: Pairing?
+    @State private var newName = ""
+    @State private var removing: Pairing?
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    ForEach(c.pairings) { p in
+                        Button { c.switchMac(p.fp) } label: {
+                            HStack {
+                                Label { VStack(alignment: .leading) { Text(p.title).foregroundStyle(.primary); Text(p.host).font(.caption).foregroundStyle(.secondary) } } icon: { Image(systemName: "laptopcomputer") }
+                                Spacer()
+                                if p.fp == c.activeFp { Image(systemName: "checkmark").foregroundStyle(Color.accentColor).accessibilityLabel("On screen") }
+                            }
+                        }
+                        .swipeActions {
+                            Button(role: .destructive) { removing = p } label: { Label("Unpair", systemImage: "trash") }
+                            Button { newName = p.label ?? p.mac ?? ""; renaming = p } label: { Label("Rename", systemImage: "pencil") }.tint(.blue)
+                        }
+                        .contextMenu {
+                            Button { newName = p.label ?? p.mac ?? ""; renaming = p } label: { Label("Rename", systemImage: "pencil") }
+                            Button(role: .destructive) { removing = p } label: { Label("Unpair", systemImage: "trash") }
+                        }
+                    }
+                    Button { c.addingMac = true } label: { Label("Add a Mac…", systemImage: "plus") }
+                } header: { Text("Macs") } footer: { Text("Pair as many Macs as you like. Only the Mac on screen is connected; switch with the name at the top left.") }
                 Section("Connection") {
                     LabeledContent("Status") { HStack { ConnBadge(); Text(LocalizedStringKey(c.state.rawValue)) } }
                     LabeledContent("DSH on Mac", value: c.upstream.isEmpty ? "—" : c.upstreamText ?? String(localized: "Running"))
@@ -1377,12 +1437,23 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
-            // number pad has no return key, so give it a Done button
-            .toolbar { ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) } } }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { MacPicker() }
+                // number pad has no return key, so give it a Done button
+                ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil) } }
+            }
             .onAppear { if let p = c.pairing { host = p.host; port = "\(p.port)" } }
-            .confirmationDialog("Unpair this iPhone?", isPresented: $confirmUnpair, titleVisibility: .visible) {
+            .confirmationDialog(Text("Unpair from \(c.pairing?.title ?? "")?"), isPresented: $confirmUnpair, titleVisibility: .visible) {
                 Button("Unpair", role: .destructive) { c.forget() }
             } message: { Text("The token is deleted from this iPhone. Also revoke it on the Mac to invalidate it there.") }
+            .confirmationDialog(Text("Unpair from \(removing?.title ?? "")?"), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible, presenting: removing) { p in
+                Button("Unpair", role: .destructive) { c.forget(fp: p.fp) }
+            } message: { _ in Text("The token is deleted from this iPhone. Also revoke it on the Mac to invalidate it there.") }
+            .alert("Rename Mac", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { p in
+                TextField("Name", text: $newName)
+                Button("Save") { c.renameMac(p.fp, newName) }
+                Button("Cancel", role: .cancel) {}
+            } message: { _ in Text("Only on this iPhone. Leave it empty to use the Mac's own name.") }
         }
     }
 }

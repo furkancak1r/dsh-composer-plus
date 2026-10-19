@@ -7,7 +7,7 @@ import { connect } from 'node:tls'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createGateway, acceptWs, wsConnect, inSubnet, isTailnet, allowed, normFp, RPC, STREAMS } from '../tether/gateway/server.mjs'
+import { createGateway, acceptWs, wsConnect, inSubnet, isTailnet, allowed, normFp, macName, RPC, STREAMS } from '../tether/gateway/server.mjs'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 async function waitFor(fn, ms = 3000) {
@@ -123,6 +123,20 @@ test('tailscale address goes into the QR and /me', async () => {
   } finally { await t.done() }
   const off = await setup()
   try { assert.equal(JSON.parse(off.gw.newCode().payload).ts, undefined) } finally { await off.done() }
+})
+
+test('the Mac name goes into the QR, /pair and /me, so the phone can tell Macs apart', async () => {
+  assert.equal(macName(() => 'Studio\n'), 'Studio')
+  assert.equal(macName(() => 'A\u0007B'.padEnd(80, 'x')).length, 64, 'control characters out, bounded')
+  assert.ok(macName(() => { throw new Error('no scutil') }).length > 0, 'falls back to the host name')
+  const t = await setup({ macName: 'Office Mac' })
+  try {
+    assert.equal(JSON.parse(t.gw.newCode().payload).mac, 'Office Mac')
+    const d = await pairDevice(t.gw)
+    assert.equal(d.mac, 'Office Mac')
+    assert.equal((await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + d.token })).json.mac, 'Office Mac')
+    assert.equal(t.gw.state().mac, 'Office Mac')
+  } finally { await t.done() }
 })
 
 test('pairing gives a token; only its hash is stored; auth works', async () => {
