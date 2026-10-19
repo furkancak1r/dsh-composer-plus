@@ -25,14 +25,14 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.7.0`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.7.1`.
 
 ## Features
 
 | Feature | How to use it | Screenshot |
 |---|---|---|
 | **Changes panel** | Right sidebar → `+` → **Changes**. Pick **Uncommitted**, **Unstaged**, **Staged** or **Branch** to see changed files with `+/-` counts; click a file for its diff. **Last Turn** opens dsh's own review of the latest turn. | <a href="assets/features/changesPanel.webp"><img src="assets/features/changesPanel.webp" width="160" alt="Changes panel screenshot"></a> |
-| **Feature ideas** | Right sidebar → `+` → **Feature ideas** → **Suggest features**. The chat's own model reads a short summary of the chat's project (top-level files, the README and manifest heads, the last 15 commits) and suggests up to 8 features, shown as a stack of cards. Swipe a card right (or click **✓**, or press `→`) to start a new chat in the same project: it starts in plan mode with the idea as the request, so nothing changes before you approve the plan. Swipe left (or **✕**, or `←`) to skip; **Undo** (or `Z`) brings a skipped card back. **More ideas** adds cards. The model runs only when you click. | <a href="assets/features/featureIdeas.webp"><img src="assets/features/featureIdeas.webp" width="160" alt="Feature ideas screenshot"></a> |
+| **Feature ideas** | Right sidebar → `+` → **Feature ideas** → **Suggest features**. The chat's own model reads a short summary of the chat's project (top-level files, the README and manifest heads, the last 15 commits) and suggests up to 8 features, shown as a stack of cards in dsh's UI language. Swipe a card right (or click **✓**, or press `→`; the card flies off to its side in each case) to start a new chat in the same project: it starts in plan mode with the idea as the request, so nothing changes before you approve the plan. Swipe left (or **✕**, or `←`) to skip; **Undo** (or `Z`) brings a skipped card back. **More ideas** adds cards. The model runs only when you click. | <a href="assets/features/featureIdeas.webp"><img src="assets/features/featureIdeas.webp" width="160" alt="Feature ideas screenshot"></a> |
 | **Input history** | In an empty composer, press `↑` / `↓` to walk through messages you sent, like a terminal. | <a href="assets/features/inputHistory.webp"><img src="assets/features/inputHistory.webp" width="160" alt="Input history screenshot"></a> |
 | **Plan mode shortcut** | `Shift+Tab` adds `/plan ` to the start of the draft (press again to remove it). If the chat is already in plan mode, `Shift+Tab` leaves it. | <a href="assets/features/planToggle.webp"><img src="assets/features/planToggle.webp" width="160" alt="Plan mode shortcut screenshot"></a> |
 | **Keep composer focus** | After you send a `/` command or skill, the cursor stays in the composer, and you can type again at once. This also works for keyboard macros that type a command and press `Enter`. dsh makes the composer read-only while it resolves the command, and the browser then removes the focus. This feature puts the focus back, unless a menu, a dialog or another field has it. | <a href="assets/features/keepFocus.webp"><img src="assets/features/keepFocus.webp" width="160" alt="Keep composer focus screenshot"></a> |
@@ -109,12 +109,12 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-rc.2` (web). CI runs the
 - **Mobile connect says the gateway is not running:** "no IPv4 address on en0" means this Mac has no Wi-Fi/Ethernet address; "EADDRINUSE" means another dsh (or app) uses port 19390 or 19391. Only one dsh can run Mobile connect at a time.
 - **Mobile connect or Resume after restart says "Restart dsh":** the plugin was updated while dsh was running; the new Host half loads after a restart.
 - **A chat did not continue after a restart:** Resume after restart was off when dsh quit, you stopped that turn yourself, the turn had ended (done or failed), the chat was archived, or more than 20 chats were running (the newest 20 continue).
-- **Install fails right after a release:** add the version (`dsh-composer-plus@1.7.0`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.7.1`), see the install note above.
 
 ## Limits
 
 - Message-free Continue relies on dsh’s `agent/pre-step` → `agent/request` lifecycle. Recheck compatibility when upgrading dsh.
-- **Feature ideas** keeps the cards in memory for each chat until dsh or the page reloads; then **Suggest features** asks the model again. The model sees only the short project summary, not the code, so an idea can repeat something the project already has: skip it. The new chat runs in plan mode only when the profile has dsh's `/plan` command; otherwise the idea goes as an ordinary first message.
+- **Feature ideas** keeps the cards in memory for each chat until dsh or the page reloads; then **Suggest features** asks the model again. The cards come in the UI language that dsh has when you click; after you change the language, cards already on the stack keep theirs and **More ideas** uses the new one. The model sees only the short project summary, not the code, so an idea can repeat something the project already has: skip it. The new chat runs in plan mode only when the profile has dsh's `/plan` command; otherwise the idea goes as an ordinary first message.
 - **Resume after restart** continues the turn; it does not replay it. A tool call that was running at the quit ends with dsh's “outcome unknown” result, and the model is told not to repeat finished work, but a command that is not safe to run twice can run again. Subagents, approvals and questions that were open are not restored: their parent chat continues and asks again. At most 20 chats continue at one start.
 
 - dsh's queue has no `move` action, so a reorder rewrites the affected rows' text. If the agent picks up a row mid-move, the move is undone and nothing is lost. Messages with images or files can't be moved.

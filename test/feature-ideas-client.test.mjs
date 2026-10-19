@@ -43,6 +43,9 @@ assert.deepEqual(opened, ['new-1']); assert.deepEqual(deck.cards.map((c) => c.id
 reply = () => ({ status: 409, body: { error: 'this chat has no project folder' } });
 await decideIdea(deck, 'chat-1', 'right', (id) => opened.push(id));
 assert.deepEqual(deck.cards.map((c) => c.id), ['i1', 'i2']); assert.equal(deck.error, 'this chat has no project folder'); assert.equal(opened.length, 1);
+// The UI language goes with the request, so the cards come in that language.
+reply = () => ({ status: 200, body: { ideas: [] } }); await suggestIdeas(ideaDeck('chat-lang'), 'chat-lang', 'tr');
+assert.deepEqual(calls.at(-1), ['/api/composer-plus.ideas', { sessionId: 'chat-lang', locale: 'tr' }]);
 reply = () => ({ status: 404, body: {} }); await suggestIdeas(deck, 'chat-1'); assert.equal(deck.error, 'restart'); assert.equal(deck.cards.length, 2, 'cards stay');
 // More ideas add to the stack; an empty deck that fails goes back to idle.
 reply = () => ({ status: 200, body: { ideas: ideas(2, 10) } }); await suggestIdeas(deck, 'chat-1');
@@ -76,10 +79,12 @@ assert.equal(empty.status, 'idle'); assert.equal(empty.error, 'rate limited');
 const t = (k, p) => (p ? `${k}:${Object.values(p).join(',')}` : k);
 const find = (node, pred) => { if (node === null || typeof node !== 'object') return undefined; if (pred(node)) return node; for (const c of node.c ?? []) { const hit = Array.isArray(c) ? c.map((x) => find(x, pred)).find(Boolean) : find(c, pred); if (hit) return hit; } return undefined; };
 const text = (node) => (node === null || node === undefined ? '' : typeof node === 'string' ? node : (node.c ?? []).map(text).join(''));
-const render = (sessionId) => { si = 0; return IdeasTab({ sessionId, t, openSession: (id) => opened.push(id) }); };
+const render = (sessionId) => { si = 0; return IdeasTab({ sessionId, t, openSession: (id) => opened.push(id), uiLocale: () => 'ja' }); };
 state = []; let page = render('chat-9');
 assert.equal(page.p['data-composer-plus-ideas'], ''); assert.ok(text(page).includes('ideas.emptyTitle'));
-assert.ok(find(page, (n) => n.t === 'button' && text(n) === 'ideas.suggest'), 'empty state offers Suggest features');
+const suggestButton = find(page, (n) => n.t === 'button' && text(n) === 'ideas.suggest'); assert.ok(suggestButton, 'empty state offers Suggest features');
+reply = () => ({ status: 502, body: { error: 'x' } }); await suggestButton.p.onClick();
+assert.deepEqual(calls.at(-1)[1], { sessionId: 'chat-9', locale: 'ja' }, 'the button sends the UI language at the click');
 assert.ok(!find(page, (n) => n.p?.['data-composer-plus-idea']), 'no card yet');
 state = []; page = render('chat-1');
 const cards = find(page, (n) => n.p?.className === 'cpi-stack').c; assert.equal(cards.length, 3, 'top card plus two behind'); assert.equal(cards.at(-1).p.top, true, 'the top card renders last (on top)');
@@ -87,16 +92,27 @@ assert.equal(cards.at(-1).p.card.id, 'i1');
 assert.ok(text(page).includes('ideas.left:4')); assert.ok(find(page, (n) => n.t === 'button' && n.p['aria-label'] === 'ideas.build'));
 // Keys: ← skips, Z undoes; typing in a field is ignored.
 const key = (k, target = { closest: () => null }) => { let prevented = 0; page.p.onKeyDown({ key: k, target, preventDefault: () => prevented++ }); return prevented; };
-assert.equal(key('ArrowLeft'), 1); assert.deepEqual(deck.cards.map((c) => c.id), ['i2', 'i10', 'i11']);
+const flown = () => new Promise((r) => setTimeout(r, 250));
+const dragDx = () => state[1].dx; // IdeasTab state: [version, drag]
+assert.equal(key('ArrowLeft'), 1); assert.ok(dragDx() < 0, '← first flies the card off to the left');
+assert.equal(deck.cards.length, 4, 'the card stays until it has flown'); await flown();
+assert.deepEqual(deck.cards.map((c) => c.id), ['i2', 'i10', 'i11']); assert.equal(dragDx(), 0, 'the next card starts in the middle');
 assert.equal(key('z'), 1); assert.deepEqual(deck.cards.map((c) => c.id), ['i1', 'i2', 'i10', 'i11']);
 assert.equal(key('ArrowLeft', { closest: () => ({}) }), 0, 'keys inside a text field are left alone'); assert.equal(deck.cards.length, 4);
+// ✕ and ✓ fly the card off to their side too; a second click during the flight does nothing.
+const round = (side) => find(page, (n) => n.t === 'button' && n.p['data-side'] === side);
+round('left').p.onClick(); assert.ok(dragDx() < 0, '✕ flies the card off to the left'); round('left').p.onClick(); await flown();
+assert.deepEqual(deck.cards.map((c) => c.id), ['i2', 'i10', 'i11'], 'one card per flight'); undoIdea(deck);
+reply = (body) => (body.idea ? { status: 200, body: { sessionId: 'new-2' } } : { status: 500, body: {} });
+round('right').p.onClick(); assert.ok(dragDx() > 0, '✓ flies the card off to the right'); await flown(); await flown();
+assert.equal(opened.at(-1), 'new-2'); assert.deepEqual(deck.cards.map((c) => c.id), ['i2', 'i10', 'i11']); assert.equal(deck.accepted[0].sessionId, 'new-2');
 // Started list opens its chat.
 state = []; page = render('chat-1'); find(page, (n) => n.t === 'button' && text(n) === '✓ Idea 0').p.onClick(); assert.equal(opened.at(-1), 'new-1');
 
 // Feature switch: on by default, it registers the Ideas tab and its slots; switching it off removes them all.
 const live = new Map(); let next = 0; const tabs = new Set();
 const slots = { inject: (name, f) => { const off = f(); return () => off(); }, register: (o) => { const k = `${o.name}#${o.id ?? o.key}#${next++}`; live.set(k, o); return () => live.delete(k); } };
-const ctx = { slots, configForms: { get: () => ({}) }, effect: () => {}, locale: { register: () => () => {}, bind: () => (k) => k },
+const ctx = { slots, configForms: { get: () => ({}) }, effect: () => {}, locale: { register: () => () => {}, bind: () => (k) => k, getLocale: () => ({ active: 'ko', locales: [] }) },
   inject: (deps, setup) => { const disposers = []; setup({ effect: (f) => { const off = f(); if (typeof off === 'function') disposers.push(off); }, uiSession: { sessionStatus: { getSnapshot: () => new Map(), subscribe: () => () => {} } },
     sessions: { list: { getSnapshot: () => ({}), subscribe: () => () => {} } }, uiWorkspace: { openSession: (id) => opened.push(`ws:${id}`) }, workspaces: { list: { getSnapshot: () => undefined, subscribe: () => () => {} } },
     sidebarRight: {}, sidebarRightTabs: { register: (tab) => { tabs.add(tab.id); return () => tabs.delete(tab.id); } } }); return { dispose: () => disposers.forEach((f) => f()) }; } };
@@ -105,6 +121,7 @@ const ideaSlots = () => [...live.values()].filter((o) => o.key === 'dsh-composer
 assert.ok(tabs.has('dsh-composer-plus/ideas')); assert.deepEqual(ideaSlots(), ['sidebar.right.pane.tab', 'sidebar.right.pane.tab.title']);
 const body = [...live.values()].find((o) => o.key === 'dsh-composer-plus/ideas' && o.name === 'sidebar.right.pane.tab');
 body.inject().openSession('s-7'); assert.equal(opened.at(-1), 'ws:s-7', 'opening a started chat goes through dsh navigation');
+assert.equal(body.inject().uiLocale(), 'ko', 'the page reads dsh’s active UI language');
 const settings = [...live.values()].find((o) => o.id === 'composer-plus');
 settings.inject().setFeature('featureIdeas', false);
 assert.ok(!tabs.has('dsh-composer-plus/ideas'), 'switching off removes the tab type'); assert.deepEqual(ideaSlots(), [], 'and both slots');

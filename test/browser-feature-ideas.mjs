@@ -129,6 +129,7 @@ try {
       assert.equal(ideaCalls.length, 1, 'one model call for the ideas');
       assert.match(ideaCalls[0].all, /Recipe Box/, 'the model sees the project README');
       assert.ok(!ideaCalls[0].all.includes('never-send-this'), 'the secret file is not sent');
+      assert.match(ideaCalls[0].all, /in English \(en\), also when/, 'the cards come in the UI language');
       assert.equal(await top().getAttribute('aria-label'), IDEAS[0].title);
       await ideasPage.getByText('4 idea(s) left').waitFor();
       // 3. Drag the top card left past the line: skipped. Undo brings it back.
@@ -146,7 +147,14 @@ try {
       await ideasPage.getByRole('button', { name: 'Undo' }).click();
       assert.equal(await top().getAttribute('aria-label'), IDEAS[0].title, 'Undo brings the skipped card back');
       await top().focus(); await page.keyboard.press('ArrowLeft');
-      assert.equal(await top().getAttribute('aria-label'), IDEAS[1].title, '← skips too');
+      await page.waitForFunction((title) => document.querySelector('[data-composer-plus-idea]')?.getAttribute('aria-label') === title, IDEAS[1].title, { timeout: 5000 });
+      // ✕ flies the card off to the left (like a drag) before it is skipped; Undo brings it back.
+      await ideasPage.getByRole('button', { name: 'Skip this idea' }).click();
+      const flewLeft = await page.waitForFunction(() => /translate\(-[1-9]/.test(document.querySelector('[data-composer-plus-idea]')?.style.transform ?? ''), null, { timeout: 2000 }).then(() => true, () => false);
+      assert.ok(flewLeft, '✕ moves the card to the left first');
+      await page.waitForFunction((title) => document.querySelector('[data-composer-plus-idea]')?.getAttribute('aria-label') === title, IDEAS[2].title, { timeout: 5000 });
+      await ideasPage.getByRole('button', { name: 'Undo' }).click();
+      assert.equal(await top().getAttribute('aria-label'), IDEAS[1].title, '← and ✕ skip too');
       if (index === 0 && process.env.SHOT) {
         // The Ideas page with the card stack, mid-drag to the right (the "Build" stamp shows), next to the chat.
         const b = await top().boundingBox();

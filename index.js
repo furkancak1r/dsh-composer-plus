@@ -435,8 +435,16 @@ Answer with one JSON array only, with no other text. Each element is an object w
 - "title": the feature name, at most 8 words.
 - "summary": what the feature does, 1 or 2 sentences.
 - "why": the benefit for the users, 1 sentence.
-- "effort": one of "small", "medium", "large".
-Write the text values in the language of the project brief.`;
+- "effort": one of "small", "medium", "large". Always write this value in English.`;
+/** A locale id such as "tr" or "pt-BR"; anything else is ignored, so the prompt never takes free text from the browser. */
+const LOCALE_ID = /^[a-z]{2,3}(-[a-z0-9]{2,8}){0,3}$/i;
+/** The language line of the idea prompt: the user's UI language when the client sends one, else the brief's language. */
+export function ideasLanguage(locale) {
+  if (typeof locale !== 'string' || !LOCALE_ID.test(locale)) return 'Write "title", "summary" and "why" in the language of the project brief.';
+  let name;
+  try { name = new Intl.DisplayNames(['en'], { type: 'language' }).of(locale); } catch { name = undefined; }
+  return `Write "title", "summary" and "why" in ${name && name !== locale ? `${name} (${locale})` : locale}, also when the project brief uses another language.`;
+}
 
 const clip = (value, max) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : '');
 /** Ideas from the model's answer: the first JSON array in it (a code fence is fine), each idea cleaned and bounded. Throws
@@ -470,8 +478,9 @@ function ideasRoute(events, defaultModel) {
   return undefined;
 }
 
-/** One model call for feature ideas about the chat's project. Read-only: no chat message, nothing written to the project. */
-export async function suggestIdeas({ llm, sessionQuery, subprocess, defaultModel }, sessionId, signal) {
+/** One model call for feature ideas about the chat's project, written in `locale` (the dsh UI language) when given.
+ * Read-only: no chat message, nothing written to the project. */
+export async function suggestIdeas({ llm, sessionQuery, subprocess, defaultModel }, sessionId, signal, locale) {
   const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
   let cwd, route;
   try { cwd = observation.header?.cwd; route = ideasRoute(observation.events ?? [], defaultModel); } finally { observation[Symbol.dispose]?.(); }
@@ -489,7 +498,7 @@ export async function suggestIdeas({ llm, sessionQuery, subprocess, defaultModel
   });
   let text = '';
   let finish;
-  for await (const chunk of call.stream({ ...call.config, system: IDEAS_SYSTEM, signal: callSignal,
+  for await (const chunk of call.stream({ ...call.config, system: `${IDEAS_SYSTEM}\n${ideasLanguage(locale)}`, signal: callSignal,
     messages: [{ role: 'user', content: [{ type: 'text', text: `Project folder name: ${cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? ''}\n\n${brief}` }] }] })) {
     if (chunk.type === 'text-delta') text += chunk.text;
     else if (chunk.type === 'finish') finish = chunk.reason;
@@ -681,7 +690,7 @@ export function apply(ctx) {
   installIdeas(ctx);
 }
 
-/** Feature ideas: `POST {sessionId}` asks the chat's model for ideas; `POST {sessionId, idea}` starts a chat for one idea.
+/** Feature ideas: `POST {sessionId, locale?}` asks the chat's model for ideas; `POST {sessionId, idea}` starts a chat for one idea.
  * Both act only on the chat's own project folder; the browser never sends a path. */
 function installIdeas(ctx) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
@@ -703,7 +712,7 @@ function installIdeas(ctx) {
       const llm = get('llm');
       if (llm === undefined) return json({ error: 'this dsh profile cannot call a model' }, 409);
       try {
-        return json(await suggestIdeas({ llm, sessionQuery: ctx.sessionQuery, subprocess: ctx.subprocess, defaultModel: get('agentDefaultModel') }, body.sessionId, request.signal));
+        return json(await suggestIdeas({ llm, sessionQuery: ctx.sessionQuery, subprocess: ctx.subprocess, defaultModel: get('agentDefaultModel') }, body.sessionId, request.signal, body.locale));
       } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
     },
   });

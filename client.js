@@ -1303,11 +1303,13 @@ body:has(${OPEN_PROJECT}) [${COLLAPSE_HOST}] { display: inline-flex; }
     const deckChanged = (deck, patch) => { Object.assign(deck, patch); for (const fn of [...deck.listeners]) fn(); };
     /** One network action per deck: while ideas load or a chat starts, other loads and swipes wait. */
     const deckBusy = (deck) => deck.status === 'loading' || deck.status === 'starting';
-    async function suggestIdeas(deck, sessionId) {
+    /** `locale` is dsh's UI language at the click: the model writes the cards in it (ponytail: cards already on the deck keep
+     * their language when the UI language changes; the next load uses the new one). */
+    async function suggestIdeas(deck, sessionId, locale) {
       if (deckBusy(deck)) return;
       deckChanged(deck, { status: 'loading', error: undefined });
       try {
-        const response = await fetch(IDEAS_ROUTE, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId }) });
+        const response = await fetch(IDEAS_ROUTE, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId, ...(locale ? { locale } : {}) }) });
         const data = await response.json().catch(() => ({}));
         if (response.status === 404) throw new Error('restart');
         if (!response.ok) throw new Error(data?.error ?? `HTTP ${response.status}`);
@@ -1359,7 +1361,8 @@ body:has(${OPEN_PROJECT}) [${COLLAPSE_HOST}] { display: inline-flex; }
 .cpi-list{padding:4px 12px 16px}
 .cpi-list h3{font-size:12px;font-weight:500;color:var(--dsw-alias-label-secondary);margin:8px 0}
 .cpi-list button{display:block;width:100%;text-align:left;padding:6px 8px;border:0;border-radius:8px;background:none;color:inherit;font:inherit;cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cpi-list button:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.12))}`;
+.cpi-list button:hover{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.12))}
+@media (prefers-reduced-motion:reduce){.cpi-card{transition:none!important}}`;
     function IdeaCard({ card, top, depth, drag, t }) {
       const dx = top ? drag.dx : 0;
       const style = top
@@ -1374,15 +1377,24 @@ body:has(${OPEN_PROJECT}) [${COLLAPSE_HOST}] { display: inline-flex; }
         card.why ? React.createElement('div', { className: 'cpi-why' }, card.why) : null,
         card.effort ? React.createElement('span', { className: 'cpi-effort' }, t(`ideas.effort.${card.effort}`)) : null);
     }
-    function IdeasTab({ sessionId, t, openSession }) {
+    function IdeasTab({ sessionId, t, openSession, uiLocale }) {
       const deck = ideaDeck(sessionId);
       const [, setVersion] = React.useState(0);
       React.useEffect(() => { const fn = () => setVersion((n) => n + 1); deck.listeners.add(fn); return () => { deck.listeners.delete(fn); }; }, [deck]);
       const [drag, setDrag] = React.useState({ dx: 0, dy: 0, active: false });
       const stackRef = React.useRef(null);
       const decide = (direction) => { setDrag({ dx: 0, dy: 0, active: false }); decideIdea(deck, sessionId, direction, openSession); };
+      // A drag release, ✕/✓ and ←/→ all fly the top card off to its side first, then decide; one card at a time.
+      const flying = React.useRef(false);
+      const fling = (direction) => {
+        if (flying.current || deckBusy(deck) || deck.cards.length === 0) return;
+        flying.current = true;
+        const width = stackRef.current?.getBoundingClientRect().width ?? 300;
+        setDrag({ dx: (direction === 'right' ? 1 : -1) * width * 1.5, dy: 0, active: false });
+        setTimeout(() => { flying.current = false; decide(direction); }, 180);
+      };
       const start = (event) => {
-        if (event.button !== 0 || deckBusy(deck)) return;
+        if (event.button !== 0 || deckBusy(deck) || flying.current) return;
         const card = event.currentTarget;
         card.setPointerCapture?.(event.pointerId);
         const x0 = event.clientX; const y0 = event.clientY;
@@ -1397,19 +1409,19 @@ body:has(${OPEN_PROJECT}) [${COLLAPSE_HOST}] { display: inline-flex; }
           const width = stackRef.current?.getBoundingClientRect().width ?? 300;
           const direction = e.type === 'pointercancel' ? null : swipeDecision(e.clientX - x0, width, speed);
           if (direction === null) setDrag({ dx: 0, dy: 0, active: false });
-          else { setDrag({ dx: (direction === 'right' ? 1 : -1) * width * 1.5, dy: 0, active: false }); setTimeout(() => decide(direction), 180); }
+          else fling(direction);
         };
         card.addEventListener('pointermove', move); card.addEventListener('pointerup', end); card.addEventListener('pointercancel', end);
       };
       const onKeyDown = (event) => {
         if (event.altKey || event.ctrlKey || event.metaKey || event.target.closest?.('input, textarea, [contenteditable="true"]')) return;
-        if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') { event.preventDefault(); if (deck.cards.length > 0) decide(event.key === 'ArrowRight' ? 'right' : 'left'); }
+        if (event.key === 'ArrowRight' || event.key === 'ArrowLeft') { event.preventDefault(); fling(event.key === 'ArrowRight' ? 'right' : 'left'); }
         else if ((event.key === 'z' || event.key === 'Backspace') && deck.history.length > 0) { event.preventDefault(); undoIdea(deck); }
       };
       const busy = deckBusy(deck);
       const errorText = deck.error === undefined ? null : deck.error === 'restart' ? t('ideas.restart') : t('ideas.failed', { error: deck.error });
       const suggest = React.createElement('button', { type: 'button', className: `cpi-btn${deck.cards.length === 0 ? ' cpi-primary' : ''}`, disabled: busy,
-        onClick: () => suggestIdeas(deck, sessionId) }, deck.status === 'loading' ? t('ideas.loading') : deck.cards.length === 0 ? t('ideas.suggest') : t('ideas.more'));
+        onClick: () => suggestIdeas(deck, sessionId, uiLocale?.()) }, deck.status === 'loading' ? t('ideas.loading') : deck.cards.length === 0 ? t('ideas.suggest') : t('ideas.more'));
       const head = React.createElement('div', { className: 'cpi-head' },
         React.createElement('span', { className: 'cpi-grow', style: { color: 'var(--dsw-alias-label-secondary)' } }, deck.cards.length > 0 ? t('ideas.left', { count: String(deck.cards.length) }) : ''),
         deck.history.length > 0 ? React.createElement('button', { type: 'button', className: 'cpi-btn', onClick: () => undoIdea(deck), title: t('ideas.undoHint') }, t('ideas.undo')) : null,
@@ -1424,8 +1436,8 @@ body:has(${OPEN_PROJECT}) [${COLLAPSE_HOST}] { display: inline-flex; }
           React.createElement('div', { className: 'cpi-stack', ref: stackRef },
             ...visible.map((card, depth) => React.createElement(IdeaCard, { key: card.id, card, top: depth === 0, depth, drag: { ...drag, start }, t })).reverse()),
           React.createElement('div', { className: 'cpi-actions' },
-            React.createElement('button', { type: 'button', className: 'cpi-btn cpi-round', 'data-side': 'left', disabled: busy, 'aria-label': t('ideas.skip'), title: t('ideas.skipHint'), onClick: () => decide('left') }, '✕'),
-            React.createElement('button', { type: 'button', className: 'cpi-btn cpi-round', 'data-side': 'right', disabled: busy, 'aria-label': t('ideas.build'), title: t('ideas.buildHint'), onClick: () => decide('right') }, '✓')),
+            React.createElement('button', { type: 'button', className: 'cpi-btn cpi-round', 'data-side': 'left', disabled: busy, 'aria-label': t('ideas.skip'), title: t('ideas.skipHint'), onClick: () => fling('left') }, '✕'),
+            React.createElement('button', { type: 'button', className: 'cpi-btn cpi-round', 'data-side': 'right', disabled: busy, 'aria-label': t('ideas.build'), title: t('ideas.buildHint'), onClick: () => fling('right') }, '✓')),
           React.createElement('div', { className: 'cpi-note' }, deck.status === 'starting' ? t('ideas.starting') : t('ideas.hint')));
       return React.createElement('section', { className: 'cpi-root', 'data-composer-plus-ideas': '', tabIndex: -1, onKeyDown, 'aria-busy': busy },
         React.createElement('style', null, IDEAS_CSS), head,
@@ -2153,7 +2165,7 @@ body:has(${OPEN_PROJECT}) [${COLLAPSE_HOST}] { display: inline-flex; }
             name: 'sidebar.right.pane.tab',
             key: IDEAS_ID,
             locale: LOCALE_NS,
-            inject: () => ({ openSession: (sessionId) => scope.uiWorkspace.openSession(sessionId) }),
+            inject: () => ({ openSession: (sessionId) => scope.uiWorkspace.openSession(sessionId), uiLocale: () => ctx.locale.getLocale?.().active }),
           }, IdeasTab)), 'dsh-composer-plus: ideas tab body');
           scope.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({
             name: 'sidebar.right.pane.tab.title',
