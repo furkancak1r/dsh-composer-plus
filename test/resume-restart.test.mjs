@@ -1,13 +1,20 @@
 // Resume after restart: the Host remembers the top-level chats that dsh stopped while they ran, and continues them once at
 // the next start. Fake agents, goals and storage; the real index.js apply() wiring.
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, RESUME_PATH, RESUME_MAX, resumeStore, resumeTracker, stoppedByDsh, wakeSession } from '../index.js';
 
 const root = mkdtempSync(join(tmpdir(), 'cp-resume-'));
 const tick = () => new Promise((r) => setTimeout(r, 5));
+// The list is written by a queue of async writes: wait (at most 2 s) until the saved ids match. A fixed tick was too short
+// on a busy CI runner.
+const savedIds = async (home, want) => {
+  const read = () => { try { return JSON.parse(readFileSync(join(home, 'storages/dsh-composer-plus/resume.json'), 'utf8')).sessions.map((s) => s.id); } catch { return undefined; } };
+  for (let i = 0; i < 400 && JSON.stringify(read()) !== JSON.stringify(want); i++) await tick();
+  return read();
+};
 const quit = { kind: 'aborted', reason: { kind: 'disposed' } };
 
 assert.equal(stoppedByDsh(quit), true);
@@ -199,8 +206,7 @@ const liveAgents = (ids) => {
   app.emit('session/event', { id: 'two' }, { type: 'turn/end', data: { reason: quit } });
   two.status = 'idle'; app.emit('agent/status', { agent: two, status: 'idle' });
   await tick(); app.unload(); await tick();
-  const saved = JSON.parse(readFileSync(join(home, 'storages/dsh-composer-plus/resume.json'), 'utf8'));
-  assert.deepEqual(saved.sessions.map((s) => s.id), ['two'], 'only the chat the quit stopped is saved');
+  assert.deepEqual(await savedIds(home, ['two']), ['two'], 'only the chat the quit stopped is saved');
   // Run 2: dsh starts; after appReady the stopped chat continues without a click; the finished one does not.
   agents = liveAgents(['one', 'two']);
   agents.byId.get('two').events = ended(quit);
@@ -211,7 +217,7 @@ const liveAgents = (ids) => {
   app.ready(); await tick(); await tick();
   assert.equal(agents.byId.get('two').steered.length, 1, 'continued after the restart');
   assert.equal(agents.byId.get('one').steered.length, 0);
-  assert.deepEqual(JSON.parse(readFileSync(join(home, 'storages/dsh-composer-plus/resume.json'), 'utf8')).sessions, [], 'list forgotten');
+  assert.deepEqual(await savedIds(home, []), [], 'list forgotten');
   // The hidden continue note replaces the marker in the next step (shared with One-click Continue).
   app.unload();
   // Run 3: the user switched it off: nothing is tracked, and a saved list never wakes.
@@ -270,4 +276,5 @@ const liveAgents = (ids) => {
   assert.equal(section.resume.getSnapshot().on, true, 'the switch goes back');
   assert.equal(status.t({ mobile: section.resume, t, prefix: 'resume' }).c[0], 'resume.restart');
 }
+rmSync(root, { recursive: true, force: true });
 console.log('resume-after-restart checks passed');
