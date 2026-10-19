@@ -10,13 +10,14 @@
  * - Resume after restart: remembers the chats that were running when dsh quit and continues them at the next start; off by
  *   default (it starts model turns without a click).
  * - Feature ideas: on a click, one model call (the chat's own model) reads a short brief of the chat's project and returns
- *   feature ideas as cards. Read-only: no chat message, nothing written to the project.
+ *   feature ideas as cards. Read-only: no chat message, nothing written to the project. Ideas saved for later are kept
+ *   per project folder under the dsh home.
  */
 import { constants, readFileSync } from 'node:fs';
 import { mkdir, open, readdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { dirname, join, sep } from 'node:path';
+import { dirname, isAbsolute, join, sep } from 'node:path';
 import { createGateway } from './tether/gateway/server.mjs';
 
 export const name = 'dsh-composer-plus';
@@ -31,6 +32,7 @@ export const SHOT_PATH = '/api/composer-plus.shot';
 export const MOBILE_PATH = '/api/composer-plus.mobile';
 export const RESUME_PATH = '/api/composer-plus.resume';
 export const IDEAS_PATH = '/api/composer-plus.ideas';
+export const LATER_PATH = '/api/composer-plus.later';
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
   'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'language', 'autoUpdate'];
@@ -447,6 +449,15 @@ export function ideasLanguage(locale) {
 }
 
 const clip = (value, max) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : '');
+/** One idea, cleaned and bounded (from the model or the browser), or undefined without a title and a summary. */
+const ideaFrom = (item) => {
+  const title = clip(item?.title, 120);
+  const summary = clip(item?.summary, 600);
+  if (title === '' || summary === '') return undefined;
+  const why = clip(item?.why, 300);
+  const effort = ['small', 'medium', 'large'].includes(item?.effort) ? item.effort : undefined;
+  return { title, summary, ...(why === '' ? {} : { why }), ...(effort === undefined ? {} : { effort }) };
+};
 /** Ideas from the model's answer: the first JSON array in it (a code fence is fine), each idea cleaned and bounded. Throws
  * when the answer holds no usable idea. */
 export function parseIdeas(text) {
@@ -458,11 +469,9 @@ export function parseIdeas(text) {
   if (!Array.isArray(list)) throw new Error('the model did not answer with a list of ideas');
   const ideas = [];
   for (const item of list) {
-    const title = clip(item?.title, 120);
-    const summary = clip(item?.summary, 600);
-    if (title === '' || summary === '') continue;
-    const effort = ['small', 'medium', 'large'].includes(item?.effort) ? item.effort : undefined;
-    ideas.push({ id: randomUUID(), title, summary, ...(clip(item?.why, 300) === '' ? {} : { why: clip(item.why, 300) }), ...(effort === undefined ? {} : { effort }) });
+    const idea = ideaFrom(item);
+    if (idea === undefined) continue;
+    ideas.push({ id: randomUUID(), ...idea });
     if (ideas.length === IDEAS_MAX) break;
   }
   if (ideas.length === 0) throw new Error('the model answered without a usable idea');
@@ -514,14 +523,20 @@ export function ideaPrompt(idea) {
     'First read the related code. Then plan the smallest change that delivers this feature, with the checks that prove it works.'].join('\n');
 }
 
+/** The chat's own project folder, from its session header (the browser never sends a path). */
+async function chatFolder(sessionQuery, sessionId, signal) {
+  const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
+  let cwd;
+  try { cwd = observation.header?.cwd; } finally { observation[Symbol.dispose]?.(); }
+  if (!isText(cwd, 4096) || !isAbsolute(cwd)) throw Object.assign(new Error('this chat has no project folder'), { status: 409 });
+  return cwd;
+}
+
 /** Start a new chat in the same project (the same sidebar group as the source chat) for one accepted idea, and enter plan
  * mode with the idea as the request. When the profile has no /plan command, or /plan fails, the idea goes as an ordinary
  * message. */
 export async function startIdeaChat({ sessionController, sessionQuery, commands, workspaces }, sessionId, idea, signal = new AbortController().signal) {
-  const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
-  let cwd;
-  try { cwd = observation.header?.cwd; } finally { observation[Symbol.dispose]?.(); }
-  if (!isText(cwd, 4096)) throw Object.assign(new Error('this chat has no project folder'), { status: 409 });
+  const cwd = await chatFolder(sessionQuery, sessionId, signal);
   let workspace;
   try { workspace = workspaces?.list?.().find((w) => w.sessionIds.includes(sessionId)); } catch { workspace = undefined; }
   const { sessionId: created } = await sessionController.create(workspace === undefined ? { cwd } : { workspaceId: workspace.id });
@@ -533,6 +548,46 @@ export async function startIdeaChat({ sessionController, sessionQuery, commands,
   const plan = planned?.result?.kind === 'success';
   if (!plan) await sessionController.prompt({ requestId: randomUUID(), sessionId: created, mode: 'queue', content: [{ type: 'text', text }] }, signal);
   return { sessionId: created, plan };
+}
+
+/** Ideas saved for later: at most this many per project. A full list refuses a new idea; it never drops an old one. */
+export const LATER_MAX = 50;
+/** Ideas saved for later, per project folder: `{ [cwd]: [{ id, title, summary, why?, effort?, at }] }` (newest first) in
+ * one owner-only JSON file. A missing file is an empty list. A broken file throws, so no write replaces it (no data loss).
+ * Reads and writes run in order; each write replaces the file atomically. */
+export function laterStore(file) {
+  let queue = Promise.resolve();
+  const run = (fn) => { const done = queue.then(fn); queue = done.catch(() => {}); return done; };
+  const read = async () => {
+    let text;
+    try { text = await readFile(file, 'utf8'); } catch (error) { if (error?.code === 'ENOENT') return {}; throw error; }
+    const data = JSON.parse(text);
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) throw new Error('the saved ideas file is not a JSON object');
+    return data;
+  };
+  const clean = (list) => (Array.isArray(list) ? list.filter((i) => isText(i?.id) && isText(i?.title, 120) && isText(i?.summary, 600)) : []);
+  // Keys are absolute folder paths only, so a key such as `__proto__` never reaches the object.
+  const folder = (cwd) => { if (!isText(cwd, 4096) || !isAbsolute(cwd)) throw Object.assign(new Error('this chat has no project folder'), { status: 409 }); return cwd; };
+  const update = (cwd, fn) => run(async () => {
+    const data = await read();
+    const list = fn(clean(data[folder(cwd)]));
+    if (list.length === 0) delete data[cwd]; else data[cwd] = list;
+    await mkdir(dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(data), { mode: 0o600 });
+    await rename(tmp, file);
+    return list;
+  });
+  return {
+    list: (cwd) => run(async () => clean((await read())[folder(cwd)])),
+    /** Add a cleaned idea at the top; the same title (any case) is not added twice. */
+    add: (cwd, idea) => update(cwd, (list) => {
+      if (list.some((i) => i.title.toLowerCase() === idea.title.toLowerCase())) return list;
+      if (list.length >= LATER_MAX) throw Object.assign(new Error(`a project keeps at most ${LATER_MAX} ideas for later`), { status: 409 });
+      return [{ id: randomUUID(), ...idea, at: Date.now() }, ...list];
+    }),
+    remove: (cwd, id) => update(cwd, (list) => list.filter((i) => i.id !== id)),
+  };
 }
 
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
@@ -687,14 +742,17 @@ export function apply(ctx) {
     },
   });
   installResume(ctx, home);
-  installIdeas(ctx);
+  installIdeas(ctx, home);
 }
 
 /** Feature ideas: `POST {sessionId, locale?}` asks the chat's model for ideas; `POST {sessionId, idea}` starts a chat for one idea.
- * Both act only on the chat's own project folder; the browser never sends a path. */
-function installIdeas(ctx) {
+ * Ideas saved for later: `GET ?sessionId` lists the project's ideas; `POST {sessionId, add | remove | start}` changes the list
+ * (`start` starts a chat for the stored idea and removes it once the chat runs). All act only on the chat's own project
+ * folder; the browser never sends a path. */
+function installIdeas(ctx, home) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const status = (error) => (Number.isInteger(error?.status) ? error.status : 502);
+  const services = () => ({ sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, commands: get('commands'), workspaces: get('workspaceRegistry') });
   ctx.connection.fetch.register({
     path: IDEAS_PATH, methods: ['POST'], requestBody: 'buffered',
     fetch: async (request) => {
@@ -702,11 +760,10 @@ function installIdeas(ctx) {
       try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
       if (!isText(body?.sessionId)) return json({ error: 'bad request' }, 400);
       if (body.idea !== undefined) {
-        const idea = { title: clip(body.idea?.title, 120), summary: clip(body.idea?.summary, 600), why: clip(body.idea?.why, 300) || undefined };
-        if (idea.title === '' || idea.summary === '') return json({ error: 'bad request' }, 400);
+        const idea = ideaFrom(body.idea);
+        if (idea === undefined) return json({ error: 'bad request' }, 400);
         try {
-          return json(await startIdeaChat({ sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, commands: get('commands'), workspaces: get('workspaceRegistry') },
-            body.sessionId, idea, request.signal));
+          return json(await startIdeaChat(services(), body.sessionId, { title: idea.title, summary: idea.summary, why: idea.why }, request.signal));
         } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
       }
       const llm = get('llm');
@@ -714,6 +771,34 @@ function installIdeas(ctx) {
       try {
         return json(await suggestIdeas({ llm, sessionQuery: ctx.sessionQuery, subprocess: ctx.subprocess, defaultModel: get('agentDefaultModel') }, body.sessionId, request.signal, body.locale));
       } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
+    },
+  });
+  const later = laterStore(join(home, 'storages', 'dsh-composer-plus', 'later.json'));
+  const starting = new Set(); // `${cwd}\0${id}` of the stored ideas whose chat is starting now
+  ctx.connection.fetch.register({
+    path: LATER_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      let body;
+      if (request.method === 'GET') body = { sessionId: new URL(request.url).searchParams.get('sessionId') };
+      else try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      if (!isText(body?.sessionId)) return json({ error: 'bad request' }, 400);
+      const add = body.add === undefined ? undefined : ideaFrom(body.add);
+      const action = request.method === 'GET' ? 'list' : body.add !== undefined ? 'add' : isText(body.remove) ? 'remove' : isText(body.start) ? 'start' : undefined;
+      if (action === undefined || (action === 'add' && add === undefined)) return json({ error: 'bad request' }, 400);
+      try {
+        const cwd = await chatFolder(ctx.sessionQuery, body.sessionId, request.signal);
+        if (action === 'list') return json({ ideas: await later.list(cwd) });
+        if (action === 'add') return json({ ideas: await later.add(cwd, add) });
+        if (action === 'remove') return json({ ideas: await later.remove(cwd, body.remove) });
+        const idea = (await later.list(cwd)).find((i) => i.id === body.start);
+        const key = `${cwd}\0${body.start}`;
+        if (idea === undefined || starting.has(key)) return json({ error: 'this idea is no longer in the list' }, 409);
+        starting.add(key);
+        try {
+          const started = await startIdeaChat(services(), body.sessionId, { title: idea.title, summary: idea.summary, why: idea.why }, request.signal);
+          return json({ ...started, ideas: await later.remove(cwd, idea.id) });
+        } finally { starting.delete(key); }
+      } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });
 }

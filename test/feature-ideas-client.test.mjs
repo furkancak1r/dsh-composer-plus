@@ -7,13 +7,13 @@ const mem = new Map(); globalThis.localStorage = { getItem: (k) => (mem.has(k) ?
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
 globalThis.document = { visibilityState: 'visible', hasFocus: () => true, addEventListener() {}, removeEventListener() {} };
 // The helpers are module-private: run the module source with a hook that hands them out.
-eval(src.replace('function IdeasTitle({ t })', 'globalThis.__ideas = { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, IdeaCard };\n    function IdeasTitle({ t })'));
+eval(src.replace('function IdeasTitle({ t })', 'globalThis.__ideas = { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, IdeaCard, loadLater, laterIdea, startLater, removeLater };\n    function IdeasTitle({ t })'));
 let state = [], si = 0; const effects = [];
 const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment: 'F',
   useState: (v) => { const i = si++; if (!(i in state)) state[i] = typeof v === 'function' ? v() : v; return [state[i], (x) => { state[i] = typeof x === 'function' ? x(state[i]) : x; }]; },
   useRef: (v) => ({ current: v }), useEffect: (f) => { effects.push(f); } };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Input: 'Input' } : {}));
-const { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab } = globalThis.__ideas;
+const { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, loadLater, laterIdea, startLater, removeLater } = globalThis.__ideas;
 
 // Swipe decision: 30 % of the width (at least 40 px), or a fast flick in the same direction.
 assert.equal(swipeDecision(0, 300), null); assert.equal(swipeDecision(89, 300), null); assert.equal(swipeDecision(90, 300), 'right'); assert.equal(swipeDecision(-90, 300), 'left');
@@ -108,6 +108,85 @@ round('right').p.onClick(); assert.ok(dragDx() > 0, '✓ flies the card off to t
 assert.equal(opened.at(-1), 'new-2'); assert.deepEqual(deck.cards.map((c) => c.id), ['i2', 'i10', 'i11']); assert.equal(deck.accepted[0].sessionId, 'new-2');
 // Started list opens its chat.
 state = []; page = render('chat-1'); find(page, (n) => n.t === 'button' && text(n) === '✓ Idea 0').p.onClick(); assert.equal(opened.at(-1), 'new-1');
+
+// Saved for later: ↓ flies the card down, then the Host keeps it in the project's list; "Later (N)" opens the list, where
+// Plan starts a plan-mode chat and Remove drops the idea.
+{
+  const realFetch = globalThis.fetch; const gate = () => { let go; const p = new Promise((r) => { go = r; }); return { p, go }; };
+  const sent = []; let laterReply = () => ({ status: 200, body: {} }); let getGate, postGate;
+  globalThis.fetch = async (url, init) => {
+    const body = init === undefined ? undefined : JSON.parse(init.body); sent.push([url, body]);
+    await (body === undefined ? getGate : postGate)?.p;
+    const r = laterReply(body); return { ok: r.status < 400, status: r.status, json: async () => r.body };
+  };
+  const saved = (title) => ({ id: `s-${title}`, title, summary: `${title} summary.`, at: 1 });
+  const L = ideaDeck('later-a'); L.cards = ideas(3, 200); L.status = 'ready';
+  laterReply = () => ({ status: 200, body: { ideas: [saved('Old')] } }); await loadLater(L, 'later-a');
+  assert.deepEqual(sent.at(-1), ['/api/composer-plus.later?sessionId=later-a', undefined], 'the list is read for this chat');
+  assert.deepEqual(L.later.map((i) => i.title), ['Old']);
+  // Save: the card leaves at once; the other deck actions wait; the Host's list replaces ours.
+  laterReply = (body) => ({ status: 200, body: { ideas: [saved(body.add.title), saved('Old')] } });
+  postGate = gate(); const save = laterIdea(L, 'later-a'); assert.equal(L.status, 'saving'); assert.deepEqual(L.cards.map((c) => c.id), ['i201', 'i202']);
+  const before = sent.length;
+  await suggestIdeas(L, 'later-a'); await decideIdea(L, 'later-a', 'right'); await laterIdea(L, 'later-a'); await removeLater(L, 'later-a', 's-Old'); await startLater(L, 'later-a', saved('Old'));
+  assert.equal(sent.length, before, 'no load, start, second save or list change while a save runs');
+  postGate.go(); await save; postGate = undefined;
+  assert.deepEqual(sent.at(-1), ['/api/composer-plus.later', { sessionId: 'later-a', add: { title: 'Idea 200', summary: 'Does 200.', why: 'Faster.', effort: 'small' } }]);
+  assert.deepEqual(L.later.map((i) => i.title), ['Idea 200', 'Old']); assert.equal(L.status, 'ready'); assert.equal(L.error, undefined);
+  // A failed save puts the card back on top and shows why; an older Host half asks for a restart.
+  laterReply = () => ({ status: 500, body: { error: 'disk full' } }); await laterIdea(L, 'later-a');
+  assert.deepEqual(L.cards.map((c) => c.id), ['i201', 'i202'], 'a failed save keeps the card'); assert.equal(L.error, 'disk full'); assert.equal(L.later.length, 2);
+  laterReply = () => ({ status: 404, body: {} }); await laterIdea(L, 'later-a'); assert.equal(L.error, 'restart'); assert.equal(L.cards.length, 2);
+  // No save while ideas load.
+  { let go; const loading = new Promise((r) => { go = r; }); const realReply = laterReply; laterReply = () => ({ status: 200, body: { ideas: [] } });
+    const prev = globalThis.fetch; globalThis.fetch = async (url, init) => { if (url === '/api/composer-plus.ideas') { await loading; return { ok: true, status: 200, json: async () => ({ ideas: [] }) }; } return prev(url, init); };
+    const more = suggestIdeas(L, 'later-a'); const n = sent.length; await laterIdea(L, 'later-a'); assert.equal(sent.length, n, 'no save while ideas load');
+    go(); await more; globalThis.fetch = prev; laterReply = realReply; }
+  // A read that overlaps a change never replaces the newer list.
+  getGate = gate();
+  laterReply = (body) => (body === undefined ? { status: 200, body: { ideas: [saved('Stale')] } } : { status: 200, body: { ideas: [saved('Fresh')] } });
+  const read = loadLater(L, 'later-a'); await new Promise((r) => setTimeout(r, 0));
+  await laterIdea(L, 'later-a'); getGate.go(); await read; getGate = undefined;
+  assert.deepEqual(L.later.map((i) => i.title), ['Fresh'], 'a stale read is ignored');
+  L.later = [saved('Pantry'), saved('Timer')]; L.cards = ideas(2, 201); L.error = undefined;
+
+  // Rendered: "Later (2)" in the head opens the list; ↓ and ArrowDown fly the top card down before it is saved.
+  const at = (n) => (p) => find(p, n);
+  const go = (sessionId) => { si = 0; return IdeasTab({ sessionId, t, openSession: (id) => opened.push(id), uiLocale: () => 'en' }); };
+  state = []; let view = go('later-a');
+  const laterButton = at((n) => n.t === 'button' && n.p['data-composer-plus-ideas-later'] === '');
+  assert.equal(text(laterButton(view)), 'ideas.laterOpen:2');
+  assert.ok(find(view, (n) => n.t === 'button' && n.p['data-side'] === 'later' && n.p['aria-label'] === 'ideas.later'), 'a ↓ button between ✕ and ✓');
+  laterReply = (body) => ({ status: 200, body: { ideas: [saved(body.add.title), ...L.later] } });
+  const press = (k) => { let prevented = 0; view.p.onKeyDown({ key: k, target: { closest: () => null }, preventDefault: () => prevented++ }); return prevented; };
+  assert.equal(press('ArrowDown'), 1); assert.ok(state[1].dy > 0 && state[1].dx === 0 && state[1].fade, '↓ first flies the card down');
+  assert.equal(L.cards.length, 2, 'the card stays until it has flown'); await new Promise((r) => setTimeout(r, 250));
+  assert.equal(sent.at(-1)[1].add.title, 'Idea 201'); assert.deepEqual(L.cards.map((c) => c.id), ['i202']); assert.equal(state[1].dy, 0);
+  state = []; view = go('later-a'); find(view, (n) => n.t === 'button' && n.p['data-side'] === 'later').p.onClick(); await new Promise((r) => setTimeout(r, 250));
+  assert.equal(sent.at(-1)[1].add.title, 'Idea 202', 'the ↓ button saves too'); assert.equal(L.cards.length, 0);
+  state = []; view = go('later-a'); assert.equal(text(laterButton(view)), 'ideas.laterOpen:4');
+  laterButton(view).p.onClick(); view = go('later-a');
+  const items = () => { const list = find(view, (n) => n.p?.role === 'list'); return list ? list.c.filter((c) => c?.p?.role === 'listitem') : []; };
+  assert.deepEqual(items().map((i) => i.p['data-composer-plus-later']), ['s-Idea 202', 's-Idea 201', 's-Pantry', 's-Timer'], 'the list shows the saved ideas');
+  assert.equal(press('ArrowDown'), 0, 'card keys do nothing in the list');
+  const button = (item, label) => find(item, (n) => n.t === 'button' && text(n) === label);
+  // Plan: the Host starts the chat; the idea leaves the list, joins Started, and the chat opens.
+  laterReply = () => ({ status: 200, body: { sessionId: 'new-L', plan: true, ideas: L.later.filter((i) => i.id !== 's-Pantry') } });
+  await button(items()[2], 'ideas.plan').p.onClick();
+  assert.deepEqual(sent.at(-1), ['/api/composer-plus.later', { sessionId: 'later-a', start: 's-Pantry' }]);
+  assert.equal(opened.at(-1), 'new-L'); assert.equal(L.accepted[0].title, 'Pantry'); assert.equal(L.accepted[0].sessionId, 'new-L'); assert.equal(L.later.length, 3);
+  // A failed start shows why and reads the list again (another window can have changed it).
+  laterReply = (body) => (body === undefined ? { status: 200, body: { ideas: L.later.filter((i) => i.id !== 's-Timer') } } : { status: 409, body: { error: 'this idea is no longer in the list' } });
+  view = go('later-a'); await button(items()[2], 'ideas.plan').p.onClick(); await new Promise((r) => setTimeout(r, 0));
+  assert.equal(L.error, 'this idea is no longer in the list'); assert.equal(sent.at(-1)[1], undefined, 'then the list is read again'); assert.equal(L.later.length, 2);
+  // Remove: the Host's shorter list; an empty list goes back to the cards.
+  laterReply = (body) => ({ status: 200, body: { ideas: L.later.filter((i) => i.id !== body.remove) } });
+  view = go('later-a'); await button(items()[0], 'ideas.remove').p.onClick(); assert.deepEqual(sent.at(-1)[1], { sessionId: 'later-a', remove: 's-Idea 202' });
+  view = go('later-a'); await button(items()[0], 'ideas.remove').p.onClick(); assert.deepEqual(L.later, []);
+  view = go('later-a'); assert.equal(state[2], 'cards', 'an empty list goes back to the cards'); assert.equal(items().length, 0);
+  assert.ok(!laterButton(view), 'no Later button without saved ideas');
+  globalThis.fetch = realFetch;
+}
 
 // Feature switch: on by default, it registers the Ideas tab and its slots; switching it off removes them all.
 const live = new Map(); let next = 0; const tabs = new Set();

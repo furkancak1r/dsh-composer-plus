@@ -4,6 +4,8 @@
 // 2. "Suggest features": one model call that sees the project brief (README) and no secret file; the answer becomes cards.
 // 3. Drag the top card to the left: it is skipped. Undo brings it back.
 // 4. ✓ on the top card: a new chat starts in the same project, in plan mode, with the idea as the request; dsh opens it.
+// 5. ↓ on the top card: it flies down and goes to the project's Later list (an owner-only file under DSH_HOME). After a
+//    page reload, another chat of the same project shows "Later (1)"; Plan there starts a plan-mode chat and empties the list.
 // PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/featureIdeas.webp (English UI, demo project only).
 import assert from 'node:assert/strict';
@@ -11,7 +13,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, symlink, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, stat, symlink, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -42,7 +44,7 @@ const fake = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const answer = (text) => res.end(chunk({ role: 'assistant', content: text }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
     if (kind === 'ideas') answer('```json\n' + JSON.stringify(IDEAS) + '\n```');
-    else if (kind === 'title') answer(/Weekly meal planner/.test(all) ? 'Weekly meal planner' : 'Recipe search review');
+    else if (kind === 'title') answer(/Weekly meal planner/.test(all) ? 'Weekly meal planner' : /Pantry tracker/.test(all) ? 'Pantry tracker' : 'Recipe search review');
     else answer('I will read the related code first and then present a plan.');
   });
 }).listen(0, '127.0.0.1');
@@ -111,14 +113,17 @@ try {
       await page.getByText('I will read the related code first', { exact: false }).first().waitFor({ timeout: 20000 });
       const requestsBefore = seen.length;
       await page.getByRole('button', { name: /sidebar/i }).last().waitFor({ timeout: 5000 }).catch(() => {});
-      const guide = page.getByText('Feature ideas', { exact: true });
-      if (!(await guide.isVisible().catch(() => false))) {
-        // The right sidebar is closed: open it with dsh's own toggle (its label differs between versions).
-        const toggle = page.locator('button[aria-label*="ight sidebar" i], button[aria-label*="ight panel" i]').first();
-        await toggle.click();
-      }
-      await guide.first().click();
-      const ideasPage = page.locator('[data-composer-plus-ideas]'); await ideasPage.waitFor({ timeout: 10000 });
+      const ideasPage = page.locator('[data-composer-plus-ideas]');
+      // The Ideas page of the open chat: already open, or through the guide entry (the right sidebar may be closed; dsh's
+      // toggle label differs between versions).
+      const openIdeas = async () => {
+        if (await ideasPage.waitFor({ timeout: 3000 }).then(() => true, () => false)) return;
+        const guide = page.getByText('Feature ideas', { exact: true });
+        if (!(await guide.first().isVisible().catch(() => false))) await page.locator('button[aria-label*="ight sidebar" i], button[aria-label*="ight panel" i]').first().click();
+        await guide.first().click();
+        await ideasPage.waitFor({ timeout: 10000 });
+      };
+      await openIdeas();
       await pause(500);
       assert.equal(seen.slice(requestsBefore).filter((s) => s.kind === 'ideas').length, 0, 'opening the page calls no model');
       // 2. Suggest: one model call with the brief; cards appear.
@@ -182,9 +187,43 @@ try {
       if (!(await ideasPage.waitFor({ timeout: 3000 }).then(() => true, () => false))) await page.getByText('Feature ideas', { exact: true }).first().click();
       await ideasPage.getByText('Started', { exact: true }).waitFor({ timeout: 10000 });
       assert.equal(await top().getAttribute('aria-label'), IDEAS[2].title, 'the next card is on top');
+      // 5. ↓ flies the card down and saves it in the project's Later list.
+      const laterFile = join(home, 'storages/dsh-composer-plus/later.json');
+      await ideasPage.getByRole('button', { name: 'Save for later' }).click();
+      const flewDown = await page.waitForFunction(() => /translate\(0px, [1-9]/.test(document.querySelector('[data-composer-plus-idea]')?.style.transform ?? ''), null, { timeout: 2000 }).then(() => true, () => false);
+      assert.ok(flewDown, '↓ moves the card down first');
+      await ideasPage.getByRole('button', { name: 'Later (1)' }).waitFor({ timeout: 10000 });
+      assert.equal(await top().getAttribute('aria-label'), IDEAS[3].title, 'the saved card leaves the stack');
+      const stored = JSON.parse(await readFile(laterFile, 'utf8'));
+      assert.deepEqual(Object.keys(stored), [project], 'the list belongs to the project folder');
+      assert.deepEqual(stored[project].map((i) => i.title), [IDEAS[2].title]);
+      assert.equal((await stat(laterFile)).mode & 0o777, 0o600, 'owner-only file');
+      // A reload clears the cards (memory only) but not the list; another chat of the same project shows it.
+      await page.reload(); await page.locator('[data-composer-input]').waitFor({ timeout: 20000 });
+      await page.locator('[data-row-key^="session:"]').filter({ hasText: 'Weekly meal planner' }).first().click();
+      await openIdeas();
+      const laterButton = ideasPage.getByRole('button', { name: 'Later (1)' });
+      await laterButton.waitFor({ timeout: 10000 });
+      assert.equal(await top().count(), 0, 'the cards do not survive a reload');
+      await laterButton.click();
+      const saved = ideasPage.locator('[data-composer-plus-later]');
+      await saved.first().waitFor(); assert.equal(await saved.count(), 1); assert.match(await saved.first().innerText(), /Pantry tracker[\s\S]*what is at home/);
+      // Plan: a new plan-mode chat in the same project with the saved idea; the list is empty afterwards.
+      const laterRequests = seen.length;
+      await saved.first().getByRole('button', { name: 'Plan', exact: true }).click();
+      for (let i = 0; i < 80 && !seen.slice(laterRequests).some((s) => s.kind === 'chat' && s.all.includes(IDEAS[2].title)); i++) await pause(250);
+      const plannedLater = seen.slice(laterRequests).find((s) => s.kind === 'chat' && s.all.includes(IDEAS[2].title));
+      assert.ok(plannedLater, 'the saved idea goes to a new chat'); assert.match(plannedLater.all, /Implement this feature in this project: Pantry tracker/);
+      assert.ok(!plannedLater.all.includes('Weekly meal planner') && !plannedLater.all.includes(FIRST_CHAT), 'it is a new chat');
+      await page.getByText('Plan mode on', { exact: false }).first().waitFor({ timeout: 20000 });
+      await page.locator('[data-row-key^="session:"]').filter({ hasText: 'Pantry tracker' }).first().waitFor({ timeout: 20000 });
+      assert.deepEqual(JSON.parse(await readFile(laterFile, 'utf8')), {}, 'a started idea leaves the list');
+      await page.locator('[data-row-key^="session:"]').filter({ hasText: 'Recipe search review' }).first().click();
+      await openIdeas(); await ideasPage.getByRole('button', { name: 'Suggest features' }).waitFor({ timeout: 10000 });
+      assert.equal(await ideasPage.locator('[data-composer-plus-ideas-later]').count(), 0, 'no Later button with an empty list');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: Ideas page → no model call before the click → one call with the project brief (no secret) → drag left skips, a short drag springs back, Undo, ← → ✓ starts a new chat in plan mode with the idea`);
+      console.log(`PASS ${bin}: Ideas page → no model call before the click → one call with the project brief (no secret) → drag left skips, a short drag springs back, Undo, ← → ✓ starts a new chat in plan mode with the idea → ↓ saves for later (0600 file, per project) → reload, other chat shows Later (1) → Plan starts a plan-mode chat and empties the list`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});

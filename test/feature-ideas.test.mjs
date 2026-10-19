@@ -1,11 +1,12 @@
 // Feature ideas, Host half: the project brief (read-only, bounded, no secrets), the model call (the chat's own model, one
-// call, no chat message), answer parsing, the new chat for an accepted idea (same project, plan mode first) and the route.
+// call, no chat message), answer parsing, the new chat for an accepted idea (same project, plan mode first), the ideas saved
+// for later (one list per project, owner-only file, no data loss) and the routes.
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm, symlink, open } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, stat, rm, symlink, open } from 'node:fs/promises';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply, IDEAS_PATH, IDEAS_MAX, projectBrief, parseIdeas, ideaPrompt, suggestIdeas, startIdeaChat, ideasLanguage } from '../index.js';
+import { apply, IDEAS_PATH, IDEAS_MAX, LATER_PATH, LATER_MAX, projectBrief, parseIdeas, ideaPrompt, suggestIdeas, startIdeaChat, ideasLanguage, laterStore } from '../index.js';
 
 const dir = await mkdtemp(join(tmpdir(), 'ideas-test-'));
 try {
@@ -128,12 +129,35 @@ try {
   }
   await assert.rejects(startIdeaChat({ ...make().deps, sessionQuery: { observeSession: observe([], null) } }, 'src-1', idea), (e) => e.status === 409);
 
+  // Saved for later: one list per project folder, newest first, no duplicate titles, owner-only file, writes in order.
+  const laterFile = join(dir, 'later-store', 'later.json'); const store = laterStore(laterFile);
+  const A = join(dir, 'a'); const B = join(dir, 'b');
+  assert.deepEqual(await store.list(A), [], 'no file: an empty list');
+  await store.add(A, { title: 'Dark mode', summary: 'Add a dark theme.' });
+  let list = await store.add(A, { title: 'Search', summary: 'Find notes.', why: 'Faster.', effort: 'small' });
+  assert.deepEqual(list.map((i) => i.title), ['Search', 'Dark mode'], 'newest first');
+  assert.ok(list[0].id && list[0].id !== list[1].id && Number.isFinite(list[0].at)); assert.equal(list[0].effort, 'small');
+  assert.equal((await store.add(A, { title: 'dark MODE', summary: 'Again.' })).length, 2, 'the same title is not added twice');
+  assert.deepEqual(await store.list(B), [], 'another project has its own list');
+  assert.equal((await stat(laterFile)).mode & 0o777, 0o600, 'owner-only file');
+  assert.deepEqual((await store.remove(A, list[1].id)).map((i) => i.title), ['Search']);
+  await store.remove(A, list[0].id); assert.deepEqual(JSON.parse(await readFile(laterFile, 'utf8')), {}, 'an empty list leaves no key');
+  await Promise.all(Array.from({ length: LATER_MAX }, (_, i) => store.add(B, { title: `B${i}`, summary: 'S.' })));
+  assert.equal((await store.list(B)).length, LATER_MAX, 'writes run in order: no idea is lost');
+  await assert.rejects(store.add(B, { title: 'One more', summary: 'S.' }), (e) => e.status === 409, 'a full list refuses');
+  assert.equal((await store.list(B)).length, LATER_MAX, 'a full list never drops an old idea');
+  for (const bad of ['__proto__', 'relative/path', '', 7]) await assert.rejects(store.list(bad), (e) => e.status === 409, String(bad));
+  await writeFile(laterFile, '{broken');
+  await assert.rejects(store.add(A, { title: 'X', summary: 'Y.' })); await assert.rejects(store.list(A));
+  assert.equal(await readFile(laterFile, 'utf8'), '{broken', 'a broken file is never replaced');
+
   // Route: bad input, missing model service, both actions, and errors as JSON.
   const routes = new Map();
-  const host = make().deps; // one fake agent shared by the controller and the commands
+  const hostRun = make(); const host = hostRun.deps; // one fake agent shared by the controller and the commands
   const services = { llm: llm(answer), commands: host.commands, workspaceRegistry: host.workspaces };
+  const dshHome = join(dir, 'dsh-home'); process.env.DSH_HOME = dshHome; // never the real dsh home
   const ctx = { on() {}, effect() {}, get: (name) => services[name], connection: { fetch: { register: (r) => routes.set(r.path, r) } },
-    sessionController: host.sessionController, sessionQuery: { observeSession: observe([header('demo', 'm2')]) }, subprocess: undefined };
+    sessionController: host.sessionController, sessionQuery: { observeSession: (id, opts) => observe([header('demo', 'm2')], id === 'no-folder' ? null : dir)(id, opts) }, subprocess: undefined };
   apply(ctx);
   const route = routes.get(IDEAS_PATH); assert.deepEqual(route.methods, ['POST']);
   const post = async (body) => { const r = await route.fetch(new Request(`http://h${IDEAS_PATH}`, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) })); return { status: r.status, body: await r.json() }; };
@@ -143,5 +167,40 @@ try {
   res = await post({ sessionId: 'src-1', idea: { title: ' Dark mode ', summary: 'Add a dark theme.', extra: 'ignored' } }); assert.deepEqual(res.body, { sessionId: 'new-1', plan: true });
   services.llm = llm(['nothing useful']); res = await post({ sessionId: 'src-1' }); assert.equal(res.status, 502); assert.match(res.body.error, /list of ideas/);
   delete services.llm; res = await post({ sessionId: 'src-1' }); assert.equal(res.status, 409);
+
+  // Later route: the chat's own folder decides the list; start uses the stored text and removes the idea only once the chat runs.
+  const laterRoute = routes.get(LATER_PATH); assert.deepEqual(laterRoute.methods, ['GET', 'POST']);
+  const lpost = async (body) => { const r = await laterRoute.fetch(new Request(`http://h${LATER_PATH}`, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) })); return { status: r.status, body: await r.json() }; };
+  const lget = async (query) => { const r = await laterRoute.fetch(new Request(`http://h${LATER_PATH}${query}`)); return { status: r.status, body: await r.json() }; };
+  for (const bad of ['{', {}, { sessionId: 's' }, { sessionId: 's', add: { title: 'x' } }, { sessionId: 's', add: 'x' }, { sessionId: 's', remove: 7 }, { sessionId: 's', start: '' }]) assert.equal((await lpost(bad)).status, 400, JSON.stringify(bad));
+  assert.equal((await lget('')).status, 400, 'GET without a chat');
+  assert.deepEqual(await lget('?sessionId=src-1'), { status: 200, body: { ideas: [] } });
+  assert.equal((await lget('?sessionId=no-folder')).status, 409, 'a chat without a project folder has no list');
+  res = await lpost({ sessionId: 'src-1', add: { title: ' Pantry\n tracker ', summary: 'Track food at home.', why: 'Less waste.', effort: 'medium', id: 'mine', extra: 'x' } });
+  assert.equal(res.status, 200); const saved = res.body.ideas[0];
+  assert.deepEqual({ ...saved, id: undefined, at: undefined }, { id: undefined, at: undefined, title: 'Pantry tracker', summary: 'Track food at home.', why: 'Less waste.', effort: 'medium' }, 'the Host cleans the idea and gives it its own id');
+  assert.notEqual(saved.id, 'mine');
+  const routeFile = join(dshHome, 'storages', 'dsh-composer-plus', 'later.json');
+  assert.deepEqual(Object.keys(JSON.parse(await readFile(routeFile, 'utf8'))), [dir], 'kept under the chat\'s project folder');
+  assert.equal((await stat(routeFile)).mode & 0o777, 0o600);
+  assert.deepEqual((await lget('?sessionId=src-1')).body.ideas.map((i) => i.id), [saved.id]);
+  // A failed start keeps the idea.
+  const create = host.sessionController.create;
+  host.sessionController.create = async () => { throw new Error('dsh is busy'); };
+  res = await lpost({ sessionId: 'src-1', start: saved.id }); assert.equal(res.status, 500); assert.match(res.body.error, /dsh is busy/);
+  assert.equal((await lget('?sessionId=src-1')).body.ideas.length, 1, 'a failed start keeps the idea');
+  // One start at a time for the same idea.
+  let go; const gate = new Promise((r) => { go = r; });
+  host.sessionController.create = async (req) => { await gate; return create(req); };
+  const first = lpost({ sessionId: 'src-1', start: saved.id }); await new Promise((r) => setTimeout(r, 20));
+  res = await lpost({ sessionId: 'src-1', start: saved.id }); assert.equal(res.status, 409, 'a second start of the same idea waits for none');
+  go(); res = await first; host.sessionController.create = create;
+  assert.deepEqual(res.body, { sessionId: 'new-1', plan: true, ideas: [] }, 'start answers the new chat and the shorter list');
+  assert.match(hostRun.calls.findLast((c) => c[0] === 'execute')[1], /^\/plan Implement this feature in this project: Pantry tracker$/, 'the stored text goes to /plan');
+  assert.equal((await lpost({ sessionId: 'src-1', start: saved.id })).status, 409, 'a started idea is gone');
+  res = await lpost({ sessionId: 'src-1', add: { title: 'Timer', summary: 'Start a timer.' } });
+  res = await lpost({ sessionId: 'src-1', remove: res.body.ideas[0].id }); assert.deepEqual(res.body, { ideas: [] });
+  await writeFile(routeFile, '[]'); res = await lpost({ sessionId: 'src-1', add: { title: 'Timer', summary: 'Start a timer.' } });
+  assert.equal(res.status, 500); assert.equal(await readFile(routeFile, 'utf8'), '[]', 'a broken file is kept');
   console.log('feature-ideas checks passed');
 } finally { await rm(dir, { recursive: true, force: true }); }
