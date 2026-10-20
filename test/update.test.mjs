@@ -34,12 +34,16 @@ const info = (latest, extra = {}) => ({ body: { name: 'dsh-composer-plus', curre
 answer = info('1.2.0'); let app = boot();
 const startup = timers.find((t) => t.ms === 15000 && t.live); assert.ok(startup, 'auto-update scheduled at start');
 await startup.f();
-// The exact npm tarball, not `name@version`: dsh 0.2.1 refuses a name the profile already has (`already-installed`).
-assert.deepEqual(app.installs.map((x) => x[0]), ['https://registry.npmjs.org/dsh-composer-plus/-/dsh-composer-plus-1.2.0.tgz']); assert.equal(app.updater.getSnapshot().status, 'restart');
+assert.deepEqual(app.installs.map((x) => x[0]), ['dsh-composer-plus@1.2.0'], 'the registry spec first (the user\'s registry, no URL dependency)'); assert.equal(app.updater.getSnapshot().status, 'restart');
 assert.equal(mem.get('dsh-composer-plus.update.installed'), '1.2.0'); assert.deepEqual(shown, ['notify.updated:1.2.0']);
 await app.updater.install(); assert.equal(app.installs.length, 1, 'no second install while waiting for restart');
 // Next start, still the old copy loaded: remembered version is not reinstalled.
 timers = []; app = boot(); await app.updater.check(); assert.equal(app.updater.getSnapshot().status, 'restart'); assert.equal(app.installs.length, 0);
+// dsh 0.2.1 refuses `name@version` for an installed plugin (before pnpm runs): then the exact npm tarball.
+mem.clear(); shown.length = 0; timers = []; app = boot((spec) => (spec.startsWith('https:') ? { ok: true, value: { application: 'restart-required' } } : { ok: true, value: { application: 'failed', error: { code: 'already-installed' } } }));
+answer = info('1.2.0'); await app.updater.check(); await app.updater.install();
+assert.deepEqual(app.installs.map((x) => x[0]), ['dsh-composer-plus@1.2.0', 'https://registry.npmjs.org/dsh-composer-plus/-/dsh-composer-plus-1.2.0.tgz']);
+assert.equal(app.updater.getSnapshot().status, 'restart');
 // dsh loaded the new version at once (HMR): up to date, no restart asked.
 mem.clear(); shown.length = 0; timers = []; app = boot(() => ({ ok: true, value: { application: 'applied', version: '1.2.0' } }));
 answer = info('1.2.0'); await app.updater.check(); await app.updater.install();
@@ -47,7 +51,10 @@ assert.equal(app.updater.getSnapshot().status, 'current'); assert.equal(app.upda
 assert.equal(mem.get('dsh-composer-plus.update.installed'), '1.2.0');
 // pnpm installed it, then the live start failed (a changed bundle patch): the files are in place, a restart loads it.
 mem.clear(); shown.length = 0; timers = []; app = boot(() => ({ ok: true, value: { application: 'failed', version: '1.2.0', error: { code: 'operation-error', diagnostic: 'dsh: warning: 2 entries did not activate' } } }));
-await app.updater.check(); await app.updater.install(); assert.equal(app.updater.getSnapshot().status, 'restart'); assert.deepEqual(shown, ['notify.updated:1.2.0']);
+const warned = []; const realWarn = console.warn; console.warn = (m) => warned.push(m);
+await app.updater.check(); await app.updater.install(); console.warn = realWarn;
+assert.equal(app.updater.getSnapshot().status, 'restart'); assert.deepEqual(shown, ['notify.updated:1.2.0']);
+assert.match(warned.join('\n'), /1\.2\.0 is installed; dsh could not start it before a restart: dsh: warning: 2 entries did not activate/, 'dsh\'s error is kept');
 // Until the restart dsh can unload the old Host half: its route answers 404 "not found" (not JSON). Keep "restart".
 answer = { status: 404, raw: 'not found' }; await app.updater.check(); assert.equal(app.updater.getSnapshot().status, 'restart');
 mem.clear(); timers = []; app = boot(); await app.updater.check(); assert.equal(app.updater.getSnapshot().error, 'HTTP 404', 'a missing route without an install is an error, not a JSON parse message');

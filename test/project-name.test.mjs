@@ -50,7 +50,7 @@ function sidebar({ open = true, projectOpen = false, more = true, parentOpen = t
   };
   const toggle = el('toggle');
   const doc = { querySelector(q) { if (q === '[class*="_panelIcon"]') return state.open ? null : toggle; const rowsNow = draw();
-      if (q.startsWith('[data-row-key^=')) return rowsNow[0] ?? null; const key = JSON.parse(q.slice('[data-row-key='.length, -1)); return rowsNow.find((r) => r.key === key) ?? null; },
+      if (q === '[data-row-key]' || q.startsWith('[data-row-key^=')) return rowsNow[0] ?? null; const key = JSON.parse(q.slice('[data-row-key='.length, -1)); return rowsNow.find((r) => r.key === key) ?? null; },
     querySelectorAll(q) { return draw().filter((r) => 'data-composer-plus-locate' in r.attrs); } };
   const queue = []; const wait = (fn) => queue.push(fn); const run = () => { for (let i = 0; i < 50 && queue.length; i++) queue.shift()(); };
   return { state, doc, wait, run, rows };
@@ -71,6 +71,13 @@ sb = sidebar(); const first = sidebar({ projectOpen: false }); locateChat('s1', 
 locateChat('s1', ws, sb.doc, sb.wait); first.run(); assert.deepEqual(first.state.clicks, ['workspace:w1'], 'the old search stops at the new click');
 sb.run(); const blink = timers.find((x) => x.ms === 5000); assert.ok(blink, 'the blink lasts 5 s'); blink.f();
 assert.ok(!('data-composer-plus-locate' in sb.rows.s1.attrs), 'then it ends'); globalThis.setTimeout = realTimeout;
+// An open sidebar that shows search results (no rows) is never toggled; a closed one is opened once only.
+sb = sidebar({ open: false }); sb.doc.querySelector = ((q0) => (q) => (q === '[class*="_panelIcon"]' ? { closest: () => ({ click() { sb.state.clicks.push('toggle'); } }) } : null))();
+locateChat('s1', ws, sb.doc, sb.wait); sb.run(); assert.deepEqual(sb.state.clicks, ['toggle'], 'the toggle is clicked once, never again');
+// Windows paths: a project inside a closed parent folder opens the parent first.
+const win = { items: [{ workspaceId: 'wp', path: 'C:\\work\\outer', sessionIds: [] }, { workspaceId: 'w1', path: 'C:\\work\\outer\\inner\\', sessionIds: ['s1'] }] };
+sb = sidebar({ nested: true, parentOpen: false }); locateChat('s1', win, sb.doc, sb.wait); sb.run();
+assert.equal(sb.state.clicks[0], 'workspace:wp', 'a Windows parent folder counts too');
 // A chat that the view does not show (for example an archived-only filter) gives up after a few tries.
 sb = sidebar(); locateChat('s9', { items: [] }, sb.doc, sb.wait); sb.run(); assert.equal(sb.state.scrolled, undefined);
 

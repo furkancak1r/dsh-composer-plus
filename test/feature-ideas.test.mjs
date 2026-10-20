@@ -149,7 +149,9 @@ try {
   assert.deepEqual(await store.list(B), [], 'another project has its own list');
   assert.equal((await stat(laterFile)).mode & 0o777, 0o600, 'owner-only file');
   assert.deepEqual((await store.remove(A, list[1].id)).map((i) => i.title), ['Search']);
-  await store.remove(A, list[0].id); assert.deepEqual(JSON.parse(await readFile(laterFile, 'utf8')), {}, 'an empty list leaves no key');
+  await store.add(A, { title: 'Timer', summary: 'Start a timer.' });
+  assert.deepEqual((await store.remove(A, [list[0].id, (await store.list(A)).find((i) => i.title === 'Timer').id])).map((i) => i.title), [], 'a list of ids in one write');
+  assert.deepEqual(JSON.parse(await readFile(laterFile, 'utf8')), {}, 'an empty list leaves no key');
   await Promise.all(Array.from({ length: LATER_MAX }, (_, i) => store.add(B, { title: `B${i}`, summary: 'S.' })));
   assert.equal((await store.list(B)).length, LATER_MAX, 'writes run in order: no idea is lost');
   await assert.rejects(store.add(B, { title: 'One more', summary: 'S.' }), (e) => e.status === 409, 'a full list refuses');

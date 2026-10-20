@@ -112,7 +112,7 @@ dsh `0.2.0-rc.2`(데스크톱과 웹)와 `0.2.1-rc.2`(웹)에서 테스트했습
 - **이 채팅에서 허용:** 허용 항목은 `$DSH_HOME/storages/dsh-composer-plus/grants.json`(소유자 전용 권한)에 저장됩니다. 허용 하나는 **한 채팅의 정확히 한 도구**에만 적용됩니다. 그 도구가 쓰기를 할 수 있다면, 허용은 모든 쓰기에도 적용됩니다. 헤더 칩에서 취소하세요.
 - 자동 검토는 여전히 모든 호출에서 실행됩니다. 검토가 실패한 호출은 절대 자동으로 허용되지 않습니다.
 - **모바일 연결:** 켜기 전까지 꺼져 있습니다. 켜져 있는 동안 Host 쪽이 Tether 게이트웨이를 실행합니다. 게이트웨이는 두 부분입니다. 포트 19390의 HTTPS는 Wi-Fi 서브넷과 tailnet(100.64.0.0/10)의 연결만 받고, `127.0.0.1:19391`의 페어링 페이지는 이 Mac에서만 열립니다. 휴대폰을 연결하려면 QR 코드의 일회용 코드(5분 유효)와 Mac에서의 **Approve**가 필요합니다. 휴대폰은 게이트웨이 인증서를 고정(pinning)합니다. Mac은 각 휴대폰 토큰의 해시만 보관합니다(30일, 사용하는 동안 갱신). **Revoke**를 누르면 그 휴대폰의 연결이 즉시 끊깁니다. 휴대폰은 허용 목록에 있는 dsh 메서드(채팅, 프롬프트, 첨부 파일, 슬래시 명령, 승인, 질문, 모델, 에이전트, 목표)만 호출할 수 있습니다. 설정, 자격 증명, 파일 브라우저, 터미널은 호출할 수 없습니다. 데이터: `$DSH_HOME/storages/dsh-composer-plus/mobile/`. 자세한 내용: [tether/README.md](tether/README.md).
-- **업데이트:** Host 쪽은 `api.github.com`에 최신 릴리스를 묻고, `registry.npmjs.org`에 그 정확한 버전을 묻습니다. 사용자나 채팅에 관한 정보는 보내지 않습니다. 설치는 dsh의 플러그인 관리자(`pnpm add https://registry.npmjs.org/dsh-composer-plus/-/dsh-composer-plus-<version>.tgz`)를 쓰므로, dsh 자체의 레지스트리, 스크립트, 버전 호환성 검사가 적용됩니다. 사전 릴리스 태그와 더 오래된 버전은 절대 설치하지 않습니다.
+- **업데이트:** Host 쪽은 `api.github.com`에 최신 릴리스를 묻고, `registry.npmjs.org`에 그 정확한 버전을 묻습니다. 사용자나 채팅에 관한 정보는 보내지 않습니다. 설치는 dsh의 플러그인 관리자(`pnpm add dsh-composer-plus@<version>`. 이미 설치된 플러그인에 대해 dsh 0.2.1이 이를 거부하면 `pnpm add https://registry.npmjs.org/dsh-composer-plus/-/dsh-composer-plus-<version>.tgz`를 쓰며, 그 후 프로필에는 그 URL이 플러그인의 소스로 표시됩니다)를 쓰므로, dsh 자체의 레지스트리, 스크립트, 버전 호환성 검사가 적용됩니다. 사전 릴리스 태그와 더 오래된 버전은 절대 설치하지 않습니다.
 
 ## 문제 해결
 

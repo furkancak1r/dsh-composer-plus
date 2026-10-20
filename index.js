@@ -602,7 +602,8 @@ export function laterStore(file) {
       if (list.length >= LATER_MAX) throw Object.assign(new Error(`a project keeps at most ${LATER_MAX} ideas for later`), { status: 409 });
       return [{ id: randomUUID(), ...idea, at: Date.now() }, ...list];
     }),
-    remove: (cwd, id) => update(cwd, (list) => list.filter((i) => i.id !== id)),
+    /** One id, or a list of ids in one write. */
+    remove: (cwd, id) => update(cwd, (list) => list.filter((i) => (Array.isArray(id) ? !id.includes(i.id) : i.id !== id))),
   };
 }
 
@@ -1278,9 +1279,7 @@ function installIdeas(ctx, home) {
           const brief = ideas.map((i) => ({ title: i.title, summary: i.summary, why: i.why }));
           // Plan all always plans: many features at once without a plan would be a large unreviewed change.
           const started = await startIdeaChat(services(), body.sessionId, action === 'start' ? brief[0] : brief, request.signal, { plan: action === 'startAll' || body.plan !== false });
-          let left;
-          for (const id of ids) left = await later.remove(cwd, id);
-          return json({ ...started, ideas: left });
+          return json({ ...started, ideas: await later.remove(cwd, ids) });
         } finally { for (const key of keys) starting.delete(key); }
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },

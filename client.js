@@ -56,14 +56,15 @@ window.__ModuleLoader__.load({
       const items = workspaces?.items ?? [];
       const own = items.find((w) => w.sessionIds?.includes(sessionId));
       const key = own?.workspaceId ?? '';
-      const trim = (p) => String(p ?? '').replace(/[\\/]+$/, '');
+      // Windows paths compare with "/" too, as dsh's own project tree does.
+      const trim = (p) => String(p ?? '').replaceAll('\\', '/').replace(/\/+$/, '');
       // Project tree view: a project inside another project's folder is drawn inside that project, outermost first.
       const parents = own === undefined ? [] : items.filter((w) => w !== own && trim(w.path) !== '' && trim(own.path).startsWith(`${trim(w.path)}/`))
         .sort((a, b) => trim(a.path).length - trim(b.path).length);
       const row = (k) => doc.querySelector(`[data-row-key=${JSON.stringify(k)}]`);
       const closed = (el) => el !== null && el.getAttribute('aria-expanded') === 'false';
       const stop = () => { stopped = true; clearTimeout(timer); for (const el of doc.querySelectorAll(`[${LOCATE}]`)) el.removeAttribute(LOCATE); };
-      let tries = 0;
+      let tries = 0; let toggled = false;
       const step = () => {
         if (stopped) return;
         const target = row(`session:${sessionId}`);
@@ -80,8 +81,10 @@ window.__ModuleLoader__.load({
         if (closed(project)) project.click();
         else if (project !== null && more !== null && more.getAttribute('aria-expanded') !== 'true') more.click();
         else if (project === null && hiddenParent !== undefined) hiddenParent.click();
-        else if (doc.querySelector('[data-row-key^="workspace:"], [data-row-key^="session:"]') === null) {
-          // The left sidebar is closed: dsh's own toggle (the panel icon next to the logo).
+        else if (!toggled && doc.querySelector('[data-row-key]') === null) {
+          // No sidebar row at all: the left sidebar is closed. Open it once with dsh's own toggle (the panel icon next to
+          // the logo); an open sidebar that shows search results or an empty filter is never toggled.
+          toggled = true;
           doc.querySelector('[class*="_panelIcon"]')?.closest('button')?.click();
         }
         wait(step);
@@ -95,14 +98,13 @@ window.__ModuleLoader__.load({
     function ProjectNamePill({ sessionId, useWorkspaces, useSessions, t }) {
       const workspaces = useWorkspaces((state) => state);
       const sessions = useSessions((state) => state);
-      const live = React.useRef(workspaces); live.current = workspaces;
       React.useEffect(() => () => stopLocate(), []); // switched off or unmounted: no blinking row stays
       const name = projectNameOf(sessionId, workspaces, sessions);
       if (name === null) return null;
       const path = sessions?.byId?.[sessionId]?.cwd ?? workspaces?.items?.find((w) => w.sessionIds?.includes(sessionId))?.path;
       const hint = t?.('projectName.locate') ?? 'Show this chat in the sidebar';
       return React.createElement('button', { type: 'button', className: 'cp-project-name', 'data-composer-plus-project': '', title: `${path ?? name}\n${hint}`, 'aria-label': `${name}: ${hint}`,
-        onClick: () => locateChat(sessionId, live.current) },
+        onClick: () => locateChat(sessionId, workspaces) },
         React.createElement('style', null, PROJECT_NAME_CSS),
         React.createElement(FolderIcon), React.createElement('span', { className: 'cp-project-name-label' }, name));
     }
@@ -2030,20 +2032,23 @@ body:has(${OPEN_PROJECT}) [${COLLAPSE_HOST}] { display: inline-flex; }
           if (busy || state.status !== 'available' || updater.manager === undefined) return state;
           busy = true; set({ status: 'installing', info });
           try {
-            // dsh 0.2.1 refuses `name@version` for a package the profile already has (`already-installed`). The exact npm
-            // tarball is a spec the profile does not have yet: pnpm replaces the dependency in one step, and dsh puts the
-            // profile files back when it fails.
-            const tarball = `https://registry.npmjs.org/${info.name}/-/${info.name}-${info.latest}.tgz`;
             // Client remotes answer `{ ok, value }` / `{ ok: false, error }`.
-            const reply = await updater.manager.installBundle(tarball, { requestId: `composer-plus-update-${info.latest}-${Date.now()}` });
-            if (!reply?.ok) throw new Error(reply?.error?.message ?? 'plugin manager did not answer');
-            const result = reply.value;
+            const install = async (spec) => {
+              const reply = await updater.manager.installBundle(spec, { requestId: `composer-plus-update-${info.latest}-${Date.now()}` });
+              if (!reply?.ok) throw new Error(reply?.error?.message ?? 'plugin manager did not answer');
+              return reply.value;
+            };
+            let result = await install(`${info.name}@${info.latest}`);
+            // dsh 0.2.1 refuses `name@version` for a package the profile already has (`already-installed`, before pnpm
+            // runs). The exact npm tarball is a spec the profile does not have: pnpm replaces the dependency in one step, and
+            // dsh puts the profile files back when it fails. The profile then keeps the tarball URL as its dependency.
+            if (result.error?.code === 'already-installed') result = await install(`https://registry.npmjs.org/${info.name}/-/${info.name}-${info.latest}.tgz`);
+            const firstLine = () => result.error?.diagnostic?.split('\n').find((line) => line.trim() !== '') ?? result.error?.code ?? result.application;
             // `applied`: dsh loaded the new version at once. dsh 0.2.1 sets `version` only after pnpm installed it, so a
             // failed start after that (a changed bundle patch restarts dsh services) still needs only a restart.
             const live = result.application === 'applied';
-            if (!live && result.application !== 'restart-required' && result.version !== info.latest) {
-              throw new Error(result.error?.diagnostic?.split('\n').find((line) => line.trim() !== '') ?? result.error?.code ?? result.application);
-            }
+            if (!live && result.application !== 'restart-required' && result.version !== info.latest) throw new Error(firstLine());
+            if (result.application === 'failed') console.warn(`dsh-composer-plus: ${info.latest} is installed; dsh could not start it before a restart: ${firstLine()}`);
             try { localStorage.setItem(UPDATE_KEY, info.latest); } catch { /* the status below still says restart */ }
             notifyInstalled(info.latest, live);
             return set(live ? { status: 'current', info: { ...info, current: info.latest, newer: false } } : { status: 'restart', info });
