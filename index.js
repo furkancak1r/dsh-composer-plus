@@ -14,7 +14,7 @@
  *   per project folder under the dsh home.
  */
 import { constants, readFileSync } from 'node:fs';
-import { mkdir, open, readdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, sep } from 'node:path';
@@ -34,9 +34,11 @@ export const RESUME_PATH = '/api/composer-plus.resume';
 export const IDEAS_PATH = '/api/composer-plus.ideas';
 export const LATER_PATH = '/api/composer-plus.later';
 export const CONTENT_SEARCH_PATH = '/api/composer-plus.content-search';
+export const ROLLBACK_PATH = '/api/composer-plus.rollback';
+export const DELETE_CHAT_PATH = '/api/composer-plus.delete-chat';
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
-  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'language', 'autoUpdate', 'contentSearch'];
+  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -61,18 +63,19 @@ async function gitPath(subprocess) {
   return gitPaths.get(subprocess);
 }
 
-/** Run read-only `git <args>` in cwd: argv only (never a shell), scrubbed config, no prompts, no optional locks. */
-export async function runGit(subprocess, cwd, args, signal) {
+/** Run read-only `git <args>` in cwd: argv only (never a shell), scrubbed config, no prompts, no optional locks.
+ * `env` adds variables (Turn rollback points git at its own store); `stdin` is sent as the child's input. */
+export async function runGit(subprocess, cwd, args, signal, { env = {}, stdin, timeoutMs = TIMEOUT_MS } = {}) {
   const git = await gitPath(subprocess);
   if (git === null) return { code: 127, stdout: '', truncated: false, stderr: 'git is not installed' };
-  const timeout = AbortSignal.timeout(TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(timeoutMs);
   const handle = subprocess.spawn({
     argv: [git, ...args],
     cwd,
-    stdio: { stdin: 'ignore', stdout: { maxBytes: MAX_OUTPUT }, stderr: { maxBytes: 16384 } },
+    stdio: { stdin: stdin === undefined ? 'ignore' : { data: stdin }, stdout: { maxBytes: MAX_OUTPUT }, stderr: { maxBytes: 16384 } },
     graceMs: 1000,
     signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]),
-    env: { GIT_CONFIG_COUNT: '0', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C' },
+    env: { GIT_CONFIG_COUNT: '0', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C', ...env },
   });
   const outcome = await handle.done;
   const out = handle.collected.stdout?.readFrom(0) ?? { text: '', lossy: false };
@@ -594,6 +597,283 @@ export function laterStore(file) {
 
 const json = (value, status = 200) => Response.json(value, { status, headers: { 'cache-control': 'no-store' } });
 const isText = (v, max = 512) => typeof v === 'string' && v.length > 0 && v.length <= max;
+const refused = (message, status = 409) => Object.assign(new Error(message), { status });
+
+/* Turn rollback. The idea of one appended marker message that hides a span of the chat from the model (dsh's own
+ * `surfaceOp: replace`, as `/compact` uses) comes from dsh-rewind-plugin (MIT, SiriLee); the code here is new. */
+export const ROLLBACK_SOURCE = 'composer-plus-rollback';
+const ROLLBACK_TEXT = '(empty message)';
+/** Snapshots kept per chat: the newest user messages that a rollback can still bring the files back to. */
+export const SNAPSHOT_MAX = 50;
+const SNAPSHOT_TIMEOUT_MS = 30000;
+/** A tool call waits at most this long for its chat's snapshot (a FIFO named .gitignore makes git wait until its time-out). */
+const TOOL_WAIT_MS = 10000;
+/** Every store command: the system and global git config are never read and these keys are fixed, so no filter, fsmonitor
+ * or line-ending rule runs; with the store's info/attributes ("-text -filter") files go in and come out byte for byte. */
+const STORE_CONFIG = ['-c', 'core.autocrlf=false', '-c', 'core.safecrlf=false', '-c', 'core.fsmonitor=false', '-c', 'core.symlinks=true', '-c', 'gc.auto=0', '-c', 'core.hooksPath=/dev/null'];
+const storeEnv = (store, workTree, index) => ({ GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_DIR: store, GIT_WORK_TREE: workTree, GIT_INDEX_FILE: index });
+const safeSegment = (id) => encodeURIComponent(id).replace(/[.%*]/g, (c) => `_${c.charCodeAt(0).toString(16)}`);
+
+/** The marker append that withdraws `surface` from `seq` on: dsh checks that `sourceEventSeqs` holds every shadowed node. */
+export function rollbackPlan(surface, seq) {
+  const at = surface.indexOf(seq);
+  if (at < 0) throw refused('this message is no longer in the model context');
+  const shadowed = surface.slice(at);
+  return { shadowed, options: { surfaceOp: { op: 'replace', startSeq: shadowed[0], endSeq: shadowed.at(-1) }, sourceEventSeqs: shadowed } };
+}
+export const rollbackMarker = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: ROLLBACK_TEXT })]),
+  source: Object.freeze({ kind: ROLLBACK_SOURCE }) });
+/** The spans a chat's markers hide in the view, as `[first withdrawn seq, marker seq]`. */
+export const rollbackSpans = (events) => events.filter((e) => e.type === 'user/message' && e.data?.source?.kind === ROLLBACK_SOURCE && Array.isArray(e.sourceEventSeqs) && e.sourceEventSeqs.length > 0)
+  .map((e) => [Math.min(...e.sourceEventSeqs), e.seq]);
+
+/** `path` relative to `root` ('' for root itself, '/' separators), or undefined when it is outside. Both are real paths. */
+function relativeInside(root, path) {
+  if (path === root) return '';
+  const prefix = root.endsWith(sep) ? root : root + sep;
+  return path.startsWith(prefix) ? path.slice(prefix.length).split(sep).join('/') : undefined;
+}
+async function nearestExisting(path) {
+  for (let p = path; ; p = dirname(p)) {
+    const real = await realpath(p).catch(() => undefined);
+    if (real !== undefined || dirname(p) === p) return real;
+  }
+}
+
+/** The bytes of one regular file (at most `max`), or an empty buffer when it is missing, a symlink, a FIFO or a device:
+ * O_NOFOLLOW | O_NONBLOCK, so nothing put in its place can block the read or point elsewhere. */
+async function readRegular(path, max = 1024 * 1024) {
+  let file;
+  try {
+    file = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+    const info = await file.stat();
+    if (!info.isFile()) return Buffer.alloc(0);
+    const buffer = Buffer.alloc(Math.min(info.size, max));
+    const { bytesRead } = await file.read(buffer, 0, buffer.length, 0);
+    return buffer.subarray(0, bytesRead);
+  } catch { return Buffer.alloc(0); } finally { await file?.close().catch(() => {}); }
+}
+
+/** Git snapshots of one chat's folder, in a private store `<dir>/<chat>.git` whose objects/info/alternates names the
+ * repository's objects: blobs that git already has are not copied. A snapshot is `git add --all -- <chat folder>` into the
+ * store's own index plus `write-tree`, kept as ref `refs/s/<seq>` (the user message it was taken before), with the list
+ * of paths that were ignored at that time (`ignored/<seq>.json`): a file that is not in the snapshot is deleted by a
+ * restore only when it was neither in the snapshot nor ignored then, so a later change of an ignore rule never deletes a
+ * file that was already there. The user's repository is only read: its index, HEAD, refs, stash and config are never
+ * written (git does refresh the time stamp of an object file it reuses). One task at a time per chat. */
+export function snapshotStore({ subprocess, dir, timeoutMs = SNAPSHOT_TIMEOUT_MS }) {
+  const queues = new Map(); // chat id → promise of its last queued task
+  const enqueue = (id, task) => {
+    const next = (queues.get(id) ?? Promise.resolve()).then(task);
+    const settled = next.then(() => {}, () => {});
+    queues.set(id, settled);
+    settled.then(() => { if (queues.get(id) === settled) queues.delete(id); });
+    return next;
+  };
+  const storeOf = (id) => join(dir, `${safeSegment(id)}.git`);
+  const ok = (r, what) => { if (r.code !== 0) throw new Error(`${what} failed: ${r.stderr.trim() || `exit ${r.code}`}`); return r; };
+  /** The repository around cwd: its top folder, objects, info/exclude, the user's global excludes file and the chat
+   * folder relative to the top (`inside`); undefined outside a repository. */
+  const repository = async (cwd, signal) => {
+    const r = await runGit(subprocess, cwd, ['rev-parse', '--show-toplevel', '--git-path', 'objects', '--git-path', 'info/exclude'], signal);
+    if (r.code !== 0) return undefined;
+    const [top, objects, exclude] = r.stdout.split('\n').map((line) => (isAbsolute(line) ? line : join(cwd, line)));
+    const inside = relativeInside(await realpath(top), await realpath(cwd));
+    if (inside === undefined) return undefined;
+    const global = (await runGit(subprocess, cwd, ['config', '--path', '--get', 'core.excludesFile'], signal)).stdout.trim()
+      || join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'git', 'ignore');
+    return { top, objects, exclude, global, inside, pathspec: inside === '' ? '.' : `:(literal)${inside}` };
+  };
+  /** The store for this chat, created on first use. Each time: the alternates, the attributes, and copies of the two
+   * exclude files (read as regular files only), so git itself never opens a file of the user's for its rules. */
+  const prepare = async (id, repo, signal) => {
+    const store = storeOf(id);
+    if (!(await stat(join(store, 'HEAD')).then(() => true, () => false))) {
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      ok(await runGit(subprocess, dir, ['init', '-q', '--bare', '--template=', store], signal, { env: { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } }), 'git init');
+    }
+    await mkdir(join(store, 'info'), { recursive: true });
+    await mkdir(join(store, 'objects', 'info'), { recursive: true });
+    await mkdir(join(store, 'ignored'), { recursive: true });
+    await writeFile(join(store, 'info', 'attributes'), '* -text -filter -ident -diff\n');
+    await writeFile(join(store, 'objects', 'info', 'alternates'), `${repo.objects}\n`);
+    await writeFile(join(store, 'info', 'exclude'), await readRegular(repo.exclude));
+    await writeFile(join(store, 'info', 'global-exclude'), await readRegular(repo.global));
+    const config = ['-c', `core.excludesFile=${join(store, 'info', 'global-exclude')}`];
+    const run = (args, extra = {}) => runGit(subprocess, extra.cwd ?? repo.top, [...STORE_CONFIG, ...config, ...args], signal,
+      { env: storeEnv(store, extra.workTree ?? repo.top, extra.index ?? join(store, 'index')), stdin: extra.stdin, timeoutMs });
+    return { store, run };
+  };
+  /** The chat folder now as a tree id (the store's index follows it). An index entry whose object the repository lost
+   * (gc after a rebase) makes write-tree fail once: the index is then made again from the files. */
+  const treeNow = async ({ store, run }, repo) => {
+    const add = async () => {
+      const added = await run(['add', '--all', '--ignore-errors', '--', repo.pathspec]);
+      if (added.code !== 0 && added.code !== 1) ok(added, 'git add');
+      return added.code === 0; // 1: a file could not be read and is not in the snapshot
+    };
+    let complete = await add();
+    let tree = await run(['write-tree']);
+    if (tree.code !== 0) { await rm(join(store, 'index'), { force: true }); complete = await add(); tree = ok(await run(['write-tree']), 'git write-tree'); }
+    return { tree: tree.stdout.trim(), complete };
+  };
+  const take = async (id, cwd, seq, signal) => {
+    const repo = await repository(cwd, signal);
+    if (repo === undefined) return undefined;
+    const prepared = await prepare(id, repo, signal);
+    const { store, run } = prepared;
+    const { tree, complete } = await treeNow(prepared, repo);
+    // ponytail: a list that git cuts at the output limit counts as unknown: that snapshot then deletes no file.
+    const ignored = await run(['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z', '--', repo.pathspec]);
+    const known = complete && ignored.code === 0 && !ignored.truncated;
+    await writeFile(join(store, 'ignored', `${seq}.json`), JSON.stringify({ known, paths: known ? ignored.stdout.split('\0').filter(Boolean) : [] }));
+    ok(await run(['update-ref', `refs/s/${seq}`, tree]), 'git update-ref');
+    const refs = ok(await run(['for-each-ref', '--format=%(refname)', 'refs/s/']), 'git for-each-ref').stdout.split('\n').filter(Boolean)
+      .sort((a, b) => Number(a.split('/').at(-1)) - Number(b.split('/').at(-1)));
+    if (refs.length > SNAPSHOT_MAX) {
+      for (const old of refs.slice(0, refs.length - SNAPSHOT_MAX)) {
+        await run(['update-ref', '-d', old]);
+        await rm(join(store, 'ignored', `${old.split('/').at(-1)}.json`), { force: true });
+      }
+      await run(['prune', '--expire=now']);
+    }
+    return tree;
+  };
+  /** What a restore to the snapshot before message `seq` changes inside `cwd`: `files: [{ path (from cwd), top (from the
+   * repository top), action: restore | create | delete }]`. */
+  const plan = async (id, cwd, seq, signal) => {
+    const repo = await repository(cwd, signal);
+    if (repo === undefined) return { git: false };
+    const prepared = await prepare(id, repo, signal);
+    const old = await prepared.run(['rev-parse', '-q', '--verify', `refs/s/${seq}^{tree}`]);
+    if (old.code !== 0) return { git: true, snapshot: false };
+    const tree = old.stdout.trim();
+    const then = await readFile(join(prepared.store, 'ignored', `${seq}.json`), 'utf8').then(JSON.parse, () => ({ known: false, paths: [] }));
+    const wasIgnored = (path) => !then.known || then.paths.some((p) => (p.endsWith('/') ? path.startsWith(p) : path === p));
+    const { tree: now } = await treeNow(prepared, repo);
+    const out = ok(await prepared.run(['diff-tree', '-r', '-z', '--no-renames', tree, now]), 'git diff-tree').stdout.split('\0');
+    const files = [];
+    for (let i = 0; i + 1 < out.length; i += 2) {
+      const status = out[i].split(' ').at(-1); const top = out[i + 1];
+      if (repo.inside !== '' && !top.startsWith(`${repo.inside}/`)) continue;
+      if (status === 'A' && wasIgnored(top)) continue; // it may have been there, ignored: keep it
+      files.push({ path: repo.inside === '' ? top : top.slice(repo.inside.length + 1), top, action: status === 'A' ? 'delete' : status === 'D' ? 'create' : 'restore' });
+    }
+    return { git: true, snapshot: true, prepared, tree, files };
+  };
+  return {
+    /** Queue a snapshot before the user message `seq`; resolves to the tree id, or undefined outside a repository. */
+    snapshot: (id, cwd, seq) => enqueue(id, () => take(id, cwd, seq)),
+    /** Resolves once every queued task of this chat has settled. */
+    settled: (id) => queues.get(id) ?? Promise.resolve(),
+    preview: (id, cwd, seq, signal) => enqueue(id, async () => {
+      const { prepared, tree, ...rest } = await plan(id, cwd, seq, signal);
+      return { ...rest, ...(rest.files === undefined ? {} : { files: rest.files.map(({ path, action }) => ({ path, action })) }) };
+    }),
+    /** Put the files back. Every git step runs first (into a private folder); then `beforeWrite` runs (the caller withdraws
+     * the messages there), then the files are written. A failure before `beforeWrite` changes nothing. */
+    restore: (id, cwd, seq, signal, beforeWrite = () => {}) => enqueue(id, async () => {
+      const p = await plan(id, cwd, seq, signal);
+      if (!p.git || !p.snapshot) { await beforeWrite(); return { git: p.git, snapshot: p.snapshot ?? false, restored: [], deleted: [], skipped: [] }; }
+      const scratch = await mkdtemp(join(dir, 'restore-'));
+      try {
+        const index = join(scratch, 'index');
+        const local = { cwd: scratch, workTree: scratch, index };
+        ok(await p.prepared.run(['read-tree', p.tree], local), 'git read-tree');
+        const wanted = p.files.filter((f) => f.action !== 'delete');
+        const modes = new Map();
+        if (wanted.length > 0) {
+          // A blob that the repository lost (gc) fails only its own file: writeBack lists it as skipped.
+          await p.prepared.run(['checkout-index', `--prefix=${join(scratch, 'files')}${sep}`, '-z', '--stdin'], { ...local, stdin: `${wanted.map((f) => f.top).join('\0')}\0` });
+          const listed = await p.prepared.run(['ls-files', '-s', '-z', '--', ...wanted.map((f) => `:(literal)${f.top}`)], local);
+          for (const entry of listed.stdout.split('\0')) { const m = /^(\d+) \w+ \d\t([\s\S]*)$/.exec(entry); if (m) modes.set(m[2], m[1]); }
+        }
+        await beforeWrite();
+        return { git: true, snapshot: true, ...(await writeBack(cwd, p.files, (f) => ({ source: join(scratch, 'files', ...f.top.split('/')), mode: modes.get(f.top) }))) };
+      } finally { await rm(scratch, { recursive: true, force: true }); }
+    }),
+    forget: (id) => enqueue(id, () => rm(storeOf(id), { recursive: true, force: true })),
+  };
+}
+
+/** Write snapshot bytes back into the chat folder. A target counts only when its real parent folder is inside the folder's
+ * real path and the target is a regular file or missing (lstat); the bytes go to a new file in that real folder (O_EXCL |
+ * O_NOFOLLOW) that then replaces the target by rename, so a symlink or FIFO swapped in meanwhile is replaced, never
+ * followed or opened. Symlinks and submodules in the snapshot, and every failure, are listed as skipped; one failure never
+ * stops the others. */
+export async function writeBack(cwd, files, sourceOf) {
+  const root = await realpath(cwd);
+  const restored = []; const deleted = []; const skipped = [];
+  for (const file of files) {
+    const skip = (reason) => { skipped.push({ path: file.path, reason }); };
+    let temp;
+    try {
+      const parts = file.path.split('/');
+      if (parts.some((part) => part === '' || part === '.' || part === '..')) { skip('unsafe path'); continue; }
+      const name = parts.at(-1);
+      let folder = await realpath(join(root, ...parts.slice(0, -1))).catch(() => undefined);
+      const inside = folder !== undefined && relativeInside(root, folder) !== undefined;
+      const info = inside ? await lstat(join(folder, name)).catch(() => undefined) : undefined;
+      if (info !== undefined && !info.isFile()) { skip(info.isSymbolicLink() ? 'symlink' : 'not a regular file'); continue; }
+      if (file.action === 'delete') {
+        if (folder !== undefined && !inside) { skip('outside the project folder'); continue; }
+        if (info !== undefined) await unlink(join(folder, name));
+        deleted.push(file.path);
+        continue;
+      }
+      const { source, mode } = sourceOf(file);
+      if (mode !== '100644' && mode !== '100755') { skip(mode === '120000' ? 'symlink' : mode === '160000' ? 'submodule' : 'not in the snapshot'); continue; }
+      if (folder === undefined) {
+        const nearest = await nearestExisting(join(root, ...parts.slice(0, -1)));
+        if (nearest === undefined || relativeInside(root, nearest) === undefined) { skip('outside the project folder'); continue; }
+        await mkdir(join(root, ...parts.slice(0, -1)), { recursive: true });
+        folder = await realpath(join(root, ...parts.slice(0, -1)));
+      }
+      if (relativeInside(root, folder) === undefined) { skip('outside the project folder'); continue; }
+      const bytes = await readFile(source);
+      temp = join(folder, `.${name}.cp-rollback-${randomUUID().slice(0, 8)}`);
+      const handle = await open(temp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), mode === '100755' ? 0o755 : 0o644);
+      try { await handle.writeFile(bytes); await handle.sync(); } finally { await handle.close(); }
+      await rename(temp, join(folder, name));
+      temp = undefined;
+      restored.push(file.path);
+    } catch (error) {
+      skip(error?.code === 'ELOOP' ? 'symlink' : error?.code === 'ENOENT' ? 'not in the snapshot' : String(error?.code ?? error?.message ?? error));
+    } finally { if (temp !== undefined) await unlink(temp).catch(() => {}); }
+  }
+  return { restored, deleted, skipped };
+}
+
+/** Whether `rename` can move the folders into `<home>/trash` (same disk); the macOS Trash moves across disks itself. */
+async function canMove(folders, home, platform) {
+  if (platform === 'darwin') return true;
+  const target = await stat(home).catch(() => undefined);
+  for (const f of folders) { const s = await stat(f).catch(() => undefined); if (s !== undefined && target !== undefined && s.dev !== target.dev) return false; }
+  return true;
+}
+
+/** Delete chat: move the chat's log folders to a trash: the macOS Trash (`/usr/bin/trash`, macOS 15 and later), else
+ * `<home>/trash/<project folder name>/<chat folder name>-<time>`. */
+export async function moveToTrash(folders, { home, subprocess, platform = process.platform, signal } = {}) {
+  const existing = [];
+  for (const f of folders) if (await lstat(f).then((s) => s.isDirectory(), () => false)) existing.push(f);
+  if (existing.length === 0) return { to: 'none', moved: [] };
+  if (platform === 'darwin' && subprocess !== undefined && (await stat('/usr/bin/trash').then((s) => s.isFile(), () => false))) {
+    try {
+      const handle = subprocess.spawn({ argv: ['/usr/bin/trash', ...existing], cwd: dirname(existing[0]), stdio: { stdin: 'ignore', stdout: { maxBytes: 4096 }, stderr: { maxBytes: 4096 } }, graceMs: 1000, signal });
+      if ((await handle.done).exitCode === 0) return { to: 'trash', moved: existing };
+    } catch { /* fall back to the folder below */ }
+  }
+  const moved = [];
+  for (const f of existing) {
+    if (!(await lstat(f).then((s) => s.isDirectory(), () => false))) continue; // the Trash took it before failing
+    const target = join(home, 'trash', f.split(sep).at(-2), `${f.split(sep).at(-1)}-${Date.now()}`);
+    await mkdir(dirname(target), { recursive: true, mode: 0o700 });
+    await rename(f, target);
+    moved.push(target);
+  }
+  return { to: 'folder', moved };
+}
 
 export function apply(ctx) {
   const home = process.env.DSH_HOME || join(homedir(), '.dsh');
@@ -746,6 +1026,163 @@ export function apply(ctx) {
   installResume(ctx, home);
   installIdeas(ctx, home);
   installContentSearch(ctx, home);
+  const snapshots = snapshotStore({ subprocess: ctx.subprocess, dir: join(home, 'cache', 'composer-plus', 'rollback') });
+  installRollback(ctx, home, snapshots);
+  installDeleteChat(ctx, home, snapshots);
+}
+
+/** Wait until the agent is idle, at most `ms`; false on time-out. */
+async function idleWithin(agent, ms) {
+  if (agent.status === 'idle') return true;
+  let timer;
+  try { return await Promise.race([agent.whenIdle().then(() => true), new Promise((resolve) => { timer = setTimeout(() => resolve(false), ms); })]); } finally { clearTimeout(timer); }
+}
+const STOP_WAIT_MS = 15000;
+const isRootChat = (session) => session?.header?.origin !== 'subagent' && (session?.header?.delegationDepth ?? 0) === 0;
+
+/** Turn rollback (Host half): a git snapshot of the chat's work tree before each user message, and `/api/composer-plus.rollback`:
+ * `GET ?sessionId` → `{ on, spans, git }`; `POST {on}` moves the switch; `POST {sessionId, seq, preview: true}` → the files a
+ * rollback with files would change; `POST {sessionId, seq, files}` stops a running turn, withdraws the message and everything
+ * after it (one marker), and with `files` puts the project files back. When dsh-rewind-plugin is loaded it owns rollback:
+ * no snapshots, and the route answers `rewind: true`. */
+function installRollback(ctx, home, store) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const saved = mobileSwitch(join(home, 'storages', 'dsh-composer-plus', 'rollback.json'), true);
+  let on = true;
+  const read = saved.read().then((value) => { on = value; });
+  let switchQueue = Promise.resolve();
+  const rewindLoaded = (agent) => { try { return get('commands')?.find?.(agent, 'rewind-plugin') !== undefined; } catch { return false; } };
+  const busy = new Set(); // chats with a rollback running now
+  const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: ${text}`);
+  ctx.on('session/event', (session, event) => {
+    if (!on || event.type !== 'user/message' || event.data?.source?.kind !== 'user' || !isRootChat(session)) return;
+    const cwd = session.header?.cwd;
+    if (!isText(cwd, 4096) || busy.has(session.id)) return;
+    const agent = get('agents')?.get?.(session.id);
+    if (agent !== undefined && rewindLoaded(agent)) return;
+    store.snapshot(session.id, cwd, event.seq).catch((error) => log(`turn rollback snapshot failed: ${error?.message ?? error}`));
+  });
+  // A tool of the chat waits for its queued snapshot, so the snapshot shows the files before this message's work; at most
+  // TOOL_WAIT_MS, so a stuck git (a FIFO named .gitignore in the tree) never stops the chat.
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    const id = exec.agent?.session?.id;
+    if (id !== undefined) {
+      let timer;
+      await Promise.race([store.settled(id), new Promise((resolve) => { timer = setTimeout(resolve, TOOL_WAIT_MS); })]);
+      clearTimeout(timer);
+    }
+    return next();
+  });
+  ctx.connection.fetch.register({
+    path: ROLLBACK_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      let body;
+      if (request.method === 'GET') body = { sessionId: new URL(request.url).searchParams.get('sessionId') ?? undefined };
+      else try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      if (typeof body?.on === 'boolean') {
+        const done = switchQueue.then(async () => { await read; await saved.write(body.on); on = body.on; });
+        switchQueue = done.catch(() => {});
+        try { await done; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+        return json({ on });
+      }
+      await read;
+      if (body?.sessionId === undefined && request.method === 'GET') return json({ on });
+      if (!isText(body?.sessionId)) return json({ error: 'bad request' }, 400);
+      try {
+        const found = await ctx.sessionController.resolveAgent(body.sessionId);
+        if ('error' in found) return json({ error: 'this chat is not available' }, 409);
+        const { agent } = found;
+        const session = agent.session;
+        const rewind = rewindLoaded(agent);
+        if (request.method === 'GET') return json({ on, rewind, spans: rollbackSpans(session.snapshotEvents()) });
+        if (!on) return json({ error: 'Turn rollback is switched off' }, 409);
+        if (!isRootChat(session)) return json({ error: 'a subagent chat cannot be rolled back' }, 409);
+        if (!Number.isSafeInteger(body.seq)) return json({ error: 'bad request' }, 400);
+        const target = session.snapshotEvents().find((e) => e.seq === body.seq);
+        if (target?.type !== 'user/message' || target.data?.source?.kind !== 'user') return json({ error: 'not a message of yours' }, 400);
+        const cwd = session.header?.cwd;
+        if (body.preview === true) {
+          rollbackPlan([...session.surface.nodes], body.seq);
+          return json(isText(cwd, 4096) ? await store.preview(session.id, cwd, body.seq, request.signal) : { git: false });
+        }
+        if (busy.has(session.id)) return json({ error: 'a rollback of this chat is already running' }, 409);
+        busy.add(session.id);
+        try {
+          if (agent.status !== 'idle') {
+            agent.cancel({ kind: 'user' }, { keepInbox: true });
+            if (!(await idleWithin(agent, STOP_WAIT_MS))) return json({ error: 'the running turn did not stop' }, 409);
+          }
+          for (const message of [...(agent.inbox?.nextStep ?? [])]) agent.inbox.remove(message.id); // unread steering goes with the turn
+          let plan; let marker;
+          const withdraw = () => { plan = rollbackPlan([...session.surface.nodes], body.seq); marker = session.append('user/message', rollbackMarker(), plan.options); };
+          const text = (target.data.content ?? []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+          const attachments = (target.data.content ?? []).filter((b) => b.type !== 'text').length;
+          let files;
+          // Every git step runs before the marker; the files are written after it. A git failure leaves the chat as it was.
+          // ponytail: dsh's read-before-edit guard is not told about the restored files; the model reads them again.
+          if (body.files === true && isText(cwd, 4096)) files = await store.restore(session.id, cwd, body.seq, request.signal, withdraw);
+          else withdraw();
+          return json({ markerSeq: marker.seq, span: [plan.shadowed[0], marker.seq], text, attachments, ...(files === undefined ? {} : { files }) });
+        } finally { busy.delete(session.id); }
+      } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
+    },
+  });
+}
+
+/** Delete chat (Host half): `POST /api/composer-plus.delete-chat {sessionId}` archives the chat with dsh's own stop (turn,
+ * jobs, subagents, schedules), waits for it to be idle, flushes its log, takes the log's write lock when no agent of this
+ * dsh holds it, and moves its folder and its subagents' folders to the Trash. The id stays archived, so a folder that is
+ * put back comes back as an archived chat at the next start. */
+function installDeleteChat(ctx, home, snapshots) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const busy = new Set();
+  ctx.connection.fetch.register({
+    path: DELETE_CHAT_PATH, methods: ['POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      if (!isText(body?.sessionId)) return json({ error: 'bad request' }, 400);
+      const id = body.sessionId;
+      const registry = get('workspaceRegistry'); const persistence = get('sessionPersistence');
+      if (registry?.archiveSession === undefined || persistence?.locate === undefined || persistence?.list === undefined) return json({ error: 'this dsh cannot delete chats' }, 409);
+      if (busy.has(id)) return json({ error: 'this chat is already being deleted' }, 409);
+      busy.add(id);
+      const locks = [];
+      try {
+        const headers = (await persistence.list({ signal: request.signal })).map((s) => s.header);
+        const header = headers.find((h) => h.id === id);
+        if (header === undefined) return json({ error: 'this chat has no saved log' }, 404);
+        if (!isRootChat({ header })) return json({ error: 'a subagent chat goes with its parent chat' }, 409);
+        // The chat's subagents (any depth) go with it.
+        const family = new Set([id]);
+        for (let grew = true; grew;) { grew = false; for (const h of headers) if (!family.has(h.id) && h.origin === 'subagent' && family.has(h.parentSession)) { family.add(h.id); grew = true; } }
+        const members = headers.filter((h) => family.has(h.id));
+        const folders = members.map((h) => dirname(persistence.locate(h).path));
+        // ponytail: COMPOSER_PLUS_TRASH=folder keeps test runs out of the user's macOS Trash; there is no setting for it.
+        const platform = process.env.COMPOSER_PLUS_TRASH === 'folder' ? 'folder' : process.platform;
+        if (!(await canMove(folders, home, platform))) return json({ error: 'the chat history is on another disk than the dsh home; nothing was changed' }, 409);
+        await registry.archiveSession(id, { stopActivity: true });
+        // Every log of the family must be quiet before it moves: an agent of this dsh is idle and flushed; any other log is
+        // locked (another dsh that writes it makes this fail). One failure moves nothing; the chat stays archived.
+        for (const h of members) {
+          const agent = get('agents')?.get?.(h.id);
+          if (agent !== undefined) {
+            if (!(await idleWithin(agent, STOP_WAIT_MS))) return json({ error: 'the chat did not stop; it stays archived' }, 409);
+            const live = get('sessions')?.get?.(h.id);
+            if (live !== undefined) await get('sessions').flush(live);
+          } else {
+            try { locks.push(await persistence.open(h.id, 'write', { signal: request.signal })); }
+            catch (error) { return json({ error: error?.name === 'SessionAlreadyOwnedError' ? 'another dsh has this chat open; it stays archived' : String(error?.message ?? error) }, 409); }
+          }
+        }
+        // The lock descriptors stay open while their folders move (same disk) and close in `finally`.
+        const result = await moveToTrash(folders, { home, subprocess: ctx.subprocess, signal: request.signal, platform });
+        for (const h of members) snapshots?.forget(h.id).catch(() => {});
+        return json({ deleted: true, to: result.to, chats: family.size });
+      } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
+      finally { for (const lock of locks) await lock.close().catch(() => {}); busy.delete(id); }
+    },
+  });
 }
 
 /** Content search: dsh's own sidebar search also looks in message text. The work is dsh's (`cordis.patch.yml` opens its
