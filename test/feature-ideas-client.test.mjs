@@ -91,7 +91,7 @@ const cards = find(page, (n) => n.p?.className === 'cpi-stack').c; assert.equal(
 assert.equal(cards.at(-1).p.card.id, 'i1');
 assert.ok(text(page).includes('ideas.left:4')); assert.ok(find(page, (n) => n.t === 'button' && n.p['aria-label'] === 'ideas.build'));
 // Keys: ← skips, Z undoes; typing in a field is ignored.
-const key = (k, target = { closest: () => null }) => { let prevented = 0; page.p.onKeyDown({ key: k, target, preventDefault: () => prevented++ }); return prevented; };
+const key = (k, target = { closest: () => null }, extra = {}) => { let prevented = 0; page.p.onKeyDown({ key: k, target, preventDefault: () => prevented++, ...extra }); return prevented; };
 const flown = () => new Promise((r) => setTimeout(r, 250));
 const dragDx = () => state[1].dx; // IdeasTab state: [version, drag]
 assert.equal(key('ArrowLeft'), 1); assert.ok(dragDx() < 0, '← first flies the card off to the left');
@@ -108,6 +108,42 @@ round('right').p.onClick(); assert.ok(dragDx() > 0, '✓ flies the card off to t
 assert.equal(opened.at(-1), 'new-2'); assert.deepEqual(deck.cards.map((c) => c.id), ['i2', 'i10', 'i11']); assert.equal(deck.accepted[0].sessionId, 'new-2');
 // Started list opens its chat.
 state = []; page = render('chat-1'); find(page, (n) => n.t === 'button' && text(n) === '✓ Idea 0').p.onClick(); assert.equal(opened.at(-1), 'new-1');
+// Build now: ▶ (between ↓ and ✓) and ↑ fly the card up, then the Host starts a chat without a plan (`plan: false`).
+{
+  const buildNow = round('up'); assert.equal(buildNow.p['aria-label'], 'ideas.buildNow'); assert.equal(text(buildNow), '▶');
+  const sides = find(page, (n) => n.p?.className === 'cpi-actions').c.map((b) => b.p['data-side']); assert.deepEqual(sides, ['left', 'later', 'up', 'right'], '✕ ↓ ▶ ✓');
+  reply = (body) => (body.idea ? { status: 200, body: { sessionId: 'now-1', plan: false } } : { status: 500, body: {} });
+  const top = deck.cards[0];
+  buildNow.p.onClick(); assert.ok(state[1].dy < 0 && state[1].dx === 0 && state[1].fade, '▶ first flies the card up');
+  assert.equal(deck.cards[0], top, 'the card stays until it has flown'); await flown(); await flown();
+  assert.deepEqual(calls.at(-1), ['/api/composer-plus.ideas', { sessionId: 'chat-1', idea: { title: top.title, summary: top.summary, why: top.why }, plan: false }]);
+  assert.equal(opened.at(-1), 'now-1'); assert.equal(deck.accepted[0].now, true); assert.equal(state[1].dy, 0, 'the next card starts in the middle');
+  state = []; page = render('chat-1'); assert.ok(find(page, (n) => n.t === 'button' && text(n) === `▶ ${top.title}`), 'Started marks a Build now chat with ▶');
+  reply = (body) => (body.idea ? { status: 200, body: { sessionId: 'now-2', plan: false } } : { status: 500, body: {} });
+  const next = deck.cards[0]; assert.equal(key('ArrowUp'), 1); assert.ok(state[1].dy < 0, '↑ flies the card up too'); await flown(); await flown();
+  assert.equal(calls.at(-1)[1].plan, false); assert.equal(calls.at(-1)[1].idea.title, next.title); assert.equal(opened.at(-1), 'now-2');
+  assert.equal(key('ArrowUp', { closest: () => ({}) }), 0, '↑ inside a text field is left alone');
+  // A held key decides one card only (its repeats would start one chat per Host answer); Shift+↑ is not Build now.
+  const sentBefore = calls.length;
+  for (const extra of [{ repeat: true }, { shiftKey: true }]) {
+    assert.equal(key('ArrowUp', undefined, extra), 0, JSON.stringify(extra)); assert.equal(key('ArrowRight', undefined, extra), 0); assert.equal(key('ArrowDown', undefined, extra), 0);
+  }
+  await flown(); assert.equal(calls.length, sentBefore, 'no request from a repeat or Shift'); assert.equal(state[1].dy, 0, 'and no flight');
+  // An older Host half ignores `plan: false` and plans: Started then shows ✓, not ▶.
+  deck.cards = [...deck.cards, ...ideas(4, 30)]; // the steps below take cards off the top
+  reply = (body) => (body.idea ? { status: 200, body: { sessionId: 'old-host', plan: true } } : { status: 500, body: {} });
+  await decideIdea(deck, 'chat-1', 'up'); assert.equal(deck.accepted[0].sessionId, 'old-host'); assert.equal(deck.accepted[0].now, false, 'a planned chat is not marked ▶');
+  // A failed Build now keeps the card on top; no Build now while a chat starts (▶ disabled, ↑ and the call do nothing).
+  reply = () => ({ status: 409, body: { error: 'this chat has no project folder' } }); const kept = deck.cards[0];
+  await decideIdea(deck, 'chat-1', 'up'); assert.equal(deck.cards[0], kept); assert.equal(deck.error, 'this chat has no project folder');
+  const realFetch = globalThis.fetch; let go; const gate = new Promise((r) => { go = r; }); let starts = 0;
+  globalThis.fetch = async (url, init) => { starts++; await gate; return realFetch(url, init); };
+  reply = (body) => (body.idea ? { status: 200, body: { sessionId: 'now-3', plan: false } } : { status: 500, body: {} });
+  const first = decideIdea(deck, 'chat-1', 'right');
+  state = []; page = render('chat-1'); assert.equal(round('up').p.disabled, true, '▶ is disabled while a chat starts');
+  assert.equal(key('ArrowUp'), 1); await flown(); await decideIdea(deck, 'chat-1', 'up');
+  assert.equal(starts, 1, 'no Build now while a chat starts'); go(); await first; globalThis.fetch = realFetch;
+}
 
 // Saved for later: ↓ flies the card down, then the Host keeps it in the project's list; "Later (N)" opens the list, where
 // Plan starts a plan-mode chat and Remove drops the idea.
@@ -129,7 +165,8 @@ state = []; page = render('chat-1'); find(page, (n) => n.t === 'button' && text(
   postGate = gate(); const save = laterIdea(L, 'later-a'); assert.equal(L.status, 'saving'); assert.deepEqual(L.cards.map((c) => c.id), ['i201', 'i202']);
   const before = sent.length;
   await suggestIdeas(L, 'later-a'); await decideIdea(L, 'later-a', 'right'); await laterIdea(L, 'later-a'); await removeLater(L, 'later-a', 's-Old'); await startLater(L, 'later-a', saved('Old'));
-  assert.equal(sent.length, before, 'no load, start, second save or list change while a save runs');
+  await decideIdea(L, 'later-a', 'up'); await startLater(L, 'later-a', saved('Old'), undefined, true);
+  assert.equal(sent.length, before, 'no load, start, Build now, second save or list change while a save runs');
   postGate.go(); await save; postGate = undefined;
   assert.deepEqual(sent.at(-1), ['/api/composer-plus.later', { sessionId: 'later-a', add: { title: 'Idea 200', summary: 'Does 200.', why: 'Faster.', effort: 'small' } }]);
   assert.deepEqual(L.later.map((i) => i.title), ['Idea 200', 'Old']); assert.equal(L.status, 'ready'); assert.equal(L.error, undefined);
@@ -175,6 +212,17 @@ state = []; page = render('chat-1'); find(page, (n) => n.t === 'button' && text(
   await button(items()[2], 'ideas.plan').p.onClick();
   assert.deepEqual(sent.at(-1), ['/api/composer-plus.later', { sessionId: 'later-a', start: 's-Pantry' }]);
   assert.equal(opened.at(-1), 'new-L'); assert.equal(L.accepted[0].title, 'Pantry'); assert.equal(L.accepted[0].sessionId, 'new-L'); assert.equal(L.later.length, 3);
+  // Build now on a saved idea: the same start with `plan: false`; Started marks it with ▶.
+  const keep = L.later;
+  laterReply = () => ({ status: 200, body: { sessionId: 'now-L', plan: false, ideas: L.later.filter((i) => i.id !== 's-Idea 201') } });
+  view = go('later-a'); const nowItem = items().find((i) => i.p['data-composer-plus-later'] === 's-Idea 201');
+  assert.equal(button(nowItem, 'ideas.buildNow').p.disabled, false);
+  const pressed = button(nowItem, 'ideas.buildNow').p.onClick(); view = go('later-a');
+  assert.equal(button(items().find((i) => i.p['data-composer-plus-later'] === 's-Idea 201'), 'ideas.buildNow').p.disabled, true, 'Build now in the list is disabled while it starts');
+  await pressed;
+  assert.deepEqual(sent.at(-1), ['/api/composer-plus.later', { sessionId: 'later-a', start: 's-Idea 201', plan: false }]);
+  assert.equal(opened.at(-1), 'now-L'); assert.equal(L.accepted[0].now, true); assert.equal(L.later.length, 2);
+  L.later = keep; // the checks below start from the 3 ideas
   // A failed start shows why and reads the list again (another window can have changed it).
   laterReply = (body) => (body === undefined ? { status: 200, body: { ideas: L.later.filter((i) => i.id !== 's-Timer') } } : { status: 409, body: { error: 'this idea is no longer in the list' } });
   view = go('later-a'); await button(items()[2], 'ideas.plan').p.onClick(); await new Promise((r) => setTimeout(r, 0));

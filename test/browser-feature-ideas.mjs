@@ -4,8 +4,9 @@
 // 2. "Suggest features": one model call that sees the project brief (README) and no secret file; the answer becomes cards.
 // 3. Drag the top card to the left: it is skipped. Undo brings it back.
 // 4. ✓ on the top card: a new chat starts in the same project, in plan mode, with the idea as the request; dsh opens it.
-// 5. ↓ on the top card: it flies down and goes to the project's Later list (an owner-only file under DSH_HOME). After a
-//    page reload, another chat of the same project shows "Later (1)"; Plan there starts a plan-mode chat and empties the list.
+// 5. ↓ on the top card: it flies down and goes to the project's Later list (an owner-only file under DSH_HOME).
+// 6. ▶ (Build now) on the last card: it flies up; a new chat builds the idea at once, without plan mode. After a page
+//    reload, another chat of the same project shows "Later (1)"; Plan there starts a plan-mode chat and empties the list.
 // PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/featureIdeas.webp (English UI, demo project only).
 import assert from 'node:assert/strict';
@@ -44,7 +45,7 @@ const fake = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const answer = (text) => res.end(chunk({ role: 'assistant', content: text }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
     if (kind === 'ideas') answer('```json\n' + JSON.stringify(IDEAS) + '\n```');
-    else if (kind === 'title') answer(/Weekly meal planner/.test(all) ? 'Weekly meal planner' : /Pantry tracker/.test(all) ? 'Pantry tracker' : 'Recipe search review');
+    else if (kind === 'title') answer(/Weekly meal planner/.test(all) ? 'Weekly meal planner' : /Pantry tracker/.test(all) ? 'Pantry tracker' : /Cooking timer steps/.test(all) ? 'Cooking timer steps' : 'Recipe search review');
     else answer('I will read the related code first and then present a plan.');
   });
 }).listen(0, '127.0.0.1');
@@ -179,9 +180,11 @@ try {
       assert.ok(planned, 'the new chat sends the idea to the model');
       assert.match(planned.all, /Implement this feature in this project: Weekly meal planner/);
       assert.ok(!planned.all.includes(FIRST_CHAT), 'it is a new chat, not the first one');
-      // dsh opens the new chat; the result of its /plan command shows in the chat.
+      // dsh opens the new chat; the result of its /plan command shows in the chat, and dsh's plan chip is on.
       await page.getByText('Plan mode on', { exact: false }).first().waitFor({ timeout: 20000 });
       await page.locator('[data-row-key^="session:"]').filter({ hasText: 'Weekly meal planner' }).first().waitFor({ timeout: 20000 });
+      const planChip = page.getByRole('button', { name: /^Plan mode on, press to turn off$/ });
+      await planChip.first().waitFor({ timeout: 20000 }); // positive control for the Build now check in step 6
       // Back in the first chat, its Ideas page lists the started idea and shows the next card.
       await page.locator('[data-row-key^="session:"]').filter({ hasText: 'Recipe search review' }).first().click();
       if (!(await ideasPage.waitFor({ timeout: 3000 }).then(() => true, () => false))) await page.getByText('Feature ideas', { exact: true }).first().click();
@@ -198,6 +201,22 @@ try {
       assert.deepEqual(Object.keys(stored), [project], 'the list belongs to the project folder');
       assert.deepEqual(stored[project].map((i) => i.title), [IDEAS[2].title]);
       assert.equal((await stat(laterFile)).mode & 0o777, 0o600, 'owner-only file');
+      // 6. ▶ Build now: the card flies up; a new chat in the same project builds the idea at once, without plan mode.
+      const nowRequests = seen.length;
+      await ideasPage.getByRole('button', { name: 'Build now' }).click();
+      const flewUp = await page.waitForFunction(() => /translate\(0px, -[1-9]/.test(document.querySelector('[data-composer-plus-idea]')?.style.transform ?? ''), null, { timeout: 2000 }).then(() => true, () => false);
+      assert.ok(flewUp, '▶ moves the card up first');
+      for (let i = 0; i < 80 && !seen.slice(nowRequests).some((s) => s.kind === 'chat' && s.all.includes(IDEAS[3].title)); i++) await pause(250);
+      const built = seen.slice(nowRequests).find((s) => s.kind === 'chat' && s.all.includes(IDEAS[3].title));
+      assert.ok(built, 'Build now sends the idea to the model');
+      assert.match(built.all, /Implement this feature in this project: Cooking timer steps[\s\S]*make the smallest change/);
+      assert.ok(!built.all.includes('plan the smallest change') && !built.all.includes(FIRST_CHAT), 'a new chat that asks for the change, not a plan');
+      await page.locator('[data-row-key^="session:"]').filter({ hasText: 'Cooking timer steps' }).first().waitFor({ timeout: 20000 });
+      // The open chat is the Build now chat (its own first message shows), then dsh's plan chip is off there.
+      await page.locator('[data-chat-flow]').getByText('Implement this feature in this project: Cooking timer steps', { exact: false }).first().waitFor({ timeout: 20000 });
+      await pause(500);
+      assert.equal(await planChip.count(), 0, 'the Build now chat is not in plan mode');
+      assert.equal(await page.getByText('Plan mode on', { exact: false }).count(), 0, 'and no /plan result in it');
       // A reload clears the cards (memory only) but not the list; another chat of the same project shows it.
       await page.reload(); await page.locator('[data-composer-input]').waitFor({ timeout: 20000 });
       await page.locator('[data-row-key^="session:"]').filter({ hasText: 'Weekly meal planner' }).first().click();
@@ -223,7 +242,7 @@ try {
       assert.equal(await ideasPage.locator('[data-composer-plus-ideas-later]').count(), 0, 'no Later button with an empty list');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: Ideas page → no model call before the click → one call with the project brief (no secret) → drag left skips, a short drag springs back, Undo, ← → ✓ starts a new chat in plan mode with the idea → ↓ saves for later (0600 file, per project) → reload, other chat shows Later (1) → Plan starts a plan-mode chat and empties the list`);
+      console.log(`PASS ${bin}: Ideas page → no model call before the click → one call with the project brief (no secret) → drag left skips, a short drag springs back, Undo, ← → ✓ starts a new chat in plan mode with the idea → ↓ saves for later (0600 file, per project) → ▶ Build now starts a chat without plan mode → reload, other chat shows Later (1) → Plan starts a plan-mode chat and empties the list`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});

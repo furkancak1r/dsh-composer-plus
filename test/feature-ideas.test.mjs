@@ -55,6 +55,9 @@ try {
   const prompt = ideaPrompt({ title: 'Dark mode', summary: 'Add a dark theme.', why: 'Night use.' });
   assert.match(prompt, /^Implement this feature in this project: Dark mode/); assert.match(prompt, /Add a dark theme\./); assert.match(prompt, /Why: Night use\./);
   assert.ok(!ideaPrompt({ title: 'A', summary: 'B' }).includes('Why:'));
+  assert.match(prompt, /plan the smallest change/, 'the default prompt asks for a plan');
+  const now = ideaPrompt({ title: 'Dark mode', summary: 'Add a dark theme.' }, false);
+  assert.match(now, /make the smallest change[\s\S]*run the checks/, 'Build now asks for the change itself'); assert.ok(!/plan/i.test(now), 'and no plan');
 
   // Model call: the chat's own route (newest request header), the brief as the only user input, low effort, bounded output.
   const disposed = [];
@@ -128,6 +131,11 @@ try {
     const sent = run.calls.at(-1); assert.equal(sent[0], 'prompt'); assert.equal(sent[1], 'new-1'); assert.equal(sent[2], 'queue'); assert.match(sent[3], /Dark mode/);
   }
   await assert.rejects(startIdeaChat({ ...make().deps, sessionQuery: { observeSession: observe([], null) } }, 'src-1', idea), (e) => e.status === 409);
+  // Build now: no /plan, also when the profile has it; the idea goes as an ordinary message that asks for the change.
+  run = make();
+  assert.deepEqual(await startIdeaChat(run.deps, 'src-1', idea, undefined, { plan: false }), { sessionId: 'new-1', plan: false });
+  assert.ok(!run.calls.some((c) => c[0] === 'execute'), 'Build now never runs /plan');
+  assert.deepEqual(run.calls.at(-1).slice(0, 3), ['prompt', 'new-1', 'queue']); assert.match(run.calls.at(-1)[3], /make the smallest change/);
 
   // Saved for later: one list per project folder, newest first, no duplicate titles, owner-only file, writes in order.
   const laterFile = join(dir, 'later-store', 'later.json'); const store = laterStore(laterFile);
@@ -165,6 +173,9 @@ try {
   let res = await post({ sessionId: 'src-1' }); assert.equal(res.status, 200); assert.equal(res.body.ideas[0].title, 'Search notes');
   res = await post({ sessionId: 'src-1', locale: 'de' }); assert.equal(res.status, 200); assert.match(call.options.system, /in German \(de\)/, 'the route passes the UI language');
   res = await post({ sessionId: 'src-1', idea: { title: ' Dark mode ', summary: 'Add a dark theme.', extra: 'ignored' } }); assert.deepEqual(res.body, { sessionId: 'new-1', plan: true });
+  for (const plan of ['no', 0, null]) { res = await post({ sessionId: 'src-1', idea: { title: 'Dark mode', summary: 'Add a dark theme.' }, plan }); assert.equal(res.body.plan, true, `only plan: false skips the plan (${plan})`); }
+  res = await post({ sessionId: 'src-1', idea: { title: 'Dark mode', summary: 'Add a dark theme.' }, plan: false }); assert.deepEqual(res.body, { sessionId: 'new-1', plan: false }, 'the route passes Build now');
+  assert.equal(hostRun.calls.at(-1)[0], 'prompt', 'Build now sends the idea as a message');
   services.llm = llm(['nothing useful']); res = await post({ sessionId: 'src-1' }); assert.equal(res.status, 502); assert.match(res.body.error, /list of ideas/);
   delete services.llm; res = await post({ sessionId: 'src-1' }); assert.equal(res.status, 409);
 
@@ -198,6 +209,12 @@ try {
   assert.deepEqual(res.body, { sessionId: 'new-1', plan: true, ideas: [] }, 'start answers the new chat and the shorter list');
   assert.match(hostRun.calls.findLast((c) => c[0] === 'execute')[1], /^\/plan Implement this feature in this project: Pantry tracker$/, 'the stored text goes to /plan');
   assert.equal((await lpost({ sessionId: 'src-1', start: saved.id })).status, 409, 'a started idea is gone');
+  // Build now on a saved idea: a chat without /plan, and the idea leaves the list.
+  res = await lpost({ sessionId: 'src-1', add: { title: 'Pantry tracker', summary: 'Track food at home.' } });
+  const executes = hostRun.calls.filter((c) => c[0] === 'execute').length;
+  res = await lpost({ sessionId: 'src-1', start: res.body.ideas[0].id, plan: false });
+  assert.deepEqual(res.body, { sessionId: 'new-1', plan: false, ideas: [] }, 'Build now from the list');
+  assert.equal(hostRun.calls.filter((c) => c[0] === 'execute').length, executes, 'no /plan for Build now'); assert.match(hostRun.calls.at(-1)[3], /Pantry tracker[\s\S]*make the smallest change/);
   res = await lpost({ sessionId: 'src-1', add: { title: 'Timer', summary: 'Start a timer.' } });
   res = await lpost({ sessionId: 'src-1', remove: res.body.ideas[0].id }); assert.deepEqual(res.body, { ideas: [] });
   await writeFile(routeFile, '[]'); res = await lpost({ sessionId: 'src-1', add: { title: 'Timer', summary: 'Start a timer.' } });

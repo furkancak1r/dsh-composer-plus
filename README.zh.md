@@ -29,14 +29,14 @@ dsh plugin --profile web add dsh-composer-plus
 
 然后重启 dsh。（CLI 无法安装到桌面版 profile 中；桌面版 profile 由应用自己管理。）
 
-> dsh 使用的 pnpm 会跳过发布不到 24 小时的版本。刚发布新版本时，请加上版本号：`dsh-composer-plus@1.9.1`。
+> dsh 使用的 pnpm 会跳过发布不到 24 小时的版本。刚发布新版本时，请加上版本号：`dsh-composer-plus@1.10.0`。
 
 ## 功能
 
 | 功能 | 使用方法 | 截图 |
 |---|---|---|
 | **改动面板** | 右侧边栏 → `+` → **改动**。选择 **未提交**、**未暂存**、**已暂存** 或 **分支**，即可查看有改动的文件及其 `+/-` 行数；点击某个文件可查看它的差异。**上一轮** 会打开 dsh 自带的最近一轮改动审阅。 | <a href="assets/features/changesPanel.webp"><img src="assets/features/changesPanel.webp" width="160" alt="改动面板截图"></a> |
-| **功能创意** | 右侧边栏 → `+` → **功能创意** → **推荐功能**。对话自己的模型会读取对话所属项目的简短概要（顶层文件、README 和清单文件的开头部分、最近 15 次提交），并推荐最多 8 个功能。这些功能以一叠卡片的形式显示，语言与 dsh 的界面语言一致。向右滑动卡片（或点击 **✓**，或按 `→`；无论哪种方式，卡片都会飞向对应的一侧），即可在同一项目中新建对话：新对话以计划模式启动，并把该创意作为请求，因此在你批准计划之前不会有任何改动。向左滑动（或点击 **✕**，或按 `←`）可跳过；**撤销**（或按 `Z`）可找回跳过的卡片。点击 **↓**（或按 `↓`）可把好的创意留到以后：它会进入项目的 **稍后** 列表，同一项目文件夹中的每个对话都会显示这个列表（重启后也一样）。**稍后（N）** 会打开这个列表；**规划** 会为该创意启动同样的计划模式对话，并把它从列表中移除，**从列表中移除** 则会删除它。**更多创意** 会添加更多卡片。只有在你点击时才会调用模型。 | <a href="assets/features/featureIdeas.webp"><img src="assets/features/featureIdeas.webp" width="160" alt="功能创意截图"></a> |
+| **功能创意** | 右侧边栏 → `+` → **功能创意** → **推荐功能**。对话自己的模型会读取对话所属项目的简短概要（顶层文件、README 和清单文件的开头部分、最近 15 次提交），并推荐最多 8 个功能。这些功能以一叠卡片的形式显示，语言与 dsh 的界面语言一致。向右滑动卡片（或点击 **✓**，或按 `→`；无论哪种方式，卡片都会飞向对应的一侧），即可在同一项目中新建对话：新对话以计划模式启动，并把该创意作为请求，因此在你批准计划之前不会有任何改动。要跳过计划，请点击 **▶ 直接实现**（或按 `↑`；卡片会向上飞出）：新对话会立即启动，并把该创意作为普通请求，模型会做出改动并运行检查（审批照常适用）。向左滑动（或点击 **✕**，或按 `←`）可跳过；**撤销**（或按 `Z`）可找回跳过的卡片。点击 **↓**（或按 `↓`）可把好的创意留到以后：它会进入项目的 **稍后** 列表，同一项目文件夹中的每个对话都会显示这个列表（重启后也一样）。**稍后（N）** 会打开这个列表；**规划** 会为该创意启动同样的计划模式对话，**直接实现** 则启动不做规划的对话，两者都会把它从列表中移除；**从列表中移除** 会删除它。**更多创意** 会添加更多卡片。只有在你点击时才会调用模型。 | <a href="assets/features/featureIdeas.webp"><img src="assets/features/featureIdeas.webp" width="160" alt="功能创意截图"></a> |
 | **内容搜索** | dsh 自带的侧边栏搜索（**工作区** 旁边的放大镜；桌面应用中按 `Cmd+K`，浏览器中按 `Cmd+Alt+K`）不仅能按标题查找对话，还能按你的消息和回复中的词语查找对话，并在对话下方显示匹配的文字。dsh 本身已经带有这个搜索功能，但默认是关闭的；本功能会开启它，并在你的电脑上为它提供一个搜索索引文件。每次启动后的第一次搜索会创建索引（250 个对话约需 15 秒，见“限制”），之后的启动会继续使用这个索引。默认开启；更改在重启 dsh 后生效。 | <a href="assets/features/contentSearch.webp"><img src="assets/features/contentSearch.webp" width="160" alt="内容搜索截图"></a> |
 | **回合回退** | 将鼠标悬停在你的某条消息上，点击 **↶**（在“复制”旁边）。**仅对话** 会把这条消息及其后的所有内容（回复、工具调用）从对话和模型上下文中移除，并把这条消息放回输入框：修改后再次发送即可。**对话和文件** 会先列出这条消息之后发生变化的项目文件，然后把它们也恢复原样。这也包括命令（`bash`）所做的更改，而不只是 dsh 编辑工具所做的更改。正在运行的回合会先停止。对话日志永远不会被重写：一个隐藏标记会隐藏被撤回的部分，方式与 dsh 自带的 `/compact` 隐藏旧消息相同。如果安装了 [dsh-rewind-plugin](https://www.npmjs.com/package/dsh-rewind-plugin)，则由它负责这项工作，Composer Plus 不会再显示第二个按钮。 | <a href="assets/features/turnRollback.webp"><img src="assets/features/turnRollback.webp" width="160" alt="回合回退截图"></a> |
 | **删除对话** | 侧边栏 → 对话的 **…** 菜单（或右键点击）→ **删除…** → **删除**。dsh 本身只能归档。对话会停止（包括它的回合、后台任务、子代理和定时任务，与 dsh 自带的归档相同），它保存的历史记录连同子代理对话会移到 macOS 废纸篓（在其他系统上为 `$DSH_HOME/trash`）。要找回它，请把文件夹放回原处并重启 dsh：它会显示在侧边栏的 **仅显示已归档** 视图中。 | <a href="assets/features/deleteChat.webp"><img src="assets/features/deleteChat.webp" width="160" alt="删除对话截图"></a> |
@@ -90,6 +90,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 | `Esc` | 拖动过程中 | 取消移动 |
 | `→` / `←` | 功能创意页面 | 实现 / 跳过最上面的卡片 |
 | `↓` | 功能创意页面 | 把最上面的卡片保存到项目的“稍后”列表 |
+| `↑` | 功能创意页面 | 不做规划，直接实现最上面的卡片 |
 | `Z` | 功能创意页面 | 找回最后一张跳过的卡片 |
 
 打开的 `/` 或 `@` 菜单会自己占用这些按键。
@@ -104,7 +105,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **重启后继续：** 在你开启之前一直关闭。Host 端只在 `$DSH_HOME/storages/dsh-composer-plus/resume.json`（仅所有者可访问）中保存对话 ID 和开始时间，任何数据都不会离开你的电脑。只有当 dsh 自己的日志表明是 dsh（而不是你）停止了最后一个回合时，它才会继续该对话。审批和 Auto Review 照常适用于继续的回合。
 
 - **改动面板：** git 在你的电脑上、在对话自己的文件夹中以只读方式运行，并通过 dsh 经过身份验证的 `/api` 通道调用。它从不提交、暂存或拉取，只显示 git 自己列出的路径。
-- **功能创意：** 在你点击 **推荐功能** 之前，什么都不会运行。点击后，Host 端只读取对话自己的文件夹（浏览器从不发送路径）：顶层条目的名称，README、AGENTS.md 和清单文件（`package.json`、`pyproject.toml`、`Cargo.toml`、`go.mod` 等）的前 6 kB，以及 `git log --oneline -15`，总计最多 16 kB。它会跳过 `.env*`、密钥文件和 `node_modules` 等文件夹，并且只读取位于该文件夹内的普通文件：指向文件夹外部的符号链接、FIFO 或设备文件都会被跳过。这份概要会通过 dsh 自己的提供商设置，以一次请求的形式发送给对话所用的模型；它不会被添加到任何对话中。项目中的任何内容都不会被写入。向右滑动的创意会以计划模式新建对话，因此审批和计划审阅照常适用。留到以后的创意（标题、概要、理由、工作量）会与项目的文件夹路径一起，保存在 dsh home 下的 `storages/dsh-composer-plus/later.json` 中（仅所有者可访问的文件）；不会向项目写入任何内容。
+- **功能创意：** 在你点击 **推荐功能** 之前，什么都不会运行。点击后，Host 端只读取对话自己的文件夹（浏览器从不发送路径）：顶层条目的名称，README、AGENTS.md 和清单文件（`package.json`、`pyproject.toml`、`Cargo.toml`、`go.mod` 等）的前 6 kB，以及 `git log --oneline -15`，总计最多 16 kB。它会跳过 `.env*`、密钥文件和 `node_modules` 等文件夹，并且只读取位于该文件夹内的普通文件：指向文件夹外部的符号链接、FIFO 或设备文件都会被跳过。这份概要会通过 dsh 自己的提供商设置，以一次请求的形式发送给对话所用的模型；它不会被添加到任何对话中。项目中的任何内容都不会被写入。向右滑动的创意会以计划模式新建对话，因此审批和计划审阅照常适用。**直接实现** 不使用计划模式启动对话：模型可以立即修改文件，对话平常的审批和 Auto Review 照常适用。留到以后的创意（标题、概要、理由、工作量）会与项目的文件夹路径一起，保存在 dsh home 下的 `storages/dsh-composer-plus/later.json` 中（仅所有者可访问的文件）；不会向项目写入任何内容。
 - **内容搜索：** 没有新的代码来搜索你的对话：插件只是开启 dsh 自带的消息索引（SQLite FTS5，`dsh-session-query-sqlite`），并为它提供一个文件 `$DSH_HOME/cache/composer-plus/session-search.db`（文件和文件夹仅所有者可访问）。这个文件包含你的用户消息和助手消息的文本，因此它的私密程度与 `$DSH_HOME/sessions` 中的对话日志相同。任何数据都不会离开你的电脑。它是 dsh 可以重新生成的副本：你可以在 dsh 关闭时删除它。开关保存在 `$DSH_HOME/storages/dsh-composer-plus/content-search.json` 中。
 - **回合回退：** 在你发送每条消息之前，Host 会在它自己的存储 `$DSH_HOME/cache/composer-plus/rollback/<chat>.git`（仅所有者可访问的文件夹）中，为对话的文件夹创建一个 git 快照。快照保存该文件夹中 git 能看到的文件（不包括被忽略的文件）的副本，因此它的私密程度与项目相同。它会读取你仓库中的对象（不会再复制一份 git 已有的内容），并且从不写入你仓库的索引、`HEAD`、分支、标签、stash 或配置；git 在你的仓库中做出的唯一更改，是更新它复用的对象文件的时间戳（这会推迟 `git gc` 对这些文件的清理）。带文件的回退只会写入对话文件夹内的普通文件；它会跳过符号链接、管道以及文件夹外的任何内容。任何数据都不会离开你的电脑。你可以在 dsh 关闭时删除这个存储（此后在发送新消息之前，回退只能用于对话本身）。**删除对话** 也会删除对话的存储。开关保存在 `$DSH_HOME/storages/dsh-composer-plus/rollback.json` 中。
 - **删除对话：** 把对话自己的日志文件夹（`$DSH_HOME/sessions/<project>/<chat>`）移到废纸篓。它不会触碰项目文件夹。
@@ -125,12 +126,12 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **“对话和文件”显示为灰色：** 项目不是 git 仓库；或者没有这条消息之前的快照（这条消息比插件更早，或者它的快照已被最新的 50 个快照替换）；或者没有文件发生变化。
 - **删除时提示另一个 dsh 已打开此对话：** 使用同一 dsh home 的另一个 dsh 持有该对话的锁。关闭那个窗口或那个 dsh，然后再次删除。在此期间，对话会保持归档状态。
 - **重启后对话没有继续：** dsh 退出时“重启后继续”处于关闭状态；或者你自己停止了那个回合；或者回合已经结束（完成或失败）；或者对话已被归档；或者当时有超过 20 个对话正在运行（只有最新的 20 个会继续）。
-- **刚发布新版本时安装失败：** 请加上版本号（`dsh-composer-plus@1.9.1`），见上文的安装说明。
+- **刚发布新版本时安装失败：** 请加上版本号（`dsh-composer-plus@1.10.0`），见上文的安装说明。
 
 ## 限制
 
 - 不发送消息的“继续”依赖 dsh 的 `agent/pre-step` → `agent/request` 生命周期。升级 dsh 时，请重新检查兼容性。
-- **功能创意** 会在内存中为每个对话保留卡片，直到 dsh 或页面重新加载；之后，**推荐功能** 会再次询问模型。卡片使用你点击时 dsh 的界面语言；更改语言后，已在卡片堆中的卡片保持原来的语言，**更多创意** 则使用新语言。模型只能看到简短的项目概要，看不到代码，因此某个创意可能与项目已有的功能重复：跳过它即可。只有当 profile 中有 dsh 的 `/plan` 命令时，新对话才会以计划模式运行；否则，创意会作为普通的第一条消息发送。**稍后** 列表属于对话的文件夹路径：通过符号链接打开的同一个文件夹有它自己的列表。每个项目最多保留 50 个创意（移除一个后才能再添加），相同的标题只保留一次。拖动卡片只能决定向左或向右；要保存卡片，请使用 **↓**。
+- **功能创意** 会在内存中为每个对话保留卡片，直到 dsh 或页面重新加载；之后，**推荐功能** 会再次询问模型。卡片使用你点击时 dsh 的界面语言；更改语言后，已在卡片堆中的卡片保持原来的语言，**更多创意** 则使用新语言。模型只能看到简短的项目概要，看不到代码，因此某个创意可能与项目已有的功能重复：跳过它即可。只有当 profile 中有 dsh 的 `/plan` 命令时，新对话才会以计划模式运行；否则，创意会作为普通的第一条消息发送。**稍后** 列表属于对话的文件夹路径：通过符号链接打开的同一个文件夹有它自己的列表。每个项目最多保留 50 个创意（移除一个后才能再添加），相同的标题只保留一次。拖动卡片只能决定向左或向右；要保存卡片，请使用 **↓**；要直接实现，请使用 **▶**。
 - **重启后继续** 是继续回合，而不是重放回合。退出时正在运行的工具调用会以 dsh 的“结果未知”结果结束，模型会被告知不要重复已完成的工作，但不能安全运行两次的命令仍可能再次运行。当时打开的子代理、审批和问题不会恢复：它们的父对话会继续，并再次询问。每次启动最多继续 20 个对话。
 
 - **内容搜索** 是 dsh 自带的搜索，因此也有 dsh 的限制。它只搜索用户消息和助手消息：不搜索工具输出（命令、文件内容、结果），也不搜索推理内容，并且不能按用户、助手或工具消息筛选。它匹配完整的词，而不是词的一部分（`deploy` 找不到 `deployment`）；不带重音的字母也能匹配带重音的字母（`seker` 能找到 `şeker`）。每个对话只显示一行，带有 dsh 的 240 字符摘录，最多显示 20 行。
@@ -153,7 +154,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 **如何为 DeepSeek Harness 添加改动 / git diff 面板？** 安装 `dsh-composer-plus`，然后打开右侧边栏 → `+` → **改动**。
 
-**dsh 能像滑 Tinder 卡片一样为我的项目推荐功能吗？** 可以：右侧边栏 → `+` → **功能创意** → **推荐功能**。向右滑动会新建一个对话来规划该功能，向左滑动则跳过。
+**dsh 能像滑 Tinder 卡片一样为我的项目推荐功能吗？** 可以：右侧边栏 → `+` → **功能创意** → **推荐功能**。向右滑动会新建一个对话来规划该功能，点击 **▶ 直接实现** 会新建一个不做规划、立即实现该功能的对话，向左滑动则跳过。
 
 **dsh 侧边栏搜索能按消息中的词语查找对话，而不只是按标题吗？** 可以，使用 **内容搜索**（默认开启）：安装插件后重启一次 dsh，然后使用 **工作区** 旁边的放大镜。匹配的对话会显示该词周围的文字。
 
@@ -207,7 +208,7 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js
 # Resume after restart (fake slow model, real quit and start): a running chat and a goal continue, a stopped chat does not
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-resume-restart.mjs /path/to/dsh/lib/bin.js
-# Feature ideas (fake model, made-up project): suggest, drag left, Undo, ✓ starts a new chat in plan mode + its thumbnail
+# Feature ideas (fake model, made-up project): suggest, drag left, Undo, ✓ starts a new chat in plan mode, ▶ Build now one without + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js
 # Content search (fake model, made-up chats): a message-only word finds its chat with the snippet, switch off + restart = titles only + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path/to/dsh/lib/bin.js

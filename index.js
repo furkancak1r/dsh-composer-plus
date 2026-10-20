@@ -523,11 +523,12 @@ export async function suggestIdeas({ llm, sessionQuery, subprocess, defaultModel
   return { ideas: parseIdeas(text), model: route.model };
 }
 
-/** The first message of the chat that works on an accepted idea. It starts in plan mode, so nothing changes before the user
- * approves the plan. */
-export function ideaPrompt(idea) {
+/** The first message of the chat that works on an accepted idea. With `plan` (the default) it starts in plan mode, so
+ * nothing changes before the user approves the plan; without it the model builds the feature at once. */
+export function ideaPrompt(idea, plan = true) {
   return [`Implement this feature in this project: ${idea.title}`, '', idea.summary, ...(idea.why ? ['', `Why: ${idea.why}`] : []), '',
-    'First read the related code. Then plan the smallest change that delivers this feature, with the checks that prove it works.'].join('\n');
+    plan ? 'First read the related code. Then plan the smallest change that delivers this feature, with the checks that prove it works.'
+      : 'First read the related code. Then make the smallest change that delivers this feature, and run the checks that prove it works.'].join('\n');
 }
 
 /** The chat's own project folder, from its session header (the browser never sends a path). */
@@ -541,17 +542,17 @@ async function chatFolder(sessionQuery, sessionId, signal) {
 
 /** Start a new chat in the same project (the same sidebar group as the source chat) for one accepted idea, and enter plan
  * mode with the idea as the request. When the profile has no /plan command, or /plan fails, the idea goes as an ordinary
- * message. */
-export async function startIdeaChat({ sessionController, sessionQuery, commands, workspaces }, sessionId, idea, signal = new AbortController().signal) {
+ * message. `{ plan: false }` (Build now) skips plan mode: the idea goes as an ordinary message that asks for the change. */
+export async function startIdeaChat({ sessionController, sessionQuery, commands, workspaces }, sessionId, idea, signal = new AbortController().signal, { plan: wantPlan = true } = {}) {
   const cwd = await chatFolder(sessionQuery, sessionId, signal);
   let workspace;
   try { workspace = workspaces?.list?.().find((w) => w.sessionIds.includes(sessionId)); } catch { workspace = undefined; }
   const { sessionId: created } = await sessionController.create(workspace === undefined ? { cwd } : { workspaceId: workspace.id });
   const found = await sessionController.resolveAgent(created);
   if ('error' in found) throw new Error('the new chat could not start');
-  const text = ideaPrompt(idea);
+  const text = ideaPrompt(idea, wantPlan);
   let planned;
-  try { planned = commands?.find?.(found.agent, 'plan') === undefined ? undefined : await commands.execute(found.agent, `/plan ${text}`, [], signal); } catch { planned = undefined; }
+  try { planned = !wantPlan || commands?.find?.(found.agent, 'plan') === undefined ? undefined : await commands.execute(found.agent, `/plan ${text}`, [], signal); } catch { planned = undefined; }
   const plan = planned?.result?.kind === 'success';
   if (!plan) await sessionController.prompt({ requestId: randomUUID(), sessionId: created, mode: 'queue', content: [{ type: 'text', text }] }, signal);
   return { sessionId: created, plan };
@@ -1228,7 +1229,7 @@ function installIdeas(ctx, home) {
         const idea = ideaFrom(body.idea);
         if (idea === undefined) return json({ error: 'bad request' }, 400);
         try {
-          return json(await startIdeaChat(services(), body.sessionId, { title: idea.title, summary: idea.summary, why: idea.why }, request.signal));
+          return json(await startIdeaChat(services(), body.sessionId, { title: idea.title, summary: idea.summary, why: idea.why }, request.signal, { plan: body.plan !== false }));
         } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
       }
       const llm = get('llm');
@@ -1260,7 +1261,7 @@ function installIdeas(ctx, home) {
         if (idea === undefined || starting.has(key)) return json({ error: 'this idea is no longer in the list' }, 409);
         starting.add(key);
         try {
-          const started = await startIdeaChat(services(), body.sessionId, { title: idea.title, summary: idea.summary, why: idea.why }, request.signal);
+          const started = await startIdeaChat(services(), body.sessionId, { title: idea.title, summary: idea.summary, why: idea.why }, request.signal, { plan: body.plan !== false });
           return json({ ...started, ideas: await later.remove(cwd, idea.id) });
         } finally { starting.delete(key); }
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
