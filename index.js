@@ -389,8 +389,10 @@ export async function wakeSession({ sessionController, sessionQuery, goals, arch
 export const IDEAS_MAX = 8;
 const BRIEF_FILE_BYTES = 6000;
 const BRIEF_MAX = 16000;
-const IDEAS_TIMEOUT_MS = 90000;
-const IDEAS_MAX_TOKENS = 4000;
+// A reasoning model counts its thinking in the output cap. A route that forces a high effort (AIProxy's aiproxy-max used
+// about 7.7k tokens and 72 s for 8 ideas) was cut at 4000 tokens with `output_limit`; this cap leaves room for the thinking.
+const IDEAS_TIMEOUT_MS = 180000;
+const IDEAS_MAX_TOKENS = 32000;
 /** Top-level names that never go into the brief: secrets and bulky generated folders. */
 const BRIEF_SKIP = /^(\.env.*|.*\.(pem|key|p12|pfx)|id_[a-z0-9]+|\.git|node_modules|dist|build|coverage|\.next|\.venv|venv|__pycache__|\.DS_Store)$/i;
 const BRIEF_FILES = ['README.md', 'readme.md', 'README', 'AGENTS.md', 'package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'composer.json', 'pom.xml'];

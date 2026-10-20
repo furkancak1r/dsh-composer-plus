@@ -77,7 +77,7 @@ try {
   const out = await suggestIdeas({ llm: llm(answer), sessionQuery: { observeSession: observe([header('old', 'm1'), header('demo', 'm2')]) } }, 's1');
   assert.deepEqual(out.ideas.map((i) => i.title), ['Search notes']); assert.equal(out.model, 'm2');
   assert.deepEqual({ provider: call.config.provider, model: call.config.model, reasoningEffort: call.config.reasoningEffort }, { provider: 'demo', model: 'm2', reasoningEffort: 'low' });
-  assert.ok(call.config.maxTokens > 0 && call.config.maxTokens <= 4000, 'bounded output');
+  assert.ok(call.config.maxTokens >= 16000 && call.config.maxTokens <= 32000, 'bounded output that leaves room for reasoning (a forced max effort used ~7.7k tokens)');
   assert.equal(call.options.messages.length, 1); assert.equal(call.options.messages[0].role, 'user');
   assert.match(call.options.messages[0].content[0].text, /Project folder name: ideas-test-[\s\S]*Acme notes/);
   assert.ok(!JSON.stringify(call.options).includes('SECRET_TOKEN'), 'no secret reaches the model');
