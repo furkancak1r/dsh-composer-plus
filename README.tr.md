@@ -1,0 +1,235 @@
+# dsh-composer-plus — DeepSeek Harness için Composer Plus
+
+[![npm](https://img.shields.io/npm/v/dsh-composer-plus)](https://www.npmjs.com/package/dsh-composer-plus)
+[![test](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml/badge.svg)](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+[English](README.md) · [中文](README.zh.md) · **Türkçe** · [Español](README.es.md) · [Português (Brasil)](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Bahasa Indonesia](README.id.md) · [Tiếng Việt](README.vi.md) · [हिन्दी](README.hi.md)
+
+Bu sayfa bir çeviridir. Esas alınan sürüm, İngilizce [README.md](README.md) dosyasıdır.
+
+[DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh) masaüstü uygulaması ve web arayüzü için Codex tarzı kolaylık özellikleri: Değişiklikler paneli, kaydırılan kartlarla özellik fikirleri, kenar çubuğu aramasında mesaj metni, dosyaları da geri yükleyen tur geri alma, sohbeti Çöp Sepeti’ne taşıyarak silme, mesaj alanının altında proje adı, kenar çubuğunda proje durumu, mesaj geçmişi, plan modu kısayolu, tek tıkla devam, yeniden başlatmadan sonra çalışan sohbetleri sürdürme, kuyrukta sürükle bırak, oturum bağlantıları, sohbet başına Otomatik inceleme izinleri, arka plan bildirimleri, Tether uygulamasıyla iPhone erişimi ve otomatik güncellemeler.
+
+**Tek satırda:** tek bir DeepSeek Harness eklentisi (npm `dsh-composer-plus`, Ayarlar → Eklentiler’de **Composer Plus** adıyla görünür). Şunları ekler: git Değişiklikler paneli, Tinder tarzı özellik fikri kartları, mesajlardaki sözcükleri de bulan kenar çubuğu araması, ↶ tur geri alma (yalnızca sohbet ya da sohbet ve dosyalar), Sohbeti sil, mesaj alanının altında proje adı, ↑/↓ mesaj geçmişi, Shift+Tab ile `/plan` açma/kapama, tek tıkla ▶ Devam et, Yeniden açılışta sürdür, kuyrukta sürükle bırakla sıralama, Oturum bağlantısını kopyala, Otomatik inceleme için “Bu sohbet boyunca izin ver”, arka plan bildirimleri, iPhone erişimi (Mobil bağlantı, Tether uygulaması), 11 ek arayüz dili ve otomatik güncellemeler.
+
+<p align="center"><img src="docs/images/hero.webp" width="820" alt="Composer Plus ile DeepSeek Harness: çalışan proje kenar çubuğunda dönen bir simge gösteriyor, Değişiklikler paneli bir git farkı gösteriyor"></p>
+
+Resmî olmayan bir topluluk eklentisidir. Eklentinin yaptığı tek ağ çağrısı güncelleme denetimidir (GitHub sürümleri ve npm kayıt defteri). Açılışta bu çağrıları durdurmak için **Otomatik güncellemeler** ayarını kapatın. **Özellik fikirleri**, sohbetin kendi modelini yalnızca **Özellik öner** düğmesine tıkladığınızda çağırır. **Mobil bağlantı** (varsayılan olarak kapalı), yerel ağınızdan veya tailnet’inizden gelen iPhone bağlantılarını yalnızca siz açtıktan sonra kabul eder.
+
+## Kurulum
+
+**Masaüstü uygulaması:** Ayarlar → Eklentiler → **Eklenti ekle** → `dsh-composer-plus` yazın → **Şimdi etkinleştir**.
+npm adı yerine `https://github.com/furkancak1r/dsh-composer-plus` adresini de yapıştırabilirsiniz.
+
+**Web / CLI profili:**
+
+```sh
+dsh plugin --profile web add dsh-composer-plus
+```
+
+Sonra dsh’yi yeniden başlatın. (CLI, masaüstü profiline yükleme yapamaz; bu profili uygulama yönetir.)
+
+> dsh’nin pnpm’i, yayımlanmasının üzerinden 24 saat geçmemiş sürümleri atlar. Bir yayından hemen sonra sürümü ekleyin: `dsh-composer-plus@1.9.1`.
+
+## Özellikler
+
+| Özellik | Nasıl kullanılır | Ekran görüntüsü |
+|---|---|---|
+| **Değişiklikler paneli** | Sağ kenar çubuğu → `+` → **Değişiklikler**. Değişen dosyaları `+/-` sayılarıyla görmek için **Commit edilmemiş**, **Hazırlanmamış**, **Hazırlanmış** veya **Dal** seçin. Farkını görmek için bir dosyaya tıklayın. **Son tur**, dsh’nin son tur için kendi incelemesini açar. | <a href="assets/features/changesPanel.webp"><img src="assets/features/changesPanel.webp" width="160" alt="Değişiklikler paneli ekran görüntüsü"></a> |
+| **Özellik fikirleri** | Sağ kenar çubuğu → `+` → **Özellik fikirleri** → **Özellik öner**. Sohbetin kendi modeli, sohbetin projesinin kısa bir özetini okur (üst düzey dosyalar, README ve manifest dosyasının başı, son 15 commit). Sonra en çok 8 özellik önerir. Öneriler, dsh’nin arayüz dilinde bir kart destesi olarak görünür. Aynı projede yeni bir sohbet başlatmak için kartı sağa kaydırın (ya da **✓** düğmesine tıklayın veya `→` tuşuna basın; her durumda kart kendi tarafına uçar). Yeni sohbet plan modunda başlar ve fikri istek olarak alır. Bu yüzden siz planı onaylamadan hiçbir şey değişmez. Atlamak için sola kaydırın (ya da **✕** veya `←`). **Geri al** (ya da `Z`) atlanan kartı geri getirir. İyi bir fikri sonraya saklamak için **↓** düğmesine tıklayın (ya da `↓` tuşuna basın). Fikir projenin **Sonra** listesine gider. Aynı proje klasöründeki her sohbet bu listeyi gösterir (yeniden başlatmadan sonra da). **Sonra (N)** listeyi açar. **Planla**, fikir için aynı plan modu sohbetini başlatır ve fikri listeden çıkarır. **Listeden kaldır** fikri siler. **Daha fazla fikir** yeni kartlar ekler. Model yalnızca siz tıkladığınızda çalışır. | <a href="assets/features/featureIdeas.webp"><img src="assets/features/featureIdeas.webp" width="160" alt="Özellik fikirleri ekran görüntüsü"></a> |
+| **İçerik araması** | dsh’nin kendi kenar çubuğu araması (**Çalışma alanları** yanındaki büyüteç; masaüstü uygulamasında `Cmd+K`, tarayıcıda `Cmd+Alt+K`) sohbetleri yalnızca başlığa göre değil, mesajlarınızdaki ve yanıtlardaki sözcüklere göre de bulur. Eşleşen metni sohbetin altında gösterir. Bu arama dsh’de zaten vardır, ama kapalı gelir. Bu özellik aramayı açar ve bilgisayarınızda bir arama dizini dosyası kullanır. Dizin, dsh açıldıktan sonraki ilk aramada oluşturulur (250 sohbet için yaklaşık 15 sn, bkz. Sınırlar) ve sonraki açılışlarda yeniden kullanılır. Varsayılan olarak açıktır. Bir değişiklik, dsh’yi yeniden başlattıktan sonra geçerli olur. | <a href="assets/features/contentSearch.webp"><img src="assets/features/contentSearch.webp" width="160" alt="İçerik araması ekran görüntüsü"></a> |
+| **Tur geri alma** | Mesajlarınızdan birinin üzerine gelin ve **↶** düğmesine tıklayın (Kopyala düğmesinin yanında). **Yalnızca sohbet**, o mesajı ve sonrasındaki her şeyi (yanıtlar, araç çağrıları) sohbetten ve modelin bağlamından çıkarır. Mesajı da mesaj alanına geri koyar: mesajı değiştirip yeniden gönderin. **Sohbet ve dosyalar** önce o mesajdan sonra değişen proje dosyalarını listeler. Sonra bu dosyaları da eski hâline döndürür. Yalnızca dsh’nin düzenleme araçlarının değil, komutların (`bash`) yaptığı değişiklikler de buna dahildir. Çalışan bir tur önce durur. Sohbet günlüğü hiçbir zaman yeniden yazılmaz: geri çekilen kısmı tek bir gizli işaretçi gizler. dsh’nin kendi `/compact` komutu da eski mesajları aynı yolla gizler. [dsh-rewind-plugin](https://www.npmjs.com/package/dsh-rewind-plugin) yüklüyse bu işi o yapar ve Composer Plus ikinci bir düğme göstermez. | <a href="assets/features/turnRollback.webp"><img src="assets/features/turnRollback.webp" width="160" alt="Tur geri alma ekran görüntüsü"></a> |
+| **Sohbeti sil** | Kenar çubuğu → bir sohbetin **…** menüsü (ya da sağ tıklama) → **Sil…** → **Sil**. dsh kendisi yalnızca arşivleyebilir. Sohbet durur (dsh’nin kendi arşivlemesinde olduğu gibi turu, arka plan işleri, alt ajanları ve zamanlanmış hatırlatıcıları da durur). Kayıtlı geçmişi, alt ajan sohbetleriyle birlikte macOS Çöp Sepeti’ne taşınır (diğer sistemlerde: `$DSH_HOME/trash`). Sohbeti geri almak için klasörü yerine koyun ve dsh’yi yeniden başlatın: sohbet, kenar çubuğundaki **Yalnızca arşivlenmişler** görünümünde görünür. | <a href="assets/features/deleteChat.webp"><img src="assets/features/deleteChat.webp" width="160" alt="Sohbeti sil ekran görüntüsü"></a> |
+| **Yazma kutusunda proje adı** | Mesaj alanının altındaki satır (turlar, token’lar, önbellek isabeti, bağlam) sohbetin proje adıyla başlar. Böylece bir sohbetin hangi projede çalıştığını her zaman görürsünüz. Bu ad, dsh’nin kendi proje başlığıdır. Projenin başlığı yoksa klasör adıdır. Klasörün tam yolunu görmek için adın üzerine gelin. | <a href="assets/features/projectName.webp"><img src="assets/features/projectName.webp" width="160" alt="Yazma kutusunda proje adı ekran görüntüsü"></a> |
+| **Mesaj geçmişi** | Boş mesaj alanında `↑` / `↓` tuşlarına basın. Terminaldeki gibi, gönderdiğiniz mesajlar arasında gezinirsiniz. | <a href="assets/features/inputHistory.webp"><img src="assets/features/inputHistory.webp" width="160" alt="Mesaj geçmişi ekran görüntüsü"></a> |
+| **Plan modu kısayolu** | `Shift+Tab`, taslağın başına `/plan ` ekler (kaldırmak için yeniden basın). Sohbet zaten plan modundaysa `Shift+Tab` plan modundan çıkar. | <a href="assets/features/planToggle.webp"><img src="assets/features/planToggle.webp" width="160" alt="Plan modu kısayolu ekran görüntüsü"></a> |
+| **Mesaj alanında odağı koru** | Bir `/` komutu veya beceri gönderdikten sonra imleç mesaj alanında kalır ve hemen yeniden yazabilirsiniz. Bu, bir komut yazıp `Enter` tuşuna basan klavye makrolarında da çalışır. dsh komutu çözümlerken mesaj alanını salt okunur yapar ve tarayıcı bu sırada odağı kaldırır. Bu özellik odağı geri verir. Odak bir menüde, bir iletişim kutusunda veya başka bir alandaysa odağı geri vermez. | <a href="assets/features/keepFocus.webp"><img src="assets/features/keepFocus.webp" width="160" alt="Mesaj alanında odağı koru ekran görüntüsü"></a> |
+| **Tek tıkla devam** | Durdurulan, hata veren veya yarıda kesilen bir turdan sonra boş mesaj alanında **▶** görünür. Tek tıklama, giriş alanına bir şey yazmadan ve sohbete görünür bir mesaj eklemeden mevcut konuşmayı sürdürür. (Model kısa ve gizli bir “kaldığın yerden devam et” notu alır. Bunun nedeni, Claude gibi bazı sağlayıcıların asistan yanıtıyla biten bir isteği reddetmesidir.) Tamamlanan bir turdan sonra normal gönderme düğmesi kalır. | <a href="assets/features/continueButton.webp"><img src="assets/features/continueButton.webp" width="160" alt="Tek tıkla devam ekran görüntüsü"></a> |
+| **Yeniden açılışta sürdür** | Varsayılan olarak kapalıdır: **Ayarlar → Composer Plus** içinden açın. Bir sohbet çalışırken dsh’den çıkarsanız (ya da dsh kapanırsa), dsh’yi yeniden açtığınızda o sohbet kendiliğinden devam eder. Bunun için Tek tıkla devam ile aynı gizli notu kullanır. Bir hedef turu (`/goal`) çalışıyorsa hedef bir sonraki turla devam eder (dsh her açılışta hedefleri, siz sürdürene kadar duraklatır). Sizin durdurduğunuz, tamamlanan veya hata veren sohbetler devam etmez. dsh’nin kendisinde bunun için bir ayar yoktur: dsh böyle bir turu yalnızca kesintiye uğradı olarak işaretler. | <a href="assets/features/resumeAfterRestart.webp"><img src="assets/features/resumeAfterRestart.webp" width="160" alt="Yeniden açılışta sürdür ekran görüntüsü"></a> |
+| **Kuyrukta sürükle bırak** | Sıradaki mesajlarda bir tutamaç (⠿) görünür. Yerini değiştirmek için sürükleyin ya da tutamaca odaklanıp `↑` / `↓` tuşlarına basın. `Esc` taşımayı iptal eder. | <a href="assets/features/queueReorder.webp"><img src="assets/features/queueReorder.webp" width="160" alt="Kuyrukta sürükle bırak ekran görüntüsü"></a> |
+| **Oturum bağlantısını kopyala** | Kenar çubuğunda bir sohbete sağ tıklayın → **Oturum bağlantısını kopyala**. `dsh-session:…` bağlantısını başka bir sohbete yapıştırın. O sohbet, salt okunur bağlam olarak eklenir. dsh 0.2.1’in kendi **Oturum kimliğini kopyala** seçeneği vardır ve bu seçenek yalnızca düz kimliği kopyalar. Bu öğe hemen onun ardından gelir. | <a href="assets/features/copyDeeplink.webp"><img src="assets/features/copyDeeplink.webp" width="160" alt="Oturum bağlantısını kopyala ekran görüntüsü"></a> |
+| **Proje yolunu kopyala** | Kenar çubuğunda bir projeye sağ tıklayın → **Yolu kopyala**. Proje klasörünün tam yolu kopyalanır. | <a href="assets/features/copyProjectPath.webp"><img src="assets/features/copyProjectPath.webp" width="160" alt="Proje yolunu kopyala ekran görüntüsü"></a> |
+| **Sohbet boyunca izin** | Otomatik inceleme size sorduğunda onay kartında **Bu sohbet boyunca izin ver** düğmesi görünür. Bundan sonra aynı sohbette aynı araca, parametreleri ne olursa olsun izin verilir. Başlıktaki küçük bir etiket izinleri listeler ve kaldırır. İzinler yeniden başlatmadan sonra da korunur. | <a href="assets/features/allowForChat.webp"><img src="assets/features/allowForChat.webp" width="160" alt="Sohbet boyunca izin ekran görüntüsü"></a> |
+| **Proje durumu** | Kenar çubuğundaki proje satırı, sohbetlerindeki dönen simge / bekliyor / tamamlandı işaretinin aynısını gösterir. Böylece daraltılmış bir proje de içindeki bir sohbetin çalıştığını ya da sizi beklediğini gösterir. Ayrıntılar için üzerine gelin. | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="Proje durumu ekran görüntüsü"></a> |
+| **Etkin projeler üstte** | Bir sohbet çalışmaya başladığında ya da sizi beklediğinde, projesi dsh’nin kendi satır animasyonuyla kenar çubuğunun en üstüne taşınır (projeyi oraya sürüklediğinizdeki hareketin aynısı). Tamamlanan projeler yerinde kalır. Onları her zamanki gibi istediğiniz yere sürükleyebilirsiniz. Taşımalar dsh’nin proje sırasına kaydedilir. Bu yüzden özelliği kapatmak mevcut sırayı korur. | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="Etkin projeler üstte ekran görüntüsü"></a> |
+| **Yakın zamanda aktif proje filtresi** | Kenar çubuğu → görünüm seçenekleri (kaydırıcı simgesi) → **Son 2 saatte aktif olanlar**. Bu seçenek seçiliyken kenar çubuğu yalnızca son 2 saatte etkin bir sohbeti olan projeleri gösterir. Etkin sohbet şunlardan biridir: bu sürede güncellenen bir sohbet, çalışan ya da bekleyen bir sohbet, açık olan sohbet veya henüz açmadığınız tamamlanmış bir sohbet (dsh’nin yeşil “tamamlandı” noktası). Sonuncusu 2 saat geçtikten sonra da geçerlidir. Böyle bir sohbeti olmayan projeler gizlenir; yeni ve boş projeler de gizlenir. Tüm projeleri göstermek için seçeneği yeniden seçin. Seçim bu cihazda saklanır. | <a href="assets/features/recentProjects.webp"><img src="assets/features/recentProjects.webp" width="160" alt="Yakın zamanda aktif proje filtresi ekran görüntüsü"></a> |
+| **Tüm projeleri daralt** | Kenar çubuğunda bir proje açıkken görünüm seçeneklerinin (kaydırıcı simgesi) yanında bir düğme görünür. Açık olan tüm projeleri bir kerede kapatmak için bu düğmeye tıklayın (örneğin 5 projeden açık olan 3’ünü). Hiçbir proje açık değilse düğme yeniden gizlenir. | <a href="assets/features/collapseProjects.webp"><img src="assets/features/collapseProjects.webp" width="160" alt="Tüm projeleri daralt ekran görüntüsü"></a> |
+| **Duruma göre sıralama** | Kenar çubuğu → görünüm seçenekleri → **Sıralama ölçütü** → **Duruma göre** (**Tek listede** ile). Önce tamamlanan sohbetler gelir (dsh’nin “tamamlandı” noktası; hatayla biten bir tur da bu noktayı alır). Sonra çalışan ya da bekleyen sohbetler, sonra etkin bir otomasyonu (zamanlanmış görev) olan sohbetler, en sonda da diğerleri dsh’nin sırasıyla gelir. Tamamlanan bir sohbeti açmak onu aşağı taşır. Yalnızca görünüm değişir: geri dönmek için **Elle** ya da **Son güncelleme** seçin. | <a href="assets/features/statusOrder.webp"><img src="assets/features/statusOrder.webp" width="160" alt="Duruma göre sıralama ekran görüntüsü"></a> |
+| **Arka plan bildirimleri** | dsh arka plandayken bir tur bittiğinde (yanıtın ilk satırıyla) ya da bir sohbet gerçekten sizi beklediğinde bildirim alırsınız. Bekleme nedeni bir onay (araç adı), bir yanıt (soru) veya bir plan incelemesi olabilir. Bir isteğin 1,5 sn sonra hâlâ açık olması gerekir. Bu yüzden otomatik yanıtlanan onaylar (Otomatik inceleme izinleri, diğer eklentiler) bildirim göstermez. Bir istek yanıtlanınca bildirimi de hemen geri çekilir. Dock/görev çubuğu rozeti bekleyen sohbetleri sayar. Bildirime tıklamak o sohbeti açar. | <a href="assets/features/notifications.webp"><img src="assets/features/notifications.webp" width="160" alt="Arka plan bildirimleri ekran görüntüsü"></a> |
+| **11 ek arayüz dili** | Ayarlar → Composer Plus → **Uygulama dili**, dsh arayüzünün tamamını Türkçe, Español, Português (Brasil), Français, Deutsch, Русский, 日本語, 한국어, Bahasa Indonesia, Tiếng Việt veya हिन्दी diline geçirir (aşağıya bakın). | <a href="assets/features/language.webp"><img src="assets/features/language.webp" width="160" alt="11 ek arayüz dili ekran görüntüsü"></a> |
+| **Mobil bağlantı (iPhone)** | dsh’yi iPhone’unuzdan [Tether](tether/) uygulamasıyla, aynı Wi-Fi ağında ya da [Tailscale](https://tailscale.com) üzerinden kullanın. Özelliği **Ayarlar → Composer Plus** içinden açın (varsayılan olarak kapalıdır, çünkü bu Mac’te bir ağ portu açar). Sonra kenar çubuğunun sol altındaki **Mobil bağlantı** düğmesine tıklayın. QR kodunu Tether ile tarayın ve **Approve** düğmesine tıklayın. Telefon sohbetlerinizi gösterir, mesaj gönderir, onayları ve soruları yanıtlar, modelleri ve ajanları değiştirir. İstediğiniz kadar Mac eşleştirebilirsiniz: uygulamanın sol üstündeki Mac adıyla Mac’ler arasında geçiş yaparsınız. | <a href="assets/features/mobileConnect.webp"><img src="assets/features/mobileConnect.webp" width="160" alt="Mobil bağlantı ekran görüntüsü"></a> |
+| **Otomatik güncellemeler** | dsh açıldığında eklenti [en son GitHub sürümünü](https://github.com/furkancak1r/dsh-composer-plus/releases/latest) denetler. Bu sürüm daha yeniyse ve npm’de de varsa, tam olarak o sürümü dsh’nin kendi eklenti yöneticisiyle yükler (Ayarlar → Eklentiler ile aynı yol) ve size bildirir. Yeni sürümü yüklemek için **dsh’yi yeniden başlatın**. **Ayarlar → Composer Plus → Composer Plus güncellemeleri** sürümü gösterir. **Güncellemeleri denetle** / **Şimdi güncelle** düğmeleri de buradadır. | <a href="assets/features/autoUpdate.webp"><img src="assets/features/autoUpdate.webp" width="160" alt="Otomatik güncellemeler ekran görüntüsü"></a> |
+
+Düğmeler, araç ipuçları, uyarılar ve bildirimler seçili dsh dilini kullanır (aşağıdaki Uygulama dili bölümüne bakın).
+
+## Ayarlar
+
+Her özelliği ayrı ayrı açıp kapatabilirsiniz: dsh **Ayarlar → Composer Plus**. Her satırda küçük bir ekran görüntüsü vardır. Büyük önizleme için üzerine gelin, tam boyutta açmak için tıklayın (`Esc` kapatır). Üstteki **Özellik ara** kutusu sayfayı ada veya açıklamaya göre süzer (her dilde; büyük/küçük harf ve aksan fark etmez). `Esc` kutuyu temizler. Her satırda bir anahtar ve kısa bir açıklama vardır. Değişiklikler yeniden başlatma gerekmeden hemen uygulanır ve o cihazda hatırlanır. **Mobil bağlantı** ve **Yeniden açılışta sürdür** dışında her şey varsayılan olarak açıktır. Bu ikisinin ve **İçerik araması** ile **Tur geri alma** özelliklerinin anahtarlarını dsh’nin Host’u saklar. Bu yüzden bu ayarlar her pencerede geçerlidir ve yeniden başlatmadan sonra da korunur. **İçerik araması** yalnızca dsh yeniden başladıktan sonra değişir (dsh bu ayarı açılışta okur). O zamana kadar satırında **Bu değişikliğin geçerli olması için dsh’yi yeniden başlatın.** yazar.
+
+<p align="center"><img src="docs/images/settings.webp" width="720" alt="Ayarlar → Composer Plus: özellik araması, dil seçici, güncelleme satırı ve her özellik için bir anahtar; üzerine gelince ekran görüntüsü önizlemesi"></p>
+
+### Uygulama dili
+
+**Ayarlar → Composer Plus → Uygulama dili** bölümünü açın ve **Sistem dili** ya da 13 dilden birini seçin:
+
+English · 中文 · Türkçe · Español · Português (Brasil) · Français · Deutsch · Русский · 日本語 · 한국어 · Bahasa Indonesia · Tiếng Việt · हिन्दी
+
+<p align="center"><img src="docs/images/language-tr.webp" width="720" alt="Türkçeye geçirilmiş DeepSeek Harness arayüzü"></p>
+
+Uygulamanın tamamı hemen yeni dile geçer. Seçim, dsh’nin kendi kayıtlı `locale.preference` ayarıdır (Genel → Dil ile aynı ayar). Bu yüzden yeniden başlatmadan sonra da korunur. **Sistem dili** bu seçimi temizler: masaüstü uygulaması işletim sisteminin dilini, web arayüzü tarayıcının dilini kullanır. Desteklenmeyen bir dil için İngilizce kullanılır. Eklentiyi yüklemek, daha önce seçtiğiniz bir dili hiçbir zaman değiştirmez.
+
+Her dil paketinde 3.143 metin vardır: dsh `0.2.0-rc.2` ve `0.2.1-rc.2` sürümlerinin tüm arayüz metinleri (sohbetler, kenar çubuğu, ayarlar, onaylar, zamanlamalar, dosya önizlemeleri, eklenti yöneticisi, eklenti pazarı), eklentinin kendi denetimleri ve popüler [dsh-rewind](https://github.com/SiriLee/dsh-rewind) eklentisi. Çevrilmeyenler: mesajlarınız, model çıktısı, kod, eğik çizgi komutlarının adları (`/plan`, `/compact`), sağlayıcıya ait etiketler (örneğin `High` akıl yürütme düzeyi), diğer eklentilerin metinleri ve masaüstü uygulamasının yerel menüleri/güncelleme pencereleri (dsh bunları yalnızca İngilizce/Çince sunar). Daha yeni bir dsh sürümünün eklediği metinler, paketler güncellenene kadar İngilizce görünür. Bir dili başka bir eklenti zaten sağlıyorsa o dil için o eklentinin metinleri kullanılır.
+
+## Klavye kısayolları
+
+| Tuş | Nerede | İşlem |
+|---|---|---|
+| `↑` / `↓` | boş mesaj alanı | önceki / sonraki gönderilen mesaj |
+| `Shift+Tab` | mesaj alanı | `/plan ` ekle/kaldır ya da plan modundan çık |
+| `↑` / `↓` | odaklanmış kuyruk tutamacı | sıradaki mesajı taşı |
+| `Esc` | sürüklerken | taşımayı iptal et |
+| `→` / `←` | Özellik fikirleri sayfası | üstteki kartı geliştir / atla |
+| `↓` | Özellik fikirleri sayfası | üstteki kartı projenin Sonra listesine kaydet |
+| `Z` | Özellik fikirleri sayfası | son atlanan kartı geri getir |
+
+Açık bir `/` veya `@` menüsü bu tuşları kendisi kullanır.
+
+## Uyumluluk
+
+dsh `0.2.0-rc.2` (masaüstü ve web) ve `0.2.1-rc.2` (web) üzerinde test edildi. CI, testleri her push’ta çalıştırır.
+
+## Gizlilik ve güvenlik
+
+- **Devam et:** kimlik doğrulamalı yerel uç nokta, yalnızca kesintiye uğrayan son turu sürdürür. Eski veya yinelenen istekleri reddeder ve mevcut onay kancalarını korur. Yeni bir kullanıcı mesajı göndermez.
+- **Yeniden açılışta sürdür:** siz açana kadar kapalıdır. Host tarafı yalnızca sohbet kimliklerini ve başlangıç zamanlarını `$DSH_HOME/storages/dsh-composer-plus/resume.json` dosyasında saklar (yalnızca sahibin erişebildiği izinlerle). Hiçbir veri bilgisayarınızdan çıkmaz. Bir sohbeti yalnızca dsh’nin kendi günlüğü, son turu sizin değil dsh’nin durdurduğunu gösteriyorsa sürdürür. Onaylar ve Otomatik inceleme, sürdürülen tura her zamanki gibi uygulanır.
+
+- **Değişiklikler paneli:** git, bilgisayarınızda salt okunur olarak, sohbetin kendi klasöründe ve dsh’nin kimlik doğrulamalı `/api` kanalı üzerinden çalışır. Hiçbir zaman commit, stage veya fetch yapmaz. Yalnızca git’in kendisinin listelediği yolları gösterir.
+- **Özellik fikirleri:** siz **Özellik öner** düğmesine tıklayana kadar hiçbir şey çalışmaz. Sonra Host tarafı yalnızca sohbetin kendi klasörünü okur (tarayıcı hiçbir zaman yol göndermez). Okunanlar şunlardır: üst düzey öğelerin adları; README, AGENTS.md ve manifest dosyasının (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, …) ilk 6 kB’ı ve `git log --oneline -15`. Toplam en çok 16 kB’tır. `.env*` dosyalarını, anahtar dosyalarını ve `node_modules` gibi klasörleri atlar. Yalnızca klasörün içinde kalan normal dosyaları okur: klasörün dışını gösteren bir sembolik bağlantı, bir FIFO veya bir aygıt atlanır. Bu özet, dsh’nin kendi sağlayıcı ayarları üzerinden sohbetin kullandığı modele tek bir istek olarak gider. Hiçbir sohbete eklenmez. Projeye hiçbir şey yazılmaz. Sağa kaydırılan bir fikir, plan modunda yeni bir sohbet başlatır. Bu yüzden onaylar ve plan incelemesi her zamanki gibi uygulanır. Sonraya saklanan fikirler (başlık, özet, gerekçe, efor), projenin klasör yoluyla birlikte dsh ana klasöründeki `storages/dsh-composer-plus/later.json` dosyasında saklanır (yalnızca sahibin erişebildiği dosya). Projeye hiçbir şey gitmez.
+- **İçerik araması:** sohbetlerinizde yeni bir kod arama yapmaz. Eklenti yalnızca dsh’nin kendi mesaj dizinini (SQLite FTS5, `dsh-session-query-sqlite`) açar ve ona bir dosya verir: `$DSH_HOME/cache/composer-plus/session-search.db` (dosyaya ve klasöre yalnızca sahibi erişebilir). Dosya, kullanıcı ve asistan mesajlarınızın metnini içerir. Bu yüzden `$DSH_HOME/sessions` içindeki sohbet günlükleri kadar özeldir. Hiçbir veri bilgisayarınızdan çıkmaz. Dosya, dsh’nin yeniden oluşturabileceği bir kopyadır: dsh kapalıyken onu silebilirsiniz. Anahtar `$DSH_HOME/storages/dsh-composer-plus/content-search.json` dosyasındadır.
+- **Tur geri alma:** Host, her mesajınızdan önce sohbetin klasörünün bir git anlık görüntüsünü alır ve bunu kendi ayrı deposunda saklar: `$DSH_HOME/cache/composer-plus/rollback/<chat>.git` (yalnızca sahibin erişebildiği klasör). Bu depo, o klasörde git’in gördüğü dosyaların kopyalarını tutar (yok sayılan dosyaları tutmaz). Bu yüzden proje kadar özeldir. Deponuzun nesnelerini okur (git’te zaten olanların kopyasını almaz). Deponuzun index’ine, `HEAD`’ine, dallarına, etiketlerine, stash’ine veya yapılandırmasına hiçbir zaman yazmaz. git’in orada yaptığı tek değişiklik, yeniden kullandığı nesne dosyalarının zaman damgasını yenilemektir (bu, `git gc` ile temizlenmelerini geciktirir). Dosyalarla geri alma, yalnızca sohbetin klasöründeki normal dosyalara yazar. Sembolik bağlantıları, kanalları (pipe) ve klasörün dışındaki her şeyi atlar. Hiçbir veri bilgisayarınızdan çıkmaz. Bu ayrı depoyu dsh kapalıyken silebilirsiniz (bu durumda yeni mesajlar gelene kadar geri alma yalnızca sohbet için çalışır). **Sohbeti sil**, sohbetin ayrı deposunu da siler. Anahtar `$DSH_HOME/storages/dsh-composer-plus/rollback.json` dosyasındadır.
+- **Sohbeti sil:** sohbetin kendi günlük klasörlerini (`$DSH_HOME/sessions/<project>/<chat>`) Çöp Sepeti’ne taşır. Proje klasörüne dokunmaz.
+- **Sohbet boyunca izin:** izinler `$DSH_HOME/storages/dsh-composer-plus/grants.json` dosyasında saklanır (yalnızca sahibin erişebildiği izinlerle). Bir izin, **tek bir sohbetteki tek bir aracı** kapsar. O araç yazabiliyorsa izin her türlü yazmayı da kapsar. İzni başlıktaki etiketten kaldırın.
+- Otomatik inceleme yine her çağrıda çalışır. İnceleme hataları hiçbir zaman otomatik olarak onaylanmaz.
+- **Mobil bağlantı:** siz açana kadar kapalıdır. Açıkken Host tarafı Tether ağ geçidini çalıştırır. Ağ geçidinde iki bölüm vardır: 19390 numaralı portta yalnızca Wi-Fi alt ağınızı ve tailnet’inizi (100.64.0.0/10) kabul eden HTTPS ve `127.0.0.1:19391` adresinde bir eşleştirme sayfası (yalnızca bu Mac). Bir telefonun eşleşmesi için QR kodundan tek kullanımlık bir kod (5 dakika geçerli) ve sizin Mac’te **Approve** ile onay vermeniz gerekir. Telefon, ağ geçidinin sertifikasını sabitler (pinning). Mac, her telefonun token’ının yalnızca bir özetini (hash) tutar (30 gün; kullanıldıkça yenilenir). **Revoke** o telefonun bağlantılarını hemen kapatır. Telefonlar yalnızca izin listesindeki dsh yöntemlerini çağırabilir (sohbetler, istemler, ekler, eğik çizgi komutları, onaylar, sorular, modeller, ajanlar, hedefler). Ayarları, kimlik bilgilerini, dosya tarayıcısını veya terminali çağıramaz. Veriler: `$DSH_HOME/storages/dsh-composer-plus/mobile/`. Ayrıntılar: [tether/README.md](tether/README.md).
+- **Güncellemeler:** Host tarafı en son sürümü `api.github.com` adresine, o sürümün kendisini de `registry.npmjs.org` adresine sorar. Size veya sohbetlerinize ait hiçbir bilgi gönderilmez. Yükleme, dsh’nin eklenti yöneticisiyle yapılır (`pnpm add dsh-composer-plus@<version>`). Bu yüzden dsh’nin kendi kayıt defteri, betik ve sürüm uyumluluğu denetimleri uygulanır. Ön sürüm etiketleri ve daha eski sürümler hiçbir zaman yüklenmez.
+
+## Sorun giderme
+
+- **macOS’ta bildirim gelmiyor:** Sistem Ayarları → Bildirimler → DeepSeek Harness → bildirimlere izin verin. Bildirimlerin ekranda kalması için **Kalıcı** stilini seçin.
+- **dsh güncellemesinden sonra ▶, kuyruk tutamaçları, proje durumu, yakın zamanda aktif proje seçeneği, Tüm projeleri daralt, Yolu kopyala, Bu sohbet boyunca izin ver veya sağ tıklama öğeleri görünmüyor:** bu öğeler dsh’nin mevcut HTML yapısına bağlanır, çünkü dsh’de henüz bunlar için bir yuva yoktur. dsh bu yapıyı değiştirirse bu öğeler kendini gizler; başka hiçbir şey bozulmaz. Lütfen bir [issue](https://github.com/furkancak1r/dsh-composer-plus/issues) açın.
+- **"Güncelleme başarısız" veya "npm’den yüklenmedi":** yerel bir klasörden bağlanmış ya da yeniden adlandırılmış bir kopya kendini güncelleyemez. `dsh-composer-plus` eklentisini Ayarlar → Eklentiler’den yeniden yükleyin. Diğer durumlarda mesaj, pnpm hatasının ilk satırını gösterir. **Güncellemeleri denetle** yeniden dener.
+- **Mobil bağlantı "Telefon ağ geçidi çalışmıyor" diyor:** "no IPv4 address on en0", bu Mac’in Wi-Fi/Ethernet adresi olmadığı anlamına gelir. "EADDRINUSE", başka bir dsh’nin (ya da uygulamanın) 19390 veya 19391 numaralı portu kullandığı anlamına gelir. Mobil bağlantıyı aynı anda yalnızca bir dsh çalıştırabilir.
+- **Mobil bağlantı, Yeniden açılışta sürdür veya İçerik araması "dsh’yi yeniden başlatın" diyor:** eklenti, dsh çalışırken güncellendi (ya da İçerik araması için anahtarı değiştirdiniz). Yeni durum yeniden başlatmadan sonra yüklenir.
+- **Arama yalnızca başlıkları buluyor:** İçerik araması kapalı, onu açtığınızdan ya da eklentiyi yüklediğinizden beri dsh yeniden başlamadı veya sözcük yalnızca bir araç çıktısında geçiyor (bkz. Sınırlar).
+- **Mesajlarımda ↶ düğmesi yok:** Tur geri alma kapalı, sohbet bir alt ajan sohbeti ya da dsh-rewind-plugin yüklü (onun ↶ düğmesini kullanın). Bir güncellemeden sonra dsh’yi yeniden başlatın.
+- **Sohbet ve dosyalar soluk görünüyor:** proje bir git deposu değil, o mesajdan önce alınmış bir anlık görüntü yok (mesaj eklentiden daha eski ya da en yeni 50 anlık görüntü onun yerini aldı) veya hiçbir dosya değişmedi.
+- **Silme, bu sohbetin başka bir dsh’de açık olduğunu söylüyor:** aynı dsh ana klasörünü kullanan ikinci bir dsh, sohbetin kilidini tutuyor. O pencereyi ya da dsh’yi kapatın, sonra yeniden silin. Bu sırada sohbet arşivlenmiş olarak kalır.
+- **Bir sohbet yeniden başlatmadan sonra devam etmedi:** dsh kapandığında Yeniden açılışta sürdür kapalıydı, o turu kendiniz durdurdunuz, tur bitmişti (tamamlandı ya da hata verdi), sohbet arşivlenmişti veya 20’den fazla sohbet çalışıyordu (en yeni 20 sohbet devam eder).
+- **Bir yayından hemen sonra yükleme başarısız oluyor:** sürümü ekleyin (`dsh-composer-plus@1.9.1`) ve yukarıdaki kurulum notuna bakın.
+
+## Sınırlar
+
+- Mesajsız Devam et, dsh’nin `agent/pre-step` → `agent/request` yaşam döngüsüne dayanır. dsh’yi yükseltirken uyumluluğu yeniden denetleyin.
+- **Özellik fikirleri**, kartları her sohbet için dsh ya da sayfa yeniden yüklenene kadar bellekte tutar. Sonra **Özellik öner** modele yeniden sorar. Kartlar, tıkladığınız anda dsh’de seçili olan arayüz dilinde gelir. Dili değiştirdikten sonra destede zaten olan kartlar kendi dillerini korur, **Daha fazla fikir** ise yeni dili kullanır. Model kodu değil, yalnızca kısa proje özetini görür. Bu yüzden bir fikir, projede zaten olan bir şeyi tekrarlayabilir: o kartı atlayın. Yeni sohbet yalnızca profilde dsh’nin `/plan` komutu varsa plan modunda çalışır. Yoksa fikir sıradan bir ilk mesaj olarak gider. **Sonra** listesi sohbetin klasör yoluna aittir: aynı klasörü sembolik bağlantı üzerinden açarsanız o yolun ayrı bir listesi olur. Liste, proje başına en çok 50 fikir tutar (daha fazla eklemek için birini kaldırın) ve aynı başlığı yalnızca bir kez tutar. Kartı sürüklemek yalnızca sol ya da sağ seçimini yapar. Kartı saklamak için **↓** kullanın.
+- **Yeniden açılışta sürdür** turu sürdürür; turu baştan oynatmaz. Çıkış anında çalışan bir araç çağrısı, dsh’nin “sonuç bilinmiyor” sonucuyla biter. Modele bitmiş işi tekrarlamaması söylenir. Yine de iki kez çalıştırılması güvenli olmayan bir komut yeniden çalışabilir. Açık olan alt ajanlar, onaylar ve sorular geri yüklenmez: bunların üst sohbeti devam eder ve yeniden sorar. Bir açılışta en çok 20 sohbet devam eder.
+
+- **İçerik araması** dsh’nin kendi aramasıdır, bu yüzden dsh’nin sınırlarına sahiptir. Yalnızca kullanıcı ve asistan mesajlarında arar: araç çıktısında (komutlar, dosya içerikleri, sonuçlar) ve akıl yürütme metninde aramaz. Kullanıcı, asistan veya araç mesajları için bir filtresi yoktur. Sözcüklerin parçalarını değil, tamamını eşleştirir (`deploy`, `deployment` sözcüğünü bulmaz). Aksanlı harfler aksansız hâlleriyle de eşleşir (`seker`, `şeker` sözcüğünü bulur). Her sohbet için bir satır gösterir; satırda dsh’nin 240 karakterlik alıntısı vardır. En çok 20 satır gösterir.
+- **İçerik araması** maliyeti, 247 gerçek sohbet günlüğünün bir kopyasında ölçüldü (159 MB, dsh 0.2.1-rc.2, Apple Silicon, 32 GB): dsh açıldıktan sonraki ilk arama, dizini yaklaşık 15 sn’de oluşturur. Bu sürede dsh’nin Host’u yaklaşık 7 sn boyunca hiçbir isteğe yanıt vermez. Bu yüzden diğer sohbetlerin akışı o an durur (sayfanın kendisi donmaz). Host’un belleği en yüksek noktada yaklaşık 1,1 GB artar. Bir dakika sonra da dsh kapanana kadar başlangıçtakinden yaklaşık 0,5–0,6 GB fazla kalır. Dizin dosyası yaklaşık 165 MB’tır. Sonraki aramalar yaklaşık 0,5 sn sürer. Yeniden başlatmadan sonra ilk arama yaklaşık 1 sn sürer (yalnızca yeni veya değişen sohbetler eklenir) ve belleği yaklaşık 70 MB artırır. Bilgisayarınızın belleği azsa bu özelliği kapatın.
+- **İçerik araması** yalnızca dsh yeniden başladıktan sonra geçerli olur. Aynı dsh ana klasörünü kullanan her dsh, aynı dizin dosyasını paylaşır: böyle dsh’lerden aynı anda yalnızca birini çalıştırın (dsh her dizin dosyası için tek bir sahibe izin verir).
+- **Tur geri alma**, dosyaları yalnızca bir git deposunda ve yalnızca sohbetin klasöründe geri koyar. Her sohbet için en yeni 50 anlık görüntüyü tutar. Yok sayılan dosyalar (`.gitignore`, `info/exclude`, genel ignore dosyanız), boş klasörler, sembolik bağlantılar ve alt modüller geri konmaz. Anlık görüntü alındığında yok sayılan bir dosya, tur ignore kurallarını değiştirmiş olsa bile hiçbir zaman silinmez. git’in okuyamadığı bir dosya anlık görüntüye alınmaz. Her mesajınız, sohbetin klasörü için ayrı depoya bir `git add --all` çalıştırır. İzlenmeyen çok dosya içeren çok büyük bir klasörde bu birkaç saniye sürebilir ve sonraki araç çağrısı bunu bekler (en çok 10 sn; sonra anlık görüntü arka planda tamamlanır). Deponuzdaki `git gc`, eski bir anlık görüntünün gerektirdiği bir nesneyi silerse, o dosya geri konmayanlar arasında listelenir. Mesaj alanına yalnızca mesajın metni geri gelir: görsellerini veya dosyalarını yeniden ekleyin. Alt ajan sohbetlerinde ↶ yoktur (bir alt ajanın dosya değişiklikleri, onu başlatan sohbetin değişiklikleri sayılır). Dışa aktarılan sohbette (`/export`) geri çekilen mesajlar yine de bulunur. Sohbetin bir kısmını tek bir gizli işaretçiyle geri çekme fikri, SiriLee’nin [dsh-rewind-plugin](https://github.com/SiriLee/dsh-rewind) eklentisinden (MIT) gelir. Composer Plus bu eklentiden hiç kod kullanmaz.
+- **Sohbeti sil** için dsh’nin arşivleme özelliği gerekir (dsh 0.2.0 ve sonrası). 15 sn içinde durmayan ya da başka bir dsh’nin tuttuğu bir sohbet (veya alt ajan sohbetlerinden biri) arşivlenmiş olarak kalır ve hiçbir şey taşınmaz. macOS dışındaki sistemlerde çöp klasörü, sohbet geçmişiyle aynı diskte olmalıdır. Sildiğiniz açık bir sohbet, dsh yeniden başlayana kadar dsh’nin belleğinde arşivlenmiş ve gizli olarak kalır. Çöp Sepeti’ni kendiniz boşaltın; dsh bunu yapmaz.
+- dsh’nin kuyruğunda `move` işlemi yoktur. Bu yüzden sıra değiştirme, etkilenen satırların metnini yeniden yazar. Ajan taşıma sırasında bir satırı alırsa taşıma geri alınır ve hiçbir şey kaybolmaz. Görsel veya dosya içeren mesajlar taşınamaz.
+- Bir güncellemenin geçerli olması için dsh’nin yeniden başlaması gerekir. Eklenti dsh’yi sizin yerinize hiçbir zaman yeniden başlatmaz. dsh’nin eklenti yöneticisi olmayan web/CLI profilleri yalnızca yeni sürümü bildirir.
+- **Mesaj alanında odağı koru**, odağı yalnızca bir `/` komutundan veya beceriden sonra geri verir. dsh komutu çözümlerken mesaj alanı birkaç milisaniye salt okunur kalır. Bu sürede basılan tuşlar kaybolur. dsh’nin `/` menüsü hâlâ açıksa `Enter` vurgulanan satırı seçer ve mesajı göndermez.
+- **Mobil bağlantı** yalnızca macOS’ta çalışır (`en0`, `openssl`, `swift` ve `dns-sd` kullanır). Sabit 19390 ve 19391 portlarını kullanır. Bu yüzden her Mac’te aynı anda yalnızca bir dsh bu özelliği çalıştırabilir (her Mac, telefonun Mac listesinde bir girdidir). Telefon yalnızca Tether açıkken ya da arka plana yeni geçmişken bildirim alır (push hizmeti yoktur). iOS uygulaması henüz App Store’da değildir: uygulamayı Xcode ile `tether/ios` klasöründen derleyin.
+- Oturum bağlantısı sohbetlerin içinde çalışır; bağlantıya tıklamak sohbeti açmaz.
+- Yeniden başlatmadan önce gönderilen bir bildirime tıklamak yalnızca dsh’yi öne getirir.
+- Etkin projeler dsh’nin kayıtlı proje sırasıyla taşınır. Bu yüzden yeni sıra yeniden başlatmadan sonra korunur. Hiçbir projeye ait olmayan sohbetler ("Gruplanmamış") taşınamaz; dsh bunları her zaman en sonda listeler.
+- dsh’nin kenar çubuğundaki görünüm seçenekleri menüsünde bir uzantı noktası yoktur. Bu yüzden yakın zamanda aktif proje seçeneği dsh’nin kendi menüsüne eklenir. Bir dsh güncellemesi bu menüyü değiştirirse seçenek görünmez ve tüm projeler görünür kalır. Filtre proje satırlarında çalışır, bu yüzden **Tek listede** görünümü süzülmez. Filtreyi **Çalışma alanı** ile kullanın: **Çalışma alanı ağacı** görünümünde gizlenen bir üst klasör, içindeki etkin projeleri de gizler. **Duruma göre** seçeneğinin de aynı türde bir sınırı vardır: dsh’de sıralama için bir yuva yoktur. Bu yüzden seçenek ve satır sırası dsh’nin menü ve liste yapısına bağlanır.
+- dsh’de proje satırı menüsü veya Çalışma alanları başlığı için de bir yuva yoktur. **Yolu kopyala**, proje satırını dsh’nin satır yapısından bulur. **Tüm projeleri daralt** dsh’nin başlığına yerleşir ve açık her projeyi, proje satırına tıklamakla aynı yolla kapatır. Bir dsh güncellemesi bu yapıyı değiştirirse sağ tıklama tarayıcının menüsünü gösterir ve düğme görünmez.
+- Yerleşik destek dsh geliştiricilerinden istendi: kuyruk `move` işlemi için [#773](https://github.com/deepseek-ai/deepseek-harness/discussions/773), Devam et durumu için [#9269](https://github.com/deepseek-ai/deepseek-harness/discussions/9269).
+
+## SSS
+
+**DeepSeek Harness’e Değişiklikler / git farkı paneli nasıl eklerim?** `dsh-composer-plus` eklentisini yükleyin, sonra sağ kenar çubuğu → `+` → **Değişiklikler**.
+
+**dsh, Tinder kartlarını kaydırır gibi projem için özellik önerebilir mi?** Evet: sağ kenar çubuğu → `+` → **Özellik fikirleri** → **Özellik öner**. Özelliği planlayan yeni bir sohbet başlatmak için sağa, atlamak için sola kaydırın.
+
+**dsh kenar çubuğu araması bir sohbeti yalnızca başlığıyla değil, mesajlarındaki bir sözcükle de bulabilir mi?** Evet, **İçerik araması** ile (varsayılan olarak açık): eklentiyi yükledikten sonra dsh’yi bir kez yeniden başlatın, sonra **Çalışma alanları** yanındaki büyüteci kullanın. Eşleşen sohbetler, sözcüğün çevresindeki metni gösterir.
+
+**OpenCode veya Claude Code’daki gibi bir turu geri alıp istemimi düzenleyebilir miyim?** Evet, **Tur geri alma** ile: mesajdaki **↶** düğmesine tıklayın, **Sohbet ve dosyalar** seçeneğini seçin, mesaj alanına geri gelen metni düzenleyin ve gönderin.
+
+**Bir sohbeti arşivlemek yerine silebilir miyim?** Evet, **Sohbeti sil** ile: **…** → **Sil…**. Geçmiş Çöp Sepeti’ne gider, bu yüzden bir hatayı geri alabilirsiniz.
+
+**Bir sohbetin hangi projeye ait olduğunu nasıl görürüm?** Mesaj alanının altındaki satıra bakın: **Yazma kutusunda proje adı** (varsayılan olarak açık) ile bu satır proje adıyla başlar. Klasör yolunu görmek için adın üzerine gelin.
+
+**dsh mesaj alanında ↑/↓ mesaj geçmişini nasıl kullanırım?** Bu eklentiyi yükleyin. Boş mesaj alanında `↑` / `↓` ile gönderdiğiniz mesajlar arasında gezinirsiniz.
+
+**Durdurulan veya hata veren bir dsh turunu "devam et" yazmadan nasıl sürdürürüm?** Bu eklentiyle, durdurulan, hata veren veya yarıda kesilen bir turdan sonra gönderme düğmesi **▶** olur. Tek tıklama turu sürdürür.
+
+**dsh’den çıkıp yeniden açtığımda çalışan sohbetler devam eder mi?** Kendiliğinden devam etmez: dsh böyle bir turu kesintiye uğradı olarak işaretler ve bekler (bir hedef de `/goal resume` komutunu bekler). **Ayarlar → Composer Plus → Yeniden açılışta sürdür** ayarını açın. Böylece dsh kapandığında çalışan sohbetler, bir sonraki açılışta kendiliğinden devam eder.
+
+**dsh’de sıradaki mesajların sırasını nasıl değiştiririm?** Sıradaki bir mesajın ⠿ tutamacını sürükleyin ya da tutamaca odaklanıp `↑` / `↓` tuşlarına basın.
+
+**Otomatik inceleme’nin tek bir sohbette aynı araç için tekrar sormasını nasıl durdururum?** Onay kartında **Bu sohbet boyunca izin ver** düğmesine tıklayın. Bu izin yalnızca o sohbetteki o aracı kapsar. İzni başlıktaki etiketten kaldırın.
+
+**dsh kenar çubuğunda yalnızca bugün kullandığım projeleri nasıl gösteririm?** Kenar çubuğu → görünüm seçenekleri (kaydırıcı simgesi) → **Son 2 saatte aktif olanlar**. Tüm projeleri göstermek için seçeneği yeniden seçin.
+
+**dsh’de bir projenin klasör yolunu nasıl kopyalarım?** Kenar çubuğunda projeye sağ tıklayın → **Yolu kopyala**.
+
+**dsh kenar çubuğundaki tüm projeleri bir kerede nasıl daraltırım?** Görünüm seçeneklerinin (kaydırıcı simgesi) yanındaki daraltma düğmesine tıklayın. Düğme, en az bir proje açıkken görünür.
+
+**Bir dsh görevi bittiğinde veya onay beklediğinde macOS / Windows bildirimlerini nasıl alırım?** **Arka plan bildirimleri** özelliğini açık tutun (varsayılan) ve işletim sistemi ayarlarında DeepSeek Harness için bildirimlere izin verin.
+
+**DeepSeek Harness arayüzünü Türkçe, İspanyolca, Japonca… diline nasıl geçiririm?** Ayarlar → Composer Plus → **Uygulama dili**.
+
+**dsh’yi iPhone’umdan nasıl kullanırım?** Tether uygulamasını `tether/ios` klasöründen derleyin (Xcode). **Ayarlar → Composer Plus → Mobil bağlantı (iPhone)** özelliğini açın. Sol alttaki **Mobil bağlantı** düğmesine tıklayın, QR kodunu Tether ile tarayın ve **Approve** düğmesine tıklayın. Evden uzaktayken iki cihazda da Tailscale kullanın.
+
+**Masaüstü uygulamasıyla çalışır mı?** Evet: Ayarlar → Eklentiler → **Eklenti ekle** → `dsh-composer-plus`. dsh 0.2.0-rc.2 (masaüstü ve web) ve 0.2.1-rc.2 (web) üzerinde test edildi.
+
+## Geliştirme
+
+Ekran görüntüleri, sahte bir model ve uydurma demo projeleriyle (`acme-web`, `weather-cli`, `docs-site`) çalışan geçici bir dsh’den yeniden üretilir. Bu yüzden gerçek veri içermez. Özellik küçük resimleri `assets/features/` klasörüne gider (pakete dahildir, Ayarlar’da görünür). Yalnızca README’de kullanılan resimler `docs/images/` klasörüne gider (npm paketinde yoktur):
+
+```sh
+PLAYWRIGHT=/path/to/playwright node scripts/capture-screenshots.mjs /path/to/dsh/lib/bin.js
+# sidebar project features (recent filter, Copy path, Collapse all): real-app test + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-sidebar-projects.mjs /path/to/dsh/lib/bin.js
+# recent filter + a finished chat older than 2 hours (fake model): the project stays until you open the chat
+PLAYWRIGHT=/path/to/playwright node test/browser-recent-finished.mjs /path/to/dsh/lib/bin.js
+# Order by status (fake model + Schedule): real-app test + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-status-order.mjs /path/to/dsh/lib/bin.js
+# every Settings feature row shows a loading screenshot
+PLAYWRIGHT=/path/to/playwright node test/browser-settings-shots.mjs /path/to/dsh/lib/bin.js
+# Keep composer focus (fake model + demo skill): typing goes on after a / command + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/dsh/lib/bin.js
+# Mobile connect: switch on, QR popover, a fake iPhone pairs and calls dsh through the gateway, switch off + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js
+# Resume after restart (fake slow model, real quit and start): a running chat and a goal continue, a stopped chat does not
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-resume-restart.mjs /path/to/dsh/lib/bin.js
+# Feature ideas (fake model, made-up project): suggest, drag left, Undo, ✓ starts a new chat in plan mode + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js
+# Content search (fake model, made-up chats): a message-only word finds its chat with the snippet, switch off + restart = titles only + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path/to/dsh/lib/bin.js
+# Turn rollback + Delete chat (fake model, made-up git project): bash edit → ↶ Chat and files → files back, .git unchanged; Delete… → Trash + its thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
+```
+
+```sh
+npm run build:locales # after editing locales/<id>.json
+npm test
+```
+
+**Yeni özellikler için kural:** Ayarlar → Composer Plus içindeki her özellik satırı bir ekran görüntüsü gösterir. Özellik kimliğini `client.js` içindeki `SHOT_OF` ve `index.js` içindeki `SHOTS` listesine ekleyin. `assets/features/<id>.webp` dosyasını da pakete ekleyin (geçici demo dsh’den, İngilizce arayüzle alınmış, yaklaşık 60 kB veya daha küçük). Özelliği aynı resimle README tablosuna ekleyin: hem `README.md` dosyasına hem de çevrilmiş her `README.<id>.md` dosyasına. Bir özelliğin ekran görüntüsü yoksa `test/shots.test.mjs` başarısız olur. `test/browser-settings-shots.mjs` ise gerçek Ayarlar sayfasını denetler. Her değişiklik için tam kontrol listesi [AGENTS.md](AGENTS.md) dosyasındadır.
+
+Testler, gerçek `client.js` dosyasını sahte bir React/DOM ortamında, gerçek `index.js` dosyasını (Host tarafı) da geçici bir git deposunda çalıştırır. Tether ağ geçidi testleri (`test/tether-gateway.test.mjs`) sahte bir dsh host’u ve gerçek bir TLS ağ geçidi kullanır. iPhone uygulaması `tether/ios` klasöründedir (bkz. [tether/README.md](tether/README.md) ve [tether/AGENTS.md](tether/AGENTS.md)). `node test/browser-history.mjs '<dsh web URL with ?token=…>'`, mesaj geçmişini gerçek bir tarayıcıda denetler. Bu denetim, kendi `DSH_HOME` klasörü olan geçici bir `dsh web` örneğine karşı çalışır.
+
+Dil paketleri, `locales/<id>.json` içindeki yalnızca veri içeren JSON dosyalarıdır. `npm run build:locales` bunları tek istemci giriş dosyasına gömer (çeviri hizmeti veya çalışma anında indirme yoktur). `npm test` şunları denetler: her paketin tüm anahtarları kapsaması, yer tutucuların ve satır sonlarının aynı olması, sistem dili/elle seçilen dil davranışı. Yerel olarak yüklenmiş Playwright ile yalıtılmış gerçek uygulama denetimleri için:
+
+```sh
+PLAYWRIGHT=/path/to/playwright node test/browser-language.mjs /path/to/dsh/lib/bin.js
+```
+
+## License
+
+MIT

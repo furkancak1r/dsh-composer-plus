@@ -1,0 +1,235 @@
+# dsh-composer-plus — Composer Plus cho DeepSeek Harness
+
+[![npm](https://img.shields.io/npm/v/dsh-composer-plus)](https://www.npmjs.com/package/dsh-composer-plus)
+[![test](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml/badge.svg)](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+[English](README.md) · [中文](README.zh.md) · [Türkçe](README.tr.md) · [Español](README.es.md) · [Português (Brasil)](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · [Bahasa Indonesia](README.id.md) · **Tiếng Việt** · [हिन्दी](README.hi.md)
+
+Đây là bản dịch. Phiên bản tham chiếu là tệp [README.md](README.md) bằng tiếng Anh.
+
+Các tính năng tiện ích kiểu Codex cho ứng dụng desktop và giao diện web của [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh): bảng Thay đổi, thẻ ý tưởng tính năng có thể vuốt, tìm kiếm trên thanh bên theo nội dung tin nhắn, hoàn tác lượt kèm khôi phục tệp, xóa cuộc trò chuyện vào Thùng rác, tên dự án bên dưới khung soạn thảo, trạng thái dự án trên thanh bên, lịch sử nhập, phím tắt chế độ kế hoạch, Tiếp tục bằng một cú nhấp, tiếp tục các cuộc trò chuyện đang chạy sau khi khởi động lại, kéo thả trong hàng đợi, liên kết đến phiên, quyền Đánh giá tự động theo từng cuộc trò chuyện, thông báo nền, truy cập từ iPhone bằng ứng dụng Tether và tự động cập nhật.
+
+**Tóm tắt trong một dòng:** một plugin duy nhất cho DeepSeek Harness (npm `dsh-composer-plus`, hiện với tên **Composer Plus** trong Cài đặt → Plugin). Plugin thêm: bảng Thay đổi cho git, thẻ ý tưởng tính năng kiểu Tinder, tìm kiếm trên thanh bên có tìm cả từ trong tin nhắn, ↶ hoàn tác lượt (chỉ cuộc trò chuyện, hoặc cả cuộc trò chuyện và tệp), Xóa cuộc trò chuyện, tên dự án bên dưới khung soạn thảo, lịch sử nhập bằng ↑/↓, bật/tắt `/plan` bằng Shift+Tab, ▶ Tiếp tục bằng một cú nhấp, Tiếp tục sau khi khởi động lại, kéo thả để sắp xếp lại hàng đợi, Sao chép liên kết phiên, “Cho phép trong cuộc trò chuyện này” cho Đánh giá tự động, thông báo nền, truy cập từ iPhone (Kết nối di động, ứng dụng Tether), 11 ngôn ngữ giao diện bổ sung và tự động cập nhật.
+
+<p align="center"><img src="docs/images/hero.webp" width="820" alt="DeepSeek Harness với Composer Plus: dự án đang chạy hiện biểu tượng xoay trên thanh bên và Bảng thay đổi hiện một git diff"></p>
+
+Đây là plugin cộng đồng, không chính thức. Lệnh gọi mạng duy nhất là việc kiểm tra cập nhật (GitHub releases và npm registry). Tắt **Tự động cập nhật** để dừng các lệnh gọi này khi khởi động. **Ý tưởng tính năng** chỉ gọi mô hình của chính cuộc trò chuyện khi bạn nhấp **Đề xuất tính năng**. **Kết nối di động** (mặc định tắt) chỉ nhận kết nối iPhone từ mạng cục bộ hoặc tailnet của bạn sau khi bạn bật tính năng này.
+
+## Cách cài đặt
+
+**Ứng dụng desktop:** Cài đặt → Plugin → **Thêm plugin** → nhập `dsh-composer-plus` → **Bật ngay**.
+Bạn cũng có thể dán `https://github.com/furkancak1r/dsh-composer-plus` thay cho tên npm.
+
+**Profile web / CLI:**
+
+```sh
+dsh plugin --profile web add dsh-composer-plus
+```
+
+Sau đó khởi động lại dsh. (CLI không cài được vào profile desktop; ứng dụng tự quản lý profile này.)
+
+> pnpm của dsh bỏ qua các phiên bản ra mắt chưa đủ 24 giờ. Ngay sau một bản phát hành, hãy thêm số phiên bản: `dsh-composer-plus@1.9.1`.
+
+## Tính năng
+
+| Tính năng | Cách dùng | Ảnh chụp màn hình |
+|---|---|---|
+| **Bảng thay đổi** | Thanh bên phải → `+` → **Thay đổi**. Chọn **Chưa commit**, **Chưa stage**, **Đã stage** hoặc **Branch** để xem các tệp đã thay đổi kèm số dòng `+/-`. Nhấp vào một tệp để xem diff của tệp đó. **Lượt gần nhất** mở trang xem lại của chính dsh cho lượt mới nhất. | <a href="assets/features/changesPanel.webp"><img src="assets/features/changesPanel.webp" width="160" alt="Ảnh chụp màn hình Bảng thay đổi"></a> |
+| **Ý tưởng tính năng** | Thanh bên phải → `+` → **Ý tưởng tính năng** → **Đề xuất tính năng**. Mô hình của chính cuộc trò chuyện đọc bản tóm tắt ngắn về dự án của cuộc trò chuyện (các tệp ở cấp cao nhất, phần đầu của README và tệp manifest, 15 commit gần nhất). Sau đó mô hình đề xuất tối đa 8 tính năng, hiện thành một chồng thẻ bằng ngôn ngữ giao diện của dsh. Vuốt thẻ sang phải (hoặc nhấp **✓**, hoặc nhấn `→`; trong mọi trường hợp, thẻ bay về phía tương ứng) để bắt đầu một cuộc trò chuyện mới trong cùng dự án. Cuộc trò chuyện này bắt đầu ở chế độ kế hoạch, với ý tưởng làm yêu cầu, nên không có gì thay đổi trước khi bạn phê duyệt kế hoạch. Vuốt sang trái (hoặc **✕**, hoặc `←`) để bỏ qua. **Hoàn tác** (hoặc `Z`) đưa thẻ đã bỏ qua trở lại. Nhấp **↓** (hoặc nhấn `↓`) để lưu một ý tưởng hay để làm sau. Ý tưởng đi vào danh sách **Để sau** của dự án. Mọi cuộc trò chuyện trong cùng thư mục dự án đều hiện danh sách này (kể cả sau khi khởi động lại). **Để sau (N)** mở danh sách. **Lập kế hoạch** bắt đầu cùng kiểu cuộc trò chuyện ở chế độ kế hoạch cho ý tưởng đó và gỡ ý tưởng khỏi danh sách. **Xóa khỏi danh sách** xóa ý tưởng. **Thêm ý tưởng** thêm thẻ mới. Mô hình chỉ chạy khi bạn nhấp. | <a href="assets/features/featureIdeas.webp"><img src="assets/features/featureIdeas.webp" width="160" alt="Ảnh chụp màn hình Ý tưởng tính năng"></a> |
+| **Tìm trong nội dung** | Ô tìm kiếm có sẵn trên thanh bên của dsh (kính lúp cạnh **Không gian làm việc**; `Cmd+K` trong ứng dụng desktop, `Cmd+Alt+K` trong trình duyệt) cũng tìm cuộc trò chuyện theo các từ trong tin nhắn của bạn và trong câu trả lời, không chỉ theo tiêu đề. Đoạn văn khớp hiện bên dưới cuộc trò chuyện. dsh đã có sẵn tìm kiếm này nhưng để tắt. Tính năng này bật nó lên, với một tệp chỉ mục tìm kiếm trên máy tính của bạn. Chỉ mục được tạo ở lần tìm đầu tiên sau khi khởi động (khoảng 15 giây cho 250 cuộc trò chuyện, xem Giới hạn) và được giữ lại cho các lần khởi động sau. Mặc định bật. Thay đổi có hiệu lực sau khi bạn khởi động lại dsh. | <a href="assets/features/contentSearch.webp"><img src="assets/features/contentSearch.webp" width="160" alt="Ảnh chụp màn hình Tìm trong nội dung"></a> |
+| **Hoàn tác lượt** | Di chuột lên một tin nhắn của bạn và nhấp **↶** (cạnh nút Sao chép). **Chỉ cuộc trò chuyện** đưa tin nhắn đó và mọi thứ sau nó (câu trả lời, lệnh gọi công cụ) ra khỏi cuộc trò chuyện và ra khỏi ngữ cảnh của mô hình. Tin nhắn trở lại khung soạn thảo: bạn sửa rồi gửi lại. **Cuộc trò chuyện và tệp** trước tiên liệt kê các tệp của dự án đã thay đổi kể từ tin nhắn đó, rồi đưa cả các tệp này về trạng thái cũ. Việc này gồm cả thay đổi do lệnh (`bash`) tạo ra, không chỉ thay đổi từ công cụ sửa tệp của dsh. Nếu một lượt đang chạy, lượt đó dừng trước. Nhật ký cuộc trò chuyện không bao giờ bị ghi lại: một dấu ẩn duy nhất che phần đã rút lại, giống cách lệnh `/compact` của dsh ẩn các tin nhắn cũ. Khi [dsh-rewind-plugin](https://www.npmjs.com/package/dsh-rewind-plugin) đã được cài, plugin đó làm việc này và Composer Plus không hiện nút thứ hai. | <a href="assets/features/turnRollback.webp"><img src="assets/features/turnRollback.webp" width="160" alt="Ảnh chụp màn hình Hoàn tác lượt"></a> |
+| **Xóa cuộc trò chuyện** | Thanh bên → menu **…** của một cuộc trò chuyện (hoặc nhấp chuột phải) → **Xóa…** → **Xóa**. Bản thân dsh chỉ có thể lưu trữ. Cuộc trò chuyện dừng lại (lượt đang chạy, tác vụ nền, subagent và tác vụ tự động của nó cũng dừng, giống như khi dsh lưu trữ). Lịch sử đã lưu, cùng các cuộc trò chuyện subagent, được chuyển vào Thùng rác của macOS (trên hệ thống khác: `$DSH_HOME/trash`). Để lấy lại, hãy đưa thư mục về chỗ cũ và khởi động lại dsh: cuộc trò chuyện hiện trong chế độ xem **Chỉ mục đã lưu trữ** của thanh bên. | <a href="assets/features/deleteChat.webp"><img src="assets/features/deleteChat.webp" width="160" alt="Ảnh chụp màn hình Xóa cuộc trò chuyện"></a> |
+| **Tên dự án trong khung soạn** | Dòng bên dưới khung soạn thảo (số lượt, token, tỷ lệ trúng cache, ngữ cảnh) bắt đầu bằng tên dự án của cuộc trò chuyện. Nhờ đó bạn luôn biết cuộc trò chuyện đang làm việc trong dự án nào. Đây là tiêu đề dự án của chính dsh, hoặc tên thư mục khi dự án không có tiêu đề. Di chuột lên tên để xem đường dẫn đầy đủ của thư mục. | <a href="assets/features/projectName.webp"><img src="assets/features/projectName.webp" width="160" alt="Ảnh chụp màn hình Tên dự án trong khung soạn"></a> |
+| **Lịch sử nhập** | Trong khung soạn thảo trống, nhấn `↑` / `↓` để duyệt qua các tin nhắn bạn đã gửi, giống như trong terminal. | <a href="assets/features/inputHistory.webp"><img src="assets/features/inputHistory.webp" width="160" alt="Ảnh chụp màn hình Lịch sử nhập"></a> |
+| **Phím tắt chế độ kế hoạch** | `Shift+Tab` thêm `/plan ` vào đầu bản nháp (nhấn lần nữa để xóa). Nếu cuộc trò chuyện đã ở chế độ kế hoạch, `Shift+Tab` thoát chế độ này. | <a href="assets/features/planToggle.webp"><img src="assets/features/planToggle.webp" width="160" alt="Ảnh chụp màn hình Phím tắt chế độ kế hoạch"></a> |
+| **Giữ con trỏ trong khung soạn thảo** | Sau khi bạn gửi một lệnh `/` hoặc một skill, con trỏ vẫn ở trong khung soạn thảo và bạn có thể gõ tiếp ngay. Việc này cũng áp dụng cho macro bàn phím gõ một lệnh rồi nhấn `Enter`. dsh đặt khung soạn thảo ở chế độ chỉ đọc trong lúc xử lý lệnh, và khi đó trình duyệt bỏ tiêu điểm khỏi khung. Tính năng này trả tiêu điểm lại, trừ khi một menu, một hộp thoại hoặc một ô khác đang giữ tiêu điểm. | <a href="assets/features/keepFocus.webp"><img src="assets/features/keepFocus.webp" width="160" alt="Ảnh chụp màn hình Giữ con trỏ trong khung soạn thảo"></a> |
+| **Tiếp tục bằng một cú nhấp** | Sau một lượt đã dừng, thất bại hoặc bị cắt ngang, khung soạn thảo trống hiện **▶**. Một cú nhấp sẽ tiếp tục từ cuộc hội thoại hiện có, không cần gõ gì vào ô nhập và không thêm tin nhắn hiển thị vào cuộc trò chuyện. (Mô hình nhận một ghi chú ẩn ngắn “tiếp tục từ chỗ đã dừng”, vì một số nhà cung cấp như Claude từ chối yêu cầu kết thúc bằng câu trả lời của trợ lý.) Lượt đã hoàn tất vẫn giữ nút Gửi thông thường. | <a href="assets/features/continueButton.webp"><img src="assets/features/continueButton.webp" width="160" alt="Ảnh chụp màn hình Tiếp tục bằng một cú nhấp"></a> |
+| **Tiếp tục sau khi khởi động lại** | Mặc định tắt: hãy bật trong **Cài đặt → Composer Plus**. Nếu bạn thoát dsh (hoặc dsh bị đóng) khi một cuộc trò chuyện đang làm việc, cuộc trò chuyện đó tự tiếp tục khi bạn mở lại dsh, với cùng ghi chú ẩn như Tiếp tục bằng một cú nhấp. Nếu một vòng mục tiêu (`/goal`) đang chạy, mục tiêu tiếp tục với vòng kế tiếp (mỗi lần khởi động, dsh tạm dừng các mục tiêu cho đến khi bạn tiếp tục chúng). Các cuộc trò chuyện bạn đã dừng, đã xong hoặc đã thất bại không tiếp tục. Bản thân dsh không có cài đặt cho việc này: dsh chỉ đánh dấu lượt như vậy là bị ngắt. | <a href="assets/features/resumeAfterRestart.webp"><img src="assets/features/resumeAfterRestart.webp" width="160" alt="Ảnh chụp màn hình Tiếp tục sau khi khởi động lại"></a> |
+| **Kéo thả hàng đợi** | Tin nhắn trong hàng đợi có một tay nắm (⠿). Kéo để sắp xếp lại, hoặc đặt tiêu điểm vào tay nắm rồi nhấn `↑` / `↓`. `Esc` hủy thao tác. | <a href="assets/features/queueReorder.webp"><img src="assets/features/queueReorder.webp" width="160" alt="Ảnh chụp màn hình Kéo thả hàng đợi"></a> |
+| **Sao chép liên kết phiên** | Nhấp chuột phải vào một cuộc trò chuyện trên thanh bên → **Sao chép liên kết phiên**. Dán liên kết `dsh-session:…` vào một cuộc trò chuyện khác để đính kèm cuộc trò chuyện đó làm ngữ cảnh chỉ đọc. dsh 0.2.1 có mục **Sao chép ID phiên** riêng, mục này chỉ sao chép ID thuần; mục của plugin nằm ngay sau nó. | <a href="assets/features/copyDeeplink.webp"><img src="assets/features/copyDeeplink.webp" width="160" alt="Ảnh chụp màn hình Sao chép liên kết phiên"></a> |
+| **Sao chép đường dẫn dự án** | Nhấp chuột phải vào một dự án trên thanh bên → **Sao chép đường dẫn** để sao chép đường dẫn đầy đủ của thư mục dự án. | <a href="assets/features/copyProjectPath.webp"><img src="assets/features/copyProjectPath.webp" width="160" alt="Ảnh chụp màn hình Sao chép đường dẫn dự án"></a> |
+| **Cho phép trong cuộc trò chuyện này** | Khi Đánh giá tự động hỏi bạn, thẻ phê duyệt có thêm nút **Cho phép trong cuộc trò chuyện này**: từ đó trở đi, cùng công cụ đó trong cùng cuộc trò chuyện được cho phép, với mọi đối số. Một nhãn nhỏ ở phần đầu liệt kê các quyền đã cấp và cho phép thu hồi. Quyền vẫn còn sau khi khởi động lại. | <a href="assets/features/allowForChat.webp"><img src="assets/features/allowForChat.webp" width="160" alt="Ảnh chụp màn hình Cho phép trong cuộc trò chuyện này"></a> |
+| **Trạng thái dự án** | Dòng dự án trên thanh bên hiện cùng dấu đang chạy / đang chờ / xong như các cuộc trò chuyện của nó. Vì vậy, dự án đã thu gọn vẫn cho bạn biết có cuộc trò chuyện bên trong đang làm việc hoặc cần bạn. Di chuột lên để xem chi tiết. | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="Ảnh chụp màn hình Trạng thái dự án"></a> |
+| **Ưu tiên dự án đang hoạt động** | Khi một cuộc trò chuyện bắt đầu chạy hoặc cần bạn, dự án của nó di chuyển lên đầu thanh bên với hiệu ứng dòng của chính dsh (giống như khi bạn kéo dự án lên đó). Dự án đã xong giữ nguyên vị trí; bạn vẫn kéo chúng đến bất kỳ đâu như thường. Các lần di chuyển được lưu vào thứ tự dự án của dsh, nên khi tắt tính năng này, thứ tự hiện tại được giữ nguyên. | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="Ảnh chụp màn hình Ưu tiên dự án đang hoạt động"></a> |
+| **Bộ lọc dự án gần đây** | Thanh bên → tùy chọn hiển thị (biểu tượng thanh trượt) → **Hoạt động trong 2 giờ qua**. Khi tùy chọn này được chọn, thanh bên chỉ hiện các dự án có cuộc trò chuyện hoạt động trong 2 giờ qua: cuộc trò chuyện được cập nhật trong khoảng thời gian này, cuộc trò chuyện đang chạy hoặc đang chờ, cuộc trò chuyện đang mở, hoặc cuộc trò chuyện đã xong mà bạn chưa mở (chấm xanh “xong” của dsh), kể cả sau 2 giờ. Các dự án không có cuộc trò chuyện như vậy bị ẩn, kể cả dự án mới và trống. Chọn lại tùy chọn để hiện tất cả dự án. Lựa chọn được lưu trên thiết bị này. | <a href="assets/features/recentProjects.webp"><img src="assets/features/recentProjects.webp" width="160" alt="Ảnh chụp màn hình Bộ lọc dự án gần đây"></a> |
+| **Thu gọn tất cả dự án** | Khi có dự án đang mở trên thanh bên, một nút xuất hiện cạnh tùy chọn hiển thị (biểu tượng thanh trượt). Nhấp vào nút để đóng mọi dự án đang mở cùng lúc, ví dụ 3 dự án đang mở trong số 5. Nút lại ẩn đi khi không còn dự án nào mở. | <a href="assets/features/collapseProjects.webp"><img src="assets/features/collapseProjects.webp" width="160" alt="Ảnh chụp màn hình Thu gọn tất cả dự án"></a> |
+| **Sắp xếp theo trạng thái** | Thanh bên → tùy chọn hiển thị → **Sắp xếp theo** → **Theo trạng thái** (cùng với **Trong một danh sách**). Các cuộc trò chuyện đã xong đứng đầu (chấm “xong” của dsh; lượt kết thúc do lỗi cũng có chấm này), sau đó là cuộc trò chuyện đang chạy hoặc đang chờ, rồi đến cuộc trò chuyện có tự động hóa đang hoạt động (Tác vụ tự động), cuối cùng là phần còn lại theo thứ tự của dsh. Khi bạn mở một cuộc trò chuyện đã xong, nó chuyển xuống dưới. Chỉ chế độ xem thay đổi: chọn **Thủ công** hoặc **Cập nhật gần nhất** để quay lại. | <a href="assets/features/statusOrder.webp"><img src="assets/features/statusOrder.webp" width="160" alt="Ảnh chụp màn hình Sắp xếp theo trạng thái"></a> |
+| **Thông báo nền** | Khi dsh chạy nền, bạn nhận thông báo khi một lượt kết thúc (dòng đầu tiên của câu trả lời), hoặc khi một cuộc trò chuyện thật sự chờ bạn: một phê duyệt (tên công cụ), một câu trả lời (câu hỏi) hoặc một lần xem xét kế hoạch. Yêu cầu phải vẫn còn mở sau 1,5 giây, nên các phê duyệt được trả lời tự động (quyền của Đánh giá tự động, plugin khác) không gây thông báo. Thông báo bị thu hồi ngay khi yêu cầu của nó được trả lời. Huy hiệu trên Dock/thanh tác vụ đếm số cuộc trò chuyện đang chờ. Nhấp vào thông báo sẽ mở cuộc trò chuyện đó. | <a href="assets/features/notifications.webp"><img src="assets/features/notifications.webp" width="160" alt="Ảnh chụp màn hình Thông báo nền"></a> |
+| **11 ngôn ngữ giao diện bổ sung** | Cài đặt → Composer Plus → **Ngôn ngữ ứng dụng** chuyển toàn bộ giao diện dsh sang Türkçe, Español, Português (Brasil), Français, Deutsch, Русский, 日本語, 한국어, Bahasa Indonesia, Tiếng Việt hoặc हिन्दी (xem bên dưới). | <a href="assets/features/language.webp"><img src="assets/features/language.webp" width="160" alt="Ảnh chụp màn hình 11 ngôn ngữ giao diện bổ sung"></a> |
+| **Kết nối di động (iPhone)** | Dùng dsh từ iPhone với ứng dụng [Tether](tether/), trong cùng mạng Wi-Fi hoặc qua [Tailscale](https://tailscale.com). Bật tính năng trong **Cài đặt → Composer Plus** (mặc định tắt, vì tính năng này mở một cổng mạng trên máy Mac này). Sau đó nhấp **Kết nối di động** ở góc dưới bên trái thanh bên: quét mã QR trong Tether và nhấp **Approve**. Điện thoại hiện các cuộc trò chuyện của bạn, gửi tin nhắn, trả lời phê duyệt và câu hỏi, và chuyển đổi mô hình và agent. Bạn có thể ghép nối bao nhiêu máy Mac tùy ý: tên máy Mac ở góc trên bên trái ứng dụng dùng để chuyển giữa các máy. | <a href="assets/features/mobileConnect.webp"><img src="assets/features/mobileConnect.webp" width="160" alt="Ảnh chụp màn hình Kết nối di động"></a> |
+| **Tự động cập nhật** | Khi dsh khởi động, plugin kiểm tra [bản phát hành GitHub mới nhất](https://github.com/furkancak1r/dsh-composer-plus/releases/latest). Nếu bản đó mới hơn và đã có trên npm, plugin cài đúng phiên bản đó qua trình quản lý plugin của chính dsh (cùng cách với Cài đặt → Plugin) và thông báo cho bạn. **Khởi động lại dsh** để tải bản mới. **Cài đặt → Composer Plus → Cập nhật Composer Plus** hiện phiên bản và có nút **Kiểm tra cập nhật** / **Cập nhật ngay**. | <a href="assets/features/autoUpdate.webp"><img src="assets/features/autoUpdate.webp" width="160" alt="Ảnh chụp màn hình Tự động cập nhật"></a> |
+
+Nút, chú thích khi di chuột, thông báo trong ứng dụng và thông báo hệ thống đều theo ngôn ngữ dsh đã chọn (xem phần Ngôn ngữ ứng dụng bên dưới).
+
+## Cài đặt
+
+Bạn có thể bật hoặc tắt riêng từng tính năng: dsh **Cài đặt → Composer Plus**. Mỗi dòng có một ảnh chụp màn hình nhỏ: di chuột lên để xem ảnh lớn hơn, nhấp để mở ở kích thước đầy đủ (`Esc` để đóng). Ô **Tìm tính năng** ở đầu trang lọc trang theo tên hoặc mô tả (mọi ngôn ngữ, không phân biệt chữ hoa/thường và dấu); `Esc` xóa nội dung ô. Mỗi dòng có một công tắc và một mô tả ngắn. Thay đổi có hiệu lực ngay, không cần khởi động lại, và được ghi nhớ trên thiết bị đó. Mọi tính năng đều bật theo mặc định, trừ **Kết nối di động** và **Tiếp tục sau khi khởi động lại**. Host của dsh giữ công tắc của hai tính năng này cùng **Tìm trong nội dung** và **Hoàn tác lượt**, nên các công tắc này áp dụng cho mọi cửa sổ và vẫn còn sau khi khởi động lại. **Tìm trong nội dung** chỉ thay đổi sau khi khởi động lại dsh (dsh đọc cài đặt này lúc khởi động); trước đó, dòng của tính năng hiện **Khởi động lại dsh để áp dụng thay đổi này.**
+
+<p align="center"><img src="docs/images/settings.webp" width="720" alt="Cài đặt → Composer Plus: ô tìm tính năng, bộ chọn ngôn ngữ, dòng cập nhật và một công tắc cho mỗi tính năng, kèm ảnh xem trước khi di chuột"></p>
+
+### Ngôn ngữ ứng dụng
+
+Mở **Cài đặt → Composer Plus → Ngôn ngữ ứng dụng** và chọn **Ngôn ngữ hệ thống** hoặc một trong 13 ngôn ngữ:
+
+English · 中文 · Türkçe · Español · Português (Brasil) · Français · Deutsch · Русский · 日本語 · 한국어 · Bahasa Indonesia · Tiếng Việt · हिन्दी
+
+<p align="center"><img src="docs/images/language-tr.webp" width="720" alt="Giao diện DeepSeek Harness đã chuyển sang Türkçe"></p>
+
+Toàn bộ ứng dụng chuyển ngôn ngữ ngay lập tức. Lựa chọn này là cài đặt `locale.preference` đã lưu của chính dsh (cùng cài đặt với Chung → Ngôn ngữ), nên vẫn được giữ sau khi khởi động lại. **Ngôn ngữ hệ thống** xóa lựa chọn đó: ứng dụng desktop theo ngôn ngữ của hệ điều hành, giao diện web theo ngôn ngữ của trình duyệt, và ngôn ngữ chưa được hỗ trợ sẽ chuyển về tiếng Anh. Việc cài plugin không bao giờ ghi đè ngôn ngữ bạn đã chọn.
+
+Mỗi gói có 3.143 chuỗi văn bản: mọi văn bản giao diện của dsh `0.2.0-rc.2` và `0.2.1-rc.2` (cuộc trò chuyện, thanh bên, cài đặt, phê duyệt, tác vụ tự động, xem trước tệp, trình quản lý plugin, chợ plugin), các điều khiển riêng của plugin và plugin phổ biến [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Những phần không được dịch: tin nhắn của bạn, đầu ra của mô hình, mã, tên lệnh gạch chéo (`/plan`, `/compact`), nhãn do nhà cung cấp đặt như mức suy luận `High`, văn bản của plugin khác, và menu gốc/hộp thoại cập nhật của ứng dụng desktop (dsh chỉ cung cấp các phần này bằng tiếng Anh/tiếng Trung). Chuỗi mới do phiên bản dsh mới hơn thêm vào sẽ hiện bằng tiếng Anh cho đến khi các gói được cập nhật. Nếu một plugin khác đã cung cấp một ngôn ngữ, plugin đó giữ ngôn ngữ ấy.
+
+## Phím tắt
+
+| Phím | Ở đâu | Tác dụng |
+|---|---|---|
+| `↑` / `↓` | khung soạn thảo trống | tin nhắn đã gửi trước đó / tiếp theo |
+| `Shift+Tab` | khung soạn thảo | thêm/xóa `/plan `, hoặc thoát chế độ kế hoạch |
+| `↑` / `↓` | tay nắm hàng đợi đang có tiêu điểm | di chuyển tin nhắn trong hàng đợi |
+| `Esc` | khi đang kéo | hủy thao tác di chuyển |
+| `→` / `←` | trang Ý tưởng tính năng | xây dựng / bỏ qua thẻ trên cùng |
+| `↓` | trang Ý tưởng tính năng | lưu thẻ trên cùng vào danh sách Để sau của dự án |
+| `Z` | trang Ý tưởng tính năng | khôi phục thẻ vừa bỏ qua |
+
+Khi menu `/` hoặc `@` đang mở, menu đó giữ các phím này cho riêng nó.
+
+## Khả năng tương thích
+
+Đã kiểm thử trên dsh `0.2.0-rc.2` (desktop và web) và `0.2.1-rc.2` (web). CI chạy kiểm thử ở mỗi lần push.
+
+## Quyền riêng tư và bảo mật
+
+- **Tiếp tục:** endpoint cục bộ có xác thực chỉ tiếp tục lượt bị ngắt gần nhất, từ chối yêu cầu cũ hoặc trùng lặp, và giữ nguyên các hook phê duyệt hiện có. Endpoint này không gửi tin nhắn mới của người dùng.
+- **Tiếp tục sau khi khởi động lại:** tắt cho đến khi bạn bật. Phần Host chỉ lưu ID cuộc trò chuyện và thời điểm bắt đầu trong `$DSH_HOME/storages/dsh-composer-plus/resume.json` (chỉ chủ sở hữu có quyền truy cập), và không có gì rời khỏi máy của bạn. Phần này chỉ tiếp tục một cuộc trò chuyện khi nhật ký của chính dsh cho biết dsh (không phải bạn) đã dừng lượt cuối. Phê duyệt và Đánh giá tự động áp dụng cho lượt được tiếp tục như thường lệ.
+
+- **Bảng thay đổi:** git chạy ở chế độ chỉ đọc trên máy của bạn, trong thư mục của chính cuộc trò chuyện, qua kênh `/api` có xác thực của dsh. Tính năng không bao giờ commit, stage hay fetch, và chỉ hiện các đường dẫn mà chính git liệt kê.
+- **Ý tưởng tính năng:** không có gì chạy cho đến khi bạn nhấp **Đề xuất tính năng**. Khi đó, phần Host chỉ đọc thư mục của chính cuộc trò chuyện (trình duyệt không bao giờ gửi đường dẫn): tên các mục ở cấp cao nhất, 6 kB đầu của README, AGENTS.md và tệp manifest (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, …) và `git log --oneline -15`, tổng cộng tối đa 16 kB. Phần Host bỏ qua `.env*`, các tệp khóa và các thư mục như `node_modules`, và chỉ đọc tệp thông thường nằm trong thư mục: symlink trỏ ra ngoài thư mục, FIFO hoặc tệp thiết bị đều bị bỏ qua. Bản tóm tắt này được gửi đến mô hình mà cuộc trò chuyện đang dùng, qua cài đặt nhà cung cấp của chính dsh, dưới dạng một yêu cầu duy nhất; bản tóm tắt không được thêm vào cuộc trò chuyện nào. Không có gì được ghi vào dự án. Ý tưởng được vuốt sang phải bắt đầu một cuộc trò chuyện mới ở chế độ kế hoạch, nên phê duyệt và xem xét kế hoạch vẫn áp dụng như thường lệ. Các ý tưởng lưu để làm sau (tiêu đề, tóm tắt, lý do, công sức) được lưu cùng đường dẫn thư mục của dự án trong `storages/dsh-composer-plus/later.json` dưới thư mục home của dsh (tệp chỉ chủ sở hữu truy cập được); không có gì đi vào dự án.
+- **Tìm trong nội dung:** không có mã mới nào tìm trong cuộc trò chuyện của bạn: plugin chỉ bật chỉ mục tin nhắn của chính dsh (SQLite FTS5, `dsh-session-query-sqlite`) và cấp cho chỉ mục một tệp, `$DSH_HOME/cache/composer-plus/session-search.db` (tệp và thư mục chỉ chủ sở hữu truy cập được). Tệp này chứa văn bản tin nhắn của bạn và của trợ lý, nên cần được bảo vệ như nhật ký trò chuyện trong `$DSH_HOME/sessions`. Không có gì rời khỏi máy của bạn. Đây là bản sao mà dsh có thể tạo lại: bạn có thể xóa tệp khi dsh đang đóng. Công tắc nằm trong `$DSH_HOME/storages/dsh-composer-plus/content-search.json`.
+- **Hoàn tác lượt:** trước mỗi tin nhắn của bạn, Host chụp một snapshot git của thư mục cuộc trò chuyện vào kho riêng của nó, `$DSH_HOME/cache/composer-plus/rollback/<chat>.git` (thư mục chỉ chủ sở hữu truy cập được). Kho này chứa bản sao các tệp trong thư mục mà git nhìn thấy (không gồm tệp bị bỏ qua), nên cần được bảo vệ như chính dự án. Host đọc các object trong repository của bạn (không sao chép những gì git đã có) và không bao giờ ghi vào index, `HEAD`, branch, tag, stash hay config của repository. Thay đổi duy nhất git tạo ra ở đó là dấu thời gian mới hơn trên các tệp object được dùng lại (việc này làm `git gc` dọn chúng muộn hơn). Hoàn tác kèm tệp chỉ ghi tệp thông thường bên trong thư mục cuộc trò chuyện; nó bỏ qua symlink, pipe và mọi thứ nằm ngoài thư mục. Không có gì rời khỏi máy của bạn. Bạn có thể xóa kho này khi dsh đang đóng (khi đó hoàn tác chỉ áp dụng cho cuộc trò chuyện, cho đến khi có tin nhắn mới). **Xóa cuộc trò chuyện** cũng xóa kho của cuộc trò chuyện đó. Công tắc nằm trong `$DSH_HOME/storages/dsh-composer-plus/rollback.json`.
+- **Xóa cuộc trò chuyện:** chuyển các thư mục nhật ký riêng của cuộc trò chuyện (`$DSH_HOME/sessions/<project>/<chat>`) vào Thùng rác. Tính năng không động đến thư mục dự án.
+- **Cho phép trong cuộc trò chuyện này:** các quyền được lưu trong `$DSH_HOME/storages/dsh-composer-plus/grants.json` (chỉ chủ sở hữu có quyền truy cập). Mỗi quyền áp dụng cho **đúng một công cụ trong một cuộc trò chuyện**. Nếu công cụ đó có thể ghi, quyền cũng bao gồm mọi thao tác ghi. Thu hồi quyền từ nhãn ở phần đầu.
+- Đánh giá tự động vẫn chạy ở mọi lệnh gọi; lỗi đánh giá không bao giờ được tự động cho phép.
+- **Kết nối di động:** tắt cho đến khi bạn bật. Khi bật, phần Host chạy gateway Tether: HTTPS trên cổng 19390, chỉ nhận kết nối từ mạng con Wi-Fi và tailnet của bạn (100.64.0.0/10), và một trang ghép nối tại `127.0.0.1:19391` (chỉ máy Mac này). Điện thoại cần một mã dùng một lần từ mã QR (hiệu lực 5 phút) và bạn phải nhấp **Approve** trên máy Mac. Điện thoại ghim (pin) chứng chỉ của gateway. Máy Mac chỉ giữ hash của token của từng điện thoại (30 ngày, được gia hạn khi còn dùng); **Revoke** đóng ngay các kết nối của điện thoại đó. Điện thoại chỉ gọi được một danh sách cho phép gồm các phương thức dsh (cuộc trò chuyện, prompt, tệp đính kèm, lệnh gạch chéo, phê duyệt, câu hỏi, mô hình, agent, mục tiêu), không gọi được cài đặt, thông tin xác thực, trình duyệt tệp hay terminal. Dữ liệu: `$DSH_HOME/storages/dsh-composer-plus/mobile/`. Chi tiết: [tether/README.md](tether/README.md).
+- **Cập nhật:** phần Host hỏi `api.github.com` về bản phát hành mới nhất và hỏi `registry.npmjs.org` về đúng phiên bản đó; không có thông tin nào về bạn hay cuộc trò chuyện của bạn được gửi đi. Việc cài đặt dùng trình quản lý plugin của dsh (`pnpm add dsh-composer-plus@<version>`), nên các bước kiểm tra registry, script và khả năng tương thích phiên bản của chính dsh đều được áp dụng. Thẻ tiền phát hành (pre-release) và phiên bản cũ hơn không bao giờ được cài.
+
+## Khắc phục sự cố
+
+- **Không có thông báo trên macOS:** Cài đặt hệ thống → Thông báo → DeepSeek Harness → cho phép. Chọn **Cảnh báo** để thông báo ở lại trên màn hình.
+- **▶, tay nắm hàng đợi, trạng thái dự án, tùy chọn dự án gần đây, Thu gọn tất cả dự án, Sao chép đường dẫn, Cho phép trong cuộc trò chuyện này hoặc menu chuột phải biến mất sau khi cập nhật dsh:** các phần này gắn vào HTML hiện tại của dsh vì dsh chưa có vị trí dành cho chúng. Nếu dsh thay đổi markup đó, các phần này tự ẩn; không có gì khác bị hỏng. Vui lòng mở một [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
+- **"Cập nhật thất bại" hoặc "không được cài từ npm":** bản sao được liên kết từ thư mục cục bộ hoặc đã đổi tên không thể tự cập nhật; hãy cài lại `dsh-composer-plus` từ Cài đặt → Plugin. Trong các trường hợp khác, thông báo hiện dòng đầu tiên của lỗi pnpm; **Kiểm tra cập nhật** sẽ thử lại.
+- **Kết nối di động báo "Cổng kết nối cho điện thoại không chạy":** "no IPv4 address on en0" nghĩa là máy Mac này không có địa chỉ Wi-Fi/Ethernet; "EADDRINUSE" nghĩa là một dsh khác (hoặc một ứng dụng khác) đang dùng cổng 19390 hoặc 19391. Mỗi lúc chỉ một dsh có thể chạy Kết nối di động.
+- **Kết nối di động, Tiếp tục sau khi khởi động lại hoặc Tìm trong nội dung báo "Khởi động lại dsh":** plugin đã được cập nhật trong lúc dsh đang chạy (hoặc, với Tìm trong nội dung, bạn đã đổi công tắc); trạng thái mới được tải sau khi khởi động lại.
+- **Tìm kiếm chỉ tìm thấy tiêu đề:** Tìm trong nội dung đang tắt, dsh chưa khởi động lại kể từ khi bạn bật tính năng hoặc cài plugin, hoặc từ đó chỉ có trong đầu ra của công cụ (xem Giới hạn).
+- **Tin nhắn của tôi không có nút ↶:** Hoàn tác lượt đang tắt, cuộc trò chuyện là cuộc trò chuyện subagent, hoặc dsh-rewind-plugin đã được cài (hãy dùng nút ↶ của plugin đó). Sau khi cập nhật, hãy khởi động lại dsh.
+- **Cuộc trò chuyện và tệp bị mờ:** dự án không phải repository git, không có snapshot từ trước tin nhắn đó (tin nhắn cũ hơn plugin, hoặc một trong 50 snapshot mới nhất đã thay thế snapshot đó), hoặc không có tệp nào thay đổi.
+- **Thao tác xóa báo rằng một dsh khác đang mở cuộc trò chuyện này:** một dsh thứ hai dùng cùng thư mục home của dsh đang giữ khóa của cuộc trò chuyện. Hãy đóng cửa sổ đó hoặc dsh đó, rồi xóa lại. Trong lúc đó, cuộc trò chuyện vẫn ở trạng thái đã lưu trữ.
+- **Một cuộc trò chuyện không tiếp tục sau khi khởi động lại:** Tiếp tục sau khi khởi động lại đang tắt khi dsh thoát, bạn đã tự dừng lượt đó, lượt đã kết thúc (xong hoặc thất bại), cuộc trò chuyện đã được lưu trữ, hoặc có hơn 20 cuộc trò chuyện đang chạy (20 cuộc trò chuyện mới nhất sẽ tiếp tục).
+- **Cài đặt thất bại ngay sau một bản phát hành:** thêm số phiên bản (`dsh-composer-plus@1.9.1`), xem ghi chú cài đặt ở trên.
+
+## Giới hạn
+
+- Tiếp tục không cần tin nhắn dựa vào vòng đời `agent/pre-step` → `agent/request` của dsh. Hãy kiểm tra lại khả năng tương thích khi nâng cấp dsh.
+- **Ý tưởng tính năng** giữ các thẻ trong bộ nhớ cho từng cuộc trò chuyện cho đến khi dsh hoặc trang được tải lại; sau đó **Đề xuất tính năng** hỏi lại mô hình. Thẻ dùng ngôn ngữ giao diện mà dsh đang dùng lúc bạn nhấp; sau khi bạn đổi ngôn ngữ, các thẻ đã có trong chồng giữ ngôn ngữ cũ và **Thêm ý tưởng** dùng ngôn ngữ mới. Mô hình chỉ thấy bản tóm tắt ngắn của dự án, không thấy mã, nên một ý tưởng có thể lặp lại thứ dự án đã có: hãy bỏ qua ý tưởng đó. Cuộc trò chuyện mới chỉ chạy ở chế độ kế hoạch khi profile có lệnh `/plan` của dsh; nếu không, ý tưởng được gửi như một tin nhắn đầu tiên bình thường. Danh sách **Để sau** thuộc về đường dẫn thư mục của cuộc trò chuyện: cùng thư mục đó khi mở qua symlink sẽ có danh sách riêng. Danh sách giữ tối đa 50 ý tưởng cho mỗi dự án (xóa bớt một ý tưởng để thêm ý tưởng khác) và mỗi tiêu đề chỉ một lần. Kéo thẻ chỉ quyết định trái hoặc phải; hãy dùng **↓** để lưu thẻ.
+- **Tiếp tục sau khi khởi động lại** tiếp tục lượt; tính năng không chạy lại lượt từ đầu. Lệnh gọi công cụ đang chạy lúc thoát sẽ kết thúc với kết quả “không rõ kết quả” của dsh, và mô hình được dặn không lặp lại việc đã xong, nhưng một lệnh không an toàn khi chạy hai lần vẫn có thể chạy lại. Subagent, phê duyệt và câu hỏi đang mở không được khôi phục: cuộc trò chuyện cha của chúng tiếp tục và hỏi lại. Mỗi lần khởi động, tối đa 20 cuộc trò chuyện được tiếp tục.
+
+- **Tìm trong nội dung** là tìm kiếm của chính dsh, nên có các giới hạn của dsh. Tính năng chỉ tìm trong tin nhắn của người dùng và trợ lý: không tìm trong đầu ra công cụ (lệnh, nội dung tệp, kết quả), không tìm trong phần suy luận, và không có bộ lọc theo tin nhắn người dùng, trợ lý hay công cụ. Tính năng khớp nguyên từ, không khớp một phần của từ (`deploy` không tìm thấy `deployment`); chữ có dấu khớp với chữ không dấu (`seker` tìm thấy `şeker`). Mỗi cuộc trò chuyện một dòng, kèm đoạn trích 240 ký tự của dsh, tối đa 20 dòng.
+- Chi phí của **Tìm trong nội dung**, đo trên bản sao của 247 nhật ký trò chuyện thật (159 MB, dsh 0.2.1-rc.2, Apple Silicon, 32 GB): lần tìm đầu tiên sau khi khởi động xây dựng chỉ mục trong khoảng 15 giây. Trong thời gian đó, Host của dsh không phản hồi gì trong khoảng 7 giây, nên các cuộc trò chuyện khác ngừng truyền dữ liệu trong lúc ấy (bản thân trang không bị treo). Bộ nhớ của Host tăng khoảng 1,1 GB ở mức cao nhất; một phút sau vẫn cao hơn lúc khởi động khoảng 0,5–0,6 GB, cho đến khi dsh thoát. Tệp chỉ mục khoảng 165 MB. Các lần tìm sau mất khoảng 0,5 giây. Sau khi khởi động lại, lần tìm đầu tiên mất khoảng 1 giây (chỉ thêm các cuộc trò chuyện mới hoặc đã thay đổi) và dùng thêm khoảng 70 MB. Hãy tắt tính năng nếu máy tính của bạn ít bộ nhớ.
+- **Tìm trong nội dung** chỉ có hiệu lực sau khi khởi động lại dsh, và tệp chỉ mục được dùng chung cho mọi dsh dùng cùng thư mục home của dsh: mỗi lúc chỉ chạy một dsh như vậy (dsh chỉ cho phép một chủ sở hữu cho mỗi tệp chỉ mục).
+- **Hoàn tác lượt** chỉ khôi phục tệp trong repository git, và chỉ trong thư mục của cuộc trò chuyện. Tính năng giữ 50 snapshot mới nhất cho mỗi cuộc trò chuyện. Tệp bị bỏ qua (`.gitignore`, `info/exclude`, tệp ignore toàn cục của bạn), thư mục trống, symlink và submodule không được khôi phục; một tệp đã bị bỏ qua lúc chụp snapshot không bao giờ bị xóa, kể cả khi lượt đó đã đổi quy tắc ignore. Tệp mà git không đọc được sẽ không có trong snapshot. Mỗi tin nhắn của bạn chạy một lệnh `git add --all` cho thư mục cuộc trò chuyện vào kho riêng: trong thư mục rất lớn có nhiều tệp chưa được theo dõi, việc này có thể mất vài giây, và lệnh gọi công cụ tiếp theo phải chờ (tối đa 10 giây; sau đó snapshot hoàn tất ở chế độ nền). Nếu `git gc` của repository xóa một object mà snapshot cũ cần, tệp đó được liệt kê là chưa được khôi phục. Chỉ văn bản của tin nhắn trở lại khung soạn thảo: hãy thêm lại hình ảnh hoặc tệp của tin nhắn. Cuộc trò chuyện subagent không có ↶ (thay đổi tệp của subagent được tính là thay đổi của cuộc trò chuyện đã khởi chạy subagent đó). Cuộc trò chuyện được xuất (`/export`) vẫn chứa các tin nhắn đã rút lại. Ý tưởng dùng một dấu ẩn để rút lại một phần cuộc trò chuyện đến từ [dsh-rewind-plugin](https://github.com/SiriLee/dsh-rewind) của SiriLee (MIT); Composer Plus không dùng mã nào từ plugin đó.
+- **Xóa cuộc trò chuyện** cần tính năng lưu trữ của dsh (dsh 0.2.0 trở lên). Một cuộc trò chuyện (hoặc một cuộc trò chuyện subagent của nó) không dừng trong vòng 15 giây, hoặc đang bị một dsh khác giữ, sẽ ở trạng thái đã lưu trữ và không có gì bị di chuyển. Trên hệ thống khác macOS, thư mục thùng rác phải nằm cùng ổ đĩa với lịch sử trò chuyện. Một cuộc trò chuyện đang mở mà bạn xóa vẫn ở trong bộ nhớ của dsh, ở trạng thái đã lưu trữ và bị ẩn, cho đến khi dsh khởi động lại. Hãy tự dọn Thùng rác; dsh không làm việc này.
+- Hàng đợi của dsh không có thao tác `move`, nên khi sắp xếp lại, plugin ghi lại văn bản của các dòng bị ảnh hưởng. Nếu agent lấy một dòng đúng lúc đang di chuyển, thao tác di chuyển bị hủy và không mất gì. Không thể di chuyển tin nhắn có hình ảnh hoặc tệp.
+- Bản cập nhật cần khởi động lại dsh để có hiệu lực; plugin không bao giờ tự khởi động lại dsh thay bạn. Profile web/CLI không có trình quản lý plugin của dsh chỉ báo có phiên bản mới.
+- **Giữ con trỏ trong khung soạn thảo** chỉ trả lại tiêu điểm sau một lệnh `/` hoặc một skill. Trong lúc dsh xử lý lệnh, khung soạn thảo ở chế độ chỉ đọc trong vài mili giây, nên các phím nhấn trong khoảng đó bị mất. Nếu menu `/` của dsh vẫn đang mở, `Enter` chọn dòng đang được tô sáng và không gửi.
+- **Kết nối di động** chỉ hoạt động trên macOS (dùng `en0`, `openssl`, `swift` và `dns-sd`). Tính năng dùng cố định cổng 19390 và 19391, nên trên mỗi máy Mac, mỗi lúc chỉ một dsh có thể chạy tính năng này (mỗi máy Mac là một mục trong danh sách Mac của điện thoại). Điện thoại chỉ nhận thông báo khi Tether đang mở hoặc vừa chuyển sang chạy nền (không có dịch vụ push). Ứng dụng iOS chưa có trên App Store: hãy build ứng dụng từ `tether/ios` bằng Xcode.
+- Liên kết phiên hoạt động bên trong cuộc trò chuyện; nhấp vào liên kết không mở cuộc trò chuyện.
+- Nhấp vào thông báo đã gửi trước khi khởi động lại chỉ đưa dsh ra phía trước.
+- Dự án đang hoạt động được di chuyển bằng thứ tự dự án đã lưu của dsh, nên thứ tự mới vẫn được giữ sau khi khởi động lại. Không thể di chuyển cuộc trò chuyện nằm ngoài mọi dự án ("Chưa nhóm"); dsh luôn liệt kê chúng ở cuối.
+- dsh không có điểm mở rộng trong menu tùy chọn hiển thị của thanh bên, nên tùy chọn dự án gần đây được thêm vào chính menu của dsh. Nếu một bản cập nhật dsh thay đổi menu đó, tùy chọn không hiện và mọi dự án vẫn hiển thị. Bộ lọc hoạt động trên các dòng dự án, nên **Trong một danh sách** không bị lọc. Hãy dùng bộ lọc với **Không gian làm việc**: trong **Cây không gian làm việc**, một thư mục cha bị ẩn cũng ẩn các dự án đang hoạt động bên trong. **Theo trạng thái** có giới hạn tương tự: dsh không có vị trí dành cho kiểu sắp xếp, nên mục này và thứ tự dòng gắn vào markup menu và danh sách của dsh.
+- dsh cũng không có vị trí dành cho menu dòng dự án hay phần đầu Không gian làm việc. **Sao chép đường dẫn** tìm dòng dự án qua markup dòng của dsh, còn **Thu gọn tất cả dự án** được đặt vào phần đầu của dsh và đóng từng dự án đang mở bằng cùng cú nhấp như trên dòng dự án. Nếu một bản cập nhật dsh thay đổi markup đó, nhấp chuột phải sẽ hiện menu của trình duyệt và nút không hiện.
+- Hỗ trợ tích hợp sẵn đã được đề xuất với dự án gốc: `move` cho hàng đợi ở [#773](https://github.com/deepseek-ai/deepseek-harness/discussions/773), trạng thái Tiếp tục ở [#9269](https://github.com/deepseek-ai/deepseek-harness/discussions/9269).
+
+## Câu hỏi thường gặp
+
+**Làm sao để thêm bảng Thay đổi / git diff vào DeepSeek Harness?** Cài `dsh-composer-plus`, rồi vào thanh bên phải → `+` → **Thay đổi**.
+
+**dsh có thể đề xuất tính năng cho dự án của tôi, kiểu vuốt thẻ Tinder không?** Có: thanh bên phải → `+` → **Ý tưởng tính năng** → **Đề xuất tính năng**. Vuốt sang phải để bắt đầu một cuộc trò chuyện mới lập kế hoạch cho tính năng, vuốt sang trái để bỏ qua.
+
+**Tìm kiếm trên thanh bên của dsh có tìm được cuộc trò chuyện theo một từ trong tin nhắn, không chỉ theo tiêu đề không?** Có, với **Tìm trong nội dung** (mặc định bật): khởi động lại dsh một lần sau khi cài plugin, rồi dùng kính lúp cạnh **Không gian làm việc**. Các cuộc trò chuyện khớp sẽ hiện đoạn văn quanh từ đó.
+
+**Tôi có thể hoàn tác một lượt và sửa prompt, như trong OpenCode hoặc Claude Code không?** Có, với **Hoàn tác lượt**: nhấp **↶** trên tin nhắn, chọn **Cuộc trò chuyện và tệp**, sửa văn bản đã trở lại trong khung soạn thảo rồi gửi.
+
+**Tôi có thể xóa cuộc trò chuyện thay vì lưu trữ không?** Có, với **Xóa cuộc trò chuyện**: **…** → **Xóa…**. Lịch sử được chuyển vào Thùng rác, nên bạn có thể khôi phục nếu lỡ tay.
+
+**Làm sao để biết cuộc trò chuyện thuộc dự án nào?** Xem dòng bên dưới khung soạn thảo: với **Tên dự án trong khung soạn** (mặc định bật), dòng này bắt đầu bằng tên dự án. Di chuột lên để xem đường dẫn thư mục.
+
+**Làm sao để có lịch sử tin nhắn bằng ↑/↓ trong khung soạn thảo của dsh?** Cài plugin này; trong khung soạn thảo trống, `↑` / `↓` duyệt qua các tin nhắn bạn đã gửi.
+
+**Làm sao để tiếp tục một lượt dsh đã dừng hoặc thất bại mà không cần gõ "continue"?** Với plugin này, nút Gửi chuyển thành **▶** sau một lượt đã dừng, thất bại hoặc bị cắt ngang; một cú nhấp sẽ tiếp tục lượt đó.
+
+**dsh có tiếp tục các cuộc trò chuyện đang chạy sau khi tôi thoát rồi mở lại không?** Không tự làm: dsh đánh dấu lượt như vậy là bị ngắt và chờ (mục tiêu cũng chờ `/goal resume`). Hãy bật **Cài đặt → Composer Plus → Tiếp tục sau khi khởi động lại**: khi đó, các cuộc trò chuyện đang làm việc lúc dsh thoát sẽ tự tiếp tục ở lần khởi động sau.
+
+**Làm sao để sắp xếp lại tin nhắn trong hàng đợi của dsh?** Kéo tay nắm ⠿ trên tin nhắn trong hàng đợi, hoặc đặt tiêu điểm vào tay nắm rồi nhấn `↑` / `↓`.
+
+**Làm sao để Đánh giá tự động thôi hỏi về cùng một công cụ trong một cuộc trò chuyện?** Nhấp **Cho phép trong cuộc trò chuyện này** trên thẻ phê duyệt. Quyền này chỉ áp dụng cho đúng công cụ đó trong cuộc trò chuyện đó; thu hồi quyền từ nhãn ở phần đầu.
+
+**Làm sao để thanh bên của dsh chỉ hiện các dự án tôi dùng hôm nay?** Thanh bên → tùy chọn hiển thị (biểu tượng thanh trượt) → **Hoạt động trong 2 giờ qua**. Chọn lại tùy chọn này để hiện tất cả dự án.
+
+**Làm sao để sao chép đường dẫn thư mục của dự án trong dsh?** Nhấp chuột phải vào dự án trên thanh bên → **Sao chép đường dẫn**.
+
+**Làm sao để thu gọn tất cả dự án trên thanh bên của dsh cùng lúc?** Nhấp nút thu gọn cạnh tùy chọn hiển thị (biểu tượng thanh trượt). Nút hiện khi có ít nhất một dự án đang mở.
+
+**Làm sao để nhận thông báo macOS / Windows khi một tác vụ dsh xong hoặc cần phê duyệt?** Giữ **Thông báo nền** ở trạng thái bật (mặc định) và cho phép DeepSeek Harness gửi thông báo trong cài đặt của hệ điều hành.
+
+**Làm sao để chuyển giao diện DeepSeek Harness sang tiếng Thổ Nhĩ Kỳ, tiếng Tây Ban Nha, tiếng Nhật…?** Cài đặt → Composer Plus → **Ngôn ngữ ứng dụng**.
+
+**Làm sao để dùng dsh từ iPhone?** Build ứng dụng Tether từ `tether/ios` (Xcode), bật **Cài đặt → Composer Plus → Kết nối di động (iPhone)**, nhấp **Kết nối di động** ở góc dưới bên trái, quét mã QR trong Tether và nhấp **Approve**. Khi ở xa nhà, hãy dùng Tailscale trên cả hai thiết bị.
+
+**Plugin có hoạt động với ứng dụng desktop không?** Có: Cài đặt → Plugin → **Thêm plugin** → `dsh-composer-plus`. Đã kiểm thử trên dsh 0.2.0-rc.2 (desktop và web) và 0.2.1-rc.2 (web).
+
+## Phát triển
+
+Ảnh chụp màn hình được tạo lại từ một dsh dùng một lần, với mô hình giả và các dự án demo bịa ra (`acme-web`, `weather-cli`, `docs-site`), nên không chứa dữ liệu thật. Ảnh thu nhỏ của tính năng nằm trong `assets/features/` (có trong gói, hiện trong Cài đặt); ảnh chỉ dùng cho README nằm trong `docs/images/` (không có trong gói npm):
+
+```sh
+PLAYWRIGHT=/path/to/playwright node scripts/capture-screenshots.mjs /path/to/dsh/lib/bin.js
+# sidebar project features (recent filter, Copy path, Collapse all): real-app test + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-sidebar-projects.mjs /path/to/dsh/lib/bin.js
+# recent filter + a finished chat older than 2 hours (fake model): the project stays until you open the chat
+PLAYWRIGHT=/path/to/playwright node test/browser-recent-finished.mjs /path/to/dsh/lib/bin.js
+# Order by status (fake model + Schedule): real-app test + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-status-order.mjs /path/to/dsh/lib/bin.js
+# every Settings feature row shows a loading screenshot
+PLAYWRIGHT=/path/to/playwright node test/browser-settings-shots.mjs /path/to/dsh/lib/bin.js
+# Keep composer focus (fake model + demo skill): typing goes on after a / command + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/dsh/lib/bin.js
+# Mobile connect: switch on, QR popover, a fake iPhone pairs and calls dsh through the gateway, switch off + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js
+# Resume after restart (fake slow model, real quit and start): a running chat and a goal continue, a stopped chat does not
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-resume-restart.mjs /path/to/dsh/lib/bin.js
+# Feature ideas (fake model, made-up project): suggest, drag left, Undo, ✓ starts a new chat in plan mode + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js
+# Content search (fake model, made-up chats): a message-only word finds its chat with the snippet, switch off + restart = titles only + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path/to/dsh/lib/bin.js
+# Turn rollback + Delete chat (fake model, made-up git project): bash edit → ↶ Chat and files → files back, .git unchanged; Delete… → Trash + its thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
+```
+
+```sh
+npm run build:locales # after editing locales/<id>.json
+npm test
+```
+
+**Quy tắc cho tính năng mới:** mọi dòng tính năng trong Cài đặt → Composer Plus đều hiện một ảnh chụp màn hình. Thêm id của tính năng vào `SHOT_OF` trong `client.js` và vào `SHOTS` trong `index.js`, rồi đưa kèm `assets/features/<id>.webp` (chụp từ dsh demo dùng một lần, giao diện tiếng Anh, khoảng 60 kB hoặc nhỏ hơn). Thêm tính năng vào bảng trong README với cùng hình ảnh, trong `README.md` và trong từng `README.<id>.md` đã dịch. `test/shots.test.mjs` thất bại khi một tính năng không có ảnh chụp màn hình, và `test/browser-settings-shots.mjs` kiểm tra trang Cài đặt thật. Danh sách kiểm tra đầy đủ cho mọi thay đổi nằm trong [AGENTS.md](AGENTS.md).
+
+Các bài kiểm thử chạy `client.js` thật trên một React/DOM giả, và chạy `index.js` thật (phần Host) trên một repository git tạm thời. Kiểm thử gateway Tether (`test/tether-gateway.test.mjs`) dùng một dsh host giả và một gateway TLS thật. Ứng dụng iPhone nằm trong `tether/ios` (xem [tether/README.md](tether/README.md) và [tether/AGENTS.md](tether/AGENTS.md)). `node test/browser-history.mjs '<dsh web URL with ?token=…>'` kiểm tra lịch sử nhập trong trình duyệt thật, với một `dsh web` dùng một lần có `DSH_HOME` riêng.
+
+Gói ngôn ngữ là các tệp JSON chỉ chứa dữ liệu trong `locales/<id>.json`, được nhúng vào tệp client duy nhất bằng `npm run build:locales` (không dùng dịch vụ dịch thuật và không tải về lúc chạy). `npm test` kiểm tra mọi gói: đủ toàn bộ khóa, placeholder và ngắt dòng giống hệt bản gốc, và hành vi ngôn ngữ hệ thống/ghi đè. Để kiểm tra trên ứng dụng thật trong môi trường cô lập, với Playwright đã cài cục bộ:
+
+```sh
+PLAYWRIGHT=/path/to/playwright node test/browser-language.mjs /path/to/dsh/lib/bin.js
+```
+
+## License
+
+MIT

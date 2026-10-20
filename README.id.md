@@ -1,0 +1,235 @@
+# dsh-composer-plus — Composer Plus untuk DeepSeek Harness
+
+[![npm](https://img.shields.io/npm/v/dsh-composer-plus)](https://www.npmjs.com/package/dsh-composer-plus)
+[![test](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml/badge.svg)](https://github.com/furkancak1r/dsh-composer-plus/actions/workflows/test.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+[English](README.md) · [中文](README.zh.md) · [Türkçe](README.tr.md) · [Español](README.es.md) · [Português (Brasil)](README.pt-BR.md) · [Français](README.fr.md) · [Deutsch](README.de.md) · [Русский](README.ru.md) · [日本語](README.ja.md) · [한국어](README.ko.md) · **Bahasa Indonesia** · [Tiếng Việt](README.vi.md) · [हिन्दी](README.hi.md)
+
+Ini adalah terjemahan. Versi acuannya adalah [README.md](README.md) berbahasa Inggris.
+
+Fitur kenyamanan bergaya Codex untuk UI desktop dan web [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (dsh): panel Perubahan, ide fitur dalam bentuk kartu geser, pencarian teks pesan di bilah samping, putar balik giliran beserta pemulihan file, penghapusan obrolan ke Tong Sampah, nama proyek di bawah kotak pesan, status proyek di bilah samping, riwayat input, pintasan mode rencana, Lanjutkan sekali klik, melanjutkan obrolan yang sedang berjalan setelah mulai ulang, seret dan lepas antrean, tautan sesi, izin Tinjauan otomatis per obrolan, notifikasi latar belakang, akses dari iPhone dengan aplikasi Tether, dan pembaruan otomatis.
+
+**Singkatnya:** satu plugin DeepSeek Harness (npm `dsh-composer-plus`, tampil sebagai **Composer Plus** di Pengaturan → Plugin) yang menambahkan panel Perubahan git, kartu ide fitur bergaya Tinder, pencarian bilah samping yang juga menemukan kata di dalam pesan, ↶ putar balik giliran (obrolan saja, atau obrolan dan file), Hapus obrolan, nama proyek di bawah kotak pesan, riwayat input ↑/↓, tombol alih `/plan` dengan Shift+Tab, ▶ Lanjutkan sekali klik, Lanjutkan setelah mulai ulang, pengurutan ulang antrean dengan seret dan lepas, Salin tautan sesi, “Izinkan untuk obrolan ini” untuk Tinjauan otomatis, notifikasi latar belakang, akses dari iPhone (Koneksi seluler, aplikasi Tether), 11 bahasa antarmuka tambahan, dan pembaruan otomatis.
+
+<p align="center"><img src="docs/images/hero.webp" width="820" alt="DeepSeek Harness dengan Composer Plus: proyek yang sedang berjalan menampilkan spinner di bilah samping, dan panel Perubahan menampilkan diff git"></p>
+
+Plugin komunitas tidak resmi. Satu-satunya panggilan jaringan adalah pemeriksaan pembaruan (rilis GitHub dan registri npm). Nonaktifkan **Pembaruan otomatis** untuk menghentikannya saat dsh dimulai. **Ide fitur** memanggil model obrolan Anda sendiri hanya saat Anda mengklik **Sarankan fitur**. **Koneksi seluler** (nonaktif secara default) menerima koneksi iPhone dari jaringan lokal atau tailnet Anda hanya setelah Anda mengaktifkannya.
+
+## Instalasi
+
+**Aplikasi desktop:** Pengaturan → Plugin → **Tambahkan plugin** → masukkan `dsh-composer-plus` → **Aktifkan sekarang**.
+Anda juga dapat menempelkan `https://github.com/furkancak1r/dsh-composer-plus` sebagai pengganti nama npm.
+
+**Profil web / CLI:**
+
+```sh
+dsh plugin --profile web add dsh-composer-plus
+```
+
+Lalu mulai ulang dsh. (CLI tidak dapat memasang plugin ke profil desktop; profil itu dikelola oleh aplikasi.)
+
+> pnpm milik dsh melewati versi yang berumur kurang dari 24 jam. Tepat setelah rilis, tambahkan versinya: `dsh-composer-plus@1.9.1`.
+
+## Fitur
+
+| Fitur | Cara menggunakannya | Tangkapan layar |
+|---|---|---|
+| **Panel perubahan** | Bilah samping kanan → `+` → **Perubahan**. Pilih **Belum Di-commit**, **Belum Di-stage**, **Di-stage**, atau **Branch** untuk melihat file yang berubah beserta jumlah `+/-`; klik sebuah file untuk melihat diff-nya. **Giliran Terakhir** membuka tinjauan bawaan dsh untuk giliran terakhir. | <a href="assets/features/changesPanel.webp"><img src="assets/features/changesPanel.webp" width="160" alt="Tangkapan layar: Panel perubahan"></a> |
+| **Ide fitur** | Bilah samping kanan → `+` → **Ide fitur** → **Sarankan fitur**. Model obrolan itu sendiri membaca ringkasan singkat proyek obrolan (file tingkat atas, bagian awal README dan manifes, 15 commit terakhir) dan menyarankan hingga 8 fitur. Fitur ditampilkan sebagai tumpukan kartu dalam bahasa UI dsh. Geser kartu ke kanan (atau klik **✓**, atau tekan `→`; dengan cara mana pun, kartu terbang ke sisinya) untuk memulai obrolan baru di proyek yang sama. Obrolan itu dimulai dalam mode rencana dengan ide tersebut sebagai permintaan, jadi tidak ada yang berubah sebelum Anda menyetujui rencananya. Geser ke kiri (atau **✕**, atau `←`) untuk melewatinya; **Urungkan** (atau `Z`) mengembalikan kartu yang dilewati. Klik **↓** (atau tekan `↓`) untuk menyimpan ide bagus untuk nanti. Ide itu masuk ke daftar **Nanti** milik proyek, yang ditampilkan oleh setiap obrolan di folder proyek yang sama (juga setelah mulai ulang). **Nanti (N)** membuka daftar itu. **Rencanakan** memulai obrolan mode rencana yang sama untuk ide itu dan mengeluarkannya dari daftar, sedangkan **Hapus dari daftar** menghapusnya. **Ide lainnya** menambahkan kartu. Model hanya berjalan saat Anda mengklik. | <a href="assets/features/featureIdeas.webp"><img src="assets/features/featureIdeas.webp" width="160" alt="Tangkapan layar: Ide fitur"></a> |
+| **Pencarian isi** | Pencarian bawaan di bilah samping dsh (kaca pembesar di samping **Ruang kerja**; `Cmd+K` di aplikasi desktop, `Cmd+Alt+K` di browser) juga menemukan obrolan dari kata-kata dalam pesan Anda dan dalam balasannya, bukan hanya dari judul. Teks yang cocok ditampilkan di bawah obrolan. dsh sudah memiliki pencarian ini, tetapi mengirimkannya dalam keadaan nonaktif. Fitur ini mengaktifkannya dengan file indeks pencarian di komputer Anda. Indeks dibuat pada pencarian pertama setelah dsh dimulai (sekitar 15 detik untuk 250 obrolan, lihat Batasan) dan disimpan untuk saat dsh dimulai berikutnya. Aktif secara default; perubahan berlaku setelah Anda memulai ulang dsh. | <a href="assets/features/contentSearch.webp"><img src="assets/features/contentSearch.webp" width="160" alt="Tangkapan layar: Pencarian isi"></a> |
+| **Putar balik giliran** | Arahkan penunjuk ke salah satu pesan Anda dan klik **↶** (di samping Salin). **Obrolan saja** mengeluarkan pesan itu dan semua yang ada sesudahnya (balasan, panggilan alat) dari obrolan dan dari konteks model, lalu menaruh pesan itu kembali di kotak pesan: ubah, lalu kirim lagi. **Obrolan dan file** lebih dulu menampilkan daftar file proyek yang berubah sejak pesan itu, lalu juga mengembalikan file tersebut seperti semula. Ini termasuk perubahan yang dibuat oleh perintah (`bash`), bukan hanya oleh alat edit dsh. Giliran yang sedang berjalan dihentikan lebih dulu. Log obrolan tidak pernah ditulis ulang: satu penanda tersembunyi menyembunyikan bagian yang ditarik, sama seperti `/compact` bawaan dsh menyembunyikan pesan lama. Jika [dsh-rewind-plugin](https://www.npmjs.com/package/dsh-rewind-plugin) terpasang, plugin itulah yang melakukan tugas ini, dan Composer Plus tidak menampilkan tombol kedua. | <a href="assets/features/turnRollback.webp"><img src="assets/features/turnRollback.webp" width="160" alt="Tangkapan layar: Putar balik giliran"></a> |
+| **Hapus obrolan** | Bilah samping → menu **…** pada obrolan (atau klik kanan) → **Hapus…** → **Hapus**. dsh sendiri hanya dapat mengarsipkan. Obrolan berhenti (gilirannya, job, subagen, dan jadwalnya, seperti saat diarsipkan oleh dsh). Riwayat tersimpannya, beserta obrolan subagennya, dipindahkan ke Tong Sampah macOS (di sistem lain: `$DSH_HOME/trash`). Untuk mengembalikannya, kembalikan folder itu ke tempat semula dan mulai ulang dsh: obrolan muncul di tampilan **Hanya yang diarsipkan** pada bilah samping. | <a href="assets/features/deleteChat.webp"><img src="assets/features/deleteChat.webp" width="160" alt="Tangkapan layar: Hapus obrolan"></a> |
+| **Nama proyek di kotak pesan** | Baris di bawah kotak pesan (giliran, token, cache hit, konteks) dimulai dengan nama proyek obrolan, jadi Anda selalu tahu di proyek mana sebuah obrolan bekerja. Nama ini adalah judul proyek bawaan dsh, atau nama folder jika proyek tidak memiliki judul. Arahkan penunjuk ke nama itu untuk melihat jalur folder lengkap. | <a href="assets/features/projectName.webp"><img src="assets/features/projectName.webp" width="160" alt="Tangkapan layar: Nama proyek di kotak pesan"></a> |
+| **Riwayat input** | Di kotak pesan yang kosong, tekan `↑` / `↓` untuk menelusuri pesan yang telah Anda kirim, seperti di terminal. | <a href="assets/features/inputHistory.webp"><img src="assets/features/inputHistory.webp" width="160" alt="Tangkapan layar: Riwayat input"></a> |
+| **Mode rencana Shift+Tab** | `Shift+Tab` menambahkan `/plan ` di awal draf (tekan lagi untuk menghapusnya). Jika obrolan sudah dalam mode rencana, `Shift+Tab` keluar dari mode itu. | <a href="assets/features/planToggle.webp"><img src="assets/features/planToggle.webp" width="160" alt="Tangkapan layar: Mode rencana Shift+Tab"></a> |
+| **Pertahankan fokus composer** | Setelah Anda mengirim perintah `/` atau skill, kursor tetap berada di kotak pesan, dan Anda dapat langsung mengetik lagi. Ini juga berlaku untuk makro keyboard yang mengetik perintah lalu menekan `Enter`. dsh membuat kotak pesan menjadi hanya-baca saat memproses perintah, lalu browser melepas fokusnya. Fitur ini mengembalikan fokus, kecuali jika menu, dialog, atau kolom lain sedang memegangnya. | <a href="assets/features/keepFocus.webp"><img src="assets/features/keepFocus.webp" width="160" alt="Tangkapan layar: Pertahankan fokus composer"></a> |
+| **Lanjutkan Sekali Klik** | Setelah giliran dihentikan, gagal, atau terpotong, kotak pesan yang kosong menampilkan **▶**. Satu klik melanjutkan percakapan yang ada tanpa menulis di input atau menambahkan pesan obrolan yang terlihat. (Model menerima catatan tersembunyi singkat “lanjutkan dari tempat berhenti”, karena beberapa penyedia, seperti Claude, menolak permintaan yang berakhir dengan balasan asisten.) Giliran yang selesai tetap memakai tombol Kirim biasa. | <a href="assets/features/continueButton.webp"><img src="assets/features/continueButton.webp" width="160" alt="Tangkapan layar: Lanjutkan Sekali Klik"></a> |
+| **Lanjutkan setelah mulai ulang** | Nonaktif secara default: aktifkan di **Pengaturan → Composer Plus**. Jika Anda keluar dari dsh (atau dsh tertutup) saat sebuah obrolan sedang bekerja, obrolan itu berlanjut sendiri saat Anda membuka dsh lagi, dengan catatan tersembunyi yang sama seperti Lanjutkan Sekali Klik. Jika putaran tujuan (`/goal`) sedang berjalan, tujuan itu berlanjut ke putaran berikutnya (dsh menjeda tujuan setiap kali dimulai sampai Anda melanjutkannya). Obrolan yang Anda hentikan, yang selesai, atau yang gagal tidak berlanjut. dsh sendiri tidak memiliki pengaturan untuk ini: dsh hanya menandai giliran seperti itu sebagai terinterupsi. | <a href="assets/features/resumeAfterRestart.webp"><img src="assets/features/resumeAfterRestart.webp" width="160" alt="Tangkapan layar: Lanjutkan setelah mulai ulang"></a> |
+| **Seret dan lepas antrean** | Pesan dalam antrean mendapat pegangan (⠿). Seret untuk mengubah urutan, atau fokuskan pegangan lalu tekan `↑` / `↓`. `Esc` membatalkan. | <a href="assets/features/queueReorder.webp"><img src="assets/features/queueReorder.webp" width="160" alt="Tangkapan layar: Seret dan lepas antrean"></a> |
+| **Salin tautan sesi** | Klik kanan obrolan di bilah samping → **Salin tautan sesi**. Tempelkan tautan `dsh-session:…` ke obrolan lain untuk melampirkan obrolan itu sebagai konteks hanya-baca. dsh 0.2.1 memiliki **Salin ID sesi** sendiri, yang hanya menyalin ID polos; item ini muncul tepat sesudahnya. | <a href="assets/features/copyDeeplink.webp"><img src="assets/features/copyDeeplink.webp" width="160" alt="Tangkapan layar: Salin tautan sesi"></a> |
+| **Salin jalur proyek** | Klik kanan proyek di bilah samping → **Salin jalur** menyalin jalur lengkap foldernya. | <a href="assets/features/copyProjectPath.webp"><img src="assets/features/copyProjectPath.webp" width="160" alt="Tangkapan layar: Salin jalur proyek"></a> |
+| **Izinkan untuk obrolan ini** | Saat Tinjauan otomatis bertanya kepada Anda, kartu persetujuan mendapat tombol **Izinkan untuk obrolan ini**: mulai saat itu, alat yang sama di obrolan yang sama diizinkan, dengan argumen apa pun. Sebuah chip di header menampilkan daftar izin dan dapat mencabutnya. Izin tetap ada setelah mulai ulang. | <a href="assets/features/allowForChat.webp"><img src="assets/features/allowForChat.webp" width="160" alt="Tangkapan layar: Izinkan untuk obrolan ini"></a> |
+| **Status proyek** | Baris proyek di bilah samping menampilkan penanda spinner / menunggu / selesai yang sama seperti obrolannya. Jadi, proyek yang diciutkan tetap memberi tahu Anda bahwa ada obrolan di dalamnya yang sedang bekerja atau memerlukan Anda. Arahkan penunjuk ke penanda itu untuk melihat detailnya. | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="Tangkapan layar: Status proyek"></a> |
+| **Proyek aktif di atas** | Saat sebuah obrolan mulai berjalan atau memerlukan Anda, proyeknya pindah ke bagian atas bilah samping dengan animasi baris bawaan dsh (gerakan yang sama seperti saat Anda menyeretnya ke sana). Proyek yang selesai tetap di tempatnya; seret ke mana saja seperti biasa. Perpindahan disimpan ke urutan proyek dsh, jadi menonaktifkan fitur ini mempertahankan urutan saat ini. | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="Tangkapan layar: Proyek aktif di atas"></a> |
+| **Filter proyek terbaru** | Bilah samping → opsi tampilan (ikon slider) → **Aktif dalam 2 jam terakhir**. Selama opsi ini dipilih, bilah samping hanya menampilkan proyek yang memiliki obrolan aktif dalam 2 jam terakhir. Itu adalah obrolan yang diperbarui dalam waktu itu, obrolan yang sedang berjalan atau menunggu, obrolan yang terbuka, atau obrolan selesai yang belum Anda buka (titik hijau “selesai” dari dsh), juga setelah 2 jam. Proyek tanpa obrolan seperti itu disembunyikan, termasuk proyek baru dan kosong. Pilih opsi ini lagi untuk menampilkan semua proyek. Pilihan ini disimpan di perangkat ini. | <a href="assets/features/recentProjects.webp"><img src="assets/features/recentProjects.webp" width="160" alt="Tangkapan layar: Filter proyek terbaru"></a> |
+| **Ciutkan semua proyek** | Saat ada proyek yang terbuka di bilah samping, sebuah tombol muncul di samping opsi tampilan (ikon slider). Klik tombol itu untuk menutup semua proyek yang terbuka sekaligus, misalnya 3 proyek terbuka dari 5. Tombol itu tersembunyi lagi saat tidak ada proyek yang terbuka. | <a href="assets/features/collapseProjects.webp"><img src="assets/features/collapseProjects.webp" width="160" alt="Tangkapan layar: Ciutkan semua proyek"></a> |
+| **Urutkan menurut status** | Bilah samping → opsi tampilan → **Urutkan menurut** → **Menurut status** (dengan **Dalam satu daftar**). Obrolan yang selesai muncul pertama (titik “selesai” dari dsh, yang juga didapat oleh giliran yang berakhir dengan kesalahan). Lalu muncul obrolan yang berjalan atau menunggu, lalu obrolan dengan otomatisasi aktif (Tugas otomatisasi), lalu sisanya dalam urutan dsh. Membuka obrolan yang selesai memindahkannya ke bawah. Hanya tampilan yang berubah: pilih **Manual** atau **Terakhir diperbarui** untuk kembali. | <a href="assets/features/statusOrder.webp"><img src="assets/features/statusOrder.webp" width="160" alt="Tangkapan layar: Urutkan menurut status"></a> |
+| **Notifikasi latar belakang** | Saat dsh berada di latar belakang, Anda mendapat notifikasi ketika sebuah giliran selesai (baris pertama balasan). Anda juga mendapat notifikasi ketika obrolan benar-benar menunggu Anda: persetujuan (nama alat), jawaban (pertanyaannya), atau tinjauan rencana. Permintaan harus masih terbuka 1,5 detik kemudian. Jadi, persetujuan yang dijawab otomatis (izin Tinjauan otomatis, plugin lain) tidak memunculkan notifikasi, dan notifikasi ditarik begitu permintaannya dijawab. Lencana di Dock/taskbar menghitung obrolan yang menunggu. Mengklik notifikasi membuka obrolan itu. | <a href="assets/features/notifications.webp"><img src="assets/features/notifications.webp" width="160" alt="Tangkapan layar: Notifikasi latar belakang"></a> |
+| **11 bahasa UI tambahan** | Pengaturan → Composer Plus → **Bahasa aplikasi** mengganti seluruh antarmuka dsh ke Türkçe, Español, Português (Brasil), Français, Deutsch, Русский, 日本語, 한국어, Bahasa Indonesia, Tiếng Việt, atau हिन्दी (lihat di bawah). | <a href="assets/features/language.webp"><img src="assets/features/language.webp" width="160" alt="Tangkapan layar: 11 bahasa UI tambahan"></a> |
+| **Koneksi seluler (iPhone)** | Gunakan dsh dari iPhone Anda dengan aplikasi [Tether](tether/), di Wi-Fi yang sama atau melalui [Tailscale](https://tailscale.com). Aktifkan di **Pengaturan → Composer Plus** (nonaktif secara default karena membuka port jaringan di Mac ini). Lalu klik **Koneksi seluler** di kiri bawah bilah samping: pindai kode QR di Tether dan klik **Approve**. Ponsel menampilkan obrolan Anda, mengirim pesan, menjawab persetujuan dan pertanyaan, serta mengganti model dan agen. Pasangkan Mac sebanyak yang Anda mau: nama Mac di kiri atas aplikasi berpindah di antara Mac tersebut. | <a href="assets/features/mobileConnect.webp"><img src="assets/features/mobileConnect.webp" width="160" alt="Tangkapan layar: Koneksi seluler"></a> |
+| **Pembaruan otomatis** | Saat dsh dimulai, plugin memeriksa [rilis GitHub terbaru](https://github.com/furkancak1r/dsh-composer-plus/releases/latest). Jika rilis itu lebih baru dan sudah ada di npm, plugin memasang versi persis itu melalui pengelola plugin bawaan dsh (jalur yang sama dengan Pengaturan → Plugin) dan memberi tahu Anda. **Mulai ulang dsh** untuk memuatnya. **Pengaturan → Composer Plus → Pembaruan Composer Plus** menampilkan versi dan memiliki **Periksa pembaruan** / **Perbarui sekarang**. | <a href="assets/features/autoUpdate.webp"><img src="assets/features/autoUpdate.webp" width="160" alt="Tangkapan layar: Pembaruan otomatis"></a> |
+
+Tombol, tooltip, pemberitahuan, dan notifikasi mengikuti bahasa dsh yang dipilih (lihat Bahasa aplikasi di bawah).
+
+## Pengaturan
+
+Setiap fitur dapat diaktifkan atau dinonaktifkan secara terpisah: dsh **Pengaturan → Composer Plus**. Setiap baris memiliki tangkapan layar kecil: arahkan penunjuk ke gambar itu untuk pratinjau yang lebih besar, atau klik untuk membukanya dalam ukuran penuh (`Esc` menutupnya). Kotak **Cari fitur** di bagian atas memfilter halaman menurut nama atau deskripsi (bahasa apa pun, tanpa membedakan huruf besar-kecil dan aksen); `Esc` mengosongkannya. Setiap baris memiliki sakelar dan deskripsi singkat. Perubahan langsung berlaku tanpa mulai ulang dan diingat di perangkat itu. Semua fitur aktif secara default, kecuali **Koneksi seluler** dan **Lanjutkan setelah mulai ulang**. Host dsh menyimpan sakelar kedua fitur ini serta sakelar **Pencarian isi** dan **Putar balik giliran**, jadi sakelar itu berlaku untuk setiap jendela dan tetap ada setelah mulai ulang. **Pencarian isi** baru berubah setelah dsh dimulai ulang (dsh membacanya saat dimulai). Sampai saat itu, barisnya menampilkan **Mulai ulang dsh agar perubahan ini berlaku.**
+
+<p align="center"><img src="docs/images/settings.webp" width="720" alt="Pengaturan → Composer Plus: pencarian fitur, pemilih bahasa, baris pembaruan, dan satu sakelar per fitur, dengan pratinjau tangkapan layar saat penunjuk diarahkan"></p>
+
+### Bahasa aplikasi
+
+Buka **Pengaturan → Composer Plus → Bahasa aplikasi**, lalu pilih **Bahasa sistem** atau salah satu dari 13 bahasa:
+
+English · 中文 · Türkçe · Español · Português (Brasil) · Français · Deutsch · Русский · 日本語 · 한국어 · Bahasa Indonesia · Tiếng Việt · हिन्दी
+
+<p align="center"><img src="docs/images/language-tr.webp" width="720" alt="Antarmuka DeepSeek Harness yang dialihkan ke Türkçe"></p>
+
+Seluruh aplikasi langsung berganti bahasa. Pilihan ini adalah `locale.preference` tersimpan milik dsh sendiri (sama dengan Umum → Bahasa), jadi pilihan tetap ada setelah mulai ulang. **Bahasa sistem** menghapus pilihan itu: aplikasi desktop mengikuti bahasa OS, UI web mengikuti bahasa browser, dan bahasa yang tidak didukung kembali ke bahasa Inggris. Memasang plugin tidak pernah menimpa bahasa yang sudah Anda pilih.
+
+Setiap paket berisi 3.143 teks: setiap teks UI dsh `0.2.0-rc.2` dan `0.2.1-rc.2` (obrolan, bilah samping, pengaturan, persetujuan, jadwal, pratinjau file, pengelola plugin, pasar plugin), kontrol milik plugin ini, dan plugin populer [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Yang tidak diterjemahkan: pesan Anda, output model, kode, nama perintah garis miring (`/plan`, `/compact`), label milik penyedia seperti tingkat penalaran `High`, teks plugin lain, serta menu bawaan dan dialog pembaruan aplikasi desktop (dsh hanya menyediakannya dalam bahasa Inggris/Mandarin). Teks yang ditambahkan oleh dsh versi lebih baru tampil dalam bahasa Inggris sampai paket diperbarui. Jika plugin lain sudah menyediakan suatu bahasa, plugin itu tetap memegang bahasa tersebut.
+
+## Pintasan keyboard
+
+| Tombol | Tempat | Tindakan |
+|---|---|---|
+| `↑` / `↓` | kotak pesan kosong | pesan terkirim sebelumnya / berikutnya |
+| `Shift+Tab` | kotak pesan | tambah/hapus `/plan `, atau keluar dari mode rencana |
+| `↑` / `↓` | pegangan antrean yang difokuskan | pindahkan pesan dalam antrean |
+| `Esc` | saat menyeret | batalkan perpindahan |
+| `→` / `←` | halaman Ide fitur | buat / lewati kartu teratas |
+| `↓` | halaman Ide fitur | simpan kartu teratas di daftar Nanti milik proyek |
+| `Z` | halaman Ide fitur | kembalikan kartu terakhir yang dilewati |
+
+Menu `/` atau `@` yang terbuka memakai tombol-tombol ini untuk dirinya sendiri.
+
+## Kompatibilitas
+
+Diuji pada dsh `0.2.0-rc.2` (desktop dan web) dan `0.2.1-rc.2` (web). CI menjalankan pengujian pada setiap push.
+
+## Privasi dan keamanan
+
+- **Lanjutkan:** endpoint lokal yang terautentikasi hanya melanjutkan giliran terakhir yang terinterupsi, menolak permintaan yang usang atau duplikat, dan mempertahankan hook persetujuan yang ada. Endpoint ini tidak mengirim pesan pengguna baru.
+- **Lanjutkan setelah mulai ulang:** nonaktif sampai Anda mengaktifkannya. Bagian Host hanya menyimpan ID obrolan dan waktu mulai di `$DSH_HOME/storages/dsh-composer-plus/resume.json` (izin akses hanya untuk pemilik), dan tidak ada yang keluar dari mesin Anda. Fitur ini melanjutkan obrolan hanya jika log dsh sendiri menyatakan bahwa dsh (bukan Anda) yang menghentikan giliran terakhirnya. Persetujuan dan Tinjauan otomatis berlaku untuk giliran yang dilanjutkan seperti biasa.
+
+- **Panel perubahan:** git berjalan dalam mode hanya-baca di mesin Anda, di folder obrolan itu sendiri, melalui kanal `/api` dsh yang terautentikasi. Git tidak pernah melakukan commit, stage, atau fetch, dan hanya menampilkan jalur yang didaftarkan oleh git sendiri.
+- **Ide fitur:** tidak ada yang berjalan sampai Anda mengklik **Sarankan fitur**. Setelah itu, bagian Host hanya membaca folder obrolan itu sendiri (browser tidak pernah mengirim jalur): nama entri tingkat atas, 6 kB pertama dari README, AGENTS.md, dan manifes (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, …), serta `git log --oneline -15`, total paling banyak 16 kB. Bagian Host melewati `.env*`, file kunci, dan folder seperti `node_modules`. Bagian Host juga hanya membaca file biasa yang tetap berada di dalam folder: symlink yang menunjuk ke luar folder, FIFO, atau perangkat akan dilewati. Ringkasan ini dikirim ke model yang dipakai obrolan, melalui pengaturan penyedia bawaan dsh, sebagai satu permintaan; ringkasan ini tidak ditambahkan ke obrolan mana pun. Tidak ada yang ditulis ke proyek. Ide yang digeser ke kanan memulai obrolan baru dalam mode rencana, jadi persetujuan dan tinjauan rencana berlaku seperti biasa. Ide yang disimpan untuk nanti (judul, ringkasan, alasan, upaya) disimpan bersama jalur folder proyek di `storages/dsh-composer-plus/later.json` di dalam dsh home (file hanya untuk pemilik); tidak ada yang masuk ke proyek.
+- **Pencarian isi:** tidak ada kode baru yang mencari di obrolan Anda. Plugin hanya mengaktifkan indeks pesan bawaan dsh (SQLite FTS5, `dsh-session-query-sqlite`) dan memberinya sebuah file, `$DSH_HOME/cache/composer-plus/session-search.db` (file dan folder hanya untuk pemilik). File ini berisi teks pesan pengguna dan asisten Anda, jadi sama privatnya dengan log obrolan di `$DSH_HOME/sessions`. Tidak ada yang keluar dari mesin Anda. File ini adalah salinan yang dapat dibuat ulang oleh dsh: Anda dapat menghapusnya saat dsh ditutup. Sakelarnya ada di `$DSH_HOME/storages/dsh-composer-plus/content-search.json`.
+- **Putar balik giliran:** sebelum setiap pesan Anda, Host mengambil snapshot git dari folder obrolan ke penyimpanannya sendiri, `$DSH_HOME/cache/composer-plus/rollback/<chat>.git` (folder hanya untuk pemilik). Penyimpanan ini berisi salinan file di folder itu yang terlihat oleh git (bukan file yang diabaikan), jadi sama privatnya dengan proyek. Fitur ini membaca objek repositori Anda (tanpa menyalin apa yang sudah dimiliki git) dan tidak pernah menulis index, `HEAD`, branch, tag, stash, atau config repositori Anda. Satu-satunya perubahan yang dibuat git di sana adalah stempel waktu yang lebih baru pada file objek yang dipakai ulang (ini menunda pembersihannya oleh `git gc`). Putar balik dengan file hanya menulis file biasa di dalam folder obrolan; symlink, pipe, dan apa pun di luar folder dilewati. Tidak ada yang keluar dari mesin Anda. Anda dapat menghapus penyimpanan ini saat dsh ditutup (putar balik lalu hanya berlaku untuk obrolan, sampai ada pesan baru). **Hapus obrolan** juga menghapus penyimpanan milik obrolan itu. Sakelarnya ada di `$DSH_HOME/storages/dsh-composer-plus/rollback.json`.
+- **Hapus obrolan:** memindahkan folder log milik obrolan (`$DSH_HOME/sessions/<project>/<chat>`) ke Tong Sampah. Folder proyek tidak disentuh.
+- **Izinkan untuk obrolan ini:** izin disimpan di `$DSH_HOME/storages/dsh-composer-plus/grants.json` (izin akses hanya untuk pemilik). Satu izin berlaku untuk **satu alat tertentu di satu obrolan**. Jika alat itu dapat menulis, izin itu juga mencakup penulisan apa pun. Cabut izin dari chip di header.
+- Tinjauan otomatis tetap berjalan pada setiap panggilan; tinjauan yang gagal tidak pernah diizinkan secara otomatis.
+- **Koneksi seluler:** nonaktif sampai Anda mengaktifkannya. Selama aktif, bagian Host menjalankan gateway Tether: HTTPS di port 19390 yang hanya menerima subnet Wi-Fi dan tailnet Anda (100.64.0.0/10), serta halaman pemasangan di `127.0.0.1:19391` (hanya Mac ini). Ponsel memerlukan kode sekali pakai dari kode QR (berlaku 5 menit) dan klik **Approve** dari Anda di Mac. Ponsel menyematkan (pin) sertifikat gateway. Mac hanya menyimpan hash token setiap ponsel (30 hari, diperpanjang selama dipakai); **Revoke** langsung menutup koneksi ponsel itu. Ponsel hanya dapat memanggil daftar metode dsh yang diizinkan (obrolan, prompt, lampiran, perintah garis miring, persetujuan, pertanyaan, model, agen, tujuan), bukan pengaturan, kredensial, browser file, atau terminal. Data: `$DSH_HOME/storages/dsh-composer-plus/mobile/`. Detail: [tether/README.md](tether/README.md).
+- **Pembaruan:** bagian Host menanyakan rilis terbaru ke `api.github.com` dan versi persis itu ke `registry.npmjs.org`; tidak ada data tentang Anda atau obrolan Anda yang dikirim. Pemasangan memakai pengelola plugin dsh (`pnpm add dsh-composer-plus@<version>`), jadi pemeriksaan registri, skrip, dan kompatibilitas versi milik dsh tetap berlaku. Tag pra-rilis dan versi lama tidak pernah dipasang.
+
+## Pemecahan masalah
+
+- **Tidak ada notifikasi di macOS:** Pengaturan Sistem → Pemberitahuan → DeepSeek Harness → izinkan. Pilih **Peringatan** agar notifikasi tetap tampil di layar.
+- **▶, pegangan antrean, status proyek, opsi proyek terbaru, Ciutkan semua proyek, Salin jalur, Izinkan untuk obrolan ini, atau klik kanan hilang setelah dsh diperbarui:** elemen-elemen ini menempel ke HTML dsh saat ini karena dsh belum memiliki slot untuknya. Jika dsh mengubah markup itu, elemen-elemen ini menyembunyikan dirinya sendiri; tidak ada hal lain yang rusak. Silakan buka [issue](https://github.com/furkancak1r/dsh-composer-plus/issues).
+- **"Pembaruan gagal" atau "tidak dipasang dari npm":** salinan yang ditautkan dari folder lokal atau yang diganti namanya tidak dapat memperbarui dirinya sendiri; pasang ulang `dsh-composer-plus` dari Pengaturan → Plugin. Selain itu, pesan menampilkan baris pertama error pnpm; **Periksa pembaruan** mencoba lagi.
+- **Koneksi seluler menyatakan gateway tidak berjalan:** "no IPv4 address on en0" berarti Mac ini tidak memiliki alamat Wi-Fi/Ethernet; "EADDRINUSE" berarti dsh lain (atau aplikasi lain) memakai port 19390 atau 19391. Hanya satu dsh yang dapat menjalankan Koneksi seluler pada satu waktu.
+- **Koneksi seluler, Lanjutkan setelah mulai ulang, atau Pencarian isi menampilkan "Mulai ulang dsh":** plugin diperbarui saat dsh sedang berjalan (atau, untuk Pencarian isi, Anda mengubah sakelarnya); status baru dimuat setelah mulai ulang.
+- **Pencarian hanya menemukan judul:** Pencarian isi nonaktif, dsh belum dimulai ulang sejak Anda mengaktifkannya atau memasang plugin, atau kata itu hanya ada di output alat (lihat Batasan).
+- **Tidak ada tombol ↶ di pesan saya:** Putar balik giliran nonaktif, obrolan itu adalah obrolan subagen, atau dsh-rewind-plugin terpasang (gunakan tombol ↶ miliknya). Setelah pembaruan, mulai ulang dsh.
+- **Obrolan dan file berwarna abu-abu:** proyek bukan repositori git, tidak ada snapshot dari sebelum pesan itu (pesan lebih lama dari plugin, atau salah satu dari 50 snapshot terbaru telah menggantikannya), atau tidak ada file yang berubah.
+- **Hapus menyatakan dsh lain sedang membuka obrolan ini:** dsh kedua pada dsh home yang sama memegang kunci obrolan. Tutup jendela atau dsh itu, lalu hapus lagi. Sementara itu, obrolan tetap diarsipkan.
+- **Obrolan tidak berlanjut setelah mulai ulang:** Lanjutkan setelah mulai ulang nonaktif saat dsh ditutup, Anda sendiri yang menghentikan giliran itu, giliran sudah berakhir (selesai atau gagal), obrolan diarsipkan, atau lebih dari 20 obrolan sedang berjalan (20 yang terbaru berlanjut).
+- **Pemasangan gagal tepat setelah rilis:** tambahkan versinya (`dsh-composer-plus@1.9.1`), lihat catatan pemasangan di atas.
+
+## Batasan
+
+- Lanjutkan tanpa pesan bergantung pada siklus hidup `agent/pre-step` → `agent/request` dsh. Periksa ulang kompatibilitas saat meningkatkan versi dsh.
+- **Ide fitur** menyimpan kartu di memori untuk setiap obrolan sampai dsh atau halaman dimuat ulang; setelah itu **Sarankan fitur** bertanya lagi ke model. Kartu muncul dalam bahasa UI yang dipakai dsh saat Anda mengklik. Setelah Anda mengganti bahasa, kartu yang sudah ada di tumpukan tetap memakai bahasanya, dan **Ide lainnya** memakai bahasa yang baru. Model hanya melihat ringkasan proyek yang singkat, bukan kodenya, jadi sebuah ide bisa saja mengulang sesuatu yang sudah ada di proyek: lewati saja. Obrolan baru berjalan dalam mode rencana hanya jika profil memiliki perintah `/plan` dsh; jika tidak, ide dikirim sebagai pesan pertama biasa. Daftar **Nanti** terikat pada jalur folder obrolan: folder yang sama yang dibuka melalui symlink memiliki daftar sendiri. Daftar ini menyimpan paling banyak 50 ide per proyek (hapus satu untuk menambah lagi) dan menyimpan judul yang sama hanya sekali. Menyeret kartu hanya memutuskan kiri atau kanan; gunakan **↓** untuk menyimpannya.
+- **Lanjutkan setelah mulai ulang** melanjutkan giliran; fitur ini tidak memutar ulang giliran itu. Panggilan alat yang sedang berjalan saat dsh ditutup berakhir dengan hasil “outcome unknown” (hasil tidak diketahui) dari dsh. Model diberi tahu agar tidak mengulang pekerjaan yang sudah selesai, tetapi perintah yang tidak aman dijalankan dua kali tetap bisa berjalan lagi. Subagen, persetujuan, dan pertanyaan yang masih terbuka tidak dipulihkan: obrolan induknya berlanjut dan bertanya lagi. Paling banyak 20 obrolan berlanjut setiap kali dsh dimulai.
+
+- **Pencarian isi** adalah pencarian bawaan dsh, jadi batasannya sama dengan batasan dsh. Pencarian ini hanya mencakup pesan pengguna dan asisten: bukan output alat (perintah, isi file, hasil), bukan penalaran, dan tidak ada filter untuk pesan pengguna, asisten, atau alat. Pencarian mencocokkan kata utuh, bukan bagian kata (`deploy` tidak menemukan `deployment`); huruf beraksen cocok dengan huruf tanpa aksen (`seker` menemukan `şeker`). Satu baris per obrolan, dengan cuplikan 240 karakter dari dsh, paling banyak 20 baris.
+- Biaya **Pencarian isi**, diukur pada salinan 247 log obrolan nyata (159 MB, dsh 0.2.1-rc.2, Apple Silicon, 32 GB): pencarian pertama setelah dsh dimulai membangun indeks dalam sekitar 15 detik. Selama waktu itu, Host dsh tidak menjawab apa pun selama sekitar 7 detik, jadi obrolan lain berhenti melakukan streaming sesaat (halamannya sendiri tidak membeku). Memori Host bertambah sekitar 1,1 GB pada puncaknya; satu menit kemudian, memori masih sekitar 0,5–0,6 GB di atas awal, sampai dsh ditutup. File indeks berukuran sekitar 165 MB. Pencarian berikutnya memakan waktu sekitar 0,5 detik. Setelah mulai ulang, pencarian pertama memakan waktu sekitar 1 detik (hanya obrolan baru atau yang berubah yang ditambahkan) dan menambah sekitar 70 MB. Nonaktifkan fitur ini jika memori komputer Anda kecil.
+- **Pencarian isi** baru berlaku setelah dsh dimulai ulang, dan file indeks dipakai bersama oleh setiap dsh yang memakai dsh home yang sama: jalankan hanya satu dsh seperti itu pada satu waktu (dsh hanya mengizinkan satu pemilik per file indeks).
+- **Putar balik giliran** mengembalikan file hanya di repositori git, dan hanya di folder obrolan. Fitur ini menyimpan 50 snapshot terbaru per obrolan. File yang diabaikan (`.gitignore`, `info/exclude`, file ignore global Anda), folder kosong, symlink, dan submodule tidak dikembalikan. File yang diabaikan saat snapshot diambil tidak pernah dihapus, bahkan jika giliran itu mengubah aturan ignore. File yang tidak dapat dibaca git tidak dimasukkan ke snapshot. Setiap pesan Anda menjalankan satu `git add --all` dari folder obrolan ke penyimpanan pribadi. Di folder yang sangat besar dengan banyak file yang tidak dilacak, ini bisa memakan waktu beberapa detik, dan panggilan alat berikutnya menunggunya (paling lama 10 detik; setelah itu snapshot selesai di latar belakang). Jika `git gc` repositori Anda menghapus objek yang diperlukan snapshot lama, file itu dicantumkan sebagai tidak dikembalikan. Hanya teks pesan yang kembali ke kotak pesan: tambahkan lagi gambar atau filenya. Obrolan subagen tidak memiliki ↶ (perubahan file oleh subagen dihitung sebagai perubahan obrolan yang memulainya). Obrolan yang diekspor (`/export`) masih berisi pesan yang ditarik. Ide satu penanda tersembunyi yang menarik sebagian obrolan berasal dari [dsh-rewind-plugin](https://github.com/SiriLee/dsh-rewind) karya SiriLee (MIT); Composer Plus tidak memakai kode darinya.
+- **Hapus obrolan** memerlukan fitur arsip dsh (dsh 0.2.0 dan yang lebih baru). Obrolan (atau salah satu obrolan subagennya) yang tidak berhenti dalam 15 detik, atau yang dipegang oleh dsh lain, tetap diarsipkan dan tidak ada yang dipindahkan. Di sistem selain macOS, folder sampah harus berada di disk yang sama dengan riwayat obrolan. Obrolan terbuka yang Anda hapus tetap ada di memori dsh, dalam keadaan diarsipkan dan tersembunyi, sampai dsh dimulai ulang. Kosongkan Tong Sampah sendiri; dsh tidak melakukannya.
+- Antrean dsh tidak memiliki tindakan `move`, jadi pengurutan ulang menulis ulang teks baris yang terdampak. Jika agen mengambil sebuah baris di tengah perpindahan, perpindahan dibatalkan dan tidak ada yang hilang. Pesan dengan gambar atau file tidak dapat dipindahkan.
+- Pembaruan memerlukan mulai ulang dsh agar berlaku; plugin tidak pernah memulai ulang dsh untuk Anda. Profil web/CLI tanpa pengelola plugin dsh hanya melaporkan adanya versi baru.
+- **Pertahankan fokus composer** mengembalikan fokus hanya setelah perintah `/` atau skill. Saat dsh memproses perintah, kotak pesan tetap hanya-baca selama beberapa milidetik, jadi tombol yang ditekan dalam waktu itu hilang. Jika menu `/` dsh masih terbuka, `Enter` memilih baris yang disorot dan tidak mengirim.
+- **Koneksi seluler** hanya berfungsi di macOS (memakai `en0`, `openssl`, `swift`, dan `dns-sd`). Fitur ini memakai port tetap 19390 dan 19391, jadi hanya satu dsh di setiap Mac yang dapat menjalankannya pada satu waktu (setiap Mac adalah satu entri dalam daftar Mac di ponsel). Ponsel hanya mendapat notifikasi saat Tether terbuka atau baru saja masuk ke latar belakang (tidak ada layanan push). Aplikasi iOS belum ada di App Store: bangun aplikasi itu dari `tether/ios` dengan Xcode.
+- Tautan sesi berfungsi di dalam obrolan; mengkliknya tidak membuka obrolan.
+- Notifikasi yang dikirim sebelum mulai ulang hanya membawa dsh ke depan saat diklik.
+- Proyek aktif dipindahkan dengan urutan proyek tersimpan milik dsh, jadi urutan baru tetap ada setelah mulai ulang. Obrolan di luar proyek mana pun ("Tanpa grup") tidak dapat dipindahkan; dsh selalu menampilkannya paling akhir.
+- dsh tidak memiliki titik ekstensi di menu opsi tampilan bilah samping, jadi opsi proyek terbaru ditambahkan ke menu bawaan dsh. Jika pembaruan dsh mengubah menu itu, opsi ini tidak ditampilkan dan semua proyek tetap terlihat. Filter bekerja pada baris proyek, jadi **Dalam satu daftar** tidak difilter. Gunakan filter ini bersama **Ruang Kerja**: dalam **Pohon Ruang Kerja**, folder induk yang tersembunyi juga menyembunyikan proyek aktif di dalamnya. **Menurut status** memiliki batasan serupa: dsh tidak memiliki slot urutan, jadi item dan urutan baris menempel ke markup menu dan daftar dsh.
+- dsh juga tidak memiliki menu baris proyek atau slot header Ruang kerja. **Salin jalur** menemukan baris proyek melalui markup baris dsh, dan **Ciutkan semua proyek** masuk ke header dsh lalu menutup setiap proyek yang terbuka dengan klik yang sama seperti pada baris proyek. Jika pembaruan dsh mengubah markup itu, klik kanan menampilkan menu browser dan tombolnya tidak ditampilkan.
+- Dukungan bawaan sudah diminta ke upstream: `move` antrean di [#773](https://github.com/deepseek-ai/deepseek-harness/discussions/773), status Lanjutkan di [#9269](https://github.com/deepseek-ai/deepseek-harness/discussions/9269).
+
+## Pertanyaan umum
+
+**Bagaimana cara menambahkan panel Perubahan / diff git ke DeepSeek Harness?** Pasang `dsh-composer-plus`, lalu bilah samping kanan → `+` → **Perubahan**.
+
+**Bisakah dsh menyarankan fitur untuk proyek saya, seperti menggeser kartu Tinder?** Bisa: bilah samping kanan → `+` → **Ide fitur** → **Sarankan fitur**. Geser ke kanan untuk memulai obrolan baru yang merencanakan fitur itu, geser ke kiri untuk melewatinya.
+
+**Bisakah pencarian bilah samping dsh menemukan obrolan dari kata di dalam pesannya, bukan hanya dari judulnya?** Bisa, dengan **Pencarian isi** (aktif secara default): mulai ulang dsh sekali setelah Anda memasang plugin, lalu gunakan kaca pembesar di samping **Ruang kerja**. Obrolan yang cocok menampilkan teks di sekitar kata itu.
+
+**Bisakah saya membatalkan sebuah giliran dan mengedit prompt saya, seperti di OpenCode atau Claude Code?** Bisa, dengan **Putar balik giliran**: klik **↶** pada pesan, pilih **Obrolan dan file**, edit teks yang kembali ke kotak pesan, lalu kirim.
+
+**Bisakah saya menghapus obrolan alih-alih mengarsipkannya?** Bisa, dengan **Hapus obrolan**: **…** → **Hapus…**. Riwayatnya masuk ke Tong Sampah, jadi kesalahan masih dapat dibatalkan.
+
+**Bagaimana cara melihat sebuah obrolan termasuk ke proyek mana?** Lihat baris di bawah kotak pesan: dengan **Nama proyek di kotak pesan** (aktif secara default), baris itu dimulai dengan nama proyek. Arahkan penunjuk ke nama itu untuk melihat jalur folder.
+
+**Bagaimana cara mendapatkan riwayat pesan ↑/↓ di kotak pesan dsh?** Pasang plugin ini; di kotak pesan yang kosong, `↑` / `↓` menelusuri pesan yang telah Anda kirim.
+
+**Bagaimana cara melanjutkan giliran dsh yang dihentikan atau gagal tanpa mengetik "continue"?** Dengan plugin ini, tombol Kirim berubah menjadi **▶** setelah giliran dihentikan, gagal, atau terpotong; satu klik melanjutkannya.
+
+**Apakah dsh melanjutkan obrolan yang sedang berjalan setelah saya keluar lalu membukanya lagi?** Tidak dengan sendirinya: dsh menandai giliran seperti itu sebagai terinterupsi dan menunggu (tujuan juga menunggu `/goal resume`). Aktifkan **Pengaturan → Composer Plus → Lanjutkan setelah mulai ulang**: obrolan yang sedang bekerja saat dsh ditutup akan berlanjut sendiri saat dsh dimulai berikutnya.
+
+**Bagaimana cara mengubah urutan pesan dalam antrean di dsh?** Seret pegangan ⠿ pada pesan dalam antrean, atau fokuskan pegangan itu lalu tekan `↑` / `↓`.
+
+**Bagaimana cara menghentikan Tinjauan otomatis agar tidak terus bertanya tentang alat yang sama dalam satu obrolan?** Klik **Izinkan untuk obrolan ini** pada kartu persetujuan. Izin ini hanya mencakup alat itu di obrolan itu; cabut izin dari chip di header.
+
+**Bagaimana cara hanya menampilkan proyek yang saya pakai hari ini di bilah samping dsh?** Bilah samping → opsi tampilan (ikon slider) → **Aktif dalam 2 jam terakhir**. Pilih lagi untuk menampilkan semua proyek.
+
+**Bagaimana cara menyalin jalur folder proyek di dsh?** Klik kanan proyek di bilah samping → **Salin jalur**.
+
+**Bagaimana cara menciutkan semua proyek di bilah samping dsh sekaligus?** Klik tombol ciutkan di samping opsi tampilan (ikon slider). Tombol ini muncul selama ada setidaknya satu proyek yang terbuka.
+
+**Bagaimana cara mendapatkan notifikasi macOS / Windows saat tugas dsh selesai atau memerlukan persetujuan?** Biarkan **Notifikasi latar belakang** aktif (default) dan izinkan notifikasi untuk DeepSeek Harness di pengaturan OS.
+
+**Bagaimana cara mengganti antarmuka DeepSeek Harness ke bahasa Turki, Spanyol, Jepang…?** Pengaturan → Composer Plus → **Bahasa aplikasi**.
+
+**Bagaimana cara memakai dsh dari iPhone saya?** Bangun aplikasi Tether dari `tether/ios` (Xcode), aktifkan **Pengaturan → Composer Plus → Koneksi seluler (iPhone)**, klik **Koneksi seluler** di kiri bawah, pindai kode QR di Tether, lalu klik **Approve**. Saat jauh dari rumah, gunakan Tailscale di kedua perangkat.
+
+**Apakah plugin ini berfungsi di aplikasi desktop?** Ya: Pengaturan → Plugin → **Tambahkan plugin** → `dsh-composer-plus`. Diuji pada dsh 0.2.0-rc.2 (desktop dan web) dan 0.2.1-rc.2 (web).
+
+## Pengembangan
+
+Tangkapan layar dibuat ulang dari dsh sekali pakai dengan model palsu dan proyek demo rekaan (`acme-web`, `weather-cli`, `docs-site`), jadi tidak berisi data nyata. Gambar mini fitur disimpan di `assets/features/` (ikut dikirim, ditampilkan di Pengaturan); gambar khusus README disimpan di `docs/images/` (tidak ada di paket npm):
+
+```sh
+PLAYWRIGHT=/path/to/playwright node scripts/capture-screenshots.mjs /path/to/dsh/lib/bin.js
+# sidebar project features (recent filter, Copy path, Collapse all): real-app test + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-sidebar-projects.mjs /path/to/dsh/lib/bin.js
+# recent filter + a finished chat older than 2 hours (fake model): the project stays until you open the chat
+PLAYWRIGHT=/path/to/playwright node test/browser-recent-finished.mjs /path/to/dsh/lib/bin.js
+# Order by status (fake model + Schedule): real-app test + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-status-order.mjs /path/to/dsh/lib/bin.js
+# every Settings feature row shows a loading screenshot
+PLAYWRIGHT=/path/to/playwright node test/browser-settings-shots.mjs /path/to/dsh/lib/bin.js
+# Keep composer focus (fake model + demo skill): typing goes on after a / command + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/dsh/lib/bin.js
+# Mobile connect: switch on, QR popover, a fake iPhone pairs and calls dsh through the gateway, switch off + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js
+# Resume after restart (fake slow model, real quit and start): a running chat and a goal continue, a stopped chat does not
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-resume-restart.mjs /path/to/dsh/lib/bin.js
+# Feature ideas (fake model, made-up project): suggest, drag left, Undo, ✓ starts a new chat in plan mode + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js
+# Content search (fake model, made-up chats): a message-only word finds its chat with the snippet, switch off + restart = titles only + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path/to/dsh/lib/bin.js
+# Turn rollback + Delete chat (fake model, made-up git project): bash edit → ↶ Chat and files → files back, .git unchanged; Delete… → Trash + its thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
+```
+
+```sh
+npm run build:locales # after editing locales/<id>.json
+npm test
+```
+
+**Aturan untuk fitur baru:** setiap baris fitur di Pengaturan → Composer Plus menampilkan tangkapan layar. Tambahkan id fitur ke `SHOT_OF` di `client.js` dan ke `SHOTS` di `index.js`, lalu sertakan `assets/features/<id>.webp` (diambil dari dsh demo sekali pakai, UI bahasa Inggris, sekitar 60 kB atau kurang). Tambahkan fitur itu ke tabel README dengan gambar yang sama, di `README.md` dan di setiap `README.<id>.md` terjemahan. `test/shots.test.mjs` gagal jika sebuah fitur tidak memiliki tangkapan layar, dan `test/browser-settings-shots.mjs` memeriksa halaman Pengaturan yang asli. Daftar periksa lengkap untuk setiap perubahan ada di [AGENTS.md](AGENTS.md).
+
+Pengujian menjalankan `client.js` yang asli terhadap React/DOM palsu, dan `index.js` (bagian Host) yang asli terhadap repositori git sementara. Pengujian gateway Tether (`test/tether-gateway.test.mjs`) memakai host dsh tiruan dan gateway TLS sungguhan. Aplikasi iPhone ada di `tether/ios` (lihat [tether/README.md](tether/README.md) dan [tether/AGENTS.md](tether/AGENTS.md)). `node test/browser-history.mjs '<dsh web URL with ?token=…>'` memeriksa riwayat input di browser sungguhan terhadap `dsh web` sekali pakai dengan `DSH_HOME` miliknya sendiri.
+
+Paket bahasa adalah JSON yang hanya berisi data di `locales/<id>.json`, yang disematkan ke dalam satu entri klien oleh `npm run build:locales` (tanpa layanan terjemahan atau unduhan saat runtime). `npm test` memeriksa setiap paket untuk cakupan kunci yang lengkap, placeholder dan jeda baris yang identik, serta perilaku sistem/override. Untuk pemeriksaan terisolasi di aplikasi sungguhan dengan Playwright yang terpasang secara lokal:
+
+```sh
+PLAYWRIGHT=/path/to/playwright node test/browser-language.mjs /path/to/dsh/lib/bin.js
+```
+
+## License
+
+MIT
