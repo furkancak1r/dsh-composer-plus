@@ -437,3 +437,9 @@ Review (subagent, read-only, 2026-10-19): 14 findings (2 P1, 7 P2, 5 P3), all fi
 - P2 rule 7 `load` replaced spans → merge. P2 delete of live/locked subagent logs → every family log is idle+flushed or write-locked before anything moves; one failure moves nothing (tests: subagent held elsewhere, live subagent stuck, live subagent flushed).
 - P3: `forget` the family's rollback stores after a delete (test); EXDEV pre-check before archiving on non-macOS; README states the object-file time stamp refresh, text-only refill, the 10 s wait, the same-disk rule and that a deleted open chat stays in memory until restart; the MutationObserver watches `[data-chat-flow]` (re-attached every 2 s) and refreshes at most once per frame.
 - Checks after the fixes: `npm test` exit 0; `test/browser-turn-rollback.mjs` PASS on 0.2.1-rc.2 and 0.2.0-rc.2; `TRASH=1` once on 0.2.1-rc.2 (user approved): "the macOS Trash" path taken, the folder left `sessions/` (this process cannot list `~/.Trash`: macOS privacy).
+
+## 1.9.0 release (2026-10-20)
+- Contents since v1.8.0: Turn rollback and Delete chat (issue #2, sections above).
+- main 35ee510 (branch CI 39377378929 and main CI 39377559271 green). `npm pack --dry-run`: 46 files.
+- Stopped before the GitHub release on the owner's request: creating `v1.9.0` publishes to npm through release.yml (trusted publishing). The owner runs `gh release create v1.9.0 …`.
+- Live desktop copy updated to 1.9.0: client (module id `@local/dsh-composer-history` kept; otherwise equal to the repo), index.js, the 22 shots, locale meta, `tether/gateway/*`, manifest (version, description, client inject list); its own `cordis.patch.yml` already has the same content-search row (no new patch rows in 1.9.0). Backup: `~/Documents/testdeepseekharness/backup-before-v190-20261020-085824`. dsh not restarted: the features start after the user's next dsh restart.
