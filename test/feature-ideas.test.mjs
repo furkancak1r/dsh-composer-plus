@@ -215,6 +215,23 @@ try {
   res = await lpost({ sessionId: 'src-1', start: res.body.ideas[0].id, plan: false });
   assert.deepEqual(res.body, { sessionId: 'new-1', plan: false, ideas: [] }, 'Build now from the list');
   assert.equal(hostRun.calls.filter((c) => c[0] === 'execute').length, executes, 'no /plan for Build now'); assert.match(hostRun.calls.at(-1)[3], /Pantry tracker[\s\S]*make the smallest change/);
+  // Plan all: one plan-mode chat for the ids the user saw; an idea added meanwhile stays.
+  const planAllBad = [{ sessionId: 's', startAll: [] }, { sessionId: 's', startAll: ['a'] }, { sessionId: 's', startAll: ['a', 'a'] }, { sessionId: 's', startAll: ['a', 7] }, { sessionId: 's', startAll: 'a' }];
+  for (const bad of planAllBad) assert.equal((await lpost(bad)).status, 400, JSON.stringify(bad));
+  for (const title of ['Pantry tracker', 'Shopping list', 'Meal plan']) res = await lpost({ sessionId: 'src-1', add: { title, summary: `${title} summary.`, why: title === 'Meal plan' ? 'Less waste.' : undefined } });
+  const shownIds = res.body.ideas.map((i) => i.id);
+  res = await lpost({ sessionId: 'src-1', add: { title: 'Timer', summary: 'Start a timer.' } }); const added = res.body.ideas[0].id;
+  assert.equal((await lpost({ sessionId: 'src-1', startAll: [shownIds[0], 'gone'] })).status, 409, 'a missing idea starts nothing');
+  assert.equal((await lget('?sessionId=src-1')).body.ideas.length, 4, 'and keeps the list');
+  res = await lpost({ sessionId: 'src-1', startAll: shownIds, plan: false });
+  assert.deepEqual({ ...res.body, ideas: res.body.ideas.map((i) => i.id) }, { sessionId: 'new-1', plan: true, ideas: [added] }, 'Plan all always plans; the new idea stays');
+  const allPlan = hostRun.calls.findLast((c) => c[0] === 'execute')[1];
+  assert.equal(allPlan, '/plan Implement these 3 features in this project, as one plan:', 'one /plan for all of them');
+  assert.equal((await lpost({ sessionId: 'src-1', startAll: shownIds })).status, 409, 'started ideas are gone');
+  const allText = ideaPrompt([{ title: 'A', summary: 'Do A.' }, { title: 'B', summary: 'Do B.', why: 'Needed.' }]);
+  assert.match(allText, /^Implement these 2 features[\s\S]*1\. A\nDo A\.\n\n2\. B\nDo B\.\nWhy: Needed\.\n\n[\s\S]*make shared parts once/);
+  assert.equal(ideaPrompt([{ title: 'A', summary: 'Do A.' }]), ideaPrompt({ title: 'A', summary: 'Do A.' }), 'a list of one is the single prompt');
+  res = await lpost({ sessionId: 'src-1', remove: added }); assert.deepEqual(res.body, { ideas: [] });
   res = await lpost({ sessionId: 'src-1', add: { title: 'Timer', summary: 'Start a timer.' } });
   res = await lpost({ sessionId: 'src-1', remove: res.body.ideas[0].id }); assert.deepEqual(res.body, { ideas: [] });
   await writeFile(routeFile, '[]'); res = await lpost({ sessionId: 'src-1', add: { title: 'Timer', summary: 'Start a timer.' } });

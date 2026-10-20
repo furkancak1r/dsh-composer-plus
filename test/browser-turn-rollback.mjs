@@ -1,6 +1,6 @@
 // Real-app check of "Turn rollback" and "Delete chat" on each dsh given: a fake model, a throwaway DSH_HOME, a made-up
 // git project. Never the normal DSH_HOME, no real model and no real project.
-// 0. The composer's stats row starts with the project name.
+// 0. The composer's stats row starts with the project name; a click on it opens the closed project and the chat row blinks.
 // 1. Message 1 → the model edits app.js with bash (a command, not dsh's write tool) and adds notes.md. Message 2 → another
 //    answer. ↶ on message 1 → the popover lists the 2 files → "Chat and files": both messages and replies are hidden, the
 //    composer holds message 1 again, app.js is back, notes.md is gone, and the project's .git is unchanged. The next model
@@ -142,10 +142,19 @@ try {
       const projectPill = page.locator('[data-composer-plus-project]');
       await projectPill.waitFor({ timeout: 10000 });
       assert.equal((await projectPill.innerText()).trim(), 'greeter');
-      assert.equal(await projectPill.getAttribute('title'), project);
+      assert.equal(await projectPill.getAttribute('title'), `${project}\nShow this chat in the sidebar`);
       // dsh 0.2.1 marks each pill (`data-composer-stat`); 0.2.0 has one `data-composer-stats` group.
       const first = await page.evaluate(() => document.querySelector('[data-composer-plus-project], [data-composer-stat], [data-composer-stats]')?.hasAttribute('data-composer-plus-project'));
       assert.equal(first, true, 'the project name comes first in the stats row');
+      // A click finds the chat in the sidebar: close the project first, then the click opens it and the chat row blinks.
+      const projectRow = page.locator('[data-row-key^="workspace:"]').first();
+      if (await projectRow.getAttribute('aria-expanded') === 'true') await projectRow.click();
+      await page.waitForFunction(() => document.querySelector('[data-row-key^="workspace:"]')?.getAttribute('aria-expanded') === 'false');
+      await projectPill.click();
+      await page.waitForFunction(() => document.querySelector('[data-row-key^="session:"][data-composer-plus-locate]') !== null, null, { timeout: 5000 });
+      assert.equal(await projectRow.getAttribute('aria-expanded'), 'true', 'the closed project opens');
+      assert.equal(await page.evaluate(() => getComputedStyle(document.querySelector('[data-composer-plus-locate]')).animationName), 'cp-locate', 'the chat row blinks');
+      await page.waitForFunction(() => document.querySelector('[data-composer-plus-locate]') === null, null, { timeout: 8000 });
       if (process.env.SHOT) {
         const dock = await page.locator('[data-composer-dock]').boundingBox();
         const card = await page.locator('[data-composer-input]').evaluate((el) => { const r = (el.closest('[data-composer-card]') ?? el).getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width }; });

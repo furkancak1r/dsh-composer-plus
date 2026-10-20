@@ -526,6 +526,13 @@ export async function suggestIdeas({ llm, sessionQuery, subprocess, defaultModel
 /** The first message of the chat that works on an accepted idea. With `plan` (the default) it starts in plan mode, so
  * nothing changes before the user approves the plan; without it the model builds the feature at once. */
 export function ideaPrompt(idea, plan = true) {
+  // Plan all (Later list): several ideas in one plan-mode chat, so shared code changes once and in a working order.
+  if (Array.isArray(idea)) {
+    if (idea.length === 1) return ideaPrompt(idea[0], plan);
+    return [`Implement these ${idea.length} features in this project, as one plan:`, '',
+      ...idea.flatMap((i, n) => [`${n + 1}. ${i.title}`, i.summary, ...(i.why ? [`Why: ${i.why}`] : []), '']),
+      'First read the related code. Then plan one set of changes that delivers all of them: make shared parts once, use an order that keeps the project working after each step, and name the checks that prove each feature works.'].join('\n');
+  }
   return [`Implement this feature in this project: ${idea.title}`, '', idea.summary, ...(idea.why ? ['', `Why: ${idea.why}`] : []), '',
     plan ? 'First read the related code. Then plan the smallest change that delivers this feature, with the checks that prove it works.'
       : 'First read the related code. Then make the smallest change that delivers this feature, and run the checks that prove it works.'].join('\n');
@@ -542,7 +549,8 @@ async function chatFolder(sessionQuery, sessionId, signal) {
 
 /** Start a new chat in the same project (the same sidebar group as the source chat) for one accepted idea, and enter plan
  * mode with the idea as the request. When the profile has no /plan command, or /plan fails, the idea goes as an ordinary
- * message. `{ plan: false }` (Build now) skips plan mode: the idea goes as an ordinary message that asks for the change. */
+ * message. `{ plan: false }` (Build now) skips plan mode: the idea goes as an ordinary message that asks for the change.
+ * `idea` can be a list (Plan all): one chat plans all of them. */
 export async function startIdeaChat({ sessionController, sessionQuery, commands, workspaces }, sessionId, idea, signal = new AbortController().signal, { plan: wantPlan = true } = {}) {
   const cwd = await chatFolder(sessionQuery, sessionId, signal);
   let workspace;
@@ -1249,21 +1257,31 @@ function installIdeas(ctx, home) {
       else try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
       if (!isText(body?.sessionId)) return json({ error: 'bad request' }, 400);
       const add = body.add === undefined ? undefined : ideaFrom(body.add);
-      const action = request.method === 'GET' ? 'list' : body.add !== undefined ? 'add' : isText(body.remove) ? 'remove' : isText(body.start) ? 'start' : undefined;
-      if (action === undefined || (action === 'add' && add === undefined)) return json({ error: 'bad request' }, 400);
+      // `startAll`: the ids the user saw (2 or more, no repeats), so an idea that another window added meanwhile stays.
+      const all = Array.isArray(body.startAll) && body.startAll.length >= 2 && body.startAll.length <= LATER_MAX && body.startAll.every((id) => isText(id))
+        && new Set(body.startAll).size === body.startAll.length ? body.startAll : undefined;
+      const action = request.method === 'GET' ? 'list' : body.add !== undefined ? 'add' : isText(body.remove) ? 'remove' : isText(body.start) ? 'start'
+        : body.startAll !== undefined ? 'startAll' : undefined;
+      if (action === undefined || (action === 'add' && add === undefined) || (action === 'startAll' && all === undefined)) return json({ error: 'bad request' }, 400);
       try {
         const cwd = await chatFolder(ctx.sessionQuery, body.sessionId, request.signal);
         if (action === 'list') return json({ ideas: await later.list(cwd) });
         if (action === 'add') return json({ ideas: await later.add(cwd, add) });
         if (action === 'remove') return json({ ideas: await later.remove(cwd, body.remove) });
-        const idea = (await later.list(cwd)).find((i) => i.id === body.start);
-        const key = `${cwd}\0${body.start}`;
-        if (idea === undefined || starting.has(key)) return json({ error: 'this idea is no longer in the list' }, 409);
-        starting.add(key);
+        const ids = action === 'start' ? [body.start] : all;
+        const list = await later.list(cwd);
+        const ideas = ids.map((id) => list.find((i) => i.id === id));
+        const keys = ids.map((id) => `${cwd}\0${id}`);
+        if (ideas.includes(undefined) || keys.some((key) => starting.has(key))) return json({ error: 'this idea is no longer in the list' }, 409);
+        for (const key of keys) starting.add(key);
         try {
-          const started = await startIdeaChat(services(), body.sessionId, { title: idea.title, summary: idea.summary, why: idea.why }, request.signal, { plan: body.plan !== false });
-          return json({ ...started, ideas: await later.remove(cwd, idea.id) });
-        } finally { starting.delete(key); }
+          const brief = ideas.map((i) => ({ title: i.title, summary: i.summary, why: i.why }));
+          // Plan all always plans: many features at once without a plan would be a large unreviewed change.
+          const started = await startIdeaChat(services(), body.sessionId, action === 'start' ? brief[0] : brief, request.signal, { plan: action === 'startAll' || body.plan !== false });
+          let left;
+          for (const id of ids) left = await later.remove(cwd, id);
+          return json({ ...started, ideas: left });
+        } finally { for (const key of keys) starting.delete(key); }
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });

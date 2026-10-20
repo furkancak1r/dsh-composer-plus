@@ -7,6 +7,7 @@
 // 5. ↓ on the top card: it flies down and goes to the project's Later list (an owner-only file under DSH_HOME).
 // 6. ▶ (Build now) on the last card: it flies up; a new chat builds the idea at once, without plan mode. After a page
 //    reload, another chat of the same project shows "Later (1)"; Plan there starts a plan-mode chat and empties the list.
+// 7. Two more cards saved for later: "Plan all (2)" starts one plan-mode chat with both ideas and empties the list.
 // PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/featureIdeas.webp (English UI, demo project only).
 import assert from 'node:assert/strict';
@@ -240,9 +241,27 @@ try {
       await page.locator('[data-row-key^="session:"]').filter({ hasText: 'Recipe search review' }).first().click();
       await openIdeas(); await ideasPage.getByRole('button', { name: 'Suggest features' }).waitFor({ timeout: 10000 });
       assert.equal(await ideasPage.locator('[data-composer-plus-ideas-later]').count(), 0, 'no Later button with an empty list');
+      // 7. Plan all: save two new cards, then one plan-mode chat gets both ideas and the list is empty.
+      await ideasPage.getByRole('button', { name: 'Suggest features' }).click(); await top().waitFor({ timeout: 20000 });
+      for (const n of [1, 2]) {
+        await ideasPage.getByRole('button', { name: 'Save for later' }).click();
+        await ideasPage.getByRole('button', { name: `Later (${n})` }).waitFor({ timeout: 10000 });
+      }
+      await ideasPage.getByRole('button', { name: 'Later (2)' }).click();
+      const allRequests = seen.length;
+      await ideasPage.getByRole('button', { name: 'Plan all (2)' }).click();
+      const both = (s) => s.kind === 'chat' && s.all.includes('Implement these 2 features');
+      for (let i = 0; i < 80 && !seen.slice(allRequests).some(both); i++) await pause(250);
+      const planAll = seen.slice(allRequests).find(both);
+      assert.ok(planAll, 'one new chat gets all the saved ideas');
+      assert.ok(planAll.all.includes(IDEAS[0].title) && planAll.all.includes(IDEAS[1].title) && !planAll.all.includes(FIRST_CHAT), 'both ideas, in a new chat');
+      assert.equal(seen.slice(allRequests).filter((s) => s.kind === 'chat' && s.all.includes(IDEAS[0].title) && !both(s)).length, 0, 'no chat per idea');
+      await page.locator('[data-chat-flow]').getByText('Implement these 2 features', { exact: false }).first().waitFor({ timeout: 20000 });
+      await planChip.first().waitFor({ timeout: 20000 });
+      assert.deepEqual(JSON.parse(await readFile(laterFile, 'utf8')), {}, 'Plan all empties the list');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: Ideas page → no model call before the click → one call with the project brief (no secret) → drag left skips, a short drag springs back, Undo, ← → ✓ starts a new chat in plan mode with the idea → ↓ saves for later (0600 file, per project) → ▶ Build now starts a chat without plan mode → reload, other chat shows Later (1) → Plan starts a plan-mode chat and empties the list`);
+      console.log(`PASS ${bin}: Ideas page → no model call before the click → one call with the project brief (no secret) → drag left skips, a short drag springs back, Undo, ← → ✓ starts a new chat in plan mode with the idea → ↓ saves for later (0600 file, per project) → ▶ Build now starts a chat without plan mode → reload, other chat shows Later (1) → Plan starts a plan-mode chat and empties the list → Plan all (2) starts one plan-mode chat with both ideas`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});

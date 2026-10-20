@@ -7,13 +7,13 @@ const mem = new Map(); globalThis.localStorage = { getItem: (k) => (mem.has(k) ?
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
 globalThis.document = { visibilityState: 'visible', hasFocus: () => true, addEventListener() {}, removeEventListener() {} };
 // The helpers are module-private: run the module source with a hook that hands them out.
-eval(src.replace('function IdeasTitle({ t })', 'globalThis.__ideas = { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, IdeaCard, loadLater, laterIdea, startLater, removeLater };\n    function IdeasTitle({ t })'));
+eval(src.replace('function IdeasTitle({ t })', 'globalThis.__ideas = { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, IdeaCard, loadLater, laterIdea, startLater, startAllLater, removeLater };\n    function IdeasTitle({ t })'));
 let state = [], si = 0; const effects = [];
 const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment: 'F',
   useState: (v) => { const i = si++; if (!(i in state)) state[i] = typeof v === 'function' ? v() : v; return [state[i], (x) => { state[i] = typeof x === 'function' ? x(state[i]) : x; }]; },
   useRef: (v) => ({ current: v }), useEffect: (f) => { effects.push(f); } };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Input: 'Input' } : {}));
-const { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, loadLater, laterIdea, startLater, removeLater } = globalThis.__ideas;
+const { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, loadLater, laterIdea, startLater, startAllLater, removeLater } = globalThis.__ideas;
 
 // Swipe decision: 30 % of the width (at least 40 px), or a fast flick in the same direction.
 assert.equal(swipeDecision(0, 300), null); assert.equal(swipeDecision(89, 300), null); assert.equal(swipeDecision(90, 300), 'right'); assert.equal(swipeDecision(-90, 300), 'left');
@@ -165,8 +165,8 @@ state = []; page = render('chat-1'); find(page, (n) => n.t === 'button' && text(
   postGate = gate(); const save = laterIdea(L, 'later-a'); assert.equal(L.status, 'saving'); assert.deepEqual(L.cards.map((c) => c.id), ['i201', 'i202']);
   const before = sent.length;
   await suggestIdeas(L, 'later-a'); await decideIdea(L, 'later-a', 'right'); await laterIdea(L, 'later-a'); await removeLater(L, 'later-a', 's-Old'); await startLater(L, 'later-a', saved('Old'));
-  await decideIdea(L, 'later-a', 'up'); await startLater(L, 'later-a', saved('Old'), undefined, true);
-  assert.equal(sent.length, before, 'no load, start, Build now, second save or list change while a save runs');
+  await decideIdea(L, 'later-a', 'up'); await startLater(L, 'later-a', saved('Old'), undefined, true); await startAllLater(L, 'later-a');
+  assert.equal(sent.length, before, 'no load, start, Build now, Plan all, second save or list change while a save runs');
   postGate.go(); await save; postGate = undefined;
   assert.deepEqual(sent.at(-1), ['/api/composer-plus.later', { sessionId: 'later-a', add: { title: 'Idea 200', summary: 'Does 200.', why: 'Faster.', effort: 'small' } }]);
   assert.deepEqual(L.later.map((i) => i.title), ['Idea 200', 'Old']); assert.equal(L.status, 'ready'); assert.equal(L.error, undefined);
@@ -223,6 +223,17 @@ state = []; page = render('chat-1'); find(page, (n) => n.t === 'button' && text(
   assert.deepEqual(sent.at(-1), ['/api/composer-plus.later', { sessionId: 'later-a', start: 's-Idea 201', plan: false }]);
   assert.equal(opened.at(-1), 'now-L'); assert.equal(L.accepted[0].now, true); assert.equal(L.later.length, 2);
   L.later = keep; // the checks below start from the 3 ideas
+  // Plan all: the head button (2 or more ideas) sends the ids shown, then the chat opens; disabled while it starts.
+  view = go('later-a'); const planAll = () => find(view, (n) => n.t === 'button' && n.p['data-composer-plus-ideas-plan-all'] === '');
+  assert.equal(text(planAll()), 'ideas.planAll:3'); assert.equal(planAll().p.disabled, false);
+  laterReply = () => ({ status: 200, body: { sessionId: 'all-L', plan: true, ideas: [] } });
+  const all = planAll().p.onClick(); view = go('later-a'); assert.equal(planAll().p.disabled, true, 'Plan all is disabled while it starts');
+  await all;
+  assert.deepEqual(sent.at(-1), ['/api/composer-plus.later', { sessionId: 'later-a', startAll: keep.map((i) => i.id) }]);
+  assert.equal(opened.at(-1), 'all-L'); assert.equal(L.accepted[0].title, keep.map((i) => i.title).join(' + ')); assert.equal(L.accepted[0].now, undefined);
+  L.later = [keep[0]]; view = go('later-a'); assert.equal(planAll(), undefined, 'no Plan all for one idea');
+  const n1 = sent.length; await startAllLater(L, 'later-a'); assert.equal(sent.length, n1, 'and no request');
+  L.later = keep;
   // A failed start shows why and reads the list again (another window can have changed it).
   laterReply = (body) => (body === undefined ? { status: 200, body: { ideas: L.later.filter((i) => i.id !== 's-Timer') } } : { status: 409, body: { error: 'this idea is no longer in the list' } });
   view = go('later-a'); await button(items()[2], 'ideas.plan').p.onClick(); await new Promise((r) => setTimeout(r, 0));

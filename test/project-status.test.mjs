@@ -1,5 +1,5 @@
 // Runs the real client.js ProjectStatusMarkers with fake React/DOM: a project row shows the same status as its
-// chats (pending > running incl. subagents > unread done), ignores archived/blank/subagent chats, and portals
+// chats (pending > unread done > running incl. subagents), ignores archived/blank/subagent chats, and portals
 // the marker into each `workspace:<id>` row.
 import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
 const src=readFileSync(new URL('../client.js',import.meta.url),'utf8');
@@ -26,13 +26,17 @@ const render=()=>{si=0;layout=[];return C({useWorkspaces:f=>f(workspaces),useSes
 render();layout[0]();const out=render();
 const marks=Object.fromEntries(out.c.map(p=>[p.key,{state:p.portal.c[0].p.state,label:p.portal.p.title,host:p.host}]));
 assert.deepEqual(Object.keys(marks).sort(),['w1','w2'],'w3 only has an archived chat');
-assert.equal(marks.w1.state,'ongoing','running beats unread done');assert.equal(marks.w1.label,'project.running:1');
+// A finished chat that is not opened yet shows its green dot also while another chat of the project runs.
+assert.equal(marks.w1.state,'done','unread done beats running');assert.equal(marks.w1.label,'project.done · project.running:1','the label still says one runs');
 assert.equal(marks.w2.state,'warning','approval wins over subagent running; blank chat ignored');assert.equal(marks.w2.label,'project.approval');
 assert.equal(marks.w1.host,rows[0].children[0],'portaled into the project row');
 statuses.delete('d');list.byId.b[1]=undefined;Object.assign(list.byId.b,{running:false});
 const out2=render();const m2=Object.fromEntries(out2.c.map(p=>[p.key,p.portal.c[0].p.state]));
 assert.deepEqual(m2,{w1:'done',w2:'ongoing'},'unread done; subagent running counts for its parent');
-statuses.delete('a');statuses.delete('kid');assert.equal(render().c.length,0,'idle projects show nothing');
+statuses.delete('a');Object.assign(list.byId.b,{running:true});
+const m3=Object.fromEntries(render().c.map(p=>[p.key,p.portal.c[0].p.state]));
+assert.equal(m3.w1,'ongoing','once the done chat is opened (no green dot), the running chat shows');
+Object.assign(list.byId.b,{running:false});statuses.delete('kid');assert.equal(render().c.length,0,'idle projects show nothing');
 console.log('project-status checks passed');
 
 // Active projects first: the real watcher moves running/waiting projects above idle ones with dsh's insertBefore,
@@ -53,6 +57,11 @@ console.log('project-status checks passed');
   assert.deepEqual(items.map(i=>i.workspaceId),['p3','p4','p1','p2'],'running and waiting projects go to the top in their order');
   calls.length=0;byId.s3.running=false;st.set('s3',{completionUnread:true});st.delete('s4');listeners.forEach(f=>f());await tick();
   assert.deepEqual(calls,[],'finished projects stay where they are');
+  // A project with a green dot and a running chat is still active: it goes to the top.
+  calls.length=0;st.set('s1',{completionUnread:true});byId.s1.running=false;byId.s4.running=true;st.set('s4',{completionUnread:true});listeners.forEach(f=>f());await tick();await tick();
+  assert.deepEqual(items.map(i=>i.workspaceId),['p4','p3','p1','p2'],'done + running still counts as active');
+  byId.s4.running=false;st.delete('s4');st.delete('s1');st.delete('s3');listeners.forEach(f=>f());await tick();
+  items=['p3','p4','p1','p2'].map(id=>items.find(i=>i.workspaceId===id));calls.length=0;
   byId.s2.running=true;listeners.forEach(f=>f());listeners.forEach(f=>f());await tick();await tick();
   assert.deepEqual(items.map(i=>i.workspaceId),['p2','p3','p4','p1']);assert.equal(calls.length,1,'overlapping updates move once');
   stop();assert.equal(listeners.length,0,'unsubscribes');
