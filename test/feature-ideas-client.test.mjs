@@ -7,13 +7,13 @@ const mem = new Map(); globalThis.localStorage = { getItem: (k) => (mem.has(k) ?
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
 globalThis.document = { visibilityState: 'visible', hasFocus: () => true, addEventListener() {}, removeEventListener() {} };
 // The helpers are module-private: run the module source with a hook that hands them out.
-eval(src.replace('function IdeasTitle({ t })', 'globalThis.__ideas = { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, IdeaCard, loadLater, laterIdea, startLater, startAllLater, removeLater };\n    function IdeasTitle({ t })'));
+eval(src.replace('function IdeasTitle({ t })', 'globalThis.__ideas = { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, IdeaCard, loadLater, laterIdea, startLater, startAllLater, removeLater, loadHistory, forgetHistory };\n    function IdeasTitle({ t })'));
 let state = [], si = 0; const effects = [];
 const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment: 'F',
   useState: (v) => { const i = si++; if (!(i in state)) state[i] = typeof v === 'function' ? v() : v; return [state[i], (x) => { state[i] = typeof x === 'function' ? x(state[i]) : x; }]; },
   useRef: (v) => ({ current: v }), useEffect: (f) => { effects.push(f); } };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Input: 'Input' } : {}));
-const { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, loadLater, laterIdea, startLater, startAllLater, removeLater } = globalThis.__ideas;
+const { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, loadLater, laterIdea, startLater, startAllLater, removeLater, loadHistory, forgetHistory } = globalThis.__ideas;
 
 // Swipe decision: 30 % of the width (at least 40 px), or a fast flick in the same direction.
 assert.equal(swipeDecision(0, 300), null); assert.equal(swipeDecision(89, 300), null); assert.equal(swipeDecision(90, 300), 'right'); assert.equal(swipeDecision(-90, 300), 'left');
@@ -244,6 +244,33 @@ state = []; page = render('chat-1'); find(page, (n) => n.t === 'button' && text(
   view = go('later-a'); await button(items()[0], 'ideas.remove').p.onClick(); assert.deepEqual(L.later, []);
   view = go('later-a'); assert.equal(state[2], 'cards', 'an empty list goes back to the cards'); assert.equal(items().length, 0);
   assert.ok(!laterButton(view), 'no Later button without saved ideas');
+  // History: the head button opens the project's earlier ideas (read from the Host); Forget and Forget all ask the Host.
+  laterReply = (body) => (body === undefined ? { status: 200, body: { ideas: [{ ...saved('Old idea'), started: true }, saved('Skipped one')] } } : { status: 200, body: { ideas: body.clear ? [] : [saved('Skipped one')] } });
+  state = []; view = go('later-a');
+  const historyButton = () => find(view, (n) => n.t === 'button' && n.p['data-composer-plus-ideas-history'] === '');
+  assert.equal(text(historyButton()), 'ideas.history');
+  await historyButton().p.onClick(); await new Promise((r) => setTimeout(r, 0)); view = go('later-a');
+  assert.equal(state[2], 'history'); assert.deepEqual(sent.at(-1), ['/api/composer-plus.idea-history?sessionId=later-a', undefined]);
+  const pastItems = () => { const list = find(view, (n) => n.p?.role === 'list'); return list ? list.c.filter((c) => c?.p?.role === 'listitem') : []; };
+  assert.deepEqual(pastItems().map((i) => i.p['data-composer-plus-past']), ['s-Old idea', 's-Skipped one']);
+  assert.ok(find(pastItems()[0], (n) => text(n) === 'ideas.historyStarted') && find(pastItems()[1], (n) => text(n) === 'ideas.historySuggested'), 'started and suggested are marked');
+  // An idea that is also in the Later list stays avoided: no Forget there, a note instead.
+  const keepLater = L.later; L.later = [saved('Skipped one')]; view = go('later-a');
+  assert.ok(find(pastItems()[1], (n) => text(n) === 'ideas.historySaved') && !find(pastItems()[1], (n) => text(n) === 'ideas.historyForget'));
+  L.later = keepLater; view = go('later-a');
+  assert.equal(press('ArrowRight'), 0, 'card keys do nothing in the history');
+  await find(pastItems()[0], (n) => n.t === 'button' && text(n) === 'ideas.historyForget').p.onClick();
+  assert.deepEqual(sent.at(-1), ['/api/composer-plus.idea-history', { sessionId: 'later-a', remove: 's-Old idea' }]); view = go('later-a');
+  assert.deepEqual(pastItems().map((i) => i.p['data-composer-plus-past']), ['s-Skipped one']);
+  // One change at a time: no Forget while another history change runs.
+  postGate = gate(); const forgetting = forgetHistory(L, 'later-a', { clear: true }); const n2 = sent.length;
+  await forgetHistory(L, 'later-a', { remove: 's-Skipped one' }); await loadHistory(L, 'later-a'); assert.equal(sent.length, n2, 'no second history request while one runs');
+  postGate.go(); await forgetting; postGate = undefined; view = go('later-a'); assert.deepEqual(L.past, []);
+  assert.ok(find(view, (n) => text(n) === 'ideas.historyEmpty'), 'an empty history says so');
+  // A failed read shows only the error, no "saving" note.
+  L.past = undefined; laterReply = () => ({ status: 500, body: { error: 'disk full' } }); await loadHistory(L, 'later-a'); view = go('later-a');
+  assert.equal(L.error, 'disk full'); assert.ok(!find(view, (n) => text(n) === 'ideas.saving'), 'no saving note after a failed read');
+  find(view, (n) => n.t === 'button' && n.p['data-composer-plus-ideas-back'] === '').p.onClick(); view = go('later-a'); assert.equal(state[2], 'cards');
   globalThis.fetch = realFetch;
 }
 

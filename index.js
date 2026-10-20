@@ -33,6 +33,7 @@ export const MOBILE_PATH = '/api/composer-plus.mobile';
 export const RESUME_PATH = '/api/composer-plus.resume';
 export const IDEAS_PATH = '/api/composer-plus.ideas';
 export const LATER_PATH = '/api/composer-plus.later';
+export const HISTORY_PATH = '/api/composer-plus.idea-history';
 export const CONTENT_SEARCH_PATH = '/api/composer-plus.content-search';
 export const ROLLBACK_PATH = '/api/composer-plus.rollback';
 export const DELETE_CHAT_PATH = '/api/composer-plus.delete-chat';
@@ -494,15 +495,49 @@ function ideasRoute(events, defaultModel) {
   return undefined;
 }
 
+/** Same idea title: case and spaces do not count. */
+const titleKey = (title) => String(title ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+/** Earlier ideas per project, newest first: everything the model suggested there, `started` once a chat started for it.
+ * At most this many; the oldest leave first. The model is told not to suggest them again. */
+export const HISTORY_MAX = 200;
+const AVOID_SHOWN = 120;
+export function ideaHistory(store) {
+  const entry = (i, extra = {}) => ({ id: randomUUID(), title: i.title, summary: i.summary, ...(i.why ? { why: i.why } : {}), ...(i.effort ? { effort: i.effort } : {}), at: Date.now(), ...extra });
+  return {
+    list: store.list,
+    remove: store.remove,
+    clear: (cwd) => store.change(cwd, () => []),
+    /** New ideas go on top; a title that is already there stays where it is. */
+    record: (cwd, ideas) => store.change(cwd, (list) => {
+      const known = new Set(list.map((i) => titleKey(i.title)));
+      const fresh = ideas.filter((i) => !known.has(titleKey(i.title)) && known.add(titleKey(i.title))).map((i) => entry(i));
+      return [...fresh, ...list].slice(0, HISTORY_MAX);
+    }),
+    /** A chat started for these ideas (also ideas saved for later before the history existed). */
+    started: (cwd, ideas) => store.change(cwd, (list) => {
+      const keys = new Set(ideas.map((i) => titleKey(i.title)));
+      const known = new Set(list.map((i) => titleKey(i.title)));
+      const missing = ideas.filter((i) => !known.has(titleKey(i.title))).map((i) => entry(i, { started: true }));
+      return [...missing, ...list.map((i) => (keys.has(titleKey(i.title)) ? { ...i, started: true } : i))].slice(0, HISTORY_MAX);
+    }),
+  };
+}
+
 /** One model call for feature ideas about the chat's project, written in `locale` (the dsh UI language) when given.
- * Read-only: no chat message, nothing written to the project. */
-export async function suggestIdeas({ llm, sessionQuery, subprocess, defaultModel }, sessionId, signal, locale) {
+ * `avoid(cwd)` names the earlier ideas (history and the Later list): the model is told to skip them, and a repeated title
+ * is dropped. `record(cwd, ideas)` keeps the new ones. Read-only for the project: no chat message, nothing written there. */
+export async function suggestIdeas({ llm, sessionQuery, subprocess, defaultModel, avoid, record }, sessionId, signal, locale) {
   const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
   let cwd, route;
   try { cwd = observation.header?.cwd; route = ideasRoute(observation.events ?? [], defaultModel); } finally { observation[Symbol.dispose]?.(); }
   if (!isText(cwd, 4096)) throw Object.assign(new Error('this chat has no project folder'), { status: 409 });
   if (route === undefined) throw Object.assign(new Error('no model is selected'), { status: 409 });
   const brief = await projectBrief(cwd, { subprocess, signal });
+  const earlier = [...new Set((await avoid?.(cwd) ?? []).map((title) => clip(title, 120)).filter(Boolean))];
+  const seen = new Set(earlier.map(titleKey));
+  // The model sees the newest titles only (about 15 kB at most, like the brief); the filter below checks all of them.
+  const shown = earlier.slice(0, AVOID_SHOWN);
+  const asked = shown.length === 0 ? '' : `\n\nEarlier ideas for this project. Do not suggest any of them again, also not under another name:\n${shown.map((title) => `- ${title}`).join('\n')}`;
   const timeout = AbortSignal.timeout(IDEAS_TIMEOUT_MS);
   const callSignal = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
   const call = await llm.prepareCall(route, callSignal, (controls, model) => {
@@ -515,12 +550,16 @@ export async function suggestIdeas({ llm, sessionQuery, subprocess, defaultModel
   let text = '';
   let finish;
   for await (const chunk of call.stream({ ...call.config, system: `${IDEAS_SYSTEM}\n${ideasLanguage(locale)}`, signal: callSignal,
-    messages: [{ role: 'user', content: [{ type: 'text', text: `Project folder name: ${cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? ''}\n\n${brief}` }] }] })) {
+    messages: [{ role: 'user', content: [{ type: 'text', text: `Project folder name: ${cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? ''}\n\n${brief}${asked}` }] }] })) {
     if (chunk.type === 'text-delta') text += chunk.text;
     else if (chunk.type === 'finish') finish = chunk.reason;
   }
   if (finish?.kind === 'error' || finish?.kind === 'aborted') throw new Error(finish.failure?.message || `the model call ended: ${finish.kind}`);
-  return { ideas: parseIdeas(text), model: route.model };
+  const ideas = parseIdeas(text).filter((i) => !seen.has(titleKey(i.title)) && seen.add(titleKey(i.title)));
+  if (ideas.length === 0) throw new Error('the model suggested only earlier ideas; try again');
+  // ponytail: a failed history write does not hide the new cards; they can come again next time.
+  try { await record?.(cwd, ideas); } catch { /* best-effort */ }
+  return { ideas, model: route.model };
 }
 
 /** The first message of the chat that works on an accepted idea. With `plan` (the default) it starts in plan mode, so
@@ -550,7 +589,7 @@ async function chatFolder(sessionQuery, sessionId, signal) {
 /** Start a new chat in the same project (the same sidebar group as the source chat) for one accepted idea, and enter plan
  * mode with the idea as the request. When the profile has no /plan command, or /plan fails, the idea goes as an ordinary
  * message. `{ plan: false }` (Build now) skips plan mode: the idea goes as an ordinary message that asks for the change.
- * `idea` can be a list (Plan all): one chat plans all of them. */
+ * `idea` can be a list (Plan all): one chat plans all of them. Returns the new chat, whether it plans, and the project folder. */
 export async function startIdeaChat({ sessionController, sessionQuery, commands, workspaces }, sessionId, idea, signal = new AbortController().signal, { plan: wantPlan = true } = {}) {
   const cwd = await chatFolder(sessionQuery, sessionId, signal);
   let workspace;
@@ -563,7 +602,7 @@ export async function startIdeaChat({ sessionController, sessionQuery, commands,
   try { planned = !wantPlan || commands?.find?.(found.agent, 'plan') === undefined ? undefined : await commands.execute(found.agent, `/plan ${text}`, [], signal); } catch { planned = undefined; }
   const plan = planned?.result?.kind === 'success';
   if (!plan) await sessionController.prompt({ requestId: randomUUID(), sessionId: created, mode: 'queue', content: [{ type: 'text', text }] }, signal);
-  return { sessionId: created, plan };
+  return { sessionId: created, plan, cwd };
 }
 
 /** Ideas saved for later: at most this many per project. A full list refuses a new idea; it never drops an old one. */
@@ -604,6 +643,8 @@ export function laterStore(file) {
     }),
     /** One id, or a list of ids in one write. */
     remove: (cwd, id) => update(cwd, (list) => list.filter((i) => (Array.isArray(id) ? !id.includes(i.id) : i.id !== id))),
+    /** Any change to one project's list, in order with the others (the idea history uses it). */
+    change: update,
   };
 }
 
@@ -1220,14 +1261,22 @@ function installContentSearch(ctx, home) {
   });
 }
 
-/** Feature ideas: `POST {sessionId, locale?}` asks the chat's model for ideas; `POST {sessionId, idea}` starts a chat for one idea.
- * Ideas saved for later: `GET ?sessionId` lists the project's ideas; `POST {sessionId, add | remove | start}` changes the list
- * (`start` starts a chat for the stored idea and removes it once the chat runs). All act only on the chat's own project
- * folder; the browser never sends a path. */
+/** Feature ideas: `POST {sessionId, locale?}` asks the chat's model for ideas (never one from the project's history or
+ * Later list); `POST {sessionId, idea}` starts a chat for one idea.
+ * Ideas saved for later: `GET ?sessionId` lists the project's ideas; `POST {sessionId, add | remove | start | startAll}`
+ * changes the list (`start` starts a chat for the stored idea and removes it once the chat runs).
+ * Idea history: `GET ?sessionId` lists the project's earlier ideas; `POST {sessionId, remove | clear}` forgets one or all.
+ * All act only on the chat's own project folder; the browser never sends a path. */
 function installIdeas(ctx, home) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const status = (error) => (Number.isInteger(error?.status) ? error.status : 502);
   const services = () => ({ sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, commands: get('commands'), workspaces: get('workspaceRegistry') });
+  const later = laterStore(join(home, 'storages', 'dsh-composer-plus', 'later.json'));
+  const history = ideaHistory(laterStore(join(home, 'storages', 'dsh-composer-plus', 'idea-history.json')));
+  // ponytail: the history marks a start best-effort; the chat already runs, so a failed write only loses the mark.
+  const markStarted = async (cwd, ideas) => { try { await history.started(cwd, ideas); } catch { /* best-effort */ } };
+  // ponytail: a broken saved file never blocks Suggest; its titles are just not avoided (the file itself is kept as it is).
+  const titles = async (store, cwd) => { try { return (await store.list(cwd)).map((i) => i.title); } catch { return []; } };
   ctx.connection.fetch.register({
     path: IDEAS_PATH, methods: ['POST'], requestBody: 'buffered',
     fetch: async (request) => {
@@ -1238,17 +1287,36 @@ function installIdeas(ctx, home) {
         const idea = ideaFrom(body.idea);
         if (idea === undefined) return json({ error: 'bad request' }, 400);
         try {
-          return json(await startIdeaChat(services(), body.sessionId, { title: idea.title, summary: idea.summary, why: idea.why }, request.signal, { plan: body.plan !== false }));
+          const { cwd, ...started } = await startIdeaChat(services(), body.sessionId, { title: idea.title, summary: idea.summary, why: idea.why }, request.signal, { plan: body.plan !== false });
+          await markStarted(cwd, [idea]);
+          return json(started);
         } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
       }
       const llm = get('llm');
       if (llm === undefined) return json({ error: 'this dsh profile cannot call a model' }, 409);
       try {
-        return json(await suggestIdeas({ llm, sessionQuery: ctx.sessionQuery, subprocess: ctx.subprocess, defaultModel: get('agentDefaultModel') }, body.sessionId, request.signal, body.locale));
+        // Not again: every earlier suggestion of this project (skipped, started, saved) and the Later list.
+        const avoid = async (cwd) => [...(await titles(history, cwd)), ...(await titles(later, cwd))];
+        return json(await suggestIdeas({ llm, sessionQuery: ctx.sessionQuery, subprocess: ctx.subprocess, defaultModel: get('agentDefaultModel'), avoid, record: history.record },
+          body.sessionId, request.signal, body.locale));
       } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
     },
   });
-  const later = laterStore(join(home, 'storages', 'dsh-composer-plus', 'later.json'));
+  ctx.connection.fetch.register({
+    path: HISTORY_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      let body;
+      if (request.method === 'GET') body = { sessionId: new URL(request.url).searchParams.get('sessionId') };
+      else try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      // POST: `remove` one entry (it may be suggested again) or `clear` the project's history.
+      if (!isText(body?.sessionId) || (request.method === 'POST' && !isText(body.remove) && body.clear !== true)) return json({ error: 'bad request' }, 400);
+      try {
+        const cwd = await chatFolder(ctx.sessionQuery, body.sessionId, request.signal);
+        if (request.method === 'GET') return json({ ideas: await history.list(cwd) });
+        return json({ ideas: body.clear === true ? await history.clear(cwd) : await history.remove(cwd, body.remove) });
+      } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
+    },
+  });
   const starting = new Set(); // `${cwd}\0${id}` of the stored ideas whose chat is starting now
   ctx.connection.fetch.register({
     path: LATER_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
@@ -1278,7 +1346,8 @@ function installIdeas(ctx, home) {
         try {
           const brief = ideas.map((i) => ({ title: i.title, summary: i.summary, why: i.why }));
           // Plan all always plans: many features at once without a plan would be a large unreviewed change.
-          const started = await startIdeaChat(services(), body.sessionId, action === 'start' ? brief[0] : brief, request.signal, { plan: action === 'startAll' || body.plan !== false });
+          const { cwd: _, ...started } = await startIdeaChat(services(), body.sessionId, action === 'start' ? brief[0] : brief, request.signal, { plan: action === 'startAll' || body.plan !== false });
+          await markStarted(cwd, brief);
           return json({ ...started, ideas: await later.remove(cwd, ids) });
         } finally { for (const key of keys) starting.delete(key); }
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }

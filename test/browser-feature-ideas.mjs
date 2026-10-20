@@ -7,7 +7,9 @@
 // 5. ↓ on the top card: it flies down and goes to the project's Later list (an owner-only file under DSH_HOME).
 // 6. ▶ (Build now) on the last card: it flies up; a new chat builds the idea at once, without plan mode. After a page
 //    reload, another chat of the same project shows "Later (1)"; Plan there starts a plan-mode chat and empties the list.
-// 7. Two more cards saved for later: "Plan all (2)" starts one plan-mode chat with both ideas and empties the list.
+// 7. The next suggestion is told the earlier ideas and drops a repeat; two cards saved for later: "Plan all (2)" starts one
+//    plan-mode chat with both ideas and empties the list.
+// 8. History lists the project's earlier ideas, the started ones marked (an owner-only file under DSH_HOME).
 // PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/featureIdeas.webp (English UI, demo project only).
 import assert from 'node:assert/strict';
@@ -31,6 +33,12 @@ const IDEAS = [
   { title: 'Pantry tracker', summary: 'Keep a list of what is at home and mark recipes you can cook now.', why: 'Less food goes to waste.', effort: 'medium' },
   { title: 'Cooking timer steps', summary: 'Start a timer from any step that has a time in it.', why: 'No need to switch apps while cooking.', effort: 'small' },
 ];
+// The second suggestion (after a reload): the model is told the earlier ideas, so the fake answers new ones plus one repeat.
+const MORE_IDEAS = [
+  { title: 'Weekly meal planner', summary: 'Repeat of an earlier idea.', why: 'x', effort: 'small' },
+  { title: 'Grocery price notes', summary: 'Note what an ingredient cost at each shop.', why: 'Cheaper shopping.', effort: 'small' },
+  { title: 'Recipe scaling', summary: 'Scale a recipe to more or fewer people.', why: 'Cook for any group size.', effort: 'medium' },
+];
 const FIRST_CHAT = 'Review the recipe search page';
 // Fake OpenAI-compatible model. Ideas request (system prompt asks for a JSON array) → the list; titles → a title; every
 // other request → a short answer. Every request is recorded.
@@ -45,7 +53,7 @@ const fake = createServer((req, res) => {
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo', choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`;
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const answer = (text) => res.end(chunk({ role: 'assistant', content: text }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
-    if (kind === 'ideas') answer('```json\n' + JSON.stringify(IDEAS) + '\n```');
+    if (kind === 'ideas') answer('```json\n' + JSON.stringify(/Do not suggest any of them again/.test(all) ? MORE_IDEAS : IDEAS) + '\n```');
     else if (kind === 'title') answer(/Weekly meal planner/.test(all) ? 'Weekly meal planner' : /Pantry tracker/.test(all) ? 'Pantry tracker' : /Cooking timer steps/.test(all) ? 'Cooking timer steps' : 'Recipe search review');
     else answer('I will read the related code first and then present a plan.');
   });
@@ -241,8 +249,13 @@ try {
       await page.locator('[data-row-key^="session:"]').filter({ hasText: 'Recipe search review' }).first().click();
       await openIdeas(); await ideasPage.getByRole('button', { name: 'Suggest features' }).waitFor({ timeout: 10000 });
       assert.equal(await ideasPage.locator('[data-composer-plus-ideas-later]').count(), 0, 'no Later button with an empty list');
-      // 7. Plan all: save two new cards, then one plan-mode chat gets both ideas and the list is empty.
+      // 7. Plan all: save two new cards, then one plan-mode chat gets both ideas and the list is empty. The model is told
+      //    the 4 earlier ideas, and the repeated one never shows as a card.
       await ideasPage.getByRole('button', { name: 'Suggest features' }).click(); await top().waitFor({ timeout: 20000 });
+      const secondCall = seen.filter((s) => s.kind === 'ideas').at(-1).all;
+      assert.ok(IDEAS.every((i) => secondCall.includes(`- ${i.title}`)), 'the model sees every earlier idea');
+      assert.equal(await top().getAttribute('aria-label'), MORE_IDEAS[1].title, 'the repeated idea is not a card');
+      await ideasPage.getByText('2 idea(s) left').waitFor();
       for (const n of [1, 2]) {
         await ideasPage.getByRole('button', { name: 'Save for later' }).click();
         await ideasPage.getByRole('button', { name: `Later (${n})` }).waitFor({ timeout: 10000 });
@@ -254,14 +267,28 @@ try {
       for (let i = 0; i < 80 && !seen.slice(allRequests).some(both); i++) await pause(250);
       const planAll = seen.slice(allRequests).find(both);
       assert.ok(planAll, 'one new chat gets all the saved ideas');
-      assert.ok(planAll.all.includes(IDEAS[0].title) && planAll.all.includes(IDEAS[1].title) && !planAll.all.includes(FIRST_CHAT), 'both ideas, in a new chat');
-      assert.equal(seen.slice(allRequests).filter((s) => s.kind === 'chat' && s.all.includes(IDEAS[0].title) && !both(s)).length, 0, 'no chat per idea');
+      assert.ok(planAll.all.includes(MORE_IDEAS[1].title) && planAll.all.includes(MORE_IDEAS[2].title) && !planAll.all.includes(FIRST_CHAT), 'both ideas, in a new chat');
+      assert.equal(seen.slice(allRequests).filter((s) => s.kind === 'chat' && s.all.includes(MORE_IDEAS[1].title) && !both(s)).length, 0, 'no chat per idea');
       await page.locator('[data-chat-flow]').getByText('Implement these 2 features', { exact: false }).first().waitFor({ timeout: 20000 });
       await planChip.first().waitFor({ timeout: 20000 });
       assert.deepEqual(JSON.parse(await readFile(laterFile, 'utf8')), {}, 'Plan all empties the list');
+      // 8. History: every earlier idea of the project, the started ones marked; the file is owner-only.
+      const historyFile = join(home, 'storages/dsh-composer-plus/idea-history.json');
+      assert.equal((await stat(historyFile)).mode & 0o777, 0o600, 'owner-only history file');
+      await page.locator('[data-row-key^="session:"]').filter({ hasText: 'Recipe search review' }).first().click();
+      await openIdeas(); await ideasPage.getByRole('button', { name: 'History' }).click();
+      const pastRows = ideasPage.locator('[data-composer-plus-past]');
+      await pastRows.first().waitFor({ timeout: 10000 });
+      assert.equal(await pastRows.count(), 6, '4 first ideas + 2 new ones (the repeat is not kept twice)');
+      const started = await pastRows.filter({ hasText: 'Started' }).allInnerTexts();
+      for (const title of [IDEAS[1].title, IDEAS[2].title, IDEAS[3].title, MORE_IDEAS[1].title, MORE_IDEAS[2].title]) assert.ok(started.some((t) => t.includes(title)), `${title} is marked started`);
+      assert.ok((await pastRows.filter({ hasText: IDEAS[0].title }).innerText()).includes('Suggested'), 'the skipped idea is only suggested');
+      await ideasPage.getByRole('button', { name: 'Forget all' }).click();
+      await ideasPage.getByText('No earlier ideas yet.').waitFor({ timeout: 10000 });
+      assert.deepEqual(JSON.parse(await readFile(historyFile, 'utf8')), {}, 'Forget all empties the history file');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: Ideas page → no model call before the click → one call with the project brief (no secret) → drag left skips, a short drag springs back, Undo, ← → ✓ starts a new chat in plan mode with the idea → ↓ saves for later (0600 file, per project) → ▶ Build now starts a chat without plan mode → reload, other chat shows Later (1) → Plan starts a plan-mode chat and empties the list → Plan all (2) starts one plan-mode chat with both ideas`);
+      console.log(`PASS ${bin}: Ideas page → no model call before the click → one call with the project brief (no secret) → drag left skips, a short drag springs back, Undo, ← → ✓ starts a new chat in plan mode with the idea → ↓ saves for later (0600 file, per project) → ▶ Build now starts a chat without plan mode → reload, other chat shows Later (1) → Plan starts a plan-mode chat and empties the list → the next suggestion skips earlier ideas → Plan all (2) starts one plan-mode chat with both ideas → History lists all 6, started ones marked → Forget all empties it`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});
