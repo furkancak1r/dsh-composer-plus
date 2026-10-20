@@ -1567,6 +1567,8 @@
     "rollback.failed": "Hoàn tác thất bại: {error}",
     "rollback.skipped": "{count} tệp chưa được khôi phục: {files}",
     "rollback.attachments": "Chỉ có văn bản được khôi phục: hãy thêm lại hình ảnh hoặc tệp của tin nhắn đó.",
+    "feature.projectName": "Tên dự án trong khung soạn",
+    "feature.projectName.description": "Hiển thị tên dự án của cuộc trò chuyện ở bên trái số lượt và số token bên dưới khung soạn. Di chuột lên để xem đường dẫn thư mục.",
     "feature.deleteChat": "Xóa cuộc trò chuyện",
     "feature.deleteChat.description": "Thêm “Xóa…” vào menu của cuộc trò chuyện ở thanh bên. Cuộc trò chuyện dừng lại và lịch sử đã lưu được chuyển vào Thùng rác, nên bạn vẫn có thể lấy lại từ đó.",
     "deleteChat.menu": "Xóa…",

@@ -1567,6 +1567,8 @@
     "rollback.failed": "Zurücknehmen fehlgeschlagen: {error}",
     "rollback.skipped": "{count} Dateien wurden nicht zurückgesetzt: {files}",
     "rollback.attachments": "Nur der Text ist zurück: Füge die Bilder oder Dateien dieser Nachricht erneut hinzu.",
+    "feature.projectName": "Projektname im Eingabefeld",
+    "feature.projectName.description": "Zeigt den Projektnamen des Chats links neben den Runden- und Token-Zählern unter dem Eingabefeld. Fahre mit der Maus darüber, um den Ordnerpfad zu sehen.",
     "feature.deleteChat": "Chat löschen",
     "feature.deleteChat.description": "Fügt dem Menü eines Chats in der Seitenleiste „Löschen…“ hinzu. Der Chat stoppt, und sein gespeicherter Verlauf wird in den Papierkorb verschoben, sodass du ihn dort noch zurückholen kannst.",
     "deleteChat.menu": "Löschen…",

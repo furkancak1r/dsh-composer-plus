@@ -1567,6 +1567,8 @@
     "rollback.failed": "ロールバックに失敗しました：{error}",
     "rollback.skipped": "{count} 個のファイルは戻されませんでした：{files}",
     "rollback.attachments": "戻ったのはテキストだけです。そのメッセージの画像やファイルをもう一度追加してください。",
+    "feature.projectName": "入力欄にプロジェクト名",
+    "feature.projectName.description": "入力欄の下にあるターン数とトークン数の左に、チャットのプロジェクト名を表示します。ポインタを合わせるとフォルダのパスが表示されます。",
     "feature.deleteChat": "チャットを削除",
     "feature.deleteChat.description": "サイドバーのチャットのメニューに「削除…」を追加します。チャットは停止し、保存された履歴はゴミ箱に移動するため、そこから元に戻せます。",
     "deleteChat.menu": "削除…",

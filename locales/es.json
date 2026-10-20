@@ -1567,6 +1567,8 @@
     "rollback.failed": "Error al revertir: {error}",
     "rollback.skipped": "{count} archivos no se restauraron: {files}",
     "rollback.attachments": "Solo volvió el texto: vuelve a añadir las imágenes o los archivos de ese mensaje.",
+    "feature.projectName": "Nombre del proyecto en el compositor",
+    "feature.projectName.description": "Muestra el nombre del proyecto del chat a la izquierda de los contadores de turnos y tokens, debajo del compositor. Pasa el puntero por encima para ver la ruta de la carpeta.",
     "feature.deleteChat": "Eliminar chat",
     "feature.deleteChat.description": "Añade «Eliminar…» al menú de un chat en la barra lateral. El chat se detiene y su historial guardado se mueve a la Papelera, así que aún puedes recuperarlo desde allí.",
     "deleteChat.menu": "Eliminar…",

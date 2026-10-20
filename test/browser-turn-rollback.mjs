@@ -1,5 +1,6 @@
 // Real-app check of "Turn rollback" and "Delete chat" on each dsh given: a fake model, a throwaway DSH_HOME, a made-up
 // git project. Never the normal DSH_HOME, no real model and no real project.
+// 0. The composer's stats row starts with the project name.
 // 1. Message 1 → the model edits app.js with bash (a command, not dsh's write tool) and adds notes.md. Message 2 → another
 //    answer. ↶ on message 1 → the popover lists the 2 files → "Chat and files": both messages and replies are hidden, the
 //    composer holds message 1 again, app.js is back, notes.md is gone, and the project's .git is unchanged. The next model
@@ -137,6 +138,23 @@ try {
       };
       // 1. Two messages; the first one's turn changes files through bash.
       await send(M1, 'Renamed the greeting.');
+      // Project name in the composer: left of dsh's stats pills, the project folder as tooltip.
+      const projectPill = page.locator('[data-composer-plus-project]');
+      await projectPill.waitFor({ timeout: 10000 });
+      assert.equal((await projectPill.innerText()).trim(), 'greeter');
+      assert.equal(await projectPill.getAttribute('title'), project);
+      // dsh 0.2.1 marks each pill (`data-composer-stat`); 0.2.0 has one `data-composer-stats` group.
+      const first = await page.evaluate(() => document.querySelector('[data-composer-plus-project], [data-composer-stat], [data-composer-stats]')?.hasAttribute('data-composer-plus-project'));
+      assert.equal(first, true, 'the project name comes first in the stats row');
+      if (process.env.SHOT) {
+        const dock = await page.locator('[data-composer-dock]').boundingBox();
+        const card = await page.locator('[data-composer-input]').evaluate((el) => { const r = (el.closest('[data-composer-card]') ?? el).getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width }; });
+        const shot = join(home, 'project-name.png');
+        const top = card.y - 12; const left = Math.max(0, Math.min(card.x, dock.x) - 12);
+        const right = Math.min(1280, Math.max(card.x + card.width, dock.x + dock.width) + 12);
+        await page.screenshot({ path: shot, clip: { x: left, y: top, width: right - left, height: dock.y + dock.height - top + 10 } });
+        execFileSync('cwebp', ['-q', '82', shot, '-o', join(repo, 'assets/features/projectName.webp')], { stdio: 'ignore' });
+      }
       assert.equal(await readFile(join(project, 'app.js'), 'utf8'), 'console.log("Hello, world");\n', 'the model changed app.js');
       await send(M2, 'Added the comment.');
       const userRows = page.locator('[data-chat-flow-kind="user"]');

@@ -3031,6 +3031,8 @@
     "rollback.failed": "Geri alma başarısız: {error}",
     "rollback.skipped": "{count} dosya eski hâline döndürülmedi: {files}",
     "rollback.attachments": "Yalnızca metin geri geldi: o mesajın görsellerini veya dosyalarını yeniden ekleyin.",
+    "feature.projectName": "Yazma kutusunda proje adı",
+    "feature.projectName.description": "Sohbetin proje adını, yazma kutusunun altındaki tur ve token sayılarının soluna yazar. Klasör yolunu görmek için üzerine gelin.",
     "feature.deleteChat": "Sohbeti sil",
     "feature.deleteChat.description": "Kenar çubuğundaki sohbet menüsüne “Sil…” seçeneğini ekler. Sohbet durur ve kayıtlı geçmişi Çöp Sepeti’ne taşınır. Böylece sohbeti oradan geri alabilirsiniz.",
     "deleteChat.menu": "Sil…",

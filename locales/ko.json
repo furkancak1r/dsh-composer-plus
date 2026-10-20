@@ -1567,6 +1567,8 @@
     "rollback.failed": "되돌리기 실패: {error}",
     "rollback.skipped": "파일 {count}개를 되돌리지 않았습니다: {files}",
     "rollback.attachments": "텍스트만 돌아왔습니다. 그 메시지의 이미지나 파일을 다시 추가하세요.",
+    "feature.projectName": "입력창에 프로젝트 이름",
+    "feature.projectName.description": "입력창 아래의 턴 수와 토큰 수 왼쪽에 채팅의 프로젝트 이름을 표시합니다. 포인터를 올리면 폴더 경로가 보입니다.",
     "feature.deleteChat": "채팅 삭제",
     "feature.deleteChat.description": "사이드바의 채팅 메뉴에 “삭제…”를 추가합니다. 채팅이 중지되고 저장된 기록이 휴지통으로 이동하므로 휴지통에서 다시 되살릴 수 있습니다.",
     "deleteChat.menu": "삭제…",

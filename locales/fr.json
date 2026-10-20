@@ -1567,6 +1567,8 @@
     "rollback.failed": "Échec de l’annulation : {error}",
     "rollback.skipped": "{count} fichiers n’ont pas été remis en place : {files}",
     "rollback.attachments": "Seul le texte est revenu : ajoutez de nouveau les images ou les fichiers de ce message.",
+    "feature.projectName": "Nom du projet dans la zone de saisie",
+    "feature.projectName.description": "Affiche le nom du projet de la discussion à gauche des compteurs de tours et de jetons, sous la zone de saisie. Survolez-le pour voir le chemin du dossier.",
     "feature.deleteChat": "Supprimer la discussion",
     "feature.deleteChat.description": "Ajoute « Supprimer… » au menu d’une discussion dans la barre latérale. La discussion s’arrête et son historique enregistré est déplacé dans la Corbeille : vous pouvez donc encore la récupérer depuis la Corbeille.",
     "deleteChat.menu": "Supprimer…",

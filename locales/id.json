@@ -1567,6 +1567,8 @@
     "rollback.failed": "Putar balik gagal: {error}",
     "rollback.skipped": "{count} file tidak dikembalikan: {files}",
     "rollback.attachments": "Hanya teksnya yang kembali: tambahkan lagi gambar atau file dari pesan itu.",
+    "feature.projectName": "Nama proyek di kotak pesan",
+    "feature.projectName.description": "Menampilkan nama proyek chat di sebelah kiri jumlah giliran dan token di bawah kotak pesan. Arahkan penunjuk ke atasnya untuk melihat jalur folder.",
     "feature.deleteChat": "Hapus obrolan",
     "feature.deleteChat.description": "Menambahkan “Hapus…” ke menu obrolan di bilah samping. Obrolan berhenti dan riwayat tersimpannya dipindahkan ke Tong Sampah, jadi Anda masih dapat mengembalikannya dari sana.",
     "deleteChat.menu": "Hapus…",
