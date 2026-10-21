@@ -32,5 +32,6 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | queueReorder | yes | Queued message menu → Move up / Move down. Messages with images move too (the Mac's `queue-move` route). |
 | copyDeeplink | yes | Chat title menu, or touch and hold a chat → Copy session link. |
 | copyProjectPath | yes | Touch and hold a project header in Sessions → Copy path. |
+| projectPicker | yes | New session (✎) → the projects show A–Z, the search box filters them (case and accents ignored), Return picks the first match. |
 | mobileConnect | yes | Tether itself. |
 | autoUpdate | no | Installs the plugin on the Mac. The iPhone app is built and installed separately. |

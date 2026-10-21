@@ -49,6 +49,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **队列拖拽排序** | 排队的消息会带一个把手（⠿）。拖动它即可调整顺序，或者让把手获得焦点后按 `↑` / `↓`。按 `Esc` 取消。 | <a href="assets/features/queueReorder.webp"><img src="assets/features/queueReorder.webp" width="160" alt="队列拖拽排序截图"></a> |
 | **复制会话链接** | 在侧边栏中右键点击对话 → **复制会话链接**。把 `dsh-session:…` 链接粘贴到另一个对话中，即可把那个对话作为只读上下文附加进来。dsh 0.2.1 自带 **复制 Session ID**，它只复制纯 ID；本菜单项紧跟在它后面。 | <a href="assets/features/copyDeeplink.webp"><img src="assets/features/copyDeeplink.webp" width="160" alt="复制会话链接截图"></a> |
 | **复制项目路径** | 在侧边栏中右键点击项目 → **复制路径**，即可复制它的文件夹的完整路径。 | <a href="assets/features/copyProjectPath.webp"><img src="assets/features/copyProjectPath.webp" width="160" alt="复制项目路径截图"></a> |
+| **新对话中的项目搜索** | 新对话 → 输入框上方的项目按钮。项目按 A–Z 顺序显示，顶部有 **搜索项目** 框。输入名称的一部分（不区分大小写和重音符号），按 `Enter` 即可选择第一个匹配项。没有匹配项时会显示 **没有匹配的项目**。侧边栏中 dsh 保存的项目顺序不会改变。 | <a href="assets/features/projectPicker.webp"><img src="assets/features/projectPicker.webp" width="160" alt="新对话中的项目搜索截图"></a> |
 | **本对话内允许** | 当 Auto Review 询问你时，审批卡片上会多出 **本对话内允许**：从此以后，同一对话中的同一工具都会被允许，参数不限。标题栏中的标签会列出这些授权，也可以撤销它们。授权在重启后仍然有效。 | <a href="assets/features/allowForChat.webp"><img src="assets/features/allowForChat.webp" width="160" alt="本对话内允许截图"></a> |
 | **项目状态** | 侧边栏中的项目行会显示与其对话相同的加载图标 / 等待 / 完成标记。因此，即使项目已折叠，你也能知道其中有对话正在运行或需要你处理。等待你处理的对话优先显示，其次是你尚未打开的已完成对话（绿色圆点，即使另一个对话仍在运行也会显示），最后是加载图标。将鼠标悬停在上面可查看详情。 | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="项目状态截图"></a> |
 | **活跃项目置顶** | 当某个对话开始运行或需要你处理时，它所在的项目会移到侧边栏顶部，并使用 dsh 自带的行动画（与把它拖到那里的效果相同）。已完成的项目保持原位；你可以像往常一样把它们拖到任意位置。移动会保存到 dsh 的项目顺序中，因此关闭此功能后会保留当前顺序。 | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="活跃项目置顶截图"></a> |
@@ -92,6 +93,9 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 | `↓` | 功能创意页面 | 把最上面的卡片保存到项目的“稍后”列表 |
 | `↑` | 功能创意页面 | 不做规划，直接实现最上面的卡片 |
 | `Z` | 功能创意页面 | 找回最后一张跳过的卡片 |
+| `Enter` | 新对话的项目菜单，搜索框 | 选择第一个匹配项 |
+| `↑` / `↓` | 新对话的项目菜单 | 在显示的项目之间移动 |
+| `Esc` | 新对话的项目菜单，搜索框 | 清空搜索（再按一次关闭菜单） |
 
 打开的 `/` 或 `@` 菜单会自己占用这些按键。
 
@@ -117,7 +121,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 ## 故障排除
 
 - **macOS 上没有通知：** 系统设置 → 通知 → DeepSeek Harness → 允许通知。选择 **提醒** 可以让通知一直留在屏幕上。
-- **dsh 更新后，▶、队列把手、项目状态、近期项目选项、折叠全部项目、复制路径、本对话内允许或右键菜单不见了：** 这些功能挂接在 dsh 当前的 HTML 上，因为 dsh 还没有为它们提供插槽。如果 dsh 修改了这部分标记，它们会自动隐藏；其他功能不受影响。请提交一个 [issue](https://github.com/furkancak1r/dsh-composer-plus/issues)。
+- **dsh 更新后，▶、队列把手、项目状态、近期项目选项、折叠全部项目、复制路径、项目搜索框、本对话内允许或右键菜单不见了：** 这些功能挂接在 dsh 当前的 HTML 上，因为 dsh 还没有为它们提供插槽。如果 dsh 修改了这部分标记，它们会自动隐藏；其他功能不受影响。请提交一个 [issue](https://github.com/furkancak1r/dsh-composer-plus/issues)。
 - **“更新失败”或“不是从 npm 安装的”：** 从本地文件夹链接的副本或被重命名的副本无法自行更新；请在 设置 → 插件 中重新安装 `dsh-composer-plus`。在其他情况下，消息会显示 pnpm 错误的第一行；点击 **检查更新** 可重试。
 - **手机连接提示网关未运行：** “no IPv4 address on en0”表示这台 Mac 没有 Wi-Fi/以太网地址；“EADDRINUSE”表示另一个 dsh（或其他应用）正在使用端口 19390 或 19391。同一时间只能有一个 dsh 运行手机连接。
 - **手机连接、重启后继续或内容搜索提示“重启 dsh”：** 插件在 dsh 运行期间被更新了（对于内容搜索，也可能是你更改了开关）；新状态会在重启后加载。
@@ -148,6 +152,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - 活跃项目通过 dsh 保存的项目顺序来移动，因此新顺序在重启后依然保留。不属于任何项目的对话（“未分组”）无法移动；dsh 总是把它们列在最后。
 - dsh 在侧边栏的视图选项菜单中没有扩展点，所以近期项目选项被添加到 dsh 自己的菜单中。如果 dsh 更新修改了这个菜单，该选项将不会显示，所有项目都保持可见。筛选作用于项目行，因此 **单列表** 不会被筛选。请与 **按工作区** 一起使用：在 **按工作区树** 中，被隐藏的父文件夹也会隐藏其中的活跃项目。**按状态** 也有同类限制：dsh 没有排序插槽，因此该菜单项和行顺序依赖 dsh 的菜单和列表标记。
 - dsh 也没有项目行菜单或“工作区”标题栏插槽。**复制路径** 通过 dsh 的行标记找到项目行；**折叠全部项目** 放在 dsh 的标题栏中，并用与点击项目行相同的方式折叠每个展开的项目。如果 dsh 更新修改了这些标记，右键点击会显示浏览器自己的菜单，按钮也不会显示。
+- dsh 在新对话的项目菜单中也没有扩展点，所以 **搜索项目** 框和 A–Z 顺序依赖 dsh 的菜单标记。如果 dsh 更新修改了这些标记，菜单会按 dsh 自己的样子显示：使用保存的顺序，没有搜索框。A–Z 顺序只是一种视图，不会改变 dsh 保存的项目顺序。
 - 已向上游请求内置支持：队列 `move` 见 [#773](https://github.com/deepseek-ai/deepseek-harness/discussions/773)，“继续”状态见 [#9269](https://github.com/deepseek-ai/deepseek-harness/discussions/9269)。
 
 ## 常见问题

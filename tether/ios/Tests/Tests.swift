@@ -370,6 +370,13 @@ final class CoreTests: XCTestCase {
         let fs = [Sess(["sessionId": "1", "cwd": "/old", "updatedAt": 1_000])!, Sess(["sessionId": "2", "cwd": "/new", "updatedAt": 3_000])!,
                   Sess(["sessionId": "3", "cwd": "/old", "updatedAt": 2_000])!, Sess(["sessionId": "4", "cwd": "/p", "updatedAt": 4_000])!]
         XCTAssertEqual(recentFolders(fs, excluding: ["/p"]), ["/new", "/old"])
+        // Project search in a new chat: A–Z (numbers in natural order), every word, case and accents ignored.
+        let ws = ["serit", "aiproxy", "Zeta", "ağaç-proje", "app10", "app2", "promes"].compactMap { Workspace(["workspaceId": $0, "path": "/p/\($0)", "title": $0]) }
+        XCTAssertEqual(pickerProjects(ws, query: "").map(\.title), ["ağaç-proje", "aiproxy", "app2", "app10", "promes", "serit", "Zeta"])
+        XCTAssertEqual(pickerProjects(ws, query: "PRO").map(\.title), ["ağaç-proje", "aiproxy", "promes"])
+        XCTAssertEqual(pickerProjects(ws, query: "agac").map(\.title), ["ağaç-proje"])
+        XCTAssertEqual(pickerProjects(ws, query: "p/ze").map(\.title), ["Zeta"], "the path matches too")
+        XCTAssertTrue(searchHit("ILIK su", "ılık-su")); XCTAssertFalse(searchHit("x", "abc")); XCTAssertTrue(searchHit("  ", "abc"))
         XCTAssertEqual(macPath("  ~/code\n"), "~/code"); XCTAssertNil(macPath("code")); XCTAssertNil(macPath("  "))
         XCTAssertEqual(c.sessionGroups().map { $0.items.map(\.id) }, [["c"], ["b"], ["a"], ["d"]])
         XCTAssertEqual(c.sessionGroups(project: "w").map { $0.items.map(\.id) }, [["b"]])

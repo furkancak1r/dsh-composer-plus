@@ -1520,10 +1520,9 @@ struct NewSessionSheet: View {
     @AppStorage("sessionProject") private var filter = ""
     @State private var custom = ""
     @State private var q = ""
-    func hit(_ s: String...) -> Bool { q.isEmpty || s.contains { $0.localizedCaseInsensitiveContains(q) } }
     // Extra folders: cwds of all sessions (session/list is unpaged), minus the DSH projects already listed.
-    var folders: [String] { recentFolders(c.sessions, excluding: Set(c.workspaces.map(\.path))).filter { hit($0) } }
-    var projects: [Workspace] { c.workspaces.filter { hit($0.title, $0.path) } }
+    var folders: [String] { recentFolders(c.sessions, excluding: Set(c.workspaces.map(\.path))).filter { searchHit(q, $0) } }
+    var projects: [Workspace] { pickerProjects(c.workspaces, query: q) } // A–Z, as in Composer Plus on the Mac
     var body: some View {
         NavigationStack {
             List {
@@ -1561,7 +1560,10 @@ struct NewSessionSheet: View {
                     } else { Text("Absolute path of a folder on your Mac") }
                 }
             }
-            .searchable(text: $q, placement: .navigationBarDrawer(displayMode: .automatic), prompt: "Search projects and folders")
+            .searchable(text: $q, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects and folders")
+            .onSubmit(of: .search) { // Return picks the first match, as on the Mac
+                if !q.trimmingCharacters(in: .whitespaces).isEmpty, let w = projects.first { create(w.path, w.id) }
+            }
             .navigationTitle("New session").navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
         }

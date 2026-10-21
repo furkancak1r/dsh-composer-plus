@@ -112,6 +112,16 @@ func recentFolders(_ sessions: [Sess], excluding: Set<String>) -> [String] {
     var seen = excluding
     return sessions.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }.map(\.cwd).filter { !$0.isEmpty && seen.insert($0).inserted }
 }
+/// Project search in a new chat (Composer Plus `projectPicker`): every word of `q` is in one of the texts, case and
+/// accents ignored (ğ = g, ı = i); the projects that match, A–Z like Finder ("app2" before "app10").
+func searchHit(_ q: String, _ texts: String...) -> Bool {
+    let fold = { (s: String) in s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).replacingOccurrences(of: "ı", with: "i") }
+    let hay = fold(texts.joined(separator: " "))
+    return fold(q).split(whereSeparator: \.isWhitespace).allSatisfy { hay.contains($0) }
+}
+func pickerProjects(_ ws: [Workspace], query q: String) -> [Workspace] {
+    ws.filter { searchHit(q, $0.title, $0.path) }.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+}
 /// Typed Mac folder: trimmed, nil unless absolute or home-relative (a bare name would land in DSH's cwd).
 func macPath(_ s: String) -> String? {
     let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
