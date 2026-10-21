@@ -390,12 +390,123 @@ struct Attachment: Identifiable {
 }
 
 struct Line: Identifiable {
-    enum Kind { case user, assistant, reasoning, command, tool, result, error }
+    /// `turn`: the end of a turn, with its summary ("Completed in 1m 5s"); `failed` = it failed or stopped.
+    enum Kind { case user, assistant, reasoning, command, tool, result, error, turn }
     let id = UUID(); let kind: Kind; let text: String
     /// Tool rows only: the result is folded into its call (matched by callId) instead of a separate line.
     var callId: String? = nil; var args: String? = nil; var output: String? = nil; var failed = false
     /// User rows only: image attachment ids, fetched lazily via session/attachment.
     var images: [String] = []
+    /// Tool rows only: the tool's name, for the step group's title.
+    var tool: String? = nil
+}
+
+/// The summary row of a finished turn, as in DSH desktop. A failed or stopped turn does not fold (`failed`).
+func turnLine(reason: String?, start: Date?, end: Date?) -> Line {
+    switch reason {
+    case "aborted", "interrupted": return Line(kind: .turn, text: String(localized: "Stopped"), failed: true)
+    case "error": return Line(kind: .turn, text: String(localized: "Failed"), failed: true)
+    default:
+        guard let start, let end else { return Line(kind: .turn, text: String(localized: "Completed")) }
+        let t = max(1, Int(end.timeIntervalSince(start))), h = t / 3600
+        let d = (h > 0 ? "\(h)h " : "") + (t >= 60 ? "\(t / 60 % 60)m " : "") + "\(t % 60)s"
+        return Line(kind: .turn, text: String(localized: "Completed in \(d)"))
+    }
+}
+
+/// One row of the chat as DSH desktop shows it.
+enum ChatRow: Identifiable {
+    case line(Line)
+    /// Thinking and tool calls in a row, folded into one line. `live`: the step that runs now.
+    case steps([Line], live: Bool)
+    /// A finished turn's summary row above its content; a foldable turn shows only this row and its answer.
+    case turn(Line, foldable: Bool)
+    var id: UUID {
+        switch self {
+        case .line(let l), .turn(let l, _): l.id
+        case .steps(let ls, _): ls[0].id
+        }
+    }
+}
+
+/// The chat in DSH desktop's shape. A finished turn folds to its summary and its last answer until the user opens it
+/// (`open`: ids of the turn rows the user opened); a failed or stopped turn stays open.
+func chatRows(_ t: [Line], open: Set<UUID>, running: Bool) -> [ChatRow] {
+    var rows: [ChatRow] = [], chunk: [Line] = []
+    func flush(end: Line?, live: Bool) {
+        let answer = end == nil ? nil : chunk.last { $0.kind == .assistant }?.id
+        let process = chunk.contains { $0.id != answer }
+        if let end, !chunk.isEmpty { rows.append(.turn(end, foldable: process && !end.failed)) }
+        let folded = end.map { !$0.failed && process && !open.contains($0.id) } ?? false
+        var steps: [Line] = []
+        for l in chunk where !folded || l.id == answer {
+            if l.kind == .reasoning || l.kind == .tool { steps.append(l); continue }
+            if !steps.isEmpty { rows.append(.steps(steps, live: false)); steps = [] }
+            rows.append(.line(l))
+        }
+        if !steps.isEmpty { rows.append(.steps(steps, live: live)) }
+        chunk = []
+    }
+    for l in t {
+        switch l.kind {
+        case .user: flush(end: nil, live: false); rows.append(.line(l))
+        case .turn: flush(end: l, live: false)
+        default: chunk.append(l)
+        }
+    }
+    flush(end: nil, live: running)
+    return rows
+}
+
+/// DSH desktop's kinds of work (its process-activity map): which kind a tool call is.
+func stepKind(_ tool: String) -> String {
+    switch tool {
+    case "read": "read"
+    case "read_image": "readImage"
+    case "grep", "glob": "search"
+    case "write": "write"
+    case "edit", "apply_patch": "edit"
+    case "bash", "pwsh", "exec_command", "write_stdin": "commands"
+    case "run_code": "code"
+    case "web_search": "webSearch"
+    case "web_fetch": "webFetch"
+    case "todo_write", "create_goal", "update_goal", "get_goal": "plan"
+    case "ask_user_question", "request_user_input": "questions"
+    default: tool.hasSuffix("_inspect") ? "search" : tool.hasPrefix("terminal_") ? "commands"
+        : tool == "subagent" || tool.hasPrefix("subagent_") ? "subagents" : "tools"
+    }
+}
+private let stepDone = ["thinking": "Analysis completed", "read": "Read files", "readImage": "Read images", "write": "Wrote files",
+    "search": "Searched code", "edit": "Edited files", "commands": "Ran commands", "code": "Ran code", "webSearch": "Searched the web",
+    "webFetch": "Visited web pages", "subagents": "Coordinated subagents", "plan": "Updated the plan", "questions": "Asked questions", "tools": "Called tools"]
+private let stepLive = ["thinking": "Analyzing the request", "read": "Reading files", "readImage": "Reading images", "write": "Writing files",
+    "search": "Searching code", "edit": "Editing files", "commands": "Running commands", "code": "Running code", "webSearch": "Searching the web",
+    "webFetch": "Visiting web pages", "subagents": "Coordinating subagents", "plan": "Updating the plan", "questions": "Waiting for your action", "tools": "Calling tools"]
+private func stepText(_ table: [String: String], _ k: String) -> String { String(localized: String.LocalizationValue(table[k] ?? table["tools"]!)) }
+
+/// A step group's title and its kind of work, as in DSH desktop. Done: the three most frequent kinds ("Read files and
+/// searched code"). Live: what runs now and on what ("Running commands · npm test").
+func stepsTitle(_ lines: [Line], live: Bool) -> (title: String, kind: String) {
+    if live {
+        guard let l = lines.last, l.kind == .tool, l.output == nil else { return (stepText(stepLive, "thinking"), "thinking") }
+        let k = stepKind(l.tool ?? "")
+        // ponytail: the detail is the tool row's text without the name; a call with no known main argument shows JSON.
+        let detail = String(l.text.dropFirst((l.tool ?? "").count)).trimmingCharacters(in: .whitespaces)
+        return (stepText(stepLive, k) + (detail.isEmpty ? "" : " · " + detail), k)
+    }
+    var counts: [(kind: String, n: Int)] = []
+    for l in lines where l.kind == .tool {
+        let k = stepKind(l.tool ?? "")
+        if let i = counts.firstIndex(where: { $0.kind == k }) { counts[i].n += 1 } else { counts.append((k, 1)) }
+    }
+    // most calls first; a tie keeps the order of first use
+    let ranked = counts.enumerated().sorted { ($0.element.n, -$0.offset) > ($1.element.n, -$1.offset) }.map(\.element.kind)
+    let labels = ranked.prefix(3).map { stepText(stepDone, $0) }
+    guard let first = labels.first else { return (stepText(stepDone, "thinking"), "thinking") }
+    let rest = labels.dropFirst().map { $0.prefix(1).lowercased() + $0.dropFirst() }
+    let title = rest.count == 1 ? String(localized: "\(first) and \(rest[0])")
+        : ([first] + rest).joined(separator: ", ") + (ranked.count > 3 ? String(localized: ", etc.") : "")
+    return (title, ranked[0])
 }
 
 /// Regenerate: the user message that produced `id` (nearest user row above it).
@@ -406,7 +517,7 @@ func promptLine(before id: UUID, in t: [Line]) -> Line? {
 
 /// Retry for a failed turn: only the transcript's last line, and only when it is an error, offers re-sending its prompt.
 func retryPrompt(for id: UUID, in t: [Line]) -> Line? {
-    guard let last = t.last, last.id == id, last.kind == .error else { return nil }
+    guard let last = t.last(where: { $0.kind != .turn }), last.id == id, last.kind == .error else { return nil }
     return promptLine(before: id, in: t)
 }
 
@@ -1239,7 +1350,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             if let u = d["usage"] as? J { usage = u }
         case "command/run": transcript.append(Line(kind: .command, text: "/\(d["name"] as? String ?? "") \(d["args"] as? String ?? "")".trimmingCharacters(in: .whitespaces)))
         case "command/done": if let t = d["text"] as? String, !t.isEmpty { transcript.append(Line(kind: d["kind"] as? String == "error" ? .error : .result, text: t)) }
-        case "tool/call": transcript.append(Line(kind: .tool, text: toolSummary(d["name"] as? String ?? "tool", d["arguments"]), callId: d["callId"] as? String, args: compactJSON(d["arguments"], limit: 4000)))
+        case "tool/call":
+            let name = d["name"] as? String ?? "tool"
+            transcript.append(Line(kind: .tool, text: toolSummary(name, d["arguments"]), callId: d["callId"] as? String, args: compactJSON(d["arguments"], limit: 4000), tool: name))
         case "tool/result":
             let m = d["message"] as? J
             let bad = m?["isError"] as? Bool == true || d["error"] != nil
@@ -1253,7 +1366,10 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         case "agent/inbox/spliced": applySplice(&inbox, d)
         case "todo/write": liveTodos = parseTodos(d["todos"]) ?? []
         case "turn/end":
-            if let m = ((d["reason"] as? J)?["error"] as? J)?["message"] as? String { transcript.append(Line(kind: .error, text: m)) }
+            let reason = d["reason"] as? J
+            if let m = (reason?["error"] as? J)?["message"] as? String { transcript.append(Line(kind: .error, text: m)) }
+            transcript.append(turnLine(reason: reason?["kind"] as? String, start: turnStartedAt,
+                                       end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
                 notify(String(localized: "Turn finished"), currentSess?.title ?? "")
                 UINotificationFeedbackGenerator().notificationOccurred(.success)

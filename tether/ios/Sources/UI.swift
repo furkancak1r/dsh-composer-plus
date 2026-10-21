@@ -427,6 +427,8 @@ struct ConversationView: View {
     @State private var goalText = ""
     @State private var confirmClearGoal = false
     @State private var loadingOlder = false
+    /// Finished turns the user opened. A new chat starts with every finished turn folded, as DSH desktop does.
+    @State private var openTurns = Set<UUID>()
     @State private var showUsage = false
     // fallback only: used when the turn/start event carried no time
     @State private var turnStart: Date?
@@ -510,11 +512,22 @@ struct ConversationView: View {
                                 }.font(.footnote).frame(maxWidth: .infinity)
                             }.buttonStyle(.bordered).disabled(loadingOlder)
                         }
-                        ForEach(c.transcript) { LineView(line: $0, onEdit: { text = $0; focused = true }) }
-                        if !c.reasoning.isEmpty { LineView(line: Line(kind: .reasoning, text: c.reasoning), live: true) }
+                        // DSH desktop's shape: thinking and tool calls fold into one step row; a finished turn folds to
+                        // "Completed in …" and its answer until tapped.
+                        ForEach(chatRows(c.transcript, open: openTurns, running: c.running)) { row in
+                            switch row {
+                            case .line(let l): LineView(line: l, onEdit: { text = $0; focused = true })
+                            case .steps(let ls, let live): StepsView(lines: ls, live: live && c.streaming.isEmpty)
+                            case .turn(let l, let foldable):
+                                TurnRow(line: l, foldable: foldable, open: openTurns.contains(l.id)) {
+                                    withAnimation(.snappy) { if openTurns.contains(l.id) { openTurns.remove(l.id) } else { openTurns.insert(l.id) } }
+                                }
+                            }
+                        }
+                        if !c.reasoning.isEmpty { StepsView(lines: [Line(kind: .reasoning, text: c.reasoning)], live: true) }
                         if !c.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: c.streaming), live: true) }
                         // upload/send progress first, so a large file never looks like a dead Send button
-                        if let s = c.sendStatus ?? (c.running && c.streaming.isEmpty && c.reasoning.isEmpty ? String(localized: "Working…") : nil) {
+                        if let s = c.sendStatus ?? (c.running && c.streaming.isEmpty && c.reasoning.isEmpty && c.transcript.last?.kind != .tool ? String(localized: "Working…") : nil) {
                             HStack(spacing: 6) {
                                 ProgressView().controlSize(.small); Text(s)
                                 // elapsed time tells a slow turn apart from a stuck one
@@ -559,6 +572,7 @@ struct ConversationView: View {
                 .onChange(of: c.reasoning) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
                 .onChange(of: c.sendStatus) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
                 .onChange(of: c.running, initial: true) { turnStart = c.running ? (turnStart ?? .now) : nil }
+                .onChange(of: c.current) { openTurns = [] }
         }
     }
 
@@ -881,13 +895,8 @@ struct LineView: View {
                 }
             }
         case .reasoning:
-            DisclosureGroup(isExpanded: $open) {
-                Text(line.text).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 10).overlay(alignment: .leading) { Rectangle().fill(Color(.separator)).frame(width: 2) }
-            } label: {
-                Text(live ? String(localized: "Thinking…") : String(localized: "Thought")).font(.footnote).foregroundStyle(.secondary)
-            }
-            .tint(.secondary)
+            // Only inside an open step group (StepsView), which is the fold: the text shows at once.
+            Text(line.text).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
         case .command: Label(line.text, systemImage: "chevron.right").font(.footnote.monospaced()).foregroundStyle(.secondary)
         case .tool:
             // Codex-style: one row per call, status icon, tap to see full arguments + output.
@@ -925,6 +934,7 @@ struct LineView: View {
             .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             .onTapGesture { withAnimation { open.toggle() } }
             .accessibilityAddTraits(.isButton)
+        case .turn: EmptyView() // shown by TurnRow
         case .result: tap(Text(line.text).font(.caption.monospaced()).foregroundStyle(.secondary).padding(8)
             .background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 10, style: .continuous)), 6)
         case .error:
@@ -940,6 +950,73 @@ struct LineView: View {
     /// Long tool output stays collapsed until tapped.
     func tap(_ v: some View, _ n: Int) -> some View {
         v.lineLimit(open ? nil : n).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).onTapGesture { withAnimation { open.toggle() } }
+    }
+}
+
+/// Thinking and tool calls in a row, folded into one line as in DSH desktop: "Read files and searched code" with an
+/// icon and a chevron; tap to see each step. The step that runs now says what it does and stays folded too.
+struct StepsView: View {
+    let lines: [Line]
+    let live: Bool
+    @State private var open = false
+    var body: some View {
+        let (title, kind) = stepsTitle(lines, live: live)
+        VStack(alignment: .leading, spacing: 10) {
+            Button { withAnimation(.snappy) { open.toggle() } } label: {
+                HStack(spacing: 6) {
+                    if live { RunningSpinner(size: 13) } else { Image(systemName: stepIcon(kind)).frame(width: 14) }
+                    Text(title).lineLimit(1)
+                    Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).rotationEffect(.degrees(open ? 180 : 0))
+                    Spacer(minLength: 0)
+                }
+                .font(.footnote).foregroundStyle(Color.secondary).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(Text(open ? "Expanded" : "Collapsed"))
+            if open {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(lines) { l in LineView(line: l, live: live && l.id == lines.last?.id && l.kind == .reasoning) }
+                }
+                .padding(.leading, 10).overlay(alignment: .leading) { Rectangle().fill(Color(.separator)).frame(width: 1) }
+            }
+        }
+    }
+    private func stepIcon(_ k: String) -> String {
+        switch k {
+        case "read", "readImage": "doc.text"
+        case "search": "magnifyingglass"
+        case "write", "edit": "pencil"
+        case "commands", "code": "terminal"
+        case "webSearch", "webFetch": "globe"
+        case "subagents": "person.2"
+        case "plan": "checklist"
+        case "questions": "questionmark.bubble"
+        case "thinking": "brain"
+        default: "wrench.and.screwdriver"
+        }
+    }
+}
+
+/// A finished turn's summary row, as in DSH desktop: "Completed in 1m 5s" with a thin line under it. Tap to show or
+/// hide the turn's steps; the answer stays visible. A failed or stopped turn shows "Failed" / "Stopped" and stays open.
+struct TurnRow: View {
+    let line: Line
+    let foldable: Bool
+    let open: Bool
+    let toggle: () -> Void
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: 4) {
+                Text(line.text).monospacedDigit().lineLimit(1)
+                if foldable { Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).rotationEffect(.degrees(open ? 180 : 0)) }
+                Spacer(minLength: 0)
+            }
+            .font(.footnote).foregroundStyle(line.failed ? Color.red.opacity(0.8) : Color.secondary)
+            .padding(.bottom, 8).contentShape(Rectangle())
+            .overlay(alignment: .bottom) { Rectangle().fill(Color(.separator)).frame(height: 0.5) }
+        }
+        .buttonStyle(.plain).disabled(!foldable)
+        .accessibilityValue(foldable ? Text(open ? "Expanded" : "Collapsed") : Text(""))
     }
 }
 

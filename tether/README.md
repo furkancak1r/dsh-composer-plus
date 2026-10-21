@@ -20,6 +20,16 @@ Mac tarayıcısı ──▶ http://127.0.0.1:19391/  (admin: QR, eşleme onayı,
 - **server.mjs**: telefonlara tek kapı. `POST /pair`, `GET /me`, `POST /api/<method>` (allowlist), WSS `/api/remote.mux` (allowlist'li stream'ler) ve DSH `$events` akışını (onay / soru istekleri) telefonlara dağıtır. Bonjour `_dshmobile._tcp` (TXT `fp=`).
 - **ios/**: Sohbet, Oturumlar, Ajanlar, Ayarlar sekmeleri; QR / yapıştır / Bonjour ile eşleme; otomatik yeniden bağlanma; sınırsız sayıda Mac.
 
+## Sohbet ekranı: düşünme ve araç adımları
+
+Sohbet, DSH masaüstündeki gibi kısa görünür. Ayrıntılar akordiyon gibi kapalıdır; dokununca açılır.
+
+- Düşünme ve araç çağrıları tek satıra toplanır. Satırda işin türü yazar, örneğin "Read files and searched code". En çok yapılan üç tür yazılır.
+- Çalışan adım ne yaptığını gösterir, örneğin "Running commands · npm test". Yanında dönen halka vardır.
+- Biten tur "Completed in 1m 5s" satırına katlanır. Altında yalnız son cevap görünür. Satıra dokununca turun bütün adımları açılır.
+- Hata veren ya da durdurulan tur ("Failed", "Stopped") katlanmaz.
+- Bir sohbeti açınca bütün biten turlar kapalı başlar.
+
 ## Oturum listesindeki işaretler
 
 İşaretler DSH masaüstündeki kenar çubuğuyla aynıdır:

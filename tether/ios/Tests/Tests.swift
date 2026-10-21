@@ -299,7 +299,7 @@ final class CoreTests: XCTestCase {
             ["type": "request/context", "seq": 5, "data": ["model": "other"]],
             ["type": "turn/end", "seq": 6, "data": J()],
         ])
-        XCTAssertEqual(c.transcript.map(\.text), ["old", "new"])
+        XCTAssertEqual(c.transcript.map(\.text), ["old", "Completed", "new"], "an old finished turn gets its summary row")
         XCTAssertTrue(c.running)
         XCTAssertEqual(c.model, "deepseek-v4")
         let r = Client.pageRequest("s", through: 9, before: 3)["request"] as? J
@@ -465,6 +465,43 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(c.tsReady); XCTAssertNil(c.tsError)
         c.tailscaleReturned(URL(string: "tether://tailscale/cancel")!)
         XCTAssertTrue(c.tsReady, "cancel changes nothing")
+    }
+
+    /// DSH desktop's chat shape: steps fold into one row; a finished turn folds to its summary and its answer.
+    @MainActor func testChatRows() {
+        let c = Client()
+        c.apply(["type": "user/message", "data": ["content": "fix it"]])
+        c.apply(["type": "turn/start", "time": 1_700_000_000_000, "data": J()])
+        c.apply(["type": "assistant/message", "data": ["message": ["content": [["type": "reasoning", "text": "hmm"], ["type": "text", "text": "Looking."]]]]])
+        c.apply(["type": "tool/call", "data": ["callId": "a", "name": "read", "arguments": ["path": "x"]]])
+        c.apply(["type": "tool/call", "data": ["callId": "b", "name": "grep", "arguments": ["pattern": "y"]]])
+        c.apply(["type": "tool/call", "data": ["callId": "d", "name": "read", "arguments": ["path": "z"]]])
+        c.apply(["type": "assistant/message", "data": ["message": ["content": [["type": "text", "text": "Done."]]]]])
+        c.apply(["type": "turn/end", "time": 1_700_000_065_000, "data": ["reason": ["kind": "completed"]]])
+        let t = c.transcript
+        XCTAssertEqual(t.last?.text, "Completed in 1m 5s")
+        func shape(_ rows: [ChatRow]) -> [String] {
+            rows.map { r in switch r {
+                case .line(let l): l.text
+                case .steps(let ls, let live): "steps \(ls.count)\(live ? " live" : "")"
+                case .turn(let l, let f): "\(l.text)\(f ? " v" : "")"
+            } }
+        }
+        XCTAssertEqual(shape(chatRows(t, open: [], running: false)), ["fix it", "Completed in 1m 5s v", "Done."], "folded: summary and answer only")
+        XCTAssertEqual(shape(chatRows(t, open: [t.last!.id], running: false)), ["fix it", "Completed in 1m 5s v", "steps 1", "Looking.", "steps 3", "Done."])
+        XCTAssertEqual(stepsTitle(Array(t[3...5]), live: false).title, "Read files and searched code", "most calls first")
+        XCTAssertEqual(stepsTitle([t[2]], live: false).title, "Analysis completed")
+        // the turn in flight: no summary yet, its last steps run
+        let live = Array(t[0...5])
+        XCTAssertEqual(shape(chatRows(live, open: [], running: true)), ["fix it", "steps 1", "Looking.", "steps 3 live"])
+        XCTAssertEqual(stepsTitle([Line(kind: .tool, text: "bash npm test", tool: "bash")], live: true).title, "Running commands · npm test")
+        // a failed or stopped turn does not fold
+        let stop = turnLine(reason: "interrupted", start: nil, end: nil)
+        XCTAssertEqual(shape(chatRows(live + [stop], open: [], running: false)), ["fix it", "Stopped", "steps 1", "Looking.", "steps 3"])
+        XCTAssertEqual(turnLine(reason: "completed", start: .now, end: nil).text, "Completed")
+        XCTAssertEqual(stepKind("terminal_run"), "commands"); XCTAssertEqual(stepKind("subagent_fork"), "subagents"); XCTAssertEqual(stepKind("x"), "tools")
+        let five = ["read", "grep", "edit", "bash", "web_search"].map { Line(kind: .tool, text: $0, tool: $0) }
+        XCTAssertEqual(stepsTitle(five, live: false).title, "Read files, searched code, edited files, etc.")
     }
 
     @MainActor func testJustFinished() {
