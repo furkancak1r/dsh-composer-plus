@@ -289,10 +289,14 @@ test('composer-plus routes: allowlisted methods pass with the query or body; swi
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.later?sessionId=s%201', body: '', type: null })
     r = await call(t.gw, 'POST', '/plus/later', { sessionId: 's', remove: 'i1' }, auth)
     assert.equal(r.status, 200); assert.deepEqual(JSON.parse(t.dsh.plus.at(-1).body), { sessionId: 's', remove: 'i1' })
+    // Next message prediction: the phone may ask for a prediction; the switch, the model choice and the catalog stay on the Mac.
+    r = await call(t.gw, 'POST', '/plus/predict', { sessionId: 's', afterSeq: 9 }, auth)
+    assert.deepEqual(JSON.parse(t.dsh.plus.at(-1).body), { sessionId: 's', afterSeq: 9 })
     // An older plugin without the route: its 404 reaches the phone, which hides the feature.
     assert.equal((await call(t.gw, 'GET', '/plus/changes?sessionId=s', undefined, auth)).status, 404)
     const seen = t.dsh.plus.length
     for (const [m, p, b] of [['POST', '/plus/rollback', { on: false }], ['POST', '/plus/mobile', { on: false }], ['GET', '/plus/update'],
+      ['POST', '/plus/predict', { on: true }], ['POST', '/plus/predict', { model: null }], ['GET', '/plus/predict?catalog=1'],
       ['GET', '/plus/shot?id=x'], ['POST', '/plus/changes', {}], ['GET', '/plus/../mobile'], ['POST', '/plus/continue', 'not json']]) {
       assert.equal((await call(t.gw, m, p, b, auth)).status, p.endsWith('continue') ? 400 : p.includes('..') ? 404 : 403, p)
     }

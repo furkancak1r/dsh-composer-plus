@@ -370,6 +370,13 @@ final class CoreTests: XCTestCase {
         let fs = [Sess(["sessionId": "1", "cwd": "/old", "updatedAt": 1_000])!, Sess(["sessionId": "2", "cwd": "/new", "updatedAt": 3_000])!,
                   Sess(["sessionId": "3", "cwd": "/old", "updatedAt": 2_000])!, Sess(["sessionId": "4", "cwd": "/p", "updatedAt": 4_000])!]
         XCTAssertEqual(recentFolders(fs, excluding: ["/p"]), ["/new", "/old"])
+        // Next message prediction: only right after a finished turn.
+        let te = { (seq: Int, type: String, kind: String?) -> J in ["seq": seq, "type": type, "data": kind.map { ["reason": ["kind": $0]] } ?? [:]] }
+        XCTAssertEqual(predictAfter([te(1, "turn/start", nil), te(4, "turn/end", "completed")]), 4)
+        XCTAssertNil(predictAfter([te(1, "turn/start", nil), te(4, "turn/end", "interrupted")]), "stopped: Continue instead")
+        XCTAssertNil(predictAfter([te(4, "turn/end", "completed"), te(5, "turn/start", nil)]), "running")
+        XCTAssertEqual(predictAfter([te(4, "turn/end", "completed"), ["seq": 5, "type": "user/message"]]), 4, "other events do not count")
+        XCTAssertNil(predictAfter([]))
         // Project search in a new chat: A–Z (numbers in natural order), every word, case and accents ignored.
         let ws = ["serit", "aiproxy", "Zeta", "ağaç-proje", "app10", "app2", "promes"].compactMap { Workspace(["workspaceId": $0, "path": "/p/\($0)", "title": $0]) }
         XCTAssertEqual(pickerProjects(ws, query: "").map(\.title), ["ağaç-proje", "aiproxy", "app2", "app10", "promes", "serit", "Zeta"])

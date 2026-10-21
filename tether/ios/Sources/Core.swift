@@ -451,6 +451,18 @@ func continueAfter(_ events: [J]) -> Int? {
     return nil
 }
 
+/// Next message prediction: the seq of the newest turn/end when it is the last turn event and finished normally.
+func predictAfter(_ events: [J]) -> Int? {
+    for e in events.reversed() {
+        switch e["type"] as? String {
+        case "turn/end": return ((e["data"] as? J)?["reason"] as? J)?["kind"] as? String == "completed" ? e["seq"] as? Int : nil
+        case "turn/start": return nil
+        default: continue
+        }
+    }
+    return nil
+}
+
 /// Copy session link: dsh's session URI. Pasted into another chat, dsh attaches that chat as read-only context.
 func sessionLink(_ id: String) -> String {
     let json = (try? JSONSerialization.data(withJSONObject: [id], options: [.withoutEscapingSlashes])).map { String(decoding: $0.dropFirst().dropLast(), as: UTF8.self) } ?? "\"\(id)\""
@@ -891,6 +903,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private var events: [J] = []
     /// One-click Continue: the turn seq to resume after, when the last turn stopped, failed or was cut off.
     @Published var continueSeq: Int?
+    /// Next message prediction (Composer Plus, switched on in the Mac's Settings): the guess for the chat's last finished turn.
+    @Published var prediction: (seq: Int, text: String)?
+    private var predicted: String? // "sid:seq" asked already: one model call per finished turn
     /// Composer Plus routes on this Mac (`/me` → plus). An older gateway or plugin has none: those features hide.
     @Published var plus: Set<String> = []
     /// Turn rollback: dsh-rewind-plugin owns rollback, or the switch is off on the Mac (then no ↶).
@@ -1078,6 +1093,20 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         continueSeq = nil // one tap; the next turn/start or turn/end sets it again
         do { _ = try await plusCall("continue", body: ["sessionId": sid, "afterSeq": after]) }
         catch { continueSeq = continueAfter(events); throw error }
+    }
+
+    /// Asks the Mac for a guess of the next message after the chat's last finished turn. The Mac answers 409 while the
+    /// feature is off (or the chat moved on); then nothing shows. Only one call per finished turn.
+    func loadPrediction() {
+        guard plus.contains("predict"), let sid = current, currentSess?.parent == nil, let seq = predictAfter(events) else { return }
+        let key = "\(sid):\(seq)"
+        guard predicted != key else { return }
+        predicted = key
+        Task { @MainActor in
+            guard let o = try? await plusCall("predict", body: ["sessionId": sid, "afterSeq": seq]), current == sid,
+                  o["afterSeq"] as? Int == seq, predictAfter(events) == seq, let t = o["text"] as? String, !t.isEmpty else { return }
+            prediction = (seq, t)
+        }
     }
 
     /// Delete chat: the chat stops and its history (with its subagent chats) goes to the Mac's Trash.
@@ -1502,7 +1531,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if sid == current, followId != nil { return } // re-opening the live session keeps its stream and transcript
         if let old = followId { send(["type": "cancel", "streamId": old]) }
         current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; contextWindow = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
-        hasOlder = false; oldestSeq = nil; throughSeq = nil; events = []; continueSeq = nil; rollbackOn = false
+        hasOlder = false; oldestSeq = nil; throughSeq = nil; events = []; continueSeq = nil; rollbackOn = false; prediction = nil
         running = currentSess?.running ?? false
         openFollow(sid)
         Task { await loadCommands(); await loadGoal(); await loadRollback(sid) }
@@ -1551,6 +1580,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         transcript = []; streaming = ""; reasoning = ""; inbox = [:]; liveTodos = nil; turnStartedAt = nil
         replaying = true; withoutRolledBack(events).forEach(draw); replaying = false
         continueSeq = continueAfter(events)
+        loadPrediction() // opening a chat whose last turn finished shows its guess too
     }
 
     /// A live event: kept for a later rebuild. A rollback marker hides earlier rows, so the chat is drawn again.
@@ -1558,7 +1588,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         events.append(e)
         if rollbackSpan(e) != nil { let keep = (running, model, usage, goal, contextWindow); rebuild(); (running, model, usage, goal, contextWindow) = keep; return }
         draw(e)
-        if ["turn/start", "turn/end"].contains(e["type"] as? String) { continueSeq = continueAfter(events) }
+        if ["turn/start", "turn/end"].contains(e["type"] as? String) {
+            continueSeq = continueAfter(events)
+            if prediction != nil && predictAfter(events) != prediction?.seq { prediction = nil } // a new turn: the old guess goes
+            loadPrediction()
+        }
     }
 
     private func draw(_ e: J) {

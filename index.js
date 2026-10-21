@@ -38,9 +38,10 @@ export const CONTENT_SEARCH_PATH = '/api/composer-plus.content-search';
 export const ROLLBACK_PATH = '/api/composer-plus.rollback';
 export const DELETE_CHAT_PATH = '/api/composer-plus.delete-chat';
 export const QUEUE_MOVE_PATH = '/api/composer-plus.queue-move';
+export const PREDICT_PATH = '/api/composer-plus.predict';
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
-  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName'];
+  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -1084,6 +1085,7 @@ export function apply(ctx) {
   installRollback(ctx, home, snapshots);
   installDeleteChat(ctx, home, snapshots);
   installQueueMove(ctx);
+  installPredict(ctx, home);
 }
 
 /** Queue drag-and-drop (Host half): `POST {sessionId, itemId, to, before}` moves one queued next-turn message to index `to`
@@ -1450,6 +1452,209 @@ function installResume(ctx, home) {
       }
       await tracker.ready;
       return json({ on: tracker.isOn() });
+    },
+  });
+}
+
+/** Next message prediction: after a turn ends, a guess of the user's next message in the same chat (Codex "composer
+ * predictions"). It calls a model without a click, so it is off until the user switches it on; the Host keeps the switch
+ * and the model choice in `predict.json`. The model is dsh's default unless the user picked another one from dsh's own
+ * model catalog. Nothing goes into the chat: the browser shows the text and Tab puts it in the composer. */
+export const PREDICT_TIMEOUT_MS = 45000;
+export const PREDICT_MAX_TOKENS = 4000;
+const PREDICT_MAX = 300; // characters of one prediction
+const PREDICT_CONTEXT = 6000; // characters of chat the model reads
+const PREDICT_SYSTEM = `You predict the next message that the user will type in a chat with an AI coding agent.
+Read the recent conversation. Write the single most likely next message from the user, as the user would type it: short (one sentence, at most 25 words), in the user's own language and tone, and specific to this conversation. Typical next messages ask for the obvious next step, ask to check or test the result, or ask a follow-up question.
+Answer with the message text only: no quotes, no label, no explanation. If no next message is likely, answer with nothing.`;
+
+/** Saved settings: `{on, model?: {provider, model}}`. A broken file reads as off with dsh's default model. */
+export function predictStore(file) {
+  const read = async () => {
+    try {
+      const v = JSON.parse(await readFile(file, 'utf8'));
+      const model = isText(v?.model?.provider) && isText(v?.model?.model) ? { provider: v.model.provider, model: v.model.model } : undefined;
+      return { on: v?.on === true, ...(model === undefined ? {} : { model }) };
+    } catch { return { on: false }; }
+  };
+  let queue = Promise.resolve(); // one write at a time: they share a temp file name and merge into the newest state
+  const change = (mutate) => {
+    const done = queue.then(async () => {
+      const next = mutate(await read());
+      await mkdir(dirname(file), { recursive: true });
+      const tmp = `${file}.${process.pid}.tmp`;
+      await writeFile(tmp, JSON.stringify(next), { mode: 0o600 });
+      await rename(tmp, file);
+      return next;
+    });
+    queue = done.catch(() => {});
+    return done;
+  };
+  return { read, change };
+}
+
+/** Text blocks of a message content, joined. */
+const textBlocks = (content) => (Array.isArray(content) ? content.filter((b) => b?.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('') : '');
+/** The recent conversation for the prediction: the user's own messages and the agent's replies (no tools, no hidden
+ * context), oldest first, the newest kept when it is long. `undefined` when the chat has no reply after its last message. */
+export function predictTranscript(events) {
+  const lines = [];
+  for (const e of events) {
+    if (e.type === 'user/message' && e.data?.source?.kind === 'user') {
+      const text = textBlocks(e.data.content).trim();
+      if (text !== '') lines.push({ who: 'User', text });
+    } else if (e.type === 'assistant/message') {
+      const text = textBlocks(e.data?.message?.content).trim();
+      if (text !== '') lines.push({ who: 'Agent', text });
+    }
+  }
+  if (lines.at(-1)?.who !== 'Agent') return undefined;
+  const out = [];
+  let size = 0;
+  for (let i = lines.length - 1; i >= 0 && size < PREDICT_CONTEXT; i--) {
+    const room = PREDICT_CONTEXT - size;
+    const text = lines[i].text.length > room ? `…${lines[i].text.slice(-room)}` : lines[i].text;
+    out.unshift(`${lines[i].who}: ${text}`);
+    size += text.length;
+  }
+  return out.join('\n\n');
+}
+/** The model's answer as one clean line: no quotes or label; empty when it has nothing useful. */
+export function cleanPrediction(text) {
+  let line = String(text ?? '').replace(/<think>[\s\S]*?<\/think>/g, '').trim().split(/\r?\n/).find((l) => l.trim() !== '') ?? '';
+  line = line.trim().replace(/^(user|next message|message)\s*:\s*/i, '').replace(/^["'“”‘’`]+|["'“”‘’`]+$/g, '').trim();
+  return line.length > PREDICT_MAX ? `${line.slice(0, PREDICT_MAX - 1).trimEnd()}…` : line;
+}
+
+/** The newest `turn/end`, when it is the last turn event of the chat and the turn finished normally. */
+export function finishedTurn(events) {
+  const last = events.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
+  return last?.type === 'turn/end' && last.data?.reason?.kind === 'completed' ? last.seq : undefined;
+}
+
+/** dsh's model list with the deployment default, the same data as dsh's own model menu. */
+async function modelCatalogOf(ctx, get) {
+  const llm = get('llm');
+  const fallback = get('agentDefaultModel')?.currentSelection?.();
+  const out = { default: isText(fallback?.provider) && isText(fallback?.model) ? { provider: fallback.provider, model: fallback.model } : undefined, groups: [] };
+  if (llm?.listProviders === undefined) return out;
+  for (const provider of llm.listProviders()) {
+    try {
+      const models = (await llm.listModels(provider.id)).map((m) => ({ id: m.id, name: m.name }));
+      if (models.length > 0) out.groups.push({ id: provider.id, name: provider.name ?? provider.id, models });
+    } catch { /* a provider that cannot list its models is left out, as in dsh's own menu */ }
+  }
+  return out;
+}
+
+/** One model call: the next user message of this chat, after the turn that ended at `afterSeq`. */
+export async function predictNext({ llm, sessionQuery, route }, sessionId, afterSeq, signal) {
+  const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
+  let transcript, origin;
+  try {
+    const events = observation.events ?? [];
+    origin = observation.header?.origin;
+    if (finishedTurn(events) !== afterSeq) throw Object.assign(new Error('the chat moved on'), { status: 409 });
+    transcript = predictTranscript(events);
+  } finally { observation[Symbol.dispose]?.(); }
+  if (origin === 'subagent') throw Object.assign(new Error('not for a subagent chat'), { status: 409 });
+  if (transcript === undefined) return { text: '', afterSeq };
+  const timeout = AbortSignal.timeout(PREDICT_TIMEOUT_MS);
+  const callSignal = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
+  const call = await llm.prepareCall(route, callSignal, (controls, model) => {
+    // The lowest reasoning effort keeps it fast; the output cap never goes above the model's own default.
+    const first = model?.reasoning?.efforts?.[0];
+    const cap = Number.isSafeInteger(model?.defaultMaxTokens) && model.defaultMaxTokens > 0 ? Math.min(PREDICT_MAX_TOKENS, model.defaultMaxTokens) : PREDICT_MAX_TOKENS;
+    return { ...controls, maxTokens: cap, ...(first === undefined ? {} : { reasoningEffort: first.id }) };
+  });
+  let text = '';
+  let finish;
+  for await (const chunk of call.stream({ ...call.config, system: PREDICT_SYSTEM, signal: callSignal,
+    messages: [{ role: 'user', content: [{ type: 'text', text: `Recent conversation:\n\n${transcript}\n\nThe user's next message:` }] }] })) {
+    if (chunk.type === 'text-delta') text += chunk.text;
+    else if (chunk.type === 'finish') finish = chunk.reason;
+  }
+  if (finish?.kind === 'error' || finish?.kind === 'aborted') throw new Error(finish.failure?.message || `the model call ended: ${finish.kind}`);
+  return { text: cleanPrediction(text), afterSeq, model: route.model };
+}
+
+function installPredict(ctx, home) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const store = predictStore(join(home, 'storages', 'dsh-composer-plus', 'predict.json'));
+  const running = new Map(); // sessionId → { afterSeq, promise }: one call per chat; the same turn shares it
+  // sessionId → { key, result }: the last answer per chat, so a reopened chat, a second tab or the phone costs no new call.
+  // A new turn or another model makes a new key. ponytail: at most PREDICT_CACHE chats, the oldest go first.
+  const done = new Map();
+  const PREDICT_CACHE = 200;
+  /** The saved model when dsh still lists it, else dsh's default. */
+  const routeFor = async (saved) => {
+    const catalog = await modelCatalogOf(ctx, get);
+    const listed = saved !== undefined && catalog.groups.some((g) => g.id === saved.provider && g.models.some((m) => m.id === saved.model));
+    return listed ? saved : catalog.default;
+  };
+  ctx.connection.fetch.register({
+    path: PREDICT_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      if (request.method === 'GET') {
+        const settings = await store.read();
+        if (new URL(request.url).searchParams.get('catalog') === '1') return json({ ...settings, catalog: await modelCatalogOf(ctx, get) });
+        return json(settings);
+      }
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'bad request' }, 400);
+      if (typeof body.on === 'boolean' && body.sessionId === undefined && body.model === undefined) {
+        try { return json(await store.change((v) => ({ ...v, on: body.on }))); } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      if (body.model !== undefined && body.sessionId === undefined && body.on === undefined) {
+        // null: back to dsh's default. A model must be one that dsh lists now.
+        let model;
+        if (body.model !== null) {
+          if (!isText(body.model?.provider) || !isText(body.model?.model)) return json({ error: 'bad request' }, 400);
+          const catalog = await modelCatalogOf(ctx, get);
+          if (!catalog.groups.some((g) => g.id === body.model.provider && g.models.some((m) => m.id === body.model.model))) return json({ error: 'dsh does not list this model' }, 409);
+          model = { provider: body.model.provider, model: body.model.model };
+        }
+        try {
+          return json(await store.change(({ model: _, ...v }) => (model === undefined ? v : { ...v, model })));
+        } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      if (!isText(body.sessionId) || !Number.isSafeInteger(body.afterSeq) || body.afterSeq < 0 || body.on !== undefined || body.model !== undefined) return json({ error: 'bad request' }, 400);
+      const settings = await store.read();
+      if (!settings.on) return json({ error: 'next message prediction is off' }, 409);
+      const llm = get('llm');
+      if (llm?.prepareCall === undefined) return json({ error: 'this dsh profile cannot call a model' }, 409);
+      const route = await routeFor(settings.model);
+      if (route === undefined) return json({ error: 'no model is selected' }, 409);
+      const key = JSON.stringify([body.afterSeq, route.provider, route.model]);
+      const kept = done.get(body.sessionId);
+      if (kept?.key === key) {
+        // Only while that turn is still the chat's last one (a newer turn makes the guess stale).
+        let fresh = false;
+        try {
+          const observation = await ctx.sessionQuery.observeSession(body.sessionId, { signal: request.signal, projectionMode: 'none' });
+          try { fresh = observation.header?.origin !== 'subagent' && finishedTurn(observation.events ?? []) === body.afterSeq; } finally { observation[Symbol.dispose]?.(); }
+        } catch { fresh = false; }
+        if (!fresh) return json({ error: 'the chat moved on' }, 409);
+        return json(kept.result);
+      }
+      const same = running.get(body.sessionId);
+      if (same !== undefined && same.afterSeq === body.afterSeq) {
+        try { return json(await same.promise); } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 502); }
+      }
+      if (same !== undefined) return json({ error: 'a prediction for this chat is still running' }, 409);
+      // Shared by every request for this turn (two tabs, the phone): no request's signal may cancel it. The call has its own
+      // timeout, so it always ends.
+      const promise = predictNext({ llm, sessionQuery: ctx.sessionQuery, route }, body.sessionId, body.afterSeq).then((result) => {
+        done.delete(body.sessionId);
+        done.set(body.sessionId, { key, result });
+        if (done.size > PREDICT_CACHE) done.delete(done.keys().next().value);
+        return result;
+      });
+      running.set(body.sessionId, { afterSeq: body.afterSeq, promise });
+      try { return json(await promise); }
+      catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 502); }
+      finally { if (running.get(body.sessionId)?.promise === promise) running.delete(body.sessionId); }
     },
   });
 }

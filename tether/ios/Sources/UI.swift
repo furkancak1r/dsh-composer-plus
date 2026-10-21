@@ -795,6 +795,21 @@ struct ConversationView: View {
                     if let preview { ImageViewer(img: preview) { self.preview = nil } }
                 }
             }
+            // Next message prediction (Composer Plus): the guess for this chat, over an empty composer; a tap puts it in.
+            if let p = c.prediction, text.isEmpty, images.isEmpty, files.isEmpty, !c.running {
+                Button { text = p.text; c.prediction = nil; focused = true } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles").font(.caption).foregroundStyle(.secondary)
+                        Text(verbatim: p.text).font(.subheadline).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                        Text("Tap to use").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 6).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Suggested next message: \(p.text)"))
+                .accessibilityHint(Text("Puts it in the message field"))
+            }
             // while a turn runs, sending queues the next turn like desktop's default busy-Enter; the queue dock's "Send now" steers
             TextField(c.running ? "Queue a message…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4)
             HStack(spacing: 10) {

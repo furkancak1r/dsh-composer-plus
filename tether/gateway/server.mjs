@@ -40,15 +40,15 @@ export const STREAMS = new Set(['session/follow', 'session/control', 'workspace/
 export const PLUS = new Map([
   ['changes', ['GET']], ['diff', ['GET']], ['continue', ['POST']], ['grants', ['GET', 'POST']],
   ['rollback', ['GET', 'POST']], ['delete-chat', ['POST']], ['ideas', ['POST']], ['later', ['GET', 'POST']], ['idea-history', ['GET', 'POST']],
-  ['queue-move', ['POST']],
+  ['queue-move', ['POST']], ['predict', ['POST']],
 ])
 /** Allow for this chat: an Auto Review ask (`approval/request` with this reason) for a tool that the chat granted. */
 export const AUTO_REVIEW_ASK = 'Auto review denied tool '
 export const isGrantedAsk = (v, grants) => v.event === 'approval/request' && typeof v.request?.reason === 'string'
   && v.request.reason.startsWith(AUTO_REVIEW_ASK) && typeof v.request.toolName === 'string' && typeof v.agentId === 'string'
   && Array.isArray(grants?.[v.agentId]) && grants[v.agentId].includes(v.request.toolName)
-/** A switch body (`{on: true|false}`) moves a feature for every device: the phone never sends one. */
-const isSwitch = b => Object.hasOwn(b, 'on')
+/** A switch body (`{on: true|false}`) or a setting (`{model}`) changes the Mac for every device: the phone never sends one. */
+const isSwitch = b => Object.hasOwn(b, 'on') || Object.hasOwn(b, 'model')
 export const EVENTS = new Set([
   'agent-preset/selected', 'approval/request', 'api-session/activity', 'api-session/added', 'api-session/error',
   'api-session/removed', 'api-session/status', 'commands/change', 'goal/activation-changed',
