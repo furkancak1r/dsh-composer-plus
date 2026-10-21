@@ -692,7 +692,10 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     // new key: the previous build stored "tsAuto" defaulting to on
     @Published var tsAuto = UserDefaults.standard.bool(forKey: "tsAutoShortcut") { didSet { UserDefaults.standard.set(tsAuto, forKey: "tsAutoShortcut") } }
     /// The Shortcut came back with x-success at least once, so it is installed and allowed to run unattended.
+    /// iOS gives apps no list of the user's shortcuts: one run from Tether is the only way to know that it is there.
     @Published var tsReady = UserDefaults.standard.bool(forKey: "tsReady") { didSet { UserDefaults.standard.set(tsReady, forKey: "tsReady") } }
+    /// Why the last run from Tether failed, as Shortcuts reports it (errorMessage); nil after a good run.
+    @Published var tsError: String?
     private var tsTried = false
 
     private var urlSession: URLSession?, sessionFp = ""
@@ -1054,15 +1057,19 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         tsTried = true
         UIApplication.shared.open(tailscaleInstalled ? tailscaleShortcutURL() : tailscaleStoreURL)
     }
-    /// tether://tailscale/<result> from the Shortcut. ok: tunnel is up, go straight to the tailnet address.
-    func tailscaleReturned(_ result: String) {
-        switch result {
+    /// tether://tailscale/<result>[?errorMessage=…] from the Shortcut. ok: tunnel is up, go straight to the tailnet address.
+    func tailscaleReturned(_ u: URL) {
+        switch u.lastPathComponent {
         case "ok":
-            tsReady = true
+            tsReady = true; tsError = nil
             if pairing?.ts != nil { reconnect(via: onWiFi ? nil : .tailscale) }
         case "error":
             tsReady = false
-            error = String(localized: "Couldn't run the Tether Tailscale shortcut. Install it again from Settings › Tailscale.")
+            // Any app can open this URL: show the text only, without control characters and not longer than 200.
+            let m = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "errorMessage" }?.value
+            tsError = m.map { String(String.UnicodeScalarView($0.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) })).trimmingCharacters(in: .whitespaces) }
+                .flatMap { $0.isEmpty ? nil : String($0.prefix(200)) } ?? String(localized: "Shortcuts gave no reason.")
+            error = String(localized: "The Tether Tailscale shortcut didn't run. See Settings › Tailscale.")
         default: break
         }
     }

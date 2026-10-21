@@ -453,6 +453,20 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(zoomClamp(9), 5)
     }
 
+    /// Tether can't list shortcuts: only a run that comes back says Ready; an error keeps Shortcuts' reason.
+    @MainActor func testTailscaleReturned() {
+        let c = Client(), was = c.tsReady
+        defer { c.tsReady = was }
+        c.tailscaleReturned(URL(string: "tether://tailscale/error?errorMessage=The%20shortcut%20could%20not%20be%20found.%0A")!)
+        XCTAssertFalse(c.tsReady); XCTAssertEqual(c.tsError, "The shortcut could not be found.")
+        c.tailscaleReturned(URL(string: "tether://tailscale/error")!)
+        XCTAssertEqual(c.tsError, "Shortcuts gave no reason.")
+        c.tailscaleReturned(URL(string: "tether://tailscale/ok?result=")!)
+        XCTAssertTrue(c.tsReady); XCTAssertNil(c.tsError)
+        c.tailscaleReturned(URL(string: "tether://tailscale/cancel")!)
+        XCTAssertTrue(c.tsReady, "cancel changes nothing")
+    }
+
     @MainActor func testJustFinished() {
         XCTAssertEqual(sessionsPlaceholder(loaded: false, count: 0, state: .connecting), .loading)
         // no cached sessions without a live link, even when a list was loaded before

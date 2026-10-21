@@ -82,6 +82,17 @@ Uygulama her yerde (sol üstteki Mac adı, Ayarlar, eşleşme ekranı) Mac'in bi
 3. Önceden eşleşmiş telefonun bir kez evde (aynı Wi‑Fi'de) bağlanması yeterli, Tailscale adresini kendisi öğrenir. Yeni QR da olur.
 4. Bitti: Wi‑Fi dışındayken uygulama Tailscale üzerinden bağlanır, Ayarlar'da "Route" hangi yolun kullanıldığını gösterir.
 
+### Tailscale kestirmesi (Shortcut)
+
+Tether, iPhone'da Tailscale'i açmak için **Tether Tailscale** adlı bir kestirme kullanır. iOS, uygulamaların kullanıcının kestirmelerini görmesine izin vermez. Bu yüzden Tether, kestirmenin eklendiğini bilemez. Kestirmeyi Tether'den bir kez çalıştırmak gerekir:
+
+1. Ayarlar → **Tailscale** → **Add the Tailscale shortcut** ile kestirmeyi ekleyin. Kestirmenin adı tam olarak `Tether Tailscale` olmalı.
+2. **Check the shortcut**'a dokunun. Kestirmeler uygulaması kestirmeyi çalıştırır ve Tether'e geri döner.
+3. Satır **Ready** gösterir. Bundan sonra "Run the shortcut when the Mac is unreachable" anahtarı açılabilir.
+
+- Kestirme çalışmazsa satır **Didn't run** gösterir. Altında Kestirmeler uygulamasının verdiği neden yazar, örneğin kestirme bulunamadı.
+- Satırda **Not checked yet** yazıyorsa kestirme henüz Tether'den çalıştırılmamıştır. Kestirmenin eksik olduğu anlamına gelmez.
+
 Gateway asla public internete açılmaz: yalnızca yerel ağdan ve tailnet'ten (100.64.0.0/10, fd7a:115c:a1e0::/48) gelen bağlantıları kabul eder, gerisi TLS kurulmadan kesilir. Sertifika sabitleme ve token aynen geçerli.
 
 ## Güvenlik değerlendirmesi

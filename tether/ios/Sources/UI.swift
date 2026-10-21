@@ -14,7 +14,7 @@ import AVFoundation
                 // tether://pair?…: the Mac's pairing code, opened from the Camera app; it asks before it connects.
                 .onOpenURL { u in
                     guard u.scheme == "tether" else { return }
-                    if u.host == "tailscale" { client.tailscaleReturned(u.lastPathComponent) } else if u.host == "pair" { client.openPairLink(u) }
+                    if u.host == "tailscale" { client.tailscaleReturned(u) } else if u.host == "pair" { client.openPairLink(u) }
                 }
         }
     }
@@ -1579,12 +1579,14 @@ struct SettingsView: View {
                 }
                 if c.pairing != nil {
                     Section {
-                        LabeledContent("Shortcut", value: c.tsReady ? String(localized: "Ready") : String(localized: "Not added"))
-                        TailscaleShortcutLink()
-                        Button("Connect Tailscale now") { c.openTailscale() }
+                        // "Not checked yet", not "Not added": Tether cannot see the user's shortcuts, only a run from here.
+                        LabeledContent("Shortcut", value: c.tsReady ? String(localized: "Ready") : c.tsError != nil ? String(localized: "Didn't run") : String(localized: "Not checked yet"))
+                        if let e = c.tsError { Text(e).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                        if !c.tsReady { TailscaleShortcutLink() }
+                        Button(c.tsReady ? LocalizedStringKey("Connect Tailscale now") : "Check the shortcut") { c.openTailscale() }
                         Toggle("Run the shortcut when the Mac is unreachable", isOn: $c.tsAuto).disabled(!c.tsReady)
                     } header: { Text("Tailscale") } footer: {
-                        Text("Silent, no app switching: in Shortcuts › Automation › + › App › Tether › Is Opened › Run Immediately, add Tailscale › Connect. Tailscale connects in the background with just a banner, and Tether reconnects the moment the tunnel is up. Or turn on VPN On Demand in Tailscale's settings. The toggle above opens the Shortcuts app instead, so leave it off with an automation.")
+                        Text("iOS doesn't let apps see your shortcuts, so Tether can't tell that you added it. Tap Check the shortcut once: the shortcut runs, comes back to Tether, and this shows Ready. Its name must be exactly Tether Tailscale.\n\nSilent, no app switching: in Shortcuts › Automation › + › App › Tether › Is Opened › Run Immediately, add Tailscale › Connect. Tailscale connects in the background with just a banner, and Tether reconnects the moment the tunnel is up. Or turn on VPN On Demand in Tailscale's settings. The toggle above opens the Shortcuts app instead, so leave it off with an automation.")
                     }
                 }
                 Section {
