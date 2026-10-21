@@ -1627,7 +1627,7 @@
     "continue.label": "Tiếp tục",
     "continue.failed": "Không thể tiếp tục. Kiểm tra kết nối và thử lại.",
     "queue.drag": "Kéo để sắp xếp lại (hoặc ↑/↓)",
-    "queue.locked": "Không thể di chuyển tin nhắn có hình ảnh/tệp",
+    "queue.locked": "Chỉ có thể di chuyển tin nhắn trong hàng đợi của chính bạn (với Composer Plus cũ trên Mac, chỉ tin nhắn văn bản)",
     "queue.grip": "Sắp xếp lại tin nhắn trong hàng đợi",
     "queue.failed": "Sắp xếp lại thất bại: có thể tin nhắn đã bắt đầu được gửi.",
     "copyDeeplink": "Sao chép liên kết phiên",

@@ -1627,7 +1627,7 @@
     "continue.label": "Continuer",
     "continue.failed": "Impossible de continuer. Vérifiez la connexion et réessayez.",
     "queue.drag": "Faites glisser pour réordonner (ou ↑/↓)",
-    "queue.locked": "Les messages contenant des images ou des fichiers ne peuvent pas être déplacés",
+    "queue.locked": "Seuls vos propres messages en file d’attente peuvent être déplacés (avec un ancien Composer Plus sur le Mac, seulement les messages texte)",
     "queue.grip": "Réordonner le message en file d’attente",
     "queue.failed": "Échec du réordonnancement : l’envoi d’un message a peut-être déjà commencé.",
     "copyDeeplink": "Copier le lien de session",

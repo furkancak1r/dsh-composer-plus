@@ -749,15 +749,14 @@ struct ConversationView: View {
                 let id = item["id"] as? String ?? ""
                 let steering = c.inbox["next-step"]?.contains { $0["id"] as? String == id } == true
                 // Queue reorder (Composer Plus): only the next-turn rows move, and only past text-only rows.
-                let turnRows = c.inbox["next-turn"] ?? [], at = turnRows.firstIndex { $0["id"] as? String == id }
-                let texts = turnRows.map { queueText($0) }
+                let at = (c.inbox["next-turn"] ?? []).firstIndex { $0["id"] as? String == id }
                 HStack(spacing: 8) {
                     Image(systemName: steering ? "arrow.turn.down.right" : "clock").font(.caption).foregroundStyle(.secondary)
                     Text(contentText(item["content"])).font(.footnote).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
                     Menu {
                         if !steering { Button { c.run { try await c.updateQueue(id, ["kind": "steer"]) } } label: { Label("Send now", systemImage: "arrow.up") } }
-                        if let at, queueMove(texts, from: at, to: at - 1) != nil { Button { c.run { try await c.moveQueued(from: at, to: at - 1) } } label: { Label("Move up", systemImage: "arrow.up.to.line") }.disabled(c.movingQueue) }
-                        if let at, queueMove(texts, from: at, to: at + 1) != nil { Button { c.run { try await c.moveQueued(from: at, to: at + 1) } } label: { Label("Move down", systemImage: "arrow.down.to.line") }.disabled(c.movingQueue) }
+                        if let at, c.canMoveQueued(from: at, to: at - 1) { Button { c.run { try await c.moveQueued(from: at, to: at - 1) } } label: { Label("Move up", systemImage: "arrow.up.to.line") }.disabled(c.movingQueue) }
+                        if let at, c.canMoveQueued(from: at, to: at + 1) { Button { c.run { try await c.moveQueued(from: at, to: at + 1) } } label: { Label("Move down", systemImage: "arrow.down.to.line") }.disabled(c.movingQueue) }
                         Button { editText = contentText(item["content"]); editing = item } label: { Label("Edit", systemImage: "pencil") }
                         Button(role: .destructive) { c.run { try await c.updateQueue(id, ["kind": "remove"]) } } label: { Label("Remove", systemImage: "trash") }
                     } label: { Image(systemName: "ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }

@@ -1627,7 +1627,7 @@
     "continue.label": "Lanjutkan",
     "continue.failed": "Tidak dapat melanjutkan. Periksa koneksi dan coba lagi.",
     "queue.drag": "Seret untuk mengubah urutan (atau ↑/↓)",
-    "queue.locked": "Pesan dengan gambar/file tidak dapat dipindahkan",
+    "queue.locked": "Hanya pesan antrean milik Anda yang dapat dipindahkan (dengan Composer Plus lama di Mac, hanya pesan teks)",
     "queue.grip": "Ubah urutan pesan dalam antrean",
     "queue.failed": "Gagal mengubah urutan: pesan mungkin sudah mulai dikirim.",
     "copyDeeplink": "Salin tautan sesi",

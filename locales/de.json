@@ -1627,7 +1627,7 @@
     "continue.label": "Fortsetzen",
     "continue.failed": "Fortsetzen nicht möglich. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
     "queue.drag": "Zum Neuanordnen ziehen (oder ↑/↓)",
-    "queue.locked": "Nachrichten mit Bildern/Dateien können nicht verschoben werden",
+    "queue.locked": "Nur deine eigenen Nachrichten in der Warteschlange lassen sich verschieben (mit einem älteren Composer Plus auf dem Mac nur Textnachrichten)",
     "queue.grip": "Eingereihte Nachricht neu anordnen",
     "queue.failed": "Neuanordnen fehlgeschlagen: Eine Nachricht wird möglicherweise bereits gesendet.",
     "copyDeeplink": "Sitzungslink kopieren",

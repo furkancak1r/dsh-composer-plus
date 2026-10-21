@@ -1627,7 +1627,7 @@
     "continue.label": "계속",
     "continue.failed": "계속할 수 없습니다. 연결을 확인하고 다시 시도하세요.",
     "queue.drag": "끌어서 순서 변경(또는 ↑/↓)",
-    "queue.locked": "이미지/파일이 포함된 메시지는 이동할 수 없습니다",
+    "queue.locked": "내가 보낸 대기 메시지만 이동할 수 있습니다(Mac의 Composer Plus가 이전 버전이면 텍스트 메시지만)",
     "queue.grip": "대기 중인 메시지 순서 변경",
     "queue.failed": "순서 변경 실패: 메시지 전송이 이미 시작되었을 수 있습니다.",
     "copyDeeplink": "세션 링크 복사",

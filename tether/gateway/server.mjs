@@ -40,6 +40,7 @@ export const STREAMS = new Set(['session/follow', 'session/control', 'workspace/
 export const PLUS = new Map([
   ['changes', ['GET']], ['diff', ['GET']], ['continue', ['POST']], ['grants', ['GET', 'POST']],
   ['rollback', ['GET', 'POST']], ['delete-chat', ['POST']], ['ideas', ['POST']], ['later', ['GET', 'POST']], ['idea-history', ['GET', 'POST']],
+  ['queue-move', ['POST']],
 ])
 /** Allow for this chat: an Auto Review ask (`approval/request` with this reason) for a tool that the chat granted. */
 export const AUTO_REVIEW_ASK = 'Auto review denied tool '

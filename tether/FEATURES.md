@@ -29,7 +29,7 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | inputHistory | no | Needs ↑/↓ keys. Touch and hold your message → Edit or Resend does the same on a phone. |
 | planToggle | yes | The plan button in the composer: adds or removes `/plan`, or leaves plan mode. |
 | keepFocus | no | A desktop browser focus problem. The iPhone keyboard keeps its focus. |
-| queueReorder | yes | Queued message menu → Move up / Move down. |
+| queueReorder | yes | Queued message menu → Move up / Move down. Messages with images move too (the Mac's `queue-move` route). |
 | copyDeeplink | yes | Chat title menu, or touch and hold a chat → Copy session link. |
 | copyProjectPath | yes | Touch and hold a project header in Sessions → Copy path. |
 | mobileConnect | yes | Tether itself. |

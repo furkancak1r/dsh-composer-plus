@@ -1627,7 +1627,7 @@
     "continue.label": "Continuar",
     "continue.failed": "No se pudo continuar. Revisa la conexión e inténtalo de nuevo.",
     "queue.drag": "Arrastra para reordenar (o ↑/↓)",
-    "queue.locked": "Los mensajes con imágenes o archivos no se pueden mover",
+    "queue.locked": "Solo puedes mover tus propios mensajes en cola (con un Composer Plus antiguo en el Mac, solo los de texto)",
     "queue.grip": "Reordenar mensaje en cola",
     "queue.failed": "No se pudo reordenar: es posible que un mensaje ya haya empezado a enviarse.",
     "copyDeeplink": "Copiar enlace de sesión",

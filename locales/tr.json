@@ -3091,7 +3091,7 @@
     "continue.label": "Devam et",
     "continue.failed": "Devam edilemedi. Lütfen yeniden deneyin.",
     "queue.drag": "Sıralamak için sürükleyin (veya ↑/↓)",
-    "queue.locked": "Görsel veya dosya içeren mesajlar taşınamaz",
+    "queue.locked": "Yalnız kendi sıradaki mesajlarınız taşınabilir (Mac’teki Composer Plus eskiyse yalnız metin mesajları)",
     "queue.grip": "Sıradaki mesajın yerini değiştir",
     "queue.failed": "Sıra değiştirilemedi: bir mesajın gönderimi başlamış olabilir.",
     "copyDeeplink": "Oturum bağlantısını kopyala",

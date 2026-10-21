@@ -37,6 +37,7 @@ export const HISTORY_PATH = '/api/composer-plus.idea-history';
 export const CONTENT_SEARCH_PATH = '/api/composer-plus.content-search';
 export const ROLLBACK_PATH = '/api/composer-plus.rollback';
 export const DELETE_CHAT_PATH = '/api/composer-plus.delete-chat';
+export const QUEUE_MOVE_PATH = '/api/composer-plus.queue-move';
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
   'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName'];
@@ -1082,6 +1083,59 @@ export function apply(ctx) {
   const snapshots = snapshotStore({ subprocess: ctx.subprocess, dir: join(home, 'cache', 'composer-plus', 'rollback') });
   installRollback(ctx, home, snapshots);
   installDeleteChat(ctx, home, snapshots);
+  installQueueMove(ctx);
+}
+
+/** Queue drag-and-drop (Host half): `POST {sessionId, itemId, to, before}` moves one queued next-turn message to index `to`
+ * of `before`, with its images and files, in dsh's own inbox (the message keeps its id). dsh's queue `edit`
+ * takes text only, so moving text between rows cannot move a message with an attachment. `before` (the ids the user
+ * saw, in order) must still be the queue: a message that started to send meanwhile makes it 409, and nothing moves. */
+function installQueueMove(ctx) {
+  const busy = new Set();
+  ctx.connection.fetch.register({
+    path: QUEUE_MOVE_PATH, methods: ['POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      const { sessionId, itemId, to, before } = body ?? {};
+      if (!isText(sessionId) || !isText(itemId) || !Number.isSafeInteger(to) || to < 0 || !Array.isArray(before) || !before.every((id) => isText(id))) return json({ error: 'bad request' }, 400);
+      if (busy.has(sessionId)) return json({ error: 'a move in this chat is already running' }, 409);
+      busy.add(sessionId);
+      try {
+        const found = await ctx.sessionController.resolveAgent(sessionId);
+        if ('error' in found) return json({ error: 'this chat is not available' }, 409);
+        const { agent } = found;
+        const inbox = agent.inbox;
+        if (inbox?.splice === undefined || !Array.isArray(inbox.nextTurn)) return json({ error: 'this dsh cannot move queued messages' }, 409);
+        if (!isRootChat(agent.session)) {
+          const sub = ctx.sessionProjections?.snapshot?.(agent.session, ['subagent'])?.values?.subagent;
+          if (sub?.mode !== 'continuable') return json({ error: 'this chat cannot change its queue' }, 409);
+        }
+        const queue = inbox.nextTurn;
+        const ids = queue.map((m) => m.id);
+        // Only the rows the user saw may move: dsh hides the ones already echoed in the chat, so `before` can be a
+        // part of the queue, in the same order.
+        const seen = ids.filter((id) => before.includes(id));
+        if (seen.length !== before.length || seen.some((id, i) => id !== before[i]) || !before.includes(itemId) || to >= before.length) {
+          return json({ error: 'the queue changed; a message may have already started sending' }, 409);
+        }
+        const from = ids.indexOf(itemId);
+        const target = ids.indexOf(before[to]);
+        if (from === target) return json({ moved: false });
+        // One splice over the rows between the two places, in their new order: one log event, the same ids. dsh logs
+        // it as "canceled + inserted", which its chat view and its turn bookkeeping do not count as a claim. Only your
+        // own messages move: a goal round or a question reply in that range has its own listeners on a removal.
+        const lo = Math.min(from, target), hi = Math.max(from, target);
+        const range = queue.slice(lo, hi + 1);
+        if (!range.every((m) => m.source?.kind === 'user')) return json({ error: 'only your own queued messages can move' }, 409);
+        const order = [...range];
+        order.splice(target - lo, 0, order.splice(from - lo, 1)[0]);
+        inbox.splice('next-turn', lo, range.length, order);
+        return json({ moved: true, order: inbox.nextTurn.map((m) => m.id) });
+      } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      finally { busy.delete(sessionId); }
+    },
+  });
 }
 
 /** Wait until the agent is idle, at most `ms`; false on time-out. */

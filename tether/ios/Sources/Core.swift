@@ -1094,11 +1094,26 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// Plan mode: leave it as dsh's plan chip does.
     func leavePlan() async throws { try await execute("/plan off") }
 
-    /// Queue reorder: one move at a time; on a failure the done edits go back.
+    /// Queue reorder: one move at a time. The Mac's plugin moves the message itself (also with images); an older plugin
+    /// without that route: the texts move through dsh's edit, and on a failure the done edits go back.
     @Published var movingQueue = false
+    /// Which rows can move: your own messages with the Mac's route, else text rows only.
+    func canMoveQueued(from: Int, to: Int) -> Bool {
+        let rows = inbox["next-turn"] ?? []
+        guard from != to, rows.indices.contains(from), rows.indices.contains(to) else { return false }
+        if plus.contains("queue-move") { return rows[min(from, to)...max(from, to)].allSatisfy { ($0["source"] as? J)?["kind"] as? String == "user" } }
+        return queueMove(rows.map { queueText($0) }, from: from, to: to) != nil
+    }
     func moveQueued(from: Int, to: Int) async throws {
         let rows = inbox["next-turn"] ?? []
-        guard !movingQueue, let changes = queueMove(rows.map { queueText($0) }, from: from, to: to) else { return }
+        guard !movingQueue, canMoveQueued(from: from, to: to), let sid = current, let item = rows[from]["id"] as? String else { return }
+        if plus.contains("queue-move") {
+            movingQueue = true; defer { movingQueue = false }
+            do { _ = try await plusCall("queue-move", body: ["sessionId": sid, "itemId": item, "to": to, "before": rows.compactMap { $0["id"] as? String }]) }
+            catch { throw Fail(String(localized: "Reorder failed: a message may have already started sending.")) }
+            return
+        }
+        guard let changes = queueMove(rows.map { queueText($0) }, from: from, to: to) else { return }
         movingQueue = true; defer { movingQueue = false }
         var done: [(row: Int, next: String, prev: String)] = []
         let edit = { (i: Int, t: String) async throws in
