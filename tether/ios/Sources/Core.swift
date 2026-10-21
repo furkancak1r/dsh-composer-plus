@@ -455,6 +455,9 @@ func parseQuestions(_ v: Any?, session: String) -> [Prompt] {
     return a.compactMap { r in (r["callId"] as? String).map { Prompt(id: $0, event: "userQuestions/answer", agentId: session, request: r) } }
 }
 
+/// A chat shows "Running" while its own turn or one of its subagents runs, as in the DSH desktop sidebar.
+func isRunning(_ s: Sess, _ all: [Sess]) -> Bool { s.running || all.contains { $0.parent == s.id && $0.running } }
+
 struct Sess: Identifiable {
     let id: String, title: String, cwd: String, parent: String?, running: Bool, preset: String?, model: String?, context: Double?, permission: String?, todos: [Todo]?, updated: Date?, questions: [Prompt], goal: Goal?
     init?(_ j: J) {
@@ -1290,8 +1293,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         let fresh = (v?["items"] as? [J] ?? []).compactMap(Sess.init)
         // Cold start: compare against the last list seen before the app was closed, so turns that finished meanwhile still get a dot.
         let old = sessions.isEmpty ? (UserDefaults.standard.array(forKey: key("seenSessions")) as? [J] ?? []).compactMap(Sess.init) : sessions
-        // Drop dots for sessions that vanished (archived elsewhere) so the badge can't stick.
-        finished = finished.intersection(fresh.map(\.id)).union(Self.justFinished(old: old, new: fresh, current: current))
+        // Drop dots for sessions that vanished (archived elsewhere) so the badge can't stick, and for sessions that run
+        // again: a running chat shows the spinner, not "Finished".
+        finished = finished.intersection(fresh.filter { !isRunning($0, fresh) }.map(\.id)).union(Self.justFinished(old: old, new: fresh, current: current))
         sessions = fresh
         sessionsLoaded = true
         // session/list carries projections.values.userQuestions ({active, settled}, verified live by gateway/e2e.mjs).
@@ -1306,16 +1310,17 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         s.map { s in
             var j: J = ["sessionId": s.id, "running": s.running, "projections": ["values": ["title": s.title]]]
             if let u = s.updated { j["updatedAt"] = u.timeIntervalSince1970 * 1000 }
+            if let p = s.parent { j["parentSessionId"] = p } // a chat counts as running while its subagent runs
             return j
         }
     }
 
-    /// Not the open chat, idle now, and either was running last list or got a newer updatedAt (a whole turn between two refreshes) without a rename.
+    /// Not the open chat, idle now (its subagents too), and either was running last list or got a newer updatedAt (a whole turn between two refreshes) without a rename.
     static func justFinished(old: [Sess], new: [Sess], current: String?) -> Set<String> {
         let prev = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         return Set(new.filter { n in
-            guard !n.running, n.id != current, let o = prev[n.id] else { return false }
-            if o.running { return true }
+            guard !isRunning(n, new), n.id != current, let o = prev[n.id] else { return false }
+            if isRunning(o, old) { return true }
             guard let a = o.updated, let b = n.updated else { return false }
             return b > a && o.title == n.title
         }.map(\.id))

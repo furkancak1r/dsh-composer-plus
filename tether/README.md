@@ -20,6 +20,16 @@ Mac tarayıcısı ──▶ http://127.0.0.1:19391/  (admin: QR, eşleme onayı,
 - **server.mjs**: telefonlara tek kapı. `POST /pair`, `GET /me`, `POST /api/<method>` (allowlist), WSS `/api/remote.mux` (allowlist'li stream'ler) ve DSH `$events` akışını (onay / soru istekleri) telefonlara dağıtır. Bonjour `_dshmobile._tcp` (TXT `fp=`).
 - **ios/**: Sohbet, Oturumlar, Ajanlar, Ayarlar sekmeleri; QR / yapıştır / Bonjour ile eşleme; otomatik yeniden bağlanma; sınırsız sayıda Mac.
 
+## Oturum listesindeki işaretler
+
+İşaretler DSH masaüstündeki kenar çubuğuyla aynıdır:
+
+- Gri, dönen halka: sohbet çalışıyor. Sohbetin bir alt ajanı çalışırken de halka görünür.
+- Yeşil nokta: sohbet bitti ve siz henüz açmadınız. Sohbeti açınca nokta gider.
+- Turuncu el: sohbet sizden onay ya da yanıt bekliyor.
+
+Sistemde "azaltılmış hareket" açıksa halka dönmez.
+
 ## Kurulum
 
 1. DSH'ye dsh-composer-plus eklentisini kur: Ayarlar → Eklentiler → **Eklenti ekle** → `dsh-composer-plus`.

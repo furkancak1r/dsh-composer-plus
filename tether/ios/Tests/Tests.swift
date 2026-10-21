@@ -474,6 +474,13 @@ final class CoreTests: XCTestCase {
         saved.set(Client.snapshot([s("h", true), t("i", 1, "x")]), forKey: "seen")
         let back = (saved.array(forKey: "seen") as? [J] ?? []).compactMap(Sess.init)
         XCTAssertEqual(Client.justFinished(old: back, new: [s("h", false), t("i", 2, "x")], current: nil), ["h", "i"])
+        // As in DSH desktop: a chat runs while its subagent runs, and it finishes when the subagent stops.
+        let k = { (id: String, parent: String, run: Bool) in Sess(["sessionId": id, "parentSessionId": parent, "running": run])! }
+        let busy = [s("p", false), k("p1", "p", true)]
+        XCTAssertTrue(isRunning(busy[0], busy)); XCTAssertFalse(isRunning(s("q", false), busy))
+        XCTAssertEqual(Client.justFinished(old: busy, new: busy, current: nil), [], "still running: no Finished mark")
+        let cold = (Client.snapshot(busy) as [J]).compactMap(Sess.init)
+        XCTAssertEqual(Client.justFinished(old: cold, new: [s("p", false), k("p1", "p", false)], current: nil), ["p", "p1"])
     }
 }
 

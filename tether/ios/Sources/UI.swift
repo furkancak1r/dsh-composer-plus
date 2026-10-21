@@ -62,6 +62,28 @@ struct Root: View {
     }
 }
 
+/// DSH desktop's "Running" mark (its StateDot "ongoing"): a faint ring with an arc that turns. Green means
+/// "Completed" there, so a running chat must not be green here.
+struct RunningSpinner: View {
+    var size: CGFloat = 14
+    @Environment(\.accessibilityReduceMotion) private var still
+    var body: some View {
+        // TimelineView, not a repeatForever animation: that one also moves the row in a List when it appears.
+        TimelineView(.animation(paused: still)) { ctx in
+            let turn = ctx.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.5) / 1.5
+            ZStack {
+                Circle().stroke(lineWidth: 2).opacity(0.25)
+                Circle().trim(from: 0, to: 0.3).stroke(style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(still ? -90 : turn * 360 - 90))
+            }
+            .padding(1)
+        }
+        // Color.secondary, not .secondary: inside a Button the hierarchical style turns into the blue tint
+        .foregroundStyle(Color.secondary)
+        .frame(width: size, height: size)
+    }
+}
+
 /// Small connection badge shown in navigation bars.
 struct ConnBadge: View {
     @EnvironmentObject var c: Client
@@ -1307,19 +1329,21 @@ struct SessionsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     if c.pinned.contains(s.id) { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.orange) }
-                    Text(s.title).foregroundStyle(.primary).lineLimit(1)
+                    // Color.primary: in a Button, .primary is the blue tint and every chat looks like a link
+                    Text(s.title).foregroundStyle(Color.primary).lineLimit(1)
                 }
                 HStack(spacing: 0) {
                     Text([s.model, (s.cwd as NSString).lastPathComponent].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                     if let d = s.updated { Text(" · ") + Text(d, format: .relative(presentation: .named, unitsStyle: .abbreviated)) }
                 }
-                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                .font(.caption).foregroundStyle(Color.secondary).lineLimit(1)
             }
             Spacer()
             if let g = s.goal, !g.phase.hasPrefix("complete") { Image(systemName: "target").font(.caption).foregroundStyle(g.paused ? Color.secondary : Color.accentColor).accessibilityLabel("Goal: \(g.summary)") }
             if c.prompts.contains(where: { $0.agentId == s.id }) { Image(systemName: "hand.raised.fill").foregroundStyle(.orange).accessibilityLabel("Waiting for you") }
-            if s.running { Circle().fill(.green).frame(width: 8, height: 8).accessibilityLabel("Running") }
-            else if c.finished.contains(s.id) { Circle().fill(Color.accentColor).frame(width: 8, height: 8).accessibilityLabel("Finished") }
+            // DSH desktop's marks: a turning ring while it runs (also while a subagent runs), green when it finished
+            if isRunning(s, c.sessions) { RunningSpinner().accessibilityLabel("Running") }
+            else if c.finished.contains(s.id) { Circle().fill(.green).frame(width: 8, height: 8).accessibilityLabel("Finished") }
             if s.id == c.current { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
         }
     }
@@ -1459,7 +1483,7 @@ struct AgentsView: View {
                                 Button { c.open(k.id) } label: { Text(k.title).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }
                                     .buttonStyle(.borderless).foregroundStyle(.primary).accessibilityHint("Opens its conversation")
                                 if k.running {
-                                    ProgressView()
+                                    RunningSpinner().accessibilityLabel("Running")
                                     Button { c.run { try await c.interrupt(k) } } label: { Image(systemName: "stop.circle") }.accessibilityLabel("Interrupt").buttonStyle(.borderless)
                                 }
                                 Button { subText = ""; messaging = k } label: { Image(systemName: "bubble.left") }.accessibilityLabel("Message subagent").buttonStyle(.borderless)
