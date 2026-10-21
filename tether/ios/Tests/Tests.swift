@@ -123,6 +123,19 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(PairPhase.waiting("M", until: .now).busy); XCTAssertTrue(PairPhase.done("M").busy); XCTAssertFalse(PairPhase.failed("x").busy); XCTAssertFalse(PairPhase.idle.busy)
     }
 
+    /// The pair screen shows the user's own name for a Mac this iPhone knows, also when the Mac has a new certificate.
+    func testKnownAlias() {
+        let fp = String(repeating: "ab", count: 32)
+        var old = Pairing(host: "192.168.2.63", port: 19390, fp: "old", token: "t", deviceId: "d", name: "n", expiresAt: "", mac: "Furkan MacBook Pro")
+        let inv = Invite(v: 1, host: "192.168.2.63", port: 19390, fp: fp, code: "c", mac: "Furkan MacBook Pro")
+        XCTAssertNil(knownAlias([old], inv), "no name of the user's own: the Mac's name shows")
+        old.label = "Office"
+        XCTAssertEqual(knownAlias([old], inv), "Office", "same Mac, new certificate")
+        XCTAssertNil(knownAlias([old], Invite(v: 1, host: "192.168.2.63", port: 19390, fp: fp, code: "c", mac: "Another Mac")), "another Mac at that address")
+        XCTAssertNil(knownAlias([old], Invite(v: 1, host: "192.168.2.70", port: 19390, fp: fp, code: "c", mac: "Furkan MacBook Pro")), "a second Mac with the same name")
+        XCTAssertEqual(old.title, "Office")
+    }
+
     func testTailnet() {
         for ok in ["100.64.0.1", "100.127.255.255", "mac.tail1.ts.net"] { XCTAssertTrue(isTailnet(ok), ok) }
         for bad in ["100.63.0.1", "100.128.0.1", "MAC.ts.net", "evil.com", "ts.net.evil.com", ".ts.net", "8.8.8.8", "192.168.1.2", "a b.ts.net"] {

@@ -46,6 +46,18 @@ Telefon istediğiniz kadar Mac'e eşleşebilir. Sınır yoktur.
 2. Tether'de sol üstteki Mac adına dokunun, **Add a Mac…** seçin. O Mac'in QR kodunu tarayın, **Connect**'e dokunun ve Mac'te **Approve**'a basın.
 3. Sol üstteki Mac adından Mac'ler arasında geçin. Ayarlar → **Macs** bölümünde bir Mac'i yeniden adlandırabilir (yalnız bu iPhone'da) ya da eşleşmesini kaldırabilirsiniz.
 
+### Mac'e kendi adınızı verin (takma ad)
+
+Uygulama her yerde (sol üstteki Mac adı, Ayarlar, eşleşme ekranı) Mac'in bilgisayar adı yerine sizin verdiğiniz adı gösterir.
+
+1. Eşleşme bitince Tether **Name this Mac** kutusunu açar. Kutuda Mac'in kendi adı yazılıdır. İstediğiniz adı yazıp **Save**'e dokunun. Adı değiştirmek istemiyorsanız **Cancel**'a dokunun.
+2. Adı sonra değiştirmek için: sol üstteki Mac adı → **Rename this Mac…**, ya da Ayarlar → **Macs** → satırdaki kalem.
+3. Kutuyu boş bırakıp kaydederseniz Mac'in kendi adı geri gelir.
+
+- Ad yalnız bu iPhone'da saklanır. Mac'e ve başka telefonlara gitmez.
+- Ayarlar'da sizin adınızın altında Mac'in kendi adı ve adresi görünür.
+- Mac yeni sertifika yaparsa ve yeniden eşleşirseniz sizin adınız korunur. Eşleşme ekranı da bu adı gösterir.
+
 - Her Mac kendi sertifika parmak izini, token'ını ve adreslerini (LAN, Tailscale) ayrı saklar. Bir Mac'in token'ı başka bir Mac'e hiç gönderilmez.
 - Aynı anda yalnız ekrandaki Mac'e bağlanılır. Geçişte eski Mac'in bağlantısı kapanır, ekran temizlenir ve yeni Mac'e bağlanılır. Geç gelen eski yanıtlar yok sayılır.
 - Okunmamış noktaları, son görülen liste ve taslaklar Mac'e göre ayrı tutulur.

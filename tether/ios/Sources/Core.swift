@@ -168,6 +168,11 @@ func replacedBy(_ list: [Pairing], _ p: Pairing) -> Set<String> {
     // pairing it again brings it back.
     Set(list.filter { $0.fp == p.fp || ($0.host == p.host && $0.port == p.port && ($0.mac == nil || $0.mac == p.mac)) }.map(\.fp))
 }
+/// The user's own name for the Mac that a code is for, when this iPhone paired with that Mac before (also with an
+/// older certificate: the same match as `replacedBy`). The pair screen then shows that name, not the Mac's own name.
+func knownAlias(_ list: [Pairing], _ inv: Invite) -> String? {
+    list.first { $0.label != nil && ($0.fp == inv.fp || ($0.host == inv.host && $0.port == inv.port && ($0.mac == nil || $0.mac == inv.mac))) }?.label
+}
 /// A yes/no that a URLSession delegate callback and the pairing task share (both reach it through the main actor).
 final class Flag: @unchecked Sendable { var on = false }
 
@@ -607,6 +612,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         }
     }
     private func key(_ k: String) -> String { macKey(k, activeFp, legacy: legacyFp) }
+    /// The Mac in the "Rename Mac" box (Mac picker or Settings), and the text in that box. The text is set only when
+    /// the box opens: Save reads it after the box starts to close.
+    @Published var renamingMac: Pairing? { didSet { if let p = renamingMac { renameText = p.title } } }
+    @Published var renameText = ""
+    /// The name the pair screen shows for a code: the user's own name for that Mac, else the Mac's name, else its address.
+    func shownName(_ inv: Invite) -> String { knownAlias(pairings, inv) ?? inv.mac ?? inv.host }
 
     init() {
         let (list, legacy) = Keychain.load()
@@ -800,7 +811,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @discardableResult func pair(_ inv: Invite) async -> Bool {
         guard !pairPhase.busy else { return false }
         // Busy at once, before the task runs: a second tap in the same moment finds it busy.
-        pairPhase = .connecting(inv.mac ?? inv.host)
+        pairPhase = .connecting(shownName(inv))
         linkInvite = nil
         let t = Task { await runPair(inv) }
         pairTask = t
@@ -821,7 +832,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
 
     private func runPair(_ inv: Invite) async -> Bool {
-        let name = inv.mac ?? inv.host
+        let name = shownName(inv)
         // The user looks at the Mac to click Approve: keep the screen on, and keep the request alive for a short time
         // if they leave the app. A dropped request makes the Mac's Approve card go away.
         UIApplication.shared.isIdleTimerDisabled = true
@@ -839,12 +850,18 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             let mac = (o["mac"] as? String).flatMap(macLabel) ?? inv.mac
             let p = Pairing(host: inv.host, port: inv.port, fp: inv.fp, token: token, deviceId: id, name: o["name"] as? String ?? "", expiresAt: o["expiresAt"] as? String ?? "", ts: inv.ts, mac: mac)
             pairings = upserted(pairings, p) // saved at once; the screen changes after the short "Connected" moment
-            pairPhase = .done(mac ?? inv.host)
+            pairPhase = .done(knownAlias(pairings, inv) ?? mac ?? inv.host)
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             try? await Task.sleep(for: .seconds(1.2))
             adopt(p)
             pairPhase = .idle
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
+            // A Mac without the user's own name: ask for one now, filled with the Mac's name. The short wait lets the
+            // "Add a Mac" sheet close first; an alert does not show while a sheet closes.
+            if pairing?.fp == p.fp, pairing?.label == nil {
+                try? await Task.sleep(for: .seconds(0.6))
+                if renamingMac == nil, let q = pairing, q.fp == p.fp, q.label == nil { renamingMac = q }
+            }
             return true
         } catch {
             if Task.isCancelled || error is CancellationError { pairPhase = .idle; return false }
@@ -920,7 +937,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         usage = nil; model = nil; defaultModel = nil; inbox = [:]; liveTodos = nil; contextWindow = nil; turnStartedAt = nil; hasOlder = false
     }
 
-    /// Rename a paired Mac on this iPhone only; a blank name goes back to the name the Mac reports.
+    /// Rename a paired Mac on this iPhone only; a blank name goes back to the name the Mac reports. A saved name stays
+    /// when the Mac's own name changes later.
     func renameMac(_ fp: String, _ name: String) {
         guard let i = pairings.firstIndex(where: { $0.fp == fp }) else { return }
         pairings[i].label = macLabel(name)

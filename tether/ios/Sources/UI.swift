@@ -34,6 +34,13 @@ struct Root: View {
                 .id(c.activeFp)
                 .sheet(item: Binding(get: { c.prompts.first }, set: { _ in })) { PromptSheet(p: $0).interactiveDismissDisabled() }
                 .sheet(isPresented: $c.addingMac) { PairView(adding: true) }
+                .alert(Text(c.renamingMac?.label == nil ? "Name this Mac" : "Rename Mac"), isPresented: Binding(get: { c.renamingMac != nil }, set: { if !$0 { c.renamingMac = nil } }), presenting: c.renamingMac) { p in
+                    TextField("Name", text: $c.renameText)
+                    Button("Save") { c.renameMac(p.fp, c.renameText) }
+                    Button("Cancel", role: .cancel) {}
+                } message: { p in
+                    Text("Tether shows this name for the Mac, only on this iPhone. Leave it empty to use the Mac's own name: \(p.mac ?? p.host).")
+                }
             }
         }
         // every Form/List/ScrollView: dragging the content closes the keyboard
@@ -74,6 +81,7 @@ struct MacPicker: View {
                 ForEach(c.pairings) { p in Label(p.title, systemImage: "laptopcomputer").tag(p.fp) }
             }
             Divider()
+            if let p = c.pairing { Button { c.renamingMac = p } label: { Label("Rename this Mac…", systemImage: "pencil") } }
             Button { c.addingMac = true } label: { Label("Add a Mac…", systemImage: "plus") }
         } label: {
             HStack(spacing: 6) {
@@ -275,7 +283,7 @@ private struct LinkConfirmCard: View {
     var body: some View {
         VStack(spacing: 14) {
             Image(systemName: "laptopcomputer").font(.system(size: 40)).foregroundStyle(.tint).padding(.top, 6).accessibilityHidden(true)
-            Text("Connect to \(inv.mac ?? inv.host)?").font(.title3.bold()).multilineTextAlignment(.center)
+            Text("Connect to \(c.shownName(inv))?").font(.title3.bold()).multilineTextAlignment(.center)
             // A link can come from any app or web page: show where it points, so a stranger's link stands out.
             Text("\(inv.host) · on your network").font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
             Text("Then click Approve on the Mac.").foregroundStyle(.secondary)
@@ -1496,32 +1504,43 @@ struct SettingsView: View {
     @State private var host = ""
     @State private var port = ""
     @State private var confirmUnpair = false
-    @State private var renaming: Pairing?
-    @State private var newName = ""
     @State private var removing: Pairing?
     var body: some View {
         NavigationStack {
             Form {
                 Section {
                     ForEach(c.pairings) { p in
-                        Button { c.switchMac(p.fp) } label: {
-                            HStack {
-                                Label { VStack(alignment: .leading) { Text(p.title).foregroundStyle(.primary); Text(p.host).font(.caption).foregroundStyle(.secondary) } } icon: { Image(systemName: "laptopcomputer") }
-                                Spacer()
-                                if p.fp == c.activeFp { Image(systemName: "checkmark").foregroundStyle(Color.accentColor).accessibilityLabel("On screen") }
+                        // Two styled buttons: in a Form row, default-style buttons would all fire on one tap.
+                        HStack {
+                            Button { c.switchMac(p.fp) } label: {
+                                HStack {
+                                    Label {
+                                        VStack(alignment: .leading) {
+                                            Text(p.title).foregroundStyle(.primary)
+                                            // with the user's own name, the Mac's name stays visible under it
+                                            Text(verbatim: [p.label == nil ? nil : p.mac, p.host].compactMap { $0 }.joined(separator: " · ")).font(.caption).foregroundStyle(.secondary)
+                                        }
+                                    } icon: { Image(systemName: "laptopcomputer").foregroundStyle(.tint) }
+                                    Spacer()
+                                    if p.fp == c.activeFp { Image(systemName: "checkmark").foregroundStyle(Color.accentColor).accessibilityLabel("On screen") }
+                                }
+                                .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
+                            Button { c.renamingMac = p } label: { Image(systemName: "pencil").padding(.leading, 8) }
+                                .buttonStyle(.borderless).accessibilityLabel(Text("Rename \(p.title)"))
                         }
                         .swipeActions {
                             Button(role: .destructive) { removing = p } label: { Label("Unpair", systemImage: "trash") }
-                            Button { newName = p.label ?? p.mac ?? ""; renaming = p } label: { Label("Rename", systemImage: "pencil") }.tint(.blue)
+                            Button { c.renamingMac = p } label: { Label("Rename", systemImage: "pencil") }.tint(.blue)
                         }
                         .contextMenu {
-                            Button { newName = p.label ?? p.mac ?? ""; renaming = p } label: { Label("Rename", systemImage: "pencil") }
+                            Button { c.renamingMac = p } label: { Label("Rename", systemImage: "pencil") }
                             Button(role: .destructive) { removing = p } label: { Label("Unpair", systemImage: "trash") }
                         }
                     }
                     Button { c.addingMac = true } label: { Label("Add a Mac…", systemImage: "plus") }
-                } header: { Text("Macs") } footer: { Text("Pair as many Macs as you like. Only the Mac on screen is connected; switch with the name at the top left.") }
+                } header: { Text("Macs") } footer: { Text("Pair as many Macs as you like. Only the Mac on screen is connected; switch with the name at the top left. Tap the pencil to give a Mac your own name.") }
                 Section("Connection") {
                     LabeledContent("Status") { HStack { ConnBadge(); Text(LocalizedStringKey(c.state.rawValue)) } }
                     LabeledContent("DSH on Mac", value: c.upstream.isEmpty ? "—" : c.upstreamText ?? String(localized: "Running"))
@@ -1581,11 +1600,6 @@ struct SettingsView: View {
             .confirmationDialog(Text("Unpair from \(removing?.title ?? "")?"), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible, presenting: removing) { p in
                 Button("Unpair", role: .destructive) { c.forget(fp: p.fp) }
             } message: { _ in Text("The token is deleted from this iPhone. Also revoke it on the Mac to invalidate it there.") }
-            .alert("Rename Mac", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } }), presenting: renaming) { p in
-                TextField("Name", text: $newName)
-                Button("Save") { c.renameMac(p.fp, newName) }
-                Button("Cancel", role: .cancel) {}
-            } message: { _ in Text("Only on this iPhone. Leave it empty to use the Mac's own name.") }
         }
     }
 }
