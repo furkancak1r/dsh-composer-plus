@@ -34,6 +34,20 @@ export const RPC = new Set([
   'skills/list', 'commands/list', 'commands/execute',
 ])
 export const STREAMS = new Set(['session/follow', 'session/control', 'workspace/follow', 'userQuestions/attachWait'])
+/** dsh-composer-plus routes the phone may call, with their methods: `/plus/<name>` → dsh `/api/composer-plus.<name>`.
+ * Only the chat-level features; never the switches (`{on}`), the updater, the screenshots or the Mobile connect route,
+ * so a phone cannot turn features off, install code or open ports. */
+export const PLUS = new Map([
+  ['changes', ['GET']], ['diff', ['GET']], ['continue', ['POST']], ['grants', ['GET', 'POST']],
+  ['rollback', ['GET', 'POST']], ['delete-chat', ['POST']], ['ideas', ['POST']], ['later', ['GET', 'POST']], ['idea-history', ['GET', 'POST']],
+])
+/** Allow for this chat: an Auto Review ask (`approval/request` with this reason) for a tool that the chat granted. */
+export const AUTO_REVIEW_ASK = 'Auto review denied tool '
+export const isGrantedAsk = (v, grants) => v.event === 'approval/request' && typeof v.request?.reason === 'string'
+  && v.request.reason.startsWith(AUTO_REVIEW_ASK) && typeof v.request.toolName === 'string' && typeof v.agentId === 'string'
+  && Array.isArray(grants?.[v.agentId]) && grants[v.agentId].includes(v.request.toolName)
+/** A switch body (`{on: true|false}`) moves a feature for every device: the phone never sends one. */
+const isSwitch = b => Object.hasOwn(b, 'on')
 export const EVENTS = new Set([
   'agent-preset/selected', 'approval/request', 'api-session/activity', 'api-session/added', 'api-session/error',
   'api-session/removed', 'api-session/status', 'commands/change', 'goal/activation-changed',
@@ -220,8 +234,8 @@ function makeUpstream(upstreamUrl) {
     }
   }
   return {
-    rpc: (path, body) => retry(async () => {
-      const r = await send('POST', base + path, body, { 'content-type': 'application/json', cookie })
+    rpc: (path, body, method = 'POST') => retry(async () => {
+      const r = await send(method, base + path, body, method === 'GET' ? { cookie } : { 'content-type': 'application/json', cookie })
       if (r.status === 401 || r.status === 403) throw Object.assign(new Error('upstream auth'), { status: r.status })
       return r
     }),
@@ -362,6 +376,7 @@ export function createGateway(opts = {}) {
     if (outcome) answer(id, outcome).catch(() => {})
     return true
   }
+  const looking = new Set() // approvals whose grants are being read
   function onEventFrame(text) {
     let f
     try { f = JSON.parse(text) } catch { return }
@@ -370,9 +385,25 @@ export function createGateway(opts = {}) {
     const v = f.value ?? {}
     if (v.type === 'ready') { ev.clientId = v.clientId; upState = 'connected'; return } // host.home is dropped here
     if (v.type === 'emit' && EVENTS.has(v.event)) return toPhones({ type: 'emit', event: v.event, args: v.args })
+    if (v.type === 'cancel') looking.delete(v.eventId)
     if (v.type === 'cancel' && dropPending(v.eventId)) return toPhones({ type: 'cancel', eventId: v.eventId })
     if (v.type !== 'waterfall') return
+    if (v.event === 'approval/request') return grantedOrAsk(v)
     if (!EVENTS.has(v.event) || !evSubs.size) return answer(v.eventId, { kind: 'next' }).catch(() => {})
+    askPhones(v)
+  }
+  /** Allow for this chat, also with no dsh window open: the gateway allows a granted tool itself (the grants that the
+   * desktop and the phone save in dsh-composer-plus). Any other approval goes to the phones. */
+  async function grantedOrAsk(v) {
+    let grants
+    looking.add(v.eventId)
+    try { const r = await upstream.rpc('/api/composer-plus.grants', undefined, 'GET'); if (r.status === 200) grants = JSON.parse(r.body) } catch {}
+    if (!looking.delete(v.eventId)) return // answered elsewhere (the desktop) while the grants were read
+    if (isGrantedAsk(v, grants)) return answer(v.eventId, { kind: 'result', value: 'allowed-once' }).catch(() => {})
+    if (!evSubs.size) return answer(v.eventId, { kind: 'next' }).catch(() => {})
+    askPhones(v)
+  }
+  function askPhones(v) {
     const frame = { type: 'waterfall', event: v.event, eventId: v.eventId, agentId: v.agentId, request: v.request }
     // shortcut: unanswered phone prompts fall back to 'next' (DSH desktop still decides) after a fixed timeout; make it configurable per event if users want longer.
     const timer = setTimeout(() => { if (dropPending(v.eventId, { kind: 'next' })) toPhones({ type: 'cancel', eventId: v.eventId }) }, waterfallTtl)
@@ -420,7 +451,8 @@ export function createGateway(opts = {}) {
     const dev = auth(req)
     if (!dev) { fail(ip); return reply(res, 401, { error: 'unauthorized' }) }
     track(dev.id, req.socket)
-    if (req.method === 'GET' && path === '/me') return reply(res, 200, { deviceId: dev.id, name: dev.name, expiresAt: dev.expiresAt, upstream: upState, tailscale: ts.online ? ts.ip : null, mac })
+    if (req.method === 'GET' && path === '/me') return reply(res, 200, { deviceId: dev.id, name: dev.name, expiresAt: dev.expiresAt, upstream: upState, tailscale: ts.online ? ts.ip : null, mac, plus: [...PLUS.keys()] })
+    if (path.startsWith('/plus/')) return plus(req, res, path.slice(6))
     if (req.method !== 'POST' || !path.startsWith('/api/')) return reply(res, 404, { error: 'not found' })
     const method = path.slice(5)
     let body
@@ -430,6 +462,22 @@ export function createGateway(opts = {}) {
     if (!RPC.has(method)) return reply(res, 403, { error: 'endpoint not allowed' })
     try {
       const up = await upstream.rpc('/api/' + method, JSON.stringify(body))
+      res.writeHead(up.status, { 'content-type': up.headers['content-type'] ?? 'application/json' }); res.end(up.body)
+    } catch { reply(res, 502, { error: 'DSH host unavailable' }) }
+  }
+  /** A dsh-composer-plus route (allowlist `PLUS`): the query (GET) or the JSON body (POST) goes to dsh as it is. */
+  async function plus(req, res, name) {
+    if (!PLUS.get(name)?.includes(req.method)) return reply(res, 403, { error: 'endpoint not allowed' })
+    let body
+    if (req.method === 'POST') {
+      try { body = JSON.parse(await readBody(req, MAX_BODY)) } catch { return reply(res, 400, { error: 'bad request' }) }
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) return reply(res, 400, { error: 'bad request' })
+      if (isSwitch(body)) return reply(res, 403, { error: 'endpoint not allowed' })
+      body = JSON.stringify(body)
+    }
+    try {
+      const up = await upstream.rpc('/api/composer-plus.' + name + new URL(req.url, 'https://x').search, body, req.method)
+      // An older dsh-composer-plus without this route answers 404: the phone hides the feature.
       res.writeHead(up.status, { 'content-type': up.headers['content-type'] ?? 'application/json' }); res.end(up.body)
     } catch { reply(res, 502, { error: 'DSH host unavailable' }) }
   }

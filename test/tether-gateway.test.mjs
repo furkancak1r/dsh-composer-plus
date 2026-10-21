@@ -7,7 +7,7 @@ import { connect } from 'node:tls'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createGateway, acceptWs, wsConnect, inSubnet, isTailnet, allowed, normFp, macName, RPC, STREAMS } from '../tether/gateway/server.mjs'
+import { createGateway, acceptWs, wsConnect, inSubnet, isTailnet, allowed, normFp, macName, RPC, STREAMS, PLUS } from '../tether/gateway/server.mjs'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 async function waitFor(fn, ms = 3000) {
@@ -17,13 +17,19 @@ async function waitFor(fn, ms = 3000) {
 
 // ---- Mock DSH host: cookie login, unary RPC, remote.mux with $events and an echo stream ----
 async function mockDsh() {
-  const m = { results: [], rpcs: [], muxes: new Set(), events: null }
+  const m = { results: [], rpcs: [], plus: [], muxes: new Set(), events: null }
   const authed = req => (req.headers.cookie ?? '').includes('dsh-auth-test=1')
   const http = createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/?token=x') { res.writeHead(303, { location: '/', 'set-cookie': 'dsh-auth-test=1; HttpOnly' }); return res.end() }
     if (!authed(req)) { res.writeHead(401); return res.end() }
     let b = ''
     req.on('data', d => b += d).on('end', () => {
+      if (req.url.startsWith('/api/composer-plus.')) {
+        m.plus.push({ method: req.method, url: req.url, body: b, type: req.headers['content-type'] ?? null })
+        const known = req.url.startsWith('/api/composer-plus.later') ? { ideas: [] } : req.url.startsWith('/api/composer-plus.grants') && m.grants ? m.grants : undefined
+        res.writeHead(known ? 200 : 404, { 'content-type': 'application/json' })
+        return res.end(JSON.stringify(known ?? { error: 'not found' }))
+      }
       const body = JSON.parse(b)
       if (body.method === '$events/result') m.results.push(body.payload.args); else m.rpcs.push(body.method)
       res.writeHead(200, { 'content-type': 'application/json' })
@@ -272,6 +278,29 @@ test('allowlist: disallowed RPC and stream are refused, bad frames close the soc
   } finally { await t.done() }
 })
 
+test('composer-plus routes: allowlisted methods pass with the query or body; switches and other routes are refused', async () => {
+  const t = await setup()
+  try {
+    const { token } = await pairDevice(t.gw)
+    const auth = { authorization: 'Bearer ' + token }
+    assert.deepEqual((await call(t.gw, 'GET', '/me', undefined, auth)).json.plus, [...PLUS.keys()])
+    let r = await call(t.gw, 'GET', '/plus/later?sessionId=s%201', undefined, auth)
+    assert.equal(r.status, 200); assert.deepEqual(r.json, { ideas: [] })
+    assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.later?sessionId=s%201', body: '', type: null })
+    r = await call(t.gw, 'POST', '/plus/later', { sessionId: 's', remove: 'i1' }, auth)
+    assert.equal(r.status, 200); assert.deepEqual(JSON.parse(t.dsh.plus.at(-1).body), { sessionId: 's', remove: 'i1' })
+    // An older plugin without the route: its 404 reaches the phone, which hides the feature.
+    assert.equal((await call(t.gw, 'GET', '/plus/changes?sessionId=s', undefined, auth)).status, 404)
+    const seen = t.dsh.plus.length
+    for (const [m, p, b] of [['POST', '/plus/rollback', { on: false }], ['POST', '/plus/mobile', { on: false }], ['GET', '/plus/update'],
+      ['GET', '/plus/shot?id=x'], ['POST', '/plus/changes', {}], ['GET', '/plus/../mobile'], ['POST', '/plus/continue', 'not json']]) {
+      assert.equal((await call(t.gw, m, p, b, auth)).status, p.endsWith('continue') ? 400 : p.includes('..') ? 404 : 403, p)
+    }
+    assert.equal(t.dsh.plus.length, seen, 'nothing refused reaches dsh')
+    assert.equal((await call(t.gw, 'GET', '/plus/later?sessionId=s')).status, 401, 'a token is required')
+  } finally { await t.done() }
+})
+
 test('a failed upstream connect is retried on the next stream open', async () => {
   const t = await setup()
   try {
@@ -346,6 +375,34 @@ test('events: no phone -> next; phone answers approval; first answer wins; host 
     assert.equal(t.dsh.results[1].clientId, 'up-1')
     assert.equal(t.dsh.results[1].eventId, 'e1')
     await waitFor(() => p2.frames.some(f => f.value?.type === 'cancel'))
+  } finally { await t.done() }
+})
+
+test('allow for this chat: the gateway allows a granted Auto Review ask itself; other approvals go to the phones', async () => {
+  const t = await setup()
+  try {
+    await waitFor(() => t.gw.state().upstream === 'connected')
+    t.dsh.grants = { a: ['bash'] }
+    const ask = (eventId, agentId, toolName, reason = 'Auto review denied tool "' + toolName + '": risky') =>
+      t.dsh.push({ type: 'waterfall', event: 'approval/request', eventId, agentId, request: { toolName, reason } })
+    ask('g1', 'a', 'bash') // granted, no phone: allowed by the gateway
+    await waitFor(() => t.dsh.results.length === 1)
+    assert.deepEqual(t.dsh.results[0], { clientId: 'up-1', eventId: 'g1', outcome: { kind: 'result', value: 'allowed-once' } })
+    const { token } = await pairDevice(t.gw)
+    const p = await phoneWs(t.gw, token)
+    p.json({ type: 'open', streamId: 'ev', endpoint: '$events', payload: { args: {} } }); await waitFor(() => p.frames.length)
+    ask('g2', 'b', 'bash') // another chat: not granted there
+    ask('g3', 'a', 'write') // another tool
+    t.dsh.push({ type: 'waterfall', event: 'approval/request', eventId: 'g4', agentId: 'a', request: { toolName: 'bash', reason: 'The permission preset asks' } }) // not an Auto Review ask
+    await waitFor(() => p.frames.length === 4)
+    assert.deepEqual(p.frames.slice(1).map(f => f.value.eventId).sort(), ['g2', 'g3', 'g4'])
+    assert.equal(t.dsh.results.length, 1, 'the phone decides those')
+    ask('g5', 'a', 'bash') // granted, with a phone: still no prompt on the phone
+    await waitFor(() => t.dsh.results.length === 2)
+    assert.equal(t.dsh.results[1].eventId, 'g5'); assert.equal(p.frames.length, 4)
+    t.dsh.grants = undefined // an older plugin without grants: every approval goes to the phone
+    ask('g6', 'a', 'bash')
+    await waitFor(() => p.frames.length === 5)
   } finally { await t.done() }
 })
 

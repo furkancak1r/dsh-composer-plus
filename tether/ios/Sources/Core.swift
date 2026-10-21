@@ -290,6 +290,14 @@ func contentText(_ c: Any?, imageMarker: Bool = true) -> String {
     }.joined(separator: "\n")
 }
 
+/// Queue reorder: a queued message's text, or nil when it has images or files (those rows cannot move).
+func queueText(_ item: J) -> String? {
+    let c = item["content"]
+    if let s = c as? String { return s }
+    guard let blocks = c as? [J], blocks.allSatisfy({ $0["type"] as? String == "text" }) else { return nil }
+    return blocks.compactMap { $0["text"] as? String }.joined()
+}
+
 /// Attachment ids of the image blocks in a folded-log message (`{type:"image", attachment:{attachmentId}}`).
 func imageIds(_ c: Any?) -> [String] {
     (c as? [J] ?? []).compactMap { $0["type"] as? String == "image" ? ($0["attachment"] as? J)?["attachmentId"] as? String : nil }
@@ -399,6 +407,65 @@ struct Line: Identifiable {
     var images: [String] = []
     /// Tool rows only: the tool's name, for the step group's title.
     var tool: String? = nil
+    /// The log seq of the event that made this row: a user row's seq is what Roll back sends.
+    var seq: Int? = nil
+}
+
+// MARK: - Composer Plus features (the dsh-composer-plus plugin on the Mac; see tether/FEATURES.md)
+
+/// Turn rollback: the rows that a rollback took out of the chat. dsh keeps them in the log; its marker message
+/// (`composer-plus-rollback`) names them in `sourceEventSeqs`. A span is [first, marker], both included.
+let rollbackSource = "composer-plus-rollback"
+func rollbackSpan(_ e: J) -> ClosedRange<Int>? {
+    guard e["type"] as? String == "user/message", ((e["data"] as? J)?["source"] as? J)?["kind"] as? String == rollbackSource,
+          let seq = e["seq"] as? Int, let first = (e["sourceEventSeqs"] as? [Int])?.min(), first <= seq else { return nil }
+    return first...seq
+}
+/// The events that the chat shows: without those in a rollback span.
+func withoutRolledBack(_ events: [J]) -> [J] {
+    let spans = events.compactMap(rollbackSpan)
+    guard !spans.isEmpty else { return events }
+    return events.filter { e in (e["seq"] as? Int).map { s in !spans.contains { $0.contains(s) } } ?? true }
+}
+
+/// One-click Continue: the seq that `/api/composer-plus.continue` resumes after. The newest turn event decides: an open
+/// turn (its turn/start), or a turn that ended other than "completed" (stopped, failed, cut off). nil: nothing to continue.
+func continueAfter(_ events: [J]) -> Int? {
+    for e in events.reversed() {
+        switch e["type"] as? String {
+        case "turn/end": return ((e["data"] as? J)?["reason"] as? J)?["kind"] as? String == "completed" ? nil : e["seq"] as? Int
+        case "turn/start": return e["seq"] as? Int
+        default: continue
+        }
+    }
+    return nil
+}
+
+/// Copy session link: dsh's session URI. Pasted into another chat, dsh attaches that chat as read-only context.
+func sessionLink(_ id: String) -> String {
+    let json = (try? JSONSerialization.data(withJSONObject: [id], options: [.withoutEscapingSlashes])).map { String(decoding: $0.dropFirst().dropLast(), as: UTF8.self) } ?? "\"\(id)\""
+    return "dsh-session:" + Data(json.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
+}
+
+/// Plan mode: dsh's `plan` projection. A pending switch flips the host value (as dsh's own plan chip reads it).
+func planOn(_ plan: J?) -> Bool {
+    guard let plan, let active = plan["active"] as? Bool else { return false }
+    return plan["pending"] as? Bool == true ? !active : active
+}
+/// The plan button on a draft: a leading `/plan` goes away, else `/plan ` comes first (not `/planning`).
+func planToggled(_ draft: String) -> String {
+    guard let r = draft.range(of: #"^/plan(?=$|\s)[ \t]?"#, options: .regularExpression) else { return "/plan " + draft }
+    return String(draft[r.upperBound...])
+}
+
+/// Queue reorder: dsh has no "move", so a move rewrites the texts of the rows between the two places, from the last
+/// row up (the first row may start to send at any moment). Each change is (row index, new text, old text).
+func queueMove(_ texts: [String?], from: Int, to: Int) -> [(row: Int, next: String, prev: String)]? {
+    guard from != to, texts.indices.contains(from), texts.indices.contains(to),
+          texts[min(from, to)...max(from, to)].allSatisfy({ $0 != nil }) else { return nil }
+    var order = Array(texts.indices)
+    order.insert(order.remove(at: from), at: to)
+    return texts.indices.reversed().compactMap { i in order[i] == i ? nil : (i, texts[order[i]]!, texts[i]!) }
 }
 
 /// The summary row of a finished turn, as in DSH desktop. A failed or stopped turn does not fold (`failed`).
@@ -566,11 +633,32 @@ func parseQuestions(_ v: Any?, session: String) -> [Prompt] {
     return a.compactMap { r in (r["callId"] as? String).map { Prompt(id: $0, event: "userQuestions/answer", agentId: session, request: r) } }
 }
 
+/// Project status: the marker of a project row, as Composer Plus draws it in the desktop sidebar. Waiting for you wins,
+/// then a finished chat that you did not open (also while another chat runs), then running.
+enum ProjectMark: Equatable { case waiting, done, running(Int) }
+func projectMark(_ chats: [Sess], all: [Sess], waiting: Set<String>, finished: Set<String>) -> ProjectMark? {
+    let mine = chats.filter { $0.parent == nil }
+    if mine.contains(where: { waiting.contains($0.id) }) { return .waiting }
+    if mine.contains(where: { finished.contains($0.id) }) { return .done }
+    let n = mine.filter { isRunning($0, all) }.count
+    return n > 0 ? .running(n) : nil
+}
+/// Order by status (view only): finished and not opened, then running or waiting, then the rest; else dsh's order.
+func statusRank(_ s: Sess, all: [Sess], waiting: Set<String>, finished: Set<String>) -> Int {
+    finished.contains(s.id) ? 0 : isRunning(s, all) || waiting.contains(s.id) ? 1 : 2
+}
+/// Recent projects filter: a chat counts when it changed in the last 2 hours, runs, waits, finished unseen, or is open.
+func recentChat(_ s: Sess, all: [Sess], now: Date, open: String?, waiting: Set<String>, finished: Set<String>) -> Bool {
+    s.id == open || waiting.contains(s.id) || finished.contains(s.id) || isRunning(s, all) || (s.updated.map { now.timeIntervalSince($0) <= 7200 } ?? false)
+}
+
 /// A chat shows "Running" while its own turn or one of its subagents runs, as in the DSH desktop sidebar.
 func isRunning(_ s: Sess, _ all: [Sess]) -> Bool { s.running || all.contains { $0.parent == s.id && $0.running } }
 
 struct Sess: Identifiable {
     let id: String, title: String, cwd: String, parent: String?, running: Bool, preset: String?, model: String?, context: Double?, permission: String?, todos: [Todo]?, updated: Date?, questions: [Prompt], goal: Goal?
+    /// dsh's `plan` projection ({active, pending?}); nil when dsh does not send it.
+    var plan: J? = nil
     init?(_ j: J) {
         guard let id = j["sessionId"] as? String else { return nil }
         let p = (j["projections"] as? J)?["values"] as? J
@@ -589,6 +677,7 @@ struct Sess: Identifiable {
         model = modelLabel((ms?["next"] as? J) ?? (ms?["lastUsed"] as? J))
         let cp = p?["contextPressure"] as? J, used = (cp?["projectedTokens"] as? NSNumber)?.doubleValue, win = (cp?["contextWindow"] as? NSNumber)?.doubleValue
         context = used.flatMap { u in win.flatMap { $0 > 0 ? u / $0 : nil } }
+        plan = p?["plan"] as? J
     }
 }
 
@@ -788,6 +877,16 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// The follow snapshot is a window; true when DSH has earlier history to page in via session/page.
     @Published var hasOlder = false
     private var oldestSeq: Int?, throughSeq: Int?, replaying = false
+    /// Every event of the open chat, oldest first: rollback markers can hide earlier rows, so the rows are rebuilt from it.
+    private var events: [J] = []
+    /// One-click Continue: the turn seq to resume after, when the last turn stopped, failed or was cut off.
+    @Published var continueSeq: Int?
+    /// Composer Plus routes on this Mac (`/me` → plus). An older gateway or plugin has none: those features hide.
+    @Published var plus: Set<String> = []
+    /// Turn rollback: dsh-rewind-plugin owns rollback, or the switch is off on the Mac (then no ↶).
+    @Published var rollbackOn = false
+    /// Allow for this chat: chat id → tools allowed without asking.
+    @Published var grants: [String: [String]] = [:]
     /// Pending prompts (DSH inbox): "next-turn" waits for the running turn, "next-step" is steering.
     @Published var inbox: [String: [J]] = [:]
     var queued: [J] { (inbox["next-step"] ?? []) + (inbox["next-turn"] ?? []) }
@@ -841,17 +940,30 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     /// Sidebar order like desktop DSH: pinned, one section per project, unassigned, archived.
     /// `project` (a workspace id) narrows every group to that project; an unknown id shows everything.
-    func sessionGroups(project: String? = nil) -> [(title: String, items: [Sess])] {
+    /// Chats waiting for an answer from you (approval, question, plan review) on this Mac.
+    var waitingChats: Set<String> { Set(prompts.compactMap(\.agentId)) }
+    /// Composer Plus view options for the list (kept on this iPhone): Active in the last 2 hours, Order by status.
+    @Published var recentOnly = UserDefaults.standard.bool(forKey: "recentProjects") { didSet { UserDefaults.standard.set(recentOnly, forKey: "recentProjects") } }
+    @Published var byStatus = UserDefaults.standard.bool(forKey: "statusOrder") { didSet { UserDefaults.standard.set(byStatus, forKey: "statusOrder") } }
+
+    func sessionGroups(project: String? = nil, now: Date = .now) -> [(title: String, items: [Sess], path: String?)] {
         // newest activity first inside each group, like the desktop sidebar; pinned keeps the user's pin order
         let only = workspaces.first { $0.id == project }
-        let roots = sessions.filter { $0.parent == nil && (only?.sessions.contains($0.id) ?? true) }.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
+        let wait = waitingChats
+        var roots = sessions.filter { $0.parent == nil && (only?.sessions.contains($0.id) ?? true) }.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
+        // view only, as on the desktop: a stable sort keeps the newest first inside each rank
+        if byStatus { roots = roots.enumerated().sorted { a, b in
+            let (x, y) = (statusRank(a.element, all: sessions, waiting: wait, finished: finished), statusRank(b.element, all: sessions, waiting: wait, finished: finished))
+            return x != y ? x < y : a.offset < b.offset }.map(\.element) }
         let rest = roots.filter { !pinned.contains($0.id) && !archived.contains($0.id) }
-        var out = [(String(localized: "Pinned"), pinned.compactMap { id in roots.first { $0.id == id } })]
+        var out: [(String, [Sess], String?)] = [(String(localized: "Pinned"), pinned.compactMap { id in roots.first { $0.id == id } }, nil)]
         var used = Set<String>()
-        for w in workspaces { let s = rest.filter { w.sessions.contains($0.id) }; used.formUnion(s.map(\.id)); out.append((w.title, s)) }
-        out.append((String(localized: "Ungrouped"), rest.filter { !used.contains($0.id) }))
-        out.append((String(localized: "Archived"), roots.filter { archived.contains($0.id) }))
-        return out.filter { !$0.1.isEmpty }.map { (title: $0.0, items: $0.1) }
+        for w in workspaces { let s = rest.filter { w.sessions.contains($0.id) }; used.formUnion(s.map(\.id)); out.append((w.title, s, w.path)) }
+        out.append((String(localized: "Ungrouped"), rest.filter { !used.contains($0.id) }, nil))
+        out.append((String(localized: "Archived"), roots.filter { archived.contains($0.id) }, nil))
+        // A project stays when one of its chats is recent; then the whole project shows, as on the desktop.
+        if recentOnly { out = out.filter { $0.0 == String(localized: "Pinned") || $0.1.contains { recentChat($0, all: sessions, now: now, open: current, waiting: wait, finished: finished) } } }
+        return out.filter { !$0.1.isEmpty }.map { (title: $0.0, items: $0.1, path: $0.2) }
     }
 
     /// Instant title filter while typing; server search adds content hits after a pause.
@@ -879,7 +991,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         return onWiFi ? all : all.reversed()
     }
 
-    private func call(_ path: String, _ body: Any?) async throws -> Any? {
+    private func call(_ path: String, _ body: Any?, get: Bool = false) async throws -> Any? {
         guard let p = pairing else { throw Fail(String(localized: "Not paired")) }
         let list = addrs(p.host, p.ts)
         var got: (Data, URLResponse)?
@@ -891,7 +1003,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             var r = URLRequest(url: URL(string: "https://\(host):\(p.port)\(path)")!)
             if n < list.count - 1 { r.timeoutInterval = 5 } // fallback exists: fail fast
             r.setValue("Bearer \(p.token)", forHTTPHeaderField: "Authorization")
-            if let body {
+            if let body, !get {
                 r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 r.httpBody = try JSONSerialization.data(withJSONObject: body)
             }
@@ -919,6 +1031,85 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         guard let res = o?["result"] as? J else { throw Fail("Bad response") }
         if res["ok"] as? Bool == true { return res["value"] }
         throw Fail(((res["error"] as? J)?["message"] as? String) ?? "Request failed")
+    }
+
+    // MARK: Composer Plus (the plugin's own routes through the gateway: /plus/<name>)
+
+    /// GET with a query, or POST with a JSON body. An older plugin without the route answers 404: the caller hides it.
+    func plusCall(_ name: String, query: [String: String] = [:], body: J? = nil) async throws -> J {
+        var c = URLComponents(); c.path = "/plus/" + name
+        if !query.isEmpty { c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
+        return try await call(c.percentEncodedPath + (c.percentEncodedQuery.map { "?" + $0 } ?? ""), body, get: body == nil) as? J ?? [:]
+    }
+
+    private func loadRollback(_ sid: String) async {
+        guard plus.contains("rollback"), let o = try? await plusCall("rollback", query: ["sessionId": sid]), current == sid else { return }
+        rollbackOn = o["on"] as? Bool == true && o["rewind"] as? Bool != true
+    }
+    /// What a rollback with files would change: nil = no git or no snapshot (then only "Chat only").
+    func rollbackPreview(_ seq: Int) async throws -> [(path: String, action: String)]? {
+        guard let sid = current else { return nil }
+        let o = try await plusCall("rollback", body: ["sessionId": sid, "seq": seq, "preview": true])
+        guard o["git"] as? Bool == true, o["snapshot"] as? Bool == true else { return nil }
+        return (o["files"] as? [J] ?? []).compactMap { f in (f["path"] as? String).map { ($0, f["action"] as? String ?? "restore") } }
+    }
+    /// Takes the message and everything after it out of the chat (the Mac draws a marker; the follow stream brings it).
+    /// Returns the message's text for the composer, and the files that were not put back.
+    func rollback(_ seq: Int, files: Bool) async throws -> (text: String, skipped: [String], attachments: Int) {
+        guard let sid = current else { return ("", [], 0) }
+        let o = try await plusCall("rollback", body: ["sessionId": sid, "seq": seq, "files": files])
+        let skipped = ((o["files"] as? J)?["skipped"] as? [J] ?? []).compactMap { $0["path"] as? String }
+        return (o["text"] as? String ?? "", skipped, o["attachments"] as? Int ?? 0)
+    }
+
+    /// One-click Continue: the turn goes on from where it stopped, without a chat message.
+    func continueTurn() async throws {
+        guard let sid = current, let after = continueSeq else { return }
+        continueSeq = nil // one tap; the next turn/start or turn/end sets it again
+        do { _ = try await plusCall("continue", body: ["sessionId": sid, "afterSeq": after]) }
+        catch { continueSeq = continueAfter(events); throw error }
+    }
+
+    /// Delete chat: the chat stops and its history (with its subagent chats) goes to the Mac's Trash.
+    func deleteChat(_ id: String) async throws {
+        _ = try await plusCall("delete-chat", body: ["sessionId": id])
+        if current == id { path = [] }
+        try await loadSessions()
+    }
+
+    /// Allow for this chat: grants come from the Mac (the desktop and the phone share them).
+    func loadGrants() async {
+        guard let o = try? await plusCall("grants") else { return }
+        grants = o.compactMapValues { $0 as? [String] }
+    }
+    func allowForChat(_ p: Prompt) async throws {
+        guard let sid = p.agentId, let tool = p.request["toolName"] as? String else { return }
+        try await answer(p, "allowed-once") // first the answer, then the grant: a failed answer grants nothing
+        grants = (try await plusCall("grants", body: ["action": "grant", "sessionId": sid, "tool": tool])).compactMapValues { $0 as? [String] }
+    }
+    func revokeGrants(_ sid: String) async throws {
+        grants = (try await plusCall("grants", body: ["action": "revoke", "sessionId": sid])).compactMapValues { $0 as? [String] }
+    }
+
+    /// Plan mode: leave it as dsh's plan chip does.
+    func leavePlan() async throws { try await execute("/plan off") }
+
+    /// Queue reorder: one move at a time; on a failure the done edits go back.
+    @Published var movingQueue = false
+    func moveQueued(from: Int, to: Int) async throws {
+        let rows = inbox["next-turn"] ?? []
+        guard !movingQueue, let changes = queueMove(rows.map { queueText($0) }, from: from, to: to) else { return }
+        movingQueue = true; defer { movingQueue = false }
+        var done: [(row: Int, next: String, prev: String)] = []
+        let edit = { (i: Int, t: String) async throws in
+            guard let id = rows[i]["id"] as? String else { throw Fail("Bad queue item") }
+            try await self.updateQueue(id, ["kind": "edit", "content": [["type": "text", "text": t]]])
+        }
+        do { for c in changes { try await edit(c.row, c.next); done.append(c) } }
+        catch {
+            for c in done.reversed() { try? await edit(c.row, c.prev) }
+            throw Fail(String(localized: "Reorder failed: a message may have already started sending."))
+        }
     }
 
     // MARK: Pairing
@@ -1199,6 +1390,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let e = me["expiresAt"] as? String { pairing?.expiresAt = e }
         if let t = me["tailscale"] as? String, isTailnet(t), t != pairing?.ts { pairing?.ts = t } // learned without re-pairing
         if let m = (me["mac"] as? String).flatMap(macLabel), m != pairing?.mac { pairing?.mac = m } // a gateway that reports its name
+        plus = Set(me["plus"] as? [String] ?? [])
+        if plus.contains("grants") { await loadGrants() }
     }
 
     private func onFrame(_ f: J) {
@@ -1284,10 +1477,10 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if sid == current, followId != nil { return } // re-opening the live session keeps its stream and transcript
         if let old = followId { send(["type": "cancel", "streamId": old]) }
         current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; contextWindow = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
-        hasOlder = false; oldestSeq = nil; throughSeq = nil
+        hasOlder = false; oldestSeq = nil; throughSeq = nil; events = []; continueSeq = nil; rollbackOn = false
         running = currentSess?.running ?? false
         openFollow(sid)
-        Task { await loadCommands(); await loadGoal() }
+        Task { await loadCommands(); await loadGoal(); await loadRollback(sid) }
     }
 
     private func openFollow(_ sid: String) {
@@ -1324,18 +1517,32 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     /// History replay: rebuilds lines and live state but never re-fires per-turn side effects (notification, haptic, goal reload).
     func replaySnapshot(_ events: [J]) {
-        transcript = []; streaming = ""; reasoning = ""; inbox = [:]; liveTodos = nil; turnStartedAt = nil
-        replaying = true; events.forEach(apply); replaying = false
+        self.events = events
+        rebuild()
         oldestSeq = events.first?["seq"] as? Int; throughSeq = events.last?["seq"] as? Int
     }
+    /// The rows again from `events`, without the rows a rollback took out. Live state comes from the replay too.
+    private func rebuild() {
+        transcript = []; streaming = ""; reasoning = ""; inbox = [:]; liveTodos = nil; turnStartedAt = nil
+        replaying = true; withoutRolledBack(events).forEach(draw); replaying = false
+        continueSeq = continueAfter(events)
+    }
 
+    /// A live event: kept for a later rebuild. A rollback marker hides earlier rows, so the chat is drawn again.
     func apply(_ e: J) {
+        events.append(e)
+        if rollbackSpan(e) != nil { let keep = (running, model, usage, goal, contextWindow); rebuild(); (running, model, usage, goal, contextWindow) = keep; return }
+        draw(e)
+        if ["turn/start", "turn/end"].contains(e["type"] as? String) { continueSeq = continueAfter(events) }
+    }
+
+    private func draw(_ e: J) {
         let d = e["data"] as? J ?? [:]
         switch e["type"] as? String {
         case "user/message":
             // DSH also logs runtime-context / skill-catalog injections as user messages; show only what the user typed.
             let kind = (d["source"] as? J)?["kind"] as? String
-            if kind == nil || kind == "user" { transcript.append(Line(kind: .user, text: contentText(d["content"], imageMarker: false), images: imageIds(d["content"]))) }
+            if kind == nil || kind == "user" { transcript.append(Line(kind: .user, text: contentText(d["content"], imageMarker: false), images: imageIds(d["content"]), seq: e["seq"] as? Int)) }
         case "request/header":
             if let m = modelLabel((d["header"] as? J)?["config"] as? J) { model = m }
         case "request/context":
@@ -1396,15 +1603,14 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
 
     /// Old events build lines only; live state (running, model, usage, todos, inbox, goal) stays as the snapshot left it.
-    func prependHistory(_ events: [J]) {
-        guard !events.isEmpty else { return }
-        let keep = (transcript, running, model, usage, liveTodos, inbox, goal, contextWindow, turnStartedAt)
-        replaying = true; transcript = []
-        events.forEach(apply)
-        replaying = false
-        transcript += keep.0; running = keep.1; model = keep.2; usage = keep.3; liveTodos = keep.4; inbox = keep.5; goal = keep.6
-        contextWindow = keep.7; turnStartedAt = keep.8
-        oldestSeq = events.first?["seq"] as? Int ?? oldestSeq
+    func prependHistory(_ older: [J]) {
+        guard !older.isEmpty else { return }
+        let keep = (running, model, usage, liveTodos, inbox, goal, contextWindow, turnStartedAt)
+        events = older + events
+        rebuild()
+        running = keep.0; model = keep.1; usage = keep.2; liveTodos = keep.3; inbox = keep.4; goal = keep.5
+        contextWindow = keep.6; turnStartedAt = keep.7
+        oldestSeq = older.first?["seq"] as? Int ?? oldestSeq
     }
 
     // MARK: Actions (wire shapes from the DSH host types)

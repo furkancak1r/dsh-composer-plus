@@ -20,6 +20,10 @@ Mac tarayıcısı ──▶ http://127.0.0.1:19391/  (admin: QR, eşleme onayı,
 - **server.mjs**: telefonlara tek kapı. `POST /pair`, `GET /me`, `POST /api/<method>` (allowlist), WSS `/api/remote.mux` (allowlist'li stream'ler) ve DSH `$events` akışını (onay / soru istekleri) telefonlara dağıtır. Bonjour `_dshmobile._tcp` (TXT `fp=`).
 - **ios/**: Sohbet, Oturumlar, Ajanlar, Ayarlar sekmeleri; QR / yapıştır / Bonjour ile eşleme; otomatik yeniden bağlanma; sınırsız sayıda Mac.
 
+## Composer Plus özellikleri
+
+Composer Plus'ın her özelliğinin Tether'deki yeri [FEATURES.md](FEATURES.md) dosyasındadır. Eklentiye yeni bir özellik eklenince bu tabloya da satır eklenmelidir; yoksa `npm test` hata verir (`test/tether-parity.test.mjs`).
+
 ## Sohbet ekranı: düşünme ve araç adımları
 
 Sohbet, DSH masaüstündeki gibi kısa görünür. Ayrıntılar akordiyon gibi kapalıdır; dokununca açılır.

@@ -292,7 +292,7 @@ final class CoreTests: XCTestCase {
         XCTAssertNil(s.turnStartedAt)
 
         let c = Client()
-        c.transcript = [Line(kind: .user, text: "new")]; c.running = true; c.model = "deepseek-v4"
+        c.replaySnapshot([["type": "user/message", "seq": 7, "data": ["content": "new"]]]); c.running = true; c.model = "deepseek-v4"
         c.prependHistory([
             ["type": "turn/start", "seq": 3, "data": J()],
             ["type": "user/message", "seq": 4, "data": ["content": "old"]],
@@ -502,6 +502,59 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(stepKind("terminal_run"), "commands"); XCTAssertEqual(stepKind("subagent_fork"), "subagents"); XCTAssertEqual(stepKind("x"), "tools")
         let five = ["read", "grep", "edit", "bash", "web_search"].map { Line(kind: .tool, text: $0, tool: $0) }
         XCTAssertEqual(stepsTitle(five, live: false).title, "Read files, searched code, edited files, etc.")
+    }
+
+    /// Composer Plus features: the same rules as the plugin's desktop half (client.js / index.js).
+    @MainActor func testComposerPlusRules() {
+        // Turn rollback: the marker hides [min(sourceEventSeqs), marker]; a live marker draws the chat again.
+        let ev: [J] = [
+            ["type": "user/message", "seq": 1, "data": ["content": "one", "source": ["kind": "user"]]],
+            ["type": "assistant/message", "seq": 2, "data": ["message": ["content": [["type": "text", "text": "A1"]]]]],
+            ["type": "user/message", "seq": 3, "data": ["content": "two", "source": ["kind": "user"]]],
+            ["type": "assistant/message", "seq": 4, "data": ["message": ["content": [["type": "text", "text": "A2"]]]]],
+        ]
+        let marker: J = ["type": "user/message", "seq": 5, "sourceEventSeqs": [4, 3], "data": ["content": [], "source": ["kind": rollbackSource]]]
+        XCTAssertEqual(rollbackSpan(marker), 3...5); XCTAssertNil(rollbackSpan(ev[0]))
+        XCTAssertEqual(withoutRolledBack(ev + [marker]).compactMap { $0["seq"] as? Int }, [1, 2])
+        let c = Client()
+        c.replaySnapshot(ev)
+        XCTAssertEqual(c.transcript.map(\.text), ["one", "A1", "two", "A2"]); XCTAssertEqual(c.transcript[2].seq, 3, "a user row keeps its seq")
+        c.apply(marker)
+        XCTAssertEqual(c.transcript.map(\.text), ["one", "A1"], "the withdrawn rows leave at once")
+        // Continue: the newest turn decides; a completed turn needs nothing.
+        let t = { (seq: Int, type: String, reason: String?) -> J in ["type": type, "seq": seq, "data": reason.map { ["reason": ["kind": $0]] } ?? J()] }
+        XCTAssertNil(continueAfter([t(1, "turn/start", nil), t(2, "turn/end", "completed")]))
+        XCTAssertEqual(continueAfter([t(1, "turn/start", nil), t(2, "turn/end", "interrupted")]), 2)
+        XCTAssertEqual(continueAfter([t(1, "turn/end", "completed"), t(5, "turn/start", nil), t(6, "tool/call", nil)]), 5, "an open turn")
+        XCTAssertNil(continueAfter([]))
+        c.apply(t(6, "turn/start", nil)); c.apply(t(7, "turn/end", "error"))
+        XCTAssertEqual(c.continueSeq, 7)
+        // Copy session link: dsh-session: + base64url(JSON string), no padding (client.js sessionDeeplink).
+        XCTAssertEqual(sessionLink("abc"), "dsh-session:ImFiYyI")
+        XCTAssertEqual(sessionLink("a/b?"), "dsh-session:ImEvYj8i")
+        // Plan mode: a pending switch flips the host value; the draft toggle adds or drops a leading /plan only.
+        XCTAssertTrue(planOn(["active": true])); XCTAssertFalse(planOn(["active": true, "pending": true])); XCTAssertTrue(planOn(["active": false, "pending": true])); XCTAssertFalse(planOn(nil))
+        XCTAssertEqual(planToggled("fix it"), "/plan fix it"); XCTAssertEqual(planToggled("/plan fix it"), "fix it")
+        XCTAssertEqual(planToggled("/plan"), ""); XCTAssertEqual(planToggled("/planning x"), "/plan /planning x")
+        // Queue reorder: texts move from the last row up; a row with an image cannot be crossed.
+        let m = queueMove(["a", "b", "c"], from: 0, to: 2)!
+        XCTAssertEqual(m.map(\.row), [2, 1, 0]); XCTAssertEqual(m.map(\.next), ["a", "c", "b"]); XCTAssertEqual(m.map(\.prev), ["c", "b", "a"])
+        XCTAssertEqual(queueMove(["a", "b", "c"], from: 2, to: 1)!.map(\.next), ["b", "c"])
+        XCTAssertNil(queueMove(["a", nil, "c"], from: 0, to: 2)); XCTAssertNil(queueMove(["a"], from: 0, to: 0))
+        XCTAssertEqual(queueText(["content": [["type": "text", "text": "hi"]]]), "hi"); XCTAssertNil(queueText(["content": [["type": "image"]]]))
+        // Project status: waiting wins, then an unseen finish, then running (with the count); subagents count for their parent.
+        let s = { (id: String, run: Bool, parent: String?) in Sess(["sessionId": id, "running": run, "parentSessionId": parent as Any])! }
+        let all = [s("a", false, nil), s("b", true, nil), s("k", true, "a"), s("d", false, nil)]
+        XCTAssertEqual(projectMark(Array(all[0...1]), all: all, waiting: [], finished: []), .running(2))
+        XCTAssertEqual(projectMark(Array(all[0...1]), all: all, waiting: [], finished: ["a"]), .done)
+        XCTAssertEqual(projectMark(Array(all[0...1]), all: all, waiting: ["b"], finished: ["a"]), .waiting)
+        XCTAssertNil(projectMark([all[3]], all: all, waiting: [], finished: []))
+        // Order by status and the 2-hour filter.
+        XCTAssertEqual([all[3], all[0], all[1]].sorted { statusRank($0, all: all, waiting: [], finished: ["d"]) < statusRank($1, all: all, waiting: [], finished: ["d"]) }.map(\.id), ["d", "a", "b"])
+        let old = Sess(["sessionId": "o", "updatedAt": 1_000_000])!, now = Date(timeIntervalSince1970: 1_000 + 7300)
+        XCTAssertFalse(recentChat(old, all: [old], now: now, open: nil, waiting: [], finished: []))
+        XCTAssertTrue(recentChat(old, all: [old], now: Date(timeIntervalSince1970: 1_000 + 7100), open: nil, waiting: [], finished: []))
+        XCTAssertTrue(recentChat(old, all: [old], now: now, open: "o", waiting: [], finished: []), "the open chat stays")
     }
 
     @MainActor func testJustFinished() {
