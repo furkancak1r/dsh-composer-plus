@@ -4,100 +4,165 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Tether</title>
 <style>
-  :root { color-scheme: light dark; font: 14px -apple-system, system-ui, sans-serif; --line: #8883; --card: #8881; }
-  body { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
-  h1 { font-size: 1.4rem; margin-bottom: .2rem; } h2 { font-size: 1rem; margin: 1.6rem 0 .5rem; }
-  table { border-collapse: collapse; width: 100%; } td, th { text-align: left; padding: .4rem .5rem; border-bottom: 1px solid var(--line); }
-  code { word-break: break-all; font-size: 12px; } .muted { opacity: .65; }
-  button { font: inherit; padding: .35rem .8rem; border-radius: 8px; border: 1px solid var(--line); background: var(--card); cursor: pointer; margin-right: .4rem; }
-  button.primary { background: #0a84ff; color: #fff; border-color: #0a84ff; }
-  .card { border: 1px solid var(--line); background: var(--card); border-radius: 14px; padding: 1rem 1.2rem; margin: 1rem 0; }
-  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: .4rem; vertical-align: middle; }
-  .ok { background: #30d158; } .bad { background: #ff453a; } .warn { background: #ff9f0a; }
-  #pair-card { display: flex; gap: 1.4rem; align-items: center; flex-wrap: wrap; }
-  #qr { width: 220px; height: 220px; image-rendering: pixelated; background: #fff; padding: 8px; border-radius: 10px; }
-  ol { padding-left: 1.2rem; margin: .4rem 0; } li { margin: .3rem 0; }
-  .alert { border-color: #ff9f0a; background: #ff9f0a22; }
-  details summary { cursor: pointer; }
-  /* ?embed=1: shown inside DSH's "Mobile connect" popover */
-  .embed body { max-width: none; margin: 0; padding: 0 12px 12px; background: transparent; font-size: 13px; overflow: hidden; }
-  .embed h1, .embed ol, .embed #gw, .embed #remote:empty { display: none; }
-  .embed p { margin: 0 0 4px; } .embed h2 { font-size: 13px; margin: 10px 0 4px; }
-  .embed .card { padding: 10px; margin: 8px 0; border-radius: 12px; }
-  .embed #pair-card { flex-wrap: nowrap; gap: 12px; } .embed #qr { width: 132px; height: 132px; padding: 6px; }
-  .embed td, .embed th { padding: .3rem .4rem; } .embed button { padding: .25rem .65rem; }
-  .embed-only { display: none; } .embed .embed-only { display: block; }
+  :root { color-scheme: light dark; font: 13px/1.45 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --fg: #1d1d1f; --mute: #6e6e73; --line: rgba(0,0,0,.1); --soft: rgba(0,0,0,.04); --blue: #0071e3; --green: #1f9d55; --orange: #c25e00; --red: #d70015; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #f5f5f7; --mute: #98989d; --line: rgba(255,255,255,.12); --soft: rgba(255,255,255,.06); --blue: #0a84ff; --green: #32d74b; --orange: #ff9f0a; --red: #ff453a; } }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; } /* .pair and .wait set display; hidden must still win */
+  body { max-width: 560px; margin: 32px auto; padding: 0 20px; color: var(--fg); }
+  h1 { font-size: 20px; font-weight: 600; margin: 0 0 2px; letter-spacing: -.01em; }
+  h2 { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--mute); margin: 24px 0 6px; }
+  p { margin: 0; } .mute { color: var(--mute); } code { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  a { color: var(--blue); }
+  button { font: inherit; font-weight: 500; padding: 5px 12px; border-radius: 7px; border: 1px solid var(--line); background: var(--soft); color: inherit; cursor: pointer; }
+  button:hover { background: var(--line); }
+  button.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+  button.link { border: 0; background: none; padding: 0; color: var(--blue); font-weight: 400; }
+  button:focus-visible { outline: 2px solid var(--blue); outline-offset: 2px; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--mute); }
+  .dot.ok { background: var(--green); } .dot.warn { background: var(--orange); } .dot.bad { background: var(--red); }
+  #status { margin-top: 2px; }
+
+  /* Pair: QR on the left, three short steps on the right. */
+  .pair { display: grid; grid-template-columns: auto 1fr; gap: 20px; align-items: start; margin-top: 20px; }
+  .qrbox { width: 184px; height: 184px; border-radius: 12px; background: #fff; padding: 10px; border: 1px solid var(--line); display: grid; place-items: center; }
+  #qr { width: 100%; height: 100%; image-rendering: pixelated; display: block; }
+  .qrbox .wait { color: #6e6e73; font-size: 12px; }
+  ol.steps { margin: 0; padding: 0; list-style: none; counter-reset: s; }
+  ol.steps li { counter-increment: s; position: relative; padding-left: 26px; margin: 0 0 10px; }
+  ol.steps li::before { content: counter(s); position: absolute; left: 0; top: 0; width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--line); font-size: 11px; font-weight: 600; display: grid; place-items: center; }
+  .tools { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 4px; font-size: 12px; }
+  #exp { font-variant-numeric: tabular-nums; }
+
+  /* A waiting request takes the QR's place: the one thing to do. */
+  .req { margin-top: 20px; border: 1px solid var(--blue); border-radius: 12px; padding: 16px; background: color-mix(in srgb, var(--blue) 7%, transparent); }
+  .req .who { font-size: 15px; font-weight: 600; }
+  .req .acts { display: flex; gap: 8px; margin-top: 12px; }
+  .req .acts .primary { padding: 7px 18px; }
+  .note { margin-top: 14px; padding: 9px 12px; border-radius: 9px; background: var(--soft); }
+  .note.ok { color: var(--green); } .note.warn { color: var(--orange); }
+
+  table { width: 100%; border-collapse: collapse; }
+  td { padding: 7px 0; border-top: 1px solid var(--line); vertical-align: middle; } td:last-child { text-align: right; }
+  tr:first-child td { border-top: 0; }
+  details { margin-top: 24px; } summary { cursor: pointer; color: var(--mute); font-size: 12px; }
+  #status-table td { text-align: left; } #status-table td:first-child { color: var(--mute); width: 38%; }
+
+  /* ?embed=1: inside DSH's "Mobile connect" popover */
+  .embed body { max-width: none; margin: 0; padding: 4px 12px 12px; background: transparent; overflow: hidden; }
+  .embed h1, .embed #remote:empty { display: none; }
+  .embed .pair { margin-top: 10px; gap: 14px; } .embed .qrbox { width: 148px; height: 148px; padding: 8px; }
+  .embed .req { margin-top: 10px; } .embed h2 { margin-top: 14px; } .embed details { margin-top: 12px; }
+  .embed ol.steps li { margin-bottom: 7px; }
 </style>
 <script>if (/[?&]embed\b/.test(location.search)) document.documentElement.classList.add('embed')</script>
 <h1>Tether</h1>
-<p class="muted" id="summary">Loading…</p>
-<p class="muted" id="remote"></p>
-<section id="pending-card" class="card alert" hidden>
-  <strong>An iPhone wants to connect</strong>
-  <table id="pending"></table>
+<p id="status" class="mute">Loading…</p>
+<p id="remote" class="mute"></p>
+
+<section id="req" class="req" hidden aria-live="assertive">
+  <p class="who" id="req-who"></p>
+  <p class="mute" id="req-sub"></p>
+  <div class="acts"><button class="primary" id="approve">Approve</button><button id="deny">Deny</button></div>
 </section>
-<section class="card" id="pair-card">
-  <img id="qr" alt="Pairing QR code" hidden>
+
+<section id="pair" class="pair">
+  <div class="qrbox"><img id="qr" alt="Pairing code for Tether" hidden><span class="wait" id="qr-wait">Making a code…</span></div>
   <div>
-    <strong>Pair an iPhone</strong>
-    <p class="muted embed-only">Scan in Tether, then Approve here.</p>
-    <ol>
-      <li>Open Tether on the iPhone (same Wi-Fi as this Mac, or Tailscale on both).</li>
-      <li>Tap <em>Scan QR code</em> and point it at this code.</li>
-      <li>Click <em>Approve</em> here when the request appears.</li>
+    <ol class="steps">
+      <li id="step-cam">Open the iPhone <strong>Camera</strong> and point it at the code, then tap <strong>Open in Tether</strong>. Or tap <strong>Scan code</strong> in Tether.</li>
+      <li id="step-app" hidden>Open Tether on the iPhone and tap <strong>Scan code</strong>.</li>
+      <li>Tap <strong>Connect</strong> on the iPhone.</li>
+      <li>Click <strong>Approve</strong> here.</li>
     </ol>
-    <p class="muted" id="exp"></p>
-    <button id="pair">New code</button>
-    <details><summary class="muted">Can't scan? Paste this code instead</summary><code id="payload"></code></details>
+    <p class="mute">The iPhone needs the Tether app and the same Wi‑Fi as this Mac (or Tailscale on both).</p>
+    <div class="tools"><span class="mute" id="exp"></span><button class="link" id="new">New code</button><button class="link" id="copy">Copy pairing link</button></div>
   </div>
 </section>
-<h2>Paired devices</h2>
+<p id="note" class="note" hidden role="status"></p>
+
+<h2>Paired iPhones</h2>
 <table id="devices"></table>
-<details id="gw"><summary class="muted">Gateway details</summary>
-  <p><button id="start">Start</button><button id="stop">Stop</button></p>
-  <table id="status"></table>
+
+<details id="gw"><summary>Connection details</summary>
+  <table id="status-table"></table>
+  <p style="margin-top:8px"><button id="start">Start</button> <button id="stop">Stop</button></p>
 </details>
 <script>
 const $ = id => document.getElementById(id)
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';')
-const post = (path, body) => fetch(path, { method: 'POST', headers: { 'x-dsh-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) })
-  .then(r => r.json()).then(s => s.error ? alert(s.error) : render(s))
-let lastPayload, expiresAt, asking = false
 const embed = document.documentElement.classList.contains('embed')
+let state, lastPayload, asking = false, busy = false, flash = null
+const say = (text, kind = '') => { flash = { text, kind, until: Date.now() + 8000 }; paintNote() }
+// One change at a time: a second click while a request runs does nothing.
+async function post(path, body) {
+  if (busy) return
+  busy = true
+  try {
+    const r = await fetch(path, { method: 'POST', headers: { 'x-dsh-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) })
+    const s = await r.json()
+    if (s.error) say(s.error, 'warn'); else render(s)
+  } catch { say('The Tether gateway did not answer. Is DSH still running?', 'warn') }
+  finally { busy = false }
+}
+const left = iso => Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 1000))
+const mmss = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')
+const RESULT = {
+  approved: n => [n + ' is connected.', 'ok'],
+  denied: n => ['You denied ' + n + '.', ''],
+  cancelled: n => [n + ' stopped waiting before you clicked Approve. Scan the code again on the iPhone.', 'warn'],
+  expired: n => ['The request from ' + n + ' timed out. Scan the code again on the iPhone.', 'warn'],
+}
+function paintNote() {
+  const l = state?.last, f = flash && flash.until > Date.now() ? flash : null
+  const [text, kind] = f ? [f.text, f.kind] : l && RESULT[l.result] ? RESULT[l.result](l.name) : ['', '']
+  $('note').hidden = !text; $('note').textContent = text; $('note').className = 'note ' + kind
+}
 function render(s) {
-  const t = s.tailscale ?? {}
-  $('remote').innerHTML = embed ? (t.online && t.ip ? '<span class="dot ok"></span>Tailscale <code>' + esc(t.ip) + '</code>' : t.installed ? '<span class="dot warn"></span>Tailscale off' : '')
-    : 'Remote access: ' + (!t.installed ? 'install <a href="https://tailscale.com/download" target="_blank" rel="noopener">Tailscale</a> on this Mac and the iPhone (same account) to connect away from home.'
-    : !t.online || !t.ip ? '<span class="dot warn"></span>Tailscale is off. Turn it on to reach this Mac away from home.'
-    : '<span class="dot ok"></span>Phones connect remotely via <code>' + esc(t.ip + ':' + s.port) + '</code>' + (t.name ? ' (' + esc(t.name) + ')' : ''))
-  $('status').innerHTML = [['Gateway', s.running ? 'running' : 'stopped'], ['IP', s.address ?? 'no Wi-Fi address'], ['Port', s.port],
-    ['TLS', s.tls], ['Fingerprint (SHA-256)', s.fingerprint ?? '-'], ['DSH host', s.upstream]]
-    .map(([k, v]) => '<tr><th>' + k + '</th><td><code>' + esc(v) + '</code></td></tr>').join('')
-  const dsh = s.upstream === 'connected'
-  $('summary').innerHTML = !s.running ? '<span class="dot bad"></span>Gateway stopped' + (s.address ? '' : ' (no Wi-Fi address)')
-    : '<span class="dot ' + (dsh ? 'ok' : 'warn') + '"></span>' + (dsh ? 'Ready' : 'DSH not reachable: ' + esc(s.upstream)) +
-      (embed ? ' · Wi-Fi <code>' : ' · phones connect to <code>') + esc(s.address + ':' + s.port) + '</code>'
-  // Keep a fresh code on screen while this page is open; codes are one-time and still need Approve.
-  if (!s.code && s.running && !asking && document.visibilityState === 'visible') { asking = true; post('/pair').finally(() => { asking = false }) }
-  expiresAt = s.code && Date.parse(s.code.expiresAt)
-  if (s.code) {
-    $('payload').textContent = s.code.payload
-    if (s.code.qr && lastPayload !== s.code.payload) { lastPayload = s.code.payload; $('qr').src = '/qr.png?t=' + Date.now() }
+  state = s
+  const t = s.tailscale ?? {}, dsh = s.upstream === 'connected'
+  $('status').innerHTML = !s.running ? '<span class="dot bad"></span>Off' + (s.address ? '' : ': this Mac has no Wi‑Fi address')
+    : '<span class="dot ' + (dsh ? 'ok' : 'warn') + '"></span>' + (dsh ? 'Ready for iPhones' : 'DSH is not answering') + ' · ' + esc(s.mac)
+  $('remote').innerHTML = !s.running ? '' : t.online && t.ip ? 'Away from home: Tailscale is on (' + esc(t.ip) + ').'
+    : embed ? '' : t.installed ? 'Away from home: turn Tailscale on.' : 'Away from home: install <a href="https://tailscale.com/download" target="_blank" rel="noopener">Tailscale</a> on this Mac and the iPhone.'
+
+  // One waiting request at a time is the normal case; show the oldest.
+  const p = s.pending[0]
+  $('req').hidden = !p; $('pair').hidden = !!p
+  if (p) {
+    $('req-who').textContent = p.name + ' wants to connect'
+    // An older gateway (before a dsh restart) sends no expiresAt: it waits 120 s.
+    $('req-sub').textContent = 'From ' + p.ip.replace(/^::ffff:/, '') + ' · ' + mmss(left(p.expiresAt ?? new Date(p.at + 120e3).toISOString())) + ' left' + (s.pending.length > 1 ? ' · ' + (s.pending.length - 1) + ' more waiting' : '')
+    $('approve').dataset.id = $('deny').dataset.id = p.id
   }
-  $('qr').hidden = !s.code?.qr
-  tick()
-  $('pending-card').hidden = !s.pending.length
-  $('pending').innerHTML = s.pending.map(p => '<tr><td>' + esc(p.name) + '</td><td class="muted">' + esc(p.ip) + '</td><td>' +
-    '<button class="primary" data-a="approve" data-id="' + esc(p.id) + '">Approve</button><button data-a="deny" data-id="' + esc(p.id) + '">Deny</button></td></tr>').join('')
-  $('devices').innerHTML = s.devices.map(d => '<tr><td><span class="dot ' + (d.connections ? 'ok' : 'bad') + '"></span>' + esc(d.name) + '</td><td class="muted">' +
-    (d.connections ? 'online' : 'offline') + (embed ? '' : ' · expires ' + esc(new Date(d.expiresAt).toLocaleDateString())) +
-    '</td><td><button data-a="revoke" data-id="' + esc(d.id) + '">Revoke</button></td></tr>').join('') || '<tr><td class="muted">No iPhone paired yet</td></tr>'
+
+  // Keep a fresh code on screen while this page is open; codes are one-time and still need Approve.
+  if (!s.code && s.running && !p && !asking && document.visibilityState === 'visible') { asking = true; post('/pair').finally(() => { asking = false }) }
+  if (s.code?.qr && lastPayload !== s.code.payload) { lastPayload = s.code.payload; $('qr').src = '/qr.png?t=' + Date.now() }
+  $('qr').hidden = !s.code?.qr; $('qr-wait').hidden = !!s.code?.qr
+  $('qr-wait').textContent = s.running ? 'Making a code…' : 'Gateway is off'
+  $('exp').textContent = s.code ? 'Code works for ' + mmss(left(s.code.expiresAt)) : ''
+  // A gateway from before a dsh restart still makes a JSON code: the Camera app cannot open that one.
+  const cam = !s.code || s.code.payload.startsWith('tether://')
+  $('step-cam').hidden = !cam; $('step-app').hidden = cam
+  paintNote()
+
+  $('devices').innerHTML = s.devices.map(d => '<tr><td><span class="dot ' + (d.connections ? 'ok' : '') + '"></span>' + esc(d.name) +
+    ' <span class="mute">' + (d.connections ? 'online' : 'offline') + '</span></td><td><button class="link" data-revoke="' + esc(d.id) + '">Remove</button></td></tr>').join('')
+    || '<tr><td class="mute">No iPhone yet.</td></tr>'
+  $('status-table').innerHTML = [['Gateway', s.running ? 'running' : 'stopped'], ['Address', (s.address ?? 'no Wi‑Fi address') + ':' + s.port],
+    ['Certificate (SHA-256)', s.fingerprint ?? '-'], ['DSH', s.upstream]]
+    .map(([k, v]) => '<tr><td>' + k + '</td><td><code>' + esc(v) + '</code></td></tr>').join('')
 }
-function tick() {
-  const left = expiresAt ? Math.max(0, Math.round((expiresAt - Date.now()) / 1000)) : 0
-  const mmss = Math.floor(left / 60) + ':' + String(left % 60).padStart(2, '0')
-  $('exp').textContent = left ? (embed ? 'Code valid ' : 'One-time code, valid for ') + mmss : 'Preparing a code…'
-}
+setInterval(() => { if (state) render(state) }, 1000)
+document.addEventListener('click', e => {
+  const b = e.target.closest('button'); if (!b) return
+  if (b.id === 'approve' || b.id === 'deny') post('/' + b.id, { id: b.dataset.id })
+  else if (b.dataset.revoke) { if (confirm('Remove this iPhone? It disconnects now and must pair again.')) post('/revoke', { id: b.dataset.revoke }) }
+  else if (b.id === 'copy') { if (state?.code) navigator.clipboard.writeText(state.code.payload).then(() => say('Pairing link copied. Paste it in Tether on the iPhone.', 'ok'), () => say('Could not copy.', 'warn')) }
+  else if (b.id === 'new') post('/pair')
+  else if (b.id === 'start' || b.id === 'stop') post('/' + b.id)
+})
 // Embedded in DSH: report our height so the popover fits the content and never scrolls.
 if (embed && parent !== window) {
   let last = 0
@@ -105,13 +170,7 @@ if (embed && parent !== window) {
   const report = () => { const h = Math.ceil(document.body.getBoundingClientRect().height); if (h !== last) { last = h; parent.postMessage({ type: 'dshm-height', h }, '*') } }
   new ResizeObserver(report).observe(document.body); addEventListener('load', report)
 }
-setInterval(tick, 1000)
-document.addEventListener('click', e => {
-  const b = e.target.closest('button'); if (!b) return
-  if (b.dataset.a) { if (b.dataset.a !== 'revoke' || confirm('Revoke this device? Its connections close immediately.')) post('/' + b.dataset.a, { id: b.dataset.id }) }
-  else post('/' + b.id)
-})
-const poll = () => fetch('/state').then(r => r.json()).then(render).catch(() => {}).finally(() => setTimeout(poll, 1500))
+const poll = () => fetch('/state').then(r => r.json()).then(render).catch(() => {}).finally(() => setTimeout(poll, 1000))
 poll()
 </script>
 </html>

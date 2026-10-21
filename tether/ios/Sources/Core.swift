@@ -139,13 +139,52 @@ func isTailnet(_ h: String) -> Bool {
         && h.allSatisfy({ $0.isASCII && ($0.isLowercase || $0.isNumber || $0 == "." || $0 == "-") })
 }
 
-struct Invite: Decodable { let v: Int; let host: String; let port: Int; let fp: String; let code: String; var ts: String? = nil; var mac: String? = nil }
-/// QR / pasted payload from the Mac: {"v":1,"host","port","fp","code","ts"?,"mac"?}; ts = the Mac's Tailscale IP, mac = its name.
+struct Invite: Decodable, Equatable { let v: Int; let host: String; let port: Int; let fp: String; let code: String; var ts: String? = nil; var mac: String? = nil }
+/// QR / pasted payload from the Mac: `tether://pair?v=1&host&port&fp&code&mac?&ts?` (the iPhone Camera app opens it in
+/// Tether), or the older JSON text {"v":1,"host","port","fp","code","ts"?,"mac"?}. ts = the Mac's Tailscale IP, mac = its name.
 func parseInvite(_ s: String) -> Invite? {
-    guard let d = s.trimmingCharacters(in: .whitespacesAndNewlines).data(using: .utf8),
-          let i = try? JSONDecoder().decode(Invite.self, from: d), i.v == 1, isLANv4(i.host),
-          (1...65535).contains(i.port), let fp = normFp(i.fp), (1...128).contains(i.code.count), i.ts.map(isTailnet) ?? true else { return nil }
+    let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
+    let raw: Invite?
+    if let u = URLComponents(string: t), u.scheme == "tether", u.host == "pair" {
+        // '+' is a space in form encoding (an older gateway wrote it so); a real '+' arrives as %2B.
+        let q = Dictionary((u.percentEncodedQueryItems ?? []).compactMap { i in
+            i.value.flatMap { $0.replacingOccurrences(of: "+", with: "%20").removingPercentEncoding }.map { (i.name, $0) }
+        }, uniquingKeysWith: { a, _ in a })
+        guard let v = q["v"].flatMap({ Int($0) }), let host = q["host"], let port = q["port"].flatMap({ Int($0) }), let fp = q["fp"], let code = q["code"] else { return nil }
+        raw = Invite(v: v, host: host, port: port, fp: fp, code: code, ts: q["ts"], mac: q["mac"])
+    } else {
+        raw = t.data(using: .utf8).flatMap { try? JSONDecoder().decode(Invite.self, from: $0) }
+    }
+    guard let i = raw, i.v == 1, isLANv4(i.host), (1...65535).contains(i.port), let fp = normFp(i.fp), (1...128).contains(i.code.count),
+          i.ts.map(isTailnet) ?? true else { return nil }
     return Invite(v: 1, host: i.host, port: i.port, fp: fp, code: i.code, ts: i.ts, mac: i.mac.flatMap(macLabel))
+}
+
+/// Pairings that a new pairing replaces: the same certificate, or the same Mac at the same address with an older
+/// certificate (the Mac made a new one). Without this the old entry stays and keeps trying a certificate that is gone.
+func replacedBy(_ list: [Pairing], _ p: Pairing) -> Set<String> {
+    // An old entry without a name (an older gateway) at the same address is the same Mac: its certificate is gone there.
+    // ponytail: two different Macs that used one address at different times and have no name lose the older entry;
+    // pairing it again brings it back.
+    Set(list.filter { $0.fp == p.fp || ($0.host == p.host && $0.port == p.port && ($0.mac == nil || $0.mac == p.mac)) }.map(\.fp))
+}
+/// A yes/no that a URLSession delegate callback and the pairing task share (both reach it through the main actor).
+final class Flag: @unchecked Sendable { var on = false }
+
+/// What the pair screen shows while one pairing runs. `waiting` carries when the Mac stops waiting for Approve.
+enum PairPhase: Equatable {
+    case idle, connecting(String), waiting(String, until: Date), done(String), failed(String)
+    var busy: Bool { switch self { case .connecting, .waiting, .done: true; default: false } }
+}
+/// The gateway's refusals → one sentence that says what to do next.
+func pairFailText(status: Int, error: String?) -> String {
+    switch (status, error) {
+    case (403, "pairing denied"): return String(localized: "The Mac denied this iPhone. Click Approve next time.")
+    case (403, "pairing expired"): return String(localized: "Nobody clicked Approve on the Mac in time. Scan the code again.")
+    case (403, _): return String(localized: "This code was already used or is too old. Scan the new code on the Mac.")
+    case (429, _): return String(localized: "Too many tries. Wait a minute, then scan again.")
+    default: return String(localized: "The Mac answered with an error (\(status)). Scan the code again.")
+    }
 }
 
 /// A Mac name from the gateway or the user: trimmed, no control characters, at most 64 characters; nil when blank.
@@ -528,13 +567,18 @@ enum Keychain {
 /// Accepts the server only if its leaf certificate matches the pinned fingerprint; system CAs are never consulted.
 final class Pinner: NSObject, URLSessionTaskDelegate {
     let fp: String
+    /// Pairing only: called once the Mac's certificate matched (the Mac is reachable and has the request).
+    var onTrusted: (() -> Void)?
+    /// True after a certificate that did not match; URLSession then reports only "cancelled".
+    private(set) var rejected = false
     init(fp: String) { self.fp = fp }
     func urlSession(_ s: URLSession, didReceive ch: URLAuthenticationChallenge) async -> (URLSession.AuthChallengeDisposition, URLCredential?) {
         // Non-trust challenges (e.g. client-certificate probes) must not kill the handshake; default handling sends no cert and never bypasses the pin below.
         guard ch.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust else { return (.performDefaultHandling, nil) }
         guard let t = ch.protectionSpace.serverTrust,
               let leaf = (SecTrustCopyCertificateChain(t) as? [SecCertificate])?.first,
-              pinMatches(der: SecCertificateCopyData(leaf) as Data, fp: fp) else { return (.cancelAuthenticationChallenge, nil) }
+              pinMatches(der: SecCertificateCopyData(leaf) as Data, fp: fp) else { rejected = true; return (.cancelAuthenticationChallenge, nil) }
+        onTrusted?()
         return (.useCredential, URLCredential(trust: t))
     }
     // WebSocket tasks may deliver the trust challenge at task level; same pin, same rules.
@@ -575,7 +619,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var state = Conn.off
     @Published var upstream = ""
     @Published var error: String?
-    @Published var pairingStatus: String?
+    /// The one pairing that runs now (pair screen). Only one at a time: `pair` refuses a second while this is busy.
+    @Published var pairPhase = PairPhase.idle
+    /// A tether://pair link that another app (the Camera) opened: the pair screen asks before it connects.
+    @Published var linkInvite: Invite?
+    private var pairTask: Task<Bool, Never>?
     /// The "Add a Mac" pair sheet is open (from the Mac picker or Settings).
     @Published var addingMac = false
     @Published var path: [String] = [] // Sessions navigation stack; non-empty = conversation on screen
@@ -747,32 +795,109 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     // MARK: Pairing
 
-    /// True when the Mac approved this iPhone; the Mac is then on screen.
+    /// Starts one pairing. Every entry point (scanner, pasted link, Camera link) comes here, so a second pairing while
+    /// one runs is refused. True when the Mac approved this iPhone; the Mac is then on screen.
     @discardableResult func pair(_ inv: Invite) async -> Bool {
-        pairingStatus = String(localized: "Waiting for approval on your Mac…")
-        defer { pairingStatus = nil }
+        guard !pairPhase.busy else { return false }
+        // Busy at once, before the task runs: a second tap in the same moment finds it busy.
+        pairPhase = .connecting(inv.mac ?? inv.host)
+        linkInvite = nil
+        let t = Task { await runPair(inv) }
+        pairTask = t
+        defer { pairTask = nil }
+        return await t.value
+    }
+    /// The iPhone stops waiting. The Mac page then says that this iPhone stopped waiting.
+    func cancelPair() { pairTask?.cancel() }
+    /// Back to the start screen after a failure.
+    func resetPair() { if !pairPhase.busy { pairPhase = .idle } }
+    /// A tether://pair link from the Camera app (or any app). It only fills the confirm card: nothing connects until
+    /// the user taps Connect, so a link alone can never pair this iPhone with a Mac.
+    func openPairLink(_ u: URL) {
+        guard let inv = parseInvite(u.absoluteString) else { error = String(localized: "This pairing link is broken or not for a local network. Show a new code on the Mac."); return }
+        guard !pairPhase.busy else { return }
+        pairPhase = .idle; linkInvite = inv
+        if pairing != nil { addingMac = true }
+    }
+
+    private func runPair(_ inv: Invite) async -> Bool {
+        let name = inv.mac ?? inv.host
+        // The user looks at the Mac to click Approve: keep the screen on, and keep the request alive for a short time
+        // if they leave the app. A dropped request makes the Mac's Approve card go away.
+        UIApplication.shared.isIdleTimerDisabled = true
+        var bg = UIBackgroundTaskIdentifier.invalid
+        bg = UIApplication.shared.beginBackgroundTask(withName: "Pairing") { UIApplication.shared.endBackgroundTask(bg); bg = .invalid }
+        defer { UIApplication.shared.isIdleTimerDisabled = false; if bg != .invalid { UIApplication.shared.endBackgroundTask(bg) } }
         do {
-            let list = addrs(inv.host, inv.ts)
-            var got: (Data, URLResponse)?
-            for (n, (host, _)) in list.enumerated() {
-                // Mac holds the reply until approved (≤120 s); only the last address gets the long wait.
-                var r = URLRequest(url: URL(string: "https://\(host):\(inv.port)/pair")!, timeoutInterval: n < list.count - 1 ? 5 : 150)
-                r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                r.httpBody = try JSONSerialization.data(withJSONObject: ["code": inv.code, "name": UIDevice.current.name])
-                do { got = try await http(inv.fp).data(for: r); break }
-                catch let e as URLError where n < list.count - 1 { _ = e; continue }
+            let (d, status) = try await pairRequest(inv, name: name)
+            let o = (try? JSONSerialization.jsonObject(with: d)) as? J
+            guard status == 200, let o, let token = o["token"] as? String, token.count >= 40, let id = o["deviceId"] as? String else {
+                pairPhase = .failed(pairFailText(status: status, error: o?["error"] as? String))
+                UINotificationFeedbackGenerator().notificationOccurred(.error)
+                return false
             }
-            guard let (d, resp) = got else { throw Fail("Unreachable") }
-            guard (resp as? HTTPURLResponse)?.statusCode == 200, let o = try JSONSerialization.jsonObject(with: d) as? J,
-                  let token = o["token"] as? String, token.count >= 40, let id = o["deviceId"] as? String
-            else { throw Fail(String(localized: "Pairing was denied or the code expired. Show a fresh QR code on the Mac.")) }
             let mac = (o["mac"] as? String).flatMap(macLabel) ?? inv.mac
             let p = Pairing(host: inv.host, port: inv.port, fp: inv.fp, token: token, deviceId: id, name: o["name"] as? String ?? "", expiresAt: o["expiresAt"] as? String ?? "", ts: inv.ts, mac: mac)
-            pairings = upserted(pairings, p)
-            switchMac(p.fp, force: true) // the new (or re-paired) Mac goes on screen
+            pairings = upserted(pairings, p) // saved at once; the screen changes after the short "Connected" moment
+            pairPhase = .done(mac ?? inv.host)
+            UINotificationFeedbackGenerator().notificationOccurred(.success)
+            try? await Task.sleep(for: .seconds(1.2))
+            adopt(p)
+            pairPhase = .idle
             _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
             return true
-        } catch { self.error = userText(error); return false }
+        } catch {
+            if Task.isCancelled || error is CancellationError { pairPhase = .idle; return false }
+            pairPhase = .failed(userText(error))
+            UINotificationFeedbackGenerator().notificationOccurred(.error)
+            return false
+        }
+    }
+
+    /// One POST /pair per address (LAN first on Wi‑Fi). Each try has its own pinned session: the reconnect loop of
+    /// another (or an out-of-date) pairing rebuilds the shared session, and that used to cancel this request while the
+    /// Mac waited for Approve, so the Approve card went away.
+    private func pairRequest(_ inv: Invite, name: String) async throws -> (Data, Int) {
+        for (host, _) in addrs(inv.host, inv.ts) {
+            let reached = Flag(), pin = Pinner(fp: inv.fp)
+            pin.onTrusted = {
+                guard !reached.on else { return }
+                reached.on = true // at once, on the TLS callback: the watchdog below must not cancel a request the Mac holds
+                Task { @MainActor in
+                    self.pairPhase = .waiting(name, until: Date().addingTimeInterval(120)) // the gateway waits 120 s for Approve
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                }
+            }
+            let s = URLSession(configuration: .ephemeral, delegate: pin, delegateQueue: nil)
+            defer { s.invalidateAndCancel() }
+            var r = URLRequest(url: URL(string: "https://\(host):\(inv.port)/pair")!, timeoutInterval: 150)
+            r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            r.httpBody = try JSONSerialization.data(withJSONObject: ["code": inv.code, "name": UIDevice.current.name])
+            // No TLS answer in 10 s: this address is dead. Try the next one instead of a 150 s wait.
+            let watchdog = Task { try? await Task.sleep(for: .seconds(10)); if !Task.isCancelled, !reached.on { s.invalidateAndCancel() } }
+            defer { watchdog.cancel() }
+            do {
+                let (d, resp) = try await s.data(for: r)
+                return (d, (resp as? HTTPURLResponse)?.statusCode ?? 0)
+            } catch {
+                try Task.checkCancellation()
+                if pin.rejected { throw Fail(String(localized: "This code doesn't match the Mac's certificate. Show a new code on the Mac and scan again.")) }
+                if reached.on { throw Fail(String(localized: "The connection to the Mac broke while it waited for Approve. Scan the code again.")) }
+            }
+        }
+        throw Fail(String(localized: "Can't reach \(name) at \(inv.host). Put this iPhone on the same Wi‑Fi as the Mac. If iOS asks to find devices on your local network, tap Allow."))
+    }
+
+    /// The new pairing goes on screen. An older entry for the same Mac (an old certificate) leaves this iPhone and
+    /// gives its name to the new one.
+    private func adopt(_ p: Pairing) {
+        let gone = replacedBy(pairings, p).subtracting([p.fp])
+        let label = pairings.first { gone.contains($0.fp) && $0.label != nil }?.label
+        for fp in gone { for k in ["seenSessions", "finished", "drafts"] { UserDefaults.standard.removeObject(forKey: macKey(k, fp, legacy: legacyFp)) } }
+        pairings.removeAll { gone.contains($0.fp) }
+        if let label, let i = pairings.firstIndex(where: { $0.fp == p.fp }), pairings[i].label == nil { pairings[i].label = label }
+        switchMac(p.fp, force: true)
+        addingMac = false
     }
 
     /// Show another paired Mac: close this Mac's socket, clear everything on screen, load that Mac's own unread dots, and

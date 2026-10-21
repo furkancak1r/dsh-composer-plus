@@ -25,17 +25,25 @@ Mac tarayıcısı ──▶ http://127.0.0.1:19391/  (admin: QR, eşleme onayı,
 1. DSH'ye dsh-composer-plus eklentisini kur: Ayarlar → Eklentiler → **Eklenti ekle** → `dsh-composer-plus`.
 2. **Ayarlar → Composer Plus → Mobile connect (iPhone)** anahtarını aç. Gateway hemen başlar ve DSH yeniden açıldığında da başlar. `openssl` ilk açılışta self-signed sertifika üretir. Veriler `$DSH_HOME/storages/dsh-composer-plus/mobile/` klasöründedir (cihazlar, sertifika, QR). Ortam değişkenleri: `DSH_MOBILE_IFACE` (varsayılan `en0`), `DSH_MOBILE_PORT` (19390), `DSH_MOBILE_ADMIN_PORT` (19391), `DSH_MOBILE_DIR`.
 3. DSH'de sol alttaki **Mobile connect** düğmesine bas ya da Mac'te `http://127.0.0.1:19391/` adresini aç. QR, cihazlar ve Tailscale durumu görünür.
-4. iOS: `ios/DSHMobile.xcodeproj` aç, gerçek cihaz için Signing Team seç, çalıştır. QR'ı tara (veya içeriğini yapıştır / Bonjour listesinden seç), Mac'teki admin sayfasında **Onayla**.
-5. Proje dosyası `ios/project.yml`'den üretilir: değişiklikten sonra `cd ios && xcodegen generate`.
+4. iOS: `ios/DSHMobile.xcodeproj` aç, gerçek cihaz için Signing Team seç, çalıştır.
+5. QR kodunu iPhone **Kamera** uygulamasıyla okut ve **Tether'de Aç**'a dokun, ya da Tether'de **Scan code**'a dokun. Telefonda **Connect**'e, Mac'te **Approve**'a bas. Kamera yalnız Tether kuruluysa çalışır: QR bir `tether://pair?…` bağlantısıdır. Bağlantı tek başına eşleştirmez: Tether önce sorar.
+6. Proje dosyası `ios/project.yml`'den üretilir: değişiklikten sonra `cd ios && xcodegen generate`.
 
 Eski `dsh-mobile-bridge` eklentisini kullandıysan, `cordis.patch.yml` içindeki kaydını sil. Eski `~/.dsh-mobile` klasörü artık okunmaz: telefonu yeni QR koduyla bir kez daha eşleştir.
+
+## Eşleşme adımları
+
+- Telefon: kod okundu → Mac'e bağlanılıyor → "Mac'te Approve'a basın" (geri sayım, **Cancel**) → bağlandı (titreşim) ya da nedenini söyleyen hata ve **Try again**.
+- Mac sayfası: bekleyen istek QR'ın yerine geçer (iPhone adı, IP, kalan süre, **Approve** / **Deny**). İstek biterse sayfa nedenini 60 sn gösterir: bağlandı, reddedildi, iPhone vazgeçti, süre doldu. Biten isteğe **Approve** → 409 ve açık bir cümle.
+- Eşleşme isteği kendi sabitlenmiş URLSession'ını kullanır. Eskiden başka bir (ya da eski sertifikalı) Mac'in yeniden bağlanma döngüsü ortak oturumu yeniliyor ve bekleyen isteği iptal ediyordu: Mac'teki Approve kartı kayboluyordu.
+- Aynı adres ve aynı Mac adıyla (ya da adsız eski kayıtla) yeni bir sertifika eşleşince eski kayıt silinir; kullanıcının verdiği ad yenisine geçer.
 
 ## Birden fazla Mac
 
 Telefon istediğiniz kadar Mac'e eşleşebilir. Sınır yoktur.
 
 1. Her Mac'te dsh-composer-plus kurulu olsun ve **Mobile connect** açık olsun.
-2. Tether'de sol üstteki Mac adına dokunun, **Add a Mac…** seçin. O Mac'in QR kodunu tarayın ve Mac'te **Onayla**'ya basın.
+2. Tether'de sol üstteki Mac adına dokunun, **Add a Mac…** seçin. O Mac'in QR kodunu tarayın, **Connect**'e dokunun ve Mac'te **Approve**'a basın.
 3. Sol üstteki Mac adından Mac'ler arasında geçin. Ayarlar → **Macs** bölümünde bir Mac'i yeniden adlandırabilir (yalnız bu iPhone'da) ya da eşleşmesini kaldırabilirsiniz.
 
 - Her Mac kendi sertifika parmak izini, token'ını ve adreslerini (LAN, Tailscale) ayrı saklar. Bir Mac'in token'ı başka bir Mac'e hiç gönderilmez.

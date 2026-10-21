@@ -57,7 +57,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **按状态排序** | 侧边栏 → 视图选项 → **排序方式** → **按状态**（配合 **单列表** 使用）。已完成的对话排在最前（即带 dsh “完成”圆点的对话，以出错结束的回合也会显示这个圆点），然后是正在运行或等待中的对话，再然后是带有活跃自动化任务（Schedule）的对话，其余对话按 dsh 的顺序排列。打开已完成的对话后，它会往下移。只有视图会改变：选择 **手动排序** 或 **最近更新** 即可恢复。 | <a href="assets/features/statusOrder.webp"><img src="assets/features/statusOrder.webp" width="160" alt="按状态排序截图"></a> |
 | **后台通知** | dsh 在后台时，如果回合完成（通知显示回复的第一行），或对话确实在等你处理，你都会收到通知。等你处理的情况包括：审批（显示工具名称）、回答（显示问题）或计划审阅。请求必须在 1.5 秒后仍未处理，才会发出通知，因此被自动处理的审批（Auto Review 授权、其他插件）不会发出通知；请求一旦得到处理，对应的通知也会立即撤回。程序坞/任务栏角标会显示等待中的对话数量。点击通知会打开对应的对话。 | <a href="assets/features/notifications.webp"><img src="assets/features/notifications.webp" width="160" alt="后台通知截图"></a> |
 | **11 种额外界面语言** | 设置 → Composer Plus → **应用语言** 可以把整个 dsh 界面切换为 Türkçe、Español、Português (Brasil)、Français、Deutsch、Русский、日本語、한국어、Bahasa Indonesia、Tiếng Việt 或 हिन्दी（见下文）。 | <a href="assets/features/language.webp"><img src="assets/features/language.webp" width="160" alt="11 种额外界面语言截图"></a> |
-| **手机连接（iPhone）** | 通过 [Tether](tether/) 应用在 iPhone 上使用 dsh，可以在同一 Wi-Fi 下使用，也可以通过 [Tailscale](https://tailscale.com) 使用。请在 **设置 → Composer Plus** 中开启它（默认关闭，因为它会在这台 Mac 上开放一个网络端口）。然后点击侧边栏左下角的 **手机连接**：在 Tether 中扫描二维码，然后点击 **Approve**。手机可以显示你的对话、发送消息、回答审批和问题，以及切换模型和智能体。你可以配对任意多台 Mac：点击应用左上角的 Mac 名称即可在它们之间切换。 | <a href="assets/features/mobileConnect.webp"><img src="assets/features/mobileConnect.webp" width="160" alt="手机连接截图"></a> |
+| **手机连接（iPhone）** | 通过 [Tether](tether/) 应用在 iPhone 上使用 dsh，可以在同一 Wi-Fi 下使用，也可以通过 [Tailscale](https://tailscale.com) 使用。请在 **设置 → Composer Plus** 中开启它（默认关闭，因为它会在这台 Mac 上开放一个网络端口）。然后点击侧边栏左下角的 **手机连接**：用 iPhone 相机扫描二维码（轻点 **Open in Tether**），或用 Tether 中的 **Scan code** 扫描，轻点 **Connect**，然后点击 **Approve**。请先安装 Tether：没有它，相机无法打开这个二维码。手机可以显示你的对话、发送消息、回答审批和问题，以及切换模型和智能体。你可以配对任意多台 Mac：点击应用左上角的 Mac 名称即可在它们之间切换。 | <a href="assets/features/mobileConnect.webp"><img src="assets/features/mobileConnect.webp" width="160" alt="手机连接截图"></a> |
 | **自动更新** | dsh 启动时，插件会检查 [最新的 GitHub release](https://github.com/furkancak1r/dsh-composer-plus/releases/latest)。如果它比当前版本新，并且已发布到 npm，插件会通过 dsh 自带的插件管理器（与 设置 → 插件 相同的途径）安装这个确切的版本，并通知你。**重启 dsh** 即可加载新版本。**设置 → Composer Plus → Composer Plus 更新** 会显示版本号，并提供 **检查更新** / **立即更新**。 | <a href="assets/features/autoUpdate.webp"><img src="assets/features/autoUpdate.webp" width="160" alt="自动更新截图"></a> |
 
 按钮、工具提示、提示信息和通知都会使用所选的 dsh 语言（见下文的“应用语言”）。
@@ -184,7 +184,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 **如何把 DeepSeek Harness 界面切换为土耳其语、西班牙语、日语……？** 设置 → Composer Plus → **应用语言**。
 
-**如何在 iPhone 上使用 dsh？** 用 Xcode 从 `tether/ios` 构建 Tether 应用，开启 **设置 → Composer Plus → 手机连接（iPhone）**，点击左下角的 **手机连接**，在 Tether 中扫描二维码，然后点击 **Approve**。不在家时，请在两台设备上都使用 Tailscale。
+**如何在 iPhone 上使用 dsh？** 用 Xcode 从 `tether/ios` 构建 Tether 应用，开启 **设置 → Composer Plus → 手机连接（iPhone）**，点击左下角的 **手机连接**，扫描二维码（用 iPhone 相机或 Tether 中的 **Scan code**），轻点 **Connect**，然后点击 **Approve**。不在家时，请在两台设备上都使用 Tailscale。
 
 **它支持桌面应用吗？** 支持：设置 → 插件 → **添加插件** → `dsh-composer-plus`。已在 dsh 0.2.0-rc.2（桌面版和网页版）和 0.2.1-rc.2（网页版）上测试。
 

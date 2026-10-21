@@ -40,6 +40,15 @@ export const EVENTS = new Set([
   'permission-presets/catalog-changed', 'user-questions/request',
 ])
 
+/** The QR / paste text: a tether:// link, so the iPhone Camera app offers "Open in Tether" (raw JSON only offered a web
+ * search). Tether still accepts the old JSON text. Opening the link never pairs by itself: the app asks first. */
+export function pairLink({ host, port, fp, code, mac, ts }) {
+  const q = new URLSearchParams({ v: '1', host: String(host ?? ''), port: String(port), fp, code })
+  if (mac) q.set('mac', mac)
+  if (ts) q.set('ts', ts)
+  return 'tether://pair?' + String(q).replace(/\+/g, '%20') // URLSearchParams writes a space as '+'; iOS URL parsing reads '+' as '+'
+}
+
 const sha = s => createHash('sha256').update(s).digest('hex')
 const safeEq = (a, b) => timingSafeEqual(Buffer.from(sha(a), 'hex'), Buffer.from(sha(b), 'hex'))
 const ip4 = s => s.split('.').reduce((n, o) => (n << 8) + Number(o), 0) >>> 0
@@ -230,6 +239,7 @@ export function createGateway(opts = {}) {
   })
   const mac = opts.macName ?? macName()
   const codeTtl = opts.codeTtlMs ?? 5 * 60e3
+  const approveTtl = opts.approveTtlMs ?? 120e3
   const waterfallTtl = opts.waterfallTimeoutMs ?? 10 * 60e3
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   const upstream = makeUpstream(opts.upstreamUrl)
@@ -296,10 +306,13 @@ export function createGateway(opts = {}) {
   }
 
   // ---- Pairing: one-time code (5 min) shown as QR, then explicit approval on the Mac. ----
+  // The latest outcome, kept 60 s so the Mac page can say what happened after the request card goes away.
+  let last = null
+  const record = (p, result) => { last = { name: p.name, result, at: Date.now() } }
   function newCode() {
     const net = bound ?? netInfo()
     code = { value: randomBytes(16).toString('base64url'), expires: Date.now() + codeTtl }
-    code.payload = JSON.stringify({ v: 1, host: net?.address, port, fp, code: code.value, mac, ...(ts.online && ts.ip ? { ts: ts.ip } : {}) })
+    code.payload = pairLink({ host: net?.address, port, fp, code: code.value, mac, ts: ts.online ? ts.ip : null })
     qrReady = false
     if (opts.qr !== false) {
       const c = code
@@ -318,14 +331,17 @@ export function createGateway(opts = {}) {
     const p = { id: randomUUID(), name: String(b.name ?? 'iPhone').replace(/[\u0000-\u001f]/g, '').slice(0, 64) || 'iPhone', ip, at: Date.now(), res }
     pending.set(p.id, p)
     notify('Pairing request from ' + p.name)
-    const t = setTimeout(() => settle(p.id, false), 120e3)
-    res.on('close', () => { clearTimeout(t); pending.delete(p.id) })
+    const t = setTimeout(() => { if (pending.has(p.id)) { record(p, 'expired'); settle(p.id, false, false) } }, approveTtl)
+    // The phone gave up (Cancel, app closed, network gone): say so instead of letting the card just vanish.
+    res.on('close', () => { clearTimeout(t); if (pending.delete(p.id)) record(p, 'cancelled') })
   }
-  function settle(id, approve) {
+  function settle(id, approve, log = true) {
     const p = pending.get(id)
     if (!p) return false
     pending.delete(id)
-    if (!approve) { reply(p.res, 403, { error: 'pairing denied' }); return true }
+    if (p.res.destroyed || p.res.socket?.destroyed) { record(p, 'cancelled'); return false }
+    if (log) record(p, approve ? 'approved' : 'denied')
+    if (!approve) { reply(p.res, 403, { error: log ? 'pairing denied' : 'pairing expired' }); return true }
     const token = randomBytes(32).toString('base64url') // 256-bit; only its hash is stored
     const d = { id: randomUUID(), name: p.name, tokenHash: sha(token), createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + TOKEN_TTL).toISOString() }
     devices.push(d); saveDevices()
@@ -518,7 +534,8 @@ export function createGateway(opts = {}) {
     mac, running, address: bound?.address ?? netInfo()?.address ?? null, port, tls: running ? 'TLS 1.2+, self-signed' : 'off',
     fingerprint: fp ?? null, upstream: upState, tailscale: ts, lastTlsError,
     code: code && Date.now() < code.expires ? { payload: code.payload, expiresAt: new Date(code.expires).toISOString(), qr: qrReady } : null,
-    pending: [...pending.values()].map(({ id, name, ip, at }) => ({ id, name, ip, at })),
+    pending: [...pending.values()].map(({ id, name, ip, at }) => ({ id, name, ip, at, expiresAt: new Date(at + approveTtl).toISOString() })),
+    last: last && Date.now() - last.at < 60e3 ? { ...last, at: new Date(last.at).toISOString() } : null,
     devices: devices.map(({ tokenHash, ...d }) => ({ ...d, connections: devSockets.get(d.id)?.size ?? 0 })),
   })
 
@@ -537,8 +554,9 @@ export function createGateway(opts = {}) {
     try { b = JSON.parse((await readBody(req, 4096)) || '{}') } catch { return reply(res, 400, { error: 'bad request' }) }
     try {
       if (path === '/pair') { if (!running) await start(); else await refreshTs(); newCode() }
-      else if (path === '/approve') settle(b.id, true)
-      else if (path === '/deny') settle(b.id, false)
+      else if (path === '/approve' || path === '/deny') {
+        if (!settle(b.id, path === '/approve')) return reply(res, 409, { error: 'This request is no longer waiting. The iPhone stopped waiting or the request timed out. Scan the code again.' })
+      }
       else if (path === '/revoke') revoke(b.id)
       else if (path === '/start') await start()
       else if (path === '/stop') await stop()

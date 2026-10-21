@@ -72,6 +72,8 @@ function call(gw, method, path, body, headers = {}, pin = gw.fingerprint) {
     req.on('error', bad)
   })
 }
+/** The phone's view of the QR text: tether://pair?… query fields. */
+const invite = s => { const u = new URL(s); assert.equal(u.protocol + u.host, 'tether:pair'); return Object.fromEntries(u.searchParams) }
 const rpc = (gw, token, method, args = {}) => call(gw, 'POST', '/api/' + method, { type: 'client-request', rpcId: 'r' + Math.random(), method, payload: { args } }, { authorization: 'Bearer ' + token })
 
 async function pairDevice(gw, name = 'Test iPhone') {
@@ -116,13 +118,13 @@ test('tailnet range and connection filter', () => {
 test('tailscale address goes into the QR and /me', async () => {
   const t = await setup({ tailscale: { installed: true, online: true, ip: '100.90.0.7', name: 'mac.tail1.ts.net' } })
   try {
-    assert.equal(JSON.parse(t.gw.newCode().payload).ts, '100.90.0.7')
+    assert.equal(invite(t.gw.newCode().payload).ts, '100.90.0.7')
     assert.equal(t.gw.state().tailscale.name, 'mac.tail1.ts.net')
     const { token } = await pairDevice(t.gw)
     assert.equal((await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + token })).json.tailscale, '100.90.0.7')
   } finally { await t.done() }
   const off = await setup()
-  try { assert.equal(JSON.parse(off.gw.newCode().payload).ts, undefined) } finally { await off.done() }
+  try { assert.equal(invite(off.gw.newCode().payload).ts, undefined) } finally { await off.done() }
 })
 
 test('the Mac name goes into the QR, /pair and /me, so the phone can tell Macs apart', async () => {
@@ -131,7 +133,7 @@ test('the Mac name goes into the QR, /pair and /me, so the phone can tell Macs a
   assert.ok(macName(() => { throw new Error('no scutil') }).length > 0, 'falls back to the host name')
   const t = await setup({ macName: 'Office Mac' })
   try {
-    assert.equal(JSON.parse(t.gw.newCode().payload).mac, 'Office Mac')
+    assert.equal(invite(t.gw.newCode().payload).mac, 'Office Mac')
     const d = await pairDevice(t.gw)
     assert.equal(d.mac, 'Office Mac')
     assert.equal((await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + d.token })).json.mac, 'Office Mac')
@@ -183,6 +185,56 @@ test('pairing code: wrong, replayed, expired, denied', async () => {
     await sleep(5)
     assert.equal((await call(e.gw, 'POST', '/pair', { code, name: 'late' })).status, 403)
   } finally { await e.done() }
+})
+
+test('the QR is a tether://pair link with every field the phone needs (the Camera app offers "Open in Tether")', async () => {
+  const t = await setup({ macName: 'Ofis Mac’i & co', tailscale: { installed: true, online: true, ip: '100.90.0.7', name: null } })
+  try {
+    const c = t.gw.newCode(), q = invite(c.payload)
+    assert.match(c.payload, /^tether:\/\/pair\?/)
+    assert.ok(!c.payload.includes('+') && c.payload.includes('mac=Ofis%20Mac'), 'a space is %20, not + (iOS reads + as +)')
+    assert.deepEqual(q, { v: '1', host: '127.0.0.1', port: String(t.gw.port), fp: t.gw.fingerprint, code: c.value, mac: 'Ofis Mac’i & co', ts: '100.90.0.7' })
+  } finally { await t.done() }
+})
+
+test('the Mac page learns what happened: approved, denied, phone stopped waiting, timed out; a gone request is 409', async () => {
+  const t = await setup({ approveTtlMs: 300 })
+  const admin = (path, body) => fetch('http://127.0.0.1:' + t.port + path, body === undefined ? {} : { method: 'POST', headers: { 'x-dsh-admin': '1' }, body: JSON.stringify(body) })
+  try {
+    t.port = await t.gw.listenAdmin(0)
+    assert.equal(t.gw.state().last, null)
+    await pairDevice(t.gw, 'Ayşe iPhone')
+    assert.equal(t.gw.state().last.result, 'approved'); assert.equal(t.gw.state().last.name, 'Ayşe iPhone')
+
+    // The phone gives up (Cancel / app closed): the card goes away and the page says why.
+    const code = t.gw.newCode().value
+    const ac = new AbortController()
+    const req = request({ host: '127.0.0.1', port: t.gw.port, method: 'POST', path: '/pair', rejectUnauthorized: false, agent: false, signal: ac.signal, headers: { 'content-type': 'application/json' } })
+    req.on('error', () => {}); req.end(JSON.stringify({ code, name: 'Quitter' }))
+    const p = await waitFor(() => t.gw.state().pending[0])
+    assert.ok(Date.parse(p.expiresAt) > Date.now(), 'the card shows a countdown')
+    ac.abort()
+    await waitFor(() => t.gw.state().pending.length === 0)
+    assert.deepEqual([t.gw.state().last.name, t.gw.state().last.result], ['Quitter', 'cancelled'])
+    const late = await admin('/approve', { id: p.id })
+    assert.equal(late.status, 409, 'Approve on a request that is gone says so')
+    assert.match((await late.json()).error, /no longer waiting/)
+    assert.equal(t.gw.state().devices.length, 1, 'nothing was paired')
+
+    // Nobody clicks: the request times out and the phone hears "expired", not "denied".
+    const slow = call(t.gw, 'POST', '/pair', { code: t.gw.newCode().value, name: 'Slow' })
+    await waitFor(() => t.gw.state().pending[0])
+    const r = await slow
+    assert.equal(r.status, 403); assert.equal(r.json.error, 'pairing expired')
+    assert.equal(t.gw.state().last.result, 'expired')
+
+    // Deny on the Mac.
+    const d = call(t.gw, 'POST', '/pair', { code: t.gw.newCode().value, name: 'No' })
+    const q = await waitFor(() => t.gw.state().pending[0])
+    assert.equal((await admin('/deny', { id: q.id })).status, 200)
+    assert.equal((await d).json.error, 'pairing denied')
+    assert.equal(t.gw.state().last.result, 'denied')
+  } finally { await t.done() }
 })
 
 test('MITM: a different certificate fails the pin check before any request is sent', async () => {

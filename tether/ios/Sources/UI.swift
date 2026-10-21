@@ -10,8 +10,12 @@ import AVFoundation
         WindowGroup {
             Root().environmentObject(client)
                 .onChange(of: phase, initial: true) { _, p in if p == .active { client.browse(); client.wake() } }
-                // tether://tailscale/<ok|error|cancel>: the Tether Tailscale Shortcut finished and bounced back here
-                .onOpenURL { u in if u.scheme == "tether", u.host == "tailscale" { client.tailscaleReturned(u.lastPathComponent) } }
+                // tether://tailscale/<ok|error|cancel>: the Tether Tailscale Shortcut finished and bounced back here.
+                // tether://pair?…: the Mac's pairing code, opened from the Camera app; it asks before it connects.
+                .onOpenURL { u in
+                    guard u.scheme == "tether" else { return }
+                    if u.host == "tailscale" { client.tailscaleReturned(u.lastPathComponent) } else if u.host == "pair" { client.openPairLink(u) }
+                }
         }
     }
 }
@@ -102,6 +106,8 @@ struct OfflineView: View {
                 if !c.tsReady, c.tailscaleInstalled { TailscaleShortcutLink().font(.footnote) }
             }
             Button("Retry") { c.reconnect() }
+            // The Mac made a new certificate (or this pairing was removed there): a new code is the fix.
+            Button("Scan a new code") { c.addingMac = true }.font(.footnote)
         }
     }
 }
@@ -142,47 +148,171 @@ struct ConnBanner: View {
 
 // MARK: - Pairing
 
+/// First screen and the "Add a Mac" sheet. One clear action (scan), what happens on the Mac, then a status card
+/// that follows the pairing: code read → waiting for Approve → connected, or what went wrong and what to do.
 struct PairView: View {
     @EnvironmentObject var c: Client
     @Environment(\.dismiss) private var dismiss
     /// Shown as a sheet from the Mac picker to pair one more Mac; the Macs already paired stay.
     var adding = false
     @State private var scanning = false
+    @State private var pasting = false
     @State private var pasted = ""
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    Button { scanning = true } label: { Label("Scan QR code", systemImage: "qrcode.viewfinder") }
-                } footer: { Text(verbatim: String(localized: "Where's the code? In DeepSeek Harness on your Mac, turn on Settings → Composer Plus → Mobile connect (iPhone). Then click Mobile connect at the bottom left, scan the QR code and click Approve.")) }
-                Section("Or paste the pairing code") {
-                    TextField("{\"v\":1,…}", text: $pasted, axis: .vertical).font(.caption.monospaced()).autocorrectionDisabled().textInputAutocapitalization(.never)
-                    Button("Pair") { use(pasted) }.disabled(pasted.isEmpty)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    if c.pairPhase != .idle { PairStatusCard() }
+                    else if let inv = c.linkInvite { LinkConfirmCard(inv: inv) }
+                    else { intro }
                 }
-                // Macs already paired are not offered again (same certificate fingerprint).
-                let fresh = c.found.values.filter { f in !c.pairings.contains { $0.fp == f.fp } }.sorted { $0.name < $1.name }
-                if !fresh.isEmpty {
-                    Section { ForEach(fresh) { f in
-                        Button { scanning = true } label: { LabeledContent { Image(systemName: "qrcode.viewfinder") } label: { Label(f.name, systemImage: "laptopcomputer") } }
-                    } }
-                    header: { Text("Macs on this network") } footer: { Text("Tap to scan that Mac's QR code. It carries the certificate fingerprint and one-time code.") }
-                }
-                if let s = c.pairingStatus {
-                    Section {
-                        HStack(spacing: 12) { ProgressView(); Text(s).bold() }
-                    } footer: { Text("Click Approve on your Mac's Tether page. The request expires after 2 minutes.") }
-                }
+                .padding(.horizontal, 22).padding(.top, adding ? 8 : 28).padding(.bottom, 32)
+                .animation(.snappy, value: c.pairPhase)
             }
-            .navigationTitle(adding ? "Add a Mac" : "Pair with Mac")
-            .toolbar { if adding { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } } }
-            .sheet(isPresented: $scanning) {
-                QRScanner { s in scanning = false; use(s) }.ignoresSafeArea()
-            }
+            .scrollBounceBehavior(.basedOnSize)
+            .navigationTitle(adding ? "Add a Mac" : "")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { if adding { ToolbarItem(placement: .cancellationAction) { Button("Close") { c.cancelPair(); dismiss() } } } }
+            // A swipe must not hide a pairing that still waits for Approve; Close cancels it on purpose.
+            .interactiveDismissDisabled(c.pairPhase.busy)
+            .onDisappear { if adding { c.resetPair(); c.linkInvite = nil } }
+            .sheet(isPresented: $scanning) { ScanSheet { s in scanning = false; use(s) } }
+            .alert("Paste pairing link", isPresented: $pasting) {
+                TextField("tether://pair?…", text: $pasted).autocorrectionDisabled().textInputAutocapitalization(.never)
+                Button("Connect") { use(pasted); pasted = "" }
+                Button("Cancel", role: .cancel) { pasted = "" }
+            } message: { Text("On the Mac, click Copy pairing link under the code. Then paste it here.") }
         }
     }
+
+    private var intro: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            if !adding {
+                VStack(alignment: .leading, spacing: 6) {
+                    Image(systemName: "laptopcomputer.and.iphone").font(.system(size: 34, weight: .regular)).foregroundStyle(.tint).padding(.bottom, 6).accessibilityHidden(true)
+                    Text("Connect to your Mac").font(.title.bold())
+                    Text("Use DeepSeek Harness on your Mac from this iPhone.").foregroundStyle(.secondary)
+                }
+            }
+            VStack(alignment: .leading, spacing: 14) {
+                Step(n: 1, text: "On the Mac, open DeepSeek Harness. Click **Mobile connect** at the bottom left. (First time: turn it on in Settings › Composer Plus.)")
+                Step(n: 2, text: "Scan the code on the Mac with the button below. The iPhone Camera works too: tap **Open in Tether**.")
+                Step(n: 3, text: "Click **Approve** on the Mac.")
+            }
+            Button { scanning = true } label: { Label("Scan code", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity).padding(.vertical, 6) }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+            // Macs already paired are not offered again (same certificate fingerprint).
+            let fresh = c.found.values.filter { f in !c.pairings.contains { $0.fp == f.fp } }.sorted { $0.name < $1.name }
+            if !fresh.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Macs on this Wi‑Fi").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
+                    ForEach(fresh) { f in Label(f.name, systemImage: "laptopcomputer").font(.subheadline) }
+                    Text("Scan the code on that Mac to connect.").font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+            Button("Paste a pairing link instead") { pasting = true }.font(.footnote)
+            Text("The iPhone and the Mac must be on the same Wi‑Fi, or both on Tailscale.").font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+
     func use(_ s: String) {
-        guard let inv = parseInvite(s) else { c.error = String(localized: "That is not a valid DSH pairing code for a local network."); return }
-        Task { if await c.pair(inv), adding { dismiss() } } // paired: the new Mac is on screen
+        guard let inv = parseInvite(s) else { c.error = String(localized: "That isn't a Tether code. Scan the code under Mobile connect on the Mac."); return }
+        Task { await c.pair(inv) } // paired: the new Mac is on screen and the sheet closes (Client.adopt)
+    }
+}
+
+private struct Step: View {
+    let n: Int; let text: LocalizedStringKey
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text("\(n)").font(.footnote.weight(.bold)).frame(width: 22, height: 22).background(Circle().strokeBorder(.tertiary))
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+/// The pairing in progress, or how it ended.
+private struct PairStatusCard: View {
+    @EnvironmentObject var c: Client
+    var body: some View {
+        VStack(spacing: 16) {
+            switch c.pairPhase {
+            case .connecting(let mac):
+                ProgressView().controlSize(.large).padding(.top, 8)
+                Text("Code read").font(.title3.bold())
+                Text("Connecting to \(mac)…").foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button("Cancel", role: .cancel) { c.cancelPair() }
+            case .waiting(let mac, let until):
+                Image(systemName: "hand.tap").font(.system(size: 40)).foregroundStyle(.tint).symbolEffect(.pulse, options: .repeating).accessibilityHidden(true)
+                Text("Click Approve on \(mac)").font(.title3.bold()).multilineTextAlignment(.center)
+                Text("The Mac shows this iPhone's name. Keep Tether open until you click Approve.").foregroundStyle(.secondary).multilineTextAlignment(.center)
+                TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                    let s = max(0, Int(until.timeIntervalSince(ctx.date)))
+                    Text("\(s / 60):\(String(format: "%02d", s % 60)) left").font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+                }
+                Button("Cancel", role: .cancel) { c.cancelPair() }
+            case .done(let mac):
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 48)).foregroundStyle(.green).symbolEffect(.bounce, value: mac).accessibilityHidden(true)
+                Text("Connected to \(mac)").font(.title3.bold()).multilineTextAlignment(.center)
+            case .failed(let why):
+                Image(systemName: "exclamationmark.triangle.fill").font(.system(size: 40)).foregroundStyle(.orange).accessibilityHidden(true)
+                Text("Not connected").font(.title3.bold())
+                Text(why).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Button("Try again") { c.resetPair() }.buttonStyle(.borderedProminent)
+            case .idle: EmptyView()
+            }
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 28).padding(.horizontal, 20)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 20))
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// A tether://pair link from the Camera app: say which Mac, connect only on a tap.
+private struct LinkConfirmCard: View {
+    @EnvironmentObject var c: Client
+    let inv: Invite
+    var body: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "laptopcomputer").font(.system(size: 40)).foregroundStyle(.tint).padding(.top, 6).accessibilityHidden(true)
+            Text("Connect to \(inv.mac ?? inv.host)?").font(.title3.bold()).multilineTextAlignment(.center)
+            // A link can come from any app or web page: show where it points, so a stranger's link stands out.
+            Text("\(inv.host) · on your network").font(.footnote.monospacedDigit()).foregroundStyle(.secondary)
+            Text("Then click Approve on the Mac.").foregroundStyle(.secondary)
+            Button { Task { await c.pair(inv) } } label: { Text("Connect").frame(maxWidth: .infinity).padding(.vertical, 6) }
+                .buttonStyle(.borderedProminent).controlSize(.large)
+            Button("Cancel", role: .cancel) { c.linkInvite = nil }
+        }
+        .frame(maxWidth: .infinity).padding(24)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+/// Full-screen scanner with a frame, a hint and a close button. A QR that is not a Tether code says so and scanning
+/// goes on; a Tether code closes the sheet at once with a tap on the wrist (haptic) and the status card takes over.
+struct ScanSheet: View {
+    let onCode: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var wrong = false
+    var body: some View {
+        ZStack {
+            QRScanner { s in
+                guard parseInvite(s) != nil else { wrong = true; UINotificationFeedbackGenerator().notificationOccurred(.warning); return false }
+                UINotificationFeedbackGenerator().notificationOccurred(.success); onCode(s); return true
+            }.ignoresSafeArea()
+            RoundedRectangle(cornerRadius: 28).strokeBorder(.white.opacity(0.9), lineWidth: 3).frame(width: 250, height: 250).accessibilityHidden(true)
+            VStack {
+                HStack { Spacer(); Button { dismiss() } label: { Image(systemName: "xmark").font(.headline).padding(12).background(.ultraThinMaterial, in: Circle()) }.accessibilityLabel("Close") }
+                Spacer()
+                Text(wrong ? "That isn't a Tether code. Point at the code under Mobile connect on the Mac." : "Point at the code on the Mac")
+                    .font(.callout.weight(.medium)).multilineTextAlignment(.center)
+                    .padding(.horizontal, 16).padding(.vertical, 10).background(.ultraThinMaterial, in: Capsule())
+                    .animation(.snappy, value: wrong)
+            }
+            .padding(20).foregroundStyle(.white)
+        }
+        .background(.black)
+        .task(id: wrong) { if wrong { try? await Task.sleep(for: .seconds(3)); wrong = false } }
     }
 }
 
@@ -207,7 +337,8 @@ struct CameraPicker: UIViewControllerRepresentable {
 }
 
 struct QRScanner: UIViewControllerRepresentable {
-    let onCode: (String) -> Void
+    /// Returns true when the code was used (scanning stops), false to keep scanning.
+    let onCode: (String) -> Bool
     func makeCoordinator() -> Coord { Coord(onCode) }
     func makeUIViewController(context: Context) -> UIViewController {
         let vc = UIViewController(), s = context.coordinator.session
@@ -232,12 +363,13 @@ struct QRScanner: UIViewControllerRepresentable {
     func updateUIViewController(_ vc: UIViewController, context: Context) {}
     static func dismantleUIViewController(_ vc: UIViewController, coordinator: Coord) { coordinator.session.stopRunning() }
     final class Coord: NSObject, AVCaptureMetadataOutputObjectsDelegate {
-        let session = AVCaptureSession(), onCode: (String) -> Void
-        var done = false
-        init(_ f: @escaping (String) -> Void) { onCode = f }
+        let session = AVCaptureSession(), onCode: (String) -> Bool
+        var done = false, lastBad = ""
+        init(_ f: @escaping (String) -> Bool) { onCode = f }
         func metadataOutput(_ o: AVCaptureMetadataOutput, didOutput objs: [AVMetadataObject], from: AVCaptureConnection) {
             guard !done, let s = (objs.first as? AVMetadataMachineReadableCodeObject)?.stringValue else { return }
-            done = true; UINotificationFeedbackGenerator().notificationOccurred(.success); onCode(s)
+            guard s != lastBad else { return } // the same wrong code stays in view: say it once
+            if onCode(s) { done = true } else { lastBad = s }
         }
     }
 }

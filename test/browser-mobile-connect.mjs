@@ -75,7 +75,7 @@ try {
       if (index === 0 && process.env.SHOT) {
         const { SDKROOT, ...env } = process.env; // like the gateway: a stale SDKROOT breaks the swift script
         const demoQr = join(home, 'demo-qr.png');
-        execFileSync('swift', [join(repo, 'tether/gateway/qr.swift'), JSON.stringify({ v: 1, host: '192.168.1.20', port: 19390, fp: 'ab'.repeat(32), code: 'demo' }), demoQr], { env });
+        execFileSync('swift', [join(repo, 'tether/gateway/qr.swift'), `tether://pair?v=1&host=192.168.1.20&port=19390&fp=${'ab'.repeat(32)}&code=demo&mac=Demo%20Mac`, demoQr], { env });
         // Only the browser's view of the pairing page changes; the checks below talk to the real gateway.
         await context.route(/^http:\/\/127\.0\.0\.1:19391\//, async (route) => {
           if (new URL(route.request().url()).pathname === '/qr.png') return route.fulfill({ path: demoQr, contentType: 'image/png' });
@@ -83,6 +83,7 @@ try {
           if (!(response.headers()['content-type'] ?? '').includes('json')) return route.fulfill({ response });
           const state = await response.json();
           if (state.address) state.address = '192.168.1.20';
+          if (state.mac) state.mac = 'Demo Mac';
           for (const p of state.pending ?? []) p.ip = '192.168.1.23';
           return route.fulfill({ response, json: state });
         });
@@ -116,21 +117,21 @@ try {
       const panel = page.getByRole('dialog', { name: 'Mobile connect · Tether' }); await panel.waitFor();
       const frame = page.frameLocator('iframe.dshm-frame');
       await frame.locator('#qr:not([hidden])').waitFor({ timeout: 20000 });
-      await until(async () => /Ready/.test(await frame.locator('#summary').innerText()), 20000, 'gateway connected to dsh (summary "Ready")');
+      await until(async () => /Ready/.test(await frame.locator('#status').innerText()), 20000, 'gateway connected to dsh (status "Ready")');
 
       // A fake phone pairs and calls dsh through the gateway.
       const admin = (path, body) => fetch(`http://127.0.0.1:19391${path}`, body === undefined ? {} : { method: 'POST', headers: { 'x-dsh-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
       const state = await until(async () => { const s = await admin('/state'); return s.code ? s : null; }, 10000, 'pairing code');
-      const pairing = JSON.parse(state.code.payload);
+      // The QR text is a tether://pair link (the iPhone Camera opens it in Tether).
+      assert.match(state.code.payload, /^tether:\/\/pair\?/);
+      const pairing = Object.fromEntries(new URL(state.code.payload).searchParams); pairing.port = Number(pairing.port);
       assert.equal((await phone(pairing, 'GET', '/me', undefined, undefined).catch(() => ({ status: 0 }))).status, 401, 'no token: refused');
       const paired = phone(pairing, 'POST', '/pair', { code: pairing.code, name: 'Test iPhone' });
       const pending = await until(async () => (await admin('/state')).pending[0], 10000, 'pairing request');
       if (index === 0 && process.env.SHOT) {
-        // The request card above the QR code, the way a user sees it in dsh. The used code is replaced at once, so wait
-        // for the new QR code to show.
-        await frame.locator('#pending-card:not([hidden])').waitFor();
-        await frame.locator('#qr:not([hidden])').waitFor({ timeout: 20000 });
-        await frame.locator('#qr').evaluate((img) => (img.complete && img.naturalWidth > 0) || new Promise((r) => { img.onload = r; img.onerror = r; }));
+        // The request card takes the QR code's place, the way a user sees it in dsh.
+        await frame.locator('#req:not([hidden])').waitFor();
+        assert.match(await frame.locator('#req-who').innerText(), /Test iPhone wants to connect/);
         await page.mouse.move(640, 200); await pause(800);
         const box = await panel.boundingBox();
         const foot = await button.boundingBox();
@@ -139,6 +140,7 @@ try {
         execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.round(clip.width * 1.25)), '0', png, '-o', join(repo, 'assets/features/mobileConnect.webp')]);
       }
       await admin('/approve', { id: pending.id });
+      await frame.locator('#note').getByText('Test iPhone is connected.').waitFor({ timeout: 10000 }); // the outcome stays on the page
       const { status, json: device } = await paired;
       assert.equal(status, 200); assert.match(device.token, /^[A-Za-z0-9_-]{43}$/);
       const me = await until(async () => { const r = (await phone(pairing, 'GET', '/me', undefined, device.token)).json; return r.upstream === 'connected' ? r : null; }, 15000, 'upstream connected');
@@ -146,7 +148,7 @@ try {
       const list = await phone(pairing, 'POST', '/api/session/list', { type: 'client-request', rpcId: 'e2e-1', method: 'session/list', payload: { args: { _request: {} } } }, device.token);
       assert.equal(list.status, 200, JSON.stringify(list.json)); assert.equal(list.json.result?.ok, true, JSON.stringify(list.json.result?.error));
       assert.equal((await phone(pairing, 'POST', '/api/host/shutdown', { type: 'client-request', rpcId: 'x', method: 'host/shutdown', payload: { args: {} } }, device.token)).status, 403, 'allowlist');
-      await frame.locator('#devices').getByText('Test iPhone').waitFor({ timeout: 10000 }); // the page polls every 1.5 s
+      await frame.locator('#devices').getByText('Test iPhone').waitFor({ timeout: 10000 }); // the page polls every second
 
       // Switch off: the button goes, the ports close, the phone can no longer reach dsh.
       await page.keyboard.press('Escape');

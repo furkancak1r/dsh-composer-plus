@@ -91,6 +91,38 @@ final class CoreTests: XCTestCase {
         XCTAssertNil(parseInvite(ts.replacingOccurrences(of: "100.90.0.7", with: "8.8.8.8")), "public ts")
     }
 
+    /// The Mac's QR is now a tether:// link (the Camera app opens it in Tether). Same checks as the JSON text.
+    func testPairLink() {
+        let fp = "c669bc9676f7b7d4b0da00fbbebc96305a4cbca9e25f24a2b4e444ef125ebe74"
+        let link = "tether://pair?v=1&host=192.168.1.44&port=19390&fp=\(fp)&code=ab-_12&mac=Ofis%20Mac%E2%80%99i%20%26%20co&ts=100.90.0.7"
+        let i = parseInvite(link)
+        XCTAssertEqual(i, Invite(v: 1, host: "192.168.1.44", port: 19390, fp: fp, code: "ab-_12", ts: "100.90.0.7", mac: "Ofis Mac’i & co"))
+        XCTAssertEqual(parseInvite("  " + link + "\n"), i, "pasted with spaces")
+        XCTAssertEqual(parseInvite(#"{"v":1,"host":"192.168.1.44","port":19390,"fp":"\#(fp)","code":"ab-_12","ts":"100.90.0.7","mac":"Ofis Mac’i & co"}"#), i, "old JSON text: same invite")
+        XCTAssertNil(parseInvite(link.replacingOccurrences(of: "192.168.1.44", with: "93.184.216.34")), "public IP")
+        XCTAssertNil(parseInvite(link.replacingOccurrences(of: "v=1", with: "v=2")), "version")
+        XCTAssertNil(parseInvite(link.replacingOccurrences(of: "&code=ab-_12", with: "")), "no code")
+        XCTAssertNil(parseInvite(link.replacingOccurrences(of: "ts=100.90.0.7", with: "ts=8.8.8.8")), "public ts")
+        XCTAssertNil(parseInvite(link.replacingOccurrences(of: "tether://pair", with: "tether://tailscale")), "other tether link")
+        XCTAssertNil(parseInvite(link.replacingOccurrences(of: "tether://", with: "https://")), "web link")
+        XCTAssertNil(parseInvite("https://example.com"), "any other QR")
+        XCTAssertEqual(parseInvite(link.replacingOccurrences(of: "%20", with: "+"))?.mac, "Ofis Mac’i & co", "'+' for a space (form encoding)")
+        XCTAssertEqual(parseInvite(link.replacingOccurrences(of: "mac=Ofis%20Mac%E2%80%99i%20%26%20co", with: "mac=C%2B%2B%20Box"))?.mac, "C++ Box", "a real plus")
+        XCTAssertNil(parseInvite(link.replacingOccurrences(of: "port=19390", with: "port=x")), "bad port")
+    }
+
+    /// A new pairing replaces the entry for the same Mac with an old certificate, so that entry stops its reconnect loop.
+    func testReplacedBy() {
+        let p = { (fp: String, host: String, mac: String?) in Pairing(host: host, port: 19390, fp: fp, token: "t", deviceId: "d", name: "n", expiresAt: "", mac: mac) }
+        let list = [p("old", "192.168.2.63", "Furkan MacBook Pro"), p("other", "192.168.2.70", "Studio"), p("legacy", "192.168.2.63", nil), p("samehost", "192.168.2.63", "Another Mac")]
+        XCTAssertEqual(replacedBy(list, p("new", "192.168.2.63", "Furkan MacBook Pro")), ["old", "legacy"], "same address: same name or no name")
+        XCTAssertEqual(replacedBy(list, p("other", "192.168.9.9", "Studio")), ["other"], "same certificate at a new address")
+        XCTAssertEqual(replacedBy(list, p("x", "192.168.2.80", "Furkan MacBook Pro")), [], "another address: a second Mac with the same name stays")
+        XCTAssertEqual(pairFailText(status: 403, error: "pairing expired"), "Nobody clicked Approve on the Mac in time. Scan the code again.")
+        XCTAssertNotEqual(pairFailText(status: 403, error: "pairing denied"), pairFailText(status: 403, error: "invalid or expired pairing code"))
+        XCTAssertTrue(PairPhase.waiting("M", until: .now).busy); XCTAssertTrue(PairPhase.done("M").busy); XCTAssertFalse(PairPhase.failed("x").busy); XCTAssertFalse(PairPhase.idle.busy)
+    }
+
     func testTailnet() {
         for ok in ["100.64.0.1", "100.127.255.255", "mac.tail1.ts.net"] { XCTAssertTrue(isTailnet(ok), ok) }
         for bad in ["100.63.0.1", "100.128.0.1", "MAC.ts.net", "evil.com", "ts.net.evil.com", ".ts.net", "8.8.8.8", "192.168.1.2", "a b.ts.net"] {

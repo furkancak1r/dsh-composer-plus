@@ -9,7 +9,9 @@ const ADMIN = 'http://127.0.0.1:' + (process.env.DSH_MOBILE_ADMIN_PORT ?? 19391)
 const admin = async (path, body) => (await fetch(ADMIN + path, body === undefined ? {} : { method: 'POST', headers: { 'x-dsh-admin': '1' }, body: JSON.stringify(body) })).json()
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 
-const inv = JSON.parse((await admin('/pair', {})).code.payload)
+const link = (await admin('/pair', {})).code.payload // tether://pair?… (older gateways: JSON)
+const inv = link.startsWith('tether://') ? Object.fromEntries(new URL(link).searchParams) : JSON.parse(link)
+inv.port = Number(inv.port)
 const call = (method, path, body, token, pin = inv.fp, host = inv.host) => new Promise((ok, bad) => {
   const req = request({ host, port: inv.port, method, path, rejectUnauthorized: false, agent: false, headers: { 'content-type': 'application/json', ...(token && { authorization: 'Bearer ' + token }) } }, res => {
     let b = ''; res.on('data', d => b += d).on('end', () => ok({ status: res.statusCode, json: b ? JSON.parse(b) : null }))
