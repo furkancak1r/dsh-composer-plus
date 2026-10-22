@@ -1442,6 +1442,13 @@ struct SessionsView: View {
             .navigationDestination(for: String.self) { _ in ConversationView() }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { MacPicker() }
+                // Collapse all projects (Composer Plus): in view only while a project is open, as on the desktop
+                if c.state == .connected && query.isEmpty && !openProjects(c.sessionGroups(project: project.isEmpty ? nil : project), folds: shownFolds).isEmpty {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { collapseAll() } label: { Image(systemName: "rectangle.compress.vertical") }
+                            .accessibilityLabel("Collapse all projects")
+                    }
+                }
                 if c.state == .connected {
                     ToolbarItem(placement: .topBarTrailing) {
                         let active = c.workspaces.first { $0.id == project }
@@ -1455,7 +1462,6 @@ struct SessionsView: View {
                             // Composer Plus view options (this iPhone only)
                             Toggle("Active in the last 2 hours", isOn: $c.recentOnly)
                             Toggle("Order by status", isOn: $c.byStatus)
-                            Button { collapseAll() } label: { Label("Collapse all projects", systemImage: "rectangle.compress.vertical") }
                         } label: { Image(systemName: active == nil && !c.recentOnly && !c.byStatus ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill") }
                         .accessibilityLabel("Filter sessions")
                         .accessibilityValue(Text(active?.title ?? String(localized: "All projects")))
@@ -1475,11 +1481,10 @@ struct SessionsView: View {
             } message: { s in Text("“\(s.title)” stops and its saved history, with its subagent chats, moves to the Trash on your Mac. To get it back, put the folder back and restart DSH.") }
         }
     }
-    /// Collapse all projects (Composer Plus): every project group folds; Pinned and Archived keep their state.
+    /// Collapse all projects (Composer Plus): every open project group folds; Pinned and Archived keep their state.
     private func collapseAll() {
         var f = shownFolds
-        let projects = c.sessionGroups(project: project.isEmpty ? nil : project).filter { $0.path != nil || $0.title == String(localized: "Ungrouped") }
-        for g in projects where !groupFolded(f, g.title) { f = toggledFold(f, g.title) }
+        for title in openProjects(c.sessionGroups(project: project.isEmpty ? nil : project), folds: f) { f = toggledFold(f, title) }
         withAnimation(.snappy(duration: 0.3)) { shownFolds = f }
         folds = f
     }

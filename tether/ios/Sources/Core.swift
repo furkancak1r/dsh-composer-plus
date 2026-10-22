@@ -98,6 +98,11 @@ func toggledFold(_ raw: String, _ title: String) -> String {
     if let i = s.firstIndex(of: title) { s.remove(at: i) } else { s.append(title) }
     return s.joined(separator: "\n")
 }
+/// Collapse all projects (Composer Plus): the project groups (a folder, or Ungrouped) that are open now. Pinned and
+/// Archived do not count. The button shows only while this list is not empty, as on the desktop.
+func openProjects(_ groups: [(title: String, items: [Sess], path: String?)], folds: String) -> [String] {
+    groups.filter { ($0.path != nil || $0.title == String(localized: "Ungrouped")) && !groupFolded(folds, $0.title) }.map(\.title)
+}
 func groupIcon(_ title: String) -> String {
     switch title {
     case String(localized: "Pinned"): "pin"

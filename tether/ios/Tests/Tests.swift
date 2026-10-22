@@ -367,6 +367,10 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(groupFolded("", "Archived")); XCTAssertFalse(groupFolded("", "proj"))
         let f = toggledFold("", "proj"); XCTAssertTrue(groupFolded(f, "proj")); XCTAssertEqual(toggledFold(f, "proj"), "")
         XCTAssertFalse(groupFolded(toggledFold(f, "Archived"), "Archived")); XCTAssertEqual(groupIcon("Ungrouped"), "tray")
+        // Collapse all projects: only open project groups count; the button hides when none is open (Pinned stays open).
+        XCTAssertEqual(openProjects(c.sessionGroups(), folds: ""), ["proj", "Ungrouped"])
+        XCTAssertEqual(openProjects(c.sessionGroups(), folds: "proj"), ["Ungrouped"])
+        XCTAssertEqual(openProjects(c.sessionGroups(), folds: "proj\nUngrouped"), [], "Pinned and Archived do not count")
         let fs = [Sess(["sessionId": "1", "cwd": "/old", "updatedAt": 1_000])!, Sess(["sessionId": "2", "cwd": "/new", "updatedAt": 3_000])!,
                   Sess(["sessionId": "3", "cwd": "/old", "updatedAt": 2_000])!, Sess(["sessionId": "4", "cwd": "/p", "updatedAt": 4_000])!]
         XCTAssertEqual(recentFolders(fs, excluding: ["/p"]), ["/new", "/old"])

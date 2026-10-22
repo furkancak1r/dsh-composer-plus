@@ -20,7 +20,7 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | projectStatus | yes | Each project header in Sessions shows the waiting hand, the green dot or the spinner. |
 | activeProjectsFirst | yes | Sessions follows dsh's project order, which the desktop moves. |
 | recentProjects | yes | Sessions filter menu → Active in the last 2 hours. |
-| collapseProjects | yes | Sessions filter menu → Collapse all projects. |
+| collapseProjects | yes | Sessions toolbar → Collapse all projects button, shown only while a project is open. |
 | statusOrder | yes | Sessions filter menu → Order by status. |
 | notifications | yes | Turn finished, approval and question notifications while Tether keeps its connection. |
 | allowForChat | yes | Approval sheet → Allow for this chat; chat title menu → Revoke. The gateway also allows a granted tool when no window is open. |
