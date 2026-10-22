@@ -18,6 +18,15 @@ The Tether iPhone app and its Mac gateway are in `tether/` (Mobile connect). Rea
 7. A client store that more than one async action can change at the same time must not overwrite a state that another action set. Merge the state, and block a new action that changes the same state while one is running. Check the guard in every entry point (button, key, pointer drag), not only in the UI.
 8. Add it to Tether (the iPhone app in `tether/`) in the same change, when it fits a phone. Then add its row to `tether/FEATURES.md`: `yes` and where the user finds it, or `no` and why a phone does not need it. `test/tether-parity.test.mjs` fails when a `FEATURES` id has no row. When the phone calls a new Host route, add it to `PLUS` in `tether/gateway/server.mjs` (never a `{on}` switch route). Read `tether/AGENTS.md` first.
 
+## Threads: tell the user what happens
+
+When you start threads (subagents, forks, workflow agents, background jobs), send the user a short update in Turkish at each of these points. Do not keep the updates for the final answer.
+
+- Start: the task of the thread.
+- Blocked: the cause (approval, missing input or prerequisite, failed check) and what it needs to continue.
+- Finished: the result in one line, and each part that failed or that it did not do.
+- Important progress or a change of direction while it runs.
+
 ## Release
 
 - Bump `version` in `package.json` and the two `dsh-composer-plus@x.y.z` notes in `README.md` and in each `README.<id>.md`.
