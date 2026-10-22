@@ -457,6 +457,18 @@ func continueAfter(_ events: [J]) -> Int? {
     return nil
 }
 
+/// Complete while typing: the same rules as on the Mac: 3+ characters, at most 4000, not a slash command.
+func completable(_ typed: String) -> Bool {
+    let t = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+    return t.count >= 3 && typed.count <= 4000 && !t.hasPrefix("/")
+}
+/// The rest of a completion that still fits what is typed now (typing along the guess needs no new ask); nil otherwise.
+func completionRest(typed: String, asked: String, completion: String) -> String? {
+    let full = asked + completion
+    guard typed.count >= asked.count, full.count > typed.count, full.hasPrefix(typed) else { return nil }
+    return String(full.dropFirst(typed.count))
+}
+
 /// Next message prediction: the seq of the newest turn/end when it is the last turn event and finished normally.
 func predictAfter(_ events: [J]) -> Int? {
     for e in events.reversed() {
@@ -1122,6 +1134,15 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
                   o["afterSeq"] as? Int == seq, predictAfter(events) == seq, let t = o["text"] as? String, !t.isEmpty else { return }
             prediction = (seq, t)
         }
+    }
+
+    /// Complete while typing (Composer Plus, switched on in the Mac's Settings): the words that may come after `typed`.
+    /// nil when the Mac has it off (409), an older plugin has no route (404), or the answer is for other text.
+    func complete(_ typed: String) async -> String? {
+        guard plus.contains("complete"), let sid = current, currentSess?.parent == nil, completable(typed) else { return nil }
+        guard let o = try? await plusCall("complete", body: ["sessionId": sid, "text": typed]), current == sid,
+              o["text"] as? String == typed, let rest = o["completion"] as? String, !rest.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
+        return rest
     }
 
     /// Delete chat: the chat stops and its history (with its subagent chats) goes to the Mac's Trash.

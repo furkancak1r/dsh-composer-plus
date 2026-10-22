@@ -381,6 +381,14 @@ final class CoreTests: XCTestCase {
         XCTAssertNil(predictAfter([te(4, "turn/end", "completed"), te(5, "turn/start", nil)]), "running")
         XCTAssertEqual(predictAfter([te(4, "turn/end", "completed"), ["seq": 5, "type": "user/message"]]), 4, "other events do not count")
         XCTAssertNil(predictAfter([]))
+        // Complete while typing: the same rules as the Mac; typing along the guess keeps it.
+        XCTAssertTrue(completable("Run")); XCTAssertFalse(completable(" Ru ")); XCTAssertFalse(completable("/plan add"))
+        XCTAssertFalse(completable(String(repeating: "a", count: 4001)))
+        XCTAssertEqual(completionRest(typed: "Run the", asked: "Run the", completion: " tests now"), " tests now")
+        XCTAssertEqual(completionRest(typed: "Run the te", asked: "Run the", completion: " tests now"), "sts now")
+        XCTAssertNil(completionRest(typed: "Run the x", asked: "Run the", completion: " tests now"), "typed off the guess")
+        XCTAssertNil(completionRest(typed: "Run the tests now", asked: "Run the", completion: " tests now"), "all typed")
+        XCTAssertNil(completionRest(typed: "Run", asked: "Run the", completion: " tests"), "text was deleted")
         // Project search in a new chat: A–Z (numbers in natural order), every word, case and accents ignored.
         let ws = ["serit", "aiproxy", "Zeta", "ağaç-proje", "app10", "app2", "promes"].compactMap { Workspace(["workspaceId": $0, "path": "/p/\($0)", "title": $0]) }
         XCTAssertEqual(pickerProjects(ws, query: "").map(\.title), ["ağaç-proje", "aiproxy", "app2", "app10", "promes", "serit", "Zeta"])

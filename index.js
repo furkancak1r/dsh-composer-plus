@@ -39,9 +39,10 @@ export const ROLLBACK_PATH = '/api/composer-plus.rollback';
 export const DELETE_CHAT_PATH = '/api/composer-plus.delete-chat';
 export const QUEUE_MOVE_PATH = '/api/composer-plus.queue-move';
 export const PREDICT_PATH = '/api/composer-plus.predict';
+export const COMPLETE_PATH = '/api/composer-plus.complete';
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
-  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName'];
+  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -1086,6 +1087,7 @@ export function apply(ctx) {
   installDeleteChat(ctx, home, snapshots);
   installQueueMove(ctx);
   installPredict(ctx, home);
+  installComplete(ctx, home);
 }
 
 /** Queue drag-and-drop (Host half): `POST {sessionId, itemId, to, before}` moves one queued next-turn message to index `to`
@@ -1548,6 +1550,13 @@ async function modelCatalogOf(ctx, get) {
   return out;
 }
 
+/** The model for a prediction or a completion: the saved one while dsh still lists it, else dsh's default. */
+async function routeOf(ctx, get, saved) {
+  const catalog = await modelCatalogOf(ctx, get);
+  const listed = saved !== undefined && catalog.groups.some((g) => g.id === saved.provider && g.models.some((m) => m.id === saved.model));
+  return listed ? saved : catalog.default;
+}
+
 /** One model call: the next user message of this chat, after the turn that ended at `afterSeq`. */
 export async function predictNext({ llm, sessionQuery, route }, sessionId, afterSeq, signal) {
   const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
@@ -1587,12 +1596,7 @@ function installPredict(ctx, home) {
   // A new turn or another model makes a new key. ponytail: at most PREDICT_CACHE chats, the oldest go first.
   const done = new Map();
   const PREDICT_CACHE = 200;
-  /** The saved model when dsh still lists it, else dsh's default. */
-  const routeFor = async (saved) => {
-    const catalog = await modelCatalogOf(ctx, get);
-    const listed = saved !== undefined && catalog.groups.some((g) => g.id === saved.provider && g.models.some((m) => m.id === saved.model));
-    return listed ? saved : catalog.default;
-  };
+  const routeFor = (saved) => routeOf(ctx, get, saved);
   ctx.connection.fetch.register({
     path: PREDICT_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     fetch: async (request) => {
@@ -1656,6 +1660,131 @@ function installPredict(ctx, home) {
       try { return json(await promise); }
       catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 502); }
       finally { if (running.get(body.sessionId)?.promise === promise) running.delete(body.sessionId); }
+    },
+  });
+}
+
+/** Complete while typing (Host half): the rest of the message the user is typing now, from the same model as the next
+ * message prediction. Off by default: it makes a model call at each pause while the user types. The Host keeps the switch
+ * in `complete.json`. Nothing goes into the chat: the browser shows the text and Tab adds it to the composer. */
+export const COMPLETE_TIMEOUT_MS = 15000;
+export const COMPLETE_MAX_TOKENS = 2000;
+const COMPLETE_MAX = 150; // characters of one completion
+const COMPLETE_INPUT = 4000; // characters of typed text the route accepts
+const COMPLETE_CONTEXT = 3000; // characters of chat the model reads
+const COMPLETE_SYSTEM = `You complete the message that the user is typing in a chat with an AI coding agent.
+You get the recent conversation (it can be empty) and the text that the user typed so far. Write only the words that come next, so that the typed text plus your words is one natural message in the user's own language and tone. Keep it short: end the current sentence, at most 15 words.
+Start exactly where the typed text stops: if it stops in the middle of a word, start with the rest of that word; if it ends with a space, start with the next word. Do not repeat the typed text. Answer with the new words only: no quotes, no label, no explanation. If you cannot continue it well, answer with nothing.`;
+
+/** The Host switch: `{on}`. No file or a broken file reads as off; only a saved `on: true` (the user's switch) turns it on. */
+export function completeStore(file) {
+  const read = async () => {
+    try { return { on: JSON.parse(await readFile(file, 'utf8'))?.on === true }; } catch { return { on: false }; }
+  };
+  let queue = Promise.resolve(); // one write at a time
+  const change = (on) => {
+    const done = queue.then(async () => {
+      await mkdir(dirname(file), { recursive: true });
+      const tmp = `${file}.${process.pid}.tmp`;
+      await writeFile(tmp, JSON.stringify({ on }), { mode: 0o600 });
+      await rename(tmp, file);
+      return { on };
+    });
+    queue = done.catch(() => {});
+    return done;
+  };
+  return { read, change };
+}
+
+/** The chat for a completion: the user's messages and the agent's replies, newest kept; '' for a new chat. */
+export function completeContext(events) {
+  const lines = [];
+  for (const e of events) {
+    if (e.type === 'user/message' && e.data?.source?.kind === 'user') {
+      const text = textBlocks(e.data.content).trim();
+      if (text !== '') lines.push(`User: ${text}`);
+    } else if (e.type === 'assistant/message') {
+      const text = textBlocks(e.data?.message?.content).trim();
+      if (text !== '') lines.push(`Agent: ${text}`);
+    }
+  }
+  const all = lines.join('\n\n');
+  return all.length > COMPLETE_CONTEXT ? `…${all.slice(-COMPLETE_CONTEXT)}` : all;
+}
+
+/** The model's answer as the words that come after `typed`: one line, no repeat of the typed text, at most COMPLETE_MAX
+ * characters (cut at a word end). The model's own leading space means "a new word"; without one it ends the typed word. */
+export function cleanCompletion(typed, raw) {
+  let line = String(raw ?? '').replace(/<think>[\s\S]*?<\/think>/g, '').split(/\r?\n/).find((l) => l.trim() !== '') ?? '';
+  line = line.replace(/^\s*(completion|continuation|next words?)\s*:\s*/i, '');
+  // Quotes around the whole answer go; a single leading apostrophe stays (Turkish "dsh" + "'yi").
+  const bare = line.trim();
+  if (bare.length >= 2 && /^["“`]/.test(bare) && /["”`]$/.test(bare)) line = (/^\s/.test(line) ? ' ' : '') + bare.slice(1, -1);
+  // A model that writes the whole message again: keep only the new part.
+  const head = typed.trimStart();
+  if (head !== '' && line.trimStart().toLowerCase().startsWith(head.toLowerCase())) line = line.trimStart().slice(head.length);
+  if (/\s$/.test(typed)) line = line.trimStart();
+  line = line.replace(/\s+$/, '');
+  if (line.trim() === '') return '';
+  return line.length > COMPLETE_MAX ? line.slice(0, COMPLETE_MAX).replace(/\s+\S*$/, '') : line;
+}
+
+/** One model call: the rest of `typed` for the chat `sessionId`. */
+export async function completeTyping({ llm, sessionQuery, route }, sessionId, typed, signal) {
+  const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
+  let context, origin;
+  try { origin = observation.header?.origin; context = completeContext(observation.events ?? []); } finally { observation[Symbol.dispose]?.(); }
+  if (origin === 'subagent') throw Object.assign(new Error('not for a subagent chat'), { status: 409 });
+  const timeout = AbortSignal.timeout(COMPLETE_TIMEOUT_MS);
+  const callSignal = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
+  const call = await llm.prepareCall(route, callSignal, (controls, model) => {
+    const first = model?.reasoning?.efforts?.[0];
+    const cap = Number.isSafeInteger(model?.defaultMaxTokens) && model.defaultMaxTokens > 0 ? Math.min(COMPLETE_MAX_TOKENS, model.defaultMaxTokens) : COMPLETE_MAX_TOKENS;
+    return { ...controls, maxTokens: cap, ...(first === undefined ? {} : { reasoningEffort: first.id }) };
+  });
+  let text = '';
+  let finish;
+  const prompt = `${context === '' ? 'Recent conversation: (none, a new chat)' : `Recent conversation:\n\n${context}`}\n\nThe user typed so far (between the markers):\n<<<${typed}>>>\n\nThe words that come next:`;
+  for await (const chunk of call.stream({ ...call.config, system: COMPLETE_SYSTEM, signal: callSignal, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }] })) {
+    if (chunk.type === 'text-delta') text += chunk.text;
+    else if (chunk.type === 'finish') finish = chunk.reason;
+  }
+  if (finish?.kind === 'error' || finish?.kind === 'aborted') throw new Error(finish.failure?.message || `the model call ended: ${finish.kind}`);
+  return { text: typed, completion: cleanCompletion(typed, text), model: route.model };
+}
+
+function installComplete(ctx, home) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const store = completeStore(join(home, 'storages', 'dsh-composer-plus', 'complete.json'));
+  // The model choice is the prediction's (Settings → Next message prediction → Model).
+  const predict = predictStore(join(home, 'storages', 'dsh-composer-plus', 'predict.json'));
+  const running = new Map(); // sessionId → AbortController: a newer request for the chat stops the older call
+  ctx.connection.fetch.register({
+    path: COMPLETE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      if (request.method === 'GET') return json(await store.read());
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      if (body === null || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'bad request' }, 400);
+      if (typeof body.on === 'boolean' && body.sessionId === undefined && body.text === undefined) {
+        try { return json(await store.change(body.on)); } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      if (!isText(body.sessionId) || typeof body.text !== 'string' || body.text.trim() === '' || body.text.length > COMPLETE_INPUT || body.on !== undefined) return json({ error: 'bad request' }, 400);
+      if (!(await store.read()).on) return json({ error: 'complete while typing is off' }, 409);
+      const llm = get('llm');
+      if (llm?.prepareCall === undefined) return json({ error: 'this dsh profile cannot call a model' }, 409);
+      const route = await routeOf(ctx, get, (await predict.read()).model);
+      if (route === undefined) return json({ error: 'no model is selected' }, 409);
+      running.get(body.sessionId)?.abort();
+      const mine = new AbortController();
+      running.set(body.sessionId, mine);
+      // The request's own signal also stops it: the browser aborts a fetch that a newer keystroke replaced.
+      const signal = request.signal === undefined ? mine.signal : AbortSignal.any([mine.signal, request.signal]);
+      try { return json(await completeTyping({ llm, sessionQuery: ctx.sessionQuery, route }, body.sessionId, body.text, signal)); }
+      catch (error) {
+        if (mine.signal.aborted) return json({ error: 'a newer completion replaced this one' }, 409);
+        return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 502);
+      } finally { if (running.get(body.sessionId) === mine) running.delete(body.sessionId); }
     },
   });
 }

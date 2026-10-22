@@ -449,6 +449,8 @@ struct ConversationView: View {
     @State private var rollingBack: Line?
     // fallback only: used when the turn/start event carried no time
     @State private var turnStart: Date?
+    /// Complete while typing: the Mac's answer for the text `asked`.
+    @State private var guess: (asked: String, completion: String)?
     @FocusState private var focused: Bool
     /// With more than one Mac, the chat says which Mac it runs on.
     private var macSubtitle: String { c.pairings.count > 1 ? c.pairing?.title ?? "" : "" }
@@ -515,8 +517,18 @@ struct ConversationView: View {
             } message: { Text("The agent keeps working toward this until it is complete.") }
             // per-session draft: going back or switching sessions never loses typed text
             .onAppear { text = c.draft(c.current) }
-            .onChange(of: c.current) { text = c.draft(c.current) }
+            .onChange(of: c.current) { text = c.draft(c.current); guess = nil }
             .onChange(of: text) { c.setDraft(text, c.current) }
+            // Complete while typing: ask after a pause; a newer keystroke cancels this task. Typing along the guess needs no ask.
+            .task(id: text) {
+                if let g = guess, completionRest(typed: text, asked: g.asked, completion: g.completion) != nil { return }
+                guess = nil
+                guard focused, completable(text) else { return }
+                try? await Task.sleep(for: .milliseconds(450))
+                guard !Task.isCancelled else { return }
+                let asked = text
+                if let rest = await c.complete(asked), !Task.isCancelled, text == asked { guess = (asked, rest) }
+            }
             .alert("Edit queued message", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
                 TextField("Message", text: $editText, axis: .vertical)
                 Button("Save") {
@@ -809,6 +821,21 @@ struct ConversationView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel(Text("Suggested next message: \(p.text)"))
                 .accessibilityHint(Text("Puts it in the message field"))
+            }
+            // Complete while typing (Composer Plus): how the message may go on; a tap adds it at the end.
+            if let g = guess, let rest = completionRest(typed: text, asked: g.asked, completion: g.completion) {
+                Button { text += rest; guess = nil; focused = true } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "text.cursor").font(.caption).foregroundStyle(.secondary)
+                        (Text(verbatim: "…") + Text(verbatim: rest.trimmingCharacters(in: .whitespaces))).font(.subheadline).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
+                        Text("Tap to add").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    .padding(.horizontal, 6).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Suggested completion: \(rest)"))
+                .accessibilityHint(Text("Adds it to the message"))
             }
             // while a turn runs, sending queues the next turn like desktop's default busy-Enter; the queue dock's "Send now" steers
             TextField(c.running ? "Queue a message…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4)

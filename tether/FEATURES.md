@@ -34,5 +34,6 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | copyProjectPath | yes | Touch and hold a project header in Sessions → Copy path. |
 | projectPicker | yes | New session (✎) → the projects show A–Z, the search box filters them (case and accents ignored), Return picks the first match. |
 | nextPrediction | yes | After a finished turn, the guess for the next message shows above the empty composer; a tap puts it in the field. The switch and the model stay in the Mac's Settings. |
+| typingCompletion | yes | While you type, after a short pause the rest of the message shows above the field; a tap adds it. The switch stays in the Mac's Settings; the model is the one of Next message prediction. |
 | mobileConnect | yes | Tether itself. |
 | autoUpdate | no | Installs the plugin on the Mac. The iPhone app is built and installed separately. |
