@@ -2046,11 +2046,37 @@ struct IdeasSheet: View {
     /// One network action at a time, as on the desktop.
     @State private var busy: LocalizedStringKey?
     @State private var drag: CGSize = .zero
+    /// Optional focus topic: the model suggests only features about it. A preset chip fills it; the same chip again empties it.
+    @State private var focus = ""
+    @State private var copied = false
+    /// The topic field and the six preset chips; used above the empty state and above the cards.
+    private var focusBox: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            TextField("Focus (optional), e.g. performance", text: $focus)
+                .textFieldStyle(.roundedBorder).submitLabel(.go).onSubmit { suggest() }
+                .onChange(of: focus) { _, v in if v.utf16.count > focusMax { focus = clampFocus(v) } }
+                .accessibilityLabel("Focus topic")
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(focusPresets, id: \.self) { p in
+                        let on = focus.trimmingCharacters(in: .whitespaces) == p
+                        Button { focus = on ? "" : p } label: { Text(LocalizedStringKey(p)).font(.footnote) }
+                            .buttonStyle(.bordered).tint(on ? .accentColor : .secondary).accessibilityAddTraits(on ? .isSelected : [])
+                    }
+                }
+            }
+        }
+    }
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
                 if let top = deck.first {
-                    Text("\(deck.count) idea(s) left").font(.footnote).foregroundStyle(.secondary)
+                    focusBox
+                    HStack {
+                        Text("\(deck.count) idea(s) left").font(.footnote).foregroundStyle(.secondary)
+                        Spacer()
+                        Button { suggest() } label: { Label("More ideas", systemImage: "sparkles") }.font(.footnote)
+                    }
                     card(top)
                         .offset(drag).rotationEffect(.degrees(Double(drag.width) / 25))
                         .gesture(DragGesture().onChanged { drag = $0.translation }.onEnded { g in
@@ -2071,6 +2097,7 @@ struct IdeasSheet: View {
                     Text("Feature ideas for this project").font(.title3.bold())
                     Text("The chat's model reads a short summary of this project (README, manifest, recent commits) and suggests features. Nothing in the project changes.")
                         .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 24)
+                    focusBox.padding(.horizontal, 24)
                     Button { suggest() } label: { Label(skipped.isEmpty ? "Suggest features" : "More ideas", systemImage: "sparkles").frame(maxWidth: .infinity).padding(.vertical, 4) }
                         .buttonStyle(.borderedProminent).controlSize(.large).padding(.horizontal, 24)
                     Spacer()
@@ -2113,8 +2140,14 @@ struct IdeasSheet: View {
     }
     private func suggest() {
         run("Thinking of ideas…") {
-            let o = try await c.plusCall("ideas", body: ["sessionId": sessionId, "locale": Locale.preferredLanguages.first ?? "en"])
-            deck = o["ideas"] as? [J] ?? []; skipped = []
+            // A focus goes only when it has text, so an empty field sends the same request as before. More ideas adds cards.
+            var body: J = ["sessionId": sessionId, "locale": Locale.preferredLanguages.first ?? "en"]
+            let topic = focus.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !topic.isEmpty { body["focus"] = topic }
+            let o = try await c.plusCall("ideas", body: body)
+            // More ideas adds to the cards left (as on the Mac); a fresh deck forgets the old Undo list.
+            if deck.isEmpty { skipped = [] }
+            deck += o["ideas"] as? [J] ?? []
         }
     }
     private func skip(_ i: J) { withAnimation(.snappy) { deck.removeFirst(); skipped.append(i) } }
@@ -2146,6 +2179,14 @@ struct IdeasSheet: View {
                     }
             }
             if later.count >= 2 { Button("Plan all (\(later.count))") { startLater(["startAll": later.compactMap { $0["id"] as? String }]) } }
+            // Copy as checklist: local, no network call; it stays on while another action runs.
+            if !later.isEmpty {
+                Button {
+                    UIPasteboard.general.string = laterChecklist(later); copied = true
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    Task { try? await Task.sleep(for: .seconds(2)); copied = false }
+                } label: { Label(copied ? "Copied" : "Copy as checklist", systemImage: copied ? "checkmark" : "checklist") }
+            }
         }
         .navigationTitle("Saved for later")
     }

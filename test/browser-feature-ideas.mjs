@@ -10,6 +10,10 @@
 // 7. The next suggestion is told the earlier ideas and drops a repeat; two cards saved for later: "Plan all (2)" starts one
 //    plan-mode chat with both ideas and empties the list.
 // 8. History lists the project's earlier ideas, the started ones marked (an owner-only file under DSH_HOME).
+// 9. Focus topic: the "Tests" chip fills the field; Suggest sends the topic to the model as one quoted line; More ideas
+//    keeps the topic; the chip again empties it.
+// 10. Later → Copy as checklist: the clipboard holds one `- [ ] Title — Summary` line per saved idea, and no request goes
+//    to the Host or the model meanwhile.
 // PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/featureIdeas.webp (English UI, demo project only).
 import assert from 'node:assert/strict';
@@ -110,6 +114,7 @@ try {
       for (let i = 0; i < 200 && !log.match(/http:\/\/[^\s]*token=[^\s]*/); i++) { if (child.exitCode !== null) throw Error(`test dsh exited (${child.exitCode})`); await pause(250); }
       const url = log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0]; assert.ok(url, 'test server URL available');
       context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
+      await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(url).origin });
       await context.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false}'); });
       const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       await page.goto(url);
@@ -286,9 +291,50 @@ try {
       await ideasPage.getByRole('button', { name: 'Forget all' }).click();
       await ideasPage.getByText('No earlier ideas yet.').waitFor({ timeout: 10000 });
       assert.deepEqual(JSON.parse(await readFile(historyFile, 'utf8')), {}, 'Forget all empties the history file');
+      // 9. Focus topic: a chip fills the field (pressed), Suggest sends it as one quoted line at the end of the prompt.
+      await ideasPage.locator('[data-composer-plus-ideas-back]').click();
+      const focusField = ideasPage.getByRole('textbox', { name: 'Focus topic' });
+      await focusField.waitFor({ timeout: 10000 }); assert.equal(await focusField.inputValue(), '');
+      const chips = ideasPage.locator('[data-composer-plus-ideas-focus-preset]');
+      assert.deepEqual(await chips.allInnerTexts(), ['Performance', 'Accessibility', 'Tests', 'Security', 'Usability', 'Documentation'], 'six fixed topics');
+      const testsChip = ideasPage.getByRole('button', { name: 'Tests', exact: true });
+      await testsChip.click(); assert.equal(await focusField.inputValue(), 'Tests'); assert.equal(await testsChip.getAttribute('aria-pressed'), 'true');
+      const focusRequests = seen.length;
+      await ideasPage.getByRole('button', { name: 'Suggest features' }).click(); await top().waitFor({ timeout: 20000 });
+      const focused = seen.slice(focusRequests).filter((s) => s.kind === 'ideas');
+      assert.equal(focused.length, 1, 'one model call'); assert.match(focused[0].all, /Focus topic chosen by the user: \\"Tests\\"\. Suggest only features about this topic\./, 'the model gets the topic');
+      assert.ok(!seen.slice(0, focusRequests).some((s) => /Focus topic/.test(s.all)), 'earlier calls without a topic have no focus line');
+      if (index === 0 && process.env.SHOT) {
+        const area = await ideasPage.boundingBox();
+        const clip = { x: Math.max(0, area.x - 8), y: Math.max(0, area.y - 40), width: Math.min(1280 - Math.max(0, area.x - 8), area.width + 16), height: Math.min(800 - Math.max(0, area.y - 40), 600) };
+        const png = join(home, 'featureIdeas.png'); await page.mouse.move(5, 795); await pause(300); await page.screenshot({ path: png, clip });
+        execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.round(clip.width * 1.4)), '0', png, '-o', join(repo, 'assets/features/featureIdeas.webp')]);
+      }
+      // Enter in the field asks for more with the typed topic; the chip again empties the field.
+      await focusField.fill('offline mode'); assert.equal(await testsChip.getAttribute('aria-pressed'), 'false');
+      const typedRequests = seen.length; await focusField.press('Enter');
+      for (let i = 0; i < 80 && !seen.slice(typedRequests).some((s) => s.kind === 'ideas'); i++) await pause(250);
+      assert.match(seen.slice(typedRequests).find((s) => s.kind === 'ideas')?.all ?? '', /Focus topic chosen by the user: \\"offline mode\\"/, 'Enter suggests with the typed topic');
+      await pause(500); await testsChip.click(); await testsChip.click(); assert.equal(await focusField.inputValue(), '', 'the chip again empties the field');
+      // 10. Copy as checklist: save two cards, open Later, copy; no request while copying.
+      for (const n of [1, 2]) {
+        await ideasPage.getByRole('button', { name: 'Save for later' }).click();
+        await ideasPage.getByRole('button', { name: `Later (${n})` }).waitFor({ timeout: 10000 });
+      }
+      const savedNow = JSON.parse(await readFile(laterFile, 'utf8'))[project];
+      await ideasPage.getByRole('button', { name: 'Later (2)' }).click();
+      await page.evaluate(() => navigator.clipboard.writeText('-'));
+      const hostRequests = []; const onRequest = (r) => { if (r.url().includes('/api/')) hostRequests.push(r.url()); }; page.on('request', onRequest);
+      const modelBefore = seen.length;
+      await ideasPage.getByRole('button', { name: 'Copy as checklist' }).click();
+      await ideasPage.getByRole('button', { name: 'Copied' }).waitFor({ timeout: 5000 });
+      await pause(500); page.off('request', onRequest);
+      assert.equal(await page.evaluate(() => navigator.clipboard.readText()), savedNow.map((i) => `- [ ] ${i.title} — ${i.summary}`).join('\n') + '\n', 'the clipboard holds the checklist');
+      assert.deepEqual(hostRequests, [], 'no request to the Host'); assert.equal(seen.length, modelBefore, 'no model call');
+      await ideasPage.getByRole('button', { name: 'Copy as checklist' }).waitFor({ timeout: 5000 });
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: Ideas page → no model call before the click → one call with the project brief (no secret) → drag left skips, a short drag springs back, Undo, ← → ✓ starts a new chat in plan mode with the idea → ↓ saves for later (0600 file, per project) → ▶ Build now starts a chat without plan mode → reload, other chat shows Later (1) → Plan starts a plan-mode chat and empties the list → the next suggestion skips earlier ideas → Plan all (2) starts one plan-mode chat with both ideas → History lists all 6, started ones marked → Forget all empties it`);
+      console.log(`PASS ${bin}: Ideas page → no model call before the click → one call with the project brief (no secret) → drag left skips, a short drag springs back, Undo, ← → ✓ starts a new chat in plan mode with the idea → ↓ saves for later (0600 file, per project) → ▶ Build now starts a chat without plan mode → reload, other chat shows Later (1) → Plan starts a plan-mode chat and empties the list → the next suggestion skips earlier ideas → Plan all (2) starts one plan-mode chat with both ideas → History lists all 6, started ones marked → Forget all empties it → the Tests chip sends a focus line, Enter sends a typed topic → Copy as checklist fills the clipboard without a request`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});

@@ -40,9 +40,10 @@ export const DELETE_CHAT_PATH = '/api/composer-plus.delete-chat';
 export const QUEUE_MOVE_PATH = '/api/composer-plus.queue-move';
 export const PREDICT_PATH = '/api/composer-plus.predict';
 export const COMPLETE_PATH = '/api/composer-plus.complete';
+export const EXPORT_PATH = '/api/composer-plus.export';
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
-  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName'];
+  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -460,6 +461,14 @@ export function ideasLanguage(locale) {
 }
 
 const clip = (value, max) => (typeof value === 'string' ? value.replace(/\s+/g, ' ').trim().slice(0, max) : '');
+/** Feature ideas: the longest focus topic that the user can give. */
+export const FOCUS_MAX = 80;
+/** The focus line of the idea prompt: the user's topic (one line, at most FOCUS_MAX characters, JSON-quoted so it stays one
+ * quoted value), or '' without a topic, so the prompt stays the same as before. */
+export function ideasFocus(focus) {
+  const topic = clip(focus, FOCUS_MAX);
+  return topic === '' ? '' : `\n\nFocus topic chosen by the user: ${JSON.stringify(topic)}. Suggest only features about this topic.`;
+}
 /** One idea, cleaned and bounded (from the model or the browser), or undefined without a title and a summary. */
 const ideaFrom = (item) => {
   const title = clip(item?.title, 120);
@@ -526,10 +535,11 @@ export function ideaHistory(store) {
   };
 }
 
-/** One model call for feature ideas about the chat's project, written in `locale` (the dsh UI language) when given.
- * `avoid(cwd)` names the earlier ideas (history and the Later list): the model is told to skip them, and a repeated title
- * is dropped. `record(cwd, ideas)` keeps the new ones. Read-only for the project: no chat message, nothing written there. */
-export async function suggestIdeas({ llm, sessionQuery, subprocess, defaultModel, avoid, record }, sessionId, signal, locale) {
+/** One model call for feature ideas about the chat's project, written in `locale` (the dsh UI language) when given and
+ * limited to `focus` (the user's topic) when given. `avoid(cwd)` names the earlier ideas (history and the Later list): the
+ * model is told to skip them, and a repeated title is dropped. `record(cwd, ideas)` keeps the new ones. Read-only for the
+ * project: no chat message, nothing written there. */
+export async function suggestIdeas({ llm, sessionQuery, subprocess, defaultModel, avoid, record }, sessionId, signal, locale, focus) {
   const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
   let cwd, route;
   try { cwd = observation.header?.cwd; route = ideasRoute(observation.events ?? [], defaultModel); } finally { observation[Symbol.dispose]?.(); }
@@ -553,7 +563,7 @@ export async function suggestIdeas({ llm, sessionQuery, subprocess, defaultModel
   let text = '';
   let finish;
   for await (const chunk of call.stream({ ...call.config, system: `${IDEAS_SYSTEM}\n${ideasLanguage(locale)}`, signal: callSignal,
-    messages: [{ role: 'user', content: [{ type: 'text', text: `Project folder name: ${cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? ''}\n\n${brief}${asked}` }] }] })) {
+    messages: [{ role: 'user', content: [{ type: 'text', text: `Project folder name: ${cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? ''}\n\n${brief}${asked}${ideasFocus(focus)}` }] }] })) {
     if (chunk.type === 'text-delta') text += chunk.text;
     else if (chunk.type === 'finish') finish = chunk.reason;
   }
@@ -679,8 +689,11 @@ export function rollbackPlan(surface, seq) {
 }
 export const rollbackMarker = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: ROLLBACK_TEXT })]),
   source: Object.freeze({ kind: ROLLBACK_SOURCE }) });
-/** The spans a chat's markers hide in the view, as `[first withdrawn seq, marker seq]`. */
-export const rollbackSpans = (events) => events.filter((e) => e.type === 'user/message' && e.data?.source?.kind === ROLLBACK_SOURCE && Array.isArray(e.sourceEventSeqs) && e.sourceEventSeqs.length > 0)
+/** The marker kind of dsh-rewind-plugin: the same shape as ours (it withdraws `sourceEventSeqs`). */
+export const REWIND_SOURCE = 'dsh-rewind';
+/** The spans that the markers of `kinds` hide, as `[first withdrawn seq, marker seq]`. By default only ours: the ↶ view
+ * hides those, and dsh-rewind-plugin hides its own. dsh's /compact marker is not a withdraw: never pass its kind. */
+export const rollbackSpans = (events, kinds = [ROLLBACK_SOURCE]) => events.filter((e) => e.type === 'user/message' && kinds.includes(e.data?.source?.kind) && Array.isArray(e.sourceEventSeqs) && e.sourceEventSeqs.length > 0)
   .map((e) => [Math.min(...e.sourceEventSeqs), e.seq]);
 
 /** `path` relative to `root` ('' for root itself, '/' separators), or undefined when it is outside. Both are real paths. */
@@ -1088,6 +1101,7 @@ export function apply(ctx) {
   installQueueMove(ctx);
   installPredict(ctx, home);
   installComplete(ctx, home);
+  installExport(ctx);
 }
 
 /** Queue drag-and-drop (Host half): `POST {sessionId, itemId, to, before}` moves one queued next-turn message to index `to`
@@ -1319,8 +1333,8 @@ function installContentSearch(ctx, home) {
   });
 }
 
-/** Feature ideas: `POST {sessionId, locale?}` asks the chat's model for ideas (never one from the project's history or
- * Later list); `POST {sessionId, idea}` starts a chat for one idea.
+/** Feature ideas: `POST {sessionId, locale?, focus?}` asks the chat's model for ideas (never one from the project's history
+ * or Later list; only about `focus` when it has text); `POST {sessionId, idea}` starts a chat for one idea.
  * Ideas saved for later: `GET ?sessionId` lists the project's ideas; `POST {sessionId, add | remove | start | startAll}`
  * changes the list (`start` starts a chat for the stored idea and removes it once the chat runs).
  * Idea history: `GET ?sessionId` lists the project's earlier ideas; `POST {sessionId, remove | clear}` forgets one or all.
@@ -1356,7 +1370,7 @@ function installIdeas(ctx, home) {
         // Not again: every earlier suggestion of this project (skipped, started, saved) and the Later list.
         const avoid = async (cwd) => [...(await titles(history, cwd)), ...(await titles(later, cwd))];
         return json(await suggestIdeas({ llm, sessionQuery: ctx.sessionQuery, subprocess: ctx.subprocess, defaultModel: get('agentDefaultModel'), avoid, record: history.record },
-          body.sessionId, request.signal, body.locale));
+          body.sessionId, request.signal, body.locale, body.focus));
       } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
     },
   });
@@ -1550,11 +1564,11 @@ async function modelCatalogOf(ctx, get) {
   return out;
 }
 
-/** The model for a prediction or a completion: the saved one while dsh still lists it, else dsh's default. */
-async function routeOf(ctx, get, saved) {
+/** The model for a prediction or a completion: the first saved one that dsh still lists, else dsh's default. */
+async function routeOf(ctx, get, ...saved) {
   const catalog = await modelCatalogOf(ctx, get);
-  const listed = saved !== undefined && catalog.groups.some((g) => g.id === saved.provider && g.models.some((m) => m.id === saved.model));
-  return listed ? saved : catalog.default;
+  const listed = (m) => m !== undefined && catalog.groups.some((g) => g.id === m.provider && g.models.some((x) => x.id === m.model));
+  return saved.find(listed) ?? catalog.default;
 }
 
 /** One model call: the next user message of this chat, after the turn that ended at `afterSeq`. */
@@ -1611,19 +1625,8 @@ function installPredict(ctx, home) {
       if (typeof body.on === 'boolean' && body.sessionId === undefined && body.model === undefined) {
         try { return json(await store.change((v) => ({ ...v, on: body.on }))); } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
       }
-      if (body.model !== undefined && body.sessionId === undefined && body.on === undefined) {
-        // null: back to dsh's default. A model must be one that dsh lists now.
-        let model;
-        if (body.model !== null) {
-          if (!isText(body.model?.provider) || !isText(body.model?.model)) return json({ error: 'bad request' }, 400);
-          const catalog = await modelCatalogOf(ctx, get);
-          if (!catalog.groups.some((g) => g.id === body.model.provider && g.models.some((m) => m.id === body.model.model))) return json({ error: 'dsh does not list this model' }, 409);
-          model = { provider: body.model.provider, model: body.model.model };
-        }
-        try {
-          return json(await store.change(({ model: _, ...v }) => (model === undefined ? v : { ...v, model })));
-        } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
-      }
+      // null: back to dsh's default.
+      if (body.model !== undefined && body.sessionId === undefined && body.on === undefined) return saveModel(ctx, get, store, body.model);
       if (!isText(body.sessionId) || !Number.isSafeInteger(body.afterSeq) || body.afterSeq < 0 || body.on !== undefined || body.model !== undefined) return json({ error: 'bad request' }, 400);
       const settings = await store.read();
       if (!settings.on) return json({ error: 'next message prediction is off' }, 409);
@@ -1664,9 +1667,10 @@ function installPredict(ctx, home) {
   });
 }
 
-/** Complete while typing (Host half): the rest of the message the user is typing now, from the same model as the next
- * message prediction. Off by default: it makes a model call at each pause while the user types. The Host keeps the switch
- * in `complete.json`. Nothing goes into the chat: the browser shows the text and Tab adds it to the composer. */
+/** Complete while typing (Host half): the rest of the message the user is typing now. Its model is its own choice, else
+ * the next message prediction's model, else dsh's default. Off by default: it makes a model call at each pause while the
+ * user types. The Host keeps the switch and the model in `complete.json`. Nothing goes into the chat: the browser shows the
+ * text and Tab adds it to the composer. */
 export const COMPLETE_TIMEOUT_MS = 15000;
 export const COMPLETE_MAX_TOKENS = 2000;
 const COMPLETE_MAX = 150; // characters of one completion
@@ -1676,24 +1680,43 @@ const COMPLETE_SYSTEM = `You complete the message that the user is typing in a c
 You get the recent conversation (it can be empty) and the text that the user typed so far. Write only the words that come next, so that the typed text plus your words is one natural message in the user's own language and tone. Keep it short: end the current sentence, at most 15 words.
 Start exactly where the typed text stops: if it stops in the middle of a word, start with the rest of that word; if it ends with a space, start with the next word. Do not repeat the typed text. Answer with the new words only: no quotes, no label, no explanation. If you cannot continue it well, answer with nothing.`;
 
-/** The Host switch: `{on}`. No file or a broken file reads as off; only a saved `on: true` (the user's switch) turns it on. */
+/** Saved settings: `{on, model?: {provider, model}}`. No file or a broken file reads as off with no own model; only a saved
+ * `on: true` (the user's switch) turns it on. No `model`: the prediction's model is used. */
 export function completeStore(file) {
   const read = async () => {
-    try { return { on: JSON.parse(await readFile(file, 'utf8'))?.on === true }; } catch { return { on: false }; }
+    try {
+      const v = JSON.parse(await readFile(file, 'utf8'));
+      const model = isText(v?.model?.provider) && isText(v?.model?.model) ? { provider: v.model.provider, model: v.model.model } : undefined;
+      return { on: v?.on === true, ...(model === undefined ? {} : { model }) };
+    } catch { return { on: false }; }
   };
-  let queue = Promise.resolve(); // one write at a time
-  const change = (on) => {
+  let queue = Promise.resolve(); // one write at a time: they share a temp file name and merge into the newest state
+  const change = (mutate) => {
     const done = queue.then(async () => {
+      const next = mutate(await read());
       await mkdir(dirname(file), { recursive: true });
       const tmp = `${file}.${process.pid}.tmp`;
-      await writeFile(tmp, JSON.stringify({ on }), { mode: 0o600 });
+      await writeFile(tmp, JSON.stringify(next), { mode: 0o600 });
       await rename(tmp, file);
-      return { on };
+      return next;
     });
     queue = done.catch(() => {});
     return done;
   };
   return { read, change };
+}
+/** `POST {model}` on a settings route: `null` removes the saved model; a model must be one that dsh lists now. Answers
+ * the saved settings. Shared by Next message prediction and Complete while typing. */
+async function saveModel(ctx, get, store, model) {
+  let chosen;
+  if (model !== null) {
+    if (!isText(model?.provider) || !isText(model?.model)) return json({ error: 'bad request' }, 400);
+    const catalog = await modelCatalogOf(ctx, get);
+    if (!catalog.groups.some((g) => g.id === model.provider && g.models.some((m) => m.id === model.model))) return json({ error: 'dsh does not list this model' }, 409);
+    chosen = { provider: model.provider, model: model.model };
+  }
+  try { return json(await store.change(({ model: _, ...v }) => (chosen === undefined ? v : { ...v, model: chosen }))); }
+  catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
 }
 
 /** The chat for a completion: the user's messages and the agent's replies, newest kept; '' for a new chat. */
@@ -1756,24 +1779,33 @@ export async function completeTyping({ llm, sessionQuery, route }, sessionId, ty
 function installComplete(ctx, home) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const store = completeStore(join(home, 'storages', 'dsh-composer-plus', 'complete.json'));
-  // The model choice is the prediction's (Settings → Next message prediction → Model).
+  // Without its own model, the prediction's (Settings → Next message prediction → Model).
   const predict = predictStore(join(home, 'storages', 'dsh-composer-plus', 'predict.json'));
   const running = new Map(); // sessionId → AbortController: a newer request for the chat stops the older call
   ctx.connection.fetch.register({
     path: COMPLETE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     fetch: async (request) => {
-      if (request.method === 'GET') return json(await store.read());
+      if (request.method === 'GET') {
+        const settings = await store.read();
+        // `catalog=1`: dsh's model list and the prediction's model, for the "Same as Next message prediction" entry.
+        if (new URL(request.url).searchParams.get('catalog') === '1') return json({ ...settings, catalog: await modelCatalogOf(ctx, get), fallback: (await predict.read()).model ?? null });
+        return json(settings);
+      }
       let body;
       try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
       if (body === null || typeof body !== 'object' || Array.isArray(body)) return json({ error: 'bad request' }, 400);
-      if (typeof body.on === 'boolean' && body.sessionId === undefined && body.text === undefined) {
-        try { return json(await store.change(body.on)); } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      if (typeof body.on === 'boolean' && body.sessionId === undefined && body.text === undefined && body.model === undefined) {
+        try { return json(await store.change((v) => ({ ...v, on: body.on }))); } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
       }
-      if (!isText(body.sessionId) || typeof body.text !== 'string' || body.text.trim() === '' || body.text.length > COMPLETE_INPUT || body.on !== undefined) return json({ error: 'bad request' }, 400);
-      if (!(await store.read()).on) return json({ error: 'complete while typing is off' }, 409);
+      // null: back to the prediction's model.
+      if (body.model !== undefined && body.sessionId === undefined && body.text === undefined && body.on === undefined) return saveModel(ctx, get, store, body.model);
+      if (!isText(body.sessionId) || typeof body.text !== 'string' || body.text.trim() === '' || body.text.length > COMPLETE_INPUT || body.on !== undefined || body.model !== undefined) return json({ error: 'bad request' }, 400);
+      const settings = await store.read();
+      if (!settings.on) return json({ error: 'complete while typing is off' }, 409);
       const llm = get('llm');
       if (llm?.prepareCall === undefined) return json({ error: 'this dsh profile cannot call a model' }, 409);
-      const route = await routeOf(ctx, get, (await predict.read()).model);
+      // Its own model while dsh lists it, else the prediction's, else dsh's default.
+      const route = await routeOf(ctx, get, settings.model, (await predict.read()).model);
       if (route === undefined) return json({ error: 'no model is selected' }, 409);
       running.get(body.sessionId)?.abort();
       const mine = new AbortController();
@@ -1785,6 +1817,57 @@ function installComplete(ctx, home) {
         if (mine.signal.aborted) return json({ error: 'a newer completion replaced this one' }, 409);
         return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 502);
       } finally { if (running.get(body.sessionId) === mine) running.delete(body.sessionId); }
+    },
+  });
+}
+
+/** Export as Markdown: at most this many characters of message text per export; the rest is cut and marked. */
+export const EXPORT_MAX = 4 * 1024 * 1024;
+/** A chat's messages for the Markdown export, oldest first: the user's own messages (text, and `[image]` or `[<type>]` for
+ * other blocks) and the agent's reply text (no reasoning, no tool calls, no hidden context). Replies of one turn join
+ * into one. Messages that Turn rollback or dsh-rewind-plugin withdrew are left out. Stops at `max` characters with
+ * `truncated: true`. */
+export function chatTranscript(events, max = EXPORT_MAX) {
+  const hidden = rollbackSpans(events, [ROLLBACK_SOURCE, REWIND_SOURCE]);
+  const messages = [];
+  let size = 0;
+  for (const e of events) {
+    if (hidden.some(([a, b]) => e.seq >= a && e.seq <= b)) continue;
+    let role, text;
+    if (e.type === 'user/message' && (e.data?.source === undefined || e.data.source?.kind === 'user')) {
+      role = 'user';
+      text = (Array.isArray(e.data.content) ? e.data.content : [])
+        .map((b) => (b?.type === 'text' && typeof b.text === 'string' ? b.text : `\n[${b?.type === 'image' ? 'image' : String(b?.type ?? 'attachment')}]\n`)).join('').trim();
+    } else if (e.type === 'assistant/message') {
+      role = 'assistant';
+      text = textBlocks(e.data?.message?.content).trim();
+    } else continue;
+    if (text === '') continue;
+    const last = messages.at(-1);
+    const add = role === 'assistant' && last?.role === 'assistant' ? `\n\n${text}` : text;
+    if (size + add.length > max) return { messages, truncated: true };
+    size += add.length;
+    if (add !== text) last.text += add; else messages.push({ role, text });
+  }
+  return { messages, truncated: false };
+}
+
+/** Export as Markdown: `GET ?sessionId` answers `{ project, messages, truncated }` from the chat's own log. Read-only; it
+ * reads no project file. The browser makes the Markdown and copies or saves it. */
+function installExport(ctx) {
+  ctx.connection.fetch.register({
+    path: EXPORT_PATH, methods: ['GET'], requestBody: 'buffered',
+    fetch: async (request) => {
+      const sessionId = new URL(request.url).searchParams.get('sessionId');
+      if (!isText(sessionId)) return json({ error: 'bad request' }, 400);
+      try {
+        const observation = await ctx.sessionQuery.observeSession(sessionId, { signal: request.signal, projectionMode: 'none' });
+        try {
+          const cwd = observation.header?.cwd;
+          const project = typeof cwd === 'string' ? cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? '' : '';
+          return json({ project, ...chatTranscript(observation.events ?? []) });
+        } finally { observation[Symbol.dispose]?.(); }
+      } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });
 }

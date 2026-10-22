@@ -1,5 +1,5 @@
 // Complete while typing (Host half): off by default (no settings file, a broken file); the switch is saved; the model is
-// the one chosen for the next message prediction (else dsh's default); the model sees the chat's own text and the typed
+// its own choice, else the one chosen for the next message prediction, else dsh's default; the model sees the chat's own text and the typed
 // text only; the answer is the words after the typed text; a newer request for the same chat stops the older call.
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
@@ -106,6 +106,33 @@ const nano = models.fast.splice(0, 1);
 r = await ask({ sessionId: 's1', text: 'Run' });
 assert.equal(calls.at(-1).model, 'demo');
 models.fast.push(...nano);
+
+// Its own model: saved in complete.json beside the switch; the prediction keeps its own; null goes back to the prediction's.
+models.fast.push({ id: 'mini', name: 'Mini' });
+const settingsFile = join(home, 'storages/dsh-composer-plus/complete.json');
+for (const bad of [{ model: 'x' }, { model: { provider: 'fast' } }, { model: { provider: 'fast', model: 'mini' }, on: true }, { model: { provider: 'fast', model: 'mini' }, sessionId: 's1', text: 'a' }]) assert.equal((await ask(bad)).status, 400, JSON.stringify(bad));
+assert.equal((await ask({ model: { provider: 'fast', model: 'gone' } })).status, 409, 'only a model that dsh lists');
+r = await ask({ model: { provider: 'fast', model: 'mini' } });
+assert.equal(r.status, 200); assert.deepEqual(r.data, { on: true, model: { provider: 'fast', model: 'mini' } });
+assert.deepEqual(JSON.parse(await readFile(settingsFile, 'utf8')), { on: true, model: { provider: 'fast', model: 'mini' } }, 'the switch stays on');
+r = await ask({ sessionId: 's1', text: 'Run' }); assert.equal(calls.at(-1).model, 'mini', 'its own model is used'); assert.equal(r.data.model, 'mini');
+assert.deepEqual((await call(PREDICT_PATH, 'GET')).data.model, { provider: 'fast', model: 'nano' }, 'the prediction keeps its model');
+// The settings answer with the catalog names the prediction's model for the "Same as …" entry.
+const withCatalog = await (await routes.get(COMPLETE_PATH).fetch(new Request(`http://h${COMPLETE_PATH}?catalog=1`))).json();
+assert.deepEqual(withCatalog.model, { provider: 'fast', model: 'mini' }); assert.deepEqual(withCatalog.fallback, { provider: 'fast', model: 'nano' });
+assert.ok(withCatalog.catalog.groups.some((g) => g.id === 'fast' && g.models.some((m) => m.id === 'mini')));
+// A switch write keeps the model; a model write keeps the switch.
+assert.deepEqual((await ask({ on: false })).data, { on: false, model: { provider: 'fast', model: 'mini' } });
+assert.deepEqual((await ask({ on: true })).data, { on: true, model: { provider: 'fast', model: 'mini' } });
+// dsh drops its own model: the prediction's.
+const mini = models.fast.splice(models.fast.findIndex((m) => m.id === 'mini'), 1);
+await ask({ sessionId: 's1', text: 'Run' }); assert.equal(calls.at(-1).model, 'nano', 'a model that dsh no longer lists falls back to the prediction\'s');
+models.fast.push(...mini);
+// null: back to the prediction's model.
+assert.deepEqual((await ask({ model: null })).data, { on: true });
+await ask({ sessionId: 's1', text: 'Run' }); assert.equal(calls.at(-1).model, 'nano');
+// An older file (`{on}` only) still reads.
+await writeFile(settingsFile, JSON.stringify({ on: true })); assert.deepEqual((await call(COMPLETE_PATH, 'GET')).data, { on: true });
 
 // A newer request for the same chat stops the older call; another chat is not touched.
 let releaseOld;

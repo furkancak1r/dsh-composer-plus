@@ -430,10 +430,12 @@ struct Line: Identifiable {
 // MARK: - Composer Plus features (the dsh-composer-plus plugin on the Mac; see tether/FEATURES.md)
 
 /// Turn rollback: the rows that a rollback took out of the chat. dsh keeps them in the log; its marker message
-/// (`composer-plus-rollback`) names them in `sourceEventSeqs`. A span is [first, marker], both included.
+/// (`composer-plus-rollback`, or `dsh-rewind` from dsh-rewind-plugin) names them in `sourceEventSeqs`. A span is
+/// [first, marker], both included. dsh's /compact marker is not a withdraw: its messages stay.
 let rollbackSource = "composer-plus-rollback"
+let withdrawKinds: Set<String> = [rollbackSource, "dsh-rewind"]
 func rollbackSpan(_ e: J) -> ClosedRange<Int>? {
-    guard e["type"] as? String == "user/message", ((e["data"] as? J)?["source"] as? J)?["kind"] as? String == rollbackSource,
+    guard e["type"] as? String == "user/message", let kind = ((e["data"] as? J)?["source"] as? J)?["kind"] as? String, withdrawKinds.contains(kind),
           let seq = e["seq"] as? Int, let first = (e["sourceEventSeqs"] as? [Int])?.min(), first <= seq else { return nil }
     return first...seq
 }
@@ -640,16 +642,54 @@ func approvalCall(_ req: J, in t: [Line]) -> Line? {
     return t.last { $0.kind == .tool && $0.callId == cid }
 }
 
-/// Share conversation: user/assistant turns as Markdown; tool, reasoning and error rows are left out.
+/// Share conversation: user/assistant turns as Markdown, the same shape as the Mac's "Export as Markdown" (a `## You` or
+/// `## Assistant` section per message; replies in a row join; an open code fence is closed). Tool, reasoning and error
+/// rows are left out.
 func transcriptMarkdown(_ t: [Line], title: String) -> String {
-    let body = t.compactMap { l -> String? in
-        switch l.kind {
-        case .user: return "**You:** " + l.text
-        case .assistant: return l.text
-        default: return nil
-        }
+    var sections: [(user: Bool, text: String)] = []
+    for l in t where l.kind == .user || l.kind == .assistant {
+        let text = l.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty { continue }
+        let user = l.kind == .user
+        if !user, let last = sections.last, !last.user { sections[sections.count - 1].text += "\n\n" + text } else { sections.append((user, text)) }
     }
-    return (["# " + title] + body).joined(separator: "\n\n")
+    let head = title.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+    let body = sections.flatMap { ["## " + ($0.user ? "You" : "Assistant"), closeFences($0.text)] }
+    return (["# " + (head.isEmpty ? "Chat" : head)] + body).joined(separator: "\n\n") + "\n"
+}
+
+/// Close a code fence that the text leaves open (CommonMark: 3+ backticks or tildes; the closer is the same character, at
+/// least as long, with no info string), as the Mac's export does.
+func closeFences(_ text: String) -> String {
+    var open: String?
+    // `\.isNewline`: Swift keeps "\r\n" as one Character, so splitting on "\n" alone would miss CRLF lines.
+    for line in text.split(omittingEmptySubsequences: false, whereSeparator: \.isNewline) {
+        var s = Substring(line); var pad = 0
+        while s.first == " ", pad < 3 { s = s.dropFirst(); pad += 1 }
+        guard let c = s.first, c == "`" || c == "~" else { continue }
+        let run = s.prefix { $0 == c }
+        guard run.count >= 3 else { continue }
+        let info = s.dropFirst(run.count)
+        if let o = open {
+            if o.first == c, run.count >= o.count, info.trimmingCharacters(in: .whitespaces).isEmpty { open = nil }
+        } else if !(c == "`" && info.contains("`")) { open = String(run) }
+    }
+    return open.map { text + "\n" + $0 } ?? text
+}
+
+/// Feature ideas: the fixed focus topics under the focus field (the same six as on the Mac).
+let focusPresets = ["Performance", "Accessibility", "Tests", "Security", "Usability", "Documentation"]
+/// Feature ideas: the longest focus topic in UTF-16 units, as the browser field and the Mac count it.
+let focusMax = 80
+/// The focus topic cut to `focusMax` UTF-16 units without splitting a character.
+func clampFocus(_ v: String) -> String {
+    var out = ""
+    for ch in v { if out.utf16.count + ch.utf16.count > focusMax { break }; out.append(ch) }
+    return out
+}
+/// Later list → Copy as checklist: one `- [ ] Title — Summary` line per idea, as on the Mac.
+func laterChecklist(_ ideas: [J]) -> String {
+    ideas.map { "- [ ] \($0["title"] as? String ?? "") — \($0["summary"] as? String ?? "")" }.joined(separator: "\n") + "\n"
 }
 
 /// Codex-style turn timer: "7s", "1m 05s", "1h 02m".

@@ -17,6 +17,10 @@ The Tether iPhone app and its Mac gateway are in `tether/` (Mobile connect). Rea
 6. When the Host half reads project files (for a model prompt or a response), read only regular files that stay inside the chat's folder. Before you open a file, resolve it with `realpath` and check that the result is inside the folder's real path and is a regular file. Open it with `O_NOFOLLOW | O_NONBLOCK`, so a swapped-in symlink or FIFO cannot block or escape. Test it with a symlink to a file outside the folder and with a FIFO; make a red FIFO test end (open the FIFO for writing after a timeout) instead of hanging.
 7. A client store that more than one async action can change at the same time must not overwrite a state that another action set. Merge the state, and block a new action that changes the same state while one is running. Check the guard in every entry point (button, key, pointer drag), not only in the UI.
 8. Add it to Tether (the iPhone app in `tether/`) in the same change, when it fits a phone. Then add its row to `tether/FEATURES.md`: `yes` and where the user finds it, or `no` and why a phone does not need it. `test/tether-parity.test.mjs` fails when a `FEATURES` id has no row. When the phone calls a new Host route, add it to `PLUS` in `tether/gateway/server.mjs` (never a `{on}` switch route). Read `tether/AGENTS.md` first.
+9. When code reads a chat's log to show, export or copy its messages, leave out the messages that a rollback withdrew. Two plugins write a withdraw marker:
+   - Composer Plus Turn rollback: `source.kind: 'composer-plus-rollback'`;
+   - dsh-rewind-plugin: `source.kind: 'dsh-rewind'`.
+   Each marker is a `user/message` that hides `[min(sourceEventSeqs), marker seq]`. Test both kinds. dsh's `/compact` also writes a `surfaceOp: replace` marker (`compact-checkpoint`), but the user did not withdraw those messages: keep them.
 
 ## Threads: tell the user what happens
 

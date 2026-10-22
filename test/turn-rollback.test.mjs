@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync, lstatSync, openSync, closeSync, constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply, ROLLBACK_PATH, ROLLBACK_SOURCE, SNAPSHOT_MAX, rollbackMarker, rollbackPlan, rollbackSpans, snapshotStore, writeBack } from '../index.js';
+import { apply, ROLLBACK_PATH, ROLLBACK_SOURCE, REWIND_SOURCE, SNAPSHOT_MAX, rollbackMarker, rollbackPlan, rollbackSpans, snapshotStore, writeBack } from '../index.js';
 
 const subprocess = {
   resolveExecutable: async () => execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(),
@@ -43,6 +43,12 @@ try {
     assert.equal(marker.role, 'user'); assert.equal(marker.source.kind, ROLLBACK_SOURCE); assert.ok(Object.isFrozen(marker));
     assert.deepEqual(rollbackSpans([{ seq: 30, type: 'user/message', data: { source: { kind: ROLLBACK_SOURCE } }, sourceEventSeqs: [15, 23, 24] },
       { seq: 31, type: 'user/message', data: { source: { kind: 'user' } } }]), [[15, 30]]);
+    // The ↶ view and the route show only our own markers (dsh-rewind-plugin hides its own); the export asks for both kinds.
+    const rewind = { seq: 40, type: 'user/message', data: { source: { kind: REWIND_SOURCE } }, sourceEventSeqs: [35, 36] };
+    assert.equal(REWIND_SOURCE, 'dsh-rewind');
+    assert.deepEqual(rollbackSpans([rewind]), [], 'by default only Composer Plus markers');
+    assert.deepEqual(rollbackSpans([rewind], [ROLLBACK_SOURCE, REWIND_SOURCE]), [[35, 40]]);
+    assert.deepEqual(rollbackSpans([{ ...rewind, sourceEventSeqs: [] }], [REWIND_SOURCE]), [], 'a marker without sources hides nothing');
   }
 
   // 2. Snapshots on a real repository: the work tree as it is (untracked files too, .gitignore respected), byte for byte

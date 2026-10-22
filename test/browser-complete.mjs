@@ -1,15 +1,17 @@
 // Real-app check of "Complete while typing" with a fake model server, on each dsh given. No real model, never the normal
 // DSH_HOME. Two fake providers (Demo: demo, Fast: nano); dsh's default is Demo / demo.
 // Checks: off by default (typing makes no completion call); switched on in Settings, typing shows grey text after the
-// cursor (dsh's composer hint) after a pause, from the model chosen for Next message prediction; typing along the guess
-// makes no new call; Tab adds it; Esc hides it; a slash command gets nothing; the chat never gets the completion prompt.
+// cursor (dsh's composer hint) after a pause; typing along the guess makes no new call; Tab adds it; Esc hides it; a slash
+// command gets nothing; the chat never gets the completion prompt. Model: each switch has its own Model menu; the
+// completion's first entry "Same as Next message prediction" follows the prediction's choice, and its own choice changes
+// only the completion.
 // PLAYWRIGHT=/path/to/playwright node test/browser-complete.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/typingCompletion.webp (English UI, made-up chat).
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, symlink, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, symlink, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -124,8 +126,10 @@ ${provider('fast', 'Fast', [['nano', 'Nano']])}
       await page.waitForFunction(() => [...document.querySelectorAll('[role="switch"]')].some((s) => s.getAttribute('aria-label') === 'Complete while typing' && s.getAttribute('aria-checked') === 'true'));
       const predict = page.getByRole('switch', { name: 'Next message prediction' });
       if (await predict.getAttribute('aria-checked') === 'true') await predict.click();
-      // The Model menu is under this switch too (the same choice as the prediction's).
-      assert.ok(await page.locator('[data-composer-plus-prediction-model]').count() >= 2, 'Model menu under both switches');
+      // Each switch has its own Model menu; the completion's starts at "Same as Next message prediction".
+      const menus = page.locator('[data-composer-plus-prediction-model] button');
+      assert.equal(await menus.count(), 2, 'a Model menu under each switch');
+      await page.waitForFunction(() => document.querySelectorAll('[data-composer-plus-prediction-model] button')[1]?.textContent.startsWith('Same as Next message prediction'), null, { timeout: 10000 });
       await back();
 
       // Typing: after a pause the rest shows after the cursor, in dsh's caption colour.
@@ -163,16 +167,31 @@ ${provider('fast', 'Fast', [['nano', 'Nano']])}
       assert.equal(completes().length, beforeSlash, 'slash command: no call');
       await page.keyboard.press('Escape'); await clear();
 
-      // Another model chosen in Settings (the prediction's Model menu) is the one the completion calls.
+      // The prediction's model (its own menu) is the one the completion follows while the completion has no choice.
       await settings();
-      await page.locator('[data-composer-plus-prediction-model] button').first().click();
+      const modelButtons = () => page.locator('[data-composer-plus-prediction-model] button');
+      await modelButtons().first().click();
       await page.locator('body > [role="menu"]').last().getByRole('menuitem', { name: 'Nano', exact: true }).click();
-      await page.waitForFunction(() => [...document.querySelectorAll('[data-composer-plus-prediction-model] button')].every((b) => b.textContent.includes('Nano')));
+      await page.waitForFunction(() => { const b = [...document.querySelectorAll('[data-composer-plus-prediction-model] button')]; return b[0]?.textContent.includes('Nano') && b[1]?.textContent === 'Same as Next message prediction (Nano)'; }, null, { timeout: 10000 });
       await back();
       // Text that the last guess does not fit (a fitting guess is reused with no call, whatever the model).
       await input.click(); await page.keyboard.type('Fix the', { delay: 40 });
       await page.waitForFunction(() => document.querySelector('[data-composer-input]')?.style.getPropertyValue('--dsh-composer-hint').includes('nano'), null, { timeout: 15000 });
-      assert.equal(completes().at(-1).model, 'nano', 'the chosen model is called');
+      assert.equal(completes().at(-1).model, 'nano', 'the completion follows the prediction\'s model');
+      await clear();
+      // The completion's own choice: Demo model for completions while the prediction keeps Nano.
+      await settings();
+      await modelButtons().nth(1).click();
+      await page.locator('body > [role="menu"]').last().getByRole('menuitem', { name: 'Demo model', exact: true }).click();
+      await page.waitForFunction(() => { const b = [...document.querySelectorAll('[data-composer-plus-prediction-model] button')]; return b[0]?.textContent.includes('Nano') && b[1]?.textContent === 'Demo model'; }, null, { timeout: 10000 });
+      const saved = JSON.parse(await readFile(join(home, 'storages/dsh-composer-plus/complete.json'), 'utf8'));
+      assert.deepEqual(saved, { on: true, model: { provider: 'demo', model: 'demo' } }, 'complete.json keeps the switch and its model');
+      assert.deepEqual(JSON.parse(await readFile(join(home, 'storages/dsh-composer-plus/predict.json'), 'utf8')).model, { provider: 'fast', model: 'nano' }, 'the prediction keeps Nano');
+      await back();
+      // New text (a guess that fits the typed text is reused with no call, whatever the model).
+      await input.click(); await page.keyboard.type('Check the', { delay: 40 });
+      await page.waitForFunction(() => { const h = document.querySelector('[data-composer-input]')?.style.getPropertyValue('--dsh-composer-hint') ?? ''; return h !== '' && !h.includes('nano'); }, null, { timeout: 15000 });
+      assert.equal(completes().at(-1).model, 'demo', 'the completion uses its own model');
       // Enter sends the typed text only, not the grey rest; the chat never gets the completion prompt.
       await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.body.innerText.includes('Done: the header is in src/Header.tsx.'), null, { timeout: 30000 });
@@ -182,7 +201,7 @@ ${provider('fast', 'Fast', [['nano', 'Nano']])}
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: off by default (no call), Settings switch on with the shared Model menu, grey rest after the cursor after a pause, one call per pause, no call along the guess, Tab adds, Esc hides, slash command skipped, chosen model used, Enter sends only the typed text, no page errors`);
+      console.log(`PASS ${bin}: off by default (no call), Settings switch on, its own Model menu (Same as Next message prediction follows the prediction's Nano, its own Demo choice changes only completions), grey rest after the cursor after a pause, one call per pause, no call along the guess, Tab adds, Esc hides, slash command skipped, chosen model used, Enter sends only the typed text, no page errors`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});

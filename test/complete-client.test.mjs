@@ -167,7 +167,7 @@ reply = async (url, init) => ({ status: 200, body: { on: JSON.parse(init.body).o
 await settings.setFeature('typingCompletion', false); await new Promise((r) => setTimeout(r, 0));
 assert.equal(settings.completion.getSnapshot().on, false);
 
-// Settings row: the Host switch status and the same Model menu as Next message prediction.
+// Settings row: the Host switch status and its own Model menu (the completion route; its first entry follows the prediction).
 const Settings = regs.find(([o]) => o.id === 'composer-plus')[1];
 cur = { state: [], refs: [], effects: [], si: 0, ri: 0 };
 const tree = Settings({ ...settings, useComposerPlusToggles: (f) => f({ typingCompletion: false }), t: (k) => k });
@@ -176,5 +176,31 @@ assert.ok(row, 'Settings row'); assert.equal(row.c[2].p.checked, false, 'off by 
 assert.equal(row.c[0].p.id, 'typingCompletion', 'its own screenshot');
 assert.ok(row.c[1].c.some((c) => c?.t?.name === 'MobileStatus' && c.p.prefix === 'completion'), 'Host switch status');
 const modelRow = row.c[1].c.find((c) => c?.t?.name === 'PredictionModel');
-assert.equal(modelRow?.p.store, settings.predictionModel, 'the same model store as Next message prediction');
+assert.ok(modelRow, 'a Model menu'); assert.notEqual(modelRow.p.store, settings.predictionModel, 'its own model store, not the prediction\'s');
+assert.equal(modelRow.p.store, settings.completionModel); assert.equal(modelRow.p.followPrediction, true);
+// The store reads and writes the completion route; its first entry names the prediction's model.
+{
+  const sent = []; const catalog = { default: { provider: 'demo', model: 'demo' }, groups: [{ id: 'demo', name: 'Demo', models: [{ id: 'demo', name: 'Demo model' }] }, { id: 'fast', name: 'Fast', models: [{ id: 'nano', name: 'Nano' }, { id: 'mini', name: 'Mini' }] }] };
+  reply = async (url, init) => { sent.push([url, init?.body === undefined ? undefined : JSON.parse(init.body)]);
+    return init?.body === undefined ? { status: 200, body: { on: true, catalog, fallback: { provider: 'fast', model: 'nano' } } } : { status: 200, body: { on: true, ...(JSON.parse(init.body).model ? { model: JSON.parse(init.body).model } : {}) } }; };
+  const store = settings.completionModel; await store.load();
+  assert.deepEqual(sent.at(-1), ['/api/composer-plus.complete?catalog=1', undefined], 'it reads the completion route');
+  cur = { state: [], refs: [], effects: [], si: 0, ri: 0 };
+  const menu = modelRow.t({ store, t: (k, p) => (p ? `${k}(${Object.values(p).join(',')})` : k), followPrediction: true }).c[1];
+  assert.equal(menu.p.items[0].label, 'completion.modelSameNamed(Nano)', 'the first entry names the prediction\'s model');
+  assert.equal(menu.p.selectedId, '::dsh-default', 'nothing saved: the first entry is selected');
+  await menu.p.onSelect(JSON.stringify(['fast', 'mini'])); await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(sent.at(-1), ['/api/composer-plus.complete', { model: { provider: 'fast', model: 'mini' } }], 'a choice goes to the completion route');
+  assert.deepEqual(store.getSnapshot().model, { provider: 'fast', model: 'mini' }); assert.equal(settings.predictionModel.getSnapshot().model, undefined, 'the prediction\'s choice does not move');
+  cur = { state: [], refs: [], effects: [], si: 0, ri: 0 };
+  const again = modelRow.t({ store, t: (k, p) => (p ? `${k}(${Object.values(p).join(',')})` : k), followPrediction: true }).c[1];
+  await again.p.onSelect('::dsh-default'); await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(sent.at(-1), ['/api/composer-plus.complete', { model: null }], 'the first entry sends null');
+  // A new prediction model reloads the completion menu, so its first entry names the new model.
+  await new Promise((r) => setTimeout(r, 0)); const before = sent.length;
+  reply = async (url, init) => { sent.push([url, init?.body === undefined ? undefined : JSON.parse(init.body)]); return { status: 200, body: { on: true, model: { provider: 'fast', model: 'nano' } } }; };
+  await settings.predictionModel.setModel({ provider: 'fast', model: 'nano' }); await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(sent.slice(before).map(([u]) => u), ['/api/composer-plus.predict', '/api/composer-plus.complete?catalog=1'], 'the prediction is saved, then the completion menu reloads');
+  assert.equal(menu.p.anchor.p['aria-label'], 'feature.typingCompletion: prediction.model', 'its own accessible name');
+}
 console.log('complete client checks passed');

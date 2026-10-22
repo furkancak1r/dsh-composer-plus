@@ -12,7 +12,7 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | id | Tether | Where in Tether, or why not |
 |---|---|---|
 | changesPanel | yes | Chat title menu → Changes: mode, files with +/−, tap a file for its diff. Refreshes every 4 s. |
-| featureIdeas | yes | Chat title menu → Feature ideas: cards (swipe right or Plan, Build now, swipe left to skip, swipe down or Save for later), Later list (Plan, Build now, Plan all) and History (Forget, Forget all). |
+| featureIdeas | yes | Chat title menu → Feature ideas: cards (swipe right or Plan, Build now, swipe left to skip, swipe down or Save for later), Later list (Plan, Build now, Plan all, Copy as checklist) and History (Forget, Forget all). A focus field with the six preset topics sits above the cards. |
 | contentSearch | yes | Sessions search shows "Messages" hits from dsh's own message search. |
 | turnRollback | yes | Touch and hold your message → Roll back to before this message: Chat only, or Chat and files. Withdrawn messages leave the chat. |
 | deleteChat | yes | Chat title menu, or touch and hold a chat in Sessions → Delete…. |
@@ -31,9 +31,10 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | keepFocus | no | A desktop browser focus problem. The iPhone keyboard keeps its focus. |
 | queueReorder | yes | Queued message menu → Move up / Move down. Messages with images move too (the Mac's `queue-move` route). |
 | copyDeeplink | yes | Chat title menu, or touch and hold a chat → Copy session link. |
+| exportMarkdown | yes | Chat title menu → Copy conversation or Share conversation: Markdown with the same section shape as the Mac's export (`## You` / `## Assistant`, code blocks kept, an open fence closed, no messages that Turn rollback or dsh-rewind-plugin withdrew), without the project and date line; Share sends it to another app. |
 | copyProjectPath | yes | Touch and hold a project header in Sessions → Copy path. |
 | projectPicker | yes | New session (✎) → the projects show A–Z, the search box filters them (case and accents ignored), Return picks the first match. |
 | nextPrediction | yes | After a finished turn, the guess for the next message shows above the empty composer; a tap puts it in the field. The switch and the model stay in the Mac's Settings. |
-| typingCompletion | yes | While you type, after a short pause the rest of the message shows above the field; a tap adds it. The switch stays in the Mac's Settings; the model is the one of Next message prediction. |
+| typingCompletion | yes | While you type, after a short pause the rest of the message shows above the field; a tap adds it. The switch and its model stay in the Mac's Settings (by default the model of Next message prediction). |
 | mobileConnect | yes | Tether itself. |
 | autoUpdate | no | Installs the plugin on the Mac. The iPhone app is built and installed separately. |

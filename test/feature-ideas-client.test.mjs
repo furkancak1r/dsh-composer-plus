@@ -7,13 +7,14 @@ const mem = new Map(); globalThis.localStorage = { getItem: (k) => (mem.has(k) ?
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
 globalThis.document = { visibilityState: 'visible', hasFocus: () => true, addEventListener() {}, removeEventListener() {} };
 // The helpers are module-private: run the module source with a hook that hands them out.
-eval(src.replace('function IdeasTitle({ t })', 'globalThis.__ideas = { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, IdeaCard, loadLater, laterIdea, startLater, startAllLater, removeLater, loadHistory, forgetHistory };\n    function IdeasTitle({ t })'));
+eval(src.replace('function IdeasTitle({ t })', 'globalThis.__ideas = { laterChecklist, FOCUS_PRESETS, swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, IdeaCard, loadLater, laterIdea, startLater, startAllLater, removeLater, loadHistory, forgetHistory };\n    function IdeasTitle({ t })'));
 let state = [], si = 0; const effects = [];
 const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment: 'F',
   useState: (v) => { const i = si++; if (!(i in state)) state[i] = typeof v === 'function' ? v() : v; return [state[i], (x) => { state[i] = typeof x === 'function' ? x(state[i]) : x; }]; },
   useRef: (v) => ({ current: v }), useEffect: (f) => { effects.push(f); } };
-const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Input: 'Input' } : {}));
-const { swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, loadLater, laterIdea, startLater, startAllLater, removeLater, loadHistory, forgetHistory } = globalThis.__ideas;
+const clipboard = []; let clipboardOk = true;
+const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Input: 'Input', writeClipboard: async (text) => { clipboard.push(text); return clipboardOk; } } : {}));
+const { laterChecklist, FOCUS_PRESETS, swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, loadLater, laterIdea, startLater, startAllLater, removeLater, loadHistory, forgetHistory } = globalThis.__ideas;
 
 // Swipe decision: 30 % of the width (at least 40 px), or a fast flick in the same direction.
 assert.equal(swipeDecision(0, 300), null); assert.equal(swipeDecision(89, 300), null); assert.equal(swipeDecision(90, 300), 'right'); assert.equal(swipeDecision(-90, 300), 'left');
@@ -271,6 +272,68 @@ state = []; page = render('chat-1'); find(page, (n) => n.t === 'button' && text(
   L.past = undefined; laterReply = () => ({ status: 500, body: { error: 'disk full' } }); await loadHistory(L, 'later-a'); view = go('later-a');
   assert.equal(L.error, 'disk full'); assert.ok(!find(view, (n) => text(n) === 'ideas.saving'), 'no saving note after a failed read');
   find(view, (n) => n.t === 'button' && n.p['data-composer-plus-ideas-back'] === '').p.onClick(); view = go('later-a'); assert.equal(state[2], 'cards');
+  globalThis.fetch = realFetch;
+}
+
+// Focus topic: the field and the chips fill `deck.focus`; a focus goes with Suggest only when it has text.
+{
+  const sent = []; const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url, init) => { sent.push(JSON.parse(init.body)); return { ok: true, status: 200, json: async () => ({ ideas: ideas(1, 300) }) }; };
+  const F = ideaDeck('focus-a'); assert.equal(F.focus, '', 'no focus at first');
+  await suggestIdeas(F, 'focus-a', 'en'); assert.deepEqual(sent.at(-1), { sessionId: 'focus-a', locale: 'en' }, 'an empty focus sends the same request as before');
+  F.cards = []; F.focus = '   '; await suggestIdeas(F, 'focus-a'); assert.deepEqual(sent.at(-1), { sessionId: 'focus-a' }, 'only spaces count as empty');
+  F.cards = []; F.focus = '  speed of search '; await suggestIdeas(F, 'focus-a', 'tr'); assert.deepEqual(sent.at(-1), { sessionId: 'focus-a', locale: 'tr', focus: 'speed of search' });
+  // Rendered: an empty deck shows the field, Suggest and six chips; the cards view shows them above the stack.
+  F.focus = ''; F.cards = []; F.status = 'idle';
+  const go = () => { si = 0; return IdeasTab({ sessionId: 'focus-a', t, openSession: () => {}, uiLocale: () => 'ko' }); };
+  let page = go();
+  const box = () => find(page, (n) => n.p?.['data-composer-plus-ideas-focus'] === '');
+  const input = () => find(box(), (n) => n.t === 'input'); const chip = (id) => find(box(), (n) => n.p?.['data-composer-plus-ideas-focus-preset'] === id);
+  assert.ok(box(), 'the empty page has the focus box'); assert.equal(input().p['aria-label'], 'ideas.focus'); assert.equal(input().p.maxLength, 80);
+  assert.ok(find(box(), (n) => n.t === 'button' && text(n) === 'ideas.suggest'), 'Suggest sits next to the field');
+  assert.deepEqual(FOCUS_PRESETS, ['performance', 'accessibility', 'tests', 'security', 'usability', 'docs']);
+  const chips = find(box(), (n) => n.p?.role === 'group'); assert.equal(chips.p['aria-label'], 'ideas.focusPresets');
+  assert.deepEqual(chips.c.map((c) => text(c)), FOCUS_PRESETS.map((id) => `ideas.focus.${id}`), 'six fixed chips, in the UI language');
+  assert.ok(chips.c.every((c) => c.p['aria-pressed'] === false), 'none pressed');
+  // A chip fills the field with its label; the same chip again empties it; typing replaces it.
+  chip('tests').p.onClick(); assert.equal(F.focus, 'ideas.focus.tests'); page = go(); assert.equal(chip('tests').p['aria-pressed'], true); assert.equal(input().p.value, 'ideas.focus.tests');
+  chip('security').p.onClick(); assert.equal(F.focus, 'ideas.focus.security', 'another chip replaces it'); page = go(); assert.equal(chip('tests').p['aria-pressed'], false);
+  chip('security').p.onClick(); assert.equal(F.focus, '', 'a second click empties it');
+  input().p.onChange({ target: { value: 'offline mode' } }); assert.equal(F.focus, 'offline mode'); page = go();
+  assert.ok(chips.c.length === 6 && find(box(), (n) => n.p?.role === 'group').c.every((c) => c.p['aria-pressed'] === false), 'free text presses no chip');
+  // Enter suggests once with the focus and the UI language; not while an IME composes, not on a repeat, not while busy.
+  const enter = (extra = {}) => { let prevented = 0; input().p.onKeyDown({ key: 'Enter', preventDefault: () => prevented++, ...extra }); return prevented; };
+  const n0 = sent.length; assert.equal(enter({ isComposing: true }), 0); assert.equal(enter({ keyCode: 229 }), 0); assert.equal(enter({ repeat: true }), 0); assert.equal(sent.length, n0);
+  assert.equal(enter(), 1); await new Promise((r) => setTimeout(r, 0)); assert.deepEqual(sent.at(-1), { sessionId: 'focus-a', locale: 'ko', focus: 'offline mode' });
+  let go2; globalThis.fetch = async (url, init) => { sent.push(JSON.parse(init.body)); await new Promise((r) => { go2 = r; }); return { ok: true, status: 200, json: async () => ({ ideas: ideas(1, 310) }) }; };
+  const loading = suggestIdeas(F, 'focus-a'); const n1 = sent.length; enter(); chip('docs'); assert.equal(sent.length, n1, 'no second request while ideas load'); go2(); await loading;
+  // The cards view: the box sits above the stack and holds More ideas; arrow keys in the field never fly a card.
+  page = go(); const stack = page.c.indexOf(page.c.find((c) => c?.t === 'F'));
+  const frag = page.c.find((c) => c?.t === 'F'); assert.equal(frag.c[0].p['data-composer-plus-ideas-focus'], '', 'the focus box comes before the stack'); void stack;
+  assert.ok(find(frag.c[0], (n) => n.t === 'button' && text(n) === 'ideas.more'), 'More ideas sits next to the field');
+  assert.ok(!find(page.c.find((c) => c?.p?.className === 'cpi-head'), (n) => n.t === 'button' && text(n) === 'ideas.more'), 'and no longer in the head');
+  const before = F.cards.length; let prevented = 0; page.p.onKeyDown({ key: 'ArrowLeft', target: { closest: (sel) => (sel.includes('input') ? {} : null) }, preventDefault: () => prevented++ });
+  await new Promise((r) => setTimeout(r, 250)); assert.equal(prevented, 0); assert.equal(F.cards.length, before, 'arrow keys in the focus field leave the cards alone');
+  globalThis.fetch = realFetch;
+}
+
+// Copy as checklist: the Later view copies the list as a Markdown checklist, without a network call.
+{
+  assert.equal(laterChecklist([{ title: 'Dark mode', summary: 'A dark theme.' }, { title: 'Export', summary: 'Save as CSV.', why: 'x' }]), '- [ ] Dark mode — A dark theme.\n- [ ] Export — Save as CSV.\n');
+  const C = ideaDeck('copy-a'); C.later = [{ id: 'a', title: 'Pantry', summary: 'Track food.', why: 'Less waste.' }, { id: 'b', title: 'Timer', summary: 'Cook steps.' }];
+  const realFetch = globalThis.fetch; let calls = 0; globalThis.fetch = async () => { calls++; return { ok: true, status: 200, json: async () => ({ ideas: C.later }) }; };
+  const go = () => { si = 0; return IdeasTab({ sessionId: 'copy-a', t, openSession: () => {}, uiLocale: () => 'en' }); };
+  state = []; let page = go(); find(page, (n) => n.p?.['data-composer-plus-ideas-later'] === '').p.onClick(); page = go();
+  const button = () => find(page, (n) => n.t === 'button' && n.p['data-composer-plus-ideas-copy-later'] === '');
+  assert.equal(text(button()), 'ideas.copyLater'); assert.equal(button().p.title, 'ideas.copyLaterHint'); assert.equal(button().p.disabled, undefined, 'read-only: never disabled');
+  assert.ok(!find(page, (n) => n.p?.['data-composer-plus-ideas-focus'] === ''), 'no focus box in the Later list');
+  const callsBefore = calls; const n = clipboard.length;
+  await button().p.onClick(); page = go();
+  assert.deepEqual(clipboard.slice(n), ['- [ ] Pantry — Track food.\n- [ ] Timer — Cook steps.\n'], 'the list, in its order, title and summary');
+  assert.equal(calls, callsBefore, 'no network call'); assert.equal(text(button()), 'ideas.copied');
+  await new Promise((r) => setTimeout(r, 2100)); page = go(); assert.equal(text(button()), 'ideas.copyLater', 'the label comes back after 2 s');
+  clipboardOk = false; await button().p.onClick(); page = go(); assert.equal(text(button()), 'ideas.copyFailed', 'a refused copy says so'); clipboardOk = true;
+  C.status = 'starting'; page = go(); assert.equal(button().p.disabled, undefined, 'it stays on while another action runs'); C.status = 'idle';
   globalThis.fetch = realFetch;
 }
 

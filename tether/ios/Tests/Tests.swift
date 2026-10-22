@@ -309,7 +309,19 @@ final class CoreTests: XCTestCase {
 
     @MainActor func testReasoningSessionModelAndGroups() {
         let md = transcriptMarkdown([Line(kind: .user, text: "hi"), Line(kind: .tool, text: "ls"), Line(kind: .assistant, text: "hello")], title: "T")
-        XCTAssertEqual(md, "# T\n\n**You:** hi\n\nhello")
+        XCTAssertEqual(md, "# T\n\n## You\n\nhi\n\n## Assistant\n\nhello\n")
+        // Export shape (as on the Mac): replies in a row join, an open fence is closed, empty rows and tools are left out.
+        let two = transcriptMarkdown([Line(kind: .assistant, text: "a"), Line(kind: .tool, text: "ls"), Line(kind: .assistant, text: "```js\nx"), Line(kind: .user, text: "  ")], title: "  Login\n bug ")
+        XCTAssertEqual(two, "# Login bug\n\n## Assistant\n\na\n\n```js\nx\n```\n")
+        XCTAssertEqual(closeFences("~~~~\na\n~~~"), "~~~~\na\n~~~\n~~~~")
+        XCTAssertEqual(closeFences("````md\n```js\ninner\n```\n````"), "````md\n```js\ninner\n```\n````")
+        XCTAssertEqual(closeFences("``` a`b\ntext"), "``` a`b\ntext")
+        XCTAssertEqual(closeFences("```\na\n``` x"), "```\na\n``` x\n```")
+        XCTAssertEqual(laterChecklist([["title": "Dark mode", "summary": "A dark theme."], ["title": "Export", "summary": "Save as CSV.", "why": "x"]]), "- [ ] Dark mode — A dark theme.\n- [ ] Export — Save as CSV.\n")
+        XCTAssertEqual(focusPresets.count, 6)
+        XCTAssertEqual(closeFences("```js\r\nx"), "```js\r\nx\n```", "CRLF lines")
+        XCTAssertEqual(clampFocus(String(repeating: "x", count: 79) + "😀"), String(repeating: "x", count: 79), "an emoji past 80 UTF-16 units is not split")
+        XCTAssertEqual(clampFocus(String(repeating: "x", count: 78) + "😀y"), String(repeating: "x", count: 78) + "😀")
         let calls = [Line(kind: .tool, text: "old", callId: "c1"), Line(kind: .tool, text: "rm -rf build", callId: "c2", args: "{}")]
         XCTAssertEqual(approvalCall(["callId": "c2"], in: calls)?.text, "rm -rf build")
         XCTAssertNil(approvalCall(["toolName": "bash"], in: calls))
@@ -555,6 +567,11 @@ final class CoreTests: XCTestCase {
         let marker: J = ["type": "user/message", "seq": 5, "sourceEventSeqs": [4, 3], "data": ["content": [], "source": ["kind": rollbackSource]]]
         XCTAssertEqual(rollbackSpan(marker), 3...5); XCTAssertNil(rollbackSpan(ev[0]))
         XCTAssertEqual(withoutRolledBack(ev + [marker]).compactMap { $0["seq"] as? Int }, [1, 2])
+        // dsh-rewind-plugin's marker withdraws too; dsh's /compact marker only hides old messages from the model: they stay.
+        let rewind: J = ["type": "user/message", "seq": 5, "sourceEventSeqs": [3, 4], "data": ["content": [], "source": ["kind": "dsh-rewind"]]]
+        let compact: J = ["type": "user/message", "seq": 6, "sourceEventSeqs": [1, 2], "data": ["content": [], "source": ["kind": "compact-checkpoint"]]]
+        XCTAssertEqual(rollbackSpan(rewind), 3...5); XCTAssertNil(rollbackSpan(compact))
+        XCTAssertEqual(withoutRolledBack(ev + [rewind, compact]).compactMap { $0["seq"] as? Int }, [1, 2, 6])
         let c = Client()
         c.replaySnapshot(ev)
         XCTAssertEqual(c.transcript.map(\.text), ["one", "A1", "two", "A2"]); XCTAssertEqual(c.transcript[2].seq, 3, "a user row keeps its seq")

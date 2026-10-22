@@ -162,6 +162,7 @@ const catalog = { default: { provider: 'demo', model: 'demo' }, groups: [{ id: '
 let saved = {};
 reply = async (url, init) => {
   if (url === '/api/composer-plus.predict?catalog=1') return { status: 200, body: { on: true, ...saved, catalog } };
+  if (url === '/api/composer-plus.complete?catalog=1') return { status: 200, body: { on: false, catalog, ...(saved.model ? { fallback: saved.model } : {}) } };
   const b = JSON.parse(init.body);
   if (b.model === null) { saved = {}; return { status: 200, body: { on: true } }; }
   if (b.model.model === 'gone') return { status: 409, body: { error: 'dsh does not list this model' } };
@@ -187,7 +188,8 @@ assert.equal(menuEl.p.selectedId, '::dsh-default', 'default selected');
 await menuEl.p.onSelect(JSON.stringify(['fast', 'mini']));
 await new Promise((r) => setTimeout(r, 0));
 assert.deepEqual(store.getSnapshot().model, { provider: 'fast', model: 'mini' });
-assert.deepEqual(JSON.parse(fetches.at(-1).init.body), { model: { provider: 'fast', model: 'mini' } });
+assert.deepEqual(JSON.parse(fetches.findLast((f) => f.init?.body !== undefined).init.body), { model: { provider: 'fast', model: 'mini' } });
+assert.equal(fetches.at(-1).url, '/api/composer-plus.complete?catalog=1', 'then the completion menu reloads (it names the prediction\'s model)');
 cur = { state: [], refs: [], effects: [], si: 0, ri: 0 }; m = modelRow.t(modelRow.p);
 assert.equal(m.c[1].p.selectedId, JSON.stringify(['fast', 'mini']));
 // A refused change keeps the saved choice and says why.
@@ -196,7 +198,7 @@ assert.deepEqual(store.getSnapshot().model, { provider: 'fast', model: 'mini' })
 // Back to dsh default.
 cur = { state: [], refs: [], effects: [], si: 0, ri: 0 }; m = modelRow.t(modelRow.p);
 await m.c[1].p.onSelect('::dsh-default'); await new Promise((r) => setTimeout(r, 0));
-assert.equal(store.getSnapshot().model, undefined); assert.deepEqual(JSON.parse(fetches.at(-1).init.body), { model: null });
+assert.equal(store.getSnapshot().model, undefined); assert.deepEqual(JSON.parse(fetches.findLast((f) => f.init?.body !== undefined).init.body), { model: null });
 // One change at a time: a second choice while the first is saving is ignored.
 let finish; reply = async () => new Promise((resolve) => { finish = () => resolve({ status: 200, body: { on: true, model: { provider: 'demo', model: 'demo' } } }); });
 const p1 = store.setModel({ provider: 'demo', model: 'demo' });
