@@ -885,6 +885,16 @@ window.__ModuleLoader__.load({
     const sameList = (a, b) => a.length === b.length && a.every((value, index) => value === b[index]);
     const GRIP = 'data-queue-grip';
     const DROP_LINE = 'var(--dsw-alias-state-business-primary)';
+    /** Drag looks: the picked row is lifted as a raised card that follows the pointer (in <body>, so the dock's scroll box
+     * does not clip it). The other rows slide apart, and an empty dashed slot shows where the message lands. */
+    const DRAG_SLOT = 'data-queue-drag-slot';
+    const DRAG_CSS = `[${DRAG_SLOT}]{background:color-mix(in srgb,${DROP_LINE} 8%,transparent);outline:1px dashed ${DROP_LINE};outline-offset:-3px;box-shadow:none!important}[${DRAG_SLOT}]>*{visibility:hidden}body *{cursor:inherit!important}`;
+    const LIFTED = 'scale(1.03) rotate(-1deg)';
+    const LIFT_SHADOW = '0 0 0 .5px var(--dsw-alias-border-l2), 0 16px 32px rgba(0,0,0,.24), 0 4px 10px rgba(0,0,0,.14)';
+    const REST_SHADOW = '0 0 0 .5px var(--dsw-alias-border-l2), 0 1px 2px rgba(0,0,0,.08)';
+    const EASE = 'cubic-bezier(.2,.8,.2,1)';
+    /** The drag that runs now (one pointer drags one row): `{ seat, clean }`. */
+    let queueDrag = null;
     /** Queue reorder by drag and drop: a grip at the left of each queued row. Keyboard: ↑/↓ on a focused grip.
      * The plugin's Host route moves the message itself (`/api/composer-plus.queue-move`), so a message with an image or a
      * file moves too. An older Host without the route (404): the move rotates row texts through dsh's `edit` action,
@@ -942,6 +952,7 @@ window.__ModuleLoader__.load({
         observer.observe(seat, { childList: true, subtree: true });
         return () => {
           observer.disconnect();
+          if (queueDrag !== null && queueDrag.seat === seat) queueDrag.clean(); // switched off or closed while dragging
           for (const host of seat.querySelectorAll(`[${GRIP}]`)) host.remove();
         };
       }, [active]);
@@ -951,15 +962,17 @@ window.__ModuleLoader__.load({
       const own = (row) => row.source?.kind === 'user';
       const movable = (from, to) => from !== to && to >= 0 && to < rows.length
         && rows.slice(Math.min(from, to), Math.max(from, to) + 1).every((row, i) => (hostMoves ? own(row) : texts[Math.min(from, to) + i] !== null));
-      const move = async (from, to) => {
-        if (busy || !movable(from, to)) return;
+      /** One move. Result: 'moved' (the Host moved the message), 'edited' (texts rotated), 'failed' or 'skipped'.
+       * `settle` runs before the text edits: those change the texts in place, so a drag must show the real rows first. */
+      const move = async (from, to, settle = () => {}) => {
+        if (busy || !movable(from, to)) return 'skipped';
         if (hostMoves && sessionId !== undefined) {
           setBusy(true);
           try {
-            if (await moveQueued({ sessionId, itemId: rows[from].id, to, before: rows.map((row) => row.id) })) return;
+            if (await moveQueued({ sessionId, itemId: rows[from].id, to, before: rows.map((row) => row.id) })) return 'moved';
             setHostMoves(false); // older Host: fall back to text edits below
-          } catch { notify('error', t('queue.failed')); return; } finally { setBusy(false); }
-          if (!texts.slice(Math.min(from, to), Math.max(from, to) + 1).every((text) => text !== null)) { notify('error', t('queue.locked')); return; }
+          } catch { notify('error', t('queue.failed')); return 'failed'; } finally { setBusy(false); }
+          if (!texts.slice(Math.min(from, to), Math.max(from, to) + 1).every((text) => text !== null)) { notify('error', t('queue.locked')); return 'failed'; }
         }
         const order = texts.map((_, index) => index);
         order.splice(to, 0, order.splice(from, 1)[0]);
@@ -968,6 +981,7 @@ window.__ModuleLoader__.load({
           if (order[index] !== index) changes.push({ row: rows[index], next: texts[order[index]], prev: texts[index] });
         }
         const edit = (row, text) => updateQueue(row.id, { kind: 'edit', content: [{ type: 'text', text }] });
+        settle();
         setBusy(true);
         const done = [];
         try {
@@ -975,56 +989,130 @@ window.__ModuleLoader__.load({
             await edit(change.row, change.next);
             done.push(change);
           }
+          return 'edited';
         } catch {
           for (const change of done.reverse()) await edit(change.row, change.prev).catch(() => undefined);
           notify('error', t('queue.failed'));
+          return 'failed';
         } finally {
           setBusy(false);
         }
       };
-      const mark = (target, from, to) => {
-        items.forEach((li) => { li.style.boxShadow = ''; li.style.opacity = ''; });
-        if (target === null) return;
-        items[from].style.opacity = '0.5';
-        if (to !== from) items[to].style.boxShadow = `inset 0 ${to < from ? 2 : -2}px 0 ${DROP_LINE}`;
-      };
       const startDrag = (from, event) => {
-        if (busy || event.button !== 0) return;
+        if (busy || queueDrag !== null || event.button !== 0) return;
         event.preventDefault();
+        const li = items[from];
+        const list = li.parentElement;
+        // Places before the drag: the rows move with transforms only, so these stay the real layout.
+        const rects = items.map((item) => item.getBoundingClientRect());
+        const scroll0 = list.scrollTop;
+        const startY = event.clientY;
+        const gap = rects[from].height;
         let to = from;
-        const slot = (y) => {
-          // Insertion index among the other rows, by row midpoints.
-          let index = 0;
-          items.forEach((li, i) => {
+        const css = document.createElement('style');
+        css.textContent = DRAG_CSS;
+        document.head.appendChild(css);
+        // The lifted card: a copy of the row at the pointer; the row itself becomes the empty slot.
+        const ghost = li.cloneNode(true);
+        ghost.setAttribute('aria-hidden', 'true');
+        Object.assign(ghost.style, { position: 'fixed', left: `${rects[from].left}px`, top: `${rects[from].top}px`, width: `${rects[from].width}px`,
+          height: `${gap}px`, margin: '0', zIndex: '2147483000', pointerEvents: 'none', listStyle: 'none',
+          background: 'var(--dsw-specific-menu, var(--dsw-alias-bg-layer-2))', backdropFilter: 'var(--dsw-menu-backdrop-filter)',
+          boxShadow: REST_SHADOW, transition: `transform 150ms ${EASE}, box-shadow 150ms ${EASE}, opacity 150ms ${EASE}`, willChange: 'transform' });
+        document.body.appendChild(ghost);
+        ghost.getBoundingClientRect(); // lay it out flat first, so the lift animates
+        ghost.style.transform = LIFTED;
+        ghost.style.boxShadow = LIFT_SHADOW;
+        li.setAttribute(DRAG_SLOT, '');
+        document.body.style.cursor = 'grabbing';
+        /** Rows part for the landing index: the rows in between slide by the row's height, the slot moves to the gap.
+         * Result: the slot's offset from its own place. */
+        const part = (target) => {
+          items.forEach((item, i) => {
             if (i === from) return;
-            const rect = li.getBoundingClientRect();
-            if (y > rect.top + rect.height / 2) index += 1;
+            const shift = from < i && i <= target ? -gap : target <= i && i < from ? gap : 0;
+            item.style.transition = `transform 160ms ${EASE}`;
+            item.style.transform = shift === 0 ? '' : `translateY(${shift}px)`;
           });
+          const offset = target > from ? rects[target].bottom - rects[from].bottom : target < from ? rects[target].top - rects[from].top : 0;
+          li.style.transition = `transform 160ms ${EASE}`;
+          li.style.transform = offset === 0 ? '' : `translateY(${offset}px)`;
+          return offset;
+        };
+        const slot = (y) => {
+          // Insertion index among the other rows, by the row midpoints before the drag (a scrolled list shifts them).
+          const at = y + list.scrollTop - scroll0;
+          let index = 0;
+          rects.forEach((rect, i) => { if (i !== from && at > rect.top + rect.height / 2) index += 1; });
           return index;
+        };
+        // dsh redraws the list: before the drop a row came or went (the places are stale, so the drag stops); after the
+        // drop the DOM now has the order on screen.
+        const observer = new MutationObserver(() => { clean(); });
+        observer.observe(list, { childList: true });
+        let timer = 0;
+        let ended = false;
+        const clean = () => {
+          if (ended) return;
+          ended = true;
+          unlisten();
+          observer.disconnect();
+          clearTimeout(timer);
+          // No transition here: when it runs the rows are in their final DOM order, so they must not slide.
+          for (const item of items) { item.style.transition = ''; item.style.transform = ''; item.removeAttribute(DRAG_SLOT); }
+          ghost.remove();
+          css.remove();
+          document.body.style.cursor = '';
+          if (queueDrag?.clean === clean) queueDrag = null;
+        };
+        const back = () => {
+          part(from);
+          ghost.style.transition = `transform 160ms ${EASE}, box-shadow 160ms ${EASE}, opacity 160ms ${EASE}`;
+          ghost.style.transform = '';
+          ghost.style.boxShadow = REST_SHADOW;
+          ghost.style.opacity = '';
+          timer = setTimeout(clean, 170);
         };
         const onMove = (e) => {
           const next = slot(e.clientY);
-          to = movable(from, next) ? next : from;
-          mark(true, from, to);
-          document.body.style.cursor = 'grabbing';
+          const allowed = next === from || movable(from, next);
+          to = allowed ? next : from;
+          ghost.style.transition = `box-shadow 150ms ${EASE}, opacity 150ms ${EASE}`; // the card follows the pointer at once
+          ghost.style.transform = `translateY(${e.clientY - startY}px) ${LIFTED}`;
+          // A place it cannot go: the card fades and the cursor says no; the rows stay where they are.
+          ghost.style.opacity = allowed ? '' : '0.6';
+          document.body.style.cursor = allowed ? 'grabbing' : 'not-allowed';
+          part(to);
         };
-        const finish = (commit) => {
+        const finish = async (commit) => {
+          unlisten();
+          document.body.style.cursor = '';
+          if (!commit || to === from) { back(); return; }
+          // Drop: the card settles into the slot, and the new order stays on screen until dsh draws the list again.
+          const offset = part(to);
+          ghost.style.transition = `transform 180ms ${EASE}, box-shadow 180ms ${EASE}, opacity 180ms ${EASE}`;
+          ghost.style.transform = `translateY(${offset - (list.scrollTop - scroll0)}px)`;
+          ghost.style.boxShadow = REST_SHADOW;
+          ghost.style.opacity = '';
+          const result = await move(from, to, clean);
+          if (ended) return;
+          if (result === 'moved') timer = setTimeout(clean, 1500); // ponytail: no redraw by then, show dsh's list as it is
+          else back();
+        };
+        const onUp = () => { finish(true); };
+        const onCancel = () => { finish(false); };
+        const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); finish(false); } };
+        const unlisten = () => {
           window.removeEventListener('pointermove', onMove);
           window.removeEventListener('pointerup', onUp);
           window.removeEventListener('pointercancel', onCancel);
           window.removeEventListener('keydown', onKey, true);
-          document.body.style.cursor = '';
-          mark(null);
-          if (commit && to !== from) move(from, to);
         };
-        const onUp = () => finish(true);
-        const onCancel = () => finish(false);
-        const onKey = (e) => { if (e.key === 'Escape') { e.preventDefault(); finish(false); } };
         window.addEventListener('pointermove', onMove);
         window.addEventListener('pointerup', onUp);
         window.addEventListener('pointercancel', onCancel);
         window.addEventListener('keydown', onKey, true);
-        mark(true, from, from);
+        queueDrag = { seat: list.closest('[data-composer-seat]'), clean };
       };
       const portals = rows.map((row, index) => {
         const host = dom.hosts[index];
@@ -1038,7 +1126,7 @@ window.__ModuleLoader__.load({
           onPointerDown: (event) => startDrag(index, event),
           onKeyDown: (event) => {
             const delta = event.key === 'ArrowUp' ? -1 : event.key === 'ArrowDown' ? 1 : 0;
-            if (delta === 0) return;
+            if (delta === 0 || queueDrag !== null) return;
             event.preventDefault();
             move(index, index + delta);
           },

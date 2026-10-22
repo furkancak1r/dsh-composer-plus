@@ -123,10 +123,19 @@ try {
         await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2);
         await page.mouse.down();
         for (let i = 1; i <= 15; i++) { await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2 + (y - g.y - g.height / 2) * i / 15); await pause(40); }
-        const mark = await page.evaluate(() => [...document.querySelectorAll('[data-queue-dock] li')].map((li) => `${li.style.opacity || '-'}/${li.style.boxShadow ? 'line' : '-'}`));
+        await pause(250); // the rows finish their slide
+        // While dragging: a lifted copy of the row in <body>, the row itself an empty slot at the landing place.
+        const mark = await page.evaluate(() => {
+          const ghost = [...document.body.children].find((el) => el.tagName === 'LI');
+          const slot = document.querySelector('[data-queue-drag-slot]');
+          return { ghost: ghost === undefined ? null : { transform: ghost.style.transform, shadow: ghost.style.boxShadow !== '' },
+            slot: slot === null ? null : slot.style.transform, rows: [...document.querySelectorAll('[data-queue-dock] li')].map((li) => li.style.transform || '-') };
+        });
+        if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT.replace(/(\.\w+)?$/, `-${toTop ? 'up' : 'down'}$1`), clip: { x: 0, y: Math.max(0, rowsBox[0].top - 120), width: 1280, height: 320 } });
         await page.mouse.up();
         await pause(3000);
-        return { mark, after: (await texts()).map((t) => t.trim().split('\n')[0]) };
+        const left = await page.evaluate(() => [...document.body.children].some((el) => el.tagName === 'LI') || document.querySelector('[data-queue-drag-slot]') !== null);
+        return { mark, left, after: (await texts()).map((t) => t.trim().split('\n')[0]) };
       };
       if (gripCount >= 3) {
         report.gripDisabled = await grips.nth(2).isDisabled();
@@ -137,8 +146,10 @@ try {
       report.errors = errors.slice(0, 5);
       console.log(JSON.stringify(report, null, 1));
       // Up: third goes first. Down: the first row (now third) goes last. With IMAGE=1 the image row is in that range.
+      // The drag shows a lifted card and a moved slot, and both are gone after the drop.
+      const looks = (d) => d?.mark?.ghost?.shadow === true && /scale/.test(d.mark.ghost.transform) && /translateY/.test(d.mark.slot ?? '') && d.left === false;
       const ok = report.grips >= 3 && report.up?.after?.[0]?.startsWith('third queued') && report.down?.after?.at(-1)?.startsWith('third queued')
-        && report.down.after.length === report.rows.length;
+        && report.down.after.length === report.rows.length && looks(report.up) && looks(report.down);
       if (!ok) failures.push(bin);
       console.log(ok ? 'PASS' : 'FAIL', bin);
     } finally {
