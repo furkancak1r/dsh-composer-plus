@@ -46,7 +46,9 @@
   td { padding: 7px 0; border-top: 1px solid var(--line); vertical-align: middle; } td:last-child { text-align: right; }
   tr:first-child td { border-top: 0; }
   details { margin-top: 24px; } summary { cursor: pointer; color: var(--mute); font-size: 12px; }
-  #status-table td { text-align: left; } #status-table td:first-child { color: var(--mute); width: 38%; }
+  #status-table td { text-align: left; overflow-wrap: anywhere; } #status-table td:first-child { color: var(--mute); width: 30%; }
+  #status-table .link { margin-left: 8px; font-size: 12px; }
+  .addrow { margin-top: 8px; }
 
   /* ?embed=1: inside DSH's "Mobile connect" popover */
   .embed body { max-width: none; margin: 0; padding: 4px 12px 12px; background: transparent; overflow: hidden; }
@@ -76,13 +78,14 @@
       <li>Click <strong>Approve</strong> here.</li>
     </ol>
     <p class="mute">The iPhone needs the Tether app and the same Wi‑Fi as this Mac (or Tailscale on both).</p>
-    <div class="tools"><span class="mute" id="exp"></span><button class="link" id="new">New code</button><button class="link" id="copy">Copy pairing link</button></div>
+    <div class="tools"><span class="mute" id="exp"></span><button class="link" id="new">New code</button><button class="link" id="copy">Copy pairing link</button><button class="link" id="cancel-add" hidden>Cancel</button></div>
   </div>
 </section>
 <p id="note" class="note" hidden role="status"></p>
 
 <h2>Paired iPhones</h2>
 <table id="devices"></table>
+<p class="addrow" id="addrow" hidden><button id="add">Add an iPhone</button></p>
 
 <details id="gw"><summary>Connection details</summary>
   <table id="status-table"></table>
@@ -93,6 +96,11 @@ const $ = id => document.getElementById(id)
 const esc = s => String(s).replace(/[&<>"']/g, c => '&#' + c.charCodeAt(0) + ';')
 const embed = document.documentElement.classList.contains('embed')
 let state, lastPayload, asking = false, busy = false, flash = null
+// With a paired iPhone the code hides behind "Add an iPhone"; a newly paired iPhone hides it again.
+let adding = false, paired = 0
+// Write only a change: a table rebuilt every second can lose a click on its buttons.
+const put = (id, html) => { if ($(id).innerHTML !== html) $(id).innerHTML = html }
+const short = fp => fp.length > 20 ? fp.slice(0, 8) + '…' + fp.slice(-8) : fp
 const say = (text, kind = '') => { flash = { text, kind, until: Date.now() + 8000 }; paintNote() }
 // One change at a time: a second click while a request runs does nothing.
 async function post(path, body) {
@@ -128,7 +136,11 @@ function render(s) {
 
   // One waiting request at a time is the normal case; show the oldest.
   const p = s.pending[0]
-  $('req').hidden = !p; $('pair').hidden = !!p
+  if (s.devices.length > paired) adding = false
+  paired = s.devices.length
+  const showPair = !p && (paired === 0 || adding)
+  $('req').hidden = !p; $('pair').hidden = !showPair
+  $('addrow').hidden = !!p || showPair; $('cancel-add').hidden = paired === 0
   if (p) {
     $('req-who').textContent = p.name + ' wants to connect'
     // An older gateway (before a dsh restart) sends no expiresAt: it waits 120 s.
@@ -136,8 +148,8 @@ function render(s) {
     $('approve').dataset.id = $('deny').dataset.id = p.id
   }
 
-  // Keep a fresh code on screen while this page is open; codes are one-time and still need Approve.
-  if (!s.code && s.running && !p && !asking && document.visibilityState === 'visible') { asking = true; post('/pair').finally(() => { asking = false }) }
+  // Keep a fresh code on screen while the code shows; codes are one-time and still need Approve.
+  if (!s.code && s.running && showPair && !asking && document.visibilityState === 'visible') { asking = true; post('/pair').finally(() => { asking = false }) }
   if (s.code?.qr && lastPayload !== s.code.payload) { lastPayload = s.code.payload; $('qr').src = '/qr.png?t=' + Date.now() }
   $('qr').hidden = !s.code?.qr; $('qr-wait').hidden = !!s.code?.qr
   $('qr-wait').textContent = s.running ? 'Making a code…' : 'Gateway is off'
@@ -147,12 +159,13 @@ function render(s) {
   $('step-cam').hidden = !cam; $('step-app').hidden = cam
   paintNote()
 
-  $('devices').innerHTML = s.devices.map(d => '<tr><td><span class="dot ' + (d.connections ? 'ok' : '') + '"></span>' + esc(d.name) +
+  put('devices', s.devices.map(d => '<tr><td><span class="dot ' + (d.connections ? 'ok' : '') + '"></span>' + esc(d.name) +
     ' <span class="mute">' + (d.connections ? 'online' : 'offline') + '</span></td><td><button class="link" data-revoke="' + esc(d.id) + '">Remove</button></td></tr>').join('')
-    || '<tr><td class="mute">No iPhone yet.</td></tr>'
-  $('status-table').innerHTML = [['Gateway', s.running ? 'running' : 'stopped'], ['Address', (s.address ?? 'no Wi‑Fi address') + ':' + s.port],
-    ['Certificate (SHA-256)', s.fingerprint ?? '-'], ['DSH', s.upstream]]
-    .map(([k, v]) => '<tr><td>' + k + '</td><td><code>' + esc(v) + '</code></td></tr>').join('')
+    || '<tr><td class="mute">No iPhone yet.</td></tr>')
+  // The certificate hash is long: a short form fits the popover, Copy gives the whole value.
+  const cert = s.fingerprint ? '<code title="SHA-256: ' + esc(s.fingerprint) + '">' + esc(short(s.fingerprint)) + '</code><button class="link" data-copy="' + esc(s.fingerprint) + '">Copy</button>' : '<code>-</code>'
+  put('status-table', [['Gateway', s.running ? 'running' : 'stopped'], ['Address', (s.address ?? 'no Wi‑Fi address') + ':' + s.port], ['DSH', s.upstream]]
+    .map(([k, v]) => '<tr><td>' + k + '</td><td><code>' + esc(v) + '</code></td></tr>').join('') + '<tr><td>Certificate</td><td>' + cert + '</td></tr>')
 }
 setInterval(() => { if (state) render(state) }, 1000)
 document.addEventListener('click', e => {
@@ -160,6 +173,8 @@ document.addEventListener('click', e => {
   if (b.id === 'approve' || b.id === 'deny') post('/' + b.id, { id: b.dataset.id })
   else if (b.dataset.revoke) { if (confirm('Remove this iPhone? It disconnects now and must pair again.')) post('/revoke', { id: b.dataset.revoke }) }
   else if (b.id === 'copy') { if (state?.code) navigator.clipboard.writeText(state.code.payload).then(() => say('Pairing link copied. Paste it in Tether on the iPhone.', 'ok'), () => say('Could not copy.', 'warn')) }
+  else if (b.dataset.copy) navigator.clipboard.writeText(b.dataset.copy).then(() => say('Certificate hash copied.', 'ok'), () => say('Could not copy.', 'warn'))
+  else if (b.id === 'add' || b.id === 'cancel-add') { adding = b.id === 'add'; if (state) render(state) }
   else if (b.id === 'new') post('/pair')
   else if (b.id === 'start' || b.id === 'stop') post('/' + b.id)
 })
