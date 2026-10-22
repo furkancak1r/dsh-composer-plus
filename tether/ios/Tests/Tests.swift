@@ -392,6 +392,19 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.sessionGroups().map { $0.items.map(\.id) }, [["c"], ["b"], ["a"], ["d"]])
         XCTAssertEqual(c.sessionGroups(project: "w").map { $0.items.map(\.id) }, [["b"]])
         XCTAssertEqual(c.sessionGroups(project: "nope").count, 4)
+        // In one list (dsh's Group by): no project groups, Pinned and Archived stay; the project filter still works.
+        c.oneList = true
+        XCTAssertEqual(c.sessionGroups().map(\.title), ["Pinned", "All sessions", "Archived"])
+        XCTAssertEqual(c.sessionGroups()[0].items.map(\.id), ["c"]); XCTAssertEqual(c.sessionGroups()[2].items.map(\.id), ["d"])
+        XCTAssertEqual(Set(c.sessionGroups()[1].items.map(\.id)), ["a", "b"], "the project chat and the ungrouped chat are in one list")
+        XCTAssertEqual(c.sessionGroups(project: "w").map { $0.items.map(\.id) }, [["b"]])
+        XCTAssertEqual(openProjects(c.sessionGroups(), folds: ""), [], "no projects: no Collapse all button")
+        // the 2-hour filter keeps single chats here; the chats of this test have no time, so only the open one stays
+        c.recentOnly = true; c.current = "a"
+        XCTAssertEqual(c.sessionGroups().map { $0.items.map(\.id) }, [["c"], ["a"]], "Pinned always shows")
+        c.recentOnly = false; c.current = nil
+        c.oneList = false
+        XCTAssertEqual(c.sessionGroups().map(\.title), ["Pinned", "proj", "Ungrouped", "Archived"])
         // newest first inside a group, sessions without a timestamp last
         let t = { (id: String, ms: Double?) in Sess(["sessionId": id, "updatedAt": ms as Any, "projections": ["values": ["title": id]]])! }
         c.sessions = [t("old", 1_000), t("none", nil), t("new", 2_000)]

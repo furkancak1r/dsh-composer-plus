@@ -1459,10 +1459,15 @@ struct SessionsView: View {
                                     ForEach(c.workspaces) { Text($0.title).tag($0.id) }
                                 }
                             }
+                            // dsh's Group by (this iPhone only)
+                            Picker("Group by", selection: $c.oneList) {
+                                Label("By project", systemImage: "folder").tag(false)
+                                Label("In one list", systemImage: "list.bullet").tag(true)
+                            }
                             // Composer Plus view options (this iPhone only)
                             Toggle("Active in the last 2 hours", isOn: $c.recentOnly)
                             Toggle("Order by status", isOn: $c.byStatus)
-                        } label: { Image(systemName: active == nil && !c.recentOnly && !c.byStatus ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill") }
+                        } label: { Image(systemName: active == nil && !c.recentOnly && !c.byStatus && !c.oneList ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill") }
                         .accessibilityLabel("Filter sessions")
                         .accessibilityValue(Text(active?.title ?? String(localized: "All projects")))
                     }

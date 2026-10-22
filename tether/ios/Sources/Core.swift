@@ -108,6 +108,7 @@ func groupIcon(_ title: String) -> String {
     case String(localized: "Pinned"): "pin"
     case String(localized: "Archived"): "archivebox"
     case String(localized: "Ungrouped"): "tray"
+    case String(localized: "All sessions"): "list.bullet"
     default: "folder"
     }
 }
@@ -975,6 +976,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// Composer Plus view options for the list (kept on this iPhone): Active in the last 2 hours, Order by status.
     @Published var recentOnly = UserDefaults.standard.bool(forKey: "recentProjects") { didSet { UserDefaults.standard.set(recentOnly, forKey: "recentProjects") } }
     @Published var byStatus = UserDefaults.standard.bool(forKey: "statusOrder") { didSet { UserDefaults.standard.set(byStatus, forKey: "statusOrder") } }
+    /// dsh's "Group by → In one list" (this iPhone only): every chat in one list, not under its project.
+    @Published var oneList = UserDefaults.standard.bool(forKey: "sessionsOneList") { didSet { UserDefaults.standard.set(oneList, forKey: "sessionsOneList") } }
 
     func sessionGroups(project: String? = nil, now: Date = .now) -> [(title: String, items: [Sess], path: String?)] {
         // newest activity first inside each group, like the desktop sidebar; pinned keeps the user's pin order
@@ -987,6 +990,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             return x != y ? x < y : a.offset < b.offset }.map(\.element) }
         let rest = roots.filter { !pinned.contains($0.id) && !archived.contains($0.id) }
         var out: [(String, [Sess], String?)] = [(String(localized: "Pinned"), pinned.compactMap { id in roots.first { $0.id == id } }, nil)]
+        if oneList {
+            // No projects here, so the 2-hour filter keeps each recent chat (by project it keeps whole projects).
+            let recent = { (s: Sess) in !self.recentOnly || recentChat(s, all: self.sessions, now: now, open: self.current, waiting: wait, finished: self.finished) }
+            out.append((String(localized: "All sessions"), rest.filter(recent), nil))
+            out.append((String(localized: "Archived"), roots.filter { archived.contains($0.id) && recent($0) }, nil))
+            return out.filter { !$0.1.isEmpty }.map { (title: $0.0, items: $0.1, path: $0.2) }
+        }
         var used = Set<String>()
         for w in workspaces { let s = rest.filter { w.sessions.contains($0.id) }; used.formUnion(s.map(\.id)); out.append((w.title, s, w.path)) }
         out.append((String(localized: "Ungrouped"), rest.filter { !used.contains($0.id) }, nil))
