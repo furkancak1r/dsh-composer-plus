@@ -120,7 +120,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - Auto Review 仍会检查每一次调用；审查失败的调用永远不会被自动允许。
 - **手机连接：** 在你开启之前一直关闭。开启后，Host 端会运行 Tether 网关：端口 19390 上的 HTTPS 服务只接受你的 Wi-Fi 子网和你的 tailnet（100.64.0.0/10）；另有一个位于 `127.0.0.1:19391` 的配对页面（仅限这台 Mac）。手机需要二维码中的一次性代码（5 分钟内有效），还需要你在 Mac 上点击 **Approve**。手机会固定（pin）网关的证书。Mac 只保存每部手机令牌的哈希值（有效期 30 天，使用期间会续期）；**Revoke** 会立即关闭该手机的连接。手机只能调用允许列表中的 dsh 方法（对话、提示词、附件、斜杠命令、审批、问题、模型、智能体、目标），不能访问设置、凭据、文件浏览器或终端。数据：`$DSH_HOME/storages/dsh-composer-plus/mobile/`。详情：[tether/README.md](tether/README.md)。
 - **更新：** Host 端会向 `api.github.com` 查询最新版本，并向 `registry.npmjs.org` 查询这个确切的版本；不会发送任何关于你或你的对话的信息。安装使用 dsh 的插件管理器（`pnpm add dsh-composer-plus@<version>`；如果 dsh 0.2.1 对已安装的插件拒绝这样做，则使用 `pnpm add https://registry.npmjs.org/dsh-composer-plus/-/dsh-composer-plus-<version>.tgz`，之后 profile 会把这个 URL 列为插件的来源），因此 dsh 自己的 registry、脚本和版本兼容性检查都会生效。预发布标签和旧版本永远不会被安装。
-- **下一条消息预测：** 在你开启之前一直关闭。每完成一个回合，Host 端会把该对话中你自己的消息和智能体的文字回复（不含工具输出、隐藏上下文和推理内容），最多约 6,000 个字符（最新的部分），发送给所选的模型（除非你另选，否则为 dsh 的默认模型）。它通过 dsh 自己的提供商设置，以一次请求的形式发送。对话中不会保存任何内容：猜测不会被添加到对话历史中。开关和模型选择保存在 `$DSH_HOME/storages/dsh-composer-plus/predict.json` 中（仅所有者可访问的文件）。
+- **下一条消息预测：** 默认开启；在 **设置 → Composer Plus** 中关闭它，即可停止这些模型调用。每完成一个回合，Host 端会把该对话中你自己的消息和智能体的文字回复（不含工具输出、隐藏上下文和推理内容），最多约 6,000 个字符（最新的部分），发送给所选的模型（除非你另选，否则为 dsh 的默认模型）。它通过 dsh 自己的提供商设置，以一次请求的形式发送。对话中不会保存任何内容：猜测不会被添加到对话历史中。开关和模型选择保存在 `$DSH_HOME/storages/dsh-composer-plus/predict.json` 中（仅所有者可访问的文件）。
 
 ## 故障排除
 
