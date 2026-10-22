@@ -1,8 +1,9 @@
 // Real-app check of "Next message prediction" with a fake model server, on each dsh given. No real model, never the
 // normal DSH_HOME. Two fake providers (Demo: demo, Fast: mini + nano); dsh's default is Demo / demo.
-// Checks: off by default (no prediction call); Settings lists dsh's models with "dsh default (Demo model)" first; after a
-// finished turn the empty composer shows the prediction, Tab puts it in the composer, Esc hides it; a model chosen in
-// Settings is the one the prediction calls; the chat itself never gets the prediction prompt.
+// Checks: on by default (the first finished turn already shows a prediction from dsh's default model); Settings lists
+// dsh's models with "dsh default (Demo model)" first; switched off, a finished turn makes no prediction call; on again,
+// Tab puts the prediction in the composer, Esc hides it; a model chosen in Settings is the one the prediction calls; the
+// chat itself never gets the prediction prompt.
 // PLAYWRIGHT=/path/to/playwright node test/browser-predict.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/nextPrediction.webp (English UI, made-up chat). TR_SHOT=<dir> keeps a Turkish picture.
 import assert from 'node:assert/strict';
@@ -112,17 +113,17 @@ ${provider('fast', 'Fast', [['mini', 'Mini'], ['nano', 'Nano']])}
         await overlay.waitFor({ state: 'detached' }); await pause(400);
       };
 
-      // Off by default: a finished turn makes no prediction call.
+      // On by default: the first finished turn already shows a prediction, from dsh's default model.
       await page.locator('button:visible', { hasText: 'New Session' }).first().click(); await pause(500);
       await send(page, 'Add a login page');
-      await turnDone(page, 1); await pause(2500);
-      assert.equal(seen.filter((s) => s.kind === 'predict').length, 0, 'off by default: no prediction call');
-      assert.equal(await prediction.count(), 0);
+      await turnDone(page, 1);
+      await prediction.waitFor({ timeout: 20000 });
+      assert.equal(seen.filter((s) => s.kind === 'predict').at(-1).model, 'demo', 'on by default, dsh default model');
 
-      // Settings: switch it on; the Model menu lists dsh's models, dsh's default first.
+      // Settings: the switch is on; the Model menu lists dsh's models, dsh's default first. Switch it off.
       await settings(page);
-      const row = page.locator('[data-composer-plus-settings] div').filter({ hasText: /^Next message prediction/ }).first();
-      await page.getByRole('switch', { name: 'Next message prediction' }).click();
+      const toggle = page.getByRole('switch', { name: 'Next message prediction' });
+      assert.equal(await toggle.getAttribute('aria-checked'), 'true', 'switch shows on');
       const model = page.getByRole('button', { name: 'Model', exact: true });
       await model.waitFor();
       assert.equal((await model.innerText()).trim(), 'dsh default (Demo model)', 'default follows dsh');
@@ -130,12 +131,25 @@ ${provider('fast', 'Fast', [['mini', 'Mini'], ['nano', 'Nano']])}
       const items = await page.locator('body > [role="menu"]').last().innerText();
       for (const t of ['dsh default (Demo model)', 'Demo', 'Demo model', 'Fast', 'Mini', 'Nano']) assert.ok(items.includes(t), `menu lists ${t}`);
       await page.keyboard.press('Escape');
-      void row;
+      await toggle.click();
+      await page.waitForFunction(() => document.querySelector('[role="switch"][aria-checked="false"]') !== null);
       await back(page);
+      await prediction.waitFor({ state: 'detached' });
 
-      // Next finished turn: the prediction shows in the empty composer, from dsh's default model.
+      // Off: a finished turn makes no prediction call.
+      const before = seen.filter((s) => s.kind === 'predict').length;
       await send(page, 'Thanks, keep going');
-      await turnDone(page, 2);
+      await turnDone(page, 2); await pause(2500);
+      assert.equal(seen.filter((s) => s.kind === 'predict').length, before, 'switched off: no prediction call');
+      assert.equal(await prediction.count(), 0);
+
+      // On again: the next finished turn shows the prediction.
+      await settings(page);
+      await page.getByRole('switch', { name: 'Next message prediction' }).click();
+      await page.waitForFunction(() => [...document.querySelectorAll('[role="switch"]')].some((s) => s.getAttribute('aria-label') === 'Next message prediction' && s.getAttribute('aria-checked') === 'true'));
+      await back(page);
+      await send(page, 'And now?');
+      await turnDone(page, 3);
       await prediction.waitFor({ timeout: 20000 });
       assert.match(await prediction.innerText(), /Now add tests for the login form\.\s*Tab to accept/);
       assert.equal(seen.filter((s) => s.kind === 'predict').at(-1).model, 'demo', 'dsh default model');
@@ -152,7 +166,7 @@ ${provider('fast', 'Fast', [['mini', 'Mini'], ['nano', 'Nano']])}
       // Tab on the next turn's prediction puts it in the composer.
       const predictsBefore = seen.filter((s) => s.kind === 'predict').length;
       await send(page, 'One more step');
-      await turnDone(page, 3);
+      await turnDone(page, 4);
       await prediction.waitFor({ timeout: 20000 });
       await input.click(); await page.keyboard.press('Tab');
       await prediction.waitFor({ state: 'detached' });
@@ -169,7 +183,7 @@ ${provider('fast', 'Fast', [['mini', 'Mini'], ['nano', 'Nano']])}
       await page.waitForFunction(() => [...document.querySelectorAll('[data-composer-plus-prediction-model] button')].some((b) => b.textContent.includes('Nano')));
       await back(page);
       await send(page, 'Next');
-      await turnDone(page, 4);
+      await turnDone(page, 5);
       await prediction.waitFor({ timeout: 20000 });
       assert.match(await prediction.innerText(), /Run the full test suite \(nano\)/);
       assert.equal(seen.filter((s) => s.kind === 'predict').at(-1).model, 'nano', 'the chosen model is called');
@@ -186,7 +200,7 @@ ${provider('fast', 'Fast', [['mini', 'Mini'], ['nano', 'Nano']])}
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: off by default, Settings lists dsh's models with the dsh default first, prediction after a finished turn, Esc hides, Tab accepts, one call per turn, chosen model used, Turkish hint, no page errors`);
+      console.log(`PASS ${bin}: on by default (first turn predicts), switch off stops calls, Settings lists dsh's models with the dsh default first, prediction after a finished turn, Esc hides, Tab accepts, one call per turn, chosen model used, Turkish hint, no page errors`);
     } catch (error) {
       const page = contexts.at(-1)?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});

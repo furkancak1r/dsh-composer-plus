@@ -1610,7 +1610,7 @@
     "feature.projectPicker": "Busca de projetos em um novo chat",
     "feature.projectPicker.description": "O menu de projetos de um novo chat mostra os projetos em ordem A–Z e ganha uma caixa de busca. Digite parte de um nome e pressione Enter para escolher o primeiro resultado.",
     "feature.nextPrediction": "Previsão da próxima mensagem",
-    "feature.nextPrediction.description": "Quando o agente termina um turno, a caixa de mensagem vazia mostra uma previsão da sua próxima mensagem neste chat. Pressione Tab para aceitar e Esc para ocultar. Ela faz uma chamada curta ao modelo para cada turno concluído, por isso fica desativada por padrão.",
+    "feature.nextPrediction.description": "Quando o agente termina um turno, a caixa de mensagem vazia mostra uma previsão da sua próxima mensagem neste chat. Pressione Tab para aceitar e Esc para ocultar. Ela faz uma chamada curta ao modelo para cada turno concluído.",
     "feature.mobileConnect": "Conexão móvel (iPhone)",
     "feature.mobileConnect.description": "Use o dsh pelo app Tether para iPhone, na mesma rede Wi-Fi ou pelo Tailscale. O botão Conexão móvel, no canto inferior esquerdo, mostra o código QR de pareamento. Desativado por padrão, porque abre uma porta de rede neste Mac.",
     "mobile.label": "Conexão móvel",

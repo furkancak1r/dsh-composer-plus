@@ -1610,7 +1610,7 @@
     "feature.projectPicker": "Recherche de projet dans une nouvelle discussion",
     "feature.projectPicker.description": "Le menu des projets d’une nouvelle discussion affiche les projets dans l’ordre A–Z, avec un champ de recherche. Tapez une partie d’un nom et appuyez sur Entrée pour choisir le premier résultat.",
     "feature.nextPrediction": "Prédiction du message suivant",
-    "feature.nextPrediction.description": "Quand l’agent termine un tour, la zone de saisie vide affiche une prédiction de votre prochain message dans cette discussion. Appuyez sur Tab pour l’accepter, sur Échap pour la masquer. Elle fait un court appel au modèle par tour terminé, c’est pourquoi elle est désactivée par défaut.",
+    "feature.nextPrediction.description": "Quand l’agent termine un tour, la zone de saisie vide affiche une prédiction de votre prochain message dans cette discussion. Appuyez sur Tab pour l’accepter, sur Échap pour la masquer. Elle fait un court appel au modèle par tour terminé.",
     "feature.mobileConnect": "Connexion mobile (iPhone)",
     "feature.mobileConnect.description": "Utilisez dsh depuis l’app iPhone Tether, sur le même réseau Wi-Fi ou via Tailscale. Le bouton Connexion mobile, en bas à gauche, affiche le code QR d’appairage. Désactivé par défaut, car il ouvre un port réseau sur ce Mac.",
     "mobile.label": "Connexion mobile",

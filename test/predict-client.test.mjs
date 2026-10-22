@@ -1,7 +1,7 @@
 // Next message prediction (client half), real client.js with fake React and a mini DOM: after a finished turn the empty
 // composer asks the Host once per turn and shows the text where dsh's placeholder is; Tab puts it in the composer, Esc
 // hides it, typing hides it, a new turn hides it; nothing shows for a running, stopped, blank or subagent chat. Settings:
-// the switch is a Host switch (off by default) and the Model menu lists dsh's catalog with "dsh default" first.
+// the switch is a Host switch (on by default) and the Model menu lists dsh's catalog with "dsh default" first.
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 const mem = new Map();
 globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => { mem.set(k, String(v)); }, removeItem: (k) => { mem.delete(k); } };
@@ -61,15 +61,16 @@ const regs = [];
 const binding = { eventSource: 'events-of-s1' };
 plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: () => (k) => k },
   sessions: { binding: () => binding }, slots: { inject: (n, f) => f(), register: (o, C) => { regs.push([o, C]); return () => {}; } } });
-assert.equal(regs.find(([o]) => o.id === 'next-prediction'), undefined, 'off by default: not installed');
-
-// Install it as the Host switch says "on".
-const toggles = regs.find(([o]) => o.id === 'composer-plus')[0].inject();
-reply = async (url, init) => (url === '/api/composer-plus.predict' && init?.method === 'POST' && JSON.parse(init.body).on === true ? { status: 200, body: { on: true } } : { status: 200, body: {} });
-await toggles.setFeature('nextPrediction', true);
-await new Promise((r) => setTimeout(r, 0));
 const entry = regs.find(([o]) => o.id === 'next-prediction');
-assert.ok(entry, 'switching on installs the composer entry');
+assert.ok(entry, 'on by default: the composer entry is installed before the Host answers');
+const toggles = regs.find(([o]) => o.id === 'composer-plus')[0].inject();
+// The Host says off (the user's switch): the entry goes; on again: it comes back.
+const count = () => regs.filter(([o]) => o.id === 'next-prediction').length;
+reply = async (url, init) => ({ status: 200, body: { on: JSON.parse(init.body).on } });
+await toggles.setFeature('nextPrediction', false); await new Promise((r) => setTimeout(r, 0));
+assert.equal(toggles.prediction.getSnapshot().on, false);
+await toggles.setFeature('nextPrediction', true); await new Promise((r) => setTimeout(r, 0));
+assert.equal(toggles.prediction.getSnapshot().on, true); assert.equal(count(), 2, 'reinstalled after off → on');
 const [opt, Prediction] = entry;
 assert.equal(opt.name, 'conversation.input.right'); assert.equal(opt.locale, 'dsh-composer-plus');
 const injected = opt.inject('s1');

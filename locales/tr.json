@@ -3074,7 +3074,7 @@
     "feature.projectPicker": "Yeni sohbette proje arama",
     "feature.projectPicker.description": "Yeni sohbetin proje menüsü projeleri A–Z sırasıyla gösterir ve bir arama kutusu ekler. Adın bir kısmını yazın ve ilk eşleşmeyi seçmek için Enter tuşuna basın.",
     "feature.nextPrediction": "Sonraki mesaj tahmini",
-    "feature.nextPrediction.description": "Ajan bir turu bitirince boş mesaj alanı, bu sohbetteki bir sonraki mesajınız için bir tahmin gösterir. Kabul etmek için Tab, gizlemek için Esc tuşuna basın. Biten her tur için kısa bir model çağrısı yapar, bu yüzden varsayılan olarak kapalıdır.",
+    "feature.nextPrediction.description": "Ajan bir turu bitirince boş mesaj alanı, bu sohbetteki bir sonraki mesajınız için bir tahmin gösterir. Kabul etmek için Tab, gizlemek için Esc tuşuna basın. Biten her tur için kısa bir model çağrısı yapar.",
     "feature.mobileConnect": "Mobil bağlantı (iPhone)",
     "feature.mobileConnect.description": "dsh’yi Tether iPhone uygulamasından aynı Wi-Fi ağında ya da Tailscale üzerinden kullanın. Sol alttaki Mobil bağlantı düğmesi eşleştirme QR kodunu gösterir. Bu Mac’te bir ağ portu açtığı için varsayılan olarak kapalıdır.",
     "mobile.label": "Mobil bağlantı",

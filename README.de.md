@@ -14,7 +14,7 @@ Komfortfunktionen im Stil von Codex für die Desktop- und Weboberfläche von [De
 
 <p align="center"><img src="docs/images/hero.webp" width="820" alt="DeepSeek Harness mit Composer Plus: Das laufende Projekt zeigt einen Spinner in der Seitenleiste, und der Änderungsbereich zeigt einen git-Diff"></p>
 
-Inoffizielles Community-Plugin. Die einzigen Netzwerkaufrufe sind die Update-Prüfung (GitHub-Releases und die npm-Registry). Schalte **Automatische Updates** aus, um sie beim Start zu stoppen. **Funktionsideen** ruft das eigene Modell deines Chats nur auf, wenn du auf **Funktionen vorschlagen** klickst. **Vorhersage der nächsten Nachricht** (standardmäßig aus) ruft, sobald du sie einschaltest, nach jeder beendeten Runde einmal das in den Einstellungen gewählte Modell auf (den dsh-Standard, wenn du kein anderes wählst), ohne Klick. **Mobile Verbindung** (standardmäßig aus) nimmt iPhone-Verbindungen aus deinem lokalen Netz oder Tailnet erst an, wenn du sie einschaltest.
+Inoffizielles Community-Plugin. Die einzigen Netzwerkaufrufe sind die Update-Prüfung (GitHub-Releases und die npm-Registry). Schalte **Automatische Updates** aus, um sie beim Start zu stoppen. **Funktionsideen** ruft das eigene Modell deines Chats nur auf, wenn du auf **Funktionen vorschlagen** klickst. **Vorhersage der nächsten Nachricht** (standardmäßig an) ruft nach jeder beendeten Runde einmal das in den Einstellungen gewählte Modell auf (den dsh-Standard, wenn du kein anderes wählst), ohne Klick. Schalte sie unter **Einstellungen → Composer Plus** aus, um diese Aufrufe zu stoppen. **Mobile Verbindung** (standardmäßig aus) nimmt iPhone-Verbindungen aus deinem lokalen Netz oder Tailnet erst an, wenn du sie einschaltest.
 
 ## Installation
 

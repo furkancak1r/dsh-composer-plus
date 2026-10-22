@@ -14,7 +14,7 @@ Các tính năng tiện ích kiểu Codex cho ứng dụng desktop và giao di�
 
 <p align="center"><img src="docs/images/hero.webp" width="820" alt="DeepSeek Harness với Composer Plus: dự án đang chạy hiện biểu tượng xoay trên thanh bên và Bảng thay đổi hiện một git diff"></p>
 
-Đây là plugin cộng đồng, không chính thức. Lệnh gọi mạng duy nhất là việc kiểm tra cập nhật (GitHub releases và npm registry). Tắt **Tự động cập nhật** để dừng các lệnh gọi này khi khởi động. **Ý tưởng tính năng** chỉ gọi mô hình của chính cuộc trò chuyện khi bạn nhấp **Đề xuất tính năng**. **Dự đoán tin nhắn tiếp theo** (mặc định tắt), sau khi bạn bật, gọi mô hình đã chọn trong Cài đặt (mô hình mặc định của dsh, trừ khi bạn chọn mô hình khác) một lần sau mỗi lượt đã xong, không cần nhấp. **Kết nối di động** (mặc định tắt) chỉ nhận kết nối iPhone từ mạng cục bộ hoặc tailnet của bạn sau khi bạn bật tính năng này.
+Đây là plugin cộng đồng, không chính thức. Lệnh gọi mạng duy nhất là việc kiểm tra cập nhật (GitHub releases và npm registry). Tắt **Tự động cập nhật** để dừng các lệnh gọi này khi khởi động. **Ý tưởng tính năng** chỉ gọi mô hình của chính cuộc trò chuyện khi bạn nhấp **Đề xuất tính năng**. **Dự đoán tin nhắn tiếp theo** (mặc định bật) gọi mô hình đã chọn trong Cài đặt (mô hình mặc định của dsh, trừ khi bạn chọn mô hình khác) một lần sau mỗi lượt đã xong, không cần nhấp. Tắt tính năng này trong **Cài đặt → Composer Plus** để dừng các lệnh gọi này. **Kết nối di động** (mặc định tắt) chỉ nhận kết nối iPhone từ mạng cục bộ hoặc tailnet của bạn sau khi bạn bật tính năng này.
 
 ## Cách cài đặt
 

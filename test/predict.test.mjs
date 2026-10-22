@@ -1,7 +1,7 @@
 // Next message prediction (Host half): the switch and the model choice are saved; the model must be one that dsh lists
 // now; GET ?catalog=1 returns dsh's own model list and default; a prediction uses the chosen model (else dsh's default),
 // reads only the user's own messages and the agent's replies, runs only right after a finished turn, one call per chat,
-// and returns one clean line. Off by default: no model call until the user switches it on.
+// and returns one clean line. On by default (no settings file); a saved `on: false` stops every model call.
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -73,9 +73,11 @@ const call = async (method, body, query = '', signal) => {
 };
 
 let r = await call('GET');
-assert.deepEqual(r.data, { on: false }, 'off by default, dsh default model');
+assert.deepEqual(r.data, { on: true }, 'on by default, dsh default model');
+r = await call('POST', { on: false });
+assert.deepEqual(r.data, { on: false });
 r = await call('POST', { sessionId: 's1', afterSeq: 6 });
-assert.equal(r.status, 409, 'off: no model call'); assert.equal(calls.length, 0);
+assert.equal(r.status, 409, 'switched off: no model call'); assert.equal(calls.length, 0);
 
 r = await call('GET', undefined, '?catalog=1');
 assert.deepEqual(r.data.catalog, { default: { provider: 'demo', model: 'demo' }, groups: [
@@ -168,6 +170,6 @@ r = await call('POST', { sessionId: 's1', afterSeq: 14 });
 assert.equal(r.status, 409); assert.equal(r.data.error, 'no model is selected');
 // A broken settings file reads as off.
 await (await import('node:fs/promises')).writeFile(join(home, 'storages/dsh-composer-plus/predict.json'), '{broken');
-assert.deepEqual((await call('GET')).data, { on: false });
+assert.deepEqual((await call('GET')).data, { on: true }, 'a broken file reads as the default (on)');
 await rm(home, { recursive: true, force: true });
 console.log('predict checks passed');

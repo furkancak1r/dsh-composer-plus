@@ -1457,8 +1457,8 @@ function installResume(ctx, home) {
 }
 
 /** Next message prediction: after a turn ends, a guess of the user's next message in the same chat (Codex "composer
- * predictions"). It calls a model without a click, so it is off until the user switches it on; the Host keeps the switch
- * and the model choice in `predict.json`. The model is dsh's default unless the user picked another one from dsh's own
+ * predictions"). On by default (the owner's choice): one short model call per finished turn, no chat turn and nothing in
+ * the chat. The Host keeps the switch and the model choice in `predict.json`. The model is dsh's default unless the user picked another one from dsh's own
  * model catalog. Nothing goes into the chat: the browser shows the text and Tab puts it in the composer. */
 export const PREDICT_TIMEOUT_MS = 45000;
 export const PREDICT_MAX_TOKENS = 4000;
@@ -1468,14 +1468,15 @@ const PREDICT_SYSTEM = `You predict the next message that the user will type in 
 Read the recent conversation. Write the single most likely next message from the user, as the user would type it: short (one sentence, at most 25 words), in the user's own language and tone, and specific to this conversation. Typical next messages ask for the obvious next step, ask to check or test the result, or ask a follow-up question.
 Answer with the message text only: no quotes, no label, no explanation. If no next message is likely, answer with nothing.`;
 
-/** Saved settings: `{on, model?: {provider, model}}`. A broken file reads as off with dsh's default model. */
+/** Saved settings: `{on, model?: {provider, model}}`. No file or a broken file reads as on with dsh's default model; only
+ * a saved `on: false` (the user's switch) turns it off. */
 export function predictStore(file) {
   const read = async () => {
     try {
       const v = JSON.parse(await readFile(file, 'utf8'));
       const model = isText(v?.model?.provider) && isText(v?.model?.model) ? { provider: v.model.provider, model: v.model.model } : undefined;
-      return { on: v?.on === true, ...(model === undefined ? {} : { model }) };
-    } catch { return { on: false }; }
+      return { on: v?.on !== false, ...(model === undefined ? {} : { model }) };
+    } catch { return { on: true }; }
   };
   let queue = Promise.resolve(); // one write at a time: they share a temp file name and merge into the newest state
   const change = (mutate) => {

@@ -14,7 +14,7 @@
 
 <p align="center"><img src="docs/images/hero.webp" width="820" alt="装有 Composer Plus 的 DeepSeek Harness：正在运行的项目在侧边栏中显示加载图标，改动面板显示 git diff"></p>
 
-这是非官方的社区插件。插件只在检查更新时访问网络（GitHub releases 和 npm registry）；关闭 **自动更新** 后，启动时就不再发出这些请求。只有在你点击 **推荐功能** 时，**功能创意** 才会调用对话自己的模型。**下一条消息预测**（默认关闭）开启后，每完成一个回合都会调用一次在设置中选择的模型（除非你另选，否则为 dsh 的默认模型），不需要点击。**手机连接**（默认关闭）只有在你开启后，才会接受来自本地网络或 tailnet 的 iPhone 连接。
+这是非官方的社区插件。插件只在检查更新时访问网络（GitHub releases 和 npm registry）；关闭 **自动更新** 后，启动时就不再发出这些请求。只有在你点击 **推荐功能** 时，**功能创意** 才会调用对话自己的模型。**下一条消息预测**（默认开启）每完成一个回合都会调用一次在设置中选择的模型（除非你另选，否则为 dsh 的默认模型），不需要点击；在 **设置 → Composer Plus** 中关闭它，即可停止这些调用。**手机连接**（默认关闭）只有在你开启后，才会接受来自本地网络或 tailnet 的 iPhone 连接。
 
 ## 安装
 
@@ -50,7 +50,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **复制会话链接** | 在侧边栏中右键点击对话 → **复制会话链接**。把 `dsh-session:…` 链接粘贴到另一个对话中，即可把那个对话作为只读上下文附加进来。dsh 0.2.1 自带 **复制 Session ID**，它只复制纯 ID；本菜单项紧跟在它后面。 | <a href="assets/features/copyDeeplink.webp"><img src="assets/features/copyDeeplink.webp" width="160" alt="复制会话链接截图"></a> |
 | **复制项目路径** | 在侧边栏中右键点击项目 → **复制路径**，即可复制它的文件夹的完整路径。 | <a href="assets/features/copyProjectPath.webp"><img src="assets/features/copyProjectPath.webp" width="160" alt="复制项目路径截图"></a> |
 | **新对话中的项目搜索** | 新对话 → 输入框上方的项目按钮。项目按 A–Z 顺序显示，顶部有 **搜索项目** 框。输入名称的一部分（不区分大小写和重音符号），按 `Enter` 即可选择第一个匹配项。没有匹配项时会显示 **没有匹配的项目**。侧边栏中 dsh 保存的项目顺序不会改变。 | <a href="assets/features/projectPicker.webp"><img src="assets/features/projectPicker.webp" width="160" alt="新对话中的项目搜索截图"></a> |
-| **下一条消息预测** | 默认关闭：请在 **设置 → Composer Plus** 中开启。智能体完成一个回合后（被停止或失败的回合除外），空输入框会以灰色文字显示对你下一条消息的猜测，并带有 **按 Tab 接受** 提示。`Tab` 会把文字放入输入框，但不会发送。`Esc` 会在本回合隐藏它。开始输入也会隐藏它，新的回合会替换它。开关下方的 **模型** 菜单列出 dsh 自己的模型（与 dsh 模型菜单的列表相同）。默认选中 **dsh 默认**，它跟随 dsh 的默认模型。每完成一个回合会进行一次简短的模型调用。在 Tether 中，猜测显示在空输入框上方：轻点它即可放入输入框。 | <a href="assets/features/nextPrediction.webp"><img src="assets/features/nextPrediction.webp" width="160" alt="下一条消息预测截图"></a> |
+| **下一条消息预测** | 默认开启；可在 **设置 → Composer Plus** 中关闭。智能体完成一个回合后（被停止或失败的回合除外），空输入框会以灰色文字显示对你下一条消息的猜测，并带有 **按 Tab 接受** 提示。`Tab` 会把文字放入输入框，但不会发送。`Esc` 会在本回合隐藏它。开始输入也会隐藏它，新的回合会替换它。开关下方的 **模型** 菜单列出 dsh 自己的模型（与 dsh 模型菜单的列表相同）。默认选中 **dsh 默认**，它跟随 dsh 的默认模型。每完成一个回合会进行一次简短的模型调用。在 Tether 中，猜测显示在空输入框上方：轻点它即可放入输入框。 | <a href="assets/features/nextPrediction.webp"><img src="assets/features/nextPrediction.webp" width="160" alt="下一条消息预测截图"></a> |
 | **本对话内允许** | 当 Auto Review 询问你时，审批卡片上会多出 **本对话内允许**：从此以后，同一对话中的同一工具都会被允许，参数不限。标题栏中的标签会列出这些授权，也可以撤销它们。授权在重启后仍然有效。 | <a href="assets/features/allowForChat.webp"><img src="assets/features/allowForChat.webp" width="160" alt="本对话内允许截图"></a> |
 | **项目状态** | 侧边栏中的项目行会显示与其对话相同的加载图标 / 等待 / 完成标记。因此，即使项目已折叠，你也能知道其中有对话正在运行或需要你处理。等待你处理的对话优先显示，其次是你尚未打开的已完成对话（绿色圆点，即使另一个对话仍在运行也会显示），最后是加载图标。将鼠标悬停在上面可查看详情。 | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="项目状态截图"></a> |
 | **活跃项目置顶** | 当某个对话开始运行或需要你处理时，它所在的项目会移到侧边栏顶部，并使用 dsh 自带的行动画（与把它拖到那里的效果相同）。已完成的项目保持原位；你可以像往常一样把它们拖到任意位置。移动会保存到 dsh 的项目顺序中，因此关闭此功能后会保留当前顺序。 | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="活跃项目置顶截图"></a> |

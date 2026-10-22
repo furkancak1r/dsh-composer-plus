@@ -1610,7 +1610,7 @@
     "feature.projectPicker": "新しいチャットでのプロジェクト検索",
     "feature.projectPicker.description": "新しいチャットのプロジェクトメニューで、プロジェクトが A–Z 順に並び、検索ボックスが表示されます。名前の一部を入力して Enter キーを押すと、最初に一致したプロジェクトを選びます。",
     "feature.nextPrediction": "次のメッセージの予測",
-    "feature.nextPrediction.description": "エージェントがターンを終えると、空の入力欄に、このチャットであなたが次に送りそうなメッセージの予測が表示されます。Tab キーで受け入れ、Esc キーで非表示にします。終わったターンごとに短いモデル呼び出しを 1 回行うため、既定ではオフです。",
+    "feature.nextPrediction.description": "エージェントがターンを終えると、空の入力欄に、このチャットであなたが次に送りそうなメッセージの予測が表示されます。Tab キーで受け入れ、Esc キーで非表示にします。終わったターンごとに短いモデル呼び出しを 1 回行います。",
     "feature.mobileConnect": "モバイル接続（iPhone）",
     "feature.mobileConnect.description": "Tether iPhone アプリから、同じ Wi-Fi または Tailscale 経由で dsh を使えます。左下の「モバイル接続」ボタンでペアリング用の QR コードを表示します。この Mac でネットワークポートを開くため、既定ではオフです。",
     "mobile.label": "モバイル接続",

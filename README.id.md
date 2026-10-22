@@ -14,7 +14,7 @@ Fitur kenyamanan bergaya Codex untuk UI desktop dan web [DeepSeek Harness](https
 
 <p align="center"><img src="docs/images/hero.webp" width="820" alt="DeepSeek Harness dengan Composer Plus: proyek yang sedang berjalan menampilkan spinner di bilah samping, dan panel Perubahan menampilkan diff git"></p>
 
-Plugin komunitas tidak resmi. Satu-satunya panggilan jaringan adalah pemeriksaan pembaruan (rilis GitHub dan registri npm). Nonaktifkan **Pembaruan otomatis** untuk menghentikannya saat dsh dimulai. **Ide fitur** memanggil model obrolan Anda sendiri hanya saat Anda mengklik **Sarankan fitur**. **Prediksi pesan berikutnya** (nonaktif secara default), setelah Anda mengaktifkannya, memanggil model yang dipilih di Pengaturan (model default dsh, kecuali Anda memilih yang lain) satu kali setelah setiap giliran selesai, tanpa klik. **Koneksi seluler** (nonaktif secara default) menerima koneksi iPhone dari jaringan lokal atau tailnet Anda hanya setelah Anda mengaktifkannya.
+Plugin komunitas tidak resmi. Satu-satunya panggilan jaringan adalah pemeriksaan pembaruan (rilis GitHub dan registri npm). Nonaktifkan **Pembaruan otomatis** untuk menghentikannya saat dsh dimulai. **Ide fitur** memanggil model obrolan Anda sendiri hanya saat Anda mengklik **Sarankan fitur**. **Prediksi pesan berikutnya** (aktif secara default) memanggil model yang dipilih di Pengaturan (model default dsh, kecuali Anda memilih yang lain) satu kali setelah setiap giliran selesai, tanpa klik. Nonaktifkan di **Pengaturan → Composer Plus** untuk menghentikan panggilan ini. **Koneksi seluler** (nonaktif secara default) menerima koneksi iPhone dari jaringan lokal atau tailnet Anda hanya setelah Anda mengaktifkannya.
 
 ## Instalasi
 

@@ -1610,7 +1610,7 @@
     "feature.projectPicker": "Tìm dự án trong cuộc trò chuyện mới",
     "feature.projectPicker.description": "Menu dự án của cuộc trò chuyện mới hiển thị các dự án theo thứ tự A–Z và có thêm ô tìm kiếm. Nhập một phần tên rồi nhấn Enter để chọn kết quả đầu tiên.",
     "feature.nextPrediction": "Dự đoán tin nhắn tiếp theo",
-    "feature.nextPrediction.description": "Khi tác tử hoàn tất một lượt, ô soạn tin trống sẽ hiển thị dự đoán tin nhắn tiếp theo của bạn trong cuộc trò chuyện này. Nhấn Tab để chấp nhận, Esc để ẩn. Tính năng gọi mô hình một lần ngắn cho mỗi lượt đã xong, vì vậy mặc định tắt.",
+    "feature.nextPrediction.description": "Khi tác tử hoàn tất một lượt, ô soạn tin trống sẽ hiển thị dự đoán tin nhắn tiếp theo của bạn trong cuộc trò chuyện này. Nhấn Tab để chấp nhận, Esc để ẩn. Tính năng gọi mô hình một lần ngắn cho mỗi lượt đã xong.",
     "feature.mobileConnect": "Kết nối di động (iPhone)",
     "feature.mobileConnect.description": "Dùng dsh từ ứng dụng Tether trên iPhone, trong cùng mạng Wi-Fi hoặc qua Tailscale. Nút Kết nối di động ở góc dưới bên trái hiển thị mã QR để ghép nối. Mặc định tắt vì tính năng này mở một cổng mạng trên máy Mac này.",
     "mobile.label": "Kết nối di động",

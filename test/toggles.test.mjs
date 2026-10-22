@@ -20,7 +20,7 @@ function boot(){
   return {ids,scopes,settings,unload:()=>effects.forEach(f=>typeof f==='function'&&f())};
 }
 let app=boot();
-const all=['chat-tool-grants','collapse-projects','composer-continue','composer-history','composer-keep-focus','composer-plan-toggle','composer-plus','copy-deeplink','delete-chat','delete-chat-dialog','project-name','project-path-menu','project-picker-search','project-status','queue-reorder','recent-projects','session-context-menu','status-order','turn-rollback'];
+const all=['chat-tool-grants','collapse-projects','composer-continue','composer-history','composer-keep-focus','composer-plan-toggle','composer-plus','copy-deeplink','delete-chat','delete-chat-dialog','next-prediction','project-name','project-path-menu','project-picker-search','project-status','queue-reorder','recent-projects','session-context-menu','status-order','turn-rollback'];
 assert.deepEqual(app.ids(),all,'every feature on by default, plus the settings section');
 assert.ok(app.scopes.has('workspaces,uiSession,sessions')&&app.scopes.has('uiSession,uiWorkspace,sessions')&&app.scopes.has('sidebarRight,sidebarRightTabs'));
 assert.equal(app.settings.name,'settings.section');
@@ -39,9 +39,9 @@ let renders=[];const row=app.settings;const C=(() => { let comp; const slots={in
   plugin.apply({slots,effect:()=>{},locale:{register:()=>()=>{},bind:()=>k=>k}});return comp; })();
 const calls=[];const tree=C({useComposerPlusToggles:f=>f({planToggle:false}),setFeature:(id,on)=>calls.push([id,on]),t:k=>k});
 assert.equal(tree.c[1].p['data-composer-plus-search'],'');assert.equal(tree.c[3],null,'no update row without an updater');assert.equal(tree.c[4],null,'no empty notice');const switches=tree.c.slice(5).map(r=>r.c[2]);assert.equal(tree.c.slice(5).filter(r=>r.c[0].p.id!==undefined).length,25,'every feature row has a screenshot (the auto-update switch shows the update row\'s)');assert.equal(switches.length,25);
-const plan=switches.find(s=>s.p.label==='feature.planToggle');assert.equal(plan.p.checked,false);assert.equal(switches.filter(s=>s.p.checked).length,21,'plan mode is off here; Mobile connect, Resume after restart and Next message prediction are off by default; Content search, Turn rollback, Delete chat and Project name are on');
+const plan=switches.find(s=>s.p.label==='feature.planToggle');assert.equal(plan.p.checked,false);assert.equal(switches.filter(s=>s.p.checked).length,22,'plan mode is off here; Mobile connect and Resume after restart are off by default; Next message prediction is on; Content search, Turn rollback, Delete chat and Project name are on');
 assert.equal(switches.find(s=>s.p.label==='feature.contentSearch').p.checked,true);
-assert.equal(switches.find(s=>s.p.label==='feature.mobileConnect').p.checked,false);assert.equal(switches.find(s=>s.p.label==='feature.resumeAfterRestart').p.checked,false);assert.equal(switches.find(s=>s.p.label==='feature.nextPrediction').p.checked,false,'calls a model: off by default');
+assert.equal(switches.find(s=>s.p.label==='feature.mobileConnect').p.checked,false);assert.equal(switches.find(s=>s.p.label==='feature.resumeAfterRestart').p.checked,false);assert.equal(switches.find(s=>s.p.label==='feature.nextPrediction').p.checked,true,'on by default');
 plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
 // Settings search: filters by title, description or id; accent/case/Turkish-ı insensitive; Esc clears; empty notice.
 { q='';let C2;const sl={inject:(n,f)=>f(),register:(o,Comp)=>{if(o.id==='composer-plus')C2=Comp;return()=>{};}};
