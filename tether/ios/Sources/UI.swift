@@ -1373,11 +1373,11 @@ struct SessionsView: View {
                 } else if query.isEmpty {
                     // offset id: two DSH workspaces may share a title
                     ForEach(Array(c.sessionGroups(project: project.isEmpty ? nil : project).enumerated()), id: \.offset) { _, g in
-                        // accordion like the desktop sidebar; Archived starts folded; a folded group still shows the open session
+                        // accordion like the desktop sidebar; Archived starts folded; a folded group shows no chats, as on the desktop
                         let folded = groupFolded(shownFolds, g.title)
                         Section {
                             // List's own row insert animation; a custom .move transition made rows pop in on expand
-                            ForEach(folded ? g.items.filter { $0.id == c.current } : g.items) { s in sessionRow(s) }
+                            ForEach(folded ? [] : g.items) { s in sessionRow(s) }
                         } header: {
                             Button {
                                 withAnimation(.snappy(duration: 0.3)) { shownFolds = toggledFold(shownFolds, g.title) }
@@ -1530,7 +1530,6 @@ struct SessionsView: View {
             // DSH desktop's marks: a turning ring while it runs (also while a subagent runs), green when it finished
             if isRunning(s, c.sessions) { RunningSpinner().accessibilityLabel("Running") }
             else if c.finished.contains(s.id) { Circle().fill(.green).frame(width: 8, height: 8).accessibilityLabel("Finished") }
-            if s.id == c.current { Image(systemName: "checkmark").foregroundStyle(Color.accentColor) }
         }
     }
     func pinLabel(_ s: Sess) -> String { c.pinned.contains(s.id) ? String(localized: "Unpin") : String(localized: "Pin") }

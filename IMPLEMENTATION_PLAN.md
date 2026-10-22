@@ -563,3 +563,9 @@ Request (owner): "Normal dshda sohbetleri proje dışında liste olarak görebil
 Evidence: dsh's sidebar View options → Group by has WorkSpace, Workspace Tree and "In one list" (`groupBy: "flat"`, `FlatList`: every visible root chat in one list, pinned first; archived per the filter).
 Change: the Sessions filter menu gets a "Group by" picker: By project (default) / In one list. Saved on this iPhone (`sessionsOneList`). In one list: Pinned, then "All sessions" (every not pinned, not archived root chat, newest first or by status), then Archived (folded by default, as before). The project filter in the same menu still limits the list; "Active in the last 2 hours" keeps single recent chats (no projects to keep). No project groups → the Collapse all projects button hides. Not a Composer Plus feature (dsh has it), so no FEATURES row.
 Checks: iOS unit tests 30/30 (groups, items, project filter, Collapse all hidden, 2-hour filter, back to By project). Simulator against the demo gateway with one made-up project: By project shows "shop (2)" and "Ungrouped (1)"; In one list shows "All sessions (3)"; back to By project restores the groups and the Collapse all button.
+
+## Tether: no blue check on the open chat (2026-10-22)
+Request (owner, screenshot): remove the blue check mark in the Sessions list; the owner does not like it.
+Evidence: `SessionsView.row` drew `checkmark` for `s.id == c.current`, and a folded group still showed the open chat (so the row with the check stood alone between folded projects).
+Change: the check mark is gone; a folded group shows no chats, as on the desktop. The open chat stays open in the Conversation tab.
+Checks: iOS unit tests 30/30. Simulator against the demo gateway: open a chat, go back → no check on its row; Collapse all → only the project headers, the open chat does not stay in view.
