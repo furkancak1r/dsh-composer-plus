@@ -54,7 +54,8 @@ const fake = createServer((req, res) => {
 }).listen(0, '127.0.0.1');
 await new Promise((r) => fake.once('listening', r));
 const fakePort = fake.address().port;
-const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'Demo', GIT_AUTHOR_EMAIL: 'demo@example.com', GIT_COMMITTER_NAME: 'Demo', GIT_COMMITTER_EMAIL: 'demo@example.com' } });
+// No background `git maintenance` after the commit: its maintenance.lock would change the .git fingerprint.
+const git = (cwd, ...a) => execFileSync('git', ['-c', 'maintenance.auto=false', ...a], { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'Demo', GIT_AUTHOR_EMAIL: 'demo@example.com', GIT_COMMITTER_NAME: 'Demo', GIT_COMMITTER_EMAIL: 'demo@example.com' } });
 const fingerprint = async (dir) => {
   const lines = [];
   const walk = async (d) => { for (const e of await readdir(d, { withFileTypes: true })) { const p = join(d, e.name); if (e.isDirectory()) await walk(p); else lines.push(`${p} ${createHash('sha1').update(await readFile(p)).digest('hex')}`); } };

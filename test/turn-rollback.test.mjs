@@ -24,7 +24,9 @@ const subprocess = {
     };
   },
 };
-const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+// The test's own `git commit` starts `git maintenance run --auto --detach`, and that can leave .git/objects/maintenance.lock
+// after `before` was taken (CI run 39903429035). Switch it off: the fingerprint then sees only what the snapshot store writes.
+const git = (cwd, ...a) => execFileSync('git', ['-c', 'maintenance.auto=false', ...a], { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
 /** A fingerprint of every file under .git: path, size, mode and content hash. */
 const fingerprint = (dir) => {
   const lines = [];
