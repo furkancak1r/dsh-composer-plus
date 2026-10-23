@@ -60,15 +60,35 @@ try {
           broken: shots.filter((img) => img.naturalWidth === 0).map((img) => img.closest('[data-composer-plus-shot]').getAttribute('data-composer-plus-shot')),
           update: root.querySelector('[data-composer-plus-update] [data-composer-plus-shot]') !== null,
           language: root.querySelector('[data-composer-plus-language] [data-composer-plus-shot]') !== null,
+          // "How to use it": each feature row links its README row (English UI → README.md).
+          help: rows.map((row) => row.querySelector('[data-composer-plus-help]')).map((a) => a && { id: a.dataset.composerPlusHelp, href: a.href, target: a.target, rel: a.rel, label: a.getAttribute('aria-label') }),
+          languageHelp: root.querySelector('[data-composer-plus-language] [data-composer-plus-help="language"]')?.href ?? null,
         };
       });
+      assert.equal(report.languageHelp, 'https://github.com/furkancak1r/dsh-composer-plus/blob/main/README.md#feature-language', 'the Application language row has a ? link too');
       assert.ok(report.rows >= 20, `all feature rows rendered (${report.rows})`);
       assert.deepEqual(report.missing, [], 'every feature row has a screenshot');
       assert.deepEqual(report.broken, [], 'every screenshot loads');
       assert.ok(report.update && report.language, 'the update and language rows have one too');
+      assert.ok(report.help.every(Boolean), 'every feature row has a ? link');
+      for (const h of report.help) {
+        assert.equal(h.href, `https://github.com/furkancak1r/dsh-composer-plus/blob/main/README.md#feature-${h.id.toLowerCase()}`, `${h.id}: the link opens its README row`);
+        assert.equal(h.target, '_blank'); assert.equal(h.rel, 'noopener noreferrer'); assert.match(h.label, /^How to use it: .+ \(opens the README\)$/);
+      }
+      // Switch the UI to Türkçe: the links follow it to README.tr.md.
+      await page.locator('[data-composer-plus-language] button[aria-haspopup="menu"]').click();
+      await page.getByRole('menuitem', { name: 'Türkçe' }).or(page.getByRole('menuitemradio', { name: 'Türkçe' })).or(page.getByRole('option', { name: 'Türkçe' })).first().click();
+      await page.waitForFunction(() => document.querySelector('[data-composer-plus-help="changesPanel"]')?.href.includes('/README.tr.md#feature-changespanel'), null, { timeout: 10000 });
+      const trLabel = await page.locator('[data-composer-plus-help="changesPanel"]').getAttribute('aria-label');
+      assert.match(trLabel, /^Nasıl kullanılır: .+ \(README’yi açar\)$/, 'the label follows the language too');
+      assert.equal(await page.locator('[data-composer-plus-language] [data-composer-plus-help="language"]').getAttribute('href'),
+        'https://github.com/furkancak1r/dsh-composer-plus/blob/main/README.tr.md#feature-language', 'the language row follows the language too');
+      // Keyboard: the language row's ? link can take the focus (it is a real link with a name).
+      await page.locator('[data-composer-plus-language] [data-composer-plus-help="language"]').focus();
+      assert.equal(await page.evaluate(() => document.activeElement?.dataset.composerPlusHelp), 'language', 'the ? link takes the keyboard focus');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: ${report.rows} feature rows, each with a loading screenshot; update and language rows too`);
+      console.log(`PASS ${bin}: ${report.rows} feature rows, each with a loading screenshot and a ? link to its README row (README.md, then README.tr.md in Türkçe); the language row has its ? link too; update and language rows have a screenshot`);
     } finally {
       await context?.close();
       await writeFile(join(home, 'server.log'), log); // the token stays inside the temporary home, never stdout

@@ -196,6 +196,16 @@ export const parseVersion = (text) => {
   return m === null ? undefined : m.slice(1).map(Number);
 };
 export const newer = (a, b) => { for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] > b[i]; return false; };
+/** At most this many characters of release notes go to the What's new dialog. */
+export const NOTES_MAX = 20000;
+/** The release notes for the What's new dialog: the release body without its install section (the user already has it).
+ * ponytail: the cut finds the "## Install" heading that the release notes of this project end with; notes without it stay
+ * whole. Upgrade path: a marker comment in the release template. */
+export const releaseNotes = (body) => {
+  if (typeof body !== 'string') return undefined;
+  const text = body.replace(/\r\n?/g, '\n').split(/^## Install\b/m)[0].trim().slice(0, NOTES_MAX);
+  return text === '' ? undefined : text;
+};
 /** Latest GitHub release vs this copy. `managed` is false for a renamed or linked local copy, which pnpm can't upgrade. */
 export async function checkUpdate(fetchImpl = fetch, pkg = PACKAGE, signal) {
   const current = parseVersion(pkg.version);
@@ -209,6 +219,8 @@ export async function checkUpdate(fetchImpl = fetch, pkg = PACKAGE, signal) {
   if (latest === undefined) throw new Error('latest release has no x.y.z tag');
   const info = { name: NPM_NAME, current: pkg.version, latest: latest.join('.'), managed, newer: false,
     url: typeof release.html_url === 'string' && release.html_url.startsWith('https://github.com/') ? release.html_url : undefined };
+  const notes = releaseNotes(release.body);
+  if (notes !== undefined) info.notes = notes;
   if (current === undefined || !newer(latest, current)) return info;
   // A release can go out before `npm publish`; offer only what pnpm can install.
   const npm = await fetchImpl(`https://registry.npmjs.org/${NPM_NAME}/${info.latest}`, opts);
@@ -1053,6 +1065,8 @@ export function apply(ctx) {
   ctx.connection.fetch.register({
     path: UPDATE_PATH, methods: ['GET'], requestBody: 'buffered',
     fetch: async (request) => {
+      // `?current=1`: only the version that this Host runs (What's new after an update); no network call.
+      if (new URL(request.url).searchParams.get('current') === '1') return json({ current: PACKAGE.version });
       try { return json(await checkUpdate(fetch, PACKAGE, request.signal)); } catch (error) { return json({ error: String(error?.message ?? error) }, 502); }
     },
   });

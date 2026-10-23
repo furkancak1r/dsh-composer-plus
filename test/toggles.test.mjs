@@ -20,7 +20,7 @@ function boot(){
   return {ids,scopes,settings,unload:()=>effects.forEach(f=>typeof f==='function'&&f())};
 }
 let app=boot();
-const all=['chat-tool-grants','collapse-projects','composer-continue','composer-history','composer-keep-focus','composer-plan-toggle','composer-plus','copy-deeplink','delete-chat','delete-chat-dialog','export-markdown','export-markdown-dialog','next-prediction','project-name','project-path-menu','project-picker-search','project-status','queue-reorder','recent-projects','session-context-menu','status-order','turn-rollback'];
+const all=['chat-tool-grants','collapse-projects','composer-continue','composer-history','composer-keep-focus','composer-plan-toggle','composer-plus','copy-deeplink','delete-chat','delete-chat-dialog','export-markdown','export-markdown-dialog','next-prediction','project-name','project-path-menu','project-picker-search','project-status','queue-reorder','recent-projects','session-context-menu','status-order','turn-rollback','whats-new'];
 assert.deepEqual(app.ids(),all,'every feature on by default, plus the settings section');
 assert.ok(app.scopes.has('workspaces,uiSession,sessions')&&app.scopes.has('uiSession,uiWorkspace,sessions')&&app.scopes.has('sidebarRight,sidebarRightTabs'));
 assert.equal(app.settings.name,'settings.section');
@@ -60,6 +60,21 @@ plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
   let stopped=0;tree.c[1].c[0].p.onKeyDown({key:'Escape',preventDefault(){},stopPropagation(){stopped++;}});assert.equal(q,'');assert.equal(stopped,1,'Esc clears without closing Settings');
   tree=render();tree.c[1].c[0].p.onKeyDown({key:'Escape',preventDefault(){throw Error('must not trap Esc when empty');},stopPropagation(){}});
 }
+// "How to use it" link on each row: the feature's README row, in the README of dsh's UI language (base language, else English).
+{ let C3;const sl={inject:(n,f)=>f(),register:(o,Comp)=>{if(o.id==='composer-plus')C3=Comp;return()=>{};}};
+  plugin.apply({slots:sl,effect:()=>{},locale:{register:()=>()=>{},bind:()=>k=>k}});
+  const links=(active)=>{const locale=active===null?undefined:{subscribe:()=>()=>{},getSnapshot:()=>({active})};
+    const tree=C3({useComposerPlusToggles:f=>f({}),setFeature:()=>{},locale,t:(k,p)=>(p?.feature?`${k}:${p.feature}`:k)});
+    return tree.c.slice(5).map(r=>{const title=r.c[1].c[0];assert.equal(r.c[2].t,'Switch','the switch stays the third child');return title.c[1];});};
+  let a=links('tr');assert.equal(a.length,27,'one link per feature row');
+  const first=a[0];assert.equal(first.t,'a');assert.equal(first.p.href,'https://github.com/furkancak1r/dsh-composer-plus/blob/main/README.tr.md#feature-changespanel');
+  assert.equal(first.p.target,'_blank');assert.equal(first.p.rel,'noopener noreferrer');assert.equal(first.p['aria-label'],'settings.help:feature.changesPanel');assert.equal(first.c[0],'?');
+  assert.ok(a.every(l=>l.p.href.endsWith(`#feature-${l.p['data-composer-plus-help'].toLowerCase()}`)),'each link opens its own row');
+  const url=(active)=>links(active).find(l=>l.p['data-composer-plus-help']==='nextPrediction').p.href.split('/main/')[1];
+  assert.equal(url('en'),'README.md#feature-nextprediction');assert.equal(url('zh'),'README.zh.md#feature-nextprediction');
+  assert.equal(url('pt-BR'),'README.pt-BR.md#feature-nextprediction');assert.equal(url('pt-br'),'README.pt-BR.md#feature-nextprediction','case-insensitive');
+  assert.equal(url('de-AT'),'README.de.md#feature-nextprediction','base language');assert.equal(url('pt-PT'),'README.md#feature-nextprediction','pt-PT has no README: English');
+  assert.equal(url('xx'),'README.md#feature-nextprediction');assert.equal(url(null),'README.md#feature-nextprediction','no locale service: English');}
 // Changes tab chip title: its own seat, so it follows a language switch instead of dsh's title saved when the tab opened.
 { const regs=[];const ctx={slots:{inject:(n,f)=>f(),register:(o,Comp)=>{regs.push([o,Comp]);return()=>{};}},configForms:{get:()=>({})},effect:()=>{},locale:{register:()=>()=>{},bind:()=>k=>k},
     inject:(deps,setup)=>{if(deps.includes('sidebarRightTabs'))setup({effect:f=>f(),sidebarRight:{},sidebarRightTabs:{register:()=>()=>{}}});return{dispose(){}};}};

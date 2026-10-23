@@ -75,6 +75,12 @@ const menu = () => app.render().children[0].children[2]; // shot, text, menu
 assert.deepEqual(menu().props.items.map((x) => x.id), ['system', 'en', 'zh', ...ids]);
 assert.equal(menu().props.selectedId, 'system');
 assert.equal(menu().props.anchor.type, 'button', 'native Menu renders its anchor prop, not its children');
+// "How to use it": the language row links its README row too, in the README of the UI language (here English).
+{ const title = app.render().children[0].children[1].children[0]; const help = title.children[1];
+  assert.equal(title.children[0], 'language.title');
+  assert.equal(help?.type, 'a', 'the language row has a ? link'); assert.equal(help.props['data-composer-plus-help'], 'language');
+  assert.equal(help.props.href, 'https://github.com/furkancak1r/dsh-composer-plus/blob/main/README.md#feature-language');
+  assert.equal(help.props.target, '_blank'); assert.equal(help.props.rel, 'noopener noreferrer'); assert.equal(help.props['aria-label'], 'settings.help'); }
 menu().props.anchor.props.onClick(); assert.equal(menu().props.open, true);
 menu().props.onClose(); assert.equal(menu().props.open, false);
 await menu().props.onSelect('tr'); assert.deepEqual(app.writes.at(-1), ['set', 'preference', 'tr']); assert.equal(menu().props.selectedId, 'tr');

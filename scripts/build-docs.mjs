@@ -1,0 +1,136 @@
+// Documentation from one source: docs/features.json + the language packs make
+// - the feature table of README.md and of each translated README.<id>.md,
+// - the feature list of llms.txt,
+// - docs/ROUTES.md (the Host routes of index.js).
+// `npm run build:readme` writes them; `--check` (in `npm test`) fails when a file differs from what this script makes.
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { LANGUAGES } from './build-locales.mjs';
+
+const url = (p) => new URL(`../${p}`, import.meta.url);
+export const DOC_LANGUAGES = ['en', 'zh', ...LANGUAGES.map(([id]) => id)];
+export const readmeOf = (lang) => (lang === 'en' ? 'README.md' : `README.${lang}.md`);
+/** The README row anchor of a feature. GitHub keeps the id as `user-content-feature-…`, in lower case. */
+export const anchorOf = (id) => `feature-${id.toLowerCase()}`;
+export const source = () => JSON.parse(readFileSync(url('docs/features.json'), 'utf8'));
+
+/** en and zh texts live in client.js (dsh's own namespaces are not in this repository); the other 11 in locales/<id>.json. */
+export function pluginTexts() {
+  const src = readFileSync(url('client.js'), 'utf8');
+  const start = 'ctx.locale.register(LOCALE_NS, ';
+  const from = src.indexOf(start) + start.length;
+  const to = src.indexOf("}), 'dsh-composer-plus: dictionaries');");
+  if (from < start.length || to < from) throw new Error('client.js: the dictionary block was not found');
+  const texts = new Function(`return (${src.slice(from, to + 1)});`)();
+  for (const [id] of LANGUAGES) texts[id] = JSON.parse(readFileSync(url(`locales/${id}.json`), 'utf8'))['dsh-composer-plus'];
+  return texts;
+}
+
+const BEGIN = '<!-- BEGIN GENERATED FEATURES: edit docs/features.json, then run npm run build:readme -->';
+const END = '<!-- END GENERATED FEATURES -->';
+const region = (text, file) => {
+  const from = text.indexOf(BEGIN); const to = text.indexOf(END);
+  if (from < 0 || to < from) throw new Error(`${file}: the generated feature markers are missing`);
+  return [text.slice(0, from + BEGIN.length), text.slice(to)];
+};
+/** An HTML attribute value from a language pack: refuse markup characters instead of escaping them (no label needs them). */
+const attr = (s, where) => {
+  if (/[&"<>]/.test(s)) throw new Error(`${where}: the image alt text cannot have &, ", < or >`);
+  return s;
+};
+/** A table cell: one line, and GitHub splits a cell at every "|", also inside a code span, unless it is escaped. */
+const cell = (s, where) => {
+  if (/[\r\n]/.test(s)) throw new Error(`${where}: a table cell cannot have a line break`);
+  return s.replaceAll('|', '\\|');
+};
+
+function featureTable(data, texts, lang) {
+  const t = texts[lang];
+  const rows = data.features.map((f) => {
+    const key = f.name ?? `feature.${f.id}`;
+    const name = t[key]; const how = f.how?.[lang];
+    if (typeof name !== 'string' || name === '') throw new Error(`${lang}: no label "${key}" for feature ${f.id}`);
+    if (typeof how !== 'string' || how.trim() === '') throw new Error(`docs/features.json: feature ${f.id} has no "${lang}" text`);
+    const where = `docs/features.json: ${f.id} (${lang})`;
+    const alt = attr(t['shot.alt'].replace('{feature}', name), where);
+    const pic = `assets/features/${f.shot}.webp`;
+    return `| <a id="${anchorOf(f.id)}"></a>**${cell(name, where)}** | ${cell(how, where)} | <a href="${pic}"><img src="${pic}" width="160" alt="${alt}"></a> |`;
+  });
+  return [`| ${data.header[lang].join(' | ')} |`, '|---|---|---|', ...rows].join('\n');
+}
+
+function llmsList(data, texts) {
+  return data.features.map((f) => {
+    if (typeof f.llms !== 'string' || f.llms.trim() === '') throw new Error(`docs/features.json: feature ${f.id} has no llms text`);
+    return `- ${texts.en[f.name ?? `feature.${f.id}`]}: ${f.llms}`;
+  }).join('\n');
+}
+
+/** The routes that index.js registers, read from a real apply() with a fake dsh (a temporary DSH_HOME, removed after). */
+export async function hostRoutes() {
+  const home = mkdtempSync(join(tmpdir(), 'composer-plus-routes-'));
+  const before = process.env.DSH_HOME; process.env.DSH_HOME = home;
+  try {
+    const { apply } = await import('../index.js');
+    const routes = [];
+    apply({ on() {}, effect() {}, connection: { fetch: { register: (r) => routes.push({ path: r.path, methods: [...r.methods] }) } },
+      sessionController: {}, sessionQuery: {}, subprocess: {} });
+    await new Promise((resolve) => setTimeout(resolve, 50)); // the switch files read once at start
+    return routes;
+  } finally {
+    if (before === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = before;
+    rmSync(home, { recursive: true, force: true });
+  }
+}
+
+async function routesDoc(data) {
+  const { PLUS } = await import('../tether/gateway/server.mjs');
+  const lines = [
+    '# Host routes',
+    '',
+    'Generated by `npm run build:readme` from `docs/features.json` (`routes`) and the routes that `index.js` registers. Do not edit this file.',
+    '',
+    'Every route is on dsh\'s authenticated `/api` channel. "Tether" tells whether the iPhone gateway forwards that method (`PLUS` in `tether/gateway/server.mjs`, as `/plus/<name>`). The gateway always refuses a body with `on` or `model`, so a phone never changes a switch or a model, also on a route that it can call.',
+    '',
+    '| Route | Method | Request | Feature | Tether |',
+    '|---|---|---|---|---|',
+  ];
+  for (const r of data.routes) for (const [method, request] of Object.entries(r.request)) {
+    const tether = PLUS.get(r.name)?.includes(method) ? 'yes' : 'no';
+    lines.push(`| \`/api/composer-plus.${r.name}\` | ${method} | ${cell(request, `docs/features.json: route ${r.name} ${method}`)} | ${r.feature} | ${tether} |`);
+  }
+  return `${lines.join('\n')}\n`;
+}
+
+/** Every generated file and the text it must have. */
+export async function build() {
+  const data = source(); const texts = pluginTexts();
+  const out = new Map();
+  for (const lang of DOC_LANGUAGES) {
+    const file = readmeOf(lang); const text = readFileSync(url(file), 'utf8');
+    const [head, tail] = region(text, file);
+    out.set(file, `${head}\n\n${featureTable(data, texts, lang)}\n\n${tail}`);
+  }
+  const llms = readFileSync(url('llms.txt'), 'utf8'); const [head, tail] = region(llms, 'llms.txt');
+  out.set('llms.txt', `${head}\n${llmsList(data, texts)}\n${tail}`);
+  out.set('docs/ROUTES.md', await routesDoc(data));
+  return out;
+}
+
+// Run only as a script (tests import this file). Compare real file URLs: a path with a space, a non-ASCII letter or a
+// symlink (macOS /tmp) must still run the check, or `npm test` would pass on stale docs.
+const isMain = (() => { try { return import.meta.url === pathToFileURL(realpathSync(process.argv[1])).href; } catch { return false; } })();
+if (isMain) {
+  const out = await build();
+  const read = (file) => { try { return readFileSync(url(file), 'utf8'); } catch { return null; } };
+  const stale = [...out].filter(([file, text]) => read(file) !== text).map(([file]) => file);
+  if (process.argv.includes('--check')) {
+    if (stale.length > 0) throw new Error(`Generated docs are stale: ${stale.join(', ')}. Edit docs/features.json, then run npm run build:readme`);
+    console.log(`docs check passed (${out.size} files)`);
+  } else {
+    for (const file of stale) writeFileSync(url(file), out.get(file));
+    console.log(stale.length === 0 ? 'docs are up to date' : `wrote ${stale.join(', ')}`);
+  }
+}
