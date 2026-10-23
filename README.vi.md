@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Sau đó khởi động lại dsh. (CLI không cài được vào profile desktop; ứng dụng tự quản lý profile này.)
 
-> pnpm của dsh bỏ qua các phiên bản ra mắt chưa đủ 24 giờ. Ngay sau một bản phát hành, hãy thêm số phiên bản: `dsh-composer-plus@1.10.0`.
+> pnpm của dsh bỏ qua các phiên bản ra mắt chưa đủ 24 giờ. Ngay sau một bản phát hành, hãy thêm số phiên bản: `dsh-composer-plus@1.11.0`.
 
 ## Tính năng
 
@@ -139,7 +139,7 @@ Khi menu `/` hoặc `@` đang mở, menu đó giữ các phím này cho riêng n
 - **Cuộc trò chuyện và tệp bị mờ:** dự án không phải repository git, không có snapshot từ trước tin nhắn đó (tin nhắn cũ hơn plugin, hoặc một trong 50 snapshot mới nhất đã thay thế snapshot đó), hoặc không có tệp nào thay đổi.
 - **Thao tác xóa báo rằng một dsh khác đang mở cuộc trò chuyện này:** một dsh thứ hai dùng cùng thư mục home của dsh đang giữ khóa của cuộc trò chuyện. Hãy đóng cửa sổ đó hoặc dsh đó, rồi xóa lại. Trong lúc đó, cuộc trò chuyện vẫn ở trạng thái đã lưu trữ.
 - **Một cuộc trò chuyện không tiếp tục sau khi khởi động lại:** Tiếp tục sau khi khởi động lại đang tắt khi dsh thoát, bạn đã tự dừng lượt đó, lượt đã kết thúc (xong hoặc thất bại), cuộc trò chuyện đã được lưu trữ, hoặc có hơn 20 cuộc trò chuyện đang chạy (20 cuộc trò chuyện mới nhất sẽ tiếp tục).
-- **Cài đặt thất bại ngay sau một bản phát hành:** thêm số phiên bản (`dsh-composer-plus@1.10.0`), xem ghi chú cài đặt ở trên.
+- **Cài đặt thất bại ngay sau một bản phát hành:** thêm số phiên bản (`dsh-composer-plus@1.11.0`), xem ghi chú cài đặt ở trên.
 
 ## Giới hạn
 

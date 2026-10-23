@@ -1,6 +1,6 @@
 {
   "name": "dsh-composer-plus",
-  "version": "1.10.0",
+  "version": "1.11.0",
   "description": "DeepSeek Harness helpers: 11 extra UI languages (Türkçe, Español, Français, Deutsch, 日本語…), Changes panel, swipe-card feature ideas, sidebar search in message text, turn rollback with git file restore, delete chats to the Trash, input history, Shift+Tab /plan, one-click Continue, resume running chats after a restart, queue drag-and-drop, deeplinks, Auto Review allow-for-chat, notifications, iPhone access with the Tether app, automatic updates",
   "icon": "./assets/icon.svg",
   "license": "MIT",

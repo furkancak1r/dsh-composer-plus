@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Redémarrez ensuite dsh. (La CLI ne peut pas installer dans le profil de bureau ; c’est l’app qui le gère.)
 
-> Le pnpm de dsh ignore les versions publiées depuis moins de 24 heures. Juste après une nouvelle version, ajoutez le numéro de version : `dsh-composer-plus@1.10.0`.
+> Le pnpm de dsh ignore les versions publiées depuis moins de 24 heures. Juste après une nouvelle version, ajoutez le numéro de version : `dsh-composer-plus@1.11.0`.
 
 ## Fonctionnalités
 
@@ -139,7 +139,7 @@ Testé sur dsh `0.2.0-rc.2` (bureau et web) et `0.2.1-rc.2` (web). La CI exécut
 - **Discussion et fichiers est grisé :** le projet n’est pas un dépôt git, il n’y a pas d’instantané d’avant ce message (le message est plus ancien que le plugin, ou l’un des 50 instantanés les plus récents l’a remplacé), ou aucun fichier n’a changé.
 - **Supprimer indique qu’un autre dsh a cette discussion ouverte :** un second dsh qui utilise le même dossier personnel de dsh détient le verrou de la discussion. Fermez cette fenêtre ou ce dsh, puis supprimez de nouveau. En attendant, la discussion reste archivée.
 - **Une discussion n’a pas repris après un redémarrage :** Reprendre après redémarrage était désactivée quand dsh s’est fermé, vous avez arrêté ce tour vous-même, le tour était fini (terminé ou en échec), la discussion était archivée, ou plus de 20 discussions étaient en cours (les 20 plus récentes reprennent).
-- **L’installation échoue juste après une nouvelle version :** ajoutez la version (`dsh-composer-plus@1.10.0`) ; voir la note d’installation plus haut.
+- **L’installation échoue juste après une nouvelle version :** ajoutez la version (`dsh-composer-plus@1.11.0`) ; voir la note d’installation plus haut.
 
 ## Limites
 
