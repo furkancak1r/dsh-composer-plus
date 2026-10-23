@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Después, reinicia dsh. (La CLI no puede instalar en el perfil de escritorio: de eso se encarga la app).
 
-> El pnpm de dsh omite las versiones publicadas hace menos de 24 horas. Justo después de una versión nueva, añade la versión: `dsh-composer-plus@1.11.2`.
+> El pnpm de dsh omite las versiones publicadas hace menos de 24 horas. Justo después de una versión nueva, añade la versión: `dsh-composer-plus@1.11.3`.
 
 ## Funciones
 
@@ -139,7 +139,7 @@ Probado en dsh `0.2.0-rc.2` (escritorio y web) y `0.2.1-rc.2` (web). La CI ejecu
 - **Chat y archivos aparece en gris:** el proyecto no es un repositorio git, no hay ninguna instantánea de antes de ese mensaje (el mensaje es anterior al plugin, o una de las 50 instantáneas más recientes la sustituyó), o no cambió ningún archivo.
 - **Eliminar dice que otro dsh tiene abierto este chat:** un segundo dsh que usa el mismo directorio home de dsh tiene el bloqueo del chat. Cierra esa ventana o ese dsh y vuelve a eliminarlo. Mientras tanto, el chat sigue archivado.
 - **Un chat no continuó tras un reinicio:** Reanudar tras reiniciar estaba desactivado cuando dsh se cerró, detuviste tú mismo ese turno, el turno ya había terminado (completado o fallido), el chat estaba archivado, o había más de 20 chats en ejecución (continúan los 20 más recientes).
-- **La instalación falla justo después de una versión nueva:** añade la versión (`dsh-composer-plus@1.11.2`); consulta la nota de instalación de más arriba.
+- **La instalación falla justo después de una versión nueva:** añade la versión (`dsh-composer-plus@1.11.3`); consulta la nota de instalación de más arriba.
 
 ## Límites
 

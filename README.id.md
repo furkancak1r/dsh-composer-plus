@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Lalu mulai ulang dsh. (CLI tidak dapat memasang plugin ke profil desktop; profil itu dikelola oleh aplikasi.)
 
-> pnpm milik dsh melewati versi yang berumur kurang dari 24 jam. Tepat setelah rilis, tambahkan versinya: `dsh-composer-plus@1.11.2`.
+> pnpm milik dsh melewati versi yang berumur kurang dari 24 jam. Tepat setelah rilis, tambahkan versinya: `dsh-composer-plus@1.11.3`.
 
 ## Fitur
 
@@ -139,7 +139,7 @@ Diuji pada dsh `0.2.0-rc.2` (desktop dan web) dan `0.2.1-rc.2` (web). CI menjala
 - **Obrolan dan file berwarna abu-abu:** proyek bukan repositori git, tidak ada snapshot dari sebelum pesan itu (pesan lebih lama dari plugin, atau salah satu dari 50 snapshot terbaru telah menggantikannya), atau tidak ada file yang berubah.
 - **Hapus menyatakan dsh lain sedang membuka obrolan ini:** dsh kedua pada dsh home yang sama memegang kunci obrolan. Tutup jendela atau dsh itu, lalu hapus lagi. Sementara itu, obrolan tetap diarsipkan.
 - **Obrolan tidak berlanjut setelah mulai ulang:** Lanjutkan setelah mulai ulang nonaktif saat dsh ditutup, Anda sendiri yang menghentikan giliran itu, giliran sudah berakhir (selesai atau gagal), obrolan diarsipkan, atau lebih dari 20 obrolan sedang berjalan (20 yang terbaru berlanjut).
-- **Pemasangan gagal tepat setelah rilis:** tambahkan versinya (`dsh-composer-plus@1.11.2`), lihat catatan pemasangan di atas.
+- **Pemasangan gagal tepat setelah rilis:** tambahkan versinya (`dsh-composer-plus@1.11.3`), lihat catatan pemasangan di atas.
 
 ## Batasan
 

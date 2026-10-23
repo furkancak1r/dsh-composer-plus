@@ -27,7 +27,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.11.2`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.11.3`.
 
 ## Features
 
@@ -137,7 +137,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-rc.2` (web). CI runs the
 - **Chat and files is greyed out:** the project is not a git repository, there is no snapshot from before that message (the message is older than the plugin, or one of the 50 newest snapshots replaced it), or no file changed.
 - **Delete says another dsh has this chat open:** a second dsh on the same dsh home holds the chat's lock. Close that window or dsh, then delete again. The chat stays archived meanwhile.
 - **A chat did not continue after a restart:** Resume after restart was off when dsh quit, you stopped that turn yourself, the turn had ended (done or failed), the chat was archived, or more than 20 chats were running (the newest 20 continue).
-- **Install fails right after a release:** add the version (`dsh-composer-plus@1.11.2`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.11.3`), see the install note above.
 
 ## Limits
 
