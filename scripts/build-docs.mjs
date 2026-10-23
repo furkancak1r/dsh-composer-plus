@@ -56,7 +56,9 @@ function featureTable(data, texts, lang) {
     const where = `docs/features.json: ${f.id} (${lang})`;
     const alt = attr(t['shot.alt'].replace('{feature}', name), where);
     const pic = `assets/features/${f.shot}.webp`;
-    return `| <a id="${anchorOf(f.id)}"></a>**${cell(name, where)}** | ${cell(how, where)} | <a href="${pic}"><img src="${pic}" width="160" alt="${alt}"></a> |`;
+    // The anchor starts the "how" cell, not the name cell: GitHub centers the name in a tall row, so an anchor there
+    // scrolls the start of a long text out of view.
+    return `| **${cell(name, where)}** | <a id="${anchorOf(f.id)}"></a>${cell(how, where)} | <a href="${pic}"><img src="${pic}" width="160" alt="${alt}"></a> |`;
   });
   return [`| ${data.header[lang].join(' | ')} |`, '|---|---|---|', ...rows].join('\n');
 }
