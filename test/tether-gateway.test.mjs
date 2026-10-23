@@ -7,7 +7,7 @@ import { connect } from 'node:tls'
 import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createGateway, acceptWs, wsConnect, inSubnet, isTailnet, allowed, normFp, macName, RPC, STREAMS, PLUS } from '../tether/gateway/server.mjs'
+import { createGateway, acceptWs, wsConnect, inSubnet, isTailnet, allowed, normFp, macName, tailscaleInfo, RPC, STREAMS, PLUS } from '../tether/gateway/server.mjs'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 async function waitFor(fn, ms = 3000) {
@@ -119,6 +119,21 @@ test('tailnet range and connection filter', () => {
   assert.ok(!allowed('100.101.1.2', '192.168.1.44', net)) // tailnet peer on the LAN address
   assert.ok(!allowed('192.168.1.20', '100.90.0.7', net)) // LAN peer arriving on a non-LAN local address
   assert.ok(!allowed('8.8.8.8', '192.168.1.44', net)); assert.ok(!allowed('8.8.8.8', '100.90.0.7', net)) // public
+})
+
+test('tailscaleInfo reads the Mac app binary also without TERM (dsh opened from the Dock)', async () => {
+  // Like Tailscale.app/Contents/MacOS/Tailscale: without TERM or TAILSCALE_BE_CLI it prints a GUI error and exits 0.
+  // printenv, not $TERM: macOS /bin/sh sets its own TERM=dumb when the environment has none.
+  const bin = join(mkdtempSync(join(tmpdir(), 'ts-bin-')), 'Tailscale')
+  writeFileSync(bin, `#!/bin/sh
+if [ -z "$(printenv TERM)" ] && [ -z "$(printenv TAILSCALE_BE_CLI)" ]; then echo 'The Tailscale GUI failed to start'; exit 0; fi
+echo '{"BackendState":"Running","Self":{"DNSName":"mac.tail1.ts.net.","TailscaleIPs":["100.90.0.7","fd7a:115c:a1e0::7"]}}'
+`, { mode: 0o755 })
+  const term = process.env.TERM
+  delete process.env.TERM
+  try {
+    assert.deepEqual(await tailscaleInfo([join(tmpdir(), 'no-such-tailscale'), bin]), { installed: true, online: true, ip: '100.90.0.7', name: 'mac.tail1.ts.net' })
+  } finally { if (term !== undefined) process.env.TERM = term }
 })
 
 test('tailscale address goes into the QR and /me', async () => {

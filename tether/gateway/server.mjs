@@ -89,7 +89,9 @@ export function tailscaleInfo(bins = TS_BINS) {
   return new Promise(ok => {
     const next = i => {
       if (i >= bins.length) return ok({ installed: false, online: false, ip: null, name: null })
-      execFile(bins[i], ['status', '--json'], { timeout: 3000, maxBuffer: 8 << 20 }, (err, out) => {
+      // The Mac app's binary acts as the CLI only with TERM or TAILSCALE_BE_CLI set. dsh opened from the Dock has no TERM:
+      // the binary then prints "The Tailscale GUI failed to start", the status reads as offline and the QR gets no tailnet address.
+      execFile(bins[i], ['status', '--json'], { timeout: 3000, maxBuffer: 8 << 20, env: { ...process.env, TAILSCALE_BE_CLI: '1' } }, (err, out) => {
         if (err?.code === 'ENOENT') return next(i + 1)
         let j = null
         try { j = JSON.parse(out) } catch {}

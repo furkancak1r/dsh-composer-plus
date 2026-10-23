@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Starte dsh danach neu. (Die CLI kann nicht in das Desktop-Profil installieren; dieses Profil verwaltet die App.)
 
-> Das pnpm von dsh überspringt Versionen, die jünger als 24 Stunden sind. Gib direkt nach einem Release die Version mit an: `dsh-composer-plus@1.11.0`.
+> Das pnpm von dsh überspringt Versionen, die jünger als 24 Stunden sind. Gib direkt nach einem Release die Version mit an: `dsh-composer-plus@1.11.1`.
 
 ## Funktionen
 
@@ -139,7 +139,7 @@ Getestet mit dsh `0.2.0-rc.2` (Desktop und Web) und `0.2.1-rc.2` (Web). Die CI f
 - **Chat und Dateien ist ausgegraut:** Das Projekt ist kein git-Repository, es gibt keinen Snapshot von vor dieser Nachricht (die Nachricht ist älter als das Plugin, oder einer der 50 neuesten Snapshots hat ihn ersetzt), oder keine Datei hat sich geändert.
 - **Löschen meldet, dass ein anderes dsh diesen Chat geöffnet hat:** Ein zweites dsh mit demselben dsh-Home hält die Sperre des Chats. Schließe dieses Fenster oder dieses dsh und lösche dann erneut. Der Chat bleibt in der Zwischenzeit archiviert.
 - **Ein Chat wurde nach einem Neustart nicht fortgesetzt:** Nach Neustart fortsetzen war aus, als dsh beendet wurde, du hast die Runde selbst gestoppt, die Runde war beendet (fertig oder fehlgeschlagen), der Chat war archiviert, oder mehr als 20 Chats liefen (die neuesten 20 werden fortgesetzt).
-- **Die Installation schlägt direkt nach einem Release fehl:** Gib die Version mit an (`dsh-composer-plus@1.11.0`), siehe den Hinweis zur Installation oben.
+- **Die Installation schlägt direkt nach einem Release fehl:** Gib die Version mit an (`dsh-composer-plus@1.11.1`), siehe den Hinweis zur Installation oben.
 
 ## Grenzen
 
