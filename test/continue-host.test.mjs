@@ -65,5 +65,36 @@ assert.equal((await call({ sessionId: 'a', afterSeq: 8 })).status, 409, 'blank c
 a = stopped('a');
 assert.equal((await call({ sessionId: 'a', afterSeq: 8 }, AbortSignal.abort())).status, 500);
 assert.equal(a.sent.length, 0, 'aborted request cannot start a turn');
+
+// Issue #3: messages queued before Stop wait. dsh starts a turn by claiming every next-step message and the queue head at
+// once (inbox.claim), so a plain steer marker took the user's queued message into the continued task.
+const queued = (id, texts) => {
+  const agent = stopped(id);
+  const user = texts.map((text, i) => ({ id: `${id}-q${i}`, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } }));
+  agent.inbox = {
+    nextTurn: [...user], nextStep: [],
+    prepend(target, message) { assert.equal(target, 'next-turn'); this.nextTurn.unshift(message); },
+    remove(messageId) { const i = this.nextTurn.findIndex((m) => m.id === messageId); if (i >= 0) this.nextTurn.splice(i, 1); return i >= 0; },
+  };
+  // dsh: a steer to an idle agent opens the turn and claims at once: all next-step messages, then one queued message.
+  agent.steer = function steer(message) {
+    this.sent.push(message); this.status = 'running'; this.events.push({ type: 'turn/start', seq: 9 });
+    this.claimed = [message, ...this.inbox.nextTurn.splice(0, 1)];
+  };
+  return { agent, user };
+};
+let q = queued('q', ['next task', 'later task']);
+assert.equal((await call({ sessionId: 'q', afterSeq: 8 })).status, 200);
+assert.deepEqual(q.agent.inbox.nextTurn, q.user, 'the queued messages stay in the queue, in order');
+assert.ok(q.agent.claimed.every((m) => m.source.kind === 'composer-plus-continue'), 'the continued step claims only Continue markers');
+const once = await gate({ agent: q.agent }, async () => ({ kind: 'enter', messages: q.agent.claimed }));
+assert.equal(once.messages.length, 1, 'two markers still give the model one continue note');
+assert.match(once.messages[0].content[0].text, /Continue the task/);
+const mixed = await gate({ agent: q.agent }, async () => ({ kind: 'enter', messages: [other, marker, marker] }));
+assert.deepEqual(mixed.messages.map((m) => m.id === other.id || /Continue the task/.test(m.content[0].text)), [true, true]);
+q = queued('q', ['next task']);
+q.agent.steer = () => { throw new Error('agent busy'); };
+assert.equal((await call({ sessionId: 'q', afterSeq: 8 })).status, 500);
+assert.deepEqual(q.agent.inbox.nextTurn, q.user, 'a failed continue leaves no marker in the queue');
 assert.ok(released > 0, 'observations are disposed');
 console.log('message-free continue host checks passed');

@@ -360,6 +360,20 @@ export function resumeTracker({ store, isRoot, running = () => [], wakeOne, log 
   };
 }
 
+/** Wake an idle chat with the hidden Continue step, and leave the user's queued messages for later turns (issue #3).
+ * ponytail: dsh opens a turn by claiming every next-step message plus the queue head in one batch, so a steer marker alone
+ * also took the first queued message. A second marker at the queue head is claimed in its place; the pre-step hook keeps
+ * one note. Upgrade when dsh can start a turn without the queue head. A dsh without `inbox.prepend` gets the steer only. */
+function wakeWithContinue(agent) {
+  const marker = () => ({ id: randomUUID(), role: 'user', content: [], source: { kind: CONTINUE_SOURCE } });
+  const head = typeof agent.inbox?.prepend === 'function' ? marker() : undefined;
+  if (head !== undefined) agent.inbox.prepend('next-turn', head);
+  try { agent.steer(marker()); } catch (error) {
+    if (head !== undefined) agent.inbox.remove(head.id); // no empty row stays in the queue
+    throw error;
+  }
+}
+
 /** Continue one chat after a restart, if dsh (not the user) stopped its last turn: the chat gets the same hidden "continue"
  * step as One-click Continue. When the stopped turn was a goal round, the goal is armed again instead (dsh disarms goals at
  * every start and waits for `/goal resume`), and dsh's goal driver starts the next round, so the model can still mark the
@@ -386,7 +400,7 @@ export async function wakeSession({ sessionController, sessionQuery, goals, arch
   if (goal !== undefined && ((goal.phase === 'active' && goal.activation !== 'armed') || (goal.phase === 'paused' && goal.updatedAt >= start.time))) {
     try { goals.resume(agent, { id: goal.id, revision: goal.revision }); return 'goal'; } catch { /* no goal rounds left: continue the turn */ }
   }
-  agent.steer({ id: randomUUID(), role: 'user', content: [], source: { kind: CONTINUE_SOURCE } });
+  wakeWithContinue(agent);
   return 'continued';
 }
 
@@ -949,10 +963,12 @@ export function apply(ctx) {
   // The empty wake marker opens the step; it is then replaced by a fresh context message. Only messages
   // claimed from the inbox render as a chat bubble, so the replacement stays out of Chat, but it gives the
   // model a final user turn: providers such as Claude reject a request that ends on an assistant message.
+  // A wake claims two markers (see wakeWithContinue): the model gets one note, at the first marker's place.
   ctx.on('agent/pre-step', async (payload, next) => {
     const decision = await next();
     if (decision.kind !== 'enter' || !decision.messages.some((m) => m.source?.kind === CONTINUE_SOURCE)) return decision;
-    return { ...decision, messages: decision.messages.map((m) => (m.source?.kind === CONTINUE_SOURCE ? continueMessage() : m)) };
+    const first = decision.messages.findIndex((m) => m.source?.kind === CONTINUE_SOURCE);
+    return { ...decision, messages: decision.messages.flatMap((m, i) => (m.source?.kind !== CONTINUE_SOURCE ? [m] : i === first ? [continueMessage()] : [])) };
   }, true);
   ctx.connection.fetch.register({
     path: CONTINUE_PATH, methods: ['POST'], requestBody: 'buffered',
@@ -971,7 +987,7 @@ export function apply(ctx) {
             return json({ error: 'session no longer needs continuation' }, 409);
           }
           request.signal.throwIfAborted();
-          agent.steer({ id: randomUUID(), role: 'user', content: [], source: { kind: CONTINUE_SOURCE } });
+          wakeWithContinue(agent);
           return json({ accepted: true });
         } finally { observation[Symbol.dispose]?.(); }
       } catch { return json({ error: 'continuation failed' }, 500); }

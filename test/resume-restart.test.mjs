@@ -134,6 +134,14 @@ const ended = (reason, { start = 4000, goalRound = false } = {}) => [{ type: 'tu
   assert.deepEqual(s.a.steered[0].content, [], 'the same empty marker as One-click Continue');
   assert.equal(s.a.steered[0].source.kind, 'composer-plus-continue');
   s = session(ended({ kind: 'interrupted' })); assert.equal(await wakeSession(s.deps, 'w'), 'continued', 'crash');
+  // Issue #3: a message queued before the quit stays queued; dsh's claim takes the queue head with the steer marker.
+  s = session(ended(quit));
+  const waiting = { id: 'q0', role: 'user', content: [{ type: 'text', text: 'next task' }], source: { kind: 'user' } };
+  s.a.inbox = { nextTurn: [waiting], prepend(target, m) { this.nextTurn.unshift(m); }, remove() { return false; } };
+  s.a.steer = function steer(m) { this.steered.push(m); this.claimed = [m, ...this.inbox.nextTurn.splice(0, 1)]; };
+  assert.equal(await wakeSession(s.deps, 'w'), 'continued');
+  assert.deepEqual(s.a.inbox.nextTurn, [waiting], 'the queued message waits for its own turn');
+  assert.ok(s.a.claimed.every((m) => m.source.kind === 'composer-plus-continue'));
   for (const reason of [{ kind: 'aborted', reason: { kind: 'user' } }, { kind: 'completed' }, { kind: 'error' }]) {
     s = session(ended(reason)); assert.equal(await wakeSession(s.deps, 'w'), 'skipped', JSON.stringify(reason)); assert.equal(s.a.steered.length, 0);
   }
