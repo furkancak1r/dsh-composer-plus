@@ -74,6 +74,12 @@ let tailscaleStoreURL = URL(string: "https://apps.apple.com/app/id1470499037")!
 func shouldAutoTailscale(onWiFi: Bool, hasTailnet: Bool, auto: Bool, ready: Bool, tried: Bool) -> Bool {
     !onWiFi && hasTailnet && auto && ready && !tried
 }
+/// Request time-out per address: 5 s while a fallback address is left; 10 s for the last one of the first-connect probe
+/// (an unreachable Mac then shows as offline after about 15 s, not after the system's 60 s); else the system's.
+func requestTimeout(last: Bool, probing: Bool) -> TimeInterval? { !last ? 5 : probing ? 10 : nil }
+/// Whether an unreachable Mac gets the Tailscale button: off Wi‑Fi always, and on any Wi‑Fi when the Mac has a tailnet
+/// address (office Wi‑Fi to the home Mac needs the tunnel too; Tether cannot tell the home Wi‑Fi from another one).
+func offersTailscale(onWiFi: Bool, hasTailnet: Bool) -> Bool { !onWiFi || hasTailnet }
 /// Whether the banner explains the lost link: never when connected; a first connect only once it has hung (slow).
 func showsLostHint(_ s: Client.Conn, slow: Bool) -> Bool { s == .off || s == .reconnecting || (s == .connecting && slow) }
 /// What the Sessions tab shows instead of rows. Sessions need a live link: a cached list while off/reconnecting would
@@ -1093,7 +1099,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             // the new Mac's requests.
             guard activeFp == p.fp else { throw CancellationError() }
             var r = URLRequest(url: URL(string: "https://\(host):\(p.port)\(path)")!)
-            if n < list.count - 1 { r.timeoutInterval = 5 } // fallback exists: fail fast
+            if let t = requestTimeout(last: n == list.count - 1, probing: probing) { r.timeoutInterval = t }
             r.setValue("Bearer \(p.token)", forHTTPHeaderField: "Authorization")
             if let body, !get {
                 r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1420,7 +1426,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             Task {
                 await self.refreshMe()
                 guard self.activeFp == mac else { return } // switched meanwhile: switchMac already reset probing and connected
-                self.probing = false; if self.route == nil { self.route = self.onWiFi ? .lan : .tailscale }; self.connect()
+                self.probing = false
+                // No address answered (Tailscale off, Mac asleep): show it now, with the Tailscale button, instead of a
+                // socket on a guessed route that stays on "Connecting…" until its timeout. drop() retries with backoff.
+                if self.route == nil { self.drop(); return }
+                self.connect()
             }
             return
         }

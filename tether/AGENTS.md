@@ -58,6 +58,7 @@ Then, on the two targets:
 - Send the commands for one session one at a time.
 - For logs, network data or crashes, read `agent-device help debugging`.
 - Ask the user before you approve a pairing request on the admin page (`http://127.0.0.1:19391/`) of the live DSH.
+- When you change a tap, a press and hold or another gesture, check each gesture and then the next tap. Do not keep a flag that waits for an event that iOS can skip (for example a tap after a press and hold). Read a state that every path resets.
 - Screenshots, recordings and logs can show pairing data and chat text. Keep them in `build/agent-device/` in this folder. Git ignores `build/`. Do not commit them.
 
 ## Tests

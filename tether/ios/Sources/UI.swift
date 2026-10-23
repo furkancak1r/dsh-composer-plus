@@ -105,19 +105,17 @@ struct ConnBadge: View {
     }
 }
 
-/// Top-left of every tab: the connection badge and the Mac on screen. Tap to switch to another paired Mac or add one.
-/// Any number of Macs; only the one on screen is connected.
+/// Top-left of every tab: the connection badge and the Mac on screen. Tap to switch to another paired Mac or add one;
+/// press and hold the name to rename the Mac on screen. Any number of Macs; only the one on screen is connected.
+/// ponytail: a Menu takes the long press for itself (it opens the same menu), so a tap opens this menu by hand and
+/// the press and hold opens the rename box. Upgrade if SwiftUI gives Menu its own long-press action.
 struct MacPicker: View {
     @EnvironmentObject var c: Client
+    @State private var menu = false
     var body: some View {
-        Menu {
-            Picker("Mac", selection: Binding(get: { c.activeFp ?? "" }, set: { c.switchMac($0) })) {
-                ForEach(c.pairings) { p in Label(p.title, systemImage: "laptopcomputer").tag(p.fp) }
-            }
-            Divider()
-            if let p = c.pairing { Button { c.renamingMac = p } label: { Label("Rename this Mac…", systemImage: "pencil") } }
-            Button { c.addingMac = true } label: { Label("Add a Mac…", systemImage: "plus") }
-        } label: {
+        // The release after a press and hold can also fire this action, or not: the open rename box (which Save and
+        // Cancel both clear) tells them apart, so no flag can stay set and eat the next tap.
+        Button { guard c.renamingMac == nil else { return }; menu = true } label: {
             HStack(spacing: 6) {
                 ConnBadge()
                 Text(c.pairing?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1).frame(maxWidth: 150, alignment: .leading)
@@ -125,9 +123,24 @@ struct MacPicker: View {
             }
             .foregroundStyle(.primary)
         }
+        .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in rename() })
+        .confirmationDialog("Mac", isPresented: $menu) {
+            ForEach(c.pairings) { p in
+                Button(p.fp == c.activeFp ? "✓ \(p.title)" : p.title) { c.switchMac(p.fp) }
+            }
+            Button("Add a Mac…") { c.addingMac = true }
+        }
         .accessibilityLabel("Mac")
         .accessibilityValue(Text("\(c.pairing?.title ?? ""), \(String(localized: String.LocalizationValue(c.state.rawValue)))"))
-        .accessibilityHint("Switches to another Mac")
+        .accessibilityHint("Switches to another Mac. Press and hold to rename it.")
+        // VoiceOver has no press and hold here: the rename stays one action away.
+        .accessibilityAction(named: Text("Rename")) { rename() }
+    }
+    private func rename() {
+        guard let p = c.pairing else { return }
+        menu = false
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        c.renamingMac = p
     }
 }
 
@@ -142,7 +155,7 @@ struct OfflineView: View {
         } description: {
             Text(c.upstreamText ?? lostHint(onWiFi: c.onWiFi, hasTailnet: c.pairing?.ts != nil))
         } actions: {
-            if remote || (!c.onWiFi && c.pairing?.ts == nil) {
+            if offersTailscale(onWiFi: c.onWiFi, hasTailnet: c.pairing?.ts != nil) {
                 Button { c.openTailscale() } label: { Label("Open Tailscale", systemImage: "point.3.connected.trianglepath.dotted") }
                     .buttonStyle(.borderedProminent)
                 if !c.tsReady, c.tailscaleInstalled { TailscaleShortcutLink().font(.footnote) }
@@ -175,8 +188,8 @@ struct ConnBanner: View {
             HStack(spacing: 10) {
                 if c.state == .reconnecting { ProgressView().controlSize(.small) } else { Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange).accessibilityHidden(true) }
                 Text(msg).font(.footnote).frame(maxWidth: .infinity, alignment: .leading)
-                // off Wi‑Fi the fix is almost always "turn Tailscale on": one tap instead of leaving to find the app
-                if c.upstreamText == nil, !c.onWiFi { Button("Tailscale") { c.openTailscale() }.font(.footnote.bold()).buttonStyle(.borderless) }
+                // away from the Mac's network the fix is almost always "turn Tailscale on": one tap instead of leaving to find the app
+                if c.upstreamText == nil, offersTailscale(onWiFi: c.onWiFi, hasTailnet: c.pairing?.ts != nil) { Button("Tailscale") { c.openTailscale() }.font(.footnote.bold()).buttonStyle(.borderless) }
                 Button("Retry") { c.reconnect() }.font(.footnote.bold()).buttonStyle(.borderless)
             }
             .padding(.horizontal, 14).padding(.vertical, 9)
@@ -1778,7 +1791,7 @@ struct SettingsView: View {
                         }
                     }
                     Button { c.addingMac = true } label: { Label("Add a Mac…", systemImage: "plus") }
-                } header: { Text("Macs") } footer: { Text("Pair as many Macs as you like. Only the Mac on screen is connected; switch with the name at the top left. Tap the pencil to give a Mac your own name.") }
+                } header: { Text("Macs") } footer: { Text("Pair as many Macs as you like. Only the Mac on screen is connected; switch with the name at the top left. To give a Mac your own name, tap the pencil, or press and hold the name at the top left.") }
                 Section("Connection") {
                     LabeledContent("Status") { HStack { ConnBadge(); Text(LocalizedStringKey(c.state.rawValue)) } }
                     LabeledContent("DSH on Mac", value: c.upstream.isEmpty ? "—" : c.upstreamText ?? String(localized: "Running"))

@@ -45,6 +45,16 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(shouldAutoTailscale(onWiFi: false, hasTailnet: true, auto: true, ready: false, tried: false))
         XCTAssertFalse(shouldAutoTailscale(onWiFi: false, hasTailnet: false, auto: true, ready: true, tried: false))
         XCTAssertFalse(shouldAutoTailscale(onWiFi: false, hasTailnet: true, auto: false, ready: true, tried: false))
+        // the Tailscale button: off Wi‑Fi always; on Wi‑Fi (office Wi‑Fi, home Mac) when the Mac has a tailnet address
+        XCTAssertTrue(offersTailscale(onWiFi: false, hasTailnet: true))
+        XCTAssertTrue(offersTailscale(onWiFi: false, hasTailnet: false))
+        XCTAssertTrue(offersTailscale(onWiFi: true, hasTailnet: true))
+        XCTAssertFalse(offersTailscale(onWiFi: true, hasTailnet: false))
+        // the first-connect probe fails fast, also on its last address; other calls keep the system time-out there
+        XCTAssertEqual(requestTimeout(last: false, probing: false), 5)
+        XCTAssertEqual(requestTimeout(last: false, probing: true), 5)
+        XCTAssertEqual(requestTimeout(last: true, probing: true), 10)
+        XCTAssertNil(requestTimeout(last: true, probing: false))
         // a hung first connect gets the hint; a fresh one and a live link stay quiet
         XCTAssertFalse(showsLostHint(.connecting, slow: false))
         XCTAssertTrue(showsLostHint(.connecting, slow: true))

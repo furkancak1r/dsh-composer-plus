@@ -75,7 +75,7 @@ Telefon istediğiniz kadar Mac'e eşleşebilir. Sınır yoktur.
 Uygulama her yerde (sol üstteki Mac adı, Ayarlar, eşleşme ekranı) Mac'in bilgisayar adı yerine sizin verdiğiniz adı gösterir.
 
 1. Eşleşme bitince Tether **Name this Mac** kutusunu açar. Kutuda Mac'in kendi adı yazılıdır. İstediğiniz adı yazıp **Save**'e dokunun. Adı değiştirmek istemiyorsanız **Cancel**'a dokunun.
-2. Adı sonra değiştirmek için: sol üstteki Mac adı → **Rename this Mac…**, ya da Ayarlar → **Macs** → satırdaki kalem.
+2. Adı sonra değiştirmek için sol üstteki Mac adını basılı tutun, ya da Ayarlar → **Macs** → satırdaki kaleme dokunun. Mac adına kısa dokunmak, Mac'ler arasında geçiş menüsünü açar.
 3. Kutuyu boş bırakıp kaydederseniz Mac'in kendi adı geri gelir.
 
 - Ad yalnız bu iPhone'da saklanır. Mac'e ve başka telefonlara gitmez.
