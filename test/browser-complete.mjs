@@ -33,7 +33,10 @@ const fake = createServer((req, res) => {
     const typed = /<<<([\s\S]*?)>>>/.exec(parsed.messages.at(-1)?.content?.[0]?.text ?? parsed.messages.at(-1)?.content ?? '')?.[1] ?? '';
     seen.push({ kind, model: parsed.model, typed });
     const goal = 'Add a logout button to the header';
-    const text = kind === 'complete' ? (goal.startsWith(typed) ? goal.slice(typed.length) : ' please') + (parsed.model === 'nano' ? ' (nano)' : '')
+    // Like a real model: the answer starts with the typed text's last word (rule 3 of the completion prompt).
+    const last = typed.trimEnd().match(/\S+$/)?.[0] ?? '';
+    const head = typed.slice(0, typed.trimEnd().length - last.length);
+    const text = kind === 'complete' ? (goal.startsWith(typed) ? goal.slice(head.length) : `${last} please`) + (parsed.model === 'nano' ? ' (nano)' : '')
       : kind === 'predict' ? 'Now add tests.' : kind === 'title' ? 'Header work' : 'Done: the header is in src/Header.tsx.';
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`;
     res.writeHead(200, { 'content-type': 'text/event-stream' });

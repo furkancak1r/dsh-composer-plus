@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 然后重启 dsh。（CLI 无法安装到桌面版 profile 中；桌面版 profile 由应用自己管理。）
 
-> dsh 使用的 pnpm 会跳过发布不到 24 小时的版本。刚发布新版本时，请加上版本号：`dsh-composer-plus@1.11.1`。
+> dsh 使用的 pnpm 会跳过发布不到 24 小时的版本。刚发布新版本时，请加上版本号：`dsh-composer-plus@1.11.2`。
 
 ## 功能
 
@@ -52,7 +52,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **复制项目路径** | 在侧边栏中右键点击项目 → **复制路径**，即可复制它的文件夹的完整路径。 | <a href="assets/features/copyProjectPath.webp"><img src="assets/features/copyProjectPath.webp" width="160" alt="复制项目路径截图"></a> |
 | **新对话中的项目搜索** | 新对话 → 输入框上方的项目按钮。项目按 A–Z 顺序显示，顶部有 **搜索项目** 框。输入名称的一部分（不区分大小写和重音符号），按 `Enter` 即可选择第一个匹配项。没有匹配项时会显示 **没有匹配的项目**。侧边栏中 dsh 保存的项目顺序不会改变。 | <a href="assets/features/projectPicker.webp"><img src="assets/features/projectPicker.webp" width="160" alt="新对话中的项目搜索截图"></a> |
 | **下一条消息预测** | 默认开启；可在 **设置 → Composer Plus** 中关闭。智能体完成一个回合后（被停止或失败的回合除外），空输入框会以灰色文字显示对你下一条消息的猜测，并带有 **按 Tab 接受** 提示。`Tab` 会把文字放入输入框，但不会发送。`Esc` 会在本回合隐藏它。开始输入也会隐藏它，新的回合会替换它。开关下方的 **模型** 菜单列出 dsh 自己的模型（与 dsh 模型菜单的列表相同）。默认选中 **dsh 默认**，它跟随 dsh 的默认模型。每完成一个回合会进行一次简短的模型调用。在 Tether 中，猜测显示在空输入框上方：轻点它即可放入输入框。 | <a href="assets/features/nextPrediction.webp"><img src="assets/features/nextPrediction.webp" width="160" alt="下一条消息预测截图"></a> |
-| **输入时补全** | 默认关闭；可在 **设置 → Composer Plus** 中开启。输入时，光标后紧跟的灰色文字会显示你的消息可能的后续内容。`Tab` 会把它添加到消息中，但不会发送。`Esc` 会隐藏它。继续输入灰色文字中接下来的字符时，它会保留，不会再次调用模型。它的开关下方有自己的 **模型** 菜单。第一项 **与“下一条消息预测”相同**（默认）使用 **下一条消息预测** 的模型；选择其他模型，就可以为每个功能使用不同的模型，例如为补全选择更快的模型。你每次输入停顿时，它都会调用一次模型，因此消耗的 token 比预测多得多：请选择快速、低成本的模型。输入斜杠命令、消息中带有文件标签，或光标不在末尾时，它不会运行。在 Tether 中，输入时剩余部分会显示在输入框上方：轻点它即可添加。 | <a href="assets/features/typingCompletion.webp"><img src="assets/features/typingCompletion.webp" width="160" alt="输入时补全截图"></a> |
+| **输入时补全** | 默认关闭；可在 **设置 → Composer Plus** 中开启。输入时，光标后紧跟的灰色文字会显示你的消息可能的后续内容。`Tab` 会把它添加到消息中，但不会发送。`Esc` 会隐藏它。它只建议你自己接下来要写的话：不会回答你，也不会编造错误信息或名称。消息看起来已完整，或模型不确定时，不显示任何内容。继续输入灰色文字中接下来的字符时，它会保留，不会再次调用模型。它的开关下方有自己的 **模型** 菜单。第一项 **与“下一条消息预测”相同**（默认）使用 **下一条消息预测** 的模型；选择其他模型，就可以为每个功能使用不同的模型，例如为补全选择更快的模型。你每次输入停顿时，它都会调用一次模型，因此消耗的 token 比预测多得多：请选择快速、低成本的模型。输入斜杠命令、消息中带有文件标签，或光标不在末尾时，它不会运行。在 Tether 中，输入时剩余部分会显示在输入框上方：轻点它即可添加。 | <a href="assets/features/typingCompletion.webp"><img src="assets/features/typingCompletion.webp" width="160" alt="输入时补全截图"></a> |
 | **本对话内允许** | 当 Auto Review 询问你时，审批卡片上会多出 **本对话内允许**：从此以后，同一对话中的同一工具都会被允许，参数不限。标题栏中的标签会列出这些授权，也可以撤销它们。授权在重启后仍然有效。 | <a href="assets/features/allowForChat.webp"><img src="assets/features/allowForChat.webp" width="160" alt="本对话内允许截图"></a> |
 | **项目状态** | 侧边栏中的项目行会显示与其对话相同的加载图标 / 等待 / 完成标记。因此，即使项目已折叠，你也能知道其中有对话正在运行或需要你处理。等待你处理的对话优先显示，其次是你尚未打开的已完成对话（绿色圆点，即使另一个对话仍在运行也会显示），最后是加载图标。将鼠标悬停在上面可查看详情。 | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="项目状态截图"></a> |
 | **活跃项目置顶** | 当某个对话开始运行或需要你处理时，它所在的项目会移到侧边栏顶部，并使用 dsh 自带的行动画（与把它拖到那里的效果相同）。已完成的项目保持原位；你可以像往常一样把它们拖到任意位置。移动会保存到 dsh 的项目顺序中，因此关闭此功能后会保留当前顺序。 | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="活跃项目置顶截图"></a> |
@@ -139,7 +139,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **“对话和文件”显示为灰色：** 项目不是 git 仓库；或者没有这条消息之前的快照（这条消息比插件更早，或者它的快照已被最新的 50 个快照替换）；或者没有文件发生变化。
 - **删除时提示另一个 dsh 已打开此对话：** 使用同一 dsh home 的另一个 dsh 持有该对话的锁。关闭那个窗口或那个 dsh，然后再次删除。在此期间，对话会保持归档状态。
 - **重启后对话没有继续：** dsh 退出时“重启后继续”处于关闭状态；或者你自己停止了那个回合；或者回合已经结束（完成或失败）；或者对话已被归档；或者当时有超过 20 个对话正在运行（只有最新的 20 个会继续）。
-- **刚发布新版本时安装失败：** 请加上版本号（`dsh-composer-plus@1.11.1`），见上文的安装说明。
+- **刚发布新版本时安装失败：** 请加上版本号（`dsh-composer-plus@1.11.2`），见上文的安装说明。
 
 ## 限制
 

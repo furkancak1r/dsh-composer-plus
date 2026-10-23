@@ -1692,9 +1692,18 @@ export const COMPLETE_MAX_TOKENS = 2000;
 const COMPLETE_MAX = 150; // characters of one completion
 const COMPLETE_INPUT = 4000; // characters of typed text the route accepts
 const COMPLETE_CONTEXT = 3000; // characters of chat the model reads
-const COMPLETE_SYSTEM = `You complete the message that the user is typing in a chat with an AI coding agent.
-You get the recent conversation (it can be empty) and the text that the user typed so far. Write only the words that come next, so that the typed text plus your words is one natural message in the user's own language and tone. Keep it short: end the current sentence, at most 15 words.
-Start exactly where the typed text stops: if it stops in the middle of a word, start with the rest of that word; if it ends with a space, start with the next word. Do not repeat the typed text. Answer with the new words only: no quotes, no label, no explanation. If you cannot continue it well, answer with nothing.`;
+const COMPLETE_SYSTEM = `You complete the message that the user is typing in a chat with an AI coding agent. You are not the agent: you do not talk to the user.
+You get the recent conversation (it can be empty), the text that the user typed so far and its last word. Obey these rules:
+1. Write the user's own next words, in the user's language and tone, as the user would type them.
+2. Do not answer, greet, thank or ask the user. Do not write what the agent would say, for example "Which error? Paste the message."
+3. Start your answer with the given last word, exactly as typed. Then write the new words. Do not repeat other typed text.
+4. Write at most 12 new words. Stop at the end of the current sentence.
+5. Do not make up facts: no error texts, names, paths or numbers that are not in the typed text or the conversation. The user can attach images or files that you cannot see.
+6. If the typed text is already a complete message, or you are not sure how the user continues it, answer with the single word NONE.
+7. Answer with one line of plain text: no quotes, labels, dashes or explanations.
+Examples: typed "Fix the login bug and", answer "and add a test for it." Typed "testler geçmiyor", answer "geçmiyor, nedenini bulur musun?" Typed "veritabanı bağlantısını kontro", answer "kontrol eder misin?" Typed "bu hatayı veriyor, deco içinde de düzeltelim", answer "NONE".`;
+/** The last word of the typed text (before a trailing space): the model starts its answer with it (rule 3). */
+const lastWord = (typed) => typed.trimEnd().match(/\S+$/)?.[0] ?? '';
 
 /** Saved settings: `{on, model?: {provider, model}}`. No file or a broken file reads as off with no own model; only a saved
  * `on: true` (the user's switch) turns it on. No `model`: the prediction's model is used. */
@@ -1752,20 +1761,26 @@ export function completeContext(events) {
 }
 
 /** The model's answer as the words that come after `typed`: one line, no repeat of the typed text, at most COMPLETE_MAX
- * characters (cut at a word end). The model's own leading space means "a new word"; without one it ends the typed word. */
+ * characters (cut at a word end). ponytail: the answer must start with the typed text's last word (or the whole typed
+ * text); what follows that word decides the space, because models often drop a leading space ("and" + "add" = "andadd").
+ * An answer without that start (NONE, a reply to the user, a remark) and one that goes on after a dash give no text.
+ * NONE and not an empty answer: a model gateway (AIProxy) can count an empty answer as a failed call. */
 export function cleanCompletion(typed, raw) {
   let line = String(raw ?? '').replace(/<think>[\s\S]*?<\/think>/g, '').split(/\r?\n/).find((l) => l.trim() !== '') ?? '';
-  line = line.replace(/^\s*(completion|continuation|next words?)\s*:\s*/i, '');
+  line = line.replace(/^\s*(completion|continuation|next words?|answer)\s*:\s*/i, '').trim();
   // Quotes around the whole answer go; a single leading apostrophe stays (Turkish "dsh" + "'yi").
-  const bare = line.trim();
-  if (bare.length >= 2 && /^["“`]/.test(bare) && /["”`]$/.test(bare)) line = (/^\s/.test(line) ? ' ' : '') + bare.slice(1, -1);
-  // A model that writes the whole message again: keep only the new part.
+  if (line.length >= 2 && /^["“`]/.test(line) && /["”`]$/.test(line)) line = line.slice(1, -1).trimStart();
   const head = typed.trimStart();
-  if (head !== '' && line.trimStart().toLowerCase().startsWith(head.toLowerCase())) line = line.trimStart().slice(head.length);
-  if (/\s$/.test(typed)) line = line.trimStart();
-  line = line.replace(/\s+$/, '');
-  if (line.trim() === '') return '';
-  return line.length > COMPLETE_MAX ? line.slice(0, COMPLETE_MAX).replace(/\s+\S*$/, '') : line;
+  const last = lastWord(typed);
+  const starts = (prefix) => prefix !== '' && line.slice(0, prefix.length).toLowerCase() === prefix.toLowerCase();
+  let rest;
+  if (starts(head)) rest = line.slice(head.length); // the whole message again
+  else if (starts(last)) rest = line.slice(last.length);
+  else return '';
+  if (/\s$/.test(typed)) rest = rest.trimStart();
+  rest = rest.replace(/\s+$/, '');
+  if (rest.trim() === '' || /^\s*[—–]/.test(rest)) return '';
+  return rest.length > COMPLETE_MAX ? rest.slice(0, COMPLETE_MAX).replace(/\s+\S*$/, '') : rest;
 }
 
 /** One model call: the rest of `typed` for the chat `sessionId`. */
@@ -1783,7 +1798,8 @@ export async function completeTyping({ llm, sessionQuery, route }, sessionId, ty
   });
   let text = '';
   let finish;
-  const prompt = `${context === '' ? 'Recent conversation: (none, a new chat)' : `Recent conversation:\n\n${context}`}\n\nThe user typed so far (between the markers):\n<<<${typed}>>>\n\nThe words that come next:`;
+  const space = /\s$/.test(typed) ? ' (a space follows it, so your new words start a new word)' : '';
+  const prompt = `${context === '' ? 'Recent conversation: (none, a new chat)' : `Recent conversation:\n\n${context}`}\n\nThe user typed so far (between the markers):\n<<<${typed}>>>\n\nThe last word of the typed text${space}:\n<<<${lastWord(typed)}>>>\n\nYour answer:`;
   for await (const chunk of call.stream({ ...call.config, system: COMPLETE_SYSTEM, signal: callSignal, messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }] })) {
     if (chunk.type === 'text-delta') text += chunk.text;
     else if (chunk.type === 'finish') finish = chunk.reason;

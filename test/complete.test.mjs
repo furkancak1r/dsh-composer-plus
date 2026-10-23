@@ -7,18 +7,27 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, COMPLETE_PATH, PREDICT_PATH, cleanCompletion, completeContext } from '../index.js';
 
-// Pure parts.
-assert.equal(cleanCompletion('Run the ', 'tests again.'), 'tests again.');
-assert.equal(cleanCompletion('Run the ', '  tests'), 'tests', 'after a space: no second space');
-assert.equal(cleanCompletion('Run the te', 'sts again'), 'sts again', 'ends the typed word');
-assert.equal(cleanCompletion('Run the tests', ' and fix the failures.'), ' and fix the failures.', 'a new word keeps its space');
+// Pure parts. The model starts its answer with the typed text's last word; the rest after that word is the completion.
+assert.equal(cleanCompletion('Run the ', 'the tests again.'), 'tests again.');
+assert.equal(cleanCompletion('Run the ', 'the   tests'), 'tests', 'after a space: no second space');
+assert.equal(cleanCompletion('Run the te', 'tests again'), 'sts again', 'ends the typed word');
+assert.equal(cleanCompletion('Run the tests', 'tests and fix the failures.'), ' and fix the failures.', 'a new word keeps its space');
+assert.equal(cleanCompletion('Fix the login bug and', 'andadd a test'), 'add a test', 'what follows the word decides the space');
 assert.equal(cleanCompletion('Run the', 'Run the tests now.'), ' tests now.', 'a repeated message keeps only the new part');
-assert.equal(cleanCompletion('Add ', '"a logout button."\nExplanation: x'), 'a logout button.', 'quotes and other lines go');
-assert.equal(cleanCompletion('Bunu dsh', "'yi yeniden başlatmadan yap"), "'yi yeniden başlatmadan yap", 'a Turkish suffix apostrophe stays');
-assert.equal(cleanCompletion('Add ', 'Completion: tests'), 'tests');
-assert.equal(cleanCompletion('Add ', '<think>hmm</think>   '), '');
-assert.equal(cleanCompletion('Add ', 'word '.repeat(60)).length <= 150, true);
-assert.ok(!cleanCompletion('Add ', 'word '.repeat(60)).endsWith(' '), 'cut at a word end');
+assert.equal(cleanCompletion('Run the', 'THE tests'), ' tests', 'the word is matched without case');
+assert.equal(cleanCompletion('Add a', '"a logout button."\nExplanation: x'), ' logout button.', 'quotes and other lines go');
+assert.equal(cleanCompletion('Bunu dsh', "dsh'yi yeniden başlatmadan yap"), "'yi yeniden başlatmadan yap", 'a Turkish suffix apostrophe stays');
+assert.equal(cleanCompletion('kontro', 'kontrol eder misin?'), 'l eder misin?');
+assert.equal(cleanCompletion('Add a', 'Completion: a test'), ' test');
+assert.equal(cleanCompletion('Add a', '<think>hmm</think>   '), '');
+assert.equal(cleanCompletion('Add a', 'a ' + 'word '.repeat(60)).length <= 150, true);
+assert.ok(!cleanCompletion('Add a', 'a ' + 'word '.repeat(60)).endsWith(' '), 'cut at a word end');
+// The bug that a user saw: the model wrote the agent's reply after the typed text. No text for these.
+const typedFix = 'bu hatayı veriyor ayrıca deco içinde düzeltelim';
+assert.equal(cleanCompletion(typedFix, '— hangi hata? Mesajı yapıştır, Deco tarafını da birlikte düzeltelim.'), '', 'an answer to the user');
+assert.equal(cleanCompletion(typedFix, 'düzeltelim — hangi hata? Mesajı yapıştır.'), '', 'a remark after a dash');
+assert.equal(cleanCompletion(typedFix, 'NONE'), '', 'the model has no completion');
+assert.equal(cleanCompletion('Run the tests', 'Sure! I will run them.'), '', 'a reply that does not start with the last word');
 const user = (seq, text, kind = 'user') => ({ seq, type: 'user/message', data: { source: { kind }, content: [{ type: 'text', text }] } });
 const agent = (seq, text) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'reasoning', text: 'secret thoughts' }, { type: 'text', text }] } } });
 const tool = (seq) => ({ seq, type: 'tool/call', data: { name: 'bash', arguments: { command: 'rm -rf secret' } } });
@@ -34,7 +43,7 @@ process.env.DSH_HOME = home;
 let events = chat;
 let origin = 'user';
 const calls = [];
-let answer = ' and add tests.';
+let answer = 'tests and add tests.';
 let gate = () => Promise.resolve();
 const providers = [{ id: 'demo', name: 'Demo' }, { id: 'fast', name: 'Fast' }];
 const models = { demo: [{ id: 'demo', name: 'Demo model' }], fast: [{ id: 'nano', name: 'Nano' }] };
@@ -89,7 +98,8 @@ assert.deepEqual(r.data, { text: 'Run the tests', completion: ' and add tests.',
 const [first] = calls;
 assert.equal(first.provider, 'demo'); assert.equal(first.reasoningEffort, 'low'); assert.equal(first.maxTokens, 2000);
 assert.match(first.system, /complete the message that the user is typing/);
-assert.match(first.messages[0].content[0].text, /User: Add a login page[\s\S]*Agent: Done[\s\S]*<<<Run the tests>>>/);
+assert.match(first.system, /You are not the agent/, 'a rule against replies to the user');
+assert.match(first.messages[0].content[0].text, /User: Add a login page[\s\S]*Agent: Done[\s\S]*<<<Run the tests>>>[\s\S]*last word[\s\S]*<<<tests>>>/);
 assert.ok(!JSON.stringify(first).includes('rm -rf') && !JSON.stringify(first).includes('secret thoughts'), 'no tools or reasoning');
 // A new chat has no context: it still completes.
 events = [];
