@@ -7,8 +7,9 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | Route | Method | Request | Feature | Tether |
 |---|---|---|---|---|
 | `/api/composer-plus.continue` | POST | `{sessionId, afterSeq}`: continue the last stopped, failed or cut-off turn without a chat message. | continueButton | yes |
-| `/api/composer-plus.changes` | GET | `?sessionId&mode=uncommitted\|unstaged\|staged\|branch`: the changed files of the chat's folder (read-only git) and the newest turn for Last Turn. | changesPanel | yes |
-| `/api/composer-plus.diff` | GET | `?sessionId&mode&path`: the diff of one changed file. | changesPanel | yes |
+| `/api/composer-plus.changes` | GET | `?sessionId&mode=uncommitted\|unstaged\|staged\|branch\|commit` (`&commit=<full id>` with `commit`): the changed files of the chat's folder or of one commit (read-only git) and the newest turn for Last Turn. | changesPanel | yes |
+| `/api/composer-plus.diff` | GET | `?sessionId&mode&path` (`&commit=<full id>` with `mode=commit`): the diff of one changed file. | changesPanel | yes |
+| `/api/composer-plus.graph` | GET | `?sessionId`: the branch tree of the chat's folder: the newest 300 commits of the local and remote branches and HEAD, with parents and refs (read-only git), and the newest turn for Last Turn. | changesPanel | yes |
 | `/api/composer-plus.shot` | GET | `?id=<shot>`: one shipped Settings screenshot (`SHOTS` in index.js only). | Settings | no |
 | `/api/composer-plus.update` | GET | No query: the latest GitHub release compared with this copy (`latest`, `newer`, `managed`, `url`, `notes`); calls GitHub and npm. `?current=1`: only the running version (What's new), no network call. | autoUpdate | no |
 | `/api/composer-plus.grants` | GET | The saved grants, `{ [sessionId]: [tool] }`. | allowForChat | yes |

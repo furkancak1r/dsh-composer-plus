@@ -70,21 +70,21 @@
     {
       "id": "changesPanel",
       "shot": "changesPanel",
-      "llms": "right sidebar page with uncommitted / unstaged / staged / branch git changes and per-file diffs; read-only git.",
+      "llms": "right sidebar page with uncommitted / unstaged / staged / branch git changes and per-file diffs, and a branch tree (local and remote branches, newest 300 commits) where a branch name goes to its commit and a commit shows its files and diffs; read-only git.",
       "how": {
-        "en": "Right sidebar → `+` → **Changes**. Pick **Uncommitted**, **Unstaged**, **Staged** or **Branch** to see changed files with `+/-` counts; click a file for its diff. **Last Turn** opens dsh's own review of the latest turn.",
-        "zh": "右侧边栏 → `+` → **改动**。选择 **未提交**、**未暂存**、**已暂存** 或 **分支**，即可查看有改动的文件及其 `+/-` 行数；点击某个文件可查看它的差异。**上一轮** 会打开 dsh 自带的最近一轮改动审阅。",
-        "tr": "Sağ kenar çubuğu → `+` → **Değişiklikler**. Değişen dosyaları `+/-` sayılarıyla görmek için **Commit edilmemiş**, **Hazırlanmamış**, **Hazırlanmış** veya **Dal** seçin. Farkını görmek için bir dosyaya tıklayın. **Son tur**, dsh’nin son tur için kendi incelemesini açar.",
-        "es": "Barra lateral derecha → `+` → **Cambios**. Elige **Sin confirmar**, **Sin preparar**, **Preparados** o **Rama** para ver los archivos cambiados con sus contadores `+/-`; haz clic en un archivo para ver su diff. **Último turno** abre la revisión propia de dsh del último turno.",
-        "pt-BR": "Barra lateral direita → `+` → **Alterações**. Escolha **Não confirmadas**, **Não preparadas**, **Preparadas** ou **Branch** para ver os arquivos alterados com as contagens `+/-`; clique em um arquivo para ver o diff dele. **Último turno** abre a revisão do próprio dsh para o turno mais recente.",
-        "fr": "Barre latérale droite → `+` → **Modifications**. Choisissez **Non validées**, **Non indexées**, **Indexées** ou **Branche** pour voir les fichiers modifiés avec leurs compteurs `+/-` ; cliquez sur un fichier pour voir son diff. **Dernier tour** ouvre la revue du dernier tour proposée par dsh lui-même.",
-        "de": "Rechte Seitenleiste → `+` → **Änderungen**. Wähle **Nicht committet**, **Nicht gestagt**, **Gestagt** oder **Branch**, um die geänderten Dateien mit `+/-`-Zählern zu sehen. Klicke auf eine Datei, um ihren Diff zu sehen. **Letzte Runde** öffnet die eigene Prüfansicht von dsh für die letzte Runde.",
-        "ru": "Правая боковая панель → `+` → **Изменения**. Выберите **Незафиксированные**, **Непроиндексированные**, **Проиндексированные** или **Ветка**: вы увидите изменённые файлы со счётчиками `+/-`. Нажмите на файл, чтобы открыть его diff. **Последний ход** открывает встроенный обзор dsh для последнего хода.",
-        "ja": "右サイドバー → `+` → **変更**。**未コミット**、**未ステージ**、**ステージ済み**、**ブランチ** のいずれかを選ぶと、変更されたファイルが `+/-` の行数とともに表示されます。ファイルをクリックすると、その差分を表示します。**最後のターン** は、最新のターンに対する dsh 標準のレビューを開きます。",
-        "ko": "오른쪽 사이드바 → `+` → **변경 사항**. **커밋 안 됨**, **스테이징 안 됨**, **스테이징됨**, **브랜치** 중 하나를 고르면 변경된 파일이 `+/-` 개수와 함께 표시됩니다. 파일을 클릭하면 diff를 볼 수 있습니다. **마지막 턴**은 최근 턴에 대한 dsh 자체 검토 화면을 엽니다.",
-        "id": "Bilah samping kanan → `+` → **Perubahan**. Pilih **Belum Di-commit**, **Belum Di-stage**, **Di-stage**, atau **Branch** untuk melihat file yang berubah beserta jumlah `+/-`; klik sebuah file untuk melihat diff-nya. **Giliran Terakhir** membuka tinjauan bawaan dsh untuk giliran terakhir.",
-        "vi": "Thanh bên phải → `+` → **Thay đổi**. Chọn **Chưa commit**, **Chưa stage**, **Đã stage** hoặc **Branch** để xem các tệp đã thay đổi kèm số dòng `+/-`. Nhấp vào một tệp để xem diff của tệp đó. **Lượt gần nhất** mở trang xem lại của chính dsh cho lượt mới nhất.",
-        "hi": "दायां साइडबार → `+` → **बदलाव**। बदली हुई फ़ाइलें `+/-` गिनती के साथ देखने के लिए **कमिट नहीं किए गए**, **स्टेज नहीं किए गए**, **स्टेज किए गए** या **ब्रांच** चुनें। किसी फ़ाइल का डिफ़ देखने के लिए उस पर क्लिक करें। **पिछला टर्न** सबसे नए टर्न का dsh का अपना रिव्यू खोलता है।"
+        "en": "Right sidebar → `+` → **Changes**. Pick **Uncommitted**, **Unstaged**, **Staged** or **Branch** to see changed files with `+/-` counts; click a file for its diff. **Last Turn** opens dsh's own review of the latest turn. Click the branch name (or pick **Tree**) to see the branch tree: click a branch above it to go to that branch, click a commit to see its files and their diffs.",
+        "zh": "右侧边栏 → `+` → **改动**。选择 **未提交**、**未暂存**、**已暂存** 或 **分支**，即可查看有改动的文件及其 `+/-` 行数；点击某个文件可查看它的差异。**上一轮** 会打开 dsh 自带的最近一轮改动审阅。点击分支名（或选择 **树**）即可查看分支树：点击上方的分支会跳到该分支，点击提交可查看它的文件及差异。",
+        "tr": "Sağ kenar çubuğu → `+` → **Değişiklikler**. Değişen dosyaları `+/-` sayılarıyla görmek için **Commit edilmemiş**, **Hazırlanmamış**, **Hazırlanmış** veya **Dal** seçin. Farkını görmek için bir dosyaya tıklayın. **Son tur**, dsh’nin son tur için kendi incelemesini açar. Dal ağacını görmek için dal adına tıklayın (veya **Ağaç** seçin). Üstteki bir dala tıklayınca ağaç o dala gider. Bir commit’e tıklayınca dosyalarını ve farklarını görürsünüz.",
+        "es": "Barra lateral derecha → `+` → **Cambios**. Elige **Sin confirmar**, **Sin preparar**, **Preparados** o **Rama** para ver los archivos cambiados con sus contadores `+/-`; haz clic en un archivo para ver su diff. **Último turno** abre la revisión propia de dsh del último turno. Haz clic en el nombre de la rama (o elige **Árbol**) para ver el árbol de ramas: haz clic en una rama de arriba para ir a ella y en un commit para ver sus archivos y sus diffs.",
+        "pt-BR": "Barra lateral direita → `+` → **Alterações**. Escolha **Não confirmadas**, **Não preparadas**, **Preparadas** ou **Branch** para ver os arquivos alterados com as contagens `+/-`; clique em um arquivo para ver o diff dele. **Último turno** abre a revisão do próprio dsh para o turno mais recente. Clique no nome do branch (ou escolha **Árvore**) para ver a árvore de branches: clique em um branch acima dela para ir até ele e em um commit para ver os arquivos e os diffs dele.",
+        "fr": "Barre latérale droite → `+` → **Modifications**. Choisissez **Non validées**, **Non indexées**, **Indexées** ou **Branche** pour voir les fichiers modifiés avec leurs compteurs `+/-` ; cliquez sur un fichier pour voir son diff. **Dernier tour** ouvre la revue du dernier tour proposée par dsh lui-même. Cliquez sur le nom de la branche (ou choisissez **Arbre**) pour voir l’arbre des branches : cliquez sur une branche au-dessus pour y aller, et sur un commit pour voir ses fichiers et leurs diffs.",
+        "de": "Rechte Seitenleiste → `+` → **Änderungen**. Wähle **Nicht committet**, **Nicht gestagt**, **Gestagt** oder **Branch**, um die geänderten Dateien mit `+/-`-Zählern zu sehen. Klicke auf eine Datei, um ihren Diff zu sehen. **Letzte Runde** öffnet die eigene Prüfansicht von dsh für die letzte Runde. Klicke auf den Branch-Namen (oder wähle **Baum**), um den Branch-Baum zu sehen. Ein Klick auf einen Branch darüber springt zu diesem Branch, ein Klick auf einen Commit zeigt seine Dateien und Diffs.",
+        "ru": "Правая боковая панель → `+` → **Изменения**. Выберите **Незафиксированные**, **Непроиндексированные**, **Проиндексированные** или **Ветка**: вы увидите изменённые файлы со счётчиками `+/-`. Нажмите на файл, чтобы открыть его diff. **Последний ход** открывает встроенный обзор dsh для последнего хода. Нажмите на имя ветки (или выберите **Дерево**), чтобы увидеть дерево веток. Нажмите на ветку над ним, чтобы перейти к ней, или на коммит, чтобы увидеть его файлы и их diff.",
+        "ja": "右サイドバー → `+` → **変更**。**未コミット**、**未ステージ**、**ステージ済み**、**ブランチ** のいずれかを選ぶと、変更されたファイルが `+/-` の行数とともに表示されます。ファイルをクリックすると、その差分を表示します。**最後のターン** は、最新のターンに対する dsh 標準のレビューを開きます。ブランチ名をクリックする（または **ツリー** を選ぶ）とブランチツリーを表示します。上のブランチをクリックするとそのブランチへ移動し、コミットをクリックするとそのファイルと差分を表示します。",
+        "ko": "오른쪽 사이드바 → `+` → **변경 사항**. **커밋 안 됨**, **스테이징 안 됨**, **스테이징됨**, **브랜치** 중 하나를 고르면 변경된 파일이 `+/-` 개수와 함께 표시됩니다. 파일을 클릭하면 diff를 볼 수 있습니다. **마지막 턴**은 최근 턴에 대한 dsh 자체 검토 화면을 엽니다. 브랜치 이름을 클릭하면(또는 **트리** 선택) 브랜치 트리를 볼 수 있습니다. 위쪽의 브랜치를 클릭하면 그 브랜치로 이동하고, 커밋을 클릭하면 그 파일과 diff를 볼 수 있습니다.",
+        "id": "Bilah samping kanan → `+` → **Perubahan**. Pilih **Belum Di-commit**, **Belum Di-stage**, **Di-stage**, atau **Branch** untuk melihat file yang berubah beserta jumlah `+/-`; klik sebuah file untuk melihat diff-nya. **Giliran Terakhir** membuka tinjauan bawaan dsh untuk giliran terakhir. Klik nama branch (atau pilih **Pohon**) untuk melihat pohon branch: klik sebuah branch di atasnya untuk menuju branch itu, dan klik sebuah commit untuk melihat file dan diff-nya.",
+        "vi": "Thanh bên phải → `+` → **Thay đổi**. Chọn **Chưa commit**, **Chưa stage**, **Đã stage** hoặc **Branch** để xem các tệp đã thay đổi kèm số dòng `+/-`. Nhấp vào một tệp để xem diff của tệp đó. **Lượt gần nhất** mở trang xem lại của chính dsh cho lượt mới nhất. Nhấp vào tên branch (hoặc chọn **Cây**) để xem cây branch: nhấp vào một branch phía trên để đi tới branch đó, nhấp vào một commit để xem các tệp và diff của commit đó.",
+        "hi": "दायां साइडबार → `+` → **बदलाव**। बदली हुई फ़ाइलें `+/-` गिनती के साथ देखने के लिए **कमिट नहीं किए गए**, **स्टेज नहीं किए गए**, **स्टेज किए गए** या **ब्रांच** चुनें। किसी फ़ाइल का डिफ़ देखने के लिए उस पर क्लिक करें। **पिछला टर्न** सबसे नए टर्न का dsh का अपना रिव्यू खोलता है। ब्रांच ट्री देखने के लिए ब्रांच के नाम पर क्लिक करें (या **ट्री** चुनें)। ऊपर किसी ब्रांच पर क्लिक करने से ट्री उस ब्रांच पर जाता है, और किसी कमिट पर क्लिक करने से उसकी फ़ाइलें और डिफ़ दिखते हैं।"
       }
     },
     {
@@ -661,14 +661,21 @@
       "name": "changes",
       "feature": "changesPanel",
       "request": {
-        "GET": "`?sessionId&mode=uncommitted|unstaged|staged|branch`: the changed files of the chat's folder (read-only git) and the newest turn for Last Turn."
+        "GET": "`?sessionId&mode=uncommitted|unstaged|staged|branch|commit` (`&commit=<full id>` with `commit`): the changed files of the chat's folder or of one commit (read-only git) and the newest turn for Last Turn."
       }
     },
     {
       "name": "diff",
       "feature": "changesPanel",
       "request": {
-        "GET": "`?sessionId&mode&path`: the diff of one changed file."
+        "GET": "`?sessionId&mode&path` (`&commit=<full id>` with `mode=commit`): the diff of one changed file."
+      }
+    },
+    {
+      "name": "graph",
+      "feature": "changesPanel",
+      "request": {
+        "GET": "`?sessionId`: the branch tree of the chat's folder: the newest 300 commits of the local and remote branches and HEAD, with parents and refs (read-only git), and the newest turn for Last Turn."
       }
     },
     {

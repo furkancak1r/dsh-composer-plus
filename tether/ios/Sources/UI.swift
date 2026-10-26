@@ -1990,7 +1990,8 @@ struct PromptSheet: View {
 
 // MARK: - Composer Plus (the dsh-composer-plus plugin on the Mac)
 
-/// Changes panel: the chat's git changes, by mode; tap a file for its diff. Refreshes every 4 s while open.
+/// Changes panel: the chat's git changes, by mode; tap a file for its diff. Refreshes every 4 s while open. The branch
+/// name (and the Tree button) opens the branch tree.
 struct ChangesSheet: View {
     @EnvironmentObject var c: Client
     @Environment(\.dismiss) private var dismiss
@@ -1998,7 +1999,9 @@ struct ChangesSheet: View {
     @AppStorage("changesMode") private var mode = "uncommitted"
     @State private var data: J?
     @State private var failed: String?
+    @State private var showTree = false
     private static let modes: [(id: String, label: LocalizedStringKey)] = [("uncommitted", "Uncommitted"), ("unstaged", "Unstaged"), ("staged", "Staged"), ("branch", "Branch")]
+    private var hasTree: Bool { c.plus.contains("graph") }
     var body: some View {
         NavigationStack {
             List {
@@ -2013,14 +2016,20 @@ struct ChangesSheet: View {
                             if files.isEmpty { Text("No file changes yet").foregroundStyle(.secondary) }
                             ForEach(files.indices, id: \.self) { i in
                                 let f = files[i], path = f["path"] as? String ?? ""
-                                NavigationLink { DiffView(sessionId: sessionId, mode: mode, path: path) } label: { fileRow(f) }
+                                NavigationLink { DiffView(sessionId: sessionId, mode: mode, path: path) } label: { ChangedFileRow(f: f) }
                             }
                             let more = (d["total"] as? Int ?? files.count) - files.count
                             if more > 0 { Text("\(more) more file(s) not shown").font(.footnote).foregroundStyle(.secondary) }
                         } header: {
                             HStack {
-                                Text(d["branch"] as? String ?? "")
-                                if let u = d["upstream"] as? String { Text("→ \(u)") }
+                                // The branch name opens the tree, as the branch chip on the Mac does.
+                                Button { showTree = true } label: {
+                                    HStack(spacing: 4) {
+                                        Text(d["branch"] as? String ?? "")
+                                        if let u = d["upstream"] as? String { Text("→ \(u)") }
+                                        if hasTree { Image(systemName: "point.3.connected.trianglepath.dotted") }
+                                    }
+                                }.disabled(!hasTree).accessibilityHint(hasTree ? Text("Show the branch tree") : Text(""))
                                 Spacer()
                                 Text("+\(d["added"] as? Int ?? 0)").foregroundStyle(.green); Text("−\(d["deleted"] as? Int ?? 0)").foregroundStyle(.red)
                             }.font(.caption.monospacedDigit())
@@ -2029,7 +2038,11 @@ struct ChangesSheet: View {
                 } else { ProgressView().frame(maxWidth: .infinity) }
             }
             .navigationTitle("Changes").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .toolbar {
+                if hasTree { ToolbarItem(placement: .topBarLeading) { Button("Tree") { showTree = true } } }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .navigationDestination(isPresented: $showTree) { TreeView(sessionId: sessionId) }
             .refreshable { await load() }
             // the desktop panel refreshes every 4 s while it is on screen
             .task(id: mode) { data = nil; while !Task.isCancelled { await load(); try? await Task.sleep(for: .seconds(4)) } }
@@ -2039,7 +2052,12 @@ struct ChangesSheet: View {
         do { data = try await c.plusCall("changes", query: ["sessionId": sessionId, "mode": mode]); failed = nil }
         catch is CancellationError {} catch { failed = String(localized: "Could not read changes.") + " " + userText(error) }
     }
-    private func fileRow(_ f: J) -> some View {
+}
+
+/// One changed file: name, folder and +/− (or new / binary).
+struct ChangedFileRow: View {
+    let f: J
+    var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 Text(((f["path"] as? String ?? "") as NSString).lastPathComponent).font(.subheadline.monospaced()).lineLimit(1)
@@ -2053,10 +2071,157 @@ struct ChangesSheet: View {
     }
 }
 
+/// Branch tree colors: a lane keeps its color down the rows (the same palette as on the Mac).
+let laneColors: [Color] = [0x3b82f6, 0x22a06b, 0xe5484d, 0xd97706, 0x8e4ec6, 0x0ea5a4, 0xd6409f, 0x6b7280]
+    .map { Color(red: Double($0 >> 16 & 0xff) / 255, green: Double($0 >> 8 & 0xff) / 255, blue: Double($0 & 0xff) / 255) }
+func laneColor(_ i: Int) -> Color { laneColors[i % laneColors.count] }
+
+/// A ref tag: local branch (green), remote (outlined), tag (amber), detached HEAD (red).
+struct RefTag: View {
+    let ref: GraphRef
+    var body: some View {
+        let tint: Color = ref.kind == "local" ? .green : ref.kind == "tag" ? .orange : ref.kind == "head" ? .red : .secondary
+        Text(ref.name).font(.caption2.weight(ref.current ? .semibold : .regular)).lineLimit(1)
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .foregroundStyle(ref.kind == "remote" ? Color.primary : tint)
+            .background(ref.kind == "remote" ? Color.clear : tint.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+            .overlay { if ref.kind == "remote" { RoundedRectangle(cornerRadius: 4).stroke(Color.secondary.opacity(0.5)) } }
+    }
+}
+
+/// The branch tree: the newest commits of all branches with their lanes. Branches (menu) scrolls to a branch and marks
+/// it; a row opens that commit's files.
+struct TreeView: View {
+    @EnvironmentObject var c: Client
+    let sessionId: String
+    @State private var commits: [GraphCommit] = []
+    @State private var rows: [GraphRow] = []
+    @State private var head: String?
+    @State private var more = false
+    @State private var loaded = false
+    @State private var failed: String?
+    @State private var marked: String?
+    private let laneW: CGFloat = 12, rowH: CGFloat = 30
+    var body: some View {
+        ScrollViewReader { proxy in
+            List {
+                if let failed { Text(failed).foregroundStyle(.secondary) }
+                else if !loaded { ProgressView().frame(maxWidth: .infinity) }
+                else if commits.isEmpty { Text("This repository has no commits yet.").foregroundStyle(.secondary) }
+                ForEach(Array(commits.enumerated()), id: \.element.id) { i, cm in
+                    NavigationLink { CommitView(sessionId: sessionId, commit: cm) } label: { row(cm, rows[i]) }
+                        .id(cm.sha)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 12))
+                        .listRowBackground(cm.sha == marked ? Color.accentColor.opacity(0.16) : nil)
+                        .listRowSeparator(.hidden)
+                }
+                if more { Text("Only the newest \(commits.count) commits are shown.").font(.footnote).foregroundStyle(.secondary) }
+            }
+            .listStyle(.plain).environment(\.defaultMinListRowHeight, rowH)
+            .navigationTitle("Tree").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        // kind + name: a local "origin/x" and the remote "origin/x" are two entries.
+                        ForEach(treeBranches(commits), id: \.ref.key) { b in
+                            Button { marked = b.sha; withAnimation { proxy.scrollTo(b.sha, anchor: .center) } } label: { Text(b.ref.name) }
+                        }
+                    } label: { Label("Branches", systemImage: "arrow.triangle.branch") }.disabled(commits.isEmpty)
+                }
+            }
+            .refreshable { await load() }
+            .task {
+                await load()
+                // First open: HEAD is marked and in view, as on the Mac.
+                if marked == nil, let head { marked = head; proxy.scrollTo(head, anchor: .center) }
+            }
+        }
+    }
+    private func load() async {
+        do {
+            let d = try await c.plusCall("graph", query: ["sessionId": sessionId])
+            if d["repo"] as? Bool == false { failed = String(localized: "This chat's folder is not a git repository."); return }
+            commits = (d["commits"] as? [J] ?? []).compactMap(GraphCommit.init); rows = graphRows(commits)
+            head = d["head"] as? String; more = d["more"] as? Bool == true; failed = nil; loaded = true
+        } catch is CancellationError {} catch { failed = String(localized: "Could not read changes.") + " " + userText(error) }
+    }
+    /// One lane column for all rows (at most 12 lanes on a phone), so the subjects line up as on the Mac.
+    private var lanesWidth: CGFloat { CGFloat(min(rows.map(\.width).max() ?? 1, 12)) * laneW + 4 }
+    private func row(_ cm: GraphCommit, _ r: GraphRow) -> some View {
+        HStack(spacing: 6) {
+            lanes(r, isHead: cm.sha == head).frame(width: lanesWidth, height: rowH)
+            ForEach(Array(cm.refs.prefix(2).enumerated()), id: \.offset) { _, ref in RefTag(ref: ref) }
+            Text(cm.subject).font(.footnote.weight(cm.sha == head ? .semibold : .regular)).lineLimit(1)
+            Spacer(minLength: 4)
+            Text(cm.sha.prefix(7)).font(.caption2.monospaced()).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .combine)
+    }
+    private func lanes(_ r: GraphRow, isHead: Bool) -> some View {
+        Canvas { ctx, size in
+            let x = { (i: Int) in CGFloat(i) * laneW + laneW / 2 + 2 }
+            let half = size.height / 2
+            func line(_ from: Int, _ to: Int, _ y0: CGFloat, _ y1: CGFloat, _ color: Int) {
+                var p = Path(); p.move(to: CGPoint(x: x(from), y: y0))
+                if from == to { p.addLine(to: CGPoint(x: x(to), y: y1)) }
+                else { p.addCurve(to: CGPoint(x: x(to), y: y1), control1: CGPoint(x: x(from), y: (y0 + y1) / 2), control2: CGPoint(x: x(to), y: (y0 + y1) / 2)) }
+                ctx.stroke(p, with: .color(laneColor(color)), lineWidth: 2)
+            }
+            for t in r.top { line(t[0], t[1], 0, half, t[0]) }
+            for b in r.bottom { line(b[0], b[1], half, size.height, b[2]) }
+            let c = CGPoint(x: x(r.col), y: half)
+            if isHead { ctx.stroke(Path(ellipseIn: CGRect(x: c.x - 6, y: c.y - 6, width: 12, height: 12)), with: .color(laneColor(r.col)), lineWidth: 2) }
+            let d: CGFloat = isHead ? 3 : 4
+            ctx.fill(Path(ellipseIn: CGRect(x: c.x - d, y: c.y - d, width: d * 2, height: d * 2)), with: .color(laneColor(r.col)))
+        }
+    }
+}
+
+/// One commit: its subject, id, author, date and refs, and its files (against the first parent); tap a file for its diff.
+struct CommitView: View {
+    @EnvironmentObject var c: Client
+    let sessionId: String, commit: GraphCommit
+    @State private var data: J?
+    @State private var failed: String?
+    var body: some View {
+        List {
+            Section {
+                Text(commit.subject).font(.subheadline.weight(.semibold))
+                HStack(spacing: 6) {
+                    Text(commit.sha.prefix(7)).font(.caption.monospaced())
+                    Text(commit.author).font(.caption)
+                    if commit.time > 0 { Text(Date(timeIntervalSince1970: TimeInterval(commit.time)), style: .date).font(.caption) }
+                }.foregroundStyle(.secondary)
+                if !commit.refs.isEmpty { HStack(spacing: 4) { ForEach(Array(commit.refs.enumerated()), id: \.offset) { _, ref in RefTag(ref: ref) } } }
+            }
+            if let failed { Text(failed).foregroundStyle(.secondary) }
+            else if let d = data {
+                let files = d["files"] as? [J] ?? []
+                Section {
+                    if files.isEmpty { Text("This commit changes no files.").foregroundStyle(.secondary) }
+                    ForEach(files.indices, id: \.self) { i in
+                        let f = files[i], path = f["path"] as? String ?? ""
+                        NavigationLink { DiffView(sessionId: sessionId, mode: "commit", path: path, commit: commit.sha) } label: { ChangedFileRow(f: f) }
+                    }
+                } header: {
+                    HStack { Spacer(); Text("+\(d["added"] as? Int ?? 0)").foregroundStyle(.green); Text("−\(d["deleted"] as? Int ?? 0)").foregroundStyle(.red) }.font(.caption.monospacedDigit())
+                }
+            } else { ProgressView().frame(maxWidth: .infinity) }
+        }
+        .navigationTitle(String(commit.sha.prefix(7))).navigationBarTitleDisplayMode(.inline)
+        .task {
+            // A commit never changes: one load, no refresh.
+            do { data = try await c.plusCall("changes", query: ["sessionId": sessionId, "mode": "commit", "commit": commit.sha]) }
+            catch is CancellationError {} catch { failed = String(localized: "Could not read changes.") + " " + userText(error) }
+        }
+    }
+}
+
 /// One file's diff: the patch from its first hunk, colored by line.
 struct DiffView: View {
     @EnvironmentObject var c: Client
     let sessionId: String, mode: String, path: String
+    var commit: String? = nil
     @State private var d: J?
     @State private var failed: String?
     var body: some View {
@@ -2079,7 +2244,9 @@ struct DiffView: View {
         }
         .navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
         .task {
-            do { d = try await c.plusCall("diff", query: ["sessionId": sessionId, "mode": mode, "path": path]) }
+            var q = ["sessionId": sessionId, "mode": mode, "path": path]
+            if let commit { q["commit"] = commit }
+            do { d = try await c.plusCall("diff", query: q) }
             catch { failed = userText(error) }
         }
     }

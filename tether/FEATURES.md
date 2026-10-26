@@ -11,7 +11,7 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 
 | id | Tether | Where in Tether, or why not |
 |---|---|---|
-| changesPanel | yes | Chat title menu → Changes: mode, files with +/−, tap a file for its diff. Refreshes every 4 s. |
+| changesPanel | yes | Chat title menu → Changes: mode, files with +/−, tap a file for its diff. Refreshes every 4 s. The branch name or **Tree** opens the branch tree: **Branches** scrolls to a branch, tap a commit for its files and diffs. |
 | featureIdeas | yes | Chat title menu → Feature ideas: cards (swipe right or Plan, Build now, swipe left to skip, swipe down or Save for later), Later list (Plan, Build now, Plan all, Copy as checklist) and History (Forget, Forget all). A focus field with the six preset topics sits above the cards. |
 | contentSearch | yes | Sessions search shows "Messages" hits from dsh's own message search. |
 | turnRollback | yes | Touch and hold your message → Roll back to before this message: Chat only, or Chat and files. Withdrawn messages leave the chat. |

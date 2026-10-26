@@ -177,7 +177,7 @@ try {
   await page.getByText('Changes', { exact: true }).first().click();
   const panel = page.locator('[data-composer-plus-changes]'); await panel.waitFor({ timeout: 8000 });
   await panel.getByText('src/auth.ts', { exact: true }).click(); await page.waitForTimeout(1200);
-  await shot('changesPanel', whole);
+  // assets/features/changesPanel.webp (the branch tree) comes from `SHOT=1 test/browser-changes-tree.mjs`.
   await page.getByRole('button', { name: 'Close right sidebar' }).click().catch(() => {});
 
   // Copy session link: right-click the chat row. The item sits after dsh's own "Copy Session ID" (dsh 0.2.1+), so

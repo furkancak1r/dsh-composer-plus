@@ -26,6 +26,7 @@ export const inject = ['connection', 'subprocess', 'sessionQuery', 'sessionContr
 
 export const CHANGES_PATH = '/api/composer-plus.changes';
 export const DIFF_PATH = '/api/composer-plus.diff';
+export const GRAPH_PATH = '/api/composer-plus.graph';
 export const GRANTS_PATH = '/api/composer-plus.grants';
 export const CONTINUE_PATH = '/api/composer-plus.continue';
 export const UPDATE_PATH = '/api/composer-plus.update';
@@ -56,7 +57,11 @@ const CONTINUE_SOURCE = 'composer-plus-continue';
 const CONTINUE_TEXT = 'The previous turn stopped before it finished (it was interrupted or failed). Continue the task from where it stopped. Do not repeat completed work.';
 const continueMessage = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: CONTINUE_TEXT })]),
   source: Object.freeze({ kind: 'composer-plus-resume', form: 'snapshot' }) });
-export const MODES = ['uncommitted', 'unstaged', 'staged', 'branch'];
+export const MODES = ['uncommitted', 'unstaged', 'staged', 'branch', 'commit'];
+/** The branch tree shows at most this many commits (newest first). */
+export const GRAPH_MAX = 300;
+/** A full commit id (SHA-1 or SHA-256): the only form of `commit` that reaches git, so it can never be an option. */
+export const SHA_RE = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 const MAX_OUTPUT = 4 * 1024 * 1024;
 const MAX_FILES = 500;
 const TIMEOUT_MS = 15000;
@@ -92,12 +97,58 @@ export async function runGit(subprocess, cwd, args, signal, { env = {}, stdin, t
   return { code: outcome.exitCode, stdout: out.text, truncated: out.lossy, stderr: handle.collected.stderr?.readFrom(0).text ?? '' };
 }
 
-/** `git diff` arguments for a mode, relative to `base` for branch mode. */
-export function diffArgs(mode, base) {
+/** `git diff` arguments for a mode, relative to `base` for branch mode. Commit mode: what one commit changed, against
+ * its first parent (a merge shows what it brought in; a root commit shows its files). */
+export function diffArgs(mode, base, commit) {
+  // `^{commit}`: a blob, tree or tag id must not print its content as a "diff".
+  if (mode === 'commit') return ['show', '--format=', '--root', '-m', '--first-parent', '--no-show-signature', `${commit}^{commit}`];
   if (mode === 'staged') return ['diff', '--cached'];
   if (mode === 'unstaged') return ['diff'];
   if (mode === 'branch') return ['diff', base];
   return ['diff', 'HEAD'];
+}
+
+/** `%D` of `git log --decorate=full` as tags for the tree: local and remote branches, tags and a detached HEAD.
+ * `<remote>/HEAD` only repeats the remote's default branch, and other refs (stash, notes) are left out. */
+export function parseRefs(decoration) {
+  const refs = [];
+  for (let part of String(decoration ?? '').split(', ')) {
+    let current = false;
+    if (part.startsWith('HEAD -> ')) { current = true; part = part.slice(8); }
+    if (part === 'HEAD') refs.push({ name: 'HEAD', kind: 'head' });
+    else if (part.startsWith('tag: refs/tags/')) refs.push({ name: part.slice(15), kind: 'tag' });
+    else if (part.startsWith('refs/heads/')) refs.push({ name: part.slice(11), kind: 'local', ...(current ? { current } : {}) });
+    else if (part.startsWith('refs/remotes/') && !part.endsWith('/HEAD')) refs.push({ name: part.slice(13), kind: 'remote' });
+  }
+  return refs;
+}
+
+/** The branch tree: the newest `limit` commits of all local and remote branches and HEAD, children before parents
+ * (`--topo-order`), with their parents and refs. `more` says that older commits are not shown. */
+export async function commitGraph(subprocess, cwd, signal, limit = GRAPH_MAX) {
+  const top = await runGit(subprocess, cwd, ['rev-parse', '--show-toplevel'], signal);
+  if (top.code !== 0) return { repo: false };
+  const root = top.stdout.trim();
+  const branch = (await runGit(subprocess, root, ['rev-parse', '--abbrev-ref', 'HEAD'], signal)).stdout.trim();
+  const up = await runGit(subprocess, root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], signal);
+  const head = await runGit(subprocess, root, ['rev-parse', '--verify', '-q', 'HEAD'], signal);
+  const facts = { repo: true, root, branch, ...(up.code === 0 ? { upstream: up.stdout.trim() } : {}), ...(head.code === 0 ? { head: head.stdout.trim() } : {}) };
+  // A repository without commits has no HEAD: naming it would fail, and the other refs are empty too.
+  const log = await runGit(subprocess, root, ['log', '--branches', '--remotes', ...(head.code === 0 ? ['HEAD'] : []), '--topo-order', '-z',
+    `--max-count=${limit + 1}`, '--decorate=full', '--no-color', '--no-show-signature', '--format=%H%x1f%P%x1f%ct%x1f%an%x1f%D%x1f%s'], signal);
+  if (log.code !== 0) throw new Error(`git log failed: ${log.stderr.trim()}`);
+  const commits = [];
+  // With -z every record ends in \0: the last piece is '' or, in cut-off output, a broken record. Only whole ones count.
+  for (const record of log.stdout.split('\0').slice(0, -1)) {
+    // The subject is last, so a \x1f in it stays in it. ponytail: a \x1f in an author name shifts %D into the name
+    // (display only; git never puts one in a ref name).
+    const [sha, parents, time, author, decoration, ...subject] = record.split('\x1f');
+    if (!SHA_RE.test(sha ?? '')) continue;
+    commits.push({ sha, parents: parents ? parents.split(' ') : [], refs: parseRefs(decoration), author: String(author ?? '').slice(0, 100),
+      time: Number(time) || 0, subject: subject.join('\x1f').slice(0, 300) });
+  }
+  const more = commits.length > limit || log.truncated;
+  return { ...facts, commits: commits.slice(0, limit), more };
 }
 
 /** Parse `--numstat -z` (renames carry an empty path then old\0new). */
@@ -117,8 +168,10 @@ export function parseNumstat(text) {
   return files;
 }
 
-/** Repository facts and the changed files for one mode. Untracked files count as additions outside the staged view. */
-export async function changes(subprocess, cwd, mode, signal) {
+/** Repository facts and the changed files for one mode. Untracked files count as additions outside the staged and
+ * commit views. `commit` (commit mode only) must match SHA_RE: the route checks it before it calls this. */
+export async function changes(subprocess, cwd, mode, signal, commit) {
+  if (mode === 'commit' && !SHA_RE.test(commit ?? '')) throw new Error('commit mode needs a full commit id');
   const top = await runGit(subprocess, cwd, ['rev-parse', '--show-toplevel'], signal);
   if (top.code !== 0) return { repo: false };
   const root = top.stdout.trim();
@@ -134,25 +187,25 @@ export async function changes(subprocess, cwd, mode, signal) {
     base = mb.stdout.trim();
   }
   // A repository without commits has no HEAD: compare against the empty tree.
-  const args = mode === 'uncommitted' && !hasHead ? ['diff', '--cached'] : diffArgs(mode, base);
+  const args = mode === 'uncommitted' && !hasHead ? ['diff', '--cached'] : diffArgs(mode, base, commit);
   const stat = await runGit(subprocess, root, [...args, '--numstat', '-z', '-M', '--no-color', '--no-ext-diff'], signal);
   if (stat.code !== 0) throw new Error(`git diff failed: ${stat.stderr.trim()}`);
   const files = parseNumstat(stat.stdout);
-  if (mode !== 'staged') {
+  if (mode !== 'staged' && mode !== 'commit') {
     const untracked = await runGit(subprocess, root, ['ls-files', '--others', '--exclude-standard', '-z'], signal);
     for (const path of untracked.stdout.split('\0')) if (path !== '' && !files.some((f) => f.path === path)) files.push({ path, added: 0, deleted: 0, binary: false, untracked: true });
   }
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
   return {
-    repo: true, root, branch, ...(upstream === undefined ? {} : { upstream }), mode,
+    repo: true, root, branch, ...(upstream === undefined ? {} : { upstream }), mode, ...(mode === 'commit' ? { commit } : {}),
     files: files.slice(0, MAX_FILES), total: files.length,
     added: files.reduce((n, f) => n + f.added, 0), deleted: files.reduce((n, f) => n + f.deleted, 0),
   };
 }
 
 /** Unified diff of one listed file; untracked files diff against /dev/null. */
-export async function fileDiff(subprocess, cwd, mode, path, signal) {
-  const summary = await changes(subprocess, cwd, mode, signal);
+export async function fileDiff(subprocess, cwd, mode, path, signal, commit) {
+  const summary = await changes(subprocess, cwd, mode, signal, commit);
   if (!summary.repo) return undefined;
   const file = summary.files.find((f) => f.path === path);
   if (file === undefined) return undefined; // only paths git itself listed: no arbitrary file reads
@@ -163,7 +216,7 @@ export async function fileDiff(subprocess, cwd, mode, path, signal) {
   let base;
   if (mode === 'branch') base = (await runGit(subprocess, summary.root, ['merge-base', 'HEAD', summary.upstream], signal)).stdout.trim();
   const hasHead = (await runGit(subprocess, summary.root, ['rev-parse', '--verify', '-q', 'HEAD'], signal)).code === 0;
-  const args = mode === 'uncommitted' && !hasHead ? ['diff', '--cached'] : diffArgs(mode, base);
+  const args = mode === 'uncommitted' && !hasHead ? ['diff', '--cached'] : diffArgs(mode, base, commit);
   const paths = file.from === undefined ? [path] : [file.from, path];
   const r = await runGit(subprocess, summary.root, [...args, '-M', '--no-color', '--no-ext-diff', '--', ...paths], signal);
   return { path, patch: r.stdout, truncated: r.truncated, binary: file.binary };
@@ -1070,7 +1123,10 @@ export function apply(ctx) {
     const q = new URL(request.url).searchParams;
     const sessionId = q.get('sessionId');
     const mode = q.get('mode') ?? 'uncommitted';
-    return isText(sessionId) && MODES.includes(mode) ? { sessionId, mode, path: q.get('path') } : undefined;
+    const commit = q.get('commit') ?? undefined;
+    // Commit mode only with a full commit id (never an option or a revision expression); other modes take none.
+    if (!isText(sessionId) || !MODES.includes(mode) || (mode === 'commit' ? !SHA_RE.test(commit ?? '') : commit !== undefined)) return undefined;
+    return { sessionId, mode, path: q.get('path'), commit };
   };
   ctx.connection.fetch.register({
     path: CHANGES_PATH, methods: ['GET'], requestBody: 'buffered',
@@ -1081,7 +1137,7 @@ export function apply(ctx) {
         const { cwd, lastTurn } = await sessionFacts(p.sessionId, request.signal);
         const extra = lastTurn === undefined ? {} : { lastTurn };
         if (cwd === undefined) return json({ repo: false, ...extra });
-        return json({ ...(await changes(ctx.subprocess, cwd, p.mode, request.signal)), ...extra });
+        return json({ ...(await changes(ctx.subprocess, cwd, p.mode, request.signal, p.commit)), ...extra });
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
   });
@@ -1092,8 +1148,22 @@ export function apply(ctx) {
       if (p === undefined || !isText(p.path, 4096)) return json({ error: 'bad request' }, 400);
       try {
         const cwd = await cwdOf(p.sessionId, request.signal);
-        const diff = cwd === undefined ? undefined : await fileDiff(ctx.subprocess, cwd, p.mode, p.path, request.signal);
+        const diff = cwd === undefined ? undefined : await fileDiff(ctx.subprocess, cwd, p.mode, p.path, request.signal, p.commit);
         return diff === undefined ? json({ error: 'not found' }, 404) : json(diff);
+      } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+    },
+  });
+  // Branch tree of the chat's repository (read-only git), plus Last Turn like the changes route.
+  ctx.connection.fetch.register({
+    path: GRAPH_PATH, methods: ['GET'], requestBody: 'buffered',
+    fetch: async (request) => {
+      const sessionId = new URL(request.url).searchParams.get('sessionId');
+      if (!isText(sessionId)) return json({ error: 'bad request' }, 400);
+      try {
+        const { cwd, lastTurn } = await sessionFacts(sessionId, request.signal);
+        const extra = lastTurn === undefined ? {} : { lastTurn };
+        if (cwd === undefined) return json({ repo: false, ...extra });
+        return json({ ...(await commitGraph(ctx.subprocess, cwd, request.signal)), ...extra });
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
   });

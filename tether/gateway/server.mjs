@@ -38,7 +38,7 @@ export const STREAMS = new Set(['session/follow', 'session/control', 'workspace/
  * Only the chat-level features; never the switches (`{on}`), the updater, the screenshots or the Mobile connect route,
  * so a phone cannot turn features off, install code or open ports. */
 export const PLUS = new Map([
-  ['changes', ['GET']], ['diff', ['GET']], ['continue', ['POST']], ['grants', ['GET', 'POST']],
+  ['changes', ['GET']], ['diff', ['GET']], ['graph', ['GET']], ['continue', ['POST']], ['grants', ['GET', 'POST']],
   ['rollback', ['GET', 'POST']], ['delete-chat', ['POST']], ['ideas', ['POST']], ['later', ['GET', 'POST']], ['idea-history', ['GET', 'POST']],
   ['queue-move', ['POST']], ['predict', ['POST']], ['complete', ['POST']], ['improve', ['POST']], ['unread', ['GET', 'POST']],
 ])
