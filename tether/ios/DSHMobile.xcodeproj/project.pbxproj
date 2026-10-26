@@ -227,6 +227,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Tether;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan the pairing QR code and take photos to send to DeepSeek.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to DeepSeek Harness running on your Mac over the local network.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlock Tether with Face ID, so nobody else can read your chats or send commands to your Mac.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -270,6 +271,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Tether;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan the pairing QR code and take photos to send to DeepSeek.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to DeepSeek Harness running on your Mac over the local network.";
+				INFOPLIST_KEY_NSFaceIDUsageDescription = "Unlock Tether with Face ID, so nobody else can read your chats or send commands to your Mac.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;

@@ -64,6 +64,7 @@ Then, on the two targets:
 ## Gateway
 
 - When the phone closes a request, the gateway may stop dsh's request only for a route that changes nothing (for example a model call such as Improve prompt). A route that changes a chat or the project (rollback, delete-chat, continue, ideas, queue-move, grants) must run to its end on the Mac: the phone's first address times out after 5 s, and a stopped write can leave half a change.
+- A setting that limits who can reach the gateway (for example "Tailscale only") also limits what the gateway announces to that network. The TCP filter is not sufficient: the Bonjour advertisement (`dns-sd`) sends the Mac name, the port and the certificate fingerprint without a connection. Apply the setting at start and when it changes at run time, and test both paths (gateway tests pass `bonjour: false`, so give the test its own `spawn`).
 
 ## Tests
 

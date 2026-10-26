@@ -118,11 +118,11 @@ try {
   assert.deepEqual(parseNumstat('1\t2\tx\0' + '0\t0\t\0old\0new\0' + '-\t-\tbin\0'), [
     { path: 'x', added: 1, deleted: 2, binary: false }, { path: 'new', from: 'old', added: 0, deleted: 0, binary: false }, { path: 'bin', added: 0, deleted: 0, binary: true }]);
 
-  // Grants persist, merge, and revoke per session.
-  const file = join(root, 'g', 'grants.json'); const g = grantsStore(file);
+  // Grants persist, merge, and revoke per session (time limits: test/grant-ttl.test.mjs).
+  const file = join(root, 'g', 'chat-grants.json'); const g = grantsStore(file);
   await Promise.all([g.grant('s1', 'tool_a'), g.grant('s1', 'tool_b'), g.grant('s2', 'tool_a'), g.grant('s1', 'tool_a')]);
-  assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')), { s1: ['tool_a', 'tool_b'], s2: ['tool_a'] });
-  await g.revoke('s1'); assert.deepEqual(await grantsStore(file).read(), { s2: ['tool_a'] });
+  assert.deepEqual(g.names(await g.read()), { s1: ['tool_a', 'tool_b'], s2: ['tool_a'] });
+  await g.revoke('s1'); const g2 = grantsStore(file); assert.deepEqual(g2.names(await g2.read()), { s2: ['tool_a'] });
 
   // Routes: only the session's own cwd is used; bad input is rejected.
   const routes = new Map();

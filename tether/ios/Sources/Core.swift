@@ -5,6 +5,7 @@ import Network
 import Security
 import UIKit
 import UserNotifications
+import LocalAuthentication
 
 typealias J = [String: Any]
 struct Fail: LocalizedError { let errorDescription: String?; init(_ m: String) { errorDescription = m } }
@@ -1279,17 +1280,25 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
 
     /// Allow for this chat: grants come from the Mac (the desktop and the phone share them).
+    /// Grant changes started on this phone. A read answer that comes after a change started is older than that change's
+    /// answer: it is dropped, so a slow read never brings back a revoked grant or removes a new one.
+    private var grantWrites = 0
     func loadGrants() async {
-        guard let o = try? await plusCall("grants") else { return }
+        let mine = grantWrites
+        guard let o = try? await plusCall("grants"), mine == grantWrites else { return }
         grants = o.compactMapValues { $0 as? [String] }
     }
     func allowForChat(_ p: Prompt) async throws {
         guard let sid = p.agentId, let tool = p.request["toolName"] as? String else { return }
         try await answer(p, "allowed-once") // first the answer, then the grant: a failed answer grants nothing
-        grants = (try await plusCall("grants", body: ["action": "grant", "sessionId": sid, "tool": tool])).compactMapValues { $0 as? [String] }
+        try await writeGrants(["action": "grant", "sessionId": sid, "tool": tool])
     }
-    func revokeGrants(_ sid: String) async throws {
-        grants = (try await plusCall("grants", body: ["action": "revoke", "sessionId": sid])).compactMapValues { $0 as? [String] }
+    func revokeGrants(_ sid: String) async throws { try await writeGrants(["action": "revoke", "sessionId": sid]) }
+    private func writeGrants(_ body: J) async throws {
+        grantWrites += 1
+        let mine = grantWrites
+        let o = try await plusCall("grants", body: body)
+        if mine == grantWrites { grants = o.compactMapValues { $0 as? [String] } }
     }
 
     /// Plan mode: leave it as dsh's plan chip does.
@@ -1693,7 +1702,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     // MARK: Conversation stream
 
     /// Show a session's conversation from any tab (e.g. a subagent row in Agents).
-    func open(_ sid: String) { finished.remove(sid); markRead(sid); follow(sid); path = [sid]; tab = 0 }
+    func open(_ sid: String) {
+        finished.remove(sid); markRead(sid); follow(sid); path = [sid]; tab = 0
+        // The Mac ends a grant after its time limit: read them again, so an ended grant leaves the Revoke row.
+        if plus.contains("grants") { Task { await loadGrants() } }
+    }
 
     /// Tells the Mac that this chat is read, so its dot goes on the other devices too. An older Mac without the route: no call.
     private func markRead(_ sid: String) {
@@ -2176,3 +2189,109 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
 }
 
+
+// MARK: - App lock (Face ID, Touch ID or the device passcode)
+
+/// The result of one unlock request.
+enum UnlockResult: Equatable { case ok, cancelled, noPasscode, failed(String) }
+
+/// Tether's app lock. While `on`, the app is locked when it starts and when it comes back from the background; the
+/// user unlocks with Face ID, Touch ID or the device passcode. `inactive` (Control Center, the Face ID sheet itself, a
+/// call) only covers the screen: it never locks, so the Face ID sheet cannot start a loop.
+@MainActor final class AppLock: ObservableObject {
+    @Published private(set) var on: Bool
+    @Published private(set) var locked: Bool
+    /// The screen is covered: locked, or inactive while on (the app switcher shows no chat).
+    @Published private(set) var covered: Bool
+    /// The reason the last unlock did not work; shown on the lock screen.
+    @Published var message: String?
+    /// A Face ID (or passcode) request runs: the Unlock button and the switch wait.
+    @Published private(set) var asking = false
+    /// One automatic ask per lock (at start, or back from the background). The Face ID sheet makes the app inactive and,
+    /// when it closes, active again: without this a Cancel would show a new sheet at once, again and again. After that
+    /// the user asks with the Unlock button.
+    private var autoAsk: Bool
+    private let defaults: UserDefaults
+    private let authenticate: (String) async -> UnlockResult
+    static let key = "appLock"
+
+    init(defaults: UserDefaults = .standard, authenticate: @escaping (String) async -> UnlockResult = AppLock.deviceOwner) {
+        self.defaults = defaults; self.authenticate = authenticate
+        let on = defaults.bool(forKey: AppLock.key)
+        self.on = on; locked = on; covered = on; autoAsk = on
+    }
+
+    /// A scene phase change of the app.
+    func phase(_ p: ScenePhaseKind) {
+        guard on else { covered = false; return }
+        switch p {
+        case .background: locked = true; covered = true; autoAsk = true
+        case .inactive: covered = true
+        case .active:
+            if !locked { covered = false; return }
+            covered = true
+            if autoAsk { autoAsk = false; Task { await unlock() } }
+        }
+    }
+
+    /// Asks once. A second call while one runs does nothing.
+    func unlock() async {
+        guard on, locked, !asking else { return }
+        asking = true
+        defer { asking = false }
+        switch await authenticate(String(localized: "Unlock Tether to see your chats.")) {
+        case .ok: locked = false; covered = false; message = nil
+        case .cancelled: message = nil
+        case .noPasscode:
+            // No passcode on this iPhone: the lock cannot work. Turn it off instead of locking the user out.
+            setStored(false); locked = false; covered = false
+            message = String(localized: "Set a passcode on this iPhone to use the app lock. The lock is off.")
+        case .failed(let m): message = m
+        }
+    }
+
+    /// The Settings switch. Turning it on asks first, so a lock that the user cannot open never starts.
+    @discardableResult func setOn(_ value: Bool) async -> Bool {
+        guard value != on, !asking else { return on == value }
+        if !value { setStored(false); locked = false; covered = false; return true }
+        asking = true
+        defer { asking = false }
+        switch await authenticate(String(localized: "Turn on the app lock for Tether.")) {
+        case .ok: setStored(true); message = nil; return true
+        case .noPasscode: message = String(localized: "Set a passcode on this iPhone to use the app lock."); return false
+        case .cancelled: return false
+        case .failed(let m): message = m; return false
+        }
+    }
+
+    private func setStored(_ v: Bool) { on = v; defaults.set(v, forKey: AppLock.key) }
+
+    /// Face ID or Touch ID, with the device passcode as the fallback. A new context each time: an old one keeps its result.
+    static func deviceOwner(_ reason: String) async -> UnlockResult {
+        let ctx = LAContext()
+        var e: NSError?
+        guard ctx.canEvaluatePolicy(.deviceOwnerAuthentication, error: &e) else {
+            return e?.code == LAError.passcodeNotSet.rawValue ? .noPasscode : .failed(e?.localizedDescription ?? String(localized: "This iPhone cannot check who you are."))
+        }
+        do { return try await ctx.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) ? .ok : .cancelled }
+        catch let err as LAError {
+            switch err.code {
+            case .userCancel, .appCancel, .systemCancel: return .cancelled
+            case .passcodeNotSet: return .noPasscode
+            default: return .failed(err.localizedDescription)
+            }
+        } catch { return .failed(error.localizedDescription) }
+    }
+
+    /// The kind of lock this iPhone offers, for the switch's label.
+    static var kind: LABiometryType {
+        let ctx = LAContext()
+        _ = ctx.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: nil)
+        return ctx.biometryType
+    }
+    /// The iPhone has a passcode (the lock needs one).
+    static var available: Bool { LAContext().canEvaluatePolicy(.deviceOwnerAuthentication, error: nil) }
+}
+
+/// SwiftUI's ScenePhase without SwiftUI (Core.swift has no SwiftUI import).
+enum ScenePhaseKind { case active, inactive, background }

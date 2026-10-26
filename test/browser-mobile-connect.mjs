@@ -2,7 +2,8 @@
 // Default off (no button, no listener) → switch on in Settings → the sidebar-foot button opens the pairing popover →
 // a fake phone pairs with the gateway (pinned TLS, approve on the Mac) and calls session/list through it into this dsh →
 // switch off → button and ports are gone.
-// The phone side needs this Mac's Wi-Fi address (en0). Ports 19390/19391 must be free (quit a dsh that has Mobile connect on).
+// The phone side needs this Mac's Wi-Fi address (en0). The ports (MOBILE_PORT, MOBILE_ADMIN_PORT; default 19390/19391) must be
+// free: pick other ports while the live dsh has Mobile connect on.
 // PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/mobileConnect.webp (English UI, no project or chat data). The picture shows made-up
 // addresses and a demo QR code, never this Mac's network data.
@@ -21,6 +22,7 @@ if (!process.env.PLAYWRIGHT || process.argv.length < 3) throw Error('Set PLAYWRI
 const { chromium } = require(process.env.PLAYWRIGHT);
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const PORT = Number(process.env.MOBILE_PORT ?? 19390), ADMIN = Number(process.env.MOBILE_ADMIN_PORT ?? 19391);
 // Since 0.2.1-alpha.3 the web app has dsh's account menu (Settings is its first item) in place of the Settings button.
 const settingsLauncher = (page) => page.getByRole('button', { name: /^(Settings|Account menu)$/ });
 const openSettings = async (page) => {
@@ -51,7 +53,7 @@ const phone = (pairing, method, path, body, token) => new Promise((ok, bad) => {
   req.setTimeout(15000, () => req.destroy(Error(`timeout ${method} ${path}`)));
 });
 
-for (const port of [19390, 19391]) if (await listening(port)) throw Error(`port ${port} is in use: quit the dsh that has Mobile connect on, then run again`);
+for (const port of [PORT, ADMIN]) if (await listening(port)) throw Error(`port ${port} is in use: set MOBILE_PORT / MOBILE_ADMIN_PORT to free ports`);
 const browser = await chromium.launch({ channel: 'chrome' });
 try {
   for (const [index, bin] of process.argv.slice(2).entries()) {
@@ -64,7 +66,7 @@ try {
     await writeFile(join(profile, 'cordis.patch.yml'), '- id: ui-settings-general\n  name: "@deepseek-ai/dsh-client-ui-settings-general"\n  config:\n    welcomeNoticeVersion: 2026-09-28.1\n');
     // Notifications and Bonjour stay off; the QR code is drawn (macOS swift) like in normal use.
     const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3196', '--no-open'], { cwd: home,
-      env: { ...process.env, DSH_HOME: home, npm_config_cache: join(tmpdir(), 'npm-cache') }, stdio: ['ignore', 'pipe', 'pipe'] });
+      env: { ...process.env, DSH_HOME: home, DSH_MOBILE_PORT: String(PORT), DSH_MOBILE_ADMIN_PORT: String(ADMIN), npm_config_cache: join(tmpdir(), 'npm-cache') }, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = ''; child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
     const errors = []; let context; let passed = false;
     try {
@@ -77,7 +79,7 @@ try {
         const demoQr = join(home, 'demo-qr.png');
         execFileSync('swift', [join(repo, 'tether/gateway/qr.swift'), `tether://pair?v=1&host=192.168.1.20&port=19390&fp=${'ab'.repeat(32)}&code=demo&mac=Demo%20Mac`, demoQr], { env });
         // Only the browser's view of the pairing page changes; the checks below talk to the real gateway.
-        await context.route(/^http:\/\/127\.0\.0\.1:19391\//, async (route) => {
+        await context.route(new RegExp(`^http://127\\.0\\.0\\.1:${ADMIN}/`), async (route) => {
           if (new URL(route.request().url()).pathname === '/qr.png') return route.fulfill({ path: demoQr, contentType: 'image/png' });
           const response = await route.fetch();
           if (!(response.headers()['content-type'] ?? '').includes('json')) return route.fulfill({ response });
@@ -98,7 +100,7 @@ try {
       await settingsLauncher(page).waitFor();
       await pause(1500);
       assert.equal(await button.count(), 0, 'off by default: no sidebar button');
-      assert.equal(await listening(19391), false, 'off by default: no listener');
+      assert.equal(await listening(ADMIN), false, 'off by default: no listener');
 
       // Switch it on in Settings → Composer Plus.
       await openSettings(page);
@@ -108,7 +110,7 @@ try {
       assert.equal(await toggle.getAttribute('aria-checked'), 'false');
       await toggle.click();
       await until(async () => (await toggle.getAttribute('aria-checked')) === 'true', 10000, 'switch on');
-      await until(() => listening(19391), 15000, 'admin page listening');
+      await until(() => listening(ADMIN), 15000, 'admin page listening');
       await page.keyboard.press('Escape');
       await button.waitFor({ timeout: 10000 });
 
@@ -120,7 +122,7 @@ try {
       await until(async () => /Ready/.test(await frame.locator('#status').innerText()), 20000, 'gateway connected to dsh (status "Ready")');
 
       // A fake phone pairs and calls dsh through the gateway.
-      const admin = (path, body) => fetch(`http://127.0.0.1:19391${path}`, body === undefined ? {} : { method: 'POST', headers: { 'x-dsh-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+      const admin = (path, body) => fetch(`http://127.0.0.1:${ADMIN}${path}`, body === undefined ? {} : { method: 'POST', headers: { 'x-dsh-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
       const state = await until(async () => { const s = await admin('/state'); return s.code ? s : null; }, 10000, 'pairing code');
       // The QR text is a tether://pair link (the iPhone Camera opens it in Tether).
       assert.match(state.code.payload, /^tether:\/\/pair\?/);
@@ -149,6 +151,34 @@ try {
       assert.equal(list.status, 200, JSON.stringify(list.json)); assert.equal(list.json.result?.ok, true, JSON.stringify(list.json.result?.error));
       assert.equal((await phone(pairing, 'POST', '/api/host/shutdown', { type: 'client-request', rpcId: 'x', method: 'host/shutdown', payload: { args: {} } }, device.token)).status, 403, 'allowlist');
       await frame.locator('#devices').getByText('Test iPhone').waitFor({ timeout: 10000 }); // the page polls every second
+      await frame.locator('#devices').getByText(/Paired /).waitFor();
+
+      // Access log: the pairing and the phone's connection (from this Mac's Wi-Fi address) show with the device name.
+      await frame.locator('#log summary').click();
+      await until(async () => /Allowed · Wi‑Fi/.test(await frame.locator('#log-table').innerText()), 10000, 'allowed Wi-Fi entry in the log');
+      assert.match(await frame.locator('#log-table').innerText(), new RegExp(`${pairing.host.replace(/\./g, '\\.')} · Test iPhone`));
+
+      // Tailscale only: the LAN phone is refused at once and the log says why; off lets it in again.
+      const tailnetOnly = frame.getByRole('checkbox', { name: /Tailscale only/ });
+      assert.equal(await tailnetOnly.isChecked(), false, 'off by default');
+      await tailnetOnly.check();
+      await until(async () => (await admin('/state')).tailnetOnly === true, 10000, 'Tailscale only saved');
+      await assert.rejects(phone(pairing, 'GET', '/me', undefined, device.token), 'a LAN phone cannot connect');
+      await until(async () => /Refused · Tailscale only/.test(await frame.locator('#log-table').innerText()), 10000, 'refused entry in the log');
+      assert.match(await frame.locator('#log-sum').innerText(), /refused in the last 24 hours/);
+      // PANEL_SHOT=<file.png>: a picture of the panel for a visual check (it shows this Mac's address: keep it local).
+      if (process.env.PANEL_SHOT && index === 0) await panel.screenshot({ path: process.env.PANEL_SHOT });
+      await tailnetOnly.uncheck();
+      await until(async () => (await admin('/state')).tailnetOnly === false, 10000, 'Tailscale only off');
+      assert.equal((await phone(pairing, 'GET', '/me', undefined, device.token)).status, 200, 'the LAN phone connects again');
+
+      // Remove: one click, no dialog; the phone's key stops working at once.
+      let dialogs = 0; page.on('dialog', (d) => { dialogs++; d.dismiss(); });
+      await frame.getByRole('button', { name: 'Remove Test iPhone' }).click();
+      await frame.locator('#note').getByText('Test iPhone was removed. It must pair again to connect.').waitFor({ timeout: 10000 });
+      assert.equal(dialogs, 0, 'Remove asks nothing');
+      assert.equal((await phone(pairing, 'GET', '/me', undefined, device.token)).status, 401, 'the removed phone cannot connect');
+      await frame.locator('#devices').getByText('No iPhone yet.').waitFor({ timeout: 10000 });
 
       // Switch off: the button goes, the ports close, the phone can no longer reach dsh.
       await page.keyboard.press('Escape');
@@ -157,13 +187,13 @@ try {
       await settings.waitFor();
       await toggle.click();
       await until(async () => (await toggle.getAttribute('aria-checked')) === 'false', 10000, 'switch off');
-      await until(async () => !(await listening(19391)), 10000, 'admin page closed');
+      await until(async () => !(await listening(ADMIN)), 10000, 'admin page closed');
       await page.keyboard.press('Escape');
       await until(async () => (await button.count()) === 0, 10000, 'button removed');
-      await assert.rejects(phone(pairing, 'GET', '/me', undefined, device.token), 'the phone port is closed');
+      await assert.rejects(phone(pairing, 'GET', '/me', undefined, undefined), 'the phone port is closed');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: off by default, switch on, popover with QR + "Ready", fake iPhone paired and called session/list through the gateway, allowlist 403, switch off closes everything`);
+      console.log(`PASS ${bin}: off by default, switch on, popover with QR + "Ready", fake iPhone paired and called session/list through the gateway, allowlist 403, access log, Tailscale only refuses and lets in again, one-click Remove → 401, switch off closes everything`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});

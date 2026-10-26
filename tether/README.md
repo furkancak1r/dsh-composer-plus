@@ -114,7 +114,10 @@ Gateway asla public internete açılmaz: yalnızca yerel ağdan ve tailnet'ten (
 - **TLS + pinning**: telefon yalnızca QR'daki SHA-256 parmak izine eşit sertifikayı kabul eder (CA zinciri yok sayılır, başka sertifika = bağlantı kesilir, istek gönderilmeden). MITM testi her iki tarafta var.
 - **Eşleme**: QR'daki 128-bit rastgele tek kullanımlık kod, 5 dk geçerli, tekrar kullanılamaz; ayrıca Mac'te elle onay (120 sn). Admin arayüzü yalnızca `127.0.0.1`.
 - **Token**: 256-bit rastgele, iOS Keychain'de (`ThisDeviceOnly`); Mac yalnızca SHA-256 hash'ini saklar (`devices.json`, 0600). 30 gün TTL. Karşılaştırma sabit zamanlı.
-- **İptal**: admin'den cihaz silinince token geçersizleşir ve o cihazın açık soketleri anında kapanır.
+- **Eşlenmiş iPhone'lar ve iptal**: Mobile connect panelindeki **Paired iPhones** listesi her iPhone'u adı, eşleşme tarihi ve son bağlantı zamanıyla gösterir. **Remove** tek tıkla (onay sorusu olmadan) o cihazın token'ını siler; açık soketleri anında kapanır ve cihaz yeniden eşleşmeden bağlanamaz. Son bağlantı zamanı bellekte hemen, `devices.json` dosyasında en çok dakikada bir güncellenir.
+- **Tailscale only**: paneldeki bu seçenek açıkken gateway yerel ağdan (Wi‑Fi, kablo) gelen her bağlantıyı TCP seviyesinde reddeder, açık LAN bağlantılarını da hemen kapatır; yalnızca tailnet adreslerinden gelen bağlantıyı kabul eder. Bonjour ilanı da durur: Mac'in adı, portu ve sertifika parmak izi yerel ağa duyurulmaz, Mac Tether'in "Macs on this Wi‑Fi" listesinde görünmez (eşlenmiş telefon tailnet adresiyle bağlanır). Ayar `settings.json` dosyasında saklanır (0600) ve yeniden başlatmada korunur. Paylaşılan Wi‑Fi (kafe, ofis) için.
+- **Erişim günlüğü**: gateway her bağlantı denemesini zaman, IP adresi, cihaz adı ve sonuçla (kabul ya da ret, nedeniyle: ağ dışı, Tailscale only, TLS, hatalı ya da silinmiş anahtar, hatalı eşleşme kodu, hız sınırı, eşleşme reddi/zaman aşımı/iptal) kaydeder. Aynı deneme bir dakika içinde tekrarlanırsa tek satırın sayacı artar. En yeni 200 kayıt `access.json` dosyasında (0600) tutulur; panel en yeni 50 kaydı ve son 24 saatteki ret sayısını gösterir. Günlükte token ya da eşleşme kodu yoktur.
+- **Uygulama kilidi**: Tether **Settings → Privacy → Lock with Face ID** açıkken uygulama açılırken ve arka plandan dönerken Face ID, Touch ID ya da cihaz parolası ister. Kilit ekranı ayrı bir pencerede durur; açık bir onay sayfasını ve klavyeyi de örter. Face ID penceresinde Vazgeç'e basmak yeni bir istek açmaz: **Unlock** düğmesi yeniden ister. Cihazda parola yoksa kilit kendini kapatır (kullanıcı dışarıda kalmaz). Kilit, iOS kilit ekranındaki bildirim önizlemelerini gizlemez.
 - **Yalnızca LAN**: gateway seçili arayüzün IPv4 alt ağı dışındaki bağlantıları TCP seviyesinde düşürür; ağ değişince yeniden bağlanır ve eski bağlantıları kapatır. iOS tarafı yalnızca özel/link-local IPv4 adreslere bağlanır.
 - **Rate limit / brute force**: IP başına 10 sn'de 300 istek; 60 sn'de 10 hatalı auth → IP bloke.
 - **RPC allowlist**: yalnızca `server.mjs` içindeki `RPC` / `STREAMS` / `EVENTS` kümeleri geçer; diğerleri 403, hatalı WS frame'i soketi kapatır. Host'un ev dizini gibi bilgiler event akışından düşürülür.
@@ -131,6 +134,8 @@ Kodda `shortcut:` yorumlarıyla işaretli:
 - Yanıtlanmayan telefon istekleri 10 dk sonra DSH masaüstüne düşer (sabit süre).
 - Rate limit sayaçları bellekte; tek ev ağı için yeterli.
 - `Localizable.strings` yalnızca bağlantı durum anahtarlarını kapsar; arayüz metinleri İngilizce.
+- **Tailscale only** açıkken de Mac'in bir Wi‑Fi/Ethernet IPv4 adresi olmalı (gateway yalnızca onunla başlar). Mac'te Tailscale kapalıysa hiçbir iPhone bağlanamaz; panel bunu uyarır.
+- Erişim günlüğü yalnız en yeni 200 denemeyi tutar; çok sayıda farklı IP'den gelen deneme eski kayıtları siler.
 
 ## Desteklenmeyenler
 

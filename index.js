@@ -222,29 +222,38 @@ export async function fileDiff(subprocess, cwd, mode, path, signal, commit) {
   return { path, patch: r.stdout, truncated: r.truncated, binary: file.binary };
 }
 
-/** Grants file: { [sessionId]: string[] } of exact tool names allowed without asking. */
-export function grantsStore(file) {
-  let queue = Promise.resolve();
-  const read = async () => {
-    try {
-      const data = JSON.parse(await readFile(file, 'utf8'));
-      return data !== null && typeof data === 'object' && !Array.isArray(data) ? data : {};
-    } catch { return {}; }
-  };
-  // Serialize writes and replace atomically so a crash never leaves a half-written file.
-  const update = (fn) => (queue = queue.then(async () => {
-    const data = await read();
-    fn(data);
-    await mkdir(dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    await writeFile(tmp, JSON.stringify(data), { mode: 0o600 });
-    await rename(tmp, file);
-    return data;
+/** "Allow for this chat" time limits (ms) that Settings offers; `null` = until revoked. */
+export const GRANT_TTLS = [15 * 60e3, 60 * 60e3, 4 * 60 * 60e3, 8 * 60 * 60e3, null];
+export const GRANT_TTL_DEFAULT = 60 * 60e3;
+/** Grants file: `{ ttlMs, grants: { [sessionId]: { [tool]: grantedAtMs } } }`: exact tool names allowed without asking.
+ * A grant ends `ttlMs` after it was given (the current setting, so a shorter one also ends older grants at once); an
+ * ended grant is never answered and leaves the file at the next write. No file, a broken file or an unknown `ttlMs`
+ * reads as the default time. ponytail: `grants.json` of 1.12 and earlier (no times) is not read, so those grants ask
+ * once again; that file stays, so an older copy of the plugin still works with it. */
+export function grantsStore(file, now = Date.now) {
+  // Object.fromEntries defines every key as an own property: a chat id or tool name "__proto__" stays plain data.
+  const store = settingsStore(file, (v) => ({
+    ttlMs: GRANT_TTLS.includes(v?.ttlMs) ? v.ttlMs : GRANT_TTL_DEFAULT,
+    grants: Object.fromEntries(Object.entries(v?.grants ?? {}).filter(([, tools]) => tools !== null && typeof tools === 'object')
+      .map(([sid, tools]) => [sid, Object.fromEntries(Object.entries(tools).filter(([, at]) => Number.isFinite(at)))])),
   }));
+  /** Only the grants that still run, at time `t`. */
+  const live = ({ ttlMs, grants }, t = now()) => ({ ttlMs, grants: Object.fromEntries(Object.entries(grants)
+    .map(([sid, tools]) => [sid, Object.fromEntries(Object.entries(tools).filter(([, at]) => ttlMs === null || at + ttlMs > t))])
+    .filter(([, tools]) => Object.keys(tools).length > 0)) });
+  const change = (mutate) => store.change((d) => { const next = live(d); mutate(next); return next; });
+  const tools = (d, sid) => (Object.hasOwn(d.grants, sid) ? d.grants[sid] : {});
   return {
-    read,
-    grant: (sessionId, tool) => update((d) => { d[sessionId] = [...new Set([...(d[sessionId] ?? []), tool])]; }),
-    revoke: (sessionId) => update((d) => { delete d[sessionId]; }),
+    read: async () => live(await store.read()),
+    grant: (sessionId, tool) => change((d) => { d.grants = { ...d.grants, ...Object.fromEntries([[sessionId, Object.fromEntries([...Object.entries(tools(d, sessionId)), [tool, now()]])]]) }; }),
+    revoke: (sessionId) => change((d) => { d.grants = Object.fromEntries(Object.entries(d.grants).filter(([sid]) => sid !== sessionId)); }),
+    setTtl: (ttlMs) => change((d) => { d.ttlMs = ttlMs; }),
+    /** `{ [sessionId]: [tool] }`: the shape that the gateway and older clients read. */
+    names: ({ grants }) => Object.fromEntries(Object.entries(grants).map(([sid, tools]) => [sid, Object.keys(tools)])),
+    /** `{ ttlMs, grants: { [sessionId]: { [tool]: msLeft | null } } }`: the time left, so a browser clock that is off
+     * changes nothing. */
+    detail: ({ ttlMs, grants }, t = now()) => ({ ttlMs, grants: Object.fromEntries(Object.entries(grants).map(([sid, tools]) =>
+      [sid, Object.fromEntries(Object.entries(tools).map(([tool, at]) => [tool, ttlMs === null ? null : at + ttlMs - t]))])) }),
   };
 }
 
@@ -1186,16 +1195,23 @@ export function apply(ctx) {
       try { return json(await checkUpdate(fetch, PACKAGE, request.signal)); } catch (error) { return json({ error: String(error?.message ?? error) }, 502); }
     },
   });
-  const store = grantsStore(join(home, 'storages', 'dsh-composer-plus', 'grants.json'));
+  // Allow for this chat. `GET` answers the old shape (`{sessionId: [tool]}`, only grants that still run: the gateway and an
+  // older client read it); `?detail=1` adds the time setting and each grant's time left (Settings and this client).
+  const store = grantsStore(join(home, 'storages', 'dsh-composer-plus', 'chat-grants.json'));
   ctx.connection.fetch.register({
     path: GRANTS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     fetch: async (request) => {
-      if (request.method === 'GET') return json(await store.read());
-      let body;
-      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
-      if (body?.action === 'grant' && isText(body.sessionId) && isText(body.tool)) return json(await store.grant(body.sessionId, body.tool));
-      if (body?.action === 'revoke' && isText(body.sessionId)) return json(await store.revoke(body.sessionId));
-      return json({ error: 'bad request' }, 400);
+      const view = (state) => json(new URL(request.url).searchParams.get('detail') === '1' ? store.detail(state) : store.names(state));
+      try {
+        if (request.method === 'GET') return view(await store.read());
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (body?.action === 'grant' && isText(body.sessionId) && isText(body.tool)) return view(await store.grant(body.sessionId, body.tool));
+        if (body?.action === 'revoke' && isText(body.sessionId)) return view(await store.revoke(body.sessionId));
+        // The time setting (Settings only: the phone gateway refuses a body with `ttlMs`).
+        if (body !== null && typeof body === 'object' && Object.hasOwn(body, 'ttlMs') && GRANT_TTLS.includes(body.ttlMs)) return view(await store.setTtl(body.ttlMs));
+        return json({ error: 'bad request' }, 400);
+      } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
   });
   // Mobile connect (Tether). The phone gateway needs dsh's web server for its loopback URL; a profile without one

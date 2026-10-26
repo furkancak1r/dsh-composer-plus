@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 import { LANGUAGES } from '../scripts/build-locales.mjs';
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 /** English-only labels of Tether and its Mac pairing page (no language pack). Each one must still be in their source. */
-const TETHER = ['Open in Tether', 'Scan code', 'Connect', 'Approve', 'Remove'];
+const TETHER = ['Open in Tether', 'Scan code', 'Connect', 'Approve', 'Remove', 'Tailscale only', 'Privacy', 'Lock with Face ID'];
 const tetherSource = read('tether/ios/Sources/UI.swift') + read('tether/gateway/admin.html');
 for (const label of TETHER) assert.ok(tetherSource.includes(`"${label}"`) || tetherSource.includes(`>${label}<`) || tetherSource.includes(`**${label}**`), `Tether label "${label}" is still in Tether`);
 /** One form for a label and a README text: placeholders and counts out, no leading symbol, no closing "…", ":" or ".". */

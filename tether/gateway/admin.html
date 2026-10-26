@@ -49,6 +49,10 @@
   #status-table td { text-align: left; overflow-wrap: anywhere; } #status-table td:first-child { color: var(--mute); width: 30%; }
   #status-table .link { margin-left: 8px; font-size: 12px; }
   .addrow { margin-top: 8px; }
+  .sub { font-size: 12px; color: var(--mute); }
+  label.opt { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; } label.opt input { margin: 3px 0 0; }
+  #log-table td { font-size: 12px; padding: 5px 0; text-align: left; } #log-table td:first-child { white-space: nowrap; padding-right: 8px; color: var(--mute); }
+  #log-table .bad { color: var(--red); } #log-table .ok { color: var(--green); }
 
   /* ?embed=1: inside DSH's "Mobile connect" popover */
   .embed body { max-width: none; margin: 0; padding: 4px 12px 12px; background: transparent; overflow: hidden; }
@@ -87,6 +91,16 @@
 <table id="devices"></table>
 <p class="addrow" id="addrow" hidden><button id="add">Add an iPhone</button></p>
 
+<section id="sec">
+<h2>Security</h2>
+<label class="opt"><input type="checkbox" id="tailnet-only"><span><strong>Tailscale only</strong><br><span class="sub">Refuse connections from the local network (Wi‑Fi, cable). Only iPhones that reach this Mac over Tailscale can connect. Use it on shared Wi‑Fi, for example in a café or an office.</span></span></label>
+<p class="note warn" id="tailnet-warn" hidden>Tailscale is off on this Mac: no iPhone can connect now.</p>
+</section>
+
+<details id="log"><summary id="log-sum">Access log</summary>
+  <table id="log-table"></table>
+</details>
+
 <details id="gw"><summary>Connection details</summary>
   <table id="status-table"></table>
   <p style="margin-top:8px"><button id="start">Start</button> <button id="stop">Stop</button></p>
@@ -109,10 +123,19 @@ async function post(path, body) {
   try {
     const r = await fetch(path, { method: 'POST', headers: { 'x-dsh-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) })
     const s = await r.json()
-    if (s.error) say(s.error, 'warn'); else render(s)
+    if (s.error) say(s.error, 'warn'); else { busy = false; render(s); return true }
   } catch { say('The Tether gateway did not answer. Is DSH still running?', 'warn') }
   finally { busy = false }
+  return false
 }
+document.addEventListener('change', e => {
+  if (e.target.id !== 'tailnet-only') return
+  const on = e.target.checked
+  post('/settings', { tailnetOnly: on }).then(ok => {
+    if (ok) say(on ? 'Tailscale only is on. iPhones on the local network cannot connect.' : 'Tailscale only is off. iPhones on the same Wi‑Fi can connect again.', 'ok')
+    else if (state) e.target.checked = state.tailnetOnly // refused: show the saved value again
+  })
+})
 const left = iso => Math.max(0, Math.round((Date.parse(iso) - Date.now()) / 1000))
 const mmss = s => Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0')
 const RESULT = {
@@ -121,6 +144,14 @@ const RESULT = {
   cancelled: n => [n + ' stopped waiting before you clicked Approve. Scan the code again on the iPhone.', 'warn'],
   expired: n => ['The request from ' + n + ' timed out. Scan the code again on the iPhone.', 'warn'],
 }
+// Access log reasons, as the user reads them.
+const REASON = {
+  lan: 'Wi‑Fi', tailnet: 'Tailscale', paired: 'paired', network: 'not this network', 'tailnet-only': 'Tailscale only',
+  tls: 'TLS handshake failed', rate: 'too many requests', token: 'unknown or removed key', code: 'wrong pairing code',
+  denied: 'pairing denied', expired: 'pairing timed out', cancelled: 'iPhone stopped waiting',
+}
+// Today: the time only; earlier: the date and the time.
+const when = iso => { const d = new Date(iso); return d.toDateString() === new Date().toDateString() ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : d.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) }
 function paintNote() {
   const l = state?.last, f = flash && flash.until > Date.now() ? flash : null
   const [text, kind] = f ? [f.text, f.kind] : l && RESULT[l.result] ? RESULT[l.result](l.name) : ['', '']
@@ -160,8 +191,20 @@ function render(s) {
   paintNote()
 
   put('devices', s.devices.map(d => '<tr><td><span class="dot ' + (d.connections ? 'ok' : '') + '"></span>' + esc(d.name) +
-    ' <span class="mute">' + (d.connections ? 'online' : 'offline') + '</span></td><td><button class="link" data-revoke="' + esc(d.id) + '">Remove</button></td></tr>').join('')
+    ' <span class="mute">' + (d.connections ? 'online' : d.lastSeenAt ? 'last seen ' + esc(when(d.lastSeenAt)) : 'never connected') + '</span>' +
+    (d.createdAt ? '<br><span class="sub">Paired ' + esc(new Date(d.createdAt).toLocaleDateString()) + '</span>' : '') +
+    '</td><td><button class="link" data-revoke="' + esc(d.id) + '" data-name="' + esc(d.name) + '" aria-label="Remove ' + esc(d.name) + '">Remove</button></td></tr>').join('')
     || '<tr><td class="mute">No iPhone yet.</td></tr>')
+  // An older gateway (before a dsh restart) has no Tailscale only setting and no log: hide them.
+  const has = typeof s.tailnetOnly === 'boolean'
+  $('sec').hidden = $('log').hidden = !has
+  if (has && !busy) $('tailnet-only').checked = s.tailnetOnly
+  $('tailnet-warn').hidden = !(has && s.tailnetOnly && s.running && !t.online)
+  const log = s.log ?? [], day = log.filter(e => e.result === 'refused' && Date.now() - Date.parse(e.at) < 864e5).reduce((n, e) => n + e.n, 0)
+  $('log-sum').textContent = 'Access log' + (day ? ' · ' + day + ' refused in the last 24 hours' : '')
+  put('log-table', log.map(e => '<tr><td>' + esc(when(e.at)) + '</td><td><code>' + esc(e.ip) + '</code>' + (e.device ? ' · ' + esc(e.device) : '') +
+    '<br><span class="' + (e.result === 'allowed' ? 'ok' : 'bad') + '">' + (e.result === 'allowed' ? 'Allowed' : 'Refused') + '</span> · ' + esc(REASON[e.reason] ?? e.reason) +
+    (e.n > 1 ? ' · ×' + esc(e.n) : '') + '</td></tr>').join('') || '<tr><td class="mute">No connection attempts yet.</td></tr>')
   // The certificate hash is long: a short form fits the popover, Copy gives the whole value.
   const cert = s.fingerprint ? '<code title="SHA-256: ' + esc(s.fingerprint) + '">' + esc(short(s.fingerprint)) + '</code><button class="link" data-copy="' + esc(s.fingerprint) + '">Copy</button>' : '<code>-</code>'
   put('status-table', [['Gateway', s.running ? 'running' : 'stopped'], ['Address', (s.address ?? 'no Wi‑Fi address') + ':' + s.port], ['DSH', s.upstream]]
@@ -171,7 +214,8 @@ setInterval(() => { if (state) render(state) }, 1000)
 document.addEventListener('click', e => {
   const b = e.target.closest('button'); if (!b) return
   if (b.id === 'approve' || b.id === 'deny') post('/' + b.id, { id: b.dataset.id })
-  else if (b.dataset.revoke) { if (confirm('Remove this iPhone? It disconnects now and must pair again.')) post('/revoke', { id: b.dataset.revoke }) }
+  // One click: a lost phone is cut off at once. The iPhone pairs again to come back.
+  else if (b.dataset.revoke) post('/revoke', { id: b.dataset.revoke }).then(ok => { if (ok) say(b.dataset.name + ' was removed. It must pair again to connect.', 'ok') })
   else if (b.id === 'copy') { if (state?.code) navigator.clipboard.writeText(state.code.payload).then(() => say('Pairing link copied. Paste it in Tether on the iPhone.', 'ok'), () => say('Could not copy.', 'warn')) }
   else if (b.dataset.copy) navigator.clipboard.writeText(b.dataset.copy).then(() => say('Certificate hash copied.', 'ok'), () => say('Could not copy.', 'warn'))
   else if (b.id === 'add' || b.id === 'cancel-add') { adding = b.id === 'add'; if (state) render(state) }

@@ -4,7 +4,7 @@
 import { createServer as createHttps, request as httpsRequest } from 'node:https'
 import { createServer as createHttp, request as httpRequest } from 'node:http'
 import { createHash, randomBytes, randomUUID, timingSafeEqual, X509Certificate } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { execFile, execFileSync, spawn } from 'node:child_process'
 import { homedir, hostname, networkInterfaces } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -13,6 +13,12 @@ import { fileURLToPath } from 'node:url'
 const HERE = dirname(fileURLToPath(import.meta.url))
 const TOKEN_TTL = 30 * 864e5
 const MAX_BODY = 16 << 20
+/** Access log: at most this many entries on disk; the same attempt again within LOG_MERGE_MS counts up one entry. */
+export const LOG_MAX = 200
+const LOG_MERGE_MS = 60e3
+/** A JSON file written owner-only and replaced atomically (a crash never leaves half a file). */
+const saveJson = (file, data) => { const tmp = file + '.' + process.pid + '.tmp'; writeFileSync(tmp, JSON.stringify(data), { mode: 0o600 }); renameSync(tmp, file) }
+const readJson = (file, fallback) => { try { return JSON.parse(readFileSync(file, 'utf8')) ?? fallback } catch { return fallback } }
 
 /** The name the phone shows for this Mac in its Mac picker: the Mac's own "Computer Name", else the host name. */
 export function macName(read = () => execFileSync('scutil', ['--get', 'ComputerName'], { encoding: 'utf8', timeout: 2000 })) {
@@ -47,8 +53,9 @@ export const AUTO_REVIEW_ASK = 'Auto review denied tool '
 export const isGrantedAsk = (v, grants) => v.event === 'approval/request' && typeof v.request?.reason === 'string'
   && v.request.reason.startsWith(AUTO_REVIEW_ASK) && typeof v.request.toolName === 'string' && typeof v.agentId === 'string'
   && Array.isArray(grants?.[v.agentId]) && grants[v.agentId].includes(v.request.toolName)
-/** A switch body (`{on: true|false}`) or a setting (`{model}`) changes the Mac for every device: the phone never sends one. */
-const isSwitch = b => Object.hasOwn(b, 'on') || Object.hasOwn(b, 'model')
+/** A switch body (`{on: true|false}`) or a setting (`{model}`, the grant time `{ttlMs}`) changes the Mac for every device:
+ * the phone never sends one. */
+const isSwitch = b => Object.hasOwn(b, 'on') || Object.hasOwn(b, 'model') || Object.hasOwn(b, 'ttlMs')
 export const EVENTS = new Set([
   'agent-preset/selected', 'approval/request', 'api-session/activity', 'api-session/added', 'api-session/error',
   'api-session/removed', 'api-session/status', 'commands/change', 'goal/activation-changed',
@@ -81,8 +88,9 @@ export const isTailnet = ip => {
   return /^fd7a:115c:a1e0:/.test(ip)
 }
 // Accept LAN peers that reached us on the LAN address, or tailnet peers that reached us on our tailnet address.
-export const allowed = (remote, local, net) =>
-  (inSubnet(remote, net.address, net.netmask) && String(local).replace(/^::ffff:/i, '') === net.address) ||
+// `tailnetOnly` (the Mac page's "Tailscale only"): tailnet peers only, so nobody on a shared Wi-Fi reaches the gateway.
+export const allowed = (remote, local, net, tailnetOnly = false) =>
+  (!tailnetOnly && inSubnet(remote, net.address, net.netmask) && String(local).replace(/^::ffff:/i, '') === net.address) ||
   (isTailnet(remote) && isTailnet(local))
 const TS_BINS = ['tailscale', '/Applications/Tailscale.app/Contents/MacOS/Tailscale']
 export function tailscaleInfo(bins = TS_BINS) {
@@ -259,11 +267,36 @@ export function createGateway(opts = {}) {
   const codeTtl = opts.codeTtlMs ?? 5 * 60e3
   const approveTtl = opts.approveTtlMs ?? 120e3
   const waterfallTtl = opts.waterfallTimeoutMs ?? 10 * 60e3
+  const seenSaveMs = opts.seenSaveMs ?? 60e3 // the last connection times reach devices.json at most this often
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   const upstream = makeUpstream(opts.upstreamUrl)
   const devFile = join(dir, 'devices.json')
   let devices = existsSync(devFile) ? JSON.parse(readFileSync(devFile, 'utf8')) : []
-  const saveDevices = () => writeFileSync(devFile, JSON.stringify(devices, null, 2), { mode: 0o600 })
+  let seenDirty = false, seenSavedAt = 0 // a `lastSeenAt` that is only in memory yet; when devices.json was written
+  // The flags change only after a good write: a failed one is tried again at the next watch tick (and at close).
+  const saveDevices = () => { saveJson(devFile, devices); seenDirty = false; seenSavedAt = Date.now() }
+  // "Tailscale only" (the Mac page): kept in its own file, so it survives a restart of the gateway and of dsh.
+  const settingsFile = join(dir, 'settings.json')
+  let tailnetOnly = readJson(settingsFile, {})?.tailnetOnly === true
+  // ---- Access log: each connection attempt with its outcome, oldest first (memory and access.json). ----
+  const logFile = join(dir, 'access.json')
+  let log = [readJson(logFile, [])].flat().filter(e => typeof e?.at === 'string' && typeof e.ip === 'string' && Number.isSafeInteger(e.n)).slice(-LOG_MAX), logTimer
+  // ponytail: a failed write is dropped; the list in memory stays right and the next attempt writes it again.
+  const flushLog = () => { clearTimeout(logTimer); logTimer = undefined; try { saveJson(logFile, log) } catch {} }
+  /** `result`: allowed | refused. `reason`: lan, tailnet, paired (allowed); network, tailnet-only, tls, rate, token, code,
+   * denied, expired, cancelled (refused). The same attempt again within a minute counts up one entry (`n`), so a phone
+   * that retries or a scanner cannot push the other entries out at once. */
+  function logAttempt(ip, device, result, reason) {
+    ip = String(ip ?? '').replace(/^::ffff:/i, '')
+    const now = Date.now()
+    const i = log.findLastIndex(e => now - Date.parse(e.at) < LOG_MERGE_MS && e.ip === ip && e.device === device && e.result === result && e.reason === reason)
+    const e = i < 0 ? { ip, device, result, reason, n: 0 } : log.splice(i, 1)[0]
+    e.at = new Date(now).toISOString(); e.n++
+    log.push(e)
+    if (log.length > LOG_MAX) log.splice(0, log.length - LOG_MAX)
+    logTimer ??= setTimeout(flushLog, 2000)
+    logTimer.unref?.()
+  }
   // Tailscale status: cached 30 s, refreshed on start and on new pairing codes. Tests inject opts.tailscale.
   let ts = { installed: false, online: false, ip: null, name: null }, tsAt = 0
   const refreshTs = async () => {
@@ -303,11 +336,15 @@ export function createGateway(opts = {}) {
     if (Date.parse(d.expiresAt) - Date.now() < TOKEN_TTL / 2) { d.expiresAt = new Date(Date.now() + TOKEN_TTL).toISOString(); saveDevices() }
     return d
   }
-  function track(id, socket) {
-    let s = devSockets.get(id)
-    if (!s) devSockets.set(id, s = new Set())
+  /** A paired phone's request on a socket: a new socket is one connection (logged, and the device's last connection). */
+  function track(d, socket) {
+    let s = devSockets.get(d.id)
+    if (!s) devSockets.set(d.id, s = new Set())
     if (s.has(socket)) return
     s.add(socket); socket.once('close', () => s.delete(socket))
+    logAttempt(socket.remoteAddress, d.name, 'allowed', isTailnet(socket.remoteAddress) ? 'tailnet' : 'lan')
+    // In memory at once; the network watch writes it at most once a minute (and close() at the end).
+    d.lastSeenAt = new Date().toISOString(); seenDirty = true
   }
   function revoke(id) {
     const before = devices.length
@@ -326,7 +363,10 @@ export function createGateway(opts = {}) {
   // ---- Pairing: one-time code (5 min) shown as QR, then explicit approval on the Mac. ----
   // The latest outcome, kept 60 s so the Mac page can say what happened after the request card goes away.
   let last = null
-  const record = (p, result) => { last = { name: p.name, result, at: Date.now() } }
+  const record = (p, result) => {
+    last = { name: p.name, result, at: Date.now() }
+    logAttempt(p.ip, p.name, result === 'approved' ? 'allowed' : 'refused', result === 'approved' ? 'paired' : result)
+  }
   function newCode() {
     const net = bound ?? netInfo()
     code = { value: randomBytes(16).toString('base64url'), expires: Date.now() + codeTtl }
@@ -344,7 +384,7 @@ export function createGateway(opts = {}) {
     let b
     try { b = JSON.parse(await readBody(req, 4096)) } catch { return reply(res, 400, { error: 'bad request' }) }
     const ok = code && typeof b?.code === 'string' && Date.now() < code.expires && safeEq(b.code, code.value)
-    if (!ok) { fail(ip); return reply(res, 403, { error: 'invalid or expired pairing code' }) }
+    if (!ok) { fail(ip); logAttempt(ip, null, 'refused', 'code'); return reply(res, 403, { error: 'invalid or expired pairing code' }) }
     code = null // one-time: a replayed code is rejected
     const p = { id: randomUUID(), name: String(b.name ?? 'iPhone').replace(/[\u0000-\u001f]/g, '').slice(0, 64) || 'iPhone', ip, at: Date.now(), res }
     pending.set(p.id, p)
@@ -449,12 +489,12 @@ export function createGateway(opts = {}) {
   // ---- Phone-facing HTTPS ----
   async function onRequest(req, res) {
     const ip = req.socket.remoteAddress
-    if (!allowReq(ip)) return reply(res, 429, { error: 'rate limited' })
+    if (!allowReq(ip)) { logAttempt(ip, null, 'refused', 'rate'); return reply(res, 429, { error: 'rate limited' }) }
     const path = new URL(req.url, 'https://x').pathname
     if (req.method === 'POST' && path === '/pair') return pair(req, res, ip)
     const dev = auth(req)
-    if (!dev) { fail(ip); return reply(res, 401, { error: 'unauthorized' }) }
-    track(dev.id, req.socket)
+    if (!dev) { fail(ip); logAttempt(ip, null, 'refused', 'token'); return reply(res, 401, { error: 'unauthorized' }) }
+    track(dev, req.socket)
     if (req.method === 'GET' && path === '/me') return reply(res, 200, { deviceId: dev.id, name: dev.name, expiresAt: dev.expiresAt, upstream: upState, tailscale: ts.online ? ts.ip : null, mac, plus: [...PLUS.keys()] })
     if (path.startsWith('/plus/')) return plus(req, res, path.slice(6))
     if (req.method !== 'POST' || !path.startsWith('/api/')) return reply(res, 404, { error: 'not found' })
@@ -492,13 +532,13 @@ export function createGateway(opts = {}) {
   }
   function onUpgrade(req, socket, head) {
     const ip = socket.remoteAddress
-    if (!allowReq(ip)) return socket.end('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n')
+    if (!allowReq(ip)) { logAttempt(ip, null, 'refused', 'rate'); return socket.end('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n') }
     if (new URL(req.url, 'https://x').pathname !== '/api/remote.mux') return socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n')
     const dev = auth(req)
-    if (!dev) { fail(ip); return socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n') }
+    if (!dev) { fail(ip); logAttempt(ip, null, 'refused', 'token'); return socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n') }
     const ws = acceptWs(req, socket, head)
     if (!ws) return
-    track(dev.id, socket)
+    track(dev, socket)
     phoneMux(ws)
   }
   const isId = v => typeof v === 'string' && v.length > 0 && v.length <= 128
@@ -548,27 +588,42 @@ export function createGateway(opts = {}) {
     await refreshTs()
     const s = createHttps({ key, cert, minVersion: 'TLSv1.2' }, onRequest)
     s.on('connection', sock => {
-      if (!allowed(sock.remoteAddress, sock.localAddress, net)) return sock.destroy() // LAN or tailnet only, decided by the socket's own addresses
+      // LAN or tailnet only (or tailnet only), decided by the socket's own addresses
+      if (!allowed(sock.remoteAddress, sock.localAddress, net, tailnetOnly)) {
+        logAttempt(sock.remoteAddress, null, 'refused', tailnetOnly && allowed(sock.remoteAddress, sock.localAddress, net) ? 'tailnet-only' : 'network')
+        return sock.destroy()
+      }
       conns.add(sock); sock.once('close', () => conns.delete(sock))
     })
     s.on('upgrade', onUpgrade)
     // Kept for diagnosis only (no secrets): why a phone's TLS handshake died, shown in admin /state.
-    s.on('tlsClientError', (e, sock) => { lastTlsError = { ip: sock.remoteAddress ?? null, error: String(e?.code ?? e?.message ?? e), at: new Date().toISOString() }; sock.destroy() })
+    s.on('tlsClientError', (e, sock) => {
+      lastTlsError = { ip: sock.remoteAddress ?? null, error: String(e?.code ?? e?.message ?? e), at: new Date().toISOString() }
+      // A socket refused above also ends here: it is in the log once, with that reason.
+      if (allowed(sock.remoteAddress, sock.localAddress, net, tailnetOnly)) logAttempt(sock.remoteAddress, null, 'refused', 'tls')
+      sock.destroy()
+    })
     await new Promise((ok, bad) => { s.once('error', bad); s.listen(port, net.bind ?? '::', ok) })
     server = s; bound = net; port = s.address().port; running = true
-    if (opts.bonjour !== false) {
-      // The service name is the Mac's name, so the phone's "Macs on this network" list tells two Macs apart.
-      bonjour = spawn('dns-sd', ['-R', mac, '_dshmobile._tcp', 'local', String(port), 'fp=' + fp], { stdio: 'ignore' })
-      bonjour.on('error', () => {})
-    }
+    advertise()
     connectEvents()
+  }
+  // Bonjour gives each device on the Wi-Fi the Mac name, the port and the certificate fingerprint: not while "Tailscale only"
+  // is on (the phone reaches the Mac over the tailnet with the address from pairing; mDNS does not cross Tailscale).
+  function advertise() {
+    const want = running && !tailnetOnly && opts.bonjour !== false
+    if (want === !!bonjour) return
+    if (!want) { bonjour.kill(); bonjour = null; return }
+    // The service name is the Mac's name, so the phone's "Macs on this network" list tells two Macs apart.
+    bonjour = (opts.spawn ?? spawn)('dns-sd', ['-R', mac, '_dshmobile._tcp', 'local', String(port), 'fp=' + fp], { stdio: 'ignore' })
+    bonjour.on('error', () => {})
   }
   async function stop(keepWanted = false) {
     wanted = keepWanted
     if (!running) return
     running = false
     clearTimeout(evTimer)
-    bonjour?.kill(); bonjour = null
+    advertise()
     ev.ws?.close()
     for (const sock of conns) sock.destroy()
     await new Promise(ok => server.close(ok))
@@ -580,6 +635,8 @@ export function createGateway(opts = {}) {
     const now = Date.now()
     for (const m of [reqHits, fails]) for (const [k, b] of m) if (now - b.t > 60e3) m.delete(k)
     for (const set of devSockets.values()) for (const s of set) if (s.destroyed) set.delete(s)
+    // ponytail: a failed write keeps the times in memory; the next tick tries again.
+    if (seenDirty && now - seenSavedAt >= seenSaveMs) try { saveDevices() } catch {}
     if (now - tsAt > 30e3) refreshTs()
     const n = netInfo()
     if (running && (!n || n.address !== bound.address || n.netmask !== bound.netmask)) await stop(true).catch(() => {})
@@ -589,7 +646,8 @@ export function createGateway(opts = {}) {
 
   const state = () => ({
     mac, running, address: bound?.address ?? netInfo()?.address ?? null, port, tls: running ? 'TLS 1.2+, self-signed' : 'off',
-    fingerprint: fp ?? null, upstream: upState, tailscale: ts, lastTlsError,
+    fingerprint: fp ?? null, upstream: upState, tailscale: ts, lastTlsError, tailnetOnly,
+    log: log.slice(-50).reverse(), // newest first
     code: code && Date.now() < code.expires ? { payload: code.payload, expiresAt: new Date(code.expires).toISOString(), qr: qrReady } : null,
     pending: [...pending.values()].map(({ id, name, ip, at }) => ({ id, name, ip, at, expiresAt: new Date(at + approveTtl).toISOString() })),
     last: last && Date.now() - last.at < 60e3 ? { ...last, at: new Date(last.at).toISOString() } : null,
@@ -615,6 +673,14 @@ export function createGateway(opts = {}) {
         if (!settle(b.id, path === '/approve')) return reply(res, 409, { error: 'This request is no longer waiting. The iPhone stopped waiting or the request timed out. Scan the code again.' })
       }
       else if (path === '/revoke') revoke(b.id)
+      else if (path === '/settings') {
+        if (typeof b.tailnetOnly !== 'boolean') return reply(res, 400, { error: 'bad request' })
+        saveJson(settingsFile, { tailnetOnly: b.tailnetOnly }) // a failed save changes nothing (500 below)
+        tailnetOnly = b.tailnetOnly
+        // An open connection that the new rule refuses closes now, not at its next reconnect.
+        if (bound) for (const sock of conns) if (!allowed(sock.remoteAddress, sock.localAddress, bound, tailnetOnly)) sock.destroy()
+        advertise()
+      }
       else if (path === '/start') await start()
       else if (path === '/stop') await stop()
       else return reply(res, 404, { error: 'not found' })
@@ -625,7 +691,11 @@ export function createGateway(opts = {}) {
     adminServer = createHttp(onAdmin)
     return new Promise((ok, bad) => { adminServer.once('error', bad); adminServer.listen(p, '127.0.0.1', () => ok(adminServer.address().port)) })
   }
-  async function close() { clearInterval(watch); await stop(); for (const p of pending.values()) p.res.destroy(); adminServer?.close(); adminServer?.closeAllConnections() }
+  async function close() {
+    clearInterval(watch); await stop(); for (const p of pending.values()) p.res.destroy(); adminServer?.close(); adminServer?.closeAllConnections()
+    if (logTimer) flushLog()
+    if (seenDirty) try { saveDevices() } catch {}
+  }
 
   /** An event from dsh-composer-plus itself (not from dsh's `$events`), for every connected phone. */
   const emit = (event, args) => toPhones({ type: 'emit', event, args })

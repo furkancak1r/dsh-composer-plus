@@ -1,13 +1,14 @@
 // Gateway tests: run with  npm test  (node --test). Uses a mock DSH host on loopback and a real TLS gateway.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
 import { createServer } from 'node:http'
 import { request } from 'node:https'
 import { connect } from 'node:tls'
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, statSync, rmSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { createGateway, acceptWs, wsConnect, inSubnet, isTailnet, allowed, normFp, macName, tailscaleInfo, RPC, STREAMS, PLUS } from '../tether/gateway/server.mjs'
+import { createGateway, acceptWs, wsConnect, inSubnet, isTailnet, allowed, normFp, macName, tailscaleInfo, RPC, STREAMS, PLUS, LOG_MAX } from '../tether/gateway/server.mjs'
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 async function waitFor(fn, ms = 3000) {
@@ -61,7 +62,7 @@ async function mockDsh() {
 
 async function setup(extra = {}) {
   const dsh = await mockDsh()
-  const dir = mkdtempSync(join(tmpdir(), 'dshm-'))
+  const dir = extra.dir ?? mkdtempSync(join(tmpdir(), 'dshm-'))
   const gw = createGateway({ dir, upstreamUrl: () => dsh.url, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0' }), ...extra })
   await gw.start()
   return { gw, dsh, dir, done: async () => { await gw.close(); dsh.close() } }
@@ -352,6 +353,8 @@ test('composer-plus routes: allowlisted methods pass with the query or body; swi
     assert.equal((await call(t.gw, 'GET', '/plus/changes?sessionId=s', undefined, auth)).status, 404)
     const seen = t.dsh.plus.length
     for (const [m, p, b] of [['POST', '/plus/rollback', { on: false }], ['POST', '/plus/mobile', { on: false }], ['GET', '/plus/update'],
+      ['POST', '/plus/grants', { ttlMs: null }], // the grant time limit is the Mac's setting
+      ['POST', '/plus/grants', { action: 'grant', sessionId: 's', tool: 't', ttlMs: 1 }],
       ['POST', '/plus/predict', { on: true }], ['POST', '/plus/predict', { model: null }], ['GET', '/plus/predict?catalog=1'],
       ['POST', '/plus/complete', { on: true }], ['GET', '/plus/complete'],
       ['POST', '/plus/improve', { model: { provider: 'x', model: 'y' } }], ['GET', '/plus/improve?catalog=1'], ['POST', '/plus/unread', { on: false }],
@@ -392,6 +395,182 @@ test('revocation closes live sockets and the token stops working (replay)', asyn
     assert.equal((await rpc(t.gw, d.token, 'session/list')).status, 401)
     await assert.rejects(phoneWs(t.gw, d.token), e => e.status === 401)
   } finally { await t.done() }
+})
+
+const adminCall = (port, path, body) => fetch('http://127.0.0.1:' + port + path, body === undefined ? {} : { method: 'POST', headers: { 'x-dsh-admin': '1' }, body: JSON.stringify(body) })
+const quietGateway = dir => createGateway({ dir, upstreamUrl: () => 'http://127.0.0.1:1/', port: 0, qr: false, bonjour: false, notify: false, tailscale: {}, netInfo: () => null })
+
+test('paired iPhones: name, paired and last connection; Remove on the Mac page revokes at once, pairing again works', async () => {
+  const t = await setup()
+  try {
+    const port = await t.gw.listenAdmin(0)
+    const d = await pairDevice(t.gw, 'Lost iPhone')
+    let dev = t.gw.state().devices[0]
+    assert.equal(dev.name, 'Lost iPhone'); assert.ok(Date.parse(dev.createdAt)); assert.equal(dev.lastSeenAt, undefined, 'never connected yet')
+    assert.equal(dev.tokenHash, undefined, 'the token hash never leaves the gateway')
+    const before = Date.now()
+    const ws = await phoneWs(t.gw, d.token)
+    dev = t.gw.state().devices[0]
+    assert.ok(Date.parse(dev.lastSeenAt) >= before - 5, 'a connection sets the last connection time'); assert.equal(dev.connections, 1)
+    const r = await adminCall(port, '/revoke', { id: d.deviceId })
+    assert.equal(r.status, 200); assert.deepEqual((await r.json()).devices, [])
+    await waitFor(() => ws.closed)
+    assert.equal((await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + d.token })).status, 401, 'the old key no longer works')
+    assert.ok(!readFileSync(join(t.dir, 'devices.json'), 'utf8').includes(d.deviceId), 'gone from the file too')
+    const again = await pairDevice(t.gw, 'Lost iPhone')
+    assert.equal((await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + again.token })).status, 200, 'it connects again only after a new pairing')
+  } finally { await t.done() }
+})
+
+test('last connection time reaches devices.json (not at each request) and survives a new gateway', async () => {
+  const slow = await setup({ watchMs: 20 }) // default: at most once a minute
+  try {
+    const d = await pairDevice(slow.gw)
+    await call(slow.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + d.token })
+    await sleep(150)
+    assert.ok(slow.gw.state().devices[0].lastSeenAt, 'in memory at once')
+    assert.equal(JSON.parse(readFileSync(join(slow.dir, 'devices.json'), 'utf8'))[0].lastSeenAt, undefined, 'not written at each connection')
+  } finally { await slow.done() }
+  assert.ok(JSON.parse(readFileSync(join(slow.dir, 'devices.json'), 'utf8'))[0].lastSeenAt, 'close() writes it')
+  const t = await setup({ watchMs: 20, seenSaveMs: 0 })
+  try {
+    const d = await pairDevice(t.gw)
+    await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + d.token })
+    const seen = await waitFor(() => JSON.parse(readFileSync(join(t.dir, 'devices.json'), 'utf8'))[0].lastSeenAt)
+    assert.equal(seen, t.gw.state().devices[0].lastSeenAt)
+    assert.equal(statSync(join(t.dir, 'devices.json')).mode & 0o777, 0o600)
+  } finally { await t.done() }
+  const g2 = quietGateway(t.dir)
+  try { assert.ok(g2.state().devices[0].lastSeenAt) } finally { await g2.close() }
+  // A failed write (here: devices.json is a folder for a moment) is tried again at the next tick.
+  const r = await setup({ watchMs: 20, seenSaveMs: 0 })
+  try {
+    const d = await pairDevice(r.gw)
+    const file = join(r.dir, 'devices.json'), saved = readFileSync(file, 'utf8')
+    rmSync(file); mkdirSync(file)
+    await call(r.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + d.token })
+    await sleep(100) // some ticks fail
+    rmSync(file, { recursive: true }); writeFileSync(file, saved)
+    await waitFor(() => JSON.parse(readFileSync(file, 'utf8'))[0].lastSeenAt, 2000)
+  } finally { await r.done() }
+})
+
+test('access log: allowed and refused attempts with time, IP, device and reason; repeats merge; owner-only file', async () => {
+  const t = await setup()
+  try {
+    const port = await t.gw.listenAdmin(0)
+    const d = await pairDevice(t.gw, 'Ayşe iPhone')
+    let log = t.gw.state().log
+    assert.deepEqual([log[0].result, log[0].reason, log[0].device, log[0].ip], ['allowed', 'paired', 'Ayşe iPhone', '127.0.0.1'])
+    await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + d.token })
+    log = t.gw.state().log
+    assert.deepEqual([log[0].result, log[0].reason, log[0].device], ['allowed', 'lan', 'Ayşe iPhone'], 'a new connection, newest first')
+    for (let i = 0; i < 3; i++) await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + 'A'.repeat(43) })
+    log = t.gw.state().log
+    assert.deepEqual([log[0].result, log[0].reason, log[0].device, log[0].n], ['refused', 'token', null, 3], 'three bad keys: one entry, counted')
+    await call(t.gw, 'POST', '/pair', { code: 'wrong', name: 'x' })
+    assert.deepEqual([t.gw.state().log[0].result, t.gw.state().log[0].reason], ['refused', 'code'])
+    assert.ok(t.gw.state().log.every(e => Date.parse(e.at) > 0))
+    // The Mac page gets the same list.
+    assert.deepEqual((await (await adminCall(port, '/state')).json()).log, t.gw.state().log)
+  } finally { await t.done() }
+  const file = join(t.dir, 'access.json')
+  assert.equal(statSync(file).mode & 0o777, 0o600, 'written on close, owner-only')
+  const saved = JSON.parse(readFileSync(file, 'utf8'))
+  assert.equal(saved.at(-1).reason, 'code'); assert.ok(!JSON.stringify(saved).includes('A'.repeat(43)), 'never a token')
+  // A new gateway reads it back; at most LOG_MAX entries are kept.
+  writeFileSync(file, JSON.stringify(Array.from({ length: LOG_MAX + 50 }, (_, i) => ({ at: new Date(Date.now() - 1e9 + i).toISOString(), ip: '10.0.0.' + (i % 250), device: null, result: 'refused', reason: 'network', n: 1 }))))
+  const g2 = quietGateway(t.dir)
+  try { assert.equal(g2.state().log.length, 50, 'the page gets the newest 50'); assert.equal(g2.state().log[0].ip, '10.0.0.' + ((LOG_MAX + 49) % 250)) } finally { await g2.close() }
+  writeFileSync(file, '{broken')
+  const g3 = quietGateway(t.dir)
+  try { assert.deepEqual(g3.state().log, [], 'a broken file is an empty log') } finally { await g3.close() }
+})
+
+test('access log keeps at most LOG_MAX entries', async () => {
+  const t = await setup()
+  try {
+    for (let i = 0; i < 3; i++) await call(t.gw, 'POST', '/pair', { code: 'wrong', name: 'x' })
+    assert.equal(t.gw.state().log.filter(e => e.reason === 'code').length, 1)
+    assert.equal(t.gw.state().log[0].n, 3)
+  } finally { await t.done() }
+  const file = join(t.dir, 'access.json')
+  writeFileSync(file, JSON.stringify(Array.from({ length: LOG_MAX }, (_, i) => ({ at: new Date(Date.now() - 1e9 + i).toISOString(), ip: '10.0.1.' + (i % 250), device: null, result: 'refused', reason: 'network', n: 1 }))))
+  const t2 = await setup({ dir: t.dir })
+  try { await call(t2.gw, 'POST', '/pair', { code: 'wrong', name: 'x' }) } finally { await t2.done() }
+  const saved = JSON.parse(readFileSync(file, 'utf8'))
+  assert.equal(saved.length, LOG_MAX, 'the oldest goes when a new one comes')
+  assert.equal(saved.at(-1).reason, 'code'); assert.equal(saved[0].ip, '10.0.1.1')
+})
+
+test('Tailscale only: the Mac page setting refuses LAN peers (also an open connection), is logged and is kept', async () => {
+  const net = { address: '127.0.0.1', netmask: '255.0.0.0' }
+  assert.ok(allowed('127.0.0.5', '127.0.0.1', net) && !allowed('127.0.0.5', '127.0.0.1', net, true), 'LAN refused when on')
+  assert.ok(allowed('100.101.1.2', '100.90.0.7', net, true), 'tailnet still allowed')
+  assert.ok(!allowed('8.8.8.8', '100.90.0.7', net, true))
+  const t = await setup()
+  try {
+    const port = await t.gw.listenAdmin(0)
+    const d = await pairDevice(t.gw)
+    const ws = await phoneWs(t.gw, d.token)
+    assert.equal(t.gw.state().tailnetOnly, false, 'off by default')
+    assert.equal((await adminCall(port, '/settings', { tailnetOnly: 'yes' })).status, 400)
+    assert.equal((await adminCall(port, '/settings', {})).status, 400)
+    const r = await adminCall(port, '/settings', { tailnetOnly: true })
+    assert.equal(r.status, 200); assert.equal((await r.json()).tailnetOnly, true)
+    await waitFor(() => ws.closed) // the open LAN socket closes at once
+    await assert.rejects(call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + d.token }), 'a new LAN connection is refused')
+    const e = t.gw.state().log[0]
+    assert.deepEqual([e.result, e.reason, e.device], ['refused', 'tailnet-only', null])
+    assert.equal(statSync(join(t.dir, 'settings.json')).mode & 0o777, 0o600)
+    // Without the header (another web page) nothing changes.
+    assert.equal((await fetch('http://127.0.0.1:' + port + '/settings', { method: 'POST', body: '{"tailnetOnly":false}' })).status, 404)
+    assert.equal(t.gw.state().tailnetOnly, true)
+  } finally { await t.done() }
+  // A new gateway (dsh restart) keeps it; switching it off lets the LAN phone in again.
+  const t2 = await setup({ dir: t.dir })
+  try {
+    assert.equal(t2.gw.state().tailnetOnly, true)
+    await assert.rejects(call(t2.gw, 'GET', '/me', undefined, {}), 'still refused after a restart')
+    const port = await t2.gw.listenAdmin(0)
+    await adminCall(port, '/settings', { tailnetOnly: false })
+    assert.equal((await call(t2.gw, 'GET', '/me', undefined, {})).status, 401, 'LAN reaches the gateway again')
+  } finally { await t2.done() }
+})
+
+test('Tailscale only also stops the Bonjour advertisement (Mac name, port, fingerprint) on the local network', async () => {
+  const ads = [] // each fake dns-sd process: its arguments and whether it was killed
+  const spawn = (cmd, args) => { const p = Object.assign(new EventEmitter(), { cmd, args, killed: false, kill() { p.killed = true } }); ads.push(p); return p }
+  const live = () => ads.filter(p => !p.killed)
+  let net = { address: '127.0.0.1', netmask: '255.0.0.0' }
+  const t = await setup({ bonjour: true, spawn, macName: 'Test Mac', netInfo: () => net, watchMs: 20 })
+  try {
+    assert.equal(live().length, 1, 'advertised while the option is off')
+    assert.deepEqual([ads[0].cmd, ...ads[0].args], ['dns-sd', '-R', 'Test Mac', '_dshmobile._tcp', 'local', String(t.gw.port), 'fp=' + t.gw.fingerprint])
+    const port = await t.gw.listenAdmin(0)
+    assert.equal((await adminCall(port, '/settings', { tailnetOnly: true })).status, 200)
+    assert.equal(live().length, 0, 'switching it on stops the advertisement at once')
+    await adminCall(port, '/settings', { tailnetOnly: true })
+    assert.equal(ads.length, 1, 'the same value again starts nothing')
+    assert.equal((await adminCall(port, '/settings', { tailnetOnly: 'yes' })).status, 400)
+    assert.equal(ads.length, 1, 'a bad body changes nothing')
+    await adminCall(port, '/settings', { tailnetOnly: false })
+    assert.equal(ads.length, 2); assert.equal(live().length, 1, 'switching it off advertises again')
+    // A network change rebinds: the old advertisement goes, one for the new port comes.
+    net = { address: '127.0.0.3', netmask: '255.0.0.0', bind: '127.0.0.1' }
+    await waitFor(() => t.gw.state().running && t.gw.state().address === '127.0.0.3' && ads.length === 3)
+    assert.equal(live().length, 1); assert.equal(live()[0].args[4], String(t.gw.port))
+    await t.gw.stop()
+    assert.equal(live().length, 0, 'stop ends it')
+  } finally { await t.done() }
+  // A new gateway (dsh restart) with the option on never advertises.
+  writeFileSync(join(t.dir, 'settings.json'), JSON.stringify({ tailnetOnly: true }))
+  const before = ads.length
+  const t2 = await setup({ dir: t.dir, bonjour: true, spawn })
+  try {
+    assert.equal(t2.gw.state().running, true)
+    assert.equal(ads.length, before, 'no advertisement at start while Tailscale only is on')
+  } finally { await t2.done() }
 })
 
 test('LAN-only: clients outside the subnet are dropped at connect', async () => {

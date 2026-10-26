@@ -716,3 +716,94 @@ final class BranchTreeTests: XCTestCase {
         XCTAssertNil(GraphCommit(["subject": "no id"]))
     }
 }
+
+/// App lock: when it asks, what each answer does, and that the Face ID sheet itself (inactive) never starts a loop.
+@MainActor final class AppLockTests: XCTestCase {
+    /// A fake Face ID: answers from a list and counts the asks; `hold` keeps one ask open until `release`.
+    final class FakeAuth {
+        var answers: [UnlockResult] = []; var asks = 0
+        var hold: CheckedContinuation<Void, Never>?; var holding = false
+        func callAsFunction(_ reason: String) async -> UnlockResult {
+            asks += 1
+            if holding { await withCheckedContinuation { hold = $0 } }
+            return answers.isEmpty ? .ok : answers.removeFirst()
+        }
+        func release() { holding = false; hold?.resume(); hold = nil }
+    }
+    func defaults() -> UserDefaults { let d = UserDefaults(suiteName: "applock-\(UUID().uuidString)")!; return d }
+    /// Lets the unlock task that a phase change started run to its end (or to a held Face ID ask).
+    func settle() async { for _ in 0..<20 { await Task.yield() }; try? await Task.sleep(for: .milliseconds(30)); for _ in 0..<20 { await Task.yield() } }
+
+    func testOffByDefaultNeverAsks() async {
+        let auth = FakeAuth(), lock = AppLock(defaults: defaults(), authenticate: auth.callAsFunction)
+        XCTAssertFalse(lock.on); XCTAssertFalse(lock.locked); XCTAssertFalse(lock.covered)
+        lock.phase(.background); lock.phase(.active); await settle()
+        XCTAssertEqual(auth.asks, 0); XCTAssertFalse(lock.covered)
+    }
+    func testSwitchOnAsksFirstAndColdStartIsLocked() async {
+        let d = defaults(), auth = FakeAuth()
+        auth.answers = [.cancelled]
+        let lock = AppLock(defaults: d, authenticate: auth.callAsFunction)
+        let refused = await lock.setOn(true)
+        XCTAssertFalse(refused); XCTAssertFalse(lock.on, "cancelled: the lock stays off")
+        auth.answers = [.ok]
+        let accepted = await lock.setOn(true)
+        XCTAssertTrue(accepted); XCTAssertTrue(lock.on); XCTAssertFalse(lock.locked, "switching it on does not lock the open app")
+        XCTAssertEqual(auth.asks, 2)
+        let cold = AppLock(defaults: d, authenticate: auth.callAsFunction)
+        XCTAssertTrue(cold.on); XCTAssertTrue(cold.locked); XCTAssertTrue(cold.covered, "a new start opens locked")
+    }
+    func testBackgroundLocksActiveAsksOnce() async {
+        let d = defaults(); d.set(true, forKey: AppLock.key)
+        let auth = FakeAuth(); auth.holding = true
+        let lock = AppLock(defaults: d, authenticate: auth.callAsFunction)
+        lock.phase(.active); await settle()
+        lock.phase(.active); await settle() // a second active while Face ID runs: no second ask
+        XCTAssertEqual(auth.asks, 1); XCTAssertTrue(lock.locked)
+        auth.release(); await settle()
+        XCTAssertFalse(lock.locked); XCTAssertFalse(lock.covered)
+        lock.phase(.inactive); XCTAssertTrue(lock.covered, "inactive covers the screen"); XCTAssertFalse(lock.locked, "but does not lock")
+        lock.phase(.active); await settle()
+        XCTAssertEqual(auth.asks, 1, "the Face ID sheet (inactive → active) never asks again"); XCTAssertFalse(lock.covered)
+        lock.phase(.background); XCTAssertTrue(lock.locked)
+        lock.phase(.active); await settle()
+        XCTAssertEqual(auth.asks, 2, "back from the background: asks again"); XCTAssertFalse(lock.locked)
+    }
+    func testCancelKeepsTheLockAndUnlockRetries() async {
+        let d = defaults(); d.set(true, forKey: AppLock.key)
+        let auth = FakeAuth(); auth.answers = [.cancelled, .failed("Face ID did not match."), .ok]
+        let lock = AppLock(defaults: d, authenticate: auth.callAsFunction)
+        lock.phase(.active); await settle()
+        XCTAssertTrue(lock.locked); XCTAssertTrue(lock.covered); XCTAssertNil(lock.message)
+        // The Face ID sheet makes the app inactive; when the user cancels it, the app is active again. That must not ask
+        // again (seen on the simulator: Cancel → a new Face ID sheet, again and again). The Unlock button asks.
+        lock.phase(.inactive); lock.phase(.active); await settle()
+        XCTAssertEqual(auth.asks, 1, "a cancel never starts a new ask by itself")
+        await lock.unlock()
+        XCTAssertTrue(lock.locked); XCTAssertEqual(lock.message, "Face ID did not match.")
+        await lock.unlock()
+        XCTAssertFalse(lock.locked); XCTAssertNil(lock.message)
+    }
+    func testNoPasscodeTurnsTheLockOff() async {
+        let d = defaults(); d.set(true, forKey: AppLock.key)
+        let auth = FakeAuth(); auth.answers = [.noPasscode]
+        let lock = AppLock(defaults: d, authenticate: auth.callAsFunction)
+        lock.phase(.active); await settle()
+        XCTAssertFalse(lock.on); XCTAssertFalse(lock.locked); XCTAssertFalse(d.bool(forKey: AppLock.key), "the user is never locked out")
+        XCTAssertNotNil(lock.message)
+        auth.answers = [.noPasscode]
+        let on = await lock.setOn(true)
+        XCTAssertFalse(on); XCTAssertFalse(lock.on)
+    }
+    func testSwitchOffNeedsNoFaceID() async {
+        let d = defaults(); d.set(true, forKey: AppLock.key)
+        let auth = FakeAuth(); auth.answers = [.ok]
+        let lock = AppLock(defaults: d, authenticate: auth.callAsFunction)
+        lock.phase(.active); await settle()
+        XCTAssertFalse(lock.asking); XCTAssertFalse(lock.locked)
+        let off = await lock.setOn(false)
+        XCTAssertTrue(off); XCTAssertFalse(lock.on); XCTAssertEqual(auth.asks, 1, "only the unlock asked")
+        lock.phase(.background); lock.phase(.active); await settle()
+        XCTAssertFalse(lock.locked); XCTAssertEqual(auth.asks, 1)
+    }
+}

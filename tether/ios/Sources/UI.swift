@@ -5,11 +5,16 @@ import AVFoundation
 
 @main struct DSHMobileApp: App {
     @StateObject private var client = Client()
+    @StateObject private var lock = AppLock()
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
-            Root().environmentObject(client)
-                .onChange(of: phase, initial: true) { _, p in if p == .active { client.browse(); client.wake() } }
+            Root().environmentObject(client).environmentObject(lock)
+                .background(LockWindow(lock: lock))
+                .onChange(of: phase, initial: true) { _, p in
+                    lock.phase(p == .active ? .active : p == .inactive ? .inactive : .background)
+                    if p == .active { client.browse(); client.wake() }
+                }
                 // tether://tailscale/<ok|error|cancel>: the Tether Tailscale Shortcut finished and bounced back here.
                 // tether://pair?…: the Mac's pairing code, opened from the Camera app; it asks before it connects.
                 .onOpenURL { u in
@@ -18,6 +23,53 @@ import AVFoundation
                 }
         }
     }
+}
+
+/// The app lock's cover: its own window above the app's window, so it also hides sheets (an approval, a pairing) and
+/// the keyboard. A SwiftUI overlay on Root would sit below an open sheet.
+struct LockWindow: UIViewRepresentable {
+    @ObservedObject var lock: AppLock
+    final class Holder { var window: UIWindow? }
+    func makeCoordinator() -> Holder { Holder() }
+    func makeUIView(context: Context) -> UIView { UIView(frame: .zero) }
+    func updateUIView(_ view: UIView, context: Context) {
+        let h = context.coordinator, covered = lock.covered
+        DispatchQueue.main.async {
+            guard let scene = view.window?.windowScene else { return }
+            if h.window == nil {
+                let w = UIWindow(windowScene: scene)
+                w.windowLevel = .alert + 1
+                w.backgroundColor = .clear
+                let host = UIHostingController(rootView: LockView(lock: lock))
+                host.view.backgroundColor = .clear
+                host.view.accessibilityViewIsModal = true // VoiceOver reads only the lock screen, not the chats below
+                w.rootViewController = host
+                h.window = w
+            }
+            // The lock screen takes the keys (VoiceOver, keyboard) only while it shows.
+            if covered { h.window?.isHidden = false; h.window?.makeKeyAndVisible() }
+            else if h.window?.isHidden == false { h.window?.isHidden = true; view.window?.makeKey() }
+        }
+    }
+}
+
+struct LockView: View {
+    @ObservedObject var lock: AppLock
+    var body: some View {
+        ZStack {
+            Rectangle().fill(.regularMaterial).ignoresSafeArea()
+            if lock.locked {
+                VStack(spacing: 16) {
+                    Image(systemName: "lock.fill").font(.system(size: 44)).foregroundStyle(.secondary).accessibilityHidden(true)
+                    Text("Tether is locked").font(.title2.bold())
+                    if let m = lock.message { Text(m).font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center).padding(.horizontal, 32) }
+                    Button { Task { await lock.unlock() } } label: { Label("Unlock", systemImage: lockIcon).padding(.horizontal, 8) }
+                        .buttonStyle(.borderedProminent).disabled(lock.asking)
+                }
+            }
+        }
+    }
+    private var lockIcon: String { AppLock.kind == .faceID ? "faceid" : AppLock.kind == .touchID ? "touchid" : "lock.open" }
 }
 
 struct Root: View {
@@ -1791,10 +1843,14 @@ struct AgentsView: View {
 
 struct SettingsView: View {
     @EnvironmentObject var c: Client
+    @EnvironmentObject var lock: AppLock
     @State private var host = ""
     @State private var port = ""
     @State private var confirmUnpair = false
     @State private var removing: Pairing?
+    @State private var lockKind = AppLock.kind
+    /// "Face ID", "Touch ID" or the passcode: what this iPhone asks for.
+    private var lockName: String { lockKind == .faceID ? "Face ID" : lockKind == .touchID ? "Touch ID" : String(localized: "the passcode") }
     var body: some View {
         NavigationStack {
             Form {
@@ -1865,6 +1921,17 @@ struct SettingsView: View {
                         c.setAddress(parts.first ?? "", Int(parts.count > 1 ? parts[1] : port))
                     }.disabled(host.isEmpty)
                 } header: { Text("Manual address") } footer: { Text("Only needed if the Mac's IP changed and Bonjour cannot find it. A LAN address or the Mac's Tailscale address (100.x or *.ts.net). The pinned certificate is still required.") }
+                Section {
+                    // The switch shows the stored value; turning it on asks Face ID (or the passcode) first.
+                    Toggle(lockKind == .faceID ? "Lock with Face ID" : lockKind == .touchID ? "Lock with Touch ID" : "Lock with passcode",
+                           isOn: Binding(get: { lock.on }, set: { v in Task { await lock.setOn(v) } }))
+                        .disabled(lock.asking || (!lock.on && !AppLock.available))
+                    if let m = lock.message, !lock.locked { Text(m).font(.caption).foregroundStyle(.secondary) }
+                } header: { Text("Privacy") } footer: {
+                    Text(AppLock.available || lock.on
+                         ? "Tether asks for \(lockName) when it opens and when you come back to it. Notification previews still show on the Lock Screen: turn them off in iOS Settings › Notifications › Tether."
+                         : "Set a passcode on this iPhone to use the app lock.")
+                }
                 if let p = c.pairing {
                     Section("This iPhone") {
                         LabeledContent("Name", value: p.name)
@@ -1934,7 +2001,7 @@ struct PromptSheet: View {
                         }
                         Button("Deny", role: .destructive) { send("rejected") }
                     } footer: {
-                        if isAutoReviewAsk, c.plus.contains("grants") { Text("Allow for this chat: \(p.request["toolName"] as? String ?? "") runs without asking for the rest of this chat, with any arguments. If the tool can write, that includes any write.") }
+                        if isAutoReviewAsk, c.plus.contains("grants") { Text("Allow for this chat: \(p.request["toolName"] as? String ?? "") runs without asking in this chat, with any arguments, until the time limit set on the Mac ends (1 hour by default). If the tool can write, that includes any write.") }
                     }
                 } else {
                     ForEach(Question.parse(p.request)) { q in

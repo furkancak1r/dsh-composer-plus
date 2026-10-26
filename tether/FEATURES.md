@@ -23,7 +23,7 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | collapseProjects | yes | Sessions toolbar → Collapse all projects button, shown only while a project is open. |
 | statusOrder | yes | Sessions filter menu → Order by status. |
 | notifications | yes | Turn finished, approval and question notifications while Tether keeps its connection. |
-| allowForChat | yes | Approval sheet → Allow for this chat; chat title menu → Revoke. The gateway also allows a granted tool when no window is open. |
+| allowForChat | yes | Approval sheet → Allow for this chat; chat title menu → Revoke. The gateway also allows a granted tool when no window is open. A grant ends after the Mac's time limit (1 hour by default); the time limit is a Mac setting (the phone cannot change it). |
 | continueButton | yes | After a stopped, failed or cut-off turn, the empty composer shows ▶ (Continue). |
 | resumeAfterRestart | no | The Mac does it at dsh start, with no window. The switch stays on the Mac. |
 | inputHistory | no | Needs ↑/↓ keys. Touch and hold your message → Edit or Resend does the same on a phone. |
@@ -37,5 +37,5 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | nextPrediction | yes | After a finished turn, the guess for the next message shows above the empty composer; a tap puts it in the field. The switch and the model stay in the Mac's Settings. |
 | typingCompletion | yes | While you type, after a short pause the rest of the message shows above the field; a tap adds it. The switch and its model stay in the Mac's Settings (by default the model of Next message prediction). |
 | promptImprove | yes | The magic wand in the composer's button row: the Mac rewrites the typed message as a clearer prompt and it replaces the field (not sent); the button then undoes it, and a tap while it works cancels it. The model stays in the Mac's Settings. |
-| mobileConnect | yes | Tether itself. |
+| mobileConnect | yes | Tether itself. Settings → Privacy → Lock with Face ID locks the app (phone only). The paired iPhone list, Remove, Tailscale only and the access log are on the Mac's Mobile connect panel. |
 | autoUpdate | no | Installs the plugin on the Mac. The iPhone app is built and installed separately. |
