@@ -411,6 +411,12 @@ final class CoreTests: XCTestCase {
         XCTAssertNil(completionRest(typed: "Run the x", asked: "Run the", completion: " tests now"), "typed off the guess")
         XCTAssertNil(completionRest(typed: "Run the tests now", asked: "Run the", completion: " tests now"), "all typed")
         XCTAssertNil(completionRest(typed: "Run", asked: "Run the", completion: " tests"), "text was deleted")
+        // Improve prompt: the same rules as the Mac: some text, at most 8000 characters, not a slash command.
+        XCTAssertTrue(improvable("fix login")); XCTAssertTrue(improvable("x")); XCTAssertFalse(improvable("  \n "))
+        XCTAssertFalse(improvable("/plan add tests")); XCTAssertFalse(improvable(String(repeating: "a", count: 8001)))
+        XCTAssertTrue(improvable(String(repeating: "a", count: 8000)))
+        // The Mac counts UTF-16 units: 4001 emoji are 8002 units.
+        XCTAssertFalse(improvable(String(repeating: "😀", count: 4001))); XCTAssertTrue(improvable(String(repeating: "😀", count: 4000)))
         // Project search in a new chat: A–Z (numbers in natural order), every word, case and accents ignored.
         let ws = ["serit", "aiproxy", "Zeta", "ağaç-proje", "app10", "app2", "promes"].compactMap { Workspace(["workspaceId": $0, "path": "/p/\($0)", "title": $0]) }
         XCTAssertEqual(pickerProjects(ws, query: "").map(\.title), ["ağaç-proje", "aiproxy", "app2", "app10", "promes", "serit", "Zeta"])
@@ -621,6 +627,13 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(recentChat(old, all: [old], now: now, open: nil, waiting: [], finished: []))
         XCTAssertTrue(recentChat(old, all: [old], now: Date(timeIntervalSince1970: 1_000 + 7100), open: nil, waiting: [], finished: []))
         XCTAssertTrue(recentChat(old, all: [old], now: now, open: "o", waiting: [], finished: []), "the open chat stays")
+        // Green dots from the Mac: idle root chats only, never the chat on screen, never an id the list does not have.
+        // "a" waits for its running subagent "k", so it shows the spinner, not a dot.
+        XCTAssertEqual(shownUnread(host: ["a", "b", "k", "d", "gone"], sessions: all, open: nil), ["d"])
+        XCTAssertEqual(shownUnread(host: ["d"], sessions: all, open: "d"), [], "the chat on screen is read")
+        XCTAssertEqual(shownUnread(host: [], sessions: all, open: nil), [], "read on the Mac: the dot goes")
+        let idle = [s("a", false, nil), s("k", false, "a")]
+        XCTAssertEqual(shownUnread(host: ["a", "k"], sessions: idle, open: nil), ["a"], "a subagent never gets a dot")
     }
 
     @MainActor func testJustFinished() {

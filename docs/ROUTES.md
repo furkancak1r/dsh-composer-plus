@@ -15,6 +15,8 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.grants` | POST | `{action: "grant", sessionId, tool}` or `{action: "revoke", sessionId}`. | allowForChat | yes |
 | `/api/composer-plus.mobile` | GET | The switch and the gateway state. | mobileConnect | no |
 | `/api/composer-plus.mobile` | POST | `{on}`: switch the gateway on or off (a switch route). | mobileConnect | no |
+| `/api/composer-plus.unread` | GET | `{unread: [sessionId]}`: Tether's green dots, the chats that finished and that no device opened yet (empty while Mobile connect is off). | mobileConnect | yes |
+| `/api/composer-plus.unread` | POST | `{sessionIds}` (1–1000 ids): these chats are read; answers the new `{unread}` and tells the phones. | mobileConnect | yes |
 | `/api/composer-plus.queue-move` | POST | `{sessionId, itemId, to, before}`: move one queued message in dsh's queue. | queueReorder | yes |
 | `/api/composer-plus.rollback` | GET | No query: the switch `{on}`. `?sessionId`: the withdrawn spans and whether dsh-rewind-plugin owns rollback. | turnRollback | yes |
 | `/api/composer-plus.rollback` | POST | `{on}` (the switch), or `{sessionId, seq, preview?, files?}`: list or take back the turns from that message, with the files when `files` is true. | turnRollback | yes |
@@ -32,4 +34,6 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.predict` | POST | `{sessionId, afterSeq}`: the guess for that finished turn (one model call), or `{on}` / `{model}` (Settings only). | nextPrediction | yes |
 | `/api/composer-plus.complete` | GET | The switch and the model; `?catalog=1` adds dsh's model list and the prediction's model. | typingCompletion | no |
 | `/api/composer-plus.complete` | POST | `{sessionId, text}`: the rest of the typed message (one model call), or `{on}` / `{model}` (Settings only). | typingCompletion | yes |
+| `/api/composer-plus.improve` | GET | The saved model; `?catalog=1` adds dsh's model list. | promptImprove | no |
+| `/api/composer-plus.improve` | POST | `{sessionId, text}`: the improved prompt for that draft (one model call, read-only), or `{model}` (Settings only). | promptImprove | yes |
 | `/api/composer-plus.export` | GET | `?sessionId`: the chat's messages for the Markdown export (read-only, from the chat log). | exportMarkdown | no |

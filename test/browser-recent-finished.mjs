@@ -1,6 +1,9 @@
 // Isolated real-app check of the recent projects filter with a finished chat. A chat in weather-cli finishes while a
 // chat in acme-web is open, so dsh shows its done dot. The page clock runs 2.5 hours ahead, so the chat is older than
 // 2 hours: the filter keeps weather-cli until you open that chat. Fake model, never the normal DSH_HOME.
+// Tether's green dots follow dsh's dot (Mobile connect on; its gateway cannot start on a missing network interface, so no
+// port and no Bonjour): the Host's unread list has a chat that finished in the background, loses it when the chat is
+// opened here or when a page reload shows it without a dot, and never keeps a chat that finished while it was open.
 // PLAYWRIGHT=/path/to/playwright node test/browser-recent-finished.mjs /path/to/dsh/lib/bin.js [...]
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -68,13 +71,14 @@ try {
     const names = ['acme-web', 'weather-cli', 'docs-site'];
     const ids = Object.fromEntries(names.map((name) => [name, randomUUID()]));
     for (const name of names) await mkdir(join(home, 'projects', name), { recursive: true });
-    await mkdir(join(home, 'storages'), { recursive: true });
+    await mkdir(join(home, 'storages/dsh-composer-plus'), { recursive: true });
+    await writeFile(join(home, 'storages/dsh-composer-plus/mobile.json'), JSON.stringify({ on: true }));
     await writeFile(join(home, 'storages/workspace.json'), JSON.stringify({
       unit: { name: 'workspace', version: 2 },
       global: { initialized: true, workspaceIds: names.map((name) => ids[name]), archivedSessionIds: [], pinnedSessionIds: [], defaultWorkspaceId: ids['acme-web'] },
       tables: { workspaces: Object.fromEntries(names.map((name) => [ids[name], { path: join(home, 'projects', name), title: name, sessionIds: [], createdAt: added, updatedAt: added }])) },
     }));
-    const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3196', '--no-open'], { cwd: join(home, 'projects/acme-web'), env: { ...process.env, DSH_HOME: home, DEMO_KEY: 'demo', npm_config_cache: join(tmpdir(), 'npm-cache') }, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3196', '--no-open'], { cwd: join(home, 'projects/acme-web'), env: { ...process.env, DSH_HOME: home, DEMO_KEY: 'demo', npm_config_cache: join(tmpdir(), 'npm-cache'), DSH_MOBILE_IFACE: 'cp-test-none', DSH_MOBILE_ADMIN_PORT: '0' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = ''; child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
     const errors = []; let context; let passed = false;
     try {
@@ -98,6 +102,9 @@ try {
         await page.getByRole('button', { name: `New session in ${name}`, exact: true }).click();
         await pause(600);
       };
+      const unread = () => page.evaluate(() => fetch('/api/composer-plus.unread').then((r) => r.json()).then((j) => j.unread));
+      const until = async (test, what, ms = 10000) => { for (const end = Date.now() + ms; Date.now() < end; await pause(250)) if (await test()) return; assert.fail(what); };
+      const send = async (text) => { await page.locator('[data-composer-input]').click(); await page.keyboard.type(text); await page.keyboard.press('Enter'); await pause(1000); };
       /** Select or deselect "Active in the last 2 hours", then close the menu. */
       const filter = async () => {
         await page.getByRole('button', { name: 'View options', exact: true }).click();
@@ -112,6 +119,8 @@ try {
       await chat.waitFor({ timeout: 20000 });
       await newChatIn('acme-web');
       await doneDot.waitFor({ state: 'attached', timeout: 30000 });
+      const chatId = (await chat.getAttribute('data-row-key')).slice('session:'.length);
+      await until(async () => (await unread()).includes(chatId), 'Tether: a chat that finished in the background is unread');
 
       // The chat is older than 2 hours, but you did not open it yet. One style rule hides docs-site, and the same rule
       // decides weather-cli, so its visibility is final when docs-site is hidden.
@@ -122,13 +131,30 @@ try {
       // Open the finished chat, then go to another chat: dsh clears the done dot, so the quiet project hides.
       await filter();
       await chat.click(); await doneDot.waitFor({ state: 'detached' });
+      await until(async () => !(await unread()).includes(chatId), 'Tether: opened here, so read');
       await newChatIn('acme-web');
       await filter();
       await row('weather-cli').waitFor({ state: 'hidden' });
       assert.equal(await row('docs-site').isVisible(), false);
+      await filter();
+
+      // Another background finish, then a page reload: dsh starts with no dots, so the Host forgets the chat too.
+      await chat.click(); await send('Again');
+      await newChatIn('acme-web');
+      await doneDot.waitFor({ state: 'attached', timeout: 30000 });
+      await until(async () => (await unread()).includes(chatId), 'Tether: unread again after a background finish');
+      await page.reload(); await page.locator('[data-composer-input]').waitFor();
+      await until(async () => !(await unread()).includes(chatId), 'Tether: no dot after the reload, so read');
+      assert.equal(await doneDot.count(), 0, 'dsh shows no dot after a reload');
+      // A turn that finishes while its chat is open: no dot in dsh, none on the Host.
+      await chat.click(); await send('Third');
+      const done = page.getByText('Done.', { exact: true });
+      await until(async () => (await done.count()) >= 3, 'the third turn finished', 30000);
+      await pause(1500);
+      assert.equal((await unread()).includes(chatId), false, 'Tether: finished while open, so read');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: finished chat older than 2 hours keeps its project until opened, then the project hides, no page errors`);
+      console.log(`PASS ${bin}: finished chat older than 2 hours keeps its project until opened, then the project hides; Tether's unread list follows dsh's dot (open, reload, finished while open); no page errors`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});

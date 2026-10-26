@@ -14,7 +14,7 @@
 
 <p align="center"><img src="docs/images/hero.webp" width="820" alt="装有 Composer Plus 的 DeepSeek Harness：正在运行的项目在侧边栏中显示加载图标，改动面板显示 git diff"></p>
 
-这是非官方的社区插件。插件只在检查更新时访问网络（GitHub releases 和 npm registry）；关闭 **自动更新** 后，启动时就不再发出这些请求。只有在你点击 **推荐功能** 时，**功能创意** 才会调用对话自己的模型。**下一条消息预测**（默认开启）每完成一个回合都会调用一次在设置中选择的模型（除非你另选，否则为 dsh 的默认模型），不需要点击；在 **设置 → Composer Plus** 中关闭它，即可停止这些调用。**输入时补全**（默认关闭）在你开启后，会在你每次输入停顿时调用为它选择的模型（默认使用预测的模型）。**手机连接**（默认关闭）只有在你开启后，才会接受来自本地网络或 tailnet 的 iPhone 连接。
+这是非官方的社区插件。插件只在检查更新时访问网络（GitHub releases 和 npm registry）；关闭 **自动更新** 后，启动时就不再发出这些请求。只有在你点击 **推荐功能** 时，**功能创意** 才会调用对话自己的模型。**下一条消息预测**（默认开启）每完成一个回合都会调用一次在设置中选择的模型（除非你另选，否则为 dsh 的默认模型），不需要点击；在 **设置 → Composer Plus** 中关闭它，即可停止这些调用。**输入时补全**（默认关闭）在你开启后，会在你每次输入停顿时调用为它选择的模型（默认使用预测的模型）。只有在你点击魔法棒时，**优化提示词** 才会调用模型。**手机连接**（默认关闭）只有在你开启后，才会接受来自本地网络或 tailnet 的 iPhone 连接。
 
 ## 安装
 
@@ -55,6 +55,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **新对话中的项目搜索** | <a id="feature-projectpicker"></a>新对话 → 输入框上方的项目按钮。项目按 A–Z 顺序显示，顶部有 **搜索项目** 框。输入名称的一部分（不区分大小写和重音符号），按 `Enter` 即可选择第一个匹配项。没有匹配项时会显示 **没有匹配的项目**。侧边栏中 dsh 保存的项目顺序不会改变。 | <a href="assets/features/projectPicker.webp"><img src="assets/features/projectPicker.webp" width="160" alt="截图：新对话中的项目搜索"></a> |
 | **下一条消息预测** | <a id="feature-nextprediction"></a>默认开启；可在 **设置 → Composer Plus** 中关闭。智能体完成一个回合后（被停止或失败的回合除外），空输入框会以灰色文字显示对你下一条消息的猜测，并带有 **按 Tab 接受** 提示。`Tab` 会把文字放入输入框，但不会发送。`Esc` 会在本回合隐藏它。开始输入也会隐藏它，新的回合会替换它。开关下方的 **模型** 菜单列出 dsh 自己的模型（与 dsh 模型菜单的列表相同）。默认选中 **dsh 默认**，它跟随 dsh 的默认模型。每完成一个回合会进行一次简短的模型调用。在 Tether 中，猜测显示在空输入框上方：轻点它即可放入输入框。 | <a href="assets/features/nextPrediction.webp"><img src="assets/features/nextPrediction.webp" width="160" alt="截图：下一条消息预测"></a> |
 | **输入时补全** | <a id="feature-typingcompletion"></a>默认关闭；可在 **设置 → Composer Plus** 中开启。输入时，光标后紧跟的灰色文字会显示你的消息可能的后续内容。`Tab` 会把它添加到消息中，但不会发送。`Esc` 会隐藏它。它只建议你自己接下来要写的话：不会回答你，也不会编造错误信息或名称。消息看起来已完整，或模型不确定时，不显示任何内容。继续输入灰色文字中接下来的字符时，它会保留，不会再次调用模型。它的开关下方有自己的 **模型** 菜单。第一项 **与“下一条消息预测”相同**（默认）使用 **下一条消息预测** 的模型；选择其他模型，就可以为每个功能使用不同的模型，例如为补全选择更快的模型。你每次输入停顿时，它都会调用一次模型，因此消耗的 token 比预测多得多：请选择快速、低成本的模型。输入斜杠命令、消息中带有文件标签，或光标不在末尾时，它不会运行。在 Tether 中，输入时剩余部分会显示在输入框上方：轻点它即可添加。 | <a href="assets/features/typingCompletion.webp"><img src="assets/features/typingCompletion.webp" width="160" alt="截图：输入时补全"></a> |
+| **优化提示词** | <a id="feature-promptimprove"></a>输入一个粗略的请求，然后点击模型菜单旁边的魔法棒（**优化提示词**）。一次模型调用会把它改写成更清晰的提示词：先写目标，有多个部分时列出简短的编号步骤，并写明要运行的检查。它会读取此对话（已回滚的消息除外）、项目的 README、AGENTS.md 和清单文件、已更改的文件以及文件名与你的用词匹配的文件，并保留你的语言。它从不编造文件名。新文本会替换你的草稿，但不会发送：阅读、修改后再按 `Enter`。`Cmd/Ctrl+Z` 一步即可恢复你的原文，该按钮（**撤销优化**）也可以。如果你在它处理时继续输入，你的新文本会保留。`Esc` 或再次点击可取消。它在设置中有自己的 **模型** 菜单（默认：**与对话的模型相同**）。不适用于斜杠命令或带文件标签的消息。在 Tether 中，魔法棒位于输入框旁边。 | <a href="assets/features/promptImprove.webp"><img src="assets/features/promptImprove.webp" width="160" alt="截图：优化提示词"></a> |
 | **本对话内允许** | <a id="feature-allowforchat"></a>当 Auto Review 询问你时，审批卡片上会多出 **本对话内允许**：从此以后，同一对话中的同一工具都会被允许，参数不限。标题栏中的标签会列出这些授权，也可以撤销它们。授权在重启后仍然有效。 | <a href="assets/features/allowForChat.webp"><img src="assets/features/allowForChat.webp" width="160" alt="截图：本对话内允许"></a> |
 | **项目状态** | <a id="feature-projectstatus"></a>侧边栏中的项目行会显示与其对话相同的加载图标 / 等待 / 完成标记。因此，即使项目已折叠，你也能知道其中有对话正在运行或需要你处理。等待你处理的对话优先显示，其次是你尚未打开的已完成对话（绿色圆点，即使另一个对话仍在运行也会显示），最后是加载图标。将鼠标悬停在上面可查看详情。 | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="截图：项目状态"></a> |
 | **活跃项目置顶** | <a id="feature-activeprojectsfirst"></a>当某个对话开始运行或需要你处理时，它所在的项目会移到侧边栏顶部，并使用 dsh 自带的行动画（与把它拖到那里的效果相同）。已完成的项目保持原位；你可以像往常一样把它们拖到任意位置。移动会保存到 dsh 的项目顺序中，因此关闭此功能后会保留当前顺序。 | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="截图：活跃项目置顶"></a> |
@@ -72,7 +73,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 ## 设置
 
-每项功能都可以单独开启或关闭：dsh **设置 → Composer Plus**。每一行都有一张小截图：将鼠标悬停在上面可查看放大的预览，点击可按原尺寸打开（按 `Esc` 关闭）。顶部的 **搜索功能** 框会按名称或描述筛选页面（支持任何语言，不区分大小写和重音符号）；按 `Esc` 可清空。每一行都有一个开关和一段简短说明；更改会立即生效，不需要重启，并会保存在该设备上。行名后面的小 **?** 会打开 README 中介绍该功能的部分，使用与 dsh 界面语言相同的 README。除 **手机连接**、**重启后继续** 和 **输入时补全** 外，所有功能默认开启。这三项以及 **内容搜索**、**回合回退** 和 **下一条消息预测** 的开关由 dsh 的 Host 保存，因此它们对每个窗口都有效，并在重启后保留。**下一条消息预测** 和 **输入时补全** 的 **模型** 选择也由 Host 保存（**输入时补全** 默认 **与“下一条消息预测”相同**）。**内容搜索** 只有在重启 dsh 后才会改变（dsh 在启动时读取它）；在此之前，它所在的行会显示 **重启 dsh 后此更改生效。**
+每项功能都可以单独开启或关闭：dsh **设置 → Composer Plus**。每一行都有一张小截图：将鼠标悬停在上面可查看放大的预览，点击可按原尺寸打开（按 `Esc` 关闭）。顶部的 **搜索功能** 框会按名称或描述筛选页面（支持任何语言，不区分大小写和重音符号）；按 `Esc` 可清空。每一行都有一个开关和一段简短说明；更改会立即生效，不需要重启，并会保存在该设备上。行名后面的小 **?** 会打开 README 中介绍该功能的部分，使用与 dsh 界面语言相同的 README。除 **手机连接**、**重启后继续** 和 **输入时补全** 外，所有功能默认开启。这三项以及 **内容搜索**、**回合回退** 和 **下一条消息预测** 的开关由 dsh 的 Host 保存，因此它们对每个窗口都有效，并在重启后保留。**下一条消息预测**、**输入时补全** 和 **优化提示词** 的 **模型** 选择也由 Host 保存（**输入时补全** 默认 **与“下一条消息预测”相同**，**优化提示词** 默认 **与对话的模型相同**）。**内容搜索** 只有在重启 dsh 后才会改变（dsh 在启动时读取它）；在此之前，它所在的行会显示 **重启 dsh 后此更改生效。**
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="设置 → Composer Plus：功能搜索、语言选择器、更新行和每项功能的开关，悬停时显示截图预览"></p>
 
@@ -130,6 +131,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **更新：** Host 端会向 `api.github.com` 查询最新版本，并向 `registry.npmjs.org` 查询这个确切的版本；不会发送任何关于你或你的对话的信息。安装使用 dsh 的插件管理器（`pnpm add dsh-composer-plus@<version>`；如果 dsh 0.2.1 对已安装的插件拒绝这样做，则使用 `pnpm add https://registry.npmjs.org/dsh-composer-plus/-/dsh-composer-plus-<version>.tgz`，之后 profile 会把这个 URL 列为插件的来源），因此 dsh 自己的 registry、脚本和版本兼容性检查都会生效。预发布标签和旧版本永远不会被安装。
 - **下一条消息预测：** 默认开启；在 **设置 → Composer Plus** 中关闭它，即可停止这些模型调用。每完成一个回合，Host 端会把该对话中你自己的消息和智能体的文字回复（不含工具输出、隐藏上下文和推理内容），最多约 6,000 个字符（最新的部分），发送给所选的模型（除非你另选，否则为 dsh 的默认模型）。它通过 dsh 自己的提供商设置，以一次请求的形式发送。对话中不会保存任何内容：猜测不会被添加到对话历史中。开关和模型选择保存在 `$DSH_HOME/storages/dsh-composer-plus/predict.json` 中（仅所有者可访问的文件）。
 - **输入时补全：** 在你开启之前一直关闭。开启后，你每次输入停顿时，Host 端会把你目前已输入的文字，以及该对话中你自己的消息和智能体的文字回复（不含工具输出、隐藏上下文和推理内容；对话部分最多约 3,000 个字符），发送给在 **输入时补全** 下选择的模型（默认为 **下一条消息预测** 的模型）。新的停顿会停止较早的请求。对话中不会保存任何内容。开关保存在 `$DSH_HOME/storages/dsh-composer-plus/complete.json` 中（仅所有者可访问的文件）。
+- **优化提示词：** 在你点击魔法棒之前，什么都不会运行。点击后，Host 端会以一次请求的形式，把以下内容发送给在 **优化提示词** 下选择的模型（默认为对话自己的模型）：你的草稿；该对话中你自己的消息和智能体的文字回复（不含工具输出、隐藏上下文、推理内容和已回退的消息；最多约 6,000 个字符，最新的部分）；与 **功能创意** 相同的项目概要（文件规则也相同：不读取 `.env*` 或密钥文件，跳过指向文件夹外部的符号链接和 FIFO）；`git status` 列为已更改的路径；以及最多 30 个名称与你的草稿有相同词语的已跟踪或未跟踪（未被忽略）路径。除这份概要外，不会发送任何文件内容。对话和项目中都不会写入任何内容：回答只会替换输入框中的草稿，是否发送由你决定。模型选择保存在 `$DSH_HOME/storages/dsh-composer-plus/improve.json` 中（仅所有者可访问的文件）。
 
 ## 故障排除
 
@@ -160,7 +162,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - dsh 的队列没有 `move` 操作，所以由插件的 Host 端在 dsh 的队列中直接移动排队的消息本身（一次改动，还是同一条消息）。带有图片或文件的消息也能移动。只有你自己的消息可以移动：队列中的目标轮次或对问题的回答会留在原处。如果在你拖动时有消息开始发送，则不会移动任何消息，并会显示一条提示说明这一点。
 - 如果新版本不改动任何 dsh 设置，dsh 0.2.1 会立即加载更新；否则（以及在 dsh 0.2.0 上），请重启 dsh 来加载更新。插件从不替你重启 dsh。没有 dsh 插件管理器的网页版/CLI profile 只会提示有新版本。
 - **保持输入框焦点** 只在发送 `/` 命令或技能后才会把焦点还给输入框。dsh 解析命令时，输入框会有几毫秒处于只读状态，因此这段时间内按下的键会丢失。如果 dsh 的 `/` 菜单仍然打开，`Enter` 会选择高亮的行，而不会发送。
-- **手机连接** 只适用于 macOS（它使用 `en0`、`openssl`、`swift` 和 `dns-sd`）。它使用固定端口 19390 和 19391，因此每台 Mac 上同一时间只能有一个 dsh 运行它（每台 Mac 是手机 Mac 列表中的一项）。只有在 Tether 打开或刚转入后台时，手机才能收到通知（没有推送服务）。iOS 应用尚未上架 App Store：请用 Xcode 从 `tether/ios` 构建它。
+- **手机连接** 只适用于 macOS（它使用 `en0`、`openssl`、`swift` 和 `dns-sd`）。它使用固定端口 19390 和 19391，因此每台 Mac 上同一时间只能有一个 dsh 运行它（每台 Mac 是手机 Mac 列表中的一项）。只有在 Tether 打开或刚转入后台时，手机才能收到通知（没有推送服务）。iOS 应用尚未上架 App Store：请用 Xcode 从 `tether/ios` 构建它。Tether 的绿点跟随 Mac：在 dsh 中打开的对话，手机上的绿点也会消失。在 Tether 中打开的对话，只在手机上消失；Mac 上 dsh 自己的绿点会一直保留，直到你在 Mac 上打开该对话。
 - 会话链接在对话中有效；点击它不会打开对应的对话。
 - 重启前发出的通知，点击后只会把 dsh 带到前台。
 - 活跃项目通过 dsh 保存的项目顺序来移动，因此新顺序在重启后依然保留。不属于任何项目的对话（“未分组”）无法移动；dsh 总是把它们列在最后。
@@ -169,6 +171,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - dsh 在新对话的项目菜单中也没有扩展点，所以 **搜索项目** 框和 A–Z 顺序依赖 dsh 的菜单标记。如果 dsh 更新修改了这些标记，菜单会按 dsh 自己的样子显示：使用保存的顺序，没有搜索框。A–Z 顺序只是一种视图，不会改变 dsh 保存的项目顺序。
 - dsh 也没有输入框提示的扩展点，所以 **下一条消息预测** 的文字覆盖在 dsh 自己的占位文字（`[data-composer-placeholder]`）上。如果 dsh 更新修改了这部分标记，就不会显示预测。开启期间，每完成一个回合都会进行一次简短的模型调用。
 - **输入时补全** 通过 dsh 自己的输入框提示显示文字（即 dsh 用于斜杠命令参数提示的 `--dsh-composer-hint` 样式）。输入斜杠命令、消息中带有文件或符号标签，或光标不在消息末尾时，它不会运行。如果 dsh 更新修改了这个样式，就不会显示补全。你每次输入停顿都会进行一次模型调用。
+- **优化提示词** 只能看到简短的项目概要、已更改的路径以及名称与你的用词匹配的路径，看不到代码本身。因此它可能漏掉正确的文件，并且只会提到提供给它的路径。发送前请先阅读新文本。输入斜杠命令或消息中带有文件或符号标签时，它不会运行（新文本是纯文本，标签会丢失）；一条消息最多 8,000 个字符。图片仍保留在附件中：只有文字会改变。每次点击都会进行一次模型调用；较强的模型可能需要一分钟（按 `Esc` 取消）。
 - 已向上游请求内置支持：队列 `move` 见 [#773](https://github.com/deepseek-ai/deepseek-harness/discussions/773)，“继续”状态见 [#9269](https://github.com/deepseek-ai/deepseek-harness/discussions/9269)。
 
 ## 常见问题
@@ -192,6 +195,8 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 **我退出并重新打开 dsh 后，正在运行的对话会继续吗？** dsh 本身不会：dsh 会把这样的回合标记为已中断并等待（目标也会等待 `/goal resume`）。开启 **设置 → Composer Plus → 重启后继续** 后，dsh 退出时正在运行的对话会在下次启动时自动继续。
 
 **预测由哪个模型生成？** 由你在 **设置 → Composer Plus → 下一条消息预测 → 模型** 中选择的模型生成。这个列表就是 dsh 自己的模型列表。**dsh 默认** 跟随 dsh 的默认模型。如果 dsh 不再列出所选的模型，预测会改用默认模型。**输入时补全** 有自己的 **模型** 菜单：**与“下一条消息预测”相同**（默认）跟随预测的模型；选择其他模型时，该模型只用于补全。如果 dsh 不再列出这个模型，补全会改用预测的模型。
+
+**dsh 能在发送前优化我的提示词吗，就像 Roo Code 或 Augment 中的 Enhance prompt 按钮那样？** 可以，使用 **优化提示词**（默认开启）：输入一个粗略的请求，然后点击模型菜单旁边的魔法棒。它会以此对话和项目为上下文，用你的语言改写文字，但不会发送。`Cmd/Ctrl+Z` 或 **撤销优化** 可恢复你的原文。在 **设置 → Composer Plus → 优化提示词 → 模型** 中选择它的模型。
 
 **如何在 dsh 中调整排队消息的顺序？** 拖动排队消息上的 ⠿ 把手，或者让它获得焦点后按 `↑` / `↓`。
 
@@ -243,6 +248,8 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-export-markdown.mjs /pat
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path/to/dsh/lib/bin.js
 # Turn rollback + Delete chat (fake model, made-up git project): bash edit → ↶ Chat and files → files back, .git unchanged; Delete… → Trash + its thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
+# Improve prompt (fake model, made-up git project): the wand sends the draft with the chat and the project, the answer replaces the draft, Cmd+Z and Undo bring it back + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh

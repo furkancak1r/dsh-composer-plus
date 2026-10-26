@@ -39,7 +39,7 @@ Sohbet, DSH masaüstündeki gibi kısa görünür. Ayrıntılar akordiyon gibi k
 İşaretler DSH masaüstündeki kenar çubuğuyla aynıdır:
 
 - Gri, dönen halka: sohbet çalışıyor. Sohbetin bir alt ajanı çalışırken de halka görünür.
-- Yeşil nokta: sohbet bitti ve siz henüz açmadınız. Sohbeti açınca nokta gider.
+- Yeşil nokta: sohbet bitti ve siz henüz açmadınız. Sohbeti Mac'te ya da iPhone'da açınca nokta gider. Liste yenilenmeden de güncellenir.
 - Turuncu el: sohbet sizden onay ya da yanıt bekliyor.
 
 Sistemde "azaltılmış hareket" açıksa halka dönmez.

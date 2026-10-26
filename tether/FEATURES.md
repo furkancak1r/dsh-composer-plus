@@ -17,7 +17,7 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | turnRollback | yes | Touch and hold your message → Roll back to before this message: Chat only, or Chat and files. Withdrawn messages leave the chat. |
 | deleteChat | yes | Chat title menu, or touch and hold a chat in Sessions → Delete…. |
 | projectName | yes | The folder name under the composer and in each chat row. |
-| projectStatus | yes | Each project header in Sessions shows the waiting hand, the green dot or the spinner. |
+| projectStatus | yes | Each project header in Sessions shows the waiting hand, the green dot or the spinner. The green dots come from the Mac: a chat opened in dsh or on another phone loses its dot here too. |
 | activeProjectsFirst | yes | Sessions follows dsh's project order, which the desktop moves. |
 | recentProjects | yes | Sessions filter menu → Active in the last 2 hours. |
 | collapseProjects | yes | Sessions toolbar → Collapse all projects button, shown only while a project is open. |
@@ -36,5 +36,6 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | projectPicker | yes | New session (✎) → the projects show A–Z, the search box filters them (case and accents ignored), Return picks the first match. |
 | nextPrediction | yes | After a finished turn, the guess for the next message shows above the empty composer; a tap puts it in the field. The switch and the model stay in the Mac's Settings. |
 | typingCompletion | yes | While you type, after a short pause the rest of the message shows above the field; a tap adds it. The switch and its model stay in the Mac's Settings (by default the model of Next message prediction). |
+| promptImprove | yes | The magic wand in the composer's button row: the Mac rewrites the typed message as a clearer prompt and it replaces the field (not sent); the button then undoes it, and a tap while it works cancels it. The model stays in the Mac's Settings. |
 | mobileConnect | yes | Tether itself. |
 | autoUpdate | no | Installs the plugin on the Mac. The iPhone app is built and installed separately. |

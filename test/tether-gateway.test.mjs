@@ -26,6 +26,9 @@ async function mockDsh() {
     req.on('data', d => b += d).on('end', () => {
       if (req.url.startsWith('/api/composer-plus.')) {
         m.plus.push({ method: req.method, url: req.url, body: b, type: req.headers['content-type'] ?? null })
+        // A slow route (`m.hang` = its name): no answer yet; `m.hung` resolves when the gateway closes this request, and
+        // `m.hungRes` answers it later.
+        if (m.hang && req.url.startsWith('/api/composer-plus.' + m.hang)) { m.hungRes = res; m.hung = new Promise((r) => res.on('close', r)); return }
         const known = req.url.startsWith('/api/composer-plus.later') ? { ideas: [] } : req.url.startsWith('/api/composer-plus.grants') && m.grants ? m.grants : undefined
         res.writeHead(known ? 200 : 404, { 'content-type': 'application/json' })
         return res.end(JSON.stringify(known ?? { error: 'not found' }))
@@ -65,9 +68,9 @@ async function setup(extra = {}) {
 }
 
 // HTTPS client that, like the iOS app, accepts the self-signed cert only if its SHA-256 matches the pinned fingerprint.
-function call(gw, method, path, body, headers = {}, pin = gw.fingerprint) {
+function call(gw, method, path, body, headers = {}, pin = gw.fingerprint, signal) {
   return new Promise((ok, bad) => {
-    const req = request({ host: '127.0.0.1', port: gw.port, method, path, rejectUnauthorized: false, agent: false, headers: { 'content-type': 'application/json', ...headers } }, res => {
+    const req = request({ host: '127.0.0.1', port: gw.port, method, path, rejectUnauthorized: false, agent: false, signal, headers: { 'content-type': 'application/json', ...headers } }, res => {
       let b = ''
       res.on('data', d => b += d).on('end', () => { try { ok({ status: res.statusCode, json: JSON.parse(b) }) } catch { ok({ status: res.statusCode, json: null }) } })
     })
@@ -310,12 +313,43 @@ test('composer-plus routes: allowlisted methods pass with the query or body; swi
     // Complete while typing: the phone may ask for a completion; the switch stays on the Mac.
     r = await call(t.gw, 'POST', '/plus/complete', { sessionId: 's', text: 'Run the' }, auth)
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'POST', url: '/api/composer-plus.complete', body: JSON.stringify({ sessionId: 's', text: 'Run the' }), type: 'application/json' })
+    // Improve prompt: the phone may ask to improve a draft; the model choice and the catalog stay on the Mac.
+    r = await call(t.gw, 'POST', '/plus/improve', { sessionId: 's', text: 'fix login' }, auth)
+    assert.deepEqual(t.dsh.plus.at(-1), { method: 'POST', url: '/api/composer-plus.improve', body: JSON.stringify({ sessionId: 's', text: 'fix login' }), type: 'application/json' })
+    // The phone gives up (time-out, Cancel): the gateway closes dsh's request, so the model call on the Mac stops and frees
+    // its chat (else the next try gets 409 "still running").
+    t.dsh.hang = 'improve'
+    const phoneLeaves = new AbortController()
+    const leaving = call(t.gw, 'POST', '/plus/improve', { sessionId: 's', text: 'slow' }, auth, undefined, phoneLeaves.signal).catch(() => 'gone')
+    await waitFor(() => t.dsh.hung !== undefined) // not the promise itself: waitFor would wait for it to settle
+    phoneLeaves.abort()
+    assert.equal(await leaving, 'gone')
+    assert.equal(await Promise.race([t.dsh.hung.then(() => 'closed'), sleep(2000).then(() => 'still open')]), 'closed', 'dsh\'s request closes with the phone\'s')
+    // A route that changes the chat runs to its end on the Mac: the phone's first address gives up after 5 s, and a
+    // rollback stopped there would stop the turn but never write its marker or the files.
+    t.dsh.hang = 'rollback'; t.dsh.hung = undefined
+    const writer = new AbortController()
+    const writing = call(t.gw, 'POST', '/plus/rollback', { sessionId: 's', seq: 3, files: true }, auth, undefined, writer.signal).catch(() => 'gone')
+    await waitFor(() => t.dsh.hung !== undefined)
+    writer.abort()
+    assert.equal(await writing, 'gone')
+    assert.equal(await Promise.race([t.dsh.hung.then(() => 'closed'), sleep(500).then(() => 'still open')]), 'still open', 'a write route is not stopped with the phone\'s request')
+    t.dsh.hungRes.writeHead(200, { 'content-type': 'application/json' }); t.dsh.hungRes.end('{}') // its late answer finds no phone
+    await t.dsh.hung
+    t.dsh.hang = false
+    assert.equal((await call(t.gw, 'GET', '/plus/later?sessionId=s', undefined, auth)).status, 200, 'the gateway still answers')
+    // Green dots: the phone reads the Mac's unread list and marks a chat read; the switch stays on the Mac.
+    await call(t.gw, 'GET', '/plus/unread', undefined, auth)
+    assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.unread', body: '', type: null })
+    await call(t.gw, 'POST', '/plus/unread', { sessionIds: ['s'] }, auth)
+    assert.deepEqual(t.dsh.plus.at(-1), { method: 'POST', url: '/api/composer-plus.unread', body: JSON.stringify({ sessionIds: ['s'] }), type: 'application/json' })
     // An older plugin without the route: its 404 reaches the phone, which hides the feature.
     assert.equal((await call(t.gw, 'GET', '/plus/changes?sessionId=s', undefined, auth)).status, 404)
     const seen = t.dsh.plus.length
     for (const [m, p, b] of [['POST', '/plus/rollback', { on: false }], ['POST', '/plus/mobile', { on: false }], ['GET', '/plus/update'],
       ['POST', '/plus/predict', { on: true }], ['POST', '/plus/predict', { model: null }], ['GET', '/plus/predict?catalog=1'],
       ['POST', '/plus/complete', { on: true }], ['GET', '/plus/complete'],
+      ['POST', '/plus/improve', { model: { provider: 'x', model: 'y' } }], ['GET', '/plus/improve?catalog=1'], ['POST', '/plus/unread', { on: false }],
       ['GET', '/plus/shot?id=x'], ['POST', '/plus/changes', {}], ['GET', '/plus/../mobile'], ['POST', '/plus/continue', 'not json']]) {
       assert.equal((await call(t.gw, m, p, b, auth)).status, p.endsWith('continue') ? 400 : p.includes('..') ? 404 : 403, p)
     }
@@ -398,6 +432,10 @@ test('events: no phone -> next; phone answers approval; first answer wins; host 
     assert.equal(t.dsh.results[1].clientId, 'up-1')
     assert.equal(t.dsh.results[1].eventId, 'e1')
     await waitFor(() => p2.frames.some(f => f.value?.type === 'cancel'))
+    // dsh-composer-plus's own event (green dots) goes to every phone on $events, like a forwarded dsh event.
+    t.gw.emit('composer-plus/unread', [['s1']])
+    for (const p of [p1, p2]) await waitFor(() => p.frames.some(f => f.value?.event === 'composer-plus/unread'))
+    assert.deepEqual(p1.frames.find(f => f.value?.event === 'composer-plus/unread').value, { type: 'emit', event: 'composer-plus/unread', args: [['s1']] })
   } finally { await t.done() }
 })
 

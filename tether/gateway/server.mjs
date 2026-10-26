@@ -40,7 +40,7 @@ export const STREAMS = new Set(['session/follow', 'session/control', 'workspace/
 export const PLUS = new Map([
   ['changes', ['GET']], ['diff', ['GET']], ['continue', ['POST']], ['grants', ['GET', 'POST']],
   ['rollback', ['GET', 'POST']], ['delete-chat', ['POST']], ['ideas', ['POST']], ['later', ['GET', 'POST']], ['idea-history', ['GET', 'POST']],
-  ['queue-move', ['POST']], ['predict', ['POST']], ['complete', ['POST']],
+  ['queue-move', ['POST']], ['predict', ['POST']], ['complete', ['POST']], ['improve', ['POST']], ['unread', ['GET', 'POST']],
 ])
 /** Allow for this chat: an Auto Review ask (`approval/request` with this reason) for a tool that the chat granted. */
 export const AUTO_REVIEW_ASK = 'Auto review denied tool '
@@ -206,9 +206,10 @@ export function wsConnect(url, headers = {}, tls = {}) {
 }
 
 // ---- Upstream: the DSH host on loopback, authenticated with the URL that dsh-composer-plus (Mobile connect) gives. ----
-function send(method, url, body, headers = {}) {
+function send(method, url, body, headers = {}, signal) {
   return new Promise((ok, bad) => {
-    const r = httpRequest(url, { method, headers, agent: false }, res => {
+    // `signal`: the phone's request closed, so dsh's request goes too (a model call on the Mac stops).
+    const r = httpRequest(url, { method, headers, agent: false, signal }, res => {
       const parts = []
       res.on('data', d => parts.push(d))
       res.on('end', () => ok({ status: res.statusCode, headers: res.headers, body: Buffer.concat(parts) }))
@@ -237,8 +238,8 @@ function makeUpstream(upstreamUrl) {
     }
   }
   return {
-    rpc: (path, body, method = 'POST') => retry(async () => {
-      const r = await send(method, base + path, body, method === 'GET' ? { cookie } : { 'content-type': 'application/json', cookie })
+    rpc: (path, body, method = 'POST', signal) => retry(async () => {
+      const r = await send(method, base + path, body, method === 'GET' ? { cookie } : { 'content-type': 'application/json', cookie }, signal)
       if (r.status === 401 || r.status === 403) throw Object.assign(new Error('upstream auth'), { status: r.status })
       return r
     }),
@@ -478,8 +479,13 @@ export function createGateway(opts = {}) {
       if (isSwitch(body)) return reply(res, 403, { error: 'endpoint not allowed' })
       body = JSON.stringify(body)
     }
+    // Improve prompt only (a model call that changes nothing): when the phone gives up (time-out, Cancel, a new tap), stop
+    // dsh's request, so the call ends and frees its chat. Every other route runs to its end on the Mac: the phone's first
+    // address gives up after 5 s, and a stopped rollback or delete would leave half a change.
+    const gone = name === 'improve' ? new AbortController() : undefined
+    if (gone) res.on('close', () => { if (!res.writableFinished) gone.abort() })
     try {
-      const up = await upstream.rpc('/api/composer-plus.' + name + new URL(req.url, 'https://x').search, body, req.method)
+      const up = await upstream.rpc('/api/composer-plus.' + name + new URL(req.url, 'https://x').search, body, req.method, gone?.signal)
       // An older dsh-composer-plus without this route answers 404: the phone hides the feature.
       res.writeHead(up.status, { 'content-type': up.headers['content-type'] ?? 'application/json' }); res.end(up.body)
     } catch { reply(res, 502, { error: 'DSH host unavailable' }) }
@@ -621,6 +627,9 @@ export function createGateway(opts = {}) {
   }
   async function close() { clearInterval(watch); await stop(); for (const p of pending.values()) p.res.destroy(); adminServer?.close(); adminServer?.closeAllConnections() }
 
-  return { start, stop, close, state, newCode, settle, revoke, listenAdmin, get port() { return port }, get fingerprint() { return fp } }
+  /** An event from dsh-composer-plus itself (not from dsh's `$events`), for every connected phone. */
+  const emit = (event, args) => toPhones({ type: 'emit', event, args })
+
+  return { start, stop, close, state, newCode, settle, revoke, listenAdmin, emit, get port() { return port }, get fingerprint() { return fp } }
 }
 

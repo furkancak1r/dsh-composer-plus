@@ -61,6 +61,10 @@ Then, on the two targets:
 - When you change a tap, a press and hold or another gesture, check each gesture and then the next tap. Do not keep a flag that waits for an event that iOS can skip (for example a tap after a press and hold). Read a state that every path resets.
 - Screenshots, recordings and logs can show pairing data and chat text. Keep them in `build/agent-device/` in this folder. Git ignores `build/`. Do not commit them.
 
+## Gateway
+
+- When the phone closes a request, the gateway may stop dsh's request only for a route that changes nothing (for example a model call such as Improve prompt). A route that changes a chat or the project (rollback, delete-chat, continue, ideas, queue-move, grants) must run to its end on the Mac: the phone's first address times out after 5 s, and a stopped write can leave half a change.
+
 ## Tests
 
 - Gateway and Mobile connect: `npm test` in the repository root (`test/tether-gateway.test.mjs`, `test/mobile-connect.test.mjs`). Real dsh: `test/browser-mobile-connect.mjs`.

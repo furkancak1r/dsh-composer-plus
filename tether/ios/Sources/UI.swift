@@ -464,6 +464,9 @@ struct ConversationView: View {
     @State private var turnStart: Date?
     /// Complete while typing: the Mac's answer for the text `asked`.
     @State private var guess: (asked: String, completion: String)?
+    /// Improve prompt: the running ask (a second tap cancels it) and the last applied improvement (for Undo).
+    @State private var improving: (id: UUID, task: Task<Void, Never>)?
+    @State private var improved: (before: String, after: String)?
     @FocusState private var focused: Bool
     /// With more than one Mac, the chat says which Mac it runs on.
     private var macSubtitle: String { c.pairings.count > 1 ? c.pairing?.title ?? "" : "" }
@@ -530,7 +533,7 @@ struct ConversationView: View {
             } message: { Text("The agent keeps working toward this until it is complete.") }
             // per-session draft: going back or switching sessions never loses typed text
             .onAppear { text = c.draft(c.current) }
-            .onChange(of: c.current) { text = c.draft(c.current); guess = nil }
+            .onChange(of: c.current) { text = c.draft(c.current); guess = nil; improving?.task.cancel(); improving = nil; improved = nil }
             .onChange(of: text) { c.setDraft(text, c.current) }
             // Complete while typing: ask after a pause; a newer keystroke cancels this task. Typing along the guess needs no ask.
             .task(id: text) {
@@ -881,6 +884,7 @@ struct ConversationView: View {
                 PresetMenu()
                 planButton
                 Spacer(minLength: 0)
+                improveButton
                 if c.running && canSend { roundButton("arrow.up", action: send).accessibilityLabel("Queue") }
                 if c.running { roundButton("stop.fill") { c.run { try await c.stop() } }.accessibilityLabel("Stop") }
                 // One-click Continue (Composer Plus): after a stopped, failed or cut-off turn, an empty composer resumes it
@@ -916,6 +920,41 @@ struct ConversationView: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(on ? "Leave plan mode" : drafted ? "Remove /plan" : "Plan first")
+    }
+    /// Improve prompt (Composer Plus): the wand rewrites the draft on the Mac; the answer replaces the draft only while the
+    /// draft is still the text that was sent (typing meanwhile keeps the new text). Then the button undoes it. A tap while it
+    /// runs cancels it. Nothing is sent.
+    @ViewBuilder private var improveButton: some View {
+        if c.plus.contains("improve"), c.currentSess?.parent == nil {
+            let undo = improved.map { $0.after == text } ?? false
+            Button {
+                if let t = improving { t.task.cancel(); improving = nil; return }
+                if undo, let u = improved { text = u.before; improved = nil; return }
+                let draft = text, id = UUID()
+                // Only this ask clears the handle: an older, cancelled one that ends later must not hide a newer one.
+                improving = (id, Task { @MainActor in
+                    defer { if improving?.id == id { improving = nil } }
+                    do {
+                        guard let better = try await c.improve(draft), !Task.isCancelled else { return }
+                        guard text == draft else { c.error = String(localized: "The message changed while it was improved, so it was not replaced."); return }
+                        guard better != draft else { return }
+                        text = better; improved = (draft, better)
+                        UINotificationFeedbackGenerator().notificationOccurred(.success)
+                    } catch is CancellationError {} catch { if !Task.isCancelled { c.error = userText(error) } }
+                })
+            } label: {
+                Group {
+                    if improving != nil { ProgressView().controlSize(.small) }
+                    else { Image(systemName: undo ? "arrow.uturn.backward" : "wand.and.stars").font(.footnote.weight(.medium)) }
+                }
+                .foregroundStyle(Color.secondary)
+                .frame(width: 32, height: 32).background(Color(.tertiarySystemFill), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .disabled(improving == nil && !undo && !improvable(text))
+            .opacity(improving == nil && !undo && !improvable(text) ? 0.4 : 1)
+            .accessibilityLabel(improving != nil ? "Cancel improving" : undo ? "Undo improvement" : "Improve prompt")
+        }
     }
     /// ↶ on your own messages (Composer Plus turn rollback): only in a top-level chat, not while a rollback runs.
     private func canRollBack(_ l: Line) -> Bool { l.kind == .user && l.seq != nil && c.rollbackOn && c.currentSess?.parent == nil }

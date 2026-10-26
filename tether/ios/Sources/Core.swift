@@ -477,6 +477,12 @@ func completionRest(typed: String, asked: String, completion: String) -> String?
     return String(full.dropFirst(typed.count))
 }
 
+/// Improve prompt: the same rules as on the Mac: some text, at most 8000 characters, not a slash command.
+func improvable(_ draft: String) -> Bool {
+    let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+    return !t.isEmpty && draft.utf16.count <= 8000 && !t.hasPrefix("/") // the Mac counts UTF-16 units (JS length)
+}
+
 /// Next message prediction: the seq of the newest turn/end when it is the last turn event and finished normally.
 func predictAfter(_ events: [J]) -> Int? {
     for e in events.reversed() {
@@ -736,6 +742,13 @@ func statusRank(_ s: Sess, all: [Sess], waiting: Set<String>, finished: Set<Stri
 /// Recent projects filter: a chat counts when it changed in the last 2 hours, runs, waits, finished unseen, or is open.
 func recentChat(_ s: Sess, all: [Sess], now: Date, open: String?, waiting: Set<String>, finished: Set<String>) -> Bool {
     s.id == open || waiting.contains(s.id) || finished.contains(s.id) || isRunning(s, all) || (s.updated.map { now.timeIntervalSince($0) <= 7200 } ?? false)
+}
+
+/// Green dots from the Mac (Composer Plus keeps them): the chats that finished and that no device opened yet. Only root
+/// chats that are idle now, and never the chat on screen (it is read while you look at it).
+func shownUnread(host: [String], sessions: [Sess], open: String?) -> Set<String> {
+    let idle = Set(sessions.filter { $0.parent == nil && !isRunning($0, sessions) }.map(\.id))
+    return Set(host).intersection(idle).subtracting(open.map { [$0] } ?? [])
 }
 
 /// A chat shows "Running" while its own turn or one of its subagents runs, as in the DSH desktop sidebar.
@@ -1089,9 +1102,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         return onWiFi ? all : all.reversed()
     }
 
-    private func call(_ path: String, _ body: Any?, get: Bool = false) async throws -> Any? {
+    /// `wait`: a model call on the Mac (Improve prompt) that answers only at its end: one address (the one that worked last),
+    /// with this time-out. Not the 5 s fallback: a slow answer is not a dead address, and a second try would find the
+    /// Mac's first call still running.
+    private func call(_ path: String, _ body: Any?, get: Bool = false, wait: TimeInterval? = nil) async throws -> Any? {
         guard let p = pairing else { throw Fail(String(localized: "Not paired")) }
-        let list = addrs(p.host, p.ts)
+        let all = addrs(p.host, p.ts)
+        let list = wait == nil ? all : [all.first { $0.1 == route } ?? all[0]]
         var got: (Data, URLResponse)?
         var fails: [String] = []
         for (n, (host, rt)) in list.enumerated() {
@@ -1099,7 +1116,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             // the new Mac's requests.
             guard activeFp == p.fp else { throw CancellationError() }
             var r = URLRequest(url: URL(string: "https://\(host):\(p.port)\(path)")!)
-            if let t = requestTimeout(last: n == list.count - 1, probing: probing) { r.timeoutInterval = t }
+            if let wait { r.timeoutInterval = wait } else if let t = requestTimeout(last: n == list.count - 1, probing: probing) { r.timeoutInterval = t }
             r.setValue("Bearer \(p.token)", forHTTPHeaderField: "Authorization")
             if let body, !get {
                 r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -1134,10 +1151,10 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     // MARK: Composer Plus (the plugin's own routes through the gateway: /plus/<name>)
 
     /// GET with a query, or POST with a JSON body. An older plugin without the route answers 404: the caller hides it.
-    func plusCall(_ name: String, query: [String: String] = [:], body: J? = nil) async throws -> J {
+    func plusCall(_ name: String, query: [String: String] = [:], body: J? = nil, wait: TimeInterval? = nil) async throws -> J {
         var c = URLComponents(); c.path = "/plus/" + name
         if !query.isEmpty { c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
-        return try await call(c.percentEncodedPath + (c.percentEncodedQuery.map { "?" + $0 } ?? ""), body, get: body == nil) as? J ?? [:]
+        return try await call(c.percentEncodedPath + (c.percentEncodedQuery.map { "?" + $0 } ?? ""), body, get: body == nil, wait: wait) as? J ?? [:]
     }
 
     private func loadRollback(_ sid: String) async {
@@ -1189,6 +1206,16 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         guard let o = try? await plusCall("complete", body: ["sessionId": sid, "text": typed]), current == sid,
               o["text"] as? String == typed, let rest = o["completion"] as? String, !rest.trimmingCharacters(in: .whitespaces).isEmpty else { return nil }
         return rest
+    }
+
+    /// Improve prompt (Composer Plus): the Mac rewrites `draft` as a clearer prompt with this chat and its project as context.
+    /// nil when the answer is for other text or is empty; throws the Mac's error (shown to the user).
+    func improve(_ draft: String) async throws -> String? {
+        guard plus.contains("improve"), let sid = current, currentSess?.parent == nil, improvable(draft) else { return nil }
+        // The Mac's call can take up to 120 s (a reasoning model); a Cancel closes the request and the gateway stops it.
+        let o = try await plusCall("improve", body: ["sessionId": sid, "text": draft], wait: 130)
+        guard current == sid, o["text"] as? String == draft, let t = o["improved"] as? String, !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return t
     }
 
     /// Delete chat: the chat stops and its history (with its subagent chats) goes to the Mac's Trash.
@@ -1571,6 +1598,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
                 Task { try? await loadSessions() }
             }
             if v["event"] as? String == "api-session/error" { sessionError(v["args"] as? [Any] ?? []) }
+            // Green dots changed on the Mac (a turn ended, or a chat was read on the Mac or another phone).
+            if v["event"] as? String == "composer-plus/unread", let ids = (v["args"] as? [Any])?.first as? [String] { applyUnread(ids) }
             if v["event"] as? String == "goal/activation-changed" { Task { await loadGoal() } }
             // Desktop edited slash commands / permission presets: refresh so the phone's pickers don't go stale.
             if v["event"] as? String == "commands/change" { Task { await loadCommands() } }
@@ -1611,7 +1640,21 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     // MARK: Conversation stream
 
     /// Show a session's conversation from any tab (e.g. a subagent row in Agents).
-    func open(_ sid: String) { finished.remove(sid); follow(sid); path = [sid]; tab = 0 }
+    func open(_ sid: String) { finished.remove(sid); markRead(sid); follow(sid); path = [sid]; tab = 0 }
+
+    /// Tells the Mac that this chat is read, so its dot goes on the other devices too. An older Mac without the route: no call.
+    private func markRead(_ sid: String) {
+        guard plus.contains("unread") else { return }
+        Task { _ = try? await plusCall("unread", body: ["sessionIds": [sid]]) }
+    }
+    /// The chat you look at now. `current` stays set after Back (its stream stays open), so it counts only while the
+    /// conversation is on screen.
+    private var onScreen: String? { path.isEmpty ? nil : current }
+    /// The Mac's dots replace this iPhone's. The chat on screen is read: the Mac hears it at once.
+    private func applyUnread(_ host: [String]) {
+        finished = shownUnread(host: host, sessions: sessions, open: onScreen)
+        if let s = onScreen, host.contains(s) { markRead(s) }
+    }
 
     func follow(_ sid: String) {
         if sid == current, followId != nil { return } // re-opening the live session keeps its stream and transcript
@@ -1765,11 +1808,24 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         // A reply that arrives after a Mac switch throws CancellationError in call(): it never reaches this list.
         let v = try await rpc("session/list", ["_request": J()]) as? J
         let fresh = (v?["items"] as? [J] ?? []).compactMap(Sess.init)
-        // Cold start: compare against the last list seen before the app was closed, so turns that finished meanwhile still get a dot.
-        let old = sessions.isEmpty ? (UserDefaults.standard.array(forKey: key("seenSessions")) as? [J] ?? []).compactMap(Sess.init) : sessions
-        // Drop dots for sessions that vanished (archived elsewhere) so the badge can't stick, and for sessions that run
-        // again: a running chat shows the spinner, not "Finished".
-        finished = finished.intersection(fresh.filter { !isRunning($0, fresh) }.map(\.id)).union(Self.justFinished(old: old, new: fresh, current: current))
+        // Green dots: the Mac keeps them (a chat read on the Mac or another phone loses its dot here too).
+        var host: [String]?
+        if plus.contains("unread") {
+            do { host = try await plusCall("unread")["unread"] as? [String] }
+            catch is CancellationError { throw CancellationError() } // another Mac is on screen now
+            catch {} // the Mac could not answer: the local rule below
+        }
+        if let host {
+            finished = shownUnread(host: host, sessions: fresh, open: onScreen)
+            if let s = onScreen, host.contains(s) { markRead(s) }
+        } else {
+            // An older Mac: guess from two lists. Cold start: compare against the last list seen before the app was
+            // closed, so turns that finished meanwhile still get a dot.
+            let old = sessions.isEmpty ? (UserDefaults.standard.array(forKey: key("seenSessions")) as? [J] ?? []).compactMap(Sess.init) : sessions
+            // Drop dots for sessions that vanished (archived elsewhere) so the badge can't stick, and for sessions that run
+            // again: a running chat shows the spinner, not "Finished".
+            finished = finished.intersection(fresh.filter { !isRunning($0, fresh) }.map(\.id)).union(Self.justFinished(old: old, new: fresh, current: current))
+        }
         sessions = fresh
         sessionsLoaded = true
         // session/list carries projections.values.userQuestions ({active, settled}, verified live by gateway/e2e.mjs).
