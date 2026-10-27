@@ -1587,15 +1587,18 @@ struct SessionsView: View {
                                     .contentShape(Rectangle())
                                 }
                                 .buttonStyle(.plain)
-                                .contextMenu { projectActions(g) }
                                 .accessibilityValue(folded ? "Collapsed" : "Expanded")
                                 .accessibilityHint(folded ? "Shows this group's sessions" : "Hides this group's sessions")
-                                // A press and hold on a List section header does not always open its menu (iOS 26
-                                // simulator), so the project's actions also have a "…" button that opens with a tap.
+                                // the taller "…" starts higher: without this, VoiceOver reads it before the project name
+                                .accessibilitySortPriority(1)
+                                // A press and hold on a List section header only folds it (iOS 26 simulator and an
+                                // iPhone 13 on iOS 27), so a .contextMenu here never opens: the actions are on "…".
+                                // 44 × 44 pt: Apple's smallest touch target; the negative padding keeps the header's height.
                                 if g.path != nil {
                                     Menu { projectActions(g) } label: {
-                                        Image(systemName: "ellipsis").frame(width: 32, height: 28).contentShape(Rectangle())
+                                        Image(systemName: "ellipsis").frame(width: 44, height: 44).contentShape(Rectangle())
                                     }
+                                    .padding(.vertical, -8)
                                     .accessibilityLabel("Project actions")
                                 }
                             }

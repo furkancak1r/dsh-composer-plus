@@ -25,12 +25,39 @@ Do not use `npx -y agent-device@latest` in place of the installed CLI.
 For a physical iPhone, also do these steps:
 
 1. Make sure that the iPhone is paired, trusted and unlocked, and that Developer Mode is on. Read `agent-device help physical-device`.
-2. On this Mac, `DevToolsSecurity -status` must say "enabled". When it says "disabled", the runner cannot start (`devtools_security_developer_mode_disabled`) and `snapshot` fails. Only the owner can switch it on with `sudo DevToolsSecurity -enable` (it asks for the Mac password). Ask the owner. This is the Mac setting, not the iPhone's Developer Mode.
-3. Sign the runner app with the Tether team. Set these variables in the shell that runs agent-device:
+2. On this Mac, `DevToolsSecurity -status` must say "enabled". When it says "disabled", the runner cannot start (`devtools_security_developer_mode_disabled`) and `snapshot` fails. Only the owner can switch it on with `sudo DevToolsSecurity -enable` (it asks for the Mac password). The owner enabled it on 2026-10-27. This is the Mac setting, not the iPhone's Developer Mode.
+3. Set these variables in the shell that runs agent-device:
    - `AGENT_DEVICE_IOS_TEAM_ID=9LYL5R6LS4`
    - `AGENT_DEVICE_IOS_BUNDLE_ID=com.furkancakir.agentdevice.runner`
+4. agent-device builds its runner with Automatic Signing, and that fails here ("No Accounts", `signing_provisioning_profile_missing`). Build the runner without signing, sign it with the TetherSigning files (see "Signing for the iPhone"), and give agent-device the result. Do this again after an agent-device update (the runner must come from the same version):
 
-The first run builds the runner app and installs it on the iPhone. This run takes more time than the next runs.
+```sh
+D="$PWD/build/adrunner"; R=/opt/homebrew/lib/node_modules/agent-device/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunner.xcodeproj
+xcodebuild build-for-testing -project "$R" -scheme AgentDeviceRunner -parallel-testing-enabled NO -maximum-concurrent-test-device-destinations 1 \
+  -destination generic/platform=iOS -derivedDataPath "$D" COMPILER_INDEX_STORE_ENABLE=NO ENABLE_CODE_COVERAGE=NO ONLY_ACTIVE_ARCH=YES ENABLE_PREVIEWS=NO \
+  ENABLE_DEBUG_DYLIB=NO -IDEPackageSupportDisableManifestSandbox=1 -IDEPackageSupportDisablePluginExecutionSandbox=1 ENABLE_USER_SCRIPT_SANDBOXING=NO \
+  'OTHER_SWIFT_FLAGS=$(inherited) -disable-sandbox -D AGENT_DEVICE_RUNNER_ISOLATION_CANARY' \
+  AGENT_DEVICE_IOS_RUNNER_APP_BUNDLE_ID=com.furkancakir.agentdevice.runner AGENT_DEVICE_IOS_RUNNER_TEST_BUNDLE_ID=com.furkancakir.agentdevice.runner.uitests \
+  CODE_SIGNING_ALLOWED=NO DEVELOPMENT_TEAM=9LYL5R6LS4
+```
+
+Then make the temporary keychain of "Signing for the iPhone" (its lines from `S=` to `ID=`; the app path `A` is not used here) and sign the three bundles from the inside out:
+
+```sh
+P="$D/Build/Products/Debug-iphoneos"; RA=$P/AgentDeviceRunnerUITests-Runner.app; T=$RA/PlugIns/AgentDeviceRunnerUITests.xctest; AA=$P/AgentDeviceRunner.app
+ent() { printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>application-identifier</key><string>9LYL5R6LS4.%s</string><key>com.apple.developer.team-identifier</key><string>9LYL5R6LS4</string><key>get-task-allow</key><true/><key>keychain-access-groups</key><array><string>9LYL5R6LS4.%s</string></array></dict></plist>\n' "$1" "$1" > "$W/$1.plist"; }
+ent com.furkancakir.agentdevice.runner.uitests.xctrunner; ent com.furkancakir.agentdevice.runner
+codesign -f -s "$ID" --keychain "$KC" --timestamp=none "$T"
+cp "$S/dev.mobileprovision" "$RA/embedded.mobileprovision"; cp "$S/dev.mobileprovision" "$AA/embedded.mobileprovision"
+codesign -f -s "$ID" --keychain "$KC" --entitlements "$W/com.furkancakir.agentdevice.runner.uitests.xctrunner.plist" --timestamp=none "$RA"
+codesign -f -s "$ID" --keychain "$KC" --entitlements "$W/com.furkancakir.agentdevice.runner.plist" --timestamp=none "$AA"
+codesign --verify --deep --strict "$RA" && codesign --verify --deep --strict "$AA" && echo signed
+security delete-keychain "$KC"; rm -f "$W"/com.furkancakir.agentdevice.*.plist; unset PW
+```
+
+Open with the signed runner: `agent-device open com.furkancakir.dshmobile --platform ios --device iPhone --foreground --ios-xctestrun-file "$(ls $D/Build/Products/*.xctestrun)" --ios-xctest-derived-data-path "$D"`. Give the same two flags to each `open`. The runner stays signed until the profile ends (2027-10-20).
+
+On a physical iPhone, `agent-device clipboard read` does not work. To check a copy, paste into a text field of the app (touch and hold, then Paste) and read the field.
 
 ### Signing for the iPhone
 
@@ -72,7 +99,7 @@ iPhone (the device name is `iPhone`; if `open` cannot find it, run `agent-device
 
 1. Build and sign: see "Signing for the iPhone" above. (`-allowProvisioningUpdates` works only when Xcode has an Apple account.)
 2. Install: `xcrun devicectl device install app --device iPhone build/DerivedData/Build/Products/Debug-iphoneos/DSHMobile.app` (keeps the app's data).
-3. Open: `agent-device open com.furkancakir.dshmobile --platform ios --device iPhone --foreground`. If the first snapshot fails with "Developer mode is disabled for Apple development tools", see step 2 of the physical iPhone steps.
+3. Open: `agent-device open com.furkancakir.dshmobile --platform ios --device iPhone --foreground` with the two runner flags of physical iPhone step 4. If the first snapshot fails with "Developer mode is disabled for Apple development tools", see step 2. If it fails with `signing_provisioning_profile_missing`, see step 4.
 
 Then, on the two targets:
 
