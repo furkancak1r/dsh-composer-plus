@@ -76,7 +76,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 ## 设置
 
-每项功能都可以单独开启或关闭：dsh **设置 → Composer Plus**。每一行都有一张小截图：将鼠标悬停在上面可查看放大的预览，点击可按原尺寸打开（按 `Esc` 关闭）。顶部的 **搜索功能** 框会按名称或描述筛选页面（支持任何语言，不区分大小写和重音符号）；按 `Esc` 可清空。每一行都有一个开关和一段简短说明；更改会立即生效，不需要重启，并会保存在该设备上。行名后面的小 **?** 会打开 README 中介绍该功能的部分，使用与 dsh 界面语言相同的 README。除 **手机连接**、**重启后继续** 和 **输入时补全** 外，所有功能默认开启。这三项以及 **内容搜索**、**回合回退** 和 **下一条消息预测** 的开关由 dsh 的 Host 保存，因此它们对每个窗口都有效，并在重启后保留。**下一条消息预测**、**输入时补全** 和 **优化提示词** 的 **模型** 选择也由 Host 保存（**输入时补全** 默认 **与“下一条消息预测”相同**，**优化提示词** 默认 **与对话的模型相同**）。**内容搜索** 只有在重启 dsh 后才会改变（dsh 在启动时读取它）；在此之前，它所在的行会显示 **重启 dsh 后此更改生效。**
+每项功能都可以单独开启或关闭：dsh **设置 → Composer Plus**。每一行都有一张小截图：将鼠标悬停在上面可查看放大的预览，点击可按原尺寸打开（按 `Esc` 关闭）。顶部的 **搜索功能** 框会按名称或描述筛选页面（支持任何语言，不区分大小写和重音符号）；按 `Esc` 可清空。每一行都有一个开关和一段简短说明；更改会立即生效，不需要重启，并会保存在该设备上。行名后面的小 **?** 会打开 README 中介绍该功能的部分，使用与 dsh 界面语言相同的 README。除 **手机连接**、**重启后继续** 和 **输入时补全** 外，所有功能默认开启。这三项以及 **内容搜索**、**回合回退** 和 **下一条消息预测** 的开关由 dsh 的 Host 保存，因此它们对每个窗口都有效，并在重启后保留。**下一条消息预测**、**输入时补全** 和 **优化提示词** 的 **模型** 选择也由 Host 保存（**输入时补全** 默认 **与“下一条消息预测”相同**，**优化提示词** 默认 **与对话的模型相同**）；**本对话内允许** 的 **时限**（默认 1 小时）也由 Host 保存。**内容搜索** 只有在重启 dsh 后才会改变（dsh 在启动时读取它）；在此之前，它所在的行会显示 **重启 dsh 后此更改生效。**
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="设置 → Composer Plus：功能搜索、语言选择器、更新行和每项功能的开关，悬停时显示截图预览"></p>
 
@@ -90,7 +90,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 整个应用会立即切换语言。这个选择保存在 dsh 自己的 `locale.preference` 中（与 通用设置 → 语言 是同一个设置），因此重启后依然有效。**系统语言** 会清除这个选择：桌面应用跟随操作系统语言，网页版跟随浏览器语言，不支持的语言会回退为英语。安装插件绝不会覆盖你已经选择的语言。
 
-每个语言包有 3,143 条文本：dsh `0.2.0-rc.2` 和 `0.2.1-rc.2` 的全部界面文本（对话、侧边栏、设置、审批、自动化任务、文件预览、插件管理器、插件市场）、插件自己的控件，以及常用的 [dsh-rewind](https://github.com/SiriLee/dsh-rewind) 插件。以下内容不会翻译：你的消息、模型输出、代码、斜杠命令名称（`/plan`、`/compact`）、由提供商定义的标签（例如推理强度 `High`）、其他插件的文本，以及桌面应用的原生菜单和更新对话框（dsh 只提供这些内容的英文和中文版本）。较新版本的 dsh 新增的字符串，在语言包更新之前会以英文显示。如果其他插件已经提供了某种语言，该语言仍由那个插件提供。
+每个语言包有 3,280 条文本：dsh `0.2.0-rc.2` 和 `0.2.1-rc.2` 的全部界面文本（对话、侧边栏、设置、审批、自动化任务、文件预览、插件管理器、插件市场）、插件自己的控件，以及常用的 [dsh-rewind](https://github.com/SiriLee/dsh-rewind) 插件。以下内容不会翻译：你的消息、模型输出、代码、斜杠命令名称（`/plan`、`/compact`）、由提供商定义的标签（例如推理强度 `High`）、其他插件的文本，以及桌面应用的原生菜单和更新对话框（dsh 只提供这些内容的英文和中文版本）。较新版本的 dsh 新增的字符串，在语言包更新之前会以英文显示。如果其他插件已经提供了某种语言，该语言仍由那个插件提供。
 
 ## 键盘快捷键
 
@@ -110,6 +110,9 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 | `Tab` | 显示预测的空输入框 | 把预测放入输入框 |
 | `Tab` | 光标后的灰色补全 | 把补全添加到消息中 |
 | `Esc` | 显示预测的空输入框 | 隐藏预测 |
+| `Cmd/Ctrl+Z` | 使用 **优化提示词** 后的输入框 | 恢复你输入的文本 |
+| `Esc` | **优化提示词** 运行时的输入框 | 取消优化 |
+| `Enter` / `Esc` | 你双击的排队消息 | 保存 / 取消编辑 |
 
 打开的 `/` 或 `@` 菜单会自己占用这些按键。
 
@@ -273,6 +276,20 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
 # Improve prompt (fake model, made-up git project): the wand sends the draft with the chat and the project, the answer replaces the draft, Cmd+Z and Undo bring it back + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
+# Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
+# Changes branch tree (fake model, made-up git history): branch chips, commit files and diffs, keyboard focus + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js
+# Allow for this chat with a time limit (fake model that is also the Auto Review reviewer): the grant ends after 1 hour
+PLAYWRIGHT=/path/to/playwright node test/browser-grant-ttl.mjs /path/to/dsh/lib/bin.js
+# Next message prediction and Complete while typing (fake models): calls, Tab, Esc, model choice + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-predict.mjs /path/to/dsh/lib/bin.js
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-complete.mjs /path/to/dsh/lib/bin.js
+# Project search in a new chat: A–Z order, filter, Enter + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path/to/dsh/lib/bin.js
+# Queue drag-and-drop and Continue with a queued message (slow fake model)
+PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
+PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
@@ -283,7 +300,7 @@ npm test
 
 **新功能规则：** 设置 → Composer Plus 中的每个功能行都会显示一张截图。把功能 id 添加到 `client.js` 的 `SHOT_OF` 和 `index.js` 的 `SHOTS` 中，并发布 `assets/features/<id>.webp`（从临时演示 dsh 中截取，使用英文界面，大小约 60 kB 或更小）。把该功能（使用同一张图片）添加到 `docs/features.json`，然后运行 `npm run build:readme`：它会写入 `README.md` 和每个翻译版 `README.<id>.md` 的功能表格，以及 `llms.txt` 中的列表。功能没有截图时，`test/shots.test.mjs` 会失败；`test/browser-settings-shots.mjs` 会检查真实的设置页面。每次更改的完整检查清单见 [AGENTS.md](AGENTS.md)。
 
-测试会在假的 React/DOM 上运行真实的 `client.js`，并在临时 git 仓库上运行真实的 `index.js`（Host 端）。Tether 网关测试（`test/tether-gateway.test.mjs`）使用模拟的 dsh host 和真实的 TLS 网关。iPhone 应用位于 `tether/ios` 中（见 [tether/README.md](tether/README.md) 和 [tether/AGENTS.md](tether/AGENTS.md)）。`node test/browser-history.mjs '<dsh web URL with ?token=…>'` 会在真实浏览器中，针对一个使用独立 `DSH_HOME` 的临时 `dsh web` 检查输入历史。
+测试会在假的 React/DOM 上运行真实的 `client.js`，并在临时 git 仓库上运行真实的 `index.js`（Host 端）。Tether 网关测试（`test/tether-gateway.test.mjs`）使用模拟的 dsh host 和真实的 TLS 网关。iPhone 应用位于 `tether/ios` 中（见 [tether/README.md](tether/README.md) 和 [tether/AGENTS.md](tether/AGENTS.md)）。每个 Host 路由、它的请求以及 Tether 能否调用它，都列在 [docs/ROUTES.md](docs/ROUTES.md) 中。`node test/browser-history.mjs '<dsh web URL with ?token=…>'` 会在真实浏览器中，针对一个使用独立 `DSH_HOME` 的临时 `dsh web` 检查输入历史。
 
 语言包是 `locales/<id>.json` 中的纯数据 JSON，由 `npm run build:locales` 嵌入到唯一的客户端入口中（不使用翻译服务，也不在运行时下载）。`npm test` 会检查每个语言包是否覆盖全部键、占位符和换行是否一致，以及跟随系统语言和手动覆盖时的行为。如需在本地安装的 Playwright 中进行隔离的真实应用检查：
 

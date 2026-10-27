@@ -76,7 +76,7 @@ Nút, chú thích khi di chuột, thông báo trong ứng dụng và thông báo
 
 ## Cài đặt
 
-Bạn có thể bật hoặc tắt riêng từng tính năng: dsh **Cài đặt → Composer Plus**. Mỗi dòng có một ảnh chụp màn hình nhỏ: di chuột lên để xem ảnh lớn hơn, nhấp để mở ở kích thước đầy đủ (`Esc` để đóng). Ô **Tìm tính năng** ở đầu trang lọc trang theo tên hoặc mô tả (mọi ngôn ngữ, không phân biệt chữ hoa/thường và dấu); `Esc` xóa nội dung ô. Mỗi dòng có một công tắc và một mô tả ngắn. Dấu **?** nhỏ sau tên một dòng mở phần README mô tả tính năng đó, trong README theo ngôn ngữ giao diện của dsh. Thay đổi có hiệu lực ngay, không cần khởi động lại, và được ghi nhớ trên thiết bị đó. Mọi tính năng đều bật theo mặc định, trừ **Kết nối di động**, **Tiếp tục sau khi khởi động lại** và **Hoàn thành khi gõ**. Host của dsh giữ công tắc của ba tính năng này cùng **Tìm trong nội dung**, **Hoàn tác lượt** và **Dự đoán tin nhắn tiếp theo**, nên các công tắc này áp dụng cho mọi cửa sổ và vẫn còn sau khi khởi động lại. Host cũng giữ lựa chọn **Mô hình** của **Dự đoán tin nhắn tiếp theo**, của **Hoàn thành khi gõ** (mặc định là **Giống dự đoán tin nhắn tiếp theo**) và của **Cải thiện prompt** (mặc định là **Giống mô hình của cuộc trò chuyện**). **Tìm trong nội dung** chỉ thay đổi sau khi khởi động lại dsh (dsh đọc cài đặt này lúc khởi động); trước đó, dòng của tính năng hiện **Khởi động lại dsh để áp dụng thay đổi này.**
+Bạn có thể bật hoặc tắt riêng từng tính năng: dsh **Cài đặt → Composer Plus**. Mỗi dòng có một ảnh chụp màn hình nhỏ: di chuột lên để xem ảnh lớn hơn, nhấp để mở ở kích thước đầy đủ (`Esc` để đóng). Ô **Tìm tính năng** ở đầu trang lọc trang theo tên hoặc mô tả (mọi ngôn ngữ, không phân biệt chữ hoa/thường và dấu); `Esc` xóa nội dung ô. Mỗi dòng có một công tắc và một mô tả ngắn. Dấu **?** nhỏ sau tên một dòng mở phần README mô tả tính năng đó, trong README theo ngôn ngữ giao diện của dsh. Thay đổi có hiệu lực ngay, không cần khởi động lại, và được ghi nhớ trên thiết bị đó. Mọi tính năng đều bật theo mặc định, trừ **Kết nối di động**, **Tiếp tục sau khi khởi động lại** và **Hoàn thành khi gõ**. Host của dsh giữ công tắc của ba tính năng này cùng **Tìm trong nội dung**, **Hoàn tác lượt** và **Dự đoán tin nhắn tiếp theo**, nên các công tắc này áp dụng cho mọi cửa sổ và vẫn còn sau khi khởi động lại. Host cũng giữ lựa chọn **Mô hình** của **Dự đoán tin nhắn tiếp theo**, của **Hoàn thành khi gõ** (mặc định là **Giống dự đoán tin nhắn tiếp theo**), của **Cải thiện prompt** (mặc định là **Giống mô hình của cuộc trò chuyện**), và **Giới hạn thời gian** của **Cho phép trong cuộc trò chuyện này** (mặc định là 1 giờ). **Tìm trong nội dung** chỉ thay đổi sau khi khởi động lại dsh (dsh đọc cài đặt này lúc khởi động); trước đó, dòng của tính năng hiện **Khởi động lại dsh để áp dụng thay đổi này.**
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="Cài đặt → Composer Plus: ô tìm tính năng, bộ chọn ngôn ngữ, dòng cập nhật và một công tắc cho mỗi tính năng, kèm ảnh xem trước khi di chuột"></p>
 
@@ -90,7 +90,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 Toàn bộ ứng dụng chuyển ngôn ngữ ngay lập tức. Lựa chọn này là cài đặt `locale.preference` đã lưu của chính dsh (cùng cài đặt với Chung → Ngôn ngữ), nên vẫn được giữ sau khi khởi động lại. **Ngôn ngữ hệ thống** xóa lựa chọn đó: ứng dụng desktop theo ngôn ngữ của hệ điều hành, giao diện web theo ngôn ngữ của trình duyệt, và ngôn ngữ chưa được hỗ trợ sẽ chuyển về tiếng Anh. Việc cài plugin không bao giờ ghi đè ngôn ngữ bạn đã chọn.
 
-Mỗi gói có 3.143 chuỗi văn bản: mọi văn bản giao diện của dsh `0.2.0-rc.2` và `0.2.1-rc.2` (cuộc trò chuyện, thanh bên, cài đặt, phê duyệt, tác vụ tự động, xem trước tệp, trình quản lý plugin, chợ plugin), các điều khiển riêng của plugin và plugin phổ biến [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Những phần không được dịch: tin nhắn của bạn, đầu ra của mô hình, mã, tên lệnh gạch chéo (`/plan`, `/compact`), nhãn do nhà cung cấp đặt như mức suy luận `High`, văn bản của plugin khác, và menu gốc/hộp thoại cập nhật của ứng dụng desktop (dsh chỉ cung cấp các phần này bằng tiếng Anh/tiếng Trung). Chuỗi mới do phiên bản dsh mới hơn thêm vào sẽ hiện bằng tiếng Anh cho đến khi các gói được cập nhật. Nếu một plugin khác đã cung cấp một ngôn ngữ, plugin đó giữ ngôn ngữ ấy.
+Mỗi gói có 3.280 chuỗi văn bản: mọi văn bản giao diện của dsh `0.2.0-rc.2` và `0.2.1-rc.2` (cuộc trò chuyện, thanh bên, cài đặt, phê duyệt, tác vụ tự động, xem trước tệp, trình quản lý plugin, chợ plugin), các điều khiển riêng của plugin và plugin phổ biến [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Những phần không được dịch: tin nhắn của bạn, đầu ra của mô hình, mã, tên lệnh gạch chéo (`/plan`, `/compact`), nhãn do nhà cung cấp đặt như mức suy luận `High`, văn bản của plugin khác, và menu gốc/hộp thoại cập nhật của ứng dụng desktop (dsh chỉ cung cấp các phần này bằng tiếng Anh/tiếng Trung). Chuỗi mới do phiên bản dsh mới hơn thêm vào sẽ hiện bằng tiếng Anh cho đến khi các gói được cập nhật. Nếu một plugin khác đã cung cấp một ngôn ngữ, plugin đó giữ ngôn ngữ ấy.
 
 ## Phím tắt
 
@@ -110,6 +110,9 @@ Mỗi gói có 3.143 chuỗi văn bản: mọi văn bản giao diện của dsh 
 | `Tab` | khung soạn thảo trống có dự đoán | đưa dự đoán vào khung soạn thảo |
 | `Tab` | phần hoàn thành màu xám sau con trỏ | thêm phần hoàn thành vào tin nhắn |
 | `Esc` | khung soạn thảo trống có dự đoán | ẩn dự đoán |
+| `Cmd/Ctrl+Z` | khung soạn thảo, sau khi dùng **Cải thiện prompt** | đưa văn bản bạn đã gõ trở lại |
+| `Esc` | khung soạn thảo, khi **Cải thiện prompt** đang chạy | hủy cải thiện |
+| `Enter` / `Esc` | tin nhắn trong hàng đợi mà bạn đã nhấp đúp | lưu / hủy chỉnh sửa |
 
 Khi menu `/` hoặc `@` đang mở, menu đó giữ các phím này cho riêng nó.
 
@@ -273,6 +276,20 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
 # Improve prompt (fake model, made-up git project): the wand sends the draft with the chat and the project, the answer replaces the draft, Cmd+Z and Undo bring it back + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
+# Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
+# Changes branch tree (fake model, made-up git history): branch chips, commit files and diffs, keyboard focus + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js
+# Allow for this chat with a time limit (fake model that is also the Auto Review reviewer): the grant ends after 1 hour
+PLAYWRIGHT=/path/to/playwright node test/browser-grant-ttl.mjs /path/to/dsh/lib/bin.js
+# Next message prediction and Complete while typing (fake models): calls, Tab, Esc, model choice + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-predict.mjs /path/to/dsh/lib/bin.js
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-complete.mjs /path/to/dsh/lib/bin.js
+# Project search in a new chat: A–Z order, filter, Enter + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path/to/dsh/lib/bin.js
+# Queue drag-and-drop and Continue with a queued message (slow fake model)
+PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
+PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
@@ -283,7 +300,7 @@ npm test
 
 **Quy tắc cho tính năng mới:** mọi dòng tính năng trong Cài đặt → Composer Plus đều hiện một ảnh chụp màn hình. Thêm id của tính năng vào `SHOT_OF` trong `client.js` và vào `SHOTS` trong `index.js`, rồi đưa kèm `assets/features/<id>.webp` (chụp từ dsh demo dùng một lần, giao diện tiếng Anh, khoảng 60 kB hoặc nhỏ hơn). Thêm tính năng, với cùng hình ảnh, vào `docs/features.json` rồi chạy `npm run build:readme`: lệnh này ghi bảng tính năng của `README.md` và của từng `README.<id>.md` đã dịch, cùng danh sách trong `llms.txt`. `test/shots.test.mjs` thất bại khi một tính năng không có ảnh chụp màn hình, và `test/browser-settings-shots.mjs` kiểm tra trang Cài đặt thật. Danh sách kiểm tra đầy đủ cho mọi thay đổi nằm trong [AGENTS.md](AGENTS.md).
 
-Các bài kiểm thử chạy `client.js` thật trên một React/DOM giả, và chạy `index.js` thật (phần Host) trên một repository git tạm thời. Kiểm thử gateway Tether (`test/tether-gateway.test.mjs`) dùng một dsh host giả và một gateway TLS thật. Ứng dụng iPhone nằm trong `tether/ios` (xem [tether/README.md](tether/README.md) và [tether/AGENTS.md](tether/AGENTS.md)). `node test/browser-history.mjs '<dsh web URL with ?token=…>'` kiểm tra lịch sử nhập trong trình duyệt thật, với một `dsh web` dùng một lần có `DSH_HOME` riêng.
+Các bài kiểm thử chạy `client.js` thật trên một React/DOM giả, và chạy `index.js` thật (phần Host) trên một repository git tạm thời. Kiểm thử gateway Tether (`test/tether-gateway.test.mjs`) dùng một dsh host giả và một gateway TLS thật. Ứng dụng iPhone nằm trong `tether/ios` (xem [tether/README.md](tether/README.md) và [tether/AGENTS.md](tether/AGENTS.md)). [docs/ROUTES.md](docs/ROUTES.md) liệt kê từng route của Host, yêu cầu của route đó và Tether có thể gọi route đó hay không. `node test/browser-history.mjs '<dsh web URL with ?token=…>'` kiểm tra lịch sử nhập trong trình duyệt thật, với một `dsh web` dùng một lần có `DSH_HOME` riêng.
 
 Gói ngôn ngữ là các tệp JSON chỉ chứa dữ liệu trong `locales/<id>.json`, được nhúng vào tệp client duy nhất bằng `npm run build:locales` (không dùng dịch vụ dịch thuật và không tải về lúc chạy). `npm test` kiểm tra mọi gói: đủ toàn bộ khóa, placeholder và ngắt dòng giống hệt bản gốc, và hành vi ngôn ngữ hệ thống/ghi đè. Để kiểm tra trên ứng dụng thật trong môi trường cô lập, với Playwright đã cài cục bộ:
 

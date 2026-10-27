@@ -76,7 +76,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 ## सेटिंग
 
-हर सुविधा को अलग से चालू या बंद किया जा सकता है: dsh **सेटिंग → Composer Plus**। हर पंक्ति में एक छोटा स्क्रीनशॉट है: बड़ा पूर्वावलोकन देखने के लिए उस पर पॉइंटर ले जाएं, पूरे आकार में खोलने के लिए उस पर क्लिक करें (`Esc` बंद करता है)। ऊपर का **सुविधाएं खोजें** बॉक्स पेज को नाम या विवरण से फ़िल्टर करता है (कोई भी भाषा; बड़े-छोटे अक्षरों और एक्सेंट से फ़र्क नहीं पड़ता); `Esc` उसे खाली करता है। हर पंक्ति में एक स्विच और छोटा विवरण है। पंक्ति के नाम के बाद का छोटा **?** README का वह हिस्सा खोलता है जो उस सुविधा के बारे में बताता है, dsh की इंटरफ़ेस भाषा वाली README में। बदलाव बिना रीस्टार्ट के तुरंत लागू होते हैं और उस डिवाइस पर याद रहते हैं। **मोबाइल कनेक्ट**, **रीस्टार्ट के बाद जारी रखें** और **टाइप करते समय पूरा करें** को छोड़कर सब कुछ डिफ़ॉल्ट रूप से चालू है। इन तीनों के और **कंटेंट में खोज**, **टर्न रोलबैक** व **अगले संदेश का अनुमान** के स्विच dsh का Host रखता है, इसलिए वे हर विंडो पर लागू होते हैं और रीस्टार्ट के बाद भी बने रहते हैं। **अगले संदेश का अनुमान** के लिए चुना गया **मॉडल**, **टाइप करते समय पूरा करें** के लिए चुना गया मॉडल (डिफ़ॉल्ट रूप से **अगले संदेश के अनुमान जैसा**) और **प्रॉम्प्ट बेहतर करें** के लिए चुना गया मॉडल (डिफ़ॉल्ट रूप से **चैट के मॉडल जैसा**) भी Host रखता है। **कंटेंट में खोज** सिर्फ़ dsh रीस्टार्ट करने के बाद बदलती है (dsh इसे शुरू होते समय पढ़ता है); तब तक उसकी पंक्ति में लिखा रहता है **यह बदलाव लागू करने के लिए dsh रीस्टार्ट करें।**
+हर सुविधा को अलग से चालू या बंद किया जा सकता है: dsh **सेटिंग → Composer Plus**। हर पंक्ति में एक छोटा स्क्रीनशॉट है: बड़ा पूर्वावलोकन देखने के लिए उस पर पॉइंटर ले जाएं, पूरे आकार में खोलने के लिए उस पर क्लिक करें (`Esc` बंद करता है)। ऊपर का **सुविधाएं खोजें** बॉक्स पेज को नाम या विवरण से फ़िल्टर करता है (कोई भी भाषा; बड़े-छोटे अक्षरों और एक्सेंट से फ़र्क नहीं पड़ता); `Esc` उसे खाली करता है। हर पंक्ति में एक स्विच और छोटा विवरण है। पंक्ति के नाम के बाद का छोटा **?** README का वह हिस्सा खोलता है जो उस सुविधा के बारे में बताता है, dsh की इंटरफ़ेस भाषा वाली README में। बदलाव बिना रीस्टार्ट के तुरंत लागू होते हैं और उस डिवाइस पर याद रहते हैं। **मोबाइल कनेक्ट**, **रीस्टार्ट के बाद जारी रखें** और **टाइप करते समय पूरा करें** को छोड़कर सब कुछ डिफ़ॉल्ट रूप से चालू है। इन तीनों के और **कंटेंट में खोज**, **टर्न रोलबैक** व **अगले संदेश का अनुमान** के स्विच dsh का Host रखता है, इसलिए वे हर विंडो पर लागू होते हैं और रीस्टार्ट के बाद भी बने रहते हैं। **अगले संदेश का अनुमान** के लिए चुना गया **मॉडल**, **टाइप करते समय पूरा करें** के लिए चुना गया मॉडल (डिफ़ॉल्ट रूप से **अगले संदेश के अनुमान जैसा**), **प्रॉम्प्ट बेहतर करें** के लिए चुना गया मॉडल (डिफ़ॉल्ट रूप से **चैट के मॉडल जैसा**) और **इस चैट के लिए अनुमति दें** की **समय सीमा** (डिफ़ॉल्ट रूप से 1 घंटा) भी Host रखता है। **कंटेंट में खोज** सिर्फ़ dsh रीस्टार्ट करने के बाद बदलती है (dsh इसे शुरू होते समय पढ़ता है); तब तक उसकी पंक्ति में लिखा रहता है **यह बदलाव लागू करने के लिए dsh रीस्टार्ट करें।**
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="सेटिंग → Composer Plus: सुविधाओं की खोज, भाषा चुनने का विकल्प, अपडेट की पंक्ति और हर सुविधा के लिए एक स्विच, होवर करने पर स्क्रीनशॉट का पूर्वावलोकन"></p>
 
@@ -90,7 +90,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 पूरा ऐप तुरंत बदल जाता है। यह चुनाव dsh की अपनी सेव की गई `locale.preference` है (वही जो सामान्य → भाषा में है), इसलिए यह रीस्टार्ट के बाद भी बना रहता है। **सिस्टम की भाषा** यह चुनाव हटा देता है: डेस्कटॉप ऐप OS की भाषा अपनाता है, वेब UI ब्राउज़र की भाषा, और जो भाषा समर्थित नहीं है, उसकी जगह अंग्रेज़ी दिखती है। प्लगइन इंस्टॉल करने से आपकी पहले से चुनी हुई भाषा कभी नहीं बदलती।
 
-हर पैक में 3,143 टेक्स्ट हैं: dsh `0.2.0-rc.2` और `0.2.1-rc.2` का हर UI टेक्स्ट (चैट, साइडबार, सेटिंग, मंज़ूरियां, शेड्यूल, फ़ाइल पूर्वावलोकन, प्लगइन मैनेजर, प्लगइन मार्केट), प्लगइन के अपने कंट्रोल, और लोकप्रिय [dsh-rewind](https://github.com/SiriLee/dsh-rewind) प्लगइन। इनका अनुवाद नहीं होता: आपके संदेश, मॉडल का आउटपुट, कोड, स्लैश कमांड के नाम (`/plan`, `/compact`), प्रोवाइडर के अपने लेबल जैसे `High` रीज़निंग प्रयास, दूसरे प्लगइन के टेक्स्ट, और डेस्कटॉप ऐप के नेटिव मेन्यू/अपडेट डायलॉग (dsh इन्हें सिर्फ़ अंग्रेज़ी/चीनी में देता है)। नए dsh में जोड़े गए टेक्स्ट तब तक अंग्रेज़ी में दिखते हैं, जब तक पैक अपडेट नहीं होते। अगर कोई दूसरा प्लगइन पहले से कोई भाषा देता है, तो वह भाषा उसी प्लगइन की रहती है।
+हर पैक में 3,280 टेक्स्ट हैं: dsh `0.2.0-rc.2` और `0.2.1-rc.2` का हर UI टेक्स्ट (चैट, साइडबार, सेटिंग, मंज़ूरियां, शेड्यूल, फ़ाइल पूर्वावलोकन, प्लगइन मैनेजर, प्लगइन मार्केट), प्लगइन के अपने कंट्रोल, और लोकप्रिय [dsh-rewind](https://github.com/SiriLee/dsh-rewind) प्लगइन। इनका अनुवाद नहीं होता: आपके संदेश, मॉडल का आउटपुट, कोड, स्लैश कमांड के नाम (`/plan`, `/compact`), प्रोवाइडर के अपने लेबल जैसे `High` रीज़निंग प्रयास, दूसरे प्लगइन के टेक्स्ट, और डेस्कटॉप ऐप के नेटिव मेन्यू/अपडेट डायलॉग (dsh इन्हें सिर्फ़ अंग्रेज़ी/चीनी में देता है)। नए dsh में जोड़े गए टेक्स्ट तब तक अंग्रेज़ी में दिखते हैं, जब तक पैक अपडेट नहीं होते। अगर कोई दूसरा प्लगइन पहले से कोई भाषा देता है, तो वह भाषा उसी प्लगइन की रहती है।
 
 ## कीबोर्ड शॉर्टकट
 
@@ -110,6 +110,9 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 | `Tab` | अनुमान वाला खाली कंपोज़र | अनुमान को कंपोज़र में डालें |
 | `Tab` | कर्सर के बाद ग्रे सुझाव | सुझाव को संदेश में जोड़ें |
 | `Esc` | अनुमान वाला खाली कंपोज़र | अनुमान छिपाएं |
+| `Cmd/Ctrl+Z` | कंपोज़र, **प्रॉम्प्ट बेहतर करें** के बाद | अपना टाइप किया टेक्स्ट वापस लाएं |
+| `Esc` | कंपोज़र, जब **प्रॉम्प्ट बेहतर करें** चल रहा हो | सुधार रद्द करें |
+| `Enter` / `Esc` | कतार वाला संदेश, जिस पर आपने डबल-क्लिक किया | एडिट सेव / रद्द करें |
 
 खुला `/` या `@` मेन्यू इन कुंजियों को खुद इस्तेमाल करता है।
 
@@ -273,6 +276,20 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
 # Improve prompt (fake model, made-up git project): the wand sends the draft with the chat and the project, the answer replaces the draft, Cmd+Z and Undo bring it back + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
+# Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
+# Changes branch tree (fake model, made-up git history): branch chips, commit files and diffs, keyboard focus + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js
+# Allow for this chat with a time limit (fake model that is also the Auto Review reviewer): the grant ends after 1 hour
+PLAYWRIGHT=/path/to/playwright node test/browser-grant-ttl.mjs /path/to/dsh/lib/bin.js
+# Next message prediction and Complete while typing (fake models): calls, Tab, Esc, model choice + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-predict.mjs /path/to/dsh/lib/bin.js
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-complete.mjs /path/to/dsh/lib/bin.js
+# Project search in a new chat: A–Z order, filter, Enter + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path/to/dsh/lib/bin.js
+# Queue drag-and-drop and Continue with a queued message (slow fake model)
+PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
+PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
@@ -283,7 +300,7 @@ npm test
 
 **नई सुविधाओं का नियम:** सेटिंग → Composer Plus में हर सुविधा की पंक्ति एक स्क्रीनशॉट दिखाती है। सुविधा का id `client.js` में `SHOT_OF` और `index.js` में `SHOTS` में जोड़ें, और `assets/features/<id>.webp` शिप करें (अस्थायी डेमो dsh से लिया गया, अंग्रेज़ी UI, लगभग 60 kB या कम)। सुविधा को उसी इमेज के साथ `docs/features.json` में जोड़ें और `npm run build:readme` चलाएं: यह `README.md` और हर अनुवादित `README.<id>.md` की सुविधा टेबल और `llms.txt` की सूची लिखता है। जब किसी सुविधा का स्क्रीनशॉट नहीं होता, तो `test/shots.test.mjs` विफल होता है, और `test/browser-settings-shots.mjs` असली सेटिंग पेज जांचता है। हर बदलाव की पूरी चेकलिस्ट [AGENTS.md](AGENTS.md) में है।
 
-टेस्ट असली `client.js` को नकली React/DOM पर और असली `index.js` (Host वाला हिस्सा) को एक अस्थायी git रिपॉज़िटरी पर चलाते हैं। Tether गेटवे के टेस्ट (`test/tether-gateway.test.mjs`) एक मॉक dsh होस्ट और असली TLS गेटवे इस्तेमाल करते हैं। iPhone ऐप `tether/ios` में है (देखें [tether/README.md](tether/README.md) और [tether/AGENTS.md](tether/AGENTS.md))। `node test/browser-history.mjs '<dsh web URL with ?token=…>'` एक अस्थायी `dsh web` पर, जिसका अपना `DSH_HOME` है, असली ब्राउज़र में इनपुट इतिहास जांचता है।
+टेस्ट असली `client.js` को नकली React/DOM पर और असली `index.js` (Host वाला हिस्सा) को एक अस्थायी git रिपॉज़िटरी पर चलाते हैं। Tether गेटवे के टेस्ट (`test/tether-gateway.test.mjs`) एक मॉक dsh होस्ट और असली TLS गेटवे इस्तेमाल करते हैं। iPhone ऐप `tether/ios` में है (देखें [tether/README.md](tether/README.md) और [tether/AGENTS.md](tether/AGENTS.md))। हर Host रूट, उसका अनुरोध और Tether उसे कॉल कर सकता है या नहीं, यह [docs/ROUTES.md](docs/ROUTES.md) में दिया गया है। `node test/browser-history.mjs '<dsh web URL with ?token=…>'` एक अस्थायी `dsh web` पर, जिसका अपना `DSH_HOME` है, असली ब्राउज़र में इनपुट इतिहास जांचता है।
 
 भाषा पैक सिर्फ़ डेटा वाली JSON फ़ाइलें हैं: `locales/<id>.json`। `npm run build:locales` उन्हें एक ही क्लाइंट एंट्री में जोड़ता है (कोई अनुवाद सेवा या रनटाइम डाउनलोड नहीं)। `npm test` हर पैक में सभी कुंजियां, एक जैसे प्लेसहोल्डर और लाइन ब्रेक, और सिस्टम/ओवरराइड व्यवहार जांचता है। लोकल रूप से इंस्टॉल किए गए Playwright के साथ अलग-थलग असली ऐप की जांच के लिए:
 

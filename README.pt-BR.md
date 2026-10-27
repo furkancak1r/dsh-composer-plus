@@ -76,7 +76,7 @@ Botões, dicas, avisos e notificações seguem o idioma selecionado no dsh (veja
 
 ## Configurações
 
-Cada recurso pode ser ativado ou desativado separadamente em **Configurações → Composer Plus** do dsh. Cada linha tem uma pequena captura de tela: passe o mouse sobre ela para ver uma prévia maior e clique para abri-la em tamanho real (`Esc` fecha). A caixa **Pesquisar recursos** no topo filtra a página por nome ou descrição (em qualquer idioma, sem diferenciar maiúsculas, minúsculas e acentos); `Esc` limpa a caixa. Cada linha tem uma chave e uma breve descrição; as alterações valem na hora, sem reiniciar, e ficam salvas naquele dispositivo. O pequeno **?** ao lado do nome de uma linha abre a parte deste README que descreve esse recurso, no README do idioma da interface do dsh. Tudo vem ativado por padrão, exceto **Conexão móvel**, **Retomar após reiniciar** e **Completar ao digitar**. O Host do dsh guarda as chaves desses três recursos e também de **Pesquisa no conteúdo**, **Reverter turno** e **Previsão da próxima mensagem**, então elas valem para todas as janelas e continuam depois de reiniciar. O Host também guarda o **Modelo** escolhido para a **Previsão da próxima mensagem**, o de **Completar ao digitar** (por padrão **Igual à previsão da próxima mensagem**) e o de **Melhorar prompt** (por padrão **Igual ao modelo do chat**). **Pesquisa no conteúdo** só muda depois de reiniciar o dsh (o dsh lê essa chave ao iniciar); até lá, a linha dela diz **Reinicie o dsh para aplicar esta alteração.**
+Cada recurso pode ser ativado ou desativado separadamente em **Configurações → Composer Plus** do dsh. Cada linha tem uma pequena captura de tela: passe o mouse sobre ela para ver uma prévia maior e clique para abri-la em tamanho real (`Esc` fecha). A caixa **Pesquisar recursos** no topo filtra a página por nome ou descrição (em qualquer idioma, sem diferenciar maiúsculas, minúsculas e acentos); `Esc` limpa a caixa. Cada linha tem uma chave e uma breve descrição; as alterações valem na hora, sem reiniciar, e ficam salvas naquele dispositivo. O pequeno **?** ao lado do nome de uma linha abre a parte deste README que descreve esse recurso, no README do idioma da interface do dsh. Tudo vem ativado por padrão, exceto **Conexão móvel**, **Retomar após reiniciar** e **Completar ao digitar**. O Host do dsh guarda as chaves desses três recursos e também de **Pesquisa no conteúdo**, **Reverter turno** e **Previsão da próxima mensagem**, então elas valem para todas as janelas e continuam depois de reiniciar. O Host também guarda o **Modelo** escolhido para a **Previsão da próxima mensagem**, o de **Completar ao digitar** (por padrão **Igual à previsão da próxima mensagem**), o de **Melhorar prompt** (por padrão **Igual ao modelo do chat**) e o **Limite de tempo** de **Permitir neste chat** (1 hora por padrão). **Pesquisa no conteúdo** só muda depois de reiniciar o dsh (o dsh lê essa chave ao iniciar); até lá, a linha dela diz **Reinicie o dsh para aplicar esta alteração.**
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="Configurações → Composer Plus: pesquisa de recursos, seletor de idioma, linha de atualização e uma chave para cada recurso, com prévia da captura de tela ao passar o mouse"></p>
 
@@ -90,7 +90,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 O app inteiro muda na hora. A escolha é a própria `locale.preference` salva do dsh (a mesma de Geral → Idioma), então ela continua depois de reiniciar. **Idioma do sistema** limpa essa escolha: o app desktop segue o idioma do sistema operacional, a interface web segue o idioma do navegador, e um idioma sem suporte volta para o inglês. Instalar o plugin nunca substitui um idioma que você já escolheu.
 
-Cada pacote tem 3.143 textos: todos os textos da interface do dsh `0.2.0-rc.2` e `0.2.1-rc.2` (chats, barra lateral, configurações, aprovações, agendamentos, prévias de arquivos, gerenciador de plugins, mercado de plugins), os controles do próprio plugin e o popular plugin [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Não são traduzidos: suas mensagens, a saída do modelo, o código, os nomes dos comandos de barra (`/plan`, `/compact`), rótulos definidos pelo provedor, como o esforço de raciocínio `High`, os textos de outros plugins e os menus nativos e caixas de diálogo de atualização do app desktop (o dsh só os oferece em inglês e chinês). Textos adicionados por uma versão mais nova do dsh aparecem em inglês até que os pacotes sejam atualizados. Se outro plugin já fornece um idioma, esse plugin continua com ele.
+Cada pacote tem 3.280 textos: todos os textos da interface do dsh `0.2.0-rc.2` e `0.2.1-rc.2` (chats, barra lateral, configurações, aprovações, agendamentos, prévias de arquivos, gerenciador de plugins, mercado de plugins), os controles do próprio plugin e o popular plugin [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Não são traduzidos: suas mensagens, a saída do modelo, o código, os nomes dos comandos de barra (`/plan`, `/compact`), rótulos definidos pelo provedor, como o esforço de raciocínio `High`, os textos de outros plugins e os menus nativos e caixas de diálogo de atualização do app desktop (o dsh só os oferece em inglês e chinês). Textos adicionados por uma versão mais nova do dsh aparecem em inglês até que os pacotes sejam atualizados. Se outro plugin já fornece um idioma, esse plugin continua com ele.
 
 ## Atalhos de teclado
 
@@ -110,6 +110,9 @@ Cada pacote tem 3.143 textos: todos os textos da interface do dsh `0.2.0-rc.2` e
 | `Tab` | editor de mensagens vazio com uma previsão | colocar a previsão no editor |
 | `Tab` | complemento cinza após o cursor | adicionar o complemento à mensagem |
 | `Esc` | editor de mensagens vazio com uma previsão | esconder a previsão |
+| `Cmd/Ctrl+Z` | editor de mensagens, depois de **Melhorar prompt** | trazer de volta o texto que você digitou |
+| `Esc` | editor de mensagens, enquanto **Melhorar prompt** trabalha | cancelar a melhoria |
+| `Enter` / `Esc` | mensagem na fila em que você clicou duas vezes | salvar / cancelar a edição |
 
 Um menu `/` ou `@` aberto fica com essas teclas para ele.
 
@@ -273,6 +276,20 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
 # Improve prompt (fake model, made-up git project): the wand sends the draft with the chat and the project, the answer replaces the draft, Cmd+Z and Undo bring it back + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
+# Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
+# Changes branch tree (fake model, made-up git history): branch chips, commit files and diffs, keyboard focus + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js
+# Allow for this chat with a time limit (fake model that is also the Auto Review reviewer): the grant ends after 1 hour
+PLAYWRIGHT=/path/to/playwright node test/browser-grant-ttl.mjs /path/to/dsh/lib/bin.js
+# Next message prediction and Complete while typing (fake models): calls, Tab, Esc, model choice + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-predict.mjs /path/to/dsh/lib/bin.js
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-complete.mjs /path/to/dsh/lib/bin.js
+# Project search in a new chat: A–Z order, filter, Enter + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path/to/dsh/lib/bin.js
+# Queue drag-and-drop and Continue with a queued message (slow fake model)
+PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
+PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
@@ -283,7 +300,7 @@ npm test
 
 **Regra para novos recursos:** toda linha de recurso em Configurações → Composer Plus mostra uma captura de tela. Adicione o id do recurso a `SHOT_OF` em `client.js` e a `SHOTS` em `index.js`, e inclua `assets/features/<id>.webp` (feita no dsh de demonstração descartável, com a interface em inglês, com cerca de 60 kB ou menos). Adicione o recurso, com a mesma imagem, ao `docs/features.json` e execute `npm run build:readme`: ele escreve a tabela de recursos do `README.md` e de cada `README.<id>.md` traduzido, e a lista do `llms.txt`. `test/shots.test.mjs` falha quando um recurso não tem captura de tela, e `test/browser-settings-shots.mjs` verifica a página real de Configurações. A lista de verificação completa para cada alteração está em [AGENTS.md](AGENTS.md).
 
-Os testes executam o `client.js` real contra um React/DOM falso e o `index.js` real (parte Host) contra um repositório git temporário. Os testes do gateway do Tether (`test/tether-gateway.test.mjs`) usam um host dsh simulado e um gateway TLS real. O app para iPhone está em `tether/ios` (veja [tether/README.md](tether/README.md) e [tether/AGENTS.md](tether/AGENTS.md)). `node test/browser-history.mjs '<dsh web URL with ?token=…>'` verifica o histórico de entrada em um navegador real, contra um `dsh web` descartável com seu próprio `DSH_HOME`.
+Os testes executam o `client.js` real contra um React/DOM falso e o `index.js` real (parte Host) contra um repositório git temporário. Os testes do gateway do Tether (`test/tether-gateway.test.mjs`) usam um host dsh simulado e um gateway TLS real. O app para iPhone está em `tether/ios` (veja [tether/README.md](tether/README.md) e [tether/AGENTS.md](tether/AGENTS.md)). O [docs/ROUTES.md](docs/ROUTES.md) lista cada rota do Host, a requisição dela e se o Tether pode chamá-la. `node test/browser-history.mjs '<dsh web URL with ?token=…>'` verifica o histórico de entrada em um navegador real, contra um `dsh web` descartável com seu próprio `DSH_HOME`.
 
 Os pacotes de idioma são arquivos JSON só com dados em `locales/<id>.json`, embutidos na entrada única do cliente por `npm run build:locales` (sem serviço de tradução nem download em tempo de execução). `npm test` verifica em cada pacote a cobertura completa das chaves, os placeholders e as quebras de linha idênticos, e o comportamento de idioma do sistema/substituição. Para verificações isoladas no app real com um Playwright instalado localmente:
 

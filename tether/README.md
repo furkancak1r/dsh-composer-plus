@@ -4,12 +4,12 @@ DeepSeek Harness için resmi olmayan uzaktan kumanda; DeepSeek ile bağlantısı
 
 Tether, [dsh-composer-plus](../README.md) eklentisinin bir parçasıdır. Mac tarafı ayrı bir eklenti değildir: dsh-composer-plus kuruluyken **Ayarlar → Composer Plus → Mobile connect (iPhone)** anahtarını açın. Anahtar varsayılan olarak kapalıdır, çünkü bu Mac'te bir ağ portu açar.
 
-Mac'te çalışan DeepSeek Harness'ı (DSH) aynı yerel ağdaki iPhone'dan kontrol etmek için native SwiftUI iOS uygulaması (iOS 17+) ve küçük bir Mac gateway'i. Yeni bağımlılık yok: gateway yalnızca Node stdlib, iOS yalnızca Apple framework'leri.
+Mac'te çalışan DeepSeek Harness'ı (DSH) aynı yerel ağdaki ya da Tailscale ile bağlı iPhone'dan kontrol etmek için native SwiftUI iOS uygulaması (iOS 17+) ve küçük bir Mac gateway'i. Yeni bağımlılık yok: gateway yalnızca Node stdlib, iOS yalnızca Apple framework'leri.
 
 ## Mimari
 
 ```
-iPhone (SwiftUI)  ──HTTPS/WSS, sertifika pin'li, Bearer token──▶  gateway/server.mjs (Mac, :19390, yalnızca LAN alt ağı)
+iPhone (SwiftUI)  ──HTTPS/WSS, sertifika pin'li, Bearer token──▶  gateway/server.mjs (Mac, :19390, yalnızca LAN alt ağı ve tailnet)
                                                                    │  loopback HTTP + DSH'nin kendi auth URL'si
                                                                    ▼
                                                    DSH host (127.0.0.1)  ◀── dsh-composer-plus Host yarısı (index.js) gateway'i çalıştırır
@@ -100,7 +100,7 @@ Uygulama her yerde (sol üstteki Mac adı, Ayarlar, eşleşme ekranı) Mac'in bi
 ## Uzaktan erişim (Tailscale)
 
 1. Mac'e ve iPhone'a [Tailscale](https://tailscale.com/download) kur, ikisinde de aynı hesapla giriş yap.
-2. Mobile connect anahtarını kapatıp aç ya da DSH'yi yeniden başlat. Admin sayfasındaki "Remote access" satırı Tailscale adresini gösterir.
+2. Mobile connect anahtarını kapatıp aç ya da DSH'yi yeniden başlat. Admin sayfası "Away from home: Tailscale is on (100.x.y.z)." satırında Tailscale adresini gösterir.
 3. Önceden eşleşmiş telefonun bir kez evde (aynı Wi‑Fi'de) bağlanması yeterli, Tailscale adresini kendisi öğrenir. Yeni QR da olur.
 4. Bitti: Wi‑Fi dışındayken uygulama Tailscale üzerinden bağlanır, Ayarlar'da "Route" hangi yolun kullanıldığını gösterir.
 
@@ -126,7 +126,7 @@ Gateway asla public internete açılmaz: yalnızca yerel ağdan ve tailnet'ten (
 - **Tailscale only**: paneldeki bu seçenek açıkken gateway yerel ağdan (Wi‑Fi, kablo) gelen her bağlantıyı TCP seviyesinde reddeder, açık LAN bağlantılarını da hemen kapatır; yalnızca tailnet adreslerinden gelen bağlantıyı kabul eder. Bonjour ilanı da durur: Mac'in adı, portu ve sertifika parmak izi yerel ağa duyurulmaz, Mac Tether'in "Macs on this Wi‑Fi" listesinde görünmez (eşlenmiş telefon tailnet adresiyle bağlanır). Ayar `settings.json` dosyasında saklanır (0600) ve yeniden başlatmada korunur. Paylaşılan Wi‑Fi (kafe, ofis) için.
 - **Erişim günlüğü**: gateway her bağlantı denemesini zaman, IP adresi, cihaz adı ve sonuçla (kabul ya da ret, nedeniyle: ağ dışı, Tailscale only, TLS, hatalı ya da silinmiş anahtar, hatalı eşleşme kodu, hız sınırı, eşleşme reddi/zaman aşımı/iptal) kaydeder. Aynı deneme bir dakika içinde tekrarlanırsa tek satırın sayacı artar. En yeni 200 kayıt `access.json` dosyasında (0600) tutulur; panel en yeni 50 kaydı ve son 24 saatteki ret sayısını gösterir. Günlükte token ya da eşleşme kodu yoktur.
 - **Uygulama kilidi**: Tether **Settings → Privacy → Lock with Face ID** açıkken uygulama açılırken ve arka plandan dönerken Face ID, Touch ID ya da cihaz parolası ister. Kilit ekranı ayrı bir pencerede durur; açık bir onay sayfasını ve klavyeyi de örter. Face ID penceresinde Vazgeç'e basmak yeni bir istek açmaz: **Unlock** düğmesi yeniden ister. Cihazda parola yoksa kilit kendini kapatır (kullanıcı dışarıda kalmaz). Kilit, iOS kilit ekranındaki bildirim önizlemelerini gizlemez.
-- **Yalnızca LAN**: gateway seçili arayüzün IPv4 alt ağı dışındaki bağlantıları TCP seviyesinde düşürür; ağ değişince yeniden bağlanır ve eski bağlantıları kapatır. iOS tarafı yalnızca özel/link-local IPv4 adreslere bağlanır.
+- **Yalnızca LAN ve tailnet**: gateway, seçili arayüzün IPv4 alt ağı ve tailnet dışındaki bağlantıları TCP seviyesinde düşürür; ağ değişince yeniden bağlanır ve eski bağlantıları kapatır. iOS tarafı yalnızca özel/link-local IPv4 adreslere ve Tailscale adreslerine (100.64.0.0/10, `*.ts.net`) bağlanır.
 - **Rate limit / brute force**: IP başına 10 sn'de 300 istek; 60 sn'de 10 hatalı auth → IP bloke.
 - **RPC allowlist**: yalnızca `server.mjs` içindeki `RPC` / `STREAMS` / `EVENTS` kümeleri geçer; diğerleri 403, hatalı WS frame'i soketi kapatır. Host'un ev dizini gibi bilgiler event akışından düşürülür.
 - **Onaylar**: telefon yalnızca "bir kez izin ver" / "reddet" diyebilir; yanıt yoksa veya "Mac'te karar ver" seçilirse karar DSH masaüstüne kalır (ilk yanıt kazanır).
@@ -138,7 +138,7 @@ Kodda `shortcut:` yorumlarıyla işaretli:
 
 - Bağlam penceresi doluluğu gösterilmez (DSH model kataloğunda limit yok); yalnızca token sayıları.
 - APNs yok: bildirimler yalnızca iOS soketi canlı tuttuğu sürece (arka plana geçtikten sonra birkaç saniye) gelir.
-- Oturum listesi yalnızca ilk sayfa; transcript yalnızca snapshot penceresi (eski geçmiş sayfalanmaz).
+- Sohbet önce yalnız son mesajları gösterir. Daha eski mesajlar için sohbetin başındaki **Load earlier messages** düğmesine dokunun.
 - Yanıtlanmayan telefon istekleri 10 dk sonra DSH masaüstüne düşer (sabit süre).
 - Rate limit sayaçları bellekte; tek ev ağı için yeterli.
 - `Localizable.strings` yalnızca bağlantı durum anahtarlarını kapsar; arayüz metinleri İngilizce.
@@ -147,7 +147,7 @@ Kodda `shortcut:` yorumlarıyla işaretli:
 
 ## Desteklenmeyenler
 
-İnternet / uzaktan erişim (relay, VPN), aynı anda birden fazla Mac'e bağlı kalma, dosya gezgini / terminal, eski geçmişi sayfalama, arka plan push bildirimleri, ses girişi, iPad'e özel düzen.
+Tailscale dışında internet üzerinden erişim (relay, açık port), aynı anda birden fazla Mac'e bağlı kalma, dosya gezgini / terminal, arka plan push bildirimleri, ses girişi, iPad'e özel düzen.
 
 ## Ajanla iPhone testi (agent-device)
 
@@ -169,7 +169,7 @@ Gerçek iPhone için:
 
 - Gateway: depo kökünde `npm test` (`test/tether-gateway.test.mjs`: subnet, tailnet, eşleme + hash'li saklama, yetkisiz erişim, kod tekrarı/süre/ret, MITM, allowlist, iptal + replay, LAN-only, ağ değişimi, event yönlendirme, eşzamanlılık, brute force, token yenileme) ve `test/mobile-connect.test.mjs` (anahtar, gateway yaşam döngüsü, Ayarlar satırı, kenar çubuğu düğmesi).
 - Gerçek DSH ile eklenti içinden uçtan uca: `PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js` (varsayılan kapalı, anahtarı açma, QR'lı açılır pencere, sahte iPhone eşleme + `session/list`, allowlist 403, kapatınca portların kapanması). Mac'in Wi-Fi adresi gerekir.
-- iOS: `cd ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test CODE_SIGNING_ALLOWED=NO` → **6/6 geçti** (kendi sertifikası kabul, MITM reddi, LAN-only, QR doğrulama, Markdown blokları, içerik/soru ayrıştırma). Birden fazla Mac testleri (`testManyMacs`, `testSwitchMacClearsScreen`) de bu pakettedir. Simülatör yoksa paket Mac Catalyst hedefiyle (`-target arm64-apple-ios17.0-macabi`) derlenip çalıştırılabilir. Uygulama iOS Simulator için derleniyor (Xcode 26.6).
+- iOS: `cd ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test CODE_SIGNING_ALLOWED=NO` → **48/48 geçti** (Xcode 27.1, 27.10.2026). Dört paket: `CoreTests` (sertifika pin'i ve MITM reddi, LAN ve tailnet adresleri, QR ve eşleşme bağlantısı, Markdown, birden fazla Mac, yeni sohbet isteği, dallanan (fork) sohbet, eski geçmişi yükleme, Composer Plus kuralları, mesaj bağlantısı, okunmamış noktalar, Redo, Changes sorgusu), `UserTextTests` (mesajdaki bağlantı), `BranchTreeTests` (dal ağacı) ve `AppLockTests` (Face ID kilidi). Simülatör yoksa paket Mac Catalyst hedefiyle (`-target arm64-apple-ios17.0-macabi`) derlenip çalıştırılabilir.
 - Gerçek cihaz: iPhone 13 için imzalı derleme (`-destination 'platform=iOS,name=iPhone' -allowProvisioningUpdates`), `xcrun devicectl device install app` ile kurulum ve açılış **başarılı**.
 - Canlı DSH uçtan uca (`test/tether-e2e.mjs`, elle çalıştırılır; birleşmeden önceki sonuç) → **14/14 geçti**, gerçek DSH 0.2.0-rc.2 ve gerçek LAN adresi (192.168.1.44) üzerinde: yanlış pin reddi, eşleme + onay, kod tekrarı reddi, upstream bağlantısı, session/list·create·rename, goals/get, agentPresets/list, session/modelCatalog, allowlist dışı yöntem 403, WSS session/follow snapshot, iptal sonrası 401. Ayrıca `dns-sd -L` ile Bonjour yayını (fp TXT kaydıyla) ve `lsof` ile yalnızca `192.168.1.44:19390` + `127.0.0.1:19391` dinlendiği doğrulandı.
 

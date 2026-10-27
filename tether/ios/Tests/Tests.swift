@@ -271,7 +271,7 @@ final class CoreTests: XCTestCase {
     }
 
     @MainActor func testSubagentPrompt() {
-        let kid = Sess(["sessionId": "k", "parentSessionId": "p", "projections": ["values": ["title": "k"]]])!
+        let kid = Sess(["sessionId": "k", "parentSessionId": "p", "origin": "subagent", "projections": ["values": ["title": "k"]]])!
         let r = Client.subagentRequest(kid, "  go on ")
         XCTAssertEqual(r?["parentSessionId"] as? String, "p")
         XCTAssertEqual(r?["childSessionId"] as? String, "k")
@@ -315,6 +315,26 @@ final class CoreTests: XCTestCase {
         let r = Client.pageRequest("s", through: 9, before: 3)["request"] as? J
         XCTAssertEqual(r?["beforeSeq"] as? Int, 3)
         XCTAssertEqual(r?["throughSeq"] as? Int, 9)
+    }
+
+    @MainActor func testForkIsARootChat() {
+        // dsh's session/fork (Branch, Redo, Tether's Fork) lists parentSessionId without origin: a chat of its own.
+        let fork = Sess(["sessionId": "f", "parentSessionId": "p", "cwd": "/p/acme", "projections": ["values": ["title": "Redo"]]])!
+        XCTAssertNil(fork.parent)
+        let kid = Sess(["sessionId": "k", "parentSessionId": "p", "origin": "subagent"])!
+        XCTAssertEqual(kid.parent, "p")
+        XCTAssertEqual(Sess(["sessionId": "k2", "projections": ["values": ["subagent": ["parentSessionId": "p"]]]])!.parent, "p")
+        let back = (Client.snapshot([fork, kid]) as [J]).compactMap(Sess.init)
+        XCTAssertEqual(back.map(\.parent), [nil, "p"], "the saved list keeps which chat is a subagent")
+        XCTAssertEqual(shownUnread(host: ["f", "k"], sessions: [fork, kid], open: nil), ["f"], "a fork gets its green dot")
+    }
+
+    @MainActor func testCreateRequestSendsWorkspaceOrFolder() {
+        // DSH: "session.create accepts workspaceId or cwd, not both" (New session → Projects sent both).
+        XCTAssertEqual(Client.createRequest(cwd: "/p/acme", workspaceId: "w1") as NSDictionary, ["workspaceId": "w1"])
+        XCTAssertEqual(Client.createRequest(cwd: "/p/acme", workspaceId: nil) as NSDictionary, ["cwd": "/p/acme"])
+        XCTAssertEqual(Client.createRequest(cwd: "", workspaceId: nil) as NSDictionary, [:])
+        XCTAssertEqual(Client.createRequest(cwd: nil, workspaceId: nil) as NSDictionary, [:])
     }
 
     @MainActor func testReasoningSessionModelAndGroups() {
@@ -593,6 +613,24 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.transcript.map(\.text), ["one", "A1", "two", "A2"]); XCTAssertEqual(c.transcript[2].seq, 3, "a user row keeps its seq")
         c.apply(marker)
         XCTAssertEqual(c.transcript.map(\.text), ["one", "A1"], "the withdrawn rows leave at once")
+        // A rolled-back chat opened later: the span hides both turn ends but not the first turn's start (seen live).
+        let turns: [J] = [
+            ["type": "turn/start", "seq": 4, "time": 1_700_000_000_000, "data": J()],
+            ["type": "user/message", "seq": 8, "data": ["content": "one", "source": ["kind": "user"]]],
+            ["type": "turn/end", "seq": 10, "data": ["reason": ["kind": "completed"]]],
+            ["type": "turn/start", "seq": 11, "data": J()],
+            ["type": "user/message", "seq": 12, "data": ["content": "two", "source": ["kind": "user"]]],
+            ["type": "turn/end", "seq": 13, "data": ["reason": ["kind": "completed"]]],
+            ["type": "user/message", "seq": 14, "sourceEventSeqs": [12, 8], "data": ["content": [], "source": ["kind": rollbackSource]]],
+        ]
+        let rolled = Client()
+        rolled.replaySnapshot(turns)
+        XCTAssertFalse(rolled.running, "a rolled-back chat that ended is not working")
+        XCTAssertNil(rolled.turnStartedAt)
+        XCTAssertNil(rolled.continueSeq)
+        rolled.replaySnapshot(Array(turns.prefix(2)))
+        XCTAssertTrue(rolled.running, "an open turn still runs")
+        XCTAssertEqual(rolled.turnStartedAt, Date(timeIntervalSince1970: 1_700_000_000))
         // Continue: the newest turn decides; a completed turn needs nothing.
         let t = { (seq: Int, type: String, reason: String?) -> J in ["type": type, "seq": seq, "data": reason.map { ["reason": ["kind": $0]] } ?? J()] }
         XCTAssertNil(continueAfter([t(1, "turn/start", nil), t(2, "turn/end", "completed")]))
@@ -615,7 +653,7 @@ final class CoreTests: XCTestCase {
         XCTAssertNil(queueMove(["a", nil, "c"], from: 0, to: 2)); XCTAssertNil(queueMove(["a"], from: 0, to: 0))
         XCTAssertEqual(queueText(["content": [["type": "text", "text": "hi"]]]), "hi"); XCTAssertNil(queueText(["content": [["type": "image"]]]))
         // Project status: waiting wins, then an unseen finish, then running (with the count); subagents count for their parent.
-        let s = { (id: String, run: Bool, parent: String?) in Sess(["sessionId": id, "running": run, "parentSessionId": parent as Any])! }
+        let s = { (id: String, run: Bool, parent: String?) in Sess(["sessionId": id, "running": run, "parentSessionId": parent as Any, "origin": "subagent"])! }
         let all = [s("a", false, nil), s("b", true, nil), s("k", true, "a"), s("d", false, nil)]
         XCTAssertEqual(projectMark(Array(all[0...1]), all: all, waiting: [], finished: []), .running(2))
         XCTAssertEqual(projectMark(Array(all[0...1]), all: all, waiting: [], finished: ["a"]), .done)
@@ -755,7 +793,7 @@ final class CoreTests: XCTestCase {
         let back = (saved.array(forKey: "seen") as? [J] ?? []).compactMap(Sess.init)
         XCTAssertEqual(Client.justFinished(old: back, new: [s("h", false), t("i", 2, "x")], current: nil), ["h", "i"])
         // As in DSH desktop: a chat runs while its subagent runs, and it finishes when the subagent stops.
-        let k = { (id: String, parent: String, run: Bool) in Sess(["sessionId": id, "parentSessionId": parent, "running": run])! }
+        let k = { (id: String, parent: String, run: Bool) in Sess(["sessionId": id, "parentSessionId": parent, "origin": "subagent", "running": run])! }
         let busy = [s("p", false), k("p1", "p", true)]
         XCTAssertTrue(isRunning(busy[0], busy)); XCTAssertFalse(isRunning(s("q", false), busy))
         XCTAssertEqual(Client.justFinished(old: busy, new: busy, current: nil), [], "still running: no Finished mark")

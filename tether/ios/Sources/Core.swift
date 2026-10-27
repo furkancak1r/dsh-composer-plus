@@ -876,8 +876,10 @@ struct Sess: Identifiable {
         guard let id = j["sessionId"] as? String else { return nil }
         let p = (j["projections"] as? J)?["values"] as? J
         self.id = id; title = (p?["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? String(localized: "Untitled")
-        // shortcut: parent read from list item or subagent projection, both unverified live (no subagent sessions seen); check once a subagent runs.
-        cwd = j["cwd"] as? String ?? ""; parent = (j["parentSessionId"] ?? (p?["subagent"] as? J)?["parentSessionId"]) as? String
+        // Only a subagent chat has a parent here. dsh's fork (Branch, Composer Plus Redo, Tether's Fork) also writes
+        // parentSessionId but no origin: that chat is a root chat of its own (as in dsh's sidebar and index.js isRootChat).
+        cwd = j["cwd"] as? String ?? ""
+        parent = ((j["origin"] as? String) == "subagent" ? j["parentSessionId"] as? String : nil) ?? (p?["subagent"] as? J)?["parentSessionId"] as? String
         running = j["running"] as? Bool ?? false; preset = p?["agentPreset"] as? String
         updated = (j["updatedAt"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }
         permission = (p?["permissions"] as? J)?["currentValue"] as? String
@@ -1877,6 +1879,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private func rebuild() {
         transcript = []; streaming = ""; reasoning = ""; inbox = [:]; liveTodos = nil; turnStartedAt = nil
         replaying = true; withoutRolledBack(events).forEach(draw); replaying = false
+        // A rollback can hide a turn's end but not its start: the newest turn event of the whole log decides, as in continueAfter.
+        if let last = events.last(where: { ["turn/start", "turn/end"].contains($0["type"] as? String) }) {
+            running = last["type"] as? String == "turn/start"
+            turnStartedAt = running ? (last["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) } : nil
+        }
         continueSeq = continueAfter(events)
         loadPrediction() // opening a chat whose last turn finished shows its guess too
     }
@@ -2014,7 +2021,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         s.map { s in
             var j: J = ["sessionId": s.id, "running": s.running, "projections": ["values": ["title": s.title]]]
             if let u = s.updated { j["updatedAt"] = u.timeIntervalSince1970 * 1000 }
-            if let p = s.parent { j["parentSessionId"] = p } // a chat counts as running while its subagent runs
+            if let p = s.parent { j["parentSessionId"] = p; j["origin"] = "subagent" } // a chat counts as running while its subagent runs
             return j
         }
     }
@@ -2030,9 +2037,15 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         }.map(\.id))
     }
 
+    /// DSH refuses a session/create with both: a workspace gives its own folder (and adds the chat to that project).
+    static func createRequest(cwd: String?, workspaceId: String?) -> J {
+        if let workspaceId { return ["workspaceId": workspaceId] }
+        if let cwd, !cwd.isEmpty { return ["cwd": cwd] }
+        return J()
+    }
+
     func create(cwd: String?, workspaceId: String? = nil) async throws {
-        var r = J(); if let cwd, !cwd.isEmpty { r["cwd"] = cwd }; if let workspaceId { r["workspaceId"] = workspaceId }
-        let v = try await rpc("session/create", ["request": r]) as? J
+        let v = try await rpc("session/create", ["request": Self.createRequest(cwd: cwd, workspaceId: workspaceId)]) as? J
         try await loadSessions()
         if let id = v?["sessionId"] as? String { open(id) }
     }

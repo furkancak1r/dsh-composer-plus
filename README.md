@@ -74,7 +74,7 @@ Buttons, tooltips, notices and notifications follow the selected dsh language (s
 
 ## Settings
 
-Every feature can be switched on or off on its own: dsh **Settings → Composer Plus**. Each row has a small screenshot: hover it for a larger preview, click it to open it full size (`Esc` closes). The **Search features** box at the top filters the page by name or description (any language, case- and accent-insensitive); `Esc` clears it. Each row has a switch and a short description; changes apply immediately, without a restart, and are remembered on that device. The small **?** after a row's name opens the part of this README that describes that feature, in the README of dsh's interface language. Everything is on by default, except **Mobile connect**, **Resume after restart** and **Complete while typing**. dsh's Host keeps the switches of these three and of **Content search**, **Turn rollback** and **Next message prediction**, so they apply to every window and survive a restart. The Host also keeps the **Model** choice of **Next message prediction**, the one of **Complete while typing** (by default **Same as Next message prediction**) and the one of **Improve prompt** (by default **Same as the chat's model**). **Content search** changes only after a dsh restart (dsh reads it at start); until then its row says **Restart dsh to apply this change.**
+Every feature can be switched on or off on its own: dsh **Settings → Composer Plus**. Each row has a small screenshot: hover it for a larger preview, click it to open it full size (`Esc` closes). The **Search features** box at the top filters the page by name or description (any language, case- and accent-insensitive); `Esc` clears it. Each row has a switch and a short description; changes apply immediately, without a restart, and are remembered on that device. The small **?** after a row's name opens the part of this README that describes that feature, in the README of dsh's interface language. Everything is on by default, except **Mobile connect**, **Resume after restart** and **Complete while typing**. dsh's Host keeps the switches of these three and of **Content search**, **Turn rollback** and **Next message prediction**, so they apply to every window and survive a restart. The Host also keeps the **Model** choice of **Next message prediction**, the one of **Complete while typing** (by default **Same as Next message prediction**) and the one of **Improve prompt** (by default **Same as the chat's model**), and the **Time limit** of **Allow for this chat** (1 hour by default). **Content search** changes only after a dsh restart (dsh reads it at start); until then its row says **Restart dsh to apply this change.**
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="Settings → Composer Plus: feature search, language picker, update row and a switch per feature, with a screenshot preview on hover"></p>
 
@@ -88,7 +88,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 The whole app switches immediately. The choice is dsh’s own saved `locale.preference` (the same one as General → Language), so it survives restarts. **System language** clears that choice: the desktop app follows the OS language, the web UI the browser language, and an unsupported language falls back to English. Installing the plugin never overrides a language you already picked.
 
-Each pack has 3,143 texts: every UI text of dsh `0.2.0-rc.2` and `0.2.1-rc.2` (chats, sidebar, settings, approvals, schedules, file previews, plugin manager, plugin market), the plugin’s own controls, and the popular [dsh-rewind](https://github.com/SiriLee/dsh-rewind) plugin. Not translated: your messages, model output, code, slash-command names (`/plan`, `/compact`), provider-owned labels such as the `High` reasoning effort, other plugins’ texts, and the desktop app’s native menus/update dialogs (dsh ships those in English/Chinese only). Strings added by a newer dsh show in English until the packs are updated. If another plugin already provides a language, that plugin keeps it.
+Each pack has 3,280 texts: every UI text of dsh `0.2.0-rc.2` and `0.2.1-rc.2` (chats, sidebar, settings, approvals, schedules, file previews, plugin manager, plugin market), the plugin’s own controls, and the popular [dsh-rewind](https://github.com/SiriLee/dsh-rewind) plugin. Not translated: your messages, model output, code, slash-command names (`/plan`, `/compact`), provider-owned labels such as the `High` reasoning effort, other plugins’ texts, and the desktop app’s native menus/update dialogs (dsh ships those in English/Chinese only). Strings added by a newer dsh show in English until the packs are updated. If another plugin already provides a language, that plugin keeps it.
 
 ## Keyboard shortcuts
 
@@ -108,6 +108,9 @@ Each pack has 3,143 texts: every UI text of dsh `0.2.0-rc.2` and `0.2.1-rc.2` (c
 | `Tab` | empty composer with a prediction | put the prediction in the composer |
 | `Tab` | grey completion after the cursor | add the completion to the message |
 | `Esc` | empty composer with a prediction | hide the prediction |
+| `Cmd/Ctrl+Z` | composer, after **Improve prompt** | bring back the text that you typed |
+| `Esc` | composer, while **Improve prompt** runs | cancel the improvement |
+| `Enter` / `Esc` | queued message that you double-clicked | save / cancel the edit |
 
 An open `/` or `@` menu keeps these keys for itself.
 
@@ -271,6 +274,20 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
 # Improve prompt (fake model, made-up git project): the wand sends the draft with the chat and the project, the answer replaces the draft, Cmd+Z and Undo bring it back + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
+# Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
+# Changes branch tree (fake model, made-up git history): branch chips, commit files and diffs, keyboard focus + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js
+# Allow for this chat with a time limit (fake model that is also the Auto Review reviewer): the grant ends after 1 hour
+PLAYWRIGHT=/path/to/playwright node test/browser-grant-ttl.mjs /path/to/dsh/lib/bin.js
+# Next message prediction and Complete while typing (fake models): calls, Tab, Esc, model choice + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-predict.mjs /path/to/dsh/lib/bin.js
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-complete.mjs /path/to/dsh/lib/bin.js
+# Project search in a new chat: A–Z order, filter, Enter + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path/to/dsh/lib/bin.js
+# Queue drag-and-drop and Continue with a queued message (slow fake model)
+PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
+PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
@@ -281,7 +298,7 @@ npm test
 
 **Rule for new features:** every feature row in Settings → Composer Plus shows a screenshot. Add the feature id to `SHOT_OF` in `client.js` and to `SHOTS` in `index.js`, and ship `assets/features/<id>.webp` (taken from the throwaway demo dsh, English UI, about 60 kB or less). Add the feature, with the same image, to `docs/features.json` and run `npm run build:readme`: it writes the feature table of `README.md` and of each translated `README.<id>.md`, and the list in `llms.txt`. `test/shots.test.mjs` fails when a feature has no screenshot, and `test/browser-settings-shots.mjs` checks the real Settings page. The full checklist for every change is in [AGENTS.md](AGENTS.md).
 
-The tests run the real `client.js` against a fake React/DOM and the real `index.js` (Host half) against a temporary git repository. The Tether gateway tests (`test/tether-gateway.test.mjs`) use a mock dsh host and a real TLS gateway. The iPhone app is in `tether/ios` (see [tether/README.md](tether/README.md) and [tether/AGENTS.md](tether/AGENTS.md)). `node test/browser-history.mjs '<dsh web URL with ?token=…>'` checks input history in a real browser against a throwaway `dsh web` with its own `DSH_HOME`.
+The tests run the real `client.js` against a fake React/DOM and the real `index.js` (Host half) against a temporary git repository. The Tether gateway tests (`test/tether-gateway.test.mjs`) use a mock dsh host and a real TLS gateway. The iPhone app is in `tether/ios` (see [tether/README.md](tether/README.md) and [tether/AGENTS.md](tether/AGENTS.md)). Each Host route, its request and whether Tether can call it is listed in [docs/ROUTES.md](docs/ROUTES.md). `node test/browser-history.mjs '<dsh web URL with ?token=…>'` checks input history in a real browser against a throwaway `dsh web` with its own `DSH_HOME`.
 
 Language packs are data-only JSON in `locales/<id>.json`, embedded into the single client entry by `npm run build:locales` (no translation service or runtime download). `npm test` checks every pack for full key coverage, identical placeholders and line breaks, and the system/override behaviour. For isolated real-app checks with a locally installed Playwright:
 

@@ -76,7 +76,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 ## 설정
 
-모든 기능은 dsh **설정 → Composer Plus**에서 하나씩 켜거나 끌 수 있습니다. 각 행에는 작은 스크린샷이 있습니다. 포인터를 올리면 크게 미리 보고, 클릭하면 원래 크기로 엽니다(`Esc`로 닫기). 맨 위의 **기능 검색** 상자는 이름이나 설명으로 페이지를 걸러 냅니다(모든 언어, 대소문자와 악센트 구분 없음). `Esc`를 누르면 검색어가 지워집니다. 각 행에는 스위치와 짧은 설명이 있습니다. 행 이름 뒤의 작은 **?**는 그 기능을 설명하는 README 부분을 dsh 인터페이스 언어의 README에서 엽니다. 변경 사항은 재시작 없이 바로 적용되고 그 기기에 저장됩니다. **모바일 연결**, **재시작 후 이어서 실행**, **입력 중 자동 완성**을 빼고 모든 기능이 기본적으로 켜져 있습니다. 이 세 기능과 **내용 검색**, **턴 되돌리기**, **다음 메시지 예측**의 스위치는 dsh의 Host가 보관합니다. 그래서 모든 창에 적용되고 재시작 후에도 유지됩니다. **다음 메시지 예측**에서 고른 **모델**, **입력 중 자동 완성**에서 고른 모델(기본값 **다음 메시지 예측과 같음**), **프롬프트 개선**에서 고른 모델(기본값 **채팅의 모델과 같음**)도 Host가 보관합니다. **내용 검색**은 dsh를 다시 시작한 뒤에만 바뀝니다(dsh가 시작할 때 이 값을 읽기 때문입니다). 그 전까지 해당 행에 **이 변경 사항을 적용하려면 dsh를 다시 시작하세요.**가 표시됩니다.
+모든 기능은 dsh **설정 → Composer Plus**에서 하나씩 켜거나 끌 수 있습니다. 각 행에는 작은 스크린샷이 있습니다. 포인터를 올리면 크게 미리 보고, 클릭하면 원래 크기로 엽니다(`Esc`로 닫기). 맨 위의 **기능 검색** 상자는 이름이나 설명으로 페이지를 걸러 냅니다(모든 언어, 대소문자와 악센트 구분 없음). `Esc`를 누르면 검색어가 지워집니다. 각 행에는 스위치와 짧은 설명이 있습니다. 행 이름 뒤의 작은 **?**는 그 기능을 설명하는 README 부분을 dsh 인터페이스 언어의 README에서 엽니다. 변경 사항은 재시작 없이 바로 적용되고 그 기기에 저장됩니다. **모바일 연결**, **재시작 후 이어서 실행**, **입력 중 자동 완성**을 빼고 모든 기능이 기본적으로 켜져 있습니다. 이 세 기능과 **내용 검색**, **턴 되돌리기**, **다음 메시지 예측**의 스위치는 dsh의 Host가 보관합니다. 그래서 모든 창에 적용되고 재시작 후에도 유지됩니다. **다음 메시지 예측**에서 고른 **모델**, **입력 중 자동 완성**에서 고른 모델(기본값 **다음 메시지 예측과 같음**), **프롬프트 개선**에서 고른 모델(기본값 **채팅의 모델과 같음**), **이 채팅에서 허용**의 **시간 제한**(기본값 1시간)도 Host가 보관합니다. **내용 검색**은 dsh를 다시 시작한 뒤에만 바뀝니다(dsh가 시작할 때 이 값을 읽기 때문입니다). 그 전까지 해당 행에 **이 변경 사항을 적용하려면 dsh를 다시 시작하세요.**가 표시됩니다.
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="설정 → Composer Plus: 기능 검색, 언어 선택, 업데이트 행, 기능별 스위치, 포인터를 올리면 나타나는 스크린샷 미리 보기"></p>
 
@@ -90,7 +90,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 앱 전체가 바로 바뀝니다. 이 선택은 dsh 자체에 저장되는 `locale.preference`(일반 → 언어와 같은 설정)이므로 재시작 후에도 유지됩니다. **시스템 언어**는 이 선택을 지웁니다. 그러면 데스크톱 앱은 OS 언어를, 웹 UI는 브라우저 언어를 따릅니다. 지원하지 않는 언어이면 영어로 표시됩니다. 플러그인을 설치해도 이미 고른 언어는 절대 바뀌지 않습니다.
 
-각 언어 팩에는 텍스트 3,143개가 있습니다. dsh `0.2.0-rc.2`와 `0.2.1-rc.2`의 모든 UI 텍스트(채팅, 사이드바, 설정, 승인, 예약, 파일 미리 보기, 플러그인 관리자, 플러그인 마켓), 플러그인 자체의 컨트롤, 인기 있는 [dsh-rewind](https://github.com/SiriLee/dsh-rewind) 플러그인의 텍스트가 포함됩니다. 번역하지 않는 것: 내 메시지, 모델 출력, 코드, 슬래시 명령 이름(`/plan`, `/compact`), `High` 추론 강도처럼 제공자가 정한 레이블, 다른 플러그인의 텍스트, 데스크톱 앱의 네이티브 메뉴와 업데이트 대화 상자(dsh가 영어/중국어로만 제공). 더 새로운 dsh가 추가한 문자열은 팩이 업데이트될 때까지 영어로 표시됩니다. 다른 플러그인이 이미 어떤 언어를 제공하면, 그 언어는 해당 플러그인의 것이 유지됩니다.
+각 언어 팩에는 텍스트 3,280개가 있습니다. dsh `0.2.0-rc.2`와 `0.2.1-rc.2`의 모든 UI 텍스트(채팅, 사이드바, 설정, 승인, 예약, 파일 미리 보기, 플러그인 관리자, 플러그인 마켓), 플러그인 자체의 컨트롤, 인기 있는 [dsh-rewind](https://github.com/SiriLee/dsh-rewind) 플러그인의 텍스트가 포함됩니다. 번역하지 않는 것: 내 메시지, 모델 출력, 코드, 슬래시 명령 이름(`/plan`, `/compact`), `High` 추론 강도처럼 제공자가 정한 레이블, 다른 플러그인의 텍스트, 데스크톱 앱의 네이티브 메뉴와 업데이트 대화 상자(dsh가 영어/중국어로만 제공). 더 새로운 dsh가 추가한 문자열은 팩이 업데이트될 때까지 영어로 표시됩니다. 다른 플러그인이 이미 어떤 언어를 제공하면, 그 언어는 해당 플러그인의 것이 유지됩니다.
 
 ## 키보드 단축키
 
@@ -110,6 +110,9 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 | `Tab` | 예측이 표시된 빈 입력란 | 예측을 입력란에 넣기 |
 | `Tab` | 커서 뒤의 회색 완성 텍스트 | 완성 텍스트를 메시지에 추가하기 |
 | `Esc` | 예측이 표시된 빈 입력란 | 예측 숨기기 |
+| `Cmd/Ctrl+Z` | **프롬프트 개선**을 사용한 뒤의 입력란 | 입력한 텍스트 되돌리기 |
+| `Esc` | **프롬프트 개선**이 실행 중인 입력란 | 개선 취소 |
+| `Enter` / `Esc` | 더블클릭한 대기 중인 메시지 | 편집 저장 / 취소 |
 
 `/` 또는 `@` 메뉴가 열려 있으면 이 키는 메뉴가 사용합니다.
 
@@ -273,6 +276,20 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
 # Improve prompt (fake model, made-up git project): the wand sends the draft with the chat and the project, the answer replaces the draft, Cmd+Z and Undo bring it back + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
+# Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
+# Changes branch tree (fake model, made-up git history): branch chips, commit files and diffs, keyboard focus + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js
+# Allow for this chat with a time limit (fake model that is also the Auto Review reviewer): the grant ends after 1 hour
+PLAYWRIGHT=/path/to/playwright node test/browser-grant-ttl.mjs /path/to/dsh/lib/bin.js
+# Next message prediction and Complete while typing (fake models): calls, Tab, Esc, model choice + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-predict.mjs /path/to/dsh/lib/bin.js
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-complete.mjs /path/to/dsh/lib/bin.js
+# Project search in a new chat: A–Z order, filter, Enter + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path/to/dsh/lib/bin.js
+# Queue drag-and-drop and Continue with a queued message (slow fake model)
+PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
+PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
@@ -283,7 +300,7 @@ npm test
 
 **새 기능 규칙:** 설정 → Composer Plus의 모든 기능 행에는 스크린샷이 표시됩니다. 기능 ID를 `client.js`의 `SHOT_OF`와 `index.js`의 `SHOTS`에 추가하세요. 그리고 `assets/features/<id>.webp`를 함께 배포하세요(일회용 데모 dsh에서 영어 UI로 찍은 약 60 kB 이하 이미지). 같은 이미지로 기능을 `docs/features.json`에 추가하고 `npm run build:readme`를 실행하세요. 이 명령이 `README.md`와 번역된 각 `README.<id>.md`의 기능 표, 그리고 `llms.txt`의 목록을 씁니다. 기능에 스크린샷이 없으면 `test/shots.test.mjs`가 실패합니다. `test/browser-settings-shots.mjs`는 실제 설정 페이지를 확인합니다. 모든 변경에 대한 전체 체크리스트는 [AGENTS.md](AGENTS.md)에 있습니다.
 
-테스트는 실제 `client.js`를 가짜 React/DOM에서, 실제 `index.js`(Host 쪽)를 임시 git 저장소에서 실행합니다. Tether 게이트웨이 테스트(`test/tether-gateway.test.mjs`)는 모의 dsh 호스트와 실제 TLS 게이트웨이를 사용합니다. iPhone 앱은 `tether/ios`에 있습니다([tether/README.md](tether/README.md)와 [tether/AGENTS.md](tether/AGENTS.md) 참고). `node test/browser-history.mjs '<dsh web URL with ?token=…>'`는 실제 브라우저에서 입력 기록을 확인합니다. 이 확인은 자체 `DSH_HOME`을 쓰는 일회용 `dsh web`을 대상으로 실행됩니다.
+테스트는 실제 `client.js`를 가짜 React/DOM에서, 실제 `index.js`(Host 쪽)를 임시 git 저장소에서 실행합니다. Tether 게이트웨이 테스트(`test/tether-gateway.test.mjs`)는 모의 dsh 호스트와 실제 TLS 게이트웨이를 사용합니다. iPhone 앱은 `tether/ios`에 있습니다([tether/README.md](tether/README.md)와 [tether/AGENTS.md](tether/AGENTS.md) 참고). 각 Host 경로와 그 요청, Tether가 그 경로를 호출할 수 있는지는 [docs/ROUTES.md](docs/ROUTES.md)에 정리되어 있습니다. `node test/browser-history.mjs '<dsh web URL with ?token=…>'`는 실제 브라우저에서 입력 기록을 확인합니다. 이 확인은 자체 `DSH_HOME`을 쓰는 일회용 `dsh web`을 대상으로 실행됩니다.
 
 언어 팩은 `locales/<id>.json`에 있는 데이터 전용 JSON입니다. `npm run build:locales`가 이 파일들을 단일 클라이언트 엔트리에 포함합니다(번역 서비스나 런타임 다운로드 없음). `npm test`는 모든 팩에서 전체 키 포함 여부, 자리 표시자와 줄바꿈 일치, 시스템 언어/직접 선택 동작을 확인합니다. 로컬에 설치한 Playwright로 격리된 실제 앱을 확인하려면:
 

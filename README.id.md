@@ -76,7 +76,7 @@ Tombol, tooltip, pemberitahuan, dan notifikasi mengikuti bahasa dsh yang dipilih
 
 ## Pengaturan
 
-Setiap fitur dapat diaktifkan atau dinonaktifkan secara terpisah: dsh **Pengaturan → Composer Plus**. Setiap baris memiliki tangkapan layar kecil: arahkan penunjuk ke gambar itu untuk pratinjau yang lebih besar, atau klik untuk membukanya dalam ukuran penuh (`Esc` menutupnya). Kotak **Cari fitur** di bagian atas memfilter halaman menurut nama atau deskripsi (bahasa apa pun, tanpa membedakan huruf besar-kecil dan aksen); `Esc` mengosongkannya. Setiap baris memiliki sakelar dan deskripsi singkat. **?** kecil setelah nama baris membuka bagian README ini yang menjelaskan fitur itu, di README bahasa antarmuka dsh. Perubahan langsung berlaku tanpa mulai ulang dan diingat di perangkat itu. Semua fitur aktif secara default, kecuali **Koneksi seluler**, **Lanjutkan setelah mulai ulang**, dan **Lengkapi saat mengetik**. Host dsh menyimpan sakelar ketiga fitur ini serta sakelar **Pencarian isi**, **Putar balik giliran**, dan **Prediksi pesan berikutnya**, jadi sakelar itu berlaku untuk setiap jendela dan tetap ada setelah mulai ulang. Host juga menyimpan pilihan **Model** untuk **Prediksi pesan berikutnya**, untuk **Lengkapi saat mengetik** (bawaannya **Sama dengan prediksi pesan berikutnya**), dan untuk **Sempurnakan prompt** (bawaannya **Sama dengan model obrolan**). **Pencarian isi** baru berubah setelah dsh dimulai ulang (dsh membacanya saat dimulai). Sampai saat itu, barisnya menampilkan **Mulai ulang dsh agar perubahan ini berlaku.**
+Setiap fitur dapat diaktifkan atau dinonaktifkan secara terpisah: dsh **Pengaturan → Composer Plus**. Setiap baris memiliki tangkapan layar kecil: arahkan penunjuk ke gambar itu untuk pratinjau yang lebih besar, atau klik untuk membukanya dalam ukuran penuh (`Esc` menutupnya). Kotak **Cari fitur** di bagian atas memfilter halaman menurut nama atau deskripsi (bahasa apa pun, tanpa membedakan huruf besar-kecil dan aksen); `Esc` mengosongkannya. Setiap baris memiliki sakelar dan deskripsi singkat. **?** kecil setelah nama baris membuka bagian README ini yang menjelaskan fitur itu, di README bahasa antarmuka dsh. Perubahan langsung berlaku tanpa mulai ulang dan diingat di perangkat itu. Semua fitur aktif secara default, kecuali **Koneksi seluler**, **Lanjutkan setelah mulai ulang**, dan **Lengkapi saat mengetik**. Host dsh menyimpan sakelar ketiga fitur ini serta sakelar **Pencarian isi**, **Putar balik giliran**, dan **Prediksi pesan berikutnya**, jadi sakelar itu berlaku untuk setiap jendela dan tetap ada setelah mulai ulang. Host juga menyimpan pilihan **Model** untuk **Prediksi pesan berikutnya**, untuk **Lengkapi saat mengetik** (bawaannya **Sama dengan prediksi pesan berikutnya**), untuk **Sempurnakan prompt** (bawaannya **Sama dengan model obrolan**), serta **Batas waktu** untuk **Izinkan untuk obrolan ini** (bawaannya 1 jam). **Pencarian isi** baru berubah setelah dsh dimulai ulang (dsh membacanya saat dimulai). Sampai saat itu, barisnya menampilkan **Mulai ulang dsh agar perubahan ini berlaku.**
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="Pengaturan → Composer Plus: pencarian fitur, pemilih bahasa, baris pembaruan, dan satu sakelar per fitur, dengan pratinjau tangkapan layar saat penunjuk diarahkan"></p>
 
@@ -90,7 +90,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 Seluruh aplikasi langsung berganti bahasa. Pilihan ini adalah `locale.preference` tersimpan milik dsh sendiri (sama dengan Umum → Bahasa), jadi pilihan tetap ada setelah mulai ulang. **Bahasa sistem** menghapus pilihan itu: aplikasi desktop mengikuti bahasa OS, UI web mengikuti bahasa browser, dan bahasa yang tidak didukung kembali ke bahasa Inggris. Memasang plugin tidak pernah menimpa bahasa yang sudah Anda pilih.
 
-Setiap paket berisi 3.143 teks: setiap teks UI dsh `0.2.0-rc.2` dan `0.2.1-rc.2` (obrolan, bilah samping, pengaturan, persetujuan, jadwal, pratinjau file, pengelola plugin, pasar plugin), kontrol milik plugin ini, dan plugin populer [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Yang tidak diterjemahkan: pesan Anda, output model, kode, nama perintah garis miring (`/plan`, `/compact`), label milik penyedia seperti tingkat penalaran `High`, teks plugin lain, serta menu bawaan dan dialog pembaruan aplikasi desktop (dsh hanya menyediakannya dalam bahasa Inggris/Mandarin). Teks yang ditambahkan oleh dsh versi lebih baru tampil dalam bahasa Inggris sampai paket diperbarui. Jika plugin lain sudah menyediakan suatu bahasa, plugin itu tetap memegang bahasa tersebut.
+Setiap paket berisi 3.280 teks: setiap teks UI dsh `0.2.0-rc.2` dan `0.2.1-rc.2` (obrolan, bilah samping, pengaturan, persetujuan, jadwal, pratinjau file, pengelola plugin, pasar plugin), kontrol milik plugin ini, dan plugin populer [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Yang tidak diterjemahkan: pesan Anda, output model, kode, nama perintah garis miring (`/plan`, `/compact`), label milik penyedia seperti tingkat penalaran `High`, teks plugin lain, serta menu bawaan dan dialog pembaruan aplikasi desktop (dsh hanya menyediakannya dalam bahasa Inggris/Mandarin). Teks yang ditambahkan oleh dsh versi lebih baru tampil dalam bahasa Inggris sampai paket diperbarui. Jika plugin lain sudah menyediakan suatu bahasa, plugin itu tetap memegang bahasa tersebut.
 
 ## Pintasan keyboard
 
@@ -110,6 +110,9 @@ Setiap paket berisi 3.143 teks: setiap teks UI dsh `0.2.0-rc.2` dan `0.2.1-rc.2`
 | `Tab` | kotak pesan kosong dengan prediksi | masukkan prediksi ke kotak pesan |
 | `Tab` | pelengkapan abu-abu setelah kursor | tambahkan pelengkapan ke pesan |
 | `Esc` | kotak pesan kosong dengan prediksi | sembunyikan prediksi |
+| `Cmd/Ctrl+Z` | kotak pesan, setelah **Sempurnakan prompt** | kembalikan teks yang Anda ketik |
+| `Esc` | kotak pesan, saat **Sempurnakan prompt** berjalan | batalkan penyempurnaan |
+| `Enter` / `Esc` | pesan antrean yang Anda klik dua kali | simpan / batalkan edit |
 
 Menu `/` atau `@` yang terbuka memakai tombol-tombol ini untuk dirinya sendiri.
 
@@ -273,6 +276,20 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
 # Improve prompt (fake model, made-up git project): the wand sends the draft with the chat and the project, the answer replaces the draft, Cmd+Z and Undo bring it back + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
+# Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
+# Changes branch tree (fake model, made-up git history): branch chips, commit files and diffs, keyboard focus + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js
+# Allow for this chat with a time limit (fake model that is also the Auto Review reviewer): the grant ends after 1 hour
+PLAYWRIGHT=/path/to/playwright node test/browser-grant-ttl.mjs /path/to/dsh/lib/bin.js
+# Next message prediction and Complete while typing (fake models): calls, Tab, Esc, model choice + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-predict.mjs /path/to/dsh/lib/bin.js
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-complete.mjs /path/to/dsh/lib/bin.js
+# Project search in a new chat: A–Z order, filter, Enter + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path/to/dsh/lib/bin.js
+# Queue drag-and-drop and Continue with a queued message (slow fake model)
+PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
+PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
@@ -283,7 +300,7 @@ npm test
 
 **Aturan untuk fitur baru:** setiap baris fitur di Pengaturan → Composer Plus menampilkan tangkapan layar. Tambahkan id fitur ke `SHOT_OF` di `client.js` dan ke `SHOTS` di `index.js`, lalu sertakan `assets/features/<id>.webp` (diambil dari dsh demo sekali pakai, UI bahasa Inggris, sekitar 60 kB atau kurang). Tambahkan fitur itu, dengan gambar yang sama, ke `docs/features.json` lalu jalankan `npm run build:readme`: perintah ini menulis tabel fitur di `README.md` dan di setiap `README.<id>.md` terjemahan, serta daftar di `llms.txt`. `test/shots.test.mjs` gagal jika sebuah fitur tidak memiliki tangkapan layar, dan `test/browser-settings-shots.mjs` memeriksa halaman Pengaturan yang asli. Daftar periksa lengkap untuk setiap perubahan ada di [AGENTS.md](AGENTS.md).
 
-Pengujian menjalankan `client.js` yang asli terhadap React/DOM palsu, dan `index.js` (bagian Host) yang asli terhadap repositori git sementara. Pengujian gateway Tether (`test/tether-gateway.test.mjs`) memakai host dsh tiruan dan gateway TLS sungguhan. Aplikasi iPhone ada di `tether/ios` (lihat [tether/README.md](tether/README.md) dan [tether/AGENTS.md](tether/AGENTS.md)). `node test/browser-history.mjs '<dsh web URL with ?token=…>'` memeriksa riwayat input di browser sungguhan terhadap `dsh web` sekali pakai dengan `DSH_HOME` miliknya sendiri.
+Pengujian menjalankan `client.js` yang asli terhadap React/DOM palsu, dan `index.js` (bagian Host) yang asli terhadap repositori git sementara. Pengujian gateway Tether (`test/tether-gateway.test.mjs`) memakai host dsh tiruan dan gateway TLS sungguhan. Aplikasi iPhone ada di `tether/ios` (lihat [tether/README.md](tether/README.md) dan [tether/AGENTS.md](tether/AGENTS.md)). Setiap rute Host, permintaannya, dan apakah Tether dapat memanggilnya tercantum di [docs/ROUTES.md](docs/ROUTES.md). `node test/browser-history.mjs '<dsh web URL with ?token=…>'` memeriksa riwayat input di browser sungguhan terhadap `dsh web` sekali pakai dengan `DSH_HOME` miliknya sendiri.
 
 Paket bahasa adalah JSON yang hanya berisi data di `locales/<id>.json`, yang disematkan ke dalam satu entri klien oleh `npm run build:locales` (tanpa layanan terjemahan atau unduhan saat runtime). `npm test` memeriksa setiap paket untuk cakupan kunci yang lengkap, placeholder dan jeda baris yang identik, serta perilaku sistem/override. Untuk pemeriksaan terisolasi di aplikasi sungguhan dengan Playwright yang terpasang secara lokal:
 

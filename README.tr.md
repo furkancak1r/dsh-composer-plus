@@ -76,7 +76,7 @@ Düğmeler, araç ipuçları, uyarılar ve bildirimler seçili dsh dilini kullan
 
 ## Ayarlar
 
-Her özelliği ayrı ayrı açıp kapatabilirsiniz: dsh **Ayarlar → Composer Plus**. Her satırda küçük bir ekran görüntüsü vardır. Büyük önizleme için üzerine gelin, tam boyutta açmak için tıklayın (`Esc` kapatır). Üstteki **Özellik ara** kutusu sayfayı ada veya açıklamaya göre süzer (her dilde; büyük/küçük harf ve aksan fark etmez). `Esc` kutuyu temizler. Her satırda bir anahtar ve kısa bir açıklama vardır. Satır adının yanındaki küçük **?**, README’de o özelliği anlatan bölümü dsh’nin arayüz dilindeki README dosyasında açar. Değişiklikler yeniden başlatma gerekmeden hemen uygulanır ve o cihazda hatırlanır. **Mobil bağlantı**, **Yeniden açılışta sürdür** ve **Yazarken tamamla** dışında her şey varsayılan olarak açıktır. Bu üçünün ve **İçerik araması**, **Tur geri alma** ile **Sonraki mesaj tahmini** özelliklerinin anahtarlarını dsh’nin Host’u saklar. Bu yüzden bu ayarlar her pencerede geçerlidir ve yeniden başlatmadan sonra da korunur. **Sonraki mesaj tahmini**, **Yazarken tamamla** ve **İstemi iyileştir** için seçilen **Model** de Host’ta saklanır (**Yazarken tamamla** için varsayılan: **Sonraki mesaj tahminiyle aynı**; **İstemi iyileştir** için varsayılan: **Sohbetin modeliyle aynı**). **İçerik araması** yalnızca dsh yeniden başladıktan sonra değişir (dsh bu ayarı açılışta okur). O zamana kadar satırında **Bu değişikliğin geçerli olması için dsh’yi yeniden başlatın.** yazar.
+Her özelliği ayrı ayrı açıp kapatabilirsiniz: dsh **Ayarlar → Composer Plus**. Her satırda küçük bir ekran görüntüsü vardır. Büyük önizleme için üzerine gelin, tam boyutta açmak için tıklayın (`Esc` kapatır). Üstteki **Özellik ara** kutusu sayfayı ada veya açıklamaya göre süzer (her dilde; büyük/küçük harf ve aksan fark etmez). `Esc` kutuyu temizler. Her satırda bir anahtar ve kısa bir açıklama vardır. Satır adının yanındaki küçük **?**, README’de o özelliği anlatan bölümü dsh’nin arayüz dilindeki README dosyasında açar. Değişiklikler yeniden başlatma gerekmeden hemen uygulanır ve o cihazda hatırlanır. **Mobil bağlantı**, **Yeniden açılışta sürdür** ve **Yazarken tamamla** dışında her şey varsayılan olarak açıktır. Bu üçünün ve **İçerik araması**, **Tur geri alma** ile **Sonraki mesaj tahmini** özelliklerinin anahtarlarını dsh’nin Host’u saklar. Bu yüzden bu ayarlar her pencerede geçerlidir ve yeniden başlatmadan sonra da korunur. **Sonraki mesaj tahmini**, **Yazarken tamamla** ve **İstemi iyileştir** için seçilen **Model** ile **Sohbet boyunca izin** için seçilen **Süre sınırı** da Host’ta saklanır (**Yazarken tamamla** için varsayılan: **Sonraki mesaj tahminiyle aynı**; **İstemi iyileştir** için varsayılan: **Sohbetin modeliyle aynı**; **Süre sınırı** için varsayılan: 1 saat). **İçerik araması** yalnızca dsh yeniden başladıktan sonra değişir (dsh bu ayarı açılışta okur). O zamana kadar satırında **Bu değişikliğin geçerli olması için dsh’yi yeniden başlatın.** yazar.
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="Ayarlar → Composer Plus: özellik araması, dil seçici, güncelleme satırı ve her özellik için bir anahtar; üzerine gelince ekran görüntüsü önizlemesi"></p>
 
@@ -90,7 +90,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 Uygulamanın tamamı hemen yeni dile geçer. Seçim, dsh’nin kendi kayıtlı `locale.preference` ayarıdır (Genel → Dil ile aynı ayar). Bu yüzden yeniden başlatmadan sonra da korunur. **Sistem dili** bu seçimi temizler: masaüstü uygulaması işletim sisteminin dilini, web arayüzü tarayıcının dilini kullanır. Desteklenmeyen bir dil için İngilizce kullanılır. Eklentiyi yüklemek, daha önce seçtiğiniz bir dili hiçbir zaman değiştirmez.
 
-Her dil paketinde 3.143 metin vardır: dsh `0.2.0-rc.2` ve `0.2.1-rc.2` sürümlerinin tüm arayüz metinleri (sohbetler, kenar çubuğu, ayarlar, onaylar, zamanlamalar, dosya önizlemeleri, eklenti yöneticisi, eklenti pazarı), eklentinin kendi denetimleri ve popüler [dsh-rewind](https://github.com/SiriLee/dsh-rewind) eklentisi. Çevrilmeyenler: mesajlarınız, model çıktısı, kod, eğik çizgi komutlarının adları (`/plan`, `/compact`), sağlayıcıya ait etiketler (örneğin `High` akıl yürütme düzeyi), diğer eklentilerin metinleri ve masaüstü uygulamasının yerel menüleri/güncelleme pencereleri (dsh bunları yalnızca İngilizce/Çince sunar). Daha yeni bir dsh sürümünün eklediği metinler, paketler güncellenene kadar İngilizce görünür. Bir dili başka bir eklenti zaten sağlıyorsa o dil için o eklentinin metinleri kullanılır.
+Her dil paketinde 3.280 metin vardır: dsh `0.2.0-rc.2` ve `0.2.1-rc.2` sürümlerinin tüm arayüz metinleri (sohbetler, kenar çubuğu, ayarlar, onaylar, zamanlamalar, dosya önizlemeleri, eklenti yöneticisi, eklenti pazarı), eklentinin kendi denetimleri ve popüler [dsh-rewind](https://github.com/SiriLee/dsh-rewind) eklentisi. Çevrilmeyenler: mesajlarınız, model çıktısı, kod, eğik çizgi komutlarının adları (`/plan`, `/compact`), sağlayıcıya ait etiketler (örneğin `High` akıl yürütme düzeyi), diğer eklentilerin metinleri ve masaüstü uygulamasının yerel menüleri/güncelleme pencereleri (dsh bunları yalnızca İngilizce/Çince sunar). Daha yeni bir dsh sürümünün eklediği metinler, paketler güncellenene kadar İngilizce görünür. Bir dili başka bir eklenti zaten sağlıyorsa o dil için o eklentinin metinleri kullanılır.
 
 ## Klavye kısayolları
 
@@ -110,6 +110,9 @@ Her dil paketinde 3.143 metin vardır: dsh `0.2.0-rc.2` ve `0.2.1-rc.2` sürüml
 | `Tab` | tahmin gösteren boş mesaj alanı | tahmini mesaj alanına koy |
 | `Tab` | imleçten sonraki gri tamamlama | tamamlamayı mesaja ekle |
 | `Esc` | tahmin gösteren boş mesaj alanı | tahmini gizle |
+| `Cmd/Ctrl+Z` | mesaj alanı, **İstemi iyileştir** kullanıldıktan sonra | yazdığınız metni geri getir |
+| `Esc` | mesaj alanı, **İstemi iyileştir** çalışırken | iyileştirmeyi iptal et |
+| `Enter` / `Esc` | çift tıkladığınız kuyruktaki mesaj | düzenlemeyi kaydet / iptal et |
 
 Açık bir `/` veya `@` menüsü bu tuşları kendisi kullanır.
 
@@ -273,6 +276,20 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
 # Improve prompt (fake model, made-up git project): the wand sends the draft with the chat and the project, the answer replaces the draft, Cmd+Z and Undo bring it back + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
+# Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
+# Changes branch tree (fake model, made-up git history): branch chips, commit files and diffs, keyboard focus + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js
+# Allow for this chat with a time limit (fake model that is also the Auto Review reviewer): the grant ends after 1 hour
+PLAYWRIGHT=/path/to/playwright node test/browser-grant-ttl.mjs /path/to/dsh/lib/bin.js
+# Next message prediction and Complete while typing (fake models): calls, Tab, Esc, model choice + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-predict.mjs /path/to/dsh/lib/bin.js
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-complete.mjs /path/to/dsh/lib/bin.js
+# Project search in a new chat: A–Z order, filter, Enter + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path/to/dsh/lib/bin.js
+# Queue drag-and-drop and Continue with a queued message (slow fake model)
+PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
+PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
@@ -283,7 +300,7 @@ npm test
 
 **Yeni özellikler için kural:** Ayarlar → Composer Plus içindeki her özellik satırı bir ekran görüntüsü gösterir. Özellik kimliğini `client.js` içindeki `SHOT_OF` ve `index.js` içindeki `SHOTS` listesine ekleyin. `assets/features/<id>.webp` dosyasını da pakete ekleyin (geçici demo dsh’den, İngilizce arayüzle alınmış, yaklaşık 60 kB veya daha küçük). Özelliği aynı resimle `docs/features.json` dosyasına ekleyin ve `npm run build:readme` komutunu çalıştırın. Bu komut `README.md` ile çevrilmiş her `README.<id>.md` dosyasındaki özellik tablosunu ve `llms.txt` içindeki listeyi yazar. Bir özelliğin ekran görüntüsü yoksa `test/shots.test.mjs` başarısız olur. `test/browser-settings-shots.mjs` ise gerçek Ayarlar sayfasını denetler. Her değişiklik için tam kontrol listesi [AGENTS.md](AGENTS.md) dosyasındadır.
 
-Testler, gerçek `client.js` dosyasını sahte bir React/DOM ortamında, gerçek `index.js` dosyasını (Host tarafı) da geçici bir git deposunda çalıştırır. Tether ağ geçidi testleri (`test/tether-gateway.test.mjs`) sahte bir dsh host’u ve gerçek bir TLS ağ geçidi kullanır. iPhone uygulaması `tether/ios` klasöründedir (bkz. [tether/README.md](tether/README.md) ve [tether/AGENTS.md](tether/AGENTS.md)). `node test/browser-history.mjs '<dsh web URL with ?token=…>'`, mesaj geçmişini gerçek bir tarayıcıda denetler. Bu denetim, kendi `DSH_HOME` klasörü olan geçici bir `dsh web` örneğine karşı çalışır.
+Testler, gerçek `client.js` dosyasını sahte bir React/DOM ortamında, gerçek `index.js` dosyasını (Host tarafı) da geçici bir git deposunda çalıştırır. Tether ağ geçidi testleri (`test/tether-gateway.test.mjs`) sahte bir dsh host’u ve gerçek bir TLS ağ geçidi kullanır. iPhone uygulaması `tether/ios` klasöründedir (bkz. [tether/README.md](tether/README.md) ve [tether/AGENTS.md](tether/AGENTS.md)). Her Host rotası, rotanın isteği ve Tether’in bu rotayı çağırıp çağıramayacağı [docs/ROUTES.md](docs/ROUTES.md) dosyasında listelenir. `node test/browser-history.mjs '<dsh web URL with ?token=…>'`, mesaj geçmişini gerçek bir tarayıcıda denetler. Bu denetim, kendi `DSH_HOME` klasörü olan geçici bir `dsh web` örneğine karşı çalışır.
 
 Dil paketleri, `locales/<id>.json` içindeki yalnızca veri içeren JSON dosyalarıdır. `npm run build:locales` bunları tek istemci giriş dosyasına gömer (çeviri hizmeti veya çalışma anında indirme yoktur). `npm test` şunları denetler: her paketin tüm anahtarları kapsaması, yer tutucuların ve satır sonlarının aynı olması, sistem dili/elle seçilen dil davranışı. Yerel olarak yüklenmiş Playwright ile yalıtılmış gerçek uygulama denetimleri için:
 

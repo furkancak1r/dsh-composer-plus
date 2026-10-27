@@ -76,7 +76,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 ## 設定
 
-すべての機能は、個別にオン／オフできます。場所は dsh の **設定 → Composer Plus** です。各行には小さなスクリーンショットがあります。ポインターを合わせると大きなプレビューが表示され、クリックすると原寸で開きます（`Esc` で閉じます）。上部の **機能を検索** ボックスは、名前または説明でページを絞り込みます（どの言語でも使えます。大文字と小文字、アクセント記号は区別しません）。`Esc` で入力を消去します。各行にはスイッチと短い説明があります。行名の後ろにある小さな **?** は、その機能を説明する README の箇所を、dsh のインターフェース言語の README で開きます。変更は再起動なしですぐに適用され、そのデバイスに保存されます。**モバイル接続**、**再起動後に再開**、**入力中に補完** を除き、すべての機能が既定でオンです。この 3 つと **内容検索**、**ターンのロールバック**、**次のメッセージの予測** のスイッチは、dsh のホストが保持します。そのため、これらのスイッチはすべてのウィンドウに適用され、再起動後も有効です。**次のメッセージの予測** で選んだ **モデル** も、ホストが保持します。**入力中に補完** のモデルの選択（既定は **次のメッセージの予測と同じ**）も、ホストが保持します。**プロンプトを改善** のモデルの選択（既定は **チャットのモデルと同じ**）も、ホストが保持します。**内容検索** の変更は、dsh の再起動後にだけ反映されます（dsh は起動時にこの設定を読み込みます）。それまでは、その行に **この変更を反映するには dsh を再起動してください。** と表示されます。
+すべての機能は、個別にオン／オフできます。場所は dsh の **設定 → Composer Plus** です。各行には小さなスクリーンショットがあります。ポインターを合わせると大きなプレビューが表示され、クリックすると原寸で開きます（`Esc` で閉じます）。上部の **機能を検索** ボックスは、名前または説明でページを絞り込みます（どの言語でも使えます。大文字と小文字、アクセント記号は区別しません）。`Esc` で入力を消去します。各行にはスイッチと短い説明があります。行名の後ろにある小さな **?** は、その機能を説明する README の箇所を、dsh のインターフェース言語の README で開きます。変更は再起動なしですぐに適用され、そのデバイスに保存されます。**モバイル接続**、**再起動後に再開**、**入力中に補完** を除き、すべての機能が既定でオンです。この 3 つと **内容検索**、**ターンのロールバック**、**次のメッセージの予測** のスイッチは、dsh のホストが保持します。そのため、これらのスイッチはすべてのウィンドウに適用され、再起動後も有効です。**次のメッセージの予測** で選んだ **モデル** も、ホストが保持します。**入力中に補完** のモデルの選択（既定は **次のメッセージの予測と同じ**）も、ホストが保持します。**プロンプトを改善** のモデルの選択（既定は **チャットのモデルと同じ**）も、ホストが保持します。**このチャットで許可** の **時間制限**（既定は 1 時間）も、ホストが保持します。**内容検索** の変更は、dsh の再起動後にだけ反映されます（dsh は起動時にこの設定を読み込みます）。それまでは、その行に **この変更を反映するには dsh を再起動してください。** と表示されます。
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="設定 → Composer Plus：機能の検索、言語の選択、アップデートの行、機能ごとのスイッチ。ポインターを合わせるとスクリーンショットのプレビューが表示されます"></p>
 
@@ -90,7 +90,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 アプリ全体がすぐに切り替わります。この選択は dsh 標準の保存済みの設定 `locale.preference`（一般 → 言語と同じもの）なので、再起動後も維持されます。**システムの言語** は、この選択を消去します。その場合、デスクトップアプリは OS の言語に、Web UI はブラウザーの言語に従います。対応していない言語の場合は英語になります。プラグインをインストールしても、すでに選んだ言語が上書きされることはありません。
 
-各言語パックには 3,143 件のテキストがあります。対象は、dsh `0.2.0-rc.2` と `0.2.1-rc.2` のすべての UI テキスト（チャット、サイドバー、設定、承認、スケジュール、ファイルのプレビュー、プラグインマネージャー、プラグインマーケット）、このプラグイン自体のコントロール、人気の [dsh-rewind](https://github.com/SiriLee/dsh-rewind) プラグインです。次のものは翻訳されません：あなたのメッセージ、モデルの出力、コード、スラッシュコマンドの名前（`/plan`、`/compact`）、推論の強度 `High` のようなプロバイダー側のラベル、ほかのプラグインのテキスト、デスクトップアプリのネイティブメニューとアップデートのダイアログ（dsh はこれらを英語と中国語でしか提供していません）。新しい dsh で追加された文字列は、言語パックが更新されるまで英語で表示されます。ほかのプラグインがすでにある言語を提供している場合、その言語にはそのプラグインのものが使われます。
+各言語パックには 3,280 件のテキストがあります。対象は、dsh `0.2.0-rc.2` と `0.2.1-rc.2` のすべての UI テキスト（チャット、サイドバー、設定、承認、スケジュール、ファイルのプレビュー、プラグインマネージャー、プラグインマーケット）、このプラグイン自体のコントロール、人気の [dsh-rewind](https://github.com/SiriLee/dsh-rewind) プラグインです。次のものは翻訳されません：あなたのメッセージ、モデルの出力、コード、スラッシュコマンドの名前（`/plan`、`/compact`）、推論の強度 `High` のようなプロバイダー側のラベル、ほかのプラグインのテキスト、デスクトップアプリのネイティブメニューとアップデートのダイアログ（dsh はこれらを英語と中国語でしか提供していません）。新しい dsh で追加された文字列は、言語パックが更新されるまで英語で表示されます。ほかのプラグインがすでにある言語を提供している場合、その言語にはそのプラグインのものが使われます。
 
 ## キーボードショートカット
 
@@ -110,6 +110,9 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 | `Tab` | 予測が表示された空の入力欄 | 予測を入力欄に入れる |
 | `Tab` | カーソルの後ろのグレーの補完 | 補完をメッセージに追加する |
 | `Esc` | 予測が表示された空の入力欄 | 予測を非表示にする |
+| `Cmd/Ctrl+Z` | **プロンプトを改善** を使った後の入力欄 | 入力したテキストを戻す |
+| `Esc` | **プロンプトを改善** の実行中の入力欄 | 改善をキャンセル |
+| `Enter` / `Esc` | ダブルクリックしたキュー内のメッセージ | 編集を保存／キャンセル |
 
 `/` または `@` のメニューが開いているときは、これらのキーはメニューが使います。
 
@@ -273,6 +276,20 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
 # Improve prompt (fake model, made-up git project): the wand sends the draft with the chat and the project, the answer replaces the draft, Cmd+Z and Undo bring it back + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
+# Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
+# Changes branch tree (fake model, made-up git history): branch chips, commit files and diffs, keyboard focus + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js
+# Allow for this chat with a time limit (fake model that is also the Auto Review reviewer): the grant ends after 1 hour
+PLAYWRIGHT=/path/to/playwright node test/browser-grant-ttl.mjs /path/to/dsh/lib/bin.js
+# Next message prediction and Complete while typing (fake models): calls, Tab, Esc, model choice + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-predict.mjs /path/to/dsh/lib/bin.js
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-complete.mjs /path/to/dsh/lib/bin.js
+# Project search in a new chat: A–Z order, filter, Enter + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path/to/dsh/lib/bin.js
+# Queue drag-and-drop and Continue with a queued message (slow fake model)
+PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
+PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
@@ -283,7 +300,7 @@ npm test
 
 **新しい機能のルール：** 設定 → Composer Plus の各機能の行には、スクリーンショットを表示します。機能の ID を `client.js` の `SHOT_OF` と `index.js` の `SHOTS` に追加し、`assets/features/<id>.webp` を同梱してください（使い捨てのデモ dsh で英語の UI を使って撮影し、約 60 kB 以下にします）。機能を同じ画像とともに `docs/features.json` に追加し、`npm run build:readme` を実行します。これで `README.md` と翻訳済みの各 `README.<id>.md` の機能表、および `llms.txt` の一覧が書き込まれます。機能にスクリーンショットがないと、`test/shots.test.mjs` が失敗します。`test/browser-settings-shots.mjs` は、実際の設定ページを確認します。変更のたびに確認するチェックリストの全体は、[AGENTS.md](AGENTS.md) にあります。
 
-テストでは、本物の `client.js` を偽の React/DOM に対して実行し、本物の `index.js`（ホスト側）を一時的な git リポジトリに対して実行します。Tether ゲートウェイのテスト（`test/tether-gateway.test.mjs`）は、モックの dsh ホストと本物の TLS ゲートウェイを使います。iPhone アプリは `tether/ios` にあります（[tether/README.md](tether/README.md) と [tether/AGENTS.md](tether/AGENTS.md) を参照）。`node test/browser-history.mjs '<dsh web URL with ?token=…>'` は、専用の `DSH_HOME` を持つ使い捨ての `dsh web` に対して、実際のブラウザーで入力履歴を確認します。
+テストでは、本物の `client.js` を偽の React/DOM に対して実行し、本物の `index.js`（ホスト側）を一時的な git リポジトリに対して実行します。Tether ゲートウェイのテスト（`test/tether-gateway.test.mjs`）は、モックの dsh ホストと本物の TLS ゲートウェイを使います。iPhone アプリは `tether/ios` にあります（[tether/README.md](tether/README.md) と [tether/AGENTS.md](tether/AGENTS.md) を参照）。ホストの各ルート、そのリクエスト、Tether から呼び出せるかどうかは、[docs/ROUTES.md](docs/ROUTES.md) に一覧があります。`node test/browser-history.mjs '<dsh web URL with ?token=…>'` は、専用の `DSH_HOME` を持つ使い捨ての `dsh web` に対して、実際のブラウザーで入力履歴を確認します。
 
 言語パックは、データだけを含む JSON で、`locales/<id>.json` にあります。`npm run build:locales` が、これらを 1 つのクライアントのエントリーに埋め込みます（翻訳サービスや実行時のダウンロードは使いません）。`npm test` は、各パックについて、すべてのキーがそろっていること、プレースホルダーと改行が同じであること、システム言語と上書きの動作を確認します。ローカルにインストールした Playwright を使って、隔離した実際のアプリで確認するには、次のコマンドを実行します：
 

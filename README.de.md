@@ -76,7 +76,7 @@ Schaltflächen, Tooltips, Hinweise und Benachrichtigungen folgen der gewählten 
 
 ## Einstellungen
 
-Jede Funktion lässt sich einzeln ein- oder ausschalten: dsh **Einstellungen → Composer Plus**. Jede Zeile hat einen kleinen Screenshot: Fahre mit der Maus darüber für eine größere Vorschau, oder klicke darauf, um ihn in voller Größe zu öffnen (`Esc` schließt ihn). Das Feld **Funktionen suchen** oben filtert die Seite nach Name oder Beschreibung (in jeder Sprache, ohne Unterschied bei Groß- und Kleinschreibung oder Akzenten); `Esc` leert es. Jede Zeile hat einen Schalter und eine kurze Beschreibung. Das kleine **?** nach dem Namen einer Zeile öffnet den Teil dieser README, der die Funktion beschreibt, in der README der Oberflächensprache von dsh. Änderungen gelten sofort, ohne Neustart, und bleiben auf diesem Gerät gespeichert. Alles ist standardmäßig an, außer **Mobile Verbindung**, **Nach Neustart fortsetzen** und **Beim Tippen vervollständigen**. Der Host von dsh speichert die Schalter dieser drei Funktionen sowie von **Inhaltssuche**, **Runde zurücknehmen** und **Vorhersage der nächsten Nachricht**. Deshalb gelten sie für jedes Fenster und bleiben nach einem Neustart erhalten. Der Host speichert auch die Wahl unter **Modell** für **Vorhersage der nächsten Nachricht**, die für **Beim Tippen vervollständigen** (standardmäßig **Wie Vorhersage der nächsten Nachricht**) und die für **Prompt verbessern** (standardmäßig **Wie das Modell des Chats**). **Inhaltssuche** ändert sich erst nach einem Neustart von dsh (dsh liest den Schalter beim Start). Bis dahin steht in ihrer Zeile **Starte dsh neu, damit diese Änderung gilt.**
+Jede Funktion lässt sich einzeln ein- oder ausschalten: dsh **Einstellungen → Composer Plus**. Jede Zeile hat einen kleinen Screenshot: Fahre mit der Maus darüber für eine größere Vorschau, oder klicke darauf, um ihn in voller Größe zu öffnen (`Esc` schließt ihn). Das Feld **Funktionen suchen** oben filtert die Seite nach Name oder Beschreibung (in jeder Sprache, ohne Unterschied bei Groß- und Kleinschreibung oder Akzenten); `Esc` leert es. Jede Zeile hat einen Schalter und eine kurze Beschreibung. Das kleine **?** nach dem Namen einer Zeile öffnet den Teil dieser README, der die Funktion beschreibt, in der README der Oberflächensprache von dsh. Änderungen gelten sofort, ohne Neustart, und bleiben auf diesem Gerät gespeichert. Alles ist standardmäßig an, außer **Mobile Verbindung**, **Nach Neustart fortsetzen** und **Beim Tippen vervollständigen**. Der Host von dsh speichert die Schalter dieser drei Funktionen sowie von **Inhaltssuche**, **Runde zurücknehmen** und **Vorhersage der nächsten Nachricht**. Deshalb gelten sie für jedes Fenster und bleiben nach einem Neustart erhalten. Der Host speichert auch die Wahl unter **Modell** für **Vorhersage der nächsten Nachricht**, die für **Beim Tippen vervollständigen** (standardmäßig **Wie Vorhersage der nächsten Nachricht**), die für **Prompt verbessern** (standardmäßig **Wie das Modell des Chats**) und das **Zeitlimit** von **Für diesen Chat zulassen** (standardmäßig 1 Stunde). **Inhaltssuche** ändert sich erst nach einem Neustart von dsh (dsh liest den Schalter beim Start). Bis dahin steht in ihrer Zeile **Starte dsh neu, damit diese Änderung gilt.**
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="Einstellungen → Composer Plus: Funktionssuche, Sprachauswahl, Update-Zeile und ein Schalter pro Funktion, mit Screenshot-Vorschau beim Darüberfahren"></p>
 
@@ -90,7 +90,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 Die ganze App wechselt sofort. Die Auswahl ist die eigene gespeicherte `locale.preference` von dsh (dieselbe wie unter Allgemein → Sprache). Deshalb bleibt sie nach Neustarts erhalten. **Systemsprache** löscht diese Auswahl: Die Desktop-App folgt der Sprache des Betriebssystems, die Weboberfläche der Sprache des Browsers. Eine nicht unterstützte Sprache fällt auf Englisch zurück. Die Installation des Plugins überschreibt nie eine Sprache, die du schon gewählt hast.
 
-Jedes Paket hat 3.143 Texte: jeden Oberflächentext von dsh `0.2.0-rc.2` und `0.2.1-rc.2` (Chats, Seitenleiste, Einstellungen, Genehmigungen, Automatisierungsaufgaben, Dateivorschauen, Plugin-Verwaltung, Plugin-Marktplatz), die eigenen Bedienelemente des Plugins und das beliebte Plugin [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Nicht übersetzt werden: deine Nachrichten, die Ausgabe des Modells, Code, Namen von Slash-Befehlen (`/plan`, `/compact`), Bezeichnungen der Anbieter wie die Reasoning-Stufe `High`, Texte anderer Plugins sowie die nativen Menüs und Update-Dialoge der Desktop-App (dsh liefert diese nur auf Englisch und Chinesisch aus). Texte, die eine neuere dsh-Version hinzufügt, erscheinen auf Englisch, bis die Pakete aktualisiert sind. Wenn ein anderes Plugin eine Sprache bereits bereitstellt, behält dieses Plugin die Sprache.
+Jedes Paket hat 3.280 Texte: jeden Oberflächentext von dsh `0.2.0-rc.2` und `0.2.1-rc.2` (Chats, Seitenleiste, Einstellungen, Genehmigungen, Automatisierungsaufgaben, Dateivorschauen, Plugin-Verwaltung, Plugin-Marktplatz), die eigenen Bedienelemente des Plugins und das beliebte Plugin [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Nicht übersetzt werden: deine Nachrichten, die Ausgabe des Modells, Code, Namen von Slash-Befehlen (`/plan`, `/compact`), Bezeichnungen der Anbieter wie die Reasoning-Stufe `High`, Texte anderer Plugins sowie die nativen Menüs und Update-Dialoge der Desktop-App (dsh liefert diese nur auf Englisch und Chinesisch aus). Texte, die eine neuere dsh-Version hinzufügt, erscheinen auf Englisch, bis die Pakete aktualisiert sind. Wenn ein anderes Plugin eine Sprache bereits bereitstellt, behält dieses Plugin die Sprache.
 
 ## Tastenkürzel
 
@@ -110,6 +110,9 @@ Jedes Paket hat 3.143 Texte: jeden Oberflächentext von dsh `0.2.0-rc.2` und `0.
 | `Tab` | leeres Eingabefeld mit einer Vorhersage | Vorhersage ins Eingabefeld setzen |
 | `Tab` | graue Vervollständigung nach dem Cursor | Vervollständigung zur Nachricht hinzufügen |
 | `Esc` | leeres Eingabefeld mit einer Vorhersage | Vorhersage ausblenden |
+| `Cmd/Ctrl+Z` | Eingabefeld, nach **Prompt verbessern** | den Text zurückholen, den du getippt hast |
+| `Esc` | Eingabefeld, während **Prompt verbessern** läuft | Verbesserung abbrechen |
+| `Enter` / `Esc` | eingereihte Nachricht, auf die du doppelgeklickt hast | Bearbeitung speichern / abbrechen |
 
 Ein geöffnetes `/`- oder `@`-Menü behält diese Tasten für sich.
 
@@ -273,6 +276,20 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
 # Improve prompt (fake model, made-up git project): the wand sends the draft with the chat and the project, the answer replaces the draft, Cmd+Z and Undo bring it back + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
+# Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
+# Changes branch tree (fake model, made-up git history): branch chips, commit files and diffs, keyboard focus + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js
+# Allow for this chat with a time limit (fake model that is also the Auto Review reviewer): the grant ends after 1 hour
+PLAYWRIGHT=/path/to/playwright node test/browser-grant-ttl.mjs /path/to/dsh/lib/bin.js
+# Next message prediction and Complete while typing (fake models): calls, Tab, Esc, model choice + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-predict.mjs /path/to/dsh/lib/bin.js
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-complete.mjs /path/to/dsh/lib/bin.js
+# Project search in a new chat: A–Z order, filter, Enter + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path/to/dsh/lib/bin.js
+# Queue drag-and-drop and Continue with a queued message (slow fake model)
+PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
+PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
@@ -283,7 +300,7 @@ npm test
 
 **Regel für neue Funktionen:** Jede Funktionszeile unter Einstellungen → Composer Plus zeigt einen Screenshot. Füge die ID der Funktion zu `SHOT_OF` in `client.js` und zu `SHOTS` in `index.js` hinzu, und liefere `assets/features/<id>.webp` mit aus (aufgenommen im Wegwerf-Demo-dsh, englische Oberfläche, etwa 60 kB oder weniger). Trage die Funktion mit demselben Bild in `docs/features.json` ein und führe `npm run build:readme` aus: Es schreibt die Funktionstabelle von `README.md` und jeder übersetzten `README.<id>.md` sowie die Liste in `llms.txt`. `test/shots.test.mjs` schlägt fehl, wenn eine Funktion keinen Screenshot hat, und `test/browser-settings-shots.mjs` prüft die echte Einstellungsseite. Die vollständige Checkliste für jede Änderung steht in [AGENTS.md](AGENTS.md).
 
-Die Tests führen das echte `client.js` gegen ein Fake-React/DOM aus und das echte `index.js` (Host-Hälfte) gegen ein temporäres git-Repository. Die Tests des Tether-Gateways (`test/tether-gateway.test.mjs`) nutzen einen Mock-dsh-Host und ein echtes TLS-Gateway. Die iPhone-App liegt in `tether/ios` (siehe [tether/README.md](tether/README.md) und [tether/AGENTS.md](tether/AGENTS.md)). `node test/browser-history.mjs '<dsh web URL with ?token=…>'` prüft den Eingabeverlauf in einem echten Browser gegen ein Wegwerf-`dsh web` mit eigenem `DSH_HOME`.
+Die Tests führen das echte `client.js` gegen ein Fake-React/DOM aus und das echte `index.js` (Host-Hälfte) gegen ein temporäres git-Repository. Die Tests des Tether-Gateways (`test/tether-gateway.test.mjs`) nutzen einen Mock-dsh-Host und ein echtes TLS-Gateway. Die iPhone-App liegt in `tether/ios` (siehe [tether/README.md](tether/README.md) und [tether/AGENTS.md](tether/AGENTS.md)). [docs/ROUTES.md](docs/ROUTES.md) listet jede Host-Route, ihre Anfrage und ob Tether sie aufrufen kann. `node test/browser-history.mjs '<dsh web URL with ?token=…>'` prüft den Eingabeverlauf in einem echten Browser gegen ein Wegwerf-`dsh web` mit eigenem `DSH_HOME`.
 
 Sprachpakete sind reine Daten-JSON-Dateien in `locales/<id>.json`. `npm run build:locales` bettet sie in den einzigen Client-Einstiegspunkt ein (kein Übersetzungsdienst, kein Download zur Laufzeit). `npm test` prüft jedes Paket auf vollständige Schlüsselabdeckung, identische Platzhalter und Zeilenumbrüche sowie auf das Verhalten von Systemsprache und manueller Auswahl. Für isolierte Prüfungen in der echten App mit einem lokal installierten Playwright:
 
