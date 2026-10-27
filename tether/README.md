@@ -32,6 +32,17 @@ Son eklenenler:
 - **Redo**: geri almadan sonra yazı alanının üstünde **Redo** çıkar. Geri alınan tur yeni bir sohbette geri gelir; istenirse dosyalar da geri gelir. Eski sohbet olduğu gibi kalır.
 - **Changes → Mode → This chat** ve **Hide whitespace**: sohbetin dosya araçlarının yazdığı dosyalar ve yalnız boşluk değişikliklerini gizleme. **Mode** menüsünde beş görünüm vardır. **Hide whitespace** satırının yazısına dokunmak da anahtarı değiştirir.
 
+## Mac'i beklerken
+
+Tether, Mac'ten yanıt beklediği her an bunu gösterir. Bekleme hata gibi ya da donmuş bir ekran gibi görünmez.
+
+- **Açılış**: Mac'e bağlanırken **Connecting to your Mac…** ve dönen halka görünür. **Can't reach your Mac** ve **Retry** yalnız bağlantı gerçekten kurulamazsa çıkar (yaklaşık 10 sn sonra).
+- **Arka plandan dönüş**: çalışan bir bağlantı koptuysa Tether sessizce yeniden bağlanır ve **Connecting…** gösterir. Çevrimdışı ekranı çıkmaz.
+- **Mesaj gönderme**: mesaj hemen sohbette, soluk renkte ve altında **Sending…** ile görünür. Mac'teki kopyası gelince normal mesaja döner. Gönderme başarısız olursa mesaj kalkar ve yazı alanına geri gelir.
+- **Sohbet açma**: sohbetin mesajları gelene kadar **Loading the chat…** görünür.
+- **Diğer işlemler** (yeni sohbet, sabitleme, arşivleme, ad değiştirme, silme, hedef, kuyruk, durdurma, model ya da izin seçimi, onaylar ve sorular): yanıt 0,4 sn'den uzun sürerse ekranın üstünde **Waiting for your Mac…** görünür. Ekran bu sırada kullanılabilir kalır.
+- Başka bir Wi‑Fi'dan bağlanırken her istek önce Mac'in ev adresini deniyor ve 5 sn bekliyordu. Artık son yanıt veren adres (örneğin Tailscale) önce denenir.
+
 ## Sohbet ekranı: düşünme ve araç adımları
 
 Sohbet, DSH masaüstündeki gibi kısa görünür. Ayrıntılar akordiyon gibi kapalıdır; dokununca açılır.

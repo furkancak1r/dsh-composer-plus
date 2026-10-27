@@ -83,6 +83,22 @@ func requestTimeout(last: Bool, probing: Bool) -> TimeInterval? { !last ? 5 : pr
 func offersTailscale(onWiFi: Bool, hasTailnet: Bool) -> Bool { !onWiFi || hasTailnet }
 /// Whether the banner explains the lost link: never when connected; a first connect only once it has hung (slow).
 func showsLostHint(_ s: Client.Conn, slow: Bool) -> Bool { s == .off || s == .reconnecting || (s == .connecting && slow) }
+/// After the socket closed: a link that worked (iOS closes it in the background, a Wi‑Fi blip) gets a quiet retry that
+/// shows "Connecting…" with a spinner. Only a connect that failed counts as an attempt and shows the offline view.
+func afterDrop(live: Bool, attempt: Int) -> (attempt: Int, state: Client.Conn) { live ? (0, .connecting) : (attempt + 1, .reconnecting) }
+/// The Mac's addresses in the order to try. The one that answered last goes first: from another Wi‑Fi the Mac's LAN
+/// address never answers, and each request waited its 5 s time-out before it tried Tailscale. Else LAN first on Wi‑Fi,
+/// Tailscale first elsewhere.
+func addressOrder(host: String, ts: String?, onWiFi: Bool, last: Client.Route?) -> [(String, Client.Route)] {
+    let all: [(String, Client.Route)] = [(host, .lan)] + (ts.map { [($0, .tailscale)] } ?? [])
+    let byNet = onWiFi ? all : all.reversed()
+    guard let last else { return byNet }
+    return byNet.filter { $0.1 == last } + byNet.filter { $0.1 != last }
+}
+/// A message on its way to the Mac: it shows at once, faded, until the Mac's copy arrives (same request id).
+struct Outgoing: Identifiable, Equatable { let id: String; let session: String; let text: String; let attachments: Int }
+/// The request id that a user message (a chat event or a queued inbox item) carries from `session/prompt`.
+func promptRequestId(_ message: J?) -> String? { ((message?["source"] as? J)?["rpcId"]) as? String }
 /// What the Sessions tab shows instead of rows. Sessions need a live link: a cached list while off/reconnecting would
 /// look usable but every tap fails, so it is replaced by the offline view. "No sessions" only after a real empty reply.
 enum SessionsPlaceholder { case none, loading, empty, offline }
@@ -1043,6 +1059,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         let saved = UserDefaults.standard.string(forKey: "activeMac")
         activeFp = list.contains { $0.fp == saved } ? saved : list.first?.fp
         finished = Set(UserDefaults.standard.stringArray(forKey: macKey("finished", activeFp, legacy: legacy)) ?? [])
+        // A paired Mac connects as soon as the app is active: the first frames show the spinner, not "Not connected".
+        if activeFp != nil { state = .connecting }
     }
 
     @Published var state = Conn.off
@@ -1202,7 +1220,29 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             .sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
     }
 
-    func run(_ op: @escaping @MainActor () async throws -> Void) { Task { do { try await op() } catch is CancellationError {} catch { self.error = userText(error) } } }
+    /// Actions that wait for the Mac now. While one takes longer than 0.4 s, `waitShown` puts up the WaitPill.
+    @Published private(set) var waiting = 0 { didSet { if waiting == 0 { waitShown = false } } }
+    @Published private(set) var waitShown = false
+    private var waitGen = 0
+    /// Messages sent from this iPhone that the Mac did not show yet (each chat shows its own, faded, with "Sending…").
+    @Published var outgoing: [Outgoing] = []
+    /// A chat opened and its messages are on the way: the chat shows a spinner, not the empty-chat screen.
+    @Published var loadingChat = false
+    /// `waits: false`: the action shows its own progress (a message's "Sending…" bubble).
+    func run(waits: Bool = true, _ op: @escaping @MainActor () async throws -> Void) {
+        if waits {
+            waiting += 1
+            if waiting == 1 {
+                // A quick answer shows nothing; a new wait that starts later gets its own 0.4 s.
+                waitGen += 1; let gen = waitGen
+                Task { try? await Task.sleep(for: .milliseconds(400)); if gen == waitGen, waiting > 0 { waitShown = true } }
+            }
+        }
+        Task {
+            defer { if waits { waiting -= 1 } }
+            do { try await op() } catch is CancellationError {} catch { self.error = userText(error) }
+        }
+    }
 
     private func http(_ fp: String) -> URLSession {
         if urlSession == nil || fp != sessionFp {
@@ -1212,11 +1252,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         return urlSession!
     }
 
-    /// Addresses to try: LAN first on Wi-Fi, Tailscale first elsewhere.
-    private func addrs(_ host: String, _ ts: String?) -> [(String, Route)] {
-        let all: [(String, Route)] = [(host, .lan)] + (ts.map { [($0, .tailscale)] } ?? [])
-        return onWiFi ? all : all.reversed()
-    }
+    private func addrs(_ host: String, _ ts: String?) -> [(String, Route)] { addressOrder(host: host, ts: ts, onWiFi: onWiFi, last: route) }
 
     /// `wait`: a model call on the Mac (Improve prompt) that answers only at its end: one address (the one that worked last),
     /// with this time-out. Not the 5 s fallback: a slow answer is not a dead address, and a second try would find the
@@ -1571,6 +1607,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         urlSession?.invalidateAndCancel(); urlSession = nil // pooled TLS sockets belong to the old Mac's pin
         sessions = []; sessionsLoaded = false; transcript = []; streaming = ""; reasoning = ""; running = false; prompts = []
         current = nil; path = []; goal = nil; state = .off; upstream = ""; route = nil; lastFail = nil; attempt = 0; probing = false
+        outgoing = []; loadingChat = false
         workspaces = []; pinned = []; archived = []; commands = []; catalog = []; presets = []; perms = []; skills = []
         usage = nil; model = nil; defaultModel = nil; inbox = [:]; liveTodos = nil; contextWindow = nil; turnStartedAt = nil; hasOlder = false
     }
@@ -1644,6 +1681,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     /// On foreground: a socket iOS silently killed in the background is detected by a failed ping.
     func wake() {
+        // Back in front: the next try is a fresh one, so the screen shows "Connecting…", not the failures of the background.
+        if state != .connected, pairing != nil { attempt = 0; if state == .reconnecting { state = .connecting } }
         guard let t = ws else { return connect() }
         t.sendPing { e in if e != nil { Task { @MainActor in if t === self.ws { self.drop() } } } }
     }
@@ -1673,7 +1712,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private func drop() {
         ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil
         guard pairing != nil else { state = .off; return }
-        state = .reconnecting; attempt += 1
+        (attempt, state) = afterDrop(live: state == .connected, attempt: attempt)
         if attempt >= 2 { maybeAutoTailscale() } // one blip isn't an outage; two failed sockets off Wi‑Fi are
         let delay = Double(min(30, 1 << min(attempt, 5))), mac = activeFp
         Task {
@@ -1739,10 +1778,10 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             if m == "DSH host unavailable" { upstream = "disconnected" } else { error = m } // banner covers it; no blocking alert
             // A failed follow must not leave followId set, or follow() thinks the conversation is live and never reopens it.
             if id == followId, let s = current {
-                followId = nil
+                followId = nil; loadingChat = false
                 Task { try? await Task.sleep(for: .seconds(3)); if self.current == s, self.followId == nil, self.ws != nil { self.openFollow(s) } }
             }
-        case "end": if id == followId { followId = nil }
+        case "end": if id == followId { followId = nil; loadingChat = false }
         default: break
         }
     }
@@ -1833,6 +1872,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; contextWindow = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
         hasOlder = false; oldestSeq = nil; throughSeq = nil; events = []; continueSeq = nil; rollbackOn = false; prediction = nil; redoOffer = nil
         running = currentSess?.running ?? false
+        loadingChat = true
         openFollow(sid)
         Task { await loadCommands(); await loadGoal(); await loadRollback(sid) }
     }
@@ -1871,7 +1911,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     /// History replay: rebuilds lines and live state but never re-fires per-turn side effects (notification, haptic, goal reload).
     func replaySnapshot(_ events: [J]) {
-        self.events = events
+        self.events = events; loadingChat = false
         rebuild()
         oldestSeq = events.first?["seq"] as? Int; throughSeq = events.last?["seq"] as? Int
     }
@@ -1907,6 +1947,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     private func draw(_ e: J) {
         let d = e["data"] as? J ?? [:]
+        arrived(e["type"] as? String == "user/message" ? [d] : e["type"] as? String == "agent/inbox/spliced" ? d["inserted"] as? [J] ?? [] : [])
         switch e["type"] as? String {
         case "user/message":
             // DSH also logs runtime-context / skill-catalog injections as user messages; show only what the user typed.
@@ -2096,7 +2137,17 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// "steer" injects into the running turn. Composer sends always queue; the queue dock's "Send now" steers.
     func prompt(_ text: String, images: [Data], files: [Attachment] = [], steer: Bool = false) async throws {
         guard let sid = current else { return }
+        // The message shows at once with "Sending…" until the Mac's copy arrives; a failed send takes it away again.
+        let rid = UUID().uuidString
+        outgoing.append(Outgoing(id: rid, session: sid, text: text, attachments: images.count + files.count))
         defer { sendStatus = nil }
+        do { try await deliver(rid, sid, text, images: images, files: files, steer: steer) }
+        catch { outgoing.removeAll { $0.id == rid }; throw error }
+        // The Mac took it. Its copy comes on the chat's stream; if that stream is down, the bubble still goes after 15 s
+        // (the next snapshot shows the message).
+        Task { try? await Task.sleep(for: .seconds(15)); outgoing.removeAll { $0.id == rid } }
+    }
+    private func deliver(_ rid: String, _ sid: String, _ text: String, images: [Data], files: [Attachment], steer: Bool) async throws {
         var receipts: [String] = []
         // receipts are scoped to this session; the host resolves them when the prompt arrives
         for f in files {
@@ -2105,10 +2156,16 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             guard let r = v?["receiptId"] as? String else { throw Fail(String(localized: "Upload failed: \(f.name)")) }
             receipts.append(r)
         }
-        sendStatus = String(localized: "Sending…")
+        sendStatus = nil
         let content = Self.promptContent(text, images: images, receipts: receipts)
-        _ = try await rpc("session/prompt", ["request": ["requestId": UUID().uuidString, "sessionId": sid, "mode": steer ? "steer" : "queue", "content": content]])
+        _ = try await rpc("session/prompt", ["request": ["requestId": rid, "sessionId": sid, "mode": steer ? "steer" : "queue", "content": content]])
         UINotificationFeedbackGenerator().notificationOccurred(.success)
+    }
+
+    /// The Mac's copy of a message sent from here (in the chat or in its queue): its "Sending…" bubble goes.
+    private func arrived(_ messages: [J]) {
+        let ids = Set(messages.compactMap(promptRequestId))
+        if !ids.isEmpty { outgoing.removeAll { ids.contains($0.id) } }
     }
 
     static func promptContent(_ text: String, images: [Data], receipts: [String]) -> [J] {

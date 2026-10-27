@@ -771,6 +771,51 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(c.redoing, "the guard opens again after an error")
     }
 
+    /// Waiting indicators: a dropped live link retries as "Connecting…" (not the offline view), the address that answered
+    /// last goes first (no 5 s wait on the dead LAN address from another Wi‑Fi), and a sent message waits as "Sending…"
+    /// until the Mac's copy (same request id) comes, in the chat or in its queue.
+    @MainActor func testWaitingIndicators() {
+        XCTAssertTrue(afterDrop(live: true, attempt: 3) == (0, .connecting), "a link that worked: a quiet retry")
+        XCTAssertTrue(afterDrop(live: false, attempt: 0) == (1, .reconnecting), "a connect that failed: an attempt")
+        let order = { (wifi: Bool, last: Client.Route?) in addressOrder(host: "192.168.1.4", ts: "100.64.0.9", onWiFi: wifi, last: last).map(\.1) }
+        XCTAssertEqual(order(true, nil), [.lan, .tailscale])
+        XCTAssertEqual(order(false, nil), [.tailscale, .lan])
+        XCTAssertEqual(order(true, .tailscale), [.tailscale, .lan], "another Wi‑Fi: Tailscale answered last, so it goes first")
+        XCTAssertEqual(order(false, .lan), [.lan, .tailscale])
+        XCTAssertEqual(addressOrder(host: "192.168.1.4", ts: nil, onWiFi: true, last: .tailscale).map(\.1), [.lan], "no tailnet address")
+        XCTAssertEqual(promptRequestId(["source": ["kind": "user", "rpcId": "r1"]]), "r1")
+        XCTAssertNil(promptRequestId(["source": ["kind": "runtime-context"]]))
+
+        let c = Client()
+        c.current = "s1"
+        c.outgoing = [Outgoing(id: "r1", session: "s1", text: "hi", attachments: 0), Outgoing(id: "r2", session: "s1", text: "next", attachments: 0)]
+        c.apply(["type": "user/message", "seq": 4, "data": ["content": "other", "source": ["kind": "user", "rpcId": "zz"]]])
+        XCTAssertEqual(c.outgoing.map(\.id), ["r1", "r2"], "another message does not end the wait")
+        c.apply(["type": "user/message", "seq": 5, "data": ["content": "hi", "source": ["kind": "user", "rpcId": "r1"]]])
+        XCTAssertEqual(c.outgoing.map(\.id), ["r2"], "the Mac's copy replaces the Sending… bubble")
+        c.apply(["type": "agent/inbox/spliced", "seq": 6, "data": ["target": "next-turn", "start": 0, "removedCount": 0,
+                                                                   "inserted": [["id": "m2", "content": "next", "source": ["kind": "user", "rpcId": "r2"]]]]])
+        XCTAssertTrue(c.outgoing.isEmpty, "a message that waits in the queue shows there")
+        XCTAssertEqual(c.queued.count, 1)
+
+        // A chat that opens shows a spinner until its snapshot, not the empty-chat screen.
+        c.loadingChat = true
+        c.replaySnapshot([])
+        XCTAssertFalse(c.loadingChat)
+        // Each waiting action is counted while it runs; the pill shows only after 0.4 s and goes with the last wait.
+        c.run { try await Task.sleep(for: .milliseconds(900)) }
+        XCTAssertEqual(c.waiting, 1)
+        c.run(waits: false) {}
+        XCTAssertEqual(c.waiting, 1, "an action with its own progress is not counted")
+        XCTAssertFalse(c.waitShown, "a quick answer shows nothing")
+        let shown = expectation(description: "pill after 0.4 s")
+        Task { @MainActor in while !c.waitShown { try? await Task.sleep(for: .milliseconds(20)) }; shown.fulfill() }
+        wait(for: [shown], timeout: 2)
+        let done = expectation(description: "count back to 0, pill gone")
+        Task { @MainActor in while c.waiting > 0 || c.waitShown { try? await Task.sleep(for: .milliseconds(20)) }; done.fulfill() }
+        wait(for: [done], timeout: 3)
+    }
+
     @MainActor func testJustFinished() {
         XCTAssertEqual(sessionsPlaceholder(loaded: false, count: 0, state: .connecting), .loading)
         // no cached sessions without a live link, even when a list was loaded before

@@ -99,6 +99,7 @@ struct Root: View {
         .scrollDismissesKeyboard(.interactively)
         // non-blocking: errors are mostly transient (link drops, busy session), so a toast beats a modal that stalls the screen
         .overlay(alignment: .top) {
+          VStack(spacing: 6) {
             if let e = c.error {
                 Label(e, systemImage: "exclamationmark.circle.fill").font(.footnote).foregroundStyle(.primary)
                     .padding(.horizontal, 14).padding(.vertical, 10)
@@ -109,8 +110,28 @@ struct Root: View {
                     .task(id: e) { try? await Task.sleep(for: .seconds(5)); if c.error == e { c.error = nil } }
                     .accessibilityAddTraits(.isStaticText).accessibilityHint(Text("Tap to dismiss"))
             }
+            WaitPill()
+          }
         }
         .animation(.snappy, value: c.error)
+        .animation(.snappy, value: c.waitShown)
+    }
+}
+
+/// "Waiting for your Mac…" while an action waits for the Mac's answer longer than a moment (a quick answer shows
+/// nothing). It does not take taps: the screen stays usable.
+struct WaitPill: View {
+    @EnvironmentObject var c: Client
+    var body: some View {
+        if c.waitShown {
+            HStack(spacing: 8) { ProgressView().controlSize(.small); Text("Waiting for your Mac…") }
+                .font(.footnote).foregroundStyle(.secondary)
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(.regularMaterial, in: Capsule()).shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .accessibilityElement(children: .combine)
+                .allowsHitTesting(false)
+        }
     }
 }
 
@@ -620,7 +641,7 @@ struct ConversationView: View {
                         if c.hasOlder {
                             Button {
                                 loadingOlder = true
-                                c.run { defer { loadingOlder = false }; try await c.loadOlder() }
+                                c.run(waits: false) { defer { loadingOlder = false }; try await c.loadOlder() }
                             } label: {
                                 HStack(spacing: 6) {
                                     if loadingOlder { ProgressView().controlSize(.small) } else { Image(systemName: "arrow.up.circle") }
@@ -645,6 +666,8 @@ struct ConversationView: View {
                             // Open message: the message that the link names blinks for 2 s.
                             .background(row.id == marked ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
+                        // A message on its way to the Mac: shown at once, faded, until the Mac's copy replaces it.
+                        ForEach(c.outgoing.filter { $0.session == c.current }) { o in OutgoingView(o: o) }
                         if !c.reasoning.isEmpty { StepsView(lines: [Line(kind: .reasoning, text: c.reasoning)], live: true) }
                         if !c.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: c.streaming), live: true) }
                         // upload/send progress first, so a large file never looks like a dead Send button
@@ -665,7 +688,13 @@ struct ConversationView: View {
                 // tapping the transcript closes the keyboard; simultaneous so links/selection keep working
                 .simultaneousGesture(TapGesture().onEnded { focused = false })
                 .defaultScrollAnchor(.bottom)
-                .overlay { if c.transcript.isEmpty && !c.running { emptyState } }
+                .overlay {
+                    if c.transcript.isEmpty && !c.outgoing.contains(where: { $0.session == c.current }) {
+                        // The chat's messages are on the way: a spinner, not the "new chat" screen.
+                        if c.loadingChat || c.state != .connected { ProgressView(c.state == .connected ? "Loading the chat…" : "Connecting to your Mac…") }
+                        else if !c.running { emptyState }
+                    }
+                }
                 .overlay(alignment: .bottomTrailing) {
                     if !atBottom && !c.transcript.isEmpty {
                         Button { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } label: {
@@ -693,6 +722,7 @@ struct ConversationView: View {
                 .onChange(of: c.streaming) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
                 .onChange(of: c.reasoning) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
                 .onChange(of: c.sendStatus) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
+                .onChange(of: c.outgoing) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
                 .onChange(of: c.running, initial: true) { turnStart = c.running ? (turnStart ?? .now) : nil }
                 .onChange(of: c.current) { openTurns = [] }
                 .task(id: c.jump) { await jump(proxy) }
@@ -974,7 +1004,7 @@ struct ConversationView: View {
                 }
                 .photosPicker(isPresented: $showPhotos, selection: $picks, maxSelectionCount: 4, matching: .images)
                 .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { res in
-                    c.run {
+                    c.run(waits: false) { // a file on this iPhone: no Mac
                         for url in try res.get() { files.append(try Attachment.load(url)) }
                     }
                 }
@@ -1076,7 +1106,7 @@ struct ConversationView: View {
             c.run { do { try await c.execute(t) } catch { restore(); throw error } }; return
         }
         atBottom = true
-        c.run { do { try await c.prompt(t, images: imgs, files: fs) } catch { restore(); throw error } }
+        c.run(waits: false) { do { try await c.prompt(t, images: imgs, files: fs) } catch { restore(); throw error } }
     }
 
     /// Downscale to 1600 px and JPEG-encode so a photo stays well under the gateway's 16 MB body cap.
@@ -1085,6 +1115,28 @@ struct ConversationView: View {
         let s = min(1, 1600 / max(img.size.width, img.size.height))
         let size = CGSize(width: img.size.width * s, height: img.size.height * s)
         return UIGraphicsImageRenderer(size: size).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }.jpegData(compressionQuality: 0.7)
+    }
+}
+
+/// Your message while it goes to the Mac: the same bubble as a sent message, faded, with "Sending…" under it.
+struct OutgoingView: View {
+    let o: Outgoing
+    var body: some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack {
+                Spacer(minLength: 48)
+                VStack(alignment: .trailing, spacing: 4) {
+                    if o.attachments > 0 { Label("\(o.attachments) attachment(s)", systemImage: "paperclip").font(.caption) }
+                    if !o.text.isEmpty { Text(verbatim: o.text) }
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .opacity(0.55)
+            HStack(spacing: 6) { ProgressView().controlSize(.mini); Text("Sending…") }.font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -1110,10 +1162,10 @@ struct LineView: View {
             if line.kind == .user {
                 if let onEdit { Button { onEdit(line.text) } label: { Label("Edit", systemImage: "pencil") } }
                 if let onRollback { Button(action: onRollback) { Label("Roll back to before this message", systemImage: "arrow.uturn.backward") } }
-                Button { let l = line; c.run { try await c.resend(l) } } label: { Label("Resend", systemImage: "arrow.clockwise") }
+                Button { let l = line; c.run(waits: false) { try await c.resend(l) } } label: { Label("Resend", systemImage: "arrow.clockwise") }
             }
             if line.kind == .assistant, let p = promptLine(before: line.id, in: c.transcript) {
-                Button { c.run { try await c.resend(p) } } label: { Label("Regenerate", systemImage: "arrow.triangle.2.circlepath") }
+                Button { c.run(waits: false) { try await c.resend(p) } } label: { Label("Regenerate", systemImage: "arrow.triangle.2.circlepath") }
             }
         }
         .sheet(isPresented: $selecting) {
@@ -1203,7 +1255,7 @@ struct LineView: View {
             VStack(alignment: .leading, spacing: 6) {
                 tap(Label(line.text, systemImage: "exclamationmark.triangle").font(.caption.monospaced()).foregroundStyle(.red), 6)
                 if !c.running, let p = retryPrompt(for: line.id, in: c.transcript) {
-                    Button { c.run { try await c.resend(p) } } label: { Label("Retry", systemImage: "arrow.clockwise").font(.footnote.weight(.medium)) }
+                    Button { c.run(waits: false) { try await c.resend(p) } } label: { Label("Retry", systemImage: "arrow.clockwise").font(.footnote.weight(.medium)) }
                         .buttonStyle(.bordered).controlSize(.small).tint(.secondary)
                 }
             }
@@ -1485,7 +1537,7 @@ struct ModelMenu: View {
                 .padding(.horizontal, 10).frame(height: 32).background(Color(.tertiarySystemFill), in: Capsule())
         }
         .accessibilityLabel(Text("Model"))
-        .onAppear { if c.catalog.isEmpty { c.run { try await c.loadCatalog() } } }
+        .onAppear { if c.catalog.isEmpty { c.run(waits: false) { try await c.loadCatalog() } } }
     }
     @ViewBuilder func pick(_ t: String, _ on: Bool) -> some View { if on { Label(t, systemImage: "checkmark") } else { Text(t) } }
 }
@@ -1626,7 +1678,7 @@ struct SessionsView: View {
                 switch sessionsPlaceholder(loaded: c.sessionsLoaded, count: c.sessions.count, state: c.state) {
                 case .offline: OfflineView()
                 case .empty: ContentUnavailableView { Label("No sessions", systemImage: "tray") } actions: { Button("New session") { creating = true }.buttonStyle(.borderedProminent) }
-                case .loading: ProgressView("Loading sessions…")
+                case .loading: ProgressView(c.state == .connected ? "Loading sessions…" : "Connecting to your Mac…")
                 case .none: EmptyView()
                 }
             } }
@@ -2637,7 +2689,10 @@ struct RollbackSheet: View {
             }
             .disabled(working)
             .navigationTitle("Roll back").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                if working { ToolbarItem(placement: .principal) { ProgressView() } }
+            }
             .task { if let s = line.seq { files = try? await c.rollbackPreview(s) }; checked = true }
         }
         .presentationDetents([.medium, .large])

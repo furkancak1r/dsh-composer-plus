@@ -9,6 +9,8 @@ Tether shows the Composer Plus features of the Mac on the iPhone. This table lis
 
 A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an entry in `PLUS` in `gateway/server.mjs`. Never add a switch route (`{on}`), the updater or the screenshots to `PLUS`.
 
+While a Composer Plus action in this table waits for the Mac, Tether shows a wait indicator: the action's own spinner (Changes, Tree, Feature ideas, Improve prompt, Roll back, Redo), or "Waiting for your Mac…" at the top of the screen when the answer takes longer than 0.4 s. See "Mac'i beklerken" in `README.md`.
+
 | id | Tether | Where in Tether, or why not |
 |---|---|---|
 | changesPanel | yes | Chat title menu → Changes: the **Mode** menu (Uncommitted, Unstaged, Staged, Branch, This chat: the files that the chat's file tools wrote, against the project before its first message, refreshed every 15 s), Hide whitespace (`git diff -w`, kept on the phone, for every mode and diff), files with +/−, tap a file for its diff. Refreshes every 4 s. The branch name or **Tree** opens the branch tree: **Branches** scrolls to a branch, tap a commit for its files and diffs. |

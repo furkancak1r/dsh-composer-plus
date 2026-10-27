@@ -880,3 +880,31 @@ Owner request (chat): add the missing documentation and check the iOS app.
   - Keyboard over Tree/diff after Branches: not reproduced on the iPhone (5 tries: Branches → a branch, a commit, a diff, back, and with the chat's composer focused before Changes opened). Not changed.
   - Queue Edit while a turn streams: not reproduced on the iPhone (4 of 4 taps opened "Edit queued message" at once while "Working . . ." streamed). Not changed.
   - iOS tests 48/48. Installed on the iPhone with `devicectl` (app data kept).
+
+## Tether: a waiting indicator for every wait on the Mac (2026-10-27)
+Request (owner): while Tether waits for the Mac, show a loading indicator, never an error or a frozen screen. (1) Start: about 1 s of "Not connected", then the chats: show a spinner while the first connect runs; "Not connected" only when the connect really failed. (2) Send: away from home a sent message showed nothing for 3–5 s: show it at once as "sending". (3) List every action that waits for the Mac and give each one the same kind of indicator. Test on the owner's iPhone with a throwaway dsh ("Demo Mac"), delay made on the throwaway gateway (owner's choice); never touch the live dsh or real projects. Work in the worktree `dsh-composer-plus-loading` (branch `tether-loading`), because the main checkout has another session's uncommitted work.
+Root causes (read in the code):
+- Start: `Client.state` starts as `.off` and `connect()` runs only on `scenePhase == .active`, so the first frames draw OfflineView ("Not connected").
+- Back from the background: `drop()` set `.reconnecting` for a link that had worked, and every view treats `.reconnecting` as offline.
+- Send: no row until the Mac's `user/message` comes on the stream; the old "Sending…" row stayed below the old messages. Away on another Wi‑Fi (owner: "evde denedim işe bağlanmayı"), `call()` tried the Mac's LAN address first on every request and waited its 5 s time-out before Tailscale.
+- Other actions (`c.run { … }`): no feedback at all until the answer came.
+Waiting actions found (UI.swift): create, fork, pin/unpin, archive/unarchive, rename, delete, goal create/edit/pause/resume/complete/clear, queue steer/edit/remove/move, stop, continue, leave plan, compact, slash commands, model/permission/preset select, approvals and questions (answer, Allow for this chat, Decide on Mac), revoke grants, Mark all as read, subagent message and interrupt. Already with their own spinner: Load earlier messages, Improve prompt, Changes/Tree/Commit/Diff loads, Feature ideas (`busy`), Redo, message search, Agents pull-to-refresh, rollback/redo previews.
+Decisions:
+- One app-wide `WaitPill` ("Waiting for your Mac…", spinner, no taps taken) for every `Client.run` action that takes longer than 0.4 s; `run(waits: false)` for actions with their own progress (send, resend, Load earlier, the file picker, the model list load).
+- Start: `state = .connecting` in `init` when a Mac is paired; the Sessions and chat placeholders say "Connecting to your Mac…". A dropped live link retries as `.connecting` (`afterDrop`); foreground `wake()` starts a fresh try. "Not connected" stays for a connect that failed.
+- Send: `Outgoing` (request id = `session/prompt` `requestId`): the message shows at once, faded, with "Sending…"; the Mac's copy (a `user/message` or a queued inbox item with `source.rpcId`) replaces it; a failed send removes it and puts the draft back (as before); a 15 s fallback removes a bubble whose copy never came on the stream.
+- `addressOrder`: the address that answered last goes first (same order as before when nothing answered yet).
+- A chat that opens shows "Loading the chat…" until its snapshot (`loadingChat`), not the empty-chat screen. Roll back gets a spinner like Redo.
+Checks: iOS tests (new `testWaitingIndicators`), `npm test`; owner's iPhone against a throwaway dsh 0.2.1-rc.2 + gateway "Demo Mac" that delays every request; afterwards the phone back on "İş", Demo Mac unpaired, temp files removed.
+Checkpoint (code): iOS tests 49/49 on the iPhone 17 Pro simulator.
+- Change after the first iPhone run: the WaitPill timer moved from the view into `Client` (`waitShown`, 0.4 s, generation counter); in the view a `.task(id:)` that started in the first frame never showed the pill. The unit test checks it (not shown at once, shown after 0.4 s, gone with the last wait).
+- iPhone check (owner's iPhone 13, iOS 27.2, 2026-10-27; agent-device with the signed runner; throwaway dsh 0.2.1-rc.2 on 3298, fake model 19497, a delay proxy on 3299 that holds each request, socket start and socket frame for `delay.txt` ms, gateway "Demo Mac" on 19490/19491; the pairing link went over the cable; live dsh not touched):
+  - Start, 4 s delay: 0.9–4.8 s "Connecting to your Mac…" + "Connecting…", 5.5 s "Connected" + "Loading sessions…", then the list. No "Not connected" sample.
+  - Start, gateway stopped: "Connecting to your Mac…" until ~10 s, then the offline view (Can't reach your Mac, Open Tailscale, Retry). Gateway back: "Connected" at ~17 s, list at ~29 s (backoff), no app restart.
+  - 40 s in the background, then open: "Connected" at once, list shown.
+  - Send "Say hello", 4 s delay: at +1.4 s the faded bubble with "Sending…"; at +5.5 s the Mac's copy and the answer, one bubble (no double).
+  - Unpin with a full swipe, 8 s delay: "Waiting for your Mac…" at +1.6 s (screenshot), gone after the answer.
+  - Open a chat, 4 s delay on socket frames: "Loading the chat…" from +1.4 s to +4.4 s, then the messages; never the empty-chat screen.
+  - Not checked on the iPhone: "Sending…" for a message that goes into the queue while a turn runs (agent-device could not tap Queue: two tries typed into the field and the turn ended first). Covered by the unit test (inbox splice with the same request id ends the wait).
+  - After: phone switched back to "İş" (Connected), Demo Mac unpaired (only Ev and İş left), processes stopped (3298, 3299, 19490, 19491, 19497 free), temp folders removed.
+- Final checks: iOS tests 49/49, `npm test` exit 0.
