@@ -26,7 +26,7 @@ Composer Plus'ın her özelliğinin Tether'deki yeri [FEATURES.md](FEATURES.md) 
 
 Son eklenenler:
 
-- **Mark all as read**: Oturumlar'da proje başlığını basılı tutun. Projenin bütün yeşil noktaları telefonda ve Mac'in okunmamış listesinde gider.
+- **Mark all as read**: Oturumlar'da proje başlığının yanındaki **…** düğmesine dokunun. Projenin bütün yeşil noktaları telefonda ve Mac'in okunmamış listesinde gider. Aynı menüde **Copy path** da vardır.
 - **Copy message link**: bir mesajı basılı tutun. Bağlantı sohbeti ve mesajı gösterir. Mesajınızdaki bağlantının altında **Open message** düğmesi çıkar. Dokununca o sohbet açılır ve mesaj 2 sn işaretlenir.
 - **Kuyruktaki mesajı düzenleme**: kuyruk satırının menüsü → **Edit**. Mesaj kuyruktaki yerini korur.
 - **Redo**: geri almadan sonra yazı alanının üstünde **Redo** çıkar. Geri alınan tur yeni bir sohbette geri gelir; istenirse dosyalar da geri gelir. Eski sohbet olduğu gibi kalır.
@@ -57,7 +57,7 @@ Sistemde "azaltılmış hareket" açıksa halka dönmez.
 1. DSH'ye dsh-composer-plus eklentisini kur: Ayarlar → Eklentiler → **Eklenti ekle** → `dsh-composer-plus`.
 2. **Ayarlar → Composer Plus → Mobile connect (iPhone)** anahtarını aç. Gateway hemen başlar ve DSH yeniden açıldığında da başlar. `openssl` ilk açılışta self-signed sertifika üretir. Veriler `$DSH_HOME/storages/dsh-composer-plus/mobile/` klasöründedir (cihazlar, sertifika, QR). Ortam değişkenleri: `DSH_MOBILE_IFACE` (varsayılan `en0`), `DSH_MOBILE_PORT` (19390), `DSH_MOBILE_ADMIN_PORT` (19391), `DSH_MOBILE_DIR`.
 3. DSH'de sol alttaki **Mobile connect** düğmesine bas ya da Mac'te `http://127.0.0.1:19391/` adresini aç. QR, cihazlar ve Tailscale durumu görünür.
-4. iOS: `ios/DSHMobile.xcodeproj` aç, gerçek cihaz için Signing Team seç, çalıştır.
+4. iOS: `ios/DSHMobile.xcodeproj` aç, gerçek cihaz için Signing Team seç, çalıştır. Xcode'da Apple hesabı yoksa uygulama, Mac'teki kayıtlı geliştirici sertifikasıyla elle imzalanır ve `xcrun devicectl device install app` ile kurulur. Adımlar [AGENTS.md](AGENTS.md) dosyasının "Signing for the iPhone" bölümündedir.
 5. QR kodunu iPhone **Kamera** uygulamasıyla okut ve **Tether'de Aç**'a dokun, ya da Tether'de **Scan code**'a dokun. Telefonda **Connect**'e, Mac'te **Approve**'a bas. Kamera yalnız Tether kuruluysa çalışır: QR bir `tether://pair?…` bağlantısıdır. Bağlantı tek başına eşleştirmez: Tether önce sorar.
 6. Proje dosyası `ios/project.yml`'den üretilir: değişiklikten sonra `cd ios && xcodegen generate`.
 
@@ -170,7 +170,7 @@ Gerçek iPhone için:
 - Gateway: depo kökünde `npm test` (`test/tether-gateway.test.mjs`: subnet, tailnet, eşleme + hash'li saklama, yetkisiz erişim, kod tekrarı/süre/ret, MITM, allowlist, iptal + replay, LAN-only, ağ değişimi, event yönlendirme, eşzamanlılık, brute force, token yenileme) ve `test/mobile-connect.test.mjs` (anahtar, gateway yaşam döngüsü, Ayarlar satırı, kenar çubuğu düğmesi).
 - Gerçek DSH ile eklenti içinden uçtan uca: `PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js` (varsayılan kapalı, anahtarı açma, QR'lı açılır pencere, sahte iPhone eşleme + `session/list`, allowlist 403, kapatınca portların kapanması). Mac'in Wi-Fi adresi gerekir.
 - iOS: `cd ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,name=iPhone 17 Pro' test CODE_SIGNING_ALLOWED=NO` → **48/48 geçti** (Xcode 27.1, 27.10.2026). Dört paket: `CoreTests` (sertifika pin'i ve MITM reddi, LAN ve tailnet adresleri, QR ve eşleşme bağlantısı, Markdown, birden fazla Mac, yeni sohbet isteği, dallanan (fork) sohbet, eski geçmişi yükleme, Composer Plus kuralları, mesaj bağlantısı, okunmamış noktalar, Redo, Changes sorgusu), `UserTextTests` (mesajdaki bağlantı), `BranchTreeTests` (dal ağacı) ve `AppLockTests` (Face ID kilidi). Simülatör yoksa paket Mac Catalyst hedefiyle (`-target arm64-apple-ios17.0-macabi`) derlenip çalıştırılabilir.
-- Gerçek cihaz: iPhone 13 için imzalı derleme (`-destination 'platform=iOS,name=iPhone' -allowProvisioningUpdates`), `xcrun devicectl device install app` ile kurulum ve açılış **başarılı**.
+- Gerçek cihaz (iPhone 13, iOS 27.2, 27.10.2026): imzasız derleme, kayıtlı sertifikayla elle imza ([AGENTS.md](AGENTS.md), "Signing for the iPhone"), `xcrun devicectl device install app` ile kurulum **başarılı**; eşleşmeler korunur. agent-device ile telefonda dokunma testi için Mac'te `DevToolsSecurity` açık olmalıdır.
 - Canlı DSH uçtan uca (`test/tether-e2e.mjs`, elle çalıştırılır; birleşmeden önceki sonuç) → **14/14 geçti**, gerçek DSH 0.2.0-rc.2 ve gerçek LAN adresi (192.168.1.44) üzerinde: yanlış pin reddi, eşleme + onay, kod tekrarı reddi, upstream bağlantısı, session/list·create·rename, goals/get, agentPresets/list, session/modelCatalog, allowlist dışı yöntem 403, WSS session/follow snapshot, iptal sonrası 401. Ayrıca `dns-sd -L` ile Bonjour yayını (fp TXT kaydıyla) ve `lsof` ile yalnızca `192.168.1.44:19390` + `127.0.0.1:19391` dinlendiği doğrulandı.
 
 `test/tether-e2e.mjs`, Mobile connect anahtarı açık ve model hesabı olan bir DSH'ye bağlanır, gerçek bir model turu da dener. Kendi profilin yerine geçici bir `DSH_HOME` kullan.

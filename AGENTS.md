@@ -42,7 +42,10 @@ When you start threads (subagents, forks, workflow agents, background jobs), sen
 ## Release
 
 - Bump `version` in `package.json` and the two `dsh-composer-plus@x.y.z` notes in `README.md` and in each `README.<id>.md`.
-- Run `npm test`, then commit and push. CI must pass before you create the GitHub release `vX.Y.Z`.
-- npm needs the owner's browser approval: run `npm publish --access public --auth-type=web` in a terminal (TTY).
-- Live desktop copy: back it up first, and keep its module id `@local/dsh-composer-history`. Never restart dsh.
+- Choose the bump from the commits since the last tag (`git log vX.Y.Z..HEAD`): a new feature is minor, only fixes are patch.
+- Run `npm test`, then commit and push. CI must pass before you create the GitHub release `vX.Y.Z` (`gh release create vX.Y.Z --target <sha> --latest`).
+- The release publishes to npm by itself: `.github/workflows/release.yml` (trusted publishing, no token, needs the repository variable `NPM_TRUSTED_PUBLISHING=on`) runs `npm test` and `npm publish` with provenance. Watch it with `gh run watch`. Do not run `npm publish` by hand. Only when that workflow cannot publish: `npm publish --access public --auth-type=web` in a terminal (TTY), with the owner's browser approval.
+- Check both places that Automatic updates reads: `https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest` (tag) and `https://registry.npmjs.org/dsh-composer-plus/<x.y.z>` (this exact version). `npm view` can show the old `latest` for some minutes after the publish (registry cache); the exact-version URL shows it first.
+- Live desktop copy: `~/Documents/testdeepseekharness/dsh-composer-history` (linked from `~/.dsh/profiles/desktop/package.json`). Back it up first (a full copy next to it, `backup-before-vXYZ-<date>`). Copy client.js (keep line 12 as `id: '@local/dsh-composer-history'`), index.js, `tether/gateway/*`, new or changed `assets/features/*.webp` and `locale/*.json`; set only `version` in its package.json (keep its name and `private`); never touch its `cordis.patch.yml`. Never restart dsh: the copy loads at the owner's next dsh start.
+- Tether (the iPhone app) is not in the release. When it changed, build and install it only when the owner asks (`tether/AGENTS.md`, "Signing for the iPhone").
 - The npm package ships only `tether/gateway/{server.mjs,admin.html,qr.swift}` from `tether/` (see `files` in `package.json`). Check with `npm pack --dry-run`.

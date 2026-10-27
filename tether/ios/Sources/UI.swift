@@ -1572,34 +1572,34 @@ struct SessionsView: View {
                             // List's own row insert animation; a custom .move transition made rows pop in on expand
                             ForEach(folded ? [] : g.items) { s in sessionRow(s) }
                         } header: {
-                            Button {
-                                withAnimation(.snappy(duration: 0.3)) { shownFolds = toggledFold(shownFolds, g.title) }
-                                folds = shownFolds
-                            } label: {
-                                HStack {
-                                    Label("\(g.title) (\(g.items.count))", systemImage: groupIcon(g.title))
-                                    Spacer()
-                                    // Project status (Composer Plus): a folded project still says that a chat works or waits
-                                    if let m = projectMark(g.items, all: c.sessions, waiting: c.waitingChats, finished: c.finished) { ProjectMarkView(mark: m) }
-                                    Image(systemName: "chevron.right").rotationEffect(.degrees(folded ? 0 : 90))
-                                }
-                                .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.secondary)
-                            .contextMenu {
-                                if let path = g.path {
-                                    Button { UIPasteboard.general.string = path } label: { Label("Copy path", systemImage: "doc.on.doc") }
-                                    // Mark all as read (Composer Plus): every chat of the project, also a pinned one.
-                                    let ids = c.workspaces.first { $0.path == path && $0.title == g.title }?.sessions ?? g.items.map(\.id)
-                                    let unread = unreadIn(ids, finished: c.finished)
-                                    if c.plus.contains("unread"), !unread.isEmpty {
-                                        Button { c.run { try await c.markAllRead(unread) } } label: { Label("Mark all as read", systemImage: "checkmark.circle") }
+                            HStack(spacing: 4) {
+                                Button {
+                                    withAnimation(.snappy(duration: 0.3)) { shownFolds = toggledFold(shownFolds, g.title) }
+                                    folds = shownFolds
+                                } label: {
+                                    HStack {
+                                        Label("\(g.title) (\(g.items.count))", systemImage: groupIcon(g.title))
+                                        Spacer()
+                                        // Project status (Composer Plus): a folded project still says that a chat works or waits
+                                        if let m = projectMark(g.items, all: c.sessions, waiting: c.waitingChats, finished: c.finished) { ProjectMarkView(mark: m) }
+                                        Image(systemName: "chevron.right").rotationEffect(.degrees(folded ? 0 : 90))
                                     }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu { projectActions(g) }
+                                .accessibilityValue(folded ? "Collapsed" : "Expanded")
+                                .accessibilityHint(folded ? "Shows this group's sessions" : "Hides this group's sessions")
+                                // A press and hold on a List section header does not always open its menu (iOS 26
+                                // simulator), so the project's actions also have a "…" button that opens with a tap.
+                                if g.path != nil {
+                                    Menu { projectActions(g) } label: {
+                                        Image(systemName: "ellipsis").frame(width: 32, height: 28).contentShape(Rectangle())
+                                    }
+                                    .accessibilityLabel("Project actions")
                                 }
                             }
-                            .accessibilityValue(folded ? "Collapsed" : "Expanded")
-                            .accessibilityHint(folded ? "Shows this group's sessions" : "Hides this group's sessions")
+                            .foregroundStyle(.secondary)
                         }
                     }
                 } else {
@@ -1696,6 +1696,18 @@ struct SessionsView: View {
         withAnimation(.snappy(duration: 0.3)) { shownFolds = f }
         folds = f
     }
+    /// A project's actions: Copy path and Composer Plus Mark all as read (every chat of the project, also a pinned one).
+    @ViewBuilder func projectActions(_ g: (title: String, items: [Sess], path: String?)) -> some View {
+        if let path = g.path {
+            Button { UIPasteboard.general.string = path } label: { Label("Copy path", systemImage: "doc.on.doc") }
+            let ids = c.workspaces.first { $0.path == path && $0.title == g.title }?.sessions ?? g.items.map(\.id)
+            let unread = unreadIn(ids, finished: c.finished)
+            if c.plus.contains("unread"), !unread.isEmpty {
+                Button { c.run { try await c.markAllRead(unread) } } label: { Label("Mark all as read", systemImage: "checkmark.circle") }
+            }
+        }
+    }
+
     func sessionRow(_ s: Sess) -> some View {
         Button { open(s.id) } label: { row(s) }
             .swipeActions(edge: .leading) { Button { c.run { try await c.togglePin(s.id) } } label: { Label(pinLabel(s), systemImage: "pin") }.tint(.orange) }

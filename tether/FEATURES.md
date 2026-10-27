@@ -18,7 +18,7 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | deleteChat | yes | Chat title menu, or touch and hold a chat in Sessions → Delete…. |
 | projectName | yes | The folder name under the composer and in each chat row. |
 | projectStatus | yes | Each project header in Sessions shows the waiting hand, the green dot or the spinner. The green dots come from the Mac: a chat opened in dsh or on another phone loses its dot here too. |
-| markProjectRead | yes | Touch and hold a project header in Sessions → Mark all as read (shown while a chat of that project has a green dot). Clears the green dots of that project's chats on the phone and in the Mac's unread list (Tether's dots); the desktop's own dots clear when opened there. |
+| markProjectRead | yes | Sessions → the "…" button next to a project header → Mark all as read (shown while a chat of that project has a green dot). Clears the green dots of that project's chats on the phone and in the Mac's unread list (Tether's dots); the desktop's own dots clear when opened there. |
 | activeProjectsFirst | yes | Sessions follows dsh's project order, which the desktop moves. |
 | recentProjects | yes | Sessions filter menu → Active in the last 2 hours. |
 | collapseProjects | yes | Sessions toolbar → Collapse all projects button, shown only while a project is open. |
@@ -35,7 +35,7 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | copyDeeplink | yes | Chat title menu, or touch and hold a chat → Copy session link. |
 | copyMessageLink | yes | Touch and hold a message (yours or an answer) → Copy message link. A message link in your message shows an Open message button: a tap opens that chat, scrolls to the message and marks it for 2 s. |
 | exportMarkdown | yes | Chat title menu → Copy conversation or Share conversation: Markdown with the same section shape as the Mac's export (`## You` / `## Assistant`, code blocks kept, an open fence closed, no messages that Turn rollback or dsh-rewind-plugin withdrew), without the project and date line; Share sends it to another app. |
-| copyProjectPath | yes | Touch and hold a project header in Sessions → Copy path. |
+| copyProjectPath | yes | Sessions → the "…" button next to a project header → Copy path. |
 | projectPicker | yes | New session (✎) → the projects show A–Z, the search box filters them (case and accents ignored), Return picks the first match. |
 | nextPrediction | yes | After a finished turn, the guess for the next message shows above the empty composer; a tap puts it in the field. The switch and the model stay in the Mac's Settings. |
 | typingCompletion | yes | While you type, after a short pause the rest of the message shows above the field; a tap adds it. The switch and its model stay in the Mac's Settings (by default the model of Next message prediction). |

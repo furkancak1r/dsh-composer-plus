@@ -25,11 +25,40 @@ Do not use `npx -y agent-device@latest` in place of the installed CLI.
 For a physical iPhone, also do these steps:
 
 1. Make sure that the iPhone is paired, trusted and unlocked, and that Developer Mode is on. Read `agent-device help physical-device`.
-2. Sign the runner app with the Tether team. Set these variables in the shell that runs agent-device:
+2. On this Mac, `DevToolsSecurity -status` must say "enabled". When it says "disabled", the runner cannot start (`devtools_security_developer_mode_disabled`) and `snapshot` fails. Only the owner can switch it on with `sudo DevToolsSecurity -enable` (it asks for the Mac password). Ask the owner. This is the Mac setting, not the iPhone's Developer Mode.
+3. Sign the runner app with the Tether team. Set these variables in the shell that runs agent-device:
    - `AGENT_DEVICE_IOS_TEAM_ID=9LYL5R6LS4`
    - `AGENT_DEVICE_IOS_BUNDLE_ID=com.furkancakir.agentdevice.runner`
 
 The first run builds the runner app and installs it on the iPhone. This run takes more time than the next runs.
+
+### Signing for the iPhone
+
+Xcode on this Mac has no Apple account, so `-allowProvisioningUpdates` fails ("No Accounts", "No profiles for 'com.furkancakir.dshmobile'"). The owner does not want to sign in to Xcode. Sign with the files in `~/Library/Application Support/TetherSigning/` instead:
+
+- `dev.key` + `dev.pem` (= `dev.cer`): the Apple Development certificate of team 9LYL5R6LS4. It ends on 2027-10-20.
+- `dev.mobileprovision`: "Tether Device Build 2026-10-20", App ID `9LYL5R6LS4.*`, includes the owner's iPhone 13 (device name `iPhone`). It ends on 2027-10-20. A new iPhone is not in it: then the owner must make a new profile.
+- `ent.plist`: the app's entitlements.
+- `tether-sign.keychain-db`, `kc.pw` and `dev.p12`: do not use them. `kc.pw` does not open the keychain or `dev.p12`.
+
+Use these files only when the owner asks for an iPhone build. Never print, copy or commit the key. Build without signing, then sign with a temporary keychain under `build/signing/` (git ignores `build/`) and delete it at once:
+
+```sh
+xcodebuild -project ios/DSHMobile.xcodeproj -scheme DSHMobile -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO
+S="$HOME/Library/Application Support/TetherSigning"; W="$PWD/build/signing"; A=build/DerivedData/Build/Products/Debug-iphoneos/DSHMobile.app
+mkdir -p "$W" && chmod 700 "$W"; KC="$W/tmp.keychain-db"; export PW=$(openssl rand -hex 24)
+security create-keychain -p "$PW" "$KC" && security set-keychain-settings "$KC" && security unlock-keychain -p "$PW" "$KC"
+openssl pkcs12 -export -legacy -inkey "$S/dev.key" -in "$S/dev.pem" -name "Tether Dev" -passout env:PW -out "$W/tmp.p12"
+security import "$W/tmp.p12" -k "$KC" -f pkcs12 -P "$PW" -T /usr/bin/codesign >/dev/null && rm "$W/tmp.p12"
+security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KC" >/dev/null
+ID=$(security find-identity -v -p codesigning "$KC" | awk '/Apple Development/ {print $2; exit}')
+cp "$S/dev.mobileprovision" "$A/embedded.mobileprovision"
+for x in "$A"/*.dylib; do codesign -f -s "$ID" --keychain "$KC" --timestamp=none "$x"; done
+codesign -f -s "$ID" --keychain "$KC" --entitlements "$S/ent.plist" --timestamp=none "$A" && codesign --verify --deep --strict "$A" && echo signed
+security delete-keychain "$KC"; unset PW
+```
+
+Then install with `xcrun devicectl device install app --device iPhone build/DerivedData/Build/Products/Debug-iphoneos/DSHMobile.app`. This keeps the app's data (pairings, settings). `agent-device install` and `reinstall` remove it, so after them the phone must pair again.
 
 ### Use
 
@@ -41,9 +70,9 @@ Simulator:
 
 iPhone (the device name is `iPhone`; if `open` cannot find it, run `agent-device devices --platform ios`):
 
-1. Build: `xcodebuild -project ios/DSHMobile.xcodeproj -scheme DSHMobile -configuration Debug -destination 'platform=iOS,name=iPhone' -derivedDataPath build/DerivedData -allowProvisioningUpdates build`
-2. Install: `agent-device install com.furkancakir.dshmobile build/DerivedData/Build/Products/Debug-iphoneos/DSHMobile.app --platform ios --device iPhone`
-3. Open: `agent-device open com.furkancakir.dshmobile --platform ios --device iPhone --foreground`
+1. Build and sign: see "Signing for the iPhone" above. (`-allowProvisioningUpdates` works only when Xcode has an Apple account.)
+2. Install: `xcrun devicectl device install app --device iPhone build/DerivedData/Build/Products/Debug-iphoneos/DSHMobile.app` (keeps the app's data).
+3. Open: `agent-device open com.furkancakir.dshmobile --platform ios --device iPhone --foreground`. If the first snapshot fails with "Developer mode is disabled for Apple development tools", see step 2 of the physical iPhone steps.
 
 Then, on the two targets:
 
