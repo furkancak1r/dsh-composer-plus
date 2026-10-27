@@ -27,7 +27,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.12.0`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.13.0`.
 
 ## Features
 
@@ -147,7 +147,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-rc.2` (web). CI runs the
 - **Delete says another dsh has this chat open:** a second dsh on the same dsh home holds the chat's lock. Close that window or dsh, then delete again. The chat stays archived meanwhile.
 - **My iPhone cannot connect after I switched on Tailscale only:** Tailscale must be on in both the Mac and the iPhone. The Mobile connect panel warns when it is off on the Mac. The access log shows each refused attempt with its reason.
 - **A chat did not continue after a restart:** Resume after restart was off when dsh quit, you stopped that turn yourself, the turn had ended (done or failed), the chat was archived, or more than 20 chats were running (the newest 20 continue).
-- **Install fails right after a release:** add the version (`dsh-composer-plus@1.12.0`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.13.0`), see the install note above.
 
 ## Limits
 

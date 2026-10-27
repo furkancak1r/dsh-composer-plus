@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Sau đó khởi động lại dsh. (CLI không cài được vào profile desktop; ứng dụng tự quản lý profile này.)
 
-> pnpm của dsh bỏ qua các phiên bản ra mắt chưa đủ 24 giờ. Ngay sau một bản phát hành, hãy thêm số phiên bản: `dsh-composer-plus@1.12.0`.
+> pnpm của dsh bỏ qua các phiên bản ra mắt chưa đủ 24 giờ. Ngay sau một bản phát hành, hãy thêm số phiên bản: `dsh-composer-plus@1.13.0`.
 
 ## Tính năng
 
@@ -149,7 +149,7 @@ Khi menu `/` hoặc `@` đang mở, menu đó giữ các phím này cho riêng n
 - **Thao tác xóa báo rằng một dsh khác đang mở cuộc trò chuyện này:** một dsh thứ hai dùng cùng thư mục home của dsh đang giữ khóa của cuộc trò chuyện. Hãy đóng cửa sổ đó hoặc dsh đó, rồi xóa lại. Trong lúc đó, cuộc trò chuyện vẫn ở trạng thái đã lưu trữ.
 - **iPhone không kết nối được sau khi tôi bật "Tailscale only":** Tailscale phải được bật trên cả máy Mac và iPhone. Bảng Kết nối di động sẽ cảnh báo khi Tailscale đang tắt trên máy Mac. Nhật ký truy cập hiện từng lần thử bị từ chối kèm lý do.
 - **Một cuộc trò chuyện không tiếp tục sau khi khởi động lại:** Tiếp tục sau khi khởi động lại đang tắt khi dsh thoát, bạn đã tự dừng lượt đó, lượt đã kết thúc (xong hoặc thất bại), cuộc trò chuyện đã được lưu trữ, hoặc có hơn 20 cuộc trò chuyện đang chạy (20 cuộc trò chuyện mới nhất sẽ tiếp tục).
-- **Cài đặt thất bại ngay sau một bản phát hành:** thêm số phiên bản (`dsh-composer-plus@1.12.0`), xem ghi chú cài đặt ở trên.
+- **Cài đặt thất bại ngay sau một bản phát hành:** thêm số phiên bản (`dsh-composer-plus@1.13.0`), xem ghi chú cài đặt ở trên.
 
 ## Giới hạn
 

@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Sonra dsh’yi yeniden başlatın. (CLI, masaüstü profiline yükleme yapamaz; bu profili uygulama yönetir.)
 
-> dsh’nin pnpm’i, yayımlanmasının üzerinden 24 saat geçmemiş sürümleri atlar. Bir yayından hemen sonra sürümü ekleyin: `dsh-composer-plus@1.12.0`.
+> dsh’nin pnpm’i, yayımlanmasının üzerinden 24 saat geçmemiş sürümleri atlar. Bir yayından hemen sonra sürümü ekleyin: `dsh-composer-plus@1.13.0`.
 
 ## Özellikler
 
@@ -149,7 +149,7 @@ dsh `0.2.0-rc.2` (masaüstü ve web) ve `0.2.1-rc.2` (web) üzerinde test edildi
 - **Silme, bu sohbetin başka bir dsh’de açık olduğunu söylüyor:** aynı dsh ana klasörünü kullanan ikinci bir dsh, sohbetin kilidini tutuyor. O pencereyi ya da dsh’yi kapatın, sonra yeniden silin. Bu sırada sohbet arşivlenmiş olarak kalır.
 - **"Tailscale only" seçeneğini açtıktan sonra iPhone’um bağlanamıyor:** Tailscale hem Mac’te hem de iPhone’da açık olmalıdır. Tailscale Mac’te kapalıysa Mobil bağlantı paneli bir uyarı gösterir. Erişim günlüğü, reddedilen her denemeyi nedeniyle birlikte gösterir.
 - **Bir sohbet yeniden başlatmadan sonra devam etmedi:** dsh kapandığında Yeniden açılışta sürdür kapalıydı, o turu kendiniz durdurdunuz, tur bitmişti (tamamlandı ya da hata verdi), sohbet arşivlenmişti veya 20’den fazla sohbet çalışıyordu (en yeni 20 sohbet devam eder).
-- **Bir yayından hemen sonra yükleme başarısız oluyor:** sürümü ekleyin (`dsh-composer-plus@1.12.0`) ve yukarıdaki kurulum notuna bakın.
+- **Bir yayından hemen sonra yükleme başarısız oluyor:** sürümü ekleyin (`dsh-composer-plus@1.13.0`) ve yukarıdaki kurulum notuna bakın.
 
 ## Sınırlar
 

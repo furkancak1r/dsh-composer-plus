@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 然后重启 dsh。（CLI 无法安装到桌面版 profile 中；桌面版 profile 由应用自己管理。）
 
-> dsh 使用的 pnpm 会跳过发布不到 24 小时的版本。刚发布新版本时，请加上版本号：`dsh-composer-plus@1.12.0`。
+> dsh 使用的 pnpm 会跳过发布不到 24 小时的版本。刚发布新版本时，请加上版本号：`dsh-composer-plus@1.13.0`。
 
 ## 功能
 
@@ -149,7 +149,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **删除时提示另一个 dsh 已打开此对话：** 使用同一 dsh home 的另一个 dsh 持有该对话的锁。关闭那个窗口或那个 dsh，然后再次删除。在此期间，对话会保持归档状态。
 - **开启“Tailscale only”后 iPhone 无法连接：** Mac 和 iPhone 上都必须开启 Tailscale。Mac 上的 Tailscale 关闭时，手机连接面板会发出警告。访问日志会显示每次被拒绝的尝试及其原因。
 - **重启后对话没有继续：** dsh 退出时“重启后继续”处于关闭状态；或者你自己停止了那个回合；或者回合已经结束（完成或失败）；或者对话已被归档；或者当时有超过 20 个对话正在运行（只有最新的 20 个会继续）。
-- **刚发布新版本时安装失败：** 请加上版本号（`dsh-composer-plus@1.12.0`），见上文的安装说明。
+- **刚发布新版本时安装失败：** 请加上版本号（`dsh-composer-plus@1.13.0`），见上文的安装说明。
 
 ## 限制
 

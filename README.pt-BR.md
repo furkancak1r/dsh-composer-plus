@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Depois, reinicie o dsh. (A CLI não consegue instalar no perfil desktop; quem gerencia esse perfil é o app.)
 
-> O pnpm do dsh ignora versões publicadas há menos de 24 horas. Logo depois de uma nova versão, informe a versão: `dsh-composer-plus@1.12.0`.
+> O pnpm do dsh ignora versões publicadas há menos de 24 horas. Logo depois de uma nova versão, informe a versão: `dsh-composer-plus@1.13.0`.
 
 ## Recursos
 
@@ -149,7 +149,7 @@ Testado no dsh `0.2.0-rc.2` (desktop e web) e `0.2.1-rc.2` (web). A CI executa o
 - **Excluir diz que outro dsh está com este chat aberto:** um segundo dsh no mesmo dsh home está com o bloqueio do chat. Feche essa janela ou esse dsh e exclua de novo. Enquanto isso, o chat continua arquivado.
 - **Meu iPhone não consegue se conectar depois que ativei "Tailscale only":** o Tailscale precisa estar ativado no Mac e no iPhone. O painel da Conexão móvel avisa quando ele está desativado no Mac. O registro de acesso mostra cada tentativa recusada com o motivo.
 - **Um chat não continuou depois de reiniciar:** Retomar após reiniciar estava desativado quando o dsh fechou, você mesmo interrompeu aquele turno, o turno já tinha terminado (concluído ou com falha), o chat foi arquivado, ou mais de 20 chats estavam em execução (os 20 mais novos continuam).
-- **A instalação falha logo depois de uma nova versão:** informe a versão (`dsh-composer-plus@1.12.0`); veja a nota de instalação acima.
+- **A instalação falha logo depois de uma nova versão:** informe a versão (`dsh-composer-plus@1.13.0`); veja a nota de instalação acima.
 
 ## Limites
 

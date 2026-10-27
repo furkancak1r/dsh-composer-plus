@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Redémarrez ensuite dsh. (La CLI ne peut pas installer dans le profil de bureau ; c’est l’app qui le gère.)
 
-> Le pnpm de dsh ignore les versions publiées depuis moins de 24 heures. Juste après une nouvelle version, ajoutez le numéro de version : `dsh-composer-plus@1.12.0`.
+> Le pnpm de dsh ignore les versions publiées depuis moins de 24 heures. Juste après une nouvelle version, ajoutez le numéro de version : `dsh-composer-plus@1.13.0`.
 
 ## Fonctionnalités
 
@@ -149,7 +149,7 @@ Testé sur dsh `0.2.0-rc.2` (bureau et web) et `0.2.1-rc.2` (web). La CI exécut
 - **Supprimer indique qu’un autre dsh a cette discussion ouverte :** un second dsh qui utilise le même dossier personnel de dsh détient le verrou de la discussion. Fermez cette fenêtre ou ce dsh, puis supprimez de nouveau. En attendant, la discussion reste archivée.
 - **Mon iPhone ne peut pas se connecter depuis que j’ai activé « Tailscale only » :** Tailscale doit être activé sur le Mac et sur l’iPhone. Le panneau Connexion mobile vous avertit quand il est désactivé sur le Mac. Le journal d’accès montre chaque tentative refusée avec sa raison.
 - **Une discussion n’a pas repris après un redémarrage :** Reprendre après redémarrage était désactivée quand dsh s’est fermé, vous avez arrêté ce tour vous-même, le tour était fini (terminé ou en échec), la discussion était archivée, ou plus de 20 discussions étaient en cours (les 20 plus récentes reprennent).
-- **L’installation échoue juste après une nouvelle version :** ajoutez la version (`dsh-composer-plus@1.12.0`) ; voir la note d’installation plus haut.
+- **L’installation échoue juste après une nouvelle version :** ajoutez la version (`dsh-composer-plus@1.13.0`) ; voir la note d’installation plus haut.
 
 ## Limites
 
