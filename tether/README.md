@@ -24,6 +24,14 @@ Mac tarayıcısı ──▶ http://127.0.0.1:19391/  (admin: QR, eşleme onayı,
 
 Composer Plus'ın her özelliğinin Tether'deki yeri [FEATURES.md](FEATURES.md) dosyasındadır. Eklentiye yeni bir özellik eklenince bu tabloya da satır eklenmelidir; yoksa `npm test` hata verir (`test/tether-parity.test.mjs`).
 
+Son eklenenler:
+
+- **Mark all as read**: Oturumlar'da proje başlığını basılı tutun. Projenin bütün yeşil noktaları telefonda ve Mac'in okunmamış listesinde gider.
+- **Copy message link**: bir mesajı basılı tutun. Bağlantı sohbeti ve mesajı gösterir. Mesajınızdaki bağlantının altında **Open message** düğmesi çıkar. Dokununca o sohbet açılır ve mesaj 2 sn işaretlenir.
+- **Kuyruktaki mesajı düzenleme**: kuyruk satırının menüsü → **Edit**. Mesaj kuyruktaki yerini korur.
+- **Redo**: geri almadan sonra yazı alanının üstünde **Redo** çıkar. Geri alınan tur yeni bir sohbette geri gelir; istenirse dosyalar da geri gelir. Eski sohbet olduğu gibi kalır.
+- **Changes → This chat** ve **Hide whitespace**: sohbetin dosya araçlarının yazdığı dosyalar ve yalnız boşluk değişikliklerini gizleme.
+
 ## Sohbet ekranı: düşünme ve araç adımları
 
 Sohbet, DSH masaüstündeki gibi kısa görünür. Ayrıntılar akordiyon gibi kapalıdır; dokununca açılır.

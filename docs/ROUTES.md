@@ -7,8 +7,8 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | Route | Method | Request | Feature | Tether |
 |---|---|---|---|---|
 | `/api/composer-plus.continue` | POST | `{sessionId, afterSeq}`: continue the last stopped, failed or cut-off turn without a chat message. | continueButton | yes |
-| `/api/composer-plus.changes` | GET | `?sessionId&mode=uncommitted\|unstaged\|staged\|branch\|commit` (`&commit=<full id>` with `commit`): the changed files of the chat's folder or of one commit (read-only git) and the newest turn for Last Turn. | changesPanel | yes |
-| `/api/composer-plus.diff` | GET | `?sessionId&mode&path` (`&commit=<full id>` with `mode=commit`): the diff of one changed file. | changesPanel | yes |
+| `/api/composer-plus.changes` | GET | `?sessionId&mode=uncommitted\|unstaged\|staged\|branch\|commit\|chat` (`&commit=<full id>` with `commit`, `&ws=1` hides whitespace-only changes): the changed files of the chat's folder, of one commit or (`chat`) of the files that the chat's tools wrote (read-only git) and the newest turn for Last Turn. | changesPanel | yes |
+| `/api/composer-plus.diff` | GET | `?sessionId&mode&path` (`&commit=<full id>` with `mode=commit`, `&ws=1`): the diff of one changed file. | changesPanel | yes |
 | `/api/composer-plus.graph` | GET | `?sessionId`: the branch tree of the chat's folder: the newest 300 commits of the local and remote branches and HEAD, with parents and refs (read-only git), and the newest turn for Last Turn. | changesPanel | yes |
 | `/api/composer-plus.shot` | GET | `?id=<shot>`: one shipped Settings screenshot (`SHOTS` in index.js only). | Settings | no |
 | `/api/composer-plus.update` | GET | No query: the latest GitHub release compared with this copy (`latest`, `newer`, `managed`, `url`, `notes`); calls GitHub and npm. `?current=1`: only the running version (What's new), no network call. | autoUpdate | no |
@@ -19,8 +19,8 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.unread` | GET | `{unread: [sessionId]}`: Tether's green dots, the chats that finished and that no device opened yet (empty while Mobile connect is off). | mobileConnect | yes |
 | `/api/composer-plus.unread` | POST | `{sessionIds}` (1–1000 ids): these chats are read; answers the new `{unread}` and tells the phones. | mobileConnect | yes |
 | `/api/composer-plus.queue-move` | POST | `{sessionId, itemId, to, before}`: move one queued message in dsh's queue. | queueReorder | yes |
-| `/api/composer-plus.rollback` | GET | No query: the switch `{on}`. `?sessionId`: the withdrawn spans and whether dsh-rewind-plugin owns rollback. | turnRollback | yes |
-| `/api/composer-plus.rollback` | POST | `{on}` (the switch), or `{sessionId, seq, preview?, files?}`: list or take back the turns from that message, with the files when `files` is true. | turnRollback | yes |
+| `/api/composer-plus.rollback` | GET | No query: the switch `{on}`. `?sessionId`: the withdrawn spans, whether dsh-rewind-plugin owns rollback, and the rollback that Redo can take back (`redo`). | turnRollback | yes |
+| `/api/composer-plus.rollback` | POST | `{on}` (the switch), `{sessionId, seq, preview?, files?}`: list or take back the turns from that message, with the files when `files` is true, or `{sessionId, redo, preview?, files?, overwrite?}`: list or redo that rollback in a new chat (a fork), with the files. | turnRollback | yes |
 | `/api/composer-plus.delete-chat` | POST | `{sessionId}`: stop the chat and move its log folders, with its subagent chats, to the Trash. | deleteChat | yes |
 | `/api/composer-plus.content-search` | GET | The switch `{on, active}`. | contentSearch | no |
 | `/api/composer-plus.content-search` | POST | `{on}`: the switch (a switch route; applies after a dsh restart). | contentSearch | no |

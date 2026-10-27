@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync, lstatSync, openSync, closeSync, constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply, ROLLBACK_PATH, ROLLBACK_SOURCE, REWIND_SOURCE, SNAPSHOT_MAX, rollbackMarker, rollbackPlan, rollbackSpans, snapshotStore, writeBack } from '../index.js';
+import { apply, ROLLBACK_PATH, ROLLBACK_SOURCE, REWIND_SOURCE, SNAPSHOT_MAX, rollbackMarker, rollbackPlan, rollbackSpans, redoTarget, snapshotStore, writeBack } from '../index.js';
 
 const subprocess = {
   resolveExecutable: async () => execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(),
@@ -248,6 +248,26 @@ try {
     let calledOk = false;
     const r = await store.restore('session-broken', broken, 1, undefined, () => { calledOk = true; });
     assert.ok(calledOk && r.restored.includes('a.js'), 'with git working, the marker comes, then the files');
+    // The Redo record fails after the marker (here: `update-ref refs/r/…`): the messages are withdrawn, so the files must
+    // still come back; only the warning is logged and Redo then has no files to offer.
+    writeFileSync(join(broken, 'a.js'), 'changed again\n');
+    const logged = [];
+    const noRecord = { ...subprocess, spawn: (spec) => (spec.argv.some((a) => a.startsWith('refs/r/')) ? { done: Promise.resolve({ exitCode: 128 }), collected: { stdout: { readFrom: () => ({ text: '', lossy: false }) }, stderr: { readFrom: () => ({ text: 'fatal: lock' }) } } } : subprocess.spawn(spec)) };
+    const r2 = await snapshotStore({ subprocess: noRecord, dir, log: (t) => logged.push(t) }).restore('session-broken', broken, 1, undefined, () => 7);
+    assert.ok(r2.restored.includes('a.js'), 'files written although the redo record failed');
+    assert.equal(readFileSync(join(broken, 'a.js'), 'utf8'), 'a\n');
+    assert.match(logged.join('\n'), /redo record not saved/);
+    assert.deepEqual(await store.redoPreview('session-broken', broken, 7), { files: false }, 'no record: Redo offers the chat only');
+  }
+  // Many files: the paths go to `git ls-tree` in parts (here two), and the Redo record and preview still have each file.
+  {
+    const many = join(root, 'many-repo'); mkdirSync(many); git(many, 'init', '-q', '-b', 'main');
+    const names = Array.from({ length: 600 }, (_, i) => `${String(i).padStart(4, '0')}-${'x'.repeat(120)}.txt`);
+    for (const n of names) writeFileSync(join(many, n), 'old\n');
+    await store.snapshot('session-many-files', many, 1);
+    for (const n of names) writeFileSync(join(many, n), 'new\n');
+    assert.equal((await store.restore('session-many-files', many, 1, undefined, () => 9)).restored.length, 600);
+    assert.equal((await store.redoPreview('session-many-files', many, 9)).files.length, 600, 'each file in the redo preview');
   }
 
   // 4. The route: switch (on by default, 0600 file), GET spans, preview, rollback (stop, steering dropped, marker,
@@ -276,9 +296,11 @@ try {
       inbox: { nextStep: [{ id: 'm1' }], remove: (id) => removed.push(id) },
     };
     let commands = {};
+    const forks = []; let forkFails = false;
     apply({
       on: (name, fn) => listeners.set(name, fn), sessionQuery: {}, subprocess,
-      sessionController: { resolveAgent: async (id) => (id === 'chat-a' ? { agent } : { error: 'missing' }) },
+      sessionController: { resolveAgent: async (id) => (id === 'chat-a' ? { agent } : { error: 'missing' }),
+        fork: async (request) => { if (forkFails) throw new Error('fork failed'); forks.push(request); return { sessionId: `fork-${forks.length}` }; } },
       connection: { fetch: { register: (r) => routes.set(r.path, r) } },
       get: (name) => (name === 'commands' ? commands : name === 'agents' ? { get: () => agent } : undefined),
     });
@@ -288,7 +310,7 @@ try {
       return { status: response.status, json: await response.json() };
     };
     assert.deepEqual((await call({}, 'GET')).json, { on: true }, 'on by default');
-    assert.deepEqual((await call({ sessionId: 'chat-a' }, 'GET')).json, { on: true, rewind: false, spans: [] });
+    assert.deepEqual((await call({ sessionId: 'chat-a' }, 'GET')).json, { on: true, rewind: false, spans: [], redo: null });
     assert.equal((await call('{bad')).status, 400);
     assert.equal((await call({ sessionId: 'chat-a', seq: 8 })).status, 400, 'only a message of the user');
     assert.equal((await call({ sessionId: 'missing', seq: 9 })).status, 409);
@@ -315,6 +337,66 @@ try {
     assert.ok(res.json.files.restored.includes('keep.txt'));
     assert.equal(readFileSync(join(repo, 'keep.txt'), 'utf8'), 'keep\n');
     assert.deepEqual((await call({ sessionId: 'chat-a' }, 'GET')).json.spans, [[9, 20]]);
+    // Redo: offered for the newest rollback while its marker is the chat's last user message.
+    {
+      assert.equal((await call({ sessionId: 'chat-a' }, 'GET')).json.redo, 20);
+      // Meanwhile the user edits keep.txt by hand: the redo preview marks it as changed.
+      writeFileSync(join(repo, 'keep.txt'), 'hand edit\n');
+      let r = await call({ sessionId: 'chat-a', redo: 20, preview: true });
+      assert.deepEqual(r.json, { files: [{ path: 'keep.txt', action: 'restore', changed: true }] });
+      assert.equal((await call({ sessionId: 'chat-a', redo: 19, preview: true })).status, 409, 'only the newest rollback');
+      assert.equal((await call({ sessionId: 'chat-a', redo: '20' })).status, 409);
+      // A busy chat: refused (its work would mix with the files).
+      status = 'running'; assert.equal((await call({ sessionId: 'chat-a', redo: 20, files: true })).status, 409); status = 'idle';
+      // A failing fork writes no file and keeps the offer.
+      forkFails = true;
+      r = await call({ sessionId: 'chat-a', redo: 20, files: true, overwrite: true });
+      assert.equal(r.status, 500); assert.equal(readFileSync(join(repo, 'keep.txt'), 'utf8'), 'hand edit\n', 'no file before the fork worked');
+      assert.equal((await call({ sessionId: 'chat-a' }, 'GET')).json.redo, 20);
+      forkFails = false;
+      // Without overwrite: the changed file stays and is listed; the new chat starts from just before the marker.
+      r = await call({ sessionId: 'chat-a', redo: 20, files: true });
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.deepEqual(forks, [{ sessionId: 'chat-a', atSeq: 19 }]);
+      assert.equal(r.json.sessionId, 'fork-1'); assert.deepEqual(r.json.files.changed, ['keep.txt']); assert.deepEqual(r.json.files.restored, []);
+      assert.equal(readFileSync(join(repo, 'keep.txt'), 'utf8'), 'hand edit\n', 'a file changed since the rollback is kept');
+      // Once only (saved owner-only): the offer is gone, a second redo is refused.
+      assert.equal((await call({ sessionId: 'chat-a' }, 'GET')).json.redo, null);
+      assert.equal((await call({ sessionId: 'chat-a', redo: 20 })).status, 409);
+      assert.equal(statSync(join(home, 'storages', 'dsh-composer-plus', 'redone.json')).mode & 0o777, 0o600);
+    }
+    // A second rollback of the same turn, then redo with overwrite: the turn's file comes back over a hand edit.
+    {
+      writeFileSync(join(repo, 'keep.txt'), 'turn edit again\n');
+      status = 'idle';
+      events.push({ seq: 13, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'third' }] } });
+      listeners.get('session/event')(session, events.at(-1)); await listeners.get('tools/pre-execute')({ agent }, async () => {});
+      writeFileSync(join(repo, 'keep.txt'), 'third turn\n');
+      const surf = Object.getOwnPropertyDescriptor(session.surface, 'nodes');
+      Object.defineProperty(session.surface, 'nodes', { get: () => [3, 8, 13], configurable: true });
+      let r = await call({ sessionId: 'chat-a', seq: 13, files: true });
+      assert.equal(r.status, 200, JSON.stringify(r.json)); const marker = r.json.markerSeq;
+      assert.equal(readFileSync(join(repo, 'keep.txt'), 'utf8'), 'turn edit again\n');
+      writeFileSync(join(repo, 'keep.txt'), 'hand edit 2\n');
+      // redone.json cannot be saved (read-only folder): the new chat exists, so the redo still answers it, and a second
+      // click in this run is refused (no second new chat).
+      const saved = join(home, 'storages', 'dsh-composer-plus'); chmodSync(saved, 0o500);
+      try {
+        r = await call({ sessionId: 'chat-a', redo: marker, files: true, overwrite: true });
+        assert.equal(r.status, 200, JSON.stringify(r.json)); assert.equal(r.json.sessionId, `fork-${forks.length}`);
+        assert.equal((await call({ sessionId: 'chat-a', redo: marker })).status, 409, 'no second new chat');
+        assert.equal(forks.length, 2);
+      } finally { chmodSync(saved, 0o700); }
+      assert.deepEqual(r.json.files.restored, ['keep.txt']); assert.deepEqual(r.json.files.changed, []);
+      assert.equal(readFileSync(join(repo, 'keep.txt'), 'utf8'), 'third turn\n', 'overwrite puts the turn\'s file back');
+      Object.defineProperty(session.surface, 'nodes', surf);
+      // A later message of the user ends the offer.
+      appended.push({ seq: 99, type: 'user/message', data: { source: { kind: 'user' } } });
+      assert.equal((await call({ sessionId: 'chat-a' }, 'GET')).json.redo, null);
+    }
+    assert.equal(redoTarget([{ seq: 5, type: 'user/message', data: { source: { kind: ROLLBACK_SOURCE } }, sourceEventSeqs: [2] }]), 5);
+    assert.equal(redoTarget([{ seq: 5, type: 'user/message', data: { source: { kind: REWIND_SOURCE } }, sourceEventSeqs: [2] }]), undefined, 'not dsh-rewind\'s');
+    assert.equal(redoTarget([{ seq: 5, type: 'user/message', data: { source: { kind: ROLLBACK_SOURCE } }, sourceEventSeqs: [2] }, { seq: 6, type: 'user/message', data: { source: { kind: 'runtime-context' } } }]), undefined, 'a later message ends it');
     // Switch off: saved owner-only, rollbacks refused, no more snapshots.
     assert.deepEqual((await call({ on: false })).json, { on: false });
     assert.equal(statSync(join(home, 'storages', 'dsh-composer-plus', 'rollback.json')).mode & 0o777, 0o600);

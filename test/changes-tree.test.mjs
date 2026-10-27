@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
 globalThis.document = { visibilityState: 'visible', addEventListener() {}, removeEventListener() {} };
+const storage = new Map(); globalThis.localStorage = { getItem: (k) => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)), removeItem: (k) => storage.delete(k) };
 const hook = 'const CHANGES_KIND = ';
 assert.ok(src.includes(hook));
 eval(src.replace(hook, 'globalThis.__ct = () => ({ graphRows, treeBranches, ChangesTab, CommitTree, FileList });\n    ' + hook));
@@ -88,7 +89,8 @@ await render();
 assert.equal(urls.at(-1), '/api/composer-plus.changes?sessionId=chat-1&mode=uncommitted');
 assert.deepEqual(timers, [4000]);
 const menu = find(out, (e) => e.t === 'Menu');
-assert.deepEqual(menu.p.items.map((x) => x.id), ['last-turn', 'sep1', 'uncommitted', 'unstaged', 'staged', 'sep2', 'branch', 'tree']);
+assert.deepEqual(menu.p.items.map((x) => x.id), ['last-turn', 'chat', 'sep1', 'uncommitted', 'unstaged', 'staged', 'sep2', 'branch', 'tree']);
+assert.equal(find(out, (e) => 'data-composer-plus-ws' in e.p).p['aria-pressed'], false, 'whitespace shows by default');
 // The branch chip opens the tree, marked on HEAD and scrolled to it.
 const chip = find(out, (e) => 'data-composer-plus-branch-chip' in e.p);
 assert.equal(chip.t, 'button'); assert.equal(chip.p['aria-label'], 'main · changes.tree.open');
@@ -103,6 +105,7 @@ assert.match(svg.c[1].p.d, /^M8 13C8 19.5 20 19.5 20 26$/, 'the second parent cu
 assert.equal(find(out, (e) => e.p?.['aria-label'] === 'changes.tree.branches') !== undefined, true);
 assert.ok(find(out, (e) => e.c?.includes?.('changes.tree.more:{"count":"3"}')), 'the cut-off note');
 assert.equal(timers.at(-1), 15000, 'the tree refreshes less often');
+assert.equal(find(out, (e) => 'data-composer-plus-ws' in e.p), undefined, 'the tree itself has no diff, so no whitespace switch');
 // The user scrolls down; the agent commits (a new HEAD) and the tree refreshes: the HEAD mark moves, the scroll does not.
 {
   box.scrollTop = 40;
@@ -173,4 +176,31 @@ assert.equal(treeOf().c.find((row) => row.p['aria-current'] === 'true'), undefin
 // Menu → Uncommitted leaves the tree.
 await render(); find(out, (e) => e.t === 'Menu').p.onSelect('uncommitted'); await render();
 assert.equal(treeOf(), undefined); assert.match(urls.at(-1), /mode=uncommitted$/);
+// Hide whitespace: the switch asks again with ws=1, is kept on this device, and the file list passes it to each diff.
+find(out, (e) => 'data-composer-plus-ws' in e.p).p.onClick(); await render();
+assert.equal(urls.at(-1), '/api/composer-plus.changes?sessionId=chat-1&mode=uncommitted&ws=1');
+assert.equal(storage.get('dsh-composer-plus.changes.hideWhitespace'), '1');
+assert.equal(find(out, (e) => 'data-composer-plus-ws' in e.p).p['aria-pressed'], true);
+// This chat: its own mode, refreshed every 15 s, with a note on what it compares against.
+UNCOMMITTED.files = [{ path: 'x.js', added: 1, deleted: 0, binary: false }]; UNCOMMITTED.total = 1; UNCOMMITTED.added = 1;
+UNCOMMITTED.base = 'head'; UNCOMMITTED.outside = 2;
+find(out, (e) => e.t === 'Menu').p.onSelect('chat'); await render();
+assert.equal(urls.at(-1), '/api/composer-plus.changes?sessionId=chat-1&mode=chat&ws=1', 'This chat with the switch on');
+assert.equal(timers.at(-1), 15000);
+const chatNote = find(out, (e) => e.p?.['data-composer-plus-chat-note'] !== undefined);
+assert.equal(chatNote.p['data-composer-plus-chat-note'], 'head'); assert.equal(chatNote.c[0], 'changes.chat.head changes.chat.outside:{"count":"2"}');
+const chatList = find(out, (e) => e.t === FileList);
+assert.equal(chatList.p.mode, 'chat'); assert.equal(chatList.p.ws, true);
+{
+  const keep = slots; slots = []; at = 0;
+  let fl = FileList(chatList.p); find(fl, (e) => e.p?.['aria-expanded'] === false).p.onClick();
+  at = 0; fl = FileList(chatList.p); const diff = find(fl, (e) => typeof e.t === 'function' && e.p?.file?.path === 'x.js');
+  slots = []; at = 0; effects = []; diff.t(diff.p); for (const f of effects) f();
+  assert.equal(urls.at(-1), '/api/composer-plus.diff?sessionId=chat-1&mode=chat&path=x.js&ws=1', 'the diff asks with ws=1 too');
+  slots = keep;
+}
+// Off again: a new page starts with the saved choice.
+find(out, (e) => 'data-composer-plus-ws' in e.p).p.onClick(); await render();
+assert.equal(urls.at(-1), '/api/composer-plus.changes?sessionId=chat-1&mode=chat');
+assert.equal(storage.has('dsh-composer-plus.changes.hideWhitespace'), false);
 console.log('changes tree checks passed');

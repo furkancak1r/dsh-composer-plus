@@ -36,7 +36,7 @@ assert.equal(inSpans([[9, 20]], undefined), false);
   const done = await first; await other;
   assert.deepEqual(done, { span: [9, 20], text: 'second', markerSeq: 20 });
   assert.deepEqual(calls.map((c) => c[0]), [{ sessionId: 'chat-a', seq: 9, files: true }, { sessionId: 'chat-b', seq: 4, files: false }]);
-  assert.deepEqual(store.of('chat-a'), { spans: [[9, 20]], rewind: false, busy: false, error: null });
+  assert.deepEqual(store.of('chat-a'), { spans: [[9, 20]], rewind: false, busy: false, error: null, redo: 20 }, 'the newest rollback can be redone');
   assert.ok(changes >= 3);
   g = gate(); g.go();
   const failing = createRollback(async () => reply(409, { error: 'the running turn did not stop' }));
@@ -45,6 +45,35 @@ assert.equal(inSpans([[9, 20]], undefined), false);
   const old = createRollback(async () => reply(404, {}));
   await old.run('chat-a', 9, false);
   assert.match(old.of('chat-a').error, /restart dsh/, 'an old Host without the route asks for a restart');
+  // Redo: one action per chat at a time (a rollback blocks a redo and the other way round); only the offered marker;
+  // a GET answer that started before a redo ended does not bring the offer back.
+  {
+    let rg = gate(); const sent = [];
+    let getAnswer = { spans: [[9, 20]], redo: 20 };
+    const rs = createRollback(async (init, query) => {
+      if (init === undefined) { const answer = getAnswer; await rg.p; return reply(200, answer); }
+      const body = JSON.parse(init.body); sent.push(body); await rg.p;
+      return reply(200, body.seq !== undefined ? { span: [9, 20], markerSeq: 20 } : { sessionId: 'fork-1', files: { restored: ['a.js'], deleted: [], skipped: [], changed: [] } });
+    });
+    rg.go(); await rs.run('c', 9, true); assert.equal(rs.of('c').redo, 20);
+    rg = gate();
+    assert.equal(await rs.runRedo('c', 19, true, false), undefined, 'only the offered rollback'); assert.equal(sent.length, 1);
+    const redo = rs.runRedo('c', 20, true, false);
+    assert.equal(rs.of('c').busy, true);
+    assert.equal(await Promise.race([rs.run('c', 3, false), new Promise((r) => setTimeout(() => r('waited'), 100))]), undefined, 'no rollback while a redo runs');
+    assert.equal(await Promise.race([rs.runRedo('c', 20, true, false), new Promise((r) => setTimeout(() => r('waited'), 100))]), undefined, 'no second redo');
+    const staleLoad = rs.load('c'); // started while the redo runs: its answer still offers redo 20
+    rg.go();
+    assert.deepEqual(await redo, { sessionId: 'fork-1', files: { restored: ['a.js'], deleted: [], skipped: [], changed: [] } });
+    await staleLoad;
+    assert.equal(rs.of('c').redo, null, 'an older GET answer does not bring the offer back');
+    assert.deepEqual(sent.at(-1), { sessionId: 'c', redo: 20, files: true, overwrite: false });
+    getAnswer = { spans: [[9, 20]], redo: null }; await rs.load('c'); assert.equal(rs.of('c').redo, null);
+    getAnswer = { spans: [[9, 20]], redo: 31 }; await rs.load('c'); assert.equal(rs.of('c').redo, 31, 'a fresh GET answer counts');
+    rs.dismissRedo('c'); assert.equal(rs.of('c').redo, null);
+    const failing = createRollback(async () => reply(409, { error: 'this rollback can no longer be redone' }));
+    failing.of('x'); await failing.load('x');
+  }
   // load: spans from the log (after a reload) and whether dsh-rewind-plugin owns rollback.
   const loaded = createRollback(async (init, query) => { assert.equal(query, '?sessionId=chat%2Fx'); return reply(200, { on: true, rewind: true, spans: [[3, 7]] }); });
   await loaded.load('chat/x');

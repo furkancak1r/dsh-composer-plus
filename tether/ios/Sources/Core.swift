@@ -446,6 +446,20 @@ func rollbackSpan(_ e: J) -> ClosedRange<Int>? {
           let seq = e["seq"] as? Int, let first = (e["sourceEventSeqs"] as? [Int])?.min(), first <= seq else { return nil }
     return first...seq
 }
+/// Redo after a rollback: the newest rollback can be redone while nothing came after it. Its marker is the chat's last
+/// user/message (a later message, also dsh's own context note of a new turn, ends the offer). The same rule as
+/// `redoTarget` in index.js.
+func redoTarget(_ events: [J]) -> Int? {
+    guard let last = events.last(where: { $0["type"] as? String == "user/message" }),
+          ((last["data"] as? J)?["source"] as? J)?["kind"] as? String == rollbackSource,
+          (last["sourceEventSeqs"] as? [Int])?.isEmpty == false else { return nil }
+    return last["seq"] as? Int
+}
+/// The Redo offer that shows: the Mac's offer while it is still the chat's newest rollback and the chat is idle.
+func redoShown(offer: Int?, events: [J], running: Bool) -> Int? {
+    guard let offer, !running, redoTarget(events) == offer else { return nil }
+    return offer
+}
 /// The events that the chat shows: without those in a rollback span.
 func withoutRolledBack(_ events: [J]) -> [J] {
     let spans = events.compactMap(rollbackSpan)
@@ -501,6 +515,52 @@ func sessionLink(_ id: String) -> String {
     let json = (try? JSONSerialization.data(withJSONObject: [id], options: [.withoutEscapingSlashes])).map { String(decoding: $0.dropFirst().dropLast(), as: UTF8.self) } ?? "\"\(id)\""
     return "dsh-session:" + Data(json.utf8).base64EncodedString().replacingOccurrences(of: "+", with: "-").replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")
 }
+
+/// Copy message link: the session link and the message's event seq, `dsh-session:<payload>#<seq>` (client.js messageLink).
+func messageLink(_ sessionId: String, _ seq: Int) -> String { sessionLink(sessionId) + "#\(seq)" }
+/// The session id in a session link's payload; nil unless dsh writes exactly this payload for that id.
+private func linkedSession(_ payload: String) -> String? {
+    var b = payload.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+    b += String(repeating: "=", count: (4 - b.count % 4) % 4)
+    guard let d = Data(base64Encoded: b), let id = (try? JSONSerialization.jsonObject(with: d, options: .fragmentsAllowed)) as? String,
+          !id.isEmpty, sessionLink(id) == "dsh-session:" + payload else { return nil }
+    return id
+}
+// A seq ends at a character that is not a word character, "#" or a decimal part ("#1." at the end of a sentence counts).
+private let messageLinkRE = try! NSRegularExpression(pattern: #"dsh-session:([A-Za-z0-9_-]+)#([0-9]{1,15})(?![\w#]|\.[0-9])|@(session-[A-Za-z0-9-]{1,100})#([0-9]{1,15})(?![\w#]|\.[0-9])"#)
+/// The message links in a text: the link as copied (`dsh-session:<payload>#<seq>`, canonical payload only) and the form
+/// that dsh keeps after it sends the message (`@session-<id>#<seq>`). The same forms as client.js messageLinkRule.
+func parseMessageLink(_ text: String) -> [(range: Range<String.Index>, sessionId: String, seq: Int)] {
+    messageLinkRE.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { m in
+        let group = { (i: Int) in Range(m.range(at: i), in: text).map { String(text[$0]) } }
+        guard let r = Range(m.range, in: text) else { return nil }
+        if let id = group(3), let seq = group(4).flatMap({ Int($0) }) { return (r, id, seq) }
+        guard let id = group(1).flatMap(linkedSession), let seq = group(2).flatMap({ Int($0) }) else { return nil }
+        return (r, id, seq)
+    }
+}
+/// Open a message link: the shown row nearest before the message (the message itself when it shows). A message in a
+/// folded turn or a step group lands on an earlier row that shows.
+func jumpTarget(_ rows: [ChatRow], seq: Int) -> UUID? {
+    rows.compactMap { r -> (id: UUID, seq: Int)? in
+        if case .line(let l) = r, let s = l.seq, s <= seq { return (l.id, s) }
+        return nil
+    }.max { $0.seq < $1.seq }?.id
+}
+/// A request to scroll the open chat to a message (Copy message link → Open message).
+struct Jump: Equatable { let sessionId: String; let seq: Int; var id = UUID() }
+
+/// Changes panel: the query of a `changes` or `diff` call. `ws` hides the changes in whitespace only (git diff -w).
+func changesQuery(_ sessionId: String, mode: String, ws: Bool, commit: String? = nil, path: String? = nil) -> [String: String] {
+    var q = ["sessionId": sessionId, "mode": mode]
+    if ws { q["ws"] = "1" }
+    if let commit { q["commit"] = commit }
+    if let path { q["path"] = path }
+    return q
+}
+
+/// Mark all as read: the chats of one project (its workspace's session ids) that show the green dot.
+func unreadIn(_ ids: [String], finished: Set<String>) -> [String] { ids.filter(finished.contains) }
 
 /// Plan mode: dsh's `plan` projection. A pending switch flips the host value (as dsh's own plan chip reads it).
 func planOn(_ plan: J?) -> Bool {
@@ -1214,6 +1274,48 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private func loadRollback(_ sid: String) async {
         guard plus.contains("rollback"), let o = try? await plusCall("rollback", query: ["sessionId": sid]), current == sid else { return }
         rollbackOn = o["on"] as? Bool == true && o["rewind"] as? Bool != true
+        redoOffer = o["redo"] as? Int
+    }
+    /// Redo (Turn rollback): the rollback marker seq that the Mac offers to redo; nil = no offer.
+    @Published var redoOffer: Int?
+    /// The Redo offer on screen: hidden while the chat runs and after anything comes after the rollback.
+    var redoSeq: Int? { currentSess?.parent == nil ? redoShown(offer: redoOffer, events: events, running: running) : nil }
+    /// One redo at a time: the buttons are off and a second call does nothing while one runs.
+    @Published private(set) var redoing = false
+    /// What a redo with files would change: `nil` = that rollback kept no files.
+    func redoPreview(_ marker: Int) async throws -> [(path: String, action: String, changed: Bool)]? {
+        guard let sid = current else { return nil }
+        let o = try await plusCall("rollback", body: ["sessionId": sid, "redo": marker, "preview": true])
+        guard let files = o["files"] as? [J] else { return nil }
+        return files.compactMap { f in (f["path"] as? String).map { ($0, f["action"] as? String ?? "restore", f["changed"] as? Bool == true) } }
+    }
+    /// Redo: the Mac starts a new chat from just before the rollback (with `files`, the files come back too) and the phone
+    /// opens it. The rolled-back chat stays as it is. Answers the files that stayed as they are (changed or skipped).
+    func redo(_ marker: Int, files: Bool, overwrite: Bool) async throws -> [String] {
+        guard !redoing, let sid = current else { return [] }
+        redoing = true
+        defer { redoing = false }
+        let o = try await plusCall("rollback", body: ["sessionId": sid, "redo": marker, "files": files, "overwrite": overwrite])
+        if redoOffer == marker { redoOffer = nil }
+        let f = o["files"] as? J
+        let kept = (f?["changed"] as? [String] ?? []) + (f?["skipped"] as? [J] ?? []).compactMap { $0["path"] as? String }
+        if let new = o["sessionId"] as? String { try? await loadSessions(); open(new) }
+        return kept
+    }
+
+    /// Mark all as read: the green dots of these chats go here and in the Mac's unread list (the other phones too).
+    func markAllRead(_ ids: [String]) async throws {
+        guard plus.contains("unread"), !ids.isEmpty else { return }
+        _ = try await plusCall("unread", body: ["sessionIds": ids])
+        finished.subtract(ids)
+    }
+
+    /// Open message (Copy message link): the chat opens and scrolls to the message. Not in the list: a short notice.
+    @Published var jump: Jump?
+    func openMessage(_ sessionId: String, seq: Int) {
+        guard sessions.contains(where: { $0.id == sessionId }) else { error = String(localized: "This message is not in the chat any more."); return }
+        if current != sessionId || path.isEmpty { open(sessionId) }
+        jump = Jump(sessionId: sessionId, seq: seq)
     }
     /// What a rollback with files would change: nil = no git or no snapshot (then only "Chat only").
     func rollbackPreview(_ seq: Int) async throws -> [(path: String, action: String)]? {
@@ -1228,6 +1330,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         guard let sid = current else { return ("", [], 0) }
         let o = try await plusCall("rollback", body: ["sessionId": sid, "seq": seq, "files": files])
         let skipped = ((o["files"] as? J)?["skipped"] as? [J] ?? []).compactMap { $0["path"] as? String }
+        if current == sid, let m = o["markerSeq"] as? Int { redoOffer = m }
         return (o["text"] as? String ?? "", skipped, o["attachments"] as? Int ?? 0)
     }
 
@@ -1726,7 +1829,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if sid == current, followId != nil { return } // re-opening the live session keeps its stream and transcript
         if let old = followId { send(["type": "cancel", "streamId": old]) }
         current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; contextWindow = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
-        hasOlder = false; oldestSeq = nil; throughSeq = nil; events = []; continueSeq = nil; rollbackOn = false; prediction = nil
+        hasOlder = false; oldestSeq = nil; throughSeq = nil; events = []; continueSeq = nil; rollbackOn = false; prediction = nil; redoOffer = nil
         running = currentSess?.running ?? false
         openFollow(sid)
         Task { await loadCommands(); await loadGoal(); await loadRollback(sid) }
@@ -1781,7 +1884,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// A live event: kept for a later rebuild. A rollback marker hides earlier rows, so the chat is drawn again.
     func apply(_ e: J) {
         events.append(e)
-        if rollbackSpan(e) != nil { let keep = (running, model, usage, goal, contextWindow); rebuild(); (running, model, usage, goal, contextWindow) = keep; return }
+        if rollbackSpan(e) != nil {
+            let keep = (running, model, usage, goal, contextWindow); rebuild(); (running, model, usage, goal, contextWindow) = keep
+            // A rollback from the Mac or another phone: ask the Mac for its Redo offer.
+            if let sid = current, !replaying { Task { await loadRollback(sid) } }
+            return
+        }
         draw(e)
         if ["turn/start", "turn/end"].contains(e["type"] as? String) {
             continueSeq = continueAfter(events)
@@ -1807,7 +1915,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             let r = (content as? [J] ?? []).filter { $0["type"] as? String == "reasoning" }.compactMap { $0["text"] as? String }.joined(separator: "\n")
             if !r.isEmpty { transcript.append(Line(kind: .reasoning, text: r)) }
             let t = contentText(content)
-            if !t.isEmpty { transcript.append(Line(kind: .assistant, text: t)) }
+            if !t.isEmpty { transcript.append(Line(kind: .assistant, text: t, seq: e["seq"] as? Int)) }
             if let u = d["usage"] as? J { usage = u }
         case "command/run": transcript.append(Line(kind: .command, text: "/\(d["name"] as? String ?? "") \(d["args"] as? String ?? "")".trimmingCharacters(in: .whitespaces)))
         case "command/done": if let t = d["text"] as? String, !t.isEmpty { transcript.append(Line(kind: d["kind"] as? String == "error" ? .error : .result, text: t)) }

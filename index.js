@@ -18,7 +18,7 @@ import { constants, readFileSync } from 'node:fs';
 import { lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, sep } from 'node:path';
+import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { createGateway } from './tether/gateway/server.mjs';
 
 export const name = 'dsh-composer-plus';
@@ -49,7 +49,7 @@ export const UNREAD_PATH = '/api/composer-plus.unread';
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
-  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName'];
+  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -57,7 +57,7 @@ const CONTINUE_SOURCE = 'composer-plus-continue';
 const CONTINUE_TEXT = 'The previous turn stopped before it finished (it was interrupted or failed). Continue the task from where it stopped. Do not repeat completed work.';
 const continueMessage = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: CONTINUE_TEXT })]),
   source: Object.freeze({ kind: 'composer-plus-resume', form: 'snapshot' }) });
-export const MODES = ['uncommitted', 'unstaged', 'staged', 'branch', 'commit'];
+export const MODES = ['uncommitted', 'unstaged', 'staged', 'branch', 'commit', 'chat'];
 /** The branch tree shows at most this many commits (newest first). */
 export const GRAPH_MAX = 300;
 /** A full commit id (SHA-1 or SHA-256): the only form of `commit` that reaches git, so it can never be an option. */
@@ -126,15 +126,13 @@ export function parseRefs(decoration) {
 /** The branch tree: the newest `limit` commits of all local and remote branches and HEAD, children before parents
  * (`--topo-order`), with their parents and refs. `more` says that older commits are not shown. */
 export async function commitGraph(subprocess, cwd, signal, limit = GRAPH_MAX) {
-  const top = await runGit(subprocess, cwd, ['rev-parse', '--show-toplevel'], signal);
-  if (top.code !== 0) return { repo: false };
-  const root = top.stdout.trim();
-  const branch = (await runGit(subprocess, root, ['rev-parse', '--abbrev-ref', 'HEAD'], signal)).stdout.trim();
-  const up = await runGit(subprocess, root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], signal);
-  const head = await runGit(subprocess, root, ['rev-parse', '--verify', '-q', 'HEAD'], signal);
-  const facts = { repo: true, root, branch, ...(up.code === 0 ? { upstream: up.stdout.trim() } : {}), ...(head.code === 0 ? { head: head.stdout.trim() } : {}) };
+  const known = await repoFacts(subprocess, cwd, signal);
+  if (known === undefined) return { repo: false };
+  const { hasHead, ...rest } = known;
+  const facts = { repo: true, ...rest };
+  const root = facts.root;
   // A repository without commits has no HEAD: naming it would fail, and the other refs are empty too.
-  const log = await runGit(subprocess, root, ['log', '--branches', '--remotes', ...(head.code === 0 ? ['HEAD'] : []), '--topo-order', '-z',
+  const log = await runGit(subprocess, root, ['log', '--branches', '--remotes', ...(hasHead ? ['HEAD'] : []), '--topo-order', '-z',
     `--max-count=${limit + 1}`, '--decorate=full', '--no-color', '--no-show-signature', '--format=%H%x1f%P%x1f%ct%x1f%an%x1f%D%x1f%s'], signal);
   if (log.code !== 0) throw new Error(`git log failed: ${log.stderr.trim()}`);
   const commits = [];
@@ -168,17 +166,37 @@ export function parseNumstat(text) {
   return files;
 }
 
-/** Repository facts and the changed files for one mode. Untracked files count as additions outside the staged and
- * commit views. `commit` (commit mode only) must match SHA_RE: the route checks it before it calls this. */
-export async function changes(subprocess, cwd, mode, signal, commit) {
-  if (mode === 'commit' && !SHA_RE.test(commit ?? '')) throw new Error('commit mode needs a full commit id');
+/** `-w` (ignore all whitespace) when the view hides whitespace-only changes: a file whose lines differ only in
+ * indentation or line endings leaves the list, and such lines leave the diff. */
+const wsArgs = (ws) => (ws ? ['-w'] : []);
+/** The repository around cwd: its top folder, branch, upstream, HEAD commit (`head`, none before the first commit) and
+ * `hasHead`; undefined outside one. */
+async function repoFacts(subprocess, cwd, signal) {
   const top = await runGit(subprocess, cwd, ['rev-parse', '--show-toplevel'], signal);
-  if (top.code !== 0) return { repo: false };
+  if (top.code !== 0) return undefined;
   const root = top.stdout.trim();
   const branch = (await runGit(subprocess, root, ['rev-parse', '--abbrev-ref', 'HEAD'], signal)).stdout.trim();
   const up = await runGit(subprocess, root, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], signal);
-  const upstream = up.code === 0 ? up.stdout.trim() : undefined;
-  const hasHead = (await runGit(subprocess, root, ['rev-parse', '--verify', '-q', 'HEAD'], signal)).code === 0;
+  const head = await runGit(subprocess, root, ['rev-parse', '--verify', '-q', 'HEAD'], signal);
+  return { root, branch, ...(up.code === 0 ? { upstream: up.stdout.trim() } : {}), ...(head.code === 0 ? { head: head.stdout.trim() } : {}), hasHead: head.code === 0 };
+}
+/** Sum and cap a file list as the views show it (sorted by path, at most MAX_FILES). */
+const fileSummary = (files) => {
+  files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  return { files: files.slice(0, MAX_FILES), total: files.length, added: files.reduce((n, f) => n + f.added, 0), deleted: files.reduce((n, f) => n + f.deleted, 0) };
+};
+
+/** Repository facts and the changed files for one mode. Untracked files count as additions outside the staged and
+ * commit views. `commit` (commit mode only) must match SHA_RE: the route checks it before it calls this.
+ * `opts.ws` hides whitespace-only changes; `opts.paths` (pathspecs from the repository top) limits the list. `known`:
+ * `repoFacts` that the caller read already. */
+export async function changes(subprocess, cwd, mode, signal, commit, { ws = false, paths } = {}, known = undefined) {
+  if (mode === 'commit' && !SHA_RE.test(commit ?? '')) throw new Error('commit mode needs a full commit id');
+  const facts = known ?? await repoFacts(subprocess, cwd, signal);
+  if (facts === undefined) return { repo: false };
+  const { root, branch, upstream, hasHead } = facts;
+  if (paths !== undefined && paths.length === 0) return { repo: true, root, branch, ...(upstream === undefined ? {} : { upstream }), mode, ...fileSummary([]) };
+  const only = paths === undefined ? [] : ['--', ...paths];
   let base;
   if (mode === 'branch') {
     if (upstream === undefined) return { repo: true, root, branch, mode, files: [], total: 0, noUpstream: true };
@@ -188,25 +206,21 @@ export async function changes(subprocess, cwd, mode, signal, commit) {
   }
   // A repository without commits has no HEAD: compare against the empty tree.
   const args = mode === 'uncommitted' && !hasHead ? ['diff', '--cached'] : diffArgs(mode, base, commit);
-  const stat = await runGit(subprocess, root, [...args, '--numstat', '-z', '-M', '--no-color', '--no-ext-diff'], signal);
+  const stat = await runGit(subprocess, root, [...args, '--numstat', '-z', '-M', '--no-color', '--no-ext-diff', ...wsArgs(ws), ...only], signal);
   if (stat.code !== 0) throw new Error(`git diff failed: ${stat.stderr.trim()}`);
   const files = parseNumstat(stat.stdout);
   if (mode !== 'staged' && mode !== 'commit') {
-    const untracked = await runGit(subprocess, root, ['ls-files', '--others', '--exclude-standard', '-z'], signal);
+    const untracked = await runGit(subprocess, root, ['ls-files', '--others', '--exclude-standard', '-z', ...only], signal);
     for (const path of untracked.stdout.split('\0')) if (path !== '' && !files.some((f) => f.path === path)) files.push({ path, added: 0, deleted: 0, binary: false, untracked: true });
   }
-  files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-  return {
-    repo: true, root, branch, ...(upstream === undefined ? {} : { upstream }), mode, ...(mode === 'commit' ? { commit } : {}),
-    files: files.slice(0, MAX_FILES), total: files.length,
-    added: files.reduce((n, f) => n + f.added, 0), deleted: files.reduce((n, f) => n + f.deleted, 0),
-  };
+  return { repo: true, root, branch, ...(upstream === undefined ? {} : { upstream }), mode, ...(mode === 'commit' ? { commit } : {}), ...fileSummary(files) };
 }
 
-/** Unified diff of one listed file; untracked files diff against /dev/null. */
-export async function fileDiff(subprocess, cwd, mode, path, signal, commit) {
-  const summary = await changes(subprocess, cwd, mode, signal, commit);
-  if (!summary.repo) return undefined;
+/** Unified diff of one listed file; untracked files diff against /dev/null. `opts` as in `changes`. */
+export async function fileDiff(subprocess, cwd, mode, path, signal, commit, opts = {}, known = undefined) {
+  const facts = known ?? await repoFacts(subprocess, cwd, signal);
+  if (facts === undefined) return undefined;
+  const summary = await changes(subprocess, cwd, mode, signal, commit, opts, facts);
   const file = summary.files.find((f) => f.path === path);
   if (file === undefined) return undefined; // only paths git itself listed: no arbitrary file reads
   if (file.untracked) {
@@ -215,11 +229,76 @@ export async function fileDiff(subprocess, cwd, mode, path, signal, commit) {
   }
   let base;
   if (mode === 'branch') base = (await runGit(subprocess, summary.root, ['merge-base', 'HEAD', summary.upstream], signal)).stdout.trim();
-  const hasHead = (await runGit(subprocess, summary.root, ['rev-parse', '--verify', '-q', 'HEAD'], signal)).code === 0;
-  const args = mode === 'uncommitted' && !hasHead ? ['diff', '--cached'] : diffArgs(mode, base, commit);
+  const args = mode === 'uncommitted' && !facts.hasHead ? ['diff', '--cached'] : diffArgs(mode, base, commit);
   const paths = file.from === undefined ? [path] : [file.from, path];
-  const r = await runGit(subprocess, summary.root, [...args, '-M', '--no-color', '--no-ext-diff', '--', ...paths], signal);
+  const r = await runGit(subprocess, summary.root, [...args, '-M', '--no-color', '--no-ext-diff', ...wsArgs(opts.ws), '--', ...paths.map((p) => `:(literal)${p}`)], signal);
   return { path, patch: r.stdout, truncated: r.truncated, binary: file.binary };
+}
+
+/** The file tools whose successful calls count as "written by this chat", and the argument that names the file. */
+const WRITE_TOOLS = { write: 'file_path', edit: 'file_path', str_replace_editor: 'path' };
+/** Changes → This chat: the absolute paths that dsh's file tools (write, edit, str_replace_editor) wrote in this chat, in
+ * every turn, from its log: a call counts when its result is not an error. Relative paths resolve against the chat's
+ * folder at that time (`working-directory/change`). ponytail: shell commands are not counted (their paths are unknown);
+ * the Uncommitted view shows those. At most MAX_FILES paths, the newest kept. */
+export function chatWrites(events, cwd) {
+  let dir = cwd;
+  const calls = new Map(); // callId → absolute path
+  const paths = new Set();
+  for (const e of events) {
+    if (e.type === 'working-directory/change' && typeof e.data?.cwd === 'string' && isAbsolute(e.data.cwd)) dir = e.data.cwd;
+    else if (e.type === 'tool/call' && Object.hasOwn(WRITE_TOOLS, e.data?.name)) {
+      let args = e.data.arguments;
+      if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = undefined; } }
+      const file = args?.[WRITE_TOOLS[e.data.name]];
+      if (e.data.name === 'str_replace_editor' && args?.command === 'view') continue;
+      if (isText(file, 4096) && typeof dir === 'string') calls.set(e.data.callId, resolve(dir, file));
+    } else if (e.type === 'tool/result') {
+      const callId = e.data?.message?.source?.callId;
+      const file = calls.get(callId);
+      if (file === undefined) continue;
+      calls.delete(callId);
+      if (e.data.message.isError === true) continue;
+      paths.delete(file); paths.add(file); // newest last
+    }
+  }
+  return [...paths].slice(-MAX_FILES);
+}
+/** Absolute paths as paths from the repository top (`/` separators); paths outside `top` (or outside `inside`, a folder
+ * from the top) are only counted. git gives `top` as a real path, but dsh keeps the chat folder `cwd` as it was opened:
+ * a path below `cwd` is read below its real path, so a folder opened through a symlink (macOS `/tmp`) still counts. */
+async function topRelative(top, paths, inside = '', cwd) {
+  const real = typeof cwd === 'string' ? await realpath(cwd).catch(() => cwd) : cwd;
+  const from = cwd === real ? undefined : cwd.endsWith(sep) ? cwd : cwd + sep;
+  const head = top.endsWith(sep) ? top : top + sep;
+  const rel = []; let outside = 0;
+  for (const raw of paths) {
+    const p = from !== undefined && raw.startsWith(from) ? join(real, raw.slice(from.length)) : raw;
+    const r = p.startsWith(head) ? p.slice(head.length).split(sep).join('/') : undefined;
+    if (r === undefined || r === '' || r.split('/').some((x) => x === '' || x === '.' || x === '..') || (inside !== '' && !r.startsWith(`${inside}/`))) outside += 1;
+    else rel.push(r);
+  }
+  return { rel, outside };
+}
+/** Changes → This chat: the chat's written files (`chatWrites`) now, against the chat's oldest Turn rollback snapshot, so
+ * the work of every turn shows, also after a commit. `base: 'snapshot'` when that snapshot is from the chat's first
+ * message (`first`: its seq), `'partial'` when it is from a later one (Turn rollback keeps the newest SNAPSHOT_MAX of a
+ * chat; a chat older than the plugin). Without a snapshot (Turn rollback off, dsh-rewind-plugin loaded, or no message since
+ * the plugin came) it is against HEAD (`base: 'head'`). `file` gives that file's patch instead. */
+export async function chatChanges(subprocess, snapshots, sessionId, cwd, paths, signal, { ws = false, file, first } = {}) {
+  const facts = await repoFacts(subprocess, cwd, signal);
+  if (facts === undefined) return { repo: false };
+  const { root, branch, upstream } = facts;
+  const head = { repo: true, root, branch, ...(upstream === undefined ? {} : { upstream }), mode: 'chat' };
+  const view = await snapshots?.chatView(sessionId, cwd, paths, signal, { ws, file });
+  if (view !== undefined && view.snapshot !== false) {
+    return file === undefined ? { ...head, ...view, base: first === undefined || view.since <= first ? 'snapshot' : 'partial' } : view.diff;
+  }
+  const { rel, outside } = await topRelative(root, paths, '', cwd);
+  const opts = { ws, paths: rel.map((r) => `:(literal)${r}`) };
+  if (file !== undefined) return fileDiff(subprocess, cwd, 'uncommitted', file, signal, undefined, opts, facts);
+  const v = await changes(subprocess, cwd, 'uncommitted', signal, undefined, opts, facts);
+  return { ...v, mode: 'chat', base: 'head', outside };
 }
 
 /** "Allow for this chat" time limits (ms) that Settings offers; `null` = until revoked. */
@@ -864,7 +943,7 @@ async function readRegular(path, max = 1024 * 1024) {
  * restore only when it was neither in the snapshot nor ignored then, so a later change of an ignore rule never deletes a
  * file that was already there. The user's repository is only read: its index, HEAD, refs, stash and config are never
  * written (git does refresh the time stamp of an object file it reuses). One task at a time per chat. */
-export function snapshotStore({ subprocess, dir, timeoutMs = SNAPSHOT_TIMEOUT_MS }) {
+export function snapshotStore({ subprocess, dir, timeoutMs = SNAPSHOT_TIMEOUT_MS, log = () => {} }) {
   const queues = new Map(); // chat id → promise of its last queued task
   const enqueue = (id, task) => {
     const next = (queues.get(id) ?? Promise.resolve()).then(task);
@@ -962,7 +1041,76 @@ export function snapshotStore({ subprocess, dir, timeoutMs = SNAPSHOT_TIMEOUT_MS
       if (status === 'A' && wasIgnored(top)) continue; // it may have been there, ignored: keep it
       files.push({ path: repo.inside === '' ? top : top.slice(repo.inside.length + 1), top, action: status === 'A' ? 'delete' : status === 'D' ? 'create' : 'restore' });
     }
-    return { git: true, snapshot: true, prepared, tree, files };
+    return { git: true, snapshot: true, prepared, tree, now, files };
+  };
+  /** Write `files` back from `tree`: every git step into a private folder first, then `beforeWrite`, then `writeBack`. */
+  const writeTree = async (prepared, cwd, tree, files, beforeWrite) => {
+    const scratch = await mkdtemp(join(dir, 'restore-'));
+    try {
+      const index = join(scratch, 'index');
+      const local = { cwd: scratch, workTree: scratch, index };
+      ok(await prepared.run(['read-tree', tree], local), 'git read-tree');
+      const wanted = files.filter((f) => f.action !== 'delete');
+      const modes = new Map();
+      if (wanted.length > 0) {
+        // A blob that the repository lost (gc) fails only its own file: writeBack lists it as skipped.
+        await prepared.run(['checkout-index', `--prefix=${join(scratch, 'files')}${sep}`, '-z', '--stdin'], { ...local, stdin: `${wanted.map((f) => f.top).join('\0')}\0` });
+        const listed = await prepared.run(['ls-files', '-s', '-z', '--', ...wanted.map((f) => `:(literal)${f.top}`)], local);
+        for (const entry of listed.stdout.split('\0')) { const m = /^(\d+) \w+ \d\t([\s\S]*)$/.exec(entry); if (m) modes.set(m[2], m[1]); }
+      }
+      await beforeWrite();
+      return await writeBack(cwd, files, (f) => ({ source: join(scratch, 'files', ...f.top.split('/')), mode: modes.get(f.top) }));
+    } finally { await rm(scratch, { recursive: true, force: true }); }
+  };
+  /** The blob id of each path (from the repository top) in `tree`; a path that is not there is missing. The paths go to
+   * git in parts of about 64 kB, so a rollback of thousands of files stays below the argument size limit. */
+  const blobsOf = async (prepared, tree, tops) => {
+    const out = new Map();
+    for (let i = 0; i < tops.length;) {
+      const part = [];
+      for (let size = 0; i < tops.length && size < 65536; i++) { part.push(`:(literal)${tops[i]}`); size += tops[i].length + 11; }
+      const r = ok(await prepared.run(['ls-tree', '-r', '-z', tree, '--', ...part]), 'git ls-tree');
+      for (const entry of r.stdout.split('\0')) { const m = /^\d+ \w+ ([0-9a-f]+)\t([\s\S]*)$/.exec(entry); if (m) out.set(m[2], m[1]); }
+    }
+    return out;
+  };
+  /** Redo record of a rollback with files: `refs/r/<markerSeq>` = the tree just before it; `rolled/<markerSeq>.json` = each
+   * file it wrote (path, path from the top, and `left`: the blob id it wrote, null for a delete). Newest SNAPSHOT_MAX kept. */
+  const keepRolled = async (prepared, markerSeq, before, snapshot, files) => {
+    const { store, run } = prepared;
+    const left = await blobsOf(prepared, snapshot, files.map((f) => f.top));
+    await mkdir(join(store, 'rolled'), { recursive: true });
+    await writeFile(join(store, 'rolled', `${markerSeq}.json`), JSON.stringify({ files: files.map(({ path, top, action }) => ({ path, top, left: action === 'delete' ? null : left.get(top) ?? null })) }));
+    ok(await run(['update-ref', `refs/r/${markerSeq}`, before]), 'git update-ref');
+    const refs = ok(await run(['for-each-ref', '--format=%(refname)', 'refs/r/']), 'git for-each-ref').stdout.split('\n').filter(Boolean)
+      .sort((a, b) => Number(a.split('/').at(-1)) - Number(b.split('/').at(-1)));
+    for (const old of refs.slice(0, Math.max(0, refs.length - SNAPSHOT_MAX))) {
+      await run(['update-ref', '-d', old]);
+      await rm(join(store, 'rolled', `${old.split('/').at(-1)}.json`), { force: true });
+    }
+  };
+  /** Redo plan of rollback `markerSeq`: each file it wrote that is not as before the rollback, with the action that puts it
+   * back, and `changed` when it is not as the rollback left it either (edited since). undefined: no record (Chat only,
+   * pruned, or another folder). */
+  const redoPlan = async (id, cwd, markerSeq, signal) => {
+    const repo = await repository(cwd, signal);
+    if (repo === undefined) return undefined;
+    const prepared = await prepare(id, repo, signal);
+    const before = await prepared.run(['rev-parse', '-q', '--verify', `refs/r/${markerSeq}^{tree}`]);
+    const record = await readFile(join(prepared.store, 'rolled', `${markerSeq}.json`), 'utf8').then(JSON.parse, () => undefined);
+    if (before.code !== 0 || !Array.isArray(record?.files)) return undefined;
+    const tree = before.stdout.trim();
+    const kept = record.files.filter((f) => isText(f?.top, 4096) && isText(f?.path, 4096) && (f.left === null || typeof f.left === 'string'));
+    const tops = kept.map((f) => f.top);
+    const { tree: now } = await treeNow(prepared, repo);
+    const [then, current] = [await blobsOf(prepared, tree, tops), await blobsOf(prepared, now, tops)];
+    const files = [];
+    for (const f of kept) {
+      const want = then.get(f.top); const has = current.get(f.top);
+      if (want === has) continue; // already as it was before the rollback
+      files.push({ path: f.path, top: f.top, action: want === undefined ? 'delete' : has === undefined ? 'create' : 'restore', changed: (has ?? null) !== f.left });
+    }
+    return { prepared, tree, files };
   };
   return {
     /** Queue a snapshot before the user message `seq`; resolves to the tree id, or undefined outside a repository. */
@@ -974,27 +1122,90 @@ export function snapshotStore({ subprocess, dir, timeoutMs = SNAPSHOT_TIMEOUT_MS
       return { ...rest, ...(rest.files === undefined ? {} : { files: rest.files.map(({ path, action }) => ({ path, action })) }) };
     }),
     /** Put the files back. Every git step runs first (into a private folder); then `beforeWrite` runs (the caller withdraws
-     * the messages there), then the files are written. A failure before `beforeWrite` changes nothing. */
+     * the messages there; it answers the marker seq), then the files are written. A failure before `beforeWrite` changes
+     * nothing. The tree from just before (`refs/r/<marker seq>`) and the paths are kept for Redo. */
     restore: (id, cwd, seq, signal, beforeWrite = () => {}) => enqueue(id, async () => {
       const p = await plan(id, cwd, seq, signal);
       if (!p.git || !p.snapshot) { await beforeWrite(); return { git: p.git, snapshot: p.snapshot ?? false, restored: [], deleted: [], skipped: [] }; }
-      const scratch = await mkdtemp(join(dir, 'restore-'));
-      try {
-        const index = join(scratch, 'index');
-        const local = { cwd: scratch, workTree: scratch, index };
-        ok(await p.prepared.run(['read-tree', p.tree], local), 'git read-tree');
-        const wanted = p.files.filter((f) => f.action !== 'delete');
-        const modes = new Map();
-        if (wanted.length > 0) {
-          // A blob that the repository lost (gc) fails only its own file: writeBack lists it as skipped.
-          await p.prepared.run(['checkout-index', `--prefix=${join(scratch, 'files')}${sep}`, '-z', '--stdin'], { ...local, stdin: `${wanted.map((f) => f.top).join('\0')}\0` });
-          const listed = await p.prepared.run(['ls-files', '-s', '-z', '--', ...wanted.map((f) => `:(literal)${f.top}`)], local);
-          for (const entry of listed.stdout.split('\0')) { const m = /^(\d+) \w+ \d\t([\s\S]*)$/.exec(entry); if (m) modes.set(m[2], m[1]); }
-        }
-        await beforeWrite();
-        return { git: true, snapshot: true, ...(await writeBack(cwd, p.files, (f) => ({ source: join(scratch, 'files', ...f.top.split('/')), mode: modes.get(f.top) }))) };
-      } finally { await rm(scratch, { recursive: true, force: true }); }
+      return { git: true, snapshot: true, ...(await writeTree(p.prepared, cwd, p.tree, p.files, async () => {
+        const markerSeq = await beforeWrite();
+        // The messages are withdrawn now: a failed Redo record must not stop the files. Redo then offers Chat only.
+        if (Number.isSafeInteger(markerSeq)) await keepRolled(p.prepared, markerSeq, p.now, p.tree, p.files).catch((error) => log(`redo record not saved: ${error?.message ?? error}`));
+      })) };
     }),
+    /** Redo: what putting the files back to just before rollback `markerSeq` changes now. `changed`: the file is not as
+     * the rollback left it (edited meanwhile). `{ files: false }` when that rollback kept no files. */
+    redoPreview: (id, cwd, markerSeq, signal) => enqueue(id, async () => {
+      const r = await redoPlan(id, cwd, markerSeq, signal);
+      return r === undefined ? { files: false } : { files: r.files.map(({ path, action, changed }) => ({ path, action, changed })) };
+    }),
+    /** Redo the files of rollback `markerSeq`: `beforeWrite` (the caller starts the new chat) runs after every git step;
+     * a file that changed after the rollback is written only with `overwrite`, else it is listed in `changed`. */
+    redo: (id, cwd, markerSeq, signal, { overwrite = false } = {}, beforeWrite = () => {}) => enqueue(id, async () => {
+      const r = await redoPlan(id, cwd, markerSeq, signal);
+      if (r === undefined) { await beforeWrite(); return { files: false }; }
+      const keep = r.files.filter((f) => overwrite || !f.changed);
+      const result = await writeTree(r.prepared, cwd, r.tree, keep, beforeWrite);
+      return { ...result, changed: r.files.filter((f) => !overwrite && f.changed).map((f) => f.path) };
+    }),
+    /** Changes → This chat: `paths` (absolute, from `chatWrites`) now against the oldest snapshot of the chat, inside the
+     * chat's folder. Read-only for the store and the repository: the files go into a private index and object folder in a
+     * temp folder (alternates: the store, then the repository), removed after. Not in the chat's queue, so a tool never
+     * waits for a view; a snapshot pruned meanwhile fails this view only. `{ snapshot: false }` when the chat has none. */
+    chatView: async (id, cwd, paths, signal, { ws = false, file } = {}) => {
+      const store = storeOf(id);
+      if (!(await stat(join(store, 'HEAD')).then(() => true, () => false))) return { snapshot: false };
+      const repo = await repository(cwd, signal);
+      if (repo === undefined) return { snapshot: false };
+      const refs = (await runGit(subprocess, dir, ['for-each-ref', '--format=%(refname) %(objectname)', 'refs/s/'], signal, { env: { GIT_DIR: store, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } }))
+        .stdout.split('\n').filter(Boolean).map((line) => line.split(' ')).sort((a, b) => Number(a[0].split('/').at(-1)) - Number(b[0].split('/').at(-1)));
+      if (refs.length === 0) return { snapshot: false };
+      const [oldest, base] = refs[0];
+      const { rel, outside } = await topRelative(repo.top, paths, repo.inside, cwd);
+      const scratch = await mkdtemp(join(dir, 'view-'));
+      try {
+        const view = join(scratch, 'v.git');
+        ok(await runGit(subprocess, scratch, ['init', '-q', '--bare', '--template=', view], signal, { env: { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' } }), 'git init');
+        await mkdir(join(view, 'info'), { recursive: true }); await mkdir(join(view, 'objects', 'info'), { recursive: true });
+        // Byte for byte as the snapshots, but with git's own text/binary detection for the counts.
+        await writeFile(join(view, 'info', 'attributes'), '* -text -filter -ident\n');
+        await writeFile(join(view, 'objects', 'info', 'alternates'), `${join(store, 'objects')}\n`);
+        const run = (args, stdin) => runGit(subprocess, repo.top, [...STORE_CONFIG, ...args], signal, { env: storeEnv(view, repo.top, join(scratch, 'index')), stdin, timeoutMs });
+        ok(await run(['read-tree', base]), 'git read-tree');
+        // Only regular files, symlinks and missing paths (deleted); git refuses a FIFO or a device and would fail them all.
+        // A path below a symlinked folder is skipped too: git refuses each one "beyond a symbolic link" (also when the link
+        // points inside the repository or nowhere), so one odd path never fails the whole view. Each folder of the path is
+        // checked with lstat from the top; a folder that is gone ends the walk (the file is a delete).
+        const viaLink = async (parts) => {
+          let at = repo.top;
+          for (const part of parts) {
+            at = join(at, part);
+            const info = await lstat(at).catch(() => undefined);
+            if (info === undefined) return false;
+            if (!info.isDirectory()) return true;
+          }
+          return false;
+        };
+        const listed = [];
+        for (const r of rel) {
+          const target = join(repo.top, ...r.split('/'));
+          if (await viaLink(r.split('/').slice(0, -1))) continue;
+          const info = await lstat(target).catch(() => undefined);
+          if (info === undefined || info.isFile() || info.isSymbolicLink()) listed.push(r);
+        }
+        if (listed.length > 0) ok(await run(['update-index', '--add', '--remove', '-z', '--stdin'], `${listed.join('\0')}\0`), 'git update-index');
+        const now = ok(await run(['write-tree']), 'git write-tree').stdout.trim();
+        const spec = listed.map((r) => `:(literal)${r}`);
+        const numstat = listed.length === 0 ? { stdout: '' } : ok(await run(['diff-tree', '-r', '-z', '--numstat', '-M', '--no-ext-diff', '--no-textconv', ...wsArgs(ws), base, now, '--', ...spec]), 'git diff-tree');
+        const files = parseNumstat(numstat.stdout).map((f) => (repo.inside === '' ? f : { ...f, path: f.path.slice(repo.inside.length + 1), ...(f.from === undefined ? {} : { from: f.from.slice(repo.inside.length + 1) }) }));
+        if (file === undefined) return { ...fileSummary(files), since: Number(oldest.split('/').at(-1)), outside, skipped: rel.length - listed.length };
+        const hit = files.find((f) => f.path === file);
+        if (hit === undefined) return { snapshot: true, diff: undefined }; // only files this view listed
+        const top = (p) => (repo.inside === '' ? p : `${repo.inside}/${p}`);
+        const patch = await run(['diff-tree', '-p', '-M', '--no-color', '--no-ext-diff', '--no-textconv', ...wsArgs(ws), base, now, '--', ...[hit.from, hit.path].filter((x) => x !== undefined).map((x) => `:(literal)${top(x)}`)]);
+        return { snapshot: true, diff: { path: file, patch: patch.stdout, truncated: patch.truncated, binary: hit.binary } };
+      } finally { await rm(scratch, { recursive: true, force: true }); }
+    },
     forget: (id) => enqueue(id, () => rm(storeOf(id), { recursive: true, force: true })),
   };
 }
@@ -1113,6 +1324,8 @@ export function apply(ctx) {
       } catch { return json({ error: 'continuation failed' }, 500); }
     },
   });
+  // Turn rollback's per-chat git snapshots (also the base of Changes → This chat).
+  const snapshots = snapshotStore({ subprocess: ctx.subprocess, dir: join(home, 'cache', 'composer-plus', 'rollback'), log: (text) => ctx.logger?.warn?.(`dsh-composer-plus: ${text}`) });
   /** The session's own working directory (the endpoint never takes a path from the browser) and its newest
    * `workspace/changes` event, which dsh's own review tab opens as "Last turn". */
   const sessionFacts = async (sessionId, signal) => {
@@ -1124,18 +1337,23 @@ export function apply(ctx) {
         const e = events[i];
         if (e.type === 'workspace/changes' && Number.isSafeInteger(e.data?.turn)) { lastTurn = { seq: e.seq, turn: e.data.turn }; break; }
       }
-      return { cwd: observation.header.cwd, lastTurn };
+      const cwd = observation.header.cwd;
+      // A fork (dsh's Branch, Redo) starts with its parent's events: its own first message comes after them.
+      const inherited = Number.isSafeInteger(observation.inheritedEventCount) && observation.inheritedEventCount > 0 ? observation.inheritedEventCount : 0;
+      const first = events.slice(inherited).find((e) => e.type === 'user/message' && e.data?.source?.kind === 'user')?.seq;
+      return { cwd, lastTurn, writes: () => chatWrites(events, cwd), first };
     } finally { observation[Symbol.dispose]?.(); }
   };
-  const cwdOf = async (sessionId, signal) => (await sessionFacts(sessionId, signal)).cwd;
   const params = (request) => {
     const q = new URL(request.url).searchParams;
     const sessionId = q.get('sessionId');
     const mode = q.get('mode') ?? 'uncommitted';
     const commit = q.get('commit') ?? undefined;
+    const ws = q.get('ws');
     // Commit mode only with a full commit id (never an option or a revision expression); other modes take none.
     if (!isText(sessionId) || !MODES.includes(mode) || (mode === 'commit' ? !SHA_RE.test(commit ?? '') : commit !== undefined)) return undefined;
-    return { sessionId, mode, path: q.get('path'), commit };
+    if (ws !== null && ws !== '1') return undefined; // `ws=1`: hide whitespace-only changes
+    return { sessionId, mode, path: q.get('path'), commit, opts: { ws: ws === '1' } };
   };
   ctx.connection.fetch.register({
     path: CHANGES_PATH, methods: ['GET'], requestBody: 'buffered',
@@ -1143,10 +1361,11 @@ export function apply(ctx) {
       const p = params(request);
       if (p === undefined) return json({ error: 'bad request' }, 400);
       try {
-        const { cwd, lastTurn } = await sessionFacts(p.sessionId, request.signal);
+        const { cwd, lastTurn, writes, first } = await sessionFacts(p.sessionId, request.signal);
         const extra = lastTurn === undefined ? {} : { lastTurn };
         if (cwd === undefined) return json({ repo: false, ...extra });
-        return json({ ...(await changes(ctx.subprocess, cwd, p.mode, request.signal, p.commit)), ...extra });
+        if (p.mode === 'chat') return json({ ...(await chatChanges(ctx.subprocess, snapshots, p.sessionId, cwd, writes(), request.signal, { ...p.opts, first })), ...extra });
+        return json({ ...(await changes(ctx.subprocess, cwd, p.mode, request.signal, p.commit, p.opts)), ...extra });
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
   });
@@ -1156,8 +1375,9 @@ export function apply(ctx) {
       const p = params(request);
       if (p === undefined || !isText(p.path, 4096)) return json({ error: 'bad request' }, 400);
       try {
-        const cwd = await cwdOf(p.sessionId, request.signal);
-        const diff = cwd === undefined ? undefined : await fileDiff(ctx.subprocess, cwd, p.mode, p.path, request.signal, p.commit);
+        const { cwd, writes } = await sessionFacts(p.sessionId, request.signal);
+        const diff = cwd === undefined ? undefined : p.mode === 'chat' ? await chatChanges(ctx.subprocess, snapshots, p.sessionId, cwd, writes(), request.signal, { ...p.opts, file: p.path })
+          : await fileDiff(ctx.subprocess, cwd, p.mode, p.path, request.signal, p.commit, p.opts);
         return diff === undefined ? json({ error: 'not found' }, 404) : json(diff);
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
@@ -1285,7 +1505,6 @@ export function apply(ctx) {
   installResume(ctx, home);
   installIdeas(ctx, home);
   installContentSearch(ctx, home);
-  const snapshots = snapshotStore({ subprocess: ctx.subprocess, dir: join(home, 'cache', 'composer-plus', 'rollback') });
   installRollback(ctx, home, snapshots);
   installDeleteChat(ctx, home, snapshots);
   installQueueMove(ctx);
@@ -1356,6 +1575,32 @@ async function idleWithin(agent, ms) {
 const STOP_WAIT_MS = 15000;
 const isRootChat = (session) => session?.header?.origin !== 'subagent' && (session?.header?.delegationDepth ?? 0) === 0;
 
+/** Redo is offered for the newest rollback of a chat only while nothing came after it: its marker is the chat's last
+ * user/message (a later message of yours, or another rollback, ends the offer). Answers the marker seq or undefined. */
+export function redoTarget(events) {
+  const last = events.findLast((e) => e.type === 'user/message');
+  return last?.data?.source?.kind === ROLLBACK_SOURCE && Array.isArray(last.sourceEventSeqs) && last.sourceEventSeqs.length > 0 ? last.seq : undefined;
+}
+/** The rollbacks that were redone (each once), `{ [sessionId]: [markerSeq] }` in one owner-only file; a missing or broken
+ * file is empty. At most 50 per chat (only the newest rollback of a chat can be redone). */
+export function redoneStore(file) {
+  const store = settingsStore(file, (v) => Object.fromEntries(Object.entries(v !== null && typeof v === 'object' ? v : {})
+    .filter(([, seqs]) => Array.isArray(seqs)).map(([sid, seqs]) => [sid, seqs.filter(Number.isSafeInteger)])));
+  let data = {};
+  const ready = store.read().then((v) => { data = v; });
+  return {
+    ready,
+    has: (sessionId, seq) => seq !== undefined && Object.hasOwn(data, sessionId) && data[sessionId].includes(seq),
+    /** Marks it in memory first, so a failed file write still refuses a second redo in this run. */
+    add: async (sessionId, seq) => {
+      await ready;
+      const plus = (d) => ({ ...d, ...Object.fromEntries([[sessionId, [...(Object.hasOwn(d, sessionId) ? d[sessionId] : []), seq].slice(-50)]]) });
+      data = plus(data);
+      data = await store.change(plus);
+    },
+  };
+}
+
 /** Turn rollback (Host half): a git snapshot of the chat's work tree before each user message, and `/api/composer-plus.rollback`:
  * `GET ?sessionId` → `{ on, spans, git }`; `POST {on}` moves the switch; `POST {sessionId, seq, preview: true}` → the files a
  * rollback with files would change; `POST {sessionId, seq, files}` stops a running turn, withdraws the message and everything
@@ -1370,6 +1615,7 @@ function installRollback(ctx, home, store) {
   const rewindLoaded = (agent) => { try { return get('commands')?.find?.(agent, 'rewind-plugin') !== undefined; } catch { return false; } };
   const busy = new Set(); // chats with a rollback running now
   const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: ${text}`);
+  const redone = redoneStore(join(home, 'storages', 'dsh-composer-plus', 'redone.json'));
   ctx.on('session/event', (session, event) => {
     if (!on || event.type !== 'user/message' || event.data?.source?.kind !== 'user' || !isRootChat(session)) return;
     const cwd = session.header?.cwd;
@@ -1401,7 +1647,7 @@ function installRollback(ctx, home, store) {
         try { await done; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
         return json({ on });
       }
-      await read;
+      await read; await redone.ready;
       if (body?.sessionId === undefined && request.method === 'GET') return json({ on });
       if (!isText(body?.sessionId)) return json({ error: 'bad request' }, 400);
       try {
@@ -1410,9 +1656,33 @@ function installRollback(ctx, home, store) {
         const { agent } = found;
         const session = agent.session;
         const rewind = rewindLoaded(agent);
-        if (request.method === 'GET') return json({ on, rewind, spans: rollbackSpans(session.snapshotEvents()) });
+        if (request.method === 'GET') {
+          const events = session.snapshotEvents();
+          return json({ on, rewind, spans: rollbackSpans(events), redo: on && !rewind && isRootChat(session) && !redone.has(session.id, redoTarget(events)) ? redoTarget(events) ?? null : null });
+        }
         if (!on) return json({ error: 'Turn rollback is switched off' }, 409);
         if (!isRootChat(session)) return json({ error: 'a subagent chat cannot be rolled back' }, 409);
+        // Redo: a new chat from the moment just before the newest rollback (dsh's own fork), and the files back.
+        if (body.redo !== undefined) {
+          const events = session.snapshotEvents();
+          const markerSeq = redoTarget(events);
+          if (!Number.isSafeInteger(body.redo) || body.redo !== markerSeq || redone.has(session.id, markerSeq)) return json({ error: 'this rollback can no longer be redone' }, 409);
+          const cwd = session.header?.cwd;
+          if (body.preview === true) return json(isText(cwd, 4096) ? await store.redoPreview(session.id, cwd, markerSeq, request.signal) : { files: false });
+          if (busy.has(session.id)) return json({ error: 'a rollback of this chat is already running' }, 409);
+          if (agent.status !== 'idle') return json({ error: 'wait until the chat stops working' }, 409);
+          busy.add(session.id);
+          try {
+            let created;
+            // The new chat exists after the fork: a failed save of "redone" is only logged (this run still refuses a second redo).
+            const fork = async () => {
+              created = (await ctx.sessionController.fork({ sessionId: session.id, atSeq: markerSeq - 1 })).sessionId;
+              await redone.add(session.id, markerSeq).catch((error) => log(`redo not saved: ${error?.message ?? error}`));
+            };
+            const files = body.files === true && isText(cwd, 4096) ? await store.redo(session.id, cwd, markerSeq, request.signal, { overwrite: body.overwrite === true }, fork) : (await fork(), undefined);
+            return json({ sessionId: created, ...(files === undefined ? {} : { files }) });
+          } finally { busy.delete(session.id); }
+        }
         if (!Number.isSafeInteger(body.seq)) return json({ error: 'bad request' }, 400);
         const target = session.snapshotEvents().find((e) => e.seq === body.seq);
         if (target?.type !== 'user/message' || target.data?.source?.kind !== 'user') return json({ error: 'not a message of yours' }, 400);
@@ -1430,7 +1700,7 @@ function installRollback(ctx, home, store) {
           }
           for (const message of [...(agent.inbox?.nextStep ?? [])]) agent.inbox.remove(message.id); // unread steering goes with the turn
           let plan; let marker;
-          const withdraw = () => { plan = rollbackPlan([...session.surface.nodes], body.seq); marker = session.append('user/message', rollbackMarker(), plan.options); };
+          const withdraw = () => { plan = rollbackPlan([...session.surface.nodes], body.seq); marker = session.append('user/message', rollbackMarker(), plan.options); return marker.seq; };
           const text = (target.data.content ?? []).filter((b) => b.type === 'text').map((b) => b.text).join('');
           const attachments = (target.data.content ?? []).filter((b) => b.type !== 'text').length;
           let files;

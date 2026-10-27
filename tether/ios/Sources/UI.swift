@@ -512,6 +512,10 @@ struct ConversationView: View {
     @State private var deleting = false
     /// Turn rollback: the user row whose ↶ was tapped.
     @State private var rollingBack: Line?
+    /// Redo: the rollback marker whose Redo was tapped.
+    @State private var redoMarker: Int?
+    /// Open message: the row that blinks for 2 s after the jump.
+    @State private var marked: UUID?
     // fallback only: used when the turn/start event carried no time
     @State private var turnStart: Date?
     /// Complete while typing: the Mac's answer for the text `asked`.
@@ -564,6 +568,7 @@ struct ConversationView: View {
             .sheet(isPresented: $showChanges) { if let id = c.current { ChangesSheet(sessionId: id) } }
             .sheet(isPresented: $showIdeas) { if let id = c.current { IdeasSheet(sessionId: id) } }
             .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { text = t; focused = true } } }
+            .sheet(isPresented: Binding(get: { redoMarker != nil }, set: { if !$0 { redoMarker = nil } })) { if let m = redoMarker { RedoSheet(marker: m) } }
             .confirmationDialog("Delete this chat?", isPresented: $deleting, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { if let id = c.current { c.run { try await c.deleteChat(id) } } }
             } message: { Text("“\(c.currentSess?.title ?? "")” stops and its saved history, with its subagent chats, moves to the Trash on your Mac. To get it back, put the folder back and restart DSH.") }
@@ -626,14 +631,19 @@ struct ConversationView: View {
                         // DSH desktop's shape: thinking and tool calls fold into one step row; a finished turn folds to
                         // "Completed in …" and its answer until tapped.
                         ForEach(chatRows(c.transcript, open: openTurns, running: c.running)) { row in
-                            switch row {
-                            case .line(let l): LineView(line: l, onEdit: { text = $0; focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
-                            case .steps(let ls, let live): StepsView(lines: ls, live: live && c.streaming.isEmpty)
-                            case .turn(let l, let foldable):
-                                TurnRow(line: l, foldable: foldable, open: openTurns.contains(l.id)) {
-                                    withAnimation(.snappy) { if openTurns.contains(l.id) { openTurns.remove(l.id) } else { openTurns.insert(l.id) } }
+                            Group {
+                                switch row {
+                                case .line(let l): LineView(line: l, onEdit: { text = $0; focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
+                                case .steps(let ls, let live): StepsView(lines: ls, live: live && c.streaming.isEmpty)
+                                case .turn(let l, let foldable):
+                                    TurnRow(line: l, foldable: foldable, open: openTurns.contains(l.id)) {
+                                        withAnimation(.snappy) { if openTurns.contains(l.id) { openTurns.remove(l.id) } else { openTurns.insert(l.id) } }
+                                    }
                                 }
                             }
+                            .id(row.id)
+                            // Open message: the message that the link names blinks for 2 s.
+                            .background(row.id == marked ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                         if !c.reasoning.isEmpty { StepsView(lines: [Line(kind: .reasoning, text: c.reasoning)], live: true) }
                         if !c.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: c.streaming), live: true) }
@@ -672,6 +682,7 @@ struct ConversationView: View {
                         if let g = c.goal { goalCard(g) }
                         if c.shownTodos.contains(where: { $0.status != "completed" }) { todoCard }
                         if !c.queued.isEmpty { queueDock }
+                        if let m = c.redoSeq, c.plus.contains("rollback") { redoBar(m) }
                         if !suggestions.isEmpty { suggestionList }
                         composer
                         statusLine
@@ -684,7 +695,43 @@ struct ConversationView: View {
                 .onChange(of: c.sendStatus) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
                 .onChange(of: c.running, initial: true) { turnStart = c.running ? (turnStart ?? .now) : nil }
                 .onChange(of: c.current) { openTurns = [] }
+                .task(id: c.jump) { await jump(proxy) }
+                .task(id: marked) { if marked != nil { try? await Task.sleep(for: .seconds(2)); if !Task.isCancelled { withAnimation { marked = nil } } } }
         }
+    }
+
+    /// Open message: wait for the chat's rows (a chat that just opened loads first), load earlier pages until the message
+    /// is in them, then scroll to the nearest shown row at or before it. At most about 10 s.
+    private func jump(_ proxy: ScrollViewProxy) async {
+        guard let j = c.jump else { return }
+        for _ in 0..<50 {
+            if c.current == j.sessionId, !c.transcript.isEmpty {
+                guard let first = c.transcript.compactMap(\.seq).first, first > j.seq, c.hasOlder else { break }
+                try? await c.loadOlder()
+            }
+            try? await Task.sleep(for: .milliseconds(200))
+            if Task.isCancelled { return }
+        }
+        let target = c.current == j.sessionId ? jumpTarget(chatRows(c.transcript, open: openTurns, running: c.running), seq: j.seq) : nil
+        if c.jump == j { c.jump = nil }
+        guard let target else { c.error = String(localized: "This message is not in the chat any more."); return }
+        withAnimation { proxy.scrollTo(target, anchor: .center) }
+        marked = target
+    }
+
+    /// Redo (Composer Plus turn rollback): after a rollback, while nothing came after it and the chat is idle.
+    func redoBar(_ m: Int) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "arrow.uturn.backward").font(.caption).foregroundStyle(.secondary)
+            Text("Turn rolled back.").font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .leading)
+            Button { redoMarker = m } label: { Label("Redo", systemImage: "arrow.uturn.forward").font(.footnote.weight(.medium)) }
+                .buttonStyle(.bordered).controlSize(.small).disabled(c.redoing)
+            Button { c.redoOffer = nil } label: { Image(systemName: "xmark").font(.caption).frame(width: 28, height: 28).contentShape(Rectangle()) }
+                .buttonStyle(.plain).foregroundStyle(.secondary).accessibilityLabel("Hide")
+        }
+        .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 4)
+        .background(Color(.secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 10).padding(.top, 6)
     }
 
     var emptyState: some View {
@@ -1056,6 +1103,10 @@ struct LineView: View {
             Button { UIPasteboard.general.string = [line.text, line.output].compactMap { $0 }.joined(separator: "\n\n") } label: { Label("Copy", systemImage: "doc.on.doc") }
             if line.kind == .assistant || line.kind == .reasoning, !live { Button { selecting = true } label: { Label("Select Text", systemImage: "selection.pin.in.out") } }
             if line.kind == .assistant, !live { ShareLink(item: line.text) { Label("Share", systemImage: "square.and.arrow.up") } }
+            // Copy message link (Composer Plus): the chat's link and this message's seq; dsh on the Mac opens it.
+            if line.kind == .user || line.kind == .assistant, !live, let seq = line.seq, let sid = c.current {
+                Button { UIPasteboard.general.string = messageLink(sid, seq); UINotificationFeedbackGenerator().notificationOccurred(.success) } label: { Label("Copy message link", systemImage: "link") }
+            }
             if line.kind == .user {
                 if let onEdit { Button { onEdit(line.text) } label: { Label("Edit", systemImage: "pencil") } }
                 if let onRollback { Button(action: onRollback) { Label("Roll back to before this message", systemImage: "arrow.uturn.backward") } }
@@ -1085,6 +1136,10 @@ struct LineView: View {
                 }
                 if !line.text.isEmpty {
                     HStack { Spacer(minLength: 48); Text(line.text).textSelection(.enabled).padding(.horizontal, 14).padding(.vertical, 10).background(Color(.secondarySystemFill), in: RoundedRectangle(cornerRadius: 18, style: .continuous)) }
+                }
+                // A message link in your message: a tap opens that message.
+                ForEach(Array(links.prefix(3).enumerated()), id: \.offset) { _, l in
+                    openLink(l).font(.caption).buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                 }
             }.frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant:
@@ -1152,6 +1207,13 @@ struct LineView: View {
                         .buttonStyle(.bordered).controlSize(.small).tint(.secondary)
                 }
             }
+        }
+    }
+    /// The message links in a user row (Copy message link).
+    private var links: [(range: Range<String.Index>, sessionId: String, seq: Int)] { line.kind == .user ? parseMessageLink(line.text) : [] }
+    private func openLink(_ l: (range: Range<String.Index>, sessionId: String, seq: Int)) -> some View {
+        Button { c.openMessage(l.sessionId, seq: l.seq) } label: {
+            Label(l.sessionId == c.current ? String(localized: "Open message #\(l.seq)") : String(localized: "Open message #\(l.seq) in “\(c.title(l.sessionId))”"), systemImage: "link")
         }
     }
     /// Long tool output stays collapsed until tapped.
@@ -1525,7 +1587,17 @@ struct SessionsView: View {
                             }
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
-                            .contextMenu { if let path = g.path { Button { UIPasteboard.general.string = path } label: { Label("Copy path", systemImage: "doc.on.doc") } } }
+                            .contextMenu {
+                                if let path = g.path {
+                                    Button { UIPasteboard.general.string = path } label: { Label("Copy path", systemImage: "doc.on.doc") }
+                                    // Mark all as read (Composer Plus): every chat of the project, also a pinned one.
+                                    let ids = c.workspaces.first { $0.path == path && $0.title == g.title }?.sessions ?? g.items.map(\.id)
+                                    let unread = unreadIn(ids, finished: c.finished)
+                                    if c.plus.contains("unread"), !unread.isEmpty {
+                                        Button { c.run { try await c.markAllRead(unread) } } label: { Label("Mark all as read", systemImage: "checkmark.circle") }
+                                    }
+                                }
+                            }
                             .accessibilityValue(folded ? "Collapsed" : "Expanded")
                             .accessibilityHint(folded ? "Shows this group's sessions" : "Hides this group's sessions")
                         }
@@ -2064,15 +2136,21 @@ struct ChangesSheet: View {
     @Environment(\.dismiss) private var dismiss
     let sessionId: String
     @AppStorage("changesMode") private var mode = "uncommitted"
+    /// Hide whitespace changes (git diff -w): kept on this iPhone, used by every mode, the commit files and the diffs.
+    @AppStorage("changesHideWhitespace") private var ws = false
     @State private var data: J?
     @State private var failed: String?
     @State private var showTree = false
-    private static let modes: [(id: String, label: LocalizedStringKey)] = [("uncommitted", "Uncommitted"), ("unstaged", "Unstaged"), ("staged", "Staged"), ("branch", "Branch")]
+    private static let modes: [(id: String, label: LocalizedStringKey)] = [("uncommitted", "Uncommitted"), ("unstaged", "Unstaged"), ("staged", "Staged"), ("branch", "Branch"), ("chat", "This chat")]
     private var hasTree: Bool { c.plus.contains("graph") }
     var body: some View {
         NavigationStack {
             List {
-                Picker("Mode", selection: $mode) { ForEach(Self.modes, id: \.id) { Text($0.label).tag($0.id) } }.pickerStyle(.segmented).listRowBackground(Color.clear)
+                // Five modes do not fit the phone's width: the control keeps its size and scrolls.
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Picker("Mode", selection: $mode) { ForEach(Self.modes, id: \.id) { Text($0.label).tag($0.id) } }.pickerStyle(.segmented).fixedSize()
+                }.listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                Toggle("Hide whitespace", isOn: $ws).font(.subheadline)
                 if let failed { Text(failed).foregroundStyle(.secondary) }
                 else if let d = data {
                     if d["repo"] as? Bool == false { Text("This chat's folder is not a git repository.").foregroundStyle(.secondary) }
@@ -2080,7 +2158,8 @@ struct ChangesSheet: View {
                     else {
                         let files = d["files"] as? [J] ?? []
                         Section {
-                            if files.isEmpty { Text("No file changes yet").foregroundStyle(.secondary) }
+                            if mode == "chat" { Text(chatNote(d)).font(.footnote).foregroundStyle(.secondary) }
+                            if files.isEmpty { Text(mode == "chat" ? "This chat's file tools did not change a file yet." : "No file changes yet").foregroundStyle(.secondary) }
                             ForEach(files.indices, id: \.self) { i in
                                 let f = files[i], path = f["path"] as? String ?? ""
                                 NavigationLink { DiffView(sessionId: sessionId, mode: mode, path: path) } label: { ChangedFileRow(f: f) }
@@ -2111,13 +2190,23 @@ struct ChangesSheet: View {
             }
             .navigationDestination(isPresented: $showTree) { TreeView(sessionId: sessionId) }
             .refreshable { await load() }
-            // the desktop panel refreshes every 4 s while it is on screen
-            .task(id: mode) { data = nil; while !Task.isCancelled { await load(); try? await Task.sleep(for: .seconds(4)) } }
+            // the desktop panel refreshes every 4 s while it is on screen; This chat reads the chat's log: every 15 s
+            .task(id: "\(mode) \(ws)") { data = nil; while !Task.isCancelled { await load(); try? await Task.sleep(for: .seconds(mode == "chat" ? 15 : 4)) } }
         }
     }
     private func load() async {
-        do { data = try await c.plusCall("changes", query: ["sessionId": sessionId, "mode": mode]); failed = nil }
+        do { data = try await c.plusCall("changes", query: changesQuery(sessionId, mode: mode, ws: ws)); failed = nil }
         catch is CancellationError {} catch { failed = String(localized: "Could not read changes.") + " " + userText(error) }
+    }
+    /// This chat: what the files are compared with, and the files that are not shown.
+    private func chatNote(_ d: J) -> String {
+        let base = d["base"] as? String
+        var s = [base == "snapshot" ? String(localized: "Compared with the project before this chat's first message.")
+            : base == "partial" ? String(localized: "Compared with the project before message #\(d["since"] as? Int ?? 0): Turn rollback keeps only the 50 newest snapshots, so earlier changes are not counted.")
+            : String(localized: "Compared with the last commit.")]
+        if let n = d["outside"] as? Int, n > 0 { s.append(String(localized: "\(n) file(s) outside this folder are not shown.")) }
+        if let n = d["skipped"] as? Int, n > 0 { s.append(String(localized: "\(n) file(s) that are not regular files are not shown.")) }
+        return s.joined(separator: " ")
     }
 }
 
@@ -2248,6 +2337,7 @@ struct TreeView: View {
 struct CommitView: View {
     @EnvironmentObject var c: Client
     let sessionId: String, commit: GraphCommit
+    @AppStorage("changesHideWhitespace") private var ws = false
     @State private var data: J?
     @State private var failed: String?
     var body: some View {
@@ -2276,9 +2366,9 @@ struct CommitView: View {
             } else { ProgressView().frame(maxWidth: .infinity) }
         }
         .navigationTitle(String(commit.sha.prefix(7))).navigationBarTitleDisplayMode(.inline)
-        .task {
+        .task(id: ws) {
             // A commit never changes: one load, no refresh.
-            do { data = try await c.plusCall("changes", query: ["sessionId": sessionId, "mode": "commit", "commit": commit.sha]) }
+            do { data = try await c.plusCall("changes", query: changesQuery(sessionId, mode: "commit", ws: ws, commit: commit.sha)) }
             catch is CancellationError {} catch { failed = String(localized: "Could not read changes.") + " " + userText(error) }
         }
     }
@@ -2289,6 +2379,7 @@ struct DiffView: View {
     @EnvironmentObject var c: Client
     let sessionId: String, mode: String, path: String
     var commit: String? = nil
+    @AppStorage("changesHideWhitespace") private var ws = false
     @State private var d: J?
     @State private var failed: String?
     var body: some View {
@@ -2310,10 +2401,8 @@ struct DiffView: View {
             } else { ProgressView().padding() }
         }
         .navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
-        .task {
-            var q = ["sessionId": sessionId, "mode": mode, "path": path]
-            if let commit { q["commit"] = commit }
-            do { d = try await c.plusCall("diff", query: q) }
+        .task(id: ws) {
+            do { d = try await c.plusCall("diff", query: changesQuery(sessionId, mode: mode, ws: ws, commit: commit, path: path)) }
             catch { failed = userText(error) }
         }
     }
@@ -2548,6 +2637,59 @@ struct RollbackSheet: View {
                 else if r.attachments > 0 { c.error = String(localized: "Only the text came back: add the images or files of that message again.") }
                 dismiss()
             } catch { c.error = String(localized: "Rollback failed: \(userText(error))") }
+        }
+    }
+}
+
+/// Redo the rolled-back turn: a new chat from just before the rollback, with the same messages and context; "Chat and
+/// files" also puts the files back. The rolled-back chat stays as it is.
+struct RedoSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let marker: Int
+    @State private var files: [(path: String, action: String, changed: Bool)]?
+    @State private var checked = false
+    @State private var overwrite = false
+    var body: some View {
+        let changed = files?.filter(\.changed).count ?? 0
+        NavigationStack {
+            Form {
+                Section { Text("Starts a new chat from just before the rollback, with the same messages and context. This chat stays as it is.").foregroundStyle(.secondary) }
+                Section {
+                    Button("Chat only") { go(files: false) }
+                    if !checked { HStack { ProgressView(); Text("Checking the project files…") }.foregroundStyle(.secondary) }
+                    else if let files, !files.isEmpty {
+                        Button("Chat and files") { go(files: true) }
+                        Text("Also put \(files.count) files back as they were before the rollback:").font(.footnote)
+                        ForEach(files.prefix(20), id: \.path) { f in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Label(f.path, systemImage: f.action == "delete" ? "trash" : f.action == "create" ? "plus" : "arrow.uturn.forward").font(.caption.monospaced()).lineLimit(1)
+                                if f.changed { Text("changed since the rollback").font(.caption2).foregroundStyle(.orange) }
+                            }
+                        }
+                        if changed > 0 { Toggle("Also overwrite changed files", isOn: $overwrite).font(.footnote) }
+                    } else { Text(files == nil ? "The rollback did not change files." : "The files are already as they were before the rollback.").font(.footnote).foregroundStyle(.secondary) }
+                }
+            }
+            .disabled(c.redoing)
+            .navigationTitle("Redo").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                if c.redoing { ToolbarItem(placement: .principal) { ProgressView() } }
+            }
+            .task { files = try? await c.redoPreview(marker); checked = true }
+        }
+        .presentationDetents([.medium, .large])
+    }
+    private func go(files: Bool) {
+        guard !c.redoing else { return }
+        let overwrite = overwrite
+        Task {
+            do {
+                let kept = try await c.redo(marker, files: files, overwrite: overwrite)
+                if !kept.isEmpty { c.error = String(localized: "\(kept.count) file(s) were kept as they are: \(kept.joined(separator: ", "))") }
+                dismiss()
+            } catch { c.error = String(localized: "Redo failed: \(userText(error))") }
         }
     }
 }

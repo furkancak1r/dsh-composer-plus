@@ -636,6 +636,103 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(shownUnread(host: ["a", "k"], sessions: idle, open: nil), ["a"], "a subagent never gets a dot")
     }
 
+    /// Copy message link: the same link and the same two forms as client.js messageLink / messageLinkRule.
+    func testMessageLink() {
+        XCTAssertEqual(messageLink("abc", 42), "dsh-session:ImFiYyI#42")
+        let id = "session-5e87ba98-b640-4cc7-b8a7-877edc05c3aa"
+        let text = "see dsh-session:ImFiYyI#42 and @\(id)#5."
+        let found = parseMessageLink(text)
+        XCTAssertEqual(found.map(\.sessionId), ["abc", id]); XCTAssertEqual(found.map(\.seq), [42, 5])
+        XCTAssertEqual(found.map { String(text[$0.range]) }, ["dsh-session:ImFiYyI#42", "@\(id)#5"], "the end of a sentence is not in the link")
+        XCTAssertEqual(parseMessageLink(messageLink("a/b?", 7)).first?.sessionId, "a/b?")
+        // Refused: not base64url, padding, no seq, a decimal or negative seq, a payload that dsh does not write, not a string.
+        for bad in ["dsh-session:!!#1", "dsh-session:ImFiYyI=#1", "dsh-session:ImFiYyI", "dsh-session:ImFiYyI#1.5", "dsh-session:ImFiYyI#-1",
+                    "dsh-session:ImFiYyJ#1", "dsh-session:MQ#1", "dsh-session:ImFiYyI#12x", "@\(id)#1.5", "@\(id)#2#3", "@other-x#1"] {
+            XCTAssertTrue(parseMessageLink(bad).isEmpty, bad)
+        }
+    }
+
+    /// Open message: the shown row nearest before the message; assistant rows keep their seq too.
+    @MainActor func testJumpTarget() {
+        let c = Client()
+        c.replaySnapshot([
+            ["type": "user/message", "seq": 1, "data": ["content": "one", "source": ["kind": "user"]]],
+            ["type": "assistant/message", "seq": 2, "data": ["message": ["content": [["type": "text", "text": "A1"]]]]],
+            ["type": "user/message", "seq": 5, "data": ["content": "two", "source": ["kind": "user"]]],
+            ["type": "assistant/message", "seq": 7, "data": ["message": ["content": [["type": "text", "text": "A2"]]]]],
+        ])
+        XCTAssertEqual(c.transcript.map(\.seq), [1, 2, 5, 7], "assistant rows have a seq")
+        let rows = chatRows(c.transcript, open: [], running: false)
+        XCTAssertEqual(jumpTarget(rows, seq: 5), c.transcript[2].id)
+        XCTAssertEqual(jumpTarget(rows, seq: 6), c.transcript[2].id, "a row that does not show: the one before it")
+        XCTAssertEqual(jumpTarget(rows, seq: 99), c.transcript[3].id)
+        XCTAssertNil(jumpTarget(rows, seq: 0))
+        // A chat that is not in the list: a notice and no jump. Else the chat opens and the jump waits for it.
+        c.sessions = [Sess(["sessionId": "s1"])!]
+        c.openMessage("gone", seq: 3)
+        XCTAssertEqual(c.error, "This message is not in the chat any more."); XCTAssertNil(c.jump)
+        c.openMessage("s1", seq: 3)
+        XCTAssertEqual(c.current, "s1"); XCTAssertEqual(c.jump?.seq, 3)
+    }
+
+    /// Changes: This chat is mode=chat; Hide whitespace adds ws=1 to every mode, commit and diff calls too.
+    func testChangesQuery() {
+        XCTAssertEqual(changesQuery("s", mode: "chat", ws: false), ["sessionId": "s", "mode": "chat"])
+        XCTAssertEqual(changesQuery("s", mode: "uncommitted", ws: true), ["sessionId": "s", "mode": "uncommitted", "ws": "1"])
+        XCTAssertEqual(changesQuery("s", mode: "commit", ws: true, commit: "abc", path: "a.txt"),
+                       ["sessionId": "s", "mode": "commit", "ws": "1", "commit": "abc", "path": "a.txt"])
+    }
+
+    /// Mark all as read: only the chats of that project with a green dot.
+    func testUnreadIn() {
+        XCTAssertEqual(unreadIn(["a", "b", "c"], finished: ["b", "c", "x"]), ["b", "c"])
+        XCTAssertEqual(unreadIn(["a"], finished: []), [])
+    }
+
+    /// Redo: the same offer rule as index.js redoTarget; the offer goes once anything comes after the rollback.
+    @MainActor func testRedoOffer() {
+        let ev: [J] = [
+            ["type": "user/message", "seq": 1, "data": ["content": "one", "source": ["kind": "user"]]],
+            ["type": "assistant/message", "seq": 2, "data": ["message": ["content": [["type": "text", "text": "A1"]]]]],
+        ]
+        let marker: J = ["type": "user/message", "seq": 5, "sourceEventSeqs": [1], "data": ["content": [], "source": ["kind": rollbackSource]]]
+        XCTAssertNil(redoTarget(ev)); XCTAssertEqual(redoTarget(ev + [marker]), 5)
+        var rewind = marker; rewind["data"] = ["content": [], "source": ["kind": "dsh-rewind"]]
+        XCTAssertNil(redoTarget(ev + [rewind]), "only Composer Plus rollbacks can be redone")
+        var empty = marker; empty["sourceEventSeqs"] = [Int]()
+        XCTAssertNil(redoTarget(ev + [empty]))
+        let note: J = ["type": "user/message", "seq": 6, "data": ["content": "ctx", "source": ["kind": "runtime-context"]]]
+        XCTAssertNil(redoTarget(ev + [marker, note]), "a later message ends the offer")
+        XCTAssertEqual(redoShown(offer: 5, events: ev + [marker], running: false), 5)
+        XCTAssertNil(redoShown(offer: 5, events: ev + [marker], running: true), "not while the chat runs")
+        XCTAssertNil(redoShown(offer: 4, events: ev + [marker], running: false), "an older offer")
+        XCTAssertNil(redoShown(offer: nil, events: ev + [marker], running: false))
+        let c = Client()
+        c.replaySnapshot(ev + [marker]); c.redoOffer = 5
+        XCTAssertEqual(c.redoSeq, 5)
+        c.apply(["type": "user/message", "seq": 6, "data": ["content": "three", "source": ["kind": "user"]]])
+        XCTAssertNil(c.redoSeq, "a new message hides the offer")
+    }
+
+    /// Redo: one at a time. A second call while one runs sends nothing; an error opens the guard again.
+    @MainActor func testRedoRunsOnce() async {
+        let c = Client()
+        let saved = c.pairings, savedFp = c.activeFp
+        defer { c.pairings = saved; c.activeFp = savedFp }
+        // Nothing listens on port 9: the first call waits for the network, then fails.
+        c.pairings = [Pairing(host: "127.0.0.1", port: 9, fp: "r1", token: "t", deviceId: "d", name: "n", expiresAt: "")]
+        c.activeFp = "r1"; c.current = "s"
+        let first = Task { try await c.redo(5, files: false, overwrite: false) }
+        for _ in 0..<1000 where !c.redoing { await Task.yield() }
+        XCTAssertTrue(c.redoing, "the first redo runs")
+        let second = try? await c.redo(5, files: true, overwrite: true)
+        XCTAssertEqual(second ?? ["threw"], [], "a second redo while one runs does nothing")
+        let failed: Bool
+        do { _ = try await first.value; failed = false } catch { failed = true }
+        XCTAssertTrue(failed, "no Mac on that port")
+        XCTAssertFalse(c.redoing, "the guard opens again after an error")
+    }
+
     @MainActor func testJustFinished() {
         XCTAssertEqual(sessionsPlaceholder(loaded: false, count: 0, state: .connecting), .loading)
         // no cached sessions without a live link, even when a list was loaded before

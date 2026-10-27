@@ -39,6 +39,8 @@ const fake = createServer((req, res) => {
     const send = (delta, finish) => res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`);
     const end = () => res.end('data: [DONE]\n\n');
     if (/session title/i.test(JSON.stringify(last?.content))) { send({ role: 'assistant', content: 'Greeting change' }); send({}, 'stop'); end(); return; }
+    // Next message prediction (on by default) asks the model too, with a summary of the chat: not an agent request.
+    if (/You predict the next message/.test(JSON.stringify(msgs[0]?.content))) { send({ role: 'assistant', content: '' }); send({}, 'stop'); end(); return; }
     requests.push(JSON.stringify(msgs));
     const users = msgs.filter((m) => m.role === 'user').map((m) => JSON.stringify(m.content));
     // dsh adds context messages with the user role too: take the newest message that is one of the prompts.

@@ -11,13 +11,14 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 
 | id | Tether | Where in Tether, or why not |
 |---|---|---|
-| changesPanel | yes | Chat title menu → Changes: mode, files with +/−, tap a file for its diff. Refreshes every 4 s. The branch name or **Tree** opens the branch tree: **Branches** scrolls to a branch, tap a commit for its files and diffs. |
+| changesPanel | yes | Chat title menu → Changes: mode (also This chat: the files that the chat's file tools wrote, against the project before its first message, refreshed every 15 s), Hide whitespace (`git diff -w`, kept on the phone, for every mode and diff), files with +/−, tap a file for its diff. Refreshes every 4 s. The branch name or **Tree** opens the branch tree: **Branches** scrolls to a branch, tap a commit for its files and diffs. |
 | featureIdeas | yes | Chat title menu → Feature ideas: cards (swipe right or Plan, Build now, swipe left to skip, swipe down or Save for later), Later list (Plan, Build now, Plan all, Copy as checklist) and History (Forget, Forget all). A focus field with the six preset topics sits above the cards. |
 | contentSearch | yes | Sessions search shows "Messages" hits from dsh's own message search. |
-| turnRollback | yes | Touch and hold your message → Roll back to before this message: Chat only, or Chat and files. Withdrawn messages leave the chat. |
+| turnRollback | yes | Touch and hold your message → Roll back to before this message: Chat only, or Chat and files. Withdrawn messages leave the chat. After a rollback, a Redo bar above the composer (while the chat is idle and nothing came after the rollback): Chat only, or Chat and files (a file changed since the rollback is marked; Also overwrite changed files is off by default). Redo opens a new chat from just before the rollback; the rolled-back chat stays as it is. |
 | deleteChat | yes | Chat title menu, or touch and hold a chat in Sessions → Delete…. |
 | projectName | yes | The folder name under the composer and in each chat row. |
 | projectStatus | yes | Each project header in Sessions shows the waiting hand, the green dot or the spinner. The green dots come from the Mac: a chat opened in dsh or on another phone loses its dot here too. |
+| markProjectRead | yes | Touch and hold a project header in Sessions → Mark all as read (shown while a chat of that project has a green dot). Clears the green dots of that project's chats on the phone and in the Mac's unread list (Tether's dots); the desktop's own dots clear when opened there. |
 | activeProjectsFirst | yes | Sessions follows dsh's project order, which the desktop moves. |
 | recentProjects | yes | Sessions filter menu → Active in the last 2 hours. |
 | collapseProjects | yes | Sessions toolbar → Collapse all projects button, shown only while a project is open. |
@@ -30,7 +31,9 @@ A feature that uses a Host route (`/api/composer-plus.<name>`) also needs an ent
 | planToggle | yes | The plan button in the composer: adds or removes `/plan`, or leaves plan mode. |
 | keepFocus | no | A desktop browser focus problem. The iPhone keyboard keeps its focus. |
 | queueReorder | yes | Queued message menu → Move up / Move down. Messages with images move too (the Mac's `queue-move` route). |
+| queueEdit | yes | Queued message menu → Edit (an alert): the message keeps its place in the queue. |
 | copyDeeplink | yes | Chat title menu, or touch and hold a chat → Copy session link. |
+| copyMessageLink | yes | Touch and hold a message (yours or an answer) → Copy message link. A message link in your message shows an Open message button: a tap opens that chat, scrolls to the message and marks it for 2 s. |
 | exportMarkdown | yes | Chat title menu → Copy conversation or Share conversation: Markdown with the same section shape as the Mac's export (`## You` / `## Assistant`, code blocks kept, an open fence closed, no messages that Turn rollback or dsh-rewind-plugin withdrew), without the project and date line; Share sends it to another app. |
 | copyProjectPath | yes | Touch and hold a project header in Sessions → Copy path. |
 | projectPicker | yes | New session (✎) → the projects show A–Z, the search box filters them (case and accents ignored), Return picks the first match. |

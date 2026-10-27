@@ -114,6 +114,34 @@ try {
   const plain = join(root, 'plain'); mkdirSync(plain);
   assert.deepEqual(await changes(subprocess, plain, 'uncommitted'), { repo: false });
   assert.deepEqual(await commitGraph(subprocess, plain), { repo: false });
+  // Hide whitespace (`-w`): a file whose lines differ only in indentation or CRLF leaves the list and its diff; a real
+  // change stays. In commit mode too.
+  {
+    const wsRepo = join(root, 'ws'); mkdirSync(wsRepo); git(wsRepo, 'init', '-q', '-b', 'main');
+    writeFileSync(join(wsRepo, 'indent.js'), 'if (a) {\nb();\n}\n'); writeFileSync(join(wsRepo, 'real.js'), 'x\ny\n');
+    git(wsRepo, 'add', '.'); git(wsRepo, 'commit', '-q', '-m', 'init');
+    writeFileSync(join(wsRepo, 'indent.js'), 'if (a) {\r\n    b();\r\n}\r\n'); writeFileSync(join(wsRepo, 'real.js'), 'x\nY\n');
+    let w = await changes(subprocess, wsRepo, 'uncommitted');
+    assert.deepEqual(w.files.map((f) => f.path), ['indent.js', 'real.js'], 'without -w both show');
+    w = await changes(subprocess, wsRepo, 'uncommitted', undefined, undefined, { ws: true });
+    assert.deepEqual(w.files.map((f) => f.path), ['real.js'], 'with -w the indentation/CRLF-only file is gone');
+    assert.equal(await fileDiff(subprocess, wsRepo, 'uncommitted', 'indent.js', undefined, undefined, { ws: true }), undefined, 'not listed, so no diff');
+    writeFileSync(join(wsRepo, 'real.js'), 'x\n  Y\n');
+    const d2 = await fileDiff(subprocess, wsRepo, 'uncommitted', 'real.js', undefined, undefined, { ws: true });
+    assert.match(d2.patch, /^\+ {2}Y$/m); assert.match(d2.patch, /^-y$/m);
+    git(wsRepo, 'commit', '-q', '-am', 'mixed');
+    const head = git(wsRepo, 'rev-parse', 'HEAD').trim();
+    w = await changes(subprocess, wsRepo, 'commit', undefined, head, { ws: true });
+    assert.deepEqual(w.files.map((f) => f.path), ['real.js'], 'commit mode honors -w');
+    w = await changes(subprocess, wsRepo, 'commit', undefined, head);
+    assert.deepEqual(w.files.map((f) => f.path), ['indent.js', 'real.js']);
+    // `paths` limits the list (chat mode passes the chat's own files); an empty list is an empty view.
+    writeFileSync(join(wsRepo, 'real.js'), 'z\n'); writeFileSync(join(wsRepo, 'other.js'), 'o\n');
+    w = await changes(subprocess, wsRepo, 'uncommitted', undefined, undefined, { paths: [':(literal)other.js'] });
+    assert.deepEqual(w.files.map((f) => [f.path, !!f.untracked]), [['other.js', true]]);
+    w = await changes(subprocess, wsRepo, 'uncommitted', undefined, undefined, { paths: [] });
+    assert.deepEqual([w.repo, w.total], [true, 0]);
+  }
   // Renames in numstat -z.
   assert.deepEqual(parseNumstat('1\t2\tx\0' + '0\t0\t\0old\0new\0' + '-\t-\tbin\0'), [
     { path: 'x', added: 1, deleted: 2, binary: false }, { path: 'new', from: 'old', added: 0, deleted: 0, binary: false }, { path: 'bin', added: 0, deleted: 0, binary: true }]);
@@ -146,6 +174,9 @@ try {
     r = await call(CHANGES_PATH, `sessionId=T&mode=commit${bad}`); assert.equal(r.status, 400, `commit mode refuses "${bad}"`);
   }
   r = await call(CHANGES_PATH, `sessionId=T&mode=staged&commit=${tip}`); assert.equal(r.status, 400, 'a commit only goes with commit mode');
+  r = await call(CHANGES_PATH, 'sessionId=S&mode=uncommitted&ws=1'); assert.equal(r.status, 200, 'ws=1 hides whitespace');
+  for (const bad of ['ws=2', 'ws=', 'ws=true']) { r = await call(CHANGES_PATH, `sessionId=S&mode=uncommitted&${bad}`); assert.equal(r.status, 400, `refuses ${bad}`); }
+  r = await call(DIFF_PATH, 'sessionId=S&mode=uncommitted&path=a.txt&ws=1'); assert.match((await r.json()).patch, /TWO/);
   r = await call(CHANGES_PATH, `sessionId=T&mode=commit&commit=${'f'.repeat(40)}`); assert.equal(r.status, 500, 'unknown commit');
   r = await call(GRANTS_PATH, '', { method: 'POST', body: JSON.stringify({ action: 'grant', sessionId: 'S', tool: 't' }) }); assert.deepEqual(await r.json(), { S: ['t'] });
   r = await call(GRANTS_PATH, '', { method: 'POST', body: '{"action":"nuke"}' }); assert.equal(r.status, 400);
