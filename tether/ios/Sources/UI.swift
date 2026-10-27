@@ -2161,11 +2161,13 @@ struct ChangesSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                // Five modes do not fit the phone's width: the control keeps its size and scrolls.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Picker("Mode", selection: $mode) { ForEach(Self.modes, id: \.id) { Text($0.label).tag($0.id) } }.pickerStyle(.segmented).fixedSize()
-                }.listRowBackground(Color.clear).listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                Toggle("Hide whitespace", isOn: $ws).font(.subheadline)
+                // Five modes do not fit the phone's width as segments (Branch and This chat were off screen): a menu row
+                // shows the current mode and lists all five.
+                Picker("Mode", selection: $mode) { ForEach(Self.modes, id: \.id) { Text($0.label).tag($0.id) } }
+                // the row text toggles too, not only the switch (the switch keeps its own tap)
+                Toggle(isOn: $ws) {
+                    Text("Hide whitespace").frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()).onTapGesture { ws.toggle() }
+                }
                 if let failed { Text(failed).foregroundStyle(.secondary) }
                 else if let d = data {
                     if d["repo"] as? Bool == false { Text("This chat's folder is not a git repository.").foregroundStyle(.secondary) }
