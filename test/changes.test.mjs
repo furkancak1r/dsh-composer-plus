@@ -4,7 +4,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { changes, fileDiff, parseNumstat, parseRefs, commitGraph, runGit, grantsStore, apply, CHANGES_PATH, DIFF_PATH, GRAPH_PATH, GRANTS_PATH } from '../index.js';
+import { changes, fileDiff, parseNumstat, parseRefs, branchList, branchCommits, isBranchRef, runGit, grantsStore, apply, CHANGES_PATH, DIFF_PATH, GRAPH_PATH, GRANTS_PATH } from '../index.js';
 
 const subprocess = {
   resolveExecutable: async () => execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(),
@@ -26,7 +26,8 @@ try {
   git(root, 'clone', '-q', remote, repo);
   // Empty repository (no HEAD): uncommitted view lists the untracked file instead of failing.
   writeFileSync(join(repo, 'a.txt'), 'one\ntwo\n');
-  { const g = await commitGraph(subprocess, repo); assert.equal(g.repo, true); assert.deepEqual(g.commits, [], 'no commits: an empty tree, not an error'); assert.equal(g.head, undefined); }
+  { const g = await branchList(subprocess, repo); assert.equal(g.repo, true); assert.deepEqual(g.branches, [], 'no commits: no branches, not an error'); assert.equal(g.head, undefined); }
+  assert.equal(await branchCommits(subprocess, repo, 'HEAD'), undefined, 'no commits: no HEAD to read');
   let s = await changes(subprocess, repo, 'uncommitted');
   assert.equal(s.repo, true); assert.deepEqual(s.files.map((f) => [f.path, !!f.untracked]), [['a.txt', true]]);
   git(repo, 'add', '.'); git(repo, 'commit', '-q', '-m', 'init'); git(repo, 'push', '-q', '-u', 'origin', 'main');
@@ -61,16 +62,34 @@ try {
   git(tree, 'mv', 'b.txt', 'c.txt'); git(tree, 'commit', '-q', '-m', 'rename b');
   writeFileSync(join(tree, 'loose.txt'), 'x\n'); git(tree, 'stash', '-q', '-u'); // a stash is not a branch: not in the tree
   writeFileSync(join(tree, 'loose.txt'), 'x\n');
-  let gr = await commitGraph(subprocess, tree);
-  assert.deepEqual(gr.commits.map((c) => c.subject), ['rename b', 'Merge side', 'side work', 'main work', 'b', 'init'], 'children first, the side branch before its fork point');
-  assert.equal(gr.head, sha('HEAD')); assert.equal(gr.branch, 'main'); assert.equal(gr.upstream, 'origin/main'); assert.equal(gr.more, false);
+  // The branch list: the current branch first, then the other local branches, then remote ones; origin/HEAD and the stash
+  // are left out. Each has its last commit.
+  let bl = await branchList(subprocess, tree);
+  assert.deepEqual(bl.branches.map((b) => [b.name, b.kind, b.ref, !!b.current]), [['main', 'local', 'refs/heads/main', true], ['side', 'local', 'refs/heads/side', false], ['origin/main', 'remote', 'refs/remotes/origin/main', false]]);
+  assert.deepEqual(bl.branches.map((b) => [b.sha, b.subject]), [[sha('main'), 'rename b'], [sha('side'), 'side work'], [sha('origin/main'), 'init']]);
+  assert.equal(bl.branches[0].author, 't'); assert.ok(bl.branches[0].time > 1e9);
+  assert.equal(bl.head, sha('HEAD')); assert.equal(bl.branch, 'main'); assert.equal(bl.upstream, 'origin/main'); assert.equal(bl.more, false);
+  assert.equal('commits' in bl, false, 'the list has no commits');
+  bl = await branchList(subprocess, tree, undefined, 2); assert.equal(bl.branches.length, 2); assert.equal(bl.more, true, 'the list is cut');
+  // One branch: its first-parent line, newest first (a merge stands for what it brought in), with its tags.
+  let gr = await branchCommits(subprocess, tree, 'refs/heads/main');
+  assert.deepEqual(gr.commits.map((c) => c.subject), ['rename b', 'Merge side', 'main work', 'b', 'init'], 'the side commit is not on main\'s line');
+  assert.equal(gr.ref, 'refs/heads/main'); assert.equal(gr.head, sha('HEAD')); assert.equal(gr.more, false);
   assert.deepEqual(gr.commits[0].refs, [{ name: 'main', kind: 'local', current: true }]);
   assert.deepEqual(gr.commits[1].refs, [{ name: 'v1', kind: 'tag' }]);
-  assert.deepEqual(gr.commits[1].parents, [sha('HEAD~2'), sha('side')], 'a merge has two parents, the first one first');
-  assert.deepEqual(gr.commits[2].refs, [{ name: 'side', kind: 'local' }]);
-  assert.deepEqual(gr.commits[5].refs, [{ name: 'origin/main', kind: 'remote' }], 'remote branch; origin/HEAD is left out');
-  assert.deepEqual(gr.commits[5].parents, []); assert.equal(gr.commits[5].author, 't'); assert.ok(gr.commits[5].time > 1e9);
-  gr = await commitGraph(subprocess, tree, undefined, 2); assert.equal(gr.commits.length, 2); assert.equal(gr.more, true, 'older commits are cut');
+  assert.deepEqual(gr.commits[4].refs, [{ name: 'origin/main', kind: 'remote' }], 'remote branch; origin/HEAD is left out');
+  assert.equal(gr.commits[4].author, 't'); assert.ok(gr.commits[4].time > 1e9);
+  gr = await branchCommits(subprocess, tree, 'refs/heads/side');
+  assert.deepEqual(gr.commits.map((c) => c.subject), ['side work', 'b', 'init']);
+  gr = await branchCommits(subprocess, tree, 'refs/remotes/origin/main'); assert.deepEqual(gr.commits.map((c) => c.subject), ['init']);
+  gr = await branchCommits(subprocess, tree, 'refs/heads/main', undefined, 2); assert.equal(gr.commits.length, 2); assert.equal(gr.more, true, 'older commits are cut');
+  assert.equal(await branchCommits(subprocess, tree, 'refs/heads/gone'), undefined, 'a deleted branch');
+  // Only a full branch name or HEAD reaches git: never an option, a revision expression or a tag.
+  for (const bad of ['main', '--output=/tmp/x', 'refs/heads/main~1', 'refs/tags/v1', 'refs/heads/', 'HEAD~1', `refs/heads/a\0b`, '']) {
+    assert.equal(isBranchRef(bad), bad === 'refs/heads/main~1', `isBranchRef ${JSON.stringify(bad)}`);
+    if (bad === 'refs/heads/main~1') assert.equal(await branchCommits(subprocess, tree, bad), undefined, 'a revision expression is no ref');
+    else await assert.rejects(branchCommits(subprocess, tree, bad), /not a branch/);
+  }
   // Commit mode: one commit's files against its first parent (root, merge, rename); untracked files never show.
   s = await changes(subprocess, tree, 'commit', undefined, sha('HEAD~4'));
   assert.deepEqual(s.files.map((f) => [f.path, f.added, f.deleted]), [['a.txt', 2, 0]], 'root commit: its files'); assert.equal(s.commit, sha('HEAD~4'));
@@ -86,16 +105,17 @@ try {
   await assert.rejects(changes(subprocess, tree, 'commit', undefined, sha('HEAD:c.txt')), /expected commit type/, 'a blob id never prints its content');
   // A \x1f in a subject stays in the subject; cut-off output drops its broken last record.
   writeFileSync(join(tree, 'sep.txt'), 'x\n'); git(tree, 'add', 'sep.txt'); git(tree, 'commit', '-q', '-m', 'odd\x1fsubject');
-  gr = await commitGraph(subprocess, tree);
+  gr = await branchCommits(subprocess, tree, 'HEAD');
+  assert.equal((await branchList(subprocess, tree)).branches[0].subject, 'odd\x1fsubject', 'the list keeps it too');
   assert.equal(gr.commits[0].subject, 'odd\x1fsubject'); assert.ok(gr.commits[0].time > 1e9); assert.deepEqual(gr.commits[0].refs, [{ name: 'main', kind: 'local', current: true }]);
   {
-    const full = await runGit(subprocess, tree, ['log', '--branches', '-z', '--format=%H%x1f%P%x1f%ct%x1f%an%x1f%D%x1f%s']);
+    const full = await runGit(subprocess, tree, ['log', '--first-parent', '-z', '--format=%H%x1f%ct%x1f%an%x1f%D%x1f%s', 'main']);
     const cut = { ...subprocess, spawn: (spec) => {
       const h = subprocess.spawn(spec);
       if (!spec.argv.includes('log')) return h;
       return { done: h.done, collected: { stdout: { readFrom: () => ({ text: full.stdout.slice(0, full.stdout.indexOf('\0') + 1 + 41 + 20), lossy: true }) }, stderr: h.collected.stderr } };
     } };
-    gr = await commitGraph(cut, tree);
+    gr = await branchCommits(cut, tree, 'refs/heads/main');
     assert.equal(gr.commits.length, 1, 'only the whole record'); assert.equal(gr.more, true);
   }
   git(tree, 'reset', '-q', '--hard', 'HEAD~1');
@@ -104,16 +124,21 @@ try {
   assert.deepEqual(parseRefs('HEAD -> refs/heads/feat/x, tag: refs/tags/v2, refs/remotes/up/HEAD, refs/stash, refs/remotes/up/feat/x'),
     [{ name: 'feat/x', kind: 'local', current: true }, { name: 'v2', kind: 'tag' }, { name: 'up/feat/x', kind: 'remote' }]);
   assert.deepEqual(parseRefs(''), []);
-  // Detached HEAD on an older commit: the tree still holds every branch.
+  // Detached HEAD on an older commit: HEAD leads the list (it is where the work tree is), every branch stays.
   git(tree, 'checkout', '-q', '--detach', 'HEAD~2');
-  gr = await commitGraph(subprocess, tree); assert.equal(gr.commits.length, 6); assert.deepEqual(gr.commits.find((c) => c.sha === gr.head).refs, [{ name: 'HEAD', kind: 'head' }]);
+  bl = await branchList(subprocess, tree);
+  assert.deepEqual(bl.branches.map((b) => [b.name, b.kind, !!b.current]), [['HEAD', 'head', true], ['main', 'local', false], ['side', 'local', false], ['origin/main', 'remote', false]]);
+  assert.deepEqual([bl.branches[0].ref, bl.branches[0].sha, bl.branches[0].subject, bl.branches[0].author], ['HEAD', sha('HEAD'), 'main work', 't']);
+  gr = await branchCommits(subprocess, tree, 'HEAD'); assert.deepEqual(gr.commits.map((c) => c.subject), ['main work', 'b', 'init']);
+  assert.deepEqual(gr.commits[0].refs, [{ name: 'HEAD', kind: 'head' }]);
   git(tree, 'checkout', '-q', 'main');
   // No upstream / not a repository.
   git(repo, 'checkout', '-q', '-b', 'local-only');
   s = await changes(subprocess, repo, 'branch'); assert.equal(s.noUpstream, true);
   const plain = join(root, 'plain'); mkdirSync(plain);
   assert.deepEqual(await changes(subprocess, plain, 'uncommitted'), { repo: false });
-  assert.deepEqual(await commitGraph(subprocess, plain), { repo: false });
+  assert.deepEqual(await branchList(subprocess, plain), { repo: false });
+  assert.deepEqual(await branchCommits(subprocess, plain, 'HEAD'), { repo: false });
   // Hide whitespace (`-w`): a file whose lines differ only in indentation or CRLF leaves the list and its diff; a real
   // change stays. In commit mode too.
   {
@@ -163,9 +188,15 @@ try {
   r = await call(CHANGES_PATH, 'sessionId=X'); assert.deepEqual(await r.json(), { repo: false });
   r = await call(DIFF_PATH, 'sessionId=S&mode=uncommitted&path=a.txt'); assert.match((await r.json()).patch, /TWO/);
   r = await call(DIFF_PATH, 'sessionId=S&mode=uncommitted&path=nope'); assert.equal(r.status, 404);
-  r = await call(GRAPH_PATH, 'sessionId=S'); assert.equal(r.status, 200); { const v = await r.json(); assert.equal(v.commits.length, 2, 'init and b'); assert.equal(v.branch, 'local-only'); assert.deepEqual(v.lastTurn, { seq: 7, turn: 2 }); }
-  r = await call(GRAPH_PATH, 'sessionId=T'); assert.equal((await r.json()).commits.length, 6);
+  r = await call(GRAPH_PATH, 'sessionId=S'); assert.equal(r.status, 200);
+  { const v = await r.json(); assert.deepEqual(v.branches.map((b) => b.name), ['local-only', 'main', 'origin/main']); assert.equal(v.branch, 'local-only'); assert.deepEqual(v.lastTurn, { seq: 7, turn: 2 }); }
+  r = await call(GRAPH_PATH, 'sessionId=S&ref=refs%2Fheads%2Flocal-only'); assert.equal(r.status, 200);
+  { const v = await r.json(); assert.deepEqual(v.commits.map((c) => c.subject), ['b', 'init']); assert.equal(v.ref, 'refs/heads/local-only'); assert.deepEqual(v.lastTurn, { seq: 7, turn: 2 }); }
+  r = await call(GRAPH_PATH, 'sessionId=T&ref=HEAD'); assert.equal((await r.json()).commits.length, 5);
+  r = await call(GRAPH_PATH, 'sessionId=T&ref=refs%2Fheads%2Fnope'); assert.equal(r.status, 404, 'a branch that is gone');
+  for (const bad of ['main', '--output%3D%2Ftmp%2Fx', 'refs%2Ftags%2Fv1', '']) { r = await call(GRAPH_PATH, `sessionId=T&ref=${bad}`); assert.equal(r.status, 400, `ref "${bad}"`); }
   r = await call(GRAPH_PATH, 'sessionId=X'); assert.deepEqual(await r.json(), { repo: false });
+  r = await call(GRAPH_PATH, 'sessionId=X&ref=HEAD'); assert.deepEqual(await r.json(), { repo: false });
   r = await call(GRAPH_PATH, ''); assert.equal(r.status, 400);
   const tip = sha('HEAD');
   r = await call(CHANGES_PATH, `sessionId=T&mode=commit&commit=${tip}`); assert.deepEqual((await r.json()).files.map((f) => f.path), ['c.txt']);

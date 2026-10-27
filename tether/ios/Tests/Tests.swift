@@ -860,40 +860,25 @@ final class UserTextTests: XCTestCase {
 }
 
 
-/// Changes panel branch tree: the same lanes and branch order as `graphRows` / `treeBranches` in client.js
-/// (test/changes-tree.test.mjs has the same cases).
+/// Changes → Tree: the branch list and a branch's commits from `/plus/graph` (the same answers as test/changes.test.mjs).
 final class BranchTreeTests: XCTestCase {
-    private func c(_ sha: String, _ parents: [String] = [], _ refs: [GraphRef] = []) -> GraphCommit { GraphCommit(sha: sha, parents: parents, refs: refs) }
-    func testLinear() {
-        XCTAssertEqual(graphRows([c("A", ["B"]), c("B", ["C"]), c("C")]), [
-            GraphRow(col: 0, top: [], bottom: [[0, 0, 0]], width: 1), GraphRow(col: 0, top: [[0, 0]], bottom: [[0, 0, 0]], width: 1),
-            GraphRow(col: 0, top: [[0, 0]], bottom: [], width: 1)])
-    }
-    func testMergeAndFork() {
-        let rows = graphRows([c("M", ["W", "S"]), c("S", ["B"]), c("W", ["B"]), c("B", ["I"]), c("I")])
-        XCTAssertEqual(rows[0], GraphRow(col: 0, top: [], bottom: [[0, 0, 0], [0, 1, 1]], width: 2))
-        XCTAssertEqual(rows[1], GraphRow(col: 1, top: [[0, 0], [1, 1]], bottom: [[0, 0, 0], [1, 1, 1]], width: 2))
-        XCTAssertEqual(rows[2], GraphRow(col: 0, top: [[0, 0], [1, 1]], bottom: [[1, 0, 1], [0, 0, 0]], width: 2), "the fork point joins the lanes")
-        XCTAssertEqual(rows[3], GraphRow(col: 0, top: [[0, 0]], bottom: [[0, 0, 0]], width: 1), "the free lane goes away")
-        XCTAssertEqual(rows[4].bottom, [])
-        XCTAssertEqual(graphRows([c("T1", ["B"]), c("T2", ["B"]), c("B")])[1], GraphRow(col: 1, top: [[0, 0]], bottom: [[0, 0, 0], [1, 0, 1]], width: 2))
-    }
-    func testReuseRootsAndOpenParent() {
-        let rows = graphRows([c("M", ["A", "X"]), c("X", ["Y"]), c("A", ["Y"]), c("N", ["Z"]), c("Y"), c("R")])
-        XCTAssertEqual(rows[3].col, 1, "N takes the free lane 1")
-        XCTAssertEqual(rows[4].bottom, [[1, 1, 1]], "the lane to Z stays open under Y")
-        XCTAssertEqual(rows[5], GraphRow(col: 0, top: [[1, 1]], bottom: [[1, 1, 1]], width: 2), "a second root uses lane 0")
-    }
-    func testBranchesAndParsing() {
-        let list = treeBranches([
-            c("1", [], [GraphRef(name: "origin/main", kind: "remote"), GraphRef(name: "v1", kind: "tag")]),
-            c("2", [], [GraphRef(name: "zeta", kind: "local"), GraphRef(name: "main", kind: "local", current: true)]),
-            c("3", [], [GraphRef(name: "HEAD", kind: "head"), GraphRef(name: "alpha", kind: "local")])])
-        XCTAssertEqual(list.map { "\($0.ref.name)@\($0.sha)" }, ["main@2", "alpha@3", "zeta@2", "HEAD@3", "origin/main@1"])
-        let parsed = GraphCommit(["sha": "abc", "parents": ["p"], "refs": [["name": "main", "kind": "local", "current": true], ["kind": "tag"]], "author": "Demo", "time": 5, "subject": "Init"])
+    func testBranchParsing() {
+        let b = GraphBranch(["ref": "refs/heads/main", "name": "main", "kind": "local", "current": true, "sha": "abc", "time": 5, "author": "Demo", "subject": "Init"])
+        XCTAssertEqual(b?.ref, "refs/heads/main"); XCTAssertEqual(b?.current, true); XCTAssertEqual(b?.time, 5); XCTAssertEqual(b?.subject, "Init")
+        XCTAssertEqual(GraphBranch(["ref": "refs/remotes/origin/main", "name": "origin/main", "kind": "remote", "sha": "abc"])?.current, false)
+        XCTAssertNil(GraphBranch(["name": "no ref", "kind": "local", "sha": "abc"]))
+        let parsed = GraphCommit(["sha": "abc", "refs": [["name": "main", "kind": "local", "current": true], ["kind": "tag"]], "author": "Demo", "time": 5, "subject": "Init"])
         XCTAssertEqual(parsed?.refs, [GraphRef(name: "main", kind: "local", current: true)])
-        XCTAssertEqual(parsed?.parents, ["p"]); XCTAssertEqual(parsed?.time, 5)
+        XCTAssertEqual(parsed?.author, "Demo"); XCTAssertEqual(parsed?.time, 5)
         XCTAssertNil(GraphCommit(["subject": "no id"]))
+    }
+    func testCommitTags() {
+        let side = GraphBranch(["ref": "refs/heads/side", "name": "side", "kind": "local", "sha": "s"])!
+        let c = GraphCommit(sha: "s", refs: [GraphRef(name: "v1", kind: "tag"), GraphRef(name: "origin/side", kind: "remote"), GraphRef(name: "side", kind: "local"),
+                                              GraphRef(name: "main", kind: "local", current: true), GraphRef(name: "side", kind: "remote")])
+        // The open branch is not repeated; a remote "side" is another branch and stays.
+        XCTAssertEqual(commitTags(c, of: side).map(\.key), ["local:main", "remote:origin/side", "remote:side", "tag:v1"])
+        XCTAssertEqual(gatewayText(404, "no such branch"), "This branch no longer exists.")
     }
 }
 
