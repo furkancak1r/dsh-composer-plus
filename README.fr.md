@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Redémarrez ensuite dsh. (La CLI ne peut pas installer dans le profil de bureau ; c’est l’app qui le gère.)
 
-> Le pnpm de dsh ignore les versions publiées depuis moins de 24 heures. Juste après une nouvelle version, ajoutez le numéro de version : `dsh-composer-plus@1.15.0`.
+> Le pnpm de dsh ignore les versions publiées depuis moins de 24 heures. Juste après une nouvelle version, ajoutez le numéro de version : `dsh-composer-plus@1.16.0`.
 
 ## Fonctionnalités
 
@@ -182,7 +182,7 @@ Testé sur dsh `0.2.0-rc.2` (bureau et web) et `0.2.1-rc.2` (web). La CI exécut
 - **Pas de pastille de branche sur une ligne de discussion :** la discussion n’a eu aucun tour depuis que vous avez installé cette version, son dossier n’est pas un dépôt git, ou **Branche Git sur les lignes de discussion** est désactivée. Après une mise à jour, redémarrez dsh (la partie hôte enregistre la branche).
 - **Vérification de l’objectif indique que le test s’est terminé avec le code 127 ou « not found » :** dsh démarré depuis le Finder ou le Dock peut avoir un PATH plus court que votre terminal : il ne trouve donc pas `npm`, `pnpm` ou `cargo`. Démarrez dsh depuis un terminal, ou définissez votre propre commande de test avec le chemin complet sous **Vérification de l’objectif** → **Modifier**. **Lancer maintenant** affiche le résultat tout de suite.
 - **L’objectif ne se ferme pas et l’agent continue de travailler :** **Vérification de l’objectif** a trouvé un test en échec ou du travail manquant ; la ligne sous l’objectif indique pourquoi (survolez le résultat pour voir les détails). Corrigez la cause ou la commande de test, ou terminez l’objectif vous-même avec `/goal` ou la barre de l’objectif (ce n’est pas vérifié).
-- **L’installation échoue juste après une nouvelle version :** ajoutez la version (`dsh-composer-plus@1.15.0`) ; voir la note d’installation plus haut.
+- **L’installation échoue juste après une nouvelle version :** ajoutez la version (`dsh-composer-plus@1.16.0`) ; voir la note d’installation plus haut.
 - **Sauvegarder maintenant indique « Une autre action de sauvegarde est en cours » :** une action tourne dans une autre fenêtre de dsh ou dans la console de secours (elles partagent un fichier de verrou, `.composer-plus.lock`, dans le dossier de sauvegarde). Attendez qu’elle se termine. Si aucune action ne tourne, le verrou d’un processus fermé est repris au clic suivant.
 - **La console de secours indique « dsh is running » :** quittez d’abord dsh. Si dsh est vraiment fermé, le fichier nommé dans le message reste d’un plantage : supprimez-le et réessayez.
 - **Après une restauration, dsh ne démarre pas ou un plugin manque :** les paquets de plugins d’un profil doivent être réinstallés. La console de secours le propose après une restauration ; sinon, exécutez `pnpm install` dans chaque dossier sous `$DSH_HOME/profiles/` qu’elle liste. Les secrets qui n’étaient pas dans le vault (autre ordinateur) doivent être saisis de nouveau : la console les liste.

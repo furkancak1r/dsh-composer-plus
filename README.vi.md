@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Sau đó khởi động lại dsh. (CLI không cài được vào profile desktop; ứng dụng tự quản lý profile này.)
 
-> pnpm của dsh bỏ qua các phiên bản ra mắt chưa đủ 24 giờ. Ngay sau một bản phát hành, hãy thêm số phiên bản: `dsh-composer-plus@1.15.0`.
+> pnpm của dsh bỏ qua các phiên bản ra mắt chưa đủ 24 giờ. Ngay sau một bản phát hành, hãy thêm số phiên bản: `dsh-composer-plus@1.16.0`.
 
 ## Tính năng
 
@@ -182,7 +182,7 @@ Khi menu `/` hoặc `@` đang mở, menu đó giữ các phím này cho riêng n
 - **Dòng cuộc trò chuyện không có nhãn branch:** cuộc trò chuyện chưa có lượt nào kể từ khi bạn cài phiên bản này, thư mục của nó không phải repository git, hoặc **Branch Git trên dòng cuộc trò chuyện** đang tắt. Sau khi cập nhật, hãy khởi động lại dsh (phần Host ghi lại branch).
 - **Kiểm tra mục tiêu báo bài kiểm thử thoát với mã 127 hoặc "not found":** dsh khởi động từ Finder hoặc Dock có thể có PATH ngắn hơn terminal của bạn, nên không tìm thấy `npm`, `pnpm` hoặc `cargo`. Hãy khởi động dsh từ terminal, hoặc đặt lệnh kiểm thử của riêng bạn với đường dẫn đầy đủ trong **Kiểm tra mục tiêu** → **Sửa**. **Chạy ngay** hiện kết quả ngay lập tức.
 - **Mục tiêu không đóng và tác tử tiếp tục làm việc:** **Kiểm tra mục tiêu** đã tìm thấy một bài kiểm thử thất bại hoặc phần việc còn thiếu; dòng bên dưới mục tiêu cho biết lý do (di chuột lên kết quả để xem chi tiết). Hãy sửa nguyên nhân hoặc lệnh kiểm thử, hoặc tự hoàn tất mục tiêu bằng `/goal` hoặc thanh mục tiêu (việc này không được kiểm tra).
-- **Cài đặt thất bại ngay sau một bản phát hành:** thêm số phiên bản (`dsh-composer-plus@1.15.0`), xem ghi chú cài đặt ở trên.
+- **Cài đặt thất bại ngay sau một bản phát hành:** thêm số phiên bản (`dsh-composer-plus@1.16.0`), xem ghi chú cài đặt ở trên.
 - **Sao lưu ngay báo "Một thao tác sao lưu khác đang chạy":** một thao tác đang chạy trong cửa sổ dsh khác hoặc trong bảng điều khiển cứu hộ (chúng dùng chung tệp khóa `.composer-plus.lock` trong thư mục sao lưu). Hãy chờ thao tác đó xong. Nếu không có thao tác nào đang chạy, khóa của tiến trình đã đóng sẽ được tiếp quản ở lần nhấp tiếp theo.
 - **Bảng điều khiển cứu hộ báo "dsh is running":** trước tiên hãy thoát dsh. Nếu dsh thật sự đã đóng, tệp được nêu trong thông báo là phần còn sót lại sau một sự cố: hãy xóa tệp đó rồi thử lại.
 - **Sau khi khôi phục, dsh không khởi động hoặc thiếu một plugin:** cần cài lại các gói plugin của profile. Bảng điều khiển cứu hộ đề nghị việc này sau khi khôi phục; hoặc chạy `pnpm install` trong từng thư mục dưới `$DSH_HOME/profiles/` mà nó liệt kê. Các thông tin bí mật không có trong vault (máy tính khác) phải được nhập lại: bảng điều khiển liệt kê chúng.
