@@ -1563,6 +1563,8 @@
     "statusOrder.selected": "selecionado",
     "feature.notifications": "Notificações em segundo plano",
     "feature.notifications.description": "Notifica quando um chat termina ou precisa de você enquanto o dsh está em segundo plano, com um indicador no Dock.",
+    "feature.idleSwitch": "Abrir o chat em espera quando ocioso",
+    "feature.idleSwitch.description": "Quando um chat faz uma pergunta ou aguarda uma aprovação ou uma revisão do plano (ponto laranja) e você não usa o dsh por 30 segundos, o dsh abre esse chat. O chat que espera há mais tempo abre primeiro. Ele não troca enquanto você digita, rola a tela, move o mouse, seleciona texto ou tem um menu aberto.",
     "feature.allowForChat": "Permitir neste chat",
     "feature.allowForChat.description": "Adiciona “Permitir neste chat” às aprovações da revisão automática e permite automaticamente as ferramentas concedidas. Uma permissão concedida termina após o limite de tempo abaixo (1 hora por padrão); depois, o agente pergunta de novo.",
     "feature.continueButton": "Continuar com um clique",

@@ -1563,6 +1563,8 @@
     "statusOrder.selected": "選択中",
     "feature.notifications": "バックグラウンド通知",
     "feature.notifications.description": "dsh がバックグラウンドにあるときにチャットが完了したり操作が必要になったりすると、通知と Dock のバッジでお知らせします。",
+    "feature.idleSwitch": "操作がないときに待機中のチャットを開く",
+    "feature.idleSwitch.description": "チャットが質問をしたり、承認や計画のレビューを待っていたり（オレンジ色の点）するときに、dsh を 30 秒間操作しないと、dsh はそのチャットを開きます。最も長く待っているチャットから開きます。入力中、スクロール中、マウスを動かしているとき、テキストを選択しているとき、メニューが開いているときは切り替えません。",
     "feature.allowForChat": "このチャットで許可",
     "feature.allowForChat.description": "Auto Review の承認に「このチャットで許可」を追加し、許可されたツールを自動的に許可します。許可は下の時間制限（既定は 1 時間）が過ぎると終了し、その後エージェントが再び確認します。",
     "feature.continueButton": "ワンクリックで続行",
