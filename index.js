@@ -71,7 +71,7 @@ const CONTINUE_SOURCE = 'composer-plus-continue';
 const CONTINUE_TEXT = 'The previous turn stopped before it finished (it was interrupted or failed). Continue the task from where it stopped. Do not repeat completed work.';
 const continueMessage = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: CONTINUE_TEXT })]),
   source: Object.freeze({ kind: 'composer-plus-resume', form: 'snapshot' }) });
-export const MODES = ['uncommitted', 'unstaged', 'staged', 'branch', 'commit', 'chat'];
+export const MODES = ['uncommitted', 'unstaged', 'staged', 'branch', 'commit', 'chat', 'pending'];
 /** A branch in the Changes panel shows at most this many commits (newest first), and the branch list at most this
  * many branches. */
 export const GRAPH_MAX = 300;
@@ -128,7 +128,7 @@ export function diffArgs(mode, base, commit) {
   if (mode === 'commit') return ['show', '--format=', '--root', '-m', '--first-parent', '--no-show-signature', `${commit}^{commit}`];
   if (mode === 'staged') return ['diff', '--cached'];
   if (mode === 'unstaged') return ['diff'];
-  if (mode === 'branch') return ['diff', base];
+  if (mode === 'branch' || mode === 'pending') return ['diff', base];
   return ['diff', 'HEAD'];
 }
 
@@ -181,6 +181,140 @@ export async function branchList(subprocess, cwd, signal, limit = BRANCH_LIST_MA
 /** A ref that `branchCommits` takes: a full local or remote branch name, or HEAD. Never a revision expression or an
  * option (git checks that the ref exists before it reads it). */
 export const isBranchRef = (ref) => ref === 'HEAD' || (typeof ref === 'string' && ref.length <= 1024 && /^refs\/(?:heads|remotes)\/[^\0]+$/.test(ref));
+
+/** The branch map reads at most this many commits and shows at most this many branches. */
+export const MAP_COMMITS = 20000;
+export const MAP_BRANCHES = 60;
+/** The Changes panel's branch map (Tree) from the branch list and the commits (`{ sha, parents }`, in `git log --topo-order`:
+ * a commit always comes before its parents, so a lower index is newer). Git does not save where a branch merges into,
+ * so the map guesses (the README says so):
+ * - merged: a merge commit on another branch's first-parent line took this branch's tip, or (a fast-forward) the main
+ *   branch's line holds the tip and moved past it. The target is the branch that took it first (the oldest such commit). When two branches
+ *   share that commit, the main branch wins, then the one that the other started from, then the list order. `merge` is the merge commit (a
+ *   fast-forward has none). A branch that only started from this tip did not merge it.
+ * - waiting: any other branch. Its target is the branch whose first-parent line holds the newest commit of this
+ *   branch's history (where it started), not a branch that started from it or whose arrows lead back here. A branch
+ *   that took another one (or the main branch) never gets a branch that took none as its target.
+ * - reached: the main branch has the tip (green on the map).
+ * Remote branches show only when no local branch has the same short name. `level` is the row (0 = the main branch). */
+export function branchMap(list, records, mainRef, partial = false) {
+  const at = new Map(records.map((r, i) => [r.sha, i]));
+  const n = records.length;
+  // Parent slots stay in place: a first parent older than the commits read is undefined, so a line ends there and never
+  // follows a merge's second parent.
+  const parents = records.map((r) => r.parents.map((p) => at.get(p)));
+  const children = records.map(() => []);
+  parents.forEach((ps, i) => { for (const p of ps) if (p !== undefined) children[p].push(i); });
+  // Marks of every commit that `next` leads to from commit `start` (parents: its history; children: the commits after it).
+  const walk = (start, next) => {
+    const seen = new Uint8Array(n); const todo = start === undefined ? [] : [start];
+    while (todo.length > 0) { const i = todo.pop(); if (seen[i]) continue; seen[i] = 1; for (const j of next[i]) if (j !== undefined && !seen[j]) todo.push(j); }
+    return seen;
+  };
+  /** The first-parent line from commit `start`, newest first. */
+  const line = (start) => { const out = []; for (let i = start; i !== undefined && out.length <= n; i = parents[i][0]) out.push(i); return out; };
+  const local = new Set(list.filter((b) => b.kind === 'local').map((b) => b.name));
+  const visible = list.filter((b) => b.kind !== 'remote' || !local.has(b.name.slice(b.name.indexOf('/') + 1)));
+  // A tip older than the commits read has no index: it shows as waiting, with no arrow.
+  const shown = visible.slice(0, MAP_BRANCHES);
+  // The main branch stays on a cut map: it takes the place of the last branch.
+  const kept = visible.find((b) => b.ref === mainRef);
+  if (kept !== undefined && !shown.includes(kept)) shown[shown.length - 1] = kept;
+  const main = shown.find((b) => b.ref === mainRef);
+  const tip = new Map(shown.map((b) => [b, at.get(b.sha)]));
+  const lines = new Map(shown.map((b) => [b, line(tip.get(b))]));
+  const history = new Map(shown.map((b) => [b, walk(tip.get(b), parents)]));
+  const onLine = (o, i) => lines.get(o).includes(i);
+  const out = new Map();
+  for (const b of shown) {
+    const base = { ref: b.ref, name: b.name, kind: b.kind, ...(b.current ? { current: true } : {}), sha: b.sha, time: b.time, author: b.author, subject: b.subject };
+    if (b === main) { out.set(b, { ...base, state: 'main', reached: true }); continue; }
+    const t = tip.get(b); const after = walk(t, children);
+    let took;
+    for (const o of shown) {
+      // A branch at the same commit took nothing yet (a new branch, or a fast-forward that nothing came after).
+      if (o === b || o.sha === b.sha || !after[tip.get(o)]) continue;
+      // Back along o's first-parent line while its commits have b's tip: the last one took it.
+      let i; for (const j of lines.get(o)) { if (!after[j]) break; i = j; }
+      if (i === t && o !== main) continue; // o only started from b's tip
+      // A tie (the same commit took it): the main branch wins, then the branch that the other started from, then a
+      // branch with a merge commit (it takes work in) over one that only has its own commits after that commit.
+      const merges = (x) => lines.get(x).some((j) => j < i && records[j].parents.length > 1);
+      const better = took === undefined || i > took.i || (i === took.i && took.o !== main && (o === main
+        || (onLine(took.o, tip.get(o)) && !onLine(o, tip.get(took.o)))
+        || (!onLine(o, tip.get(took.o)) && !onLine(took.o, tip.get(o)) && merges(o) && !merges(took.o))));
+      if (better) took = { o, i };
+    }
+    const reached = main !== undefined && t !== undefined && history.get(main)[t] === 1;
+    out.set(b, took === undefined ? { ...base, state: 'waiting', reached }
+      : { ...base, state: 'merged', reached, target: took.o.ref, ...(took.i !== t && records[took.i].parents.length > 1 ? { merge: records[took.i].sha } : {}) });
+  }
+  const byRef = new Map(shown.map((b) => [b.ref, out.get(b)]));
+  // Integration branches: the main branch and each branch that took another one. A fork commit on both lines does not say
+  // which branch started from which: an integration branch never started from a branch that is not one.
+  const integrators = new Set([...(main ? [main.ref] : []), ...[...out.values()].filter((v) => v.state === 'merged').map((v) => v.target)]);
+  const leadsTo = (from, goal) => { for (let x = from, k = 0; x !== undefined && k <= shown.length; x = byRef.get(x.target), k++) if (x.ref === goal) return true; return false; };
+  for (const b of shown) {
+    const v = out.get(b);
+    if (v.state !== 'waiting') continue;
+    const mine = history.get(b); const after = walk(tip.get(b), children);
+    let from;
+    for (const o of shown) {
+      // Not a branch that started from b (its tip is after b's, or the same commit); only the main branch can be at b's commit.
+      if (o === b || (after[tip.get(o)] && !(o === main && o.sha === b.sha)) || leadsTo(out.get(o), b.ref)) continue;
+      const i = lines.get(o).find((j) => mine[j]);
+      if (i !== undefined && onLine(b, i) && integrators.has(b.ref) && !integrators.has(o.ref)) continue; // o started from b
+      // A tie (the same fork commit): the main branch wins, then the branch that the other started from.
+      if (i !== undefined && (from === undefined || i < from.i || (i === from.i && from.o !== main && (o === main || (onLine(from.o, tip.get(o)) && !onLine(o, tip.get(from.o))))))) from = { o, i };
+    }
+    if (from !== undefined) v.target = from.o.ref;
+  }
+  const level = (v, k = 0) => (v.state === 'main' ? 0 : !byRef.has(v.target) || k > shown.length ? 1 : level(byRef.get(v.target), k + 1) + 1);
+  const branches = shown.map((b) => out.get(b));
+  for (const v of branches) v.level = level(v);
+  return { ...(main ? { main: main.ref } : {}), branches, partial, more: visible.length > shown.length };
+}
+
+/** The main branch of the map: the default branch of origin, else `main` or `master` (local first), else the open branch. */
+async function mainBranch(subprocess, root, list, signal) {
+  const head = await runGit(subprocess, root, ['symbolic-ref', '-q', 'refs/remotes/origin/HEAD'], signal);
+  const remote = head.code === 0 ? head.stdout.trim() : '';
+  for (const name of [...(remote.startsWith('refs/remotes/origin/') ? [remote.slice(20)] : []), 'main', 'master']) {
+    const b = list.find((x) => x.ref === `refs/heads/${name}`) ?? list.find((x) => x.ref === `refs/remotes/origin/${name}`);
+    if (b !== undefined) return b;
+  }
+  return list.find((x) => x.current) ?? list[0];
+}
+
+/** The branch map of the repository around cwd (`branchMap`) with the repository facts, from the newest MAP_COMMITS
+ * commits of every branch (`partial` when there are more). */
+export async function branchMapOf(subprocess, cwd, signal) {
+  const list = await branchList(subprocess, cwd, signal);
+  if (!list.repo || list.branches.length === 0) return list;
+  const log = await runGit(subprocess, list.root, ['log', '--branches', '--remotes', ...(list.head ? ['HEAD'] : []), '--topo-order', '-z',
+    `--max-count=${MAP_COMMITS + 1}`, '--no-show-signature', '--format=%H%x1f%P', '--'], signal);
+  if (log.code !== 0) throw new Error(`git log failed: ${log.stderr.trim()}`);
+  const records = [];
+  // Each record ends in \0: the last piece is '' or, in cut-off output, a broken record. Only whole ones count.
+  for (const record of log.stdout.split('\0').slice(0, -1)) {
+    const [sha, parentList] = record.replace(/^\n/, '').split('\x1f');
+    if (SHA_RE.test(sha ?? '')) records.push({ sha, parents: parentList ? parentList.split(' ') : [] });
+  }
+  const main = await mainBranch(subprocess, list.root, list.branches, signal);
+  const map = branchMap(list.branches, records.slice(0, MAP_COMMITS), main?.ref, records.length > MAP_COMMITS || log.truncated);
+  return { ...list, ...map, more: list.more || map.more };
+}
+
+/** `target...ref` for the pending view (the files that a branch brings into its target, from their merge base), with
+ * the ids that git read for both refs; undefined when one of them is gone. */
+async function pendingBase(subprocess, root, pending, signal) {
+  const sha = async (ref) => {
+    const r = await runGit(subprocess, root, ['show-ref', '--verify', '--hash', ref], signal);
+    return r.code === 0 && SHA_RE.test(r.stdout.trim()) ? r.stdout.trim() : undefined;
+  };
+  const target = await sha(pending.target); const ref = await sha(pending.ref);
+  return target && ref ? `${target}^{commit}...${ref}^{commit}` : undefined;
+}
 
 /** One branch's commits for the Changes panel: the newest `limit` commits of its first-parent line (a merge stands for
  * the commits that it brought in), with their refs (tags). Undefined when the branch is gone. */
@@ -248,10 +382,12 @@ const fileSummary = (files) => {
 
 /** Repository facts and the changed files for one mode. Untracked files count as additions outside the staged and
  * commit views. `commit` (commit mode only) must match SHA_RE: the route checks it before it calls this.
- * `opts.ws` hides whitespace-only changes; `opts.paths` (pathspecs from the repository top) limits the list. `known`:
- * `repoFacts` that the caller read already. */
-export async function changes(subprocess, cwd, mode, signal, commit, { ws = false, paths } = {}, known = undefined) {
+ * `opts.ws` hides whitespace-only changes; `opts.paths` (pathspecs from the repository top) limits the list.
+ * `opts.pending` (`{ ref, target }`, two branch refs; pending mode only): the files that `ref` brings into `target`, from
+ * their merge base; `gone: true` when one of the two branches is gone. `known`: `repoFacts` that the caller read already. */
+export async function changes(subprocess, cwd, mode, signal, commit, { ws = false, paths, pending } = {}, known = undefined) {
   if (mode === 'commit' && !SHA_RE.test(commit ?? '')) throw new Error('commit mode needs a full commit id');
+  if (mode === 'pending' && !(isBranchRef(pending?.ref) && isBranchRef(pending?.target))) throw new Error('pending mode needs two branches');
   const facts = known ?? await repoFacts(subprocess, cwd, signal);
   if (facts === undefined) return { repo: false };
   const { root, branch, upstream, hasHead } = facts;
@@ -263,13 +399,16 @@ export async function changes(subprocess, cwd, mode, signal, commit, { ws = fals
     const mb = await runGit(subprocess, root, ['merge-base', 'HEAD', upstream], signal);
     if (mb.code !== 0) return { repo: true, root, branch, upstream, mode, files: [], total: 0, noUpstream: true };
     base = mb.stdout.trim();
+  } else if (mode === 'pending') {
+    base = await pendingBase(subprocess, root, pending, signal);
+    if (base === undefined) return { repo: true, root, branch, mode, files: [], total: 0, added: 0, deleted: 0, gone: true };
   }
   // A repository without commits has no HEAD: compare against the empty tree.
   const args = mode === 'uncommitted' && !hasHead ? ['diff', '--cached'] : diffArgs(mode, base, commit);
   const stat = await runGit(subprocess, root, [...args, '--numstat', '-z', '-M', '--no-color', '--no-ext-diff', ...wsArgs(ws), ...only], signal);
   if (stat.code !== 0) throw new Error(`git diff failed: ${stat.stderr.trim()}`);
   const files = parseNumstat(stat.stdout);
-  if (mode !== 'staged' && mode !== 'commit') {
+  if (mode !== 'staged' && mode !== 'commit' && mode !== 'pending') {
     const untracked = await runGit(subprocess, root, ['ls-files', '--others', '--exclude-standard', '-z', ...only], signal);
     for (const path of untracked.stdout.split('\0')) if (path !== '' && !files.some((f) => f.path === path)) files.push({ path, added: 0, deleted: 0, binary: false, untracked: true });
   }
@@ -289,6 +428,8 @@ export async function fileDiff(subprocess, cwd, mode, path, signal, commit, opts
   }
   let base;
   if (mode === 'branch') base = (await runGit(subprocess, summary.root, ['merge-base', 'HEAD', summary.upstream], signal)).stdout.trim();
+  if (mode === 'pending') base = await pendingBase(subprocess, summary.root, opts.pending, signal);
+  if (mode === 'pending' && base === undefined) return undefined;
   const args = mode === 'uncommitted' && !facts.hasHead ? ['diff', '--cached'] : diffArgs(mode, base, commit);
   const paths = file.from === undefined ? [path] : [file.from, path];
   const r = await runGit(subprocess, summary.root, [...args, '-M', '--no-color', '--no-ext-diff', ...wsArgs(opts.ws), '--', ...paths.map((p) => `:(literal)${p}`)], signal);
@@ -1654,10 +1795,13 @@ export function apply(ctx) {
     const mode = q.get('mode') ?? 'uncommitted';
     const commit = q.get('commit') ?? undefined;
     const ws = q.get('ws');
+    const ref = q.get('ref') ?? undefined; const target = q.get('target') ?? undefined;
     // Commit mode only with a full commit id (never an option or a revision expression); other modes take none.
     if (!isText(sessionId) || !MODES.includes(mode) || (mode === 'commit' ? !SHA_RE.test(commit ?? '') : commit !== undefined)) return undefined;
+    // Pending mode only with two full branch refs; other modes take none.
+    if (mode === 'pending' ? !(isBranchRef(ref) && isBranchRef(target)) : ref !== undefined || target !== undefined) return undefined;
     if (ws !== null && ws !== '1') return undefined; // `ws=1`: hide whitespace-only changes
-    return { sessionId, mode, path: q.get('path'), commit, opts: { ws: ws === '1' } };
+    return { sessionId, mode, path: q.get('path'), commit, opts: { ws: ws === '1', ...(mode === 'pending' ? { pending: { ref, target } } : {}) } };
   };
   ctx.connection.fetch.register({
     path: CHANGES_PATH, methods: ['GET'], requestBody: 'buffered',
@@ -1669,7 +1813,8 @@ export function apply(ctx) {
         const extra = lastTurn === undefined ? {} : { lastTurn };
         if (cwd === undefined) return json({ repo: false, ...extra });
         if (p.mode === 'chat') return json({ ...(await chatChanges(ctx.subprocess, snapshots, p.sessionId, cwd, writes(), request.signal, { ...p.opts, first })), ...extra });
-        return json({ ...(await changes(ctx.subprocess, cwd, p.mode, request.signal, p.commit, p.opts)), ...extra });
+        const v = await changes(ctx.subprocess, cwd, p.mode, request.signal, p.commit, p.opts);
+        return v.gone ? json({ error: 'no such branch' }, 404) : json({ ...v, ...extra });
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
   });
@@ -1722,7 +1867,7 @@ export function apply(ctx) {
         const { cwd, lastTurn } = await sessionFacts(sessionId, request.signal);
         const extra = lastTurn === undefined ? {} : { lastTurn };
         if (cwd === undefined) return json({ repo: false, ...extra });
-        if (ref === null) return json({ ...(await branchList(ctx.subprocess, cwd, request.signal)), ...extra });
+        if (ref === null) return json({ ...(await branchMapOf(ctx.subprocess, cwd, request.signal)), ...extra });
         const v = await branchCommits(ctx.subprocess, cwd, ref, request.signal);
         return v === undefined ? json({ error: 'no such branch' }, 404) : json({ ...v, ...extra });
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }

@@ -36,6 +36,7 @@ let status = 200;
 const urls = [];
 globalThis.fetch = async (url, init) => {
   urls.push(url);
+  if (url.includes('.graph')) return { ok: true, status: 200, json: async () => ({ repo: true, root: '/demo', branch: 'main', branches: [] }) };
   if (url.includes('.file-chats')) return { ok: status < 400, status, json: async () => (status === 200 ? structuredClone(CHATS) : status === 404 ? {} : { error: 'boom' }) };
   return { ok: true, status: 200, json: async () => structuredClone(UNCOMMITTED) };
 };
@@ -58,8 +59,9 @@ const renderChild = async (el) => {
   slots = keep; return view;
 };
 
-// 1. The file list gets a "…" menu per row only when the page can open a message.
+// 1. The file list gets a "…" menu per row only when the page can open a message. The page opens on Tree: pick Uncommitted.
 await render();
+find(out, (e) => e.t === 'Menu').p.onSelect('uncommitted'); await render();
 let list = find(out, (e) => e.t === FileList);
 assert.equal(typeof list.p.onFileChats, 'function');
 {
