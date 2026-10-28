@@ -1839,6 +1839,7 @@
     "worktree.failed": "新しいブランチでチャットを開始できませんでした。",
     "worktree.openFailed": "この worktree を開けませんでした。",
     "worktree.restart": "チャットごとのブランチを使うには dsh を再起動してください。",
+    "worktree.down": "この設定を保存できませんでした：{error}",
     "settings.search": "機能を検索",
     "settings.searchEmpty": "一致する機能はありません。",
     "settings.help": "使い方: {feature}（README を開きます）",

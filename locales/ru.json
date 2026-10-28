@@ -1839,6 +1839,7 @@
     "worktree.failed": "Не удалось начать чат в новой ветке.",
     "worktree.openFailed": "Не удалось открыть этот worktree.",
     "worktree.restart": "Перезапустите dsh, чтобы использовать ветку для каждого чата.",
+    "worktree.down": "Не удалось сохранить этот параметр: {error}",
     "settings.search": "Поиск функций",
     "settings.searchEmpty": "Нет подходящих функций.",
     "settings.help": "Как пользоваться: {feature} (открывает README)",

@@ -1839,6 +1839,7 @@
     "worktree.failed": "No se pudo iniciar el chat en una rama nueva.",
     "worktree.openFailed": "No se pudo abrir este worktree.",
     "worktree.restart": "Reinicia dsh para usar Una rama por chat.",
+    "worktree.down": "No se pudo guardar este ajuste: {error}",
     "settings.search": "Buscar funciones",
     "settings.searchEmpty": "No hay funciones que coincidan.",
     "settings.help": "Cómo usarla: {feature} (abre el README)",

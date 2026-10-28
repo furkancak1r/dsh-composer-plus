@@ -1839,6 +1839,7 @@
     "worktree.failed": "Impossible de lancer la discussion sur une nouvelle branche.",
     "worktree.openFailed": "Impossible d’ouvrir ce worktree.",
     "worktree.restart": "Redémarrez dsh pour utiliser Une branche par discussion.",
+    "worktree.down": "Impossible d’enregistrer ce réglage : {error}",
     "settings.search": "Rechercher des fonctionnalités",
     "settings.searchEmpty": "Aucune fonctionnalité correspondante.",
     "settings.help": "Utilisation : {feature} (ouvre le README)",

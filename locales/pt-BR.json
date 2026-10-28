@@ -1839,6 +1839,7 @@
     "worktree.failed": "Não foi possível iniciar o chat em um novo branch.",
     "worktree.openFailed": "Não foi possível abrir este worktree.",
     "worktree.restart": "Reinicie o dsh para usar Um branch por chat.",
+    "worktree.down": "Não foi possível salvar esta configuração: {error}",
     "settings.search": "Pesquisar recursos",
     "settings.searchEmpty": "Nenhum recurso corresponde.",
     "settings.help": "Como usar: {feature} (abre o README)",
