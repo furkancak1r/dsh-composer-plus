@@ -2,7 +2,7 @@
 // DSH_HOME with made-up data (demo chat logs, a fake token in the profile patch) and a throwaway backup folder next to it
 // (COMPOSER_PLUS_BACKUP_DIR); never the normal DSH_HOME or ~/Desktop/dsh-backups. Headless, English UI.
 // 1. Settings → Composer Plus shows the four rows; Automatic backup is off, the others on.
-// 2. Back up now → the archive shows with "1 masked"; it is in the folder with its sidecars and the rescue console; the
+// 2. Back up now → the archive shows with "N masked" (the demo file is in the masked list); it is in the folder with its sidecars and the rescue console; the
 //    fake token is not in the archive but in the vault; a second click while it runs sends nothing.
 // 3. Check → "is OK". For another computer → a transfer folder.
 // 4. Session log check: a damaged log is listed; Repair from backups puts back the healthy copy.
@@ -89,12 +89,17 @@ try {
       await now.click({ force: true }).catch(() => {});
       await until(async () => (await page.locator('[data-composer-plus-backup-archive]').count()) === 1, 'the archive in the list');
       assert.equal(posts, 1, 'one backup request');
-      await until(async () => /^Backed up: dsh-\d{8}-\d{9}\.tar\.gz \(.+, 1 masked\)\.$/.test(await page.locator('[data-composer-plus-backup-status]').innerText()), 'backup status');
+      // dsh itself writes .credentials.yaml (its browser session secret) at start, so the count is not only the demo file.
+      await until(async () => /^Backed up: dsh-\d{8}-\d{9}\.tar\.gz \(.+, [1-9]\d* masked\)\.$/.test(await page.locator('[data-composer-plus-backup-status]').innerText()), 'backup status');
       const files = await readdir(folder);
       const name = files.find((f) => /^dsh-\d{8}-\d{9}\.tar\.gz$/.test(f));
       for (const f of [`${name}.sha256`, `${name}.meta.json`, `${name}.redacted.json`, 'composer-plus-rescue.mjs']) assert.ok(files.includes(f), f);
+      assert.ok(JSON.parse(await readFile(join(folder, `${name}.redacted.json`), 'utf8')).files.includes('demo-settings.yml'), 'the demo file is in the masked list');
       assert.ok(!zlib.gunzipSync(await readFile(join(folder, name))).includes('demo-token-not-real'), 'the token is masked in the archive');
       assert.ok((await readFile(join(folder, 'composer-plus-vault', name, 'demo-settings.yml'), 'utf8')).includes('demo-token-not-real'), 'the vault has it');
+      // The screenshot shows a demo folder, not this computer's temp path (DOM text only; the files stay where they are).
+      if (process.env.SHOT) await page.evaluate((real) => { const walk = document.createTreeWalker(document.querySelector('[data-composer-plus-backup]'), NodeFilter.SHOW_TEXT);
+        for (let n = walk.nextNode(); n !== null; n = walk.nextNode()) n.nodeValue = n.nodeValue.replaceAll(real, '/Users/demo/Desktop/dsh-backups'); }, folder);
       await shot(page, rowOf('Backup'), 'backup');
       // 3. Check, For another computer.
       await page.locator(`[data-composer-plus-backup-verify="${name}"]`).click();

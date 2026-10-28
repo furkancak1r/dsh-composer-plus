@@ -42,10 +42,11 @@ function archive(dest, blocks, { sum = true } = {}) {
   for (const k of ['token', 'MY_TOKEN', 'PLAYWRIGHT_MCP_EXTENSION_TOKEN', 'apiKey', 'api_key', 'clientSecret', 'password', 'Authorization', 'accessKey', 'githubToken']) assert.ok(b.secretKey(k), k);
   for (const k of ['maxTokens', 'apiKeyEnv', 'tokenLimit', 'key', 'secrets', 'name', 'passwordFile']) assert.ok(!b.secretKey(k), k);
   const yaml = ['a:', '  env:', '    GITHUB_TOKEN: ghp_x1', '    "apiKey": \'sk-2\'', '    maxTokens: 5', '    apiKeyEnv: OPENAI_KEY', '    token: !!js process.env.T',
-    '    password: ""', '    secret:', '      nested: kept', '    - token: listed', '    privateKey: |', '      -----BEGIN-----', '      abc', '    after: kept'].join('\n');
+    '    password: ""', '    secret:', '      nested: kept', '    - token: listed', '    privateKey: |', '      -----BEGIN-----', '      abc', '    after: kept', '# DEMO_API_TOKEN: commented-out', '    # note: kept'].join('\n');
   const { text, changed } = b.maskYaml(yaml);
-  assert.equal(changed, 4);
-  for (const leak of ['ghp_x1', 'sk-2', 'listed', 'BEGIN', 'abc']) assert.ok(!text.includes(leak), leak);
+  assert.equal(changed, 5);
+  for (const leak of ['ghp_x1', 'sk-2', 'listed', 'BEGIN', 'abc', 'commented-out']) assert.ok(!text.includes(leak), leak);
+  assert.ok(text.includes(`# DEMO_API_TOKEN: ${b.MASK}`) && text.includes('    # note: kept'), 'a commented-out secret is masked, the comment stays');
   for (const kept of ['maxTokens: 5', 'apiKeyEnv: OPENAI_KEY', 'token: !!js process.env.T', 'password: ""', 'nested: kept', 'after: kept']) assert.ok(text.includes(kept), kept);
   assert.ok(b.wholeSecret('.credentials.yaml') && b.wholeSecret('mobile-access/tls/server-key.pem') && b.wholeSecret('x/.env.local') && !b.wholeSecret('a/keys.json'));
 }

@@ -80,6 +80,14 @@ const archive = (name, extra = {}) => ({ name, kind: 'backup', at: '2026-10-28T1
   g2.go(); await tick(); await tick();
   assert.equal(store.getSnapshot().busy, null, 'an older poll answer does not bring the busy state back');
   assert.equal(store.busy(), false);
+  // A quick action (the Host answers with no busy state): React draws only on a new snapshot, so the end of the request
+  // must give one, else the buttons stay disabled.
+  reply = async () => ({ status: 200, body: { archives: [], busy: null, last: { op: 'transfer', ok: true, result: { folder: '/x' } } } });
+  { let shown = store.getSnapshot(); let shownBusy = store.busy();
+    const off = store.subscribe(() => { const s = store.getSnapshot(); if (s !== shown) { shown = s; shownBusy = store.busy(); } });
+    await store.act({ action: 'transfer', name: 'x' });
+    off();
+    assert.equal(shownBusy, false, 'the buttons come back after a quick action'); }
   // Polling stops when no panel shows.
   stop();
   const before = fetches.length;

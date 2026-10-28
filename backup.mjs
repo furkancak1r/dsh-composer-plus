@@ -102,8 +102,9 @@ export function wholeSecret(rel) {
 /** YAML files (also `cordis.patch.yml.bak-…`): their secret values are masked. */
 export const yamlFile = (rel) => /\.ya?ml(\.|$)/i.test(rel.split('/').at(-1));
 export const MASK = '"[masked by Composer Plus]"';
-/** Replaces the value of each secret key (a plain or quoted scalar, or a `|`/`>` block) with MASK. Tags (`!!js …`), empty
- * values and nested maps stay. Line-based: a value in a flow map (`{token: x}`) is not found. */
+/** Replaces the value of each secret key (a plain or quoted scalar, or a `|`/`>` block) with MASK, also on a commented-out
+ * line (`# token: x` is still a secret). Tags (`!!js …`), empty values and nested maps stay. Line-based: a value in a flow
+ * map (`{token: x}`) is not found. */
 export function maskYaml(text) {
   const out = [];
   let changed = 0;
@@ -113,7 +114,7 @@ export function maskYaml(text) {
       if (line.trim() === '' || line.match(/^ */)[0].length > block) continue;
       block = -1;
     }
-    const m = /^(\s*(?:-\s+)?)(["']?)([A-Za-z0-9_.-]+)\2(\s*:)\s+(\S.*)$/.exec(line);
+    const m = /^(\s*(?:#\s*)?(?:-\s+)?)(["']?)([A-Za-z0-9_.-]+)\2(\s*:)\s+(\S.*)$/.exec(line);
     if (m !== null && secretKey(m[3]) && !/^(!|#|&|\*|""|''|~$|null$)/.test(m[5])) {
       if (/^[|>]/.test(m[5])) block = m[1].length;
       out.push(`${m[1]}${m[2]}${m[3]}${m[2]}${m[4]} ${MASK}`);
