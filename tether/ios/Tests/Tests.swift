@@ -717,6 +717,106 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(shownUnread(host: ["a", "k"], sessions: idle, open: nil), ["a"], "a subagent never gets a dot")
     }
 
+    /// Queue edit: the content that a save sends. Kept attachments stay as they are and in order, the text keeps its place.
+    func testQueueEditContent() {
+        let img = { (id: String) -> J in ["type": "image", "attachment": ["attachmentId": id]] }
+        let file = { (id: String, name: String) -> J in ["type": "file", "attachment": ["attachmentId": id, "name": name]] }
+        let parts = { (c: [J]?) in (c ?? []).map { p in [p["type"] as? String ?? "", p["text"] as? String ?? p["attachmentId"] as? String ?? p["receiptId"] as? String ?? p["data"] as? String ?? ""] } }
+        let textFirst: [J] = [["type": "text", "text": "hi"], img("a1"), file("f1", "spec.pdf")]
+        // Text only changed: every attachment stays.
+        XCTAssertEqual(parts(queueEditContent(original: textFirst, text: " hello ", keep: ["a1", "f1"], newImages: [], newFiles: [])),
+                       [["text", "hello"], ["image", "a1"], ["file", "f1"]])
+        // One image removed: the others stay in their own order (not the order of `keep`); the text stays after them.
+        let attsFirst: [J] = [img("a1"), img("a2"), img("a3"), ["type": "text", "text": "x"]]
+        XCTAssertEqual(parts(queueEditContent(original: attsFirst, text: "x", keep: ["a3", "a1"], newImages: [], newFiles: [])),
+                       [["image", "a1"], ["image", "a3"], ["text", "x"]])
+        // No text before: a new text goes after the attachments. A text-only message (or plain string) keeps its text first.
+        XCTAssertEqual(parts(queueEditContent(original: [img("a1")], text: "new", keep: ["a1"], newImages: [], newFiles: [])), [["image", "a1"], ["text", "new"]])
+        XCTAssertEqual(parts(queueEditContent(original: "old", text: "new", keep: [], newImages: [Data([1, 2])], newFiles: [])), [["text", "new"], ["image", "AQI="]])
+        // New image and new file: after the kept ones, before a text that came after the attachments.
+        let added = queueEditContent(original: textFirst, text: "hi", keep: ["a1", "f1"], newImages: [Data([1, 2])], newFiles: ["r1"])
+        XCTAssertEqual(parts(added), [["text", "hi"], ["image", "a1"], ["file", "f1"], ["image", "AQI="], ["file", "r1"]])
+        XCTAssertEqual(added?[3]["mediaType"] as? String, "image/jpeg")
+        XCTAssertEqual(parts(queueEditContent(original: attsFirst, text: "x", keep: ["a2"], newImages: [], newFiles: ["r1"])), [["image", "a2"], ["file", "r1"], ["text", "x"]])
+        // Blank text is left out; nothing left (or a block that the editor does not know) cannot be saved.
+        XCTAssertEqual(parts(queueEditContent(original: textFirst, text: " \n ", keep: ["f1"], newImages: [], newFiles: [])), [["file", "f1"]])
+        XCTAssertNil(queueEditContent(original: textFirst, text: "  ", keep: [], newImages: [], newFiles: []))
+        XCTAssertNil(queueEditContent(original: [["type": "audio"], ["type": "text", "text": "x"]], text: "x", keep: [], newImages: [], newFiles: []))
+        // A message that carries the same image twice: one keep keeps one block.
+        XCTAssertEqual(parts(queueEditContent(original: [img("a1"), img("a1")], text: "", keep: ["a1"], newImages: [], newFiles: [])), [["image", "a1"]])
+        // The editor's text: the text blocks only, without the 🖼 / 📎 markers of the queue row.
+        XCTAssertEqual(queueEditText(textFirst), "hi"); XCTAssertEqual(queueEditText("plain"), "plain")
+        XCTAssertEqual(queueAttachments(textFirst)?.map(\.name), ["image", "spec.pdf"])
+        XCTAssertNil(queueAttachments([["type": "image"]]), "an image without an id cannot be kept")
+        // `seen`: the message as the editor showed it, in index.js seenOf's form.
+        let seen = try! JSONSerialization.data(withJSONObject: queueEditSeen(textFirst + [["type": "file"]]))
+        XCTAssertEqual(String(decoding: seen, as: UTF8.self), #"[["text","hi"],["image","a1"],["file","f1"],["file",null]]"#)
+        XCTAssertEqual(String(decoding: try! JSONSerialization.data(withJSONObject: queueEditSeen("old")), as: UTF8.self), #"[["text","old"]]"#)
+    }
+
+    /// Queue edit: who gets Edit, and one change per queued message at a time (editor, save, move, Send now, Remove).
+    @MainActor func testQueueEditGuards() async {
+        let c = Client()
+        let saved = c.pairings, savedFp = c.activeFp
+        defer { c.pairings = saved; c.activeFp = savedFp }
+        // Nothing listens on port 9: a call that goes out fails after the network answers.
+        c.pairings = [Pairing(host: "127.0.0.1", port: 9, fp: "q1", token: "t", deviceId: "d", name: "n", expiresAt: "")]
+        c.activeFp = "q1"; c.current = "s"
+        let user: J = ["kind": "user"]
+        let a: J = ["id": "a", "source": user, "content": [["type": "text", "text": "one"]]]
+        let b: J = ["id": "b", "source": user, "content": [["type": "text", "text": "two"]]]
+        let pic: J = ["id": "p", "source": user, "content": [["type": "text", "text": "see"], ["type": "image", "attachment": ["attachmentId": "i1"]]]]
+        c.inbox = ["next-turn": [a, b, pic]]
+        // An older plugin without queue-edit: a message with an image gets no Edit (a save would drop the image).
+        XCTAssertTrue(c.queueEditable(a)); XCTAssertFalse(c.queueEditable(pic)); XCTAssertFalse(c.beginQueueEdit(pic))
+        c.plus = ["queue-edit"]
+        XCTAssertTrue(c.queueEditable(pic)); XCTAssertTrue(c.queueEditsAttachments(a))
+        var steer = pic; steer["id"] = "q"; c.inbox["next-step"] = [steer]
+        XCTAssertFalse(c.queueEditable(steer), "a steering message is not a next-turn message of the Mac's route")
+        c.plus = []
+        // An open editor: no second editor, no move, no Send now / Remove for that message (nothing goes out).
+        XCTAssertTrue(c.beginQueueEdit(a))
+        XCTAssertFalse(c.beginQueueEdit(b), "one editor at a time")
+        do { try await c.moveQueued(from: 0, to: 1) } catch { XCTFail("a move while a message is edited must do nothing: \(error)") }
+        XCTAssertFalse(c.movingQueue)
+        do { try await c.updateQueue("a", ["kind": "remove"]) } catch { XCTFail("no Remove for the edited message: \(error)") }
+        var other = false
+        do { try await c.updateQueue("b", ["kind": "remove"]) } catch { other = true }
+        XCTAssertTrue(other, "another message still goes to the Mac")
+        // A save runs: a second save sends nothing; the editor closed meanwhile keeps the guard until the save ends.
+        let first = Task { try await c.saveQueued(a, text: "one!", keep: [], images: [], files: []) }
+        for _ in 0..<1000 where c.editingQueued?.saving != true { await Task.yield() }
+        XCTAssertEqual(c.editingQueued?.saving, true)
+        let second = try? await c.saveQueued(a, text: "again", keep: [], images: [], files: [])
+        XCTAssertEqual(second, false, "a second save while one runs does nothing")
+        c.endQueueEdit("a")
+        XCTAssertNotNil(c.editingQueued, "closing the editor does not open the queue while its save runs")
+        var failed = false
+        do { _ = try await first.value } catch { failed = true }
+        XCTAssertTrue(failed, "no Mac on that port")
+        XCTAssertNil(c.editingQueued, "the save ended after the editor closed: the guard opens")
+        // A failed save keeps the editor (and the guard); Cancel opens it.
+        XCTAssertTrue(c.beginQueueEdit(a))
+        _ = try? await c.saveQueued(a, text: "one!", keep: [], images: [], files: [])
+        XCTAssertEqual(c.editingQueued, Client.QueuedEdit(id: "a", session: "s"), "after a failure the editor stays open")
+        c.endQueueEdit("a"); XCTAssertNil(c.editingQueued)
+        // An empty message cannot be saved, and nothing goes out.
+        XCTAssertTrue(c.beginQueueEdit(a))
+        var empty: String?
+        do { _ = try await c.saveQueued(a, text: "  ", keep: [], images: [], files: []) } catch { empty = error.localizedDescription }
+        XCTAssertEqual(empty, "Write a message or keep an attachment.")
+        c.endQueueEdit("a")
+        // A running move keeps the editor closed.
+        let move = Task { try await c.moveQueued(from: 0, to: 1) }
+        for _ in 0..<1000 where !c.movingQueue { await Task.yield() }
+        XCTAssertTrue(c.movingQueue, "the move runs")
+        XCTAssertFalse(c.beginQueueEdit(b), "no editor while a move runs")
+        _ = try? await move.value
+        XCTAssertFalse(c.movingQueue)
+        XCTAssertTrue(c.beginQueueEdit(b), "the editor opens after the move")
+        c.endQueueEdit("b")
+    }
+
     /// Copy message link: the same link and the same two forms as client.js messageLink / messageLinkRule.
     func testMessageLink() {
         XCTAssertEqual(messageLink("abc", 42), "dsh-session:ImFiYyI#42")
@@ -923,6 +1023,60 @@ final class BranchTreeTests: XCTestCase {
         XCTAssertEqual(commitTags(c, of: side).map(\.key), ["local:main", "remote:origin/side", "remote:side", "tag:v1"])
         XCTAssertEqual(gatewayText(404, "no such branch"), "This branch no longer exists.")
     }
+
+    /// The branch map: the Mac's order is the current branch first, then newest commit first (as `branchMap` sends it).
+    let map: [GraphBranch] = ([
+        ["ref": "refs/heads/sub", "name": "sub", "kind": "local", "current": true, "sha": "s", "state": "waiting", "reached": false, "target": "refs/heads/feat-a", "level": 2],
+        ["ref": "refs/heads/main", "name": "main", "kind": "local", "sha": "m", "state": "main", "reached": true, "level": 0],
+        ["ref": "refs/heads/feat-b", "name": "feat-b", "kind": "local", "sha": "b", "state": "merged", "reached": true, "target": "refs/heads/main", "merge": "mmm", "level": 1],
+        ["ref": "refs/heads/feat-a", "name": "feat-a", "kind": "local", "sha": "a", "state": "waiting", "reached": false, "target": "refs/heads/main", "level": 1],
+        ["ref": "refs/remotes/origin/old", "name": "origin/old", "kind": "remote", "sha": "o", "state": "waiting", "reached": false, "level": 1],
+    ] as [J]).compactMap(GraphBranch.init)
+
+    func testMapFields() {
+        XCTAssertEqual(map.count, 5)
+        let b = map[2]
+        XCTAssertEqual(b.state, "merged"); XCTAssertTrue(b.reached); XCTAssertEqual(b.target, "refs/heads/main"); XCTAssertEqual(b.merge, "mmm"); XCTAssertEqual(b.level, 1)
+        // A waiting branch has no merge commit; a branch without a known start has no target either.
+        XCTAssertNil(map[3].merge); XCTAssertEqual(map[3].target, "refs/heads/main"); XCTAssertFalse(map[3].reached)
+        XCTAssertNil(map[4].target); XCTAssertNil(map[4].merge)
+        // A fast-forward: merged with a target but no merge commit.
+        let ff = GraphBranch(["ref": "refs/heads/ff", "name": "ff", "kind": "local", "sha": "f", "state": "merged", "reached": true, "target": "refs/heads/main", "level": 1])
+        XCTAssertEqual(ff?.target, "refs/heads/main"); XCTAssertNil(ff?.merge)
+        // A Mac from before the map: no state (the phone shows the old list), level 0.
+        let old = GraphBranch(["ref": "refs/heads/main", "name": "main", "kind": "local", "sha": "m"])
+        XCTAssertEqual(old?.state, ""); XCTAssertEqual(old?.reached, false); XCTAssertNil(old?.target); XCTAssertEqual(old?.level, 0)
+    }
+
+    func testMapOrder() {
+        // The main branch, then each branch under its target in the Mac's order; a branch without a target last.
+        XCTAssertEqual(mapOrder(map).map(\.name), ["main", "feat-b", "feat-a", "sub", "origin/old"])
+        // A target that is not in the list (cut at 60 branches): the branch starts its own tree; no branch is lost.
+        let cut = Array(map.filter { $0.name != "feat-a" })
+        XCTAssertEqual(mapOrder(cut).map(\.name), ["main", "feat-b", "sub", "origin/old"])
+        // A loop of targets (never sent): every branch still shows once.
+        let loop = ([["ref": "refs/heads/x", "name": "x", "kind": "local", "sha": "1", "state": "waiting", "target": "refs/heads/y"],
+                    ["ref": "refs/heads/y", "name": "y", "kind": "local", "sha": "2", "state": "waiting", "target": "refs/heads/x"]] as [J]).compactMap(GraphBranch.init)
+        XCTAssertEqual(mapOrder(loop).map(\.name), ["x", "y"])
+    }
+
+    func testMapFilter() {
+        let all = mapFilter(map, "all")
+        XCTAssertEqual(all.map(\.branch.name), ["main", "feat-b", "feat-a", "sub", "origin/old"]); XCTAssertTrue(all.allSatisfy(\.picked))
+        // Merged: feat-b, and (dimmed) the main branch that its arrow goes to.
+        let merged = mapFilter(map, "merged")
+        XCTAssertEqual(merged.map(\.branch.name), ["main", "feat-b"]); XCTAssertEqual(merged.map(\.picked), [false, true])
+        // Waiting: the waiting branches and the way of each to the main branch.
+        let waiting = mapFilter(map, "waiting")
+        XCTAssertEqual(waiting.map(\.branch.name), ["main", "feat-a", "sub", "origin/old"]); XCTAssertEqual(waiting.map(\.picked), [false, true, true, true])
+    }
+
+    func testPendingQuery() {
+        XCTAssertEqual(changesQuery("s", mode: "pending", ws: true, path: "a.txt", pending: ("refs/heads/feat-a", "refs/heads/main")),
+                       ["sessionId": "s", "mode": "pending", "ws": "1", "path": "a.txt", "ref": "refs/heads/feat-a", "target": "refs/heads/main"])
+        XCTAssertEqual(changesQuery("s", mode: "pending", ws: false, pending: ("refs/heads/feat-a", "refs/heads/main")),
+                       ["sessionId": "s", "mode": "pending", "ref": "refs/heads/feat-a", "target": "refs/heads/main"])
+    }
 }
 
 /// App lock: when it asks, what each answer does, and that the Face ID sheet itself (inactive) never starts a loop.
@@ -1030,5 +1184,16 @@ final class BranchStateTests: XCTestCase {
         XCTAssertEqual(BranchState(["repo": true, "branch": "main", "upstream": "origin/main", "ahead": 0, "behind": 4, "changes": 0])?.detail, "↓4")
         XCTAssertEqual(BranchState(["repo": true, "branch": "(abc1234)", "upstream": NSNull(), "changes": 2])?.name, "(abc1234)")
         XCTAssertEqual(BranchState(["repo": true, "branch": "(abc1234)", "upstream": NSNull(), "changes": 2])?.detail, "2 changes", "a detached HEAD is not \"not pushed\"")
+    }
+    /// A new chat starts on "New branch" only where the Mac can make one.
+    @MainActor func testNewChatStartsOnNewBranch() {
+        let main: J = ["repo": true, "root": "/p/acme", "top": "/p/acme", "worktree": false, "hasCommit": true, "branch": "main"]
+        XCTAssertTrue(Client.startsOnNewBranch(main))
+        var older = main; older["hasCommit"] = nil
+        XCTAssertTrue(Client.startsOnNewBranch(older), "a Mac without hasCommit: as before, the Mac answers at send")
+        for (key, value) in [("worktree", true as Any), ("root", NSNull()), ("hasCommit", false), ("repo", false)] {
+            var o = main; o[key] = value
+            XCTAssertFalse(Client.startsOnNewBranch(o), key)
+        }
     }
 }

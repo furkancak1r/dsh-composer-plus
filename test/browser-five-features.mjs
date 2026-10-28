@@ -118,7 +118,8 @@ echo "https://github.com/acme/web/issues/7"
       const url = log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0]; assert.ok(url, 'test server URL available');
       context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
       // The init script runs at every load: a later step stores its switches in sessionStorage, so a reload keeps them.
-      await context.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', sessionStorage.getItem('five.features') ?? '{"autoUpdate":false}'); });
+      // Branch per chat off: a new chat in this git project would start on a new branch (its default).
+      await context.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', sessionStorage.getItem('five.features') ?? '{"autoUpdate":false,"worktreeChats":false}'); });
       const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       await page.goto(url);
       for (const name of [/^Continue$/, /^Configure later$/]) { const b = page.getByRole('button', { name }); if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) { await b.click(); await b.waitFor({ state: 'hidden' }); } }
@@ -253,7 +254,7 @@ echo "https://github.com/acme/web/issues/7"
       // Switches off: no pill, no find box.
       await page.evaluate(() => fetch('/api/composer-plus.branches', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) }));
       assert.deepEqual(await page.evaluate(async () => (await fetch('/api/composer-plus.branches')).json()), { on: false, branches: {} });
-      await page.evaluate(() => { sessionStorage.setItem('five.features', '{"autoUpdate":false,"findInChat":false}'); });
+      await page.evaluate(() => { sessionStorage.setItem('five.features', '{"autoUpdate":false,"worktreeChats":false,"findInChat":false}'); });
       await page.reload(); await input.waitFor({ timeout: 20000 }); await pause(1500);
       assert.equal(await page.locator('[data-composer-plus-branch-name]').count(), 0, 'Host switch off: no pills');
       await input.click(); await page.keyboard.press('ControlOrMeta+KeyF'); await pause(400);

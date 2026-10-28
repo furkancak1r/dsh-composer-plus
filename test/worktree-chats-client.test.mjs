@@ -17,9 +17,18 @@ eval(src.replace(ANCHOR, `globalThis.__wt = { branchLabel, branchModeOf, chooseB
 // Fake Host: only the worktrees route answers; `reply` returns { status, body }, an Error to throw, or a promise of one.
 const ROUTE = '/api/composer-plus.worktrees';
 const calls = []; let reply = () => ({ status: 404, body: {} });
+// The Host switch (`GET` without a query, `POST {on}`) has its own log and answer; `switchReply` can hold it.
+const switchCalls = []; let hostOn = true; let switchReply = () => ({ status: 200 });
 globalThis.fetch = async (url, init) => {
   const body = init?.body === undefined ? undefined : JSON.parse(init.body);
   if (!url.startsWith(ROUTE)) return { ok: false, status: 404, json: async () => ({}) };
+  if (url === ROUTE && (body === undefined || 'on' in body)) {
+    switchCalls.push(body);
+    const r = await switchReply(body);
+    if (r instanceof Error) throw r;
+    if (body !== undefined && r.status < 400) hostOn = body.on;
+    return { ok: r.status < 400, status: r.status, json: async () => r.body ?? { on: hostOn } };
+  }
   calls.push([url, body]);
   const r = await reply(url, body);
   if (r instanceof Error) throw r;
@@ -34,6 +43,7 @@ const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, 
   useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = typeof v === 'function' ? v() : v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
   useRef: (v) => { const i = cur.ri++; return cur.refs[i] ??= { current: v }; },
   useEffect: (f, deps) => { cur.effects.push([f, deps]); },
+  useLayoutEffect: (f, deps) => { cur.effects.push([f, deps]); },
   useSyncExternalStore: (subscribe, get) => get() };
 const mount = (C, props) => {
   const inst = { state: [], refs: [], deps: [], cleanups: [] };
@@ -90,9 +100,38 @@ plugin.apply(ctx);
 const t = bind('dsh-composer-plus');
 const ids = () => [...live.values()].map((o) => o.id ?? o.key);
 const reg = (id) => [...live.values()].find((o) => o.id === id);
-const { setFeature } = reg('composer-plus').inject();
+const { setFeature, worktreeSwitch } = reg('composer-plus').inject();
 assert.ok(ids().includes('branch-chip') && ids().includes('branch-status'), 'on by default: the chip and the header pill');
 assert.equal(reg('branch-chip').name, 'conversation.hero.options'); assert.equal(reg('branch-status').name, 'conversation.session.header.utilities');
+// The Host keeps the switch (its listener moves a chat whose branch folder is gone): one read at start, Settings posts
+// `{on}`, and a Host "off" (from another window or the phone's Mac) removes the chip and the pill here too.
+{
+  await tick();
+  assert.deepEqual(switchCalls, [undefined], 'the switch is read once at start');
+  setFeature('worktreeChats', false); await tick();
+  assert.deepEqual(switchCalls.at(-1), { on: false }, 'Settings posts the switch to the Host');
+  assert.ok(!ids().includes('branch-chip') && !ids().includes('branch-status'), 'off: no chip, no pill');
+  assert.equal(JSON.parse(localStorage.getItem('dsh-composer-plus.features') ?? '{}').worktreeChats, undefined, 'not kept in the browser');
+  // A refused change puts the switch back and keeps the reason (Settings shows it).
+  switchReply = () => ({ status: 500, body: { error: 'disk full' } });
+  setFeature('worktreeChats', true); await tick();
+  assert.equal(worktreeSwitch.getSnapshot().on, false); assert.equal(worktreeSwitch.getSnapshot().error, 'disk full');
+  assert.ok(!ids().includes('branch-chip'), 'still off');
+  switchReply = () => ({ status: 200 });
+  setFeature('worktreeChats', true); await tick();
+  assert.ok(ids().includes('branch-chip') && ids().includes('branch-status'), 'on again');
+  // An "off" that 1.15.0 saved in this browser goes to the Host once, at the next start, and leaves the browser.
+  const keep = new Map(mem); const keepCalls = switchCalls.length;
+  mem.set('dsh-composer-plus.features', JSON.stringify({ worktreeChats: false, findInChat: false }));
+  const before = new Set(live.keys());
+  mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Menu: 'Menu' } : {})).apply({ ...ctx, effect: () => {} });
+  await tick();
+  assert.deepEqual(switchCalls.slice(keepCalls), [{ on: false }], 'the old local "off" is sent to the Host');
+  assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.features')), { findInChat: false }, 'and leaves the browser; other choices stay');
+  for (const k of [...live.keys()]) if (!before.has(k)) live.delete(k);
+  mem.clear(); for (const [k, v] of keep) mem.set(k, v);
+  hostOn = true; switchCalls.length = 0;
+}
 
 // Header pill text: zero parts are left out; "not pushed" without an upstream; a detached HEAD is not a branch to push.
 assert.equal(branchLabel({ branch: 'feat/x', upstream: 'origin/feat/x', ahead: 2, behind: 1, changes: 3 }, t), '⑂ feat/x · 3 changes · ↑2 ↓1');
@@ -227,12 +266,20 @@ const s2 = shell('s2');
 const chipOf = async (id) => {
   const v = mount(BranchChip, { sessionId: id, ...reg('branch-chip').inject(id), t });
   assert.equal(v.render(), null, 'nothing while the first read runs'); await tick();
+  v.render(); // the default's layout effect runs before dsh paints: the next render shows its choice
   return { v, menu: () => v.render()?.c[1] };
 };
 let chip = await chipOf('s2');
 assert.deepEqual(calls.at(-1), [`${ROUTE}?sessionId=s2&list=1`, undefined]);
 let menu = chip.menu(); const item = (id) => menu.p.items.find((i) => i.id === id);
-assert.equal(menu.t, 'Menu'); assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'current'); assert.equal(text(menu.p.anchor), 'main');
+// A new chat in the main folder of a repository starts on "New branch": the composer send is wrapped at once.
+assert.equal(menu.t, 'Menu'); assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'new'); assert.equal(text(menu.p.anchor), 'New branch');
+assert.equal(branchModeOf('s2'), 'new'); assert.equal(menu.p.selectedId, 'new'); assert.notEqual(s2.deps.defaultSink, s2.original);
+// The user can still choose the current branch: the chip shows it, the original sink is back and no render chooses again.
+menu.p.onSelect('current'); menu = chip.menu();
+assert.equal(branchModeOf('s2'), 'current'); assert.equal(s2.deps.defaultSink, s2.original);
+assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'current'); assert.equal(text(menu.p.anchor), 'main');
+menu = chip.menu(); assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'current', 'the default comes once per chat');
 // It looks like dsh's project and mode buttons: branch icon (16 px), label, chevron (12 px); the menu opens from its start.
 assert.deepEqual(menu.p.anchor.c.map((c) => c.t ?? 'text'), ['IconBranch', 'span', 'IconChevron']); assert.equal(menu.p.anchor.c[0].p.size, 16);
 assert.deepEqual(menu.p.anchor.c[2].p, { size: 12, className: 'cp-branch-chevron' }); assert.equal(menu.p.anchor.p.className, 'cp-branch cp-branch-chip'); assert.equal(menu.p.align, 'start');
@@ -240,7 +287,10 @@ assert.deepEqual(menu.p.anchor.c[2].p, { size: 12, className: 'cp-branch-chevron
 { const css = text(chip.v.render().c[0]);
   assert.match(css, /\.cp-branch-chip\{gap:4px;color:var\(--dsw-alias-label-primary\);font-weight:500\}/);
   assert.match(css, /\[class\*="_heroWorkspaceRow"\]:has\(>\[class\*="_heroOptions"\] \[data-composer-plus-new-branch-chip\]\)>button\[class\*="_workspace"\]\{order:-2\}/);
-  assert.match(css, /\[class\*="_heroWorkspaceRow"\]>\[class\*="_heroOptions"\]:has\(\[data-composer-plus-new-branch-chip\]\)\{order:-1;margin-left:0\}/); }
+  assert.match(css, /\[class\*="_heroWorkspaceRow"\]>\[class\*="_heroOptions"\]:has\(\[data-composer-plus-new-branch-chip\]\)\{order:-1;margin-left:0\}/);
+  // A long worktree list stops at 360 px (or dsh's window limit) and scrolls inside dsh's menu.
+  assert.equal(menu.p.listClassName, 'cp-branch-menu');
+  assert.match(css, /\[role=menu\]\.cp-branch-menu\{max-height:min\(360px,calc\(100vh - 12px - max\(12px,var\(--dsh-frame-overlay-top,12px\)\)\)\)\}/); }
 assert.deepEqual(menu.p.items.map((i) => i.id), ['current', 'new', 'worktrees', 'wt:/repo/.worktrees/feat-a', 'wt:/repo/.worktrees/fix-b', 'hint', 'tree-hint'], 'the current worktree is not listed');
 assert.equal(menu.p.selectedId, 'current'); assert.equal(item('current').label, 'Current branch (main)');
 assert.equal(item('new').label.p['data-composer-plus-branch-new'], ''); assert.equal(text(item('new').label), 'New branchThe AI names it from your first message.');
@@ -275,7 +325,14 @@ assert.deepEqual(s2.notes, [['error', 'not a worktree of this repository']]); as
 chip.menu().p.onSelect('new'); assert.notEqual(s2.deps.defaultSink, s2.original);
 chip.v.unmount(); assert.equal(branchModeOf('s2'), 'current'); assert.equal(s2.deps.defaultSink, s2.original, 'no branch from a chip that is gone');
 // No "New branch" without dsh's sink; no chip outside a repository or when the read fails.
-chip = await chipOf('s0'); assert.ok(!chip.menu().p.items.some((i) => i.id === 'new'));
+chip = await chipOf('s0'); assert.ok(!chip.menu().p.items.some((i) => i.id === 'new')); assert.equal(branchModeOf('s0'), 'current', 'no dsh sink: no default either');
+// Where the Host makes no branch (a worktree folder, a submodule, no commit yet), the chip starts on the current branch.
+for (const [id, facts] of [['s-wt', { top: '/repo/.worktrees/feat-a', worktree: true }], ['s-sub', { root: null }], ['s-empty', { hasCommit: false }]]) {
+  const s = shell(id); const prev = reply; reply = () => ({ status: 200, body: { ...LIST, ...facts } });
+  chip = await chipOf(id); reply = prev;
+  assert.equal(branchModeOf(id), 'current', id); assert.equal(chip.menu().p.anchor.p['data-composer-plus-new-branch-chip'], 'current', id); assert.equal(s.deps.defaultSink, s.original, id);
+  chip.v.unmount();
+}
 reply = () => ({ status: 200, body: { repo: false } }); chip = await chipOf('s2'); assert.equal(chip.menu(), undefined, 'not a repository: no chip');
 reply = () => new TypeError('Failed to fetch'); chip = await chipOf('s2'); assert.equal(chip.menu(), undefined, 'a failed read: no chip');
 

@@ -9,7 +9,8 @@ const stopped = (id, reason = 'aborted') => {
   agents.set(id, agent); return agent;
 };
 apply({
-  on: (name, fn) => hooks.set(name, fn),
+  // Like Cordis: every listener of a waterfall event runs; each gets `next` to the one registered before it.
+  on: (name, fn) => { const prev = hooks.get(name); hooks.set(name, prev === undefined ? fn : (payload, next) => fn(payload, () => prev(payload, next))); },
   connection: { fetch: { register: r => routes.set(r.path, r) } },
   sessionController: { resolveAgent: async id => agents.has(id) ? { agent: agents.get(id) } : { error: {} } },
   sessionQuery: { observeSession: async id => ({ events: agents.get(id).events, [Symbol.dispose]() { released++; } }) },
