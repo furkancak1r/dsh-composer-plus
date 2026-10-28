@@ -60,8 +60,10 @@ const CONTINUE_TEXT = 'The previous turn stopped before it finished (it was inte
 const continueMessage = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: CONTINUE_TEXT })]),
   source: Object.freeze({ kind: 'composer-plus-resume', form: 'snapshot' }) });
 export const MODES = ['uncommitted', 'unstaged', 'staged', 'branch', 'commit', 'chat'];
-/** The branch tree shows at most this many commits (newest first). */
+/** A branch in the Changes panel shows at most this many commits (newest first), and the branch list at most this
+ * many branches. */
 export const GRAPH_MAX = 300;
+export const BRANCH_LIST_MAX = 1000;
 /** A full commit id (SHA-1 or SHA-256): the only form of `commit` that reaches git, so it can never be an option. */
 export const SHA_RE = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 const MAX_OUTPUT = 4 * 1024 * 1024;
@@ -116,7 +118,7 @@ export function diffArgs(mode, base, commit) {
   return ['diff', 'HEAD'];
 }
 
-/** `%D` of `git log --decorate=full` as tags for the tree: local and remote branches, tags and a detached HEAD.
+/** `%D` of `git log --decorate=full` as tags for a branch's commits: local and remote branches, tags and a detached HEAD.
  * `<remote>/HEAD` only repeats the remote's default branch, and other refs (stash, notes) are left out. */
 export function parseRefs(decoration) {
   const refs = [];
@@ -131,30 +133,66 @@ export function parseRefs(decoration) {
   return refs;
 }
 
-/** The branch tree: the newest `limit` commits of all local and remote branches and HEAD, children before parents
- * (`--topo-order`), with their parents and refs. `more` says that older commits are not shown. */
-export async function commitGraph(subprocess, cwd, signal, limit = GRAPH_MAX) {
+/** The branches of the Changes panel: local and remote branches, newest commit first (the current branch and a
+ * detached HEAD first), each with its last commit. `<remote>/HEAD` only repeats the remote's default branch.
+ * `more` says that the list was cut at `limit`. */
+export async function branchList(subprocess, cwd, signal, limit = BRANCH_LIST_MAX) {
+  const known = await repoFacts(subprocess, cwd, signal);
+  if (known === undefined) return { repo: false };
+  const { hasHead, ...rest } = known;
+  const facts = { repo: true, ...rest };
+  const out = await runGit(subprocess, facts.root, ['for-each-ref', '--sort=-committerdate',
+    '--format=%(refname)%1f%(objectname)%1f%(committerdate:unix)%1f%(authorname)%1f%(HEAD)%1f%(contents:subject)%00', 'refs/heads', 'refs/remotes'], signal);
+  if (out.code !== 0) throw new Error(`git for-each-ref failed: ${out.stderr.trim()}`);
+  const local = []; const remote = [];
+  const item = (ref, name, kind, sha, time, author, subject, current) => ({ ref, name, kind, ...(current ? { current } : {}), sha,
+    time: Number(time) || 0, author: String(author ?? '').slice(0, 100), subject: String(subject ?? '').slice(0, 300) });
+  // Each record ends in \0 and a newline: the last piece is '' (or, in cut-off output, a broken record). Only whole ones count.
+  for (const record of out.stdout.split('\0').slice(0, -1)) {
+    const [ref, sha, time, author, star, ...subject] = record.replace(/^\n/, '').split('\x1f');
+    if (!SHA_RE.test(sha ?? '')) continue;
+    if (ref.startsWith('refs/heads/')) local.push(item(ref, ref.slice(11), 'local', sha, time, author, subject.join('\x1f'), star === '*'));
+    else if (ref.startsWith('refs/remotes/') && !ref.endsWith('/HEAD')) remote.push(item(ref, ref.slice(13), 'remote', sha, time, author, subject.join('\x1f')));
+  }
+  // A detached HEAD is no branch, but it is where the work tree is.
+  if (hasHead && facts.branch === 'HEAD') {
+    const log = await runGit(subprocess, facts.root, ['log', '-1', '-z', '--no-show-signature', '--format=%ct%x1f%an%x1f%s', 'HEAD'], signal);
+    const [time, author, ...subject] = log.stdout.replace(/\0$/, '').split('\x1f');
+    local.unshift(item('HEAD', 'HEAD', 'head', facts.head, time, author, subject.join('\x1f'), true));
+  }
+  const all = [...local.filter((b) => b.current), ...local.filter((b) => !b.current), ...remote];
+  return { ...facts, branches: all.slice(0, limit), more: all.length > limit || out.truncated };
+}
+
+/** A ref that `branchCommits` takes: a full local or remote branch name, or HEAD. Never a revision expression or an
+ * option (git checks that the ref exists before it reads it). */
+export const isBranchRef = (ref) => ref === 'HEAD' || (typeof ref === 'string' && ref.length <= 1024 && /^refs\/(?:heads|remotes)\/[^\0]+$/.test(ref));
+
+/** One branch's commits for the Changes panel: the newest `limit` commits of its first-parent line (a merge stands for
+ * the commits that it brought in), with their refs (tags). Undefined when the branch is gone. */
+export async function branchCommits(subprocess, cwd, ref, signal, limit = GRAPH_MAX) {
+  if (!isBranchRef(ref)) throw new Error('not a branch');
   const known = await repoFacts(subprocess, cwd, signal);
   if (known === undefined) return { repo: false };
   const { hasHead, ...rest } = known;
   const facts = { repo: true, ...rest };
   const root = facts.root;
-  // A repository without commits has no HEAD: naming it would fail, and the other refs are empty too.
-  const log = await runGit(subprocess, root, ['log', '--branches', '--remotes', ...(hasHead ? ['HEAD'] : []), '--topo-order', '-z',
-    `--max-count=${limit + 1}`, '--decorate=full', '--no-color', '--no-show-signature', '--format=%H%x1f%P%x1f%ct%x1f%an%x1f%D%x1f%s'], signal);
+  const exists = ref === 'HEAD' ? hasHead : (await runGit(subprocess, root, ['show-ref', '--verify', '--quiet', ref], signal)).code === 0;
+  if (!exists) return undefined;
+  const log = await runGit(subprocess, root, ['log', '--first-parent', '-z', `--max-count=${limit + 1}`, '--decorate=full', '--no-color',
+    '--no-show-signature', '--format=%H%x1f%ct%x1f%an%x1f%D%x1f%s', '--end-of-options', ref, '--'], signal);
   if (log.code !== 0) throw new Error(`git log failed: ${log.stderr.trim()}`);
   const commits = [];
   // With -z every record ends in \0: the last piece is '' or, in cut-off output, a broken record. Only whole ones count.
   for (const record of log.stdout.split('\0').slice(0, -1)) {
     // The subject is last, so a \x1f in it stays in it. ponytail: a \x1f in an author name shifts %D into the name
     // (display only; git never puts one in a ref name).
-    const [sha, parents, time, author, decoration, ...subject] = record.split('\x1f');
+    const [sha, time, author, decoration, ...subject] = record.split('\x1f');
     if (!SHA_RE.test(sha ?? '')) continue;
-    commits.push({ sha, parents: parents ? parents.split(' ') : [], refs: parseRefs(decoration), author: String(author ?? '').slice(0, 100),
+    commits.push({ sha, refs: parseRefs(decoration), author: String(author ?? '').slice(0, 100),
       time: Number(time) || 0, subject: subject.join('\x1f').slice(0, 300) });
   }
-  const more = commits.length > limit || log.truncated;
-  return { ...facts, commits: commits.slice(0, limit), more };
+  return { ...facts, ref, commits: commits.slice(0, limit), more: commits.length > limit || log.truncated };
 }
 
 /** Parse `--numstat -z` (renames carry an empty path then old\0new). */
@@ -1569,17 +1607,21 @@ export function apply(ctx) {
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
   });
-  // Branch tree of the chat's repository (read-only git), plus Last Turn like the changes route.
+  // The branches of the chat's repository, or one branch's commits with `ref` (read-only git), plus Last Turn like the
+  // changes route.
   ctx.connection.fetch.register({
     path: GRAPH_PATH, methods: ['GET'], requestBody: 'buffered',
     fetch: async (request) => {
-      const sessionId = new URL(request.url).searchParams.get('sessionId');
-      if (!isText(sessionId)) return json({ error: 'bad request' }, 400);
+      const q = new URL(request.url).searchParams;
+      const sessionId = q.get('sessionId'); const ref = q.get('ref');
+      if (!isText(sessionId) || (ref !== null && !isBranchRef(ref))) return json({ error: 'bad request' }, 400);
       try {
         const { cwd, lastTurn } = await sessionFacts(sessionId, request.signal);
         const extra = lastTurn === undefined ? {} : { lastTurn };
         if (cwd === undefined) return json({ repo: false, ...extra });
-        return json({ ...(await commitGraph(ctx.subprocess, cwd, request.signal)), ...extra });
+        if (ref === null) return json({ ...(await branchList(ctx.subprocess, cwd, request.signal)), ...extra });
+        const v = await branchCommits(ctx.subprocess, cwd, ref, request.signal);
+        return v === undefined ? json({ error: 'no such branch' }, 404) : json({ ...v, ...extra });
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
   });

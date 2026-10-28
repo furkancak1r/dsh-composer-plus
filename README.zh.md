@@ -130,7 +130,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **继续：** 经过身份验证的本地接口只会恢复最后一个被中断的回合，会拒绝过期或重复的请求，并保留现有的审批钩子。它不会发送新的用户消息。
 - **重启后继续：** 在你开启之前一直关闭。Host 端只在 `$DSH_HOME/storages/dsh-composer-plus/resume.json`（仅所有者可访问）中保存对话 ID 和开始时间，任何数据都不会离开你的电脑。只有当 dsh 自己的日志表明是 dsh（而不是你）停止了最后一个回合时，它才会继续该对话。审批和 Auto Review 照常适用于继续的回合。
 
-- **改动面板：** git 在你的电脑上、在对话自己的文件夹中以只读方式运行，并通过 dsh 经过身份验证的 `/api` 通道调用。它从不提交、暂存或拉取，只显示 git 自己列出的路径。树最多显示本地和远程分支最新的 300 个提交，且从不切换（checkout）分支。在没有 commit-graph 文件的超大仓库中，打开树可能需要几秒。**本对话** 会读取对话自己的日志，找出它的文件工具写入的文件，并在一个会立即删除的临时文件夹中，把它们与该对话的回合回退快照进行比较；它不会向你的仓库或快照存储写入任何内容。
+- **改动面板：** git 在你的电脑上、在对话自己的文件夹中以只读方式运行，并通过 dsh 经过身份验证的 `/api` 通道调用。它从不提交、暂存或拉取，只显示 git 自己列出的路径。树最多列出 1000 个本地和远程分支，每个分支最多显示最新的 300 个提交：只沿第一父提交，合并提交代表它带入的提交。它从不切换（checkout）分支。**本对话** 会读取对话自己的日志，找出它的文件工具写入的文件，并在一个会立即删除的临时文件夹中，把它们与该对话的回合回退快照进行比较；它不会向你的仓库或快照存储写入任何内容。
 - **功能创意：** 在你点击 **推荐功能** 之前，什么都不会运行。点击后，Host 端只读取对话自己的文件夹（浏览器从不发送路径）：顶层条目的名称，README、AGENTS.md 和清单文件（`package.json`、`pyproject.toml`、`Cargo.toml`、`go.mod` 等）的前 6 kB，以及 `git log --oneline -15`，总计最多 16 kB。它会跳过 `.env*`、密钥文件和 `node_modules` 等文件夹，并且只读取位于该文件夹内的普通文件：指向文件夹外部的符号链接、FIFO 或设备文件都会被跳过。这份概要会通过 dsh 自己的提供商设置，以一次请求的形式发送给对话所用的模型；它不会被添加到任何对话中。项目中的任何内容都不会被写入。向右滑动的创意会以计划模式新建对话，因此审批和计划审阅照常适用。**直接实现** 不使用计划模式启动对话：模型可以立即修改文件，对话平常的审批和 Auto Review 照常适用。留到以后的创意（标题、概要、理由、工作量）会与项目的文件夹路径一起，保存在 dsh home 下的 `storages/dsh-composer-plus/later.json` 中（仅所有者可访问的文件）；不会向项目写入任何内容。推荐过的创意的历史（标题、概要、理由、工作量、日期、是否已启动）也以同样方式保存在 `storages/dsh-composer-plus/idea-history.json` 中，每个项目最多 200 条（最早的先被移除）；该项目下次 **推荐功能** 时，这些标题会发送给模型。
 - **内容搜索：** 没有新的代码来搜索你的对话：插件只是开启 dsh 自带的消息索引（SQLite FTS5，`dsh-session-query-sqlite`），并为它提供一个文件 `$DSH_HOME/cache/composer-plus/session-search.db`（文件和文件夹仅所有者可访问）。这个文件包含你的用户消息和助手消息的文本，因此它的私密程度与 `$DSH_HOME/sessions` 中的对话日志相同。任何数据都不会离开你的电脑。它是 dsh 可以重新生成的副本：你可以在 dsh 关闭时删除它。开关保存在 `$DSH_HOME/storages/dsh-composer-plus/content-search.json` 中。
 - **回合回退：** 在你发送每条消息之前，Host 会在它自己的存储 `$DSH_HOME/cache/composer-plus/rollback/<chat>.git`（仅所有者可访问的文件夹）中，为对话的文件夹创建一个 git 快照。快照保存该文件夹中 git 能看到的文件（不包括被忽略的文件）的副本，因此它的私密程度与项目相同。它会读取你仓库中的对象（不会再复制一份 git 已有的内容），并且从不写入你仓库的索引、`HEAD`、分支、标签、stash 或配置；git 在你的仓库中做出的唯一更改，是更新它复用的对象文件的时间戳（这会推迟 `git gc` 对这些文件的清理）。带文件的回退只会写入对话文件夹内的普通文件；它会跳过符号链接、管道以及文件夹外的任何内容。任何数据都不会离开你的电脑。你可以在 dsh 关闭时删除这个存储（此后在发送新消息之前，回退只能用于对话本身）。**删除对话** 也会删除对话的存储。开关保存在 `$DSH_HOME/storages/dsh-composer-plus/rollback.json` 中。带文件的回退还会保留回退之前那一刻的文件（同一存储中的 `refs/r/…`），供 **重新应用** 使用；已重新应用的回退记录在 `$DSH_HOME/storages/dsh-composer-plus/redone.json` 中（仅所有者可访问）。
@@ -299,7 +299,7 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
 # Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
-# Changes branch tree (fake model, made-up git history): branch chips, commit files and diffs, keyboard focus + its thumbnail
+# Changes Tree (fake model, made-up git history): branch list, a branch's commits, commit files and diffs, back marks the row + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js
 # Allow for this chat with a time limit (fake model that is also the Auto Review reviewer): the grant ends after 1 hour
 PLAYWRIGHT=/path/to/playwright node test/browser-grant-ttl.mjs /path/to/dsh/lib/bin.js

@@ -44,6 +44,7 @@ func gatewayText(_ code: Int, _ m: String) -> String {
     if code == 429 { return String(localized: "Too many requests. Wait a few seconds and try again.") }
     if code == 403, m == "endpoint not allowed" { return String(localized: "This action isn't available from the phone yet.") }
     if code == 413 || m.contains("too large") { return String(localized: "That's too large to send.") }
+    if code == 404, m == "no such branch" { return String(localized: "This branch no longer exists.") }
     return m
 }
 
@@ -822,13 +823,24 @@ func issueLink(_ v: Any?) -> (url: URL, number: Int)? {
     return (url, n)
 }
 
-/// Changes panel branch tree: one commit from `/plus/graph` (children before parents) and its ref tags.
+/// Changes → Tree: one branch from `/plus/graph` (the Mac sends the current branch or a detached HEAD first, then the
+/// other local branches, then remote ones, newest commit first) with its last commit.
+struct GraphBranch: Identifiable {
+    var id: String { ref }
+    let ref: String, name: String, kind: String, current: Bool, sha: String, time: Int, author: String, subject: String
+    init?(_ j: J) {
+        guard let ref = j["ref"] as? String, let name = j["name"] as? String, let kind = j["kind"] as? String, let sha = j["sha"] as? String else { return nil }
+        self.ref = ref; self.name = name; self.kind = kind; current = j["current"] as? Bool == true; self.sha = sha
+        time = j["time"] as? Int ?? 0; author = j["author"] as? String ?? ""; subject = j["subject"] as? String ?? ""
+    }
+}
+/// One commit of a branch from `/plus/graph?ref=` (newest first) and its ref tags.
 struct GraphRef: Equatable { let name: String, kind: String; var current = false; var key: String { kind + ":" + name } }
 struct GraphCommit: Identifiable {
     var id: String { sha }
-    let sha: String, parents: [String], refs: [GraphRef], author: String, time: Int, subject: String
-    init(sha: String, parents: [String] = [], refs: [GraphRef] = [], author: String = "", time: Int = 0, subject: String = "") {
-        self.sha = sha; self.parents = parents; self.refs = refs; self.author = author; self.time = time; self.subject = subject
+    let sha: String, refs: [GraphRef], author: String, time: Int, subject: String
+    init(sha: String, refs: [GraphRef] = [], author: String = "", time: Int = 0, subject: String = "") {
+        self.sha = sha; self.refs = refs; self.author = author; self.time = time; self.subject = subject
     }
     init?(_ j: J) {
         guard let sha = j["sha"] as? String else { return nil }
@@ -836,43 +848,17 @@ struct GraphCommit: Identifiable {
             guard let n = r["name"] as? String, let k = r["kind"] as? String else { return nil }
             return GraphRef(name: n, kind: k, current: r["current"] as? Bool == true)
         }
-        self.init(sha: sha, parents: j["parents"] as? [String] ?? [], refs: refs, author: j["author"] as? String ?? "",
+        self.init(sha: sha, refs: refs, author: j["author"] as? String ?? "",
                   time: j["time"] as? Int ?? 0, subject: j["subject"] as? String ?? "")
     }
 }
-/// One tree row: the commit's lane, the lines above its dot (top edge lane → middle lane) and below it (middle lane →
-/// bottom edge lane, and the lane whose color the line has). The same rules as `graphRows` in client.js.
-struct GraphRow: Equatable { let col: Int; let top: [[Int]]; let bottom: [[Int]]; let width: Int }
-func graphRows(_ commits: [GraphCommit]) -> [GraphRow] {
-    var lanes: [String?] = []
-    return commits.map { c in
-        let col = lanes.firstIndex(of: c.sha) ?? lanes.firstIndex(of: nil) ?? lanes.count
-        var top: [[Int]] = []
-        for (i, sha) in lanes.enumerated() where sha != nil { top.append([i, sha == c.sha ? col : i]) }
-        var next = lanes.map { $0 == c.sha ? nil : $0 }
-        while next.count <= col { next.append(nil) }
-        var through: [(Int, Int)] = next.enumerated().compactMap { $0.element == nil ? nil : ($0.offset, $0.offset) }
-        var down: [[Int]] = []
-        for (k, parent) in c.parents.enumerated() {
-            var at = next.firstIndex(of: parent) ?? -1
-            if k == 0 && (at == -1 || at > col) {
-                if at != -1 { next[at] = nil; through = through.map { $0.0 == at ? (at, col) : $0 } }
-                next[col] = parent; at = col
-            } else if at == -1 { at = next.firstIndex(of: nil) ?? next.count; if at == next.count { next.append(parent) } else { next[at] = parent } }
-            down.append([col, at, k == 0 ? col : at])
-        }
-        while let last = next.last, last == nil { next.removeLast() }
-        lanes = next
-        let bottom = through.map { [$0.0, $0.1, $0.0] } + down
-        return GraphRow(col: col, top: top, bottom: bottom, width: ([col] + top.flatMap { $0 } + bottom.flatMap { $0 }).max()! + 1)
-    }
-}
-/// Branch chips above the tree: the current branch first, then local branches, a detached HEAD, remote branches; no tags.
-func treeBranches(_ commits: [GraphCommit]) -> [(ref: GraphRef, sha: String)] {
+/// The tags on a commit row of an open branch: not that branch itself; the current branch first, then local branches,
+/// a detached HEAD, remote branches and tags (the same order as on the Mac).
+func commitTags(_ c: GraphCommit, of b: GraphBranch) -> [GraphRef] {
     let order = ["local": 0, "head": 1, "remote": 2, "tag": 3]
     let rank = { (r: GraphRef) in r.current ? -1 : order[r.kind] ?? 9 }
-    return commits.flatMap { c in c.refs.filter { $0.kind != "tag" }.map { (ref: $0, sha: c.sha) } }
-        .sorted { rank($0.ref) != rank($1.ref) ? rank($0.ref) < rank($1.ref) : $0.ref.name < $1.ref.name }
+    return c.refs.filter { !($0.name == b.name && $0.kind == b.kind) }.enumerated()
+        .sorted { rank($0.element) != rank($1.element) ? rank($0.element) < rank($1.element) : $0.offset < $1.offset }.map(\.element)
 }
 
 /// Codex-style turn timer: "7s", "1m 05s", "1h 02m".

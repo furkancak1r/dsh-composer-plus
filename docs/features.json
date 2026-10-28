@@ -782,7 +782,7 @@
       "name": "graph",
       "feature": "changesPanel",
       "request": {
-        "GET": "`?sessionId`: the branch tree of the chat's folder: the newest 300 commits of the local and remote branches and HEAD, with parents and refs (read-only git), and the newest turn for Last Turn."
+        "GET": "`?sessionId`: the branches of the chat's folder (local and remote, each with its last commit; the current branch or a detached HEAD first, at most 1000). `&ref=refs/heads/…`, `refs/remotes/…` or `HEAD`: that branch's newest 300 commits (first-parent line) with their refs, 404 when the branch is gone. Read-only git; also the newest turn for Last Turn."
       }
     },
     {

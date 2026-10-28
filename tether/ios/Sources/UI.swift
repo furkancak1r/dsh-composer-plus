@@ -2289,7 +2289,7 @@ struct FileChatsView: View {
 }
 
 /// Changes panel: the chat's git changes, by mode; tap a file for its diff. Refreshes every 4 s while open. The branch
-/// name (and the Tree button) opens the branch tree.
+/// name (and the Tree button) opens the branch list.
 struct ChangesSheet: View {
     @EnvironmentObject var c: Client
     @Environment(\.dismiss) private var dismiss
@@ -2334,14 +2334,14 @@ struct ChangesSheet: View {
                             if more > 0 { Text("\(more) more file(s) not shown").font(.footnote).foregroundStyle(.secondary) }
                         } header: {
                             HStack {
-                                // The branch name opens the tree, as the branch chip on the Mac does.
+                                // The branch name opens Tree (the branches), as the branch chip on the Mac does.
                                 Button { showTree = true } label: {
                                     HStack(spacing: 4) {
                                         Text(d["branch"] as? String ?? "")
                                         if let u = d["upstream"] as? String { Text("→ \(u)") }
                                         if hasTree { Image(systemName: "point.3.connected.trianglepath.dotted") }
                                     }
-                                }.disabled(!hasTree).accessibilityHint(hasTree ? Text("Show the branch tree") : Text(""))
+                                }.disabled(!hasTree).accessibilityHint(hasTree ? Text("Show the branches") : Text(""))
                                 Spacer()
                                 Text("+\(d["added"] as? Int ?? 0)").foregroundStyle(.green); Text("−\(d["deleted"] as? Int ?? 0)").foregroundStyle(.red)
                             }.font(.caption.monospacedDigit())
@@ -2394,11 +2394,6 @@ struct ChangedFileRow: View {
     }
 }
 
-/// Branch tree colors: a lane keeps its color down the rows (the same palette as on the Mac).
-let laneColors: [Color] = [0x3b82f6, 0x22a06b, 0xe5484d, 0xd97706, 0x8e4ec6, 0x0ea5a4, 0xd6409f, 0x6b7280]
-    .map { Color(red: Double($0 >> 16 & 0xff) / 255, green: Double($0 >> 8 & 0xff) / 255, blue: Double($0 & 0xff) / 255) }
-func laneColor(_ i: Int) -> Color { laneColors[i % laneColors.count] }
-
 /// A ref tag: local branch (green), remote (outlined), tag (amber), detached HEAD (red).
 struct RefTag: View {
     let ref: GraphRef
@@ -2412,51 +2407,32 @@ struct RefTag: View {
     }
 }
 
-/// The branch tree: the newest commits of all branches with their lanes. Branches (menu) scrolls to a branch and marks
-/// it; a row opens that commit's files.
+/// Changes → Tree: the branches (local first, then remote), each with its last commit; tap one for its commits.
 struct TreeView: View {
     @EnvironmentObject var c: Client
     let sessionId: String
-    @State private var commits: [GraphCommit] = []
-    @State private var rows: [GraphRow] = []
-    @State private var head: String?
+    @State private var branches: [GraphBranch] = []
     @State private var more = false
     @State private var loaded = false
     @State private var failed: String?
-    @State private var marked: String?
-    private let laneW: CGFloat = 12, rowH: CGFloat = 30
     var body: some View {
-        ScrollViewReader { proxy in
-            List {
-                if let failed { Text(failed).foregroundStyle(.secondary) }
-                else if !loaded { ProgressView().frame(maxWidth: .infinity) }
-                else if commits.isEmpty { Text("This repository has no commits yet.").foregroundStyle(.secondary) }
-                ForEach(Array(commits.enumerated()), id: \.element.id) { i, cm in
-                    NavigationLink { CommitView(sessionId: sessionId, commit: cm) } label: { row(cm, rows[i]) }
-                        .id(cm.sha)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 12))
-                        .listRowBackground(cm.sha == marked ? Color.accentColor.opacity(0.16) : nil)
-                        .listRowSeparator(.hidden)
-                }
-                if more { Text("Only the newest \(commits.count) commits are shown.").font(.footnote).foregroundStyle(.secondary) }
-            }
-            .listStyle(.plain).environment(\.defaultMinListRowHeight, rowH)
-            .navigationTitle("Tree").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        // kind + name: a local "origin/x" and the remote "origin/x" are two entries.
-                        ForEach(treeBranches(commits), id: \.ref.key) { b in
-                            Button { marked = b.sha; withAnimation { proxy.scrollTo(b.sha, anchor: .center) } } label: { Text(b.ref.name) }
-                        }
-                    } label: { Label("Branches", systemImage: "arrow.triangle.branch") }.disabled(commits.isEmpty)
-                }
-            }
-            .refreshable { await load() }
-            .task {
-                await load()
-                // First open: HEAD is marked and in view, as on the Mac.
-                if marked == nil, let head { marked = head; proxy.scrollTo(head, anchor: .center) }
+        List {
+            if let failed { Text(failed).foregroundStyle(.secondary) }
+            else if !loaded { ProgressView().frame(maxWidth: .infinity) }
+            else if branches.isEmpty { Text("This repository has no commits yet.").foregroundStyle(.secondary) }
+            section("Local branches", branches.filter { $0.kind != "remote" })
+            section("Remote branches", branches.filter { $0.kind == "remote" })
+            if more { Text("Only \(branches.count) branches are shown.").font(.footnote).foregroundStyle(.secondary) }
+        }
+        .navigationTitle("Branches").navigationBarTitleDisplayMode(.inline)
+        .refreshable { await load() }
+        // Each time the list shows again (back from a branch), it reads the branches again.
+        .task { await load() }
+    }
+    @ViewBuilder private func section(_ title: LocalizedStringKey, _ list: [GraphBranch]) -> some View {
+        if !list.isEmpty {
+            Section(title) {
+                ForEach(list) { b in NavigationLink { BranchView(sessionId: sessionId, branch: b) } label: { BranchRow(b: b) } }
             }
         }
     }
@@ -2464,39 +2440,73 @@ struct TreeView: View {
         do {
             let d = try await c.plusCall("graph", query: ["sessionId": sessionId])
             if d["repo"] as? Bool == false { failed = String(localized: "This chat's folder is not a git repository."); return }
-            commits = (d["commits"] as? [J] ?? []).compactMap(GraphCommit.init); rows = graphRows(commits)
-            head = d["head"] as? String; more = d["more"] as? Bool == true; failed = nil; loaded = true
+            branches = (d["branches"] as? [J] ?? []).compactMap(GraphBranch.init); more = d["more"] as? Bool == true; failed = nil; loaded = true
         } catch is CancellationError {} catch { failed = String(localized: "Could not read changes.") + " " + userText(error) }
     }
-    /// One lane column for all rows (at most 12 lanes on a phone), so the subjects line up as on the Mac.
-    private var lanesWidth: CGFloat { CGFloat(min(rows.map(\.width).max() ?? 1, 12)) * laneW + 4 }
-    private func row(_ cm: GraphCommit, _ r: GraphRow) -> some View {
-        HStack(spacing: 6) {
-            lanes(r, isHead: cm.sha == head).frame(width: lanesWidth, height: rowH)
-            ForEach(Array(cm.refs.prefix(2).enumerated()), id: \.offset) { _, ref in RefTag(ref: ref) }
-            Text(cm.subject).font(.footnote.weight(cm.sha == head ? .semibold : .regular)).lineLimit(1)
-            Spacer(minLength: 4)
-            Text(cm.sha.prefix(7)).font(.caption2.monospaced()).foregroundStyle(.secondary)
+}
+
+/// One branch: its name (current marked), the date and subject of its last commit.
+struct BranchRow: View {
+    let b: GraphBranch
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 6) {
+                Text(b.name).font(.subheadline.weight(b.current ? .semibold : .regular)).lineLimit(1).truncationMode(.middle)
+                if b.current {
+                    Text("current").font(.caption2).foregroundStyle(.green)
+                        .padding(.horizontal, 5).padding(.vertical, 1).background(Color.green.opacity(0.15), in: RoundedRectangle(cornerRadius: 4))
+                }
+                Spacer(minLength: 4)
+                if b.time > 0 { Text(Date(timeIntervalSince1970: TimeInterval(b.time)).formatted(date: .abbreviated, time: .omitted)).font(.caption2).foregroundStyle(.secondary) }
+            }
+            Text(b.subject).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
         .accessibilityElement(children: .combine)
     }
-    private func lanes(_ r: GraphRow, isHead: Bool) -> some View {
-        Canvas { ctx, size in
-            let x = { (i: Int) in CGFloat(i) * laneW + laneW / 2 + 2 }
-            let half = size.height / 2
-            func line(_ from: Int, _ to: Int, _ y0: CGFloat, _ y1: CGFloat, _ color: Int) {
-                var p = Path(); p.move(to: CGPoint(x: x(from), y: y0))
-                if from == to { p.addLine(to: CGPoint(x: x(to), y: y1)) }
-                else { p.addCurve(to: CGPoint(x: x(to), y: y1), control1: CGPoint(x: x(from), y: (y0 + y1) / 2), control2: CGPoint(x: x(to), y: (y0 + y1) / 2)) }
-                ctx.stroke(p, with: .color(laneColor(color)), lineWidth: 2)
-            }
-            for t in r.top { line(t[0], t[1], 0, half, t[0]) }
-            for b in r.bottom { line(b[0], b[1], half, size.height, b[2]) }
-            let c = CGPoint(x: x(r.col), y: half)
-            if isHead { ctx.stroke(Path(ellipseIn: CGRect(x: c.x - 6, y: c.y - 6, width: 12, height: 12)), with: .color(laneColor(r.col)), lineWidth: 2) }
-            let d: CGFloat = isHead ? 3 : 4
-            ctx.fill(Path(ellipseIn: CGRect(x: c.x - d, y: c.y - d, width: d * 2, height: d * 2)), with: .color(laneColor(r.col)))
+}
+
+/// One branch's commits, newest first (its first-parent line), with the tags and other branches on each; tap one for
+/// its files.
+struct BranchView: View {
+    @EnvironmentObject var c: Client
+    let sessionId: String, branch: GraphBranch
+    @State private var commits: [GraphCommit] = []
+    @State private var head: String?
+    @State private var more = false
+    @State private var loaded = false
+    @State private var failed: String?
+    var body: some View {
+        List {
+            if let failed { Text(failed).foregroundStyle(.secondary) }
+            else if !loaded { ProgressView().frame(maxWidth: .infinity) }
+            ForEach(commits) { cm in NavigationLink { CommitView(sessionId: sessionId, commit: cm) } label: { row(cm) } }
+            if more { Text("Only the newest \(commits.count) commits are shown.").font(.footnote).foregroundStyle(.secondary) }
         }
+        .navigationTitle(branch.name).navigationBarTitleDisplayMode(.inline)
+        .refreshable { await load() }
+        .task { await load() }
+    }
+    private func load() async {
+        do {
+            let d = try await c.plusCall("graph", query: ["sessionId": sessionId, "ref": branch.ref])
+            if d["repo"] as? Bool == false { failed = String(localized: "This chat's folder is not a git repository."); return }
+            commits = (d["commits"] as? [J] ?? []).compactMap(GraphCommit.init)
+            head = d["head"] as? String; more = d["more"] as? Bool == true; failed = nil; loaded = true
+        } catch is CancellationError {} catch { commits = []; failed = String(localized: "Could not read changes.") + " " + userText(error) }
+    }
+    private func row(_ cm: GraphCommit) -> some View {
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(cm.subject).font(.footnote.weight(cm.sha == head ? .semibold : .regular)).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(cm.sha.prefix(7)).monospaced()
+                    if cm.time > 0 { Text(Date(timeIntervalSince1970: TimeInterval(cm.time)).formatted(date: .abbreviated, time: .omitted)) }
+                }.font(.caption2).foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 4)
+            ForEach(Array(commitTags(cm, of: branch).prefix(2).enumerated()), id: \.offset) { _, ref in RefTag(ref: ref) }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 
