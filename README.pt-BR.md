@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Depois, reinicie o dsh. (A CLI não consegue instalar no perfil desktop; quem gerencia esse perfil é o app.)
 
-> O pnpm do dsh ignora versões publicadas há menos de 24 horas. Logo depois de uma nova versão, informe a versão: `dsh-composer-plus@1.13.0`.
+> O pnpm do dsh ignora versões publicadas há menos de 24 horas. Logo depois de uma nova versão, informe a versão: `dsh-composer-plus@1.14.0`.
 
 ## Recursos
 
@@ -169,7 +169,7 @@ Testado no dsh `0.2.0-rc.2` (desktop e web) e `0.2.1-rc.2` (web). A CI executa o
 - **Nenhuma etiqueta de branch em uma linha de chat:** o chat não teve nenhum turno desde que você instalou esta versão, a pasta dele não é um repositório git, ou **Branch do Git nas linhas de chat** está desativado. Depois de uma atualização, reinicie o dsh (a parte Host registra o branch).
 - **Verificação da meta diz que o teste saiu com o código 127 ou "not found":** o dsh iniciado pelo Finder ou pelo Dock pode ter um PATH mais curto que o do seu terminal, então ele não encontra `npm`, `pnpm` ou `cargo`. Inicie o dsh a partir de um terminal ou defina o seu próprio comando de teste com o caminho completo em **Verificação da meta** → **Editar**. **Executar agora** mostra o resultado na hora.
 - **A meta não fecha e o agente continua trabalhando:** **Verificação da meta** encontrou um teste com falha ou trabalho faltando; a linha abaixo da meta mostra o motivo (passe o mouse sobre o resultado para ver os detalhes). Corrija a causa ou o comando de teste, ou conclua a meta você mesmo com `/goal` ou com a barra da meta (isso não é verificado).
-- **A instalação falha logo depois de uma nova versão:** informe a versão (`dsh-composer-plus@1.13.0`); veja a nota de instalação acima.
+- **A instalação falha logo depois de uma nova versão:** informe a versão (`dsh-composer-plus@1.14.0`); veja a nota de instalação acima.
 
 ## Limites
 
