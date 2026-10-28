@@ -45,11 +45,13 @@ export const COMPLETE_PATH = '/api/composer-plus.complete';
 export const EXPORT_PATH = '/api/composer-plus.export';
 export const IMPROVE_PATH = '/api/composer-plus.improve';
 export const UNREAD_PATH = '/api/composer-plus.unread';
+export const FILE_CHATS_PATH = '/api/composer-plus.file-chats';
+export const BRANCHES_PATH = '/api/composer-plus.branches';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
-  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink'];
+  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -78,23 +80,29 @@ async function gitPath(subprocess) {
   return gitPaths.get(subprocess);
 }
 
-/** Run read-only `git <args>` in cwd: argv only (never a shell), scrubbed config, no prompts, no optional locks.
- * `env` adds variables (Turn rollback points git at its own store); `stdin` is sent as the child's input. */
-export async function runGit(subprocess, cwd, args, signal, { env = {}, stdin, timeoutMs = TIMEOUT_MS } = {}) {
-  const git = await gitPath(subprocess);
-  if (git === null) return { code: 127, stdout: '', truncated: false, stderr: 'git is not installed' };
+/** Run `exe <args>` in cwd through dsh's subprocess service: argv only (never a shell), a timeout, bounded output. `env`
+ * adds variables to dsh's scrubbed environment; `stdin` is sent as the child's input. Shared by git and gh. */
+async function runTool(subprocess, exe, cwd, args, signal, { env = {}, stdin, timeoutMs = TIMEOUT_MS } = {}) {
   const timeout = AbortSignal.timeout(timeoutMs);
   const handle = subprocess.spawn({
-    argv: [git, ...args],
+    argv: [exe, ...args],
     cwd,
     stdio: { stdin: stdin === undefined ? 'ignore' : { data: stdin }, stdout: { maxBytes: MAX_OUTPUT }, stderr: { maxBytes: 16384 } },
     graceMs: 1000,
     signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]),
-    env: { GIT_CONFIG_COUNT: '0', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C', ...env },
+    env,
   });
   const outcome = await handle.done;
   const out = handle.collected.stdout?.readFrom(0) ?? { text: '', lossy: false };
   return { code: outcome.exitCode, stdout: out.text, truncated: out.lossy, stderr: handle.collected.stderr?.readFrom(0).text ?? '' };
+}
+
+/** Run read-only `git <args>` in cwd: argv only (never a shell), scrubbed config, no prompts, no optional locks.
+ * `env` adds variables (Turn rollback points git at its own store); `stdin` is sent as the child's input. */
+export async function runGit(subprocess, cwd, args, signal, { env = {}, ...opts } = {}) {
+  const git = await gitPath(subprocess);
+  if (git === null) return { code: 127, stdout: '', truncated: false, stderr: 'git is not installed' };
+  return runTool(subprocess, git, cwd, args, signal, { ...opts, env: { GIT_CONFIG_COUNT: '0', GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', LC_ALL: 'C', ...env } });
 }
 
 /** `git diff` arguments for a mode, relative to `base` for branch mode. Commit mode: what one commit changed, against
@@ -242,27 +250,37 @@ const WRITE_TOOLS = { write: 'file_path', edit: 'file_path', str_replace_editor:
  * folder at that time (`working-directory/change`). ponytail: shell commands are not counted (their paths are unknown);
  * the Uncommitted view shows those. At most MAX_FILES paths, the newest kept. */
 export function chatWrites(events, cwd) {
-  let dir = cwd;
-  const calls = new Map(); // callId → absolute path
   const paths = new Set();
-  for (const e of events) {
+  for (const { file } of writeCalls(events, cwd)) { paths.delete(file); paths.add(file); } // newest last
+  return [...paths].slice(-MAX_FILES);
+}
+/** Every successful call of dsh's file tools in `events` from index `from` on (a fork skips its inherited events), oldest
+ * first: `{ file, seq, time, request }`, where `file` is absolute (as in `chatWrites`) and `request` is the seq of the
+ * human message whose turn made the call (undefined when none came before it). Shared by This chat and file chats. */
+export function writeCalls(events, cwd, from = 0) {
+  let dir = cwd;
+  let request;
+  const calls = new Map(); // callId → { file, seq, time, request }
+  const out = [];
+  for (const [i, e] of events.entries()) {
     if (e.type === 'working-directory/change' && typeof e.data?.cwd === 'string' && isAbsolute(e.data.cwd)) dir = e.data.cwd;
+    if (i < from) continue;
+    if (e.type === 'user/message' && e.data?.source?.kind === 'user') request = e.seq;
     else if (e.type === 'tool/call' && Object.hasOwn(WRITE_TOOLS, e.data?.name)) {
       let args = e.data.arguments;
       if (typeof args === 'string') { try { args = JSON.parse(args); } catch { args = undefined; } }
       const file = args?.[WRITE_TOOLS[e.data.name]];
       if (e.data.name === 'str_replace_editor' && args?.command === 'view') continue;
-      if (isText(file, 4096) && typeof dir === 'string') calls.set(e.data.callId, resolve(dir, file));
+      if (isText(file, 4096) && typeof dir === 'string') calls.set(e.data.callId, { file: resolve(dir, file), seq: e.seq, time: e.time, request });
     } else if (e.type === 'tool/result') {
       const callId = e.data?.message?.source?.callId;
-      const file = calls.get(callId);
-      if (file === undefined) continue;
+      const call = calls.get(callId);
+      if (call === undefined) continue;
       calls.delete(callId);
-      if (e.data.message.isError === true) continue;
-      paths.delete(file); paths.add(file); // newest last
+      if (e.data.message.isError !== true) out.push(call);
     }
   }
-  return [...paths].slice(-MAX_FILES);
+  return out;
 }
 /** Absolute paths as paths from the repository top (`/` separators); paths outside `top` (or outside `inside`, a folder
  * from the top) are only counted. git gives `top` as a real path, but dsh keeps the chat folder `cwd` as it was opened:
@@ -299,6 +317,120 @@ export async function chatChanges(subprocess, snapshots, sessionId, cwd, paths, 
   if (file !== undefined) return fileDiff(subprocess, cwd, 'uncommitted', file, signal, undefined, opts, facts);
   const v = await changes(subprocess, cwd, 'uncommitted', signal, undefined, opts, facts);
   return { ...v, mode: 'chat', base: 'head', outside };
+}
+
+/** Changes → a file's menu → the chats that changed it: at most this many chats of the repository are read (the newest
+ * by creation), this many at a time, and at most FILE_CHATS_MAX rows are answered. */
+export const FILE_CHATS_SCAN = 300;
+const FILE_CHATS_PARALLEL = 4;
+export const FILE_CHATS_MAX = 100;
+/** The text of a human message on one line, at most 200 characters. */
+const requestLine = (event) => textBlocks(event?.data?.content).replace(/\s+/g, ' ').trim().slice(0, 200);
+/** What one chat's log says about written files, for `fileChats`: its title and, per (absolute file, request seq or the
+ * call's own), the number of successful write/edit calls and the newest time; and for each request seq its text or that a
+ * rollback withdrew it. A fork's inherited events belong to its parent (rule 10); a request that Composer Plus or
+ * dsh-rewind-plugin withdrew (rule 9) keeps no text. */
+function writeSummary(observation, dir) {
+  const events = observation.events;
+  const from = Number.isSafeInteger(observation.inheritedEventCount) && observation.inheritedEventCount > 0 ? observation.inheritedEventCount : 0;
+  // One entry per (file, request): a chat that edits one file many times keeps one entry in the cache.
+  const byKey = new Map();
+  for (const c of writeCalls(events, dir, from)) {
+    const seq = c.request ?? c.seq; const key = `${seq}\0${c.file}`;
+    const g = byKey.get(key) ?? { file: c.file, seq, time: 0, count: 0 };
+    g.count += 1; g.time = Math.max(g.time, Number(c.time) || 0);
+    byKey.set(key, g);
+  }
+  const calls = [...byKey.values()];
+  const wanted = new Set(calls.map((c) => c.seq));
+  const spans = rollbackSpans(events, [ROLLBACK_SOURCE, REWIND_SOURCE]);
+  const requests = new Map();
+  for (const e of events) {
+    if (!wanted.has(e.seq) || e.type !== 'user/message' || requests.has(e.seq)) continue;
+    requests.set(e.seq, spans.some(([a, b]) => e.seq >= a && e.seq <= b) ? { withdrawn: true } : { request: requestLine(e) });
+  }
+  for (const seq of wanted) if (!requests.has(seq) && spans.some(([a, b]) => seq >= a && seq <= b)) requests.set(seq, { withdrawn: true });
+  const title = events.findLast((e) => e.type === 'session/title' && isText(e.data?.title, 4096))?.data.title;
+  return { calls, requests, ...(title ? { title: title.slice(0, 200) } : {}) };
+}
+/** Summaries by chat id, each with the size and change time of the chat's log file when it was read; a log that did not
+ * change since is not read again. A chat without a known log file (no `locate`, or a live chat not written yet) is read
+ * each time. At most FILE_CHATS_CACHE chats are kept (the least recently used one leaves first). */
+const FILE_CHATS_CACHE = 2000;
+export function writeSummaries() {
+  const cache = new Map();
+  return {
+    async get(id, stamp, read) {
+      const hit = cache.get(id);
+      if (hit !== undefined && stamp !== undefined && hit.stamp === stamp) { cache.delete(id); cache.set(id, hit); return hit.summary; }
+      const summary = await read();
+      if (stamp !== undefined) {
+        cache.delete(id); cache.set(id, { stamp, summary });
+        while (cache.size > FILE_CHATS_CACHE) cache.delete(cache.keys().next().value);
+      }
+      return summary;
+    },
+    size: () => cache.size,
+  };
+}
+/** Changes → a file's menu → "Chats that changed this file": each chat of the same repository (its folder is inside the
+ * repository top) whose successful write/edit tool calls (`writeCalls`, as This chat) name `path` (from the top, `/`
+ * separators). One row per (chat, request), newest change first: `{ sessionId, seq, time, count, title?, request?,
+ * withdrawn? }`; `seq` is the human message whose turn made the change (the call's own seq when none came before it). Only
+ * chat logs are read, never a project file. `partial` when the repository has more than FILE_CHATS_SCAN chats.
+ * `summaries` (optional, `writeSummaries()`) keeps each chat's summary until its log file changes (`stampOf(header)`). */
+export async function fileChats({ sessionQuery, subprocess, summaries, stampOf }, cwd, path, signal) {
+  const facts = await repoFacts(subprocess, cwd, signal);
+  if (facts === undefined) return { repo: false };
+  const top = facts.root; // git gives the real path
+  const head = top.endsWith(sep) ? top : top + sep;
+  const inside = [];
+  for (const record of await sessionQuery.listSessions(signal)) {
+    const dir = record?.header?.cwd;
+    if (!isText(dir, 4096) || !isAbsolute(dir)) continue;
+    const real = await realpath(dir).catch(() => dir);
+    if (real === top || real.startsWith(head)) inside.push({ id: record.header.id, header: record.header, live: record.live === true, dir, real });
+  }
+  const scan = inside.slice(0, FILE_CHATS_SCAN); // listSessions: newest first
+  const rows = [];
+  let unreadable = 0;
+  const read = async (id, dir) => {
+    const observation = await sessionQuery.observeSession(id, { signal, projectionMode: 'none' });
+    try { return writeSummary(observation, dir); } finally { observation[Symbol.dispose]?.(); }
+  };
+  const one = async ({ id, header, live, dir, real }) => {
+    let summary;
+    try {
+      // A live chat is read each time: dsh answers its newest events from memory before they reach the log file.
+      const stamp = live ? undefined : await stampOf?.(header);
+      summary = summaries === undefined ? await read(id, dir) : await summaries.get(id, stamp, () => read(id, dir));
+    } catch { unreadable += 1; return; }
+    // A path below the chat folder as dsh opened it is read below its real path (as `topRelative` does).
+    const prefix = dir === real ? undefined : dir.endsWith(sep) ? dir : dir + sep;
+    const relOf = (file) => {
+      const p = prefix !== undefined && file.startsWith(prefix) ? join(real, file.slice(prefix.length)) : file;
+      return p.startsWith(head) ? p.slice(head.length).split(sep).join('/') : undefined;
+    };
+    const groups = new Map();
+    for (const c of summary.calls) {
+      if (relOf(c.file) !== path) continue;
+      // Two absolute spellings of one file (the folder as opened and its real path) fall into one row.
+      const g = groups.get(c.seq) ?? { sessionId: id, seq: c.seq, time: 0, count: 0 };
+      g.count += c.count; g.time = Math.max(g.time, c.time);
+      groups.set(c.seq, g);
+    }
+    for (const g of groups.values()) {
+      const r = summary.requests.get(g.seq) ?? {};
+      rows.push({ ...g, ...(summary.title ? { title: summary.title } : {}), ...(r.request ? { request: r.request } : {}), ...(r.withdrawn ? { withdrawn: true } : {}) });
+    }
+  };
+  for (let i = 0; i < scan.length; i += FILE_CHATS_PARALLEL) {
+    signal?.throwIfAborted();
+    await Promise.all(scan.slice(i, i + FILE_CHATS_PARALLEL).map(one));
+  }
+  rows.sort((a, b) => b.time - a.time || b.seq - a.seq);
+  return { repo: true, path, chats: rows.slice(0, FILE_CHATS_MAX), total: rows.length,
+    ...(inside.length > scan.length ? { partial: true } : {}), ...(unreadable > 0 ? { unreadable } : {}) };
 }
 
 /** "Allow for this chat" time limits (ms) that Settings offers; `null` = until revoked. */
@@ -829,6 +961,37 @@ export async function startIdeaChat({ sessionController, sessionQuery, commands,
   const plan = planned?.result?.kind === 'success';
   if (!plan) await sessionController.prompt({ requestId: randomUUID(), sessionId: created, mode: 'queue', content: [{ type: 'text', text }] }, signal);
   return { sessionId: created, plan, cwd };
+}
+
+/** Open GitHub issue (Later list): the user's own GitHub CLI opens an issue for a saved idea in the repository of the
+ * chat's folder, with the user's gh login. dsh's subprocess scrub drops every variable named like a token, so a token
+ * that the user gave gh through the environment is passed on by name (a keyring login needs none). */
+export const ISSUE_TIMEOUT_MS = 60000;
+const GH_TOKENS = ['GH_TOKEN', 'GITHUB_TOKEN', 'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN'];
+// The host is a plain name (no `user@`, so the link cannot show one site and open another).
+export const ISSUE_URL = /^https:\/\/[\w.-]+(?::\d{1,5})?\/[^\s/]+\/[^\s/]+\/issues\/(\d{1,9})$/;
+/** The issue text: the idea's summary, and why it matters when the idea says so. */
+export const issueBody = (idea) => `${idea.summary}${idea.why ? `\n\n**Why:** ${idea.why}` : ''}\n`;
+/** `gh issue create` in `cwd`; returns `{ url, number }`. Throws a 409 when gh is missing or refuses (no login, no GitHub
+ * remote, issues off): the message is gh's own first line. No request signal: once gh runs, the issue may exist, so the
+ * call runs to its end (at most ISSUE_TIMEOUT_MS) and its link is kept. */
+export async function openIssue(subprocess, cwd, idea, env = process.env) {
+  let gh;
+  try { gh = await subprocess.resolveExecutable('gh'); } catch { gh = undefined; }
+  if (!isText(gh, 4096)) throw refused('GitHub CLI (gh) is not installed or not on the PATH of dsh');
+  const tokens = Object.fromEntries(GH_TOKENS.filter((name) => isText(env[name], 4096)).map((name) => [name, env[name]]));
+  // `--title=…` in one argument, so a title that starts with "-" is never read as an option.
+  const r = await runTool(subprocess, gh, cwd, ['issue', 'create', `--title=${idea.title}`, '--body-file', '-'], undefined, {
+    stdin: issueBody(idea), timeoutMs: ISSUE_TIMEOUT_MS,
+    env: { GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', GH_SPINNER_DISABLED: '1', NO_COLOR: '1', ...tokens },
+  });
+  // gh prints the issue link only after GitHub made the issue: with a link the issue exists, whatever the exit code.
+  const url = r.stdout.split('\n').map((line) => line.trim()).findLast((line) => ISSUE_URL.test(line));
+  if (url !== undefined) return { url, number: Number(ISSUE_URL.exec(url)[1]) };
+  // Stopped by the time-out (no exit code): gh may have made the issue before it stopped.
+  if (r.code === null) throw refused('gh did not finish in time. The issue may exist: check the repository on GitHub before you try again');
+  const why = r.stderr.split('\n').map((line) => line.trim()).find((line) => line !== '') ?? `exit code ${r.code}`;
+  throw refused(`gh could not open the issue: ${why.slice(0, 300)}`);
 }
 
 /** Ideas saved for later: at most this many per project. A full list refuses a new idea; it never drops an old one. */
@@ -1382,6 +1545,30 @@ export function apply(ctx) {
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
   });
+  // A file's menu → the chats that changed it. `path` is only compared with the chats' tool paths, never opened. Each
+  // chat's summary is kept until its log file changes (size and change time from dsh's own log path), so a second open
+  // reads only the chats that wrote since.
+  const summaries = writeSummaries();
+  const stampOf = async (header) => {
+    const persistence = (() => { try { return ctx.get?.('sessionPersistence'); } catch { return undefined; } })();
+    const file = persistence?.locate?.(header)?.path;
+    if (!isText(file, 4096)) return undefined;
+    const info = await stat(file).catch(() => undefined);
+    return info?.isFile() ? `${info.size}:${info.mtimeMs}` : undefined;
+  };
+  ctx.connection.fetch.register({
+    path: FILE_CHATS_PATH, methods: ['GET'], requestBody: 'buffered',
+    fetch: async (request) => {
+      const q = new URL(request.url).searchParams;
+      const sessionId = q.get('sessionId'); const path = q.get('path');
+      if (!isText(sessionId) || !isText(path, 4096) || path.includes('\0') || path.startsWith('/') || path.split('/').some((x) => x === '' || x === '.' || x === '..')) return json({ error: 'bad request' }, 400);
+      try {
+        const { cwd } = await sessionFacts(sessionId, request.signal);
+        if (cwd === undefined) return json({ repo: false });
+        return json(await fileChats({ sessionQuery: ctx.sessionQuery, subprocess: ctx.subprocess, summaries, stampOf }, cwd, path, request.signal));
+      } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+    },
+  });
   // Branch tree of the chat's repository (read-only git), plus Last Turn like the changes route.
   ctx.connection.fetch.register({
     path: GRAPH_PATH, methods: ['GET'], requestBody: 'buffered',
@@ -1508,10 +1695,90 @@ export function apply(ctx) {
   installRollback(ctx, home, snapshots);
   installDeleteChat(ctx, home, snapshots);
   installQueueMove(ctx);
+  installBranches(ctx, home);
   installPredict(ctx, home);
   installComplete(ctx, home);
   installImprove(ctx, home);
   installExport(ctx);
+}
+
+/** Branch badge: the git branch of each top-level chat's folder at its newest turn edge, at most this many chats. */
+export const BRANCHES_MAX = 2000;
+/** The branch of `cwd` now: its name (also before the first commit), `(abc1234)` on a detached HEAD, `null` outside a
+ * repository, or undefined when git could not tell (not installed, stopped by the time-out, another error). Read-only git. */
+export async function branchOf(subprocess, cwd, signal) {
+  const name = await runGit(subprocess, cwd, ['branch', '--show-current'], signal);
+  if (name.code === 128 && /not a git repository/i.test(name.stderr)) return null;
+  if (name.code !== 0) return undefined;
+  if (name.stdout.trim() !== '') return name.stdout.trim().slice(0, 200);
+  const short = await runGit(subprocess, cwd, ['rev-parse', '--short', 'HEAD'], signal);
+  return short.code === 0 && /^[0-9a-f]{4,64}$/.test(short.stdout.trim()) ? `(${short.stdout.trim()})` : undefined;
+}
+/** Branch badge (Host half): when a top-level chat's turn starts and when it ends, the branch of its folder is read (one
+ * read per chat at a time; an edge that comes during a read reads again after it) and kept in
+ * `storages/dsh-composer-plus/session-branches.json` (`{ [sessionId]: { branch, at } }`, owner-only, newest BRANCHES_MAX).
+ * A folder that is not a repository removes the chat's entry; a failed read (no git, time-out) keeps it. The switch is kept here too (`branches.json`, on by
+ * default): off, nothing is read or kept, and the route answers no branches. `settled()` resolves when no read runs. */
+export function installBranches(ctx, home) {
+  const saved = mobileSwitch(join(home, 'storages', 'dsh-composer-plus', 'branches.json'), true);
+  let on = true;
+  const read = saved.read().then((value) => { on = value; });
+  let switchQueue = Promise.resolve();
+  const store = settingsStore(join(home, 'storages', 'dsh-composer-plus', 'session-branches.json'),
+    (v) => (v !== null && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).filter(([id, e]) => isText(id, 128) && isText(e?.branch, 200) && Number.isFinite(e?.at))) : {}));
+  const running = new Map(); // sessionId → { again, done } while a read runs
+  const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: ${text}`);
+  const record = async (id, cwd) => {
+    const branch = await branchOf(ctx.subprocess, cwd).catch(() => undefined);
+    // git could not tell (no git, time-out): keep what is saved. Not a repository and nothing saved: no write.
+    if (!on || branch === undefined || (branch === null && (await store.read())[id] === undefined)) return;
+    await store.change((all) => {
+      const next = { ...all };
+      delete next[id];
+      if (branch !== null) next[id] = { branch, at: Date.now() };
+      const ids = Object.keys(next);
+      if (ids.length > BRANCHES_MAX) for (const old of ids.sort((a, b) => next[a].at - next[b].at).slice(0, ids.length - BRANCHES_MAX)) delete next[old];
+      return next;
+    });
+  };
+  const queue = (id, cwd) => {
+    const now = running.get(id);
+    if (now !== undefined) { now.again = cwd; return; }
+    const entry = { again: undefined };
+    running.set(id, entry);
+    entry.done = (async () => {
+      let next = cwd;
+      try { while (next !== undefined) { entry.again = undefined; await record(id, next); next = entry.again; } }
+      catch (error) { log(`branch badge: ${error?.message ?? error}`); }
+      finally { running.delete(id); }
+    })();
+  };
+  ctx.on('session/event', (session, event) => {
+    if (!on || (event.type !== 'turn/start' && event.type !== 'turn/end') || !isRootChat(session)) return;
+    const cwd = session.header?.cwd;
+    if (isText(cwd, 4096) && isAbsolute(cwd)) queue(session.id, cwd);
+  });
+  ctx.connection.fetch.register({
+    path: BRANCHES_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (typeof body?.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        const change = async () => { await read; await saved.write(body.on); on = body.on; };
+        const done = switchQueue.then(change);
+        switchQueue = done.catch(() => {});
+        try { await done; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      await read;
+      if (!on) return json({ on: false, branches: {} });
+      try {
+        const all = await store.read();
+        return json({ on: true, branches: Object.fromEntries(Object.entries(all).map(([id, e]) => [id, e.branch])) });
+      } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+    },
+  });
+  return { settled: async () => { while (running.size > 0) await Promise.all([...running.values()].map((e) => e.done)); } };
 }
 
 /** Queue drag-and-drop (Host half): `POST {sessionId, itemId, to, before}` moves one queued next-turn message to index `to`
@@ -1863,18 +2130,36 @@ function installIdeas(ctx, home) {
       const all = Array.isArray(body.startAll) && body.startAll.length >= 2 && body.startAll.length <= LATER_MAX && body.startAll.every((id) => isText(id))
         && new Set(body.startAll).size === body.startAll.length ? body.startAll : undefined;
       const action = request.method === 'GET' ? 'list' : body.add !== undefined ? 'add' : isText(body.remove) ? 'remove' : isText(body.start) ? 'start'
-        : body.startAll !== undefined ? 'startAll' : undefined;
+        : body.startAll !== undefined ? 'startAll' : isText(body.issue) ? 'issue' : undefined;
       if (action === undefined || (action === 'add' && add === undefined) || (action === 'startAll' && all === undefined)) return json({ error: 'bad request' }, 400);
       try {
         const cwd = await chatFolder(ctx.sessionQuery, body.sessionId, request.signal);
         if (action === 'list') return json({ ideas: await later.list(cwd) });
         if (action === 'add') return json({ ideas: await later.add(cwd, add) });
         if (action === 'remove') return json({ ideas: await later.remove(cwd, body.remove) });
+        if (action === 'issue') {
+          // The stored text goes to GitHub, never text from the browser. One action per idea: a start or a second issue of
+          // the same idea waits for this one (409), so a double click opens one issue.
+          const key = `${cwd}\0${body.issue}`;
+          const idea = (await later.list(cwd)).find((i) => i.id === body.issue);
+          if (idea === undefined) return json({ error: 'this idea is no longer in the list' }, 409);
+          if (starting.has(key)) return json({ error: 'another action for this idea is still running' }, 409);
+          if (idea.issue !== undefined) return json({ error: 'this idea already has an issue', ideas: await later.list(cwd) }, 409);
+          starting.add(key);
+          try {
+            const issue = await openIssue(ctx.subprocess, cwd, idea);
+            // The issue exists now: keep its link on the idea (it may have moved in the list meanwhile, or left it). When the
+            // save fails, the answer still names the issue, so the user does not open a second one.
+            try { return json({ issue, ideas: await later.change(cwd, (list) => list.map((i) => (i.id === idea.id ? { ...i, issue } : i))) }); }
+            catch (error) { return json({ issue, error: `the issue was opened, but its link could not be saved: ${String(error?.message ?? error)}` }, 500); }
+          } finally { starting.delete(key); }
+        }
         const ids = action === 'start' ? [body.start] : all;
         const list = await later.list(cwd);
         const ideas = ids.map((id) => list.find((i) => i.id === id));
         const keys = ids.map((id) => `${cwd}\0${id}`);
-        if (ideas.includes(undefined) || keys.some((key) => starting.has(key))) return json({ error: 'this idea is no longer in the list' }, 409);
+        if (ideas.includes(undefined)) return json({ error: 'this idea is no longer in the list' }, 409);
+        if (keys.some((key) => starting.has(key))) return json({ error: 'another action for this idea is still running' }, 409);
         for (const key of keys) starting.add(key);
         try {
           const brief = ideas.map((i) => ({ title: i.title, summary: i.summary, why: i.why }));
@@ -2404,7 +2689,9 @@ export async function improvePrompt({ llm, sessionQuery, subprocess, pickRoute }
 function installImprove(ctx, home) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const store = settingsStore(join(home, 'storages', 'dsh-composer-plus', 'improve.json'), savedModel);
-  const running = new Set(); // sessionId: one improvement per chat at a time
+  // sessionId → AbortController: one improvement per chat. A newer ask stops the older call: the desktop app does not pass
+  // the page's cancel on to the Host, so a cancelled call must not lock the chat until the model ends.
+  const running = new Map();
   ctx.connection.fetch.register({
     path: IMPROVE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     fetch: async (request) => {
@@ -2421,14 +2708,18 @@ function installImprove(ctx, home) {
       if (!isText(body.sessionId) || typeof body.text !== 'string' || body.text.trim() === '' || body.text.length > IMPROVE_INPUT || body.model !== undefined || body.on !== undefined) return json({ error: 'bad request' }, 400);
       const llm = get('llm');
       if (llm?.prepareCall === undefined) return json({ error: 'this dsh profile cannot call a model' }, 409);
-      if (running.has(body.sessionId)) return json({ error: 'an improvement for this chat is still running' }, 409);
-      running.add(body.sessionId);
+      running.get(body.sessionId)?.abort();
+      const mine = new AbortController();
+      running.set(body.sessionId, mine);
+      const signal = request.signal === undefined ? mine.signal : AbortSignal.any([mine.signal, request.signal]);
       try {
         const { model } = await store.read();
         const pickRoute = (chat) => routeOf(ctx, get, model, chat);
-        return json(await improvePrompt({ llm, sessionQuery: ctx.sessionQuery, subprocess: ctx.subprocess, pickRoute }, body.sessionId, body.text, request.signal));
-      } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 502); }
-      finally { running.delete(body.sessionId); }
+        return json(await improvePrompt({ llm, sessionQuery: ctx.sessionQuery, subprocess: ctx.subprocess, pickRoute }, body.sessionId, body.text, signal));
+      } catch (error) {
+        if (mine.signal.aborted) return json({ error: 'a newer improvement replaced this one' }, 409);
+        return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 502);
+      } finally { if (running.get(body.sessionId) === mine) running.delete(body.sessionId); }
     },
   });
 }

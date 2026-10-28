@@ -2,6 +2,8 @@
 // row); disabled for an empty, too long, slash-command or chip draft; a click sends the draft and replaces it through dsh's
 // insertText with a span over the whole draft (one undo step); dsh refusing the edit (the draft changed) keeps the text
 // and says so; the button then undoes; a second click or Esc cancels; one ask at a time; a failure keeps the text.
+// Leaving the chat while it runs: the ask goes on; back in the chat the wand shows it running, the answer goes into that
+// chat's composer (never another chat's), and the guard frees when it ends or fails.
 // Settings: a Model menu on the improve route; switching the feature off removes the composer entry.
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 const mem = new Map();
@@ -44,7 +46,7 @@ const mount = (C, props) => {
   const render = () => {
     cur = inst; inst.si = 0; inst.ri = 0; inst.effects = [];
     out = C(props());
-    if (inst.refs[1] !== undefined && inst.refs[1].current === null) inst.refs[1].current = anchorHost; // anchorRef: the second ref
+    if (inst.refs[0] !== undefined && inst.refs[0].current === null) inst.refs[0].current = anchorHost; // anchorRef: the first ref
     inst.effects.forEach(([f, deps], i) => {
       if (inst.deps[i] !== undefined && deps.every((d, j) => Object.is(d, inst.deps[i][j]))) return;
       inst.cleanups[i]?.(); inst.cleanups[i] = f(); inst.deps[i] = deps;
@@ -71,8 +73,9 @@ let session = { subagent: null, removed: false };
 let inputState = { phase: 'plain', draft: '', draftRev: 1, attachmentIds: [], occurrences: [] };
 const edits = [];
 let accept = true;
+let lag = null; // the editor's revision while dsh has not published it yet
 const inputActions = {
-  captureInsertion: () => ({ start: 3, end: 3, draftRev: inputState.draftRev }),
+  captureInsertion: () => ({ start: 3, end: 3, draftRev: lag ?? inputState.draftRev }),
   insertText: (text, span) => {
     edits.push({ text, span });
     if (!accept || span.draftRev !== inputState.draftRev) return false;
@@ -80,10 +83,11 @@ const inputActions = {
     return true;
   },
 };
-const props = () => ({ ...injected, sessionId: 's1', t: (k, p) => (p ? `${k}:${JSON.stringify(p)}` : k), useSession: (f) => f(session), useInput: (f) => f(inputState), inputActions });
+let chat = 's1';
+const props = () => ({ ...opt.inject(chat), sessionId: chat, t: (k, p) => (p ? `${k}:${JSON.stringify(p)}` : k), useSession: (f) => f(session), useInput: (f) => f(inputState), inputActions });
 const asks = () => fetches.filter((f) => f.url === '/api/composer-plus.improve' && f.init?.method === 'POST' && JSON.parse(f.init.body).sessionId !== undefined);
 const buttonOf = (out) => { const tip = out.c.find((c) => c?.t === 'Tooltip'); return tip?.c[0]; };
-const view = mount(Improve, props);
+let view = mount(Improve, props);
 
 // Disabled states (the tooltip says why); nothing is asked.
 let out = await view.settle();
@@ -157,6 +161,68 @@ assert.deepEqual(notices.at(-1), ['info', 'improve.same']); assert.equal(edits.l
 // A stale answer (another text) is not used.
 reply = async () => ({ status: 200, body: { text: 'other', improved: 'nope' } });
 buttonOf(await view.settle()).p.onClick(); await view.settle(); assert.equal(edits.length, e0);
+// Leave the chat while it runs and come back (the owner's report): dsh unmounts this chat's composer entry and mounts
+// another one for the other chat, then a new one again for this chat.
+{
+  inputState = { ...inputState, phase: 'plain', occurrences: [], draft: 'fix the login', draftRev: inputState.draftRev + 1 };
+  let signal1;
+  reply = async (url, init) => { const b = JSON.parse(init.body); signal1 = init.signal; await new Promise((r) => { release = r; }); return { status: 200, body: { text: b.text, improved: 'Fix the login form.', model: 'big' } }; };
+  const n = asks().length; const e0 = edits.length;
+  buttonOf(await view.settle()).p.onClick(); await view.settle();
+  assert.equal(asks().length, n + 1);
+  view.unmount(); // another chat opens
+  assert.equal(signal1.aborted, false, 'leaving the chat does not cancel the ask');
+  chat = 's2';
+  const s1Input = inputState; inputState = { phase: 'plain', draft: 'other chat text', draftRev: 1, attachmentIds: [], occurrences: [] };
+  const other = mount(Improve, props);
+  let o = await other.settle();
+  assert.equal(buttonOf(o).p['aria-busy'], false, 'the other chat is not busy');
+  release(); await other.settle(); // the answer comes while the other chat is open
+  assert.equal(edits.length, e0, 'never into the other chat\'s composer'); assert.equal(inputState.draft, 'other chat text');
+  other.unmount();
+  // Back: a new composer with its own revisions. dsh 0.2.0-rc.2 first publishes an empty state while its editor already
+  // holds the saved draft: nothing happens until the state catches up.
+  chat = 's1'; inputState = { phase: 'plain', draft: '', draftRev: 0, attachmentIds: [], occurrences: [] }; lag = 1;
+  view = mount(Improve, props); await view.settle();
+  assert.equal(edits.length, e0, 'waits for dsh\'s state'); assert.notDeepEqual(notices.at(-1), ['info', 'improve.changed']);
+  inputState = { ...s1Input, draftRev: 1 }; lag = null;
+  let out2 = await view.settle();
+  assert.equal(inputState.draft, 'Fix the login form.', 'back in the chat: the answer is in its composer');
+  assert.equal(edits.length, e0 + 1); assert.deepEqual(edits.at(-1).span, { start: 0, end: 'fix the login'.length, draftRev: 1 });
+  assert.equal(buttonOf(out2).p['aria-label'], 'improve.undo', 'and it can be undone');
+  // Back while it still runs: the wand shows it running; a click cancels it (no second request, no "still running").
+  buttonOf(out2).p.onClick(); await view.settle(); // undo first
+  reply = async (url, init) => { signal1 = init.signal; await new Promise((r) => { release = r; }); return { status: 200, body: { text: JSON.parse(init.body).text, improved: 'Late answer', model: 'big' } }; };
+  buttonOf(await view.settle()).p.onClick(); await view.settle();
+  view.unmount(); chat = 's2'; const away = mount(Improve, props); await away.settle(); away.unmount();
+  chat = 's1'; view = mount(Improve, props); out2 = await view.settle();
+  assert.equal(buttonOf(out2).p['aria-busy'], true, 'back in the chat: still running'); assert.equal(buttonOf(out2).p['aria-label'], 'improve.cancel');
+  assert.equal(out2.c.at(-1).c[0], 'improve.working');
+  const m = asks().length; const e1 = edits.length;
+  buttonOf(out2).p.onClick(); out2 = await view.settle();
+  assert.equal(asks().length, m, 'the click cancels: no second request'); assert.equal(signal1.aborted, true);
+  assert.equal(buttonOf(out2).p['aria-busy'], false, 'the guard is free');
+  release(); await view.settle(); assert.equal(edits.length, e1, 'a cancelled answer is dropped');
+  // A failure while away frees the guard too and is told back in the chat; then a new ask runs.
+  reply = async () => { await new Promise((r) => { release = r; }); return { status: 502, body: { error: 'rate limited' } }; };
+  buttonOf(await view.settle()).p.onClick(); await view.settle();
+  view.unmount(); release(); await new Promise((r) => setTimeout(r, 0));
+  view = mount(Improve, props); out2 = await view.settle();
+  assert.deepEqual(notices.at(-1), ['error', 'improve.failed:{"error":"rate limited"}']); assert.equal(buttonOf(out2).p['aria-busy'], false);
+  reply = async (url, init) => ({ status: 200, body: { text: JSON.parse(init.body).text, improved: 'Fix the login form, then run the tests.', model: 'big' } });
+  inputState = { ...inputState, draft: 'fix the login', draftRev: inputState.draftRev + 1 };
+  buttonOf(await view.settle()).p.onClick(); await view.settle();
+  assert.equal(inputState.draft, 'Fix the login form, then run the tests.', 'a new ask runs after the failure');
+  // Typing in the chat while it was away: the late answer keeps the new text.
+  reply = async (url, init) => { await new Promise((r) => { release = r; }); return { status: 200, body: { text: JSON.parse(init.body).text, improved: 'Other', model: 'big' } }; };
+  inputState = { ...inputState, draft: 'fix it', draftRev: inputState.draftRev + 1 };
+  buttonOf(await view.settle()).p.onClick(); await view.settle();
+  view.unmount(); release(); await new Promise((r) => setTimeout(r, 0));
+  inputState = { ...inputState, draft: 'fix it now', draftRev: 1 };
+  view = mount(Improve, props); await view.settle();
+  assert.equal(inputState.draft, 'fix it now', 'new typing is never overwritten'); assert.deepEqual(notices.at(-1), ['info', 'improve.changed']);
+  inputState = { ...inputState, draft: '' };
+}
 // A subagent chat: no button.
 session = { subagent: { address: {} }, removed: false };
 out = await view.settle(); assert.equal(buttonOf(out), undefined, 'no button in a subagent view');

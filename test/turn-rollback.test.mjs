@@ -298,7 +298,8 @@ try {
     let commands = {};
     const forks = []; let forkFails = false;
     apply({
-      on: (name, fn) => listeners.set(name, fn), sessionQuery: {}, subprocess,
+      // Like Cordis, every listener of an event runs (other features listen to session/event too).
+      on: (name, fn) => { const prev = listeners.get(name); listeners.set(name, prev === undefined ? fn : (...a) => { const r = prev(...a); fn(...a); return r; }); }, sessionQuery: {}, subprocess,
       sessionController: { resolveAgent: async (id) => (id === 'chat-a' ? { agent } : { error: 'missing' }),
         fork: async (request) => { if (forkFails) throw new Error('fork failed'); forks.push(request); return { sessionId: `fork-${forks.length}` }; } },
       connection: { fetch: { register: (r) => routes.set(r.path, r) } },

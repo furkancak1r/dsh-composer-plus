@@ -5,6 +5,8 @@
 // draft and is not sent; Cmd/Ctrl+Z brings the user's text back in one step, and so does the "Undo improvement" button;
 // typing while a slow answer runs keeps the new text (the late answer does not overwrite it); Esc cancels; Settings has
 // its own Model menu and Nano is then called; the improve prompt never reaches the chat; no page errors.
+// Leaving the chat while a slow answer runs (owner's report): the model call goes on; back in the chat the wand shows it
+// running, the answer lands in that chat's composer only, and the next click runs (no stuck guard).
 // PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/promptImprove.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -198,6 +200,43 @@ ${provider('fast', 'Fast', [['nano', 'Nano']])}
       // The model call can stop before it reaches the model (the Host aborts it with the request).
       assert.ok(improves().length <= n + 1, 'at most one call for the cancelled click');
 
+      // Leave the chat while a slow answer runs and come back.
+      {
+        await clear(); await input.click(); await page.keyboard.type(typed, { delay: 20 });
+        const header = page.locator('[data-row-key^="session:"]').filter({ hasText: 'Header work' }).first();
+        await header.waitFor({ timeout: 20000 });
+        const calls = improves().length;
+        slow = new Promise((r) => { release = r; });
+        await wand.click(); await page.waitForFunction(() => document.querySelector('[data-composer-plus-improve]')?.getAttribute('aria-busy') === 'true');
+        await page.locator('button:visible', { hasText: 'New Session' }).first().click(); await pause(1500);
+        assert.notEqual(await wand.getAttribute('aria-busy'), 'true', 'the new chat is not busy');
+        await header.click(); await pause(1500);
+        assert.equal(await wand.getAttribute('aria-busy'), 'true', 'back in the chat: it still runs');
+        assert.equal(await wand.getAttribute('aria-label'), 'Improving your prompt… Click or press Esc to cancel.');
+        assert.equal(improves().length, calls + 1, 'one model call');
+        release(); slow = null;
+        await page.waitForFunction((t) => document.querySelector('[data-composer-input]')?.innerText.includes(t), 'Add a logout button to the site header', { timeout: 15000 });
+        assert.equal(await draft(), IMPROVED, 'the answer is in this chat\'s composer');
+        assert.equal(await wand.getAttribute('aria-label'), 'Undo improvement');
+        // Away when the answer comes: it waits for this chat; the other chat's composer is not touched.
+        await wand.click(); await pause(300); assert.equal(await draft(), typed);
+        slow = new Promise((r) => { release = r; });
+        await wand.click(); await page.waitForFunction(() => document.querySelector('[data-composer-plus-improve]')?.getAttribute('aria-busy') === 'true');
+        await page.locator('button:visible', { hasText: 'New Session' }).first().click(); await pause(1000);
+        await input.click(); await page.keyboard.type('other chat', { delay: 20 });
+        release(); slow = null; await pause(1500);
+        assert.equal(await draft(), 'other chat', 'the other chat keeps its text');
+        await header.click(); await pause(1500);
+        await page.waitForFunction((t) => document.querySelector('[data-composer-input]')?.innerText.includes(t), 'Add a logout button to the site header', { timeout: 15000 });
+        assert.equal(await wand.getAttribute('aria-busy'), 'false', 'the guard is free');
+        await wand.click(); await pause(300); assert.equal(await draft(), typed, 'Undo improvement');
+        // The next click runs at once: no "still running" from the Host.
+        await wand.click();
+        await page.waitForFunction((t) => document.querySelector('[data-composer-input]')?.innerText.includes(t), 'Add a logout button to the site header', { timeout: 15000 });
+        assert.ok(!(await page.evaluate(() => document.body.innerText.includes('still running'))), 'no stuck guard');
+        await wand.click(); await pause(300);
+      }
+
       // Settings: its own Model menu; Nano is then called.
       await settings();
       const improveMenu = page.locator('[data-composer-plus-prediction-model] button[aria-label="Improve prompt: Model"]');
@@ -217,7 +256,7 @@ ${provider('fast', 'Fast', [['nano', 'Nano']])}
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: wand in the tool row (on by default, disabled when empty), draft + chat + README + AGENTS.md + related file sent, improved text replaces the draft and is not sent, Cmd+Z one step back and redo, Undo improvement button, typing during a slow answer kept, Esc cancels, own Model menu (Nano called, improve.json), switch off removes it, no page errors`);
+      console.log(`PASS ${bin}: wand in the tool row (on by default, disabled when empty), draft + chat + README + AGENTS.md + related file sent, improved text replaces the draft and is not sent, Cmd+Z one step back and redo, Undo improvement button, typing during a slow answer kept, Esc cancels, leave the chat and come back (still running, answer in that chat only, next click runs), own Model menu (Nano called, improve.json), switch off removes it, no page errors`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});
