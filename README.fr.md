@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Redémarrez ensuite dsh. (La CLI ne peut pas installer dans le profil de bureau ; c’est l’app qui le gère.)
 
-> Le pnpm de dsh ignore les versions publiées depuis moins de 24 heures. Juste après une nouvelle version, ajoutez le numéro de version : `dsh-composer-plus@1.14.0`.
+> Le pnpm de dsh ignore les versions publiées depuis moins de 24 heures. Juste après une nouvelle version, ajoutez le numéro de version : `dsh-composer-plus@1.15.0`.
 
 ## Fonctionnalités
 
@@ -169,7 +169,7 @@ Testé sur dsh `0.2.0-rc.2` (bureau et web) et `0.2.1-rc.2` (web). La CI exécut
 - **Pas de pastille de branche sur une ligne de discussion :** la discussion n’a eu aucun tour depuis que vous avez installé cette version, son dossier n’est pas un dépôt git, ou **Branche Git sur les lignes de discussion** est désactivée. Après une mise à jour, redémarrez dsh (la partie hôte enregistre la branche).
 - **Vérification de l’objectif indique que le test s’est terminé avec le code 127 ou « not found » :** dsh démarré depuis le Finder ou le Dock peut avoir un PATH plus court que votre terminal : il ne trouve donc pas `npm`, `pnpm` ou `cargo`. Démarrez dsh depuis un terminal, ou définissez votre propre commande de test avec le chemin complet sous **Vérification de l’objectif** → **Modifier**. **Lancer maintenant** affiche le résultat tout de suite.
 - **L’objectif ne se ferme pas et l’agent continue de travailler :** **Vérification de l’objectif** a trouvé un test en échec ou du travail manquant ; la ligne sous l’objectif indique pourquoi (survolez le résultat pour voir les détails). Corrigez la cause ou la commande de test, ou terminez l’objectif vous-même avec `/goal` ou la barre de l’objectif (ce n’est pas vérifié).
-- **L’installation échoue juste après une nouvelle version :** ajoutez la version (`dsh-composer-plus@1.14.0`) ; voir la note d’installation plus haut.
+- **L’installation échoue juste après une nouvelle version :** ajoutez la version (`dsh-composer-plus@1.15.0`) ; voir la note d’installation plus haut.
 
 ## Limites
 

@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Después, reinicia dsh. (La CLI no puede instalar en el perfil de escritorio: de eso se encarga la app).
 
-> El pnpm de dsh omite las versiones publicadas hace menos de 24 horas. Justo después de una versión nueva, añade la versión: `dsh-composer-plus@1.14.0`.
+> El pnpm de dsh omite las versiones publicadas hace menos de 24 horas. Justo después de una versión nueva, añade la versión: `dsh-composer-plus@1.15.0`.
 
 ## Funciones
 
@@ -169,7 +169,7 @@ Probado en dsh `0.2.0-rc.2` (escritorio y web) y `0.2.1-rc.2` (web). La CI ejecu
 - **No hay etiqueta de rama en una fila de chat:** el chat no tuvo ningún turno desde que instalaste esta versión, su carpeta no es un repositorio git o **Rama de Git en las filas de chat** está desactivada. Después de una actualización, reinicia dsh (la parte Host registra la rama).
 - **Comprobación del objetivo dice que la prueba terminó con el código 127 o «not found»:** dsh iniciado desde el Finder o el Dock puede tener un PATH más corto que tu terminal, así que no encuentra `npm`, `pnpm` ni `cargo`. Inicia dsh desde una terminal, o define tu propio comando de prueba con la ruta completa en **Comprobación del objetivo** → **Editar**. **Ejecutar ahora** muestra el resultado al momento.
 - **El objetivo no se cierra y el agente sigue trabajando:** **Comprobación del objetivo** encontró una prueba fallida o trabajo pendiente; la fila bajo el objetivo muestra el motivo (pasa el puntero por el resultado para ver los detalles). Corrige la causa o el comando de prueba, o completa el objetivo tú mismo con `/goal` o con la barra del objetivo (eso no se comprueba).
-- **La instalación falla justo después de una versión nueva:** añade la versión (`dsh-composer-plus@1.14.0`); consulta la nota de instalación de más arriba.
+- **La instalación falla justo después de una versión nueva:** añade la versión (`dsh-composer-plus@1.15.0`); consulta la nota de instalación de más arriba.
 
 ## Límites
 

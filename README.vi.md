@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Sau đó khởi động lại dsh. (CLI không cài được vào profile desktop; ứng dụng tự quản lý profile này.)
 
-> pnpm của dsh bỏ qua các phiên bản ra mắt chưa đủ 24 giờ. Ngay sau một bản phát hành, hãy thêm số phiên bản: `dsh-composer-plus@1.14.0`.
+> pnpm của dsh bỏ qua các phiên bản ra mắt chưa đủ 24 giờ. Ngay sau một bản phát hành, hãy thêm số phiên bản: `dsh-composer-plus@1.15.0`.
 
 ## Tính năng
 
@@ -169,7 +169,7 @@ Khi menu `/` hoặc `@` đang mở, menu đó giữ các phím này cho riêng n
 - **Dòng cuộc trò chuyện không có nhãn branch:** cuộc trò chuyện chưa có lượt nào kể từ khi bạn cài phiên bản này, thư mục của nó không phải repository git, hoặc **Branch Git trên dòng cuộc trò chuyện** đang tắt. Sau khi cập nhật, hãy khởi động lại dsh (phần Host ghi lại branch).
 - **Kiểm tra mục tiêu báo bài kiểm thử thoát với mã 127 hoặc "not found":** dsh khởi động từ Finder hoặc Dock có thể có PATH ngắn hơn terminal của bạn, nên không tìm thấy `npm`, `pnpm` hoặc `cargo`. Hãy khởi động dsh từ terminal, hoặc đặt lệnh kiểm thử của riêng bạn với đường dẫn đầy đủ trong **Kiểm tra mục tiêu** → **Sửa**. **Chạy ngay** hiện kết quả ngay lập tức.
 - **Mục tiêu không đóng và tác tử tiếp tục làm việc:** **Kiểm tra mục tiêu** đã tìm thấy một bài kiểm thử thất bại hoặc phần việc còn thiếu; dòng bên dưới mục tiêu cho biết lý do (di chuột lên kết quả để xem chi tiết). Hãy sửa nguyên nhân hoặc lệnh kiểm thử, hoặc tự hoàn tất mục tiêu bằng `/goal` hoặc thanh mục tiêu (việc này không được kiểm tra).
-- **Cài đặt thất bại ngay sau một bản phát hành:** thêm số phiên bản (`dsh-composer-plus@1.14.0`), xem ghi chú cài đặt ở trên.
+- **Cài đặt thất bại ngay sau một bản phát hành:** thêm số phiên bản (`dsh-composer-plus@1.15.0`), xem ghi chú cài đặt ở trên.
 
 ## Giới hạn
 
