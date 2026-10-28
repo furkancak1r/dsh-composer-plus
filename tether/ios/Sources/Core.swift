@@ -8,7 +8,8 @@ import UserNotifications
 import LocalAuthentication
 
 typealias J = [String: Any]
-struct Fail: LocalizedError { let errorDescription: String?; init(_ m: String) { errorDescription = m } }
+/// `status`: the HTTP status of a refused gateway call (0 for other errors).
+struct Fail: LocalizedError { let errorDescription: String?; var status = 0; init(_ m: String, status: Int = 0) { errorDescription = m; self.status = status } }
 
 // MARK: - Pure helpers (covered by Tests.swift)
 
@@ -336,6 +337,64 @@ func queueText(_ item: J) -> String? {
     if let s = c as? String { return s }
     guard let blocks = c as? [J], blocks.allSatisfy({ $0["type"] as? String == "text" }) else { return nil }
     return blocks.compactMap { $0["text"] as? String }.joined()
+}
+
+/// Queue edit: the text of a queued message without the image and file markers (its text blocks, as dsh joins them).
+func queueEditText(_ c: Any?) -> String {
+    if let s = c as? String { return s }
+    return (c as? [J] ?? []).compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined()
+}
+
+/// Queue edit: the images and files of a queued message, in order. nil when the message has a block that the editor
+/// does not know (a save would drop it), so that message gets no editor.
+func queueAttachments(_ c: Any?) -> [(type: String, id: String, name: String)]? {
+    var out: [(type: String, id: String, name: String)] = []
+    for b in c as? [J] ?? [] {
+        let type = b["type"] as? String
+        if type == "text" { continue }
+        guard type == "image" || type == "file", let a = b["attachment"] as? J, let id = a["attachmentId"] as? String else { return nil }
+        out.append((type!, id, a["name"] as? String ?? type!))
+    }
+    return out
+}
+
+/// Queue edit: the new content of a queued message, for the Mac's `queue-edit` route (dsh's own edit when it is text only).
+/// The text stays where it was: first when the message had text before its first attachment, else after the attachments.
+/// The kept attachments (`keep`: attachment ids) stay in their order; new images, then new files (upload receipt ids)
+/// come after them. A blank text is left out. nil: nothing to save (no text, no attachments, or a block that it does not know).
+func queueEditContent(original: Any?, text: String, keep: [String], newImages: [Data], newFiles: [String]) -> [J]? {
+    guard let atts = queueAttachments(original) else { return nil }
+    let blocks = original as? [J] ?? []
+    let first = blocks.firstIndex { $0["type"] as? String != "text" }
+    let textFirst = first.map { f in blocks.prefix(f).contains { $0["type"] as? String == "text" } } ?? true
+    // One `keep` entry keeps one block: a message that carries the same attachment twice can keep one or both.
+    var left = keep
+    let kept: [J] = atts.compactMap { a in
+        guard let i = left.firstIndex(of: a.id) else { return nil }
+        left.remove(at: i)
+        return ["type": a.type, "attachmentId": a.id]
+    }
+    // The same image parts as a prompt (Client.promptContent): the composer's JPEG data.
+    let added: [J] = newImages.map { ["type": "image", "mediaType": "image/jpeg", "data": $0.base64EncodedString()] }
+        + newFiles.map { ["type": "file", "receiptId": $0] }
+    let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    let say: [J] = t.isEmpty ? [] : [["type": "text", "text": t]]
+    let out = textFirst ? say + kept + added : kept + added + say
+    return out.isEmpty ? nil : out
+}
+
+/// Queue edit: the message as the editor showed it (`seen` of the `queue-edit` route), one item per block in order:
+/// `["text", text]`, or `[type, attachmentId]` for an image or a file (null when the block has no id). The Mac refuses
+/// the save (409) when the message changed since then, for example after an edit on another device.
+func queueEditSeen(_ c: Any?) -> [[Any]] {
+    if let s = c as? String { return [["text", s]] }
+    // The same items as index.js `seenOf` (null for a value that the block does not have), so the two compare equal.
+    let or = { (v: String?) -> Any in v ?? NSNull() }
+    return (c as? [J] ?? []).map { b in
+        let type = b["type"] as? String
+        if type == "text" { return ["text", or(b["text"] as? String)] }
+        return [or(type), or((b["attachment"] as? J)?["attachmentId"] as? String)]
+    }
 }
 
 /// Attachment ids of the image blocks in a folded-log message (`{type:"image", attachment:{attachmentId}}`).
@@ -1373,7 +1432,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         guard code == 200 else {
             let m = ((json as? J)?["error"] as? String) ?? "HTTP \(code)"
             if m == "DSH host unavailable" { upstream = "disconnected"; throw Fail(String(localized: "DSH is closed or restarting on your Mac. Try again in a moment.")) }
-            throw Fail(gatewayText(code, m))
+            throw Fail(gatewayText(code, m), status: code)
         }
         return json
     }
@@ -1542,7 +1601,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
     func moveQueued(from: Int, to: Int) async throws {
         let rows = inbox["next-turn"] ?? []
-        guard !movingQueue, canMoveQueued(from: from, to: to), let sid = current, let item = rows[from]["id"] as? String else { return }
+        // Not while a queued message is edited: a move (or its text rewrite) would change the message under the editor.
+        guard !movingQueue, editingQueued == nil, canMoveQueued(from: from, to: to), let sid = current, let item = rows[from]["id"] as? String else { return }
         if plus.contains("queue-move") {
             movingQueue = true; defer { movingQueue = false }
             do { _ = try await plusCall("queue-move", body: ["sessionId": sid, "itemId": item, "to": to, "before": rows.compactMap { $0["id"] as? String }]) }
@@ -1561,6 +1621,71 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             for c in done.reversed() { try? await edit(c.row, c.prev) }
             throw Fail(String(localized: "Reorder failed: a message may have already started sending."))
         }
+    }
+
+    /// Queue edit: the queued message whose editor is open (`open`) or whose save runs (`saving`). Meanwhile nothing else
+    /// changes that message (no Send now, no Remove, no second editor or save) and no queue move runs; a running move
+    /// keeps the editor closed. `session`: the chat of the message, so a save goes to that chat.
+    struct QueuedEdit: Equatable { let id: String; let session: String; var saving = false; var open = true }
+    @Published private(set) var editingQueued: QueuedEdit?
+    /// The Mac's `queue-edit` route edits your own next-turn messages and keeps, removes and adds images and files.
+    /// Without it (an older plugin) only dsh's own edit is safe, and that takes text only.
+    func queueEditsAttachments(_ item: J) -> Bool {
+        guard plus.contains("queue-edit"), (item["source"] as? J)?["kind"] as? String == "user", let id = item["id"] as? String else { return false }
+        return (inbox["next-turn"] ?? []).contains { $0["id"] as? String == id }
+    }
+    /// Edit shows for a text-only message, and for a message with images or files only when the Mac can keep them.
+    func queueEditable(_ item: J) -> Bool {
+        guard item["id"] is String, let atts = queueAttachments(item["content"]) else { return false }
+        return atts.isEmpty || queueEditsAttachments(item)
+    }
+    /// Opens the editor of this message. false while a move runs or a message is edited.
+    func beginQueueEdit(_ item: J) -> Bool {
+        guard editingQueued == nil, !movingQueue, let sid = current, let id = item["id"] as? String, queueEditable(item) else { return false }
+        editingQueued = QueuedEdit(id: id, session: sid)
+        return true
+    }
+    /// The editor closed (Save, Cancel, a swipe down, its view gone). A running save keeps the state until it ends.
+    func endQueueEdit(_ id: String) {
+        guard editingQueued?.id == id else { return }
+        if editingQueued?.saving == true { editingQueued?.open = false } else { editingQueued = nil }
+    }
+    /// Saves the edited message. With images or files: the Mac's `queue-edit` route (new files are uploaded to the chat
+    /// first); text only: dsh's own edit. false: nothing was sent (no editor open for it, or its save already runs).
+    @discardableResult
+    func saveQueued(_ item: J, text: String, keep: [String], images: [Data], files: [Attachment]) async throws -> Bool {
+        guard let id = item["id"] as? String, let e = editingQueued, e.id == id, e.open, !e.saving else { return false }
+        editingQueued?.saving = true
+        defer {
+            if editingQueued?.id == id { if editingQueued?.open == false { editingQueued = nil } else { editingQueued?.saving = false } }
+            sendStatus = nil
+        }
+        let sid = e.session
+        if keep.isEmpty, images.isEmpty, files.isEmpty {
+            let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !t.isEmpty else { throw Fail(String(localized: "Write a message or keep an attachment.")) }
+            try await queueAction(sid, id, ["kind": "edit", "content": [["type": "text", "text": t]]])
+            editingQueued?.open = false // saved: the editor closes, and no second save goes while it animates out
+            return true
+        }
+        guard plus.contains("queue-edit") else { throw Fail(String(localized: "The Mac cannot keep the images or files of a queued message. Update Composer Plus on the Mac.")) }
+        var receipts: [String] = []
+        for f in files {
+            sendStatus = String(localized: "Uploading \(f.name)…")
+            let v = try await rpc("fileUploads/upload", ["agentId": sid, "request": ["data": f.data.base64EncodedString(), "name": f.name]]) as? J
+            guard let r = v?["receiptId"] as? String else { throw Fail(String(localized: "Upload failed: \(f.name)")) }
+            receipts.append(r)
+        }
+        sendStatus = nil
+        guard let content = queueEditContent(original: item["content"], text: text, keep: keep, newImages: images, newFiles: receipts) else {
+            throw Fail(String(localized: "Write a message or keep an attachment."))
+        }
+        // One address with a long time-out: the 5 s fallback to a second address would find this save still running on the
+        // Mac (409, "a queue change … is already running") and show a false error.
+        // `seen`: the message as the editor opened it (the Mac refuses a message that changed since then).
+        _ = try await plusCall("queue-edit", body: ["sessionId": sid, "itemId": id, "content": content, "seen": queueEditSeen(item["content"])], wait: 60)
+        editingQueued?.open = false
+        return true
     }
 
     // MARK: Pairing
@@ -1692,7 +1817,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         urlSession?.invalidateAndCancel(); urlSession = nil // pooled TLS sockets belong to the old Mac's pin
         sessions = []; sessionsLoaded = false; transcript = []; streaming = ""; reasoning = ""; running = false; prompts = []; branches = [:]
         current = nil; path = []; goal = nil; state = .off; upstream = ""; route = nil; lastFail = nil; attempt = 0; probing = false
-        outgoing = []; loadingChat = false
+        outgoing = []; loadingChat = false; editingQueued = nil
         workspaces = []; pinned = []; archived = []; commands = []; catalog = []; presets = []; perms = []; skills = []
         usage = nil; model = nil; defaultModel = nil; inbox = [:]; liveTodos = nil; contextWindow = nil; turnStartedAt = nil; hasOlder = false
     }
@@ -2350,8 +2475,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
 
     /// Queue edits like desktop's QueueDock: action is ["kind": "edit", "content": …] / ["kind": "remove"] / ["kind": "steer"].
+    /// Nothing for a message whose editor is open or whose save runs (Queue edit).
     func updateQueue(_ itemId: String, _ action: J) async throws {
-        guard let sid = current else { return }
+        guard let sid = current, editingQueued?.id != itemId else { return }
+        try await queueAction(sid, itemId, action)
+    }
+    private func queueAction(_ sid: String, _ itemId: String, _ action: J) async throws {
         _ = try await rpc("session/updateQueue", ["request": ["sessionId": sid, "itemId": itemId, "action": action]])
     }
 
