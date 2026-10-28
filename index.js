@@ -59,7 +59,7 @@ export const GOAL_CHECK_PATH = '/api/composer-plus.goal-check';
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit',
-  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'defaultWorkspace', 'goalCheck'];
+  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -107,7 +107,8 @@ async function runTool(subprocess, exe, cwd, args, signal, { env = {}, stdin, ti
   return { code: outcome.exitCode, stdout: out.text, truncated: out.lossy, stderr: handle.collected.stderr?.readFrom(0).text ?? '' };
 }
 
-/** Run `git <args>` in cwd (read-only, except Worktree chats' `worktree add`): argv only (never a shell), scrubbed config,
+/** Run `git <args>` in cwd (read-only, except `worktree add` of Worktree chats and Branches in the workspace tree, and the
+ * latter's `switch` back to the main folder's branch): argv only (never a shell), scrubbed config,
  * no prompts, no optional locks.
  * `env` adds variables (Turn rollback points git at its own store); `stdin` is sent as the child's input. */
 export async function runGit(subprocess, cwd, args, signal, { env = {}, ...opts } = {}) {
@@ -1845,6 +1846,7 @@ export function apply(ctx) {
   installGoalCheck(ctx, home);
   installExport(ctx);
   installWorktrees(ctx, home);
+  installBranchTree(ctx, home);
   installDefaultWorkspace(ctx, home);
 }
 
@@ -3549,7 +3551,7 @@ export async function branchStatus(subprocess, cwd, signal) {
 
 /** `git worktree list` of cwd's repository: at most WORKTREES_MAX working trees (no bare or prunable one), the first
  * (the main one) marked `main`. */
-async function worktreeEntries(subprocess, cwd, signal) {
+async function worktreeEntries(subprocess, cwd, signal, max = WORKTREES_MAX) {
   const r = await runGit(subprocess, cwd, ['worktree', 'list', '--porcelain', '-z'], signal);
   if (r.code !== 0) throw new Error(`git worktree list failed: ${firstLine(r.stderr)}`);
   const entries = [];
@@ -3564,7 +3566,7 @@ async function worktreeEntries(subprocess, cwd, signal) {
     else if (key === 'branch') entry.branch = value.replace(/^refs\/heads\//, '');
     else if (key === 'bare' || key === 'prunable') entry.skip = true;
   }
-  return entries.filter((e) => !e.skip && isAbsolute(e.path)).slice(0, WORKTREES_MAX);
+  return entries.filter((e) => !e.skip && isAbsolute(e.path)).slice(0, max);
 }
 
 /** The repository's worktrees with their branch status (run in parallel); `current` is the chat's own (`top`). A worktree
@@ -3998,6 +4000,243 @@ function installWorktrees(ctx, home) {
         return json(await startOnBranch({ subprocess: ctx.subprocess, sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, registry, llm, route,
           agents: get('agents'), fileUploads: get('fileUploads'), store: get('attachments') }, body.sessionId, body.text, request.signal, attachments));
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
+    },
+  });
+}
+
+/** Branches in the workspace tree. Each linked worktree of a project with a branch is a project of its own (dsh's
+ * Workspace tree nests it inside the project); a project whose worktree is gone is removed (dsh then shows its chats under
+ * Ungrouped). When the agent of a chat in a project's main folder creates and checks out a new branch while the folder has
+ * no uncommitted change, the main folder goes back to its branch, the new branch gets a worktree, and the chat moves there. */
+export const BRANCH_TREE_PATH = '/api/composer-plus.branch-tree';
+export const BRANCH_TREE_SYNC_MS = 30000;
+const BRANCH_TREE_SOURCE = 'composer-plus-branch-move';
+const branchMoveNote = ({ branch, path, from }) => `The git branch ${JSON.stringify(branch)} now has its own worktree folder ${JSON.stringify(path)}, and the project's main folder is back on ${JSON.stringify(from)}. Continue the task in ${JSON.stringify(path)}. Do not repeat completed work.`;
+/** Local branch names of cwd's repository, or undefined when git cannot tell. */
+async function localBranches(subprocess, cwd) {
+  const r = await runGit(subprocess, cwd, ['for-each-ref', '--format=%(refname:short)', 'refs/heads/']);
+  return r.code === 0 ? new Set(r.stdout.split('\n').filter(Boolean)) : undefined;
+}
+/** Uncommitted entries (staged, unstaged, untracked; `.worktrees/` left out) of cwd's working tree, or undefined. */
+async function uncommitted(subprocess, cwd) {
+  const r = await runGit(subprocess, cwd, ['status', '--porcelain', '-z', '--untracked-files=normal', '--', '.', ':(exclude).worktrees']);
+  return r.code === 0 ? r.stdout.split('\0').filter(Boolean).length : undefined;
+}
+
+/** A project folder directly in a `.worktrees` folder: a branch worktree (Branch per chat and this feature make them). */
+const inWorktrees = (path) => basename(dirname(path)) === '.worktrees';
+/** One sync of the tree. For each registered project that is a repository's main working tree: register each linked
+ * worktree of it in `<root>/.worktrees/` that has a branch (title = branch), and remove each registered project in that
+ * folder that git no longer lists (a deleted folder is "prunable": not listed). A registered project in any `.worktrees`
+ * folder whose folder is gone is removed too (its main project may not be registered). dsh shows the chats of a removed
+ * project under Ungrouped and keeps their logs. Read-only git. Answers `{added, removed}` (paths). */
+export async function syncBranchTree({ subprocess, registry }) {
+  const result = { added: [], removed: [] };
+  const drop = async (w) => { if (await registry.delete(w.id)) result.removed.push(w.path); };
+  for (const w of registry.list()) {
+    try {
+      if (inWorktrees(w.path)) { if (!(await exists(w.path))) await drop(w); continue; }
+      // One git call per project: outside a repository it fails; in a subfolder or a linked worktree the main entry is
+      // another folder. A worktree whose folder is gone is "prunable" and not listed.
+      const entries = await worktreeEntries(subprocess, w.path, undefined, Infinity);
+      if (entries[0]?.main !== true || (await realpath(entries[0].path).catch(() => entries[0].path)) !== w.path) continue;
+      const folder = join(w.path, '.worktrees');
+      const listed = new Map();
+      for (const e of entries.slice(1)) listed.set(await realpath(e.path).catch(() => e.path), e);
+      const registered = new Set(registry.list().map((x) => x.path));
+      for (const [path, e] of listed) {
+        if (e.branch === undefined || dirname(path) !== folder || registered.has(path)) continue;
+        await registry.create(path, e.branch);
+        result.added.push(path);
+      }
+      for (const x of registry.list()) if (dirname(x.path) === folder && !listed.has(x.path)) await drop(x);
+    } catch { /* one project that git cannot read does not stop the others */ }
+  }
+  return result;
+}
+
+/** The checked-out branch of cwd, or '' (detached, no repository). */
+const headBranch = async (subprocess, cwd) => {
+  const r = await runGit(subprocess, cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD']);
+  return r.code === 0 ? r.stdout.trim() : '';
+};
+/** The main folder `repo.root` is on the new `branch` (the agent checked it out): it goes back to `from`, and `branch`
+ * gets the worktree `<root>/.worktrees/<branch, / → ->` with the `.worktreeinclude` files. Refused, with nothing written,
+ * when the main folder has an uncommitted change (`.worktrees/` aside), is not on `branch`, or the folder exists; a failed
+ * `worktree add` puts the main folder back on `branch`. Answers `{path}`. */
+export async function branchToWorktree(subprocess, repo, from, branch) {
+  if ((await uncommitted(subprocess, repo.root)) !== 0) throw refused('the main folder has uncommitted changes');
+  if ((await headBranch(subprocess, repo.root)) !== branch) throw refused(`the main folder is not on ${branch}`);
+  const folder = join(repo.root, '.worktrees');
+  if ((await lstat(folder).catch(() => undefined))?.isDirectory() === false) throw refused('.worktrees in this repository is not a folder');
+  const path = join(folder, branch.replaceAll('/', '-'));
+  if (await exists(path)) throw refused(`${path} exists`);
+  await excludeWorktrees(subprocess, repo);
+  const back = await runGit(subprocess, repo.root, ['switch', '--quiet', from], undefined, { timeoutMs: 120000 });
+  if (back.code !== 0) throw new Error(`git switch ${from} failed: ${firstLine(back.stderr)}`);
+  const add = await runGit(subprocess, repo.root, ['worktree', 'add', path, branch], undefined, { timeoutMs: 120000 });
+  if (add.code !== 0) {
+    await runGit(subprocess, repo.root, ['switch', '--quiet', branch]); // the agent's folder as it was
+    throw new Error(`git worktree add failed: ${firstLine(add.stderr)}`);
+  }
+  if (!inside(await realpath(path), join(await realpath(repo.root), '.worktrees'))) throw new Error('the new worktree is not inside .worktrees');
+  await copyIncluded(subprocess, repo.root, path).catch(() => {});
+  return { path };
+}
+
+/** A copy of an idle chat with `cwd` as its folder, in `workspace`: dsh's own `session.fork` steps (the whole log as the
+ * seed, its own `session/end-seed` cut, the chat's preset; dsh-api-session-controller `fork`, 0.2.0-rc.2 and 0.2.1-rc.2),
+ * only with the new folder in the header: dsh cannot change a chat's folder or project. Its queue comes along in the log.
+ * The copy is then handed to dsh (closed here, opened again by `resolveAgent`), so dsh, not this plugin, owns it.
+ * ponytail: `sessionController.agents.composeAgent` is dsh-internal; without it nothing is copied (the chat stays). */
+export async function copyChatTo({ sessionController, agents, workingDirectory }, old, cwd, workspace) {
+  const commands = sessionController?.agents;
+  if (agents?.create === undefined || commands?.composeAgent === undefined || sessionController.resolveAgent === undefined) throw refused('this dsh cannot copy a chat');
+  const events = old.session.snapshotEvents();
+  const last = events.at(-1);
+  const seed = [...events, { type: 'session/end-seed', seq: events.length, time: last?.time ?? Date.now(), data: { inherited: true } }];
+  const composition = await commands.composeAgent(commands.presetForSession?.(old.session));
+  const sessionId = `session-${randomUUID()}`;
+  const made = await agents.create({
+    sessionId, seed, inheritedEventCount: events.length,
+    meta: { cwd, parentSession: old.session.header.id, isSeeded: true, ...(composition.agentPreset === undefined ? {} : { agentPreset: composition.agentPreset }) },
+    agentOptions: commands.agentOptions?.() ?? {}, setup: composition.setup,
+  });
+  await workspace.attachSession(sessionId);
+  await made.dispose?.();
+  const found = await sessionController.resolveAgent(sessionId);
+  if ('error' in found) throw new Error(`the copy ${sessionId} does not open: ${found.error?.message ?? found.error}`);
+  // dsh 0.2.1 replays the copied `working-directory/change` events, so its tools would still run in the main folder.
+  if (workingDirectory?.set !== undefined) await workingDirectory.set(found.agent, cwd);
+  return found.agent;
+}
+
+/** Branches in the workspace tree (Host half): the switch (`branch-tree.json`, off by default), the sync, the branch
+ * watch of chats in a main folder, and the move. */
+export function installBranchTree(ctx, home) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: ${text}`);
+  const saved = mobileSwitch(join(home, 'storages', 'dsh-composer-plus', 'branch-tree.json'));
+  let on = false;
+  const read = saved.read().then((value) => { on = value; });
+  let switchQueue = Promise.resolve();
+  const moved = new Map(); // old chat id → new chat id (the browser opens the new one)
+  let sweep;
+  const sync = () => {
+    const registry = get('workspaceRegistry');
+    if (!on || registry?.list === undefined) return Promise.resolve({ added: [], removed: [] });
+    sweep ??= syncBranchTree({ subprocess: ctx.subprocess, registry }).catch((error) => { log(`branch tree: ${error?.message ?? error}`); return { added: [], removed: [] }; })
+      .finally(() => { sweep = undefined; });
+    return sweep;
+  };
+  // A chat in a main folder: its branch and the local branches at its turn start. `move`: the branch it created.
+  const watch = new Map();
+  const moving = new Set(); // main roots with a move running
+  ctx.on('session/event', (session, event) => {
+    if (!on || !isRootChat(session)) return;
+    if (event.type === 'turn/end') { if (!watch.get(session.id)?.move) watch.delete(session.id); sync(); return; }
+    if (event.type !== 'turn/start' || !isText(session.header?.cwd, 4096)) return;
+    if (watch.get(session.id)?.move !== undefined) return; // a moved chat waits for its move
+    const entry = { cwd: session.header.cwd, carry: [] };
+    watch.set(session.id, entry);
+    entry.ready = (async () => {
+      // Only a chat whose folder is the repository's main folder (its project is the repository).
+      const repo = await repoOf(ctx.subprocess, entry.cwd);
+      if (repo?.root === undefined || repo.top !== repo.root || (await realpath(entry.cwd)) !== (await realpath(repo.root))) return;
+      const from = await headBranch(ctx.subprocess, repo.root);
+      const branches = await localBranches(ctx.subprocess, repo.root);
+      if (from !== '' && branches !== undefined) Object.assign(entry, { repo, from, branches });
+    })().catch(() => {});
+  });
+  // After each tool call of a chat in a main folder: the folder is on a branch that did not exist at the turn start, so
+  // this chat made it and went into it (`git switch -c`, `git checkout -b`). A branch made without a checkout is left.
+  // shortcut: one `git symbolic-ref` per tool call of such a chat while on; another chat in the same folder that ends a
+  // tool call while the folder is on that branch moves too (two chats in one working tree change each other's branch
+  // anyway). Read the tool's own command when that matters.
+  ctx.on('tools/post-execute', async (exec, result, next) => {
+    const decision = await next();
+    const id = exec.agent?.session?.id;
+    const entry = id === undefined ? undefined : watch.get(id);
+    if (entry === undefined || entry.move !== undefined || !on) return decision;
+    await entry.ready;
+    if (entry.repo === undefined || moving.has(entry.repo.root)) return decision;
+    const branch = await headBranch(ctx.subprocess, entry.repo.root).catch(() => '');
+    if (branch === '' || branch === entry.from || entry.branches.has(branch)) return decision;
+    entry.branches.add(branch); // tried once: a refused move does not try again in this turn
+    moving.add(entry.repo.root);
+    try {
+      entry.move = { branch, from: entry.from, ...(await branchToWorktree(ctx.subprocess, entry.repo, entry.from, branch)) };
+    } catch (error) { log(`branch tree: ${id} stays in ${entry.repo.root}: ${error?.message ?? error}`); } finally { moving.delete(entry.repo.root); }
+    return decision;
+  });
+  // Once the main folder is back on its branch, no other tool call of the chat may run there (a parallel call of the same
+  // step, or a call before the turn stops).
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    const entry = watch.get(exec.agent?.session?.id);
+    if (entry?.move === undefined) return next();
+    return { kind: 'deny', reason: `This chat moves to the branch ${entry.move.branch} (${entry.move.path}); the tool runs there after the move.` };
+  });
+  // A chat whose branch moved stops at its next step: dsh ends the turn as "blocked" and its driver stops (the queue
+  // stays and comes along in the copied log). The user's steering messages claimed for that step go along by hand.
+  ctx.on('agent/pre-step', async (payload, next) => {
+    const entry = watch.get(payload.agent?.session?.id);
+    if (entry?.move === undefined) return next();
+    entry.carry.push(...(payload.messages ?? []).filter((m) => m.source?.kind === 'user'));
+    return { kind: 'reject' };
+  });
+  // The move itself, once the chat is idle: the chat is copied into the branch's project (dsh's fork, with the new
+  // folder), the old one is archived, and the copy continues the stopped task with a hidden note. The old chat stays
+  // locked (pre-step reject) until it is archived.
+  const finish = async (agent, entry) => {
+    if (entry.finishing) return;
+    entry.finishing = true;
+    const registry = get('workspaceRegistry');
+    try {
+      if (registry?.create === undefined) throw new Error('this dsh has no workspace registry');
+      const workspace = await registry.create(entry.move.path, entry.move.branch);
+      const copy = await copyChatTo({ sessionController: ctx.sessionController, agents: get('agents'), workingDirectory: get('workingDirectory') }, agent, entry.move.path, workspace);
+      moved.set(agent.id, copy.id);
+      if (moved.size > 100) moved.delete(moved.keys().next().value); // the browser asks right after the move
+      try { agent.inbox?.clear?.(); } catch { /* the archive below hides it anyway */ }
+      // Its jobs and subagents ran in the main folder, which is on another branch now: they stop too.
+      await registry.archiveSession(agent.id, { stopActivity: true }).catch((error) => log(`branch tree: could not archive ${agent.id}: ${error?.message ?? error}`));
+      copy.inject({ id: randomUUID(), role: 'user', content: [{ type: 'text', text: branchMoveNote(entry.move) }], source: { kind: BRANCH_TREE_SOURCE } });
+      for (const message of entry.carry) copy.inject(message);
+      wakeWithContinue(copy); // the queue stays for later turns
+    } catch (error) { log(`branch tree: the chat ${agent.id} did not move to ${entry.move.path}: ${error?.message ?? error}`); }
+    watch.delete(agent.id);
+    sync();
+  };
+  ctx.on('agent/status', ({ agent, status }) => {
+    const entry = watch.get(agent?.id);
+    if (status === 'idle' && entry?.move !== undefined) finish(agent, entry);
+  });
+  ctx.effect?.(() => {
+    const timer = setInterval(sync, BRANCH_TREE_SYNC_MS);
+    const ready = get('appReady');
+    const cancel = ready?.onReady !== undefined ? ready.onReady(() => { read.then(sync); }) : (read.then(sync), undefined);
+    return () => { clearInterval(timer); cancel?.(); };
+  }, 'dsh-composer-plus: branch tree');
+  ctx.connection.fetch.register({
+    path: BRANCH_TREE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await read;
+      if (request.method === 'GET') {
+        const from = new URL(request.url).searchParams.get('moved');
+        return json({ on, ...(isText(from, 128) && moved.has(from) ? { moved: moved.get(from) } : {}) });
+      }
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      if (typeof body?.on === 'boolean' && Object.keys(body).length === 1) {
+        // Off: no new watch; a move that already began (the main folder is back on its branch) still ends.
+        const done = switchQueue.then(async () => { await saved.write(body.on); on = body.on; if (!on) for (const [id, e] of watch) if (e.move === undefined) watch.delete(id); });
+        switchQueue = done.catch(() => {});
+        try { await done; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+        if (on) sync();
+        return json({ on });
+      }
+      if (body?.sync !== true || Object.keys(body).length !== 1) return json({ error: 'bad request' }, 400);
+      return json({ on, ...(await sync()) });
     },
   });
 }
