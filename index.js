@@ -752,10 +752,39 @@ function wakeWithContinue(agent) {
   }
 }
 
+/** Your own messages that dsh's quit took out of the chat's inbox (the queue, and steers not yet sent). dsh 0.2.0-rc.2 and
+ * 0.2.1-rc.2 dispose each agent with `cancel` without `keepInbox`, which logs one `canceled` splice that empties each list.
+ * The log keeps each whole message (id, text, images, files), so the lists are folded from it as dsh's inbox projection
+ * does. A list counts only when such a splice emptied it during the stopped turn, no later splice changed it, and no step
+ * or message came after it (a quit ends the step at once).
+ * ponytail: dsh logs your Remove of the last queued message the same way; when the quit cut that same step, the message
+ * comes back (documented in the README). Upgrade when dsh keeps the inbox at a quit or logs why it cleared it. */
+function droppedInbox(events, start, end) {
+  const lists = { 'next-turn': [], 'next-step': [] };
+  const dropped = { 'next-turn': [], 'next-step': [] };
+  for (const e of events) {
+    const target = e.data?.target;
+    if (e.type !== 'agent/inbox/spliced' || !(target in lists)) continue;
+    const { start: at = 0, removedCount = 0, inserted = [], outcome } = e.data;
+    if (!Number.isSafeInteger(at) || !Number.isSafeInteger(removedCount) || !Array.isArray(inserted)) return { nextStep: [], nextTurn: [] };
+    const removed = lists[target].slice(at, at + removedCount);
+    lists[target] = lists[target].toSpliced(at, removedCount, ...inserted);
+    const cleared = outcome === 'canceled' && inserted.length === 0 && lists[target].length === 0 && e.seq > start.seq && e.seq < end.seq
+      && !events.some((later) => later.seq > e.seq && later.seq < end.seq && (later.type === 'user/message' || later.type === 'step/start'));
+    dropped[target] = cleared ? removed.filter((m) => m?.source?.kind === 'user' && isText(m.id)) : [];
+  }
+  // A message already in the chat (a queued message sent as a steer) never goes back; each id goes back once.
+  const seen = new Set(events.filter((e) => e.type === 'user/message').map((e) => e.data?.id));
+  const once = (list) => list.filter((m) => !seen.has(m.id) && seen.add(m.id));
+  return { nextStep: once(dropped['next-step']), nextTurn: once(dropped['next-turn']) };
+}
+
 /** Continue one chat after a restart, if dsh (not the user) stopped its last turn: the chat gets the same hidden "continue"
  * step as One-click Continue. When the stopped turn was a goal round, the goal is armed again instead (dsh disarms goals at
  * every start and waits for `/goal resume`), and dsh's goal driver starts the next round, so the model can still mark the
- * goal complete. A goal is never armed for an ordinary turn: dsh does not keep whether it was armed before the quit. */
+ * goal complete. A goal is never armed for an ordinary turn: dsh does not keep whether it was armed before the quit.
+ * Your queued messages that the quit dropped go back first, in their order; they run after the continued turn. In a goal
+ * chat they also need the continue step, because dsh's goal driver starts no round while your messages wait. */
 export async function wakeSession({ sessionController, sessionQuery, goals, archived = () => false }, id) {
   if (archived(id)) return 'archived';
   const found = await sessionController.resolveAgent(id); // opens the chat; a crashed turn is closed as `interrupted` here
@@ -763,20 +792,29 @@ export async function wakeSession({ sessionController, sessionQuery, goals, arch
   const { agent } = found;
   if (agent.status !== 'idle') return 'busy';
   const observation = await sessionQuery.observeSession(id, { projectionMode: 'none' });
-  let start, end, goalRound;
+  let start, end, goalRound, dropped = { nextStep: [], nextTurn: [] };
   try {
     const events = observation.events;
     end = events.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
     start = events.findLast((e) => e.type === 'turn/start');
     goalRound = start !== undefined && events.some((e) => e.seq > start.seq && e.type === 'user/message' && e.data?.source?.kind === 'goal');
+    if (end?.type === 'turn/end' && start !== undefined) dropped = droppedInbox(events, start, end);
   } finally { observation[Symbol.dispose]?.(); }
   if (end?.type !== 'turn/end' || !stoppedByDsh(end.data?.reason)) return 'skipped';
+  let restored = 0;
+  // The same messages with their ids, so their place, edits, images and files stay. One splice per list: one log event.
+  if (typeof agent.inbox?.splice === 'function') {
+    for (const [target, messages] of [['next-step', dropped.nextStep], ['next-turn', dropped.nextTurn]]) {
+      if (messages.length === 0) continue;
+      try { agent.inbox.splice(target, 0, 0, structuredClone(messages)); restored += messages.length; } catch { /* dsh refused (an id is pending again): the chat still continues */ }
+    }
+  }
   let goal;
   try { goal = goalRound ? goals?.get(agent) : undefined; } catch { goal = undefined; }
   // A pause during the stopped turn would have ended it as stopped by the user; so a goal paused after that turn started was
   // paused by dsh's shutdown (its goal driver pauses a round it cancels).
   if (goal !== undefined && ((goal.phase === 'active' && goal.activation !== 'armed') || (goal.phase === 'paused' && goal.updatedAt >= start.time))) {
-    try { goals.resume(agent, { id: goal.id, revision: goal.revision }); return 'goal'; } catch { /* no goal rounds left: continue the turn */ }
+    try { goals.resume(agent, { id: goal.id, revision: goal.revision }); if (restored === 0) return 'goal'; } catch { /* no goal rounds left: continue the turn */ }
   }
   wakeWithContinue(agent);
   return 'continued';
