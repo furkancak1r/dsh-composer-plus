@@ -7,14 +7,14 @@ const mem = new Map(); globalThis.localStorage = { getItem: (k) => (mem.has(k) ?
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
 globalThis.document = { visibilityState: 'visible', hasFocus: () => true, addEventListener() {}, removeEventListener() {} };
 // The helpers are module-private: run the module source with a hook that hands them out.
-eval(src.replace('function IdeasTitle({ t })', 'globalThis.__ideas = { laterChecklist, FOCUS_PRESETS, swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, IdeaCard, loadLater, laterIdea, startLater, startAllLater, removeLater, loadHistory, forgetHistory };\n    function IdeasTitle({ t })'));
+eval(src.replace('function IdeasTitle({ t })', 'globalThis.__ideas = { laterChecklist, FOCUS_PRESETS, swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, IdeaCard, loadLater, laterIdea, startLater, startAllLater, removeLater, issueLater, loadHistory, forgetHistory };\n    function IdeasTitle({ t })'));
 let state = [], si = 0; const effects = [];
 const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment: 'F',
   useState: (v) => { const i = si++; if (!(i in state)) state[i] = typeof v === 'function' ? v() : v; return [state[i], (x) => { state[i] = typeof x === 'function' ? x(state[i]) : x; }]; },
   useRef: (v) => ({ current: v }), useEffect: (f) => { effects.push(f); } };
 const clipboard = []; let clipboardOk = true;
 const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Input: 'Input', writeClipboard: async (text) => { clipboard.push(text); return clipboardOk; } } : {}));
-const { laterChecklist, FOCUS_PRESETS, swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, loadLater, laterIdea, startLater, startAllLater, removeLater, loadHistory, forgetHistory } = globalThis.__ideas;
+const { laterChecklist, FOCUS_PRESETS, swipeDecision, ideaDeck, suggestIdeas, decideIdea, undoIdea, IdeasTab, loadLater, laterIdea, startLater, startAllLater, removeLater, issueLater, loadHistory, forgetHistory } = globalThis.__ideas;
 
 // Swipe decision: 30 % of the width (at least 40 px), or a fast flick in the same direction.
 assert.equal(swipeDecision(0, 300), null); assert.equal(swipeDecision(89, 300), null); assert.equal(swipeDecision(90, 300), 'right'); assert.equal(swipeDecision(-90, 300), 'left');
@@ -239,6 +239,35 @@ state = []; page = render('chat-1'); find(page, (n) => n.t === 'button' && text(
   laterReply = (body) => (body === undefined ? { status: 200, body: { ideas: L.later.filter((i) => i.id !== 's-Timer') } } : { status: 409, body: { error: 'this idea is no longer in the list' } });
   view = go('later-a'); await button(items()[2], 'ideas.plan').p.onClick(); await new Promise((r) => setTimeout(r, 0));
   assert.equal(L.error, 'this idea is no longer in the list'); assert.equal(sent.at(-1)[1], undefined, 'then the list is read again'); assert.equal(L.later.length, 2);
+  // Open GitHub issue: the Host answers the list with the link; the button turns into "Issue #N" (an https link only).
+  {
+    const issueOf = (item) => find(item, (n) => n.t === 'button' && n.p['data-composer-plus-ideas-issue'] !== undefined);
+    const linkOf = (item) => find(item, (n) => n.t === 'a' && n.p['data-composer-plus-ideas-issue-link'] !== undefined);
+    view = go('later-a'); const first = items()[0]; const id = first.p['data-composer-plus-later'];
+    assert.equal(text(issueOf(first)), 'ideas.issue'); assert.equal(linkOf(first), undefined);
+    postGate = gate();
+    laterReply = (body) => ({ status: 200, body: { issue: { url: 'https://github.com/acme/web/issues/9', number: 9 }, ideas: L.later.map((i) => (i.id === body.issue ? { ...i, issue: { url: 'https://github.com/acme/web/issues/9', number: 9 } } : i)) } });
+    const opening = issueOf(first).p.onClick(); view = go('later-a');
+    assert.equal(L.status, 'issuing'); assert.equal(issueOf(items()[1]).p.disabled, true, 'other issue buttons wait');
+    assert.ok(find(view, (n) => text(n) === 'ideas.issuing'), 'a note says that the issue is being opened');
+    const n = sent.length; await issueLater(L, 'later-a', id); await startLater(L, 'later-a', L.later[1]); await removeLater(L, 'later-a', id);
+    assert.equal(sent.length, n, 'no second issue, start or change while an issue opens');
+    postGate.go(); await opening; postGate = undefined;
+    assert.deepEqual(sent.at(-1), ['/api/composer-plus.later', { sessionId: 'later-a', issue: id }]);
+    view = go('later-a'); const link = linkOf(items()[0]);
+    assert.equal(link.p.href, 'https://github.com/acme/web/issues/9'); assert.equal(link.p.target, '_blank'); assert.equal(link.p.rel, 'noopener noreferrer');
+    assert.equal(text(link), 'ideas.issueLink:9'); assert.equal(issueOf(items()[0]), undefined, 'no second issue button');
+    // A link that is not an https issue URL is never drawn as a link.
+    const keepList = L.later; L.later = [{ ...keepList[0], issue: { url: 'javascript:alert(1)', number: 9 } }, ...keepList.slice(1)]; view = go('later-a');
+    assert.equal(linkOf(items()[0]), undefined); assert.ok(issueOf(items()[0]), 'a bad link shows the button again');
+    L.later = keepList;
+    // gh refuses: the reason shows, and the list is read again (the issue may exist after a time-out).
+    laterReply = (body) => (body === undefined ? { status: 200, body: { ideas: L.later } } : { status: 409, body: { error: 'gh could not open the issue: gh auth login' } });
+    view = go('later-a'); await issueOf(items()[1]).p.onClick(); await new Promise((r) => setTimeout(r, 0));
+    assert.equal(L.error, 'gh could not open the issue: gh auth login'); assert.equal(sent.at(-1)[1], undefined, 'then the list is read again');
+    assert.equal(L.status, 'ready'); L.error = undefined;
+    L.later = L.later.map((i) => ({ ...i, issue: undefined }));
+  }
   // Remove: the Host's shorter list; an empty list goes back to the cards.
   laterReply = (body) => ({ status: 200, body: { ideas: L.later.filter((i) => i.id !== body.remove) } });
   view = go('later-a'); await button(items()[0], 'ideas.remove').p.onClick(); assert.deepEqual(sent.at(-1)[1], { sessionId: 'later-a', remove: 's-Idea 202' });

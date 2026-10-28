@@ -98,7 +98,7 @@ host.isConnected = false; assert.equal(render(), null);
 }
 
 // 3. The feature: on by default, its own switch, an overlay only when dsh has the unread set.
-assert.match(src, /'projectStatus', 'markProjectRead', 'activeProjectsFirst'/);
+assert.match(src, /'projectStatus', 'sessionBranch', 'markProjectRead', 'activeProjectsFirst'/);
 assert.match(src, /feature\('markProjectRead', \(\) => injectScope\(\['uiSession'\]/);
 assert.ok(!/OFF_BY_DEFAULT = \[[^\]]*markProjectRead/.test(src), 'on by default');
 console.log('mark read checks passed');

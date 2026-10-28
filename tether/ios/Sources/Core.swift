@@ -550,6 +550,25 @@ func jumpTarget(_ rows: [ChatRow], seq: Int) -> UUID? {
 /// A request to scroll the open chat to a message (Copy message link → Open message).
 struct Jump: Equatable { let sessionId: String; let seq: Int; var id = UUID() }
 
+/// Branch badge: the `branches` map of `/plus/branches` (`{on, branches: {sessionId: name}}`); off on the Mac = none.
+func sessionBranches(_ o: J) -> [String: String] {
+    guard o["on"] as? Bool == true, let b = o["branches"] as? J else { return [:] }
+    return b.compactMapValues { v in (v as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(200)) } }
+}
+/// Find in chat: text folded for matching, as on the Mac (case, accents, Turkish dotless ı).
+func findFold(_ s: String) -> String { s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).replacingOccurrences(of: "ı", with: "i") }
+/// Find in chat: the shown rows that hold `query` (your messages and the answers that the screen shows; folded steps and
+/// earlier pages that are not loaded are not searched), top to bottom, with the number of matches in each.
+func findRows(_ rows: [ChatRow], query: String) -> [(id: UUID, count: Int)] {
+    let q = findFold(query.trimmingCharacters(in: .whitespacesAndNewlines))
+    guard !q.isEmpty else { return [] }
+    return rows.compactMap { r in
+        guard case .line(let l) = r, l.kind == .user || l.kind == .assistant else { return nil }
+        let n = findFold(l.text).components(separatedBy: q).count - 1
+        return n > 0 ? (l.id, n) : nil
+    }
+}
+
 /// Changes panel: the query of a `changes` or `diff` call. `ws` hides the changes in whitespace only (git diff -w).
 func changesQuery(_ sessionId: String, mode: String, ws: Bool, commit: String? = nil, path: String? = nil) -> [String: String] {
     var q = ["sessionId": sessionId, "mode": mode]
@@ -763,6 +782,28 @@ func clampFocus(_ v: String) -> String {
 /// Later list → Copy as checklist: one `- [ ] Title — Summary` line per idea, as on the Mac.
 func laterChecklist(_ ideas: [J]) -> String {
     ideas.map { "- [ ] \($0["title"] as? String ?? "") — \($0["summary"] as? String ?? "")" }.joined(separator: "\n") + "\n"
+}
+/// Changes → "Chats that changed this file": one row of `/plus/file-chats` (newest first, as the Mac answers).
+struct FileChatRow: Equatable {
+    let sessionId: String, seq: Int, count: Int
+    let title: String?, request: String?, withdrawn: Bool, time: Date?
+    var id: String { "\(sessionId)#\(seq)" }
+}
+func fileChatRows(_ d: J) -> [FileChatRow] {
+    (d["chats"] as? [J] ?? []).compactMap { r in
+        guard let sid = r["sessionId"] as? String, let seq = r["seq"] as? Int else { return nil }
+        let ms = (r["time"] as? NSNumber)?.doubleValue ?? 0
+        return FileChatRow(sessionId: sid, seq: seq, count: r["count"] as? Int ?? 1, title: r["title"] as? String, request: r["request"] as? String,
+                           withdrawn: r["withdrawn"] as? Bool == true, time: ms > 0 ? Date(timeIntervalSince1970: ms / 1000) : nil)
+    }
+}
+/// Later list → Open GitHub issue: the link that the Mac saved on an idea, only an https `…/<owner>/<repo>/issues/<n>` URL
+/// (the same rule as the Mac's client), else nil (the button shows).
+func issueLink(_ v: Any?) -> (url: URL, number: Int)? {
+    guard let o = v as? J, let s = o["url"] as? String,
+          s.range(of: #"^https://[^\s/]+/[^\s/]+/[^\s/]+/issues/[0-9]{1,9}$"#, options: .regularExpression) != nil,
+          let url = URL(string: s), let n = Int(s.split(separator: "/").last ?? "") else { return nil }
+    return (url, n)
 }
 
 /// Changes panel branch tree: one commit from `/plus/graph` (children before parents) and its ref tags.
@@ -1065,6 +1106,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         didSet { if activeFp != nil { UserDefaults.standard.set(Array(finished), forKey: key("finished")) } }
     }
     @Published var current: String?
+    /// Branch badge (Composer Plus): the git branch of each chat's folder at its last turn, as the Mac recorded it.
+    @Published var branches: [String: String] = [:]
     @Published var transcript: [Line] = []
     @Published var streaming = ""
     @Published var reasoning = ""
@@ -1569,7 +1612,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private func closeScreen() {
         ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil
         urlSession?.invalidateAndCancel(); urlSession = nil // pooled TLS sockets belong to the old Mac's pin
-        sessions = []; sessionsLoaded = false; transcript = []; streaming = ""; reasoning = ""; running = false; prompts = []
+        sessions = []; sessionsLoaded = false; transcript = []; streaming = ""; reasoning = ""; running = false; prompts = []; branches = [:]
         current = nil; path = []; goal = nil; state = .off; upstream = ""; route = nil; lastFail = nil; attempt = 0; probing = false
         workspaces = []; pinned = []; archived = []; commands = []; catalog = []; presets = []; perms = []; skills = []
         usage = nil; model = nil; defaultModel = nil; inbox = [:]; liveTodos = nil; contextWindow = nil; turnStartedAt = nil; hasOlder = false
@@ -2007,6 +2050,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             // again: a running chat shows the spinner, not "Finished".
             finished = finished.intersection(fresh.filter { !isRunning($0, fresh) }.map(\.id)).union(Self.justFinished(old: old, new: fresh, current: current))
         }
+        // Branch badges: best-effort (an older Mac has no route; then no badges).
+        if plus.contains("branches") {
+            do { branches = sessionBranches(try await plusCall("branches")) }
+            catch is CancellationError { throw CancellationError() } catch {}
+        } else { branches = [:] }
         sessions = fresh
         sessionsLoaded = true
         // session/list carries projections.values.userQuestions ({active, settled}, verified live by gateway/e2e.mjs).

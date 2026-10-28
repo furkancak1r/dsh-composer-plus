@@ -20,7 +20,7 @@ function boot(){
   return {ids,scopes,settings,unload:()=>effects.forEach(f=>typeof f==='function'&&f())};
 }
 let app=boot();
-const all=['chat-tool-grants','collapse-projects','composer-continue','composer-history','composer-keep-focus','composer-plan-toggle','composer-plus','copy-deeplink','delete-chat','delete-chat-dialog','export-markdown','export-markdown-dialog','message-links','next-prediction','project-name','project-path-menu','project-picker-search','project-status','prompt-improve','queue-edit','queue-reorder','recent-projects','session-context-menu','status-order','turn-redo','turn-rollback','whats-new'];
+const all=['chat-tool-grants','collapse-projects','composer-continue','composer-history','composer-keep-focus','composer-plan-toggle','composer-plus','copy-deeplink','delete-chat','delete-chat-dialog','export-markdown','export-markdown-dialog','find-in-chat','message-links','next-prediction','project-name','project-path-menu','project-picker-search','project-status','prompt-improve','queue-edit','queue-reorder','recent-projects','session-branch','session-context-menu','status-order','turn-redo','turn-rollback','whats-new'];
 assert.deepEqual(app.ids(),all,'every feature on by default, plus the settings section');
 assert.ok(app.scopes.has('workspaces,uiSession,sessions')&&app.scopes.has('uiSession,uiWorkspace,sessions')&&app.scopes.has('sidebarRight,sidebarRightTabs'));
 assert.equal(app.settings.name,'settings.section');
@@ -32,7 +32,7 @@ assert.ok(!app.scopes.has('workspaces,uiSession,sessions')&&!app.scopes.has('uiS
 assert.deepEqual(hooks.composerPlusToggles.getSnapshot(),{copyDeeplink:false,activeProjectsFirst:false,notifications:false});
 setFeature('copyDeeplink',true);assert.ok(app.ids().includes('copy-deeplink')&&app.ids().includes('session-context-menu'),'switching back on reinstalls');
 // The new features remove exactly their own slots (and come back).
-for (const [id, slots] of [['queueEdit',['queue-edit']],['copyMessageLink',['message-links']]]) {
+for (const [id, slots] of [['queueEdit',['queue-edit']],['copyMessageLink',['message-links']],['findInChat',['find-in-chat']]]) {
   const before=app.ids(); setFeature(id,false); assert.deepEqual(app.ids(),before.filter((x)=>!slots.includes(x)),`${id} removes only its slots`);
   setFeature(id,true); assert.deepEqual(app.ids(),before,`${id} comes back`);
 }
@@ -43,8 +43,8 @@ app=boot();assert.ok(app.ids().includes('copy-deeplink'));assert.ok(!app.scopes.
 let renders=[];const row=app.settings;const C=(() => { let comp; const slots={inject:(n,f)=>f(),register:(o,Comp)=>{if(o.id==='composer-plus')comp=Comp;return()=>{};}};
   plugin.apply({slots,effect:()=>{},locale:{register:()=>()=>{},bind:()=>k=>k}});return comp; })();
 const calls=[];const tree=C({useComposerPlusToggles:f=>f({planToggle:false}),setFeature:(id,on)=>calls.push([id,on]),t:k=>k});
-assert.equal(tree.c[1].p['data-composer-plus-search'],'');assert.equal(tree.c[3],null,'no update row without an updater');assert.equal(tree.c[4],null,'no empty notice');const switches=tree.c.slice(5).map(r=>r.c[2]);assert.equal(tree.c.slice(5).filter(r=>r.c[0].p.id!==undefined).length,31,'every feature row has a screenshot (the auto-update switch shows the update row\'s)');assert.equal(switches.length,31);
-const plan=switches.find(s=>s.p.label==='feature.planToggle');assert.equal(plan.p.checked,false);assert.equal(switches.filter(s=>s.p.checked).length,27,'plan mode is off here; Mobile connect, Resume after restart and Complete while typing are off by default; Next message prediction and Improve prompt are on; Content search, Turn rollback, Delete chat, Project name, Mark all as read, Edit queued message in place and Copy message link are on');
+assert.equal(tree.c[1].p['data-composer-plus-search'],'');assert.equal(tree.c[3],null,'no update row without an updater');assert.equal(tree.c[4],null,'no empty notice');const switches=tree.c.slice(5).map(r=>r.c[2]);assert.equal(tree.c.slice(5).filter(r=>r.c[0].p.id!==undefined).length,33,'every feature row has a screenshot (the auto-update switch shows the update row\'s)');assert.equal(switches.length,33);
+const plan=switches.find(s=>s.p.label==='feature.planToggle');assert.equal(plan.p.checked,false);assert.equal(switches.filter(s=>s.p.checked).length,29,'plan mode is off here; Mobile connect, Resume after restart and Complete while typing are off by default; Next message prediction and Improve prompt are on; Content search, Turn rollback, Delete chat, Project name, Mark all as read, Edit queued message in place and Copy message link are on');
 assert.equal(switches.find(s=>s.p.label==='feature.contentSearch').p.checked,true);
 assert.equal(switches.find(s=>s.p.label==='feature.mobileConnect').p.checked,false);assert.equal(switches.find(s=>s.p.label==='feature.resumeAfterRestart').p.checked,false);assert.equal(switches.find(s=>s.p.label==='feature.nextPrediction').p.checked,true,'on by default');assert.equal(switches.find(s=>s.p.label==='feature.typingCompletion').p.checked,false,'Complete while typing: off by default');
 plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
@@ -55,7 +55,7 @@ plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
   const tt=k=>tr[k]??k;
   const render=()=>{return C2({useComposerPlusToggles:f=>f({}),setFeature:()=>{},updater:{subscribe:()=>()=>{},getSnapshot:()=>({status:'current'}),check(){}},t:tt});};
   const ids=(tree)=>tree.c.slice(5).map(r=>r.p.key);
-  let tree=render();assert.equal(ids(tree).length,31,'empty query shows all');assert.ok(tree.c[2]&&tree.c[3],'language + update rows');
+  let tree=render();assert.equal(ids(tree).length,33,'empty query shows all');assert.ok(tree.c[2]&&tree.c[3],'language + update rows');
   const input=tree.c[1].c[0];assert.equal(input.p.type,'search');
   input.p.onChange({target:{value:'BİLDİRİM'}});tree=render();assert.deepEqual(ids(tree),['notifications'],'case + dotted İ');
   input.p.onChange({target:{value:'degisiklik'}});tree=render();assert.deepEqual(ids(tree),['changesPanel'],'accent-insensitive ğ/ş');
@@ -71,7 +71,7 @@ plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
   const links=(active)=>{const locale=active===null?undefined:{subscribe:()=>()=>{},getSnapshot:()=>({active})};
     const tree=C3({useComposerPlusToggles:f=>f({}),setFeature:()=>{},locale,t:(k,p)=>(p?.feature?`${k}:${p.feature}`:k)});
     return tree.c.slice(5).map(r=>{const title=r.c[1].c[0];assert.equal(r.c[2].t,'Switch','the switch stays the third child');return title.c[1];});};
-  let a=links('tr');assert.equal(a.length,31,'one link per feature row');
+  let a=links('tr');assert.equal(a.length,33,'one link per feature row');
   const first=a[0];assert.equal(first.t,'a');assert.equal(first.p.href,'https://github.com/furkancak1r/dsh-composer-plus/blob/main/README.tr.md#feature-changespanel');
   assert.equal(first.p.target,'_blank');assert.equal(first.p.rel,'noopener noreferrer');assert.equal(first.p['aria-label'],'settings.help:feature.changesPanel');assert.equal(first.c[0],'?');
   assert.ok(a.every(l=>l.p.href.endsWith(`#feature-${l.p['data-composer-plus-help'].toLowerCase()}`)),'each link opens its own row');
