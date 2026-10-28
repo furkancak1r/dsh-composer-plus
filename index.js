@@ -16,13 +16,16 @@
  * - Worktree chats: the chat's branch status, and "New branch": a git worktree under `<repo>/.worktrees/`, named by the
  *   model, with the shared ignored files that `.worktreeinclude` names, registered as a dsh workspace with a new chat.
  *   It adds a worktree and a branch; it never removes, pushes or merges one.
+ * - Backup: archives of the dsh home in ~/Desktop/dsh-backups (secrets masked, their copies in a local vault), automatic
+ *   backups, session log check and repair, and a rescue console in the backup folder for a restore while dsh is closed.
  */
-import { constants, readFileSync } from 'node:fs';
+import { constants, readFileSync, realpathSync } from 'node:fs';
 import { copyFile, cp, lstat, mkdir, mkdtemp, open, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { createGateway } from './tether/gateway/server.mjs';
+import * as backups from './backup.mjs';
 
 export const name = 'dsh-composer-plus';
 export const inject = ['connection', 'subprocess', 'sessionQuery', 'sessionController'];
@@ -58,7 +61,8 @@ export const GOAL_CHECK_PATH = '/api/composer-plus.goal-check';
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
-  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'defaultWorkspace', 'goalCheck'];
+  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'defaultWorkspace', 'goalCheck',
+  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -1804,6 +1808,7 @@ export function apply(ctx) {
   installExport(ctx);
   installWorktrees(ctx);
   installDefaultWorkspace(ctx, home);
+  installBackup(ctx, home);
 }
 
 /** Branch badge: the git branch of each top-level chat's folder at its newest turn edge, at most this many chats. */
@@ -3872,4 +3877,274 @@ function installDefaultWorkspace(ctx, home) {
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
   });
+}
+
+/** Backup (dsh-backup's work, see backup.mjs): the archives in one folder next to the dsh home. ponytail: one fixed folder,
+ * dsh-backup's default, so its archives stay usable; COMPOSER_PLUS_BACKUP_DIR moves it (tests). Upgrade: a folder setting. */
+export const BACKUP_PATH = '/api/composer-plus.backup';
+export const AUTO_BACKUP_PATH = '/api/composer-plus.auto-backup';
+export const RESCUE_PATH = '/api/composer-plus.rescue-console';
+export const BACKUP_HOURS = [6, 12, 24, 72, 168];
+export const BACKUP_KEEPS = [3, 5, 7, 14];
+/** Snapshots taken when dsh or Composer Plus starts with a new version: the newest this many stay. */
+export const SNAPSHOT_KEEP = 2;
+/** No automatic backup in the first seconds after a start: a full backup reads and compresses about a gigabyte. */
+export const AUTO_BACKUP_GRACE_MS = 45000;
+/** After a failed automatic backup, the next try waits this long (or the interval, when that is shorter). */
+export const AUTO_BACKUP_RETRY_MS = 30 * 60000;
+export const backupFolder = () => process.env.COMPOSER_PLUS_BACKUP_DIR || join(homedir(), 'Desktop', 'dsh-backups');
+/** The running dsh's version: the desktop app sets DSH_CLIENT_VERSION; the dsh CLI runs from its own package folder. */
+export function dshVersion(env = process.env, entry = process.argv[1]) {
+  if (/^\d+\.\d+\.\d+\S*$/.test(env.DSH_CLIENT_VERSION ?? '')) return env.DSH_CLIENT_VERSION;
+  try {
+    let dir = dirname(realpathSync(entry));
+    for (let i = 0; i < 8 && dir !== dirname(dir); i += 1, dir = dirname(dir)) {
+      const candidates = [join(dir, 'node_modules', '@deepseek-ai', 'dsh', 'package.json')];
+      if (basename(dir) === 'dsh' && basename(dirname(dir)) === '@deepseek-ai') candidates.unshift(join(dir, 'package.json'));
+      for (const file of candidates) {
+        try { const version = JSON.parse(readFileSync(file, 'utf8')).version; if (typeof version === 'string' && version !== '') return version; } catch { /* next */ }
+      }
+    }
+  } catch { /* no entry file */ }
+  return undefined;
+}
+/** Automatic backup settings: off by default (each copy is about a gigabyte), every 24 hours, the newest 7 backups stay.
+ * `version` is the dsh and Composer Plus versions of the last start. */
+export const parseAutoBackup = (v) => ({ on: v?.on === true, hours: BACKUP_HOURS.includes(v?.hours) ? v.hours : 24, keep: BACKUP_KEEPS.includes(v?.keep) ? v.keep : 7,
+  ...(isText(v?.version, 64) ? { version: v.version } : {}) });
+const archiveView = (a) => ({ name: a.name, kind: a.kind, at: a.at, size: a.size, checksum: a.checksum, masked: a.masked?.length ?? null, ours: a.meta?.by === backups.BY });
+
+/** Backup (Host half). `GET/POST /api/composer-plus.backup`: the archives and one action at a time (back up, check, delete,
+ * check and repair session logs, cancel, show the folder). Long actions run in the background; the browser reads the
+ * state again. The folder lock keeps the rescue console out while an action runs here, and the other way round.
+ * `GET/POST /api/composer-plus.auto-backup {on|hours|keep}`: the automatic backup switch and its settings.
+ * `GET/POST /api/composer-plus.rescue-console {on}`: the rescue console files in the backup folder (on by default).
+ * Restore is not here: it replaces the dsh home, so it runs only in the rescue console while dsh is closed. */
+export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retryMs = AUTO_BACKUP_RETRY_MS, folder = backupFolder(), version = `${dshVersion() ?? 'dsh'} / Composer Plus ${PACKAGE.version}` } = {}) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: ${text}`);
+  const auto = settingsStore(join(home, 'storages', 'dsh-composer-plus', 'auto-backup.json'), parseAutoBackup);
+  const rescue = mobileSwitch(join(home, 'storages', 'dsh-composer-plus', 'rescue-console.json'), true);
+  const marker = backups.hostFile(home);
+  let busy = null;
+  let last = null;
+  let scan = null;
+  let failed = null;
+  let timer;
+  let booted = false;
+  let closed = false;
+  const fail = (error, status) => Object.assign(error instanceof Error ? error : new Error(String(error)), { status });
+  /** Runs one action: refused (409) while another runs here or in the rescue console. Answers its promise at once. */
+  const run = async (op, fn, extra = {}) => {
+    if (closed) throw fail('dsh is closing', 409);
+    if (busy !== null) throw fail(new backups.BusyError({ op: busy.op, pid: process.pid }), 409);
+    const controller = new AbortController();
+    const progress = {};
+    busy = { op, ...extra, started: new Date().toISOString(), progress, controller };
+    let release;
+    try { release = await backups.takeLock(folder, op); } catch (error) { busy = null; throw fail(error, error instanceof backups.BusyError ? 409 : 500); }
+    const done = (async () => {
+      try {
+        const result = await fn(controller.signal, progress);
+        last = { op, ...extra, ok: true, at: new Date().toISOString(), result };
+        return result;
+      } catch (error) {
+        last = { op, ...extra, ok: false, at: new Date().toISOString(), error: controller.signal.aborted ? 'cancelled' : String(error?.message ?? error) };
+        throw error;
+      } finally { await release().catch(() => {}); busy = null; }
+    })();
+    done.catch(() => {});
+    return { done };
+  };
+  const refreshRescue = async () => {
+    if (await rescue.read()) await backups.writeRescue(folder).catch((error) => log(`could not write the rescue console: ${error?.message ?? error}`));
+  };
+  /** A click keeps every archive; an automatic backup keeps the newest `keep` of its own, a snapshot the newest 2. */
+  const backupNow = (kind = 'backup', automatic = false) => run('backup', async (signal, progress) => {
+    const settings = await auto.read();
+    const keep = kind === 'pre-upgrade' ? SNAPSHOT_KEEP : automatic ? settings.keep : undefined;
+    const r = await backups.backup({ home, dest: folder, kind, keep, signal, progress });
+    await refreshRescue();
+    return { name: r.name, size: r.size, files: r.files, masked: r.masked.length, skipped: r.skipped.length, rotated: r.rotated.length };
+  }, { kind });
+  const live = (id) => get('agents')?.get?.(id) !== undefined;
+  const scanView = (s) => ({ at: s.at, scanned: s.scanned, torn: s.torn, skipped: s.skipped, bad: s.bad.map((x) => ({ id: x.id, reason: x.reason, open: live(x.id) })) });
+
+  // Automatic backup: the newest backup in the folder (also a manual one) + the interval; a failure waits retryMs.
+  const newest = async () => {
+    const at = (await backups.listArchives(folder)).find((a) => a.kind === 'backup')?.at;
+    return at === undefined ? 0 : Date.parse(at);
+  };
+  const nextAt = async (settings) => {
+    if (!settings.on) return undefined;
+    let due = (await newest()) + settings.hours * 3600000;
+    if (failed !== null) due = Math.max(due, Date.parse(failed.at) + Math.min(retryMs, settings.hours * 3600000));
+    return Math.max(due, Date.now());
+  };
+  const schedule = async () => {
+    clearTimeout(timer); timer = undefined;
+    if (closed || !booted) return;
+    const due = await nextAt(await auto.read());
+    if (due === undefined || closed) return;
+    timer = setTimeout(tick, Math.min(Math.max(0, due - Date.now()), 2 ** 31 - 1));
+    timer.unref?.();
+  };
+  const tick = async () => {
+    timer = undefined;
+    let again;
+    try {
+      const settings = await auto.read();
+      if (!settings.on || closed) return;
+      // Another action runs (a manual backup, a check): look again in a minute.
+      if (busy !== null) { again = 60000; return; }
+      // A changed dsh or Composer Plus version: a snapshot of the data before the new version has used it for long.
+      if (version !== undefined && settings.version !== undefined && settings.version !== version) {
+        await (await backupNow('pre-upgrade', true)).done;
+        await auto.change((saved) => ({ ...saved, version }));
+      }
+      if ((await nextAt(await auto.read())) <= Date.now()) {
+        await (await backupNow('backup', true)).done;
+        failed = null;
+      }
+    } catch (error) {
+      if (error?.status === 409) again = 60000;
+      else {
+        failed = { at: new Date().toISOString(), message: String(error?.message ?? error) };
+        log(`automatic backup failed: ${failed.message}`);
+      }
+    } finally {
+      if (again !== undefined && !closed) { timer = setTimeout(tick, again); timer.unref?.(); } else await schedule();
+    }
+  };
+  ctx.effect?.(() => {
+    // The rescue console reads this file to tell whether dsh runs (it refuses a restore then).
+    mkdir(dirname(marker), { recursive: true }).then(() => writeFile(marker, JSON.stringify({ pid: process.pid, at: new Date().toISOString() }), { mode: 0o600 }))
+      .catch((error) => log(`could not write ${marker}: ${error?.message ?? error}`));
+    const boot = setTimeout(async () => {
+      booted = true;
+      // The first start that knows the version only remembers it; an automatic backup that is off also only remembers it.
+      try {
+        const settings = await auto.read();
+        if (version !== undefined && (settings.version === undefined || !settings.on) && settings.version !== version) await auto.change((saved) => ({ ...saved, version }));
+        // An updated Composer Plus brings a new console: replace a copy that is there (a start makes no new files).
+        if (await exists(join(folder, backups.RESCUE_FILE))) await refreshRescue();
+      } catch (error) { log(`backup start-up: ${error?.message ?? error}`); }
+      await tick();
+    }, graceMs);
+    boot.unref?.();
+    return () => {
+      closed = true;
+      clearTimeout(boot); clearTimeout(timer);
+      busy?.controller.abort();
+      rm(marker, { force: true }).catch(() => {});
+    };
+  }, 'dsh-composer-plus: backup');
+
+  const state = async () => ({
+    folder,
+    archives: (await backups.listArchives(folder)).map(archiveView),
+    busy: busy === null ? null : { op: busy.op, kind: busy.kind, name: busy.name, started: busy.started, ...busy.progress },
+    last,
+    scan: scan === null ? null : scanView(scan),
+  });
+  const name = (body) => (typeof body?.name === 'string' && backups.ARCHIVE_RE.test(body.name) ? body.name : undefined);
+  ctx.connection.fetch.register({
+    path: BACKUP_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      try {
+        if (request.method === 'POST') {
+          let body;
+          try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+          const action = body?.action;
+          if (action === 'backup') {
+            if (Object.keys(body).length !== 1) return json({ error: 'bad request' }, 400);
+            await backupNow();
+          } else if (action === 'verify') {
+            const n = name(body);
+            if (n === undefined) return json({ error: 'bad request' }, 400);
+            await run('check', (signal, progress) => backups.verifyArchive(folder, n, { home, signal, progress }), { name: n });
+          } else if (action === 'transfer') {
+            const n = name(body);
+            if (n === undefined) return json({ error: 'bad request' }, 400);
+            await (await run('transfer', async () => {
+              const t = await backups.prepareTransfer(folder, n);
+              // Shows the new folder at once (best-effort; the answer names it).
+              const tool = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer.exe' : 'xdg-open';
+              const exe = await ctx.subprocess.resolveExecutable?.(tool).catch(() => undefined);
+              if (exe !== undefined) await runTool(ctx.subprocess, exe, t.dir, [t.dir], undefined, { timeoutMs: 10000 }).catch(() => {});
+              return { folder: t.dir };
+            }, { name: n })).done;
+          } else if (action === 'delete') {
+            const n = name(body);
+            if (n === undefined) return json({ error: 'bad request' }, 400);
+            await (await run('delete', () => backups.removeArchive(folder, n).then(() => ({})), { name: n })).done;
+          } else if (action === 'scan') {
+            await run('scan', async (signal, progress) => {
+              const r = await backups.scanSessions(home, { signal, progress });
+              scan = { ...r, at: new Date().toISOString() };
+              return { scanned: r.scanned, bad: r.bad.length };
+            });
+          } else if (action === 'repair') {
+            // Checks again first: only logs that are damaged now are replaced.
+            await run('repair', async (signal, progress) => {
+              const found = await backups.scanSessions(home, { signal, progress });
+              const r = await backups.repairSessions({ home, dest: folder, bad: found.bad, live, signal, progress });
+              scan = { ...found, bad: [...r.missing, ...r.busy], at: new Date().toISOString() };
+              return { fixed: r.fixed.map((f) => ({ id: f.id, from: f.from })), missing: r.missing.map((m) => m.id), open: r.busy.map((m) => m.id) };
+            });
+          } else if (action === 'cancel') {
+            busy?.controller.abort();
+          } else if (action === 'reveal') {
+            // Not 409: the client reads 409 as "another backup action is running".
+            if (!(await exists(folder))) return json({ error: 'there is no backup folder yet' }, 422);
+            const tool = process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'explorer.exe' : 'xdg-open';
+            const exe = await ctx.subprocess?.resolveExecutable?.(tool)?.catch(() => undefined);
+            if (exe === undefined) return json({ error: `${tool} is not available` }, 422);
+            await runTool(ctx.subprocess, exe, folder, [folder], request.signal, { timeoutMs: 10000 });
+          } else return json({ error: 'bad request' }, 400);
+        }
+        return json(await state());
+      } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
+    },
+  });
+  ctx.connection.fetch.register({
+    path: AUTO_BACKUP_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      try {
+        if (request.method === 'POST') {
+          let body;
+          try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+          const keys = body !== null && typeof body === 'object' && !Array.isArray(body) ? Object.keys(body) : [];
+          const ok = keys.length === 1 && ((keys[0] === 'on' && typeof body.on === 'boolean') || (keys[0] === 'hours' && BACKUP_HOURS.includes(body.hours))
+            || (keys[0] === 'keep' && BACKUP_KEEPS.includes(body.keep)));
+          if (!ok) return json({ error: 'bad request' }, 400);
+          await auto.change((saved) => ({ ...saved, ...body }));
+          if (body.on === true) failed = null;
+          await schedule();
+        }
+        const { version: _v, ...settings } = await auto.read();
+        const next = await nextAt(settings);
+        return json({ ...settings, ...(next === undefined ? {} : { next: new Date(booted ? next : Math.max(next, Date.now() + graceMs)).toISOString() }), ...(failed === null ? {} : { failed }) });
+      } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+    },
+  });
+  ctx.connection.fetch.register({
+    path: RESCUE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      try {
+        if (request.method === 'POST') {
+          let body;
+          try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+          if (typeof body?.on !== 'boolean' || Object.keys(body).length !== 1) return json({ error: 'bad request' }, 400);
+          await rescue.write(body.on);
+          if (!body.on) await backups.removeRescue(folder);
+          else if (await exists(folder)) await backups.writeRescue(folder);
+        }
+        const files = [];
+        for (const file of backups.rescueFiles()) if (await exists(join(folder, file))) files.push(file);
+        return json({ on: await rescue.read(), folder, files });
+      } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+    },
+  });
+  return { settled: () => new Promise((resolve) => { const wait = () => (busy === null ? resolve() : setTimeout(wait, 10)); wait(); }), tick };
 }

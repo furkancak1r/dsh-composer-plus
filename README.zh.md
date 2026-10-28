@@ -74,6 +74,10 @@ dsh plugin --profile web add dsh-composer-plus
 | **应用语言** | <a id="feature-language"></a>设置 → Composer Plus → **应用语言** 可以把整个 dsh 界面切换为 Türkçe、Español、Português (Brasil)、Français、Deutsch、Русский、日本語、한국어、Bahasa Indonesia、Tiếng Việt 或 हिन्दी（见下文）。 | <a href="assets/features/language.webp"><img src="assets/features/language.webp" width="160" alt="截图：应用语言"></a> |
 | **手机连接（iPhone）** | <a id="feature-mobileconnect"></a>通过 [Tether](tether/) 应用在 iPhone 上使用 dsh，可以在同一 Wi-Fi 下使用，也可以通过 [Tailscale](https://tailscale.com) 使用。请在 **设置 → Composer Plus** 中开启它（默认关闭，因为它会在这台 Mac 上开放一个网络端口）。然后点击侧边栏左下角的 **手机连接**：用 iPhone 相机扫描二维码（轻点 **Open in Tether**），或用 Tether 中的 **Scan code** 扫描，轻点 **Connect**，然后点击 **Approve**。请先安装 Tether：没有它，相机无法打开这个二维码。手机可以显示你的对话、发送消息（可附照片：输入框的 **+** → Camera、Photos 或 Paste image）、回答审批和问题，以及切换模型和智能体。你可以配对任意多台 Mac：点击应用左上角的 Mac 名称即可在它们之间切换。**手机连接** 面板会列出已配对的 iPhone 及其上次连接时间：点击 **Remove** 可立即断开其中一部。“Tailscale only”会拒绝来自本地网络的连接（适用于共享 Wi-Fi），访问日志会显示谁尝试过连接。在 Tether 中，“Settings → Privacy”可以用 Face ID 锁定应用。 | <a href="assets/features/mobileConnect.webp"><img src="assets/features/mobileConnect.webp" width="160" alt="截图：手机连接（iPhone）"></a> |
 | **自动更新** | <a id="feature-autoupdate"></a>dsh 启动时，插件会检查 [最新的 GitHub release](https://github.com/furkancak1r/dsh-composer-plus/releases/latest)。如果它比当前版本新，并且已发布到 npm，插件会通过 dsh 自带的插件管理器（与 设置 → 插件 相同的途径）安装这个确切的版本，并通知你。重启 dsh 即可加载新版本。**设置 → Composer Plus → Composer Plus 更新** 会显示版本号，并提供 **检查更新** / **立即更新**。dsh 第一次以新版本启动时，会显示一次 **Composer Plus N 的新功能** 窗口，内容是该版本的发布说明（来自同一次更新检查，不会额外联网）；点击 **关闭** 或按 `Esc` 关闭。 | <a href="assets/features/autoUpdate.webp"><img src="assets/features/autoUpdate.webp" width="160" alt="截图：自动更新"></a> |
+| **备份** | <a id="feature-backup"></a>设置 → Composer Plus → **备份** → **立即备份**：把整个 dsh 主目录（对话、设置、插件、MCP、技能）连同校验和写成 `~/Desktop/dsh-backups` 中的一个归档。归档中的机密会被遮蔽：凭据文件、密钥文件（`.pem`、`.key`）以及 yml 设置中的 token、secret 和 password 值只保存在这台电脑上，位于该文件夹的 `vault` 中。`cache/`、`dsh-runtimes/` 和 `node_modules` 不会归档（dsh 会重新生成它们）。列表中的每份备份都有 **检查**（完整读取）、**用于另一台电脑**（一个可复制到新电脑的文件夹，含救援控制台）和 **删除**。同一文件夹中 dsh-backup 的归档也会显示并可使用。要恢复，请退出 dsh 并使用救援控制台。 | <a href="assets/features/backup.webp"><img src="assets/features/backup.webp" width="160" alt="截图：备份"></a> |
+| **自动备份** | <a id="feature-autobackup"></a>打开 **自动备份**（默认关闭：每份大约与不含缓存的 dsh 主目录一样大）。选择频率（**每**：6 小时到 7 天，默认 24 小时）和保留的份数（**保留**：3 到 14 份，默认 7 份）。下次备份时间显示在开关下方；失败的备份也会显示在那里，并在 30 分钟后重试。dsh 或 Composer Plus 以新版本启动时，会在启动后不久、新版本长时间使用你的数据之前拍一份快照（保留最新的两份，标记为 **升级前**）。 | <a href="assets/features/autoBackup.webp"><img src="assets/features/autoBackup.webp" width="160" alt="截图：自动备份"></a> |
+| **会话日志检查** | <a id="feature-sessiondoctor"></a>**检查会话日志** 会读取每个对话的日志，并列出 dsh 无法打开的日志（帧损坏、记录被截断、序号错误）。尾部撕裂的日志不会列出：dsh 会自行修复。**从备份修复** 会放回最新一份含有健康副本的备份中的副本，并把损坏的文件保留在旁边（`.corrupt-<时间>`）。该备份之后写入的消息不在副本中。在此 dsh 中打开的对话不会在这里修复：请退出 dsh，在救援控制台中修复。 | <a href="assets/features/sessionDoctor.webp"><img src="assets/features/sessionDoctor.webp" width="160" alt="截图：会话日志检查"></a> |
+| **救援控制台** | <a id="feature-rescueconsole"></a>每次备份还会把救援控制台放进备份文件夹。当 dsh 已关闭或无法启动时，在该文件夹中打开 `Composer Plus Rescue`（macOS：`Composer Plus Rescue.command`）：终端窗口中的菜单可以列出、检查和恢复备份，以及检查和修复会话日志。它不打开网络端口。恢复时需要输入 `RESTORE`，会把当前的 dsh 主目录保留为 `.dsh.pre-restore-<时间>`，从 vault 放回被遮蔽的机密，并把 `cache/`、`dsh-runtimes/` 和 `node_modules` 移过来。它不需要 dsh：它使用 Node.js，或 DeepSeek Harness 应用本身。在新电脑上，复制 **用于另一台电脑** 生成的文件夹并在那里打开 `Composer Plus Rescue`。 | <a href="assets/features/rescueConsole.webp"><img src="assets/features/rescueConsole.webp" width="160" alt="截图：救援控制台"></a> |
 
 <!-- END GENERATED FEATURES -->
 
@@ -151,6 +155,8 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **输入时补全：** 在你开启之前一直关闭。开启后，你每次输入停顿时，Host 端会把你目前已输入的文字，以及该对话中你自己的消息和智能体的文字回复（不含工具输出、隐藏上下文和推理内容；对话部分最多约 3,000 个字符），发送给在 **输入时补全** 下选择的模型（默认为 **下一条消息预测** 的模型）。新的停顿会停止较早的请求。对话中不会保存任何内容。开关保存在 `$DSH_HOME/storages/dsh-composer-plus/complete.json` 中（仅所有者可访问的文件）。
 - **优化提示词：** 在你点击魔法棒之前，什么都不会运行。点击后，Host 端会以一次请求的形式，把以下内容发送给在 **优化提示词** 下选择的模型（默认为对话自己的模型）：你的草稿；该对话中你自己的消息和智能体的文字回复（不含工具输出、隐藏上下文、推理内容和已回退的消息；最多约 6,000 个字符，最新的部分）；与 **功能创意** 相同的项目概要（文件规则也相同：不读取 `.env*` 或密钥文件，跳过指向文件夹外部的符号链接和 FIFO）；`git status` 列为已更改的路径；以及最多 30 个名称与你的草稿有相同词语的已跟踪或未跟踪（未被忽略）路径。除这份概要外，不会发送任何文件内容。对话和项目中都不会写入任何内容：回答只会替换输入框中的草稿，是否发送由你决定。模型选择保存在 `$DSH_HOME/storages/dsh-composer-plus/improve.json` 中（仅所有者可访问的文件）。
 - **目标检查：** 只有当智能体在自动轮次中把 `/goal` 标记为完成时（或者你点击 **立即运行** 时）才会运行。Host 端在对话的文件夹中、按对话的沙箱模式运行测试命令（与 dsh 自己的 `bash` 工具相同：同样的文件访问策略；沙箱无法启动时，测试不会运行，检查判为失败）。为了找到命令，它只读取 `package.json`、`Makefile`、`Cargo.toml`、`go.mod`、`pyproject.toml` 和 `pytest.ini`，并且只读取文件夹内的普通文件（不跟随指向文件夹外部的符号链接，不读取 FIFO）。然后，它以一次不带工具的请求，把以下内容发送给在 **目标检查** 下选择的模型（默认为对话自己的模型）：目标；从目标开始以来的对话（你的消息、智能体的回复、截断到 1,000 个字符的工具调用以及每个工具结果的最后 2,000 个字符；不含推理内容和已回退的步骤；最多约 60,000 个字符，最新的部分）；`git status --short`；以及测试输出的末尾。工具输出可能包含智能体读取过的内容，因此这次请求可能包含你文件的一部分，与对话本身相同。对话和项目中都不会写入任何内容。你的测试命令、上限、上次结果（含其输出的末尾）和模型选择保存在 `$DSH_HOME/storages/dsh-composer-plus/goal-check.json` 中（仅所有者可访问的文件，最新的 500 个对话）。
+- **备份：** 任何数据都不会离开你的电脑。归档保存在 `~/Desktop/dsh-backups` 中（仅所有者可访问的文件）。机密不在归档中：凭据文件（`.credentials.yaml`、`.env`）、密钥文件（`.pem`、`.key`、`.p12`、`.pfx`）以及 yml 文件中 token、secret、password 和 API key 设置的值都会被遮蔽；它们的真实副本保存在同一文件夹的 `composer-plus-vault/<archive>/` 中（仅所有者可访问），只在这台电脑上。**用于另一台电脑** 不会复制 vault：请在那台电脑上重新输入这些机密。你的对话日志、设置和 dsh 主目录的其余内容按原样保存在归档中：请像对待 `$DSH_HOME` 本身一样，不要公开该文件夹。备份使用 `O_NOFOLLOW | O_NONBLOCK` 读取文件；符号链接按链接保存（从不跟随），FIFO 和设备文件会被跳过。自动备份的开关和设置保存在 `$DSH_HOME/storages/dsh-composer-plus/auto-backup.json` 中，救援控制台的开关保存在 `rescue-console.json` 中；dsh 运行期间，`running/host-<pid>.json` 标明每个 dsh 进程（救援控制台读取它们，以便拒绝恢复）。
+- **救援控制台：** 一个终端菜单；它不打开网络端口。恢复只写入 dsh 主目录旁边的一个新文件夹（文件使用 `O_EXCL | O_NOFOLLOW` 写入，符号链接最后写入且从不跟随），并拒绝以下归档：含有不安全名称（`..`、绝对路径）、设备文件或 FIFO、多于一个顶层文件夹，或位于链接之下的条目。
 
 ## 故障排除
 
@@ -170,6 +176,9 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **目标检查显示测试以代码 127 或 “not found” 退出：** 从 Finder 或程序坞启动的 dsh 的 PATH 可能比终端里的短，因此找不到 `npm`、`pnpm` 或 `cargo`。请从终端启动 dsh，或者在 **目标检查** → **编辑** 中用完整路径设置你自己的测试命令。**立即运行** 会马上显示结果。
 - **目标没有关闭，智能体一直在工作：** **目标检查** 发现了失败的测试或缺少的工作；目标下方的一行会显示原因（将鼠标悬停在结果上可查看详情）。请修正原因或测试命令，或者用 `/goal` 或目标栏自己完成目标（这不会被检查）。
 - **刚发布新版本时安装失败：** 请加上版本号（`dsh-composer-plus@1.15.0`），见上文的安装说明。
+- **立即备份显示“另一个备份操作正在进行”：** 另一个 dsh 窗口或救援控制台中正在运行一个操作（它们共用备份文件夹中的锁文件 `.composer-plus.lock`）。请等待它完成。如果没有操作在运行，下次点击时会接管已关闭进程留下的锁。
+- **救援控制台显示“dsh is running”：** 请先退出 dsh。如果 dsh 确实已关闭，消息中提到的文件是崩溃后留下的：删除它，然后重试。
+- **恢复后 dsh 无法启动或缺少插件：** 需要重新安装 profile 的插件包。恢复后，救援控制台会提供这一步；你也可以在它列出的 `$DSH_HOME/profiles/` 下的每个文件夹中运行 `pnpm install`。不在 vault 中的机密（另一台电脑）必须重新输入：控制台会列出它们。
 
 ## 限制
 
@@ -207,6 +216,10 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **输入时补全** 通过 dsh 自己的输入框提示显示文字（即 dsh 用于斜杠命令参数提示的 `--dsh-composer-hint` 样式）。输入斜杠命令、消息中带有文件或符号标签，或光标不在消息末尾时，它不会运行。如果 dsh 更新修改了这个样式，就不会显示补全。你每次输入停顿都会进行一次模型调用。
 - **优化提示词** 只能看到简短的项目概要、已更改的路径以及名称与你的用词匹配的路径，看不到代码本身。因此它可能漏掉正确的文件，并且只会提到提供给它的路径。发送前请先阅读新文本。输入斜杠命令或消息中带有文件或符号标签时，它不会运行（新文本是纯文本，标签会丢失）；一条消息最多 8,000 个字符。图片仍保留在附件中：只有文字会改变。每次点击都会进行一次模型调用；较强的模型可能需要一分钟（按 `Esc` 取消）。
 - **目标检查** 只检查智能体在自动目标轮次中做出的完成：你在对话中要求的完成、`/goal` 和目标栏都不会被检查。智能体可以自己修改测试或测试命令用到的文件；审核模型会阅读对话，可以看到这一点，但它在两个方向上都可能出错（错误的“尚未完成”会多花一轮；错误的“已完成”会关闭目标）。审核模型看到的是对话和 `git status`，而不是代码本身。只有当智能体最新的一步能更改文件的操作就是它自己在同一文件夹中成功运行完全相同命令的 `bash` 时，才会复用这次测试；带管道（`| tail`）或 `&&` 的命令不会被复用。预算在回合结束时计算，因此一个回合可能会超出预算。只计算对话自己的模型调用（不含其子智能体的调用）。检查运行期间 `update_goal` 会等待（测试最多 15 分钟，审核最多 3 分钟）。分支对话会得到新的对话 id，因此它开始时没有父对话自己的测试命令和上限。每次进入审核的完成都会花费一次模型调用。
+- **备份** 只使用一个固定文件夹 `~/Desktop/dsh-backups`（dsh-backup 的默认文件夹，因此它的归档仍然可用）；没有设置可以改用其他文件夹。归档大小约等于不含 `cache/` 和 `dsh-runtimes/` 的 dsh 主目录（实测：在 Apple Silicon 上，1.6 GB 的文件约用 30 秒生成 830 MB 的归档；期间 dsh 保持响应）。读取期间发生变化的文件，会按备份打开它时的状态保存，因此打开中的对话的日志末尾可能是一条被截断的记录，dsh 会在下次写入时修复它。遮蔽按单行中的键名查找 yml 文件中的机密（`token:`、`apiKey:`、…）；流式映射（`{token: x}`）中、此类键下的列表中、JSON 文件中（例如 `.json` 文件中某个 MCP 服务器的 `apiKey`）或使用其他名称的机密会留在归档中。dsh-backup 按类型生成的归档（`dsh-t-…`）不会列出。**用于另一台电脑** 会复制归档（在 APFS 上是克隆：不占用额外空间）；vault 不会随之复制。**立即备份** 不会删除任何备份。自动备份会保留 Composer Plus 生成的最新备份（**自动备份** 的 **保留** 设置），并删除它生成的更早备份；升级前的快照单独计数（保留最新的 2 份）。dsh-backup 的归档永远不会被删除：请用 **删除** 移除它们。只要 dsh-backup 仍已安装，它就会把 Composer Plus 的归档计入自己的保留份数，并可能删除它们。
+- **恢复** 只在 dsh 关闭时于救援控制台中运行：它会替换整个 dsh 主目录。旧目录会以 `.dsh.pre-restore-<time>` 保留在旁边，直到你删除它，因此磁盘需要能容纳两者。对话保留其项目路径：在另一台电脑上，位于其他路径的项目会显示为缺失，直到你重新添加它。指向 dsh 主目录之外的符号链接（例如从其他文件夹链接的技能）会作为链接恢复；它们的目标必须存在于那台电脑上。
+- **会话日志检查** 按照 dsh 自己判断能否打开的规则读取每个对话的最新日志：不是 JSON 或顺序错乱的行，只有在其后还有回合结束时才算损坏（否则 dsh 会打开该对话，只是不含从该行起的各行，因此不会列出它）。它不会按照 dsh 自己的事件规则检查日志中的事件，因此被判为健康的日志在 dsh 升级后仍可能无法打开。修复会从一份备份中取回副本：该备份之后的消息会从该对话中丢失（损坏的文件保留在旁边）。在此 dsh 中打开的对话不会在设置中修复：dsh 正持有它。
+- **自动备份** 只在 dsh 运行时运行：dsh 关闭期间到期的备份，会在下次启动后约 45 秒运行。新版本的快照在那次启动之后拍摄，而不是在更新之前。
 - 已向上游请求内置支持：队列 `move` 见 [#773](https://github.com/deepseek-ai/deepseek-harness/discussions/773)，“继续”状态见 [#9269](https://github.com/deepseek-ai/deepseek-harness/discussions/9269)。
 
 ## 常见问题
@@ -234,6 +247,14 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 **dsh 能在发送前优化我的提示词吗，就像 Roo Code 或 Augment 中的 Enhance prompt 按钮那样？** 可以，使用 **优化提示词**（默认开启）：输入一个粗略的请求，然后点击模型菜单旁边的魔法棒。它会以此对话和项目为上下文，用你的语言改写文字，但不会发送。`Cmd/Ctrl+Z` 或 **撤销优化** 可恢复你的原文。在 **设置 → Composer Plus → 优化提示词 → 模型** 中选择它的模型。
 
 **能否让智能体不再自己宣布工作已完成，就像 loop engineering 中的审核循环那样？** 可以，使用 **目标检查**（默认开启）：用 `/goal` 开始一个目标。当智能体说目标已完成时，会运行项目的测试，并由一次独立的模型调用对照对话检查目标；任一项失败时，目标保持进行中，智能体会看到原因。在目标下方的 **目标检查** 行中用 **编辑** 设置你自己的测试命令、时间上限或 token 上限。
+
+**dsh 能像 dsh-backup 那样备份我的对话和设置吗？** 可以：**设置 → Composer Plus → 备份 → 立即备份**。它把相同格式的归档写入同一个文件夹（`~/Desktop/dsh-backups`），因此 dsh-backup 的归档也会显示并可以恢复，你可以卸载 dsh-backup。打开 **自动备份** 即可按计划备份。
+
+**dsh 无法再启动了。如何恢复备份？** 打开备份文件夹（`~/Desktop/dsh-backups`），双击 `Composer Plus Rescue.command`（Linux：`composer-plus-rescue.sh`，Windows：`Composer Plus Rescue.cmd`）。选择 `3) Restore a backup`，选中一份备份并输入 `RESTORE`。它不需要 dsh 也能运行。
+
+**如何把 dsh 迁移到新电脑？** 在旧电脑上：**备份** → 某份备份旁边的 **用于另一台电脑**。把该文件夹复制到新电脑，在新电脑上安装 dsh 并退出它，然后打开复制过来的文件夹中的 `Composer Plus Rescue` 并恢复。请重新输入你的 API 密钥（它们留在旧电脑上）。
+
+**崩溃后某个对话打不开了。能修复吗？** **设置 → Composer Plus → 会话日志检查 → 检查会话日志**。用 **从备份修复** 可以从最新的备份中取回损坏的对话（该备份之后的消息会丢失）。
 
 **如何在 dsh 中调整排队消息的顺序？** 拖动排队消息上的 ⠿ 把手，或者让它获得焦点后按 `↑` / `↓`。
 

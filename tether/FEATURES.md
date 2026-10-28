@@ -49,3 +49,7 @@ While a Composer Plus action in this table waits for the Mac, Tether shows a wai
 | mobileConnect | yes | Tether itself. Settings → Privacy → Lock with Face ID locks the app (phone only). The paired iPhone list, Remove, Tailscale only and the access log are on the Mac's Mobile connect panel. |
 | worktreeChats | yes | A line under the chat title shows the chat's git branch, its changes and `↑/↓` or `not pushed`; a tap opens Changes. The composer's `+` menu → **New branch**: the next message (text, photos and files) starts a new chat on a new branch that the Mac names from the text, in its own worktree folder, and the phone opens it. While the Mac makes the branch, the text field takes no text. |
 | autoUpdate | no | Installs the plugin on the Mac. The iPhone app is built and installed separately. |
+| backup | no | Backups read and write the Mac's dsh home and its backup folder; they run on the Mac (Settings → Composer Plus → Backup), not from a phone. |
+| autoBackup | no | A schedule on the Mac; its switch is a Host switch, which the phone never changes. |
+| sessionDoctor | no | The check and the repair read and replace the Mac's session logs; they run on the Mac (Settings → Composer Plus → Session log check, or the rescue console). |
+| rescueConsole | no | A terminal menu in the Mac's backup folder for when dsh is closed or cannot start; a phone cannot reach dsh then. |
