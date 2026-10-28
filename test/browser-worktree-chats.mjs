@@ -1,6 +1,7 @@
 // Real-app check of Branch per chat (worktreeChats) on each dsh given (fake model, throwaway DSH_HOME, made-up git
 // project; headless):
-// - dsh 0.2.1+: the New chat screen shows the branch chip "main" between dsh's project and mode buttons, with their font,
+// - dsh 0.2.1+: the New chat screen shows the branch chip on "New branch" (the menu gives "Current branch (main)")
+//   between dsh's project and mode buttons, with their font,
 //   color, height and icons; the switch off removes the chip and its style and gives the row its own order back.
 //   With 15 other worktrees the chip's menu stops at 360 px, scrolls with the wheel and stays inside a low window.
 //   New branch + a first message with an image and a file (the composer takes no text while the Host works) → the fake model names
@@ -177,7 +178,13 @@ try {
       const hasHero = await chip.waitFor({ timeout: 8000 }).then(() => true, () => false);
       const wtPath = join(project, '.worktrees', 'feat-login-remember-me');
       if (hasHero) {
+        // A new chat starts on "New branch"; the user can still choose the current branch.
+        await page.waitForFunction(() => document.querySelector('[data-composer-plus-new-branch-chip]')?.getAttribute('data-composer-plus-new-branch-chip') === 'new', null, { timeout: 5000 });
+        assert.match(await chip.innerText(), /New branch/, 'the chip starts on New branch');
+        await chip.click(); await page.getByText('Current branch (main)', { exact: true }).click();
+        assert.equal(await chip.getAttribute('data-composer-plus-new-branch-chip'), 'current');
         assert.match(await chip.innerText(), /main/, 'the chip shows the current branch');
+        step('New chat starts on New branch; Current branch (main) can be chosen');
         // The chip sits between dsh's project and mode buttons and looks like them.
         const hero = await heroLayout(page);
         assert.ok(hero.project && hero.mode && hero.chip, `project, chip and mode show: ${JSON.stringify(hero)}`);

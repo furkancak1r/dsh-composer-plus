@@ -356,11 +356,13 @@ try {
   let g = await call('GET', undefined, '?sessionId=main&list=1');
   assert.equal(g.status, 200);
   const { worktrees, ...status } = g.data;
-  assert.deepEqual(status, { repo: true, root: S, top: S, worktree: false, branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0, changes: 2 });
+  assert.deepEqual(status, { repo: true, root: S, top: S, worktree: false, hasCommit: true, branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0, changes: 2 });
   assert.ok(Array.isArray(worktrees) && worktrees.length === 12 && worktrees[0].current && worktrees[0].main);
   assert.deepEqual(Object.keys(worktrees[1]).sort(), ['ahead', 'behind', 'branch', 'changes', 'current', 'main', 'path', 'upstream']);
   g = await call('GET', undefined, '?sessionId=wt');
-  assert.deepEqual(g.data, { repo: true, root: S, top: r1.path, worktree: true, branch: 'feat/dark-mode-toggle', upstream: 'origin/feat/dark-mode-toggle', ahead: 1, behind: 0, changes: 0 }, 'no list without list=1');
+  assert.deepEqual(g.data, { repo: true, root: S, top: r1.path, worktree: true, hasCommit: true, branch: 'feat/dark-mode-toggle', upstream: 'origin/feat/dark-mode-toggle', ahead: 1, behind: 0, changes: 0 }, 'no list without list=1');
+  // A repository with no commit says so: the New chat chip then does not choose "New branch" by itself.
+  assert.equal((await call('GET', undefined, '?sessionId=empty')).data.hasCommit, false);
   assert.deepEqual((await call('GET', undefined, '?sessionId=plain')).data, { repo: false });
   assert.deepEqual((await call('GET', undefined, '?sessionId=none')).data, { repo: false });
   assert.deepEqual((await call('GET', undefined, '')).data, { on: true }, 'no query: the switch');

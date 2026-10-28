@@ -136,6 +136,15 @@ try {
       await page.goto(url);
       for (const name of [/^Continue$/, /^Configure later$/]) { const b = page.getByRole('button', { name }); if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) { await b.click(); await b.waitFor({ state: 'hidden' }); } }
       const input = page.locator('[data-composer-input]'); await input.waitFor({ timeout: 20000 });
+      // Branch per chat starts a new chat on "New branch" (dsh 0.2.1+): choose the current branch, so that the agent's own
+      // `git switch -c` runs in the main folder. dsh 0.2.0 has no chip.
+      const stayOnCurrentBranch = async () => {
+        const chip = page.locator('[data-composer-plus-new-branch-chip]');
+        if (!(await chip.waitFor({ timeout: 8000 }).then(() => true, () => false))) return;
+        await page.waitForFunction(() => document.querySelector('[data-composer-plus-new-branch-chip]')?.getAttribute('data-composer-plus-new-branch-chip') === 'new', null, { timeout: 5000 });
+        await chip.click(); await page.getByText('Current branch (main)', { exact: true }).click();
+        await page.waitForFunction(() => document.querySelector('[data-composer-plus-new-branch-chip]')?.getAttribute('data-composer-plus-new-branch-chip') === 'current', null, { timeout: 5000 });
+      };
       // Off by default: the existing worktree is not a project.
       await pause(1500);
       assert.ok(!(await projectRows(page)).some((r) => r.text.includes('feat/search')), 'off by default: no branch project');
@@ -156,6 +165,7 @@ try {
       assert.ok(rows.indexOf(search) > rows.indexOf(main) && search.left > main.left, `nested in its project: ${JSON.stringify(rows)}`);
       step('Existing worktree branch added, nested in its project');
       // A chat in acme-web whose agent creates and checks out a branch: it moves into the branch.
+      await stayOnCurrentBranch();
       await input.click(); await page.keyboard.type('Start the login form'); await page.keyboard.press('Enter');
       await page.getByText('Moved: .worktrees/feat-login-form').first().waitFor({ timeout: 60000 });
       const wt = join(project, '.worktrees', 'feat-login-form');
@@ -186,6 +196,7 @@ try {
       const proj = page.locator('[data-row-key^="workspace:"]').filter({ hasText: 'acme-web' }).first();
       await proj.hover(); const plus = proj.getByRole('button', { name: /New session|New chat/i });
       if (await plus.count()) await plus.first().click(); await pause(800);
+      await stayOnCurrentBranch();
       await input.click(); await page.keyboard.type('Try a dirty branch'); await page.keyboard.press('Enter');
       await page.getByText('Dirty done.').first().waitFor({ timeout: 60000 }); await pause(1500);
       assert.equal(git(project, 'branch', '--show-current').trim(), 'feat/dirty', 'not clean: the folder stays on the new branch');
