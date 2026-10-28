@@ -4395,7 +4395,10 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       + '.cp-branch-chip:disabled{color:var(--dsw-alias-label-quaternary)}.cp-branch-chip>svg{flex:none}'
       + '.cp-branch-chip>.cp-branch-chevron{color:var(--dsw-alias-label-caption)}'
       + '[class*="_heroWorkspaceRow"]:has(>[class*="_heroOptions"] [data-composer-plus-new-branch-chip])>button[class*="_workspace"]{order:-2}'
-      + '[class*="_heroWorkspaceRow"]>[class*="_heroOptions"]:has([data-composer-plus-new-branch-chip]){order:-1;margin-left:0}';
+      + '[class*="_heroWorkspaceRow"]>[class*="_heroOptions"]:has([data-composer-plus-new-branch-chip]){order:-1;margin-left:0}'
+      // The chip's menu (up to 20 worktrees) stops at 360 px and scrolls; a lower window keeps dsh's own viewport limit.
+      // dsh's Menu scrolls its rows (`_scrollable ._viewport{overflow-y:auto}`); `[role=menu]` outranks its `_scrollable` max-height.
+      + '[role=menu].cp-branch-menu{max-height:min(360px,calc(100vh - 12px - max(12px,var(--dsh-frame-overlay-top,12px))))}';
     /** "⑂ <branch>" between the project and the mode button on the New chat screen (dsh 0.2.1+): start on the current
      * branch, on a new branch (the AI names it), or open another worktree of the repository. */
     function BranchChip({ sessionId, canBranch, ensureSink, openWorktree, viewT, t }) {
@@ -4436,7 +4439,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         primitives.IconChevronDownOutlineRegular === undefined ? null : React.createElement(primitives.IconChevronDownOutlineRegular, { size: 12, className: 'cp-branch-chevron' }));
       return React.createElement(React.Fragment, null, React.createElement('style', null, WORKTREE_CSS + BRANCH_CHIP_CSS),
         primitives.Menu === undefined ? trigger : React.createElement(primitives.Menu, { open, anchor: trigger, items, selectedId: mode === 'current' ? 'current' : 'new',
-          portal: true, align: 'start', onClose: () => setOpen(false), onSelect: select }));
+          portal: true, align: 'start', listClassName: 'cp-branch-menu', onClose: () => setOpen(false), onSelect: select }));
     }
     /** The open chat's branch in its header. Read on open, 500 ms after a turn ends and when the window gets the focus.
      * A click opens the Changes page while that feature is on. */
