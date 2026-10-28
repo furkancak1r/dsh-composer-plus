@@ -28,7 +28,7 @@ Son eklenenler:
 
 - **Mark all as read**: Oturumlar'da proje başlığının yanındaki **…** düğmesine dokunun. Projenin bütün yeşil noktaları telefonda ve Mac'in okunmamış listesinde gider. Aynı menüde **Copy path** da vardır.
 - **Copy message link**: bir mesajı basılı tutun. Bağlantı sohbeti ve mesajı gösterir. Mesajınızdaki bağlantının altında **Open message** düğmesi çıkar. Dokununca o sohbet açılır ve mesaj 2 sn işaretlenir.
-- **Kuyruktaki mesajı düzenleme**: kuyruk satırının menüsü → **Edit**. Mesaj kuyruktaki yerini korur.
+- **Kuyruktaki mesajı düzenleme**: kuyruk satırının menüsü → **Edit**. Metni değiştirin, görselleri ve dosyaları kaldırın ya da **Add photo or file** ile yenilerini ekleyin. Mesaj kuyruktaki yerini korur. Görsel ya da dosya içeren bir mesaj için Mac'teki Composer Plus'ın güncel olması gerekir.
 - **Redo**: geri almadan sonra yazı alanının üstünde **Redo** çıkar. Geri alınan tur yeni bir sohbette geri gelir; istenirse dosyalar da geri gelir. Eski sohbet olduğu gibi kalır.
 - **Changes → Mode → This chat** ve **Hide whitespace**: sohbetin dosya araçlarının yazdığı dosyalar ve yalnız boşluk değişikliklerini gizleme. **Mode** menüsünde beş görünüm vardır. **Hide whitespace** satırının yazısına dokunmak da anahtarı değiştirir.
 

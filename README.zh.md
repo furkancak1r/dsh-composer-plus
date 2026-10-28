@@ -46,10 +46,11 @@ dsh plugin --profile web add dsh-composer-plus
 | **输入历史** | <a id="feature-inputhistory"></a>在空输入框中按 `↑` / `↓`，可以像在终端里一样浏览你发送过的消息。 | <a href="assets/features/inputHistory.webp"><img src="assets/features/inputHistory.webp" width="160" alt="截图：输入历史"></a> |
 | **Shift+Tab 计划模式** | <a id="feature-plantoggle"></a>`Shift+Tab` 会在草稿开头添加 `/plan `（再按一次可移除）。如果对话已处于计划模式，`Shift+Tab` 会退出计划模式。 | <a href="assets/features/planToggle.webp"><img src="assets/features/planToggle.webp" width="160" alt="截图：Shift+Tab 计划模式"></a> |
 | **保持输入框焦点** | <a id="feature-keepfocus"></a>发送 `/` 命令或技能后，光标仍留在输入框中，你可以立即继续输入。对于输入命令后按 `Enter` 的键盘宏，这同样有效。dsh 在解析命令时会把输入框设为只读，浏览器随后会移除焦点。本功能会把焦点放回输入框，除非菜单、对话框或其他输入框正持有焦点。 | <a href="assets/features/keepFocus.webp"><img src="assets/features/keepFocus.webp" width="160" alt="截图：保持输入框焦点"></a> |
+| **问题卡片适应窗口** | <a id="feature-questionfit"></a>代理向你提问时，问题和答案在卡片中一起滚动，**跳过**和**提交**始终显示在底部。卡片使用窗口的高度（减去 200 px，留给对话标题和一部分对话），所以会随窗口变大变小。没有本功能时，dsh 把卡片限制在窗口的 60%（最多 520 px），并且只有答案可以滚动：较长的问题会把它自己的结尾、答案和按钮挤出卡片。 | <a href="assets/features/questionFit.webp"><img src="assets/features/questionFit.webp" width="160" alt="截图：问题卡片适应窗口"></a> |
 | **一键继续** | <a id="feature-continuebutton"></a>回合被停止、失败或中断后，空输入框会显示 **▶**。点击一次即可在现有对话的基础上继续，不需要在输入框中输入内容，也不会添加可见的对话消息（模型会收到一条简短的隐藏提示“从停止的地方继续”，因为部分提供商，例如 Claude，会拒绝以助手回复结尾的请求）。队列中的消息会保留：▶ 只继续被停止的任务，之后再运行队列。已完成的回合仍显示普通的发送按钮。 | <a href="assets/features/continueButton.webp"><img src="assets/features/continueButton.webp" width="160" alt="截图：一键继续"></a> |
 | **重启后继续** | <a id="feature-resumeafterrestart"></a>默认关闭：请在 **设置 → Composer Plus** 中开启。如果你在对话仍在运行时退出 dsh（或 dsh 被关闭），再次打开 dsh 后，该对话会自动继续，并使用与“一键继续”相同的隐藏提示。如果当时有目标轮次（`/goal`）正在运行，该目标会继续下一轮（dsh 每次启动时都会暂停目标，直到你恢复它们）。你停止的、已完成的或失败的对话不会继续。dsh 本身没有这项设置：它只会把这样的回合标记为已中断。 | <a href="assets/features/resumeAfterRestart.webp"><img src="assets/features/resumeAfterRestart.webp" width="160" alt="截图：重启后继续"></a> |
 | **队列拖拽排序** | <a id="feature-queuereorder"></a>排队的消息会带一个把手（⠿）。拖动它即可调整顺序，或者让把手获得焦点后按 `↑` / `↓`。按 `Esc` 取消。 | <a href="assets/features/queueReorder.webp"><img src="assets/features/queueReorder.webp" width="160" alt="截图：队列拖拽排序"></a> |
-| **原地编辑排队消息** | <a id="feature-queueedit"></a>双击一条排队的消息，它会变成 dsh 自带的编辑框：修改文字后按 `Enter` 保存，按 `Esc` 取消。消息在队列中的位置不变。带图片或文件的消息不能这样编辑（dsh 的队列只能编辑文字）。 | <a href="assets/features/queueEdit.webp"><img src="assets/features/queueEdit.webp" width="160" alt="截图：原地编辑排队消息"></a> |
+| **原地编辑排队消息** | <a id="feature-queueedit"></a>双击一条排队的消息，或点击它的编辑按钮（**编辑排队消息**），该行会打开一个编辑器：修改文字，用 ✕ 移除图片或文件，或用回形针按钮（**添加图片或文件**）或粘贴图片来添加新的。按 `Enter` 保存，按 `Esc` 取消，按 `Shift+Enter` 换行。消息在队列中的位置不变，你保留的图片和文件保持原样。编辑器打开时，队列不能重新排序。在 Tether 中：排队消息菜单 → Edit。 | <a href="assets/features/queueEdit.webp"><img src="assets/features/queueEdit.webp" width="160" alt="截图：原地编辑排队消息"></a> |
 | **复制会话链接** | <a id="feature-copydeeplink"></a>在侧边栏中右键点击对话 → **复制会话链接**。把 `dsh-session:…` 链接粘贴到另一个对话中，即可把那个对话作为只读上下文附加进来。dsh 0.2.1 自带 **复制 Session ID**，它只复制纯 ID；本菜单项紧跟在它后面。 | <a href="assets/features/copyDeeplink.webp"><img src="assets/features/copyDeeplink.webp" width="160" alt="截图：复制会话链接"></a> |
 | **复制消息链接** | <a id="feature-copymessagelink"></a>将鼠标悬停在一条消息上，点击 **🔗**（在它的操作栏中；回答的按钮在时间旁边）。链接是会话链接加上消息编号：`dsh-session:…#42`。把它粘贴到消息中并发送：在 dsh 0.2.1 及更高版本中，链接显示为一个标签，点击它会打开那个对话、滚动到该消息并高亮显示 2 秒。和会话链接一样，它也会把那个对话作为只读上下文附加进来。 | <a href="assets/features/copyMessageLink.webp"><img src="assets/features/copyMessageLink.webp" width="160" alt="截图：复制消息链接"></a> |
 | **将对话导出为 Markdown** | <a id="feature-exportmarkdown"></a>在侧边栏中右键点击对话（或打开它的 **…** 菜单）→ **导出为 Markdown…**。对话框会显示该对话有多少条消息；**复制到剪贴板** 会把对话以 Markdown 格式复制，**保存 .md 文件** 会通过浏览器的下载功能把它保存为 `<chat title>.md`（dsh 桌面版：按你的系统设置，保存到“下载”文件夹或打开保存对话框）。文件包含对话标题、项目名称和日期，之后每条消息各有一个 `## 你` 或 `## 助手` 部分。代码块保持原样；如果某条消息中的代码块没有闭合，它会被闭合。 | <a href="assets/features/exportMarkdown.webp"><img src="assets/features/exportMarkdown.webp" width="160" alt="截图：将对话导出为 Markdown"></a> |
@@ -117,7 +118,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 | `Esc` | 显示预测的空输入框 | 隐藏预测 |
 | `Cmd/Ctrl+Z` | 使用 **优化提示词** 后的输入框 | 恢复你输入的文本 |
 | `Esc` | **优化提示词** 运行时的输入框 | 取消优化 |
-| `Enter` / `Esc` | 你双击的排队消息 | 保存 / 取消编辑 |
+| `Enter` / `Esc` | 排队消息编辑器 | 保存 / 取消编辑 |
 | Mac 上为 `Cmd+F`，Windows 和 Linux 上为 `Ctrl+F` | 打开的对话 | 打开 **在对话中查找** |
 | `Enter` / `Shift+Enter`、`↓` / `↑` | **在对话中查找** 框 | 下一个 / 上一个匹配项 |
 | `Esc` | **在对话中查找** 框 | 关闭查找框 |
@@ -165,6 +166,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **删除时提示另一个 dsh 已打开此对话：** 使用同一 dsh home 的另一个 dsh 持有该对话的锁。关闭那个窗口或那个 dsh，然后再次删除。在此期间，对话会保持归档状态。
 - **开启“Tailscale only”后 iPhone 无法连接：** Mac 和 iPhone 上都必须开启 Tailscale。Mac 上的 Tailscale 关闭时，手机连接面板会发出警告。访问日志会显示每次被拒绝的尝试及其原因。
 - **重启后对话没有继续：** dsh 退出时“重启后继续”处于关闭状态；或者你自己停止了那个回合；或者回合已经结束（完成或失败）；或者对话已被归档；或者当时有超过 20 个对话正在运行（只有最新的 20 个会继续）。
+- **重启后队列是空的：** 清空队列的是 dsh 自己的退出流程。重启后继续只会在它继续的对话中放回队列；其他对话请重新发送消息。退出前刚删除的消息可能会回来：请再删除一次。
 - **创建 GitHub issue 提示“gh could not open the issue”：** 这条消息是 `gh` 自己输出的第一行。请在终端中运行 `gh auth status`，并用 `gh auth login` 登录；对话的文件夹必须有 GitHub 远程仓库（`git remote -v`）。“not installed or not on the PATH of dsh”表示 dsh 没有找到 `gh`：请安装它，或从一个能运行 `gh` 的终端启动 dsh。
 - **对话行上没有分支标签：** 安装此版本后，该对话还没有新的一轮；或者它的文件夹不是 git 仓库；或者 **对话行显示 Git 分支** 已关闭。更新后，请重启 dsh（分支由 Host 端记录）。
 - **目标检查显示测试以代码 127 或 “not found” 退出：** 从 Finder 或程序坞启动的 dsh 的 PATH 可能比终端里的短，因此找不到 `npm`、`pnpm` 或 `cargo`。请从终端启动 dsh，或者在 **目标检查** → **编辑** 中用完整路径设置你自己的测试命令。**立即运行** 会马上显示结果。
@@ -177,6 +179,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **功能创意** 会在内存中为每个对话保留卡片，直到 dsh 或页面重新加载；之后，**推荐功能** 会再次询问模型。卡片使用你点击时 dsh 的界面语言；更改语言后，已在卡片堆中的卡片保持原来的语言，**更多创意** 则使用新语言。模型只能看到简短的项目概要，看不到代码，因此某个创意可能与项目已有的功能重复：跳过它即可。只有当 profile 中有 dsh 的 `/plan` 命令时，新对话才会以计划模式运行；否则，创意会作为普通的第一条消息发送。**稍后** 列表属于对话的文件夹路径：通过符号链接打开的同一个文件夹有它自己的列表。每个项目最多保留 50 个创意（移除一个后才能再添加），相同的标题只保留一次。拖动卡片只能决定向左或向右；要保存卡片，请使用 **↓**；要直接实现，请使用 **▶**。重复只按标题判断：模型仍可能以新名称推荐以前的创意，跳过它即可。如果模型只返回以前的创意，就不会显示新的创意：请再点击一次。关注主题越窄，越容易出现这种情况；请换一个更宽的主题，或清除主题。在 dsh 或页面重新加载之前，每个对话的关注主题都会保留在输入框中。
 - **将对话导出为 Markdown** 只包含你自己的消息和助手的文字回复：工具调用及其输出、推理内容、图片（用一行 `[image]` 标记）、隐藏上下文以及被回合回退或 dsh-rewind-plugin 移除的消息都不包含在内。同一回合的回复会合并为一个部分。一次导出最多包含约 400 万个字符；更长的对话只导出前面的部分，并附上一条说明。
 - **重启后继续** 是继续回合，而不是重放回合。退出时正在运行的工具调用会以 dsh 的“结果未知”结果结束，模型会被告知不要重复已完成的工作，但不能安全运行两次的命令仍可能再次运行。当时打开的子代理、审批和问题不会恢复：它们的父对话会继续，并再次询问。每次启动最多继续 20 个对话。
+- **重启后继续** 与队列：dsh 退出时会清空对话的队列。插件会根据对话日志放回你排队的消息，顺序、编辑内容、图片和文件都保持不变；这些消息会在继续的回合之后运行。只有会继续的对话才会恢复队列（开关已打开，且在回合运行时退出）。你自己删除队列中最后几条消息时，dsh 也会以同样的方式记录：如果你删除后、下一步开始前 dsh 退出，这些消息会回来。
 
 - **内容搜索** 是 dsh 自带的搜索，因此也有 dsh 的限制。它只搜索用户消息和助手消息：不搜索工具输出（命令、文件内容、结果），也不搜索推理内容，并且不能按用户、助手或工具消息筛选。它匹配完整的词，而不是词的一部分（`deploy` 找不到 `deployment`）；不带重音的字母也能匹配带重音的字母（`seker` 能找到 `şeker`）。每个对话只显示一行，带有 dsh 的 240 字符摘录，最多显示 20 行。
 - **内容搜索** 的开销（在 247 个真实对话日志的副本上测得：159 MB，dsh 0.2.1-rc.2，Apple Silicon，32 GB）：每次启动后的第一次搜索会构建索引，约需 15 秒。在此期间，dsh 的 Host 约有 7 秒不响应任何请求，因此其他对话会在这段时间内暂停流式输出（页面本身不会卡住）。Host 的内存在峰值时约增加 1.1 GB；一分钟后仍比启动时高约 0.5–0.6 GB，直到 dsh 退出。索引文件约 165 MB。之后的搜索约需 0.5 秒。重启后，第一次搜索约需 1 秒（只添加新的或有改动的对话），内存约增加 70 MB。如果你的电脑内存较少，请关闭此功能。
@@ -187,10 +190,11 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - 如果新版本不改动任何 dsh 设置，dsh 0.2.1 会立即加载更新；否则（以及在 dsh 0.2.0 上），请重启 dsh 来加载更新。插件从不替你重启 dsh。没有 dsh 插件管理器的网页版/CLI profile 只会提示有新版本。
 - **本对话内允许** 从授权的那一刻开始计算时限。新的时限会立即应用于仍在生效的授权，因此更短的时限可能会让它们立即结束。1.12 及更早版本的授权没有时间信息：更新后，代理会就这些工具再询问一次。
 - **保持输入框焦点** 只在发送 `/` 命令或技能后才会把焦点还给输入框。dsh 解析命令时，输入框会有几毫秒处于只读状态，因此这段时间内按下的键会丢失。如果 dsh 的 `/` 菜单仍然打开，`Enter` 会选择高亮的行，而不会发送。
+- **问题卡片适应窗口** 只改变 dsh 的问题卡片，不改变计划审阅卡片。它通过 dsh 的标记（`data-question-key`、`data-question-scroll`）找到卡片；如果 dsh 更新改变了这些标记，卡片会按 dsh 自己的样子显示。卡片高度跟随窗口，而不是对话：在较窄侧边面板中的对话里，较高的卡片仍可能超出对话上方。
 - **手机连接** 只适用于 macOS（它使用 `en0`、`openssl`、`swift` 和 `dns-sd`）。它使用固定端口 19390 和 19391，因此每台 Mac 上同一时间只能有一个 dsh 运行它（每台 Mac 是手机 Mac 列表中的一项）。只有在 Tether 打开或刚转入后台时，手机才能收到通知（没有推送服务）。iOS 应用尚未上架 App Store：请用 Xcode 从 `tether/ios` 构建它。“Tailscale only”仍然需要 Mac 有 Wi-Fi 或以太网地址（只有在有这样的地址时，网关才会启动）。访问日志按 Mac 分别保存，只保留最新的 200 次尝试；一分钟内重复的尝试不会新增一行，而是把同一行的次数加一。Tether 的应用锁不会隐藏 iPhone 锁定屏幕上的通知预览：请在 iOS 设置中关闭它们。Tether 的绿点跟随 Mac：在 dsh 中打开的对话，手机上的绿点也会消失。在 Tether 中打开的对话，只在手机上消失；Mac 上 dsh 自己的绿点会一直保留，直到你在 Mac 上打开该对话。
 - 会话链接在对话中有效；点击它不会打开对应的对话。用 **复制消息链接** 复制的链接，只在 dsh 0.2.1 及更高版本中、并且只从对话中的消息里才能打开对应的消息（dsh 0.2.0 没有用户文本规则，所以链接仍会被复制，但只显示为普通文本）。被回退移除的消息，或被压缩从 dsh 加载的历史中移除的消息，无法显示：此时链接会给出提示。🔗 按钮依附在 dsh 的消息行上；如果 dsh 更新改变了这部分标记，按钮就不会显示。
 - **全部标为已读** 通过 dsh 中一个不是公开 API 的部分（dsh 会话状态中的 `completionUnread` 列表）来更改 dsh 自己的未读圆点。如果 dsh 更新重命名了它，该菜单项就不会显示。该菜单项放在 dsh 项目的“…”菜单中，而这个菜单没有给插件的插槽；如果 dsh 修改了这个菜单，该菜单项也不会显示。
-- **原地编辑排队消息** 打开的是 dsh 自带的队列编辑器，因此也有它的限制：带图片或文件的消息不能编辑；在此期间已经开始发送的消息不会被修改（dsh 会显示它自己的错误）。
+- **原地编辑排队消息** 不会修改在此期间已经开始发送的消息，也不会覆盖在此期间已被修改的消息（例如在 iPhone 上的 Tether 中修改的），并会显示提示说明这一点。新图片需要支持图片的模型（dsh 自身的图片限制同样适用），新文件必须上传完成后才能保存。只能编辑你自己的排队消息，不能编辑队列中的目标轮次或对问题的回答。插件更新后，只有纯文字的编辑能立即生效：保存带图片或文件的消息之前，请重启 dsh（Host 端在启动时加载）。
 - **重新应用** 从不更改被回退的对话：它会从回退之前开始一个新对话（dsh 自带的分叉，模型上下文相同），因此新对话有新的 id 和标题。只有对话中最新的一次回退可以重新应用，只能一次，并且只在它之后没有新内容时可用（发送新消息后该选项消失）。回退之后你更改过的文件会被保留，除非你勾选覆盖它的选项。重新应用需要回退时保留的快照（同样是最新 50 个快照的范围）；在此版本之前做的回退，或用 **仅对话** 做的回退，只会恢复消息。
 - **本对话** 只统计 dsh 的文件工具（`write`、`edit`、`str_replace_editor`）写入的文件。命令（`bash`）更改的文件不在这个视图中；它们显示在 **未提交** 下。如果没有该对话的回合回退快照（回合回退已关闭、安装了 dsh-rewind-plugin，或对话比插件更早），视图会与最后一次提交比较，并给出提示。回合回退为每个对话保留最新的 50 个快照：在更长的对话中，视图与保留的最早快照比较，说明从哪条消息开始，并且不计入更早的改动。**隐藏空白改动** 就是 `git diff -w`：只在行内空格上有变化的行也会被隐藏。
 - **创建 GitHub issue** 需要 dsh 的 PATH 中有 GitHub CLI（`gh`），并且对话的文件夹中有 GitHub 远程仓库。它最多运行 60 秒；如果 `gh` 用时更长，issue 可能已经在 GitHub 上创建，但列表中没有它的链接（再次点击之前，请先到 GitHub 上查看：列表只从已完成的运行中读取链接，所以再次点击可能会创建第二个 issue）。有多个 GitHub 远程仓库的文件夹使用 `gh` 自己的默认仓库（`gh repo set-default`）。
@@ -238,7 +242,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 **如何在 dsh 中调整排队消息的顺序？** 拖动排队消息上的 ⠿ 把手，或者让它获得焦点后按 `↑` / `↓`。
 
-**如何修改排队消息中的错字？** 在队列中双击这条消息，修改文字后按 `Enter`（按 `Esc` 取消）。它在队列中的位置不变。
+**如何修改排队消息中的错字？** 在队列中双击这条消息，修改文字后按 `Enter`（按 `Esc` 取消）。它在队列中的位置不变。你也可以在那里移除它的图片和文件，或添加新的。
 
 **如何一次清除一个项目的所有未读圆点？** 侧边栏 → 项目的 **…** 按钮 → **全部标为已读**。
 
@@ -298,10 +302,14 @@ PLAYWRIGHT=/path/to/playwright node test/browser-whats-new.mjs /path/to/dsh/lib/
 PLAYWRIGHT=/path/to/playwright node test/browser-readme-anchors.mjs
 # Keep composer focus (fake model + demo skill): typing goes on after a / command + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/dsh/lib/bin.js
+# Fit question card to window (fake model asks a long question at 1280 × 820): question, answers, Skip and Submit readable, height follows the window + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-question-fit.mjs /path/to/dsh/lib/bin.js
 # Mobile connect: switch on, QR popover, a fake iPhone pairs and calls dsh through the gateway, switch off + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js
 # Resume after restart (fake slow model, real quit and start): a running chat and a goal continue, a stopped chat does not
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-resume-restart.mjs /path/to/dsh/lib/bin.js
+# Resume after restart with a queue (fake model, real quit and start): text, image, file, a drag and an edit come back in order
+PLAYWRIGHT=/path/to/playwright node test/browser-resume-queue.mjs /path/to/dsh/lib/bin.js
 # Feature ideas (fake model, made-up project): suggest, drag left, Undo, ✓ starts a new chat in plan mode, ▶ Build now one without, Plan all one for the Later list, a focus topic chip, Copy as checklist + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js
 # Export chat as Markdown (fake model, made-up project): right-click → Export as Markdown…, copy and save keep the code blocks, switch off + its thumbnail
@@ -328,6 +336,8 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path
 # Queue drag-and-drop and Continue with a queued message (slow fake model)
 PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
 PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
+# Edit queued message in place with images and files (slow fake model) + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-queue-edit.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
