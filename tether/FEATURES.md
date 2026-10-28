@@ -33,6 +33,7 @@ While a Composer Plus action in this table waits for the Mac, Tether shows a wai
 | inputHistory | no | Needs ↑/↓ keys. Touch and hold your message → Edit or Resend does the same on a phone. |
 | planToggle | yes | The plan button in the composer: adds or removes `/plan`, or leaves plan mode. |
 | keepFocus | no | A desktop browser focus problem. The iPhone keyboard keeps its focus. |
+| questionFit | no | A fix for dsh's question card in the desktop window. Tether shows a question in its own sheet (a scrolling form), where the question and every answer scroll. |
 | queueReorder | yes | Queued message menu → Move up / Move down. Messages with images move too (the Mac's `queue-move` route). |
 | queueEdit | yes | Queued message menu → Edit (an alert): the message keeps its place in the queue. |
 | copyDeeplink | yes | Chat title menu, or touch and hold a chat → Copy session link. |

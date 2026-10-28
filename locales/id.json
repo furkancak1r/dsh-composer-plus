@@ -1615,6 +1615,8 @@
     "feature.planToggle.description": "Shift+Tab menambahkan atau menghapus /plan, atau keluar dari mode rencana.",
     "feature.keepFocus": "Pertahankan fokus composer",
     "feature.keepFocus.description": "Setelah Anda mengirim perintah /, kursor tetap berada di composer.",
+    "feature.questionFit": "Sesuaikan kartu pertanyaan dengan jendela",
+    "feature.questionFit.description": "Saat agen mengajukan pertanyaan, pertanyaan dan jawabannya bergulir bersama di kartu, Lewati dan Kirim tetap terlihat, dan kartu memakai tinggi jendela.",
     "feature.queueReorder": "Seret dan lepas antrean",
     "feature.queueReorder.description": "Ubah urutan pesan dalam antrean dengan menyeret pegangannya.",
     "feature.copyDeeplink": "Salin tautan sesi",

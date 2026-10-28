@@ -1615,6 +1615,8 @@
     "feature.planToggle.description": "Shift+Tab で /plan を追加・削除するか、計画モードを終了します。",
     "feature.keepFocus": "入力欄のフォーカスを維持",
     "feature.keepFocus.description": "/ コマンドを送信した後も、カーソルは入力欄に残ります。",
+    "feature.questionFit": "質問カードをウィンドウに合わせる",
+    "feature.questionFit.description": "エージェントが質問すると、質問と回答がカード内で一緒にスクロールし、「スキップ」と「送信」は常に表示され、カードはウィンドウの高さを使います。",
     "feature.queueReorder": "キューのドラッグ＆ドロップ",
     "feature.queueReorder.description": "ハンドルをドラッグしてキュー内のメッセージを並べ替えます。",
     "feature.copyDeeplink": "セッションリンクをコピー",

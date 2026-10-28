@@ -3079,6 +3079,8 @@
     "feature.planToggle.description": "Shift+Tab, /plan komutunu ekler veya kaldırır; plan modundan da çıkabilir.",
     "feature.keepFocus": "Mesaj alanında odağı koru",
     "feature.keepFocus.description": "/ komutu gönderdikten sonra imleç mesaj alanında kalır.",
+    "feature.questionFit": "Soru kartını pencereye sığdır",
+    "feature.questionFit.description": "Ajan size bir soru sorduğunda soru ve cevaplar kartta birlikte kayar, Atla ve Gönder görünür kalır ve kart pencerenin yüksekliğini kullanır.",
     "feature.queueReorder": "Kuyrukta sürükle bırak",
     "feature.queueReorder.description": "Tutamacı sürükleyerek sıradaki mesajların yerini değiştirin.",
     "feature.copyDeeplink": "Oturum bağlantısını kopyala",
