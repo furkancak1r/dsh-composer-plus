@@ -20,6 +20,7 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.unread` | GET | `{unread: [sessionId]}`: Tether's green dots, the chats that finished and that no device opened yet (empty while Mobile connect is off). | mobileConnect | yes |
 | `/api/composer-plus.unread` | POST | `{sessionIds}` (1–1000 ids): these chats are read; answers the new `{unread}` and tells the phones. | mobileConnect | yes |
 | `/api/composer-plus.queue-move` | POST | `{sessionId, itemId, to, before}`: move one queued message in dsh's queue. | queueReorder | yes |
+| `/api/composer-plus.queue-edit` | POST | `{sessionId, itemId, content, seen?}`: give one of your own queued messages new text, images and files (kept attachments by `attachmentId`, a new image as bytes, a new file by its upload `receiptId`); the message keeps its id and its place. | queueEdit | yes |
 | `/api/composer-plus.branches` | GET | `{on, branches: { [sessionId]: branch }}`: the git branch of each chat's folder at its last turn (none while off). | sessionBranch | yes |
 | `/api/composer-plus.branches` | POST | `{on}`: the switch (Settings only; the phone gateway refuses it). | sessionBranch | no |
 | `/api/composer-plus.rollback` | GET | No query: the switch `{on}`. `?sessionId`: the withdrawn spans, whether dsh-rewind-plugin owns rollback, and the rollback that Redo can take back (`redo`). | turnRollback | yes |

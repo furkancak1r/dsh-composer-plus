@@ -49,7 +49,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **원클릭 계속** | <a id="feature-continuebutton"></a>턴이 중지되거나, 실패하거나, 중간에 끊긴 뒤에는 빈 입력란에 **▶**가 표시됩니다. 한 번 클릭하면 입력란에 아무것도 쓰지 않고, 보이는 채팅 메시지도 추가하지 않은 채 기존 대화를 이어 갑니다(모델은 “멈춘 곳에서 계속하라”는 짧은 숨은 메모를 받습니다. Claude 같은 일부 제공자는 어시스턴트 답변으로 끝나는 요청을 거부하기 때문입니다). 대기열의 메시지는 그대로 남습니다. ▶는 중지된 작업만 이어 가고, 그다음에 대기열이 실행됩니다. 완료된 턴 뒤에는 일반 보내기 버튼이 그대로 있습니다. | <a href="assets/features/continueButton.webp"><img src="assets/features/continueButton.webp" width="160" alt="스크린샷: 원클릭 계속"></a> |
 | **재시작 후 이어서 실행** | <a id="feature-resumeafterrestart"></a>기본적으로 꺼져 있습니다. **설정 → Composer Plus**에서 켜세요. 채팅이 작업하는 중에 dsh를 종료하면(또는 dsh가 닫히면), dsh를 다시 열 때 그 채팅이 자동으로 이어집니다. 이때 원클릭 계속과 같은 숨은 메모를 씁니다. 목표 라운드(`/goal`)가 실행 중이었다면 목표는 다음 라운드로 계속됩니다(dsh는 시작할 때마다 목표를 일시 중지하고, 사용자가 재개할 때까지 기다립니다). 직접 중지한 채팅, 완료된 채팅, 실패한 채팅은 이어지지 않습니다. dsh 자체에는 이 설정이 없습니다. dsh는 이런 턴을 중단됨으로 표시할 뿐입니다. | <a href="assets/features/resumeAfterRestart.webp"><img src="assets/features/resumeAfterRestart.webp" width="160" alt="스크린샷: 재시작 후 이어서 실행"></a> |
 | **대기열 끌어서 놓기** | <a id="feature-queuereorder"></a>대기 중인 메시지에 핸들(⠿)이 생깁니다. 끌어서 순서를 바꾸거나, 핸들에 포커스를 두고 `↑` / `↓`를 누르세요. `Esc`는 이동을 취소합니다. | <a href="assets/features/queueReorder.webp"><img src="assets/features/queueReorder.webp" width="160" alt="스크린샷: 대기열 끌어서 놓기"></a> |
-| **대기 중인 메시지 제자리 편집** | <a id="feature-queueedit"></a>대기 중인 메시지를 더블클릭하세요. 메시지가 dsh 자체 편집 상자로 바뀝니다. 텍스트를 고친 뒤 `Enter`를 눌러 저장하거나 `Esc`를 눌러 취소하세요. 메시지는 대기열에서 자기 자리를 유지합니다. 이미지나 파일이 있는 메시지는 이 방법으로 편집할 수 없습니다(dsh 대기열은 텍스트만 편집합니다). | <a href="assets/features/queueEdit.webp"><img src="assets/features/queueEdit.webp" width="160" alt="스크린샷: 대기 중인 메시지 제자리 편집"></a> |
+| **대기 중인 메시지 제자리 편집** | <a id="feature-queueedit"></a>대기 중인 메시지를 더블클릭하거나 편집 버튼(**대기 중인 메시지 편집**)을 클릭하세요. 그 행 안에 편집기가 열립니다. 텍스트를 고치고, 이미지나 파일을 ✕로 제거하거나, 클립(**이미지 또는 파일 추가**)이나 이미지 붙여넣기로 새로 추가하세요. `Enter`는 저장, `Esc`는 취소, `Shift+Enter`는 줄 추가입니다. 메시지는 대기열에서 자기 자리를 유지하고, 남겨 둔 이미지와 파일은 그대로입니다. 편집기가 열려 있는 동안에는 대기열 순서를 바꿀 수 없습니다. Tether에서는 대기 중인 메시지 메뉴 → Edit입니다. | <a href="assets/features/queueEdit.webp"><img src="assets/features/queueEdit.webp" width="160" alt="스크린샷: 대기 중인 메시지 제자리 편집"></a> |
 | **세션 링크 복사** | <a id="feature-copydeeplink"></a>사이드바에서 채팅을 마우스 오른쪽 버튼으로 클릭 → **세션 링크 복사**. `dsh-session:…` 링크를 다른 채팅에 붙여 넣으면 그 채팅이 읽기 전용 컨텍스트로 첨부됩니다. dsh 0.2.1에는 자체 **세션 ID 복사**가 있지만, 이 메뉴는 ID만 복사합니다. 이 항목은 그 바로 다음에 표시됩니다. | <a href="assets/features/copyDeeplink.webp"><img src="assets/features/copyDeeplink.webp" width="160" alt="스크린샷: 세션 링크 복사"></a> |
 | **메시지 링크 복사** | <a id="feature-copymessagelink"></a>메시지 위에 포인터를 올리고 **🔗**를 클릭하세요(메시지의 작업 줄에 있고, 답변에서는 시간 옆에 있습니다). 링크는 세션 링크 뒤에 메시지 번호를 붙인 것입니다: `dsh-session:…#42`. 이 링크를 메시지에 붙여 넣고 보내세요. dsh 0.2.1 이상에서는 링크가 칩으로 표시됩니다. 칩을 클릭하면 그 채팅이 열리고, 메시지로 스크롤한 뒤 2초 동안 강조 표시합니다. 세션 링크처럼 그 채팅을 읽기 전용 컨텍스트로도 첨부합니다. | <a href="assets/features/copyMessageLink.webp"><img src="assets/features/copyMessageLink.webp" width="160" alt="스크린샷: 메시지 링크 복사"></a> |
 | **채팅을 Markdown으로 내보내기** | <a id="feature-exportmarkdown"></a>사이드바에서 채팅을 마우스 오른쪽 버튼으로 클릭(또는 채팅의 **…** 메뉴 열기) → **Markdown으로 내보내기…**. 대화 상자에 채팅의 메시지 수가 표시됩니다. **클립보드에 복사**는 채팅을 Markdown으로 복사하고, **.md 파일 저장**은 브라우저 다운로드로 `<chat title>.md` 파일을 저장합니다(dsh 데스크톱: 시스템 설정에 따라 다운로드 폴더에 저장되거나 저장 대화 상자가 열립니다). 파일에는 채팅 제목, 프로젝트 이름, 날짜가 들어가고, 그 뒤에 메시지마다 `## 나` 또는 `## 어시스턴트` 섹션이 하나씩 이어집니다. 코드 블록은 그대로 유지됩니다. 메시지가 닫지 않은 코드 블록은 닫힙니다. | <a href="assets/features/exportMarkdown.webp"><img src="assets/features/exportMarkdown.webp" width="160" alt="스크린샷: 채팅을 Markdown으로 내보내기"></a> |
@@ -117,7 +117,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 | `Esc` | 예측이 표시된 빈 입력란 | 예측 숨기기 |
 | `Cmd/Ctrl+Z` | **프롬프트 개선**을 사용한 뒤의 입력란 | 입력한 텍스트 되돌리기 |
 | `Esc` | **프롬프트 개선**이 실행 중인 입력란 | 개선 취소 |
-| `Enter` / `Esc` | 더블클릭한 대기 중인 메시지 | 편집 저장 / 취소 |
+| `Enter` / `Esc` | 대기 중인 메시지 편집기 | 편집 저장 / 취소 |
 | Mac에서는 `Cmd+F`, Windows와 Linux에서는 `Ctrl+F` | 열린 채팅 | **채팅에서 찾기** 열기 |
 | `Enter` / `Shift+Enter`, `↓` / `↑` | **채팅에서 찾기** 상자 | 다음 / 이전 일치 항목 |
 | `Esc` | **채팅에서 찾기** 상자 | 상자 닫기 |
@@ -192,7 +192,7 @@ dsh `0.2.0-rc.2`(데스크톱과 웹)와 `0.2.1-rc.2`(웹)에서 테스트했습
 - **모바일 연결**은 macOS에서만 작동합니다(`en0`, `openssl`, `swift`, `dns-sd` 사용). 고정 포트 19390과 19391을 쓰므로, Mac마다 한 번에 dsh 하나에서만 실행할 수 있습니다(각 Mac은 휴대폰의 Mac 목록에서 항목 하나입니다). 휴대폰은 Tether가 열려 있거나 막 백그라운드로 간 동안에만 알림을 받습니다(푸시 서비스 없음). iOS 앱은 아직 App Store에 없습니다. Xcode로 `tether/ios`에서 빌드하세요. "Tailscale only"를 켜도 Mac에 Wi-Fi 또는 이더넷 주소가 있어야 합니다(게이트웨이는 그런 주소가 있을 때만 시작됩니다). 액세스 로그는 Mac마다 따로 있으며, 가장 최근의 시도 200개만 보관합니다. 1분 안에 반복된 시도는 새 행을 만들지 않고 같은 행의 횟수를 하나 늘립니다. Tether의 앱 잠금은 iPhone 잠금 화면의 알림 미리보기를 숨기지 않습니다. iOS 설정에서 끄세요. Tether의 초록 점은 Mac을 따릅니다. dsh에서 연 채팅은 휴대폰에서도 점이 사라집니다. Tether에서 연 채팅은 휴대폰에서만 점이 사라집니다. Mac에 있는 dsh 자체의 점은 Mac에서 그 채팅을 열 때까지 남습니다.
 - 세션 링크는 채팅 안에서 작동하지만, 클릭해도 채팅이 열리지는 않습니다. **메시지 링크 복사**로 만든 링크는 dsh 0.2.1 이상에서만, 그리고 채팅 안의 메시지에서만 그 메시지를 엽니다(dsh 0.2.0에는 사용자 텍스트 규칙이 없으므로, 링크는 복사되지만 일반 텍스트로 보입니다). 되돌리기로 빠진 메시지나, 압축으로 dsh가 불러오는 기록에서 빠진 메시지는 보여 줄 수 없습니다. 이때 링크가 그렇다고 알려 줍니다. 🔗 버튼은 dsh의 메시지 행에 붙습니다. dsh 업데이트로 그 마크업이 바뀌면 버튼이 표시되지 않습니다.
 - **모두 읽음으로 표시**는 공개 API가 아닌 dsh의 일부(dsh 세션 상태의 `completionUnread` 목록)를 통해 dsh 자체의 읽지 않음 점을 바꿉니다. dsh 업데이트로 이 이름이 바뀌면 항목이 표시되지 않습니다. 이 항목은 dsh의 프로젝트 "…" 메뉴에 들어가는데, 이 메뉴에는 플러그인용 슬롯이 없습니다. dsh가 이 메뉴를 바꾸면 이 항목도 표시되지 않습니다.
-- **대기 중인 메시지 제자리 편집**은 dsh 자체의 대기열 편집기를 열므로 그 제한도 따릅니다. 이미지나 파일이 있는 메시지는 편집할 수 없고, 그사이 전송이 시작된 메시지는 바뀌지 않습니다(dsh가 자체 오류를 표시합니다).
+- **대기 중인 메시지 제자리 편집**은 그사이 전송이 시작된 메시지를 바꾸지 않고, 그사이 바뀐 메시지(예: iPhone의 Tether에서 바꾼 메시지)를 덮어쓰지 않으며, 알림으로 이를 알려 줍니다. 새 이미지에는 이미지를 받는 모델이 필요하고(dsh 자체의 이미지 제한이 적용됩니다), 새 파일은 업로드가 끝나야 저장할 수 있습니다. 내 대기 중인 메시지만 편집할 수 있고, 대기열의 목표 라운드나 질문에 대한 답변은 편집할 수 없습니다. 플러그인을 업데이트한 뒤에는 텍스트만 바꾸는 편집만 바로 되며, 이미지나 파일이 있는 메시지를 저장하려면 먼저 dsh를 다시 시작해야 합니다(Host 쪽은 시작할 때 로드됩니다).
 - **다시 실행**은 되돌린 채팅을 절대 바꾸지 않습니다. 되돌리기 직전 시점부터 새 채팅을 시작하므로(dsh 자체 포크, 같은 모델 컨텍스트), 새 채팅은 새 ID와 제목을 가집니다. 채팅의 가장 최근 되돌리기만, 한 번만, 그리고 그 뒤에 아무것도 없을 때만 다시 실행할 수 있습니다(새 메시지를 보내면 이 선택지가 사라집니다). 되돌린 뒤 내가 바꾼 파일은 덮어쓰기 상자를 체크하지 않는 한 유지됩니다. 다시 실행에는 되돌리기가 보관한 스냅샷이 필요합니다(같은 50개 범위). 이 버전 이전에 한 되돌리기나 **채팅만**으로 한 되돌리기는 메시지만 다시 가져옵니다.
 - **이 채팅**은 dsh의 파일 도구(`write`, `edit`, `str_replace_editor`)가 쓴 파일만 셉니다. 명령(`bash`)이 바꾼 파일은 이 보기에 없고, **커밋 안 됨**에 표시됩니다. 채팅의 턴 되돌리기 스냅샷이 없으면(턴 되돌리기 꺼짐, dsh-rewind-plugin 설치됨, 또는 플러그인보다 오래된 채팅) 보기는 마지막 커밋과 비교하고 그렇다고 알려 줍니다. 턴 되돌리기는 채팅마다 최신 스냅샷 50개를 보관합니다. 더 긴 채팅에서는 보기가 보관된 가장 오래된 스냅샷과 비교하고, 어느 메시지부터인지 알려 주며, 그 이전의 변경은 세지 않습니다. **공백 변경 숨기기**는 `git diff -w`입니다. 줄 안의 공백만 바뀐 줄도 숨겨집니다.
 - **GitHub 이슈 열기**에는 dsh의 PATH에 있는 GitHub CLI(`gh`)와 채팅 폴더의 GitHub 원격 저장소가 필요합니다. 최대 60초 동안 실행됩니다. `gh`가 더 오래 걸리면, 이슈가 GitHub에는 만들어졌지만 목록에는 링크가 없을 수 있습니다(다시 클릭하기 전에 GitHub를 확인하세요. 목록은 끝난 실행에서만 링크를 읽으므로, 다시 클릭하면 두 번째 이슈가 열릴 수 있습니다). GitHub 원격 저장소가 둘 이상인 폴더는 `gh` 자체의 기본값(`gh repo set-default`)을 씁니다.
@@ -239,7 +239,7 @@ dsh `0.2.0-rc.2`(데스크톱과 웹)와 `0.2.1-rc.2`(웹)에서 테스트했습
 
 **dsh에서 대기 중인 메시지의 순서를 바꾸려면 어떻게 하나요?** 대기 중인 메시지의 ⠿ 핸들을 끌거나, 핸들에 포커스를 두고 `↑` / `↓`를 누르세요.
 
-**대기 중인 메시지의 오타를 고치려면 어떻게 하나요?** 대기열에서 메시지를 두 번 클릭하고, 텍스트를 고친 뒤 `Enter`를 누르세요(`Esc`는 취소). 메시지는 대기열에서 제자리를 유지합니다.
+**대기 중인 메시지의 오타를 고치려면 어떻게 하나요?** 대기열에서 메시지를 두 번 클릭하고, 텍스트를 고친 뒤 `Enter`를 누르세요(`Esc`는 취소). 메시지는 대기열에서 제자리를 유지합니다. 그곳에서 이미지와 파일을 제거하거나 새로 추가할 수도 있습니다.
 
 **프로젝트의 읽지 않음 점을 한 번에 모두 지우려면 어떻게 하나요?** 사이드바 → 프로젝트의 **…** 버튼 → **모두 읽음으로 표시**.
 
@@ -331,6 +331,8 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path
 # Queue drag-and-drop and Continue with a queued message (slow fake model)
 PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
 PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
+# Edit queued message in place with images and files (slow fake model) + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-queue-edit.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh

@@ -43,6 +43,7 @@ export const CONTENT_SEARCH_PATH = '/api/composer-plus.content-search';
 export const ROLLBACK_PATH = '/api/composer-plus.rollback';
 export const DELETE_CHAT_PATH = '/api/composer-plus.delete-chat';
 export const QUEUE_MOVE_PATH = '/api/composer-plus.queue-move';
+export const QUEUE_EDIT_PATH = '/api/composer-plus.queue-edit';
 export const PREDICT_PATH = '/api/composer-plus.predict';
 export const COMPLETE_PATH = '/api/composer-plus.complete';
 export const EXPORT_PATH = '/api/composer-plus.export';
@@ -1833,7 +1834,10 @@ export function apply(ctx) {
   installContentSearch(ctx, home);
   installRollback(ctx, home, snapshots);
   installDeleteChat(ctx, home, snapshots);
-  installQueueMove(ctx);
+  // One queue change (a move or an edit) per chat at a time.
+  const queueBusy = new Set();
+  installQueueMove(ctx, queueBusy);
+  installQueueEdit(ctx, queueBusy);
   installBranches(ctx, home);
   installPredict(ctx, home);
   installComplete(ctx, home);
@@ -1927,8 +1931,7 @@ export function installBranches(ctx, home) {
  * of `before`, with its images and files, in dsh's own inbox (the message keeps its id). dsh's queue `edit`
  * takes text only, so moving text between rows cannot move a message with an attachment. `before` (the ids the user
  * saw, in order) must still be the queue: a message that started to send meanwhile makes it 409, and nothing moves. */
-function installQueueMove(ctx) {
-  const busy = new Set();
+function installQueueMove(ctx, busy) {
   ctx.connection.fetch.register({
     path: QUEUE_MOVE_PATH, methods: ['POST'], requestBody: 'buffered',
     fetch: async (request) => {
@@ -1936,7 +1939,7 @@ function installQueueMove(ctx) {
       try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
       const { sessionId, itemId, to, before } = body ?? {};
       if (!isText(sessionId) || !isText(itemId) || !Number.isSafeInteger(to) || to < 0 || !Array.isArray(before) || !before.every((id) => isText(id))) return json({ error: 'bad request' }, 400);
-      if (busy.has(sessionId)) return json({ error: 'a move in this chat is already running' }, 409);
+      if (busy.has(sessionId)) return json({ error: 'a queue change in this chat is already running' }, 409);
       busy.add(sessionId);
       try {
         const found = await ctx.sessionController.resolveAgent(sessionId);
@@ -1974,6 +1977,110 @@ function installQueueMove(ctx) {
     },
   });
 }
+
+/** Edit queued message (Host half): `POST {sessionId, itemId, content}` gives one of your own queued next-turn messages
+ * new content in dsh's own inbox (`inbox.replace`: the same id, so the same place in the queue). dsh's queue `edit` takes
+ * text only and replaces the whole content, so it cannot edit a message with images or files. `content` parts, in order:
+ * - `{type:'text', text}`;
+ * - `{type:'image'|'file', attachmentId}`: keep that attachment of the message (the Host copies the message's own block);
+ * - `{type:'image', mediaType, data, name?}`: a new image (dsh's own admission: the checks and limits of a sent message);
+ * - `{type:'file', receiptId}`: a new file that the browser uploaded for this chat with dsh's file upload.
+ * The message must still be the one the user saw: a message that started to send or changed meanwhile is a 409. */
+const isEditPart = (p) => p !== null && typeof p === 'object' && (
+  (p.type === 'text' && Object.keys(p).length === 2 && typeof p.text === 'string' && p.text.length <= 1e6)
+  || ((p.type === 'image' || p.type === 'file') && Object.keys(p).length === 2 && isText(p.attachmentId, 512))
+  || (p.type === 'image' && Object.keys(p).every((k) => ['type', 'mediaType', 'data', 'name'].includes(k)) && isText(p.mediaType, 64)
+    && isText(p.data, 400e6) && (p.name === undefined || isText(p.name, 1024)))
+  || (p.type === 'file' && Object.keys(p).length === 2 && isText(p.receiptId, 128)));
+/** What the user sees of a queued message: its text and attachment ids, in order (the client sends the same as `seen`). */
+export const seenOf = (content) => content.map((b) => (b?.type === 'text' ? ['text', b.text] : [b?.type ?? null, b?.attachment?.attachmentId ?? null]));
+const deepFreeze = (v) => { if (v !== null && typeof v === 'object' && !Object.isFrozen(v)) { for (const x of Object.values(v)) deepFreeze(x); Object.freeze(v); } return v; };
+function installQueueEdit(ctx, busy) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  ctx.connection.fetch.register({
+    path: QUEUE_EDIT_PATH, methods: ['POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      const { sessionId, itemId, content } = body ?? {};
+      if (!isText(sessionId) || !isText(itemId) || !Array.isArray(content) || content.length === 0 || content.length > 100 || !content.every(isEditPart)
+        || !content.some((p) => p.type !== 'text' || p.text.trim() !== '')) return json({ error: 'bad request' }, 400);
+      if (busy.has(sessionId)) return json({ error: 'a queue change in this chat is already running' }, 409);
+      busy.add(sessionId);
+      try {
+        const found = await ctx.sessionController.resolveAgent(sessionId);
+        if ('error' in found) return json({ error: 'this chat is not available' }, 409);
+        const { agent } = found;
+        const inbox = agent.inbox;
+        if (inbox?.replace === undefined || !Array.isArray(inbox.nextTurn)) return json({ error: 'this dsh cannot edit queued messages' }, 409);
+        if (!isRootChat(agent.session)) {
+          const sub = ctx.sessionProjections?.snapshot?.(agent.session, ['subagent'])?.values?.subagent;
+          if (sub?.mode !== 'continuable') return json({ error: 'this chat cannot change its queue' }, 409);
+        }
+        const message = inbox.nextTurn.find((m) => m.id === itemId);
+        const gone = () => json({ error: 'this message is not in the queue any more, or it changed: it may have already started sending' }, 409);
+        const seen = JSON.stringify(seenOf(message?.content ?? []));
+        // `seen`: what the user saw of the message. Another device's edit meanwhile is not overwritten.
+        if (message === undefined || (body.seen !== undefined && JSON.stringify(body.seen) !== seen)) return gone();
+        if (message.source?.kind !== 'user') return json({ error: 'only your own queued messages can be edited' }, 409);
+        // Kept attachments: the message's own blocks (an attachment that it carries twice can be kept twice).
+        const own = new Map();
+        for (const block of message.content) {
+          const id = block?.attachment?.attachmentId;
+          if ((block.type === 'image' || block.type === 'file') && typeof id === 'string') own.set(`${block.type}:${id}`, [...(own.get(`${block.type}:${id}`) ?? []), block]);
+        }
+        const kept = [];
+        for (const p of content) {
+          if (p.attachmentId === undefined) continue;
+          const block = own.get(`${p.type}:${p.attachmentId}`)?.shift();
+          if (block === undefined) return json({ error: 'an attachment is not in this message any more' }, 409);
+          kept.push(block);
+        }
+        // New files: the receipts of uploads for this chat; new images: dsh's admission (bytes, type and size limits).
+        const fileUploads = get('fileUploads'), attachments = get('attachments');
+        const receipts = content.filter((p) => p.receiptId !== undefined).map((p) => p.receiptId);
+        if (receipts.length > 0 && (fileUploads?.resolve === undefined || fileUploads.bindPrompt === undefined)) return json({ error: 'this dsh cannot add files to a queued message' }, 409);
+        const files = receipts.map((id) => fileUploads.resolve(agent, id));
+        if (files.includes(undefined)) return json({ error: 'a new file is not uploaded for this chat: add it again' }, 409);
+        const images = content.filter((p) => p.data !== undefined).map(({ type, mediaType, data, name }) => ({ type, mediaType, data, ...(name === undefined ? {} : { name }) }));
+        // dsh's per-message image count (20 by default) counts the kept images too. ponytail: the aggregate byte limit is
+        // checked only for the new images (dsh's admission); kept images were checked when they were sent.
+        const maxImages = attachments?.imageLimits?.maxImagesPerMessage;
+        if (Number.isSafeInteger(maxImages) && kept.filter((b) => b.type === 'image').length + images.length > maxImages) {
+          return json({ error: `a message can have at most ${maxImages} images` }, 400);
+        }
+        let admitted = [];
+        if (images.length > 0) {
+          if (attachments?.admitPromptContent === undefined) return json({ error: 'this dsh cannot add images to a queued message' }, 409);
+          // The chat's model must take images, as for a sent message. ponytail: without dsh's selection or model info
+          // (another dsh build), the model check is left out and dsh's own admission still checks the image itself.
+          const current = ctx.sessionController.agents?.selectionFor?.(agent)?.current;
+          const info = current === undefined ? undefined : await get('llm')?.resolveModelInfo?.(current.provider, current.model).catch(() => undefined);
+          if (Array.isArray(info?.inputModalities) && !info.inputModalities.includes('image')) return json({ error: `Model "${current.model}" does not support image input.` }, 400);
+          admitted = await attachments.admitPromptContent(images);
+        }
+        let keep = 0, image = 0, file = 0;
+        const next = content.map((p) => (p.type === 'text' ? { type: 'text', text: p.text }
+          : p.attachmentId !== undefined ? kept[keep++]
+            : p.data !== undefined ? admitted[image++] : { type: 'file', attachment: files[file++] }));
+        // Image admission waits: the message must still be there with the same content (a send, a removal or another edit).
+        const now = inbox.nextTurn.find((m) => m.id === itemId);
+        if (now === undefined || JSON.stringify(seenOf(now.content)) !== seen) return gone();
+        const rpcId = message.source.rpcId;
+        const binding = receipts.length > 0 && typeof rpcId === 'string' ? fileUploads.bindPrompt(agent, receipts, rpcId) : undefined;
+        try {
+          if (!inbox.replace(itemId, deepFreeze(structuredClone({ ...now, content: next })))) return gone();
+          binding?.commit();
+        } finally { binding?.[Symbol.dispose]?.(); }
+        return json({ edited: true });
+      } catch (error) {
+        if (attachmentsError(get, error)) return json({ error: String(error.message) }, 400);
+        return json({ error: String(error?.message ?? error) }, 500);
+      } finally { busy.delete(sessionId); }
+    },
+  });
+}
+const attachmentsError = (get, error) => { try { return get('attachments')?.isAttachmentError?.(error) === true; } catch { return false; } };
 
 /** Wait until the agent is idle, at most `ms`; false on time-out. */
 async function idleWithin(agent, ms) {
