@@ -1,14 +1,16 @@
-// Real-app check of the Changes panel Tree (the branch list) on each dsh given: a fake model, a throwaway DSH_HOME and a made-up
-// project with a git history (main, a merged side branch, an open feature branch, a tag, origin/main). Never the normal
-// DSH_HOME and no real model. Headless.
-// 1. A finished chat in the demo project; the right sidebar → Changes shows Uncommitted with the branch chip "main → origin/main".
-// 2. A click on the branch chip opens the branch list: local branches (main marked current), then remote ones; no commits.
-// 3. A click on a branch shows its commits (first-parent line); a click on a commit shows its files; a click on a file
-//    shows its diff. ← goes back one step and marks the row that was open, in view (measured with getBoundingClientRect:
-//    the page is in a background tab, so nothing waits for paint).
-// 4. A branch that is deleted while it is open says so.
-// 5. The mode menu has Tree; Uncommitted leaves it. The project's git state is unchanged (no checkout, no write).
-// 6. Switch the feature off in Settings: the Changes page is gone; on again: it is back.
+// Real-app check of the Changes panel Tree (the branch map) on each dsh given: a fake model, a throwaway DSH_HOME and a made-up
+// project with a git history (main, develop, a feature branch merged into develop, a hotfix merged into main, two open
+// feature branches, tags, origin/main). Never the normal DSH_HOME and no real model. Headless.
+// 1. A finished chat in the demo project; the right sidebar → Changes opens on Tree: the branch map with the counts, a box
+//    per branch (blue main, green in main, orange not yet), rows by level, one arrow per branch to its target, the legend.
+// 2. The cards filter the map; the same card again shows all.
+// 3. A click on a box shows its commits (first-parent line); a click on a commit shows its files; a click on a file
+//    shows its diff. ← goes back one step and marks the box or row that was open, in view (measured with
+//    getBoundingClientRect: the page is in a background tab, so nothing waits for paint).
+// 4. Merged → the merge commit's files; Waiting → the files that the branch brings into its target, and a diff.
+// 5. A branch that is deleted while it is open says so.
+// 6. The mode menu has Tree first; Uncommitted leaves it; the branch chip goes back. The project's git state is unchanged.
+// 7. Switch the feature off in Settings: the Changes page is gone; on again: it is back.
 // PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/changesPanel.webp (English UI, demo project only).
 import assert from 'node:assert/strict';
@@ -33,7 +35,7 @@ const fake = createServer((req, res) => {
     const last = JSON.stringify(JSON.parse(body).messages?.at(-1)?.content ?? '');
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo', choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`;
     res.writeHead(200, { 'content-type': 'text/event-stream' });
-    res.end(chunk({ role: 'assistant', content: /session title/i.test(last) ? 'Guest checkout' : 'The guest checkout branch is merged.' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
+    res.end(chunk({ role: 'assistant', content: /session title/i.test(last) ? 'Release plan' : 'Two branches wait to merge.' }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
   });
 }).listen(0, '127.0.0.1');
 await new Promise((r) => fake.once('listening', r));
@@ -41,27 +43,33 @@ const fakePort = fake.address().port;
 
 const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Demo', GIT_AUTHOR_EMAIL: 'demo@example.com', GIT_COMMITTER_NAME: 'Demo', GIT_COMMITTER_EMAIL: 'demo@example.com' };
 const git = (cwd, ...args) => execFileSync('git', args, { cwd, env: gitEnv, encoding: 'utf8' });
-/** The demo history (made-up project): 2 releases on main, a merged branch, an open branch and origin/main behind. */
+/** The demo history (made-up project, as the owner's sketch): develop with feature/login merged, feature/report waiting on
+ * develop, hotfix/payment merged into main, develop merged into main, feature/dark-mode waiting on main. */
 async function demoRepo(dir) {
-  await mkdir(join(dir, 'src/cart'), { recursive: true }); await mkdir(join(dir, 'test'), { recursive: true });
+  await mkdir(join(dir, 'src'), { recursive: true });
   let n = 0;
-  const commit = async (file, text, msg) => { await writeFile(join(dir, file), text); git(dir, 'add', file); git(dir, 'commit', '-q', '-m', msg, `--date=2026-10-${String(10 + n).padStart(2, '0')}T10:00:00`); n += 1; };
+  const when = () => `2026-10-${String(10 + n).padStart(2, '0')}T10:00:00`;
+  const commit = async (file, text, msg) => { await mkdir(join(dir, 'src'), { recursive: true }); await writeFile(join(dir, file), text); git(dir, 'add', file); git(dir, 'commit', '-q', '-m', msg, `--date=${when()}`); n += 1; };
+  const merge = (branch, msg) => { execFileSync('git', ['merge', '-q', '--no-ff', branch, '-m', msg], { cwd: dir, env: { ...gitEnv, GIT_COMMITTER_DATE: when(), GIT_AUTHOR_DATE: when() } }); n += 1; };
   git(dir, 'init', '-q', '-b', 'main');
   await commit('README.md', '# shop\n\nDemo project.\n', 'Initial commit');
-  await commit('src/cart/service.ts', 'export const cart = [];\n', 'Add the cart service');
   git(dir, 'tag', 'v1.0.0');
-  git(dir, 'checkout', '-q', '-b', 'guest-checkout');
-  await commit('src/cart/address.ts', "export function address(cart) {\n  if (cart.guest) return askAddress(cart);\n  return cart.user.address;\n}\n", 'Ask guests for an address');
-  await commit('test/cart.test.ts', "test('guest address', () => {});\n", 'Test the guest address step');
-  git(dir, 'checkout', '-q', 'main');
-  await commit('src/cart/service.ts', 'export const cart = [];\nexport const total = () => 0;\n', 'Add the cart total');
+  git(dir, 'checkout', '-q', '-b', 'develop');
+  await commit('src/app.ts', 'export const app = {};\n', 'Set up the app shell');
+  git(dir, 'checkout', '-q', '-b', 'feature/login');
+  await commit('src/login.ts', "export function login(user) {\n  if (!user.email) return 'Enter your email';\n  return 'ok';\n}\n", 'Add the login screen');
+  git(dir, 'checkout', '-q', 'develop'); merge('feature/login', 'Merge feature/login');
+  git(dir, 'checkout', '-q', '-b', 'feature/report');
+  await commit('src/report.ts', "export function report(orders) {\n  return orders.length + ' orders';\n}\n", 'Add the sales report');
+  git(dir, 'checkout', '-q', 'main'); git(dir, 'checkout', '-q', '-b', 'hotfix/payment');
+  await commit('src/payment.ts', 'export const retry = 3;\n', 'Retry a failed payment');
+  git(dir, 'checkout', '-q', 'main'); merge('hotfix/payment', 'Merge hotfix/payment');
   git(dir, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
-  git(dir, 'merge', '-q', '--no-ff', 'guest-checkout', '-m', 'Merge branch guest-checkout');
-  git(dir, 'checkout', '-q', '-b', 'dark-mode', 'HEAD~1');
+  merge('develop', 'Release 1.1.0');
+  git(dir, 'tag', 'v1.1.0');
+  git(dir, 'checkout', '-q', '-b', 'feature/dark-mode');
   await commit('src/theme.ts', "export const theme = 'dark';\n", 'Add a dark theme');
   git(dir, 'checkout', '-q', 'main');
-  await commit('CHANGELOG.md', '# 1.1.0\n\n- Guest checkout\n', 'Release 1.1.0');
-  git(dir, 'tag', 'v1.1.0');
   // A made-up remote (never fetched): main tracks origin/main, which the history above left one merge behind.
   git(dir, 'remote', 'add', 'origin', 'https://example.com/demo/shop.git');
   git(dir, 'config', 'branch.main.remote', 'origin'); git(dir, 'config', 'branch.main.merge', 'refs/heads/main');
@@ -122,88 +130,124 @@ try {
         const b = page.getByRole('button', { name });
         if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) { await b.click(); await b.waitFor({ state: 'hidden' }); }
       }
-      // 1. A finished chat, then Changes in the right sidebar.
+      // 1. A finished chat, then Changes in the right sidebar: it opens on Tree, the branch map.
       const input = page.locator('[data-composer-input]'); await input.waitFor();
-      await input.click(); await page.keyboard.type('Is the guest checkout branch merged?'); await page.keyboard.press('Enter');
-      await page.getByText('The guest checkout branch is merged.').first().waitFor({ timeout: 20000 });
+      await input.click(); await page.keyboard.type('Which branches wait to merge?'); await page.keyboard.press('Enter');
+      await page.getByText('Two branches wait to merge.').first().waitFor({ timeout: 20000 });
       await page.getByRole('button', { name: 'Open right sidebar' }).click(); await pause(700);
       await page.getByText('Changes', { exact: true }).first().click();
       const panel = page.locator('[data-composer-plus-changes]'); await panel.waitFor({ timeout: 8000 });
-      await panel.getByText('README.md', { exact: true }).waitFor({ timeout: 8000 });
+      const map = panel.locator('[data-composer-plus-map]'); await map.waitFor({ timeout: 8000 });
       const chip = panel.locator('[data-composer-plus-branch-chip]');
       assert.equal((await chip.innerText()).replace(/\s+/g, ''), 'main→origin/main');
-      // 2. The branch chip opens the branch list: local (current first), then remote; each with its last commit; no commits.
-      await chip.click();
-      const list = panel.locator('[data-composer-plus-branches]'); await list.waitFor({ timeout: 8000 });
-      const names = await list.locator('[data-composer-plus-branch]').evaluateAll((els) => els.map((e) => e.getAttribute('data-composer-plus-branch')));
-      assert.equal(names[0], 'main', 'the current branch first');
-      assert.deepEqual([...names.slice(1, 3)].sort(), ['dark-mode', 'guest-checkout']); assert.equal(names[3], 'origin/main', 'remote branches last');
-      assert.deepEqual(await list.getByRole('group').evaluateAll((els) => els.map((e) => e.getAttribute('aria-label'))), ['Local branches', 'Remote branches']);
-      const mainRow = list.locator('[data-composer-plus-branch="main"]');
-      assert.match(await mainRow.innerText(), /current/); assert.match(await mainRow.innerText(), /Release 1\.1\.0/, 'its last commit');
-      assert.doesNotMatch(await list.locator('[data-composer-plus-branch="dark-mode"]').innerText(), /current/);
+      const box = (name) => map.locator(`[data-composer-plus-branch="refs/heads/${name}"]`);
+      const pill = (name) => map.locator(`[data-composer-plus-pill="refs/heads/${name}"]`);
+      const states = await map.locator('[data-composer-plus-state]').evaluateAll((els) => els.map((e) => [e.getAttribute('data-composer-plus-branch').replace('refs/heads/', ''), e.getAttribute('data-composer-plus-state')]).sort());
+      assert.deepEqual(states, [['develop', 'merged'], ['feature/dark-mode', 'waiting'], ['feature/login', 'merged'], ['feature/report', 'waiting'], ['hotfix/payment', 'merged'], ['main', 'main']], 'origin/main is not repeated');
+      const cards = await map.locator('[data-composer-plus-map-card]').allInnerTexts();
+      assert.deepEqual(cards.map((x) => x.replace(/\s+/g, ' ').trim()), ['6 Total branches', '3 Merged', '2 Waiting to merge']);
+      const color = (name) => box(name).evaluate((e) => getComputedStyle(e).borderTopColor);
+      const [blue, green, orange] = [await color('main'), await color('feature/login'), await color('feature/report')];
+      assert.equal(new Set([blue, green, orange]).size, 3, `three box colors: ${blue} ${green} ${orange}`);
+      assert.equal(await color('develop'), green); assert.equal(await color('feature/dark-mode'), orange);
+      assert.equal(await pill('feature/login').innerText(), '✅ Merged'); assert.equal(await pill('feature/report').innerText(), '⏳ Waiting');
+      assert.equal(await map.locator('[data-composer-plus-pill="refs/heads/main"]').count(), 0, 'no label on main');
+      // Rows by level: main lowest; develop and hotfix one row above; login and report above develop.
+      const top = async (name) => (await box(name).boundingBox()).y;
+      assert.ok(await top('develop') < await top('main') && await top('feature/login') < await top('develop') && await top('feature/report') < await top('develop'), 'rows by level, main at the bottom');
+      assert.equal(Math.round(await top('develop')), Math.round(await top('hotfix/payment')), 'develop and hotfix on one row');
+      // One arrow per branch with a target (dashed when it waits); login's arrow ends at develop's box.
+      const arrows = await map.locator('[data-composer-plus-arrow]').evaluateAll((els) => els.map((e) => [e.getAttribute('data-composer-plus-arrow').replace('refs/heads/', ''), e.getAttribute('stroke-dasharray')]).sort());
+      assert.deepEqual(arrows, [['develop', null], ['feature/dark-mode', '4 3'], ['feature/login', null], ['feature/report', '4 3'], ['hotfix/payment', null]]);
+      const ends = await page.evaluate(() => {
+        const g = document.querySelector('[data-composer-plus-arrow="refs/heads/feature/login"]'); const path = g.querySelectorAll('path')[1];
+        const svg = g.ownerSVGElement.getBoundingClientRect(); const pt = path.getPointAtLength(path.getTotalLength());
+        const target = document.querySelector('[data-composer-plus-branch="refs/heads/develop"]').getBoundingClientRect();
+        return { x: svg.left + pt.x, y: svg.top + pt.y, left: target.left, right: target.right, top: target.top };
+      });
+      assert.ok(ends.x > ends.left && ends.x < ends.right && Math.abs(ends.y - ends.top) < 12, `login's arrow ends at the top of develop's box: ${JSON.stringify(ends)}`);
+      // Three arrows go into main: they end side by side, not on one point.
+      const intoMain = await page.evaluate(() => ['develop', 'hotfix/payment', 'feature/dark-mode'].map((n) => {
+        const p = document.querySelector(`[data-composer-plus-arrow="refs/heads/${n}"]`).querySelectorAll('path')[1]; return Math.round(p.getPointAtLength(p.getTotalLength()).x); }));
+      assert.equal(new Set(intoMain).size, 3, `arrow ends into main: ${intoMain}`);
+      assert.deepEqual(await map.getByText(/^(Green|Orange|Blue):/).allInnerTexts(), ['Green: in the main branch', 'Orange: not in the main branch yet', 'Blue: main branch']);
       assert.equal(await panel.locator('[data-composer-plus-commit]').count(), 0, 'no commits before a click');
-      assert.equal(await panel.locator('svg').count(), 0, 'no lanes');
-      // Keyboard: Tab from main to the next branch row shows the browser's focus ring.
-      await mainRow.focus(); await page.keyboard.press('Tab');
-      const ring = await page.evaluate(() => { const e = document.activeElement; return { name: e.getAttribute('data-composer-plus-branch'), visible: e.matches(':focus-visible'), outline: getComputedStyle(e).outlineStyle }; });
-      assert.equal(ring.name, names[1]); assert.equal(ring.visible, true);
-      assert.notEqual(ring.outline, 'none', 'the focused branch row has a focus ring');
-      // 3. A branch → its commits (first-parent line: the guest-checkout commits are behind the merge, not in main's list).
-      const inView = (sel) => page.evaluate((q) => {
-        const row = document.querySelector(q); const box = row.closest('[data-composer-plus-changes]').lastElementChild;
-        const r = row.getBoundingClientRect(); const b = box.getBoundingClientRect();
-        return { inside: r.top >= b.top - 1 && r.bottom <= b.bottom + 1, scrollable: box.scrollHeight > box.clientHeight };
-      }, sel);
-      await mainRow.click();
-      const commits = panel.locator('[data-composer-plus-commits="refs/heads/main"]'); await commits.waitFor({ timeout: 8000 });
-      const subjects = await commits.locator('[data-composer-plus-commit] > span:first-child').allInnerTexts();
-      assert.deepEqual(subjects, ['Release 1.1.0', 'Merge branch guest-checkout', 'Add the cart total', 'Add the cart service', 'Initial commit']);
-      assert.equal(await panel.locator('[data-composer-plus-tree-back]').innerText(), '← Branches');
-      await panel.locator('[data-composer-plus-tree-back]').click(); await list.waitFor();
-      await list.locator('[data-composer-plus-branch="guest-checkout"]').click();
-      const guest = panel.locator('[data-composer-plus-commits="refs/heads/guest-checkout"]'); await guest.waitFor({ timeout: 8000 });
-      assert.deepEqual(await guest.locator('[data-composer-plus-commit] > span:first-child').allInnerTexts(), ['Test the guest address step', 'Ask guests for an address', 'Add the cart service', 'Initial commit']);
-      // A commit: its files and a diff; ← guest-checkout marks it.
-      const side = git(project, 'rev-parse', 'guest-checkout~1').trim();
-      await guest.locator(`[data-composer-plus-commit="${side}"]`).click();
-      await panel.getByText('Ask guests for an address', { exact: true }).waitFor({ timeout: 8000 });
-      assert.equal(await panel.locator('[data-composer-plus-tree-back]').innerText(), '← guest-checkout');
-      await panel.getByText('src/cart/address.ts', { exact: true }).click();
-      await panel.getByText("+  if (cart.guest) return askAddress(cart);", { exact: true }).waitFor({ timeout: 8000 });
-      await panel.locator('[data-composer-plus-tree-back]').click(); await guest.waitFor({ timeout: 2000 });
-      assert.equal(await guest.locator(`[data-composer-plus-commit="${side}"]`).getAttribute('aria-current'), 'true', 'back: the commit that was open is marked');
-      // Low page: ← Branches marks guest-checkout, in view.
-      await page.setViewportSize({ width: 1280, height: 300 }); await pause(300);
-      await panel.locator('[data-composer-plus-tree-back]').click(); await list.waitFor({ timeout: 2000 });
-      assert.equal(await list.locator('[data-composer-plus-branch="guest-checkout"]').getAttribute('aria-current'), 'true', 'back: the branch that was open is marked');
-      await list.locator('[data-composer-plus-branch="origin/main"]').click(); await panel.locator('[data-composer-plus-commits="refs/remotes/origin/main"]').waitFor({ timeout: 8000 });
-      await panel.locator('[data-composer-plus-tree-back]').click(); await list.waitFor({ timeout: 2000 });
-      const view = await inView('[data-composer-plus-branch="origin/main"]');
-      assert.ok(view.scrollable, 'the list scrolls at this height'); assert.equal(view.inside, true, 'back: the branch is in view');
-      await page.setViewportSize({ width: 1280, height: 800 }); await pause(300);
       if (index === 0 && process.env.SHOT) {
-        // Settings picture: the branch list (the README hero keeps the diff view).
+        // Settings picture: the branch map.
         await page.mouse.move(5, 795); await pause(300);
         const png = join(home, 'changesPanel.png'); await page.screenshot({ path: png });
         execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', '1600', '0', png, '-o', join(repo, 'assets/features/changesPanel.webp')]);
       }
-      // 4. A branch that is deleted while it is open (the list refreshes every 15 s; ⟳ asks at once).
-      git(project, 'branch', 'gone-soon', 'dark-mode');
+      // 2. The cards filter: Waiting keeps the two waiting boxes and the boxes that their arrows reach; again → all.
+      await map.locator('[data-composer-plus-map-card="waiting"]').click();
+      await box('feature/login').waitFor({ state: 'detached', timeout: 3000 });
+      assert.equal(await map.locator('[data-composer-plus-state]').count(), 4, 'report, dark-mode, develop and main');
+      await map.locator('[data-composer-plus-map-card="waiting"]').click(); await box('feature/login').waitFor({ timeout: 3000 });
+      // Keyboard: a box has a focus ring.
+      await box('main').focus(); await page.keyboard.press('Tab');
+      const ring = await page.evaluate(() => { const e = document.activeElement; return { visible: e.matches(':focus-visible'), outline: getComputedStyle(e).outlineStyle }; });
+      assert.equal(ring.visible, true); assert.notEqual(ring.outline, 'none', 'the focused item has a focus ring');
+      // 3. A box → its commits (first-parent line: login's commit is behind develop's merge, not in main's list).
+      const inView = (sel) => page.evaluate((q) => {
+        const row = document.querySelector(q); const scroller = row.closest('[data-composer-plus-changes]').lastElementChild;
+        const r = row.getBoundingClientRect(); const b = scroller.getBoundingClientRect();
+        return { inside: r.top >= b.top - 1 && r.bottom <= b.bottom + 1, scrollable: scroller.scrollHeight > scroller.clientHeight };
+      }, sel);
+      await box('main').click();
+      const commits = panel.locator('[data-composer-plus-commits="refs/heads/main"]'); await commits.waitFor({ timeout: 8000 });
+      assert.deepEqual(await commits.locator('[data-composer-plus-commit] > span:first-child').allInnerTexts(), ['Release 1.1.0', 'Merge hotfix/payment', 'Initial commit']);
+      assert.equal(await panel.locator('[data-composer-plus-tree-back]').innerText(), '← Branch map');
+      await panel.locator('[data-composer-plus-tree-back]').click(); await map.waitFor();
+      assert.equal(await box('main').getAttribute('aria-current'), 'true', 'back: the box is marked');
+      await box('feature/login').click();
+      const login = panel.locator('[data-composer-plus-commits="refs/heads/feature/login"]'); await login.waitFor({ timeout: 8000 });
+      const sha = git(project, 'rev-parse', 'feature/login').trim();
+      await login.locator(`[data-composer-plus-commit="${sha}"]`).click();
+      await panel.getByText('src/login.ts', { exact: true }).click();
+      await panel.getByText("+  if (!user.email) return 'Enter your email';", { exact: true }).waitFor({ timeout: 8000 });
+      assert.equal(await panel.locator('[data-composer-plus-tree-back]').innerText(), '← feature/login');
+      await panel.locator('[data-composer-plus-tree-back]').click(); await login.waitFor({ timeout: 2000 });
+      assert.equal(await login.locator(`[data-composer-plus-commit="${sha}"]`).getAttribute('aria-current'), 'true', 'back: the commit is marked');
+      await panel.locator('[data-composer-plus-tree-back]').click(); await map.waitFor({ timeout: 2000 });
+      // 4. Merged → the merge commit's files; Waiting → what the branch brings into develop, with a diff.
+      await pill('feature/login').click();
+      await panel.locator('[data-composer-plus-detail="merge"]').waitFor({ timeout: 8000 });
+      assert.equal(await panel.locator('[data-composer-plus-detail]').innerText(), '✅ feature/login → develop');
+      await panel.getByText('src/login.ts', { exact: true }).waitFor({ timeout: 8000 });
+      await panel.locator('[data-composer-plus-tree-back]').click(); await map.waitFor({ timeout: 2000 });
+      await pill('feature/report').click();
+      await panel.locator('[data-composer-plus-detail="pending"]').waitFor({ timeout: 8000 });
+      assert.equal(await panel.locator('[data-composer-plus-detail]').innerText(), '⏳ feature/report → develop');
+      await panel.getByText('src/report.ts', { exact: true }).click();
+      await panel.getByText("+  return orders.length + ' orders';", { exact: true }).waitFor({ timeout: 8000 });
+      assert.equal(await panel.locator('[data-composer-plus-ws]').count(), 1, 'a diff: the whitespace switch shows');
+      await panel.locator('[data-composer-plus-tree-back]').click(); await map.waitFor({ timeout: 2000 });
+      assert.equal(await box('feature/report').getAttribute('aria-current'), 'true');
+      // Low page: ← marks the box that was open, in view.
+      await page.setViewportSize({ width: 1280, height: 300 }); await pause(300);
+      await box('main').click(); await commits.waitFor({ timeout: 8000 });
+      await panel.locator('[data-composer-plus-tree-back]').click(); await map.waitFor({ timeout: 2000 });
+      const view = await inView('[data-composer-plus-branch="refs/heads/main"]');
+      assert.ok(view.scrollable, 'the map scrolls at this height'); assert.equal(view.inside, true, 'back: the box is in view');
+      await page.setViewportSize({ width: 1280, height: 800 }); await pause(300);
+      // 5. A branch that is deleted while it is open (the map refreshes every 15 s; ⟳ asks at once).
+      git(project, 'branch', 'gone-soon', 'feature/report');
       await panel.getByRole('button', { name: 'Refresh' }).click();
-      await list.locator('[data-composer-plus-branch="gone-soon"]').waitFor({ timeout: 8000 });
-      await list.locator('[data-composer-plus-branch="gone-soon"]').click(); await panel.locator('[data-composer-plus-commits="refs/heads/gone-soon"]').waitFor({ timeout: 8000 });
+      await box('gone-soon').waitFor({ timeout: 8000 });
+      await box('gone-soon').click(); await panel.locator('[data-composer-plus-commits="refs/heads/gone-soon"]').waitFor({ timeout: 8000 });
       git(project, 'branch', '-D', 'gone-soon');
       await panel.getByRole('button', { name: 'Refresh' }).click();
       await panel.getByText('This branch no longer exists.', { exact: true }).waitFor({ timeout: 8000 });
-      await panel.locator('[data-composer-plus-tree-back]').click(); await list.waitFor({ timeout: 2000 });
-      await list.locator('[data-composer-plus-branch="gone-soon"]').waitFor({ state: 'detached', timeout: 8000 });
-      // 5. The mode menu: Tree is listed; Uncommitted leaves it.
+      await panel.locator('[data-composer-plus-tree-back]').click(); await map.waitFor({ timeout: 2000 });
+      await box('gone-soon').waitFor({ state: 'detached', timeout: 8000 });
+      // 6. The mode menu: Tree first; Uncommitted leaves it; the branch chip goes back to the map.
       await panel.getByRole('button', { name: /^Tree/ }).first().click();
-      await page.getByRole('menuitem', { name: 'Tree' }).or(page.getByRole('menuitemradio', { name: 'Tree' })).or(page.getByRole('menuitemcheckbox', { name: 'Tree' })).first().waitFor({ timeout: 5000 });
+      const items = await page.locator('[role^="menuitem"]').allInnerTexts();
+      assert.equal(items[0].trim(), 'Tree', 'Tree is the first item');
       await page.getByText('Uncommitted', { exact: true }).last().click();
-      await list.waitFor({ state: 'detached', timeout: 5000 });
+      await map.waitFor({ state: 'detached', timeout: 5000 });
       await panel.getByText('README.md', { exact: true }).waitFor({ timeout: 8000 });
+      await chip.click(); await map.waitFor({ timeout: 8000 });
       assert.equal(fingerprint(), before, 'the project git state is unchanged');
       // 6. The switch removes the page and puts it back.
       const setSwitch = async (on) => {
@@ -226,7 +270,7 @@ try {
       await panel.waitFor({ timeout: 8000 });
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: branch chip → branch list (main current, local then remote, no commits, focus ring) → main's first-parent commits → guest-checkout → commit → files → diff → ← marks the commit → ← marks the branch, in view on a low page → deleted branch note → menu Tree / Uncommitted → git state unchanged → switch off/on`);
+      console.log(`PASS ${bin}: opens on the branch map (6 boxes, counts, colors, rows, arrows, legend) → cards filter → box → commits → files → diff → back marks → Merged → merge commit → Waiting → pending files + diff → in view on a low page → deleted branch note → menu Tree first / Uncommitted / chip → git state unchanged → switch off/on`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});

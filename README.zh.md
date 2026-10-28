@@ -37,7 +37,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 | 功能 | 使用方法 | 截图 |
 |---|---|---|
-| **改动面板** | <a id="feature-changespanel"></a>右侧边栏 → `+` → **改动**。选择 **未提交**、**未暂存**、**已暂存** 或 **分支**，即可查看有改动的文件及其 `+/-` 行数；点击某个文件可查看它的差异。**上一轮** 会打开 dsh 自带的最近一轮改动审阅。点击分支名（或选择 **树**）即可查看分支树：点击上方的分支会跳到该分支，点击提交可查看它的文件及差异。**本对话** 只列出当前对话的文件工具（write、edit）在所有轮次中写入的文件，以及从第一条消息起的总差异。**␣** 按钮可隐藏空白改动（`git diff -w`）：仅缩进或换行符改变的行不显示。文件的 **…** 菜单 → **改动此文件的对话** 会列出同一仓库中用写入或编辑工具改动过该文件的对话（最新的在前）以及对应的请求；点击即可打开该对话并定位到那条请求。 | <a href="assets/features/changesPanel.webp"><img src="assets/features/changesPanel.webp" width="160" alt="截图：改动面板"></a> |
+| **改动面板** | <a id="feature-changespanel"></a>右侧边栏 → `+` → **改动**。页面打开时显示 **树**：对话所在仓库的分支图。三张卡片统计分支数量：全部分支、已合并的分支和等待合并的分支。点击一张卡片只显示这些分支；再次点击则显示全部分支。每个分支是一个方框，显示它的最后一个提交：主分支已包含它的工作时为绿色，未包含时为橙色，主分支本身为蓝色。每个分支都有一个箭头，指向合并了它的分支（✅ **已合并**），或指向它分出的那个分支（⏳ **等待中**，虚线）。点击方框可查看该分支的提交，再点击某个提交可查看它的文件及差异。点击 **已合并** 可查看合并提交的文件，点击 **等待中** 可查看该分支将带入其目标分支的文件。只有在没有同名本地分支时，才会显示远程分支。在模式菜单中选择 **未提交**、**未暂存**、**已暂存** 或 **分支**，即可查看有改动的文件及其 `+/-` 行数；点击某个文件可查看它的差异。**上一轮** 会打开 dsh 自带的最近一轮改动审阅。**本对话** 只列出当前对话的文件工具（write、edit）在所有轮次中写入的文件，以及从第一条消息起的总差异。**␣** 按钮可隐藏空白改动（`git diff -w`）：仅缩进或换行符改变的行不显示。文件的 **…** 菜单 → **改动此文件的对话** 会列出同一仓库中用写入或编辑工具改动过该文件的对话（最新的在前）以及对应的请求；点击即可打开该对话并定位到那条请求。 | <a href="assets/features/changesPanel.webp"><img src="assets/features/changesPanel.webp" width="160" alt="截图：改动面板"></a> |
 | **功能创意** | <a id="feature-featureideas"></a>右侧边栏 → `+` → **功能创意** → **推荐功能**。对话自己的模型会读取对话所属项目的简短概要（顶层文件、README 和清单文件的开头部分、README 其余部分的大纲、最近提交的标题），并推荐最多 8 个功能。这些功能以一叠卡片的形式显示，语言与 dsh 的界面语言一致。向右滑动卡片（或点击 **✓**，或按 `→`；无论哪种方式，卡片都会飞向对应的一侧），即可在同一项目中新建对话：新对话以计划模式启动，并把该创意作为请求，因此在你批准计划之前不会有任何改动。要跳过计划，请点击 **▶ 直接实现**（或按 `↑`；卡片会向上飞出）：新对话会立即启动，并把该创意作为普通请求，模型会做出改动并运行检查（审批照常适用）。向左滑动（或点击 **✕**，或按 `←`）可跳过；**撤销**（或按 `Z`）可找回跳过的卡片。点击 **↓**（或按 `↓`）可把好的创意留到以后：它会进入项目的 **稍后** 列表，同一项目文件夹中的每个对话都会显示这个列表（重启后也一样）。**稍后（N）** 会打开这个列表；**规划** 会为该创意启动同样的计划模式对话，**直接实现** 则启动不做规划的对话，两者都会把它从列表中移除；**全部合并规划（N）** 会为列表中的所有创意启动一个计划模式对话，因此共同的部分只需规划一次；**从列表中移除** 会删除它。**复制为清单** 会把整个列表以 Markdown 清单的形式复制到剪贴板（`- [ ] Title — Summary`，每个创意一行），可用于问题跟踪器或 TODO 文件；它不会发起任何网络请求。在某个创意上点击 **创建 GitHub issue**，会用你自己的 GitHub CLI（`gh`）登录，在项目的 GitHub 仓库中以该创意的标题和概要（以及理由）创建 issue；之后创意旁会显示 **Issue #N** 链接，点击即可打开该 issue。**更多创意** 会添加更多卡片。如果只想获得某一方面的创意，请在 **推荐功能** 旁边的输入框中输入一个简短的 **关注主题**（最多 80 个字符；按 `Enter` 也会开始推荐），或点击输入框下方的某个固定主题：**性能**、**无障碍**、**测试**、**安全**、**易用性** 或 **文档**（再次点击可清除）。之后，模型只会推荐与该主题相关的功能；输入框为空表示不限主题。同一项目中不会重复推荐同一个创意：每个推荐过的创意（跳过的、留到以后的或已开始的）都会进入项目的 **历史**，模型会被告知不要再推荐这些创意，标题重复的创意会被丢弃。**历史** 会列出这些创意，并标为 **已开始** 或 **已建议**；**忘记**（或 **全部忘记**）可让某个创意再次出现；仍在 **稍后** 列表中的创意不会被推荐，直到你从该列表中移除它。只有在你点击时才会调用模型。 | <a href="assets/features/featureIdeas.webp"><img src="assets/features/featureIdeas.webp" width="160" alt="截图：功能创意"></a> |
 | **内容搜索** | <a id="feature-contentsearch"></a>dsh 自带的侧边栏搜索（**工作区** 旁边的放大镜；桌面应用中按 `Cmd+K`，浏览器中按 `Cmd+Alt+K`）不仅能按标题查找对话，还能按你的消息和回复中的词语查找对话，并在对话下方显示匹配的文字。dsh 本身已经带有这个搜索功能，但默认是关闭的；本功能会开启它，并在你的电脑上为它提供一个搜索索引文件。每次启动后的第一次搜索会创建索引（250 个对话约需 15 秒，见“限制”），之后的启动会继续使用这个索引。默认开启；更改在重启 dsh 后生效。 | <a href="assets/features/contentSearch.webp"><img src="assets/features/contentSearch.webp" width="160" alt="截图：内容搜索"></a> |
 | **回合回退** | <a id="feature-turnrollback"></a>将鼠标悬停在你的某条消息上，点击 **↶**（在“复制”旁边）。**仅对话** 会把这条消息及其后的所有内容（回复、工具调用）从对话和模型上下文中移除，并把这条消息放回输入框：修改后再次发送即可。**对话和文件** 会先列出这条消息之后发生变化的项目文件，然后把它们也恢复原样。这也包括命令（`bash`）所做的更改，而不只是 dsh 编辑工具所做的更改。正在运行的回合会先停止。对话日志永远不会被重写：一个隐藏标记会隐藏被撤回的部分，方式与 dsh 自带的 `/compact` 隐藏旧消息相同。如果安装了 [dsh-rewind-plugin](https://www.npmjs.com/package/dsh-rewind-plugin)，则由它负责这项工作，Composer Plus 不会再显示第二个按钮。回退之后，输入框上方会出现 **重新应用** 栏：它会从回退之前开始一个新对话（消息和上下文相同），选择 **对话和文件** 时还会恢复文件；回退之后你更改过的文件会被列出并保留，除非你勾选覆盖它的选项。 | <a href="assets/features/turnRollback.webp"><img src="assets/features/turnRollback.webp" width="160" alt="截图：回合回退"></a> |
@@ -46,10 +46,11 @@ dsh plugin --profile web add dsh-composer-plus
 | **输入历史** | <a id="feature-inputhistory"></a>在空输入框中按 `↑` / `↓`，可以像在终端里一样浏览你发送过的消息。 | <a href="assets/features/inputHistory.webp"><img src="assets/features/inputHistory.webp" width="160" alt="截图：输入历史"></a> |
 | **Shift+Tab 计划模式** | <a id="feature-plantoggle"></a>`Shift+Tab` 会在草稿开头添加 `/plan `（再按一次可移除）。如果对话已处于计划模式，`Shift+Tab` 会退出计划模式。 | <a href="assets/features/planToggle.webp"><img src="assets/features/planToggle.webp" width="160" alt="截图：Shift+Tab 计划模式"></a> |
 | **保持输入框焦点** | <a id="feature-keepfocus"></a>发送 `/` 命令或技能后，光标仍留在输入框中，你可以立即继续输入。对于输入命令后按 `Enter` 的键盘宏，这同样有效。dsh 在解析命令时会把输入框设为只读，浏览器随后会移除焦点。本功能会把焦点放回输入框，除非菜单、对话框或其他输入框正持有焦点。 | <a href="assets/features/keepFocus.webp"><img src="assets/features/keepFocus.webp" width="160" alt="截图：保持输入框焦点"></a> |
+| **问题卡片适应窗口** | <a id="feature-questionfit"></a>代理向你提问时，问题和答案在卡片中一起滚动，**跳过**和**提交**始终显示在底部。卡片使用窗口的高度（减去 200 px，留给对话标题和一部分对话），所以会随窗口变大变小。没有本功能时，dsh 把卡片限制在窗口的 60%（最多 520 px），并且只有答案可以滚动：较长的问题会把它自己的结尾、答案和按钮挤出卡片。 | <a href="assets/features/questionFit.webp"><img src="assets/features/questionFit.webp" width="160" alt="截图：问题卡片适应窗口"></a> |
 | **一键继续** | <a id="feature-continuebutton"></a>回合被停止、失败或中断后，空输入框会显示 **▶**。点击一次即可在现有对话的基础上继续，不需要在输入框中输入内容，也不会添加可见的对话消息（模型会收到一条简短的隐藏提示“从停止的地方继续”，因为部分提供商，例如 Claude，会拒绝以助手回复结尾的请求）。队列中的消息会保留：▶ 只继续被停止的任务，之后再运行队列。已完成的回合仍显示普通的发送按钮。 | <a href="assets/features/continueButton.webp"><img src="assets/features/continueButton.webp" width="160" alt="截图：一键继续"></a> |
 | **重启后继续** | <a id="feature-resumeafterrestart"></a>默认关闭：请在 **设置 → Composer Plus** 中开启。如果你在对话仍在运行时退出 dsh（或 dsh 被关闭），再次打开 dsh 后，该对话会自动继续，并使用与“一键继续”相同的隐藏提示。如果当时有目标轮次（`/goal`）正在运行，该目标会继续下一轮（dsh 每次启动时都会暂停目标，直到你恢复它们）。你停止的、已完成的或失败的对话不会继续。dsh 本身没有这项设置：它只会把这样的回合标记为已中断。 | <a href="assets/features/resumeAfterRestart.webp"><img src="assets/features/resumeAfterRestart.webp" width="160" alt="截图：重启后继续"></a> |
 | **队列拖拽排序** | <a id="feature-queuereorder"></a>排队的消息会带一个把手（⠿）。拖动它即可调整顺序，或者让把手获得焦点后按 `↑` / `↓`。按 `Esc` 取消。 | <a href="assets/features/queueReorder.webp"><img src="assets/features/queueReorder.webp" width="160" alt="截图：队列拖拽排序"></a> |
-| **原地编辑排队消息** | <a id="feature-queueedit"></a>双击一条排队的消息，它会变成 dsh 自带的编辑框：修改文字后按 `Enter` 保存，按 `Esc` 取消。消息在队列中的位置不变。带图片或文件的消息不能这样编辑（dsh 的队列只能编辑文字）。 | <a href="assets/features/queueEdit.webp"><img src="assets/features/queueEdit.webp" width="160" alt="截图：原地编辑排队消息"></a> |
+| **原地编辑排队消息** | <a id="feature-queueedit"></a>双击一条排队的消息，或点击它的编辑按钮（**编辑排队消息**），该行会打开一个编辑器：修改文字，用 ✕ 移除图片或文件，或用回形针按钮（**添加图片或文件**）或粘贴图片来添加新的。按 `Enter` 保存，按 `Esc` 取消，按 `Shift+Enter` 换行。消息在队列中的位置不变，你保留的图片和文件保持原样。编辑器打开时，队列不能重新排序。在 Tether 中：排队消息菜单 → Edit。 | <a href="assets/features/queueEdit.webp"><img src="assets/features/queueEdit.webp" width="160" alt="截图：原地编辑排队消息"></a> |
 | **复制会话链接** | <a id="feature-copydeeplink"></a>在侧边栏中右键点击对话 → **复制会话链接**。把 `dsh-session:…` 链接粘贴到另一个对话中，即可把那个对话作为只读上下文附加进来。dsh 0.2.1 自带 **复制 Session ID**，它只复制纯 ID；本菜单项紧跟在它后面。 | <a href="assets/features/copyDeeplink.webp"><img src="assets/features/copyDeeplink.webp" width="160" alt="截图：复制会话链接"></a> |
 | **复制消息链接** | <a id="feature-copymessagelink"></a>将鼠标悬停在一条消息上，点击 **🔗**（在它的操作栏中；回答的按钮在时间旁边）。链接是会话链接加上消息编号：`dsh-session:…#42`。把它粘贴到消息中并发送：在 dsh 0.2.1 及更高版本中，链接显示为一个标签，点击它会打开那个对话、滚动到该消息并高亮显示 2 秒。和会话链接一样，它也会把那个对话作为只读上下文附加进来。 | <a href="assets/features/copyMessageLink.webp"><img src="assets/features/copyMessageLink.webp" width="160" alt="截图：复制消息链接"></a> |
 | **将对话导出为 Markdown** | <a id="feature-exportmarkdown"></a>在侧边栏中右键点击对话（或打开它的 **…** 菜单）→ **导出为 Markdown…**。对话框会显示该对话有多少条消息；**复制到剪贴板** 会把对话以 Markdown 格式复制，**保存 .md 文件** 会通过浏览器的下载功能把它保存为 `<chat title>.md`（dsh 桌面版：按你的系统设置，保存到“下载”文件夹或打开保存对话框）。文件包含对话标题、项目名称和日期，之后每条消息各有一个 `## 你` 或 `## 助手` 部分。代码块保持原样；如果某条消息中的代码块没有闭合，它会被闭合。 | <a href="assets/features/exportMarkdown.webp"><img src="assets/features/exportMarkdown.webp" width="160" alt="截图：将对话导出为 Markdown"></a> |
@@ -58,6 +59,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **新会话的默认工作区** | <a id="feature-defaultworkspace"></a>设置 → Composer Plus → **新会话的默认工作区** → **新会话打开于**：选择一个项目，或选择 **通用文件夹（default-workspace）**（默认值：dsh 自己的文件夹 `Documents/deepseek-harness/default-workspace`，首次使用时创建）。之后，侧边栏顶部的 **新会话**（及其快捷键）总是在那里打开新对话，即使另一个项目的对话正在打开也是如此。项目旁的 `+` 仍会打开该项目，新对话中输入框上方的项目按钮仍可更换项目。 | <a href="assets/features/defaultWorkspace.webp"><img src="assets/features/defaultWorkspace.webp" width="160" alt="截图：新会话的默认工作区"></a> |
 | **在对话中查找** | <a id="feature-findinchat"></a>在对话中按 `Cmd+F`（Mac）或 `Ctrl+F`（Windows 和 Linux），对话上方会打开查找框。输入词语后，屏幕上的消息和回复中所有匹配项都会高亮，当前匹配项颜色更深，查找框显示 **n / 总数**。`Enter` 或 `↓` 跳到下一个匹配项，`Shift+Enter` 或 `↑` 跳到上一个（也可用箭头按钮）；对话会把匹配项滚动到中间。不区分大小写、重音和土耳其语无点 ı。`Esc` 关闭查找框，并把光标放回原处。回复流式输出时，查找结果会随之更新。 | <a href="assets/features/findInChat.webp"><img src="assets/features/findInChat.webp" width="160" alt="截图：在对话中查找"></a> |
 | **每个对话一个分支** | <a id="feature-worktreechats"></a>在新对话界面，项目按钮和模式按钮之间的分支按钮（分支图标）默认显示 **新分支**。输入第一条消息并发送。要留在当前分支，请在同一按钮中选择 “当前分支（main）”。第一条消息可以附带图片和文件。AI 根据这条消息给分支命名（`feat/…`、`fix/…`），Composer Plus 在 `<项目>/.worktrees/` 中为它创建 git worktree，复制 `.worktreeinclude` 列出的被忽略文件（例如 `.env` 和 `node_modules/`），并在那里打开一个带有你消息的新对话。打开的对话标题栏显示 ⑂ 分支 · N 处改动 · ↑ ↓（或 **未推送**）；点击它打开 **改动**。同一菜单列出已打开的 worktree：选择一个即可在其中开始对话。要在侧边栏中把分支文件夹显示在其项目内，请选择 dsh 的 **视图选项** → **按工作区树**。 | <a href="assets/features/worktreeChats.webp"><img src="assets/features/worktreeChats.webp" width="160" alt="截图：每个对话一个分支"></a> |
+| **工作区树中的分支** | <a id="feature-branchtree"></a>设置 → Composer Plus → **工作区树中的分支**（默认关闭）。开启后，每个在 `<project>/.worktrees/` 中有 worktree 文件夹的分支都会作为所属项目内的一个项目显示；在 dsh 中选择 **视图选项** → **按工作区树** 即可看到嵌套结构。文件夹被删除的分支会从列表中移除，dsh 会在 **未分组** 下显示它的对话。当项目文件夹中某个对话的智能体创建并切换到一个分支（`git switch -c`、`git checkout -b`），且该文件夹没有未提交的改动时，项目文件夹会切回原来的分支，该分支获得自己的文件夹，对话也会移进去：副本在分支项目中打开并继续执行任务，旧对话被归档。列表会在启动时、每 30 秒、每轮结束后以及你回到窗口时检查。 | <a href="assets/features/branchTree.webp"><img src="assets/features/branchTree.webp" width="160" alt="截图：工作区树中的分支"></a> |
 | **下一条消息预测** | <a id="feature-nextprediction"></a>默认开启；可在 **设置 → Composer Plus** 中关闭。智能体完成一个回合后（被停止或失败的回合除外），空输入框会以灰色文字显示对你下一条消息的猜测，并带有 **按 Tab 接受** 提示。`Tab` 会把文字放入输入框，但不会发送。`Esc` 会在本回合隐藏它。开始输入也会隐藏它，新的回合会替换它。开关下方的 **模型** 菜单列出 dsh 自己的模型（与 dsh 模型菜单的列表相同）。默认选中 **dsh 默认**，它跟随 dsh 的默认模型。每完成一个回合会进行一次简短的模型调用。在 Tether 中，猜测显示在空输入框上方：轻点它即可放入输入框。 | <a href="assets/features/nextPrediction.webp"><img src="assets/features/nextPrediction.webp" width="160" alt="截图：下一条消息预测"></a> |
 | **输入时补全** | <a id="feature-typingcompletion"></a>默认关闭；可在 **设置 → Composer Plus** 中开启。输入时，光标后紧跟的灰色文字会显示你的消息可能的后续内容。`Tab` 会把它添加到消息中，但不会发送。`Esc` 会隐藏它。它只建议你自己接下来要写的话：不会回答你，也不会编造错误信息或名称。消息看起来已完整，或模型不确定时，不显示任何内容。继续输入灰色文字中接下来的字符时，它会保留，不会再次调用模型。它的开关下方有自己的 **模型** 菜单。第一项 **与“下一条消息预测”相同**（默认）使用 **下一条消息预测** 的模型；选择其他模型，就可以为每个功能使用不同的模型，例如为补全选择更快的模型。你每次输入停顿时，它都会调用一次模型，因此消耗的 token 比预测多得多：请选择快速、低成本的模型。输入斜杠命令、消息中带有文件标签，或光标不在末尾时，它不会运行。在 Tether 中，输入时剩余部分会显示在输入框上方：轻点它即可添加。 | <a href="assets/features/typingCompletion.webp"><img src="assets/features/typingCompletion.webp" width="160" alt="截图：输入时补全"></a> |
 | **优化提示词** | <a id="feature-promptimprove"></a>输入一个粗略的请求，然后点击模型菜单旁边的魔法棒（**优化提示词**）。一次模型调用会把它改写成更清晰的提示词：先写目标，有多个部分时列出简短的编号步骤，并写明要运行的检查。它会读取此对话（已回滚的消息除外）、项目的 README、AGENTS.md 和清单文件、已更改的文件以及文件名与你的用词匹配的文件，并保留你的语言。它从不编造文件名。新文本会替换你的草稿，但不会发送：阅读、修改后再按 `Enter`。`Cmd/Ctrl+Z` 一步即可恢复你的原文，该按钮（**撤销优化**）也可以。如果你在它处理时继续输入，你的新文本会保留。`Esc` 或再次点击可取消。它在设置中有自己的 **模型** 菜单（默认：**与对话的模型相同**）。不适用于斜杠命令或带文件标签的消息。在 Tether 中，魔法棒位于输入框旁边。 | <a href="assets/features/promptImprove.webp"><img src="assets/features/promptImprove.webp" width="160" alt="截图：优化提示词"></a> |
@@ -74,6 +76,10 @@ dsh plugin --profile web add dsh-composer-plus
 | **应用语言** | <a id="feature-language"></a>设置 → Composer Plus → **应用语言** 可以把整个 dsh 界面切换为 Türkçe、Español、Português (Brasil)、Français、Deutsch、Русский、日本語、한국어、Bahasa Indonesia、Tiếng Việt 或 हिन्दी（见下文）。 | <a href="assets/features/language.webp"><img src="assets/features/language.webp" width="160" alt="截图：应用语言"></a> |
 | **手机连接（iPhone）** | <a id="feature-mobileconnect"></a>通过 [Tether](tether/) 应用在 iPhone 上使用 dsh，可以在同一 Wi-Fi 下使用，也可以通过 [Tailscale](https://tailscale.com) 使用。请在 **设置 → Composer Plus** 中开启它（默认关闭，因为它会在这台 Mac 上开放一个网络端口）。然后点击侧边栏左下角的 **手机连接**：用 iPhone 相机扫描二维码（轻点 **Open in Tether**），或用 Tether 中的 **Scan code** 扫描，轻点 **Connect**，然后点击 **Approve**。请先安装 Tether：没有它，相机无法打开这个二维码。手机可以显示你的对话、发送消息（可附照片：输入框的 **+** → Camera、Photos 或 Paste image）、回答审批和问题，以及切换模型和智能体。你可以配对任意多台 Mac：点击应用左上角的 Mac 名称即可在它们之间切换。**手机连接** 面板会列出已配对的 iPhone 及其上次连接时间：点击 **Remove** 可立即断开其中一部。“Tailscale only”会拒绝来自本地网络的连接（适用于共享 Wi-Fi），访问日志会显示谁尝试过连接。在 Tether 中，“Settings → Privacy”可以用 Face ID 锁定应用。 | <a href="assets/features/mobileConnect.webp"><img src="assets/features/mobileConnect.webp" width="160" alt="截图：手机连接（iPhone）"></a> |
 | **自动更新** | <a id="feature-autoupdate"></a>dsh 启动时，插件会检查 [最新的 GitHub release](https://github.com/furkancak1r/dsh-composer-plus/releases/latest)。如果它比当前版本新，并且已发布到 npm，插件会通过 dsh 自带的插件管理器（与 设置 → 插件 相同的途径）安装这个确切的版本，并通知你。重启 dsh 即可加载新版本。**设置 → Composer Plus → Composer Plus 更新** 会显示版本号，并提供 **检查更新** / **立即更新**。dsh 第一次以新版本启动时，会显示一次 **Composer Plus N 的新功能** 窗口，内容是该版本的发布说明（来自同一次更新检查，不会额外联网）；点击 **关闭** 或按 `Esc` 关闭。 | <a href="assets/features/autoUpdate.webp"><img src="assets/features/autoUpdate.webp" width="160" alt="截图：自动更新"></a> |
+| **备份** | <a id="feature-backup"></a>设置 → Composer Plus → **备份** → **立即备份**：把整个 dsh 主目录（对话、设置、插件、MCP、技能）连同校验和写成 `~/Desktop/dsh-backups` 中的一个归档。归档中的机密会被遮蔽：凭据文件、密钥文件（`.pem`、`.key`）以及 yml 设置中的 token、secret 和 password 值只保存在这台电脑上，位于该文件夹的 `vault` 中。`cache/`、`dsh-runtimes/` 和 `node_modules` 不会归档（dsh 会重新生成它们）。列表中的每份备份都有 **检查**（完整读取）、**用于另一台电脑**（一个可复制到新电脑的文件夹，含救援控制台）和 **删除**。同一文件夹中 dsh-backup 的归档也会显示并可使用。要恢复，请退出 dsh 并使用救援控制台。 | <a href="assets/features/backup.webp"><img src="assets/features/backup.webp" width="160" alt="截图：备份"></a> |
+| **自动备份** | <a id="feature-autobackup"></a>打开 **自动备份**（默认关闭：每份大约与不含缓存的 dsh 主目录一样大）。选择频率（**每**：6 小时到 7 天，默认 24 小时）和保留的份数（**保留**：3 到 14 份，默认 7 份）。下次备份时间显示在开关下方；失败的备份也会显示在那里，并在 30 分钟后重试。dsh 或 Composer Plus 以新版本启动时，会在启动后不久、新版本长时间使用你的数据之前拍一份快照（保留最新的两份，标记为 **升级前**）。 | <a href="assets/features/autoBackup.webp"><img src="assets/features/autoBackup.webp" width="160" alt="截图：自动备份"></a> |
+| **会话日志检查** | <a id="feature-sessiondoctor"></a>**检查会话日志** 会读取每个对话的日志，并列出 dsh 无法打开的日志（帧损坏、记录被截断、序号错误）。尾部撕裂的日志不会列出：dsh 会自行修复。**从备份修复** 会放回最新一份含有健康副本的备份中的副本，并把损坏的文件保留在旁边（`.corrupt-<时间>`）。该备份之后写入的消息不在副本中。在此 dsh 中打开的对话不会在这里修复：请退出 dsh，在救援控制台中修复。 | <a href="assets/features/sessionDoctor.webp"><img src="assets/features/sessionDoctor.webp" width="160" alt="截图：会话日志检查"></a> |
+| **救援控制台** | <a id="feature-rescueconsole"></a>每次备份还会把救援控制台放进备份文件夹。当 dsh 已关闭或无法启动时，在该文件夹中打开 `Composer Plus Rescue`（macOS：`Composer Plus Rescue.command`）：终端窗口中的菜单可以列出、检查和恢复备份，以及检查和修复会话日志。它不打开网络端口。恢复时需要输入 `RESTORE`，会把当前的 dsh 主目录保留为 `.dsh.pre-restore-<时间>`，从 vault 放回被遮蔽的机密，并把 `cache/`、`dsh-runtimes/` 和 `node_modules` 移过来。它不需要 dsh：它使用 Node.js，或 DeepSeek Harness 应用本身。在新电脑上，复制 **用于另一台电脑** 生成的文件夹并在那里打开 `Composer Plus Rescue`。 | <a href="assets/features/rescueConsole.webp"><img src="assets/features/rescueConsole.webp" width="160" alt="截图：救援控制台"></a> |
 
 <!-- END GENERATED FEATURES -->
 
@@ -117,7 +123,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 | `Esc` | 显示预测的空输入框 | 隐藏预测 |
 | `Cmd/Ctrl+Z` | 使用 **优化提示词** 后的输入框 | 恢复你输入的文本 |
 | `Esc` | **优化提示词** 运行时的输入框 | 取消优化 |
-| `Enter` / `Esc` | 你双击的排队消息 | 保存 / 取消编辑 |
+| `Enter` / `Esc` | 排队消息编辑器 | 保存 / 取消编辑 |
 | Mac 上为 `Cmd+F`，Windows 和 Linux 上为 `Ctrl+F` | 打开的对话 | 打开 **在对话中查找** |
 | `Enter` / `Shift+Enter`、`↓` / `↑` | **在对话中查找** 框 | 下一个 / 上一个匹配项 |
 | `Esc` | **在对话中查找** 框 | 关闭查找框 |
@@ -151,6 +157,8 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **输入时补全：** 在你开启之前一直关闭。开启后，你每次输入停顿时，Host 端会把你目前已输入的文字，以及该对话中你自己的消息和智能体的文字回复（不含工具输出、隐藏上下文和推理内容；对话部分最多约 3,000 个字符），发送给在 **输入时补全** 下选择的模型（默认为 **下一条消息预测** 的模型）。新的停顿会停止较早的请求。对话中不会保存任何内容。开关保存在 `$DSH_HOME/storages/dsh-composer-plus/complete.json` 中（仅所有者可访问的文件）。
 - **优化提示词：** 在你点击魔法棒之前，什么都不会运行。点击后，Host 端会以一次请求的形式，把以下内容发送给在 **优化提示词** 下选择的模型（默认为对话自己的模型）：你的草稿；该对话中你自己的消息和智能体的文字回复（不含工具输出、隐藏上下文、推理内容和已回退的消息；最多约 6,000 个字符，最新的部分）；与 **功能创意** 相同的项目概要（文件规则也相同：不读取 `.env*` 或密钥文件，跳过指向文件夹外部的符号链接和 FIFO）；`git status` 列为已更改的路径；以及最多 30 个名称与你的草稿有相同词语的已跟踪或未跟踪（未被忽略）路径。除这份概要外，不会发送任何文件内容。对话和项目中都不会写入任何内容：回答只会替换输入框中的草稿，是否发送由你决定。模型选择保存在 `$DSH_HOME/storages/dsh-composer-plus/improve.json` 中（仅所有者可访问的文件）。
 - **目标检查：** 只有当智能体在自动轮次中把 `/goal` 标记为完成时（或者你点击 **立即运行** 时）才会运行。Host 端在对话的文件夹中、按对话的沙箱模式运行测试命令（与 dsh 自己的 `bash` 工具相同：同样的文件访问策略；沙箱无法启动时，测试不会运行，检查判为失败）。为了找到命令，它只读取 `package.json`、`Makefile`、`Cargo.toml`、`go.mod`、`pyproject.toml` 和 `pytest.ini`，并且只读取文件夹内的普通文件（不跟随指向文件夹外部的符号链接，不读取 FIFO）。然后，它以一次不带工具的请求，把以下内容发送给在 **目标检查** 下选择的模型（默认为对话自己的模型）：目标；从目标开始以来的对话（你的消息、智能体的回复、截断到 1,000 个字符的工具调用以及每个工具结果的最后 2,000 个字符；不含推理内容和已回退的步骤；最多约 60,000 个字符，最新的部分）；`git status --short`；以及测试输出的末尾。工具输出可能包含智能体读取过的内容，因此这次请求可能包含你文件的一部分，与对话本身相同。对话和项目中都不会写入任何内容。你的测试命令、上限、上次结果（含其输出的末尾）和模型选择保存在 `$DSH_HOME/storages/dsh-composer-plus/goal-check.json` 中（仅所有者可访问的文件，最新的 500 个对话）。
+- **备份：** 任何数据都不会离开你的电脑。归档保存在 `~/Desktop/dsh-backups` 中（仅所有者可访问的文件）。机密不在归档中：凭据文件（`.credentials.yaml`、`.env`）、密钥文件（`.pem`、`.key`、`.p12`、`.pfx`）以及 yml 文件中 token、secret、password 和 API key 设置的值都会被遮蔽；它们的真实副本保存在同一文件夹的 `composer-plus-vault/<archive>/` 中（仅所有者可访问），只在这台电脑上。**用于另一台电脑** 不会复制 vault：请在那台电脑上重新输入这些机密。你的对话日志、设置和 dsh 主目录的其余内容按原样保存在归档中：请像对待 `$DSH_HOME` 本身一样，不要公开该文件夹。备份使用 `O_NOFOLLOW | O_NONBLOCK` 读取文件；符号链接按链接保存（从不跟随），FIFO 和设备文件会被跳过。自动备份的开关和设置保存在 `$DSH_HOME/storages/dsh-composer-plus/auto-backup.json` 中，救援控制台的开关保存在 `rescue-console.json` 中；dsh 运行期间，`running/host-<pid>.json` 标明每个 dsh 进程（救援控制台读取它们，以便拒绝恢复）。
+- **救援控制台：** 一个终端菜单；它不打开网络端口。恢复只写入 dsh 主目录旁边的一个新文件夹（文件使用 `O_EXCL | O_NOFOLLOW` 写入，符号链接最后写入且从不跟随），并拒绝以下归档：含有不安全名称（`..`、绝对路径）、设备文件或 FIFO、多于一个顶层文件夹，或位于链接之下的条目。
 
 ## 故障排除
 
@@ -165,11 +173,15 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **删除时提示另一个 dsh 已打开此对话：** 使用同一 dsh home 的另一个 dsh 持有该对话的锁。关闭那个窗口或那个 dsh，然后再次删除。在此期间，对话会保持归档状态。
 - **开启“Tailscale only”后 iPhone 无法连接：** Mac 和 iPhone 上都必须开启 Tailscale。Mac 上的 Tailscale 关闭时，手机连接面板会发出警告。访问日志会显示每次被拒绝的尝试及其原因。
 - **重启后对话没有继续：** dsh 退出时“重启后继续”处于关闭状态；或者你自己停止了那个回合；或者回合已经结束（完成或失败）；或者对话已被归档；或者当时有超过 20 个对话正在运行（只有最新的 20 个会继续）。
+- **重启后队列是空的：** 清空队列的是 dsh 自己的退出流程。重启后继续只会在它继续的对话中放回队列；其他对话请重新发送消息。退出前刚删除的消息可能会回来：请再删除一次。
 - **创建 GitHub issue 提示“gh could not open the issue”：** 这条消息是 `gh` 自己输出的第一行。请在终端中运行 `gh auth status`，并用 `gh auth login` 登录；对话的文件夹必须有 GitHub 远程仓库（`git remote -v`）。“not installed or not on the PATH of dsh”表示 dsh 没有找到 `gh`：请安装它，或从一个能运行 `gh` 的终端启动 dsh。
 - **对话行上没有分支标签：** 安装此版本后，该对话还没有新的一轮；或者它的文件夹不是 git 仓库；或者 **对话行显示 Git 分支** 已关闭。更新后，请重启 dsh（分支由 Host 端记录）。
 - **目标检查显示测试以代码 127 或 “not found” 退出：** 从 Finder 或程序坞启动的 dsh 的 PATH 可能比终端里的短，因此找不到 `npm`、`pnpm` 或 `cargo`。请从终端启动 dsh，或者在 **目标检查** → **编辑** 中用完整路径设置你自己的测试命令。**立即运行** 会马上显示结果。
 - **目标没有关闭，智能体一直在工作：** **目标检查** 发现了失败的测试或缺少的工作；目标下方的一行会显示原因（将鼠标悬停在结果上可查看详情）。请修正原因或测试命令，或者用 `/goal` 或目标栏自己完成目标（这不会被检查）。
 - **刚发布新版本时安装失败：** 请加上版本号（`dsh-composer-plus@1.15.0`），见上文的安装说明。
+- **立即备份显示“另一个备份操作正在进行”：** 另一个 dsh 窗口或救援控制台中正在运行一个操作（它们共用备份文件夹中的锁文件 `.composer-plus.lock`）。请等待它完成。如果没有操作在运行，下次点击时会接管已关闭进程留下的锁。
+- **救援控制台显示“dsh is running”：** 请先退出 dsh。如果 dsh 确实已关闭，消息中提到的文件是崩溃后留下的：删除它，然后重试。
+- **恢复后 dsh 无法启动或缺少插件：** 需要重新安装 profile 的插件包。恢复后，救援控制台会提供这一步；你也可以在它列出的 `$DSH_HOME/profiles/` 下的每个文件夹中运行 `pnpm install`。不在 vault 中的机密（另一台电脑）必须重新输入：控制台会列出它们。
 
 ## 限制
 
@@ -177,6 +189,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **功能创意** 会在内存中为每个对话保留卡片，直到 dsh 或页面重新加载；之后，**推荐功能** 会再次询问模型。卡片使用你点击时 dsh 的界面语言；更改语言后，已在卡片堆中的卡片保持原来的语言，**更多创意** 则使用新语言。模型只能看到简短的项目概要，看不到代码，因此某个创意可能与项目已有的功能重复：跳过它即可。只有当 profile 中有 dsh 的 `/plan` 命令时，新对话才会以计划模式运行；否则，创意会作为普通的第一条消息发送。**稍后** 列表属于对话的文件夹路径：通过符号链接打开的同一个文件夹有它自己的列表。每个项目最多保留 50 个创意（移除一个后才能再添加），相同的标题只保留一次。拖动卡片只能决定向左或向右；要保存卡片，请使用 **↓**；要直接实现，请使用 **▶**。重复只按标题判断：模型仍可能以新名称推荐以前的创意，跳过它即可。如果模型只返回以前的创意，就不会显示新的创意：请再点击一次。关注主题越窄，越容易出现这种情况；请换一个更宽的主题，或清除主题。在 dsh 或页面重新加载之前，每个对话的关注主题都会保留在输入框中。
 - **将对话导出为 Markdown** 只包含你自己的消息和助手的文字回复：工具调用及其输出、推理内容、图片（用一行 `[image]` 标记）、隐藏上下文以及被回合回退或 dsh-rewind-plugin 移除的消息都不包含在内。同一回合的回复会合并为一个部分。一次导出最多包含约 400 万个字符；更长的对话只导出前面的部分，并附上一条说明。
 - **重启后继续** 是继续回合，而不是重放回合。退出时正在运行的工具调用会以 dsh 的“结果未知”结果结束，模型会被告知不要重复已完成的工作，但不能安全运行两次的命令仍可能再次运行。当时打开的子代理、审批和问题不会恢复：它们的父对话会继续，并再次询问。每次启动最多继续 20 个对话。
+- **重启后继续** 与队列：dsh 退出时会清空对话的队列。插件会根据对话日志放回你排队的消息，顺序、编辑内容、图片和文件都保持不变；这些消息会在继续的回合之后运行。只有会继续的对话才会恢复队列（开关已打开，且在回合运行时退出）。你自己删除队列中最后几条消息时，dsh 也会以同样的方式记录：如果你删除后、下一步开始前 dsh 退出，这些消息会回来。
 
 - **内容搜索** 是 dsh 自带的搜索，因此也有 dsh 的限制。它只搜索用户消息和助手消息：不搜索工具输出（命令、文件内容、结果），也不搜索推理内容，并且不能按用户、助手或工具消息筛选。它匹配完整的词，而不是词的一部分（`deploy` 找不到 `deployment`）；不带重音的字母也能匹配带重音的字母（`seker` 能找到 `şeker`）。每个对话只显示一行，带有 dsh 的 240 字符摘录，最多显示 20 行。
 - **内容搜索** 的开销（在 247 个真实对话日志的副本上测得：159 MB，dsh 0.2.1-rc.2，Apple Silicon，32 GB）：每次启动后的第一次搜索会构建索引，约需 15 秒。在此期间，dsh 的 Host 约有 7 秒不响应任何请求，因此其他对话会在这段时间内暂停流式输出（页面本身不会卡住）。Host 的内存在峰值时约增加 1.1 GB；一分钟后仍比启动时高约 0.5–0.6 GB，直到 dsh 退出。索引文件约 165 MB。之后的搜索约需 0.5 秒。重启后，第一次搜索约需 1 秒（只添加新的或有改动的对话），内存约增加 70 MB。如果你的电脑内存较少，请关闭此功能。
@@ -187,15 +200,19 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - 如果新版本不改动任何 dsh 设置，dsh 0.2.1 会立即加载更新；否则（以及在 dsh 0.2.0 上），请重启 dsh 来加载更新。插件从不替你重启 dsh。没有 dsh 插件管理器的网页版/CLI profile 只会提示有新版本。
 - **本对话内允许** 从授权的那一刻开始计算时限。新的时限会立即应用于仍在生效的授权，因此更短的时限可能会让它们立即结束。1.12 及更早版本的授权没有时间信息：更新后，代理会就这些工具再询问一次。
 - **保持输入框焦点** 只在发送 `/` 命令或技能后才会把焦点还给输入框。dsh 解析命令时，输入框会有几毫秒处于只读状态，因此这段时间内按下的键会丢失。如果 dsh 的 `/` 菜单仍然打开，`Enter` 会选择高亮的行，而不会发送。
+- **问题卡片适应窗口** 只改变 dsh 的问题卡片，不改变计划审阅卡片。它通过 dsh 的标记（`data-question-key`、`data-question-scroll`）找到卡片；如果 dsh 更新改变了这些标记，卡片会按 dsh 自己的样子显示。卡片高度跟随窗口，而不是对话：在较窄侧边面板中的对话里，较高的卡片仍可能超出对话上方。
 - **手机连接** 只适用于 macOS（它使用 `en0`、`openssl`、`swift` 和 `dns-sd`）。它使用固定端口 19390 和 19391，因此每台 Mac 上同一时间只能有一个 dsh 运行它（每台 Mac 是手机 Mac 列表中的一项）。只有在 Tether 打开或刚转入后台时，手机才能收到通知（没有推送服务）。iOS 应用尚未上架 App Store：请用 Xcode 从 `tether/ios` 构建它。“Tailscale only”仍然需要 Mac 有 Wi-Fi 或以太网地址（只有在有这样的地址时，网关才会启动）。访问日志按 Mac 分别保存，只保留最新的 200 次尝试；一分钟内重复的尝试不会新增一行，而是把同一行的次数加一。Tether 的应用锁不会隐藏 iPhone 锁定屏幕上的通知预览：请在 iOS 设置中关闭它们。Tether 的绿点跟随 Mac：在 dsh 中打开的对话，手机上的绿点也会消失。在 Tether 中打开的对话，只在手机上消失；Mac 上 dsh 自己的绿点会一直保留，直到你在 Mac 上打开该对话。
 - 会话链接在对话中有效；点击它不会打开对应的对话。用 **复制消息链接** 复制的链接，只在 dsh 0.2.1 及更高版本中、并且只从对话中的消息里才能打开对应的消息（dsh 0.2.0 没有用户文本规则，所以链接仍会被复制，但只显示为普通文本）。被回退移除的消息，或被压缩从 dsh 加载的历史中移除的消息，无法显示：此时链接会给出提示。🔗 按钮依附在 dsh 的消息行上；如果 dsh 更新改变了这部分标记，按钮就不会显示。
 - **全部标为已读** 通过 dsh 中一个不是公开 API 的部分（dsh 会话状态中的 `completionUnread` 列表）来更改 dsh 自己的未读圆点。如果 dsh 更新重命名了它，该菜单项就不会显示。该菜单项放在 dsh 项目的“…”菜单中，而这个菜单没有给插件的插槽；如果 dsh 修改了这个菜单，该菜单项也不会显示。
-- **原地编辑排队消息** 打开的是 dsh 自带的队列编辑器，因此也有它的限制：带图片或文件的消息不能编辑；在此期间已经开始发送的消息不会被修改（dsh 会显示它自己的错误）。
+- **原地编辑排队消息** 不会修改在此期间已经开始发送的消息，也不会覆盖在此期间已被修改的消息（例如在 iPhone 上的 Tether 中修改的），并会显示提示说明这一点。新图片需要支持图片的模型（dsh 自身的图片限制同样适用），新文件必须上传完成后才能保存。只能编辑你自己的排队消息，不能编辑队列中的目标轮次或对问题的回答。插件更新后，只有纯文字的编辑能立即生效：保存带图片或文件的消息之前，请重启 dsh（Host 端在启动时加载）。
 - **重新应用** 从不更改被回退的对话：它会从回退之前开始一个新对话（dsh 自带的分叉，模型上下文相同），因此新对话有新的 id 和标题。只有对话中最新的一次回退可以重新应用，只能一次，并且只在它之后没有新内容时可用（发送新消息后该选项消失）。回退之后你更改过的文件会被保留，除非你勾选覆盖它的选项。重新应用需要回退时保留的快照（同样是最新 50 个快照的范围）；在此版本之前做的回退，或用 **仅对话** 做的回退，只会恢复消息。
+- **树** 分支图对每个箭头的指向是推测出来的，因为 git 不保存一个分支被合并进了哪个分支。已合并的分支指向最先用合并提交接收它的分支。等待中的分支指向它分出的最近的分支（优先主分支）；如果两个分支从同一个提交分出，分支图可能会选错。通过快进（fast-forward）前移的分支没有合并提交，因此它的 **已合并** 标签不会打开任何内容。主分支是 `origin` 的默认分支，否则是 `main` 或 `master`，再否则是当前打开的分支。分支图读取最新的 20,000 个提交，最多显示 60 个分支；历史更长时，它会提示有些箭头可能不对。用 squash 或 rebase 合并的分支（例如在 GitHub 上）会显示为 **等待中**：git 不保留它与其提交之间的关联。
 - **本对话** 只统计 dsh 的文件工具（`write`、`edit`、`str_replace_editor`）写入的文件。命令（`bash`）更改的文件不在这个视图中；它们显示在 **未提交** 下。如果没有该对话的回合回退快照（回合回退已关闭、安装了 dsh-rewind-plugin，或对话比插件更早），视图会与最后一次提交比较，并给出提示。回合回退为每个对话保留最新的 50 个快照：在更长的对话中，视图与保留的最早快照比较，说明从哪条消息开始，并且不计入更早的改动。**隐藏空白改动** 就是 `git diff -w`：只在行内空格上有变化的行也会被隐藏。
 - **创建 GitHub issue** 需要 dsh 的 PATH 中有 GitHub CLI（`gh`），并且对话的文件夹中有 GitHub 远程仓库。它最多运行 60 秒；如果 `gh` 用时更长，issue 可能已经在 GitHub 上创建，但列表中没有它的链接（再次点击之前，请先到 GitHub 上查看：列表只从已完成的运行中读取链接，所以再次点击可能会创建第二个 issue）。有多个 GitHub 远程仓库的文件夹使用 `gh` 自己的默认仓库（`gh repo set-default`）。
 - **改动此文件的对话** 与 **本对话** 一样，只识别 dsh 的文件工具（`write`、`edit`、`str_replace_editor`）：命令（`bash`）做出的改动不会列出。它读取该仓库最新的 300 个对话（按创建时间），对话更多时会给出提示；它最多显示 100 行。重命名的文件按工具写入时的名称列出。文件夹在仓库之外的对话（包括通过另一条路径指向相同文件的情况）不计入。dsh 启动后第一次打开时，会读取该仓库的所有对话日志（275 个对话约需 4 秒）；之后再打开时，只读取此后有变化的对话。
 - **对话行显示 Git 分支** 显示的是对话最后一轮开始或结束时其文件夹所在的分支，而不是当前的分支：在回合之外切换分支，要到下一轮之后才会显示。此版本之前的对话，在下一轮之前不显示标签。标签放在 dsh 的对话行标记中（dsh 在那里没有插槽）；如果 dsh 更新改变了这部分标记，就不会显示标签。当对话上方的项目行与分支同名时（例如“每个对话一个分支”的文件夹），该对话行不显示分支标签，但“列表视图”中仍会显示。
+- **每个对话一个分支**：当对话的分支文件夹（`<project>/.worktrees/<name>`）被删除时（例如对话自己的智能体移除了 worktree 并删除了分支），对话的下一步会把对话移出该文件夹。它的分支文件夹项目会从侧边栏消失，对话显示在“未分组”下并保持打开。在 dsh 0.2.1 及更高版本中，对话在主项目文件夹中继续，模型会收到一条关于新文件夹的说明。在 dsh 0.2.0 上，对话保留已删除的文件夹：在那里运行的命令会失败，直到你开始一个新对话。移动只在对话的下一步发生，因此没有对话使用的已删除分支的项目会留在侧边栏中：请用 dsh 自己的项目菜单移除它。对话移动期间，同一仓库中的**新分支**会回答“请重试”。关闭开关后，dsh 自己的错误会再次出现（“working-directory: directory does not exist”）。
+- **工作区树中的分支** 会在无需点击的情况下写入 git：移动对话时，它把项目文件夹切回原来的分支（`git switch`），并添加一个 worktree（`git worktree add`）。它从不删除分支、worktree 或文件。dsh 不能更改对话的文件夹，所以被移动的对话是一个副本（dsh 自己的分叉，带有新的 id），旧对话会被归档。副本会继续已停止的任务；分支出现时正在运行的工具调用会以拒绝结束，智能体会在新文件夹中再次运行它。旧对话的目标不会随之移动。只有文件夹是仓库主文件夹的对话会移动，而且只针对它在该轮中创建并切换到的分支（`git switch -c`、`git checkout -b`）：只用 `git branch` 创建的分支、有未提交改动的文件夹、链接的 worktree 或子文件夹都不会移动。只有直接位于 `<project>/.worktrees/` 中且有分支的 worktree 会显示在树中；分离的 worktree 或位于其他位置的 worktree 不会显示。只有当原对话是正在打开的对话时，副本才会自动打开（插件通过 dsh 的侧边栏行判断）；否则它在分支项目中。
 - **在对话中查找** 只搜索页面显示的内容：已加载的消息和回复（向上滚动或点击 **加载更早** 可查看更早的内容），不搜索已收起的工具步骤，也不搜索工具输出中被折叠的文本。它最多统计 2,000 个匹配项（之后显示“2000+”）。它使用浏览器的高亮 API（Chromium 105 及更高版本；桌面应用支持）：在较旧的浏览器中，计数和跳转仍然可用，只是没有颜色。`Cmd+F`（Mac）或 `Ctrl+F`（Windows 和 Linux）只在屏幕上有对话时打开它；在其他地方，浏览器自带的查找照常工作。在 Mac 上，`Ctrl+F` 在文本框中仍保持 macOS 的用法（光标向前移动一个字符）。
 - 重启前发出的通知，点击后只会把 dsh 带到前台。
 - 活跃项目通过 dsh 保存的项目顺序来移动，因此新顺序在重启后依然保留。不属于任何项目的对话（“未分组”）无法移动；dsh 总是把它们列在最后。
@@ -207,6 +224,10 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **输入时补全** 通过 dsh 自己的输入框提示显示文字（即 dsh 用于斜杠命令参数提示的 `--dsh-composer-hint` 样式）。输入斜杠命令、消息中带有文件或符号标签，或光标不在消息末尾时，它不会运行。如果 dsh 更新修改了这个样式，就不会显示补全。你每次输入停顿都会进行一次模型调用。
 - **优化提示词** 只能看到简短的项目概要、已更改的路径以及名称与你的用词匹配的路径，看不到代码本身。因此它可能漏掉正确的文件，并且只会提到提供给它的路径。发送前请先阅读新文本。输入斜杠命令或消息中带有文件或符号标签时，它不会运行（新文本是纯文本，标签会丢失）；一条消息最多 8,000 个字符。图片仍保留在附件中：只有文字会改变。每次点击都会进行一次模型调用；较强的模型可能需要一分钟（按 `Esc` 取消）。
 - **目标检查** 只检查智能体在自动目标轮次中做出的完成：你在对话中要求的完成、`/goal` 和目标栏都不会被检查。智能体可以自己修改测试或测试命令用到的文件；审核模型会阅读对话，可以看到这一点，但它在两个方向上都可能出错（错误的“尚未完成”会多花一轮；错误的“已完成”会关闭目标）。审核模型看到的是对话和 `git status`，而不是代码本身。只有当智能体最新的一步能更改文件的操作就是它自己在同一文件夹中成功运行完全相同命令的 `bash` 时，才会复用这次测试；带管道（`| tail`）或 `&&` 的命令不会被复用。预算在回合结束时计算，因此一个回合可能会超出预算。只计算对话自己的模型调用（不含其子智能体的调用）。检查运行期间 `update_goal` 会等待（测试最多 15 分钟，审核最多 3 分钟）。分支对话会得到新的对话 id，因此它开始时没有父对话自己的测试命令和上限。每次进入审核的完成都会花费一次模型调用。
+- **备份** 只使用一个固定文件夹 `~/Desktop/dsh-backups`（dsh-backup 的默认文件夹，因此它的归档仍然可用）；没有设置可以改用其他文件夹。归档大小约等于不含 `cache/` 和 `dsh-runtimes/` 的 dsh 主目录（实测：在 Apple Silicon 上，1.6 GB 的文件约用 30 秒生成 830 MB 的归档；期间 dsh 保持响应）。读取期间发生变化的文件，会按备份打开它时的状态保存，因此打开中的对话的日志末尾可能是一条被截断的记录，dsh 会在下次写入时修复它。遮蔽按单行中的键名查找 yml 文件中的机密（`token:`、`apiKey:`、…）；流式映射（`{token: x}`）中、此类键下的列表中、JSON 文件中（例如 `.json` 文件中某个 MCP 服务器的 `apiKey`）或使用其他名称的机密会留在归档中。dsh-backup 按类型生成的归档（`dsh-t-…`）不会列出。**用于另一台电脑** 会复制归档（在 APFS 上是克隆：不占用额外空间）；vault 不会随之复制。**立即备份** 不会删除任何备份。自动备份会保留 Composer Plus 生成的最新备份（**自动备份** 的 **保留** 设置），并删除它生成的更早备份；升级前的快照单独计数（保留最新的 2 份）。dsh-backup 的归档永远不会被删除：请用 **删除** 移除它们。只要 dsh-backup 仍已安装，它就会把 Composer Plus 的归档计入自己的保留份数，并可能删除它们。
+- **恢复** 只在 dsh 关闭时于救援控制台中运行：它会替换整个 dsh 主目录。旧目录会以 `.dsh.pre-restore-<time>` 保留在旁边，直到你删除它，因此磁盘需要能容纳两者。对话保留其项目路径：在另一台电脑上，位于其他路径的项目会显示为缺失，直到你重新添加它。指向 dsh 主目录之外的符号链接（例如从其他文件夹链接的技能）会作为链接恢复；它们的目标必须存在于那台电脑上。
+- **会话日志检查** 按照 dsh 自己判断能否打开的规则读取每个对话的最新日志：不是 JSON 或顺序错乱的行，只有在其后还有回合结束时才算损坏（否则 dsh 会打开该对话，只是不含从该行起的各行，因此不会列出它）。它不会按照 dsh 自己的事件规则检查日志中的事件，因此被判为健康的日志在 dsh 升级后仍可能无法打开。修复会从一份备份中取回副本：该备份之后的消息会从该对话中丢失（损坏的文件保留在旁边）。在此 dsh 中打开的对话不会在设置中修复：dsh 正持有它。
+- **自动备份** 只在 dsh 运行时运行：dsh 关闭期间到期的备份，会在下次启动后约 45 秒运行。新版本的快照在那次启动之后拍摄，而不是在更新之前。
 - 已向上游请求内置支持：队列 `move` 见 [#773](https://github.com/deepseek-ai/deepseek-harness/discussions/773)，“继续”状态见 [#9269](https://github.com/deepseek-ai/deepseek-harness/discussions/9269)。
 
 ## 常见问题
@@ -235,9 +256,17 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 **能否让智能体不再自己宣布工作已完成，就像 loop engineering 中的审核循环那样？** 可以，使用 **目标检查**（默认开启）：用 `/goal` 开始一个目标。当智能体说目标已完成时，会运行项目的测试，并由一次独立的模型调用对照对话检查目标；任一项失败时，目标保持进行中，智能体会看到原因。在目标下方的 **目标检查** 行中用 **编辑** 设置你自己的测试命令、时间上限或 token 上限。
 
+**dsh 能像 dsh-backup 那样备份我的对话和设置吗？** 可以：**设置 → Composer Plus → 备份 → 立即备份**。它把相同格式的归档写入同一个文件夹（`~/Desktop/dsh-backups`），因此 dsh-backup 的归档也会显示并可以恢复，你可以卸载 dsh-backup。打开 **自动备份** 即可按计划备份。
+
+**dsh 无法再启动了。如何恢复备份？** 打开备份文件夹（`~/Desktop/dsh-backups`），双击 `Composer Plus Rescue.command`（Linux：`composer-plus-rescue.sh`，Windows：`Composer Plus Rescue.cmd`）。选择 `3) Restore a backup`，选中一份备份并输入 `RESTORE`。它不需要 dsh 也能运行。
+
+**如何把 dsh 迁移到新电脑？** 在旧电脑上：**备份** → 某份备份旁边的 **用于另一台电脑**。把该文件夹复制到新电脑，在新电脑上安装 dsh 并退出它，然后打开复制过来的文件夹中的 `Composer Plus Rescue` 并恢复。请重新输入你的 API 密钥（它们留在旧电脑上）。
+
+**崩溃后某个对话打不开了。能修复吗？** **设置 → Composer Plus → 会话日志检查 → 检查会话日志**。用 **从备份修复** 可以从最新的备份中取回损坏的对话（该备份之后的消息会丢失）。
+
 **如何在 dsh 中调整排队消息的顺序？** 拖动排队消息上的 ⠿ 把手，或者让它获得焦点后按 `↑` / `↓`。
 
-**如何修改排队消息中的错字？** 在队列中双击这条消息，修改文字后按 `Enter`（按 `Esc` 取消）。它在队列中的位置不变。
+**如何修改排队消息中的错字？** 在队列中双击这条消息，修改文字后按 `Enter`（按 `Esc` 取消）。它在队列中的位置不变。你也可以在那里移除它的图片和文件，或添加新的。
 
 **如何一次清除一个项目的所有未读圆点？** 侧边栏 → 项目的 **…** 按钮 → **全部标为已读**。
 
@@ -273,6 +302,8 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 **如何在同一个项目中同时开发多个功能，并让每个功能在自己的分支上？** 使用 **每个对话一个分支**：在新对话界面，分支按钮默认显示 **新分支**：直接发送第一条消息。每个对话都有自己的分支和 worktree 文件夹；如果 `.worktreeinclude` 列出了你的 `.env` 和 `node_modules`，它们也会一起复制过去。对话标题栏会显示你当前所在的分支。
 
+**侧边栏能显示项目的每个分支，并在智能体创建分支时移动我的对话吗？** 可以，使用 **工作区树中的分支**（默认关闭）：在 设置 → Composer Plus 中开启它，然后在 dsh 中选择 **视图选项** → **按工作区树**。每个在 `<project>/.worktrees/` 中有 worktree 的分支都会显示在其项目内。当你让项目文件夹中的智能体创建一个分支并在其中工作，且文件夹没有未提交的改动时，对话会自动移到该分支。删除分支的文件夹后，它会从列表中移除；它的对话会移到 **未分组**。
+
 **可以从 iPhone 发送照片吗？** 可以。在 Tether 的对话中，轻点消息输入框旁边的 **+** → Camera、Photos（最多 4 张）或 Paste image。照片会作为你消息的附件发送到 Mac 上的对话，因此模型能看到它们。
 
 **它支持桌面应用吗？** 支持：设置 → 插件 → **添加插件** → `dsh-composer-plus`。已在 dsh 0.2.0-rc.2（桌面版和网页版）和 0.2.1-rc.2（网页版）上测试。
@@ -297,10 +328,14 @@ PLAYWRIGHT=/path/to/playwright node test/browser-whats-new.mjs /path/to/dsh/lib/
 PLAYWRIGHT=/path/to/playwright node test/browser-readme-anchors.mjs
 # Keep composer focus (fake model + demo skill): typing goes on after a / command + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/dsh/lib/bin.js
+# Fit question card to window (fake model asks a long question at 1280 × 820): question, answers, Skip and Submit readable, height follows the window + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-question-fit.mjs /path/to/dsh/lib/bin.js
 # Mobile connect: switch on, QR popover, a fake iPhone pairs and calls dsh through the gateway, switch off + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js
 # Resume after restart (fake slow model, real quit and start): a running chat and a goal continue, a stopped chat does not
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-resume-restart.mjs /path/to/dsh/lib/bin.js
+# Resume after restart with a queue (fake model, real quit and start): text, image, file, a drag and an edit come back in order
+PLAYWRIGHT=/path/to/playwright node test/browser-resume-queue.mjs /path/to/dsh/lib/bin.js
 # Feature ideas (fake model, made-up project): suggest, drag left, Undo, ✓ starts a new chat in plan mode, ▶ Build now one without, Plan all one for the Later list, a focus topic chip, Copy as checklist + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js
 # Export chat as Markdown (fake model, made-up project): right-click → Export as Markdown…, copy and save keep the code blocks, switch off + its thumbnail
@@ -315,8 +350,10 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-goal-check.mjs /path/to/dsh/lib/bin.js
 # Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
-# Changes Tree (fake model, made-up git history): branch list, a branch's commits, commit files and diffs, back marks the row + its thumbnail
+# Changes Tree (fake model, made-up git history): the branch map (counts, colors, arrows), a branch's commits, commit files and diffs, Merged and Waiting files, back marks the box + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-changes-tree.mjs /path/to/dsh/lib/bin.js
+# Branches in the workspace tree (fake model, made-up git project): a worktree becomes a project, the agent's new branch moves the chat, a deleted folder leaves the tree + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-branch-tree.mjs /path/to/dsh/lib/bin.js
 # Allow for this chat with a time limit (fake model that is also the Auto Review reviewer): the grant ends after 1 hour
 PLAYWRIGHT=/path/to/playwright node test/browser-grant-ttl.mjs /path/to/dsh/lib/bin.js
 # Next message prediction and Complete while typing (fake models): calls, Tab, Esc, model choice + their thumbnails
@@ -327,6 +364,8 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-project-picker.mjs /path
 # Queue drag-and-drop and Continue with a queued message (slow fake model)
 PLAYWRIGHT=/path/to/playwright node test/browser-queue-drag.mjs /path/to/dsh/lib/bin.js
 PLAYWRIGHT=/path/to/playwright node test/browser-continue-queue.mjs /path/to/dsh/lib/bin.js
+# Edit queued message in place with images and files (slow fake model) + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-queue-edit.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh

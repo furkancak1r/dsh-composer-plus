@@ -365,7 +365,8 @@ try {
   assert.equal((await call('GET', undefined, '?sessionId=empty')).data.hasCommit, false);
   assert.deepEqual((await call('GET', undefined, '?sessionId=plain')).data, { repo: false });
   assert.deepEqual((await call('GET', undefined, '?sessionId=none')).data, { repo: false });
-  assert.equal((await call('GET', undefined, '')).status, 400);
+  assert.deepEqual((await call('GET', undefined, '')).data, { on: true }, 'no query: the switch');
+  assert.equal((await call('GET', undefined, '?list=1')).status, 400);
   assert.equal((await call('GET', undefined, '?sessionId=main&list=2')).status, 400);
   for (const body of ['not json', 'null', '[]', {}, { sessionId: 'main' }, { sessionId: 'main', action: 'start' }, { sessionId: 'main', action: 'start', text: '' },
     { sessionId: 'main', action: 'start', text: '   ' }, { sessionId: 'main', action: 'start', text: 'x'.repeat(100001) }, { sessionId: 'main', action: 'open' },
@@ -394,6 +395,92 @@ try {
   assert.equal((await call('POST', { sessionId: 'empty', action: 'start', text: 'x' })).status, 409);
   services.workspaceRegistry = undefined;
   assert.equal((await call('POST', { sessionId: 'main', action: 'start', text: 'x' })).status, 409, 'a dsh without a workspace registry');
+  // The branch of a chat is deleted (its worktree folder goes): at the chat's next step the Host removes the folder's
+  // workspace (dsh lists its chats under Ungrouped) and moves the chat to the main folder before dsh's own check of the
+  // folder (dsh 0.2.1 ends the turn with "working-directory: directory does not exist" otherwise). Real git; fake dsh.
+  {
+    const home = join(base, 'home-gone'); process.env.DSH_HOME = home;
+    const M = repo(join(base, 'M'), { 'a.txt': 'a\n' });
+    const gone = join(M, '.worktrees', 'feat-gone'); git(M, 'worktree', 'add', '-q', '-b', 'feat/gone', gone);
+    const kept = join(M, '.worktrees', 'feat-kept'); git(M, 'worktree', 'add', '-q', '-b', 'feat/kept', kept);
+    const other = join(base, 'other-wt'); git(M, 'worktree', 'add', '-q', '-b', 'feat/other', other); // not a Branch per chat folder
+    const loose = join(base, 'loose', '.worktrees', 'x'); mkdirSync(join(base, 'loose'), { recursive: true }); // no repository around
+    // dsh: the workspace registry (list/delete), the working-directory service (get/set), the listeners of `ctx.on`.
+    const spaces = [{ id: 'w-main', path: M }, { id: 'w-gone', path: gone }, { id: 'w-kept', path: kept }, { id: 'w-other', path: other }, { id: 'w-loose', path: loose }];
+    const deleted = []; let deleteGate = Promise.resolve();
+    const registry2 = { list: () => spaces.filter((w) => !deleted.includes(w.id)), delete: async (id) => { await deleteGate; deleted.push(id); return true; } };
+    const cwds = new Map(); const sets = [];
+    const wd = { get: (session) => cwds.get(session.id) ?? session.header.cwd, set: async (agent, path, signal) => { signal?.throwIfAborted(); sets.push([agent.session.id, path]); cwds.set(agent.session.id, path); return path; } };
+    const hooks = [];
+    const on = (name, fn, options) => { const entry = { name, fn, options }; hooks.push(entry); return () => { hooks.splice(hooks.indexOf(entry), 1); }; };
+    const services2 = { workspaceRegistry: registry2, workingDirectory: wd };
+    const routes2 = new Map();
+    apply({ on, effect() {}, get: (name) => services2[name], connection: { fetch: { register: (x) => routes2.set(x.path, x) } }, sessionQuery, sessionController, subprocess });
+    const wt2 = routes2.get(WORKTREES_PATH);
+    const call2 = async (method, body, query = '') => {
+      const response = await wt2.fetch(new Request(`http://h${WORKTREES_PATH}${query}`, method === 'GET' ? {} : { method, body: JSON.stringify(body) }));
+      return { status: response.status, data: await response.json() };
+    };
+    assert.deepEqual((await call2('GET')).data, { on: true }, 'on by default (no file)');
+    const assembles = () => hooks.filter((h) => h.name === 'system-prompt/assemble');
+    assert.equal(assembles().length, 1); assert.equal(assembles()[0].options?.prepend, true, 'before dsh\'s own folder check');
+    // dsh's working-directory listener (added earlier, also prepend) runs after ours and fails on a gone folder.
+    const step = async (agent, signal) => {
+      const dshCheck = async (_a, _c, next) => { if (!existsSync(wd.get(agent.session))) throw new Error(`working-directory: directory does not exist: "${wd.get(agent.session)}"`); return next(); };
+      const chain = [...assembles().map((h) => h.fn), dshCheck];
+      const run = (i) => (i === chain.length ? Promise.resolve('assembled') : chain[i]({}, { agent, signal }, () => run(i + 1)));
+      return run(0);
+    };
+    const agent = (id, cwd) => ({ session: { id, header: { cwd } } });
+    // A folder that is there: nothing changes.
+    assert.equal(await step(agent('c-kept', kept)), 'assembled'); assert.deepEqual([deleted, sets], [[], []]);
+    // The branch is deleted while two chats of it are open: one move of the workspace, each chat goes on in the main folder.
+    git(M, 'worktree', 'remove', gone); git(M, 'branch', '-D', 'feat/gone');
+    let release; deleteGate = new Promise((r) => { release = r; });
+    const a = step(agent('c-1', gone)); const b = step(agent('c-2', gone));
+    await new Promise((r) => setTimeout(r, 300)); release();
+    assert.deepEqual(await Promise.all([a, b]), ['assembled', 'assembled'], 'no "directory does not exist" for either chat');
+    assert.deepEqual(deleted, ['w-gone'], 'the workspace of the gone folder goes, once (its chats show under Ungrouped)');
+    assert.deepEqual(sets.sort(), [['c-1', M], ['c-2', M]], 'each chat goes on in the main folder');
+    assert.equal(await step(agent('c-1', gone)), 'assembled'); assert.equal(sets.length, 2, 'once moved, nothing more');
+    // dsh 0.2.0 (no working-directory service): the workspace goes; the chat keeps its folder (0.2.0 never checks it).
+    delete services2.workingDirectory;
+    const gone2 = join(M, '.worktrees', 'feat-gone-2'); git(M, 'worktree', 'add', '-q', '-b', 'feat/gone-2', gone2); spaces.push({ id: 'w-gone-2', path: gone2 });
+    git(M, 'worktree', 'remove', gone2);
+    let stepped = false;
+    await assembles()[0].fn({}, { agent: agent('c-020', gone2) }, async () => { stepped = true; });
+    assert.ok(stepped && deleted.includes('w-gone-2'), 'dsh 0.2.0: the workspace goes and the step goes on');
+    services2.workingDirectory = wd;
+    // Only a gone `<repo>/.worktrees/<name>` of a repository moves: not a folder outside `.worktrees`, not one without a repository.
+    git(M, 'worktree', 'remove', other);
+    assert.equal(await step(agent('c-other', other)).catch((e) => e.message), `working-directory: directory does not exist: "${other}"`, 'not a Branch per chat folder: dsh decides');
+    assert.equal(await step(agent('c-loose', loose)).catch((e) => e.message), `working-directory: directory does not exist: "${loose}"`, 'no repository: dsh decides');
+    assert.ok(!deleted.includes('w-other') && !deleted.includes('w-loose'));
+    // A step without an agent (a preview of the prompt) is not touched; a failing registry does not stop the step.
+    assert.equal(await assembles()[0].fn({}, {}, async () => 'x'), 'x');
+    const gone3 = join(M, '.worktrees', 'feat-gone-3'); git(M, 'worktree', 'add', '-q', '-b', 'feat/gone-3', gone3); git(M, 'worktree', 'remove', gone3);
+    services2.workspaceRegistry = { list: () => [{ id: 'w-gone-3', path: gone3 }], delete: async () => { throw new Error('disk full'); } };
+    assert.equal(await step(agent('c-3', gone3)).catch((e) => e.message), `working-directory: directory does not exist: "${gone3}"`, 'a failed move leaves dsh\'s own answer');
+    services2.workspaceRegistry = registry2;
+    // The switch: off removes the listener and the route answers no branch and starts nothing; on adds it back. Saved.
+    assert.deepEqual((await call2('POST', { on: false })).data, { on: false });
+    assert.equal(assembles().length, 0, 'switched off: no listener');
+    assert.equal((await call2('GET', undefined, '?sessionId=main')).data.branch, 'main', 'off: the read-only status still answers (the browser hides it)');
+    assert.equal((await call2('POST', { sessionId: 'main', action: 'start', text: 'x' })).status, 409, 'off: no new branch');
+    assert.equal((await call2('POST', { sessionId: 'main', action: 'open', path: kept })).status, 409, 'off: no worktree opens');
+    assert.deepEqual(JSON.parse(readFileSync(join(home, 'storages', 'dsh-composer-plus', 'worktrees.json'), 'utf8')), { on: false });
+    assert.equal((await call2('POST', { on: 'yes' })).status, 400);
+    // A second Host start reads the saved switch: no listener.
+    const hooksBefore = hooks.length; const routes3 = new Map();
+    apply({ on, effect() {}, get: (name) => services2[name], connection: { fetch: { register: (x) => routes3.set(x.path, x) } }, sessionQuery, sessionController, subprocess });
+    assert.deepEqual(await (await routes3.get(WORKTREES_PATH).fetch(new Request(`http://h${WORKTREES_PATH}`))).json(), { on: false });
+    assert.equal(hooks.slice(hooksBefore).filter((h) => h.name === 'system-prompt/assemble').length, 0, 'a saved off: no listener after a restart');
+    // Two quick changes: the last one wins and there is one listener.
+    await Promise.all([call2('POST', { on: true }), call2('POST', { on: false }), call2('POST', { on: true })]);
+    assert.equal(assembles().length, 1, 'on again: one listener');
+    assert.deepEqual((await call2('GET')).data, { on: true });
+    process.env.DSH_HOME = join(base, 'home');
+  }
   // Review P3: an upstream that was deleted on the remote (and pruned) is not pushed any more.
   git(r1.path, 'push', '-q', 'origin', '--delete', 'feat/dark-mode-toggle'); git(r1.path, 'fetch', '-q', '--prune');
   assert.equal((await branchStatus(subprocess, r1.path)).upstream, null, 'a gone upstream counts as not pushed');
