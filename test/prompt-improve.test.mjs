@@ -222,9 +222,18 @@ try {
   // One improvement per chat: a newer ask stops the older call (the desktop app does not pass a cancelled fetch on to the
   // Host, so the older call must not lock the chat). Another chat is not touched. The browser leaving stops the call.
   let release;
+  // Wait until the model call of the ask just sent has started (git reads the project first, which can take a while on a
+  // busy machine); a fixed sleep caught the wrong call or aborted before the fake model listened, and the test hung.
+  const started = async (count) => {
+    for (const end = Date.now() + 10000; calls.length <= count;) {
+      if (Date.now() > end) assert.fail('the model call did not start within 10 s');
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+  };
   gate = (signal) => new Promise((resolve) => { release = resolve; signal.addEventListener('abort', resolve); });
+  let count = calls.length;
   const slow = ask({ sessionId: 's1', text: 'Run' });
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await started(count);
   const older = calls.at(-1);
   gate = () => Promise.resolve();
   assert.equal((await ask({ sessionId: 's2', text: 'Run' })).status, 200, 'another chat is not blocked');
@@ -237,8 +246,9 @@ try {
   // request, and the next click in that chat runs at once (no "still running", no stuck guard).
   gate = (signal) => new Promise((resolve) => { release = resolve; signal.addEventListener('abort', resolve); });
   const page = new AbortController();
+  count = calls.length;
   const left = ask({ sessionId: 's1', text: 'Fix' }, page.signal).catch(() => 'gone');
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await started(count);
   page.abort(); await left;
   gate = () => Promise.resolve();
   r = await ask({ sessionId: 's1', text: 'Fix' }); assert.equal(r.status, 200, 'back in the chat: a new click runs');
@@ -250,8 +260,9 @@ try {
   assert.equal((await ask({ sessionId: 's1', text: 'Run' })).status, 200, 'free again after a failure');
   gate = (signal) => new Promise((resolve) => signal.addEventListener('abort', resolve));
   const leaving = new AbortController();
+  count = calls.length;
   const gone = ask({ sessionId: 's3', text: 'Fix' }, leaving.signal);
-  await new Promise((resolve) => setTimeout(resolve, 50));
+  await started(count);
   leaving.abort(); await gone.catch(() => {});
   assert.equal(calls.at(-1).signal.aborted, true, 'an aborted request stops its call');
   gate = () => Promise.resolve();
