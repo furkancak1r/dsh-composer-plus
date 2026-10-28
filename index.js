@@ -776,7 +776,12 @@ export async function wakeSession({ sessionController, sessionQuery, goals, arch
 /** Feature ideas: at most this many cards per call; the brief and the answer are bounded too. */
 export const IDEAS_MAX = 8;
 const BRIEF_FILE_BYTES = 6000;
-const BRIEF_MAX = 16000;
+/** The README is read up to this size; past its head, only an outline of it goes into the brief. */
+const BRIEF_README_BYTES = 256 * 1024;
+const BRIEF_OUTLINE = 6000;
+const BRIEF_COMMITS = 6000;
+const BRIEF_LINE = 100;
+const BRIEF_MAX = 28000;
 // A reasoning model counts its thinking in the output cap. A route that forces a high effort (AIProxy's aiproxy-max used
 // about 7.7k tokens and 72 s for 8 ideas) was cut at 4000 tokens with `output_limit`; this cap leaves room for the thinking.
 const IDEAS_TIMEOUT_MS = 180000;
@@ -785,7 +790,7 @@ const IDEAS_MAX_TOKENS = 32000;
 const BRIEF_SKIP = /^(\.env.*|.*\.(pem|key|p12|pfx)|id_[a-z0-9]+|\.git|node_modules|dist|build|coverage|\.next|\.venv|venv|__pycache__|\.DS_Store)$/i;
 const BRIEF_FILES = ['README.md', 'readme.md', 'README', 'AGENTS.md', 'package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'composer.json', 'pom.xml'];
 
-/** The first `max` bytes of one regular file whose real path starts with `prefix` (the chat folder's real path and a
+/** The first `max` bytes (a Buffer) of one regular file whose real path starts with `prefix` (the chat folder's real path and a
  * separator), or undefined. A symlink counts only when it ends inside the folder. A FIFO or device is never opened;
  * O_NOFOLLOW and O_NONBLOCK keep a file swapped in after the check from escaping or blocking. */
 async function head(path, max, prefix) {
@@ -797,12 +802,47 @@ async function head(path, max, prefix) {
     if (!(await file.stat()).isFile()) return undefined;
     const buffer = Buffer.alloc(max);
     const { bytesRead } = await file.read(buffer, 0, max, 0);
-    return buffer.subarray(0, bytesRead).toString('utf8');
+    return buffer.subarray(0, bytesRead);
   } catch { return undefined; } finally { await file?.close().catch(() => {}); }
 }
 
+/** Lines, each cut to BRIEF_LINE characters, in order until the next one would pass `max` characters. */
+const firstLines = (lines, max) => {
+  const out = [];
+  let size = 0;
+  for (const line of lines) {
+    const text = line.slice(0, BRIEF_LINE);
+    if (size + text.length + 1 > max) break;
+    out.push(text); size += text.length + 1;
+  }
+  return out.join('\n');
+};
+/** The skeleton of Markdown text: headings, the first cell of table rows, list items and bold-led lines (a bold lead
+ * alone), without code blocks, HTML tags or link targets. A long README lists its features this way, past its head. */
+function readmeOutline(text) {
+  const plain = (s) => s.replace(/<[^>]*>/g, '').replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\s+/g, ' ').trim();
+  const lines = [];
+  let fence = false;
+  for (const line of text.split('\n')) {
+    if (/^\s{0,3}(```|~~~)/.test(line)) { fence = !fence; continue; }
+    if (fence) continue;
+    let m;
+    let item;
+    if ((m = /^\s{0,3}#{1,6}\s+(.*)/.exec(line))) item = `# ${plain(m[1])}`;
+    else if ((m = /^\s*\|([^|]*)\|/.exec(line))) item = /^[\s:-]*$/.test(m[1]) ? '' : `| ${plain(m[1])}`;
+    else if ((m = /^\s*(?:[-*+]|\d+[.)])\s+(.*)/.exec(line) ?? /^\s{0,3}(\*\*.*)/.exec(line))) {
+      const lead = /^\*\*(.+?)\*\*/.exec(m[1]);
+      item = `- ${plain(lead ? lead[1] : m[1])}`;
+    }
+    if (item !== undefined && item.length > 2) lines.push(item);
+  }
+  return lines;
+}
+
 /** A short, read-only picture of a project for the idea prompt: top-level entries, the main docs and manifests (heads
- * only), and the latest commits. Secrets files and generated folders are skipped; the whole brief is bounded. */
+ * only), an outline of the rest of the README and the newest commit subjects. Secrets files and generated folders are
+ * skipped; the whole brief is bounded. The outline and the commits have their own room, so long docs cannot push them
+ * out: without them the model does not see most of what a large project already has, and suggests it again. */
 export async function projectBrief(cwd, { subprocess, signal } = {}) {
   const parts = [];
   try {
@@ -810,24 +850,35 @@ export async function projectBrief(cwd, { subprocess, signal } = {}) {
     parts.push(`Top-level entries:\n${entries.map((e) => `${e.name}${e.isDirectory() ? '/' : ''}`).join('\n')}`);
   } catch { /* unreadable folder: the brief says less */ }
   const seen = new Set();
+  const tail = [];
   const prefix = await realpath(cwd).then((real) => (real.endsWith(sep) ? real : real + sep), () => undefined);
   for (const name of prefix === undefined ? [] : BRIEF_FILES) {
-    const text = await head(join(cwd, name), BRIEF_FILE_BYTES, prefix);
+    const readme = /^readme/i.test(name);
+    // ponytail: the outline covers the first BRIEF_README_BYTES of the README; past that, nothing is read.
+    const bytes = await head(join(cwd, name), readme ? BRIEF_README_BYTES : BRIEF_FILE_BYTES, prefix);
+    const text = bytes?.subarray(0, BRIEF_FILE_BYTES).toString('utf8');
     // Case-insensitive file systems answer README.md and readme.md with the same file.
     if (text === undefined || text.trim() === '' || seen.has(text)) continue;
     seen.add(text);
     parts.push(`--- ${name} (first ${BRIEF_FILE_BYTES} bytes) ---\n${text}`);
+    if (readme && tail.length === 0 && bytes.length > BRIEF_FILE_BYTES) {
+      const rest = bytes.subarray(BRIEF_FILE_BYTES).toString('utf8');
+      const outline = firstLines(readmeOutline(rest.slice(rest.indexOf('\n') + 1)), BRIEF_OUTLINE);
+      if (outline !== '') tail.push(`--- ${name} (outline of the rest: headings, table rows, list items) ---\n${outline}`);
+    }
   }
   if (subprocess !== undefined) {
     try {
-      const log = await runGit(subprocess, cwd, ['log', '--oneline', '--no-color', '-15'], signal);
-      if (log.code === 0 && log.stdout.trim() !== '') parts.push(`Latest commits:\n${log.stdout.trim()}`);
+      const log = await runGit(subprocess, cwd, ['log', '--no-merges', '--format=%s', '-n', '300'], signal);
+      const subjects = firstLines(log.code === 0 ? log.stdout.split('\n').filter((s) => s.trim() !== '') : [], BRIEF_COMMITS);
+      if (subjects !== '') tail.push(`Latest commits:\n${subjects}`);
     } catch { /* not a repository, or git is missing */ }
   }
-  return parts.join('\n\n').slice(0, BRIEF_MAX);
+  const end = tail.join('\n\n');
+  return [parts.join('\n\n').slice(0, BRIEF_MAX - end.length - 2), end].filter(Boolean).join('\n\n');
 }
 
-const IDEAS_SYSTEM = `You suggest new features for a software project. Read the project brief and suggest ${IDEAS_MAX} specific features that fit this project and its users. Prefer small, useful, concrete features over rewrites. Do not suggest a feature that the brief shows the project already has.
+const IDEAS_SYSTEM = `You suggest new features for a software project. Read the project brief and suggest ${IDEAS_MAX} specific features that fit this project and its users. Prefer small, useful, concrete features over rewrites. Do not suggest a feature that the brief shows the project already has: check the README, its outline and the commit subjects first.
 Answer with one JSON array only, with no other text. Each element is an object with these keys:
 - "title": the feature name, at most 8 words.
 - "summary": what the feature does, 1 or 2 sentences.

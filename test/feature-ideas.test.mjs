@@ -3,10 +3,23 @@
 // for later (one list per project, owner-only file, no data loss) and the routes.
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, stat, rm, symlink, open } from 'node:fs/promises';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { apply, IDEAS_PATH, IDEAS_MAX, LATER_PATH, LATER_MAX, HISTORY_PATH, HISTORY_MAX, projectBrief, parseIdeas, ideaPrompt, suggestIdeas, startIdeaChat, ideasLanguage, ideasFocus, FOCUS_MAX, laterStore, ideaHistory } from '../index.js';
+
+// Real git through a fake dsh subprocess service (argv only, as dsh runs it).
+const subprocess = {
+  resolveExecutable: async () => execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(),
+  spawn({ argv, cwd, env }) {
+    const child = spawn(argv[0], argv.slice(1), { cwd, env: { ...process.env, ...env } });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; }); child.stderr.resume();
+    return { done: new Promise((resolve) => child.on('close', (code) => resolve({ exitCode: code, signal: null }))),
+      collected: { stdout: { readFrom: () => ({ text: out, lossy: false }) }, stderr: { readFrom: () => ({ text: '' }) } } };
+  },
+};
+const git = (cwd, ...a) => execFileSync('git', a, { cwd, env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
 
 const dir = await mkdtemp(join(tmpdir(), 'ideas-test-'));
 try {
@@ -21,12 +34,13 @@ try {
   assert.match(brief, /Top-level entries:[\s\S]*src\//);
   assert.match(brief, /# Acme notes/); assert.match(brief, /acme-notes/);
   for (const hidden of ['.env', 'SECRET_TOKEN', 'server.pem', 'node_modules']) assert.ok(!brief.includes(hidden), `brief skips ${hidden}`);
-  assert.ok(brief.length <= 16000 && !brief.includes('x'.repeat(6001)), 'file heads and the brief are bounded');
+  assert.ok(brief.length <= 28000 && !brief.includes('x'.repeat(6001)), 'file heads and the brief are bounded');
   assert.equal(await projectBrief(join(dir, 'missing')), '', 'a missing folder gives an empty brief, not an error');
 
   // Brief files stay inside the chat's folder: a symlink out is skipped, a symlink inside is read, a FIFO never blocks.
   if (process.platform !== 'win32') {
-    await writeFile(join(dir, 'outside.txt'), 'OUTSIDE-SECRET');
+    // Long, so that the outline past the README head would also show it.
+    await writeFile(join(dir, 'outside.txt'), `OUTSIDE-SECRET\n${'y'.repeat(7000)}\n## OUTSIDE-HEADING\n- OUTSIDE-ITEM\n`);
     const p = join(dir, 'linked'); await mkdir(join(p, 'docs'), { recursive: true });
     await writeFile(join(p, 'docs', 'guide.md'), '# Inside guide');
     await symlink(join(dir, 'outside.txt'), join(p, 'README.md'));
@@ -36,8 +50,55 @@ try {
     const linked = await Promise.race([run, new Promise((r) => setTimeout(() => r(undefined), 2000))]);
     // A red run must end: give the blocked open() a writer, then fail.
     if (linked === undefined) { await (await open(fifo, 'w')).close(); await run; assert.fail('projectBrief waited on a FIFO'); }
-    assert.ok(!linked.includes('OUTSIDE-SECRET'), 'a symlink out of the folder is skipped');
+    assert.ok(!linked.includes('OUTSIDE'), 'a symlink out of the folder is skipped (head and outline)');
     assert.match(linked, /# Inside guide/, 'a symlink inside the folder is read');
+    // The README is now read further (for its outline): a FIFO in its place still never blocks.
+    const q = join(dir, 'fifo-readme'); await mkdir(q);
+    const readmeFifo = join(q, 'README.md'); execFileSync('mkfifo', [readmeFifo]);
+    await writeFile(join(q, 'AGENTS.md'), '# Agents rules');
+    const runQ = projectBrief(q);
+    const fifoBrief = await Promise.race([runQ, new Promise((r) => setTimeout(() => r(undefined), 2000))]);
+    if (fifoBrief === undefined) { await (await open(readmeFifo, 'w')).close(); await runQ; assert.fail('projectBrief waited on a README FIFO'); }
+    assert.match(fifoBrief, /# Agents rules/); assert.ok(!fifoBrief.includes('--- README.md'), 'a FIFO README is skipped');
+  }
+
+  // A large project (the root cause of ideas that the project already had): its README lists most features past the
+  // first 6 kB, and long docs filled the 16 kB brief, so the commits were cut off. Now an outline of the rest of the
+  // README (headings, table rows, list items, bold leads; no code block, link target or HTML) and the newest commit
+  // subjects always reach the model, in their own bounded room.
+  {
+    const big = join(dir, 'big-app'); await mkdir(big);
+    const rows = Array.from({ length: 400 }, (_, i) => `| **Feature ${i}** | ${'How to use it. '.repeat(12)} | <img src="shot.webp"> |`);
+    await writeFile(join(big, 'README.md'), [`# Big app\n\n${'Intro text that fills the head. '.repeat(220)}`, '## FAQ', '',
+      '**Can I export my notes?** Yes, as Markdown.', '', '```sh', '# not a heading', 'npm run code-block-only', '```', '',
+      '## Features', '', '| Feature | How | Shot |', '|---|---|---|', '| **Dark mode** | Open [Settings](docs/settings-target.md) → Theme. | |', ...rows, ''].join('\n'));
+    await writeFile(join(big, 'AGENTS.md'), 'Agent rules. '.repeat(600));
+    await writeFile(join(big, 'package.json'), JSON.stringify({ name: 'big-app', description: 'd'.repeat(7000) }));
+    git(big, 'init', '-q', '-b', 'main');
+    git(big, 'commit', '-q', '--allow-empty', '-m', 'Add photo attachments to messages');
+    for (let i = 1; i <= 40; i++) git(big, 'commit', '-q', '--allow-empty', '-m', `Step ${i}: ${'polish '.repeat(i % 3 === 0 ? 30 : 2)}`);
+    git(big, 'commit', '-q', '--allow-empty', '-m', 'Add tag filters');
+    const large = await projectBrief(big, { subprocess });
+    assert.ok(large.length <= 28000, `the brief stays bounded (${large.length})`);
+    assert.match(large, /--- README\.md \(first 6000 bytes\) ---\n# Big app/);
+    const outline = large.slice(large.indexOf('--- README.md (outline'), large.indexOf('Latest commits:'));
+    for (const line of ['# FAQ', '- Can I export my notes?', '# Features', '| Feature', '| **Dark mode**', '| **Feature 0**']) {
+      assert.ok(outline.split('\n').includes(line), `the outline past the head has "${line}"`);
+    }
+    for (const gone of ['code-block-only', 'not a heading', 'settings-target', '<img', '|---']) assert.ok(!outline.includes(gone), `no ${gone} in the outline`);
+    assert.ok(outline.length <= 6200 && !outline.includes('Feature 399'), 'a long outline is cut to its room');
+    const commits = large.slice(large.indexOf('Latest commits:')).split('\n').slice(1);
+    assert.equal(commits[0], 'Add tag filters', 'newest commit first, subject only');
+    assert.ok(commits.includes('Add photo attachments to messages'), 'more than the last 15 commits reach the model');
+    assert.ok(commits.every((l) => l.length <= 100), 'each commit subject is cut');
+    // The same brief is what the model gets.
+    let bigCall;
+    await suggestIdeas({ llm: { async prepareCall(config, signal, configure) {
+      return { config: { ...config, ...configure({}, {}) }, async *stream(options) { bigCall = options; yield { type: 'text-delta', text: '[{"title":"Search","summary":"Find things."}]' }; yield { type: 'finish', reason: { kind: 'stop' } }; } };
+    } }, subprocess, sessionQuery: { observeSession: async () => ({ header: { cwd: big }, events: [{ type: 'request/header', data: { header: { config: { provider: 'p', model: 'm' } } } }] }) } }, 's-big');
+    const sent = bigCall.messages[0].content[0].text;
+    for (const known of ['| **Dark mode**', '- Can I export my notes?', 'Add photo attachments to messages']) assert.ok(sent.includes(known), `the model sees "${known}"`);
+    assert.match(bigCall.system, /already has: check the README, its outline and the commit subjects/);
   }
 
   // Parsing: a fenced JSON array, junk around it, cleaning and bounds.
