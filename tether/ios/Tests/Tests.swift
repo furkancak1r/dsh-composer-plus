@@ -337,6 +337,16 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(Client.createRequest(cwd: nil, workspaceId: nil) as NSDictionary, [:])
     }
 
+    @MainActor func testQuickChatUsesTheMacDefaultWorkspace() {
+        // Composer Plus `/plus/new-session-workspace`: its workspace opens Quick chat; anything else leaves DSH's choice.
+        XCTAssertEqual(Client.defaultWorkspaceId(["workspaceId": "casual", "path": "/p/casual", "general": false]), "casual")
+        XCTAssertNil(Client.defaultWorkspaceId(nil))
+        XCTAssertNil(Client.defaultWorkspaceId([:]))
+        XCTAssertNil(Client.defaultWorkspaceId(["workspaceId": ""]))
+        XCTAssertNil(Client.defaultWorkspaceId(["workspaceId": 7]))
+        XCTAssertEqual(Client.createRequest(cwd: nil, workspaceId: Client.defaultWorkspaceId(["workspaceId": "w1"])) as NSDictionary, ["workspaceId": "w1"])
+    }
+
     @MainActor func testReasoningSessionModelAndGroups() {
         let md = transcriptMarkdown([Line(kind: .user, text: "hi"), Line(kind: .tool, text: "ls"), Line(kind: .assistant, text: "hello")], title: "T")
         XCTAssertEqual(md, "# T\n\n## You\n\nhi\n\n## Assistant\n\nhello\n")

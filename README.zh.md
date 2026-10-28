@@ -55,6 +55,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **将对话导出为 Markdown** | <a id="feature-exportmarkdown"></a>在侧边栏中右键点击对话（或打开它的 **…** 菜单）→ **导出为 Markdown…**。对话框会显示该对话有多少条消息；**复制到剪贴板** 会把对话以 Markdown 格式复制，**保存 .md 文件** 会通过浏览器的下载功能把它保存为 `<chat title>.md`（dsh 桌面版：按你的系统设置，保存到“下载”文件夹或打开保存对话框）。文件包含对话标题、项目名称和日期，之后每条消息各有一个 `## 你` 或 `## 助手` 部分。代码块保持原样；如果某条消息中的代码块没有闭合，它会被闭合。 | <a href="assets/features/exportMarkdown.webp"><img src="assets/features/exportMarkdown.webp" width="160" alt="截图：将对话导出为 Markdown"></a> |
 | **复制项目路径** | <a id="feature-copyprojectpath"></a>在侧边栏中右键点击项目 → **复制路径**，即可复制它的文件夹的完整路径。 | <a href="assets/features/copyProjectPath.webp"><img src="assets/features/copyProjectPath.webp" width="160" alt="截图：复制项目路径"></a> |
 | **新对话中的项目搜索** | <a id="feature-projectpicker"></a>新对话 → 输入框上方的项目按钮。项目按 A–Z 顺序显示，顶部有 **搜索项目** 框。输入名称的一部分（不区分大小写和重音符号），按 `Enter` 即可选择第一个匹配项。没有匹配项时会显示 **没有匹配的项目**。侧边栏中 dsh 保存的项目顺序不会改变。 | <a href="assets/features/projectPicker.webp"><img src="assets/features/projectPicker.webp" width="160" alt="截图：新对话中的项目搜索"></a> |
+| **新会话的默认工作区** | <a id="feature-defaultworkspace"></a>设置 → Composer Plus → **新会话的默认工作区** → **新会话打开于**：选择一个项目，或选择 **通用文件夹（default-workspace）**（默认值：dsh 自己的文件夹 `Documents/deepseek-harness/default-workspace`，首次使用时创建）。之后，侧边栏顶部的 **新会话**（及其快捷键）总是在那里打开新对话，即使另一个项目的对话正在打开也是如此。项目旁的 `+` 仍会打开该项目，新对话中输入框上方的项目按钮仍可更换项目。 | <a href="assets/features/defaultWorkspace.webp"><img src="assets/features/defaultWorkspace.webp" width="160" alt="截图：新会话的默认工作区"></a> |
 | **在对话中查找** | <a id="feature-findinchat"></a>在对话中按 `Cmd+F`（Mac）或 `Ctrl+F`（Windows 和 Linux），对话上方会打开查找框。输入词语后，屏幕上的消息和回复中所有匹配项都会高亮，当前匹配项颜色更深，查找框显示 **n / 总数**。`Enter` 或 `↓` 跳到下一个匹配项，`Shift+Enter` 或 `↑` 跳到上一个（也可用箭头按钮）；对话会把匹配项滚动到中间。不区分大小写、重音和土耳其语无点 ı。`Esc` 关闭查找框，并把光标放回原处。回复流式输出时，查找结果会随之更新。 | <a href="assets/features/findInChat.webp"><img src="assets/features/findInChat.webp" width="160" alt="截图：在对话中查找"></a> |
 | **每个对话一个分支** | <a id="feature-worktreechats"></a>新对话 → 项目按钮旁边的 ⑂ main 按钮 → **新分支**，然后输入第一条消息并发送。AI 根据这条消息给分支命名（`feat/…`、`fix/…`），Composer Plus 在 `<项目>/.worktrees/` 中为它创建 git worktree，复制 `.worktreeinclude` 列出的被忽略文件（例如 `.env` 和 `node_modules/`），并在那里打开一个带有你消息的新对话。打开的对话标题栏显示 ⑂ 分支 · N 处改动 · ↑ ↓（或 **未推送**）；点击它打开 **改动**。同一菜单列出已打开的 worktree：选择一个即可在其中开始对话。要在侧边栏中把分支文件夹显示在其项目内，请选择 dsh 的 **视图选项** → **按工作区树**。 | <a href="assets/features/worktreeChats.webp"><img src="assets/features/worktreeChats.webp" width="160" alt="截图：每个对话一个分支"></a> |
 | **下一条消息预测** | <a id="feature-nextprediction"></a>默认开启；可在 **设置 → Composer Plus** 中关闭。智能体完成一个回合后（被停止或失败的回合除外），空输入框会以灰色文字显示对你下一条消息的猜测，并带有 **按 Tab 接受** 提示。`Tab` 会把文字放入输入框，但不会发送。`Esc` 会在本回合隐藏它。开始输入也会隐藏它，新的回合会替换它。开关下方的 **模型** 菜单列出 dsh 自己的模型（与 dsh 模型菜单的列表相同）。默认选中 **dsh 默认**，它跟随 dsh 的默认模型。每完成一个回合会进行一次简短的模型调用。在 Tether 中，猜测显示在空输入框上方：轻点它即可放入输入框。 | <a href="assets/features/nextPrediction.webp"><img src="assets/features/nextPrediction.webp" width="160" alt="截图：下一条消息预测"></a> |
@@ -197,6 +198,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - dsh 在侧边栏的视图选项菜单中没有扩展点，所以近期项目选项被添加到 dsh 自己的菜单中。如果 dsh 更新修改了这个菜单，该选项将不会显示，所有项目都保持可见。筛选作用于项目行，因此 **单列表** 不会被筛选。请与 **按工作区** 一起使用：在 **按工作区树** 中，被隐藏的父文件夹也会隐藏其中的活跃项目。**按状态** 也有同类限制：dsh 没有排序插槽，因此该菜单项和行顺序依赖 dsh 的菜单和列表标记。
 - dsh 也没有项目行菜单或“工作区”标题栏插槽。**复制路径** 通过 dsh 的行标记找到项目行；**折叠全部项目** 放在 dsh 的标题栏中，并用与点击项目行相同的方式折叠每个展开的项目。如果 dsh 更新修改了这些标记，右键点击会显示浏览器自己的菜单，按钮也不会显示。
 - dsh 在新对话的项目菜单中也没有扩展点，所以 **搜索项目** 框和 A–Z 顺序依赖 dsh 的菜单标记。如果 dsh 更新修改了这些标记，菜单会按 dsh 自己的样子显示：使用保存的顺序，没有搜索框。A–Z 顺序只是一种视图，不会改变 dsh 保存的项目顺序。
+- dsh 也没有决定 **新会话** 在何处打开的扩展点。**新会话的默认工作区** 包装了 dsh 的一个非公开 API 方法（dsh 工作区服务的 `startSession`）。如果 dsh 更新改了它的名字，**新会话** 会在 dsh 自己选择的位置打开（当前或最近的项目）。所有不指定项目的调用都使用默认值：侧边栏按钮、它的快捷键、徽标，以及 **自动化任务** 页面上的 **新建**。dsh 启动时仍会打开上一个对话。通用文件夹在首次使用时创建并加入你的项目；在 Windows 或 Linux 上，如果 Documents 文件夹被移动过，它可能与 dsh 自己的文件夹不同。
 - dsh 也没有输入框提示的扩展点，所以 **下一条消息预测** 的文字覆盖在 dsh 自己的占位文字（`[data-composer-placeholder]`）上。如果 dsh 更新修改了这部分标记，就不会显示预测。开启期间，每完成一个回合都会进行一次简短的模型调用。
 - **输入时补全** 通过 dsh 自己的输入框提示显示文字（即 dsh 用于斜杠命令参数提示的 `--dsh-composer-hint` 样式）。输入斜杠命令、消息中带有文件或符号标签，或光标不在消息末尾时，它不会运行。如果 dsh 更新修改了这个样式，就不会显示补全。你每次输入停顿都会进行一次模型调用。
 - **优化提示词** 只能看到简短的项目概要、已更改的路径以及名称与你的用词匹配的路径，看不到代码本身。因此它可能漏掉正确的文件，并且只会提到提供给它的路径。发送前请先阅读新文本。输入斜杠命令或消息中带有文件或符号标签时，它不会运行（新文本是纯文本，标签会丢失）；一条消息最多 8,000 个字符。图片仍保留在附件中：只有文字会改变。每次点击都会进行一次模型调用；较强的模型可能需要一分钟（按 `Esc` 取消）。
@@ -259,6 +261,8 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 **如何把 DeepSeek Harness 界面切换为土耳其语、西班牙语、日语……？** 设置 → Composer Plus → **应用语言**。
 
 **如何在 iPhone 上使用 dsh？** 用 Xcode 从 `tether/ios` 构建 Tether 应用，开启 **设置 → Composer Plus → 手机连接（iPhone）**，点击左下角的 **手机连接**，扫描二维码（用 iPhone 相机或 Tether 中的 **Scan code**），轻点 **Connect**，然后点击 **Approve**。不在家时，请在两台设备上都使用 Tailscale。
+
+**如何让新会话总在同一个项目中打开？** 设置 → Composer Plus → **新会话的默认工作区** → **新会话打开于** → 选择项目。其他项目旁的 `+` 仍会打开那个项目。
 
 **如何在同一个项目中同时开发多个功能，并让每个功能在自己的分支上？** 使用 **每个对话一个分支**：新对话 → ⑂ main 按钮 → **新分支**，然后发送第一条消息。每个对话都有自己的分支和 worktree 文件夹；如果 `.worktreeinclude` 列出了你的 `.env` 和 `node_modules`，它们也会一起复制过去。对话标题栏会显示你当前所在的分支。
 

@@ -2177,6 +2177,19 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let id = v?["sessionId"] as? String { open(id) }
     }
 
+    /// The workspace of a Mac answer to `/plus/new-session-workspace`; nil (DSH picks) for anything else.
+    static func defaultWorkspaceId(_ o: J?) -> String? {
+        guard let id = o?["workspaceId"] as? String, !id.isEmpty else { return nil }
+        return id
+    }
+
+    /// Quick chat: the Mac's default workspace (Composer Plus → Default workspace for New session). Switched off, an older
+    /// Mac or any failure: DSH's own default folder, as before.
+    func createQuick() async throws {
+        let o = plus.contains("new-session-workspace") ? try? await plusCall("new-session-workspace", body: [:]) : nil
+        try await create(cwd: nil, workspaceId: Self.defaultWorkspaceId(o))
+    }
+
     func fork(_ id: String) async throws {
         let v = try await rpc("session/fork", ["request": ["sessionId": id]]) as? J
         try await loadSessions()

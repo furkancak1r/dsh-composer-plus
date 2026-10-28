@@ -1884,7 +1884,7 @@ struct NewSessionSheet: View {
             List {
                 if q.isEmpty {
                     Section {
-                        Button { create(nil) } label: { row(Text("Quick chat"), Text("DSH default workspace, no project"), "bubble.left") }
+                        Button { dismiss(); c.run { try await c.createQuick() } } label: { row(Text("Quick chat"), Text("Default workspace (Mac settings)"), "bubble.left") }
                     }
                 }
                 if !projects.isEmpty {
