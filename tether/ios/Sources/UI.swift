@@ -1030,7 +1030,8 @@ struct ConversationView: View {
                 .accessibilityHint(Text("Adds it to the message"))
             }
             // while a turn runs, sending queues the next turn like desktop's default busy-Enter; the queue dock's "Send now" steers
-            TextField(c.newBranch ? "First message on a new branch…" : c.running ? "Queue a message…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4)
+            // While the Mac makes the branch, the field takes no text (the sent message is on its way).
+            TextField(c.branching ? "Creating branch…" : c.newBranch ? "First message on a new branch…" : c.running ? "Queue a message…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4).disabled(c.branching)
             HStack(spacing: 10) {
                 Menu {
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -1157,10 +1158,9 @@ struct ConversationView: View {
             c.run { do { try await c.execute(t) } catch { restore(); throw error } }; return
         }
         atBottom = true
-        // New branch: text only (the Mac sends it to the new chat); files go after that chat opens.
-        if c.newBranch, !t.isEmpty {
-            guard imgs.isEmpty, fs.isEmpty else { restore(); c.error = String(localized: "Send the first message without files on a new branch; add files after the chat opens."); return }
-            c.run { do { try await c.startOnBranch(t) } catch { restore(); throw error } }; return
+        // New branch: the Mac sends the text, the photos and the files to the new chat.
+        if c.newBranch, !t.isEmpty || !imgs.isEmpty || !fs.isEmpty {
+            c.run { do { try await c.startOnBranch(t, images: imgs, files: fs) } catch { restore(); throw error } }; return
         }
         c.run(waits: false) { do { try await c.prompt(t, images: imgs, files: fs) } catch { restore(); throw error } }
     }

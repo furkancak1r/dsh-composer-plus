@@ -1,6 +1,8 @@
 // Real-app check of Branch per chat (worktreeChats) on each dsh given (fake model, throwaway DSH_HOME, made-up git
 // project; headless):
-// - dsh 0.2.1+: the New chat screen shows the branch chip "⑂ main"; New branch + a first message → the fake model names
+// - dsh 0.2.1+: the New chat screen shows the branch chip "main" between dsh's project and mode buttons, with their font,
+//   color, height and icons; the switch off removes the chip and its style and gives the row its own order back.
+//   New branch + a first message with an image and a file (the composer takes no text while the Host works) → the fake model names
 //   the branch, the Host creates <project>/.worktrees/feat-login-remember-me on branch feat/login-remember-me, copies only
 //   the `.worktreeinclude` files (.env yes, .env.production no, node_modules as a clone), and opens a new chat there that
 //   got the message. With dsh's Workspace tree view the branch folder shows inside its project (not as a top project).
@@ -25,13 +27,16 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // Fake model: the branch-name call (its system text asks for a git branch name) gets `feat/login-remember-me`; a chat
 // title request gets a title; any other request answers "Got: <prompt>" for the newest known prompt, so the test sees
 // which chat got what (dsh adds its own context messages, so the last message is not always the user's text).
+// The branch-name answer waits for `nameGate` (the test reads the locked composer meanwhile). Chat requests are kept.
+let nameGate = Promise.resolve(); const chatBodies = [];
 const fake = createServer((req, res) => {
-  let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
+  let body = ''; req.on('data', (c) => { body += c; }); req.on('end', async () => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
     const msgs = JSON.parse(body).messages ?? []; const all = JSON.stringify(msgs); const last = msgs.at(-1);
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo', choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`;
     const say = (text) => { res.writeHead(200, { 'content-type': 'text/event-stream' }); res.end(chunk({ role: 'assistant', content: text }) + chunk({}, 'stop') + 'data: [DONE]\n\n'); };
-    if (/branch name/i.test(JSON.stringify(msgs[0] ?? '')) || /branch name/i.test(all.slice(0, 2000))) { say('feat/login-remember-me'); return; }
+    if (/branch name/i.test(JSON.stringify(msgs[0] ?? '')) || /branch name/i.test(all.slice(0, 2000))) { await nameGate; say('feat/login-remember-me'); return; }
+    chatBodies.push(all);
     if (/session title/i.test(JSON.stringify(last?.content))) { say('Demo chat'); return; }
     const prompt = ['Add a remember me box to the login form', 'Say hello'].findLast((p) => all.includes(p)) ?? 'something';
     say(`Got: ${prompt}`);
@@ -39,6 +44,37 @@ const fake = createServer((req, res) => {
 }).listen(0, '127.0.0.1');
 await new Promise((r) => fake.once('listening', r));
 const fakePort = fake.address().port;
+// dsh's New chat row: the project button, our chip and the mode button (place and computed look), the options box when
+// it shows, and the number of chip style tags in the page.
+const heroLayout = (page) => page.evaluate(() => {
+  const row = document.querySelector('[class*="_heroWorkspaceRow"]');
+  const read = (button) => {
+    if (!button) return null;
+    const r = button.getBoundingClientRect(); const s = getComputedStyle(button); const svgs = button.querySelectorAll('svg');
+    return { order: s.order, box: { left: r.left, right: r.right, mid: r.top + r.height / 2 },
+      look: { fontFamily: s.fontFamily, fontSize: s.fontSize, fontWeight: s.fontWeight, lineHeight: s.lineHeight, color: s.color, height: r.height,
+        paddingLeft: s.paddingLeft, borderRadius: s.borderRadius, icon: svgs[0]?.getAttribute('width'), chevron: svgs[svgs.length - 1]?.getAttribute('width'),
+        chevronColor: svgs.length < 2 ? null : getComputedStyle(svgs[svgs.length - 1]).color } };
+  };
+  const options = row?.querySelector(':scope > [class*="_heroOptions"]');
+  return { project: read(row?.querySelector(':scope > button[class*="_workspace"]')), chip: read(document.querySelector('[data-composer-plus-new-branch-chip]')),
+    mode: read(row?.querySelector('[data-slot="conversation.hero.agentPreset"] button[aria-haspopup="menu"]')),
+    options: options && getComputedStyle(options).display !== 'none' ? getComputedStyle(options).order : null,
+    styles: [...document.querySelectorAll('style')].filter((s) => s.textContent.includes('.cp-branch-chip')).length };
+});
+// Settings → Composer Plus → the Branch per chat switch (0.2.1 has Settings in the account menu), then close Settings.
+const setSwitch = async (page, on) => {
+  const direct = page.getByRole('button', { name: 'Settings', exact: true });
+  if (await direct.isVisible()) await direct.click();
+  else { await page.getByRole('button', { name: 'Account menu', exact: true }).click(); await page.getByRole('menuitem', { name: /^Settings/ }).click(); }
+  await page.getByText('Composer Plus', { exact: true }).click();
+  const sw = page.locator('[data-composer-plus-settings]').getByRole('switch', { name: 'Branch per chat' }); await sw.waitFor({ timeout: 10000 });
+  if ((await sw.isChecked()) !== on) await sw.click();
+  const overlay = page.locator('[class*="_overlay"]').filter({ has: page.locator('[data-composer-plus-settings]') });
+  const close = overlay.getByRole('button', { name: /^Close$/ });
+  if (await close.count()) await close.first().click(); else await page.keyboard.press('Escape');
+  await overlay.waitFor({ state: 'detached' }); await pause(400);
+};
 const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Demo', GIT_AUTHOR_EMAIL: 'demo@example.com', GIT_COMMITTER_NAME: 'Demo', GIT_COMMITTER_EMAIL: 'demo@example.com' };
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'maintenance.auto=false', ...args], { cwd, env: gitEnv, encoding: 'utf8' });
 
@@ -66,7 +102,7 @@ try {
         apiKeyEnv: DEMO_KEY
         retryPolicy: { mode: normal, maxRetries: 0 }
         models:
-          - { id: demo, name: Demo model, contextWindow: 100000, maxTokens: 1000, input: [ text ], reasoningEfforts: false }
+          - { id: demo, name: Demo model, contextWindow: 100000, maxTokens: 1000, input: [ text, image ], reasoningEfforts: false }
 - id: agent-default-model
   name: "@deepseek-ai/dsh-agent-default-model"
   config: { provider: demo, model: demo }
@@ -118,11 +154,54 @@ try {
       const wtPath = join(project, '.worktrees', 'feat-login-remember-me');
       if (hasHero) {
         assert.match(await chip.innerText(), /main/, 'the chip shows the current branch');
+        // The chip sits between dsh's project and mode buttons and looks like them.
+        const hero = await heroLayout(page);
+        assert.ok(hero.project && hero.mode && hero.chip, `project, chip and mode show: ${JSON.stringify(hero)}`);
+        assert.ok(hero.project.box.right <= hero.chip.box.left + 1 && hero.chip.box.right <= hero.mode.box.left + 1, `order project → chip → mode: ${JSON.stringify(hero)}`);
+        for (const b of [hero.project, hero.mode]) assert.ok(Math.abs(b.box.mid - hero.chip.box.mid) <= 1, `one line: ${JSON.stringify(hero)}`);
+        for (const key of ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'color', 'height', 'paddingLeft', 'borderRadius', 'icon', 'chevron', 'chevronColor']) {
+          assert.equal(hero.chip.look[key], hero.project.look[key], `${key} as the project button`);
+          // dsh's own two buttons differ only in the chevron (project 12 px, mode 14 px): the chip takes the project's.
+          if (key !== 'chevron') assert.equal(hero.chip.look[key], hero.mode.look[key], `${key} as the mode button`);
+        }
+        assert.equal(hero.styles, 1, 'one chip style');
+        step('Chip between project and mode, same look');
+        // Switched off, the chip and its style are gone and dsh's row has its own order; on again, it comes back.
+        await setSwitch(page, false);
+        await chip.waitFor({ state: 'detached', timeout: 5000 });
+        const off = await heroLayout(page);
+        assert.equal(off.chip, null); assert.equal(off.styles, 0, 'no chip style');
+        assert.equal(off.project.order, '0', 'dsh row order back'); assert.ok(off.options === null || off.options === '0', `options box order back: ${off.options}`);
+        assert.ok(off.project.box.right <= off.mode.box.left + 1, 'project → mode as dsh draws them');
+        await setSwitch(page, true);
+        await chip.waitFor({ timeout: 8000 });
+        step('Switch off removes the chip and its style; on brings it back');
         await chip.click();
         await page.locator('[data-composer-plus-branch-new]').click();
         assert.equal(await chip.getAttribute('data-composer-plus-new-branch-chip'), 'new');
         assert.match(await chip.innerText(), /New branch/);
-        await send('Add a remember me box to the login form', 'Got: Add a remember me box to the login form');
+        // The first message carries an image and a file. While the Host makes the branch, the composer takes no text.
+        await page.locator('input[type="file"]').first().setInputFiles([
+          { name: 'mockup.png', mimeType: 'image/png', buffer: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64') },
+          { name: 'spec.txt', mimeType: 'text/plain', buffer: Buffer.from('Remember me: 30 days\n') }]);
+        await page.waitForFunction(() => document.querySelectorAll('[data-composer-seat] img').length > 0, null, { timeout: 10000 });
+        await pause(1500); // the file upload ends
+        let openGate; nameGate = new Promise((r) => { openGate = r; });
+        await input.click(); await page.keyboard.type('Add a remember me box to the login form'); await page.keyboard.press('Enter');
+        await page.waitForFunction(() => document.querySelector('[data-composer-plus-new-branch-chip]')?.getAttribute('data-composer-plus-new-branch-chip') === 'busy', null, { timeout: 10000 });
+        const locked = await page.evaluate(() => { const i = document.querySelector('[data-composer-input]'); return { editable: i?.getAttribute('contenteditable'), shown: document.querySelector('[data-composer-placeholder]')?.textContent ?? i?.getAttribute('data-placeholder') }; });
+        assert.notEqual(locked.editable, 'true', `the composer takes no text while the branch is made: ${JSON.stringify(locked)}`);
+        assert.match(locked.shown ?? '', /Creating branch/, `the composer says why: ${JSON.stringify(locked)}`);
+        await input.click({ force: true }); await page.keyboard.type('typed meanwhile');
+        assert.ok(!(await input.innerText()).includes('typed meanwhile'), 'typing does nothing meanwhile');
+        step('Composer locked while the branch is made');
+        openGate();
+        await page.getByText('Got: Add a remember me box to the login form').first().waitFor({ timeout: 30000 }); await pause(600);
+        // The new chat's own turn (not its title or prediction request): the message with its image and file.
+        const firstAsk = chatBodies.find((b) => b.includes('Add a remember me box') && !/session title|Generate the session title/i.test(b) && /image/.test(b));
+        assert.ok(firstAsk && /data:image\/png;base64/.test(firstAsk) && firstAsk.includes('mockup.png'), 'the new chat got the image');
+        assert.ok(/File \\"spec\.txt\\" \(21 bytes/.test(firstAsk), 'the new chat got the file');
+        assert.equal(await page.locator('[data-composer-input]').getAttribute('contenteditable'), 'true', 'the new chat composer takes text');
         // The new chat runs in the worktree, on the AI-named branch.
         assert.equal(git(wtPath, 'branch', '--show-current').trim(), 'feat/login-remember-me');
         assert.equal(await readFile(join(wtPath, '.env'), 'utf8'), 'API_URL=http://localhost:3000\n', '.env copied');
@@ -131,7 +210,7 @@ try {
         assert.equal(await readlink(join(wtPath, 'node_modules/left-pad/.bin/left-pad')), '../index.js', 'a symlink stays a link');
         assert.match(await readFile(join(project, '.git/info/exclude'), 'utf8'), /^\.worktrees\/$/m, '.worktrees/ is ignored locally');
         assert.equal(git(project, 'status', '--porcelain').trim(), '', 'the main checkout stays clean');
-        step('New branch from the first message');
+        step('New branch from the first message, with its image and file');
         // Workspace tree: the branch folder is a workspace nested inside acme-web (the main project row comes first).
         const rows = await page.evaluate(() => [...document.querySelectorAll('[data-row-key^="workspace:"]')].map((r) => ({ text: r.innerText.trim().split('\n')[0], left: Math.round(r.getBoundingClientRect().left + parseFloat(getComputedStyle(r).paddingLeft || '0')) })));
         const main = rows.find((r) => r.text.includes('acme-web')); const branch = rows.find((r) => r.text.includes('feat/login-remember-me'));
@@ -139,6 +218,21 @@ try {
         assert.ok(rows.indexOf(branch) > rows.indexOf(main), 'the branch row comes after its project');
         assert.ok(branch.left > main.left, `the branch row is indented inside its project: ${JSON.stringify(rows)}`);
         step('Branch folder nested in its project (Workspace tree)');
+        // Git branch on chat rows: no pill under the branch folder (its row already names the branch); a chat in "In one
+        // list" keeps it. The branch is recorded at the end of the turn.
+        const badges = () => page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-row-key^="session:"]')]
+          .map((r) => [r.innerText.trim().split('\n')[0], r.querySelector('[data-composer-plus-branch-name]')?.getAttribute('data-composer-plus-branch-name') ?? null])));
+        await page.waitForFunction(() => document.querySelector('[data-row-key^="session:"]') !== null, null, { timeout: 10000 }); await pause(1500);
+        const tree = await badges();
+        const wtRow = Object.keys(tree).find((k) => !/^New/.test(k));
+        assert.ok(wtRow !== undefined, `the worktree chat row shows: ${JSON.stringify(tree)}`);
+        assert.equal(tree[wtRow], null, `no branch pill under the branch folder: ${JSON.stringify(tree)}`);
+        await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('dsh.workspace.view.v5')); localStorage.setItem('dsh.workspace.view.v5', JSON.stringify({ ...v, groupBy: 'flat' })); });
+        await page.reload(); await page.locator('[data-row-key^="session:"]').first().waitFor({ timeout: 15000 });
+        await page.waitForFunction(() => document.querySelector('[data-composer-plus-branch-name="feat/login-remember-me"]') !== null, null, { timeout: 10000 });
+        await page.evaluate(() => { const v = JSON.parse(localStorage.getItem('dsh.workspace.view.v5')); localStorage.setItem('dsh.workspace.view.v5', JSON.stringify({ ...v, groupBy: 'workspace-tree' })); });
+        await page.reload(); await page.locator('[data-row-key^="session:"]').first().waitFor({ timeout: 15000 });
+        step('No branch pill under the branch folder; "In one list" keeps it');
       }
       // Header pill: the open chat's branch and its change count (in the new worktree chat, or in a chat on main).
       if (!hasHero) await send('Say hello', 'Got: Say hello');

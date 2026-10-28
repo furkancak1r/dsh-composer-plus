@@ -247,6 +247,31 @@ try {
   assert.equal(r6.branch, 'feat/taken-dir-2'); assert.equal(made.prompts.at(-1).sessionId, r6.sessionId);
   await assert.rejects(uniqueBranch(subprocess, S, S, 'feat/bad..name'), /not a valid branch name/);
 
+  // Attachments: an image goes as it is; a file of the source chat (its upload receipt) is stored again for the new chat,
+  // in dsh's order (attachments first, then the text). A message of files only gets the dated name. A file that is not
+  // uploaded any more is refused before git starts.
+  {
+    const uploads = []; const reads = [];
+    const ref = { attachmentId: 'att-1', name: 'spec.pdf', bytes: 3 };
+    const agents = { get: (id) => (id === 'main' ? { id: 'main' } : undefined) };
+    const fileUploads = { resolve: (agent, receipt) => (agent?.id === 'main' && receipt === 'rc-1' ? ref : undefined),
+      uploadStream: async (req) => { const chunks = []; for await (const c of req.data) chunks.push(...c); uploads.push({ sessionId: req.sessionId, name: req.name, bytes: chunks }); return { receiptId: `new-rc-${uploads.length}` }; } };
+    const store = { readFileStream: (r) => { reads.push(r); return (async function* () { yield new Uint8Array([1, 2, 3]); })(); } };
+    const withFiles = (llm) => ({ ...deps(llm), agents, fileUploads, store });
+    const image = { type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=', name: 'shot.png' };
+    const ra = await startOnBranch(withFiles(llmSaying('feat/add-the-spec')), 'main', 'Build this spec', undefined, [image, { type: 'file', receiptId: 'rc-1' }]);
+    assert.equal(ra.branch, 'feat/add-the-spec');
+    assert.deepEqual(reads, [ref]); assert.deepEqual(uploads, [{ sessionId: ra.sessionId, name: 'spec.pdf', bytes: [1, 2, 3] }], 'the file is stored for the new chat');
+    assert.deepEqual(made.prompts.at(-1).content, [image, { type: 'file', receiptId: 'new-rc-1' }, { type: 'text', text: 'Build this spec' }]);
+    const rb = await startOnBranch(withFiles(llmSaying('feat/never-asked')), 'main', '', undefined, [image]);
+    assert.match(rb.branch, /^feat\/chat-\d{8}-\d{4}$/, 'files only: the dated name, no model call'); assert.equal(rb.named, false);
+    assert.deepEqual(made.prompts.at(-1).content, [image], 'no empty text part');
+    const trees = git(S, 'worktree', 'list').split('\n').filter(Boolean).length;
+    await assert.rejects(startOnBranch(withFiles(undefined), 'main', 'x', undefined, [{ type: 'file', receiptId: 'gone' }]), (e) => e.status === 409 && /not uploaded any more/.test(e.message));
+    await assert.rejects(startOnBranch(deps(undefined), 'main', 'x', undefined, [{ type: 'file', receiptId: 'rc-1' }]), (e) => e.status === 409 && /cannot give files/.test(e.message), 'an older dsh without the upload services');
+    assert.equal(git(S, 'worktree', 'list').split('\n').filter(Boolean).length, trees, 'a refused file makes no worktree');
+  }
+
   // One start per repository at a time (also from its other worktree).
   let open;
   const gate = new Promise((resolve) => { open = resolve; });
@@ -264,7 +289,7 @@ try {
   await assert.rejects(startOnBranch(deps(undefined), 'empty', 'x'), (e) => e.status === 409 && /no commit/.test(e.message));
   const plain = join(base, 'plain'); mkdirSync(plain); chats.plain = { cwd: plain };
   await assert.rejects(startOnBranch(deps(undefined), 'plain', 'x'), (e) => e.status === 409 && /not in a git repository/.test(e.message));
-  assert.equal(git(S, 'worktree', 'list').split('\n').filter(Boolean).length, 9, 'no refused start made a worktree (main + 8 starts)');
+  assert.equal(git(S, 'worktree', 'list').split('\n').filter(Boolean).length, 11, 'no refused start made a worktree (main + 10 starts)');
 
   // A failure after the worktree exists keeps it and names it.
   registryFails = true;
@@ -332,7 +357,7 @@ try {
   assert.equal(g.status, 200);
   const { worktrees, ...status } = g.data;
   assert.deepEqual(status, { repo: true, root: S, top: S, worktree: false, branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0, changes: 2 });
-  assert.ok(Array.isArray(worktrees) && worktrees.length === 10 && worktrees[0].current && worktrees[0].main);
+  assert.ok(Array.isArray(worktrees) && worktrees.length === 12 && worktrees[0].current && worktrees[0].main);
   assert.deepEqual(Object.keys(worktrees[1]).sort(), ['ahead', 'behind', 'branch', 'changes', 'current', 'main', 'path', 'upstream']);
   g = await call('GET', undefined, '?sessionId=wt');
   assert.deepEqual(g.data, { repo: true, root: S, top: r1.path, worktree: true, branch: 'feat/dark-mode-toggle', upstream: 'origin/feat/dark-mode-toggle', ahead: 1, behind: 0, changes: 0 }, 'no list without list=1');
@@ -342,7 +367,13 @@ try {
   assert.equal((await call('GET', undefined, '?sessionId=main&list=2')).status, 400);
   for (const body of ['not json', 'null', '[]', {}, { sessionId: 'main' }, { sessionId: 'main', action: 'start' }, { sessionId: 'main', action: 'start', text: '' },
     { sessionId: 'main', action: 'start', text: '   ' }, { sessionId: 'main', action: 'start', text: 'x'.repeat(100001) }, { sessionId: 'main', action: 'open' },
-    { sessionId: 'main', action: 'other', text: 'x' }, { action: 'start', text: 'x' }]) {
+    { sessionId: 'main', action: 'other', text: 'x' }, { action: 'start', text: 'x' },
+    // Attachments are dsh's prompt parts only: no empty message, no other part kinds or keys, no path.
+    { sessionId: 'main', action: 'start', text: '', attachments: [] }, { sessionId: 'main', action: 'start', text: 'x', attachments: 'a' },
+    { sessionId: 'main', action: 'start', text: 'x', attachments: [{ type: 'text', text: 'x' }] }, { sessionId: 'main', action: 'start', text: 'x', attachments: [{ type: 'file', receiptId: '' }] },
+    { sessionId: 'main', action: 'start', text: 'x', attachments: [{ type: 'file', receiptId: 'r', path: '/etc/passwd' }] },
+    { sessionId: 'main', action: 'start', text: 'x', attachments: [{ type: 'image', mediaType: 'image/png' }] },
+    { sessionId: 'main', action: 'start', text: 'x', attachments: Array.from({ length: 51 }, () => ({ type: 'file', receiptId: 'r' })) }]) {
     assert.equal((await call('POST', body)).status, 400, JSON.stringify(body).slice(0, 80));
   }
   for (const path of [join(S, 'node_modules'), base, `${r1.path}/`, '/tmp', 'relative/path']) {
@@ -354,6 +385,9 @@ try {
   assert.deepEqual(made.workspaces.at(-1), { path: r5.path, title: 'fix/header-color' });
   const s = await call('POST', { sessionId: 'main', action: 'start', text: 'Add a footer link' });
   assert.equal(s.status, 200); assert.equal(s.data.branch, 'feat/add-a-footer-link', 'no model in dsh: the message slug'); assert.equal(s.data.named, false);
+  const img = await call('POST', { sessionId: 'main', action: 'start', text: '', attachments: [{ type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=' }] });
+  assert.equal(img.status, 200, 'an image without text'); assert.deepEqual(made.prompts.at(-1).content, [{ type: 'image', mediaType: 'image/png', data: 'iVBORw0KGgo=' }]);
+  assert.equal((await call('POST', { sessionId: 'main', action: 'start', text: 'x', attachments: [{ type: 'file', receiptId: 'r' }] })).status, 409, 'no upload services: a file is refused');
   assert.equal((await call('POST', { sessionId: 'sub', action: 'start', text: 'x' })).status, 409);
   assert.equal((await call('POST', { sessionId: 'empty', action: 'start', text: 'x' })).status, 409);
   services.workspaceRegistry = undefined;

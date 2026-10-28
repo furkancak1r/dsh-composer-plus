@@ -49,7 +49,7 @@ const mount = (C, props) => {
   return { render, unmount: () => { for (const c of inst.cleanups) c?.(); } };
 };
 const text = (n) => (n == null ? '' : typeof n === 'string' ? n : (n.c ?? []).map(text).join(''));
-const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Menu: 'Menu', Input: 'Input' } : {}));
+const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Menu: 'Menu', Input: 'Input', IconBranchOutlineRegular: 'IconBranch', IconChevronDownOutlineRegular: 'IconChevron' } : {}));
 const { branchLabel, branchModeOf, chooseBranchMode, installBranchSink, BranchChip, BranchStatus } = globalThis.__wt;
 
 // dsh: locale (the plugin's English pack, dsh's own sidebar labels), one composer shell per chat, navigation, slots.
@@ -66,10 +66,16 @@ const shell = (id) => {
 };
 const live = new Map(); let next = 0; const unloads = [];
 const slots = { inject: (name, f) => { const off = f(); return () => off(); }, register: (o) => { const k = `${o.name}#${o.id ?? o.key}#${next++}`; live.set(k, o); return () => live.delete(k); } };
+// dsh's composer blocks (the reason that the input shows) and its draft attachments (wire form, release).
+const blocks = new Map(); const blockLog = []; const released = [];
+const conversation = { input: { for: (scope) => shells.get(scope.id) },
+  blocks: { set: (id, block) => { blockLog.push([id, block?.reason]); if (block === undefined) blocks.delete(id); else blocks.set(id, block); }, storeFor: (id) => ({ getSnapshot: () => blocks.get(id) }) },
+  serializeDraftAttachments: async (ids) => ({ attachments: ids.map((id) => (id.startsWith('img') ? { type: 'image', mediaType: 'image/png', data: `b64-${id}` } : { type: 'file', receiptId: `rc-${id}` })) }),
+  releaseDraftAttachment: (id) => released.push(id) };
 const ctx = { slots, configForms: { get: () => ({}) }, effect: (f) => { const off = f(); if (typeof off === 'function') unloads.push(off); },
   locale: { register: (ns, packs) => { if (ns === 'dsh-composer-plus') en = packs.en; return () => {}; }, bind, getLocale: () => ({ active: 'en', locales: [] }) },
   sessions: { scope: (id) => ({ id }), list: { getSnapshot: () => ({ byId: {} }), subscribe: () => () => {} } },
-  get: (name) => (name === 'conversation' ? { input: { for: (scope) => shells.get(scope.id) } }
+  get: (name) => (name === 'conversation' ? conversation
     : name === 'uiWorkspace' ? { openSession: (id) => opened.push(id), openWorkspace: async (id) => { workspaces.push(id); } }
     : name === 'sidebarRight' ? { openTabIn: (id, kind) => tabs.push([id, kind]) } : undefined),
   inject: (deps, setup) => { const disposers = []; setup({ effect: (f) => { const off = f(); if (typeof off === 'function') disposers.push(off); }, uiSession: { sessionStatus: { getSnapshot: () => new Map(), subscribe: () => () => {} } },
@@ -104,19 +110,19 @@ chip1.ensureSink(); chooseBranchMode('s1', 'new'); assert.equal(s1.deps.defaultS
 chooseBranchMode('s1', 'current'); assert.equal(s1.deps.defaultSink, s1.original, 'back on "Current branch": the original sink');
 chooseBranchMode('s1', 'new'); wrapper = s1.deps.defaultSink;
 const send = (body, files = []) => s1.deps.defaultSink(body, files, 'default', undefined);
-assert.deepEqual(await send('Fix login', ['att-1']), { kind: 'error', text: en['worktree.noFiles'] }, 'files: the draft comes back with a notice');
-assert.equal(calls.length, 0, 'no start with files'); assert.equal(s1.sent.length, 0);
-assert.deepEqual(await send(''), { kind: 'success' }); assert.deepEqual(s1.sent, [['', [], 'default', undefined]], 'an empty text goes to dsh');
+assert.deepEqual(await send(''), { kind: 'success' }); assert.deepEqual(s1.sent, [['', [], 'default', undefined]], 'an empty message goes to dsh');
 // One start per chat: a second send while the first runs is refused inside the wrapper; the menu cannot change the mode.
 {
   const g = gate(); reply = async () => { await g.p; return { status: 200, body: { sessionId: 'new-1', branch: 'feat/fix-login', path: '/repo/.worktrees/feat-fix-login', workspaceId: 'w-2' } }; };
   const first = send('Fix login'); await tick();
   assert.equal(branchModeOf('s1'), 'busy');
+  assert.deepEqual(blocks.get('s1'), { reason: en['worktree.creating'] }, 'while the branch is made, the composer takes no text');
   assert.deepEqual(await send('Fix login again'), { kind: 'error', text: en['worktree.busy'] }, 'a second send while the first runs');
   assert.equal(calls.length, 1, 'one start per chat');
   chooseBranchMode('s1', 'current'); assert.equal(branchModeOf('s1'), 'busy', 'no mode change while it runs'); assert.equal(s1.deps.defaultSink, wrapper);
   g.go(); assert.deepEqual(await first, { kind: 'success' });
   assert.deepEqual(calls[0], [ROUTE, { action: 'start', sessionId: 's1', text: 'Fix login' }]);
+  assert.equal(blocks.has('s1'), false, 'the block goes when the chat starts');
   assert.deepEqual(opened, ['new-1'], 'the new chat opens'); assert.equal(s1.deps.defaultSink, s1.original, 'after the start: the original sink');
   assert.equal(branchModeOf('s1'), 'current');
 }
@@ -128,8 +134,23 @@ for (const [answer, shown] of [[{ status: 409, body: { error: 'this chat has no 
   reply = () => answer;
   assert.deepEqual(await send('Fix login'), { kind: 'error', text: shown }, JSON.stringify(answer));
   assert.equal(branchModeOf('s1'), 'new'); assert.notEqual(s1.deps.defaultSink, s1.original, 'the wrapper stays for the next try');
+  assert.equal(blocks.has('s1'), false, 'a failed start gives the composer back');
 }
 assert.equal(opened.length, 1, 'no chat opens after a failure');
+// Attachments go with the first message in dsh's wire form; after the start this composer frees its drafts.
+{
+  reply = () => ({ status: 200, body: { sessionId: 'new-files' } }); released.length = 0;
+  assert.deepEqual(await send('', ['img-1', 'doc-1']), { kind: 'success' }, 'files only');
+  assert.deepEqual(calls.at(-1), [ROUTE, { action: 'start', sessionId: 's1', text: '', attachments: [{ type: 'image', mediaType: 'image/png', data: 'b64-img-1' }, { type: 'file', receiptId: 'rc-doc-1' }] }]);
+  assert.deepEqual(released, ['img-1', 'doc-1']); assert.equal(opened.at(-1), 'new-files'); assert.equal(s1.deps.defaultSink, s1.original);
+  // A failed start keeps the drafts (dsh puts them back) and frees no block that another plugin set.
+  chooseBranchMode('s1', 'new'); reply = () => ({ status: 409, body: { error: 'a file of this message is not uploaded any more: add it again' } }); released.length = 0;
+  assert.deepEqual(await send('Use this', ['doc-2']), { kind: 'error', text: 'a file of this message is not uploaded any more: add it again' });
+  assert.deepEqual(released, [], 'the drafts stay'); assert.equal(blocks.has('s1'), false);
+  const g = gate(); reply = async () => { await g.p; return { status: 500, body: {} }; };
+  const failing = send('Again'); await tick(); blocks.set('s1', { reason: 'Model unavailable' });
+  g.go(); await failing; assert.deepEqual(blocks.get('s1'), { reason: 'Model unavailable' }, 'another block stays'); blocks.delete('s1');
+}
 // Switched off: every composer gets its own sink back; a running start keeps its mark until the Host answers.
 setFeature('worktreeChats', false);
 assert.equal(s1.deps.defaultSink, s1.original, 'switched off: the original sink'); assert.equal(branchModeOf('s1'), 'current');
@@ -138,11 +159,13 @@ assert.ok(!ids().includes('branch-chip') && !ids().includes('branch-status'), 'a
 {
   const deps = { defaultSink: async () => ({ kind: 'success' }) }; const original = deps.defaultSink; const started = [];
   chooseBranchMode('solo', 'new');
-  installBranchSink('solo', deps, { start: async (id, body) => { started.push([id, body]); return { sessionId: 'solo-new' }; }, open: (id) => started.push(id), t });
+  const blockedSolo = [];
+  installBranchSink('solo', deps, { start: async (id, body) => { started.push([id, body]); return { sessionId: 'solo-new' }; }, serialize: async () => [], release() {}, block: (id, reason) => blockedSolo.push(reason), open: (id) => started.push(id), t });
   const wrapped = deps.defaultSink; assert.notEqual(wrapped, original);
   installBranchSink('solo', deps, { start: () => assert.fail('a second wrapper'), open() {}, t }); assert.equal(deps.defaultSink, wrapped, 'it wraps once');
   assert.deepEqual(await deps.defaultSink('Hello', [], 'default'), { kind: 'success' });
   assert.deepEqual(started, [['solo', 'Hello'], 'solo-new']); assert.equal(deps.defaultSink, original, 'the original sink is back'); assert.equal(branchModeOf('solo'), 'current');
+  assert.deepEqual(blockedSolo, [en['worktree.creating'], undefined], 'blocked while it ran');
 }
 setFeature('worktreeChats', true); assert.ok(ids().includes('branch-chip')); assert.equal(s1.deps.defaultSink, s1.original, 'on again: nothing wrapped until chosen');
 {
@@ -150,9 +173,11 @@ setFeature('worktreeChats', true); assert.ok(ids().includes('branch-chip')); ass
   const running = send('Add search'); await tick();
   setFeature('worktreeChats', false);
   assert.equal(s1.deps.defaultSink, s1.original); assert.equal(branchModeOf('s1'), 'busy', 'the running start keeps its mark');
+  assert.deepEqual(blocks.get('s1'), { reason: en['worktree.creating'] }, 'and its composer block until the Host answers');
   setFeature('worktreeChats', true); chooseBranchMode('s1', 'new');
   assert.equal(s1.deps.defaultSink, s1.original, 'no second start of this chat while the first runs'); assert.equal(branchModeOf('s1'), 'busy');
   g.go(); assert.deepEqual(await running, { kind: 'success' }); assert.equal(opened.at(-1), 'new-2'); assert.equal(branchModeOf('s1'), 'current');
+  assert.equal(blocks.has('s1'), false, 'then the block goes');
 }
 
 // New chat chip: "⑂ main", a menu with the modes, the other worktrees and the Workspace tree hint.
@@ -170,7 +195,15 @@ const chipOf = async (id) => {
 let chip = await chipOf('s2');
 assert.deepEqual(calls.at(-1), [`${ROUTE}?sessionId=s2&list=1`, undefined]);
 let menu = chip.menu(); const item = (id) => menu.p.items.find((i) => i.id === id);
-assert.equal(menu.t, 'Menu'); assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'current'); assert.equal(text(menu.p.anchor), '⑂ main');
+assert.equal(menu.t, 'Menu'); assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'current'); assert.equal(text(menu.p.anchor), 'main');
+// It looks like dsh's project and mode buttons: branch icon (16 px), label, chevron (12 px); the menu opens from its start.
+assert.deepEqual(menu.p.anchor.c.map((c) => c.t ?? 'text'), ['IconBranch', 'span', 'IconChevron']); assert.equal(menu.p.anchor.c[0].p.size, 16);
+assert.deepEqual(menu.p.anchor.c[2].p, { size: 12, className: 'cp-branch-chevron' }); assert.equal(menu.p.anchor.p.className, 'cp-branch cp-branch-chip'); assert.equal(menu.p.align, 'start');
+// Its style (only while the chip shows) puts dsh's project button first and the options box before the mode button.
+{ const css = text(chip.v.render().c[0]);
+  assert.match(css, /\.cp-branch-chip\{gap:4px;color:var\(--dsw-alias-label-primary\);font-weight:500\}/);
+  assert.match(css, /\[class\*="_heroWorkspaceRow"\]:has\(>\[class\*="_heroOptions"\] \[data-composer-plus-new-branch-chip\]\)>button\[class\*="_workspace"\]\{order:-2\}/);
+  assert.match(css, /\[class\*="_heroWorkspaceRow"\]>\[class\*="_heroOptions"\]:has\(\[data-composer-plus-new-branch-chip\]\)\{order:-1;margin-left:0\}/); }
 assert.deepEqual(menu.p.items.map((i) => i.id), ['current', 'new', 'worktrees', 'wt:/repo/.worktrees/feat-a', 'wt:/repo/.worktrees/fix-b', 'hint', 'tree-hint'], 'the current worktree is not listed');
 assert.equal(menu.p.selectedId, 'current'); assert.equal(item('current').label, 'Current branch (main)');
 assert.equal(item('new').label.p['data-composer-plus-branch-new'], ''); assert.equal(text(item('new').label), 'New branchThe AI names it from your first message.');
@@ -188,12 +221,12 @@ for (const [saved, shown] of [[{ groupBy: 'workspace-tree' }, false], [{ groupBy
 mem.delete('dsh.workspace.view.v5'); assert.equal(hinted(), true, 'dsh default grouping: the hint');
 // "New branch" from the menu: the chip says so and the composer send is wrapped.
 menu.p.onSelect('new'); menu = chip.menu();
-assert.equal(branchModeOf('s2'), 'new'); assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'new'); assert.equal(text(menu.p.anchor), '⑂ New branch');
+assert.equal(branchModeOf('s2'), 'new'); assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'new'); assert.equal(text(menu.p.anchor), 'New branch');
 assert.equal(menu.p.selectedId, 'new'); assert.notEqual(s2.deps.defaultSink, s2.original);
 {
   const g = gate(); const prev = reply; reply = async () => { await g.p; return { status: 200, body: { sessionId: 'new-3' } }; };
   const running = s2.deps.defaultSink('Add dark mode', [], 'default'); await tick(); menu = chip.menu();
-  assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'busy'); assert.equal(text(menu.p.anchor), '⑂ Creating branch…'); assert.equal(menu.p.anchor.p.disabled, true);
+  assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'busy'); assert.equal(text(menu.p.anchor), 'Creating branch…'); assert.equal(menu.p.anchor.p.disabled, true);
   g.go(); await running; reply = prev; assert.equal(chip.menu().p.anchor.p['data-composer-plus-new-branch-chip'], 'current');
 }
 // Another worktree: the Host registers it, then dsh opens its project; an error shows in the composer.

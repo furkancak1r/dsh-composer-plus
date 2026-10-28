@@ -1939,16 +1939,28 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         guard plus.contains("worktrees"), let o = try? await plusCall("worktrees", query: ["sessionId": sid]), current == sid else { return }
         branch = BranchState(o)
     }
-    /// Sends `text` as the first message of a new chat on a new branch; the phone opens that chat.
-    func startOnBranch(_ text: String) async throws {
+    /// Sends `text`, `images` and `files` as the first message of a new chat on a new branch; the phone opens that chat.
+    func startOnBranch(_ text: String, images: [Data] = [], files: [Attachment] = []) async throws {
         // A throw (not a return) so the composer puts the text back.
         guard !branching else { throw Fail(String(localized: "A branch is already being created for this chat.")) }
         guard let sid = current else { throw Fail(String(localized: "Could not start the chat on a new branch.")) }
-        branching = true; sendStatus = String(localized: "Creating branch…")
+        branching = true
         defer { branching = false; sendStatus = nil }
+        // The files go to this chat first (as for a normal message); the Mac gives them to the new chat.
+        var receipts: [String] = []
+        for f in files {
+            sendStatus = String(localized: "Uploading \(f.name)…")
+            let v = try await rpc("fileUploads/upload", ["agentId": sid, "request": ["data": f.data.base64EncodedString(), "name": f.name]]) as? J
+            guard let r = v?["receiptId"] as? String else { throw Fail(String(localized: "Upload failed: \(f.name)")) }
+            receipts.append(r)
+        }
+        sendStatus = String(localized: "Creating branch…")
+        var body: J = ["action": "start", "sessionId": sid, "text": text]
+        let parts = Self.promptContent("", images: images, receipts: receipts)
+        if !parts.isEmpty { body["attachments"] = parts }
         // Longer than the Mac's own steps (name 10 s, `worktree add` up to 120 s, the copy): a phone timeout must not
         // put the text back while the Mac still starts the chat (a resend would make a second branch).
-        let o = try await plusCall("worktrees", body: ["action": "start", "sessionId": sid, "text": text], wait: 240)
+        let o = try await plusCall("worktrees", body: body, wait: 240)
         newBranch = false
         try await loadSessions()
         if let n = o["sessionId"] as? String { open(n) }

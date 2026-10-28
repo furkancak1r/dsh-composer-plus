@@ -3672,8 +3672,10 @@ async function excludeWorktrees(subprocess, { root, common }) {
 const worktreeStarts = new Set(); // main roots with a "New branch" start running now
 /** "New branch": a new branch and worktree `<main root>/.worktrees/<name>` from the chat's HEAD, the included ignored files
  * copied, the worktree registered as a dsh workspace, and a new chat there (the source chat's preset and model) that gets
- * `text`. One start per repository at a time. A failure after the worktree exists keeps it on disk and names its path. */
-export async function startOnBranch({ subprocess, sessionController, sessionQuery, registry, llm, route }, sessionId, text, signal) {
+ * `text` and `attachments` (dsh's prompt parts: `{type:'image', mediaType, data}` as is; `{type:'file', receiptId}` is
+ * an upload of the source chat, which is uploaded again to the new chat). One start per repository at a time. A failure
+ * after the worktree exists keeps it on disk and names its path. */
+export async function startOnBranch({ subprocess, sessionController, sessionQuery, registry, llm, route, agents, fileUploads, store }, sessionId, text, signal, attachments = []) {
   const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'all' });
   let cwd, origin, preset, model;
   try {
@@ -3689,11 +3691,20 @@ export async function startOnBranch({ subprocess, sessionController, sessionQuer
   if (repo === undefined) throw refused('this chat\'s folder is not in a git repository');
   if (repo.root === undefined) throw refused('a bare repository or a submodule has no main folder for worktrees');
   if (!repo.hasCommit) throw refused('this repository has no commit yet: make the first commit, then start a branch');
+  // The files are found before git starts: a file that is gone makes no worktree.
+  const source = attachments.some((a) => a.type === 'file') ? agents?.get?.(sessionId) : undefined;
+  const files = attachments.filter((a) => a.type === 'file').map((a) => {
+    if (fileUploads?.uploadStream === undefined || store?.readFileStream === undefined) throw refused('this dsh cannot give files to a new chat');
+    const ref = source === undefined ? undefined : fileUploads.resolve?.(source, a.receiptId);
+    if (ref === undefined) throw refused('a file of this message is not uploaded any more: add it again');
+    return ref;
+  });
   if (worktreeStarts.has(repo.root)) throw refused('a new branch of this repository is already starting');
   worktreeStarts.add(repo.root);
   try {
     // Only the naming stops with the request: once git starts, the steps run to the end (no half-made worktree or chat).
-    const { name: base, fromModel } = await branchName({ llm, route }, text, signal);
+    // A message of files only gets the dated name.
+    const { name: base, fromModel } = text.trim() === '' ? { name: fallbackBranch(''), fromModel: false } : await branchName({ llm, route }, text, signal);
     signal?.throwIfAborted();
     // `.worktrees` must be a real folder (or absent): a committed symlink would put the checkout and the copied secrets
     // outside the repository (lstat does not follow it).
@@ -3713,9 +3724,19 @@ export async function startOnBranch({ subprocess, sessionController, sessionQuer
       const { sessionId: created } = await sessionController.create({ workspaceId: workspace.id, ...(preset === undefined ? {} : { agentPreset: preset }) });
       // ponytail: a model that the new chat cannot take leaves dsh's default; the chat still starts.
       if (model !== undefined) await sessionController.selectModel({ sessionId: created, ...model }).catch(() => {});
+      // dsh's upload receipt belongs to one chat: each file is stored again for the new chat (the same content-addressed
+      // file). The parts keep dsh's order: attachments, then the text.
+      const content = [];
+      let next = 0;
+      for (const a of attachments) {
+        if (a.type !== 'file') { content.push(a); continue; }
+        const ref = files[next++];
+        content.push({ type: 'file', receiptId: (await fileUploads.uploadStream({ sessionId: created, data: store.readFileStream(ref), name: ref.name })).receiptId });
+      }
+      if (text !== '') content.push({ type: 'text', text });
       // dsh's `prompt(request, signal)` calls `signal.throwIfAborted()`. Not the request's signal: a closed request must not
       // leave the new chat without its message; the timeout only ends a stuck admission.
-      await sessionController.prompt({ requestId: randomUUID(), sessionId: created, mode: 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
+      await sessionController.prompt({ requestId: randomUUID(), sessionId: created, mode: 'queue', content }, AbortSignal.timeout(STOP_WAIT_MS));
       return { sessionId: created, branch: name, path, workspaceId: workspace.id, copied, skipped, named: fromModel };
     } catch (error) {
       throw Object.assign(new Error(`${error?.message ?? error}; the new worktree stays at ${path}`), Number.isInteger(error?.status) ? { status: error.status } : {});
@@ -3733,7 +3754,7 @@ export async function openWorktree({ subprocess, sessionQuery, registry }, sessi
 }
 
 /** Worktree chats (Host half): `GET ?sessionId[&list=1]` answers the chat's branch status (and the repository's
- * worktrees); `POST {action:'start', sessionId, text}` starts a chat on a new branch; `POST {action:'open', sessionId,
+ * worktrees); `POST {action:'start', sessionId, text, attachments?}` starts a chat on a new branch; `POST {action:'open', sessionId,
  * path}` registers one listed worktree as a workspace. The browser never gives a path that git did not list. */
 function installWorktrees(ctx) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
@@ -3759,12 +3780,19 @@ function installWorktrees(ctx) {
           if (registry?.create === undefined) return json({ error: 'this dsh cannot add a workspace' }, 409);
           return json(await openWorktree({ subprocess: ctx.subprocess, sessionQuery: ctx.sessionQuery, registry }, body.sessionId, body.path, request.signal));
         }
-        if (body.action !== 'start' || typeof body.text !== 'string' || body.text.trim() === '' || body.text.length > 100000) return json({ error: 'bad request' }, 400);
+        // dsh's own prompt parts (dsh checks the image bytes and limits when the new chat takes the message).
+        const attachments = body.attachments ?? [];
+        const part = (a) => (a?.type === 'image' && Object.keys(a).every((k) => ['type', 'mediaType', 'data', 'name'].includes(k)) && isText(a.mediaType, 64)
+            && isText(a.data, 400e6) && (a.name === undefined || isText(a.name, 1024)))
+          || (a?.type === 'file' && Object.keys(a).length === 2 && isText(a.receiptId, 128));
+        if (body.action !== 'start' || typeof body.text !== 'string' || body.text.length > 100000 || !Array.isArray(attachments) || attachments.length > 50
+          || !attachments.every(part) || (body.text.trim() === '' && attachments.length === 0)) return json({ error: 'bad request' }, 400);
         if (registry?.create === undefined) return json({ error: 'this dsh cannot add a workspace' }, 409);
         // No model (or no catalog): the branch gets the message's own slug.
         const llm = get('llm');
         const route = llm?.prepareCall === undefined ? undefined : await routeOf(ctx, get).catch(() => undefined);
-        return json(await startOnBranch({ subprocess: ctx.subprocess, sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, registry, llm, route }, body.sessionId, body.text, request.signal));
+        return json(await startOnBranch({ subprocess: ctx.subprocess, sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, registry, llm, route,
+          agents: get('agents'), fileUploads: get('fileUploads'), store: get('attachments') }, body.sessionId, body.text, request.signal, attachments));
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });
