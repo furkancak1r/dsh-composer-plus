@@ -349,6 +349,11 @@ test('composer-plus routes: allowlisted methods pass with the query or body; swi
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.graph?sessionId=s', body: '', type: null })
     await call(t.gw, 'GET', `/plus/changes?commit=${'a'.repeat(40)}&mode=commit&sessionId=s`, undefined, auth)
     assert.equal(t.dsh.plus.at(-1).url, `/api/composer-plus.changes?commit=${'a'.repeat(40)}&mode=commit&sessionId=s`)
+    // Branch per chat: the phone reads the chat's branch and starts a chat on a new branch (the Mac names it).
+    await call(t.gw, 'GET', '/plus/worktrees?sessionId=s', undefined, auth)
+    assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.worktrees?sessionId=s', body: '', type: null })
+    await call(t.gw, 'POST', '/plus/worktrees', { action: 'start', sessionId: 's', text: 'Add login' }, auth)
+    assert.deepEqual(t.dsh.plus.at(-1), { method: 'POST', url: '/api/composer-plus.worktrees', body: JSON.stringify({ action: 'start', sessionId: 's', text: 'Add login' }), type: 'application/json' })
     // An older plugin without the route: its 404 reaches the phone, which hides the feature.
     assert.equal((await call(t.gw, 'GET', '/plus/changes?sessionId=s', undefined, auth)).status, 404)
     const seen = t.dsh.plus.length

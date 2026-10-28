@@ -529,7 +529,13 @@ struct ConversationView: View {
     var body: some View {
         // no stale chat while unreachable: the Mac is the source of truth and every action would fail anyway
         Group { if c.state == .connected || c.state == .connecting { transcript } else { OfflineView() } }
-            .safeAreaInset(edge: .top) { if c.state == .connecting { ConnBanner() } }
+            .safeAreaInset(edge: .top) {
+                VStack(spacing: 0) {
+                    if c.state == .connecting { ConnBanner() }
+                    // Branch per chat: the chat's git branch, its changes and push state; a tap opens Changes.
+                    if let b = c.branch { BranchBar(state: b) { if c.plus.contains("changes") { showChanges = true } } }
+                }
+            }
             .navigationTitle(c.currentSess?.title ?? String(localized: "Conversation"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .tabBar)
@@ -801,7 +807,7 @@ struct ConversationView: View {
         }.frame(maxHeight: 220).background(.bar)
     }
 
-    var canSend: Bool { !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty || !files.isEmpty }
+    var canSend: Bool { !c.branching && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !images.isEmpty || !files.isEmpty) }
 
     /// Desktop goal bar: objective + phase/rounds, actions in a menu.
     func goalCard(_ g: Goal) -> some View {
@@ -953,7 +959,7 @@ struct ConversationView: View {
                 .accessibilityHint(Text("Adds it to the message"))
             }
             // while a turn runs, sending queues the next turn like desktop's default busy-Enter; the queue dock's "Send now" steers
-            TextField(c.running ? "Queue a message…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4)
+            TextField(c.newBranch ? "First message on a new branch…" : c.running ? "Queue a message…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4)
             HStack(spacing: 10) {
                 Menu {
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -963,6 +969,10 @@ struct ConversationView: View {
                     Button { importing = true } label: { Label("Files", systemImage: "doc") }
                     if UIPasteboard.general.hasImages {
                         Button { images += (UIPasteboard.general.images ?? []).prefix(4).compactMap { $0.jpegData(compressionQuality: 0.9).flatMap(jpeg) } } label: { Label("Paste image", systemImage: "doc.on.clipboard") }
+                    }
+                    // Branch per chat: the next message starts a new chat on a new branch (the Mac names it from the text).
+                    if c.branch != nil, c.currentSess?.parent == nil {
+                        Toggle(isOn: $c.newBranch) { Label("New branch", systemImage: "arrow.triangle.branch") }
                     }
                 } label: {
                     Image(systemName: "plus").font(.body.weight(.medium)).frame(width: 32, height: 32).background(Color(.tertiarySystemFill), in: Circle())
@@ -1004,7 +1014,7 @@ struct ConversationView: View {
     }
 
     private var showContinue: Bool {
-        c.plus.contains("continue") && c.continueSeq != nil && !canSend && c.currentSess?.parent == nil
+        c.plus.contains("continue") && c.continueSeq != nil && !canSend && !c.branching && c.currentSess?.parent == nil
     }
     /// Plan mode (Composer Plus plan toggle): in plan mode, tap leaves it; else it adds or drops a leading `/plan`.
     @ViewBuilder private var planButton: some View {
@@ -1076,6 +1086,11 @@ struct ConversationView: View {
             c.run { do { try await c.execute(t) } catch { restore(); throw error } }; return
         }
         atBottom = true
+        // New branch: text only (the Mac sends it to the new chat); files go after that chat opens.
+        if c.newBranch, !t.isEmpty {
+            guard imgs.isEmpty, fs.isEmpty else { restore(); c.error = String(localized: "Send the first message without files on a new branch; add files after the chat opens."); return }
+            c.run { do { try await c.startOnBranch(t) } catch { restore(); throw error } }; return
+        }
         c.run { do { try await c.prompt(t, images: imgs, files: fs) } catch { restore(); throw error } }
     }
 
@@ -2143,6 +2158,26 @@ struct PromptSheet: View {
 
 
 // MARK: - Composer Plus (the dsh-composer-plus plugin on the Mac)
+
+/// Branch per chat: one line under the title with the chat's branch, its changes and its push state.
+struct BranchBar: View {
+    let state: BranchState
+    let open: () -> Void
+    var body: some View {
+        Button(action: open) {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.triangle.branch").accessibilityHidden(true)
+                Text(verbatim: state.name).font(.caption.monospaced()).lineLimit(1).truncationMode(.middle)
+                if !state.detail.isEmpty { Text(verbatim: "· " + state.detail).lineLimit(1) }
+                Spacer(minLength: 0)
+            }
+            .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 16).padding(.vertical, 4)
+            .frame(maxWidth: .infinity).background(.bar)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text("Branch \(state.name)") + Text(verbatim: state.detail.isEmpty ? "" : ", " + state.detail))
+    }
+}
 
 /// Changes panel: the chat's git changes, by mode; tap a file for its diff. Refreshes every 4 s while open. The branch
 /// name (and the Tree button) opens the branch tree.

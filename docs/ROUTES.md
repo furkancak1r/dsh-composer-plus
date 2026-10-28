@@ -38,3 +38,5 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.improve` | GET | The saved model; `?catalog=1` adds dsh's model list. | promptImprove | no |
 | `/api/composer-plus.improve` | POST | `{sessionId, text}`: the improved prompt for that draft (one model call, read-only), or `{model}` (Settings only). | promptImprove | yes |
 | `/api/composer-plus.export` | GET | `?sessionId`: the chat's messages for the Markdown export (read-only, from the chat log). | exportMarkdown | no |
+| `/api/composer-plus.worktrees` | GET | `?sessionId` (`&list=1` adds the open worktrees): the chat's repository, branch, upstream, ahead/behind and change count (read-only git). | worktreeChats | yes |
+| `/api/composer-plus.worktrees` | POST | `{action:'start', sessionId, text}`: name a branch from the text (one model call), add a worktree in `<project>/.worktrees/`, copy the `.worktreeinclude` files and start a new chat there with the text; `{action:'open', sessionId, path}`: add one of the repository's worktrees as a project. | worktreeChats | yes |
