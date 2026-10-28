@@ -1,7 +1,8 @@
 // Improve prompt (Host half): the route rewrites a draft with one model call. Context = the chat (rollback and rewind
 // withdrawals out, /compact kept), the project brief (no symlink out of the folder, no FIFO wait), the changed files and
 // the paths related to the draft. Model order: the saved model while dsh lists it, else the chat's own, else dsh's default.
-// One improvement per chat at a time; the browser leaving stops the call; nothing is written outside improve.json.
+// One improvement per chat at a time (a newer ask stops the older call, so a left chat is never locked); the browser
+// leaving stops the call; nothing is written outside improve.json.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, writeFile, rm, stat, symlink, open as openFile } from 'node:fs/promises';
@@ -218,16 +219,35 @@ try {
   await ask({ sessionId: 's1', text: 'cart' }); assert.ok(!calls.at(-1).messages[0].content[0].text.includes('<project'), 'no relative folder');
   cwd = repo;
 
-  // One improvement per chat; another chat is not blocked. The browser leaving stops the call.
+  // One improvement per chat: a newer ask stops the older call (the desktop app does not pass a cancelled fetch on to the
+  // Host, so the older call must not lock the chat). Another chat is not touched. The browser leaving stops the call.
   let release;
-  gate = () => new Promise((resolve) => { release = resolve; });
+  gate = (signal) => new Promise((resolve) => { release = resolve; signal.addEventListener('abort', resolve); });
   const slow = ask({ sessionId: 's1', text: 'Run' });
   await new Promise((resolve) => setTimeout(resolve, 50));
-  assert.equal((await ask({ sessionId: 's1', text: 'Run' })).status, 409);
+  const older = calls.at(-1);
   gate = () => Promise.resolve();
-  assert.equal((await ask({ sessionId: 's2', text: 'Run' })).status, 200);
-  release(); assert.equal((await slow).status, 200);
-  assert.equal((await ask({ sessionId: 's1', text: 'Run' })).status, 200, 'free again after it ends');
+  assert.equal((await ask({ sessionId: 's2', text: 'Run' })).status, 200, 'another chat is not blocked');
+  assert.equal(older.signal.aborted, false, 'another chat does not stop it');
+  r = await ask({ sessionId: 's1', text: 'Run again' });
+  assert.equal(r.status, 200, 'not locked: the newer ask runs'); assert.equal(r.data.text, 'Run again');
+  assert.equal(older.signal.aborted, true, 'the newer ask stops the older call');
+  r = await slow; assert.equal(r.status, 409); assert.equal(r.data.error, 'a newer improvement replaced this one');
+  // Leave the chat while it runs and come back (the owner's report): the call that the page gave up ends with its
+  // request, and the next click in that chat runs at once (no "still running", no stuck guard).
+  gate = (signal) => new Promise((resolve) => { release = resolve; signal.addEventListener('abort', resolve); });
+  const page = new AbortController();
+  const left = ask({ sessionId: 's1', text: 'Fix' }, page.signal).catch(() => 'gone');
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  page.abort(); await left;
+  gate = () => Promise.resolve();
+  r = await ask({ sessionId: 's1', text: 'Fix' }); assert.equal(r.status, 200, 'back in the chat: a new click runs');
+  // A failed call frees the chat too.
+  const before409 = llm.prepareCall;
+  llm.prepareCall = async () => ({ config: {}, async *stream() { yield { type: 'finish', reason: { kind: 'error', failure: { message: 'rate limited' } } }; } });
+  assert.equal((await ask({ sessionId: 's1', text: 'Fix' })).status, 502);
+  llm.prepareCall = before409;
+  assert.equal((await ask({ sessionId: 's1', text: 'Run' })).status, 200, 'free again after a failure');
   gate = (signal) => new Promise((resolve) => signal.addEventListener('abort', resolve));
   const leaving = new AbortController();
   const gone = ask({ sessionId: 's3', text: 'Fix' }, leaving.signal);

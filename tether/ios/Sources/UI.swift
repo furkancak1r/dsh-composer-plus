@@ -537,6 +537,10 @@ struct ConversationView: View {
     @State private var redoMarker: Int?
     /// Open message: the row that blinks for 2 s after the jump.
     @State private var marked: UUID?
+    /// Find in chat: the search text while the find bar is open (nil = closed), and the current hit.
+    @State private var finding: String?
+    @State private var findAt = 0
+    @FocusState private var findFocused: Bool
     // fallback only: used when the turn/start event carried no time
     @State private var turnStart: Date?
     /// Complete while typing: the Mac's answer for the text `asked`.
@@ -570,6 +574,7 @@ struct ConversationView: View {
                         if let g = c.grants[id], !g.isEmpty {
                             Button { c.run { try await c.revokeGrants(id) } } label: { Label("\(g.count) tool(s) allowed · Revoke", systemImage: "checkmark.shield") }
                         }
+                        Button { finding = finding ?? ""; findAt = 0; findFocused = true } label: { Label("Find in chat", systemImage: "magnifyingglass") }
                         if c.plus.contains("changes") { Button { showChanges = true } label: { Label("Changes", systemImage: "plusminus") } }
                         if c.plus.contains("ideas") { Button { showIdeas = true } label: { Label("Feature ideas", systemImage: "lightbulb") } }
                         Button { UIPasteboard.general.string = sessionLink(id); UINotificationFeedbackGenerator().notificationOccurred(.success) } label: { Label("Copy session link", systemImage: "link") }
@@ -636,6 +641,10 @@ struct ConversationView: View {
 
     var transcript: some View {
         ScrollViewReader { proxy in
+                // One row list and one search per render: the find tint of each row reads `findIndex`.
+                let rows = chatRows(c.transcript, open: openTurns, running: c.running)
+                let hits = finding.map { findRows(rows, query: $0) } ?? []
+                let findIndex = Dictionary(hits.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 14) {
                         if c.hasOlder {
@@ -651,7 +660,7 @@ struct ConversationView: View {
                         }
                         // DSH desktop's shape: thinking and tool calls fold into one step row; a finished turn folds to
                         // "Completed in …" and its answer until tapped.
-                        ForEach(chatRows(c.transcript, open: openTurns, running: c.running)) { row in
+                        ForEach(rows) { row in
                             Group {
                                 switch row {
                                 case .line(let l): LineView(line: l, onEdit: { text = $0; focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
@@ -663,8 +672,10 @@ struct ConversationView: View {
                                 }
                             }
                             .id(row.id)
-                            // Open message: the message that the link names blinks for 2 s.
-                            .background(row.id == marked ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            // Open message: the message that the link names blinks for 2 s. Find in chat: hits are tinted,
+                            // the current one more.
+                            .background(row.id == marked ? Color.accentColor.opacity(0.18) : findIndex[row.id].map { Color.yellow.opacity($0 == min(findAt, hits.count - 1) ? 0.45 : 0.18) } ?? .clear,
+                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                         // A message on its way to the Mac: shown at once, faded, until the Mac's copy replaces it.
                         ForEach(c.outgoing.filter { $0.session == c.current }) { o in OutgoingView(o: o) }
@@ -705,6 +716,8 @@ struct ConversationView: View {
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
+                .safeAreaInset(edge: .top, spacing: 0) { if finding != nil { findBar(proxy, hits) } }
+                .onChange(of: c.current) { finding = nil }
                 // composer pinned via safeAreaInset so keyboard/tab switches never leave it floating mid-screen
                 .safeAreaInset(edge: .bottom, spacing: 0) {
                     VStack(spacing: 0) {
@@ -728,6 +741,34 @@ struct ConversationView: View {
                 .task(id: c.jump) { await jump(proxy) }
                 .task(id: marked) { if marked != nil { try? await Task.sleep(for: .seconds(2)); if !Task.isCancelled { withAnimation { marked = nil } } } }
         }
+    }
+
+    /// The find bar above the chat: the field, "n / total" (matches, counted in the rows), ↑ ↓ (wrap around) and Done.
+    /// `hits`: the open chat's shown rows that hold the text (`findRows`).
+    private func findBar(_ proxy: ScrollViewProxy, _ hits: [(id: UUID, count: Int)]) -> some View {
+        let total = hits.reduce(0) { $0 + $1.count }
+        let at = hits.isEmpty ? 0 : min(findAt, hits.count - 1)
+        let go = { (by: Int) in
+            guard !hits.isEmpty else { return }
+            findAt = (at + by + hits.count) % hits.count
+            withAnimation { proxy.scrollTo(hits[findAt].id, anchor: .center) }
+        }
+        return HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Find in chat", text: Binding(get: { finding ?? "" }, set: { finding = $0; findAt = 0 }))
+                .focused($findFocused).submitLabel(.search).autocorrectionDisabled().textInputAutocapitalization(.never)
+                .onSubmit { go(1); findFocused = true }
+            if !(finding ?? "").trimmingCharacters(in: .whitespaces).isEmpty {
+                Text(hits.isEmpty ? String(localized: "No matches") : "\(at + 1) / \(hits.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .accessibilityLabel(hits.isEmpty ? Text("No matches") : Text("Message \(at + 1) of \(hits.count), \(total) matches"))
+            }
+            // 44 × 44 pt tap targets.
+            Button { go(-1) } label: { Image(systemName: "chevron.up").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle()) }.disabled(hits.isEmpty).accessibilityLabel("Previous match")
+            Button { go(1) } label: { Image(systemName: "chevron.down").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle()) }.disabled(hits.isEmpty).accessibilityLabel("Next match")
+            Button { finding = nil; findFocused = false } label: { Text("Done").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle()) }
+        }
+        .padding(.leading, 12).padding(.trailing, 4).background(.bar)
+        .onChange(of: finding) { if let first = hits.first { withAnimation { proxy.scrollTo(first.id, anchor: .center) } } }
     }
 
     /// Open message: wait for the chat's rows (a chat that just opened loads first), load earlier pages until the message
@@ -1787,6 +1828,12 @@ struct SessionsView: View {
                     if c.pinned.contains(s.id) { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.orange) }
                     // Color.primary: in a Button, .primary is the blue tint and every chat looks like a link
                     Text(s.title).foregroundStyle(Color.primary).lineLimit(1)
+                    // Branch badge (Composer Plus): the git branch of the chat's folder at its last turn.
+                    if let b = c.branches[s.id] {
+                        Text(b).font(.caption2.monospaced()).lineLimit(1).truncationMode(.middle).frame(maxWidth: 110, alignment: .leading)
+                            .padding(.horizontal, 5).padding(.vertical, 1).background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                            .foregroundStyle(Color.secondary).accessibilityLabel(Text("Git branch at the last turn: \(b)"))
+                    }
                 }
                 HStack(spacing: 0) {
                     Text([s.model, (s.cwd as NSString).lastPathComponent].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
@@ -2196,6 +2243,51 @@ struct PromptSheet: View {
 
 // MARK: - Composer Plus (the dsh-composer-plus plugin on the Mac)
 
+/// Changes → a file → "Chats that changed this file": the chats of the same repository whose write/edit tools changed it,
+/// newest first (the Mac reads them from its chat logs); a tap opens that chat at that request.
+struct FileChatsView: View {
+    @EnvironmentObject var c: Client
+    let sessionId: String, path: String
+    let done: () -> Void
+    @State private var data: J?
+    @State private var failed: String?
+    var body: some View {
+        List {
+            Section {
+                Text(path).font(.footnote.monospaced()).foregroundStyle(.secondary)
+                Text("Chats of this repository whose write or edit tools changed this file, newest first. Tap one to open it at that request.").font(.footnote).foregroundStyle(.secondary)
+                if data?["partial"] as? Bool == true { Text("Only the newest 300 chats of this repository were read.").font(.footnote).foregroundStyle(.secondary) }
+                if let n = data?["unreadable"] as? Int, n > 0 { Text("\(n) chat(s) could not be read.").font(.footnote).foregroundStyle(.secondary) }
+            }
+            if let failed { Text(failed).foregroundStyle(.secondary) }
+            else if let d = data {
+                let rows = fileChatRows(d)
+                if d["repo"] as? Bool == false { Text("This chat's folder is not a git repository.").foregroundStyle(.secondary) }
+                else if rows.isEmpty { Text("No chat changed this file with its write or edit tools.").foregroundStyle(.secondary) }
+                ForEach(rows, id: \.id) { r in
+                    Button { done(); c.openMessage(r.sessionId, seq: r.seq) } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack {
+                                Text(c.sessions.first { $0.id == r.sessionId }?.title ?? r.title ?? r.sessionId).bold().lineLimit(1)
+                                if r.sessionId == sessionId { Text("this chat").font(.caption2).foregroundStyle(.secondary) }
+                                Spacer()
+                                if let t = r.time { Text(t, style: .date).font(.caption2).foregroundStyle(.secondary) }
+                            }
+                            Text((r.withdrawn ? String(localized: "Rolled back") : (r.request ?? "")) + (r.count > 1 ? " · ×\(r.count)" : ""))
+                                .font(.footnote).foregroundStyle(.secondary).lineLimit(2)
+                        }
+                    }.foregroundStyle(.primary)
+                }
+            } else { ProgressView().frame(maxWidth: .infinity) }
+        }
+        .navigationTitle("Chats that changed this file").navigationBarTitleDisplayMode(.inline)
+        .task {
+            do { data = try await c.plusCall("file-chats", query: ["sessionId": sessionId, "path": path]) }
+            catch is CancellationError {} catch { failed = userText(error) }
+        }
+    }
+}
+
 /// Changes panel: the chat's git changes, by mode; tap a file for its diff. Refreshes every 4 s while open. The branch
 /// name (and the Tree button) opens the branch tree.
 struct ChangesSheet: View {
@@ -2208,6 +2300,8 @@ struct ChangesSheet: View {
     @State private var data: J?
     @State private var failed: String?
     @State private var showTree = false
+    @State private var fileChats: String?
+    private var hasFileChats: Bool { c.plus.contains("file-chats") }
     private static let modes: [(id: String, label: LocalizedStringKey)] = [("uncommitted", "Uncommitted"), ("unstaged", "Unstaged"), ("staged", "Staged"), ("branch", "Branch"), ("chat", "This chat")]
     private var hasTree: Bool { c.plus.contains("graph") }
     var body: some View {
@@ -2232,6 +2326,9 @@ struct ChangesSheet: View {
                             ForEach(files.indices, id: \.self) { i in
                                 let f = files[i], path = f["path"] as? String ?? ""
                                 NavigationLink { DiffView(sessionId: sessionId, mode: mode, path: path) } label: { ChangedFileRow(f: f) }
+                                    // Chats that changed this file: a swipe button (a tap) and the touch-and-hold menu.
+                                    .swipeActions { if hasFileChats { Button { fileChats = path } label: { Label("Chats", systemImage: "bubble.left.and.text.bubble.right") }.tint(.indigo) } }
+                                    .contextMenu { if hasFileChats { Button { fileChats = path } label: { Label("Chats that changed this file", systemImage: "bubble.left.and.text.bubble.right") } } }
                             }
                             let more = (d["total"] as? Int ?? files.count) - files.count
                             if more > 0 { Text("\(more) more file(s) not shown").font(.footnote).foregroundStyle(.secondary) }
@@ -2258,6 +2355,7 @@ struct ChangesSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .navigationDestination(isPresented: $showTree) { TreeView(sessionId: sessionId) }
+            .navigationDestination(item: $fileChats) { FileChatsView(sessionId: sessionId, path: $0, done: { dismiss() }) }
             .refreshable { await load() }
             // the desktop panel refreshes every 4 s while it is on screen; This chat reads the chat's log: every 15 s
             .task(id: "\(mode) \(ws)") { data = nil; while !Task.isCancelled { await load(); try? await Task.sleep(for: .seconds(mode == "chat" ? 15 : 4)) } }
@@ -2612,10 +2710,21 @@ struct IdeasSheet: View {
     }
     private var laterList: some View {
         List {
+            // The running action (an issue call can take up to a minute): the main view's note is not on this page.
+            if let busy { HStack(spacing: 8) { ProgressView(); Text(busy) }.font(.footnote).foregroundStyle(.secondary) }
             if later.isEmpty { Text("No ideas saved for later.").foregroundStyle(.secondary) }
             ForEach(later.indices, id: \.self) { n in
                 let i = later[n], id = i["id"] as? String ?? ""
-                VStack(alignment: .leading, spacing: 4) { Text(i["title"] as? String ?? "").bold(); Text(i["summary"] as? String ?? "").font(.footnote).foregroundStyle(.secondary) }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(i["title"] as? String ?? "").bold(); Text(i["summary"] as? String ?? "").font(.footnote).foregroundStyle(.secondary)
+                    // Open GitHub issue (the Mac's gh login): then the link shows here and opens in Safari.
+                    if let issue = issueLink(i["issue"]) {
+                        Link(destination: issue.url) { Label("Issue #\(issue.number)", systemImage: "arrow.up.right.square").frame(minHeight: 44).contentShape(Rectangle()) }.font(.footnote)
+                    } else if c.plus.contains("later") {
+                        Button { run("Opening the GitHub issue…") { await issueLater(id) } } label: { Label("Open GitHub issue", systemImage: "exclamationmark.circle").frame(minHeight: 44).contentShape(Rectangle()) }
+                            .font(.footnote).buttonStyle(.borderless).disabled(busy != nil)
+                    }
+                }
                     .swipeActions {
                         Button(role: .destructive) { run("Saving…") { later = (try await c.plusCall("later", body: ["sessionId": sessionId, "remove": id]))["ideas"] as? [J] ?? later } } label: { Label("Remove", systemImage: "trash") }
                         Button { startLater(["start": id, "plan": false]) } label: { Label("Build now", systemImage: "bolt.fill") }.tint(.orange)
@@ -2633,6 +2742,17 @@ struct IdeasSheet: View {
             }
         }
         .navigationTitle("Saved for later")
+    }
+    /// The Mac runs its own `gh` for the saved idea; a failure (no login, no GitHub remote) shows gh's reason and the list
+    /// is read again, because a time-out can still have made the issue.
+    private func issueLater(_ id: String) async {
+        // One address with a time-out above the Mac's 60 s gh limit: the 5 s fallback to a second address would find the
+        // first gh call still running (409) and show a false error.
+        do { later = (try await c.plusCall("later", body: ["sessionId": sessionId, "issue": id], wait: 75))["ideas"] as? [J] ?? later }
+        catch {
+            c.error = userText(error)
+            if let o = try? await c.plusCall("later", query: ["sessionId": sessionId]) { later = o["ideas"] as? [J] ?? later }
+        }
     }
     private func startLater(_ b: J) {
         run("Starting a chat for this idea…") {

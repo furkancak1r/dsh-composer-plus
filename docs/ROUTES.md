@@ -9,6 +9,7 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.continue` | POST | `{sessionId, afterSeq}`: continue the last stopped, failed or cut-off turn without a chat message. | continueButton | yes |
 | `/api/composer-plus.changes` | GET | `?sessionId&mode=uncommitted\|unstaged\|staged\|branch\|commit\|chat` (`&commit=<full id>` with `commit`, `&ws=1` hides whitespace-only changes): the changed files of the chat's folder, of one commit or (`chat`) of the files that the chat's tools wrote (read-only git) and the newest turn for Last Turn. | changesPanel | yes |
 | `/api/composer-plus.diff` | GET | `?sessionId&mode&path` (`&commit=<full id>` with `mode=commit`, `&ws=1`): the diff of one changed file. | changesPanel | yes |
+| `/api/composer-plus.file-chats` | GET | `?sessionId&path` (`path` from the repository top): the chats of the same repository whose write/edit tools changed that file, one row per request, newest first (read from the chat logs only). | changesPanel | yes |
 | `/api/composer-plus.graph` | GET | `?sessionId`: the branch tree of the chat's folder: the newest 300 commits of the local and remote branches and HEAD, with parents and refs (read-only git), and the newest turn for Last Turn. | changesPanel | yes |
 | `/api/composer-plus.shot` | GET | `?id=<shot>`: one shipped Settings screenshot (`SHOTS` in index.js only). | Settings | no |
 | `/api/composer-plus.update` | GET | No query: the latest GitHub release compared with this copy (`latest`, `newer`, `managed`, `url`, `notes`); calls GitHub and npm. `?current=1`: only the running version (What's new), no network call. | autoUpdate | no |
@@ -19,6 +20,8 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.unread` | GET | `{unread: [sessionId]}`: Tether's green dots, the chats that finished and that no device opened yet (empty while Mobile connect is off). | mobileConnect | yes |
 | `/api/composer-plus.unread` | POST | `{sessionIds}` (1–1000 ids): these chats are read; answers the new `{unread}` and tells the phones. | mobileConnect | yes |
 | `/api/composer-plus.queue-move` | POST | `{sessionId, itemId, to, before}`: move one queued message in dsh's queue. | queueReorder | yes |
+| `/api/composer-plus.branches` | GET | `{on, branches: { [sessionId]: branch }}`: the git branch of each chat's folder at its last turn (none while off). | sessionBranch | yes |
+| `/api/composer-plus.branches` | POST | `{on}`: the switch (Settings only; the phone gateway refuses it). | sessionBranch | no |
 | `/api/composer-plus.rollback` | GET | No query: the switch `{on}`. `?sessionId`: the withdrawn spans, whether dsh-rewind-plugin owns rollback, and the rollback that Redo can take back (`redo`). | turnRollback | yes |
 | `/api/composer-plus.rollback` | POST | `{on}` (the switch), `{sessionId, seq, preview?, files?}`: list or take back the turns from that message, with the files when `files` is true, or `{sessionId, redo, preview?, files?, overwrite?}`: list or redo that rollback in a new chat (a fork), with the files. | turnRollback | yes |
 | `/api/composer-plus.delete-chat` | POST | `{sessionId}`: stop the chat and move its log folders, with its subagent chats, to the Trash. | deleteChat | yes |
@@ -28,7 +31,7 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.idea-history` | GET | `?sessionId`: the earlier ideas of the chat's project. | featureIdeas | yes |
 | `/api/composer-plus.idea-history` | POST | `{sessionId, remove}` or `{sessionId, clear: true}`: forget one or all. | featureIdeas | yes |
 | `/api/composer-plus.later` | GET | `?sessionId`: the Later list of the chat's project. | featureIdeas | yes |
-| `/api/composer-plus.later` | POST | `{sessionId, add \| remove \| start \| startAll, plan?}`: change the list or start chats for its ideas. | featureIdeas | yes |
+| `/api/composer-plus.later` | POST | `{sessionId, add \| remove \| start \| startAll \| issue, plan?}`: change the list, start chats for its ideas, or (`issue: <id>`) open a GitHub issue for one idea with the user's `gh` and keep its link. | featureIdeas | yes |
 | `/api/composer-plus.resume` | GET | The switch `{on}`. | resumeAfterRestart | no |
 | `/api/composer-plus.resume` | POST | `{on}`: the switch (a switch route). | resumeAfterRestart | no |
 | `/api/composer-plus.predict` | GET | The switch and the model; `?catalog=1` adds dsh's model list. | nextPrediction | no |

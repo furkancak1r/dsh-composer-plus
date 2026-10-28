@@ -308,6 +308,18 @@ test('composer-plus routes: allowlisted methods pass with the query or body; swi
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.later?sessionId=s%201', body: '', type: null })
     r = await call(t.gw, 'POST', '/plus/later', { sessionId: 's', remove: 'i1' }, auth)
     assert.equal(r.status, 200); assert.deepEqual(JSON.parse(t.dsh.plus.at(-1).body), { sessionId: 's', remove: 'i1' })
+    // Open GitHub issue (Later list) and Chats that changed this file: the phone may ask; the query passes as it is.
+    r = await call(t.gw, 'POST', '/plus/later', { sessionId: 's', issue: 'i2' }, auth)
+    assert.equal(r.status, 200); assert.deepEqual(JSON.parse(t.dsh.plus.at(-1).body), { sessionId: 's', issue: 'i2' })
+    r = await call(t.gw, 'GET', '/plus/file-chats?sessionId=s&path=src%2Fapp.js', undefined, auth)
+    assert.equal(t.dsh.plus.at(-1).method, 'GET'); assert.equal(t.dsh.plus.at(-1).url, '/api/composer-plus.file-chats?sessionId=s&path=src%2Fapp.js')
+    assert.equal((await call(t.gw, 'POST', '/plus/file-chats', { sessionId: 's' }, auth)).status, 403, 'file-chats is GET only')
+    // Branch badges: the phone may read them; the switch stays on the Mac (POST is not allowed at all).
+    r = await call(t.gw, 'GET', '/plus/branches', undefined, auth)
+    assert.equal(t.dsh.plus.at(-1).url, '/api/composer-plus.branches')
+    const n = t.dsh.plus.length
+    assert.equal((await call(t.gw, 'POST', '/plus/branches', { on: false }, auth)).status, 403, 'the branch switch is the Mac\'s')
+    assert.equal(t.dsh.plus.length, n, 'refused before it reaches dsh')
     // Next message prediction: the phone may ask for a prediction; the switch, the model choice and the catalog stay on the Mac.
     r = await call(t.gw, 'POST', '/plus/predict', { sessionId: 's', afterSeq: 9 }, auth)
     assert.deepEqual(JSON.parse(t.dsh.plus.at(-1).body), { sessionId: 's', afterSeq: 9 })

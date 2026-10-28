@@ -349,6 +349,36 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(closeFences("```\na\n``` x"), "```\na\n``` x\n```")
         XCTAssertEqual(laterChecklist([["title": "Dark mode", "summary": "A dark theme."], ["title": "Export", "summary": "Save as CSV.", "why": "x"]]), "- [ ] Dark mode — A dark theme.\n- [ ] Export — Save as CSV.\n")
         XCTAssertEqual(focusPresets.count, 6)
+        // Open GitHub issue: only an https issue link of the Mac is a link.
+        XCTAssertEqual(issueLink(["url": "https://github.com/acme/web/issues/42", "number": 42])?.number, 42)
+        XCTAssertEqual(issueLink(["url": "https://github.com/acme/web/issues/42"])?.url.absoluteString, "https://github.com/acme/web/issues/42")
+        XCTAssertEqual(issueLink(["url": "https://git.example.com:8443/acme/web/issues/3"])?.number, 3, "GitHub Enterprise with a port")
+        for bad in ["javascript:alert(1)", "http://github.com/a/b/issues/1", "https://github.com/a/b/pull/1", "https://github.com/a/issues/1", "https://github.com/a/b/issues/1 x",
+                    "https://github.com@evil.example/a/b/issues/1"] {
+            XCTAssertNil(issueLink(["url": bad]), bad)
+        }
+        XCTAssertNil(issueLink(nil)); XCTAssertNil(issueLink("https://github.com/a/b/issues/1"))
+        // Chats that changed this file: rows as the Mac answers them; a row without a chat id or seq is dropped.
+        let fc = fileChatRows(["chats": [["sessionId": "s1", "seq": 9, "count": 2, "time": 1700000000000, "title": "T", "request": "Fix it"],
+                                         ["sessionId": "s2", "seq": 4, "withdrawn": true], ["seq": 1], ["sessionId": "s3"]]])
+        XCTAssertEqual(fc.map(\.id), ["s1#9", "s2#4"])
+        XCTAssertEqual(fc[0].count, 2); XCTAssertEqual(fc[0].request, "Fix it"); XCTAssertEqual(fc[0].time?.timeIntervalSince1970, 1700000000)
+        XCTAssertTrue(fc[1].withdrawn); XCTAssertNil(fc[1].time); XCTAssertEqual(fc[1].count, 1)
+        XCTAssertTrue(fileChatRows([:]).isEmpty)
+        // Find in chat: your messages and the answers, folded (case, accents, ı), counted per row; steps are not searched.
+        let fu = Line(kind: .user, text: "Run NPM test, then npm test"), fa = Line(kind: .assistant, text: "Şeker: npm Test passed")
+        let ft = Line(kind: .tool, text: "npm test"), fo = Line(kind: .assistant, text: "nothing here")
+        let rows: [ChatRow] = [.line(fu), .steps([ft], live: false), .line(fo), .line(fa)]
+        XCTAssertEqual(findRows(rows, query: "npm test").map(\.id), [fu.id, fa.id])
+        XCTAssertEqual(findRows(rows, query: "npm test").map(\.count), [2, 1])
+        XCTAssertEqual(findRows(rows, query: "seker").map(\.id), [fa.id])
+        XCTAssertEqual(findRows(rows, query: "SIRT").count, 0)
+        XCTAssertTrue(findRows(rows, query: "   ").isEmpty)
+        XCTAssertEqual(findFold("İçİn ıI"), "icin ii")
+        // Branch badge: the Mac's map; off on the Mac, a bad answer or an empty name = no badge.
+        XCTAssertEqual(sessionBranches(["on": true, "branches": ["s1": "main", "s2": "", "s3": 7]]), ["s1": "main"])
+        XCTAssertEqual(sessionBranches(["on": false, "branches": ["s1": "main"]]), [:])
+        XCTAssertEqual(sessionBranches([:]), [:])
         XCTAssertEqual(closeFences("```js\r\nx"), "```js\r\nx\n```", "CRLF lines")
         XCTAssertEqual(clampFocus(String(repeating: "x", count: 79) + "😀"), String(repeating: "x", count: 79), "an emoji past 80 UTF-16 units is not split")
         XCTAssertEqual(clampFocus(String(repeating: "x", count: 78) + "😀y"), String(repeating: "x", count: 78) + "😀")

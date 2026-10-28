@@ -43,6 +43,17 @@ Tether, Mac'ten yanıt beklediği her an bunu gösterir. Bekleme hata gibi ya da
 - **Diğer işlemler** (yeni sohbet, sabitleme, arşivleme, ad değiştirme, silme, hedef, kuyruk, durdurma, model ya da izin seçimi, onaylar ve sorular): yanıt 0,4 sn'den uzun sürerse ekranın üstünde **Waiting for your Mac…** görünür. Ekran bu sırada kullanılabilir kalır.
 - Başka bir Wi‑Fi'dan bağlanırken her istek önce Mac'in ev adresini deniyor ve 5 sn bekliyordu. Artık son yanıt veren adres (örneğin Tailscale) önce denenir.
 
+## Mesaja fotoğraf ekleme
+
+Yazı alanının solundaki **+** düğmesine dokunun:
+
+- **Camera**: yeni bir fotoğraf çeker (iPhone'da kamera varsa görünür).
+- **Photos**: fotoğraf arşivinden en çok 4 görsel seçer.
+- **Paste image**: panodaki görseli ekler (panoda görsel varsa görünür).
+- **Files**: başka türde bir dosya ekler.
+
+Görseller gönderilmeden önce yazı alanının üstünde küçük resim olarak görünür. Küçük resme dokunmak onu büyütür, ✕ onu kaldırır. Tether görseli en uzun kenarı 1600 piksel olan bir JPEG'e küçültür ve mesajla birlikte Mac'teki sohbete gönderir. Model görseli mesajın eki olarak görür. Alt ajan yanıt kutusu yalnız metin gönderir.
+
 ## Sohbet ekranı: düşünme ve araç adımları
 
 Sohbet, DSH masaüstündeki gibi kısa görünür. Ayrıntılar akordiyon gibi kapalıdır; dokununca açılır.
