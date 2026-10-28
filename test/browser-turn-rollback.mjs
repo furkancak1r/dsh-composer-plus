@@ -118,7 +118,8 @@ try {
     try {
       let url = await start();
       context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
-      await context.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false}'); });
+      // Branch per chat off: a new chat in this git project would start on a new branch (its default).
+      await context.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false}'); });
       const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       const open = async () => {
         await page.goto(url);
