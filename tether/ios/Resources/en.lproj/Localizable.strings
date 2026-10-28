@@ -19,4 +19,12 @@
 "Too many requests. Wait a few seconds and try again." = "Too many requests. Wait a few seconds and try again.";
 "This action isn't available from the phone yet." = "This action isn't available from the phone yet.";
 "That's too large to send." = "That's too large to send.";
+"Notifications" = "Notifications";
+"Send notifications" = "Send notifications";
+"Tether tells you when a turn finished, when a chat waits for an approval or a question, and when another chat has an error. It can do this only while it keeps its connection: while it is open and for a short time after you leave it." = "Tether tells you when a turn finished, when a chat waits for an approval or a question, and when another chat has an error. It can do this only while it keeps its connection: while it is open and for a short time after you leave it.";
+"iOS does not allow notifications from Tether. Allow them in iOS Settings › Notifications › Tether, then turn this on again." = "iOS does not allow notifications from Tether. Allow them in iOS Settings › Notifications › Tether, then turn this on again.";
+"Only between these hours" = "Only between these hours";
+"From" = "From";
+"To" = "To";
+"Outside these hours, Tether sends no notifications. When To is before From, the hours go past midnight (for example 22:00 to 07:00). The same time for both means all day." = "Outside these hours, Tether sends no notifications. When To is before From, the hours go past midnight (for example 22:00 to 07:00). The same time for both means all day.";
 

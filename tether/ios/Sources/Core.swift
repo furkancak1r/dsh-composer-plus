@@ -1295,6 +1295,44 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var tsError: String?
     private var tsTried = false
 
+    /// Settings › Notifications (kept on this iPhone): turn finished, approval, question and error notifications.
+    /// Off by default. Tether asks iOS for the permission only when the user switches it on.
+    static let notifyKey = "notifications"
+    @Published private(set) var notifyOn = UserDefaults.standard.bool(forKey: Client.notifyKey)
+    /// The iOS permission ask runs: the switch waits, so a second tap cannot start a second ask.
+    @Published private(set) var notifyAsking = false
+    /// iOS refused the permission (now or before): the switch stays off and Settings says where to allow it.
+    @Published private(set) var notifyDenied = false
+    /// The iOS permission ask. iOS shows its alert only the first time; after that it gives the saved answer. Tests replace it.
+    var askNotify: () async -> Bool = { (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false }
+
+    /// The Settings switch. Switching it on asks iOS first; a refusal keeps it off.
+    @discardableResult func setNotify(_ on: Bool) async -> Bool {
+        guard on != notifyOn, !notifyAsking else { return on == notifyOn }
+        if on {
+            notifyAsking = true
+            defer { notifyAsking = false }
+            guard await askNotify() else { notifyDenied = true; return false }
+        }
+        notifyDenied = false; notifyOn = on
+        UserDefaults.standard.set(on, forKey: Client.notifyKey)
+        return true
+    }
+
+    /// Settings › Notifications › Only between these hours (kept on this iPhone). Off by default: every hour.
+    /// From and To are minutes after midnight. To before From goes past midnight; From equal to To is all day.
+    static let hoursKey = "notifyHours", fromKey = "notifyFrom", toKey = "notifyTo"
+    @Published var notifyHours = UserDefaults.standard.bool(forKey: Client.hoursKey) { didSet { UserDefaults.standard.set(notifyHours, forKey: Client.hoursKey) } }
+    @Published var notifyFrom = UserDefaults.standard.object(forKey: Client.fromKey) as? Int ?? 8 * 60 { didSet { UserDefaults.standard.set(notifyFrom, forKey: Client.fromKey) } }
+    @Published var notifyTo = UserDefaults.standard.object(forKey: Client.toKey) as? Int ?? 22 * 60 { didSet { UserDefaults.standard.set(notifyTo, forKey: Client.toKey) } }
+    /// The four notifications (turn finished, approval, question, error) go out at `now`: switched on, and inside the hours when they are on.
+    func shouldNotify(at now: Date = .now) -> Bool {
+        guard notifyOn else { return false }
+        guard notifyHours, notifyFrom != notifyTo else { return true }
+        let t = Calendar.current.dateComponents([.hour, .minute], from: now), m = (t.hour ?? 0) * 60 + (t.minute ?? 0)
+        return notifyFrom < notifyTo ? (notifyFrom..<notifyTo).contains(m) : m >= notifyFrom || m < notifyTo
+    }
+
     private var urlSession: URLSession?, sessionFp = ""
     private var ws: URLSessionWebSocketTask?
     private var followId: String?
@@ -1746,7 +1784,6 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             try? await Task.sleep(for: .seconds(1.2))
             adopt(p)
             pairPhase = .idle
-            _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])
             // A Mac without the user's own name: ask for one now, filled with the Mac's name. The short wait lets the
             // "Add a Mac" sheet close first; an alert does not show while a sheet closes.
             if pairing?.fp == p.fp, pairing?.label == nil {
@@ -2607,7 +2644,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     // shortcut: only notifies while iOS keeps the socket alive (seconds after backgrounding); real wake-ups need APNs via a relay, out of scope for LAN-only.
     private func notify(_ title: String, _ body: String) {
-        guard UIApplication.shared.applicationState != .active else { return }
+        guard shouldNotify(), UIApplication.shared.applicationState != .active else { return }
         let c = UNMutableNotificationContent(); c.title = title; c.body = body; c.sound = .default
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
     }
