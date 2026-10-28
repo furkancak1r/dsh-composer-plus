@@ -1615,6 +1615,8 @@
     "feature.planToggle.description": "Shift+Tab /plan जोड़ता या हटाता है, या प्लान मोड से बाहर निकालता है।",
     "feature.keepFocus": "कंपोज़र में फ़ोकस बनाए रखें",
     "feature.keepFocus.description": "/ कमांड भेजने के बाद कर्सर कंपोज़र में ही रहता है।",
+    "feature.questionFit": "प्रश्न कार्ड को विंडो में फ़िट करें",
+    "feature.questionFit.description": "जब एजेंट आपसे कोई प्रश्न पूछता है, तो प्रश्न और उत्तर कार्ड में एक साथ स्क्रॉल होते हैं, छोड़ें और सबमिट करें दिखते रहते हैं, और कार्ड विंडो की ऊंचाई का उपयोग करता है।",
     "feature.queueReorder": "कतार में खींचकर छोड़ें",
     "feature.queueReorder.description": "कतार वाले संदेशों को उनके हैंडल से खींचकर क्रम बदलें।",
     "feature.copyDeeplink": "सेशन लिंक कॉपी करें",

@@ -46,6 +46,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **输入历史** | <a id="feature-inputhistory"></a>在空输入框中按 `↑` / `↓`，可以像在终端里一样浏览你发送过的消息。 | <a href="assets/features/inputHistory.webp"><img src="assets/features/inputHistory.webp" width="160" alt="截图：输入历史"></a> |
 | **Shift+Tab 计划模式** | <a id="feature-plantoggle"></a>`Shift+Tab` 会在草稿开头添加 `/plan `（再按一次可移除）。如果对话已处于计划模式，`Shift+Tab` 会退出计划模式。 | <a href="assets/features/planToggle.webp"><img src="assets/features/planToggle.webp" width="160" alt="截图：Shift+Tab 计划模式"></a> |
 | **保持输入框焦点** | <a id="feature-keepfocus"></a>发送 `/` 命令或技能后，光标仍留在输入框中，你可以立即继续输入。对于输入命令后按 `Enter` 的键盘宏，这同样有效。dsh 在解析命令时会把输入框设为只读，浏览器随后会移除焦点。本功能会把焦点放回输入框，除非菜单、对话框或其他输入框正持有焦点。 | <a href="assets/features/keepFocus.webp"><img src="assets/features/keepFocus.webp" width="160" alt="截图：保持输入框焦点"></a> |
+| **问题卡片适应窗口** | <a id="feature-questionfit"></a>代理向你提问时，问题和答案在卡片中一起滚动，**跳过**和**提交**始终显示在底部。卡片使用窗口的高度（减去 200 px，留给对话标题和一部分对话），所以会随窗口变大变小。没有本功能时，dsh 把卡片限制在窗口的 60%（最多 520 px），并且只有答案可以滚动：较长的问题会把它自己的结尾、答案和按钮挤出卡片。 | <a href="assets/features/questionFit.webp"><img src="assets/features/questionFit.webp" width="160" alt="截图：问题卡片适应窗口"></a> |
 | **一键继续** | <a id="feature-continuebutton"></a>回合被停止、失败或中断后，空输入框会显示 **▶**。点击一次即可在现有对话的基础上继续，不需要在输入框中输入内容，也不会添加可见的对话消息（模型会收到一条简短的隐藏提示“从停止的地方继续”，因为部分提供商，例如 Claude，会拒绝以助手回复结尾的请求）。队列中的消息会保留：▶ 只继续被停止的任务，之后再运行队列。已完成的回合仍显示普通的发送按钮。 | <a href="assets/features/continueButton.webp"><img src="assets/features/continueButton.webp" width="160" alt="截图：一键继续"></a> |
 | **重启后继续** | <a id="feature-resumeafterrestart"></a>默认关闭：请在 **设置 → Composer Plus** 中开启。如果你在对话仍在运行时退出 dsh（或 dsh 被关闭），再次打开 dsh 后，该对话会自动继续，并使用与“一键继续”相同的隐藏提示。如果当时有目标轮次（`/goal`）正在运行，该目标会继续下一轮（dsh 每次启动时都会暂停目标，直到你恢复它们）。你停止的、已完成的或失败的对话不会继续。dsh 本身没有这项设置：它只会把这样的回合标记为已中断。 | <a href="assets/features/resumeAfterRestart.webp"><img src="assets/features/resumeAfterRestart.webp" width="160" alt="截图：重启后继续"></a> |
 | **队列拖拽排序** | <a id="feature-queuereorder"></a>排队的消息会带一个把手（⠿）。拖动它即可调整顺序，或者让把手获得焦点后按 `↑` / `↓`。按 `Esc` 取消。 | <a href="assets/features/queueReorder.webp"><img src="assets/features/queueReorder.webp" width="160" alt="截图：队列拖拽排序"></a> |
@@ -189,6 +190,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - 如果新版本不改动任何 dsh 设置，dsh 0.2.1 会立即加载更新；否则（以及在 dsh 0.2.0 上），请重启 dsh 来加载更新。插件从不替你重启 dsh。没有 dsh 插件管理器的网页版/CLI profile 只会提示有新版本。
 - **本对话内允许** 从授权的那一刻开始计算时限。新的时限会立即应用于仍在生效的授权，因此更短的时限可能会让它们立即结束。1.12 及更早版本的授权没有时间信息：更新后，代理会就这些工具再询问一次。
 - **保持输入框焦点** 只在发送 `/` 命令或技能后才会把焦点还给输入框。dsh 解析命令时，输入框会有几毫秒处于只读状态，因此这段时间内按下的键会丢失。如果 dsh 的 `/` 菜单仍然打开，`Enter` 会选择高亮的行，而不会发送。
+- **问题卡片适应窗口** 只改变 dsh 的问题卡片，不改变计划审阅卡片。它通过 dsh 的标记（`data-question-key`、`data-question-scroll`）找到卡片；如果 dsh 更新改变了这些标记，卡片会按 dsh 自己的样子显示。卡片高度跟随窗口，而不是对话：在较窄侧边面板中的对话里，较高的卡片仍可能超出对话上方。
 - **手机连接** 只适用于 macOS（它使用 `en0`、`openssl`、`swift` 和 `dns-sd`）。它使用固定端口 19390 和 19391，因此每台 Mac 上同一时间只能有一个 dsh 运行它（每台 Mac 是手机 Mac 列表中的一项）。只有在 Tether 打开或刚转入后台时，手机才能收到通知（没有推送服务）。iOS 应用尚未上架 App Store：请用 Xcode 从 `tether/ios` 构建它。“Tailscale only”仍然需要 Mac 有 Wi-Fi 或以太网地址（只有在有这样的地址时，网关才会启动）。访问日志按 Mac 分别保存，只保留最新的 200 次尝试；一分钟内重复的尝试不会新增一行，而是把同一行的次数加一。Tether 的应用锁不会隐藏 iPhone 锁定屏幕上的通知预览：请在 iOS 设置中关闭它们。Tether 的绿点跟随 Mac：在 dsh 中打开的对话，手机上的绿点也会消失。在 Tether 中打开的对话，只在手机上消失；Mac 上 dsh 自己的绿点会一直保留，直到你在 Mac 上打开该对话。
 - 会话链接在对话中有效；点击它不会打开对应的对话。用 **复制消息链接** 复制的链接，只在 dsh 0.2.1 及更高版本中、并且只从对话中的消息里才能打开对应的消息（dsh 0.2.0 没有用户文本规则，所以链接仍会被复制，但只显示为普通文本）。被回退移除的消息，或被压缩从 dsh 加载的历史中移除的消息，无法显示：此时链接会给出提示。🔗 按钮依附在 dsh 的消息行上；如果 dsh 更新改变了这部分标记，按钮就不会显示。
 - **全部标为已读** 通过 dsh 中一个不是公开 API 的部分（dsh 会话状态中的 `completionUnread` 列表）来更改 dsh 自己的未读圆点。如果 dsh 更新重命名了它，该菜单项就不会显示。该菜单项放在 dsh 项目的“…”菜单中，而这个菜单没有给插件的插槽；如果 dsh 修改了这个菜单，该菜单项也不会显示。
@@ -299,6 +301,8 @@ PLAYWRIGHT=/path/to/playwright node test/browser-whats-new.mjs /path/to/dsh/lib/
 PLAYWRIGHT=/path/to/playwright node test/browser-readme-anchors.mjs
 # Keep composer focus (fake model + demo skill): typing goes on after a / command + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/dsh/lib/bin.js
+# Fit question card to window (fake model asks a long question at 1280 × 820): question, answers, Skip and Submit readable, height follows the window + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-question-fit.mjs /path/to/dsh/lib/bin.js
 # Mobile connect: switch on, QR popover, a fake iPhone pairs and calls dsh through the gateway, switch off + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js
 # Resume after restart (fake slow model, real quit and start): a running chat and a goal continue, a stopped chat does not

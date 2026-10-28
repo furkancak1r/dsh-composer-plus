@@ -1615,6 +1615,8 @@
     "feature.planToggle.description": "Shift+Tab ajoute ou retire /plan, ou quitte le mode plan.",
     "feature.keepFocus": "Garder le focus dans la zone de saisie",
     "feature.keepFocus.description": "Après l’envoi d’une commande /, le curseur reste dans la zone de saisie.",
+    "feature.questionFit": "Adapter la carte de question à la fenêtre",
+    "feature.questionFit.description": "Quand l’agent vous pose une question, la question et ses réponses défilent ensemble dans la carte, Ignorer et Envoyer restent visibles et la carte utilise la hauteur de la fenêtre.",
     "feature.queueReorder": "Glisser-déposer dans la file",
     "feature.queueReorder.description": "Réordonnez les messages en file d’attente en faisant glisser leur poignée.",
     "feature.copyDeeplink": "Copier le lien de session",
