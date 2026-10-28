@@ -14,7 +14,7 @@
 
 <p align="center"><img src="docs/images/hero.webp" width="820" alt="装有 Composer Plus 的 DeepSeek Harness：正在运行的项目在侧边栏中显示加载图标，改动面板显示 git diff"></p>
 
-这是非官方的社区插件。插件只在检查更新时访问网络（GitHub releases 和 npm registry）；关闭 **自动更新** 后，启动时就不再发出这些请求。只有在你点击 **推荐功能** 时，**功能创意** 才会调用对话自己的模型。**下一条消息预测**（默认开启）每完成一个回合都会调用一次在设置中选择的模型（除非你另选，否则为 dsh 的默认模型），不需要点击；在 **设置 → Composer Plus** 中关闭它，即可停止这些调用。**输入时补全**（默认关闭）在你开启后，会在你每次输入停顿时调用为它选择的模型（默认使用预测的模型）。只有在你点击魔法棒时，**优化提示词** 才会调用模型。**手机连接**（默认关闭）只有在你开启后，才会接受来自本地网络或 tailnet 的 iPhone 连接。
+这是非官方的社区插件。插件只在检查更新时访问网络（GitHub releases 和 npm registry）；关闭 **自动更新** 后，启动时就不再发出这些请求。只有在你点击 **推荐功能** 时，**功能创意** 才会调用对话自己的模型。**下一条消息预测**（默认开启）每完成一个回合都会调用一次在设置中选择的模型（除非你另选，否则为 dsh 的默认模型），不需要点击；在 **设置 → Composer Plus** 中关闭它，即可停止这些调用。**输入时补全**（默认关闭）在你开启后，会在你每次输入停顿时调用为它选择的模型（默认使用预测的模型）。只有在你点击魔法棒时，**优化提示词** 才会调用模型。**目标检查**（默认开启）在智能体每次于自动轮次中把 `/goal` 标记为完成时调用一次模型。**手机连接**（默认关闭）只有在你开启后，才会接受来自本地网络或 tailnet 的 iPhone 连接。
 
 ## 安装
 
@@ -60,6 +60,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **下一条消息预测** | <a id="feature-nextprediction"></a>默认开启；可在 **设置 → Composer Plus** 中关闭。智能体完成一个回合后（被停止或失败的回合除外），空输入框会以灰色文字显示对你下一条消息的猜测，并带有 **按 Tab 接受** 提示。`Tab` 会把文字放入输入框，但不会发送。`Esc` 会在本回合隐藏它。开始输入也会隐藏它，新的回合会替换它。开关下方的 **模型** 菜单列出 dsh 自己的模型（与 dsh 模型菜单的列表相同）。默认选中 **dsh 默认**，它跟随 dsh 的默认模型。每完成一个回合会进行一次简短的模型调用。在 Tether 中，猜测显示在空输入框上方：轻点它即可放入输入框。 | <a href="assets/features/nextPrediction.webp"><img src="assets/features/nextPrediction.webp" width="160" alt="截图：下一条消息预测"></a> |
 | **输入时补全** | <a id="feature-typingcompletion"></a>默认关闭；可在 **设置 → Composer Plus** 中开启。输入时，光标后紧跟的灰色文字会显示你的消息可能的后续内容。`Tab` 会把它添加到消息中，但不会发送。`Esc` 会隐藏它。它只建议你自己接下来要写的话：不会回答你，也不会编造错误信息或名称。消息看起来已完整，或模型不确定时，不显示任何内容。继续输入灰色文字中接下来的字符时，它会保留，不会再次调用模型。它的开关下方有自己的 **模型** 菜单。第一项 **与“下一条消息预测”相同**（默认）使用 **下一条消息预测** 的模型；选择其他模型，就可以为每个功能使用不同的模型，例如为补全选择更快的模型。你每次输入停顿时，它都会调用一次模型，因此消耗的 token 比预测多得多：请选择快速、低成本的模型。输入斜杠命令、消息中带有文件标签，或光标不在末尾时，它不会运行。在 Tether 中，输入时剩余部分会显示在输入框上方：轻点它即可添加。 | <a href="assets/features/typingCompletion.webp"><img src="assets/features/typingCompletion.webp" width="160" alt="截图：输入时补全"></a> |
 | **优化提示词** | <a id="feature-promptimprove"></a>输入一个粗略的请求，然后点击模型菜单旁边的魔法棒（**优化提示词**）。一次模型调用会把它改写成更清晰的提示词：先写目标，有多个部分时列出简短的编号步骤，并写明要运行的检查。它会读取此对话（已回滚的消息除外）、项目的 README、AGENTS.md 和清单文件、已更改的文件以及文件名与你的用词匹配的文件，并保留你的语言。它从不编造文件名。新文本会替换你的草稿，但不会发送：阅读、修改后再按 `Enter`。`Cmd/Ctrl+Z` 一步即可恢复你的原文，该按钮（**撤销优化**）也可以。如果你在它处理时继续输入，你的新文本会保留。`Esc` 或再次点击可取消。它在设置中有自己的 **模型** 菜单（默认：**与对话的模型相同**）。不适用于斜杠命令或带文件标签的消息。在 Tether 中，魔法棒位于输入框旁边。 | <a href="assets/features/promptImprove.webp"><img src="assets/features/promptImprove.webp" width="160" alt="截图：优化提示词"></a> |
+| **目标检查** | <a id="feature-goalcheck"></a>用 `/goal` 开始一个目标。当智能体在自动轮次中把目标标记为完成时，目标要通过两项检查才会关闭。首先，项目的测试命令会在对话的文件夹中、按对话的沙箱模式运行。命令是你自己设置的，或者从 `package.json`、`Makefile`、`Cargo.toml`、`go.mod` 或 pytest 中找到的。如果智能体自己最新的一步就是该测试的成功运行，则不再重复运行。然后，一次不带工具的独立模型调用会阅读目标、此对话、`git status` 和测试结果。任一检查失败时，目标保持进行中，智能体会看到原因，下一轮继续。目标栏下方的一行（**目标检查**）显示测试和上次结果。**编辑** 可设置你自己的测试命令以及时间或 token 上限；超过上限时目标会变为受阻。**立即运行** 会运行检查但不关闭目标。它在设置中有自己的 **模型** 菜单（默认：**与对话的模型相同**）。你自己完成目标时，不做任何检查。 | <a href="assets/features/goalCheck.webp"><img src="assets/features/goalCheck.webp" width="160" alt="截图：目标检查"></a> |
 | **本对话内允许** | <a id="feature-allowforchat"></a>当 Auto Review 询问你时，审批卡片上会多出 **本对话内允许**：从此以后，同一对话中的同一工具都会被允许，参数不限，直到时限结束（默认 1 小时；可在 **设置 → Composer Plus → 本对话内允许** 中选择）。之后代理会再次询问。标题栏中的标签会列出这些授权及其结束时间，也可以撤销它们。授权在重启后仍然有效。 | <a href="assets/features/allowForChat.webp"><img src="assets/features/allowForChat.webp" width="160" alt="截图：本对话内允许"></a> |
 | **项目状态** | <a id="feature-projectstatus"></a>侧边栏中的项目行会显示与其对话相同的加载图标 / 等待 / 完成标记。因此，即使项目已折叠，你也能知道其中有对话正在运行或需要你处理。等待你处理的对话优先显示，其次是你尚未打开的已完成对话（绿色圆点，即使另一个对话仍在运行也会显示），最后是加载图标。将鼠标悬停在上面可查看详情。 | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="截图：项目状态"></a> |
 | **对话行显示 Git 分支** | <a id="feature-sessionbranch"></a>侧边栏中的每个对话行会显示一个小的灰色标签，内容是该对话最后一轮时项目文件夹所在的 git 分支（例如 `main` 或 `feature/login`；分离的 HEAD 会在括号中显示短提交 ID）。同一项目中位于不同分支的两个对话不再看起来一样，你也能立即发现自己是否要在错误的分支上继续对话。将鼠标悬停在标签上可查看完整名称。Host 部分会在每轮开始和结束时读取分支（`git branch --show-current`，只读）；安装后还没有新一轮的对话，或不是 git 仓库的文件夹，不会显示标签。 | <a href="assets/features/sessionBranch.webp"><img src="assets/features/sessionBranch.webp" width="160" alt="截图：对话行显示 Git 分支"></a> |
@@ -79,7 +80,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 ## 设置
 
-每项功能都可以单独开启或关闭：dsh **设置 → Composer Plus**。每一行都有一张小截图：将鼠标悬停在上面可查看放大的预览，点击可按原尺寸打开（按 `Esc` 关闭）。顶部的 **搜索功能** 框会按名称或描述筛选页面（支持任何语言，不区分大小写和重音符号）；按 `Esc` 可清空。每一行都有一个开关和一段简短说明；更改会立即生效，不需要重启，并会保存在该设备上。行名后面的小 **?** 会打开 README 中介绍该功能的部分，使用与 dsh 界面语言相同的 README。除 **手机连接**、**重启后继续** 和 **输入时补全** 外，所有功能默认开启。这三项以及 **内容搜索**、**回合回退** 和 **下一条消息预测** 的开关由 dsh 的 Host 保存，因此它们对每个窗口都有效，并在重启后保留。**下一条消息预测**、**输入时补全** 和 **优化提示词** 的 **模型** 选择也由 Host 保存（**输入时补全** 默认 **与“下一条消息预测”相同**，**优化提示词** 默认 **与对话的模型相同**）；**本对话内允许** 的 **时限**（默认 1 小时）也由 Host 保存。**内容搜索** 只有在重启 dsh 后才会改变（dsh 在启动时读取它）；在此之前，它所在的行会显示 **重启 dsh 后此更改生效。**
+每项功能都可以单独开启或关闭：dsh **设置 → Composer Plus**。每一行都有一张小截图：将鼠标悬停在上面可查看放大的预览，点击可按原尺寸打开（按 `Esc` 关闭）。顶部的 **搜索功能** 框会按名称或描述筛选页面（支持任何语言，不区分大小写和重音符号）；按 `Esc` 可清空。每一行都有一个开关和一段简短说明；更改会立即生效，不需要重启，并会保存在该设备上。行名后面的小 **?** 会打开 README 中介绍该功能的部分，使用与 dsh 界面语言相同的 README。除 **手机连接**、**重启后继续** 和 **输入时补全** 外，所有功能默认开启。这三项以及 **内容搜索**、**回合回退**、**下一条消息预测** 和 **目标检查** 的开关由 dsh 的 Host 保存，因此它们对每个窗口都有效，并在重启后保留。**下一条消息预测**、**输入时补全**、**优化提示词** 和 **目标检查** 的 **模型** 选择也由 Host 保存（**输入时补全** 默认 **与“下一条消息预测”相同**，**优化提示词** 和 **目标检查** 默认 **与对话的模型相同**）；**本对话内允许** 的 **时限**（默认 1 小时）也由 Host 保存。**内容搜索** 只有在重启 dsh 后才会改变（dsh 在启动时读取它）；在此之前，它所在的行会显示 **重启 dsh 后此更改生效。**
 
 <p align="center"><img src="docs/images/settings.webp" width="720" alt="设置 → Composer Plus：功能搜索、语言选择器、更新行和每项功能的开关，悬停时显示截图预览"></p>
 
@@ -148,6 +149,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **下一条消息预测：** 默认开启；在 **设置 → Composer Plus** 中关闭它，即可停止这些模型调用。每完成一个回合，Host 端会把该对话中你自己的消息和智能体的文字回复（不含工具输出、隐藏上下文和推理内容），最多约 6,000 个字符（最新的部分），发送给所选的模型（除非你另选，否则为 dsh 的默认模型）。它通过 dsh 自己的提供商设置，以一次请求的形式发送。对话中不会保存任何内容：猜测不会被添加到对话历史中。开关和模型选择保存在 `$DSH_HOME/storages/dsh-composer-plus/predict.json` 中（仅所有者可访问的文件）。
 - **输入时补全：** 在你开启之前一直关闭。开启后，你每次输入停顿时，Host 端会把你目前已输入的文字，以及该对话中你自己的消息和智能体的文字回复（不含工具输出、隐藏上下文和推理内容；对话部分最多约 3,000 个字符），发送给在 **输入时补全** 下选择的模型（默认为 **下一条消息预测** 的模型）。新的停顿会停止较早的请求。对话中不会保存任何内容。开关保存在 `$DSH_HOME/storages/dsh-composer-plus/complete.json` 中（仅所有者可访问的文件）。
 - **优化提示词：** 在你点击魔法棒之前，什么都不会运行。点击后，Host 端会以一次请求的形式，把以下内容发送给在 **优化提示词** 下选择的模型（默认为对话自己的模型）：你的草稿；该对话中你自己的消息和智能体的文字回复（不含工具输出、隐藏上下文、推理内容和已回退的消息；最多约 6,000 个字符，最新的部分）；与 **功能创意** 相同的项目概要（文件规则也相同：不读取 `.env*` 或密钥文件，跳过指向文件夹外部的符号链接和 FIFO）；`git status` 列为已更改的路径；以及最多 30 个名称与你的草稿有相同词语的已跟踪或未跟踪（未被忽略）路径。除这份概要外，不会发送任何文件内容。对话和项目中都不会写入任何内容：回答只会替换输入框中的草稿，是否发送由你决定。模型选择保存在 `$DSH_HOME/storages/dsh-composer-plus/improve.json` 中（仅所有者可访问的文件）。
+- **目标检查：** 只有当智能体在自动轮次中把 `/goal` 标记为完成时（或者你点击 **立即运行** 时）才会运行。Host 端在对话的文件夹中、按对话的沙箱模式运行测试命令（与 dsh 自己的 `bash` 工具相同：同样的文件访问策略；沙箱无法启动时，测试不会运行，检查判为失败）。为了找到命令，它只读取 `package.json`、`Makefile`、`Cargo.toml`、`go.mod`、`pyproject.toml` 和 `pytest.ini`，并且只读取文件夹内的普通文件（不跟随指向文件夹外部的符号链接，不读取 FIFO）。然后，它以一次不带工具的请求，把以下内容发送给在 **目标检查** 下选择的模型（默认为对话自己的模型）：目标；从目标开始以来的对话（你的消息、智能体的回复、截断到 1,000 个字符的工具调用以及每个工具结果的最后 2,000 个字符；不含推理内容和已回退的步骤；最多约 60,000 个字符，最新的部分）；`git status --short`；以及测试输出的末尾。工具输出可能包含智能体读取过的内容，因此这次请求可能包含你文件的一部分，与对话本身相同。对话和项目中都不会写入任何内容。你的测试命令、上限、上次结果（含其输出的末尾）和模型选择保存在 `$DSH_HOME/storages/dsh-composer-plus/goal-check.json` 中（仅所有者可访问的文件，最新的 500 个对话）。
 
 ## 故障排除
 
@@ -164,6 +166,8 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **重启后对话没有继续：** dsh 退出时“重启后继续”处于关闭状态；或者你自己停止了那个回合；或者回合已经结束（完成或失败）；或者对话已被归档；或者当时有超过 20 个对话正在运行（只有最新的 20 个会继续）。
 - **创建 GitHub issue 提示“gh could not open the issue”：** 这条消息是 `gh` 自己输出的第一行。请在终端中运行 `gh auth status`，并用 `gh auth login` 登录；对话的文件夹必须有 GitHub 远程仓库（`git remote -v`）。“not installed or not on the PATH of dsh”表示 dsh 没有找到 `gh`：请安装它，或从一个能运行 `gh` 的终端启动 dsh。
 - **对话行上没有分支标签：** 安装此版本后，该对话还没有新的一轮；或者它的文件夹不是 git 仓库；或者 **对话行显示 Git 分支** 已关闭。更新后，请重启 dsh（分支由 Host 端记录）。
+- **目标检查显示测试以代码 127 或 “not found” 退出：** 从 Finder 或程序坞启动的 dsh 的 PATH 可能比终端里的短，因此找不到 `npm`、`pnpm` 或 `cargo`。请从终端启动 dsh，或者在 **目标检查** → **编辑** 中用完整路径设置你自己的测试命令。**立即运行** 会马上显示结果。
+- **目标没有关闭，智能体一直在工作：** **目标检查** 发现了失败的测试或缺少的工作；目标下方的一行会显示原因（将鼠标悬停在结果上可查看详情）。请修正原因或测试命令，或者用 `/goal` 或目标栏自己完成目标（这不会被检查）。
 - **刚发布新版本时安装失败：** 请加上版本号（`dsh-composer-plus@1.13.0`），见上文的安装说明。
 
 ## 限制
@@ -200,6 +204,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - dsh 也没有输入框提示的扩展点，所以 **下一条消息预测** 的文字覆盖在 dsh 自己的占位文字（`[data-composer-placeholder]`）上。如果 dsh 更新修改了这部分标记，就不会显示预测。开启期间，每完成一个回合都会进行一次简短的模型调用。
 - **输入时补全** 通过 dsh 自己的输入框提示显示文字（即 dsh 用于斜杠命令参数提示的 `--dsh-composer-hint` 样式）。输入斜杠命令、消息中带有文件或符号标签，或光标不在消息末尾时，它不会运行。如果 dsh 更新修改了这个样式，就不会显示补全。你每次输入停顿都会进行一次模型调用。
 - **优化提示词** 只能看到简短的项目概要、已更改的路径以及名称与你的用词匹配的路径，看不到代码本身。因此它可能漏掉正确的文件，并且只会提到提供给它的路径。发送前请先阅读新文本。输入斜杠命令或消息中带有文件或符号标签时，它不会运行（新文本是纯文本，标签会丢失）；一条消息最多 8,000 个字符。图片仍保留在附件中：只有文字会改变。每次点击都会进行一次模型调用；较强的模型可能需要一分钟（按 `Esc` 取消）。
+- **目标检查** 只检查智能体在自动目标轮次中做出的完成：你在对话中要求的完成、`/goal` 和目标栏都不会被检查。智能体可以自己修改测试或测试命令用到的文件；审核模型会阅读对话，可以看到这一点，但它在两个方向上都可能出错（错误的“尚未完成”会多花一轮；错误的“已完成”会关闭目标）。审核模型看到的是对话和 `git status`，而不是代码本身。只有当智能体最新的一步能更改文件的操作就是它自己在同一文件夹中成功运行完全相同命令的 `bash` 时，才会复用这次测试；带管道（`| tail`）或 `&&` 的命令不会被复用。预算在回合结束时计算，因此一个回合可能会超出预算。只计算对话自己的模型调用（不含其子智能体的调用）。检查运行期间 `update_goal` 会等待（测试最多 15 分钟，审核最多 3 分钟）。分支对话会得到新的对话 id，因此它开始时没有父对话自己的测试命令和上限。每次进入审核的完成都会花费一次模型调用。
 - 已向上游请求内置支持：队列 `move` 见 [#773](https://github.com/deepseek-ai/deepseek-harness/discussions/773)，“继续”状态见 [#9269](https://github.com/deepseek-ai/deepseek-harness/discussions/9269)。
 
 ## 常见问题
@@ -225,6 +230,8 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 **预测由哪个模型生成？** 由你在 **设置 → Composer Plus → 下一条消息预测 → 模型** 中选择的模型生成。这个列表就是 dsh 自己的模型列表。**dsh 默认** 跟随 dsh 的默认模型。如果 dsh 不再列出所选的模型，预测会改用默认模型。**输入时补全** 有自己的 **模型** 菜单：**与“下一条消息预测”相同**（默认）跟随预测的模型；选择其他模型时，该模型只用于补全。如果 dsh 不再列出这个模型，补全会改用预测的模型。
 
 **dsh 能在发送前优化我的提示词吗，就像 Roo Code 或 Augment 中的 Enhance prompt 按钮那样？** 可以，使用 **优化提示词**（默认开启）：输入一个粗略的请求，然后点击模型菜单旁边的魔法棒。它会以此对话和项目为上下文，用你的语言改写文字，但不会发送。`Cmd/Ctrl+Z` 或 **撤销优化** 可恢复你的原文。在 **设置 → Composer Plus → 优化提示词 → 模型** 中选择它的模型。
+
+**能否让智能体不再自己宣布工作已完成，就像 loop engineering 中的审核循环那样？** 可以，使用 **目标检查**（默认开启）：用 `/goal` 开始一个目标。当智能体说目标已完成时，会运行项目的测试，并由一次独立的模型调用对照对话检查目标；任一项失败时，目标保持进行中，智能体会看到原因。在目标下方的 **目标检查** 行中用 **编辑** 设置你自己的测试命令、时间上限或 token 上限。
 
 **如何在 dsh 中调整排队消息的顺序？** 拖动排队消息上的 ⠿ 把手，或者让它获得焦点后按 `↑` / `↓`。
 
@@ -300,6 +307,8 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-content-search.mjs /path
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-turn-rollback.mjs /path/to/dsh/lib/bin.js
 # Improve prompt (fake model, made-up git project): the wand sends the draft with the chat and the project, the answer replaces the draft, Cmd+Z and Undo bring it back + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js
+# Goal check (fake model, made-up project): a failing test and a verifier "not done" keep the goal open, the agent's own test run is reused, a pass closes it, a token budget blocks it + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-goal-check.mjs /path/to/dsh/lib/bin.js
 # Mark all as read, Copy message link, Edit queued message in place, Redo, Changes → This chat and Hide whitespace (fake model, made-up git projects) + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-six-features.mjs /path/to/dsh/lib/bin.js
 # Changes Tree (fake model, made-up git history): branch list, a branch's commits, commit files and diffs, back marks the row + its thumbnail
