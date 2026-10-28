@@ -37,6 +37,27 @@ statuses.delete('a');Object.assign(list.byId.b,{running:true});
 const m3=Object.fromEntries(render().c.map(p=>[p.key,p.portal.c[0].p.state]));
 assert.equal(m3.w1,'ongoing','once the done chat is opened (no green dot), the running chat shows');
 Object.assign(list.byId.b,{running:false});statuses.delete('kid');assert.equal(render().c.length,0,'idle projects show nothing');
+// "Workspace tree": a project row also shows the chats of the projects inside its folder (each branch folder, any
+// depth). A folder with the same name start (/r/p2) is not inside /r/p. "WorkSpace" keeps each project to its own chats.
+{
+  let view='workspace-tree';globalThis.localStorage={getItem:k=>k==='dsh.workspace.view.v5'?JSON.stringify({groupBy:view}):null};
+  rows.push(...['t','ta','tb','tbx','t2'].map(k=>mkEl({'data-row-key':`workspace:${k}`})));
+  Object.assign(list.byId,Object.fromEntries([summary('pa'),summary('pb',{running:true}),summary('pc'),summary('pbx',{running:true}),summary('p2')]));
+  statuses.set('pc',{pendingInteraction:{kind:'question'}});
+  workspaces.items=[['t','/r/p',['pa']],['ta','/r/p/.worktrees/a/',['pb']],['tb','/r/p/.worktrees/b',['pc']],['tbx','/r/p/.worktrees/b/x',['pbx']],['t2','/r/p2',['p2']]]
+    .map(([workspaceId,path,sessionIds])=>({workspaceId,path,sessionIds}));
+  const marks=()=>Object.fromEntries(render().c.map(p=>[p.key,`${p.portal.c[0].p.state} ${p.portal.p.title}`]));
+  render();layout[0]();
+  assert.deepEqual(marks(),{t:'warning project.question',ta:'ongoing project.running:1',tb:'warning project.question',tbx:'ongoing project.running:1'},
+    'the parent shows the waiting branch; a branch also shows the branch inside it; /r/p2 is not inside /r/p');
+  statuses.delete('pc');
+  assert.deepEqual(marks(),{t:'ongoing project.running:2',ta:'ongoing project.running:1',tb:'ongoing project.running:1',tbx:'ongoing project.running:1'},
+    'the parent counts the running chats of every branch below it');
+  assert.deepEqual(workspaces.items.map(w=>w.sessionIds.length),[1,1,1,1,1],'dsh\'s project lists stay unchanged');
+  view='workspace';
+  assert.deepEqual(marks(),{ta:'ongoing project.running:1',tbx:'ongoing project.running:1'},'WorkSpace: each project shows only its own chats');
+  delete globalThis.localStorage;
+}
 console.log('project-status checks passed');
 
 // Active projects first: the real watcher moves running/waiting projects above idle ones with dsh's insertBefore,

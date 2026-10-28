@@ -395,6 +395,42 @@ try {
   // Review P3: an upstream that was deleted on the remote (and pruned) is not pushed any more.
   git(r1.path, 'push', '-q', 'origin', '--delete', 'feat/dark-mode-toggle'); git(r1.path, 'fetch', '-q', '--prune');
   assert.equal((await branchStatus(subprocess, r1.path)).upstream, null, 'a gone upstream counts as not pushed');
+
+  // Plan mode: `plan: true` (the user sent `/plan <message>`) or a source chat in plan mode starts the new chat with dsh's
+  // bare `/plan` first, then its message. dsh's plan view `{active, pending}`: a pending switch flips it. Without dsh's
+  // commands no worktree is made; a `/plan` that fails sends no message (no default-mode turn that changes files).
+  {
+    const log = []; let planResult = { kind: 'success', text: 'Plan mode on. Use /plan off to leave.' };
+    const commands = { execute: async (agent, line, atts, signal) => { assert.ok(signal instanceof AbortSignal); log.push(['command', agent.id, line, atts]); return { commandId: 'c', result: planResult }; } };
+    sessionController.resolveAgent = async (id) => (id === 'missing' ? { error: 'gone' } : { agent: { id } });
+    const prompt = sessionController.prompt; sessionController.prompt = async (input, signal) => { log.push(['prompt', input.sessionId]); return prompt(input, signal); };
+    const withPlan = (llm) => ({ ...deps(llm), commands });
+    const rp = await startOnBranch(withPlan(llmSaying('feat/plan-login')), 'main', 'Plan the login page', undefined, [], { plan: true });
+    assert.equal(rp.plan, true); assert.deepEqual(log, [['command', rp.sessionId, '/plan', []], ['prompt', rp.sessionId]], 'plan mode first, then the message');
+    assert.deepEqual(made.prompts.at(-1).content, [{ type: 'text', text: 'Plan the login page' }], 'the message without /plan');
+    for (const [view, planned] of [[{ active: true }, true], [{ active: true, pending: true }, false], [{ active: false, pending: true }, true], [{ active: false }, false]]) {
+      log.length = 0; chats.main.values.plan = view;
+      const r = await startOnBranch(withPlan(undefined), 'main', `from a chat ${JSON.stringify(view)}`);
+      assert.equal(r.plan === true, planned, JSON.stringify(view)); assert.equal(log.some(([kind]) => kind === 'command'), planned);
+    }
+    chats.main.values.plan = { active: true };
+    const trees = git(S, 'worktree', 'list').split('\n').filter(Boolean).length;
+    await assert.rejects(startOnBranch(deps(undefined), 'main', 'x'), (e) => e.status === 409 && /plan mode/.test(e.message), 'no commands in this dsh');
+    assert.equal(git(S, 'worktree', 'list').split('\n').filter(Boolean).length, trees, 'no worktree when plan mode cannot start');
+    log.length = 0; planResult = { kind: 'error', text: 'no plan here' };
+    await assert.rejects(startOnBranch(withPlan(undefined), 'main', 'y'), (e) => /plan mode did not start: no plan here/.test(e.message) && /the new worktree stays at/.test(e.message));
+    assert.deepEqual(log.map(([kind]) => kind), ['command'], 'no message after a failed /plan');
+    delete chats.main.values.plan; planResult = { kind: 'success' };
+    // Route: `plan` must be a boolean; `plan: true` reaches startOnBranch with dsh's commands.
+    services.workspaceRegistry = registry; services.commands = commands;
+    for (const plan of ['yes', 1, null]) assert.equal((await call('POST', { sessionId: 'main', action: 'start', text: 'x', plan })).status, 400, JSON.stringify(plan));
+    log.length = 0;
+    const sp = await call('POST', { sessionId: 'main', action: 'start', text: 'Plan a footer', plan: true });
+    assert.equal(sp.status, 200); assert.equal(sp.data.plan, true); assert.deepEqual(log.map(([kind]) => kind), ['command', 'prompt']);
+    log.length = 0; assert.equal((await call('POST', { sessionId: 'main', action: 'start', text: 'Add a footer', plan: false })).data.plan, undefined);
+    assert.deepEqual(log.map(([kind]) => kind), ['prompt'], 'plan: false is an ordinary start');
+    sessionController.prompt = prompt; delete sessionController.resolveAgent;
+  }
   console.log('worktree-chats ok');
 } finally {
   try { chmodSync(join(base, 'outside', 'secret.txt'), 0o600); } catch { /* not made */ }

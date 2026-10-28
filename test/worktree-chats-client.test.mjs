@@ -58,12 +58,17 @@ const WORKSPACE = { 'viewOptions.label': 'View options', 'groupBy.workspaceTree'
 const bind = (ns) => (k, p = {}) => String((ns === 'workspace' ? WORKSPACE : en)[k] ?? k).replace(/\{(\w+)\}/g, (_, x) => p[x]);
 const opened = []; const workspaces = []; const tabs = [];
 const shells = new Map();
+// dsh's SessionInputShell: `beginSubmit` (on its prototype) runs a command's submit with the attachments in wire form.
+class Shell { beginSubmit(attempt, claim, args) { this.submits.push([claim.name, args]); return claim.submit(args, 'actx', attempt.attachments ?? []); } }
 const shell = (id) => {
-  const s = { sent: [], notes: [], notify: (level, note) => s.notes.push([level, note]) };
+  const s = Object.assign(new Shell(), { sent: [], submits: [], notes: [], notify: (level, note) => s.notes.push([level, note]) });
   s.original = async (...args) => { s.sent.push(args); return { kind: 'success' }; };
   s.deps = { defaultSink: s.original };
   shells.set(id, s); return s;
 };
+// dsh's `/plan` claim on this chat (the command runs here and records its line).
+const planned = [];
+const planClaim = { name: 'plan', token: '/plan ', attachments: true, submit: async (args, actx, attachments) => { planned.push([args, attachments.length]); return { kind: 'success' }; } };
 const live = new Map(); let next = 0; const unloads = [];
 const slots = { inject: (name, f) => { const off = f(); return () => off(); }, register: (o) => { const k = `${o.name}#${o.id ?? o.key}#${next++}`; live.set(k, o); return () => live.delete(k); } };
 // dsh's composer blocks (the reason that the input shows) and its draft attachments (wire form, release).
@@ -151,8 +156,40 @@ assert.equal(opened.length, 1, 'no chat opens after a failure');
   const failing = send('Again'); await tick(); blocks.set('s1', { reason: 'Model unavailable' });
   g.go(); await failing; assert.deepEqual(blocks.get('s1'), { reason: 'Model unavailable' }, 'another block stays'); blocks.delete('s1');
 }
+// Plan mode: dsh's `/plan <message>` (Shift+Tab) is a command, not a sink send. While "New branch" is chosen, it starts the
+// new chat in plan mode (`plan: true`) with the message and dsh's wire-form attachments. `/plan off`, a bare `/plan` and
+// other commands act on this chat. One start per chat here too; "Current branch" gives dsh's own submit back.
+{
+  chooseBranchMode('s1', 'current'); assert.equal(Object.hasOwn(s1, 'beginSubmit'), false, '"Current branch": dsh\'s own submit');
+  chooseBranchMode('s1', 'new'); assert.equal(Object.hasOwn(s1, 'beginSubmit'), true, '"New branch" wraps the command submit');
+  reply = () => ({ status: 200, body: { sessionId: 'new-plan', plan: true } }); released.length = 0;
+  assert.deepEqual(await s1.beginSubmit({ attachments: [{ type: 'image', mediaType: 'image/png', data: 'b64' }] }, planClaim, ' Plan the login page '), { kind: 'success' });
+  assert.deepEqual(calls.at(-1), [ROUTE, { action: 'start', sessionId: 's1', text: 'Plan the login page', attachments: [{ type: 'image', mediaType: 'image/png', data: 'b64' }], plan: true }]);
+  assert.deepEqual(planned, [], 'no /plan in this chat'); assert.deepEqual(released, [], 'dsh frees command attachments itself');
+  // dsh clears the command's draft when the submit settles, while this chat is still open: the new chat opens after that.
+  assert.notEqual(opened.at(-1), 'new-plan', 'not before dsh settles the submit'); await tick(); assert.equal(opened.at(-1), 'new-plan');
+  assert.equal(branchModeOf('s1'), 'current'); assert.equal(Object.hasOwn(s1, 'beginSubmit'), false, 'after the start: dsh\'s own submit'); assert.equal(s1.deps.defaultSink, s1.original);
+  // `/plan off`, a bare `/plan` and other commands: this chat, also while "New branch" is chosen.
+  chooseBranchMode('s1', 'new'); const before = calls.length;
+  for (const [claim, args] of [[planClaim, 'off'], [planClaim, ' '], [{ ...planClaim, name: 'goal' }, 'ship it']]) assert.deepEqual(await s1.beginSubmit({}, claim, args), { kind: 'success' });
+  assert.equal(calls.length, before, 'no branch start'); assert.deepEqual(planned, [['off', 0], [' ', 0], ['ship it', 0]], 'each ran in this chat'); assert.equal(branchModeOf('s1'), 'new');
+  // One start per chat: a plan send while a start runs; a failed start keeps "New branch" and both wrappers.
+  const g = gate(); reply = async () => { await g.p; return { status: 409, body: { error: 'this dsh cannot start a chat in plan mode' } }; };
+  const first = s1.beginSubmit({}, planClaim, 'Plan it'); await tick();
+  assert.deepEqual(await s1.beginSubmit({}, planClaim, 'Plan it again'), { kind: 'error', text: en['worktree.busy'] });
+  assert.deepEqual(await send('Fix it'), { kind: 'error', text: en['worktree.busy'] }, 'an ordinary send too');
+  g.go(); assert.deepEqual(await first, { kind: 'error', text: 'this dsh cannot start a chat in plan mode' });
+  assert.equal(branchModeOf('s1'), 'new'); assert.equal(Object.hasOwn(s1, 'beginSubmit'), true); assert.equal(blocks.has('s1'), false);
+  chooseBranchMode('s1', 'current'); assert.equal(Object.hasOwn(s1, 'beginSubmit'), false, 'back on "Current branch"');
+  // A composer without dsh's beginSubmit still gets the sink wrapper (no `/plan` start there).
+  const bare = { defaultSink: async () => ({ kind: 'success' }) }; chooseBranchMode('bare', 'new');
+  installBranchSink('bare', { deps: bare }, { start: async () => ({ sessionId: 'x' }), serialize: async () => [], release() {}, block() {}, open() {}, t });
+  assert.equal(typeof bare.defaultSink, 'function'); chooseBranchMode('bare', 'current');
+}
 // Switched off: every composer gets its own sink back; a running start keeps its mark until the Host answers.
+chooseBranchMode('s1', 'new');
 setFeature('worktreeChats', false);
+assert.equal(Object.hasOwn(s1, 'beginSubmit'), false, 'switched off: dsh\'s own submit');
 assert.equal(s1.deps.defaultSink, s1.original, 'switched off: the original sink'); assert.equal(branchModeOf('s1'), 'current');
 assert.ok(!ids().includes('branch-chip') && !ids().includes('branch-status'), 'and no slot');
 // The wrapper alone (no mode listener while the feature is off): after a start it gives the original sink back itself.
@@ -160,9 +197,9 @@ assert.ok(!ids().includes('branch-chip') && !ids().includes('branch-status'), 'a
   const deps = { defaultSink: async () => ({ kind: 'success' }) }; const original = deps.defaultSink; const started = [];
   chooseBranchMode('solo', 'new');
   const blockedSolo = [];
-  installBranchSink('solo', deps, { start: async (id, body) => { started.push([id, body]); return { sessionId: 'solo-new' }; }, serialize: async () => [], release() {}, block: (id, reason) => blockedSolo.push(reason), open: (id) => started.push(id), t });
+  installBranchSink('solo', { deps }, { start: async (id, body) => { started.push([id, body]); return { sessionId: 'solo-new' }; }, serialize: async () => [], release() {}, block: (id, reason) => blockedSolo.push(reason), open: (id) => started.push(id), t });
   const wrapped = deps.defaultSink; assert.notEqual(wrapped, original);
-  installBranchSink('solo', deps, { start: () => assert.fail('a second wrapper'), open() {}, t }); assert.equal(deps.defaultSink, wrapped, 'it wraps once');
+  installBranchSink('solo', { deps }, { start: () => assert.fail('a second wrapper'), open() {}, t }); assert.equal(deps.defaultSink, wrapped, 'it wraps once');
   assert.deepEqual(await deps.defaultSink('Hello', [], 'default'), { kind: 'success' });
   assert.deepEqual(started, [['solo', 'Hello'], 'solo-new']); assert.equal(deps.defaultSink, original, 'the original sink is back'); assert.equal(branchModeOf('solo'), 'current');
   assert.deepEqual(blockedSolo, [en['worktree.creating'], undefined], 'blocked while it ran');

@@ -7,6 +7,8 @@
 //   the `.worktreeinclude` files (.env yes, .env.production no, node_modules as a clone), and opens a new chat there that
 //   got the message. With dsh's Workspace tree view the branch folder shows inside its project (not as a top project).
 // - every version: the open chat's header shows "⑂ <branch>" with its change count; a new file makes it count.
+// - dsh 0.2.1+, plan mode: New branch + Shift+Tab (`/plan <message>`) starts the new branch chat in plan mode with the
+//   message; a New chat already in plan mode (a bare `/plan`) also gives its new branch chat plan mode.
 // PLAYWRIGHT=/path/to/playwright node test/browser-worktree-chats.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/worktreeChats.webp (English UI, demo project only).
 import assert from 'node:assert/strict';
@@ -29,6 +31,7 @@ const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 // which chat got what (dsh adds its own context messages, so the last message is not always the user's text).
 // The branch-name answer waits for `nameGate` (the test reads the locked composer meanwhile). Chat requests are kept.
 let nameGate = Promise.resolve(); const chatBodies = [];
+const PLAN_ASKS = ['Plan the password reset page', 'Plan the dark mode switch'];
 const fake = createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; }); req.on('end', async () => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
@@ -38,7 +41,7 @@ const fake = createServer((req, res) => {
     if (/branch name/i.test(JSON.stringify(msgs[0] ?? '')) || /branch name/i.test(all.slice(0, 2000))) { await nameGate; say('feat/login-remember-me'); return; }
     chatBodies.push(all);
     if (/session title/i.test(JSON.stringify(last?.content))) { say('Demo chat'); return; }
-    const prompt = ['Add a remember me box to the login form', 'Say hello'].findLast((p) => all.includes(p)) ?? 'something';
+    const prompt = ['Add a remember me box to the login form', 'Say hello', ...PLAN_ASKS].findLast((p) => all.includes(p)) ?? 'something';
     say(`Got: ${prompt}`);
   });
 }).listen(0, '127.0.0.1');
@@ -249,6 +252,43 @@ try {
         execFileSync('cwebp', ['-q', '80', shot, '-o', join(repo, 'assets/features', 'worktreeChats.webp')], { stdio: 'ignore' });
       }
       step(`Header pill (${branchName}, 1 change)`);
+      if (hasHero) {
+        // Plan mode. A New chat in acme-web, New branch, then the message goes as `/plan <message>` (Shift+Tab), or the New
+        // chat is put in plan mode first (a bare `/plan`). Each time the new branch chat opens in plan mode with the message.
+        const planChip = page.getByRole('button', { name: 'Plan mode on, press to turn off', exact: true });
+        const newChat = async () => {
+          await page.locator(`[data-row-key="workspace:${id}"]`).hover();
+          await page.getByRole('button', { name: 'New session in acme-web', exact: true }).click();
+          await chip.waitFor({ timeout: 10000 }); await pause(600);
+          // dsh reuses the New chat of the project: the message sent from it must not stay there as a draft.
+          assert.equal((await page.locator('[data-composer-seat]').innerText()).includes('Plan the'), false, 'no old draft in the New chat');
+        };
+        const startPlanned = async (ask, n, before) => {
+          await chip.click(); await page.locator('[data-composer-plus-branch-new]').click();
+          assert.equal(await chip.getAttribute('data-composer-plus-new-branch-chip'), 'new');
+          await before();
+          await page.keyboard.type(ask); await page.keyboard.press('Enter');
+          await page.getByText(`Got: ${ask}`).first().waitFor({ timeout: 30000 }); await pause(800);
+          const path = join(project, '.worktrees', `feat-login-remember-me-${n}`);
+          assert.equal(git(path, 'branch', '--show-current').trim(), `feat/login-remember-me-${n}`, 'the new chat runs on a new branch');
+          assert.equal(await page.locator('[data-composer-plus-branch-status]').getAttribute('data-composer-plus-branch-status'), `feat/login-remember-me-${n}`, 'the new branch chat is open');
+          await planChip.waitFor({ timeout: 10000 });
+          const ask1 = chatBodies.find((b) => b.includes(ask) && !/session title|Generate the session title/i.test(b));
+          assert.ok(ask1 !== undefined && !ask1.includes(`/plan ${ask}`), 'the message reached the model without /plan');
+        };
+        await newChat();
+        await startPlanned(PLAN_ASKS[0], 2, async () => {
+          await input.click(); await page.keyboard.press('Shift+Tab'); await pause(300);
+          assert.match(await page.locator('[data-composer-seat]').innerText(), /\/plan/, 'Shift+Tab adds /plan');
+        });
+        step('New branch + /plan <message> (Shift+Tab): the branch chat starts in plan mode');
+        await newChat();
+        // A bare `/plan` (Shift+Tab, Enter): this New chat goes into plan mode and stays a New chat.
+        await input.click(); await page.keyboard.press('Shift+Tab'); await pause(300); await page.keyboard.press('Enter');
+        await planChip.waitFor({ timeout: 10000 }); await chip.waitFor({ timeout: 10000 });
+        await startPlanned(PLAN_ASKS[1], 3, async () => { await input.click(); });
+        step('A New chat in plan mode: its branch chat starts in plan mode too');
+      }
       assert.deepEqual(errors, [], 'no browser exceptions');
       results.push(`PASS ${bin}: ${steps.join(' · ')}`);
     } catch (error) {

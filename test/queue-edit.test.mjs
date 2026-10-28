@@ -93,5 +93,5 @@ assert.match(src, /queueEditTarget\(event, queueDrag !== null\)/, 'the listener 
 // 4. The feature off: the listener goes away.
 cleanup(); assert.equal(listeners.has('dblclick'), false);
 // 5. The feature has its own switch (FEATURES) and screenshot.
-assert.match(src, /'queueReorder', 'queueEdit', 'copyDeeplink'/);
+assert.match(src, /'queueReorder', 'queueEdit', 'stopSendFirst', 'copyDeeplink'/);
 console.log('queue edit checks passed');

@@ -19,11 +19,11 @@ While a Composer Plus action in this table waits for the Mac, Tether shows a wai
 | turnRollback | yes | Touch and hold your message → Roll back to before this message: Chat only, or Chat and files. Withdrawn messages leave the chat. After a rollback, a Redo bar above the composer (while the chat is idle and nothing came after the rollback): Chat only, or Chat and files (a file changed since the rollback is marked; Also overwrite changed files is off by default). Redo opens a new chat from just before the rollback; the rolled-back chat stays as it is. |
 | deleteChat | yes | Chat title menu, or touch and hold a chat in Sessions → Delete…. |
 | projectName | yes | The folder name under the composer and in each chat row. |
-| projectStatus | yes | Each project header in Sessions shows the waiting hand, the green dot or the spinner. The green dots come from the Mac: a chat opened in dsh or on another phone loses its dot here too. |
+| projectStatus | yes | Each project header in Sessions shows the waiting hand, the green dot or the spinner. The green dots come from the Mac: a chat opened in dsh or on another phone loses its dot here too. Tether has no "Workspace Tree" view, so a header shows only its own chats (the desktop tree rule, a parent folder that also counts its branch folders, does not apply). |
 | sessionBranch | yes | Each chat row in Sessions shows the git branch of its folder at its last turn, next to the title (from the Mac; its switch stays on the Mac). |
 | markProjectRead | yes | Sessions → the "…" button next to a project header → Mark all as read (shown while a chat of that project has a green dot). Clears the green dots of that project's chats on the phone and in the Mac's unread list (Tether's dots); the desktop's own dots clear when opened there. |
 | activeProjectsFirst | yes | Sessions follows dsh's project order, which the desktop moves. |
-| recentProjects | yes | Sessions filter menu → Active in the last 2 hours. |
+| recentProjects | yes | Sessions filter menu → Active in the last 2 hours. Tether has no "Workspace Tree" view (projects are not nested on the phone), so the tree rule of the desktop (parent folders stay, older chats hide) does not apply there. |
 | collapseProjects | yes | Sessions toolbar → Collapse all projects button, shown only while a project is open. |
 | statusOrder | yes | Sessions filter menu → Order by status. |
 | notifications | yes | Turn finished, approval and question notifications while Tether keeps its connection. |
@@ -35,6 +35,7 @@ While a Composer Plus action in this table waits for the Mac, Tether shows a wai
 | keepFocus | no | A desktop browser focus problem. The iPhone keyboard keeps its focus. |
 | queueReorder | yes | Queued message menu → Move up / Move down. Messages with images move too (the Mac's `queue-move` route). |
 | queueEdit | yes | Queued message menu → Edit (an alert): the message keeps its place in the queue. |
+| stopSendFirst | yes | Nothing to do on the phone: the Mac moves the message inside dsh, so a message that Tether sends after Stop also runs first. The switch stays on the Mac. |
 | copyDeeplink | yes | Chat title menu, or touch and hold a chat → Copy session link. |
 | copyMessageLink | yes | Touch and hold a message (yours or an answer) → Copy message link. A message link in your message shows an Open message button: a tap opens that chat, scrolls to the message and marks it for 2 s. |
 | exportMarkdown | yes | Chat title menu → Copy conversation or Share conversation: Markdown with the same section shape as the Mac's export (`## You` / `## Assistant`, code blocks kept, an open fence closed, no messages that Turn rollback or dsh-rewind-plugin withdrew), without the project and date line; Share sends it to another app. |
@@ -47,5 +48,5 @@ While a Composer Plus action in this table waits for the Mac, Tether shows a wai
 | promptImprove | yes | The magic wand in the composer's button row: the Mac rewrites the typed message as a clearer prompt and it replaces the field (not sent); the button then undoes it, and a tap while it works cancels it. The model stays in the Mac's Settings. |
 | goalCheck | no | The check runs on the Mac and also covers goals that the phone starts or resumes: a failed check shows in the chat as the `update_goal` result. Its row (own test command, limits, Run now) stays on the Mac, because a test command typed on a phone would run as a shell command on the Mac. |
 | mobileConnect | yes | Tether itself. Settings → Privacy → Lock with Face ID locks the app (phone only). The paired iPhone list, Remove, Tailscale only and the access log are on the Mac's Mobile connect panel. |
-| worktreeChats | yes | A line under the chat title shows the chat's git branch, its changes and `↑/↓` or `not pushed`; a tap opens Changes. The composer's `+` menu → **New branch**: the next message (text, photos and files) starts a new chat on a new branch that the Mac names from the text, in its own worktree folder, and the phone opens it. While the Mac makes the branch, the text field takes no text. |
+| worktreeChats | yes | A line under the chat title shows the chat's git branch, its changes and `↑/↓` or `not pushed`; a tap opens Changes. The composer's `+` menu → **New branch**: the next message (text, photos and files) starts a new chat on a new branch that the Mac names from the text, in its own worktree folder, and the phone opens it. While the Mac makes the branch, the text field takes no text. In plan mode (the plan button adds `/plan`, or the chat is already in plan mode), the new branch chat starts in plan mode too. |
 | autoUpdate | no | Installs the plugin on the Mac. The iPhone app is built and installed separately. |
