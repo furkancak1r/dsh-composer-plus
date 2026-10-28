@@ -2052,6 +2052,11 @@ struct SettingsView: View {
     @State private var lockKind = AppLock.kind
     /// "Face ID", "Touch ID" or the passcode: what this iPhone asks for.
     private var lockName: String { lockKind == .faceID ? "Face ID" : lockKind == .touchID ? "Touch ID" : String(localized: "the passcode") }
+    /// A time picker for a notification hour that Client keeps as minutes after midnight.
+    private func hours(_ k: ReferenceWritableKeyPath<Client, Int>) -> Binding<Date> {
+        Binding(get: { Calendar.current.date(bySettingHour: c[keyPath: k] / 60, minute: c[keyPath: k] % 60, second: 0, of: .now) ?? .now },
+                set: { let t = Calendar.current.dateComponents([.hour, .minute], from: $0); c[keyPath: k] = (t.hour ?? 0) * 60 + (t.minute ?? 0) })
+    }
     var body: some View {
         NavigationStack {
             Form {
@@ -2122,6 +2127,27 @@ struct SettingsView: View {
                         c.setAddress(parts.first ?? "", Int(parts.count > 1 ? parts[1] : port))
                     }.disabled(host.isEmpty)
                 } header: { Text("Manual address") } footer: { Text("Only needed if the Mac's IP changed and Bonjour cannot find it. A LAN address or the Mac's Tailscale address (100.x or *.ts.net). The pinned certificate is still required.") }
+                Section {
+                    // Off by default. Turning it on asks iOS for the permission first; a refusal keeps it off.
+                    Toggle("Send notifications", isOn: Binding(get: { c.notifyOn }, set: { v in Task { await c.setNotify(v) } }))
+                        .disabled(c.notifyAsking)
+                    if c.notifyOn {
+                        Toggle("Only between these hours", isOn: $c.notifyHours)
+                        if c.notifyHours {
+                            DatePicker("From", selection: hours(\.notifyFrom), displayedComponents: .hourAndMinute)
+                            DatePicker("To", selection: hours(\.notifyTo), displayedComponents: .hourAndMinute)
+                        }
+                    }
+                } header: { Text("Notifications") } footer: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(c.notifyDenied
+                             ? "iOS does not allow notifications from Tether. Allow them in iOS Settings › Notifications › Tether, then turn this on again."
+                             : "Tether tells you when a turn finished, when a chat waits for an approval or a question, and when another chat has an error. It can do this only while it keeps its connection: while it is open and for a short time after you leave it.")
+                        if c.notifyOn, c.notifyHours {
+                            Text("Outside these hours, Tether sends no notifications. When To is before From, the hours go past midnight (for example 22:00 to 07:00). The same time for both means all day.")
+                        }
+                    }
+                }
                 Section {
                     // The switch shows the stored value; turning it on asks Face ID (or the passcode) first.
                     Toggle(lockKind == .faceID ? "Lock with Face ID" : lockKind == .touchID ? "Lock with Touch ID" : "Lock with passcode",

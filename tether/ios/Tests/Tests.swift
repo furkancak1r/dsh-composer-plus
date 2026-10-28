@@ -594,6 +594,53 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(c.tsReady, "cancel changes nothing")
     }
 
+    /// Notifications: off by default and no iOS permission ask; switched on, it stays on after a restart.
+    @MainActor func testNotificationsSwitch() async {
+        let d = UserDefaults.standard, was = d.object(forKey: Client.notifyKey)
+        d.removeObject(forKey: Client.notifyKey)
+        defer { d.set(was, forKey: Client.notifyKey) }
+        var asks = 0, allow = false
+        let c = Client(); c.askNotify = { asks += 1; return allow }
+        XCTAssertFalse(c.notifyOn, "off by default"); XCTAssertEqual(asks, 0, "no permission ask before the user switches it on")
+        let refused = await c.setNotify(true)
+        XCTAssertFalse(refused); XCTAssertFalse(c.notifyOn, "iOS refused: it stays off"); XCTAssertTrue(c.notifyDenied)
+        allow = true
+        let on = await c.setNotify(true)
+        XCTAssertTrue(on); XCTAssertTrue(c.notifyOn); XCTAssertFalse(c.notifyDenied); XCTAssertEqual(asks, 2)
+        XCTAssertTrue(Client().notifyOn, "a new start keeps it on")
+        await c.setNotify(false)
+        XCTAssertFalse(c.notifyOn); XCTAssertEqual(asks, 2, "switching it off asks nothing")
+        XCTAssertFalse(Client().notifyOn)
+    }
+
+    /// Notification hours: off by default (every hour); on, only inside From–To, also past midnight; kept after a restart.
+    @MainActor func testNotificationHours() async {
+        let d = UserDefaults.standard, keys = [Client.notifyKey, Client.hoursKey, Client.fromKey, Client.toKey]
+        let was = keys.map { d.object(forKey: $0) }
+        keys.forEach { d.removeObject(forKey: $0) }
+        defer { for (k, v) in zip(keys, was) { d.set(v, forKey: k) } }
+        let at = { (h: Int, m: Int) in Calendar.current.date(bySettingHour: h, minute: m, second: 0, of: .now)! }
+        let c = Client(); c.askNotify = { true }
+        XCTAssertFalse(c.notifyHours, "off by default")
+        XCTAssertFalse(c.shouldNotify(at: at(12, 0)), "Send notifications off: nothing")
+        await c.setNotify(true)
+        XCTAssertTrue(c.shouldNotify(at: at(3, 0)), "hours off: every hour")
+        c.notifyHours = true; c.notifyFrom = 9 * 60; c.notifyTo = 18 * 60
+        XCTAssertFalse(c.shouldNotify(at: at(8, 59))); XCTAssertTrue(c.shouldNotify(at: at(9, 0)))
+        XCTAssertTrue(c.shouldNotify(at: at(17, 59))); XCTAssertFalse(c.shouldNotify(at: at(18, 0)), "To is not inside")
+        c.notifyFrom = 22 * 60; c.notifyTo = 7 * 60
+        XCTAssertTrue(c.shouldNotify(at: at(23, 30))); XCTAssertTrue(c.shouldNotify(at: at(6, 59)), "past midnight")
+        XCTAssertFalse(c.shouldNotify(at: at(12, 0)))
+        c.notifyTo = 22 * 60
+        XCTAssertTrue(c.shouldNotify(at: at(12, 0)), "the same time for both: all day")
+        c.notifyTo = 7 * 60
+        let cold = Client()
+        XCTAssertTrue(cold.notifyHours); XCTAssertEqual(cold.notifyFrom, 22 * 60); XCTAssertEqual(cold.notifyTo, 7 * 60)
+        XCTAssertFalse(cold.shouldNotify(at: at(12, 0)), "a new start keeps the hours")
+        await c.setNotify(false)
+        XCTAssertFalse(c.shouldNotify(at: at(23, 30)), "Send notifications off wins over the hours")
+    }
+
     /// DSH desktop's chat shape: steps fold into one row; a finished turn folds to its summary and its answer.
     @MainActor func testChatRows() {
         let c = Client()
