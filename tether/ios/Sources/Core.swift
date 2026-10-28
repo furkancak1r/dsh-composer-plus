@@ -1936,8 +1936,20 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// One branch start at a time (the send button and a second tap both check it).
     @Published private(set) var branching = false
     func loadBranch(_ sid: String) async {
+        // Only the first read after the phone made the chat (a failed read does not choose later, when it has messages).
+        let made = fresh == sid
+        if made { fresh = nil }
         guard plus.contains("worktrees"), let o = try? await plusCall("worktrees", query: ["sessionId": sid]), current == sid else { return }
         branch = BranchState(o)
+        // A chat made on this phone starts on "New branch", as on the Mac; the `+` menu switches it off.
+        if made { newBranch = currentSess?.parent == nil && Self.startsOnNewBranch(o) }
+    }
+    /// The chat that this phone just made: its first branch read chooses the default.
+    private var fresh: String?
+    /// "New branch" by default only where the Mac can make one: the main folder of a repository with a commit (not a
+    /// worktree folder or a submodule).
+    static func startsOnNewBranch(_ o: J) -> Bool {
+        BranchState(o) != nil && o["root"] is String && o["worktree"] as? Bool != true && o["hasCommit"] as? Bool != false
     }
     /// Sends `text`, `images` and `files` as the first message of a new chat on a new branch; the phone opens that chat.
     func startOnBranch(_ text: String, images: [Data] = [], files: [Attachment] = []) async throws {
@@ -2186,7 +2198,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     func create(cwd: String?, workspaceId: String? = nil) async throws {
         let v = try await rpc("session/create", ["request": Self.createRequest(cwd: cwd, workspaceId: workspaceId)]) as? J
         try await loadSessions()
-        if let id = v?["sessionId"] as? String { open(id) }
+        if let id = v?["sessionId"] as? String { fresh = id; open(id) }
     }
 
     /// The workspace of a Mac answer to `/plus/new-session-workspace`; nil (DSH picks) for anything else.

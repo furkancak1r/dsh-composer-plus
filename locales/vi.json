@@ -1809,7 +1809,7 @@
     "update.notes": "Ghi chú phát hành",
     "whatsNew.title": "Có gì mới trong Composer Plus {version}",
     "feature.worktreeChats": "Branch riêng cho từng cuộc trò chuyện",
-    "feature.worktreeChats.description": "Trên màn hình cuộc trò chuyện mới, nút branch giữa nút dự án và nút chế độ hiển thị branch git của dự án. Chọn “Branch mới”: tin nhắn đầu tiên của bạn sẽ bắt đầu cuộc trò chuyện trên branch riêng, trong thư mục worktree riêng bên trong dự án (.worktrees), và AI đặt tên branch theo tin nhắn đó. Tin nhắn đầu tiên có thể kèm hình ảnh và tệp. Nút này cũng mở các worktree khác của dự án. Phần đầu của cuộc trò chuyện đang mở hiển thị branch, các thay đổi và trạng thái push; nhấp vào để mở Thay đổi. Nút cần dsh 0.2.1; trên 0.2.0 chỉ phần đầu hiển thị.",
+    "feature.worktreeChats.description": "Trên màn hình cuộc trò chuyện mới, nút branch giữa nút dự án và nút chế độ mặc định chọn “Branch mới” (bạn vẫn có thể chọn branch hiện tại). Tin nhắn đầu tiên của bạn sẽ bắt đầu cuộc trò chuyện trên branch riêng, trong thư mục worktree riêng bên trong dự án (.worktrees), và AI đặt tên branch theo tin nhắn đó. Tin nhắn đầu tiên có thể kèm hình ảnh và tệp. Nút này cũng mở các worktree khác của dự án. Phần đầu của cuộc trò chuyện đang mở hiển thị branch, các thay đổi và trạng thái push; nhấp vào để mở Thay đổi. Nút cần dsh 0.2.1; trên 0.2.0 chỉ phần đầu hiển thị.",
     "worktree.chip": "Branch",
     "worktree.current": "Branch hiện tại ({branch})",
     "worktree.new": "Branch mới",

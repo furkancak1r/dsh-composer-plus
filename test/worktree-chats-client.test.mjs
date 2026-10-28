@@ -34,6 +34,7 @@ const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, 
   useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = typeof v === 'function' ? v() : v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
   useRef: (v) => { const i = cur.ri++; return cur.refs[i] ??= { current: v }; },
   useEffect: (f, deps) => { cur.effects.push([f, deps]); },
+  useLayoutEffect: (f, deps) => { cur.effects.push([f, deps]); },
   useSyncExternalStore: (subscribe, get) => get() };
 const mount = (C, props) => {
   const inst = { state: [], refs: [], deps: [], cleanups: [] };
@@ -190,12 +191,20 @@ const s2 = shell('s2');
 const chipOf = async (id) => {
   const v = mount(BranchChip, { sessionId: id, ...reg('branch-chip').inject(id), t });
   assert.equal(v.render(), null, 'nothing while the first read runs'); await tick();
+  v.render(); // the default's layout effect runs before dsh paints: the next render shows its choice
   return { v, menu: () => v.render()?.c[1] };
 };
 let chip = await chipOf('s2');
 assert.deepEqual(calls.at(-1), [`${ROUTE}?sessionId=s2&list=1`, undefined]);
 let menu = chip.menu(); const item = (id) => menu.p.items.find((i) => i.id === id);
-assert.equal(menu.t, 'Menu'); assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'current'); assert.equal(text(menu.p.anchor), 'main');
+// A new chat in the main folder of a repository starts on "New branch": the composer send is wrapped at once.
+assert.equal(menu.t, 'Menu'); assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'new'); assert.equal(text(menu.p.anchor), 'New branch');
+assert.equal(branchModeOf('s2'), 'new'); assert.equal(menu.p.selectedId, 'new'); assert.notEqual(s2.deps.defaultSink, s2.original);
+// The user can still choose the current branch: the chip shows it, the original sink is back and no render chooses again.
+menu.p.onSelect('current'); menu = chip.menu();
+assert.equal(branchModeOf('s2'), 'current'); assert.equal(s2.deps.defaultSink, s2.original);
+assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'current'); assert.equal(text(menu.p.anchor), 'main');
+menu = chip.menu(); assert.equal(menu.p.anchor.p['data-composer-plus-new-branch-chip'], 'current', 'the default comes once per chat');
 // It looks like dsh's project and mode buttons: branch icon (16 px), label, chevron (12 px); the menu opens from its start.
 assert.deepEqual(menu.p.anchor.c.map((c) => c.t ?? 'text'), ['IconBranch', 'span', 'IconChevron']); assert.equal(menu.p.anchor.c[0].p.size, 16);
 assert.deepEqual(menu.p.anchor.c[2].p, { size: 12, className: 'cp-branch-chevron' }); assert.equal(menu.p.anchor.p.className, 'cp-branch cp-branch-chip'); assert.equal(menu.p.align, 'start');
@@ -238,7 +247,14 @@ assert.deepEqual(s2.notes, [['error', 'not a worktree of this repository']]); as
 chip.menu().p.onSelect('new'); assert.notEqual(s2.deps.defaultSink, s2.original);
 chip.v.unmount(); assert.equal(branchModeOf('s2'), 'current'); assert.equal(s2.deps.defaultSink, s2.original, 'no branch from a chip that is gone');
 // No "New branch" without dsh's sink; no chip outside a repository or when the read fails.
-chip = await chipOf('s0'); assert.ok(!chip.menu().p.items.some((i) => i.id === 'new'));
+chip = await chipOf('s0'); assert.ok(!chip.menu().p.items.some((i) => i.id === 'new')); assert.equal(branchModeOf('s0'), 'current', 'no dsh sink: no default either');
+// Where the Host makes no branch (a worktree folder, a submodule, no commit yet), the chip starts on the current branch.
+for (const [id, facts] of [['s-wt', { top: '/repo/.worktrees/feat-a', worktree: true }], ['s-sub', { root: null }], ['s-empty', { hasCommit: false }]]) {
+  const s = shell(id); const prev = reply; reply = () => ({ status: 200, body: { ...LIST, ...facts } });
+  chip = await chipOf(id); reply = prev;
+  assert.equal(branchModeOf(id), 'current', id); assert.equal(chip.menu().p.anchor.p['data-composer-plus-new-branch-chip'], 'current', id); assert.equal(s.deps.defaultSink, s.original, id);
+  chip.v.unmount();
+}
 reply = () => ({ status: 200, body: { repo: false } }); chip = await chipOf('s2'); assert.equal(chip.menu(), undefined, 'not a repository: no chip');
 reply = () => new TypeError('Failed to fetch'); chip = await chipOf('s2'); assert.equal(chip.menu(), undefined, 'a failed read: no chip');
 

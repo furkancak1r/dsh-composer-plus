@@ -1809,7 +1809,7 @@
     "update.notes": "Notas de la versión",
     "whatsNew.title": "Novedades de Composer Plus {version}",
     "feature.worktreeChats": "Una rama por chat",
-    "feature.worktreeChats.description": "En la pantalla de chat nuevo, un botón de rama entre el botón de proyecto y el botón de modo muestra la rama de git del proyecto. Elige «Nueva rama»: tu primer mensaje inicia entonces el chat en su propia rama, en su propia carpeta de worktree dentro del proyecto (.worktrees), y la IA nombra la rama a partir de ese mensaje. El primer mensaje puede llevar imágenes y archivos. El botón también abre los demás worktrees del proyecto. La cabecera de un chat abierto muestra su rama, sus cambios y su estado de push; un clic abre Cambios. El botón necesita dsh 0.2.1; en 0.2.0 solo se muestra la cabecera.",
+    "feature.worktreeChats.description": "En la pantalla de chat nuevo, un botón de rama entre el botón de proyecto y el botón de modo empieza en «Nueva rama» (aún puedes elegir la rama actual). Tu primer mensaje inicia entonces el chat en su propia rama, en su propia carpeta de worktree dentro del proyecto (.worktrees), y la IA nombra la rama a partir de ese mensaje. El primer mensaje puede llevar imágenes y archivos. El botón también abre los demás worktrees del proyecto. La cabecera de un chat abierto muestra su rama, sus cambios y su estado de push; un clic abre Cambios. El botón necesita dsh 0.2.1; en 0.2.0 solo se muestra la cabecera.",
     "worktree.chip": "Rama",
     "worktree.current": "Rama actual ({branch})",
     "worktree.new": "Nueva rama",

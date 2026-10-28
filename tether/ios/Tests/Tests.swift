@@ -1028,4 +1028,15 @@ final class BranchStateTests: XCTestCase {
         XCTAssertEqual(BranchState(["repo": true, "branch": "(abc1234)", "upstream": NSNull(), "changes": 2])?.name, "(abc1234)")
         XCTAssertEqual(BranchState(["repo": true, "branch": "(abc1234)", "upstream": NSNull(), "changes": 2])?.detail, "2 changes", "a detached HEAD is not \"not pushed\"")
     }
+    /// A new chat starts on "New branch" only where the Mac can make one.
+    @MainActor func testNewChatStartsOnNewBranch() {
+        let main: J = ["repo": true, "root": "/p/acme", "top": "/p/acme", "worktree": false, "hasCommit": true, "branch": "main"]
+        XCTAssertTrue(Client.startsOnNewBranch(main))
+        var older = main; older["hasCommit"] = nil
+        XCTAssertTrue(Client.startsOnNewBranch(older), "a Mac without hasCommit: as before, the Mac answers at send")
+        for (key, value) in [("worktree", true as Any), ("root", NSNull()), ("hasCommit", false), ("repo", false)] {
+            var o = main; o[key] = value
+            XCTAssertFalse(Client.startsOnNewBranch(o), key)
+        }
+    }
 }

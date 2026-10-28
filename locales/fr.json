@@ -1809,7 +1809,7 @@
     "update.notes": "Notes de version",
     "whatsNew.title": "Nouveautés de Composer Plus {version}",
     "feature.worktreeChats": "Une branche par discussion",
-    "feature.worktreeChats.description": "Sur l’écran de nouvelle discussion, un bouton de branche entre le bouton de projet et le bouton de mode affiche la branche git du projet. Choisissez « Nouvelle branche » : votre premier message lance alors la discussion sur sa propre branche, dans son propre dossier de worktree dans le projet (.worktrees), et l’IA nomme la branche d’après ce message. Le premier message peut contenir des images et des fichiers. Le bouton ouvre aussi les autres worktrees du projet. L’en-tête d’une discussion ouverte affiche sa branche, ses modifications et son état de push ; un clic ouvre Modifications. Le bouton demande dsh 0.2.1 ; sur 0.2.0, seul l’en-tête s’affiche.",
+    "feature.worktreeChats.description": "Sur l’écran de nouvelle discussion, un bouton de branche entre le bouton de projet et le bouton de mode commence sur « Nouvelle branche » (vous pouvez toujours choisir la branche actuelle). Votre premier message lance alors la discussion sur sa propre branche, dans son propre dossier de worktree dans le projet (.worktrees), et l’IA nomme la branche d’après ce message. Le premier message peut contenir des images et des fichiers. Le bouton ouvre aussi les autres worktrees du projet. L’en-tête d’une discussion ouverte affiche sa branche, ses modifications et son état de push ; un clic ouvre Modifications. Le bouton demande dsh 0.2.1 ; sur 0.2.0, seul l’en-tête s’affiche.",
     "worktree.chip": "Branche",
     "worktree.current": "Branche actuelle ({branch})",
     "worktree.new": "Nouvelle branche",

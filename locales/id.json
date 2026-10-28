@@ -1809,7 +1809,7 @@
     "update.notes": "Catatan rilis",
     "whatsNew.title": "Yang baru di Composer Plus {version}",
     "feature.worktreeChats": "Branch per obrolan",
-    "feature.worktreeChats.description": "Di layar obrolan baru, tombol branch di antara tombol proyek dan tombol mode menampilkan branch git proyek. Pilih “Branch baru”: pesan pertama Anda lalu memulai obrolan di branch-nya sendiri, di folder worktree-nya sendiri di dalam proyek (.worktrees), dan AI memberi nama branch dari pesan itu. Pesan pertama dapat membawa gambar dan file. Tombol ini juga membuka worktree lain dari proyek. Header obrolan yang terbuka menampilkan branch, perubahan, dan status push-nya; klik untuk membuka Perubahan. Tombol memerlukan dsh 0.2.1; di 0.2.0 hanya header yang tampil.",
+    "feature.worktreeChats.description": "Di layar obrolan baru, tombol branch di antara tombol proyek dan tombol mode dimulai dengan “Branch baru” (Anda tetap bisa memilih branch saat ini). Pesan pertama Anda lalu memulai obrolan di branch-nya sendiri, di folder worktree-nya sendiri di dalam proyek (.worktrees), dan AI memberi nama branch dari pesan itu. Pesan pertama dapat membawa gambar dan file. Tombol ini juga membuka worktree lain dari proyek. Header obrolan yang terbuka menampilkan branch, perubahan, dan status push-nya; klik untuk membuka Perubahan. Tombol memerlukan dsh 0.2.1; di 0.2.0 hanya header yang tampil.",
     "worktree.chip": "Branch",
     "worktree.current": "Branch saat ini ({branch})",
     "worktree.new": "Branch baru",

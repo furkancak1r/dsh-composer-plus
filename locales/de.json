@@ -1809,7 +1809,7 @@
     "update.notes": "Versionshinweise",
     "whatsNew.title": "Neu in Composer Plus {version}",
     "feature.worktreeChats": "Ein Branch pro Chat",
-    "feature.worktreeChats.description": "Im Bildschirm „Neuer Chat“ zeigt eine Branch-Schaltfläche zwischen der Projektschaltfläche und der Modusschaltfläche den Git-Branch des Projekts. Wähle „Neuer Branch“: Deine erste Nachricht startet den Chat dann auf einem eigenen Branch, in einem eigenen Worktree-Ordner im Projekt (.worktrees), und die KI benennt den Branch nach dieser Nachricht. Die erste Nachricht kann Bilder und Dateien enthalten. Die Schaltfläche öffnet auch die anderen Worktrees des Projekts. Die Kopfzeile eines offenen Chats zeigt seinen Branch, seine Änderungen und seinen Push-Status; ein Klick öffnet Änderungen. Die Schaltfläche braucht dsh 0.2.1; unter 0.2.0 erscheint nur die Kopfzeile.",
+    "feature.worktreeChats.description": "Im Bildschirm „Neuer Chat“ zeigt eine Branch-Schaltfläche zwischen der Projektschaltfläche und der Modusschaltfläche standardmäßig „Neuer Branch“ (du kannst weiter den aktuellen Branch wählen). Deine erste Nachricht startet den Chat dann auf einem eigenen Branch, in einem eigenen Worktree-Ordner im Projekt (.worktrees), und die KI benennt den Branch nach dieser Nachricht. Die erste Nachricht kann Bilder und Dateien enthalten. Die Schaltfläche öffnet auch die anderen Worktrees des Projekts. Die Kopfzeile eines offenen Chats zeigt seinen Branch, seine Änderungen und seinen Push-Status; ein Klick öffnet Änderungen. Die Schaltfläche braucht dsh 0.2.1; unter 0.2.0 erscheint nur die Kopfzeile.",
     "worktree.chip": "Branch",
     "worktree.current": "Aktueller Branch ({branch})",
     "worktree.new": "Neuer Branch",

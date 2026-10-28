@@ -3769,7 +3769,7 @@ function installWorktrees(ctx) {
           const cwd = await chatFolder(ctx.sessionQuery, sessionId, request.signal).catch((error) => { if (error?.status === 409) return undefined; throw error; });
           const repo = cwd === undefined ? undefined : await repoOf(ctx.subprocess, cwd, request.signal);
           if (repo === undefined) return json({ repo: false });
-          return json({ repo: true, root: repo.root ?? null, top: repo.top, worktree: repo.root !== undefined && repo.top !== repo.root,
+          return json({ repo: true, root: repo.root ?? null, top: repo.top, worktree: repo.root !== undefined && repo.top !== repo.root, hasCommit: repo.hasCommit,
             ...(await branchStatus(ctx.subprocess, cwd, request.signal)), ...(list === '1' ? { worktrees: await listWorktrees(ctx.subprocess, cwd, request.signal, repo.top) } : {}) });
         }
         let body;
