@@ -203,7 +203,10 @@ assert.deepEqual(menu.p.anchor.c[2].p, { size: 12, className: 'cp-branch-chevron
 { const css = text(chip.v.render().c[0]);
   assert.match(css, /\.cp-branch-chip\{gap:4px;color:var\(--dsw-alias-label-primary\);font-weight:500\}/);
   assert.match(css, /\[class\*="_heroWorkspaceRow"\]:has\(>\[class\*="_heroOptions"\] \[data-composer-plus-new-branch-chip\]\)>button\[class\*="_workspace"\]\{order:-2\}/);
-  assert.match(css, /\[class\*="_heroWorkspaceRow"\]>\[class\*="_heroOptions"\]:has\(\[data-composer-plus-new-branch-chip\]\)\{order:-1;margin-left:0\}/); }
+  assert.match(css, /\[class\*="_heroWorkspaceRow"\]>\[class\*="_heroOptions"\]:has\(\[data-composer-plus-new-branch-chip\]\)\{order:-1;margin-left:0\}/);
+  // A long worktree list stops at 360 px (or dsh's window limit) and scrolls inside dsh's menu.
+  assert.equal(menu.p.listClassName, 'cp-branch-menu');
+  assert.match(css, /\[role=menu\]\.cp-branch-menu\{max-height:min\(360px,calc\(100vh - 12px - max\(12px,var\(--dsh-frame-overlay-top,12px\)\)\)\)\}/); }
 assert.deepEqual(menu.p.items.map((i) => i.id), ['current', 'new', 'worktrees', 'wt:/repo/.worktrees/feat-a', 'wt:/repo/.worktrees/fix-b', 'hint', 'tree-hint'], 'the current worktree is not listed');
 assert.equal(menu.p.selectedId, 'current'); assert.equal(item('current').label, 'Current branch (main)');
 assert.equal(item('new').label.p['data-composer-plus-branch-new'], ''); assert.equal(text(item('new').label), 'New branchThe AI names it from your first message.');

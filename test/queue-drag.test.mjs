@@ -17,7 +17,7 @@ const ghost=()=>document.body.children.find(c=>c.tagName==='li');
 const wait=(ms)=>new Promise(r=>setTimeout(r,ms));
 let state=[],si=0,layout=[];
 const React={useRef:()=>({current:{closest:()=>seat}}),useState:v=>{const i=si++;if(!(i in state))state[i]=v;return [state[i],x=>{state[i]=typeof x==='function'?x(state[i]):x;}];},
- useMemo:f=>f(),useLayoutEffect:f=>layout.push(f),createElement:(t,p,...c)=>({t,p,c}),Fragment:'F'};
+ useMemo:f=>f(),useSyncExternalStore:(_,get)=>get(),useLayoutEffect:f=>layout.push(f),createElement:(t,p,...c)=>({t,p,c}),Fragment:'F'};
 const plugin=mod.factory(n=>n==='react'?React:{createPortal:(e,host,key)=>({portal:e,host,key})});
 const regs=[];plugin.apply({sessions:{scope:()=>undefined},slots:{inject:(n,f)=>f(),register:(o,C)=>{regs.push([o,C]);return()=>{};}}});
 const [,C]=regs.find(([o])=>o.id==='queue-reorder');

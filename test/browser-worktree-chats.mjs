@@ -2,6 +2,7 @@
 // project; headless):
 // - dsh 0.2.1+: the New chat screen shows the branch chip "main" between dsh's project and mode buttons, with their font,
 //   color, height and icons; the switch off removes the chip and its style and gives the row its own order back.
+//   With 15 other worktrees the chip's menu stops at 360 px, scrolls with the wheel and stays inside a low window.
 //   New branch + a first message with an image and a file (the composer takes no text while the Host works) → the fake model names
 //   the branch, the Host creates <project>/.worktrees/feat-login-remember-me on branch feat/login-remember-me, copies only
 //   the `.worktreeinclude` files (.env yes, .env.production no, node_modules as a clone), and opens a new chat there that
@@ -120,6 +121,8 @@ try {
     await writeFile(join(project, 'node_modules/left-pad/index.js'), 'module.exports = 1;\n');
     await symlink('../index.js', join(project, 'node_modules/left-pad/.bin/left-pad'));
     git(project, 'init', '-q', '-b', 'main'); git(project, 'add', '-A'); git(project, 'commit', '-q', '-m', 'init');
+    // 15 more worktrees (outside the project, so its checkout stays clean): the chip's menu must stop and scroll.
+    for (let n = 1; n <= 15; n++) git(project, 'worktree', 'add', '-q', '-b', `feat/demo-${n}`, join(home, 'projects', 'acme-web-wt', `demo-${n}`));
     const id = randomUUID(); const now = new Date().toISOString();
     await mkdir(join(home, 'storages'), { recursive: true });
     await writeFile(join(home, 'storages/workspace.json'), JSON.stringify({ unit: { name: 'workspace', version: 2 },
@@ -166,11 +169,42 @@ try {
         }
         assert.equal(hero.styles, 1, 'one chip style');
         step('Chip between project and mode, same look');
+        // The menu with 15 other worktrees stops at 360 px, scrolls with the wheel and stays in the window (also a low one).
+        const menuBox = () => page.evaluate(() => {
+          // dsh's rows box (`_viewport`) holds the rows; the menu's first child is its material layer.
+          const list = document.querySelector('[role="menu"].cp-branch-menu'); const view = list?.querySelector('[data-composer-plus-branch-item]')?.closest('[role="presentation"]');
+          if (!list || !view) return null;
+          const r = list.getBoundingClientRect(); const items = list.querySelectorAll('[data-composer-plus-branch-item]'); const last = items[items.length - 1]?.getBoundingClientRect();
+          return { top: r.top, bottom: r.bottom, height: r.height, inner: innerHeight, rows: items.length, scrollHeight: view.scrollHeight, clientHeight: view.clientHeight,
+            scrollTop: view.scrollTop, overflow: getComputedStyle(view).overflowY, lastShown: last !== undefined && last.top >= r.top - 1 && last.bottom <= r.bottom + 1 };
+        });
+        const openMenu = async () => { await chip.click(); await page.locator('[role="menu"].cp-branch-menu').waitFor({ timeout: 5000 }); await pause(300); return menuBox(); };
+        let m = await openMenu();
+        assert.equal(m.rows, 15, `15 other worktrees: ${JSON.stringify(m)}`);
+        assert.ok(m.height <= 361 && m.height >= 340, `the menu stops at 360 px: ${JSON.stringify(m)}`);
+        assert.ok(m.overflow === 'auto' && m.scrollHeight > m.clientHeight + 100, `its rows scroll: ${JSON.stringify(m)}`);
+        assert.ok(m.top >= 0 && m.bottom <= m.inner, `in the window: ${JSON.stringify(m)}`);
+        assert.equal(m.lastShown, false, 'the last worktree is below the fold');
+        await page.mouse.move(Math.round((await page.locator('[role="menu"].cp-branch-menu').boundingBox()).x + 40), Math.round(m.top + m.height / 2));
+        await page.mouse.wheel(0, 3000); await pause(400);
+        m = await menuBox();
+        assert.ok(m.scrollTop > 0 && m.lastShown && m.height <= 361, `the wheel scrolls to the last worktree: ${JSON.stringify(m)}`);
+        await page.keyboard.press('Escape'); await page.locator('[role="menu"].cp-branch-menu').waitFor({ state: 'detached' });
+        for (const height of [420, 330]) {
+          await page.setViewportSize({ width: 1280, height });
+          m = await openMenu();
+          assert.ok(m.top >= 0 && m.bottom <= m.inner && m.height <= Math.min(361, height - 23), `${height} px window: the menu stays in it: ${JSON.stringify(m)}`);
+          assert.ok(m.scrollHeight > m.clientHeight, `${height} px window: its rows scroll: ${JSON.stringify(m)}`);
+          await page.keyboard.press('Escape'); await page.locator('[role="menu"].cp-branch-menu').waitFor({ state: 'detached' });
+        }
+        await page.setViewportSize({ width: 1280, height: 800 }); await pause(300);
+        step('Long branch menu stops at 360 px, scrolls, stays in the window');
         // Switched off, the chip and its style are gone and dsh's row has its own order; on again, it comes back.
         await setSwitch(page, false);
         await chip.waitFor({ state: 'detached', timeout: 5000 });
         const off = await heroLayout(page);
         assert.equal(off.chip, null); assert.equal(off.styles, 0, 'no chip style');
+        assert.equal(await page.evaluate(() => [...document.querySelectorAll('style')].some((s) => s.textContent.includes('cp-branch-menu'))), false, 'no menu style');
         assert.equal(off.project.order, '0', 'dsh row order back'); assert.ok(off.options === null || off.options === '0', `options box order back: ${off.options}`);
         assert.ok(off.project.box.right <= off.mode.box.left + 1, 'project → mode as dsh draws them');
         await setSwitch(page, true);

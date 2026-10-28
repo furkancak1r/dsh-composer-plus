@@ -516,8 +516,8 @@ struct ConversationView: View {
     @State private var shooting = false
     @State private var atBottom = true
     @State private var creating = false
+    /// Queue edit: the queued message whose editor is open.
     @State private var editing: J?
-    @State private var editText = ""
     @State private var showTodos = false
     @State private var renaming = false
     @State private var newTitle = ""
@@ -634,15 +634,14 @@ struct ConversationView: View {
                 let asked = text
                 if let rest = await c.complete(asked), !Task.isCancelled, text == asked { guess = (asked, rest) }
             }
-            .alert("Edit queued message", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
-                TextField("Message", text: $editText, axis: .vertical)
-                Button("Save") {
-                    guard let id = editing?["id"] as? String else { return }
-                    let t = editText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    c.run { try await c.updateQueue(id, t.isEmpty ? ["kind": "remove"] : ["kind": "edit", "content": [["type": "text", "text": t]]]) }
-                }
-                Button("Cancel", role: .cancel) {}
-            }
+            // Queue edit: every way out (Save, Cancel, a swipe down, the chat closed) ends the edit, so the queue can change again.
+            // Not the sheet's own onDisappear: a picker or a full-screen cover over the sheet can call it while the editor stays open.
+            .sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { endEdit() } })) { if let editing { QueueEditSheet(item: editing) } }
+            .onDisappear { endEdit() }
+    }
+    private func endEdit() {
+        if let id = editing?["id"] as? String { c.endQueueEdit(id) }
+        editing = nil
     }
 
     var transcript: some View {
@@ -957,12 +956,15 @@ struct ConversationView: View {
                 HStack(spacing: 8) {
                     Image(systemName: steering ? "arrow.turn.down.right" : "clock").font(.caption).foregroundStyle(.secondary)
                     Text(contentText(item["content"])).font(.footnote).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    // Queue edit: while a message is edited or saved, the queue does not move and that message is not sent or removed.
+                    let edited = c.editingQueued?.id == id, editOn = c.editingQueued != nil
                     Menu {
-                        if !steering { Button { c.run { try await c.updateQueue(id, ["kind": "steer"]) } } label: { Label("Send now", systemImage: "arrow.up") } }
-                        if let at, c.canMoveQueued(from: at, to: at - 1) { Button { c.run { try await c.moveQueued(from: at, to: at - 1) } } label: { Label("Move up", systemImage: "arrow.up.to.line") }.disabled(c.movingQueue) }
-                        if let at, c.canMoveQueued(from: at, to: at + 1) { Button { c.run { try await c.moveQueued(from: at, to: at + 1) } } label: { Label("Move down", systemImage: "arrow.down.to.line") }.disabled(c.movingQueue) }
-                        Button { editText = contentText(item["content"]); editing = item } label: { Label("Edit", systemImage: "pencil") }
-                        Button(role: .destructive) { c.run { try await c.updateQueue(id, ["kind": "remove"]) } } label: { Label("Remove", systemImage: "trash") }
+                        if !steering { Button { c.run { try await c.updateQueue(id, ["kind": "steer"]) } } label: { Label("Send now", systemImage: "arrow.up") }.disabled(edited) }
+                        if let at, c.canMoveQueued(from: at, to: at - 1) { Button { c.run { try await c.moveQueued(from: at, to: at - 1) } } label: { Label("Move up", systemImage: "arrow.up.to.line") }.disabled(c.movingQueue || editOn) }
+                        if let at, c.canMoveQueued(from: at, to: at + 1) { Button { c.run { try await c.moveQueued(from: at, to: at + 1) } } label: { Label("Move down", systemImage: "arrow.down.to.line") }.disabled(c.movingQueue || editOn) }
+                        // A message with images or files: only when the Mac can keep them (else a save would drop them).
+                        if c.queueEditable(item) { Button { if c.beginQueueEdit(item) { editing = item } } label: { Label("Edit", systemImage: "pencil") }.disabled(c.movingQueue || editOn) }
+                        Button(role: .destructive) { c.run { try await c.updateQueue(id, ["kind": "remove"]) } } label: { Label("Remove", systemImage: "trash") }.disabled(edited)
                     } label: { Image(systemName: "ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }
                     .accessibilityLabel("Queued message actions")
                 }
@@ -1164,13 +1166,123 @@ struct ConversationView: View {
         }
         c.run(waits: false) { do { try await c.prompt(t, images: imgs, files: fs) } catch { restore(); throw error } }
     }
+}
 
-    /// Downscale to 1600 px and JPEG-encode so a photo stays well under the gateway's 16 MB body cap.
-    func jpeg(_ d: Data) -> Data? {
-        guard let img = UIImage(data: d) else { return nil }
-        let s = min(1, 1600 / max(img.size.width, img.size.height))
-        let size = CGSize(width: img.size.width * s, height: img.size.height * s)
-        return UIGraphicsImageRenderer(size: size).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }.jpegData(compressionQuality: 0.7)
+/// Downscale to 1600 px and JPEG-encode so a photo stays well under the gateway's 16 MB body cap.
+func jpeg(_ d: Data) -> Data? {
+    guard let img = UIImage(data: d) else { return nil }
+    let s = min(1, 1600 / max(img.size.width, img.size.height))
+    let size = CGSize(width: img.size.width * s, height: img.size.height * s)
+    return UIGraphicsImageRenderer(size: size).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }.jpegData(compressionQuality: 0.7)
+}
+
+/// Queue edit: the text and the attachments of a queued message. The images and files that you keep stay as they are,
+/// and the message keeps its place in the queue. Remove and add show only when the Mac can keep attachments
+/// (`queue-edit`); else the message is text only.
+struct QueueEditSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let item: J
+    private let atts: [(type: String, id: String, name: String)]
+    @State private var text: String
+    /// Indexes into `atts` that the user removed.
+    @State private var removed = Set<Int>()
+    @State private var images: [Data] = []
+    @State private var files: [Attachment] = []
+    @State private var picks: [PhotosPickerItem] = []
+    @State private var showPhotos = false
+    @State private var importing = false
+    @State private var failed: String?
+    init(item: J) {
+        self.item = item
+        atts = queueAttachments(item["content"]) ?? []
+        _text = State(initialValue: queueEditText(item["content"]))
+    }
+    private var id: String { item["id"] as? String ?? "" }
+    private var kept: [Int] { atts.indices.filter { !removed.contains($0) } }
+    var body: some View {
+        let saving = c.editingQueued?.id == id && c.editingQueued?.saving == true
+        let gone = !c.queued.contains { $0["id"] as? String == id }
+        let canAdd = c.queueEditsAttachments(item)
+        let empty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && kept.isEmpty && images.isEmpty && files.isEmpty
+        NavigationStack {
+            Form {
+                if let failed { Section { Label(failed, systemImage: "exclamationmark.circle.fill").foregroundStyle(.red) } }
+                else if gone && !saving { Section { Text("This message is not in the queue any more. It may have already started sending.").foregroundStyle(.secondary) } }
+                Section { TextField("Message", text: $text, axis: .vertical).lineLimit(3...12) }
+                if !atts.isEmpty || canAdd {
+                    Section {
+                        if !kept.isEmpty || !images.isEmpty || !files.isEmpty { ScrollView(.horizontal) { HStack { tiles } } }
+                        if canAdd {
+                            Menu {
+                                Button { showPhotos = true } label: { Label("Photos", systemImage: "photo") }
+                                Button { importing = true } label: { Label("Files", systemImage: "doc") }
+                            } label: { Label("Add photo or file", systemImage: "plus") }
+                        }
+                    } header: { Text("Attachments") }
+                }
+                if saving, let s = c.sendStatus { Section { HStack(spacing: 8) { ProgressView(); Text(s) }.foregroundStyle(.secondary) } }
+            }
+            .disabled(saving)
+            .navigationTitle("Edit queued message").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(saving) }
+                ToolbarItem(placement: .confirmationAction) {
+                    if saving { ProgressView() } else { Button("Save") { save() }.disabled(gone || empty) }
+                }
+            }
+            .photosPicker(isPresented: $showPhotos, selection: $picks, maxSelectionCount: 4, matching: .images)
+            .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { res in
+                do { for url in try res.get() { files.append(try Attachment.load(url)) } } catch { failed = userText(error) }
+            }
+            .onChange(of: picks) { _, items in
+                Task {
+                    for it in items { if let d = try? await it.loadTransferable(type: Data.self), let j = jpeg(d) { images.append(j) } }
+                    picks = []
+                }
+            }
+        }
+        .interactiveDismissDisabled(saving)
+    }
+    @ViewBuilder private var tiles: some View {
+        ForEach(kept, id: \.self) { i in
+            let a = atts[i]
+            if a.type == "image" {
+                Thumb(id: a.id, size: CGSize(width: 64, height: 64), zooms: false).overlay(alignment: .topTrailing) { remove("Remove image") { removed.insert(i) } }
+            } else { chip(a.name) { removed.insert(i) } }
+        }
+        ForEach(images.indices, id: \.self) { i in
+            Image(uiImage: UIImage(data: images[i]) ?? UIImage()).resizable().scaledToFill().frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 8)).accessibilityLabel("Image")
+                .overlay(alignment: .topTrailing) { remove("Remove image") { images.remove(at: i) } }
+        }
+        ForEach(files) { f in chip(f.name) { files.removeAll { $0.id == f.id } } }
+    }
+    private func remove(_ label: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: "xmark.circle.fill") }
+            .buttonStyle(.borderless).accessibilityLabel(label)
+    }
+    private func chip(_ name: String, _ onRemove: @escaping () -> Void) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "doc").foregroundStyle(.secondary)
+            Text(verbatim: name).font(.footnote).lineLimit(1).frame(maxWidth: 140)
+            Button(action: onRemove) { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                .buttonStyle(.borderless).accessibilityLabel("Remove \(name)")
+        }
+        .padding(.horizontal, 10).frame(height: 64).background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+    }
+    private func save() {
+        let t = text, keep = kept.map { atts[$0].id }, imgs = images, fs = files
+        failed = nil
+        Task {
+            // The Mac's 409: the message changed or started to send since the editor opened, so this editor is stale: it
+            // closes and the reason shows on the chat. Another failure keeps the editor open with your changes and shows
+            // the reason here (the toast is under the sheet).
+            do { if try await c.saveQueued(item, text: t, keep: keep, images: imgs, files: fs) { dismiss() } }
+            catch is CancellationError {}
+            catch let f as Fail where f.status == 409 { c.error = userText(f); dismiss() }
+            catch { failed = userText(error) }
+        }
     }
 }
 
@@ -1402,6 +1514,9 @@ struct TurnRow: View {
 struct Thumb: View {
     @EnvironmentObject var c: Client
     let id: String
+    var size = CGSize(width: 120, height: 160)
+    /// A tap opens the image full screen (not in the queue editor: the cover would close the sheet's own view).
+    var zooms = true
     @State private var img: UIImage?
     @State private var failed = false
     @State private var full = false
@@ -1411,11 +1526,11 @@ struct Thumb: View {
             else if failed { Image(systemName: "photo").font(.title2).foregroundStyle(.secondary) }
             else { ProgressView() }
         }
-        .frame(width: 120, height: 160).background(Color(.secondarySystemFill))
+        .frame(width: size.width, height: size.height).background(Color(.secondarySystemFill))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .contentShape(Rectangle())
-        .onTapGesture { if img != nil { full = true } }
-        .accessibilityElement().accessibilityLabel("Image").accessibilityAddTraits(.isButton)
+        .onTapGesture { if zooms, img != nil { full = true } }
+        .accessibilityElement().accessibilityLabel("Image").accessibilityAddTraits(zooms ? .isButton : [])
         .task { img = await c.image(id); failed = img == nil }
         .fullScreenCover(isPresented: $full) {
             if let img { ImageViewer(img: img) { full = false } }
