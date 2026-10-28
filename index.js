@@ -13,12 +13,15 @@
  * - Feature ideas: on a click, one model call (the chat's own model) reads a short brief of the chat's project and returns
  *   feature ideas as cards. Read-only: no chat message, nothing written to the project. Ideas saved for later are kept
  *   per project folder under the dsh home.
+ * - Worktree chats: the chat's branch status, and "New branch": a git worktree under `<repo>/.worktrees/`, named by the
+ *   model, with the shared ignored files that `.worktreeinclude` names, registered as a dsh workspace with a new chat.
+ *   It adds a worktree and a branch; it never removes, pushes or merges one.
  */
 import { constants, readFileSync } from 'node:fs';
-import { lstat, mkdir, mkdtemp, open, readdir, readFile, realpath, rename, rm, stat, unlink, writeFile } from 'node:fs/promises';
+import { copyFile, cp, lstat, mkdir, mkdtemp, open, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { createGateway } from './tether/gateway/server.mjs';
 
 export const name = 'dsh-composer-plus';
@@ -47,11 +50,12 @@ export const IMPROVE_PATH = '/api/composer-plus.improve';
 export const UNREAD_PATH = '/api/composer-plus.unread';
 export const FILE_CHATS_PATH = '/api/composer-plus.file-chats';
 export const BRANCHES_PATH = '/api/composer-plus.branches';
+export const WORKTREES_PATH = '/api/composer-plus.worktrees';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
-  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch'];
+  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -99,7 +103,8 @@ async function runTool(subprocess, exe, cwd, args, signal, { env = {}, stdin, ti
   return { code: outcome.exitCode, stdout: out.text, truncated: out.lossy, stderr: handle.collected.stderr?.readFrom(0).text ?? '' };
 }
 
-/** Run read-only `git <args>` in cwd: argv only (never a shell), scrubbed config, no prompts, no optional locks.
+/** Run `git <args>` in cwd (read-only, except Worktree chats' `worktree add`): argv only (never a shell), scrubbed config,
+ * no prompts, no optional locks.
  * `env` adds variables (Turn rollback points git at its own store); `stdin` is sent as the child's input. */
 export async function runGit(subprocess, cwd, args, signal, { env = {}, ...opts } = {}) {
   const git = await gitPath(subprocess);
@@ -1793,6 +1798,7 @@ export function apply(ctx) {
   installComplete(ctx, home);
   installImprove(ctx, home);
   installExport(ctx);
+  installWorktrees(ctx);
 }
 
 /** Branch badge: the git branch of each top-level chat's folder at its newest turn edge, at most this many chats. */
@@ -2863,6 +2869,377 @@ function installExport(ctx) {
           const project = typeof cwd === 'string' ? cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? '' : '';
           return json({ project, ...chatTranscript(observation.events ?? []) });
         } finally { observation[Symbol.dispose]?.(); }
+      } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
+    },
+  });
+}
+
+/** Worktree chats: a `.worktreeinclude` larger than this is refused (a cut pattern could name more than the user wrote). */
+export const INCLUDE_MAX = 64 * 1024;
+const WORKTREES_MAX = 20;
+const SKIPPED_MAX = 50;
+const SCAN_MAX = 10000;
+const BRANCH_TIMEOUT_MS = 10000;
+const BRANCH_MAX_TOKENS = 2000; // room for a reasoning model's thinking; never above the model's own default
+const BRANCH_RE = /^(feat|fix|refactor|docs|chore|test)\/[a-z0-9]+(?:-[a-z0-9]+){0,6}$/;
+const BRANCH_SYSTEM = `You name a git branch for the task in the user's message. Answer with the branch name only, in the form <type>/<topic>.
+<type> is one of: feat, fix, refactor, docs, chore, test.
+<topic> is 2 to 5 lowercase English words joined with "-", with the letters a-z and the digits 0-9 only. Translate the task to English when it uses another language.
+Example: feat/dark-mode-toggle. No quotes, no explanation.`;
+/** git's error line: the first `fatal:` or `error:` line (a progress line such as "Preparing worktree" can come first). */
+const firstLine = (text) => { const lines = String(text ?? '').trim().split('\n'); return lines.find((l) => /^(fatal|error):/.test(l)) ?? lines[0]; };
+/** `real` is `root` or a path below it (both real paths). */
+const inside = (real, root) => real === root || real.startsWith(root.endsWith(sep) ? root : root + sep);
+const exists = (path) => lstat(path).then(() => true, () => false);
+
+/** The repository around cwd: `top` (its working tree), `common` (the shared git folder), `root` (the main working tree,
+ * the parent of a common `.git` folder; undefined for a bare repository or a submodule) and `hasCommit`. Undefined
+ * outside a repository. */
+export async function repoOf(subprocess, cwd, signal) {
+  const facts = await runGit(subprocess, cwd, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir'], signal);
+  if (facts.code !== 0) return undefined;
+  const [top, common] = facts.stdout.split('\n');
+  if (!isText(top, 4096) || !isText(common, 4096)) return undefined;
+  const head = await runGit(subprocess, cwd, ['rev-parse', '--verify', '-q', 'HEAD'], signal);
+  return { top, common, root: basename(common) === '.git' ? dirname(common) : undefined, hasCommit: head.code === 0 };
+}
+
+/** The branch of cwd's working tree (`(abc1234)` when detached), its upstream (or null), ahead/behind and the number of
+ * changed entries (untracked included), from one `git status`. */
+export async function branchStatus(subprocess, cwd, signal) {
+  const r = await runGit(subprocess, cwd, ['status', '--porcelain=v2', '--branch', '-z'], signal);
+  if (r.code !== 0) throw new Error(`git status failed: ${firstLine(r.stderr)}`);
+  let oid = '', branch = '', upstream = null, ahead = 0, behind = 0, changes = 0, ab = false;
+  const parts = r.stdout.split('\0');
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    if (p.startsWith('# branch.oid ')) oid = p.slice(13);
+    else if (p.startsWith('# branch.head ')) branch = p.slice(14);
+    else if (p.startsWith('# branch.upstream ')) upstream = p.slice(18);
+    else if (p.startsWith('# branch.ab ')) { const m = /^\+(\d+) -(\d+)$/.exec(p.slice(12)); if (m !== null) { ahead = Number(m[1]); behind = Number(m[2]); ab = true; } }
+    else if (p !== '' && !p.startsWith('#')) { changes++; if (p.startsWith('2 ')) i++; } // a rename carries its old path next
+  }
+  // An upstream without an ahead/behind line is gone from the remote (deleted and pruned): the branch is not pushed.
+  return { branch: branch === '(detached)' ? `(${oid.slice(0, 7)})` : branch, upstream: ab ? upstream : null, ahead, behind, changes };
+}
+
+/** `git worktree list` of cwd's repository: at most WORKTREES_MAX working trees (no bare or prunable one), the first
+ * (the main one) marked `main`. */
+async function worktreeEntries(subprocess, cwd, signal) {
+  const r = await runGit(subprocess, cwd, ['worktree', 'list', '--porcelain', '-z'], signal);
+  if (r.code !== 0) throw new Error(`git worktree list failed: ${firstLine(r.stderr)}`);
+  const entries = [];
+  let entry;
+  for (const field of r.stdout.split('\0')) {
+    if (field === '') { if (entry !== undefined) entries.push(entry); entry = undefined; continue; }
+    const space = field.indexOf(' ');
+    const key = space === -1 ? field : field.slice(0, space);
+    const value = space === -1 ? '' : field.slice(space + 1);
+    if (key === 'worktree') entry = { path: value, main: entries.length === 0 };
+    else if (entry === undefined) continue;
+    else if (key === 'branch') entry.branch = value.replace(/^refs\/heads\//, '');
+    else if (key === 'bare' || key === 'prunable') entry.skip = true;
+  }
+  return entries.filter((e) => !e.skip && isAbsolute(e.path)).slice(0, WORKTREES_MAX);
+}
+
+/** The repository's worktrees with their branch status (run in parallel); `current` is the chat's own (`top`). A worktree
+ * whose status fails keeps only its path and branch. */
+export async function listWorktrees(subprocess, cwd, signal, top = undefined) {
+  const real = (path) => realpath(path).catch(() => path);
+  const mine = await real(top ?? (await repoOf(subprocess, cwd, signal))?.top ?? cwd);
+  return Promise.all((await worktreeEntries(subprocess, cwd, signal)).map(async (e) => ({
+    path: e.path, branch: e.branch ?? null, main: e.main, current: (await real(e.path)) === mine,
+    ...(await branchStatus(subprocess, e.path, signal).catch(() => ({}))),
+  })));
+}
+
+/** A gitignore-syntax matcher for `.worktreeinclude` (patterns relative to the top folder): `(relPath, isDir) => boolean`.
+ * The last matching pattern wins (`!` negates); a path also matches when one of its parent folders matches.
+ * `reaches(dir)`: a pattern that includes something names a path below `dir` literally (`build/out.txt` for `build`).
+ * ponytail: no POSIX classes such as `[[:alpha:]]` (such a pattern never matches: under-copy). */
+export function includeMatcher(text) {
+  const rules = [];
+  for (let line of String(text ?? '').split(/\r?\n/)) {
+    line = line.replace(/(?<!\\) +$/, ''); // trailing spaces, unless escaped
+    if (line === '' || line.startsWith('#')) continue;
+    const negate = line.startsWith('!');
+    if (negate) line = line.slice(1);
+    else if (line.startsWith('\\#') || line.startsWith('\\!')) line = line.slice(1);
+    const dirOnly = line.endsWith('/');
+    if (dirOnly) line = line.slice(0, -1);
+    const anchored = line.includes('/'); // a slash at the start or in the middle
+    if (line.startsWith('/')) line = line.slice(1);
+    if (line === '') continue;
+    let re = '';
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (c === '*' && line[i + 1] === '*' && (i === 0 || line[i - 1] === '/') && (i + 2 === line.length || line[i + 2] === '/')) {
+        if (i + 2 === line.length) { re += '.*'; i += 1; } // trailing /**: everything inside
+        else { re += '(?:.*/)?'; i += 2; } // leading **/ or middle /**/: any number of folders
+      } else if (c === '*') re += '[^/]*';
+      else if (c === '?') re += '[^/]';
+      else if (c === '[' && line.indexOf(']', i + 2) !== -1) {
+        const end = line.indexOf(']', i + 2);
+        const set = line.slice(i + 1, end);
+        const not = /^[!^]/.test(set);
+        re += `(?!/)[${not ? '^' : ''}${(not ? set.slice(1) : set).replace(/[\\\]\[^]/g, '\\$&')}]`;
+        i = end;
+      } else if (c === '\\' && i + 1 < line.length) re += line[++i].replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+      else re += c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+    }
+    try { rules.push({ negate, dirOnly, source: line, re: new RegExp(anchored ? `^${re}$` : `(?:^|/)${re}$`) }); } catch { /* a broken pattern matches nothing */ }
+  }
+  // The last rule that names `path` itself: true (include), false (`!` exclude) or undefined (none).
+  const test = (path, isDir) => {
+    let hit;
+    for (const r of rules) if ((isDir || !r.dirOnly) && r.re.test(path)) hit = !r.negate;
+    return hit;
+  };
+  const match = (relPath, isDir) => {
+    const parts = String(relPath).replace(/\/+$/, '').split('/');
+    return parts.some((_, k) => test(parts.slice(0, k + 1).join('/'), k < parts.length - 1 || isDir) === true);
+  };
+  // Stricter than git (which cannot re-exclude below an included folder): a `!` rule that names a path inside a copied
+  // folder keeps that path out, so `config/` + `!config/.env.production` never copies the production file.
+  match.excluded = (relPath, isDir) => test(String(relPath).replace(/\/+$/, ''), isDir) === false;
+  // Only a pattern with a slash can start with `dir/`; a basename pattern never makes a big ignored folder be read.
+  match.reaches = (dir) => rules.some((r) => !r.negate && r.source.startsWith(`${dir}/`));
+  return match;
+}
+
+/** Copy the ignored entries of `fromTop` that `<fromTop>/.worktreeinclude` names into `toTop` (a new worktree). No include
+ * file: nothing. An entry is copied only when it matches itself (a folder is never copied for one file inside it); a
+ * collapsed ignored folder is read only when an include pattern names a path inside it. Symlinks are copied as links (the
+ * target is never read), FIFOs, sockets and devices are skipped, nothing is overwritten, and no source or target folder
+ * may lead out of its tree. One failed entry does not stop the others. */
+export async function copyIncluded(subprocess, fromTop, toTop, signal) {
+  const fromReal = await realpath(fromTop);
+  const toReal = await realpath(toTop);
+  const text = await head(join(fromTop, '.worktreeinclude'), INCLUDE_MAX + 1, fromReal.endsWith(sep) ? fromReal : fromReal + sep);
+  if (text === undefined) return { copied: 0, skipped: [], include: false };
+  const skipped = [];
+  const skip = (path, reason) => { if (skipped.length < SKIPPED_MAX) skipped.push({ path, reason }); };
+  if (Buffer.byteLength(text) > INCLUDE_MAX) { skip('.worktreeinclude', 'larger than 64 kB'); return { copied: 0, skipped, include: true }; }
+  const match = includeMatcher(text);
+  const listed = await runGit(subprocess, fromTop, ['ls-files', '-z', '--others', '--ignored', '--exclude-standard', '--directory'], signal);
+  if (listed.code !== 0) throw new Error(`git ls-files failed: ${firstLine(listed.stderr)}`);
+  const work = [];
+  const taken = new Set();
+  // An entry inside one that is copied already (git also lists the parents of ignored entries) is not copied again.
+  const covered = (rel) => rel.split('/').some((_, k, parts) => taken.has(parts.slice(0, k + 1).join('/')));
+  let budget = SCAN_MAX;
+  const visit = async (rel, isDir) => {
+    if (covered(rel)) return;
+    if (match(rel, isDir)) { work.push(rel); taken.add(rel); return; }
+    if (!isDir || !match.reaches(rel)) return;
+    const dir = join(fromTop, rel);
+    let names;
+    try { names = inside(await realpath(dir), fromReal) ? await readdir(dir, { withFileTypes: true }) : []; } catch { names = []; }
+    for (const d of names) {
+      if (--budget < 0) { if (budget === -1) skip(rel, `more than ${SCAN_MAX} entries to read`); return; }
+      if (d.name !== '.git') await visit(`${rel}/${d.name}`, d.isDirectory());
+    }
+  };
+  // With -z every entry ends in \0: a cut-off last entry is left out.
+  for (const entry of listed.stdout.split('\0').slice(0, -1)) {
+    const isDir = entry.endsWith('/');
+    const rel = isDir ? entry.slice(0, -1) : entry;
+    const parts = rel.split('/');
+    if (rel === '' || parts[0] === '.worktrees' || parts.includes('.git')) continue;
+    await visit(rel, isDir);
+  }
+  // Skip FIFOs, sockets and devices inside a copied folder (`cp` throws on a FIFO), and nested git folders or files.
+  const filter = async (source) => {
+    if (basename(source) === '.git') return false;
+    const s = await lstat(source).catch(() => undefined);
+    if (s === undefined || !(s.isFile() || s.isDirectory() || s.isSymbolicLink())) return false;
+    const rel = source.slice(fromTop.length + 1).split(sep).join('/');
+    if (match.excluded(rel, s.isDirectory())) { skip(rel, 'excluded by .worktreeinclude'); return false; }
+    return true;
+  };
+  let copied = 0;
+  for (const rel of work) {
+    const src = join(fromTop, rel);
+    const dst = join(toTop, rel);
+    try {
+      if (!inside(await realpath(dirname(src)), fromReal)) { skip(rel, 'its folder leads out of the repository'); continue; }
+      // The nearest existing folder of the target must be inside the worktree before any folder is made: a tracked
+      // symlink in the new worktree must not send a file (or a new folder) outside.
+      let probe = dirname(dst);
+      while (!(await exists(probe))) probe = dirname(probe);
+      if (!inside(await realpath(probe), toReal)) { skip(rel, 'its folder leads out of the worktree'); continue; }
+      await mkdir(dirname(dst), { recursive: true });
+      if (!inside(await realpath(dirname(dst)), toReal)) { skip(rel, 'its folder leads out of the worktree'); continue; }
+      if (await exists(dst)) { skip(rel, 'exists'); continue; }
+      const info = await lstat(src);
+      if (info.isSymbolicLink()) await symlink(await readlink(src), dst);
+      else if (info.isFile()) await copyFile(src, dst, constants.COPYFILE_EXCL | constants.COPYFILE_FICLONE);
+      else if (info.isDirectory()) await cp(src, dst, { recursive: true, mode: constants.COPYFILE_FICLONE, verbatimSymlinks: true, force: false, errorOnExist: false, filter });
+      else { skip(rel, 'not a file, folder or link'); continue; }
+      copied++;
+    } catch (error) { skip(rel, String(error?.code ?? error?.message ?? error)); }
+  }
+  return { copied, skipped, include: true };
+}
+
+/** `feat/<first words>` from a message (Turkish letters and other accents folded to a-z), else `feat/chat-<time>`. */
+export function fallbackBranch(text, now = new Date()) {
+  // NFKD drops the accents of ç ğ ö ş ü (and of İ after toLowerCase); only the dotless ı needs its own rule.
+  const folded = String(text ?? '').toLowerCase().replace(/ı/g, 'i').normalize('NFKD').replace(/[\u0300-\u036f]/g, '');
+  let slug = (folded.match(/[a-z0-9]+/g) ?? []).slice(0, 5).join('-');
+  while (slug.length > 55 && slug.includes('-')) slug = slug.slice(0, slug.lastIndexOf('-'));
+  slug = slug.slice(0, 55);
+  if (slug !== '') return `feat/${slug}`;
+  const p = (n) => String(n).padStart(2, '0');
+  return `feat/chat-${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}`;
+}
+
+/** One short model call for a branch name `<type>/<topic>` for the message; a failed call or a bad answer gives the
+ * message's own slug. `fromModel` says which one. */
+export async function branchName({ llm, route }, text, signal) {
+  if (llm?.prepareCall !== undefined && route !== undefined) {
+    try {
+      const timeout = AbortSignal.timeout(BRANCH_TIMEOUT_MS);
+      const callSignal = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
+      const call = await llm.prepareCall(route, callSignal, (controls, model) => {
+        // The lowest reasoning effort keeps it fast; the output cap never goes above the model's own default.
+        const first = model?.reasoning?.efforts?.[0];
+        const cap = Number.isSafeInteger(model?.defaultMaxTokens) && model.defaultMaxTokens > 0 ? Math.min(BRANCH_MAX_TOKENS, model.defaultMaxTokens) : BRANCH_MAX_TOKENS;
+        return { ...controls, maxTokens: cap, ...(first === undefined ? {} : { reasoningEffort: first.id }) };
+      });
+      let out = '';
+      let finish;
+      for await (const chunk of call.stream({ ...call.config, system: BRANCH_SYSTEM, signal: callSignal, messages: [{ role: 'user', content: [{ type: 'text', text: String(text).slice(0, 4000) }] }] })) {
+        if (chunk.type === 'text-delta') out += chunk.text;
+        else if (chunk.type === 'finish') finish = chunk.reason;
+      }
+      const name = (out.replace(/<think>[\s\S]*?<\/think>/g, '').split(/\r?\n/).find((l) => l.trim() !== '') ?? '').trim().replace(/^["'`]+|["'`]+$/g, '');
+      if (finish?.kind !== 'error' && finish?.kind !== 'aborted' && name.length <= 60 && BRANCH_RE.test(name)) return { name, fromModel: true };
+    } catch { /* the message's own slug below */ }
+  }
+  return { name: fallbackBranch(text), fromModel: false };
+}
+
+/** `base`, else `base-2` … `base-50`: the first name that is a valid branch name, no branch yet, and whose worktree folder
+ * `<root>/.worktrees/<name with / as ->` does not exist. */
+export async function uniqueBranch(subprocess, top, root, base) {
+  for (let n = 1; n <= 50; n++) {
+    const name = n === 1 ? base : `${base}-${n}`;
+    if ((await runGit(subprocess, top, ['check-ref-format', '--branch', name])).code !== 0) throw new Error(`not a valid branch name: ${name}`);
+    const path = join(root, '.worktrees', name.replaceAll('/', '-'));
+    if ((await runGit(subprocess, top, ['show-ref', '--verify', '--quiet', `refs/heads/${name}`])).code !== 0 && !(await exists(path))) return { name, path };
+  }
+  throw refused(`the branches ${base} to ${base}-50 exist already`);
+}
+
+/** Keep `.worktrees/` out of git status: when no ignore rule covers it, add it to the repository's local
+ * `info/exclude` (never committed), once. */
+async function excludeWorktrees(subprocess, { root, common }) {
+  if ((await runGit(subprocess, root, ['check-ignore', '-q', '.worktrees/'])).code === 0) return;
+  const file = join(common, 'info', 'exclude');
+  await mkdir(dirname(file), { recursive: true });
+  const old = await readFile(file, 'utf8').catch((error) => { if (error?.code === 'ENOENT') return ''; throw error; });
+  if (old.split(/\r?\n/).includes('.worktrees/')) return;
+  await writeFile(file, `${old === '' || old.endsWith('\n') ? '' : '\n'}.worktrees/\n`, { flag: 'a' });
+}
+
+const worktreeStarts = new Set(); // main roots with a "New branch" start running now
+/** "New branch": a new branch and worktree `<main root>/.worktrees/<name>` from the chat's HEAD, the included ignored files
+ * copied, the worktree registered as a dsh workspace, and a new chat there (the source chat's preset and model) that gets
+ * `text`. One start per repository at a time. A failure after the worktree exists keeps it on disk and names its path. */
+export async function startOnBranch({ subprocess, sessionController, sessionQuery, registry, llm, route }, sessionId, text, signal) {
+  const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'all' });
+  let cwd, origin, preset, model;
+  try {
+    cwd = observation.header?.cwd; origin = observation.header?.origin;
+    const values = observation.projections?.values;
+    preset = isText(values?.agentPreset) ? values.agentPreset : undefined;
+    const chosen = values?.modelSelection?.next ?? values?.modelSelection?.lastUsed;
+    if (isText(chosen?.provider) && isText(chosen?.model)) model = { provider: chosen.provider, model: chosen.model, ...(isText(chosen.reasoningEffort) ? { reasoningEffort: chosen.reasoningEffort } : {}) };
+  } finally { observation[Symbol.dispose]?.(); }
+  if (!isText(cwd, 4096) || !isAbsolute(cwd)) throw refused('this chat has no project folder');
+  if (origin === 'subagent') throw refused('not for a subagent chat');
+  const repo = await repoOf(subprocess, cwd, signal);
+  if (repo === undefined) throw refused('this chat\'s folder is not in a git repository');
+  if (repo.root === undefined) throw refused('a bare repository or a submodule has no main folder for worktrees');
+  if (!repo.hasCommit) throw refused('this repository has no commit yet: make the first commit, then start a branch');
+  if (worktreeStarts.has(repo.root)) throw refused('a new branch of this repository is already starting');
+  worktreeStarts.add(repo.root);
+  try {
+    // Only the naming stops with the request: once git starts, the steps run to the end (no half-made worktree or chat).
+    const { name: base, fromModel } = await branchName({ llm, route }, text, signal);
+    signal?.throwIfAborted();
+    // `.worktrees` must be a real folder (or absent): a committed symlink would put the checkout and the copied secrets
+    // outside the repository (lstat does not follow it).
+    const folder = join(repo.root, '.worktrees');
+    if ((await lstat(folder).catch(() => undefined))?.isDirectory() === false) throw refused('.worktrees in this repository is not a folder');
+    const { name, path } = await uniqueBranch(subprocess, repo.top, repo.root, base);
+    await excludeWorktrees(subprocess, repo);
+    const added = await runGit(subprocess, cwd, ['worktree', 'add', '-b', name, path, 'HEAD'], undefined, { timeoutMs: 120000 });
+    if (added.code !== 0) throw new Error(`git worktree add failed: ${firstLine(added.stderr)}`);
+    try {
+      // The same check after git made it (a folder swapped meanwhile): nothing is copied outside.
+      if (!inside(await realpath(path), join(await realpath(repo.root), '.worktrees'))) throw new Error('the new worktree is not inside .worktrees');
+      // The copy is optional: a failed listing leaves the new chat without the shared files, not without the chat.
+      const { copied, skipped } = await copyIncluded(subprocess, repo.top, path)
+        .catch((error) => ({ copied: 0, skipped: [{ path: '.worktreeinclude', reason: String(error?.message ?? error) }] }));
+      const workspace = await registry.create(path, name);
+      const { sessionId: created } = await sessionController.create({ workspaceId: workspace.id, ...(preset === undefined ? {} : { agentPreset: preset }) });
+      // ponytail: a model that the new chat cannot take leaves dsh's default; the chat still starts.
+      if (model !== undefined) await sessionController.selectModel({ sessionId: created, ...model }).catch(() => {});
+      // dsh's `prompt(request, signal)` calls `signal.throwIfAborted()`. Not the request's signal: a closed request must not
+      // leave the new chat without its message; the timeout only ends a stuck admission.
+      await sessionController.prompt({ requestId: randomUUID(), sessionId: created, mode: 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
+      return { sessionId: created, branch: name, path, workspaceId: workspace.id, copied, skipped, named: fromModel };
+    } catch (error) {
+      throw Object.assign(new Error(`${error?.message ?? error}; the new worktree stays at ${path}`), Number.isInteger(error?.status) ? { status: error.status } : {});
+    }
+  } finally { worktreeStarts.delete(repo.root); }
+}
+
+/** Show one worktree of the chat's repository as a dsh workspace: `path` must be one that `git worktree list` names. */
+export async function openWorktree({ subprocess, sessionQuery, registry }, sessionId, path, signal) {
+  const cwd = await chatFolder(sessionQuery, sessionId, signal);
+  const entry = (await worktreeEntries(subprocess, cwd, signal)).find((e) => e.path === path);
+  if (entry === undefined) throw refused('this folder is not a worktree of this chat\'s repository', 403);
+  const workspace = await registry.create(entry.path, entry.branch ?? basename(entry.path));
+  return { workspaceId: workspace.id };
+}
+
+/** Worktree chats (Host half): `GET ?sessionId[&list=1]` answers the chat's branch status (and the repository's
+ * worktrees); `POST {action:'start', sessionId, text}` starts a chat on a new branch; `POST {action:'open', sessionId,
+ * path}` registers one listed worktree as a workspace. The browser never gives a path that git did not list. */
+function installWorktrees(ctx) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  ctx.connection.fetch.register({
+    path: WORKTREES_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      try {
+        if (request.method === 'GET') {
+          const q = new URL(request.url).searchParams;
+          const sessionId = q.get('sessionId'); const list = q.get('list');
+          if (!isText(sessionId) || (list !== null && list !== '1')) return json({ error: 'bad request' }, 400);
+          const cwd = await chatFolder(ctx.sessionQuery, sessionId, request.signal).catch((error) => { if (error?.status === 409) return undefined; throw error; });
+          const repo = cwd === undefined ? undefined : await repoOf(ctx.subprocess, cwd, request.signal);
+          if (repo === undefined) return json({ repo: false });
+          return json({ repo: true, root: repo.root ?? null, top: repo.top, worktree: repo.root !== undefined && repo.top !== repo.root,
+            ...(await branchStatus(ctx.subprocess, cwd, request.signal)), ...(list === '1' ? { worktrees: await listWorktrees(ctx.subprocess, cwd, request.signal, repo.top) } : {}) });
+        }
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (!isText(body?.sessionId)) return json({ error: 'bad request' }, 400);
+        const registry = get('workspaceRegistry');
+        if (body.action === 'open' && isText(body.path, 4096)) {
+          if (registry?.create === undefined) return json({ error: 'this dsh cannot add a workspace' }, 409);
+          return json(await openWorktree({ subprocess: ctx.subprocess, sessionQuery: ctx.sessionQuery, registry }, body.sessionId, body.path, request.signal));
+        }
+        if (body.action !== 'start' || typeof body.text !== 'string' || body.text.trim() === '' || body.text.length > 100000) return json({ error: 'bad request' }, 400);
+        if (registry?.create === undefined) return json({ error: 'this dsh cannot add a workspace' }, 409);
+        // No model (or no catalog): the branch gets the message's own slug.
+        const llm = get('llm');
+        const route = llm?.prepareCall === undefined ? undefined : await routeOf(ctx, get).catch(() => undefined);
+        return json(await startOnBranch({ subprocess: ctx.subprocess, sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, registry, llm, route }, body.sessionId, body.text, request.signal));
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });

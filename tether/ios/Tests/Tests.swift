@@ -1002,3 +1002,20 @@ final class BranchTreeTests: XCTestCase {
         XCTAssertFalse(lock.locked); XCTAssertEqual(auth.asks, 1)
     }
 }
+
+/// Branch per chat: the branch line under the chat title.
+final class BranchStateTests: XCTestCase {
+    func testOutsideARepoOrNoBranchIsNil() {
+        XCTAssertNil(BranchState(["repo": false]))
+        XCTAssertNil(BranchState(["repo": true, "branch": ""]))
+        XCTAssertNil(BranchState([:]))
+    }
+    func testDetail() {
+        XCTAssertEqual(BranchState(["repo": true, "branch": "feat/x", "upstream": "origin/feat/x", "ahead": 2, "behind": 1, "changes": 3])?.detail, "3 changes · ↑2 ↓1")
+        XCTAssertEqual(BranchState(["repo": true, "branch": "feat/x", "upstream": "origin/feat/x", "ahead": 0, "behind": 0, "changes": 1])?.detail, "1 change")
+        XCTAssertEqual(BranchState(["repo": true, "branch": "feat/x", "upstream": NSNull(), "changes": 0])?.detail, "not pushed")
+        XCTAssertEqual(BranchState(["repo": true, "branch": "main", "upstream": "origin/main", "ahead": 0, "behind": 4, "changes": 0])?.detail, "↓4")
+        XCTAssertEqual(BranchState(["repo": true, "branch": "(abc1234)", "upstream": NSNull(), "changes": 2])?.name, "(abc1234)")
+        XCTAssertEqual(BranchState(["repo": true, "branch": "(abc1234)", "upstream": NSNull(), "changes": 2])?.detail, "2 changes", "a detached HEAD is not \"not pushed\"")
+    }
+}

@@ -911,6 +911,25 @@ func shownUnread(host: [String], sessions: [Sess], open: String?) -> Set<String>
 /// A chat shows "Running" while its own turn or one of its subagents runs, as in the DSH desktop sidebar.
 func isRunning(_ s: Sess, _ all: [Sess]) -> Bool { s.running || all.contains { $0.parent == s.id && $0.running } }
 
+/// Branch per chat: the branch of the chat's folder (`GET /plus/worktrees`); nil outside a git repository.
+struct BranchState: Equatable {
+    let name: String, upstream: String?, ahead: Int, behind: Int, changes: Int
+    init?(_ o: J) {
+        guard o["repo"] as? Bool == true, let b = o["branch"] as? String, !b.isEmpty else { return nil }
+        name = b; upstream = o["upstream"] as? String
+        ahead = o["ahead"] as? Int ?? 0; behind = o["behind"] as? Int ?? 0; changes = o["changes"] as? Int ?? 0
+    }
+    /// "3 changes · ↑2 ↓1", or "not pushed" without an upstream; zero parts are left out. A detached HEAD (`(abc1234)`)
+    /// is not a branch to push, as on the Mac.
+    var detail: String {
+        var parts: [String] = []
+        if changes > 0 { parts.append(changes == 1 ? String(localized: "1 change") : String(localized: "\(changes) changes")) }
+        if upstream == nil { if !name.hasPrefix("(") { parts.append(String(localized: "not pushed")) } }
+        else if ahead > 0 || behind > 0 { parts.append([ahead > 0 ? "↑\(ahead)" : nil, behind > 0 ? "↓\(behind)" : nil].compactMap { $0 }.joined(separator: " ")) }
+        return parts.joined(separator: " · ")
+    }
+}
+
 struct Sess: Identifiable {
     let id: String, title: String, cwd: String, parent: String?, running: Bool, preset: String?, model: String?, context: Double?, permission: String?, todos: [Todo]?, updated: Date?, questions: [Prompt], goal: Goal?
     /// dsh's `plan` projection ({active, pending?}); nil when dsh does not send it.
@@ -1900,10 +1919,39 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let old = followId { send(["type": "cancel", "streamId": old]) }
         current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; contextWindow = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
         hasOlder = false; oldestSeq = nil; throughSeq = nil; events = []; continueSeq = nil; rollbackOn = false; prediction = nil; redoOffer = nil
+        branch = nil; newBranch = false
         running = currentSess?.running ?? false
         loadingChat = true
         openFollow(sid)
-        Task { await loadCommands(); await loadGoal(); await loadRollback(sid) }
+        Task { await loadCommands(); await loadGoal(); await loadRollback(sid); await loadBranch(sid) }
+    }
+
+    // MARK: Branch per chat (Composer Plus `worktreeChats`)
+
+    /// The open chat's git branch, its change count and push state; nil outside a repository or on an older Mac.
+    @Published var branch: BranchState?
+    /// "New branch" is on for the next message of the open chat: the Mac names a branch from it, makes a worktree and
+    /// starts a new chat there with the message.
+    @Published var newBranch = false
+    /// One branch start at a time (the send button and a second tap both check it).
+    @Published private(set) var branching = false
+    func loadBranch(_ sid: String) async {
+        guard plus.contains("worktrees"), let o = try? await plusCall("worktrees", query: ["sessionId": sid]), current == sid else { return }
+        branch = BranchState(o)
+    }
+    /// Sends `text` as the first message of a new chat on a new branch; the phone opens that chat.
+    func startOnBranch(_ text: String) async throws {
+        // A throw (not a return) so the composer puts the text back.
+        guard !branching else { throw Fail(String(localized: "A branch is already being created for this chat.")) }
+        guard let sid = current else { throw Fail(String(localized: "Could not start the chat on a new branch.")) }
+        branching = true; sendStatus = String(localized: "Creating branch…")
+        defer { branching = false; sendStatus = nil }
+        // Longer than the Mac's own steps (name 10 s, `worktree add` up to 120 s, the copy): a phone timeout must not
+        // put the text back while the Mac still starts the chat (a resend would make a second branch).
+        let o = try await plusCall("worktrees", body: ["action": "start", "sessionId": sid, "text": text], wait: 240)
+        newBranch = false
+        try await loadSessions()
+        if let n = o["sessionId"] as? String { open(n) }
     }
 
     private func openFollow(_ sid: String) {
@@ -1971,6 +2019,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             continueSeq = continueAfter(events)
             if prediction != nil && predictAfter(events) != prediction?.seq { prediction = nil } // a new turn: the old guess goes
             loadPrediction()
+            // The turn may have changed files or committed: read the branch state again (live events only).
+            if e["type"] as? String == "turn/end", !replaying, let sid = current { Task { await loadBranch(sid) } }
         }
     }
 
