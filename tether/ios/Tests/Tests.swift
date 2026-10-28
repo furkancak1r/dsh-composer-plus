@@ -920,6 +920,60 @@ final class BranchTreeTests: XCTestCase {
         XCTAssertEqual(commitTags(c, of: side).map(\.key), ["local:main", "remote:origin/side", "remote:side", "tag:v1"])
         XCTAssertEqual(gatewayText(404, "no such branch"), "This branch no longer exists.")
     }
+
+    /// The branch map: the Mac's order is the current branch first, then newest commit first (as `branchMap` sends it).
+    let map: [GraphBranch] = ([
+        ["ref": "refs/heads/sub", "name": "sub", "kind": "local", "current": true, "sha": "s", "state": "waiting", "reached": false, "target": "refs/heads/feat-a", "level": 2],
+        ["ref": "refs/heads/main", "name": "main", "kind": "local", "sha": "m", "state": "main", "reached": true, "level": 0],
+        ["ref": "refs/heads/feat-b", "name": "feat-b", "kind": "local", "sha": "b", "state": "merged", "reached": true, "target": "refs/heads/main", "merge": "mmm", "level": 1],
+        ["ref": "refs/heads/feat-a", "name": "feat-a", "kind": "local", "sha": "a", "state": "waiting", "reached": false, "target": "refs/heads/main", "level": 1],
+        ["ref": "refs/remotes/origin/old", "name": "origin/old", "kind": "remote", "sha": "o", "state": "waiting", "reached": false, "level": 1],
+    ] as [J]).compactMap(GraphBranch.init)
+
+    func testMapFields() {
+        XCTAssertEqual(map.count, 5)
+        let b = map[2]
+        XCTAssertEqual(b.state, "merged"); XCTAssertTrue(b.reached); XCTAssertEqual(b.target, "refs/heads/main"); XCTAssertEqual(b.merge, "mmm"); XCTAssertEqual(b.level, 1)
+        // A waiting branch has no merge commit; a branch without a known start has no target either.
+        XCTAssertNil(map[3].merge); XCTAssertEqual(map[3].target, "refs/heads/main"); XCTAssertFalse(map[3].reached)
+        XCTAssertNil(map[4].target); XCTAssertNil(map[4].merge)
+        // A fast-forward: merged with a target but no merge commit.
+        let ff = GraphBranch(["ref": "refs/heads/ff", "name": "ff", "kind": "local", "sha": "f", "state": "merged", "reached": true, "target": "refs/heads/main", "level": 1])
+        XCTAssertEqual(ff?.target, "refs/heads/main"); XCTAssertNil(ff?.merge)
+        // A Mac from before the map: no state (the phone shows the old list), level 0.
+        let old = GraphBranch(["ref": "refs/heads/main", "name": "main", "kind": "local", "sha": "m"])
+        XCTAssertEqual(old?.state, ""); XCTAssertEqual(old?.reached, false); XCTAssertNil(old?.target); XCTAssertEqual(old?.level, 0)
+    }
+
+    func testMapOrder() {
+        // The main branch, then each branch under its target in the Mac's order; a branch without a target last.
+        XCTAssertEqual(mapOrder(map).map(\.name), ["main", "feat-b", "feat-a", "sub", "origin/old"])
+        // A target that is not in the list (cut at 60 branches): the branch starts its own tree; no branch is lost.
+        let cut = Array(map.filter { $0.name != "feat-a" })
+        XCTAssertEqual(mapOrder(cut).map(\.name), ["main", "feat-b", "sub", "origin/old"])
+        // A loop of targets (never sent): every branch still shows once.
+        let loop = ([["ref": "refs/heads/x", "name": "x", "kind": "local", "sha": "1", "state": "waiting", "target": "refs/heads/y"],
+                    ["ref": "refs/heads/y", "name": "y", "kind": "local", "sha": "2", "state": "waiting", "target": "refs/heads/x"]] as [J]).compactMap(GraphBranch.init)
+        XCTAssertEqual(mapOrder(loop).map(\.name), ["x", "y"])
+    }
+
+    func testMapFilter() {
+        let all = mapFilter(map, "all")
+        XCTAssertEqual(all.map(\.branch.name), ["main", "feat-b", "feat-a", "sub", "origin/old"]); XCTAssertTrue(all.allSatisfy(\.picked))
+        // Merged: feat-b, and (dimmed) the main branch that its arrow goes to.
+        let merged = mapFilter(map, "merged")
+        XCTAssertEqual(merged.map(\.branch.name), ["main", "feat-b"]); XCTAssertEqual(merged.map(\.picked), [false, true])
+        // Waiting: the waiting branches and the way of each to the main branch.
+        let waiting = mapFilter(map, "waiting")
+        XCTAssertEqual(waiting.map(\.branch.name), ["main", "feat-a", "sub", "origin/old"]); XCTAssertEqual(waiting.map(\.picked), [false, true, true, true])
+    }
+
+    func testPendingQuery() {
+        XCTAssertEqual(changesQuery("s", mode: "pending", ws: true, path: "a.txt", pending: ("refs/heads/feat-a", "refs/heads/main")),
+                       ["sessionId": "s", "mode": "pending", "ws": "1", "path": "a.txt", "ref": "refs/heads/feat-a", "target": "refs/heads/main"])
+        XCTAssertEqual(changesQuery("s", mode: "pending", ws: false, pending: ("refs/heads/feat-a", "refs/heads/main")),
+                       ["sessionId": "s", "mode": "pending", "ref": "refs/heads/feat-a", "target": "refs/heads/main"])
+    }
 }
 
 /// App lock: when it asks, what each answer does, and that the Face ID sheet itself (inactive) never starts a loop.

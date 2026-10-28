@@ -587,10 +587,13 @@ func findRows(_ rows: [ChatRow], query: String) -> [(id: UUID, count: Int)] {
 }
 
 /// Changes panel: the query of a `changes` or `diff` call. `ws` hides the changes in whitespace only (git diff -w).
-func changesQuery(_ sessionId: String, mode: String, ws: Bool, commit: String? = nil, path: String? = nil) -> [String: String] {
+/// `pending` (mode "pending"): two branch refs, the files that `ref` brings into `target`.
+func changesQuery(_ sessionId: String, mode: String, ws: Bool, commit: String? = nil, path: String? = nil,
+                  pending: (ref: String, target: String)? = nil) -> [String: String] {
     var q = ["sessionId": sessionId, "mode": mode]
     if ws { q["ws"] = "1" }
     if let commit { q["commit"] = commit }
+    if let pending { q["ref"] = pending.ref; q["target"] = pending.target }
     if let path { q["path"] = path }
     return q
 }
@@ -823,16 +826,50 @@ func issueLink(_ v: Any?) -> (url: URL, number: Int)? {
     return (url, n)
 }
 
-/// Changes → Tree: one branch from `/plus/graph` (the Mac sends the current branch or a detached HEAD first, then the
-/// other local branches, then remote ones, newest commit first) with its last commit.
-struct GraphBranch: Identifiable {
+/// Changes → Tree: one branch of the branch map from `/plus/graph` (the Mac sends the current branch or a detached HEAD
+/// first, then the other local branches, then remote ones, newest commit first) with its last commit and its place on the
+/// map: `state` "main", "merged" (`target` took it; `merge` is the merge commit, none for a fast-forward) or "waiting"
+/// (`target` is the branch that it started from, can be absent); `reached`: the main branch has its work; `level`: its
+/// row (0 = the main branch). A Mac from before the map sends no `state` ("").
+struct GraphBranch: Identifiable, Hashable {
     var id: String { ref }
     let ref: String, name: String, kind: String, current: Bool, sha: String, time: Int, author: String, subject: String
+    let state: String, reached: Bool, target: String?, merge: String?, level: Int
     init?(_ j: J) {
         guard let ref = j["ref"] as? String, let name = j["name"] as? String, let kind = j["kind"] as? String, let sha = j["sha"] as? String else { return nil }
         self.ref = ref; self.name = name; self.kind = kind; current = j["current"] as? Bool == true; self.sha = sha
         time = j["time"] as? Int ?? 0; author = j["author"] as? String ?? ""; subject = j["subject"] as? String ?? ""
+        state = j["state"] as? String ?? ""; reached = j["reached"] as? Bool == true
+        target = j["target"] as? String; merge = j["merge"] as? String; level = max(0, j["level"] as? Int ?? 0)
     }
+}
+/// Changes → Tree: the map's order on the phone: the main branch, then each branch under its target (depth first, in the
+/// Mac's order). A branch whose target is absent or not in the list starts its own tree after the main branch's tree.
+func mapOrder(_ list: [GraphBranch]) -> [GraphBranch] {
+    let refs = Set(list.map(\.ref))
+    var under: [String: [GraphBranch]] = [:], roots: [GraphBranch] = []
+    for b in list {
+        if b.state != "main", let t = b.target, t != b.ref, refs.contains(t) { under[t, default: []].append(b) } else { roots.append(b) }
+    }
+    var out: [GraphBranch] = [], seen = Set<String>()
+    func add(_ b: GraphBranch) { guard seen.insert(b.ref).inserted else { return }; out.append(b); under[b.ref]?.forEach(add) }
+    (roots.filter { $0.state == "main" } + roots.filter { $0.state != "main" }).forEach(add)
+    list.forEach(add) // a loop of targets (the Mac never sends one): its branches come last
+    return out
+}
+/// One box of the map on screen; `picked: false` = dimmed (only on the way to the main branch).
+struct MapRow: Identifiable { let branch: GraphBranch, picked: Bool; var id: String { branch.ref } }
+/// Changes → Tree, the count cards: "merged" or "waiting" keeps the branches in that state and, not `picked` (the map dims
+/// them), the branches that their arrows go through to the main branch, as on the Mac; "all" keeps all. In map order.
+func mapFilter(_ list: [GraphBranch], _ filter: String) -> [MapRow] {
+    let byRef = Dictionary(list.map { ($0.ref, $0) }, uniquingKeysWith: { a, _ in a })
+    let picked = Set(list.filter { filter == "all" || $0.state == filter }.map(\.ref))
+    var shown = Set<String>()
+    for ref in picked {
+        var b = byRef[ref], k = 0
+        while let x = b, k <= list.count { shown.insert(x.ref); b = x.target.flatMap { byRef[$0] }; k += 1 }
+    }
+    return mapOrder(list.filter { shown.contains($0.ref) }).map { MapRow(branch: $0, picked: picked.contains($0.ref)) }
 }
 /// One commit of a branch from `/plus/graph?ref=` (newest first) and its ref tags.
 struct GraphRef: Equatable { let name: String, kind: String; var current = false; var key: String { kind + ":" + name } }

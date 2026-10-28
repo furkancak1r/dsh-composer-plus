@@ -597,7 +597,7 @@ struct ConversationView: View {
                 }
             }
             .sheet(isPresented: $creating) { NewSessionSheet() }
-            .sheet(isPresented: $showChanges) { if let id = c.current { ChangesSheet(sessionId: id) } }
+            .sheet(isPresented: $showChanges) { if let id = c.current { ChangesSheet(sessionId: id, map: c.plus.contains("graph")) } }
             .sheet(isPresented: $showIdeas) { if let id = c.current { IdeasSheet(sessionId: id) } }
             .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { text = t; focused = true } } }
             .sheet(isPresented: Binding(get: { redoMarker != nil }, set: { if !$0 { redoMarker = nil } })) { if let m = redoMarker { RedoSheet(marker: m) } }
@@ -2324,7 +2324,8 @@ struct BranchBar: View {
 }
 
 /// Changes panel: the chat's git changes, by mode; tap a file for its diff. Refreshes every 4 s while open. The branch
-/// name (and the Tree button) opens the branch list.
+/// name (and the Tree button) opens the branch map. When the Mac has the map (`map`), the sheet opens on it, as the
+/// desktop panel does: Back (Changes) shows the modes.
 struct ChangesSheet: View {
     @EnvironmentObject var c: Client
     @Environment(\.dismiss) private var dismiss
@@ -2334,13 +2335,16 @@ struct ChangesSheet: View {
     @AppStorage("changesHideWhitespace") private var ws = false
     @State private var data: J?
     @State private var failed: String?
-    @State private var showTree = false
+    private enum Page: Hashable { case map }
+    /// A path, not a flag: a stack that starts with a page shows it at once (no push animation over the modes).
+    @State private var path: [Page]
     @State private var fileChats: String?
+    init(sessionId: String, map: Bool) { self.sessionId = sessionId; _path = State(initialValue: map ? [.map] : []) }
     private var hasFileChats: Bool { c.plus.contains("file-chats") }
     private static let modes: [(id: String, label: LocalizedStringKey)] = [("uncommitted", "Uncommitted"), ("unstaged", "Unstaged"), ("staged", "Staged"), ("branch", "Branch"), ("chat", "This chat")]
     private var hasTree: Bool { c.plus.contains("graph") }
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 // Five modes do not fit the phone's width as segments (Branch and This chat were off screen): a menu row
                 // shows the current mode and lists all five.
@@ -2369,14 +2373,14 @@ struct ChangesSheet: View {
                             if more > 0 { Text("\(more) more file(s) not shown").font(.footnote).foregroundStyle(.secondary) }
                         } header: {
                             HStack {
-                                // The branch name opens Tree (the branches), as the branch chip on the Mac does.
-                                Button { showTree = true } label: {
+                                // The branch name opens Tree (the branch map), as the branch chip on the Mac does.
+                                Button { path = [.map] } label: {
                                     HStack(spacing: 4) {
                                         Text(d["branch"] as? String ?? "")
                                         if let u = d["upstream"] as? String { Text("→ \(u)") }
                                         if hasTree { Image(systemName: "point.3.connected.trianglepath.dotted") }
                                     }
-                                }.disabled(!hasTree).accessibilityHint(hasTree ? Text("Show the branches") : Text(""))
+                                }.disabled(!hasTree).accessibilityHint(hasTree ? Text("Show the branch map") : Text(""))
                                 Spacer()
                                 Text("+\(d["added"] as? Int ?? 0)").foregroundStyle(.green); Text("−\(d["deleted"] as? Int ?? 0)").foregroundStyle(.red)
                             }.font(.caption.monospacedDigit())
@@ -2386,10 +2390,10 @@ struct ChangesSheet: View {
             }
             .navigationTitle("Changes").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if hasTree { ToolbarItem(placement: .topBarLeading) { Button("Tree") { showTree = true } } }
+                if hasTree { ToolbarItem(placement: .topBarLeading) { Button("Tree") { path = [.map] } } }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
-            .navigationDestination(isPresented: $showTree) { TreeView(sessionId: sessionId) }
+            .navigationDestination(for: Page.self) { _ in TreeView(sessionId: sessionId, done: { dismiss() }) }
             .navigationDestination(item: $fileChats) { FileChatsView(sessionId: sessionId, path: $0, done: { dismiss() }) }
             .refreshable { await load() }
             // the desktop panel refreshes every 4 s while it is on screen; This chat reads the chat's log: every 15 s
@@ -2442,28 +2446,138 @@ struct RefTag: View {
     }
 }
 
-/// Changes → Tree: the branches (local first, then remote), each with its last commit; tap one for its commits.
+/// Changes → Tree: the branch map, as on the Mac in a phone form. Three count cards (a tap shows only those branches, a
+/// second tap all again), then a box for each branch in tree order (the main branch first, each branch under its target,
+/// indented by its level): blue = the main branch, green = the main branch has its work, orange = not yet. Under a box:
+/// the arrow to its target (solid: merged, dashed: waiting) and a pill: ✅ Merged opens the merge commit's files,
+/// ⏳ Waiting the files that the branch brings into its target. A box opens the branch's commits. A Mac from before the
+/// map (no `state`) gets the old list: local branches, then remote ones.
 struct TreeView: View {
     @EnvironmentObject var c: Client
+    @Environment(\.dynamicTypeSize) private var typeSize
     let sessionId: String
+    /// Closes the Changes sheet (the map can be its first screen, so it needs its own Done).
+    let done: () -> Void
     @State private var branches: [GraphBranch] = []
     @State private var more = false
+    @State private var partial = false
     @State private var loaded = false
     @State private var failed: String?
+    /// The count card that filters the map: "all", "merged" or "waiting".
+    @State private var filter = "all"
+    private enum Open: Hashable { case branch(GraphBranch), merge(GraphBranch), pending(GraphBranch) }
+    @State private var open: Open?
+    private var isMap: Bool { loaded && failed == nil && branches.contains { !$0.state.isEmpty } }
     var body: some View {
-        List {
-            if let failed { Text(failed).foregroundStyle(.secondary) }
-            else if !loaded { ProgressView().frame(maxWidth: .infinity) }
-            else if branches.isEmpty { Text("This repository has no commits yet.").foregroundStyle(.secondary) }
-            section("Local branches", branches.filter { $0.kind != "remote" })
-            section("Remote branches", branches.filter { $0.kind == "remote" })
-            if more { Text("Only \(branches.count) branches are shown.").font(.footnote).foregroundStyle(.secondary) }
+        Group {
+            if isMap { map } else {
+                List {
+                    if let failed { Text(failed).foregroundStyle(.secondary) }
+                    else if !loaded { ProgressView().frame(maxWidth: .infinity) }
+                    else if branches.isEmpty { Text("This repository has no commits yet.").foregroundStyle(.secondary) }
+                    section("Local branches", branches.filter { $0.kind != "remote" })
+                    section("Remote branches", branches.filter { $0.kind == "remote" })
+                    if more { Text("Only \(branches.count) branches are shown.").font(.footnote).foregroundStyle(.secondary) }
+                }
+            }
         }
-        .navigationTitle("Branches").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(isMap || !loaded ? Text("Branch map") : Text("Branches")).navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", action: done) } }
+        .navigationDestination(item: $open) { o in
+            switch o {
+            case .branch(let b): BranchView(sessionId: sessionId, branch: b)
+            // The merge commit's own subject is not in the map: the header says which branch went where.
+            case .merge(let b): CommitView(sessionId: sessionId, commit: GraphCommit(sha: b.merge ?? "", subject: "✅ \(b.name) → \(name(b.target))"))
+            case .pending(let b): PendingView(sessionId: sessionId, branch: b, target: b.target ?? "", targetName: name(b.target))
+            }
+        }
         .refreshable { await load() }
-        // Each time the list shows again (back from a branch), it reads the branches again.
+        // Each time the map shows again (back from a branch), it reads the branches again.
         .task { await load() }
     }
+    private var map: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                let cards = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+                cards {
+                    card("all", branches.count, "Total branches", .primary)
+                    card("merged", branches.filter { $0.state == "merged" }.count, "Merged", .green)
+                    card("waiting", branches.filter { $0.state == "waiting" }.count, "Waiting to merge", .orange)
+                }
+                ForEach(mapFilter(branches, filter)) { node($0.branch).opacity($0.picked ? 1 : 0.45) }
+                if partial { Text("This repository has a long history: only the newest commits were read, so some arrows can be wrong.").font(.footnote).foregroundStyle(.secondary) }
+                if more { Text("Only \(branches.count) branches are shown.").font(.footnote).foregroundStyle(.secondary) }
+                VStack(alignment: .leading, spacing: 4) {
+                    legend(.green, "Green: in the main branch")
+                    legend(.orange, "Orange: not in the main branch yet")
+                    legend(.blue, "Blue: main branch")
+                }.font(.caption).foregroundStyle(.secondary).padding(.top, 4)
+            }
+            .padding()
+        }
+    }
+    private func card(_ id: String, _ count: Int, _ label: LocalizedStringKey, _ tint: Color) -> some View {
+        let on = filter == id
+        return Button { filter = on || id == "all" ? "all" : id } label: {
+            VStack(spacing: 2) {
+                Text("\(count)").font(.title2.weight(.semibold)).monospacedDigit()
+                Text(label).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            }
+            .foregroundStyle(tint).frame(maxWidth: .infinity).padding(.vertical, 10).padding(.horizontal, 4)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+            .overlay { if on && id != "all" { RoundedRectangle(cornerRadius: 12).stroke(tint, lineWidth: 1.5) } }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(label) + Text(verbatim: ": \(count)"))
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .accessibilityHint(on || id == "all" ? Text("Show all branches") : Text("Show only these branches"))
+    }
+    /// One branch: its box, then (when it has a target) the arrow and the Merged or Waiting pill.
+    private func node(_ b: GraphBranch) -> some View {
+        let tint: Color = b.state == "main" ? .blue : b.reached ? .green : .orange
+        return VStack(alignment: .leading, spacing: 4) {
+            Button { open = .branch(b) } label: {
+                BranchRow(b: b).padding(10)
+                    .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay { RoundedRectangle(cornerRadius: 12).stroke(tint, lineWidth: b.state == "main" ? 2 : 1.5) }
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(boxLabel(b)).accessibilityHint(Text("Show its commits"))
+            if b.state != "main", let t = b.target {
+                let merged = b.state == "merged", to = name(t)
+                HStack(spacing: 6) {
+                    MapArrow().stroke(style: StrokeStyle(lineWidth: 1.25, dash: merged ? [] : [3, 2])).frame(width: 18, height: 14)
+                        .foregroundStyle(.secondary).accessibilityHidden(true)
+                    Text(verbatim: to).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).accessibilityHidden(true)
+                    Button { open = merged ? .merge(b) : .pending(b) } label: {
+                        (Text(verbatim: merged ? "✅ " : "⏳ ") + (merged ? Text("Merged") : Text("Waiting"))).font(.caption)
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(Color(.secondarySystemBackground), in: Capsule())
+                            .overlay { Capsule().stroke(Color.secondary.opacity(0.35)) }
+                    }
+                    .buttonStyle(.plain)
+                    // A fast-forward has no merge commit: nothing to open.
+                    .disabled(merged && b.merge == nil)
+                    .accessibilityLabel(merged ? Text("Merged into \(to)") : Text("Waiting to merge into \(to)"))
+                    .accessibilityHint(merged ? (b.merge == nil ? Text("") : Text("Show the files of the merge commit")) : Text("Show the files that \(b.name) brings into \(to)"))
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, 12)
+            }
+        }
+        // ponytail: the indent stops at level 5, so a deep tree still fits a phone's width.
+        .padding(.leading, CGFloat(min(b.level, 5)) * 14)
+    }
+    private func legend(_ tint: Color, _ text: LocalizedStringKey) -> some View {
+        HStack(spacing: 6) { RoundedRectangle(cornerRadius: 3).stroke(tint, lineWidth: 2).frame(width: 10, height: 10).accessibilityHidden(true); Text(text) }
+    }
+    /// The box as VoiceOver reads it: name, current, its color's meaning, last commit.
+    private func boxLabel(_ b: GraphBranch) -> String {
+        let state = b.state == "main" ? String(localized: "Main branch") : b.reached ? String(localized: "In the main branch") : String(localized: "Not in the main branch yet")
+        return ([b.name] + (b.current ? [String(localized: "current")] : []) + [state, b.subject]).filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+    private func name(_ ref: String?) -> String { branches.first { $0.ref == ref }?.name ?? ref ?? "" }
     @ViewBuilder private func section(_ title: LocalizedStringKey, _ list: [GraphBranch]) -> some View {
         if !list.isEmpty {
             Section(title) {
@@ -2475,8 +2589,58 @@ struct TreeView: View {
         do {
             let d = try await c.plusCall("graph", query: ["sessionId": sessionId])
             if d["repo"] as? Bool == false { failed = String(localized: "This chat's folder is not a git repository."); return }
-            branches = (d["branches"] as? [J] ?? []).compactMap(GraphBranch.init); more = d["more"] as? Bool == true; failed = nil; loaded = true
+            branches = (d["branches"] as? [J] ?? []).compactMap(GraphBranch.init); more = d["more"] as? Bool == true
+            partial = d["partial"] as? Bool == true; failed = nil; loaded = true
         } catch is CancellationError {} catch { failed = String(localized: "Could not read changes.") + " " + userText(error) }
+    }
+}
+
+/// The map's arrow from a branch to its target: down, then right, with a head (dashed while the branch waits).
+struct MapArrow: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX + 2, y: r.minY)); p.addLine(to: CGPoint(x: r.minX + 2, y: r.midY)); p.addLine(to: CGPoint(x: r.maxX, y: r.midY))
+        p.move(to: CGPoint(x: r.maxX - 4, y: r.midY - 4)); p.addLine(to: CGPoint(x: r.maxX, y: r.midY)); p.addLine(to: CGPoint(x: r.maxX - 4, y: r.midY + 4))
+        return p
+    }
+}
+
+/// Changes → Tree → ⏳ Waiting: the files that a branch brings into its target (from their merge base); tap one for its diff.
+struct PendingView: View {
+    @EnvironmentObject var c: Client
+    let sessionId: String, branch: GraphBranch, target: String, targetName: String
+    @AppStorage("changesHideWhitespace") private var ws = false
+    @State private var data: J?
+    @State private var failed: String?
+    var body: some View {
+        List {
+            Section {
+                Text(verbatim: "⏳ \(branch.name) → \(targetName)").font(.subheadline.weight(.semibold))
+                Text("Show the files that \(branch.name) brings into \(targetName)").font(.caption).foregroundStyle(.secondary)
+            }
+            if let failed { Text(failed).foregroundStyle(.secondary) }
+            else if let d = data {
+                let files = d["files"] as? [J] ?? []
+                Section {
+                    if files.isEmpty { Text("This branch brings no file changes into \(targetName).").foregroundStyle(.secondary) }
+                    ForEach(files.indices, id: \.self) { i in
+                        let f = files[i], path = f["path"] as? String ?? ""
+                        NavigationLink { DiffView(sessionId: sessionId, mode: "pending", path: path, pending: (branch.ref, target)) } label: { ChangedFileRow(f: f) }
+                    }
+                    let more = (d["total"] as? Int ?? files.count) - files.count
+                    if more > 0 { Text("\(more) more file(s) not shown").font(.footnote).foregroundStyle(.secondary) }
+                } header: {
+                    HStack { Spacer(); Text("+\(d["added"] as? Int ?? 0)").foregroundStyle(.green); Text("−\(d["deleted"] as? Int ?? 0)").foregroundStyle(.red) }.font(.caption.monospacedDigit())
+                }
+            } else { ProgressView().frame(maxWidth: .infinity) }
+        }
+        .navigationTitle(branch.name).navigationBarTitleDisplayMode(.inline)
+        .refreshable { await load() }
+        .task(id: ws) { await load() }
+    }
+    private func load() async {
+        do { data = try await c.plusCall("changes", query: changesQuery(sessionId, mode: "pending", ws: ws, pending: (branch.ref, target))); failed = nil }
+        catch is CancellationError {} catch { data = nil; failed = String(localized: "Could not read changes.") + " " + userText(error) }
     }
 }
 
@@ -2591,6 +2755,8 @@ struct DiffView: View {
     @EnvironmentObject var c: Client
     let sessionId: String, mode: String, path: String
     var commit: String? = nil
+    /// Mode "pending": the branch and its target.
+    var pending: (ref: String, target: String)? = nil
     @AppStorage("changesHideWhitespace") private var ws = false
     @State private var d: J?
     @State private var failed: String?
@@ -2614,7 +2780,7 @@ struct DiffView: View {
         }
         .navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
         .task(id: ws) {
-            do { d = try await c.plusCall("diff", query: changesQuery(sessionId, mode: mode, ws: ws, commit: commit, path: path)) }
+            do { d = try await c.plusCall("diff", query: changesQuery(sessionId, mode: mode, ws: ws, commit: commit, path: path, pending: pending)) }
             catch { failed = userText(error) }
         }
     }
