@@ -165,6 +165,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **删除时提示另一个 dsh 已打开此对话：** 使用同一 dsh home 的另一个 dsh 持有该对话的锁。关闭那个窗口或那个 dsh，然后再次删除。在此期间，对话会保持归档状态。
 - **开启“Tailscale only”后 iPhone 无法连接：** Mac 和 iPhone 上都必须开启 Tailscale。Mac 上的 Tailscale 关闭时，手机连接面板会发出警告。访问日志会显示每次被拒绝的尝试及其原因。
 - **重启后对话没有继续：** dsh 退出时“重启后继续”处于关闭状态；或者你自己停止了那个回合；或者回合已经结束（完成或失败）；或者对话已被归档；或者当时有超过 20 个对话正在运行（只有最新的 20 个会继续）。
+- **重启后队列是空的：** 清空队列的是 dsh 自己的退出流程。重启后继续只会在它继续的对话中放回队列；其他对话请重新发送消息。退出前刚删除的消息可能会回来：请再删除一次。
 - **创建 GitHub issue 提示“gh could not open the issue”：** 这条消息是 `gh` 自己输出的第一行。请在终端中运行 `gh auth status`，并用 `gh auth login` 登录；对话的文件夹必须有 GitHub 远程仓库（`git remote -v`）。“not installed or not on the PATH of dsh”表示 dsh 没有找到 `gh`：请安装它，或从一个能运行 `gh` 的终端启动 dsh。
 - **对话行上没有分支标签：** 安装此版本后，该对话还没有新的一轮；或者它的文件夹不是 git 仓库；或者 **对话行显示 Git 分支** 已关闭。更新后，请重启 dsh（分支由 Host 端记录）。
 - **目标检查显示测试以代码 127 或 “not found” 退出：** 从 Finder 或程序坞启动的 dsh 的 PATH 可能比终端里的短，因此找不到 `npm`、`pnpm` 或 `cargo`。请从终端启动 dsh，或者在 **目标检查** → **编辑** 中用完整路径设置你自己的测试命令。**立即运行** 会马上显示结果。
@@ -177,6 +178,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **功能创意** 会在内存中为每个对话保留卡片，直到 dsh 或页面重新加载；之后，**推荐功能** 会再次询问模型。卡片使用你点击时 dsh 的界面语言；更改语言后，已在卡片堆中的卡片保持原来的语言，**更多创意** 则使用新语言。模型只能看到简短的项目概要，看不到代码，因此某个创意可能与项目已有的功能重复：跳过它即可。只有当 profile 中有 dsh 的 `/plan` 命令时，新对话才会以计划模式运行；否则，创意会作为普通的第一条消息发送。**稍后** 列表属于对话的文件夹路径：通过符号链接打开的同一个文件夹有它自己的列表。每个项目最多保留 50 个创意（移除一个后才能再添加），相同的标题只保留一次。拖动卡片只能决定向左或向右；要保存卡片，请使用 **↓**；要直接实现，请使用 **▶**。重复只按标题判断：模型仍可能以新名称推荐以前的创意，跳过它即可。如果模型只返回以前的创意，就不会显示新的创意：请再点击一次。关注主题越窄，越容易出现这种情况；请换一个更宽的主题，或清除主题。在 dsh 或页面重新加载之前，每个对话的关注主题都会保留在输入框中。
 - **将对话导出为 Markdown** 只包含你自己的消息和助手的文字回复：工具调用及其输出、推理内容、图片（用一行 `[image]` 标记）、隐藏上下文以及被回合回退或 dsh-rewind-plugin 移除的消息都不包含在内。同一回合的回复会合并为一个部分。一次导出最多包含约 400 万个字符；更长的对话只导出前面的部分，并附上一条说明。
 - **重启后继续** 是继续回合，而不是重放回合。退出时正在运行的工具调用会以 dsh 的“结果未知”结果结束，模型会被告知不要重复已完成的工作，但不能安全运行两次的命令仍可能再次运行。当时打开的子代理、审批和问题不会恢复：它们的父对话会继续，并再次询问。每次启动最多继续 20 个对话。
+- **重启后继续** 与队列：dsh 退出时会清空对话的队列。插件会根据对话日志放回你排队的消息，顺序、编辑内容、图片和文件都保持不变；这些消息会在继续的回合之后运行。只有会继续的对话才会恢复队列（开关已打开，且在回合运行时退出）。你自己删除队列中最后几条消息时，dsh 也会以同样的方式记录：如果你删除后、下一步开始前 dsh 退出，这些消息会回来。
 
 - **内容搜索** 是 dsh 自带的搜索，因此也有 dsh 的限制。它只搜索用户消息和助手消息：不搜索工具输出（命令、文件内容、结果），也不搜索推理内容，并且不能按用户、助手或工具消息筛选。它匹配完整的词，而不是词的一部分（`deploy` 找不到 `deployment`）；不带重音的字母也能匹配带重音的字母（`seker` 能找到 `şeker`）。每个对话只显示一行，带有 dsh 的 240 字符摘录，最多显示 20 行。
 - **内容搜索** 的开销（在 247 个真实对话日志的副本上测得：159 MB，dsh 0.2.1-rc.2，Apple Silicon，32 GB）：每次启动后的第一次搜索会构建索引，约需 15 秒。在此期间，dsh 的 Host 约有 7 秒不响应任何请求，因此其他对话会在这段时间内暂停流式输出（页面本身不会卡住）。Host 的内存在峰值时约增加 1.1 GB；一分钟后仍比启动时高约 0.5–0.6 GB，直到 dsh 退出。索引文件约 165 MB。之后的搜索约需 0.5 秒。重启后，第一次搜索约需 1 秒（只添加新的或有改动的对话），内存约增加 70 MB。如果你的电脑内存较少，请关闭此功能。
@@ -301,6 +303,8 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js
 # Resume after restart (fake slow model, real quit and start): a running chat and a goal continue, a stopped chat does not
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-resume-restart.mjs /path/to/dsh/lib/bin.js
+# Resume after restart with a queue (fake model, real quit and start): text, image, file, a drag and an edit come back in order
+PLAYWRIGHT=/path/to/playwright node test/browser-resume-queue.mjs /path/to/dsh/lib/bin.js
 # Feature ideas (fake model, made-up project): suggest, drag left, Undo, ✓ starts a new chat in plan mode, ▶ Build now one without, Plan all one for the Later list, a focus topic chip, Copy as checklist + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js
 # Export chat as Markdown (fake model, made-up project): right-click → Export as Markdown…, copy and save keep the code blocks, switch off + its thumbnail

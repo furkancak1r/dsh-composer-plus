@@ -165,6 +165,7 @@ dsh `0.2.0-rc.2`(데스크톱과 웹)와 `0.2.1-rc.2`(웹)에서 테스트했습
 - **삭제할 때 다른 dsh가 이 채팅을 열고 있다고 표시됨:** 같은 dsh 홈을 쓰는 두 번째 dsh가 채팅 잠금을 잡고 있습니다. 그 창이나 dsh를 닫은 뒤 다시 삭제하세요. 그동안 채팅은 보관된 상태로 남습니다.
 - **"Tailscale only"를 켠 뒤 iPhone이 연결되지 않음:** Mac과 iPhone 모두에서 Tailscale이 켜져 있어야 합니다. Mac에서 꺼져 있으면 모바일 연결 패널에 경고가 표시됩니다. 액세스 로그에서 거부된 각 시도와 그 이유를 볼 수 있습니다.
 - **재시작 후 채팅이 이어지지 않음:** dsh를 종료할 때 재시작 후 이어서 실행이 꺼져 있었거나, 그 턴을 직접 중지했거나, 턴이 이미 끝났거나(완료 또는 실패), 채팅이 보관되었거나, 실행 중인 채팅이 20개보다 많았습니다(가장 최근 채팅 20개만 이어짐).
+- **재시작 후 대기열이 비어 있음:** 대기열을 비우는 것은 dsh 자체의 종료입니다. 재시작 후 이어서 실행은 이어서 실행하는 채팅에서만 대기열을 되돌립니다. 다른 채팅에서는 메시지를 다시 보내세요. 종료 직전에 삭제한 메시지가 돌아올 수 있습니다. 그때는 다시 삭제하세요.
 - **GitHub 이슈 열기에 "gh could not open the issue"가 표시됨:** 이 메시지는 `gh` 자체 출력의 첫 줄입니다. 터미널에서 `gh auth status`를 실행하고 `gh auth login`으로 로그인하세요. 채팅 폴더에 GitHub 원격 저장소가 있어야 합니다(`git remote -v`). "not installed or not on the PATH of dsh"는 dsh가 `gh`를 찾지 못했다는 뜻입니다. 설치하거나, `gh`가 작동하는 터미널에서 dsh를 시작하세요.
 - **채팅 행에 브랜치 배지가 없음:** 이 버전을 설치한 뒤 그 채팅에 턴이 없었거나, 폴더가 git 저장소가 아니거나, **채팅 행의 Git 브랜치**가 꺼져 있습니다. 업데이트한 뒤에는 dsh를 다시 시작하세요(브랜치는 Host 쪽이 기록합니다).
 - **목표 확인에 테스트가 종료 코드 127 또는 "not found"로 끝났다고 표시됨:** Finder나 Dock에서 시작한 dsh는 터미널보다 PATH가 짧을 수 있어서 `npm`, `pnpm`, `cargo`를 찾지 못합니다. 터미널에서 dsh를 시작하거나, **목표 확인** → **편집**에서 전체 경로를 쓴 테스트 명령을 직접 정하세요. **지금 실행**을 누르면 결과가 바로 표시됩니다.
@@ -177,6 +178,7 @@ dsh `0.2.0-rc.2`(데스크톱과 웹)와 `0.2.1-rc.2`(웹)에서 테스트했습
 - **기능 아이디어**는 dsh나 페이지를 다시 로드할 때까지 채팅마다 카드를 메모리에 둡니다. 그 뒤 **기능 제안**은 모델에 다시 묻습니다. 카드는 클릭한 시점의 dsh UI 언어로 나옵니다. 언어를 바꿔도 이미 쌓인 카드는 원래 언어를 유지하고, **아이디어 더 받기**는 새 언어를 씁니다. 모델은 코드가 아니라 짧은 프로젝트 요약만 봅니다. 그래서 프로젝트에 이미 있는 기능을 제안할 수도 있습니다. 그럴 때는 건너뛰세요. 새 채팅은 프로필에 dsh의 `/plan` 명령이 있을 때만 계획 모드로 실행됩니다. 없으면 아이디어가 일반 첫 메시지로 전달됩니다. **나중에** 목록은 채팅의 폴더 경로에 속합니다. 같은 폴더를 심볼릭 링크로 열면 별도 목록이 생깁니다. 프로젝트당 최대 50개 아이디어를 보관하며(더 추가하려면 하나를 제거하세요), 같은 제목은 한 번만 보관합니다. 카드를 끌면 왼쪽 또는 오른쪽만 결정됩니다. 저장하려면 **↓**를, 바로 구현하려면 **▶**를 쓰세요. 반복은 제목으로만 찾습니다. 그래서 모델이 이전 아이디어를 새 이름으로 다시 제안할 수 있습니다. 그럴 때는 건너뛰세요. 모델이 이전 아이디어만 답하면 새로 보이는 것이 없습니다. 다시 클릭하세요. 집중 주제가 좁으면 이런 일이 더 자주 생깁니다. 더 넓은 주제를 쓰거나 주제를 지우세요. 집중 주제는 dsh나 페이지를 다시 로드할 때까지 채팅마다 입력란에 남아 있습니다.
 - **채팅을 Markdown으로 내보내기**에는 사용자 자신의 메시지와 어시스턴트의 텍스트 답변만 들어갑니다. 도구 호출과 그 출력, 생각, 이미지(`[image]` 줄로 표시됩니다), 숨겨진 컨텍스트, 턴 되돌리기나 dsh-rewind-plugin로 뺀 메시지는 빠집니다. 한 턴의 답변은 섹션 하나로 합쳐집니다. 내보내기 한 번에는 최대 약 400만 자가 들어갑니다. 더 긴 채팅은 앞부분과 안내 문구만 내보냅니다.
 - **재시작 후 이어서 실행**은 턴을 이어 갈 뿐, 처음부터 다시 실행하지 않습니다. 종료 시점에 실행 중이던 도구 호출은 dsh의 “결과 알 수 없음” 결과로 끝납니다. 모델에게는 끝난 작업을 반복하지 말라고 알리지만, 두 번 실행하면 안전하지 않은 명령이 다시 실행될 수 있습니다. 열려 있던 하위 에이전트, 승인, 질문은 복원되지 않습니다. 대신 부모 채팅이 이어지면서 다시 묻습니다. 한 번 시작할 때 최대 20개 채팅만 이어집니다.
+- **재시작 후 이어서 실행**과 대기열: dsh는 종료할 때 채팅의 대기열을 비웁니다. 플러그인은 대기 중이던 메시지를 채팅 로그에서 되돌리며, 순서, 편집 내용, 이미지와 파일도 그대로입니다. 되돌린 메시지는 이어서 실행한 턴 다음에 실행됩니다. 대기열이 돌아오는 채팅은 이어서 실행되는 채팅뿐입니다(스위치가 켜져 있고 턴 실행 중에 종료된 경우). dsh는 대기열의 마지막 메시지를 직접 삭제한 것도 같은 방식으로 기록합니다. 삭제한 뒤 다음 단계가 시작되기 전에 dsh가 종료되면 그 메시지가 돌아옵니다.
 
 - **내용 검색**은 dsh 자체 검색이므로 dsh의 제한을 그대로 가집니다. 사용자와 어시스턴트 메시지만 검색합니다. 도구 출력(명령, 파일 내용, 결과)과 추론은 검색하지 않으며, 사용자, 어시스턴트, 도구 메시지를 고르는 필터도 없습니다. 단어 일부가 아니라 단어 전체가 일치해야 합니다(`deploy`로는 `deployment`를 찾을 수 없음). 악센트가 있는 글자는 악센트 없이도 일치합니다(`seker`로 `şeker`를 찾음). 채팅마다 한 행에 dsh의 240자 발췌가 표시되며, 최대 20행입니다.
 - **내용 검색**의 비용은 실제 채팅 로그 247개의 사본으로 측정했습니다(159 MB, dsh 0.2.1-rc.2, Apple Silicon, 32 GB). 시작 후 첫 검색에서 약 15초 동안 색인을 만듭니다. 그중 약 7초 동안 dsh의 Host가 아무 응답도 하지 않으므로, 다른 채팅의 스트리밍이 그 순간 멈춥니다(페이지 자체는 멈추지 않습니다). Host의 메모리는 최고 약 1.1 GB 늘어납니다. 1분 뒤에도 시작 때보다 약 0.5–0.6 GB 많은 상태가 dsh를 종료할 때까지 유지됩니다. 색인 파일은 약 165 MB입니다. 이후 검색은 약 0.5초 걸립니다. 재시작 후 첫 검색은 약 1초 걸리고(새 채팅이나 바뀐 채팅만 추가) 메모리가 약 70 MB 늘어납니다. 컴퓨터 메모리가 적다면 이 기능을 끄세요.
@@ -301,6 +303,8 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-keep-focus.mjs /path/to/
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-mobile-connect.mjs /path/to/dsh/lib/bin.js
 # Resume after restart (fake slow model, real quit and start): a running chat and a goal continue, a stopped chat does not
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-resume-restart.mjs /path/to/dsh/lib/bin.js
+# Resume after restart with a queue (fake model, real quit and start): text, image, file, a drag and an edit come back in order
+PLAYWRIGHT=/path/to/playwright node test/browser-resume-queue.mjs /path/to/dsh/lib/bin.js
 # Feature ideas (fake model, made-up project): suggest, drag left, Undo, ✓ starts a new chat in plan mode, ▶ Build now one without, Plan all one for the Later list, a focus topic chip, Copy as checklist + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-feature-ideas.mjs /path/to/dsh/lib/bin.js
 # Export chat as Markdown (fake model, made-up project): right-click → Export as Markdown…, copy and save keep the code blocks, switch off + its thumbnail
