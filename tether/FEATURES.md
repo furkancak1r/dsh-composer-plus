@@ -27,6 +27,7 @@ While a Composer Plus action in this table waits for the Mac, Tether shows a wai
 | collapseProjects | yes | Sessions toolbar → Collapse all projects button, shown only while a project is open. |
 | statusOrder | yes | Sessions filter menu → Order by status. |
 | notifications | yes | Turn finished, approval and question notifications while Tether keeps its connection. |
+| idleSwitch | no | It watches the Mac's own keyboard and mouse and opens a waiting chat in dsh on the Mac. On the phone, the approval and question notifications and the waiting hand in Sessions already lead to that chat, and a phone app that changes the open chat by itself while you hold it would interrupt you. |
 | allowForChat | yes | Approval sheet → Allow for this chat; chat title menu → Revoke. The gateway also allows a granted tool when no window is open. A grant ends after the Mac's time limit (1 hour by default); the time limit is a Mac setting (the phone cannot change it). |
 | continueButton | yes | After a stopped, failed or cut-off turn, the empty composer shows ▶ (Continue). |
 | resumeAfterRestart | no | The Mac does it at dsh start, with no window. The switch stays on the Mac. |

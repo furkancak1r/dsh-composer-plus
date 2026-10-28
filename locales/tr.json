@@ -3027,6 +3027,8 @@
     "statusOrder.selected": "seçili",
     "feature.notifications": "Arka plan bildirimleri",
     "feature.notifications.description": "dsh arka plandayken sohbet tamamlandığında veya sizi beklediğinde bildirim ve Dock rozeti gösterir.",
+    "feature.idleSwitch": "Boştayken bekleyen sohbeti aç",
+    "feature.idleSwitch.description": "Bir sohbet soru sorduğunda ya da onay veya plan incelemesi beklediğinde (turuncu nokta) ve siz dsh'yi 30 saniye kullanmadığınızda, dsh o sohbeti açar. En uzun süredir bekleyen sohbet önce açılır. Yazarken, kaydırırken, fareyi hareket ettirirken, metin seçerken veya bir menü açıkken geçiş yapmaz.",
     "feature.allowForChat": "Sohbet boyunca izin",
     "feature.allowForChat.description": "Otomatik inceleme onaylarına “Bu sohbet boyunca izin ver” ekler ve izin verilen araçları otomatik onaylar. Bir izin, aşağıdaki süre sınırı (varsayılan olarak 1 saat) dolunca sona erer; ardından ajan tekrar sorar.",
     "feature.continueButton": "Tek tıkla devam",

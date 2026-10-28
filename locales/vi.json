@@ -1563,6 +1563,8 @@
     "statusOrder.selected": "đã chọn",
     "feature.notifications": "Thông báo nền",
     "feature.notifications.description": "Thông báo khi cuộc trò chuyện hoàn tất hoặc cần bạn trong lúc dsh chạy nền, kèm huy hiệu trên Dock.",
+    "feature.idleSwitch": "Mở cuộc trò chuyện đang chờ khi không hoạt động",
+    "feature.idleSwitch.description": "Khi một cuộc trò chuyện đặt câu hỏi hoặc đang chờ phê duyệt hay xem xét kế hoạch (chấm cam) và bạn không dùng dsh trong 30 giây, dsh sẽ mở cuộc trò chuyện đó. Cuộc trò chuyện chờ lâu nhất được mở trước. Không chuyển khi bạn đang gõ, cuộn, di chuột, chọn văn bản hoặc khi có menu đang mở.",
     "feature.allowForChat": "Cho phép trong cuộc trò chuyện này",
     "feature.allowForChat.description": "Thêm “Cho phép trong cuộc trò chuyện này” vào phê duyệt của Đánh giá tự động và tự động cho phép các công cụ đã được cấp quyền. Quyền được cấp sẽ hết hạn sau giới hạn thời gian bên dưới (mặc định 1 giờ); sau đó tác tử sẽ hỏi lại.",
     "feature.continueButton": "Tiếp tục bằng một cú nhấp",
