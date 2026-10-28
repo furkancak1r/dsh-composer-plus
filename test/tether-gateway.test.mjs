@@ -366,6 +366,9 @@ test('composer-plus routes: allowlisted methods pass with the query or body; swi
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.worktrees?sessionId=s', body: '', type: null })
     await call(t.gw, 'POST', '/plus/worktrees', { action: 'start', sessionId: 's', text: 'Add login' }, auth)
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'POST', url: '/api/composer-plus.worktrees', body: JSON.stringify({ action: 'start', sessionId: 's', text: 'Add login' }), type: 'application/json' })
+    // Default workspace: Quick chat asks the Mac where the global New session opens (the Mac's setting, read-only here).
+    await call(t.gw, 'POST', '/plus/new-session-workspace', {}, auth)
+    assert.deepEqual(t.dsh.plus.at(-1), { method: 'POST', url: '/api/composer-plus.new-session-workspace', body: '{}', type: 'application/json' })
     // An older plugin without the route: its 404 reaches the phone, which hides the feature.
     assert.equal((await call(t.gw, 'GET', '/plus/changes?sessionId=s', undefined, auth)).status, 404)
     const seen = t.dsh.plus.length
@@ -375,6 +378,7 @@ test('composer-plus routes: allowlisted methods pass with the query or body; swi
       ['POST', '/plus/predict', { on: true }], ['POST', '/plus/predict', { model: null }], ['GET', '/plus/predict?catalog=1'],
       ['POST', '/plus/complete', { on: true }], ['GET', '/plus/complete'],
       ['POST', '/plus/improve', { model: { provider: 'x', model: 'y' } }], ['GET', '/plus/improve?catalog=1'], ['POST', '/plus/unread', { on: false }],
+      ['GET', '/plus/default-workspace'], ['POST', '/plus/default-workspace', { workspaceId: 'w' }], ['POST', '/plus/new-session-workspace', { on: false }], ['GET', '/plus/new-session-workspace'],
       ['GET', '/plus/shot?id=x'], ['POST', '/plus/changes', {}], ['POST', '/plus/graph', {}], ['GET', '/plus/../mobile'], ['POST', '/plus/continue', 'not json']]) {
       assert.equal((await call(t.gw, m, p, b, auth)).status, p.endsWith('continue') ? 400 : p.includes('..') ? 404 : 403, p)
     }

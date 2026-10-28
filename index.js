@@ -51,11 +51,13 @@ export const UNREAD_PATH = '/api/composer-plus.unread';
 export const FILE_CHATS_PATH = '/api/composer-plus.file-chats';
 export const BRANCHES_PATH = '/api/composer-plus.branches';
 export const WORKTREES_PATH = '/api/composer-plus.worktrees';
+export const DEFAULT_WORKSPACE_PATH = '/api/composer-plus.default-workspace';
+export const NEW_SESSION_WORKSPACE_PATH = '/api/composer-plus.new-session-workspace';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus',
-  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats'];
+  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'defaultWorkspace'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -1799,6 +1801,7 @@ export function apply(ctx) {
   installImprove(ctx, home);
   installExport(ctx);
   installWorktrees(ctx);
+  installDefaultWorkspace(ctx, home);
 }
 
 /** Branch badge: the git branch of each top-level chat's folder at its newest turn edge, at most this many chats. */
@@ -3287,6 +3290,82 @@ function installWorktrees(ctx) {
         const route = llm?.prepareCall === undefined ? undefined : await routeOf(ctx, get).catch(() => undefined);
         return json(await startOnBranch({ subprocess: ctx.subprocess, sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, registry, llm, route }, body.sessionId, body.text, request.signal));
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
+    },
+  });
+}
+
+/** Default workspace: the general folder is dsh's own first-use folder `<Documents>/deepseek-harness/default-workspace`. */
+const GENERAL_FOLDER = ['deepseek-harness', 'default-workspace'];
+const isGeneralFolder = (path) => typeof path === 'string' && path.split(/[\\/]+/).filter(Boolean).slice(-2).join('/') === GENERAL_FOLDER.join('/');
+/** Saved `{on, workspaceId?}`; no file or a broken file is on with no choice. */
+const parseDefaultWorkspace = (v) => ({ on: v?.on !== false, ...(isText(v?.workspaceId, 128) ? { workspaceId: v.workspaceId } : {}) });
+/** The general folder: the registered project at dsh's own folder (wherever its Documents folder is), else
+ * `<osHome>/Documents/deepseek-harness/default-workspace` (not registered yet: no `workspaceId`).
+ * ponytail: on Windows or Linux with a moved Documents folder and no dsh-made folder, this is the home path, not dsh's;
+ * ask the OS for the Documents folder as dsh does (`xdg-user-dir`, PowerShell) when that matters. */
+export function generalWorkspace(registry, osHome) {
+  const found = registry.list().find((w) => isGeneralFolder(w.path));
+  return found !== undefined ? { workspaceId: found.id, path: found.path, title: found.title } : { path: join(osHome, 'Documents', ...GENERAL_FOLDER) };
+}
+/** Where the global New session opens: the chosen project while dsh has it, else the general folder. Writes nothing. */
+export function defaultWorkspaceTarget(registry, saved, osHome) {
+  const chosen = saved.workspaceId === undefined ? undefined : registry.get(saved.workspaceId);
+  if (chosen !== undefined) return { workspaceId: chosen.id, path: chosen.path, title: chosen.title, general: false };
+  return { ...generalWorkspace(registry, osHome), general: true };
+}
+/** The target, ready to open: an unregistered general folder is made and registered first. dsh's `create` is idempotent
+ * per real path and queued, so two calls at the same time register one project. */
+export async function ensureDefaultWorkspace(registry, saved, osHome) {
+  const target = defaultWorkspaceTarget(registry, saved, osHome);
+  if (target.workspaceId !== undefined) return target;
+  await mkdir(target.path, { recursive: true });
+  const workspace = await registry.create(target.path);
+  return { workspaceId: workspace.id, path: workspace.path, title: workspace.title, general: true };
+}
+/** Default workspace (Host half). `GET/POST /api/composer-plus.default-workspace`: the switch (`{on}`) and the chosen project
+ * (`{workspaceId}`, `null` = the general folder), kept in `storages/dsh-composer-plus/default-workspace.json` for every
+ * browser; Settings only. `POST /api/composer-plus.new-session-workspace {}`: the workspace that the global New session
+ * opens (made on first use); 409 while the switch is off. The browser never sends a path. */
+function installDefaultWorkspace(ctx, home) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const store = settingsStore(join(home, 'storages', 'dsh-composer-plus', 'default-workspace.json'), parseDefaultWorkspace);
+  const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+  ctx.connection.fetch.register({
+    path: DEFAULT_WORKSPACE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      try {
+        const registry = get('workspaceRegistry');
+        if (request.method === 'POST') {
+          let body;
+          try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+          const keys = isObject(body) ? Object.keys(body) : [];
+          if (keys.length === 1 && typeof body.on === 'boolean') await store.change((saved) => ({ ...saved, on: body.on }));
+          else if (keys.length === 1 && (body.workspaceId === null || isText(body.workspaceId, 128))) {
+            // Not 404: the client reads 404 as "this Host half is older than the client".
+            if (body.workspaceId !== null && registry?.get?.(body.workspaceId) === undefined) return json({ error: 'this project is not in dsh' }, 409);
+            await store.change(({ workspaceId, ...rest }) => (body.workspaceId === null ? rest : { ...rest, workspaceId: body.workspaceId }));
+          } else return json({ error: 'bad request' }, 400);
+        }
+        const saved = await store.read();
+        if (registry?.list === undefined) return json({ ...saved, available: false });
+        const gone = saved.workspaceId !== undefined && registry.get(saved.workspaceId) === undefined;
+        return json({ ...saved, available: true, general: generalWorkspace(registry, homedir()), ...(gone ? { gone: true } : {}) });
+      } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+    },
+  });
+  ctx.connection.fetch.register({
+    path: NEW_SESSION_WORKSPACE_PATH, methods: ['POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      try {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (!isObject(body) || Object.keys(body).length > 0) return json({ error: 'bad request' }, 400);
+        const saved = await store.read();
+        if (!saved.on) return json({ error: 'off' }, 409);
+        const registry = get('workspaceRegistry');
+        if (registry?.list === undefined || registry.create === undefined) return json({ error: 'this dsh cannot add a workspace' }, 503);
+        return json(await ensureDefaultWorkspace(registry, saved, homedir()));
+      } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
   });
 }

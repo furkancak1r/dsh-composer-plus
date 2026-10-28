@@ -428,6 +428,26 @@
       }
     },
     {
+      "id": "defaultWorkspace",
+      "shot": "defaultWorkspace",
+      "llms": "the global New session button (the sidebar top button, its shortcut, the logo) always opens in one default workspace, set in Settings (a project of dsh, or dsh's general folder Documents/deepseek-harness/default-workspace, made on first use), not in the open or the most recent project; a project's own \"+\" and the new chat project menu still choose any project; the Tether iPhone app's Quick chat uses the same default.",
+      "how": {
+        "en": "Settings → Composer Plus → **Default workspace for New session** → **Open New session in**: choose a project, or **General folder (default-workspace)** (the default: dsh's own folder `Documents/deepseek-harness/default-workspace`, made at the first use). Then **New session** at the top of the sidebar (and its shortcut) always opens there, also while another project's chat is open. The `+` next to a project still opens that project, and the project button above the composer of the new chat still changes the project.",
+        "zh": "设置 → Composer Plus → **新会话的默认工作区** → **新会话打开于**：选择一个项目，或选择 **通用文件夹（default-workspace）**（默认值：dsh 自己的文件夹 `Documents/deepseek-harness/default-workspace`，首次使用时创建）。之后，侧边栏顶部的 **新会话**（及其快捷键）总是在那里打开新对话，即使另一个项目的对话正在打开也是如此。项目旁的 `+` 仍会打开该项目，新对话中输入框上方的项目按钮仍可更换项目。",
+        "tr": "Ayarlar → Composer Plus → **Yeni oturum için varsayılan çalışma alanı** → **Yeni oturumu şurada aç**: bir proje ya da **Genel klasör (default-workspace)** seçin (varsayılan budur: dsh’nin kendi klasörü `Documents/deepseek-harness/default-workspace`, ilk kullanımda oluşturulur). Bundan sonra kenar çubuğunun üstündeki **Yeni oturum** (ve kısayolu), başka bir projenin sohbeti açıkken de yeni sohbeti her zaman orada açar. Bir projenin yanındaki `+` yine o projeyi açar. Yeni sohbette mesaj alanının üstündeki proje düğmesi de projeyi yine değiştirir.",
+        "es": "Configuración → Composer Plus → **Espacio de trabajo predeterminado para Nueva sesión** → **Abrir Nueva sesión en**: elige un proyecto o **Carpeta general (default-workspace)** (la opción predeterminada: la propia carpeta de dsh `Documents/deepseek-harness/default-workspace`, que se crea en el primer uso). Después, **Nueva sesión** en la parte superior de la barra lateral (y su atajo) siempre abre el chat nuevo allí, también mientras está abierto un chat de otro proyecto. El `+` junto a un proyecto sigue abriendo ese proyecto, y el botón de proyecto encima del editor del chat nuevo sigue cambiando el proyecto.",
+        "pt-BR": "Configurações → Composer Plus → **Espaço de trabalho padrão para Nova sessão** → **Abrir Nova sessão em**: escolha um projeto ou **Pasta geral (default-workspace)** (o padrão: a própria pasta do dsh `Documents/deepseek-harness/default-workspace`, criada no primeiro uso). Depois disso, **Nova sessão** no topo da barra lateral (e o atalho dela) sempre abre o novo chat ali, também enquanto um chat de outro projeto está aberto. O `+` ao lado de um projeto continua abrindo esse projeto, e o botão de projeto acima do editor de mensagens do novo chat continua mudando o projeto.",
+        "fr": "Réglages → Composer Plus → **Espace de travail par défaut pour Nouvelle session** → **Ouvrir Nouvelle session dans** : choisissez un projet ou **Dossier général (default-workspace)** (la valeur par défaut : le dossier de dsh `Documents/deepseek-harness/default-workspace`, créé à la première utilisation). Ensuite, **Nouvelle session** en haut de la barre latérale (et son raccourci) ouvre toujours la nouvelle discussion à cet endroit, même quand une discussion d’un autre projet est ouverte. Le `+` à côté d’un projet ouvre toujours ce projet, et le bouton de projet au-dessus de la zone de saisie de la nouvelle discussion change toujours le projet.",
+        "de": "Einstellungen → Composer Plus → **Standard-Arbeitsbereich für Neue Sitzung** → **Neue Sitzung öffnen in**: Wähle ein Projekt oder **Allgemeiner Ordner (default-workspace)** (der Standard: der eigene Ordner von dsh, `Documents/deepseek-harness/default-workspace`, der bei der ersten Nutzung entsteht). Dann öffnet die Schaltfläche **Neue Sitzung** oben in der Seitenleiste (und ihr Tastenkürzel) den neuen Chat immer dort, auch während ein Chat eines anderen Projekts offen ist. Das `+` neben einem Projekt öffnet weiterhin dieses Projekt, und die Projektschaltfläche über dem Eingabefeld des neuen Chats wechselt weiterhin das Projekt.",
+        "ru": "Настройки → Composer Plus → **Рабочая область по умолчанию для нового сеанса** → **Открывать «Новый сеанс» в**: выберите проект или **Общая папка (default-workspace)** (по умолчанию: собственная папка dsh `Documents/deepseek-harness/default-workspace`, которая создаётся при первом использовании). После этого **Новый сеанс** вверху боковой панели (и его сочетание клавиш) всегда открывает новый чат там, даже когда открыт чат другого проекта. Кнопка `+` рядом с проектом по-прежнему открывает этот проект, а кнопка проекта над полем ввода нового чата по-прежнему меняет проект.",
+        "ja": "設定 → Composer Plus → **新しいセッションの既定のワークスペース** → **新しいセッションを開く場所**：プロジェクトを選ぶか、**汎用フォルダー（default-workspace）** を選びます（既定値です。dsh 自身のフォルダー `Documents/deepseek-harness/default-workspace` で、最初に使うときに作成されます）。その後は、サイドバーの上部にある **新しいセッション**（とそのショートカット）が、別のプロジェクトのチャットを開いているときも、常にそこで新しいチャットを開きます。プロジェクトの横にある `+` は引き続きそのプロジェクトを開きます。新しいチャットの入力欄の上にあるプロジェクトのボタンでも、引き続きプロジェクトを変更できます。",
+        "ko": "설정 → Composer Plus → **새 세션의 기본 작업 공간** → **새 세션을 열 위치**: 프로젝트나 **일반 폴더(default-workspace)** 중 하나를 고르세요(기본값: dsh 자체 폴더 `Documents/deepseek-harness/default-workspace`, 처음 사용할 때 만들어집니다). 그러면 사이드바 맨 위의 **새 세션**(과 그 단축키)은 다른 프로젝트의 채팅이 열려 있을 때도 항상 그곳에서 새 채팅을 엽니다. 프로젝트 옆의 `+`는 여전히 그 프로젝트를 열고, 새 채팅의 입력란 위에 있는 프로젝트 버튼으로도 여전히 프로젝트를 바꿀 수 있습니다.",
+        "id": "Pengaturan → Composer Plus → **Ruang kerja default untuk Sesi Baru** → **Buka Sesi Baru di**: pilih sebuah proyek, atau **Folder umum (default-workspace)** (pilihan default: folder milik dsh sendiri, `Documents/deepseek-harness/default-workspace`, yang dibuat saat pertama kali dipakai). Setelah itu, **Sesi Baru** di bagian atas bilah samping (dan pintasannya) selalu membuka obrolan baru di sana, juga saat obrolan dari proyek lain sedang terbuka. Tombol `+` di samping proyek tetap membuka proyek itu, dan tombol proyek di atas kotak pesan obrolan baru tetap bisa mengganti proyeknya.",
+        "vi": "Cài đặt → Composer Plus → **Không gian làm việc mặc định cho Phiên mới** → **Mở Phiên mới trong**: chọn một dự án, hoặc **Thư mục chung (default-workspace)** (mặc định: thư mục riêng của dsh `Documents/deepseek-harness/default-workspace`, được tạo ở lần dùng đầu tiên). Sau đó, **Phiên mới** ở đầu thanh bên (và phím tắt của nó) luôn mở cuộc trò chuyện mới ở đó, kể cả khi cuộc trò chuyện của một dự án khác đang mở. Nút `+` cạnh một dự án vẫn mở dự án đó, và nút dự án phía trên khung soạn thảo của cuộc trò chuyện mới vẫn đổi được dự án.",
+        "hi": "सेटिंग → Composer Plus → **नया सेशन के लिए डिफ़ॉल्ट वर्कस्पेस** → **नया सेशन यहाँ खोलें**: कोई प्रोजेक्ट चुनें, या **सामान्य फ़ोल्डर (default-workspace)** चुनें (डिफ़ॉल्ट: dsh का अपना फ़ोल्डर `Documents/deepseek-harness/default-workspace`, जो पहली बार इस्तेमाल करने पर बनता है)। इसके बाद साइडबार में सबसे ऊपर वाला **नया सेशन** (और उसका शॉर्टकट) नई चैट हमेशा वहीं खोलता है, तब भी जब किसी दूसरे प्रोजेक्ट की चैट खुली हो। किसी प्रोजेक्ट के पास वाला `+` अब भी वही प्रोजेक्ट खोलता है, और नई चैट में कंपोज़र के ऊपर वाला प्रोजेक्ट बटन अब भी प्रोजेक्ट बदलता है।"
+      }
+    },
+    {
       "id": "findInChat",
       "shot": "findInChat",
       "llms": "Cmd+F on macOS (Ctrl+F on Windows and Linux) opens a find box over the open chat: every match in the messages and replies that the page shows is highlighted (CSS Custom Highlight API, dsh's DOM is not changed), with n / total, next and previous (Enter, Shift+Enter, ↓, ↑, wrap-around) and Esc to close; case, accents and the Turkish dotless ı are ignored; it follows a streaming reply. Closed tool steps and history that is not loaded are not searched.",
@@ -949,6 +969,21 @@
       "request": {
         "GET": "`?sessionId` (`&list=1` adds the open worktrees): the chat's repository, branch, upstream, ahead/behind and change count (read-only git).",
         "POST": "`{action:'start', sessionId, text}`: name a branch from the text (one model call), add a worktree in `<project>/.worktrees/`, copy the `.worktreeinclude` files and start a new chat there with the text; `{action:'open', sessionId, path}`: add one of the repository's worktrees as a project."
+      }
+    },
+    {
+      "name": "default-workspace",
+      "feature": "defaultWorkspace",
+      "request": {
+        "GET": "`{on, workspaceId?, gone?, available, general: {path, workspaceId?}}`: the switch, the chosen project (`gone` when dsh no longer has it) and dsh's general folder.",
+        "POST": "`{on}`: the switch; `{workspaceId}`: the project that the global New session opens (`null` = the general folder; an unknown project gets 409). Settings only; the phone gateway refuses it."
+      }
+    },
+    {
+      "name": "new-session-workspace",
+      "feature": "defaultWorkspace",
+      "request": {
+        "POST": "`{}`: the workspace that the global New session opens, `{workspaceId, path, title, general}`: the chosen project, else the general folder (made and added as a project at the first use); 409 while the switch is off."
       }
     }
   ]

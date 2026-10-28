@@ -40,6 +40,7 @@ While a Composer Plus action in this table waits for the Mac, Tether shows a wai
 | exportMarkdown | yes | Chat title menu → Copy conversation or Share conversation: Markdown with the same section shape as the Mac's export (`## You` / `## Assistant`, code blocks kept, an open fence closed, no messages that Turn rollback or dsh-rewind-plugin withdrew), without the project and date line; Share sends it to another app. |
 | copyProjectPath | yes | Sessions → the "…" button next to a project header → Copy path. |
 | projectPicker | yes | New session (✎) → the projects show A–Z, the search box filters them (case and accents ignored), Return picks the first match. |
+| defaultWorkspace | yes | New session (✎) → **Quick chat** opens in the default workspace that is set in Settings → Composer Plus on the Mac (switched off or an older Mac: DSH's own default folder). A project row still opens that project. The phone cannot change the setting. |
 | findInChat | yes | Chat title menu → Find in chat: a find bar above the chat; the messages and answers on screen with a match are tinted (the current one more), n / total, ↑ ↓ (wrap around), Done. |
 | nextPrediction | yes | After a finished turn, the guess for the next message shows above the empty composer; a tap puts it in the field. The switch and the model stay in the Mac's Settings. |
 | typingCompletion | yes | While you type, after a short pause the rest of the message shows above the field; a tap adds it. The switch and its model stay in the Mac's Settings (by default the model of Next message prediction). |
