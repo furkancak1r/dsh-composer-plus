@@ -1156,6 +1156,11 @@ struct ConversationView: View {
         let name = t.hasPrefix("/") ? String(t.dropFirst().prefix { !$0.isWhitespace }) : ""
         // a failed send (link down, Mac asleep) puts the draft back instead of losing it
         let restore = { if text.isEmpty && images.isEmpty && files.isEmpty { text = t; images = imgs; files = fs } }
+        // New branch + `/plan <message>`: the branch chat starts in plan mode (not /plan in this chat).
+        if c.newBranch, let m = planMessage(t), !m.isEmpty || !imgs.isEmpty || !fs.isEmpty {
+            atBottom = true
+            c.run { do { try await c.startOnBranch(m, images: imgs, files: fs, plan: true) } catch { restore(); throw error } }; return
+        }
         if imgs.isEmpty, fs.isEmpty, c.commands.contains(where: { $0.name == name }) {
             c.run { do { try await c.execute(t) } catch { restore(); throw error } }; return
         }

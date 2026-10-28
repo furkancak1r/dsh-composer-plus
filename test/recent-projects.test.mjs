@@ -109,6 +109,31 @@ assert.ok(!viewport.children.some((c) => 'data-composer-plus-recent-projects' in
 state = []; out = settle();
 assert.ok(hiddenKeys(out).includes('old'), 'the choice survives a reload');
 
+// "Workspace tree" (dsh's saved view): a parent folder of an active project stays (dsh draws the child inside it), and
+// the chats that are not active hide in the projects that stay. "WorkSpace" (above) hides no chat rows.
+const hiddenChats = (out) => [...new Set([...(style(out) ?? '').matchAll(/"session:([^"]*)"/g)].map((m) => m[1]))].sort();
+assert.deepEqual(hiddenChats(out), [], 'WorkSpace: only projects are filtered');
+now = Date.UTC(2026, 9, 14, 12);
+list.ids.push('c1', 'c2', 'c3', 'c4');
+Object.assign(list.byId, Object.fromEntries([summary('c1', { updatedAt: at(0.5) }), summary('c2', { updatedAt: at(4) }), summary('c3', { updatedAt: at(6) }),
+  summary('c4', { updatedAt: at(3) })]));
+workspaces.items.find((w) => w.workspaceId === 'parent').sessionIds.push('c2', 'c3');
+workspaces.items.push(ws('deep', '/p/mono/app/pkg', ['c1']), ws('quiet', '/p/quiet', ['c4']));
+mem.set('dsh.workspace.view.v5', JSON.stringify({ groupBy: 'workspace-tree', orderBy: 'updated' }));
+out = settle();
+// now = 12:00; c1 (in /p/mono/app/pkg) was active 30 min ago. Its parents /p/mono/app (child) and /p/mono (parent) stay.
+assert.deepEqual(hiddenKeys(out), ['', 'added', 'archived', 'blank', 'old', 'prefix', 'quiet', 'recent', 'subagent'],
+  'tree: parents of an active project stay (two levels up); a name-prefix folder (/p/mon) is no parent; quiet projects hide');
+assert.deepEqual(hiddenChats(out), ['c2', 'c3', 's8'], 'tree: in the projects that stay, the chats older than 2 hours hide');
+assert.match(style(out), /\[style\*="--dsh-workspace-indent"\] > \[data-row-key="session:c2"\],\n\[style\*="--dsh-workspace-indent"\] > :has\(> \[data-row-key="session:c2"\]\)/,
+  'a chat row hides directly or inside its hover card');
+// Back to WorkSpace: no chat rows hide, and the parent without its own chats hides again.
+mem.set('dsh.workspace.view.v5', JSON.stringify({ groupBy: 'workspace' })); out = settle();
+assert.deepEqual(hiddenChats(out), []); assert.ok(hiddenKeys(out).includes('parent'));
+// A broken or missing dsh view store: as WorkSpace.
+mem.set('dsh.workspace.view.v5', '{'); out = settle(); assert.deepEqual(hiddenChats(out), []);
+mem.delete('dsh.workspace.view.v5');
+
 // Select again: everything shows, storage cleared, no timer.
 optionOf(out).p.onSelect(); out = settle();
 assert.equal(style(out), null); assert.equal(mem.has('dsh-composer-plus.recentProjects'), false); assert.equal(tick, null, 'no timer while off');

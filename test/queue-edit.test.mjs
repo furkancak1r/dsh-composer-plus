@@ -319,5 +319,5 @@ assert.equal(find(out, (n) => n.t === 'textarea'), undefined); assert.equal(note
 offLayout();
 assert.equal(listeners.has('dblclick'), false);
 assert.ok(lis.every((li) => !li.all().some((e) => e.hasAttribute('data-composer-plus-queue-edit-button') || e.hasAttribute('data-composer-plus-native-edit') || e.hasAttribute('data-composer-plus-queue-editor'))), 'nothing of the plugin stays in dsh\'s rows');
-assert.match(src, /'queueReorder', 'queueEdit', 'copyDeeplink'/, 'the feature has its own switch');
+assert.match(src, /'queueReorder', 'queueEdit', 'stopSendFirst', 'copyDeeplink'/, 'the feature has its own switch');
 console.log('queue edit checks passed');

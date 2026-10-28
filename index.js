@@ -60,13 +60,14 @@ export const WORKTREES_PATH = '/api/composer-plus.worktrees';
 export const DEFAULT_WORKSPACE_PATH = '/api/composer-plus.default-workspace';
 export const NEW_SESSION_WORKSPACE_PATH = '/api/composer-plus.new-session-workspace';
 export const GOAL_CHECK_PATH = '/api/composer-plus.goal-check';
+export const SEND_FIRST_PATH = '/api/composer-plus.send-first';
 export const MEMORY_PATH = '/api/composer-plus.memory';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit',
   'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
-  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole'];
+  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -1991,6 +1992,7 @@ export function apply(ctx) {
   const queueBusy = new Set();
   installQueueMove(ctx, queueBusy);
   installQueueEdit(ctx, queueBusy);
+  installSendFirst(ctx, home);
   installBranches(ctx, home);
   installPredict(ctx, home);
   installComplete(ctx, home);
@@ -2081,6 +2083,72 @@ export function installBranches(ctx, home) {
     },
   });
   return { settled: async () => { while (running.size > 0) await Promise.all([...running.values()].map((e) => e.done)); } };
+}
+
+/** Send after Stop goes first (Host half). dsh keeps the queue when you stop a chat, but a message that you send then goes to
+ * the END of the queue, and the turn that it starts takes the queue's FIRST message (dsh-agent-loop `send` and `claim`, the
+ * same in dsh 0.2.0-rc.2 to 0.2.2-alpha.2). So the new message waits behind the whole queue and an older one runs instead.
+ * While a chat stands still with a queue (stopped, failed or opened again) or its stopped turn still ends, your own new
+ * message goes to the head of the queue before dsh opens the turn: it runs alone, and the queue keeps its order and runs
+ * after it, one message per turn. A message sent while a turn runs stays at the end (the normal queue). The switch is kept
+ * here (`send-first.json`, on by default); off = dsh's own order. Only top-level chats, and only past your own messages.
+ * The move is synchronous inside dsh's `send`, so no queue move, edit or Continue can run between; a queue move that the
+ * user started before it sees another order and gets 409 (its `before` check).
+ * ponytail: "its stopped turn still ends" reads dsh's private `agent.phase` (`running` with an aborted signal; 0.2.0-rc.2
+ * to 0.2.1-rc.3). Without it, only an idle chat moves. Upgrade when dsh starts the turn with the new message itself. */
+export function installSendFirst(ctx, home) {
+  const saved = mobileSwitch(join(home, 'storages', 'dsh-composer-plus', 'send-first.json'), true);
+  let on = false; // dsh's own order until the saved switch is read
+  const read = saved.read().then((value) => { on = value; });
+  let switchQueue = Promise.resolve();
+  const lastSplice = new WeakMap(); // session → data of its newest inbox splice
+  const moving = new Set(); // agents whose queue this feature splices now: those inserts are not new messages
+  ctx.on('session/event', (session, event) => { if (event.type === 'agent/inbox/spliced') lastSplice.set(session, event.data); });
+  // dsh emits this inside its `send`, after the message is in the queue and before it opens the turn (all synchronous).
+  ctx.on('agent/inbox/inserted', ({ agent, message }) => {
+    if (!on || moving.has(agent) || message?.source?.kind !== 'user' || !isRootChat(agent.session)) return;
+    const queue = agent.inbox?.nextTurn;
+    if (!Array.isArray(queue) || queue.length < 2 || queue.at(-1)?.id !== message.id) return;
+    // Only dsh's own send: one message added at the end of the queue (an edit or a move also removes rows).
+    const splice = lastSplice.get(agent.session);
+    if (splice?.target !== 'next-turn' || splice.removedCount !== undefined || splice.start !== queue.length - 1 || splice.inserted?.length !== 1 || splice.inserted[0]?.id !== message.id) return;
+    // Stands still: idle, or its turn is stopped and still ends. A turn that runs keeps the normal queue.
+    const phase = agent.phase;
+    if (!(agent.status === 'idle' || (phase?.kind === 'running' && phase.abort?.signal?.aborted === true))) return;
+    const waiting = queue.slice(0, -1);
+    // Only past your own messages: a goal round or a question reply has its own listeners on a removal.
+    if (!waiting.every((m) => m.source?.kind === 'user')) return;
+    moving.add(agent);
+    try {
+      // Two splices: the waiting messages out, then back after the new one (same ids, images and files). The new message
+      // itself is never removed: dsh's composer takes a removed message as a failed send and puts the text back.
+      agent.inbox.splice('next-turn', 0, waiting.length, []);
+      agent.inbox.splice('next-turn', 1, 0, waiting);
+    } catch (error) {
+      ctx.logger?.warn?.(`dsh-composer-plus: send first: ${error?.message ?? error}`);
+      // Never lose a queued message: put back the ones that the failed step took out.
+      const left = new Set((agent.inbox?.nextTurn ?? []).map((m) => m.id));
+      const lost = waiting.filter((m) => !left.has(m.id));
+      if (lost.length > 0) try { agent.inbox.splice('next-turn', Infinity, 0, lost); } catch { /* the chat closed meanwhile */ }
+    } finally { moving.delete(agent); }
+  });
+  ctx.connection.fetch.register({
+    path: SEND_FIRST_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (typeof body?.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        const change = async () => { await read; await saved.write(body.on); on = body.on; };
+        const done = switchQueue.then(change);
+        switchQueue = done.catch(() => {});
+        try { await done; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      await read;
+      return json({ on });
+    },
+  });
+  return { ready: read };
 }
 
 /** Queue drag-and-drop (Host half): `POST {sessionId, itemId, to, before}` moves one queued next-turn message to index `to`
@@ -3975,14 +4043,17 @@ const worktreeMoves = new Set(); // gone branch folders whose workspace is being
 /** "New branch": a new branch and worktree `<main root>/.worktrees/<name>` from the chat's HEAD, the included ignored files
  * copied, the worktree registered as a dsh workspace, and a new chat there (the source chat's preset and model) that gets
  * `text` and `attachments` (dsh's prompt parts: `{type:'image', mediaType, data}` as is; `{type:'file', receiptId}` is
- * an upload of the source chat, which is uploaded again to the new chat). One start per repository at a time. A failure
- * after the worktree exists keeps it on disk and names its path. */
-export async function startOnBranch({ subprocess, sessionController, sessionQuery, registry, llm, route, agents, fileUploads, store }, sessionId, text, signal, attachments = []) {
+ * an upload of the source chat, which is uploaded again to the new chat). The new chat starts in plan mode (dsh's `/plan`)
+ * when `plan` asks for it (the user sent `/plan <message>`) or the source chat is in plan mode. One start per repository at
+ * a time. A failure after the worktree exists keeps it on disk and names its path. */
+export async function startOnBranch({ subprocess, sessionController, sessionQuery, registry, llm, route, agents, fileUploads, store, commands }, sessionId, text, signal, attachments = [], { plan: askedPlan = false } = {}) {
   const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'all' });
-  let cwd, origin, preset, model;
+  let cwd, origin, preset, model, plan = askedPlan;
   try {
     cwd = observation.header?.cwd; origin = observation.header?.origin;
     const values = observation.projections?.values;
+    // dsh's plan view `{active, pending}`: a pending switch flips it (as dsh's plan chip reads it).
+    if (values?.plan?.active === true ? values.plan.pending !== true : values?.plan?.pending === true) plan = true;
     preset = isText(values?.agentPreset) ? values.agentPreset : undefined;
     const chosen = values?.modelSelection?.next ?? values?.modelSelection?.lastUsed;
     if (isText(chosen?.provider) && isText(chosen?.model)) model = { provider: chosen.provider, model: chosen.model, ...(isText(chosen.reasoningEffort) ? { reasoningEffort: chosen.reasoningEffort } : {}) };
@@ -3993,6 +4064,8 @@ export async function startOnBranch({ subprocess, sessionController, sessionQuer
   if (repo === undefined) throw refused('this chat\'s folder is not in a git repository');
   if (repo.root === undefined) throw refused('a bare repository or a submodule has no main folder for worktrees');
   if (!repo.hasCommit) throw refused('this repository has no commit yet: make the first commit, then start a branch');
+  // A plan-mode chat must not start in the default mode (it could change files): no worktree without dsh's commands.
+  if (plan && (commands?.execute === undefined || sessionController.resolveAgent === undefined)) throw refused('this dsh cannot start a chat in plan mode');
   // The files are found before git starts: a file that is gone makes no worktree.
   const source = attachments.some((a) => a.type === 'file') ? agents?.get?.(sessionId) : undefined;
   const files = attachments.filter((a) => a.type === 'file').map((a) => {
@@ -4037,10 +4110,17 @@ export async function startOnBranch({ subprocess, sessionController, sessionQuer
         content.push({ type: 'file', receiptId: (await fileUploads.uploadStream({ sessionId: created, data: store.readFileStream(ref), name: ref.name })).receiptId });
       }
       if (text !== '') content.push({ type: 'text', text });
+      // Plan mode first (a bare `/plan` turns it on at once in a chat with no turn), then the message runs in it. When it
+      // does not turn on, the message is not sent: the chat must not change files in the default mode.
+      if (plan) {
+        const found = await sessionController.resolveAgent(created);
+        const done = 'error' in found ? undefined : await commands.execute(found.agent, '/plan', [], AbortSignal.timeout(STOP_WAIT_MS));
+        if (done?.result?.kind !== 'success') throw new Error(`plan mode did not start${done?.result?.text ? `: ${done.result.text}` : ''}`);
+      }
       // dsh's `prompt(request, signal)` calls `signal.throwIfAborted()`. Not the request's signal: a closed request must not
       // leave the new chat without its message; the timeout only ends a stuck admission.
       await sessionController.prompt({ requestId: randomUUID(), sessionId: created, mode: 'queue', content }, AbortSignal.timeout(STOP_WAIT_MS));
-      return { sessionId: created, branch: name, path, workspaceId: workspace.id, copied, skipped, named: fromModel };
+      return { sessionId: created, branch: name, path, workspaceId: workspace.id, copied, skipped, named: fromModel, ...(plan ? { plan: true } : {}) };
     } catch (error) {
       throw Object.assign(new Error(`${error?.message ?? error}; the new worktree stays at ${path}`), Number.isInteger(error?.status) ? { status: error.status } : {});
     }
@@ -4057,7 +4137,8 @@ export async function openWorktree({ subprocess, sessionQuery, registry }, sessi
 }
 
 /** Worktree chats (Host half): `GET ?sessionId[&list=1]` answers the chat's branch status (and the repository's
- * worktrees); `POST {action:'start', sessionId, text, attachments?}` starts a chat on a new branch; `POST {action:'open', sessionId,
+ * worktrees); `POST {action:'start', sessionId, text, attachments?, plan?}` starts a chat on a new branch (in plan mode with
+ * `plan: true` or when the chat is in plan mode); `POST {action:'open', sessionId,
  * path}` registers one listed worktree as a workspace. The browser never gives a path that git did not list.
  * When the folder of a chat (`<root>/.worktrees/<name>`) is gone (its branch was deleted), the next step of the chat moves it
  * out before dsh reads its folder: the folder's workspace goes (dsh then lists its chats under Ungrouped) and, on dsh 0.2.1+,
@@ -4146,13 +4227,13 @@ function installWorktrees(ctx, home) {
             && isText(a.data, 400e6) && (a.name === undefined || isText(a.name, 1024)))
           || (a?.type === 'file' && Object.keys(a).length === 2 && isText(a.receiptId, 128));
         if (body.action !== 'start' || typeof body.text !== 'string' || body.text.length > 100000 || !Array.isArray(attachments) || attachments.length > 50
-          || !attachments.every(part) || (body.text.trim() === '' && attachments.length === 0)) return json({ error: 'bad request' }, 400);
+          || !attachments.every(part) || (body.text.trim() === '' && attachments.length === 0) || (body.plan !== undefined && typeof body.plan !== 'boolean')) return json({ error: 'bad request' }, 400);
         if (registry?.create === undefined) return json({ error: 'this dsh cannot add a workspace' }, 409);
         // No model (or no catalog): the branch gets the message's own slug.
         const llm = get('llm');
         const route = llm?.prepareCall === undefined ? undefined : await routeOf(ctx, get).catch(() => undefined);
         return json(await startOnBranch({ subprocess: ctx.subprocess, sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, registry, llm, route,
-          agents: get('agents'), fileUploads: get('fileUploads'), store: get('attachments') }, body.sessionId, body.text, request.signal, attachments));
+          agents: get('agents'), fileUploads: get('fileUploads'), store: get('attachments'), commands: get('commands') }, body.sessionId, body.text, request.signal, attachments, { plan: body.plan === true }));
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });

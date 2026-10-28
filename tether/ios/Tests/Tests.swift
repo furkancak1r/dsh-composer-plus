@@ -686,6 +686,9 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(planOn(["active": true])); XCTAssertFalse(planOn(["active": true, "pending": true])); XCTAssertTrue(planOn(["active": false, "pending": true])); XCTAssertFalse(planOn(nil))
         XCTAssertEqual(planToggled("fix it"), "/plan fix it"); XCTAssertEqual(planToggled("/plan fix it"), "fix it")
         XCTAssertEqual(planToggled("/plan"), ""); XCTAssertEqual(planToggled("/planning x"), "/plan /planning x")
+        // New branch: `/plan <message>` starts the branch chat in plan mode with the message; `/plan off` and others do not.
+        XCTAssertEqual(planMessage("/plan  fix it "), "fix it"); XCTAssertEqual(planMessage("/plan"), ""); XCTAssertNil(planMessage("/plan off"))
+        XCTAssertNil(planMessage("fix it")); XCTAssertNil(planMessage("/planning x")); XCTAssertEqual(planMessage("/plan\noff the list"), "off the list")
         // Queue reorder: texts move from the last row up; a row with an image cannot be crossed.
         let m = queueMove(["a", "b", "c"], from: 0, to: 2)!
         XCTAssertEqual(m.map(\.row), [2, 1, 0]); XCTAssertEqual(m.map(\.next), ["a", "c", "b"]); XCTAssertEqual(m.map(\.prev), ["c", "b", "a"])

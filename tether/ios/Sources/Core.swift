@@ -670,6 +670,13 @@ func planToggled(_ draft: String) -> String {
     guard let r = draft.range(of: #"^/plan(?=$|\s)[ \t]?"#, options: .regularExpression) else { return "/plan " + draft }
     return String(draft[r.upperBound...])
 }
+/// New branch: the message of a `/plan <message>` draft (the branch chat starts in plan mode); nil for any other draft
+/// and for `/plan off`. A bare `/plan` gives "".
+func planMessage(_ draft: String) -> String? {
+    guard draft.range(of: #"^/plan(?=$|\s)"#, options: .regularExpression) != nil else { return nil }
+    let rest = planToggled(draft).trimmingCharacters(in: .whitespacesAndNewlines)
+    return rest == "off" ? nil : rest
+}
 
 /// Queue reorder: dsh has no "move", so a move rewrites the texts of the rows between the two places, from the last
 /// row up (the first row may start to send at any moment). Each change is (row index, new text, old text).
@@ -2114,7 +2121,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         BranchState(o) != nil && o["root"] is String && o["worktree"] as? Bool != true && o["hasCommit"] as? Bool != false
     }
     /// Sends `text`, `images` and `files` as the first message of a new chat on a new branch; the phone opens that chat.
-    func startOnBranch(_ text: String, images: [Data] = [], files: [Attachment] = []) async throws {
+    /// `plan`: the new chat starts in plan mode (the Mac also does this when this chat is in plan mode).
+    func startOnBranch(_ text: String, images: [Data] = [], files: [Attachment] = [], plan: Bool = false) async throws {
         // A throw (not a return) so the composer puts the text back.
         guard !branching else { throw Fail(String(localized: "A branch is already being created for this chat.")) }
         guard let sid = current else { throw Fail(String(localized: "Could not start the chat on a new branch.")) }
@@ -2130,6 +2138,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         }
         sendStatus = String(localized: "Creating branch…")
         var body: J = ["action": "start", "sessionId": sid, "text": text]
+        if plan { body["plan"] = true }
         let parts = Self.promptContent("", images: images, receipts: receipts)
         if !parts.isEmpty { body["attachments"] = parts }
         // Longer than the Mac's own steps (name 10 s, `worktree add` up to 120 s, the copy): a phone timeout must not
