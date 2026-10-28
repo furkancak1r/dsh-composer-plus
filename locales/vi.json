@@ -1824,6 +1824,7 @@
     "worktree.failed": "Không thể bắt đầu cuộc trò chuyện trên branch mới.",
     "worktree.openFailed": "Không thể mở worktree này.",
     "worktree.restart": "Khởi động lại dsh để dùng Branch riêng cho từng cuộc trò chuyện.",
+    "worktree.down": "Không thể lưu cài đặt này: {error}",
     "settings.search": "Tìm tính năng",
     "settings.searchEmpty": "Không có tính năng phù hợp.",
     "settings.help": "Cách dùng: {feature} (mở README)",

@@ -17,9 +17,18 @@ eval(src.replace(ANCHOR, `globalThis.__wt = { branchLabel, branchModeOf, chooseB
 // Fake Host: only the worktrees route answers; `reply` returns { status, body }, an Error to throw, or a promise of one.
 const ROUTE = '/api/composer-plus.worktrees';
 const calls = []; let reply = () => ({ status: 404, body: {} });
+// The Host switch (`GET` without a query, `POST {on}`) has its own log and answer; `switchReply` can hold it.
+const switchCalls = []; let hostOn = true; let switchReply = () => ({ status: 200 });
 globalThis.fetch = async (url, init) => {
   const body = init?.body === undefined ? undefined : JSON.parse(init.body);
   if (!url.startsWith(ROUTE)) return { ok: false, status: 404, json: async () => ({}) };
+  if (url === ROUTE && (body === undefined || 'on' in body)) {
+    switchCalls.push(body);
+    const r = await switchReply(body);
+    if (r instanceof Error) throw r;
+    if (body !== undefined && r.status < 400) hostOn = body.on;
+    return { ok: r.status < 400, status: r.status, json: async () => r.body ?? { on: hostOn } };
+  }
   calls.push([url, body]);
   const r = await reply(url, body);
   if (r instanceof Error) throw r;
@@ -85,9 +94,38 @@ plugin.apply(ctx);
 const t = bind('dsh-composer-plus');
 const ids = () => [...live.values()].map((o) => o.id ?? o.key);
 const reg = (id) => [...live.values()].find((o) => o.id === id);
-const { setFeature } = reg('composer-plus').inject();
+const { setFeature, worktreeSwitch } = reg('composer-plus').inject();
 assert.ok(ids().includes('branch-chip') && ids().includes('branch-status'), 'on by default: the chip and the header pill');
 assert.equal(reg('branch-chip').name, 'conversation.hero.options'); assert.equal(reg('branch-status').name, 'conversation.session.header.utilities');
+// The Host keeps the switch (its listener moves a chat whose branch folder is gone): one read at start, Settings posts
+// `{on}`, and a Host "off" (from another window or the phone's Mac) removes the chip and the pill here too.
+{
+  await tick();
+  assert.deepEqual(switchCalls, [undefined], 'the switch is read once at start');
+  setFeature('worktreeChats', false); await tick();
+  assert.deepEqual(switchCalls.at(-1), { on: false }, 'Settings posts the switch to the Host');
+  assert.ok(!ids().includes('branch-chip') && !ids().includes('branch-status'), 'off: no chip, no pill');
+  assert.equal(JSON.parse(localStorage.getItem('dsh-composer-plus.features') ?? '{}').worktreeChats, undefined, 'not kept in the browser');
+  // A refused change puts the switch back and keeps the reason (Settings shows it).
+  switchReply = () => ({ status: 500, body: { error: 'disk full' } });
+  setFeature('worktreeChats', true); await tick();
+  assert.equal(worktreeSwitch.getSnapshot().on, false); assert.equal(worktreeSwitch.getSnapshot().error, 'disk full');
+  assert.ok(!ids().includes('branch-chip'), 'still off');
+  switchReply = () => ({ status: 200 });
+  setFeature('worktreeChats', true); await tick();
+  assert.ok(ids().includes('branch-chip') && ids().includes('branch-status'), 'on again');
+  // An "off" that 1.15.0 saved in this browser goes to the Host once, at the next start, and leaves the browser.
+  const keep = new Map(mem); const keepCalls = switchCalls.length;
+  mem.set('dsh-composer-plus.features', JSON.stringify({ worktreeChats: false, findInChat: false }));
+  const before = new Set(live.keys());
+  mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Menu: 'Menu' } : {})).apply({ ...ctx, effect: () => {} });
+  await tick();
+  assert.deepEqual(switchCalls.slice(keepCalls), [{ on: false }], 'the old local "off" is sent to the Host');
+  assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.features')), { findInChat: false }, 'and leaves the browser; other choices stay');
+  for (const k of [...live.keys()]) if (!before.has(k)) live.delete(k);
+  mem.clear(); for (const [k, v] of keep) mem.set(k, v);
+  hostOn = true; switchCalls.length = 0;
+}
 
 // Header pill text: zero parts are left out; "not pushed" without an upstream; a detached HEAD is not a branch to push.
 assert.equal(branchLabel({ branch: 'feat/x', upstream: 'origin/feat/x', ahead: 2, behind: 1, changes: 3 }, t), '⑂ feat/x · 3 changes · ↑2 ↓1');

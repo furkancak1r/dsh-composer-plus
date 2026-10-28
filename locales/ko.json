@@ -1824,6 +1824,7 @@
     "worktree.failed": "새 브랜치에서 채팅을 시작하지 못했습니다.",
     "worktree.openFailed": "이 worktree를 열지 못했습니다.",
     "worktree.restart": "채팅별 브랜치를 사용하려면 dsh를 다시 시작하세요.",
+    "worktree.down": "이 설정을 저장하지 못했습니다: {error}",
     "settings.search": "기능 검색",
     "settings.searchEmpty": "일치하는 기능이 없습니다.",
     "settings.help": "사용 방법: {feature} (README 열기)",

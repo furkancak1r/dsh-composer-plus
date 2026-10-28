@@ -1824,6 +1824,7 @@
     "worktree.failed": "Tidak dapat memulai obrolan di branch baru.",
     "worktree.openFailed": "Tidak dapat membuka worktree ini.",
     "worktree.restart": "Mulai ulang dsh untuk menggunakan Branch per obrolan.",
+    "worktree.down": "Tidak dapat menyimpan pengaturan ini: {error}",
     "settings.search": "Cari fitur",
     "settings.searchEmpty": "Tidak ada fitur yang cocok.",
     "settings.help": "Cara menggunakannya: {feature} (membuka README)",

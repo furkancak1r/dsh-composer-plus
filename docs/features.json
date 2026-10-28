@@ -995,8 +995,8 @@
       "name": "worktrees",
       "feature": "worktreeChats",
       "request": {
-        "GET": "`?sessionId` (`&list=1` adds the open worktrees): the chat's repository, branch, upstream, ahead/behind and change count (read-only git).",
-        "POST": "`{action:'start', sessionId, text, attachments?}`: name a branch from the text (one model call; with no text, the dated name `feat/chat-<YYYYMMDD>-<HHMM>` and no model call), add a worktree in `<project>/.worktrees/`, copy the `.worktreeinclude` files and start a new chat there with the text and the attachments. `attachments` are dsh's prompt parts: `{type:'image', mediaType, data, name?}` is sent as it is, and `{type:'file', receiptId}` is an upload of the source chat, which is stored again for the new chat. `text` can be empty when the request gives attachments; `{action:'open', sessionId, path}`: add one of the repository's worktrees as a project."
+        "GET": "No query: the switch `{on}`. `?sessionId` (`&list=1` adds the open worktrees): the chat's repository, branch, upstream, ahead/behind and change count (read-only git).",
+        "POST": "`{on}` (the switch; off, the route starts and opens nothing, and a chat whose branch folder is gone is not moved), `{action:'start', sessionId, text, attachments?}`: name a branch from the text (one model call; with no text, the dated name `feat/chat-<YYYYMMDD>-<HHMM>` and no model call), add a worktree in `<project>/.worktrees/`, copy the `.worktreeinclude` files and start a new chat there with the text and the attachments. `attachments` are dsh's prompt parts: `{type:'image', mediaType, data, name?}` is sent as it is, and `{type:'file', receiptId}` is an upload of the source chat, which is stored again for the new chat. `text` can be empty when the request gives attachments; `{action:'open', sessionId, path}`: add one of the repository's worktrees as a project."
       }
     },
     {

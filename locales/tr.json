@@ -3284,6 +3284,7 @@
     "worktree.failed": "Sohbet yeni bir dalda başlatılamadı.",
     "worktree.openFailed": "Bu worktree açılamadı.",
     "worktree.restart": "Sohbet başına dal özelliğini kullanmak için dsh’yi yeniden başlatın.",
+    "worktree.down": "Bu ayar kaydedilemedi: {error}",
     "settings.search": "Özellik ara",
     "settings.searchEmpty": "Eşleşen özellik yok.",
     "settings.help": "Nasıl kullanılır: {feature} (README’yi açar)",

@@ -1802,7 +1802,7 @@ export function apply(ctx) {
   installImprove(ctx, home);
   installGoalCheck(ctx, home);
   installExport(ctx);
-  installWorktrees(ctx);
+  installWorktrees(ctx, home);
   installDefaultWorkspace(ctx, home);
 }
 
@@ -3670,6 +3670,7 @@ async function excludeWorktrees(subprocess, { root, common }) {
 }
 
 const worktreeStarts = new Set(); // main roots with a "New branch" start running now
+const worktreeMoves = new Set(); // gone branch folders whose workspace is being removed now
 /** "New branch": a new branch and worktree `<main root>/.worktrees/<name>` from the chat's HEAD, the included ignored files
  * copied, the worktree registered as a dsh workspace, and a new chat there (the source chat's preset and model) that gets
  * `text` and `attachments` (dsh's prompt parts: `{type:'image', mediaType, data}` as is; `{type:'file', receiptId}` is
@@ -3700,6 +3701,7 @@ export async function startOnBranch({ subprocess, sessionController, sessionQuer
     return ref;
   });
   if (worktreeStarts.has(repo.root)) throw refused('a new branch of this repository is already starting');
+  if ([...worktreeMoves].some((gone) => dirname(dirname(gone)) === repo.root)) throw refused('a chat of a deleted branch of this repository is moving: try again');
   worktreeStarts.add(repo.root);
   try {
     // Only the naming stops with the request: once git starts, the steps run to the end (no half-made worktree or chat).
@@ -3755,16 +3757,66 @@ export async function openWorktree({ subprocess, sessionQuery, registry }, sessi
 
 /** Worktree chats (Host half): `GET ?sessionId[&list=1]` answers the chat's branch status (and the repository's
  * worktrees); `POST {action:'start', sessionId, text, attachments?}` starts a chat on a new branch; `POST {action:'open', sessionId,
- * path}` registers one listed worktree as a workspace. The browser never gives a path that git did not list. */
-function installWorktrees(ctx) {
+ * path}` registers one listed worktree as a workspace. The browser never gives a path that git did not list.
+ * When the folder of a chat (`<root>/.worktrees/<name>`) is gone (its branch was deleted), the next step of the chat moves it
+ * out before dsh reads its folder: the folder's workspace goes (dsh then lists its chats under Ungrouped) and, on dsh 0.2.1+,
+ * the chat goes on in `<root>`. Without this, dsh 0.2.1 ends every turn of the chat with "working-directory: directory does
+ * not exist". The switch is kept here (`worktrees.json`, on by default; `GET` without a query, `POST {on}`): off, the listener
+ * is removed and the route starts and opens nothing. The read-only `GET` still answers: the browser hides its chip and pill
+ * itself, and a read sent together with a switch-on must not get the old state. */
+function installWorktrees(ctx, home) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: ${text}`);
+  const saved = mobileSwitch(join(home, 'storages', 'dsh-composer-plus', 'worktrees.json'), true);
+  let on = true;
+  let switchQueue = Promise.resolve();
+  // A gone folder → its one move (the main folder, or undefined); a chat that comes meanwhile joins it.
+  const moving = new Map();
+  const moveOut = async (cwd) => {
+    const root = dirname(dirname(cwd));
+    const repo = await repoOf(ctx.subprocess, root);
+    const real = (path) => realpath(path).catch(() => path);
+    if (repo?.root === undefined || (await real(repo.root)) !== (await real(root))) return undefined; // not a Branch per chat folder
+    // A "New branch" of this repository is refused while the move runs (it could make this folder again); a folder that is
+    // back meanwhile keeps its workspace.
+    worktreeMoves.add(cwd);
+    try {
+      const registry = get('workspaceRegistry');
+      for (const w of registry?.list?.() ?? []) if (w.path === cwd && !(await exists(cwd))) await registry.delete(w.id);
+    } finally { worktreeMoves.delete(cwd); }
+    return root;
+  };
+  const rehome = async (agent, signal) => {
+    const wd = get('workingDirectory'); // dsh 0.2.1+
+    const cwd = wd?.get?.(agent.session) ?? agent.session?.header?.cwd;
+    if (!isText(cwd, 4096) || !isAbsolute(cwd) || basename(dirname(cwd)) !== '.worktrees') return;
+    if (!(await stat(cwd).then((s) => !s.isDirectory(), (error) => error?.code === 'ENOENT' || error?.code === 'ENOTDIR'))) return;
+    let job = moving.get(cwd);
+    if (job === undefined) { job = moveOut(cwd).finally(() => moving.delete(cwd)); moving.set(cwd, job); }
+    const root = await job;
+    // dsh's own folder change: it tells the model, and dsh runs one change of a chat at a time (a second one is a no-op).
+    if (root !== undefined && wd?.set !== undefined && wd.get(agent.session) === cwd) await wd.set(agent, root, signal);
+  };
+  // Before dsh's working-directory listener (also `prepend`, added earlier), which ends the turn on a gone folder.
+  let unlisten;
+  const listen = () => {
+    if (on && unlisten === undefined) {
+      unlisten = ctx.on('system-prompt/assemble', async (assembly, context, next) => {
+        if (context?.agent !== undefined) await rehome(context.agent, context.signal).catch((error) => log(`branch folder move: ${error?.message ?? error}`));
+        return next();
+      }, { prepend: true }) ?? (() => {});
+    } else if (!on && unlisten !== undefined) { unlisten(); unlisten = undefined; }
+  };
+  const read = saved.read().then((value) => { on = value; listen(); }).catch((error) => log(`branch per chat switch: ${error?.message ?? error}`));
   ctx.connection.fetch.register({
     path: WORKTREES_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     fetch: async (request) => {
       try {
+        await read;
         if (request.method === 'GET') {
           const q = new URL(request.url).searchParams;
           const sessionId = q.get('sessionId'); const list = q.get('list');
+          if (sessionId === null && list === null) return json({ on });
           if (!isText(sessionId) || (list !== null && list !== '1')) return json({ error: 'bad request' }, 400);
           const cwd = await chatFolder(ctx.sessionQuery, sessionId, request.signal).catch((error) => { if (error?.status === 409) return undefined; throw error; });
           const repo = cwd === undefined ? undefined : await repoOf(ctx.subprocess, cwd, request.signal);
@@ -3774,7 +3826,14 @@ function installWorktrees(ctx) {
         }
         let body;
         try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (typeof body?.on === 'boolean') {
+          const done = switchQueue.then(async () => { await saved.write(body.on); on = body.on; listen(); });
+          switchQueue = done.catch(() => {});
+          await done;
+          return json({ on });
+        }
         if (!isText(body?.sessionId)) return json({ error: 'bad request' }, 400);
+        if (!on) return json({ error: 'Branch per chat is switched off' }, 409);
         const registry = get('workspaceRegistry');
         if (body.action === 'open' && isText(body.path, 4096)) {
           if (registry?.create === undefined) return json({ error: 'this dsh cannot add a workspace' }, 409);

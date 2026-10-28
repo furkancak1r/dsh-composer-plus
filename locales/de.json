@@ -1824,6 +1824,7 @@
     "worktree.failed": "Der Chat konnte nicht auf einem neuen Branch gestartet werden.",
     "worktree.openFailed": "Dieser Worktree konnte nicht geöffnet werden.",
     "worktree.restart": "Starte dsh neu, um Ein Branch pro Chat zu nutzen.",
+    "worktree.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
     "settings.search": "Funktionen suchen",
     "settings.searchEmpty": "Keine passenden Funktionen.",
     "settings.help": "So nutzt du sie: {feature} (öffnet die README)",
