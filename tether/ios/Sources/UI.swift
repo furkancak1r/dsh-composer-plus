@@ -516,8 +516,8 @@ struct ConversationView: View {
     @State private var shooting = false
     @State private var atBottom = true
     @State private var creating = false
+    /// Queue edit: the queued message whose editor is open.
     @State private var editing: J?
-    @State private var editText = ""
     @State private var showTodos = false
     @State private var renaming = false
     @State private var newTitle = ""
@@ -597,7 +597,7 @@ struct ConversationView: View {
                 }
             }
             .sheet(isPresented: $creating) { NewSessionSheet() }
-            .sheet(isPresented: $showChanges) { if let id = c.current { ChangesSheet(sessionId: id) } }
+            .sheet(isPresented: $showChanges) { if let id = c.current { ChangesSheet(sessionId: id, map: c.plus.contains("graph")) } }
             .sheet(isPresented: $showIdeas) { if let id = c.current { IdeasSheet(sessionId: id) } }
             .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { text = t; focused = true } } }
             .sheet(isPresented: Binding(get: { redoMarker != nil }, set: { if !$0 { redoMarker = nil } })) { if let m = redoMarker { RedoSheet(marker: m) } }
@@ -634,15 +634,14 @@ struct ConversationView: View {
                 let asked = text
                 if let rest = await c.complete(asked), !Task.isCancelled, text == asked { guess = (asked, rest) }
             }
-            .alert("Edit queued message", isPresented: Binding(get: { editing != nil }, set: { if !$0 { editing = nil } })) {
-                TextField("Message", text: $editText, axis: .vertical)
-                Button("Save") {
-                    guard let id = editing?["id"] as? String else { return }
-                    let t = editText.trimmingCharacters(in: .whitespacesAndNewlines)
-                    c.run { try await c.updateQueue(id, t.isEmpty ? ["kind": "remove"] : ["kind": "edit", "content": [["type": "text", "text": t]]]) }
-                }
-                Button("Cancel", role: .cancel) {}
-            }
+            // Queue edit: every way out (Save, Cancel, a swipe down, the chat closed) ends the edit, so the queue can change again.
+            // Not the sheet's own onDisappear: a picker or a full-screen cover over the sheet can call it while the editor stays open.
+            .sheet(isPresented: Binding(get: { editing != nil }, set: { if !$0 { endEdit() } })) { if let editing { QueueEditSheet(item: editing) } }
+            .onDisappear { endEdit() }
+    }
+    private func endEdit() {
+        if let id = editing?["id"] as? String { c.endQueueEdit(id) }
+        editing = nil
     }
 
     var transcript: some View {
@@ -957,12 +956,15 @@ struct ConversationView: View {
                 HStack(spacing: 8) {
                     Image(systemName: steering ? "arrow.turn.down.right" : "clock").font(.caption).foregroundStyle(.secondary)
                     Text(contentText(item["content"])).font(.footnote).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
+                    // Queue edit: while a message is edited or saved, the queue does not move and that message is not sent or removed.
+                    let edited = c.editingQueued?.id == id, editOn = c.editingQueued != nil
                     Menu {
-                        if !steering { Button { c.run { try await c.updateQueue(id, ["kind": "steer"]) } } label: { Label("Send now", systemImage: "arrow.up") } }
-                        if let at, c.canMoveQueued(from: at, to: at - 1) { Button { c.run { try await c.moveQueued(from: at, to: at - 1) } } label: { Label("Move up", systemImage: "arrow.up.to.line") }.disabled(c.movingQueue) }
-                        if let at, c.canMoveQueued(from: at, to: at + 1) { Button { c.run { try await c.moveQueued(from: at, to: at + 1) } } label: { Label("Move down", systemImage: "arrow.down.to.line") }.disabled(c.movingQueue) }
-                        Button { editText = contentText(item["content"]); editing = item } label: { Label("Edit", systemImage: "pencil") }
-                        Button(role: .destructive) { c.run { try await c.updateQueue(id, ["kind": "remove"]) } } label: { Label("Remove", systemImage: "trash") }
+                        if !steering { Button { c.run { try await c.updateQueue(id, ["kind": "steer"]) } } label: { Label("Send now", systemImage: "arrow.up") }.disabled(edited) }
+                        if let at, c.canMoveQueued(from: at, to: at - 1) { Button { c.run { try await c.moveQueued(from: at, to: at - 1) } } label: { Label("Move up", systemImage: "arrow.up.to.line") }.disabled(c.movingQueue || editOn) }
+                        if let at, c.canMoveQueued(from: at, to: at + 1) { Button { c.run { try await c.moveQueued(from: at, to: at + 1) } } label: { Label("Move down", systemImage: "arrow.down.to.line") }.disabled(c.movingQueue || editOn) }
+                        // A message with images or files: only when the Mac can keep them (else a save would drop them).
+                        if c.queueEditable(item) { Button { if c.beginQueueEdit(item) { editing = item } } label: { Label("Edit", systemImage: "pencil") }.disabled(c.movingQueue || editOn) }
+                        Button(role: .destructive) { c.run { try await c.updateQueue(id, ["kind": "remove"]) } } label: { Label("Remove", systemImage: "trash") }.disabled(edited)
                     } label: { Image(systemName: "ellipsis").frame(width: 32, height: 32).contentShape(Rectangle()) }
                     .accessibilityLabel("Queued message actions")
                 }
@@ -1164,13 +1166,123 @@ struct ConversationView: View {
         }
         c.run(waits: false) { do { try await c.prompt(t, images: imgs, files: fs) } catch { restore(); throw error } }
     }
+}
 
-    /// Downscale to 1600 px and JPEG-encode so a photo stays well under the gateway's 16 MB body cap.
-    func jpeg(_ d: Data) -> Data? {
-        guard let img = UIImage(data: d) else { return nil }
-        let s = min(1, 1600 / max(img.size.width, img.size.height))
-        let size = CGSize(width: img.size.width * s, height: img.size.height * s)
-        return UIGraphicsImageRenderer(size: size).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }.jpegData(compressionQuality: 0.7)
+/// Downscale to 1600 px and JPEG-encode so a photo stays well under the gateway's 16 MB body cap.
+func jpeg(_ d: Data) -> Data? {
+    guard let img = UIImage(data: d) else { return nil }
+    let s = min(1, 1600 / max(img.size.width, img.size.height))
+    let size = CGSize(width: img.size.width * s, height: img.size.height * s)
+    return UIGraphicsImageRenderer(size: size).image { _ in img.draw(in: CGRect(origin: .zero, size: size)) }.jpegData(compressionQuality: 0.7)
+}
+
+/// Queue edit: the text and the attachments of a queued message. The images and files that you keep stay as they are,
+/// and the message keeps its place in the queue. Remove and add show only when the Mac can keep attachments
+/// (`queue-edit`); else the message is text only.
+struct QueueEditSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let item: J
+    private let atts: [(type: String, id: String, name: String)]
+    @State private var text: String
+    /// Indexes into `atts` that the user removed.
+    @State private var removed = Set<Int>()
+    @State private var images: [Data] = []
+    @State private var files: [Attachment] = []
+    @State private var picks: [PhotosPickerItem] = []
+    @State private var showPhotos = false
+    @State private var importing = false
+    @State private var failed: String?
+    init(item: J) {
+        self.item = item
+        atts = queueAttachments(item["content"]) ?? []
+        _text = State(initialValue: queueEditText(item["content"]))
+    }
+    private var id: String { item["id"] as? String ?? "" }
+    private var kept: [Int] { atts.indices.filter { !removed.contains($0) } }
+    var body: some View {
+        let saving = c.editingQueued?.id == id && c.editingQueued?.saving == true
+        let gone = !c.queued.contains { $0["id"] as? String == id }
+        let canAdd = c.queueEditsAttachments(item)
+        let empty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && kept.isEmpty && images.isEmpty && files.isEmpty
+        NavigationStack {
+            Form {
+                if let failed { Section { Label(failed, systemImage: "exclamationmark.circle.fill").foregroundStyle(.red) } }
+                else if gone && !saving { Section { Text("This message is not in the queue any more. It may have already started sending.").foregroundStyle(.secondary) } }
+                Section { TextField("Message", text: $text, axis: .vertical).lineLimit(3...12) }
+                if !atts.isEmpty || canAdd {
+                    Section {
+                        if !kept.isEmpty || !images.isEmpty || !files.isEmpty { ScrollView(.horizontal) { HStack { tiles } } }
+                        if canAdd {
+                            Menu {
+                                Button { showPhotos = true } label: { Label("Photos", systemImage: "photo") }
+                                Button { importing = true } label: { Label("Files", systemImage: "doc") }
+                            } label: { Label("Add photo or file", systemImage: "plus") }
+                        }
+                    } header: { Text("Attachments") }
+                }
+                if saving, let s = c.sendStatus { Section { HStack(spacing: 8) { ProgressView(); Text(s) }.foregroundStyle(.secondary) } }
+            }
+            .disabled(saving)
+            .navigationTitle("Edit queued message").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(saving) }
+                ToolbarItem(placement: .confirmationAction) {
+                    if saving { ProgressView() } else { Button("Save") { save() }.disabled(gone || empty) }
+                }
+            }
+            .photosPicker(isPresented: $showPhotos, selection: $picks, maxSelectionCount: 4, matching: .images)
+            .fileImporter(isPresented: $importing, allowedContentTypes: [.item], allowsMultipleSelection: true) { res in
+                do { for url in try res.get() { files.append(try Attachment.load(url)) } } catch { failed = userText(error) }
+            }
+            .onChange(of: picks) { _, items in
+                Task {
+                    for it in items { if let d = try? await it.loadTransferable(type: Data.self), let j = jpeg(d) { images.append(j) } }
+                    picks = []
+                }
+            }
+        }
+        .interactiveDismissDisabled(saving)
+    }
+    @ViewBuilder private var tiles: some View {
+        ForEach(kept, id: \.self) { i in
+            let a = atts[i]
+            if a.type == "image" {
+                Thumb(id: a.id, size: CGSize(width: 64, height: 64), zooms: false).overlay(alignment: .topTrailing) { remove("Remove image") { removed.insert(i) } }
+            } else { chip(a.name) { removed.insert(i) } }
+        }
+        ForEach(images.indices, id: \.self) { i in
+            Image(uiImage: UIImage(data: images[i]) ?? UIImage()).resizable().scaledToFill().frame(width: 64, height: 64)
+                .clipShape(RoundedRectangle(cornerRadius: 8)).accessibilityLabel("Image")
+                .overlay(alignment: .topTrailing) { remove("Remove image") { images.remove(at: i) } }
+        }
+        ForEach(files) { f in chip(f.name) { files.removeAll { $0.id == f.id } } }
+    }
+    private func remove(_ label: LocalizedStringKey, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: "xmark.circle.fill") }
+            .buttonStyle(.borderless).accessibilityLabel(label)
+    }
+    private func chip(_ name: String, _ onRemove: @escaping () -> Void) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "doc").foregroundStyle(.secondary)
+            Text(verbatim: name).font(.footnote).lineLimit(1).frame(maxWidth: 140)
+            Button(action: onRemove) { Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary) }
+                .buttonStyle(.borderless).accessibilityLabel("Remove \(name)")
+        }
+        .padding(.horizontal, 10).frame(height: 64).background(Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 8))
+    }
+    private func save() {
+        let t = text, keep = kept.map { atts[$0].id }, imgs = images, fs = files
+        failed = nil
+        Task {
+            // The Mac's 409: the message changed or started to send since the editor opened, so this editor is stale: it
+            // closes and the reason shows on the chat. Another failure keeps the editor open with your changes and shows
+            // the reason here (the toast is under the sheet).
+            do { if try await c.saveQueued(item, text: t, keep: keep, images: imgs, files: fs) { dismiss() } }
+            catch is CancellationError {}
+            catch let f as Fail where f.status == 409 { c.error = userText(f); dismiss() }
+            catch { failed = userText(error) }
+        }
     }
 }
 
@@ -1402,6 +1514,9 @@ struct TurnRow: View {
 struct Thumb: View {
     @EnvironmentObject var c: Client
     let id: String
+    var size = CGSize(width: 120, height: 160)
+    /// A tap opens the image full screen (not in the queue editor: the cover would close the sheet's own view).
+    var zooms = true
     @State private var img: UIImage?
     @State private var failed = false
     @State private var full = false
@@ -1411,11 +1526,11 @@ struct Thumb: View {
             else if failed { Image(systemName: "photo").font(.title2).foregroundStyle(.secondary) }
             else { ProgressView() }
         }
-        .frame(width: 120, height: 160).background(Color(.secondarySystemFill))
+        .frame(width: size.width, height: size.height).background(Color(.secondarySystemFill))
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .contentShape(Rectangle())
-        .onTapGesture { if img != nil { full = true } }
-        .accessibilityElement().accessibilityLabel("Image").accessibilityAddTraits(.isButton)
+        .onTapGesture { if zooms, img != nil { full = true } }
+        .accessibilityElement().accessibilityLabel("Image").accessibilityAddTraits(zooms ? .isButton : [])
         .task { img = await c.image(id); failed = img == nil }
         .fullScreenCover(isPresented: $full) {
             if let img { ImageViewer(img: img) { full = false } }
@@ -2324,7 +2439,8 @@ struct BranchBar: View {
 }
 
 /// Changes panel: the chat's git changes, by mode; tap a file for its diff. Refreshes every 4 s while open. The branch
-/// name (and the Tree button) opens the branch list.
+/// name (and the Tree button) opens the branch map. When the Mac has the map (`map`), the sheet opens on it, as the
+/// desktop panel does: Back (Changes) shows the modes.
 struct ChangesSheet: View {
     @EnvironmentObject var c: Client
     @Environment(\.dismiss) private var dismiss
@@ -2334,13 +2450,16 @@ struct ChangesSheet: View {
     @AppStorage("changesHideWhitespace") private var ws = false
     @State private var data: J?
     @State private var failed: String?
-    @State private var showTree = false
+    private enum Page: Hashable { case map }
+    /// A path, not a flag: a stack that starts with a page shows it at once (no push animation over the modes).
+    @State private var path: [Page]
     @State private var fileChats: String?
+    init(sessionId: String, map: Bool) { self.sessionId = sessionId; _path = State(initialValue: map ? [.map] : []) }
     private var hasFileChats: Bool { c.plus.contains("file-chats") }
     private static let modes: [(id: String, label: LocalizedStringKey)] = [("uncommitted", "Uncommitted"), ("unstaged", "Unstaged"), ("staged", "Staged"), ("branch", "Branch"), ("chat", "This chat")]
     private var hasTree: Bool { c.plus.contains("graph") }
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             List {
                 // Five modes do not fit the phone's width as segments (Branch and This chat were off screen): a menu row
                 // shows the current mode and lists all five.
@@ -2369,14 +2488,14 @@ struct ChangesSheet: View {
                             if more > 0 { Text("\(more) more file(s) not shown").font(.footnote).foregroundStyle(.secondary) }
                         } header: {
                             HStack {
-                                // The branch name opens Tree (the branches), as the branch chip on the Mac does.
-                                Button { showTree = true } label: {
+                                // The branch name opens Tree (the branch map), as the branch chip on the Mac does.
+                                Button { path = [.map] } label: {
                                     HStack(spacing: 4) {
                                         Text(d["branch"] as? String ?? "")
                                         if let u = d["upstream"] as? String { Text("→ \(u)") }
                                         if hasTree { Image(systemName: "point.3.connected.trianglepath.dotted") }
                                     }
-                                }.disabled(!hasTree).accessibilityHint(hasTree ? Text("Show the branches") : Text(""))
+                                }.disabled(!hasTree).accessibilityHint(hasTree ? Text("Show the branch map") : Text(""))
                                 Spacer()
                                 Text("+\(d["added"] as? Int ?? 0)").foregroundStyle(.green); Text("−\(d["deleted"] as? Int ?? 0)").foregroundStyle(.red)
                             }.font(.caption.monospacedDigit())
@@ -2386,10 +2505,10 @@ struct ChangesSheet: View {
             }
             .navigationTitle("Changes").navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                if hasTree { ToolbarItem(placement: .topBarLeading) { Button("Tree") { showTree = true } } }
+                if hasTree { ToolbarItem(placement: .topBarLeading) { Button("Tree") { path = [.map] } } }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
-            .navigationDestination(isPresented: $showTree) { TreeView(sessionId: sessionId) }
+            .navigationDestination(for: Page.self) { _ in TreeView(sessionId: sessionId, done: { dismiss() }) }
             .navigationDestination(item: $fileChats) { FileChatsView(sessionId: sessionId, path: $0, done: { dismiss() }) }
             .refreshable { await load() }
             // the desktop panel refreshes every 4 s while it is on screen; This chat reads the chat's log: every 15 s
@@ -2442,28 +2561,138 @@ struct RefTag: View {
     }
 }
 
-/// Changes → Tree: the branches (local first, then remote), each with its last commit; tap one for its commits.
+/// Changes → Tree: the branch map, as on the Mac in a phone form. Three count cards (a tap shows only those branches, a
+/// second tap all again), then a box for each branch in tree order (the main branch first, each branch under its target,
+/// indented by its level): blue = the main branch, green = the main branch has its work, orange = not yet. Under a box:
+/// the arrow to its target (solid: merged, dashed: waiting) and a pill: ✅ Merged opens the merge commit's files,
+/// ⏳ Waiting the files that the branch brings into its target. A box opens the branch's commits. A Mac from before the
+/// map (no `state`) gets the old list: local branches, then remote ones.
 struct TreeView: View {
     @EnvironmentObject var c: Client
+    @Environment(\.dynamicTypeSize) private var typeSize
     let sessionId: String
+    /// Closes the Changes sheet (the map can be its first screen, so it needs its own Done).
+    let done: () -> Void
     @State private var branches: [GraphBranch] = []
     @State private var more = false
+    @State private var partial = false
     @State private var loaded = false
     @State private var failed: String?
+    /// The count card that filters the map: "all", "merged" or "waiting".
+    @State private var filter = "all"
+    private enum Open: Hashable { case branch(GraphBranch), merge(GraphBranch), pending(GraphBranch) }
+    @State private var open: Open?
+    private var isMap: Bool { loaded && failed == nil && branches.contains { !$0.state.isEmpty } }
     var body: some View {
-        List {
-            if let failed { Text(failed).foregroundStyle(.secondary) }
-            else if !loaded { ProgressView().frame(maxWidth: .infinity) }
-            else if branches.isEmpty { Text("This repository has no commits yet.").foregroundStyle(.secondary) }
-            section("Local branches", branches.filter { $0.kind != "remote" })
-            section("Remote branches", branches.filter { $0.kind == "remote" })
-            if more { Text("Only \(branches.count) branches are shown.").font(.footnote).foregroundStyle(.secondary) }
+        Group {
+            if isMap { map } else {
+                List {
+                    if let failed { Text(failed).foregroundStyle(.secondary) }
+                    else if !loaded { ProgressView().frame(maxWidth: .infinity) }
+                    else if branches.isEmpty { Text("This repository has no commits yet.").foregroundStyle(.secondary) }
+                    section("Local branches", branches.filter { $0.kind != "remote" })
+                    section("Remote branches", branches.filter { $0.kind == "remote" })
+                    if more { Text("Only \(branches.count) branches are shown.").font(.footnote).foregroundStyle(.secondary) }
+                }
+            }
         }
-        .navigationTitle("Branches").navigationBarTitleDisplayMode(.inline)
+        .navigationTitle(isMap || !loaded ? Text("Branch map") : Text("Branches")).navigationBarTitleDisplayMode(.inline)
+        .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", action: done) } }
+        .navigationDestination(item: $open) { o in
+            switch o {
+            case .branch(let b): BranchView(sessionId: sessionId, branch: b)
+            // The merge commit's own subject is not in the map: the header says which branch went where.
+            case .merge(let b): CommitView(sessionId: sessionId, commit: GraphCommit(sha: b.merge ?? "", subject: "✅ \(b.name) → \(name(b.target))"))
+            case .pending(let b): PendingView(sessionId: sessionId, branch: b, target: b.target ?? "", targetName: name(b.target))
+            }
+        }
         .refreshable { await load() }
-        // Each time the list shows again (back from a branch), it reads the branches again.
+        // Each time the map shows again (back from a branch), it reads the branches again.
         .task { await load() }
     }
+    private var map: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                let cards = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))
+                cards {
+                    card("all", branches.count, "Total branches", .primary)
+                    card("merged", branches.filter { $0.state == "merged" }.count, "Merged", .green)
+                    card("waiting", branches.filter { $0.state == "waiting" }.count, "Waiting to merge", .orange)
+                }
+                ForEach(mapFilter(branches, filter)) { node($0.branch).opacity($0.picked ? 1 : 0.45) }
+                if partial { Text("This repository has a long history: only the newest commits were read, so some arrows can be wrong.").font(.footnote).foregroundStyle(.secondary) }
+                if more { Text("Only \(branches.count) branches are shown.").font(.footnote).foregroundStyle(.secondary) }
+                VStack(alignment: .leading, spacing: 4) {
+                    legend(.green, "Green: in the main branch")
+                    legend(.orange, "Orange: not in the main branch yet")
+                    legend(.blue, "Blue: main branch")
+                }.font(.caption).foregroundStyle(.secondary).padding(.top, 4)
+            }
+            .padding()
+        }
+    }
+    private func card(_ id: String, _ count: Int, _ label: LocalizedStringKey, _ tint: Color) -> some View {
+        let on = filter == id
+        return Button { filter = on || id == "all" ? "all" : id } label: {
+            VStack(spacing: 2) {
+                Text("\(count)").font(.title2.weight(.semibold)).monospacedDigit()
+                Text(label).font(.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            }
+            .foregroundStyle(tint).frame(maxWidth: .infinity).padding(.vertical, 10).padding(.horizontal, 4)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+            .overlay { if on && id != "all" { RoundedRectangle(cornerRadius: 12).stroke(tint, lineWidth: 1.5) } }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(Text(label) + Text(verbatim: ": \(count)"))
+        .accessibilityAddTraits(on ? .isSelected : [])
+        .accessibilityHint(on || id == "all" ? Text("Show all branches") : Text("Show only these branches"))
+    }
+    /// One branch: its box, then (when it has a target) the arrow and the Merged or Waiting pill.
+    private func node(_ b: GraphBranch) -> some View {
+        let tint: Color = b.state == "main" ? .blue : b.reached ? .green : .orange
+        return VStack(alignment: .leading, spacing: 4) {
+            Button { open = .branch(b) } label: {
+                BranchRow(b: b).padding(10)
+                    .background(tint.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay { RoundedRectangle(cornerRadius: 12).stroke(tint, lineWidth: b.state == "main" ? 2 : 1.5) }
+                    .contentShape(RoundedRectangle(cornerRadius: 12))
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(boxLabel(b)).accessibilityHint(Text("Show its commits"))
+            if b.state != "main", let t = b.target {
+                let merged = b.state == "merged", to = name(t)
+                HStack(spacing: 6) {
+                    MapArrow().stroke(style: StrokeStyle(lineWidth: 1.25, dash: merged ? [] : [3, 2])).frame(width: 18, height: 14)
+                        .foregroundStyle(.secondary).accessibilityHidden(true)
+                    Text(verbatim: to).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle).accessibilityHidden(true)
+                    Button { open = merged ? .merge(b) : .pending(b) } label: {
+                        (Text(verbatim: merged ? "✅ " : "⏳ ") + (merged ? Text("Merged") : Text("Waiting"))).font(.caption)
+                            .padding(.horizontal, 10).padding(.vertical, 4)
+                            .background(Color(.secondarySystemBackground), in: Capsule())
+                            .overlay { Capsule().stroke(Color.secondary.opacity(0.35)) }
+                    }
+                    .buttonStyle(.plain)
+                    // A fast-forward has no merge commit: nothing to open.
+                    .disabled(merged && b.merge == nil)
+                    .accessibilityLabel(merged ? Text("Merged into \(to)") : Text("Waiting to merge into \(to)"))
+                    .accessibilityHint(merged ? (b.merge == nil ? Text("") : Text("Show the files of the merge commit")) : Text("Show the files that \(b.name) brings into \(to)"))
+                    Spacer(minLength: 0)
+                }
+                .padding(.leading, 12)
+            }
+        }
+        // ponytail: the indent stops at level 5, so a deep tree still fits a phone's width.
+        .padding(.leading, CGFloat(min(b.level, 5)) * 14)
+    }
+    private func legend(_ tint: Color, _ text: LocalizedStringKey) -> some View {
+        HStack(spacing: 6) { RoundedRectangle(cornerRadius: 3).stroke(tint, lineWidth: 2).frame(width: 10, height: 10).accessibilityHidden(true); Text(text) }
+    }
+    /// The box as VoiceOver reads it: name, current, its color's meaning, last commit.
+    private func boxLabel(_ b: GraphBranch) -> String {
+        let state = b.state == "main" ? String(localized: "Main branch") : b.reached ? String(localized: "In the main branch") : String(localized: "Not in the main branch yet")
+        return ([b.name] + (b.current ? [String(localized: "current")] : []) + [state, b.subject]).filter { !$0.isEmpty }.joined(separator: ", ")
+    }
+    private func name(_ ref: String?) -> String { branches.first { $0.ref == ref }?.name ?? ref ?? "" }
     @ViewBuilder private func section(_ title: LocalizedStringKey, _ list: [GraphBranch]) -> some View {
         if !list.isEmpty {
             Section(title) {
@@ -2475,8 +2704,58 @@ struct TreeView: View {
         do {
             let d = try await c.plusCall("graph", query: ["sessionId": sessionId])
             if d["repo"] as? Bool == false { failed = String(localized: "This chat's folder is not a git repository."); return }
-            branches = (d["branches"] as? [J] ?? []).compactMap(GraphBranch.init); more = d["more"] as? Bool == true; failed = nil; loaded = true
+            branches = (d["branches"] as? [J] ?? []).compactMap(GraphBranch.init); more = d["more"] as? Bool == true
+            partial = d["partial"] as? Bool == true; failed = nil; loaded = true
         } catch is CancellationError {} catch { failed = String(localized: "Could not read changes.") + " " + userText(error) }
+    }
+}
+
+/// The map's arrow from a branch to its target: down, then right, with a head (dashed while the branch waits).
+struct MapArrow: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.minX + 2, y: r.minY)); p.addLine(to: CGPoint(x: r.minX + 2, y: r.midY)); p.addLine(to: CGPoint(x: r.maxX, y: r.midY))
+        p.move(to: CGPoint(x: r.maxX - 4, y: r.midY - 4)); p.addLine(to: CGPoint(x: r.maxX, y: r.midY)); p.addLine(to: CGPoint(x: r.maxX - 4, y: r.midY + 4))
+        return p
+    }
+}
+
+/// Changes → Tree → ⏳ Waiting: the files that a branch brings into its target (from their merge base); tap one for its diff.
+struct PendingView: View {
+    @EnvironmentObject var c: Client
+    let sessionId: String, branch: GraphBranch, target: String, targetName: String
+    @AppStorage("changesHideWhitespace") private var ws = false
+    @State private var data: J?
+    @State private var failed: String?
+    var body: some View {
+        List {
+            Section {
+                Text(verbatim: "⏳ \(branch.name) → \(targetName)").font(.subheadline.weight(.semibold))
+                Text("Show the files that \(branch.name) brings into \(targetName)").font(.caption).foregroundStyle(.secondary)
+            }
+            if let failed { Text(failed).foregroundStyle(.secondary) }
+            else if let d = data {
+                let files = d["files"] as? [J] ?? []
+                Section {
+                    if files.isEmpty { Text("This branch brings no file changes into \(targetName).").foregroundStyle(.secondary) }
+                    ForEach(files.indices, id: \.self) { i in
+                        let f = files[i], path = f["path"] as? String ?? ""
+                        NavigationLink { DiffView(sessionId: sessionId, mode: "pending", path: path, pending: (branch.ref, target)) } label: { ChangedFileRow(f: f) }
+                    }
+                    let more = (d["total"] as? Int ?? files.count) - files.count
+                    if more > 0 { Text("\(more) more file(s) not shown").font(.footnote).foregroundStyle(.secondary) }
+                } header: {
+                    HStack { Spacer(); Text("+\(d["added"] as? Int ?? 0)").foregroundStyle(.green); Text("−\(d["deleted"] as? Int ?? 0)").foregroundStyle(.red) }.font(.caption.monospacedDigit())
+                }
+            } else { ProgressView().frame(maxWidth: .infinity) }
+        }
+        .navigationTitle(branch.name).navigationBarTitleDisplayMode(.inline)
+        .refreshable { await load() }
+        .task(id: ws) { await load() }
+    }
+    private func load() async {
+        do { data = try await c.plusCall("changes", query: changesQuery(sessionId, mode: "pending", ws: ws, pending: (branch.ref, target))); failed = nil }
+        catch is CancellationError {} catch { data = nil; failed = String(localized: "Could not read changes.") + " " + userText(error) }
     }
 }
 
@@ -2591,6 +2870,8 @@ struct DiffView: View {
     @EnvironmentObject var c: Client
     let sessionId: String, mode: String, path: String
     var commit: String? = nil
+    /// Mode "pending": the branch and its target.
+    var pending: (ref: String, target: String)? = nil
     @AppStorage("changesHideWhitespace") private var ws = false
     @State private var d: J?
     @State private var failed: String?
@@ -2614,7 +2895,7 @@ struct DiffView: View {
         }
         .navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
         .task(id: ws) {
-            do { d = try await c.plusCall("diff", query: changesQuery(sessionId, mode: mode, ws: ws, commit: commit, path: path)) }
+            do { d = try await c.plusCall("diff", query: changesQuery(sessionId, mode: mode, ws: ws, commit: commit, path: path, pending: pending)) }
             catch { failed = userText(error) }
         }
     }

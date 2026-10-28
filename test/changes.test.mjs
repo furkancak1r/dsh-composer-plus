@@ -4,7 +4,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { changes, fileDiff, parseNumstat, parseRefs, branchList, branchCommits, isBranchRef, runGit, grantsStore, apply, CHANGES_PATH, DIFF_PATH, GRAPH_PATH, GRANTS_PATH } from '../index.js';
+import { changes, fileDiff, parseNumstat, parseRefs, branchList, branchCommits, branchMap, branchMapOf, isBranchRef, runGit, grantsStore, apply, MAP_BRANCHES, CHANGES_PATH, DIFF_PATH, GRAPH_PATH, GRANTS_PATH } from '../index.js';
 
 const subprocess = {
   resolveExecutable: async () => execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(),
@@ -167,6 +167,107 @@ try {
     w = await changes(subprocess, wsRepo, 'uncommitted', undefined, undefined, { paths: [] });
     assert.deepEqual([w.repo, w.total], [true, 0]);
   }
+  // The branch map (as the owner's sketch): feature/login → develop (merged), feature/report from develop (waiting),
+  // hotfix/payment → main (merged), develop → main (merged); origin/main has a local main, so it is not shown; a
+  // remote-only branch is.
+  {
+    const map = join(root, 'map'); mkdirSync(map); let n = 0;
+    const mg = (...a) => execFileSync('git', a, { cwd: map, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t',
+      GIT_AUTHOR_DATE: `2026-10-${10 + n} 10:00:00`, GIT_COMMITTER_DATE: `2026-10-${10 + n} 10:00:00` } });
+    const c = (file, msg) => { writeFileSync(join(map, file), msg + '\n'); mg('add', file); mg('commit', '-qm', msg); n++; };
+    mg('init', '-q', '-b', 'main'); c('README.md', 'init');
+    mg('checkout', '-qb', 'develop'); c('dev.txt', 'develop work');
+    mg('checkout', '-qb', 'feature/login'); c('login.ts', 'login');
+    mg('checkout', '-q', 'develop'); mg('merge', '-q', '--no-ff', 'feature/login', '-m', 'Merge login'); n++;
+    mg('checkout', '-qb', 'feature/report'); c('report.ts', 'report');
+    mg('checkout', '-q', 'main'); mg('checkout', '-qb', 'hotfix/payment'); c('pay.ts', 'pay');
+    mg('checkout', '-q', 'main'); mg('merge', '-q', '--no-ff', 'hotfix/payment', '-m', 'Merge hotfix'); n++;
+    mg('merge', '-q', '--no-ff', 'develop', '-m', 'Merge develop'); n++;
+    mg('checkout', '-qb', 'ff-done'); c('ff.txt', 'ff'); mg('checkout', '-q', 'main'); mg('merge', '-q', '--ff-only', 'ff-done'); // no merge commit
+    mg('branch', 'fresh'); // a new branch at main's tip; main moves past it below, so it counts as a fast-forward merge
+    c('after.txt', 'after'); mg('branch', 'fresh-now'); // main moved past ff-done; fresh-now is at main's tip again
+    mg('update-ref', 'refs/remotes/origin/main', 'main'); mg('update-ref', 'refs/remotes/origin/spike', 'feature/report~1');
+    mg('checkout', '-q', 'feature/report');
+    const m = await branchMapOf(subprocess, map);
+    const of = (name) => m.branches.find((b) => b.name === name);
+    assert.equal(m.main, 'refs/heads/main', 'main: main (origin has no HEAD)'); assert.equal(m.partial, false); assert.equal(m.more, false);
+    assert.equal(of('origin/main'), undefined, 'a remote branch with a local one is not shown'); assert.ok(of('origin/spike'), 'a remote-only branch is');
+    assert.deepEqual([of('main').state, of('main').level, of('main').reached], ['main', 0, true]);
+    const merged = (name) => { const b = of(name); return [b.state, b.target, b.reached, b.merge === undefined ? undefined : mg('log', '-1', '--format=%s', b.merge).trim(), b.level]; };
+    assert.deepEqual(merged('develop'), ['merged', 'refs/heads/main', true, 'Merge develop', 1]);
+    assert.deepEqual(merged('hotfix/payment'), ['merged', 'refs/heads/main', true, 'Merge hotfix', 1]);
+    assert.deepEqual(merged('fresh'), ['merged', 'refs/heads/main', true, undefined, 1], 'main moved past it: a fast-forward, as git sees it');
+    assert.deepEqual(merged('feature/login'), ['merged', 'refs/heads/develop', true, 'Merge login', 2], 'login: develop merged it first');
+    assert.deepEqual(merged('feature/report'), ['waiting', 'refs/heads/develop', false, undefined, 2], 'report started from develop');
+    assert.equal(of('feature/report').current, true);
+    assert.deepEqual(merged('ff-done'), ['merged', 'refs/heads/main', true, undefined, 1], 'a fast-forward: on main, no merge commit');
+    assert.deepEqual(merged('fresh-now'), ['waiting', 'refs/heads/main', true, undefined, 1], 'same commit as main: waiting');
+    assert.deepEqual(merged('origin/spike'), ['merged', 'refs/heads/main', true, 'Merge develop', 1], 'at develop\'s tip: report only started there, main merged it');
+    assert.equal(m.branches[0].name, 'feature/report', 'the list order (the current branch first) is kept');
+    // Pending: the files that report brings into develop, from their merge base; a diff of one; a gone branch.
+    const pending = { ref: 'refs/heads/feature/report', target: 'refs/heads/develop' };
+    let p = await changes(subprocess, map, 'pending', undefined, undefined, { pending });
+    assert.deepEqual([p.mode, p.files.map((x) => [x.path, x.added]), p.total], ['pending', [['report.ts', 1]], 1]);
+    writeFileSync(join(map, 'loose.txt'), 'x\n'); // untracked files are not part of a branch
+    p = await changes(subprocess, map, 'pending', undefined, undefined, { pending }); assert.deepEqual(p.files.map((x) => x.path), ['report.ts']);
+    assert.match((await fileDiff(subprocess, map, 'pending', 'report.ts', undefined, undefined, { pending })).patch, /^\+report$/m);
+    assert.equal(await fileDiff(subprocess, map, 'pending', 'pay.ts', undefined, undefined, { pending }), undefined, 'only the listed files');
+    assert.equal((await changes(subprocess, map, 'pending', undefined, undefined, { pending: { ...pending, ref: 'refs/heads/gone' } })).gone, true);
+    assert.equal((await changes(subprocess, map, 'pending', undefined, undefined, { pending: { ref: 'refs/heads/develop', target: 'refs/heads/main' } })).total, 0, 'merged: nothing to bring');
+    for (const bad of [{ ref: 'refs/heads/feature/report~1', target: 'refs/heads/develop' }, { ref: '--output=/tmp/x', target: 'refs/heads/develop' }, { ref: 'refs/heads/develop' }]) {
+      if (isBranchRef(bad.ref) && isBranchRef(bad.target)) assert.equal((await changes(subprocess, map, 'pending', undefined, undefined, { pending: bad })).gone, true, 'a revision expression is no ref');
+      else await assert.rejects(changes(subprocess, map, 'pending', undefined, undefined, { pending: bad }), /two branches/);
+    }
+    // A file named HEAD in the project does not break the map (git gets `--` after the revisions).
+    writeFileSync(join(map, 'HEAD'), 'x\n'); mg('add', 'HEAD'); mg('commit', '-qm', 'a file named HEAD'); n++;
+    assert.equal((await branchMapOf(subprocess, map)).main, 'refs/heads/main', 'a file named HEAD');
+    // A default branch of origin wins; then master; then the open branch.
+    mg('symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/spike');
+    assert.equal((await branchMapOf(subprocess, map)).main, 'refs/remotes/origin/spike', "origin's default branch");
+    mg('symbolic-ref', '--delete', 'refs/remotes/origin/HEAD');
+    // More shapes, each in a new repository: siblings from an unmoved develop, a target that moved on, an octopus merge,
+    // a criss-cross merge, a detached HEAD.
+    const shape = async (build) => {
+      const dir = mkdtempSync(join(root, 'shape-')); let k = 0;
+      const sg = (...a) => execFileSync('git', a, { cwd: dir, encoding: 'utf8', env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t',
+        GIT_AUTHOR_DATE: `2026-10-${10 + k} 10:00:00`, GIT_COMMITTER_DATE: `2026-10-${10 + k} 10:00:00` } });
+      const sc = (file, msg) => { writeFileSync(join(dir, file), msg + '\n'); sg('add', file); sg('commit', '-qm', msg); k++; };
+      sg('init', '-q', '-b', 'main'); sc('a.txt', 'init');
+      build(sg, sc, () => k++);
+      const v = await branchMapOf(subprocess, dir);
+      return Object.fromEntries(v.branches.map((b) => [b.name, [b.state, (b.target ?? '').replace(/^refs\/heads\//, ''), !!b.merge, b.level]]));
+    };
+    let got = await shape((sg, sc) => { sg('checkout', '-qb', 'develop'); sc('d.txt', 'd1');
+      sg('checkout', '-qb', 'feature/a'); sc('fa.txt', 'a1'); sc('fa.txt', 'a2'); sg('checkout', '-q', 'develop'); sg('checkout', '-qb', 'feature/b'); sc('fb.txt', 'b1'); sg('checkout', '-q', 'main'); });
+    assert.deepEqual([got['feature/a'], got['feature/b']], [['waiting', 'develop', false, 2], ['waiting', 'develop', false, 2]], 'siblings point to develop, not to each other');
+    got = await shape((sg, sc, tick) => { sg('checkout', '-qb', 'develop'); sc('d.txt', 'd1'); sg('checkout', '-qb', 'feature/a'); sc('fa.txt', 'a1');
+      sg('checkout', '-q', 'develop'); sg('merge', '-q', '--no-ff', 'feature/a', '-m', 'M'); tick(); sg('checkout', '-qb', 'feature/b'); sc('fb.txt', 'b1');
+      sg('checkout', '-q', 'develop'); sc('d.txt', 'd2'); sg('checkout', '-q', 'main'); });
+    assert.deepEqual(got['feature/a'], ['merged', 'develop', true, 2], 'develop merged it, although feature/b started from that merge');
+    assert.deepEqual([got.develop, got['feature/b']], [['waiting', 'main', false, 1], ['waiting', 'develop', false, 2]], 'develop took a branch: it never starts from feature/b');
+    got = await shape((sg, sc, tick) => { sg('checkout', '-qb', 'x'); sc('x.txt', 'x'); sg('checkout', '-q', 'main'); sg('checkout', '-qb', 'y'); sc('y.txt', 'y');
+      sg('checkout', '-q', 'main'); sg('merge', '-q', '--no-ff', 'x', 'y', '-m', 'octopus'); tick(); });
+    assert.deepEqual([got.x, got.y], [['merged', 'main', true, 1], ['merged', 'main', true, 1]], 'an octopus merge takes both');
+    got = await shape((sg, sc, tick) => { sg('checkout', '-qb', 'b'); sc('b.txt', 'b1'); sg('checkout', '-q', 'main'); sc('m.txt', 'm1');
+      sg('merge', '-q', '--no-ff', 'b', '-m', 'main takes b'); tick(); sg('checkout', '-q', 'b'); sg('merge', '-q', '--no-ff', 'main~1', '-m', 'b takes main'); tick(); sc('b2.txt', 'b2'); sg('checkout', '-q', 'main'); });
+    assert.deepEqual(got.b, ['waiting', 'main', false, 1], 'criss-cross: b has new work, no cycle');
+    got = await shape((sg, sc) => { sc('b.txt', 'two'); sg('checkout', '-q', '--detach', 'HEAD~1'); });
+    assert.deepEqual(got.HEAD, ['merged', 'main', false, 1], 'a detached HEAD behind main');
+    // Pure rules: a cut list keeps the main branch; a tip older than the commits read waits, with no arrow; no cycles.
+    const ids = (k) => k.toString(16).padStart(40, '0');
+    const recs = [{ sha: ids(3), parents: [ids(1)] }, { sha: ids(2), parents: [ids(1)] }, { sha: ids(1), parents: [] }];
+    const list = Array.from({ length: MAP_BRANCHES + 5 }, (_, k) => ({ ref: `refs/heads/b${k}`, name: `b${k}`, kind: 'local', sha: ids(2), time: 0, author: '', subject: '' }));
+    list.push({ ref: 'refs/heads/main', name: 'main', kind: 'local', sha: ids(3), time: 0, author: '', subject: '' }, { ref: 'refs/heads/old', name: 'old', kind: 'local', sha: ids(9), time: 0, author: '', subject: '' });
+    const cut = branchMap(list, recs, 'refs/heads/main');
+    assert.equal(cut.branches.length, MAP_BRANCHES); assert.equal(cut.more, true); assert.equal(cut.branches.at(-1).ref, 'refs/heads/main', 'main stays');
+    assert.ok(cut.branches.slice(0, -1).every((b) => b.state === 'waiting' && b.target === 'refs/heads/main' && b.level === 1), 'same tip: no branch took another');
+    // A merge whose first parent is older than the commits read: the line ends there, the merge is still a merge.
+    const edge = branchMap([{ ref: 'refs/heads/main', name: 'main', kind: 'local', sha: ids(5) }, { ref: 'refs/heads/f', name: 'f', kind: 'local', sha: ids(4) }],
+      [{ sha: ids(5), parents: [ids(99), ids(4)] }, { sha: ids(4), parents: [ids(98)] }], 'refs/heads/main', true).branches[1];
+    assert.deepEqual([edge.state, edge.target, edge.merge], ['merged', 'refs/heads/main', ids(5)]);
+    const old = branchMap(list.slice(-2), recs, 'refs/heads/main', true).branches.find((b) => b.name === 'old');
+    assert.deepEqual([old.state, old.target, old.reached, old.level], ['waiting', undefined, false, 1]);
+  }
   // Renames in numstat -z.
   assert.deepEqual(parseNumstat('1\t2\tx\0' + '0\t0\t\0old\0new\0' + '-\t-\tbin\0'), [
     { path: 'x', added: 1, deleted: 2, binary: false }, { path: 'new', from: 'old', added: 0, deleted: 0, binary: false }, { path: 'bin', added: 0, deleted: 0, binary: true }]);
@@ -189,7 +290,8 @@ try {
   r = await call(DIFF_PATH, 'sessionId=S&mode=uncommitted&path=a.txt'); assert.match((await r.json()).patch, /TWO/);
   r = await call(DIFF_PATH, 'sessionId=S&mode=uncommitted&path=nope'); assert.equal(r.status, 404);
   r = await call(GRAPH_PATH, 'sessionId=S'); assert.equal(r.status, 200);
-  { const v = await r.json(); assert.deepEqual(v.branches.map((b) => b.name), ['local-only', 'main', 'origin/main']); assert.equal(v.branch, 'local-only'); assert.deepEqual(v.lastTurn, { seq: 7, turn: 2 }); }
+  { const v = await r.json(); assert.deepEqual(v.branches.map((b) => [b.name, b.state]), [['local-only', 'waiting'], ['main', 'main']], 'the map; origin/main has a local main');
+    assert.equal(v.main, 'refs/heads/main'); assert.equal(v.branch, 'local-only'); assert.deepEqual(v.lastTurn, { seq: 7, turn: 2 }); }
   r = await call(GRAPH_PATH, 'sessionId=S&ref=refs%2Fheads%2Flocal-only'); assert.equal(r.status, 200);
   { const v = await r.json(); assert.deepEqual(v.commits.map((c) => c.subject), ['b', 'init']); assert.equal(v.ref, 'refs/heads/local-only'); assert.deepEqual(v.lastTurn, { seq: 7, turn: 2 }); }
   r = await call(GRAPH_PATH, 'sessionId=T&ref=HEAD'); assert.equal((await r.json()).commits.length, 5);
@@ -205,6 +307,15 @@ try {
     r = await call(CHANGES_PATH, `sessionId=T&mode=commit${bad}`); assert.equal(r.status, 400, `commit mode refuses "${bad}"`);
   }
   r = await call(CHANGES_PATH, `sessionId=T&mode=staged&commit=${tip}`); assert.equal(r.status, 400, 'a commit only goes with commit mode');
+  // Pending: two branch refs, nothing else; a gone branch is 404.
+  r = await call(CHANGES_PATH, 'sessionId=S&mode=pending&ref=refs%2Fheads%2Fmain&target=refs%2Fremotes%2Forigin%2Fmain'); assert.equal(r.status, 200);
+  { const v = await r.json(); assert.equal(v.mode, 'pending'); assert.deepEqual(v.files.map((x) => x.path), ['b.txt']); assert.deepEqual(v.lastTurn, { seq: 7, turn: 2 }); }
+  r = await call(DIFF_PATH, 'sessionId=S&mode=pending&ref=refs%2Fheads%2Fmain&target=refs%2Fremotes%2Forigin%2Fmain&path=b.txt'); assert.match((await r.json()).patch, /^\+b$/m);
+  r = await call(CHANGES_PATH, 'sessionId=S&mode=pending&ref=refs%2Fheads%2Fgone&target=refs%2Fheads%2Fmain'); assert.equal(r.status, 404, 'a gone branch');
+  for (const bad of ['', '&ref=refs%2Fheads%2Fmain', '&ref=main&target=refs%2Fheads%2Fmain', '&ref=--output%3Dx&target=refs%2Fheads%2Fmain', `&ref=refs%2Fheads%2Fmain&target=refs%2Fheads%2Fmain&commit=${tip}`]) {
+    r = await call(CHANGES_PATH, `sessionId=S&mode=pending${bad}`); assert.equal(r.status, 400, `pending refuses "${bad}"`);
+  }
+  r = await call(CHANGES_PATH, 'sessionId=S&mode=uncommitted&ref=refs%2Fheads%2Fmain'); assert.equal(r.status, 400, 'a ref only goes with pending mode');
   r = await call(CHANGES_PATH, 'sessionId=S&mode=uncommitted&ws=1'); assert.equal(r.status, 200, 'ws=1 hides whitespace');
   for (const bad of ['ws=2', 'ws=', 'ws=true']) { r = await call(CHANGES_PATH, `sessionId=S&mode=uncommitted&${bad}`); assert.equal(r.status, 400, `refuses ${bad}`); }
   r = await call(DIFF_PATH, 'sessionId=S&mode=uncommitted&path=a.txt&ws=1'); assert.match((await r.json()).patch, /TWO/);

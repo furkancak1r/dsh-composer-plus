@@ -142,6 +142,72 @@ const ended = (reason, { start = 4000, goalRound = false } = {}) => [{ type: 'tu
   assert.equal(await wakeSession(s.deps, 'w'), 'continued');
   assert.deepEqual(s.a.inbox.nextTurn, [waiting], 'the queued message waits for its own turn');
   assert.ok(s.a.claimed.every((m) => m.source.kind === 'composer-plus-continue'));
+  // dsh's quit empties the inbox (one `canceled` splice per list, logged in the stopped turn). The queue goes back with the
+  // same messages: the order after a drag, the edited text, the image and the file, and a steer that was not sent yet.
+  // Log shape from a real quit (dsh 0.2.0-rc.2 and 0.2.1-rc.2).
+  {
+    const msg = (id, content) => ({ id, role: 'user', content, source: { kind: 'user', rpcId: `r-${id}` } });
+    const [a, b, c, d] = [msg('a', [{ type: 'text', text: 'alpha' }]), msg('b', [{ type: 'image', attachment: { attachmentId: 'sha256:1', mime: 'image/png' } }, { type: 'text', text: 'bravo' }]),
+      msg('c', [{ type: 'file', attachment: { attachmentId: 'sha256:2', name: 'notes.txt', bytes: 11 } }, { type: 'text', text: 'charlie' }]), msg('d', [{ type: 'text', text: 'delta' }])];
+    const aEdited = { ...a, content: [{ type: 'text', text: 'alpha, edited' }] };
+    const steer = msg('s', [{ type: 'text', text: 'also check the tests' }]);
+    const splice = (seq, target, start, removedCount, inserted, outcome) => ({ type: 'agent/inbox/spliced', seq, data: { target, start, ...(removedCount ? { removedCount } : {}), inserted, ...(outcome ? { outcome } : {}) } });
+    const quitLog = [
+      splice(3, 'next-turn', 0, 0, [msg('t', [{ type: 'text', text: 'task' }])]), { type: 'turn/start', seq: 4, time: 4000 }, splice(5, 'next-turn', 0, 1, []),
+      { type: 'step/start', seq: 6 }, { type: 'user/message', seq: 8, data: { id: 't', source: { kind: 'user' } } },
+      splice(16, 'next-turn', 0, 0, [a]), splice(17, 'next-turn', 1, 0, [b]), splice(18, 'next-turn', 2, 0, [c]), splice(19, 'next-turn', 3, 0, [d]),
+      splice(20, 'next-turn', 0, 4, [d, a, b, c], 'canceled'), // queue drag-and-drop: one splice, the same ids
+      splice(21, 'next-turn', 1, 1, [aEdited], 'canceled'), // Edit in place
+      splice(22, 'next-step', 0, 0, [steer]),
+      splice(23, 'next-step', 0, 1, [], 'canceled'), splice(24, 'next-turn', 0, 4, [], 'canceled'), // the quit
+      { type: 'step/end', seq: 25 }, { type: 'turn/end', seq: 26, time: 9000, data: { reason: { kind: 'interrupted' } } }];
+    const inboxAgent = (s0) => {
+      const lists = { 'next-turn': [], 'next-step': [] };
+      s0.a.inbox = { get nextTurn() { return lists['next-turn']; }, get nextStep() { return lists['next-step']; },
+        splice(target, at, n, ins) { lists[target].splice(at, n, ...ins); }, prepend(target, m) { lists[target].unshift(m); }, remove() { return false; } };
+      // dsh claims every next-step message and the queue head when the continued turn opens.
+      s0.a.steer = function steerFn(m) { lists['next-step'].push(m); this.claimed = [...lists['next-step'].splice(0), ...lists['next-turn'].splice(0, 1)]; };
+      return lists;
+    };
+    s = session(quitLog); let lists = inboxAgent(s);
+    assert.equal(await wakeSession(s.deps, 'w'), 'continued');
+    assert.deepEqual(lists['next-turn'], [d, aEdited, b, c], 'the queue is back: same ids, order after the drag, edited text, image and file');
+    assert.deepEqual(s.a.claimed.map((m) => m.source.kind), ['user', 'composer-plus-continue', 'composer-plus-continue'], 'the unsent steer goes with the continued step; no queued message is claimed');
+    assert.deepEqual(s.a.claimed[0], steer);
+    assert.notEqual(lists['next-turn'][2], b, 'a copy goes back, not the log object');
+    // Not restored: a queue that you emptied before the turn went on (a later step ran), a message already in the chat, a
+    // queue that changed after the clear, someone else's message, a stop by you, an unreadable splice.
+    const removedByYou = [...quitLog.slice(0, 9), splice(19.1, 'next-turn', 0, 4, [], 'canceled'), { type: 'step/start', seq: 19.2 }, quitLog.at(-2), quitLog.at(-1)];
+    s = session(removedByYou); lists = inboxAgent(s); await wakeSession(s.deps, 'w');
+    assert.deepEqual(lists['next-turn'], [], 'your Remove before a later step stays removed');
+    const sent = [...quitLog.slice(0, -2), { type: 'user/message', seq: 24.5, data: { id: 'd', source: { kind: 'user' } } }, ...quitLog.slice(-2)];
+    s = session(sent); lists = inboxAgent(s); await wakeSession(s.deps, 'w');
+    assert.deepEqual(lists['next-turn'], [], 'a message after the clear means the step went on: nothing comes back');
+    const steeredFromQueue = [...quitLog.slice(0, 11), { type: 'user/message', seq: 21.5, data: { id: 'a', source: { kind: 'user' } } }, ...quitLog.slice(11)];
+    s = session(steeredFromQueue); lists = inboxAgent(s); await wakeSession(s.deps, 'w');
+    assert.deepEqual(lists['next-turn'].map((m) => m.id), ['d', 'b', 'c'], 'a queued message already sent does not come back');
+    const refilled = [...quitLog.slice(0, -2), splice(24.5, 'next-turn', 0, 0, [msg('n', [{ type: 'text', text: 'new' }])]), ...quitLog.slice(-2)];
+    s = session(refilled); lists = inboxAgent(s); await wakeSession(s.deps, 'w');
+    assert.deepEqual(lists['next-turn'], [], 'a queue that changed after the clear is not touched');
+    const foreign = quitLog.map((e) => (e.seq === 19 ? splice(19, 'next-turn', 3, 0, [{ ...d, source: { kind: 'goal' } }]) : e.seq === 20 ? splice(20, 'next-turn', 0, 4, [{ ...d, source: { kind: 'goal' } }, a, b, c], 'canceled') : e));
+    s = session(foreign); lists = inboxAgent(s); await wakeSession(s.deps, 'w');
+    assert.deepEqual(lists['next-turn'].map((m) => m.id), ['a', 'b', 'c'], 'only your own messages come back');
+    s = session([...quitLog.slice(0, -1), { ...quitLog.at(-1), data: { reason: { kind: 'aborted', reason: { kind: 'user' } } } }]); lists = inboxAgent(s);
+    assert.equal(await wakeSession(s.deps, 'w'), 'skipped'); assert.deepEqual(lists['next-turn'], [], 'stopped by you: nothing is touched');
+    s = session([...quitLog.slice(0, -3), splice(24, 'next-turn', 'x', 4, [], 'canceled'), ...quitLog.slice(-2)]); lists = inboxAgent(s);
+    assert.equal(await wakeSession(s.deps, 'w'), 'continued'); assert.deepEqual(lists['next-turn'], [], 'an unreadable splice: no guess');
+    // dsh refuses the splice (an id is pending again): the chat still continues.
+    s = session(quitLog); lists = inboxAgent(s); s.a.inbox.splice = () => { throw new Error('message "d" is already pending'); };
+    assert.equal(await wakeSession(s.deps, 'w'), 'continued');
+    // A goal round with a queue: the goal is armed again, and the continue step runs too (dsh's goal driver starts no round
+    // while your messages wait); the queue then runs, then the next goal round.
+    s = session([...quitLog.slice(0, 5), { type: 'user/message', seq: 9, data: { id: 'g', source: { kind: 'goal' } } }, ...quitLog.slice(5)]); lists = inboxAgent(s);
+    const calls = [];
+    const goalSvc = { get: () => ({ id: 'g1', revision: 3, phase: 'active', activation: 'disarmed', updatedAt: 1 }), resume: (_, ref) => calls.push(ref) };
+    assert.equal(await wakeSession({ ...s.deps, goals: goalSvc }, 'w'), 'continued');
+    assert.equal(calls.length, 1, 'the goal is armed again');
+    assert.deepEqual(lists['next-turn'].map((m) => m.id), ['d', 'a', 'b', 'c']);
+  }
   for (const reason of [{ kind: 'aborted', reason: { kind: 'user' } }, { kind: 'completed' }, { kind: 'error' }]) {
     s = session(ended(reason)); assert.equal(await wakeSession(s.deps, 'w'), 'skipped', JSON.stringify(reason)); assert.equal(s.a.steered.length, 0);
   }
