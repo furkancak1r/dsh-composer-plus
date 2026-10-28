@@ -59,6 +59,13 @@ const isLink = (path) => { try { return lstatSync(path).isSymbolicLink(); } catc
   assert.equal(includeMatcher('out.txt').reaches('build'), false, 'only an anchored pattern names a path inside a folder');
   assert.equal(includeMatcher('!build/out.txt').reaches('build'), false);
   assert.equal(includeMatcher('').reaches('x'), false); assert.equal(includeMatcher('')('x', false), false);
+  assert.equal(includeMatcher('[a-c]x.cfg')('bx.cfg', false), true); assert.equal(includeMatcher('[!a-c]x.cfg')('bx.cfg', false), false);
+  assert.equal(includeMatcher('[z-a]x')('zx', false), false, 'a broken range matches nothing');
+  assert.equal(includeMatcher('**')('a/b', false), true); assert.equal(includeMatcher('a\\*')('a*', false), true); assert.equal(includeMatcher('a\\*')('ab', false), false);
+  // A pattern that made the old RegExp backtrack for minutes on a long name (ReDoS) ends at once.
+  const start = Date.now();
+  assert.equal(includeMatcher(`${'*a'.repeat(20)}b\n${'**/a/'.repeat(8)}b`)(`${'a/'.repeat(100)}${'a'.repeat(5000)}`, false), false);
+  assert.ok(Date.now() - start < 1000, `slow pattern took ${Date.now() - start} ms`);
 }
 
 // Branch name fallback: Turkish letters and other accents fold; no word gives the time.

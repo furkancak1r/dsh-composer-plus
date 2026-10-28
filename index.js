@@ -2954,6 +2954,42 @@ export async function listWorktrees(subprocess, cwd, signal, top = undefined) {
   })));
 }
 
+/** One part of a path against the tokens of one pattern part (`*` within the part, `?`, `[set]`, literal), case-sensitive.
+ * The usual wildcard walk that goes back only to the last `*`: at most parts × tokens steps. */
+function partMatch(tokens, s) {
+  const one = (k, c) => k.t === 'one' || (k.t === 'lit' ? k.c === c : k.ranges.some(([lo, hi]) => c >= lo && c <= hi) !== k.not);
+  let t = 0, i = 0, star = -1, mark = 0;
+  while (i < s.length) {
+    const k = tokens[t];
+    if (k?.t === 'star') { star = t++; mark = i; }
+    else if (k !== undefined && one(k, s[i])) { t++; i++; }
+    else if (star !== -1) { t = star + 1; i = ++mark; }
+    else return false;
+  }
+  while (tokens[t]?.t === 'star') t++;
+  return t === tokens.length;
+}
+/** A path (`a/b/c`) against one pattern's segments from `includeMatcher`: `dirs` = any number of whole folders, `all` =
+ * one or more parts (a trailing `/**`), `seg` = one part. Each (segment, part) pair is tried once, so a pattern such as
+ * `*a*a*a*b` cannot backtrack for minutes on a long name, as the RegExp it replaces did. */
+function globMatch(segments, path) {
+  const parts = path.split('/');
+  const seen = new Map();
+  const at = (s, p) => {
+    if (s === segments.length) return p === parts.length;
+    const key = s * (parts.length + 1) + p;
+    if (seen.has(key)) return seen.get(key);
+    const g = segments[s];
+    let ok = false;
+    if (g.t === 'all') ok = p < parts.length;
+    else if (g.t === 'dirs') for (let q = p; q <= parts.length && !ok; q++) ok = at(s + 1, q);
+    else ok = p < parts.length && partMatch(g.tokens, parts[p]) && at(s + 1, p + 1);
+    seen.set(key, ok);
+    return ok;
+  };
+  return at(0, 0);
+}
+
 /** A gitignore-syntax matcher for `.worktreeinclude` (patterns relative to the top folder): `(relPath, isDir) => boolean`.
  * The last matching pattern wins (`!` negates); a path also matches when one of its parent folders matches.
  * `reaches(dir)`: a pattern that includes something names a path below `dir` literally (`build/out.txt` for `build`).
@@ -2971,29 +3007,39 @@ export function includeMatcher(text) {
     const anchored = line.includes('/'); // a slash at the start or in the middle
     if (line.startsWith('/')) line = line.slice(1);
     if (line === '') continue;
-    let re = '';
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (c === '*' && line[i + 1] === '*' && (i === 0 || line[i - 1] === '/') && (i + 2 === line.length || line[i + 2] === '/')) {
-        if (i + 2 === line.length) { re += '.*'; i += 1; } // trailing /**: everything inside
-        else { re += '(?:.*/)?'; i += 2; } // leading **/ or middle /**/: any number of folders
-      } else if (c === '*') re += '[^/]*';
-      else if (c === '?') re += '[^/]';
-      else if (c === '[' && line.indexOf(']', i + 2) !== -1) {
-        const end = line.indexOf(']', i + 2);
-        const set = line.slice(i + 1, end);
-        const not = /^[!^]/.test(set);
-        re += `(?!/)[${not ? '^' : ''}${(not ? set.slice(1) : set).replace(/[\\\]\[^]/g, '\\$&')}]`;
-        i = end;
-      } else if (c === '\\' && i + 1 < line.length) re += line[++i].replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
-      else re += c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
-    }
-    try { rules.push({ negate, dirOnly, source: line, re: new RegExp(anchored ? `^${re}$` : `(?:^|/)${re}$`) }); } catch { /* a broken pattern matches nothing */ }
+    // Segments, not a RegExp: a RegExp of `*a*a*a…b` backtracked for minutes on a long name (see `globMatch`).
+    const segments = anchored ? [] : [{ t: 'dirs' }]; // no slash: at any depth
+    let broken = false;
+    line.split('/').forEach((part, n, parts) => {
+      // `**` as a whole segment: any number of folders, or at the end everything inside (not the folder itself).
+      if (part === '**') { segments.push({ t: n === parts.length - 1 ? 'all' : 'dirs' }); return; }
+      const tokens = [];
+      for (let i = 0; i < part.length; i++) {
+        const c = part[i];
+        if (c === '*') { if (tokens.at(-1)?.t !== 'star') tokens.push({ t: 'star' }); }
+        else if (c === '?') tokens.push({ t: 'one' });
+        else if (c === '[' && part.indexOf(']', i + 2) !== -1) {
+          const end = part.indexOf(']', i + 2);
+          let set = part.slice(i + 1, end);
+          const not = /^[!^]/.test(set);
+          if (not) set = set.slice(1);
+          const ranges = [];
+          for (let j = 0; j < set.length; j++) {
+            if (set[j + 1] === '-' && j + 2 < set.length) { ranges.push([set[j], set[j + 2]]); j += 2; } else ranges.push([set[j], set[j]]);
+          }
+          if (ranges.some(([lo, hi]) => lo > hi)) broken = true;
+          tokens.push({ t: 'set', not, ranges });
+          i = end;
+        } else tokens.push({ t: 'lit', c: c === '\\' && i + 1 < part.length ? part[++i] : c });
+      }
+      segments.push({ t: 'seg', tokens });
+    });
+    if (!broken) rules.push({ negate, dirOnly, source: line, segments }); // a broken pattern ([z-a]) matches nothing
   }
   // The last rule that names `path` itself: true (include), false (`!` exclude) or undefined (none).
   const test = (path, isDir) => {
     let hit;
-    for (const r of rules) if ((isDir || !r.dirOnly) && r.re.test(path)) hit = !r.negate;
+    for (const r of rules) if ((isDir || !r.dirOnly) && globMatch(r.segments, path)) hit = !r.negate;
     return hit;
   };
   const match = (relPath, isDir) => {
