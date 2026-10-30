@@ -1564,7 +1564,7 @@
     "feature.notifications": "Hintergrundbenachrichtigungen",
     "feature.notifications.description": "Benachrichtigen, wenn ein Chat fertig ist oder Sie braucht, während dsh im Hintergrund läuft – mit Kennzeichen im Dock.",
     "feature.idleSwitch": "Wartenden Chat bei Inaktivität öffnen",
-    "feature.idleSwitch.description": "Wenn ein Chat eine Frage stellt oder auf eine Genehmigung oder eine Planprüfung wartet (orangefarbener Punkt) und Sie dsh 30 Sekunden lang nicht benutzen, öffnet dsh diesen Chat. Der Chat, der am längsten wartet, öffnet sich zuerst. Es wird nicht gewechselt, während Sie tippen, scrollen, die Maus bewegen, Text markieren oder ein Menü offen ist.",
+    "feature.idleSwitch.description": "Wenn ein Chat eine Frage stellt oder auf eine Genehmigung oder eine Planprüfung wartet (orangefarbener Punkt) oder eine Runde beendet, die Sie noch nicht gelesen haben (grüner Punkt), und Sie dsh 30 Sekunden lang nicht benutzen, öffnet dsh diesen Chat. Orangefarbene Chats öffnen sich vor grünen; in jeder Gruppe öffnet sich zuerst der Chat, der am längsten wartet. Es wird nicht gewechselt, während Sie tippen, scrollen, die Maus bewegen, Text markieren oder ein Menü offen ist.",
     "feature.allowForChat": "Für diesen Chat zulassen",
     "feature.allowForChat.description": "„Für diesen Chat zulassen“ zu Genehmigungen der automatischen Prüfung hinzufügen und freigegebene Tools automatisch zulassen. Eine Freigabe endet nach dem Zeitlimit unten (standardmäßig 1 Stunde); danach fragt der Agent wieder.",
     "feature.continueButton": "Fortsetzen mit einem Klick",

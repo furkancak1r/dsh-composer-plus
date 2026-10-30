@@ -1564,7 +1564,7 @@
     "feature.notifications": "Notifikasi latar belakang",
     "feature.notifications.description": "Beri notifikasi saat obrolan selesai atau memerlukan Anda ketika dsh berada di latar belakang, dengan lencana Dock.",
     "feature.idleSwitch": "Buka obrolan yang menunggu saat tidak aktif",
-    "feature.idleSwitch.description": "Saat obrolan mengajukan pertanyaan atau menunggu persetujuan atau tinjauan rencana (titik oranye) dan Anda tidak menggunakan dsh selama 30 detik, dsh membuka obrolan itu. Obrolan yang paling lama menunggu dibuka lebih dulu. Tidak berpindah saat Anda mengetik, menggulir, menggerakkan mouse, memilih teks, atau saat menu terbuka.",
+    "feature.idleSwitch.description": "Saat obrolan mengajukan pertanyaan atau menunggu persetujuan atau tinjauan rencana (titik oranye), atau menyelesaikan giliran yang belum Anda baca (titik hijau), dan Anda tidak menggunakan dsh selama 30 detik, dsh membuka obrolan itu. Obrolan oranye dibuka sebelum obrolan hijau; di setiap kelompok, obrolan yang paling lama menunggu dibuka lebih dulu. Tidak berpindah saat Anda mengetik, menggulir, menggerakkan mouse, memilih teks, atau saat menu terbuka.",
     "feature.allowForChat": "Izinkan untuk obrolan ini",
     "feature.allowForChat.description": "Tambahkan “Izinkan untuk obrolan ini” ke persetujuan Tinjauan Otomatis dan izinkan otomatis alat yang telah diberi izin. Izin berakhir setelah batas waktu di bawah (bawaannya 1 jam); setelah itu agen bertanya lagi.",
     "feature.continueButton": "Lanjutkan Sekali Klik",

@@ -1564,7 +1564,7 @@
     "feature.notifications": "Notifications en arrière-plan",
     "feature.notifications.description": "Vous avertit lorsqu’une discussion se termine ou a besoin de vous pendant que dsh est en arrière-plan, avec une pastille dans le Dock.",
     "feature.idleSwitch": "Ouvrir la discussion en attente en cas d’inactivité",
-    "feature.idleSwitch.description": "Quand une discussion pose une question ou attend une approbation ou une revue du plan (point orange) et que vous n’utilisez pas dsh pendant 30 secondes, dsh ouvre cette discussion. La discussion qui attend depuis le plus longtemps s’ouvre en premier. Rien ne change pendant que vous tapez, faites défiler, bougez la souris, sélectionnez du texte ou avez un menu ouvert.",
+    "feature.idleSwitch.description": "Quand une discussion pose une question ou attend une approbation ou une revue du plan (point orange), ou termine un tour que vous n’avez pas encore lu (point vert), et que vous n’utilisez pas dsh pendant 30 secondes, dsh ouvre cette discussion. Les discussions orange s’ouvrent avant les vertes ; dans chaque groupe, la discussion qui attend depuis le plus longtemps s’ouvre en premier. Rien ne change pendant que vous tapez, faites défiler, bougez la souris, sélectionnez du texte ou avez un menu ouvert.",
     "feature.allowForChat": "Autoriser pour cette discussion",
     "feature.allowForChat.description": "Ajoute « Autoriser pour cette discussion » aux approbations de la revue automatique et autorise automatiquement les outils accordés. Une autorisation accordée prend fin après la limite de temps ci-dessous (1 heure par défaut) ; ensuite, l’agent demande à nouveau.",
     "feature.continueButton": "Continuer en un clic",
