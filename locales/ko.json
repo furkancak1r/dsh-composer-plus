@@ -1564,7 +1564,7 @@
     "feature.notifications": "백그라운드 알림",
     "feature.notifications.description": "dsh가 백그라운드에 있을 때 채팅이 완료되거나 조치가 필요하면 Dock 배지와 함께 알립니다.",
     "feature.idleSwitch": "유휴 상태일 때 대기 중인 채팅 열기",
-    "feature.idleSwitch.description": "채팅이 질문을 하거나 승인 또는 계획 검토를 기다리고 있을 때(주황색 점) 30초 동안 dsh를 사용하지 않으면 dsh가 그 채팅을 엽니다. 가장 오래 기다린 채팅이 먼저 열립니다. 입력하거나 스크롤하거나 마우스를 움직이거나 텍스트를 선택하거나 메뉴가 열려 있는 동안에는 전환하지 않습니다.",
+    "feature.idleSwitch.description": "채팅이 질문을 하거나 승인 또는 계획 검토를 기다리고 있을 때(주황색 점), 또는 아직 읽지 않은 턴을 마쳤을 때(초록색 점) 30초 동안 dsh를 사용하지 않으면 dsh가 그 채팅을 엽니다. 주황색 채팅이 초록색 채팅보다 먼저 열리고, 각 그룹에서는 가장 오래 기다린 채팅이 먼저 열립니다. 입력하거나 스크롤하거나 마우스를 움직이거나 텍스트를 선택하거나 메뉴가 열려 있는 동안에는 전환하지 않습니다.",
     "feature.allowForChat": "이 채팅에서 허용",
     "feature.allowForChat.description": "Auto Review 승인에 '이 채팅에서 허용'을 추가하고 허용된 도구를 자동으로 허용합니다. 허용은 아래 시간 제한(기본값 1시간)이 지나면 끝나며, 그 후에는 에이전트가 다시 묻습니다.",
     "feature.continueButton": "원클릭 계속",

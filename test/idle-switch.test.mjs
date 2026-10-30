@@ -122,4 +122,33 @@ assert.equal(listeners.size, 0, 'no window listeners'); assert.equal(statusLs.si
 opened.length = 0; advance(120_000); assert.deepEqual(opened, [], 'off: nothing opens');
 setFeature('idleSwitch', true); assert.ok(listeners.size > 0 && statusLs.size === 1);
 advance(30_000); assert.deepEqual(opened, ['a'], 'back on');
+
+// Green dot (dsh's `completionUnread`: the turn finished while the chat was not on screen, not opened since): the same
+// 30 s idle, the same blocks and the same open.
+const done = () => ({ running: false, pendingInteraction: undefined, completionUnread: true });
+rows('c'); pub(new Map()); listeners.get('keydown')(); opened.length = 0;
+pub(new Map([['a', done()], ['c', st()]]));
+advance(29_000); assert.deepEqual(opened, [], 'green: not before 30 s');
+advance(1_000); assert.deepEqual(opened, ['a'], 'green: opens after 30 s idle');
+// dsh clears the dot of the open chat. The next green chat waits for your input, so the dots do not all go while you are away.
+rows('a'); pub(new Map([['b', done()]]));
+listeners.get('focus')({ type: 'focus' }); advance(120_000); assert.deepEqual(opened, ['a'], 'green: the next one waits for your input (a focus change is not input)');
+listeners.get('pointermove')(); active = { isContentEditable: true, textContent: 'draft' };
+advance(60_000); assert.deepEqual(opened, ['a'], 'green: a draft in the field blocks it');
+active = null; advance(30_000); assert.deepEqual(opened, ['a', 'b'], 'green: after your input, the next one after 30 s idle');
+
+// Orange before green: a request opens before an older green chat, and also while an opened green chat holds the others.
+rows('b'); pub(new Map()); listeners.get('keydown')(); opened.length = 0;
+pub(new Map([['a', done()]])); advance(5_000);
+pub(new Map([['a', done()], ['c', st(ask('approval'))]]));
+advance(25_000); assert.deepEqual(opened, ['c'], 'orange before an older green');
+rows('c'); advance(120_000); assert.deepEqual(opened, ['c'], 'an orange chat on screen holds the green one');
+listeners.get('pointerdown')(); pub(new Map([['a', done()]]));
+advance(30_000); assert.deepEqual(opened, ['c', 'a'], 'answered: the green one after 30 s idle');
+rows('a'); pub(new Map([['b', st(ask('question'))], ['c', done()]]));
+advance(30_000); assert.deepEqual(opened, ['c', 'a', 'b'], 'a request still opens after 30 s idle while a green chat holds');
+
+// A subagent's finished turn has no dot of its own: nothing opens.
+rows('c'); pub(new Map()); listeners.get('keydown')(); opened.length = 0;
+pub(new Map([['sub', done()]])); advance(60_000); assert.deepEqual(opened, [], 'green: subagent rows stay quiet');
 console.log('idle-switch checks passed');
