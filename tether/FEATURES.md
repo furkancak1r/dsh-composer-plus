@@ -35,6 +35,7 @@ While a Composer Plus action in this table waits for the Mac, Tether shows a wai
 | planToggle | yes | The plan button in the composer: adds or removes `/plan`, or leaves plan mode. |
 | keepFocus | no | A desktop browser focus problem. The iPhone keyboard keeps its focus. |
 | questionFit | no | A fix for dsh's question card in the desktop window. Tether shows a question in its own sheet (a scrolling form), where the question and every answer scroll. |
+| headerFit | no | A fix for dsh's chat header in a narrow desktop window. Tether draws its own chat header for the phone screen. |
 | queueReorder | yes | Queued message menu → Move up / Move down. Messages with images move too (the Mac's `queue-move` route). |
 | queueEdit | yes | Queued message menu → Edit (a sheet): change the text, keep or remove its images and files, and add photos or files (Add photo or file → Photos / Files). The kept attachments stay as they are and the message keeps its place in the queue. Images and files go through the Mac's `queue-edit` route; with an older plugin, Edit shows only for messages without images or files. While a message is edited or saved, the queue does not move and that message cannot be sent now or removed. |
 | stopSendFirst | yes | Nothing to do on the phone: the Mac moves the message inside dsh, so a message that Tether sends after Stop also runs first. The switch stays on the Mac. |

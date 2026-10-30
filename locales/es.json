@@ -1619,6 +1619,8 @@
     "feature.keepFocus.description": "Después de enviar un comando /, el cursor se queda en el editor.",
     "feature.questionFit": "Ajustar la tarjeta de pregunta a la ventana",
     "feature.questionFit.description": "Cuando el agente te hace una pregunta, la pregunta y sus respuestas se desplazan juntas en la tarjeta, Omitir y Enviar siguen a la vista y la tarjeta usa la altura de la ventana.",
+    "feature.headerFit": "Ajustar la cabecera del chat a la ventana",
+    "feature.headerFit.description": "En una ventana estrecha, los botones de la cabecera del chat pasan a una segunda línea en lugar de taparse, y el título del chat sigue legible. Una ventana ancha no cambia.",
     "feature.queueReorder": "Arrastrar y soltar en la cola",
     "feature.queueReorder.description": "Reordena los mensajes en cola arrastrándolos por su asa.",
     "feature.copyDeeplink": "Copiar enlace de sesión",

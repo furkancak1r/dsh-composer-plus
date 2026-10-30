@@ -1619,6 +1619,8 @@
     "feature.keepFocus.description": "/ 명령을 보낸 뒤에도 커서가 입력란에 남습니다.",
     "feature.questionFit": "질문 카드를 창에 맞추기",
     "feature.questionFit.description": "에이전트가 질문하면 질문과 답변이 카드 안에서 함께 스크롤되고, 건너뛰기와 제출은 계속 보이며, 카드는 창 높이를 사용합니다.",
+    "feature.headerFit": "채팅 헤더를 창에 맞추기",
+    "feature.headerFit.description": "좁은 창에서는 채팅 헤더의 버튼이 서로 겹치지 않고 두 번째 줄로 이동하며, 채팅 제목도 읽을 수 있게 유지됩니다. 넓은 창은 바뀌지 않습니다.",
     "feature.queueReorder": "대기열 끌어서 놓기",
     "feature.queueReorder.description": "핸들을 끌어 대기 중인 메시지의 순서를 바꿉니다.",
     "feature.copyDeeplink": "세션 링크 복사",
