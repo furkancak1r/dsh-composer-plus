@@ -6,7 +6,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { chmodSync, closeSync, constants, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply, branchName, branchStatus, copyIncluded, fallbackBranch, includeMatcher, listWorktrees, repoOf, startOnBranch, uniqueBranch, WORKTREES_PATH } from '../index.js';
+import { apply, branchName, branchStatus, copyIncluded, fallbackBranch, includeMatcher, listWorktrees, repoOf, startOnBranch, uniqueBranch, WORKTREES_PATH, WORKTREES_SWEEP_MS } from '../index.js';
 
 const subprocess = {
   resolveExecutable: async () => execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(),
@@ -479,6 +479,59 @@ try {
     await Promise.all([call2('POST', { on: true }), call2('POST', { on: false }), call2('POST', { on: true })]);
     assert.equal(assembles().length, 1, 'on again: one listener');
     assert.deepEqual((await call2('GET')).data, { on: true });
+    process.env.DSH_HOME = join(base, 'home');
+  }
+  // A branch folder project that no chat steps in (the branch was deleted outside a chat, or while dsh was closed) goes at
+  // start and at each sweep, with no "Active in the last 2 hours" filter or chat turn needed. Only a gone
+  // `<repo>/.worktrees/<name>` goes (also through a symlinked folder that points at the repository): not a folder that is
+  // there, not one below a dangling link, not one outside a repository. Real git; fake dsh.
+  {
+    const home = join(base, 'home-sweep'); process.env.DSH_HOME = home;
+    const N = repo(join(base, 'N'), { 'a.txt': 'a\n' });
+    const add = (name) => { const p = join(N, '.worktrees', name); git(N, 'worktree', 'add', '-q', '-b', `feat/${name}`, p); return p; };
+    const old1 = add('old-1'); const old2 = add('old-2'); const kept = add('kept');
+    git(N, 'worktree', 'remove', old1); git(N, 'branch', '-D', 'feat/old-1');
+    // A symlinked folder that points inside N, and a dangling one: the gone path below each is not a branch folder of N.
+    symlinkSync(N, join(base, 'N-link')); const viaLink = join(base, 'N-link', '.worktrees', 'old-1');
+    symlinkSync(join(base, 'nowhere'), join(base, 'N-dangling')); const viaDangling = join(base, 'N-dangling', '.worktrees', 'x');
+    const loose = join(base, 'loose-sweep', '.worktrees', 'x');
+    const spaces = [{ id: 'n-main', path: N }, { id: 'n-old-1', path: old1 }, { id: 'n-old-2', path: old2 }, { id: 'n-kept', path: kept },
+      { id: 'n-link', path: viaLink }, { id: 'n-dangling', path: viaDangling }, { id: 'n-loose', path: loose }];
+    const deleted = []; let ready = true;
+    const registry3 = { list: () => { if (!ready) throw new Error('not ready'); return spaces.filter((w) => !deleted.includes(w.id)); }, delete: async (id) => { deleted.push(id); return true; } };
+    const readyFns = new Set(); const onReady = () => { for (const fn of readyFns) fn(); }; const effects = []; const timers = [];
+    const realSetInterval = globalThis.setInterval; const realClearInterval = globalThis.clearInterval;
+    globalThis.setInterval = (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; };
+    globalThis.clearInterval = (t) => { timers.splice(timers.indexOf(t), 1); };
+    try {
+      const services3 = { workspaceRegistry: registry3, appReady: { onReady: (fn) => { readyFns.add(fn); return () => { readyFns.delete(fn); }; } } };
+      const routes4 = new Map();
+      apply({ on: () => () => {}, effect: (fn) => effects.push(fn()), get: (name) => services3[name], connection: { fetch: { register: (x) => routes4.set(x.path, x) } }, sessionQuery, sessionController, subprocess });
+      const sweep = timers.find((t) => t.ms === WORKTREES_SWEEP_MS);
+      assert.ok(sweep && readyFns.size > 0, 'a sweep at start and every 30 seconds');
+      const settle = () => new Promise((r) => setTimeout(r, 400));
+      ready = false; onReady(); await settle();
+      assert.deepEqual(deleted, [], 'a registry that is not ready: nothing, no throw');
+      ready = true; onReady(); await settle();
+      // The path through the link is the same gone folder of N: it goes too. The dangling one has no repository: it stays.
+      assert.deepEqual(deleted, ['n-old-1', 'n-link'], 'at start: the gone branch folder goes (its chats show under Ungrouped)');
+      git(N, 'worktree', 'remove', old2); git(N, 'branch', '-D', 'feat/old-2');
+      sweep.fn(); await settle();
+      assert.deepEqual(deleted, ['n-old-1', 'n-link', 'n-old-2'], 'a branch deleted later goes at the next sweep');
+      assert.ok(['n-main', 'n-kept', 'n-dangling', 'n-loose'].every((id) => !deleted.includes(id)), `only gone branch folders of a repository: ${deleted}`);
+      // Off: no sweep removes anything; on again sweeps at once.
+      const wt4 = routes4.get(WORKTREES_PATH);
+      const post = (body) => wt4.fetch(new Request(`http://h${WORKTREES_PATH}`, { method: 'POST', body: JSON.stringify(body) }));
+      await post({ on: false });
+      git(N, 'worktree', 'remove', kept); git(N, 'branch', '-D', 'feat/kept');
+      sweep.fn(); await settle();
+      assert.ok(!deleted.includes('n-kept'), 'switched off: no cleanup');
+      await post({ on: true }); await settle();
+      assert.ok(deleted.includes('n-kept'), 'switched on: the cleanup runs at once');
+      // The plugin stops: the timer and the ready listener go.
+      for (const stop of effects) stop?.();
+      assert.equal(timers.length, 0, 'no timer after stop'); assert.equal(readyFns.size, 0, 'no ready listener after stop');
+    } finally { globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval; }
     process.env.DSH_HOME = join(base, 'home');
   }
   // Review P3: an upstream that was deleted on the remote (and pruned) is not pushed any more.

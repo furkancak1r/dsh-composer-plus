@@ -57,6 +57,7 @@ export const UNREAD_PATH = '/api/composer-plus.unread';
 export const FILE_CHATS_PATH = '/api/composer-plus.file-chats';
 export const BRANCHES_PATH = '/api/composer-plus.branches';
 export const WORKTREES_PATH = '/api/composer-plus.worktrees';
+export const WORKTREES_SWEEP_MS = 30000;
 export const DEFAULT_WORKSPACE_PATH = '/api/composer-plus.default-workspace';
 export const NEW_SESSION_WORKSPACE_PATH = '/api/composer-plus.new-session-workspace';
 export const GOAL_CHECK_PATH = '/api/composer-plus.goal-check';
@@ -4143,7 +4144,8 @@ export async function openWorktree({ subprocess, sessionQuery, registry }, sessi
  * When the folder of a chat (`<root>/.worktrees/<name>`) is gone (its branch was deleted), the next step of the chat moves it
  * out before dsh reads its folder: the folder's workspace goes (dsh then lists its chats under Ungrouped) and, on dsh 0.2.1+,
  * the chat goes on in `<root>`. Without this, dsh 0.2.1 ends every turn of the chat with "working-directory: directory does
- * not exist". The switch is kept here (`worktrees.json`, on by default; `GET` without a query, `POST {on}`): off, the listener
+ * not exist". A gone branch folder that no chat steps in loses its workspace too: at start, every WORKTREES_SWEEP_MS and when
+ * the switch goes on. The switch is kept here (`worktrees.json`, on by default; `GET` without a query, `POST {on}`): off, the listener
  * is removed and the route starts and opens nothing. The read-only `GET` still answers: the browser hides its chip and pill
  * itself, and a read sent together with a switch-on must not get the old state. */
 function installWorktrees(ctx, home) {
@@ -4156,6 +4158,8 @@ function installWorktrees(ctx, home) {
   const moving = new Map();
   const moveOut = async (cwd) => {
     const root = dirname(dirname(cwd));
+    // A gone project folder (or a dangling link) has no repository to ask: git does not start there.
+    if (!(await stat(root).then((s) => s.isDirectory(), () => false))) return undefined;
     const repo = await repoOf(ctx.subprocess, root);
     const real = (path) => realpath(path).catch(() => path);
     if (repo?.root === undefined || (await real(repo.root)) !== (await real(root))) return undefined; // not a Branch per chat folder
@@ -4168,16 +4172,30 @@ function installWorktrees(ctx, home) {
     } finally { worktreeMoves.delete(cwd); }
     return root;
   };
+  const isBranchFolder = (path) => isText(path, 4096) && isAbsolute(path) && basename(dirname(path)) === '.worktrees';
+  const gone = (path) => stat(path).then((s) => !s.isDirectory(), (error) => error?.code === 'ENOENT' || error?.code === 'ENOTDIR');
+  const leave = (cwd) => {
+    let job = moving.get(cwd);
+    if (job === undefined) { job = moveOut(cwd).finally(() => moving.delete(cwd)); moving.set(cwd, job); }
+    return job;
+  };
   const rehome = async (agent, signal) => {
     const wd = get('workingDirectory'); // dsh 0.2.1+
     const cwd = wd?.get?.(agent.session) ?? agent.session?.header?.cwd;
-    if (!isText(cwd, 4096) || !isAbsolute(cwd) || basename(dirname(cwd)) !== '.worktrees') return;
-    if (!(await stat(cwd).then((s) => !s.isDirectory(), (error) => error?.code === 'ENOENT' || error?.code === 'ENOTDIR'))) return;
-    let job = moving.get(cwd);
-    if (job === undefined) { job = moveOut(cwd).finally(() => moving.delete(cwd)); moving.set(cwd, job); }
-    const root = await job;
+    if (!isBranchFolder(cwd) || !(await gone(cwd))) return;
+    const root = await leave(cwd);
     // dsh's own folder change: it tells the model, and dsh runs one change of a chat at a time (a second one is a no-op).
     if (root !== undefined && wd?.set !== undefined && wd.get(agent.session) === cwd) await wd.set(agent, root, signal);
+  };
+  // A branch folder project that no chat steps in (a branch deleted outside a chat, or while dsh was closed) goes too: at
+  // start and every 30 seconds. Only a `stat` per branch folder project; git runs only for a gone folder.
+  const sweep = async () => {
+    if (!on) return;
+    let projects;
+    try { projects = get('workspaceRegistry')?.list?.() ?? []; } catch { return; } // the registry is not ready yet
+    for (const w of projects) {
+      if (isBranchFolder(w.path) && (await gone(w.path))) await leave(w.path).catch((error) => log(`branch folder cleanup: ${error?.message ?? error}`));
+    }
   };
   // Before dsh's working-directory listener (also `prepend`, added earlier), which ends the turn on a gone folder.
   let unlisten;
@@ -4190,6 +4208,12 @@ function installWorktrees(ctx, home) {
     } else if (!on && unlisten !== undefined) { unlisten(); unlisten = undefined; }
   };
   const read = saved.read().then((value) => { on = value; listen(); }).catch((error) => log(`branch per chat switch: ${error?.message ?? error}`));
+  ctx.effect?.(() => {
+    const timer = setInterval(sweep, WORKTREES_SWEEP_MS);
+    const ready = get('appReady');
+    const cancel = ready?.onReady !== undefined ? ready.onReady(() => { read.then(sweep); }) : (read.then(sweep), undefined);
+    return () => { clearInterval(timer); cancel?.(); };
+  }, 'dsh-composer-plus: branch folder cleanup');
   ctx.connection.fetch.register({
     path: WORKTREES_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     fetch: async (request) => {
@@ -4212,6 +4236,7 @@ function installWorktrees(ctx, home) {
           const done = switchQueue.then(async () => { await saved.write(body.on); on = body.on; listen(); });
           switchQueue = done.catch(() => {});
           await done;
+          if (on) sweep();
           return json({ on });
         }
         if (!isText(body?.sessionId)) return json({ error: 'bad request' }, 400);

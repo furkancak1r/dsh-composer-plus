@@ -12,6 +12,8 @@
 // - every version: the chat's agent deletes the chat's own branch (bash: worktree remove + branch -D). The turn ends with
 //   no "working-directory: directory does not exist", the chat stays open and selected, its branch folder row goes and
 //   the chat shows under Ungrouped; on dsh 0.2.1 the model is told the main folder at the next turn.
+// - every version: a branch folder project whose branch is deleted outside dsh (no chat step in it) leaves the sidebar
+//   within 30 seconds.
 // - dsh 0.2.1+, plan mode: New branch + Shift+Tab (`/plan <message>`) starts the new branch chat in plan mode with the
 //   message; a New chat already in plan mode (a bare `/plan`) also gives its new branch chat plan mode.
 // PLAYWRIGHT=/path/to/playwright node test/browser-worktree-chats.mjs /path/to/dsh/lib/bin.js [...]
@@ -333,6 +335,11 @@ try {
       assert.ok(delChat, 'the branch chat is open');
       const branchRow = () => page.evaluate((name) => [...document.querySelectorAll('[data-row-key^="workspace:"]')].some((r) => r.innerText.trim().split('\n')[0] === name), delBranch);
       assert.equal(await branchRow(), true, 'its branch folder row shows');
+      // A second branch folder project that no chat uses (deleted from a terminal after the next step).
+      const idle = join(project, '.worktrees', 'feat-idle'); git(project, 'worktree', 'add', '-q', '-b', 'feat/idle', idle);
+      const idleOpened = await page.evaluate(async ([sessionId, path]) => (await fetch('/api/composer-plus.worktrees', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'open', sessionId, path }) })).json(), [delChat, idle]);
+      assert.ok(idleOpened.workspaceId, `the idle branch folder is a project: ${JSON.stringify(idleOpened)}`);
+      const idleRow = page.locator(`[data-row-key="workspace:${idleOpened.workspaceId}"]`); await idleRow.waitFor({ timeout: 10000 });
       removal = { command: `git worktree remove --force ${JSON.stringify(delPath)} && git branch -D ${delBranch} && echo removed`, workdir: project };
       await input.click(); await page.keyboard.type('Please delete the branch'); await page.keyboard.press('Enter');
       const ended = await page.waitForFunction(() => /Branch deleted\.|directory does not exist/.test(document.body.innerText), null, { timeout: 30000 }).then(() => page.evaluate(() => document.body.innerText));
@@ -358,6 +365,11 @@ try {
       assert.equal(await openChat(), delChat, 'still the same chat');
       assert.ok(!/directory does not exist/.test(await page.evaluate(() => document.body.innerText)), 'no folder error later');
       step(`Branch deleted from its own chat: chat stays open, under Ungrouped (${where})`);
+      // A branch deleted outside dsh (a terminal) while no chat of it runs: its project leaves the sidebar by itself at the
+      // next sweep (30 s), with no sidebar filter and no chat turn.
+      git(project, 'worktree', 'remove', '--force', idle); git(project, 'branch', '-D', 'feat/idle');
+      await idleRow.waitFor({ state: 'detached', timeout: 45000 });
+      step('Branch deleted outside dsh: its project leaves the sidebar within 30 s, no filter');
       if (hasHero) {
         // Plan mode. A New chat in acme-web, New branch, then the message goes as `/plan <message>` (Shift+Tab), or the New
         // chat is put in plan mode first (a bare `/plan`). Each time the new branch chat opens in plan mode with the message.
