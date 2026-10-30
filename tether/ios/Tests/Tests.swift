@@ -1244,3 +1244,75 @@ final class BranchStateTests: XCTestCase {
         }
     }
 }
+
+/// Project memory (`/plus/memory-edit`): the list by project, a preview, Apply, and one preview or apply at a time.
+@MainActor final class MemoryEditorTests: XCTestCase {
+    let list: J = ["projects": [["id": "p1", "name": "acme-shop", "path": "/p/acme-shop", "count": 2,
+                                 "files": [["topic": NSNull(), "entries": [["text": "The user uses yarn", "added": "2026-10-30"]]], ["topic": "deploy", "entries": [["text": "Deploy with make release"]]]]]],
+                   "global": ["count": 1, "files": [["topic": NSNull(), "entries": [["text": "The user writes in Turkish"]]]]]]
+    func testListPreviewApplyAndOneAtATime() async {
+        var bodies: [J?] = []
+        var gate: CheckedContinuation<Void, Never>?
+        var hold = false
+        let m = MemoryEditor { body in
+            bodies.append(body)
+            if hold { await withCheckedContinuation { gate = $0 } }
+            if let b = body, b["preview"] != nil {
+                return self.list.merging(["id": "x1", "note": "Yarn becomes pnpm.", "skipped": 1, "hidden": 0,
+                    "changes": [["op": "remove", "scope": "p1", "name": "acme-shop", "before": "The user uses yarn"], ["op": "add", "scope": "global", "name": "global", "text": "The user uses pnpm"], ["op": "drop"]]]) { a, _ in a }
+            }
+            if let b = body, b["apply"] != nil { return self.list.merging(["applied": 2]) { a, _ in a } }
+            return self.list
+        }
+        await m.load()
+        XCTAssertEqual(m.projects.map(\.name), ["acme-shop"]); XCTAssertEqual(m.projects[0].notes.map(\.topic), [nil, "deploy"])
+        XCTAssertEqual(m.projects[0].notes[0].added, "2026-10-30"); XCTAssertEqual(m.global.count, 1)
+        let empty = await m.ask("p1", "   ")
+        XCTAssertFalse(empty, "an empty ask sends nothing"); XCTAssertEqual(bodies.count, 1)
+        // A preview runs: a second ask and an apply do nothing.
+        hold = true
+        let first = Task { await m.ask("p1", "I use pnpm now") }
+        while gate == nil { await Task.yield() }
+        XCTAssertEqual(m.busy, "preview")
+        let second = await m.ask(nil, "again"); let early = await m.apply()
+        XCTAssertFalse(second); XCTAssertFalse(early)
+        XCTAssertEqual(bodies.count, 2, "one request")
+        hold = false; gate?.resume(); gate = nil
+        let ok = await first.value
+        XCTAssertTrue(ok); XCTAssertNil(m.busy)
+        XCTAssertEqual((bodies[1]?["preview"] as? J)?["project"] as? String, "p1")
+        XCTAssertEqual(m.preview?.changes.map(\.op), ["remove", "add"], "an unknown op is left out")
+        XCTAssertEqual(m.preview?.changes.last?.place, String(localized: "Global memory"))
+        XCTAssertEqual(m.preview?.skipped, 1)
+        // Apply: once, and a second one while it runs does nothing.
+        hold = true
+        let applying = Task { await m.apply() }
+        while gate == nil { await Task.yield() }
+        let again = await m.apply(); let meanwhile = await m.ask("p1", "x")
+        XCTAssertFalse(again); XCTAssertFalse(meanwhile)
+        hold = false; gate?.resume(); gate = nil
+        let done = await applying.value
+        XCTAssertTrue(done); XCTAssertNil(m.preview); XCTAssertEqual(m.applied, 2)
+        XCTAssertEqual(bodies.compactMap { $0.map { Array($0.keys) } }, [["preview"], ["apply"]])
+        // "All notes": the project is null.
+        _ = await m.ask(nil, "move the language note")
+        XCTAssertTrue((bodies.last??["preview"] as? J)?["project"] is NSNull)
+    }
+    /// A refused Apply (409: nothing was saved, or the memory changed) drops the preview and reads the list again; the
+    /// reason stays on screen after that read.
+    func testStaleApply() async {
+        var applies = 0; var loads = 0
+        let m = MemoryEditor { body in
+            if let b = body, b["apply"] != nil { applies += 1; throw Fail("Nothing was saved: add \"a\" in global: MEMORY.md is full", status: 409) }
+            if let b = body, b["preview"] != nil { return ["id": "x", "changes": [["op": "add", "scope": "global", "text": "a"]]] }
+            loads += 1; return self.list
+        }
+        _ = await m.ask("global", "add a")
+        XCTAssertNotNil(m.preview)
+        let ok = await m.apply()
+        XCTAssertFalse(ok); XCTAssertNil(m.preview); XCTAssertEqual(applies, 1)
+        await m.load()
+        XCTAssertGreaterThanOrEqual(loads, 1)
+        XCTAssertEqual(m.failed, "Nothing was saved: add \"a\" in global: MEMORY.md is full", "the reason stays after the list is read again")
+    }
+}

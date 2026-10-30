@@ -29,6 +29,7 @@ The Tether iPhone app and its Mac gateway are in `tether/` (Mobile connect). Rea
    - dsh-rewind-plugin: `source.kind: 'dsh-rewind'`.
    Each marker is a `user/message` that hides `[min(sourceEventSeqs), marker seq]`. Test both kinds. dsh's `/compact` also writes a `surfaceOp: replace` marker (`compact-checkpoint`), but the user did not withdraw those messages: keep them.
 10. A forked chat (dsh's Branch, Composer Plus Redo) starts with a copy of its parent's events: `observeSession(...).events` and `session.snapshotEvents()` give them first, and `inheritedEventCount` is their count. When code needs the chat's own events (for example its first message), start at that offset. Test it with a fork.
+11. When one user action writes more than one change (for example **Apply** of a memory preview), it saves all of them or none. Before the first write, keep a copy of each file that the action can change. When a change fails, put back each file, remove each new file and show the reason. Do not report a part as saved. Test a failure in the last change.
 
 ## Threads: tell the user what happens
 

@@ -2808,3 +2808,95 @@ enum UnlockResult: Equatable { case ok, cancelled, noPasscode, failed(String) }
 
 /// SwiftUI's ScenePhase without SwiftUI (Core.swift has no SwiftUI import).
 enum ScenePhaseKind { case active, inactive, background }
+
+// MARK: - Project memory (Composer Plus `/plus/memory-edit`)
+
+/// One saved note.
+struct MemoryNote: Identifiable, Equatable { let id: String; let text: String; let added: String?; let topic: String? }
+/// One project memory (or the global memory: `id == "global"`).
+struct MemoryGroup: Identifiable, Equatable {
+    let id: String, name: String, path: String?, count: Int, notes: [MemoryNote]
+    init(id: String, name: String, path: String?, j: J) {
+        self.id = id; self.name = name; self.path = path; count = j["count"] as? Int ?? 0
+        notes = (j["files"] as? [J] ?? []).flatMap { f -> [MemoryNote] in
+            let topic = f["topic"] as? String
+            return (f["entries"] as? [J] ?? []).enumerated().compactMap { n, e in
+                (e["text"] as? String).map { MemoryNote(id: "\(id)/\(topic ?? "")/\(n)", text: $0, added: e["added"] as? String, topic: topic) }
+            }
+        }
+    }
+}
+/// A proposed change: add / edit / remove, where, and the text before and after.
+struct MemoryChange: Identifiable, Equatable { let id: Int; let op: String; let place: String; let topic: String?; let before: String?; let text: String? }
+/// The Mac's memory list, from a GET or from the answer of a preview or an apply.
+func memoryGroups(_ o: J) -> (projects: [MemoryGroup], global: MemoryGroup) {
+    let projects = (o["projects"] as? [J] ?? []).compactMap { p -> MemoryGroup? in
+        guard let id = p["id"] as? String else { return nil }
+        return MemoryGroup(id: id, name: p["name"] as? String ?? id, path: p["path"] as? String, j: p)
+    }
+    return (projects, MemoryGroup(id: "global", name: String(localized: "Global memory"), path: nil, j: o["global"] as? J ?? [:]))
+}
+func memoryChanges(_ o: J) -> [MemoryChange] {
+    (o["changes"] as? [J] ?? []).enumerated().compactMap { n, c in
+        guard let op = c["op"] as? String, ["add", "edit", "remove"].contains(op) else { return nil }
+        let place = (c["scope"] as? String) == "global" ? String(localized: "Global memory") : c["name"] as? String ?? ""
+        return MemoryChange(id: n, op: op, place: place, topic: c["topic"] as? String, before: c["before"] as? String, text: c["text"] as? String)
+    }
+}
+
+/// Project memory on the phone: the notes by project, a preview of the changes that the Mac's default model proposes for
+/// the user's words, and Apply. One preview or apply at a time (the button, the keyboard's Return and a second sheet all
+/// go through `busy`); the Mac also refuses a second one (409).
+@MainActor final class MemoryEditor: ObservableObject {
+    struct Preview { let id: String?; let target: String; let changes: [MemoryChange]; let note: String; let skipped: Int; let hidden: Int }
+    @Published private(set) var projects: [MemoryGroup] = []
+    @Published private(set) var global = MemoryGroup(id: "global", name: "", path: nil, j: [:])
+    @Published private(set) var loaded = false
+    /// "preview" or "apply" while one runs.
+    @Published private(set) var busy: String?
+    @Published private(set) var preview: Preview?
+    @Published private(set) var applied: Int?
+    @Published var failed: String?
+    private var call: (J?) async throws -> J
+    private var loadSeq = 0
+    init(call: @escaping (J?) async throws -> J) { self.call = call }
+    /// The sheet's Client (known only once the view is on screen).
+    func bind(_ call: @escaping (J?) async throws -> J) { self.call = call }
+    private func take(_ o: J) { let g = memoryGroups(o); projects = g.projects; global = g.global; loaded = true }
+    func load() async {
+        loadSeq += 1; let mine = loadSeq
+        // A good read keeps `failed`: after a refused Apply it is the reason (ask, apply and discard clear it).
+        do { let o = try await call(nil); if mine == loadSeq, busy == nil { take(o) } }
+        catch { if mine == loadSeq { failed = userText(error) } }
+    }
+    /// `target`: a project id, "global", or nil for every project. False when one runs or the text is empty or too long.
+    @discardableResult func ask(_ target: String?, _ text: String) async -> Bool {
+        let words = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard busy == nil, !words.isEmpty, words.count <= 2000 else { return false }
+        busy = "preview"; failed = nil; preview = nil; applied = nil; loadSeq += 1
+        defer { busy = nil }
+        do {
+            let project: Any = target ?? NSNull()
+            let o = try await call(["preview": ["project": project, "text": words]])
+            take(o)
+            preview = Preview(id: o["id"] as? String, target: target ?? "all", changes: memoryChanges(o), note: o["note"] as? String ?? "", skipped: o["skipped"] as? Int ?? 0, hidden: o["hidden"] as? Int ?? 0)
+            return true
+        } catch { failed = userText(error); return false }
+    }
+    @discardableResult func apply() async -> Bool {
+        guard busy == nil, let id = preview?.id else { return false }
+        busy = "apply"; failed = nil; loadSeq += 1
+        defer { busy = nil }
+        do {
+            let o = try await call(["apply": id])
+            take(o); preview = nil; applied = o["applied"] as? Int ?? 0
+            return true
+        } catch {
+            failed = userText(error)
+            // Nothing was saved. A refused or changed memory (409) or a gone preview (410): the preview cannot apply any more.
+            if let f = error as? Fail, f.status == 409 || f.status == 410 { preview = nil; Task { await load() } }
+            return false
+        }
+    }
+    func discard() { if busy == nil { preview = nil; applied = nil; failed = nil } }
+}
