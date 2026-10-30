@@ -5,14 +5,16 @@
 //    The model also calls memory_remember once. The files are under DSH_HOME/storages/dsh-composer-plus/memory/, the
 //    project folder has no new file.
 // 3. Chat 2 in the same project: its request has the memory section with both entries and the three tools.
-// 4. Switch off: the next request has no section and no tools. No page errors.
+// 4. Settings → Open memory: the notes by project; a request in the text field → the editor call (dsh's default model, the
+//    editor system prompt, no tools) → the preview → Apply writes the file. A second click while it runs sends nothing.
+// 5. Switch off: the dialog and its button go; the next request has no section and no tools. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-project-memory.mjs /path/to/dsh/lib/bin.js [...]
-// SHOT=1 also writes assets/features/projectMemory.webp (English UI, made-up project): the chat with the memory_remember step.
+// SHOT=1 also writes assets/features/projectMemory.webp (English UI, made-up projects): the Open memory dialog with a preview.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, symlink, rm, realpath, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -36,13 +38,16 @@ const fake = createServer((req, res) => {
     const parsed = JSON.parse(body); const msgs = parsed.messages ?? [];
     const system = textOf(msgs.find((m) => m.role === 'system' || m.role === 'developer')?.content);
     const last = textOf(msgs.at(-1)?.content);
-    const kind = system.startsWith('You keep the long-term memory') ? 'review' : /session title/i.test(last) ? 'title'
+    const kind = system.startsWith('You keep the long-term memory') ? 'review' : system.startsWith('You edit the long-term memory') ? 'edit' : /session title/i.test(last) ? 'title'
       : /You predict the next message|You complete the message/.test(JSON.stringify(msgs)) ? 'predict' : 'chat';
     seen.push({ kind, system, tools: (parsed.tools ?? []).map((t) => t.function?.name), last });
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (delta, finish) => res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`);
     const say = (t) => { send({ role: 'assistant', content: t }); send({}, 'stop'); res.end('data: [DONE]\n\n'); };
     if (kind === 'review') return say('{"changes":[{"op":"add","text":"The user deploys acme-web with make release"}]}');
+    // The editor: the note "The user wants short answers" becomes a global note; a slow answer, so a second click can come in.
+    const shortNote = /\[(\d+)\] \(project\) The user wants short answers/.exec(last)?.[1];
+    if (kind === 'edit') { setTimeout(() => say('{"changes":[{"op":"remove","entry":' + shortNote + '},{"op":"add","text":"The user wants short answers in every project","global":true},{"op":"add","text":"Releases need a git tag first"}],"note":"Moves the short-answers note to the global memory and adds the tag rule."}'), 1500); return; }
     if (kind === 'title') return say('Deploy notes');
     if (kind === 'predict') return say('');
     const asked = msgs.findLast((m) => m.role === 'user' && /Remember|What do you know/.test(textOf(m.content)));
@@ -133,6 +138,7 @@ try {
       const newChat = async () => { await page.locator('button:visible', { hasText: 'New Session' }).first().click(); await pause(800); };
       const chats = () => seen.filter((s) => s.kind === 'chat');
       const memorySwitch = page.getByRole('switch', { name: 'Project memory', exact: true });
+      const editorStyles = () => page.evaluate(() => [...document.querySelectorAll('style')].filter((el) => el.textContent.includes('.cp-mem{')).length);
 
       // 1. Off by default: no section, no tools.
       await settings();
@@ -169,28 +175,6 @@ try {
       assert.deepEqual((await readdir(project)).sort(), ['README.md'], 'nothing new in the project folder');
       const journal = (await readFile(join(memDir, 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
       assert.deepEqual(journal.map((r) => r.actor).sort(), ['agent', 'review']);
-      if (process.env.SHOT) {
-        // The chat: your message, the memory_remember step and the answer.
-        await page.mouse.move(5, 5); await pause(800);
-        const content = page.locator('[data-conversation-content]');
-        await content.getByText('Noted.', { exact: true }).last().waitFor({ timeout: 10000 });
-        // Open the folded steps, so the picture shows the memory_remember call and its result.
-        const steps = content.getByText(/^Completed in /).last();
-        if (await steps.count()) { await steps.click(); await pause(600); }
-        const called = content.getByText(/^Called tools/).last();
-        if (await called.count()) { await called.click().catch(() => {}); await pause(600); }
-        const call = content.getByText(/memory_remember/).first();
-        if (await call.count()) { await call.click().catch(() => {}); await pause(600); }
-        await page.mouse.move(5, 5); await pause(300);
-        const area = await content.boundingBox();
-        const asked = await content.getByText('Remember: I deploy acme-web with make release', { exact: true }).last().boundingBox();
-        const answer = await content.getByText('Noted.', { exact: true }).last().boundingBox();
-        const top = Math.max(0, asked.y - 24);
-        const clip = { x: area.x, y: top, width: area.width, height: Math.min(900 - top, answer.y + answer.height + 16 - top) };
-        const png = join(home, 'projectMemory.png'); await page.screenshot({ path: png, clip });
-        execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.min(960, Math.round(clip.width * 1.25))), '0', png, '-o', join(repo, 'assets/features/projectMemory.webp')]);
-        note(`shot: assets/features/projectMemory.webp ${(await stat(join(repo, 'assets/features/projectMemory.webp'))).size} bytes`);
-      }
       note(`2: on → section + 3 tools in the request; memory_remember and the review wrote ${join('storages/dsh-composer-plus/memory/projects', projects[0], 'MEMORY.md')} (2 entries, journal 2 rows); project folder unchanged`);
 
       // 3. A new chat in the same project reads both entries in its system prompt.
@@ -201,9 +185,68 @@ try {
       assert.match(third.system, /The user deploys acme-web with make release/); assert.match(third.system, /The user wants short answers/);
       note('3: a new chat in acme-web gets both entries in its system prompt');
 
-      // 4. Off: no section, no tools.
-      await settings(); await memorySwitch.click();
+      // 4. Open memory: notes by project, a preview from dsh's default model, Apply.
+      // A second project with a note, so the dialog shows the grouping (written as the store writes it).
+      const other = join(home, 'projects', 'acme-blog'); await mkdir(other, { recursive: true });
+      const otherId = createHash('sha256').update(await realpath(other)).digest('hex').slice(0, 32);
+      await mkdir(join(memDir, 'projects', otherId), { recursive: true });
+      await writeFile(join(memDir, 'projects', otherId, 'MEMORY.md'), '# Memory\n\n- The blog builds with Hugo [added: 2026-10-29]\n\n## Index\n');
+      await writeFile(join(memDir, 'projects', otherId, 'project.json'), JSON.stringify({ path: other }));
+      await settings();
+      await page.locator('[data-composer-plus-memory-open]').click();
+      const dialog = page.locator('[data-composer-plus-memory-editor]'); await dialog.waitFor();
+      // All notes: one group per project with notes, A–Z (the global memory has no note yet, so it has no group).
+      const groups = await until(async () => { const g = await dialog.locator('[data-composer-plus-memory-group]').evaluateAll((els) => els.map((e) => e.getAttribute('data-composer-plus-memory-group'))); return g.length === 2 && g; }, 'two groups');
+      assert.deepEqual(groups, [otherId, projects[0]], 'grouped by project, acme-blog before acme-web');
+      // The dialog is wide and its project list shows (dsh's Modal is 380 px by default).
+      const wide = await dialog.boundingBox(); assert.ok(wide.width > 900, `dialog width ${wide.width}`);
+      assert.ok(await dialog.locator('nav').isVisible(), 'the project list shows');
+      const navBox = await dialog.locator('nav').boundingBox(); assert.ok(navBox.x >= wide.x - 1, 'the list is not cut off');
+      await dialog.getByText('The blog builds with Hugo').waitFor();
+      assert.equal(await editorStyles(), 1, 'one editor style');
+      await dialog.locator(`[data-composer-plus-memory-project="${projects[0]}"]`).click();
+      assert.equal(await dialog.locator('[data-composer-plus-memory-group]').count(), 1, 'one project selected');
+      await dialog.locator('[data-composer-plus-memory-ask]').fill('Make the short-answers note global, and add that releases need a git tag first');
+      const edits = () => seen.filter((x) => x.kind === 'edit').length;
+      await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
+      await until(async () => (await dialog.locator('[data-composer-plus-memory-preview-button]').getAttribute('aria-busy')) === 'true', 'preview runs');
+      // A second ask while it runs: the button is off and the key sends nothing.
+      assert.equal(await dialog.locator('[data-composer-plus-memory-preview-button]').isDisabled(), true);
+      await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
+      await dialog.locator('[data-composer-plus-memory-preview]').waitFor({ timeout: 20000 });
+      assert.equal(edits(), 1, 'one editor call');
+      const edit = seen.find((x) => x.kind === 'edit');
+      assert.equal(edit.tools.length, 0, 'no tools'); assert.match(edit.last, /The user wants short answers/); assert.doesNotMatch(edit.last, /Hugo/, 'only the selected project');
+      assert.deepEqual(await dialog.locator('[data-composer-plus-memory-change]').evaluateAll((els) => els.map((e) => e.getAttribute('data-composer-plus-memory-change'))), ['remove', 'add', 'add']);
+      const before5 = await readFile(join(memDir, 'projects', projects[0], 'MEMORY.md'), 'utf8');
+      assert.match(before5, /short answers/, 'a preview writes nothing');
+      if (process.env.SHOT) {
+        // The picture shows a made-up home path, not this machine's temp folder (only the page's view changes).
+        await dialog.locator('h3 small').evaluateAll((els, h) => { for (const el of els) el.textContent = el.textContent.replace(h, '~'); }, home);
+        await page.mouse.move(5, 5); await pause(500);
+        const box = await dialog.boundingBox();
+        const png = join(home, 'projectMemory.png'); await page.screenshot({ path: png, clip: box });
+        execFileSync('cwebp', ['-quiet', '-q', '76', '-resize', String(Math.min(1040, Math.round(box.width))), '0', png, '-o', join(repo, 'assets/features/projectMemory.webp')]);
+        note(`shot: assets/features/projectMemory.webp ${(await stat(join(repo, 'assets/features/projectMemory.webp'))).size} bytes`);
+      }
+      await dialog.locator('[data-composer-plus-memory-apply]').click();
+      await until(async () => !(await dialog.locator('[data-composer-plus-memory-preview]').count()), 'applied');
+      const after5 = await readFile(join(memDir, 'projects', projects[0], 'MEMORY.md'), 'utf8');
+      assert.doesNotMatch(after5, /The user wants short answers \[/); assert.match(after5, /Releases need a git tag first \[source: editor/);
+      assert.match(await readFile(join(memDir, 'global', 'MEMORY.md'), 'utf8'), /short answers in every project/);
+      const rows = (await readFile(join(memDir, 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l)).filter((r) => r.actor === 'editor');
+      assert.equal(rows.length, 3, 'three editor rows in the journal');
+      assert.ok(seen.filter((x) => x.kind === 'edit').length === 1, 'still one editor call');
+      note('4: Open memory groups 2 projects + global; ⌘/Ctrl+Enter previews once (second key ignored); Apply writes 3 changes (journal actor editor)');
+
+      // 5. Esc closes the dialog (not Settings); its style goes with it. Off: the button goes; no section, no tools.
+      await page.keyboard.press('Escape');
+      await until(async () => (await dialog.count()) === 0, 'Esc closes the dialog');
+      assert.equal(await page.locator('[data-composer-plus-settings]').count(), 1, 'Settings stays open');
+      assert.equal(await editorStyles(), 0, 'closed: no style');
+      await memorySwitch.click();
       await until(async () => (await memorySwitch.getAttribute('aria-checked')) === 'false', 'switched off');
+      assert.equal(await page.locator('[data-composer-plus-memory-open]').count(), 0, 'off: no button');
       await back();
       await newChat();
       const before4 = chats().length;
@@ -211,7 +254,7 @@ try {
       const fourth = await until(() => chats().slice(before4)[0], 'chat 4 request');
       assert.ok(!fourth.system.includes('# Memory (Composer Plus)') && !fourth.tools.some((n) => n?.startsWith('memory_')), 'off again: no section, no tools');
       assert.deepEqual(errors, [], 'no browser exceptions');
-      note('4: off → no section, no tools; no page errors');
+      note('5: off → dialog, button and style gone; no section, no tools; no page errors');
       passed = true;
       console.log(`PASS ${bin}`);
     } catch (error) {

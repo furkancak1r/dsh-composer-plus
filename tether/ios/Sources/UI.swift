@@ -530,6 +530,7 @@ struct ConversationView: View {
     @State private var showUsage = false
     @State private var showChanges = false
     @State private var showIdeas = false
+    @State private var showMemory = false
     @State private var deleting = false
     /// Turn rollback: the user row whose ↶ was tapped.
     @State private var rollingBack: Line?
@@ -583,6 +584,7 @@ struct ConversationView: View {
                         Button { finding = finding ?? ""; findAt = 0; findFocused = true } label: { Label("Find in chat", systemImage: "magnifyingglass") }
                         if c.plus.contains("changes") { Button { showChanges = true } label: { Label("Changes", systemImage: "plusminus") } }
                         if c.plus.contains("ideas") { Button { showIdeas = true } label: { Label("Feature ideas", systemImage: "lightbulb") } }
+                        if c.plus.contains("memory-edit") { Button { showMemory = true } label: { Label("Project memory", systemImage: "brain") } }
                         Button { UIPasteboard.general.string = sessionLink(id); UINotificationFeedbackGenerator().notificationOccurred(.success) } label: { Label("Copy session link", systemImage: "link") }
                         if c.transcript.contains(where: { $0.kind == .assistant }) {
                             Button {
@@ -599,6 +601,7 @@ struct ConversationView: View {
             .sheet(isPresented: $creating) { NewSessionSheet() }
             .sheet(isPresented: $showChanges) { if let id = c.current { ChangesSheet(sessionId: id, map: c.plus.contains("graph")) } }
             .sheet(isPresented: $showIdeas) { if let id = c.current { IdeasSheet(sessionId: id) } }
+            .sheet(isPresented: $showMemory) { MemorySheet(cwd: c.currentSess?.cwd ?? "") }
             .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { text = t; focused = true } } }
             .sheet(isPresented: Binding(get: { redoMarker != nil }, set: { if !$0 { redoMarker = nil } })) { if let m = redoMarker { RedoSheet(marker: m) } }
             .confirmationDialog("Delete this chat?", isPresented: $deleting, titleVisibility: .visible) {
@@ -3241,4 +3244,118 @@ struct RedoSheet: View {
             } catch { c.error = String(localized: "Redo failed: \(userText(error))") }
         }
     }
+}
+
+/// Project memory (Composer Plus on the Mac): the saved notes by project, and a change in the user's own words. The Mac's
+/// default model proposes the changes; nothing is saved before Apply. Opens on the chat's own project when it has notes.
+struct MemorySheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let cwd: String
+    @StateObject private var m: MemoryEditor
+    /// "all", "global" or a project id.
+    @State private var pick = "all"
+    @State private var picked = false
+    @State private var filter = ""
+    @State private var text = ""
+    init(cwd: String) {
+        self.cwd = cwd
+        _m = StateObject(wrappedValue: MemoryEditor(call: { _ in [:] }))
+    }
+    private var groups: [MemoryGroup] {
+        pick == "all" ? m.projects + [m.global] : pick == "global" ? [m.global] : m.projects.filter { $0.id == pick }
+    }
+    private var total: Int { m.projects.reduce(0) { $0 + $1.count } + m.global.count }
+    private func shown(_ n: MemoryNote) -> Bool {
+        let words = filter.lowercased().split(separator: " ")
+        return words.allSatisfy { n.text.lowercased().contains($0) }
+    }
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Picker("Show", selection: $pick) {
+                        Text("All notes (\(total))").tag("all")
+                        Text("Global memory (\(m.global.count))").tag("global")
+                        ForEach(m.projects) { p in Text("\(p.name) (\(p.count))").tag(p.id) }
+                    }
+                    .disabled(m.busy != nil)
+                    .onChange(of: pick) { _, _ in m.discard() }
+                }
+                ForEach(groups) { g in
+                    let notes = g.notes.filter(shown)
+                    if !notes.isEmpty || pick != "all" {
+                        Section {
+                            if notes.isEmpty { Text(filter.isEmpty ? "No notes saved yet." : "No note matches the filter.").foregroundStyle(.secondary) }
+                            ForEach(notes) { n in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(n.text).font(.subheadline)
+                                    let meta = [n.topic.map { String(localized: "Topic: \($0)") }, n.added].compactMap { $0 }.joined(separator: " · ")
+                                    if !meta.isEmpty { Text(meta).font(.caption2).foregroundStyle(.secondary) }
+                                }
+                                .textSelection(.enabled)
+                            }
+                        } header: {
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(g.id == "global" ? String(localized: "Global memory") : g.name)
+                                if let p = g.path { Text(p).font(.caption2).textCase(nil).lineLimit(1).truncationMode(.middle) }
+                            }
+                        }
+                    }
+                }
+                if m.loaded && total == 0 { Text("No notes saved yet.").foregroundStyle(.secondary) }
+                if let p = m.preview {
+                    Section {
+                        Text(p.note.isEmpty ? (p.changes.isEmpty ? String(localized: "The model proposes no change.") : String(localized: "Check these \(p.changes.count) change(s), then apply them.")) : p.note).font(.footnote)
+                        ForEach(p.changes) { ch in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(LocalizedStringKey(ch.op == "add" ? "Add" : ch.op == "edit" ? "Change" : "Remove")).font(.caption.bold())
+                                    .foregroundStyle(ch.op == "add" ? Color.green : ch.op == "edit" ? Color.blue : Color.red)
+                                if let b = ch.before { Text(b).strikethrough().foregroundStyle(.secondary).font(.subheadline) }
+                                if let t = ch.text { Text(t).font(.subheadline) }
+                                Text(verbatim: [ch.place, ch.topic].compactMap { $0 }.joined(separator: " · ")).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
+                        if p.skipped > 0 { Text("\(p.skipped) proposed change(s) were left out: they named no note, or looked like a key or password.").font(.caption).foregroundStyle(.orange) }
+                        if p.hidden > 0 { Text("\(p.hidden) note(s) did not fit in the request and cannot change now. Select one project.").font(.caption).foregroundStyle(.orange) }
+                        if p.id != nil {
+                            Button("Apply") { Task { if await m.apply() { text = "" } } }.bold().disabled(m.busy != nil)
+                            Button("Discard", role: .destructive) { m.discard() }.disabled(m.busy != nil)
+                        }
+                    } header: { Text("Proposed changes") }
+                }
+            }
+            .searchable(text: $filter, prompt: "Filter notes")
+            .safeAreaInset(edge: .bottom) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let b = m.busy { HStack(spacing: 8) { ProgressView(); Text(b == "apply" ? "Saving the changes…" : "The model prepares the changes…") }.font(.footnote).foregroundStyle(.secondary) }
+                    else if let n = m.applied { Text("Saved \(n) change(s).").font(.footnote).foregroundStyle(.secondary) }
+                    if let f = m.failed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
+                    HStack(alignment: .bottom) {
+                        TextField(pick == "all" ? "Describe what to change" : "Describe what to change in this memory", text: $text, axis: .vertical)
+                            .lineLimit(1...5).textFieldStyle(.roundedBorder).submitLabel(.send)
+                            .onChange(of: text) { _, v in if v.count > 2000 { text = String(v.prefix(2000)) } }
+                            .onSubmit { send() }
+                            .disabled(m.busy != nil)
+                        Button { send() } label: { Image(systemName: "sparkles").font(.title3) }
+                            .disabled(m.busy != nil || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            .accessibilityLabel("Preview changes")
+                    }
+                    Text("The Mac's default model prepares the changes. Nothing is saved until you apply them.").font(.caption2).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal).padding(.vertical, 8).background(.bar)
+            }
+            .navigationTitle("Project memory").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .task {
+                m.bind { [c] body in try await c.plusCall("memory-edit", body: body, wait: body == nil ? nil : 150) }
+                await m.load()
+                // The chat's own project first, when it has notes.
+                if !picked, let p = m.projects.first(where: { $0.path == cwd }) { pick = p.id }
+                picked = true
+            }
+        }
+    }
+    /// Return and the button both go through the editor, which refuses a second ask while one runs.
+    private func send() { let t = text; Task { await m.ask(pick == "all" ? nil : pick, t) } }
 }
