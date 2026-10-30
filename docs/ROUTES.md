@@ -45,6 +45,10 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.improve` | POST | `{sessionId, text}`: the improved prompt for that draft (one model call, read-only), or `{model}` (Settings only). | promptImprove | yes |
 | `/api/composer-plus.goal-check` | GET | The switch and the verifier's model; `?catalog=1` adds dsh's model list; `?sessionId=` gives that chat's row: own check, found test, last result, running, goal phase and budget use. | goalCheck | no |
 | `/api/composer-plus.goal-check` | POST | `{sessionId, check}` saves the chat's test command and limits (`null` removes them); `{sessionId, run: true}` runs the check now (it does not close the goal); `{on}` / `{model}` (Settings only). | goalCheck | no |
+| `/api/composer-plus.handoff` | POST | `{sessionId}`: a handoff note from the chat (one model call, read-only); `{sessionId, note, start: true}`: a new chat in the same project with the note and a link to the old chat as its first message (a failed send archives the new chat). A newer note replaces a running one (the older answers 409); a start is refused while a note or another start runs (409). | handoffChat | yes |
+| `/api/composer-plus.context` | GET | `?sessionId`: what fills the chat's model context now, by part, with estimated tokens and the context window (read-only, from the chat log). | contextBreakdown | yes |
+| `/api/composer-plus.protected-files` | GET | The switch, the patterns and the defaults. | protectedFiles | no |
+| `/api/composer-plus.protected-files` | POST | `{patterns: [{pattern, mode: all\|write}]}` saves the list; `{on}` (Settings only). | protectedFiles | no |
 | `/api/composer-plus.memory` | GET | The switch `{on}`. | projectMemory | no |
 | `/api/composer-plus.memory` | POST | `{on}`: the switch (a switch route). | projectMemory | no |
 | `/api/composer-plus.memory-edit` | GET | Every saved note: `{projects: [{id, name, path, count, files}], global, busy}`; 409 while the switch is off. | projectMemory | yes |

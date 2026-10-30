@@ -133,6 +133,24 @@ cmd.p.onKeyDown(key('Escape')); out = await v.settle(); assert.equal(inputs(out)
 button(out, 'goalCheck.run').p.onClick(); out = await v.settle();
 assert.deepEqual(posts().at(-1), { sessionId: 's1', run: true });
 assert.ok(all(out).some((n) => n.p.className === 'cp-gc-bad' && text(n).startsWith('✗ goalCheck.failedTest:{"code":1')), 'the failed test shows');
+assert.ok(!text(out).includes('goalCheck.verified'), 'no table: no tally');
+// The verifier's evidence table: "1 of 3 verified", each part with its evidence and fix in the tooltips.
+{
+  const items = [{ item: 'Logout button', verdict: 'verified', evidence: 'Header.tsx', fix: '' }, { item: 'Tests', verdict: 'unresolved', evidence: 'no test', fix: 'add one' }, { item: 'README', verdict: 'incorrect', evidence: '', fix: '' }];
+  const saved = current;
+  current = view({ check: current.check, last: { ok: false, stage: 'verifier', at: Date.now(), reason: 'Half done', missing: ['Tests: add one', 'README'], items } });
+  turnSeq += 1; out = await v.settle();
+  const tally = all(out).find((n) => text(n) === 'goalCheck.verified:{"count":1,"total":3}');
+  assert.ok(tally, 'N of M verified'); assert.equal(tally.p.title, '✓ Logout button — Header.tsx\n? Tests — no test → add one\n✗ README');
+  const bad = all(out).find((n) => n.p.className === 'cp-gc-bad');
+  assert.equal(bad.p.title, 'Half done\n✓ Logout button — Header.tsx\n? Tests — no test → add one\n✗ README', 'the result tooltip has the table');
+  // Review finding F-02 (2026-10-30): 20 rows shown of a 25-part table count as 24 of 25 (the Host's counts).
+  const shown = [{ item: 'p24', verdict: 'incorrect', evidence: '', fix: '' }, ...Array.from({ length: 19 }, (_, i) => ({ item: `p${i}`, verdict: 'verified', evidence: '', fix: '' }))];
+  current = view({ check: current.check, last: { ok: false, stage: 'verifier', at: Date.now(), reason: 'One open', missing: ['p24'], items: shown, verified: 24, total: 25 } });
+  turnSeq += 1; out = await v.settle();
+  assert.ok(all(out).some((n) => text(n) === 'goalCheck.verified:{"count":24,"total":25}'), 'the whole table counts');
+  current = saved; turnSeq += 1; out = await v.settle();
+}
 // Clear removes the own check.
 button(out, 'goalCheck.clear').p.onClick(); out = await v.settle();
 assert.deepEqual(posts().at(-1), { sessionId: 's1', check: null });

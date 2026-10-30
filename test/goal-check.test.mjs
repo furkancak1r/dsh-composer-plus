@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   GOAL_CHECK_PATH, installGoalCheck, detectTestCommand, passingTestRun, goalTranscript, parseVerdict, goalOf, humanTurn, denyReason,
-  runGoalTest, checkGoal, parseGoalCheck, goalUsage, GOAL_CHECK_MAX,
+  runGoalTest, checkGoal, parseGoalCheck, goalUsage, GOAL_CHECK_MAX, subagentIds, subagentUsage,
 } from '../index.js';
 
 const spawned = [];
@@ -152,7 +152,53 @@ try {
   // parseVerdict.
   assert.deepEqual(parseVerdict('<think>hmm {"pass":true}</think>```json\n{"pass": false, "missing": ["no logout test", "", 3], "reason": "Half done"}\n```'), { pass: false, missing: ['no logout test'], reason: 'Half done' });
   assert.deepEqual(parseVerdict('{"pass": true, "missing": ["x"]}'), { pass: true, missing: [], reason: '' });
-  for (const bad of ['', 'yes', '{"pass":"yes"}', '{broken']) assert.equal(parseVerdict(bad), undefined, bad);
+  for (const bad of ['', 'yes', '{"pass":"yes"}', '{broken', '[1]', '{"items": []}', '{"items": ["x"]}']) assert.equal(parseVerdict(bad), undefined, bad);
+  // The evidence table decides, not its "pass": every part verified → pass; an unknown verdict is unresolved; empty or
+  // nameless rows go; the open parts become `missing` (with their fix).
+  {
+    const table = (items, extra = {}) => JSON.stringify({ items, reason: 'Checked', ...extra });
+    const done = parseVerdict(table([{ item: 'logout.js exists', verdict: 'verified', evidence: 'write logout.js', fix: '' }, { item: 'tests pass', verdict: 'verified', evidence: 'npm test exit 0' }], { pass: false }));
+    assert.equal(done.pass, true, 'all verified'); assert.deepEqual(done.missing, []); assert.equal(done.items.length, 2); assert.equal(done.items[1].fix, '');
+    const open = parseVerdict(`<think>x</think>${table([{ item: 'README updated', verdict: 'incorrect', evidence: 'README.md has no Logout section', fix: 'add the section' },
+      { item: 'tests pass', verdict: 'maybe', evidence: '' }, { item: 'docs', verdict: 'unresolved', evidence: 'no docs/ folder' }, { item: '', verdict: 'verified' }, 'x', { verdict: 'verified' }], { pass: true })}`);
+    assert.equal(open.pass, false, 'a table with an open part never passes');
+    assert.deepEqual(open.items.map((i) => i.verdict), ['incorrect', 'unresolved', 'unresolved', 'verified', 'verified'], 'unknown verdict → unresolved; nameless rows count; a non-object row goes');
+    assert.equal(open.items[3].item, '(unnamed part)');
+    assert.deepEqual(open.missing, ['README updated: add the section', 'tests pass', 'docs']);
+    // Review finding P2-2: a nameless open row or an open row after the 20th never lets the goal pass.
+    assert.equal(parseVerdict(table([{ item: 'A', verdict: 'verified' }, { item: '', verdict: 'incorrect' }])).pass, false);
+    { const many = parseVerdict(table([...Array.from({ length: 20 }, (_, i) => ({ item: `p${i}`, verdict: 'verified' })), { item: 'p20', verdict: 'incorrect', fix: 'fix it' }]));
+      assert.equal(many.pass, false); assert.deepEqual(many.missing, ['p20: fix it']); assert.equal(many.items[0].item, 'p20', 'open parts are shown first'); assert.equal(many.items.length, 20); }
+    { const opens = parseVerdict(table(Array.from({ length: 25 }, (_, i) => ({ item: `o${i}`, verdict: 'unresolved' }))));
+      assert.equal(opens.missing.length, 21); assert.equal(opens.missing.at(-1), '5 more open part(s)');
+      // Review finding F-02 (2026-10-30): the counts are of the whole table, and the deny text names the parts it leaves out.
+      assert.deepEqual([opens.verified, opens.total], [0, 25]);
+      assert.match(denyReason({ stage: 'verifier', ...opens }), /\(0 of 25 verified\)[\s\S]*\n- 5 more open part\(s\), not listed here\n/); }
+    { const late = parseVerdict(table([...Array.from({ length: 24 }, (_, i) => ({ item: `p${i}`, verdict: 'verified' })), { item: 'p24', verdict: 'incorrect' }]));
+      assert.deepEqual([late.pass, late.items.length, late.verified, late.total], [false, 20, 24, 25]);
+      const text = denyReason({ stage: 'verifier', ...late });
+      assert.match(text, /\(24 of 25 verified\)/); assert.ok(!text.includes('more open part'), 'every open part is listed'); }
+    assert.equal(parseVerdict(table(Array.from({ length: 30 }, (_, i) => ({ item: `p${i}`, verdict: 'verified' })))).items.length, 20, 'at most 20 rows shown');
+    assert.equal(parseVerdict(table([{ item: 'x'.repeat(400), verdict: 'verified', evidence: 'e'.repeat(900) }])).items[0].evidence.length, 501);
+  }
+
+  // subagentIds: any depth, only subagent origins; subagentUsage: since a time, a fork's inherited calls not counted again,
+  // an unreadable chat counts 0.
+  {
+    const headers = [{ id: 's1' }, { id: 'k1', origin: 'subagent', parentSession: 's1' }, { id: 'k2', origin: 'subagent', parentSession: 'k1' },
+      { id: 'f1', origin: 'user', parentSession: 's1' }, { id: 'o1', origin: 'subagent', parentSession: 'other' }, { id: 'k3', origin: 'subagent', parentSession: 'k2' }, null];
+    assert.deepEqual(subagentIds(headers, 's1'), ['k1', 'k2', 'k3']);
+    assert.deepEqual(subagentIds(headers, 'none'), []);
+    const logs = {
+      k1: { events: [{ seq: 1, time: 100, type: 'assistant/message', data: { usage: { inputTokens: 1000 } } }, { seq: 2, time: 500, type: 'assistant/message', data: { usage: { inputTokens: 10, outputTokens: 5 } } }] },
+      k2: { inheritedEventCount: 1, events: [{ seq: 1, time: 600, type: 'assistant/message', data: { usage: { inputTokens: 7777 } } }, { seq: 2, time: 700, type: 'assistant/attempt', data: { usage: { outputTokens: 3 } } }] },
+    };
+    const deps = { persistence: { list: async () => headers.filter(Boolean).map((header) => ({ header })) }, sessionQuery: { observeSession: async (id) => { if (logs[id] === undefined) throw new Error('gone'); return { ...logs[id], [Symbol.dispose]() {} }; } } };
+    assert.equal(await subagentUsage(deps, 's1', 200), 18, 'since 200: 15 + 3, not the inherited call');
+    assert.equal(await subagentUsage(deps, 's1', undefined), 1018);
+    assert.equal(await subagentUsage({ ...deps, persistence: undefined }, 's1', 0), 0, 'no persistence service');
+    assert.equal(await subagentUsage({ ...deps, persistence: { list: async () => { throw new Error('x'); } } }, 's1', 0), 0);
+  }
 
   // goalUsage.
   seq = 0;
@@ -168,6 +214,12 @@ try {
   assert.match(denyReason({ stage: 'test', command: 'npm test', code: 1, tail: 'not ok 2' }), /^Goal check failed: the goal stays active[\s\S]*`npm test` exited with code 1\.\nOutput \(end\):\nnot ok 2\nFix the cause/);
   assert.match(denyReason({ stage: 'verifier', missing: ['README not updated'], reason: 'Docs missing' }), /gaps:\n- README not updated\nReason: Docs missing\nDo the missing work/);
   assert.match(denyReason({ stage: 'error', reason: 'the verifier could not answer (boom)' }), /^Goal check could not finish: the verifier could not answer \(boom\)/);
+  {
+    const items = [{ item: 'tests pass', verdict: 'verified', evidence: 'npm test exit 0', fix: '' }, { item: 'README updated', verdict: 'incorrect', evidence: 'no Logout section', fix: 'add it' }, { item: 'docs', verdict: 'unresolved', evidence: '', fix: '' }];
+    const text = denyReason({ stage: 'verifier', items, missing: ['README updated: add it', 'docs'], reason: 'Half done' });
+    assert.match(text, /\(1 of 3 verified\)/); assert.match(text, /- \[incorrect\] README updated\n  Evidence: no Logout section\n  Fix: add it\n- \[unresolved\] docs\nReason: Half done/);
+    assert.ok(!text.includes('[verified]'), 'only the open parts'); assert.match(text, /mark a part that cannot be done as unresolved/);
+  }
 
   // runGoalTest: real bash, the chat's sandbox mode, fail closed.
   const proj = await dir('proj', { 'package.json': JSON.stringify({ scripts: { test: 'node t.js' } }), 't.js': 'console.log("ok 1"); process.exit(Number(process.env.FAIL ?? 0))' });
@@ -236,6 +288,13 @@ try {
   answer = '{"pass": false, "missing": ["No test for the logout button"], "reason": "Untested"}';
   r = await checkGoal(deps, { events: chatEvents, cwd: proj }, undefined);
   assert.deepEqual({ ok: r.ok, stage: r.stage, missing: r.missing }, { ok: false, stage: 'verifier', missing: ['No test for the logout button'] });
+  // The evidence table: the system asks for it; an open part fails the check with its items kept for the row and the deny.
+  assert.match(asked.at(-1).system, /"verdict": "verified" or "incorrect" or "unresolved"/); assert.match(asked.at(-1).system, /Name the evidence/);
+  answer = JSON.stringify({ items: [{ item: 'Logout button', verdict: 'verified', evidence: 'Header.tsx in git status' }, { item: 'Tests green', verdict: 'unresolved', evidence: 'no test for logout', fix: 'add a test' }], reason: 'One part open' });
+  r = await checkGoal(deps, { events: chatEvents, cwd: proj }, undefined);
+  assert.equal(r.ok, false); assert.equal(r.stage, 'verifier'); assert.equal(r.items.length, 2); assert.deepEqual(r.missing, ['Tests green: add a test']);
+  assert.deepEqual([r.verified, r.total], [1, 2], 'F-02: the counts go with the result (row and deny)');
+  assert.match(denyReason(r), /\(1 of 2 verified\)[\s\S]*\[unresolved\] Tests green/);
   answer = 'Looks good to me!';
   r = await checkGoal(deps, { events: chatEvents, cwd: proj }, undefined);
   assert.equal(r.ok, false); assert.equal(r.stage, 'error'); assert.match(r.reason, /not the expected JSON/);
@@ -263,12 +322,13 @@ try {
   let agentEvents = [...chatEvents, turnStart(), user('round 2', 'goal', { round: 2 })];
   const agent = { id: 's1', status: 'running', session: { id: 's1', header: { cwd: proj }, snapshotEvents: () => agentEvents } };
   const subAgent = { id: 'sub', status: 'running', session: { id: 'sub', header: { cwd: proj, origin: 'subagent' }, snapshotEvents: () => agentEvents } };
-  installGoalCheck({
+  const installed = {
     on: (name, fn) => { listeners[name] = fn; }, effect: (fn) => { effectStop = fn(); }, get: (name) => services[name], logger: { warn() {} },
     connection: { fetch: { register: (route) => routes.set(route.path, route) } }, subprocess,
     sessionQuery: { observeSession: async (id) => ({ header: id === 'sub' ? { cwd: proj, origin: 'subagent' } : { cwd: proj }, events: agentEvents, [Symbol.dispose]() {} }) },
     sessionController: { resolveAgent: async (id) => (id === 's1' ? { agent } : id === 'sub' ? { agent: subAgent } : { error: 'unknown' }) },
-  }, home, file);
+  };
+  installGoalCheck(installed, home, file);
   const gate = (name, args, a = agent, downstream = { kind: 'allow' }) => listeners['tools/pre-execute']({ name, arguments: JSON.stringify(args), agent: a, signal: new AbortController().signal }, async () => downstream);
   const complete = { goal_id: 'goal-1', revision: 1, action: 'complete' };
   process.env.FAIL = '1';
@@ -363,6 +423,19 @@ try {
   agentEvents = [...agentEvents, reply('d', { inputTokens: 100 })];
   listeners['agent/status']({ agent, status: 'idle' }); await new Promise((res) => setTimeout(res, 50));
   assert.equal(blocked.length, 1, 'a turn that started meanwhile: the next idle edge decides');
+  // The chat's subagents count too: 50 own tokens + 70 of a subagent after the resume are over 100 (its older call is not).
+  agent.status = 'idle';
+  agentEvents = agentEvents.slice(0, -1);
+  const resumedAt = agentEvents.at(-2).time;
+  services.sessionPersistence = { list: async () => [{ header: { id: 's1' } }, { header: { id: 'k1', origin: 'subagent', parentSession: 's1' } }] };
+  const subLog = [{ seq: 1, time: resumedAt - 5, type: 'assistant/message', data: { usage: { inputTokens: 900 } } }, { seq: 2, time: resumedAt + 1, type: 'assistant/message', data: { usage: { inputTokens: 70 } } }];
+  const observe = installed.sessionQuery.observeSession;
+  installed.sessionQuery.observeSession = async (id, o) => (id === 'k1' ? { events: subLog, [Symbol.dispose]() {} } : observe(id, o));
+  row = await (await routes.get(GOAL_CHECK_PATH).fetch(new Request(`http://h${GOAL_CHECK_PATH}?sessionId=s1`))).json();
+  assert.equal(row.goal.tokens, 120, 'the row counts the subagent');
+  listeners['agent/status']({ agent, status: 'idle' }); await new Promise((res) => setTimeout(res, 50));
+  assert.equal(blocked.length, 2, 'over the limit with the subagent'); assert.match(blocked[1].reason.message, /used 120 tokens \(limit 100\)/);
+  delete services.sessionPersistence; installed.sessionQuery.observeSession = observe;
 
   // At most GOAL_CHECK_MAX chats are kept, the newest change first.
   const saved = JSON.parse(await readFile(file, 'utf8'));

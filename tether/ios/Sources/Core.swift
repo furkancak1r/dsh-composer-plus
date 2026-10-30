@@ -568,10 +568,17 @@ func completionRest(typed: String, asked: String, completion: String) -> String?
     return String(full.dropFirst(typed.count))
 }
 
-/// Improve prompt: the same rules as on the Mac: some text, at most 8000 characters, not a slash command.
+/// Improve prompt: the same rules as on the Mac: some text, at most 8000 characters, not a slash command, except
+/// `/goal <objective>` (and `/goal edit <objective>`): the Mac rewrites the objective and keeps the command.
 func improvable(_ draft: String) -> Bool {
     let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-    return !t.isEmpty && draft.utf16.count <= 8000 && !t.hasPrefix("/") // the Mac counts UTF-16 units (JS length)
+    return !t.isEmpty && draft.utf16.count <= 8000 && (!t.hasPrefix("/") || goalObjective(t)) // the Mac counts UTF-16 units (JS length)
+}
+/// `/goal` followed by an objective (not a control word such as `clear`), the Mac's `goalDraft` rule.
+func goalObjective(_ t: String) -> Bool {
+    guard let m = t.range(of: #"^/goal(\s+edit)?\s+\S"#, options: [.regularExpression, .caseInsensitive]) else { return false }
+    let rest = t[t.index(before: m.upperBound)...].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return !["clear", "pause", "resume", "edit"].contains(rest)
 }
 
 /// Next message prediction: the seq of the newest turn/end when it is the last turn event and finished normally.
@@ -2899,4 +2906,54 @@ func memoryChanges(_ o: J) -> [MemoryChange] {
         }
     }
     func discard() { if busy == nil { preview = nil; applied = nil; failed = nil } }
+}
+
+/// Continue in a new chat (Composer Plus on the Mac): the Mac writes a handoff note with the chat's own model; the user
+/// edits it; Start makes a new chat in the same project with the note and a link to the old chat, and the phone opens it.
+/// One write or start at a time (the buttons and a second sheet all go through `busy`); the Mac also refuses a second one.
+@MainActor final class HandoffEditor: ObservableObject {
+    /// "write" or "start" while one runs.
+    @Published private(set) var busy: String?
+    @Published var note = ""
+    @Published var failed: String?
+    private var call: (J) async throws -> J
+    init(call: @escaping (J) async throws -> J) { self.call = call }
+    func bind(_ call: @escaping (J) async throws -> J) { self.call = call }
+    @discardableResult func write(_ sessionId: String) async -> Bool {
+        guard busy == nil else { return false }
+        busy = "write"; failed = nil
+        defer { busy = nil }
+        do {
+            let o = try await call(["sessionId": sessionId])
+            note = o["note"] as? String ?? ""
+            return true
+        } catch { failed = userText(error); return false }
+    }
+    /// The new chat's id, or nil when it did not start (the reason stays in `failed`).
+    func start(_ sessionId: String) async -> String? {
+        let text = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard busy == nil, !text.isEmpty, note.utf16.count <= 12000 else { return nil }
+        busy = "start"; failed = nil
+        defer { busy = nil }
+        do {
+            let o = try await call(["sessionId": sessionId, "note": note, "start": true])
+            return o["sessionId"] as? String
+        } catch { failed = userText(error); return nil }
+    }
+}
+
+/// Context breakdown (Composer Plus on the Mac): one part of the chat's model context, with its tokens.
+struct ContextPart: Identifiable { let id: String; let tokens: Int; let count: Int; let labels: [(label: String, tokens: Int)] }
+/// The Mac's `GET /plus/context` answer: the parts (biggest first), the total and the context window (when known).
+func contextParts(_ o: J) -> (parts: [ContextPart], total: Int, window: Int?, model: String?) {
+    let parts = (o["parts"] as? [J] ?? []).compactMap { p -> ContextPart? in
+        guard let id = p["part"] as? String, let tokens = p["tokens"] as? Int else { return nil }
+        let labels = (p["labels"] as? [J] ?? []).compactMap { l -> (String, Int)? in
+            guard let name = l["label"] as? String, let n = l["tokens"] as? Int else { return nil }
+            return (name, n)
+        }
+        return ContextPart(id: id, tokens: tokens, count: p["count"] as? Int ?? 0, labels: labels)
+    }
+    let window = (o["window"] as? Int).flatMap { $0 > 0 ? $0 : nil }
+    return (parts, o["total"] as? Int ?? parts.reduce(0) { $0 + $1.tokens }, window, o["model"] as? String)
 }

@@ -477,6 +477,9 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(improvable(String(repeating: "a", count: 8000)))
         // The Mac counts UTF-16 units: 4001 emoji are 8002 units.
         XCTAssertFalse(improvable(String(repeating: "😀", count: 4001))); XCTAssertTrue(improvable(String(repeating: "😀", count: 4000)))
+        // A /goal objective is the one command it takes; control words and an empty objective stay refused.
+        XCTAssertTrue(improvable("/goal make the tests pass")); XCTAssertTrue(improvable("/GOAL edit ship the footer"))
+        for refused in ["/goal", "/goal ", "/goal clear", "/goal edit", "/goal Pause", "/goals x", "/goalx y"] { XCTAssertFalse(improvable(refused), refused) }
         // Project search in a new chat: A–Z (numbers in natural order), every word, case and accents ignored.
         let ws = ["serit", "aiproxy", "Zeta", "ağaç-proje", "app10", "app2", "promes"].compactMap { Workspace(["workspaceId": $0, "path": "/p/\($0)", "title": $0]) }
         XCTAssertEqual(pickerProjects(ws, query: "").map(\.title), ["ağaç-proje", "aiproxy", "app2", "app10", "promes", "serit", "Zeta"])

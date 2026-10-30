@@ -9,7 +9,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, stat, symlink, open as openFil
 import { constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply, IMPROVE_PATH, PREDICT_PATH, COMPLETE_PATH, cleanImproved, relatedPaths, improveContext } from '../index.js';
+import { apply, IMPROVE_PATH, PREDICT_PATH, COMPLETE_PATH, cleanImproved, relatedPaths, improveContext, goalDraft } from '../index.js';
 
 const subprocess = {
   resolveExecutable: async () => execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(),
@@ -45,6 +45,11 @@ assert.deepEqual(relatedPaths(paths, 'auth login'), ['src/auth/login.ts', 'docs/
 assert.deepEqual(relatedPaths(paths, 'fix the bug please'), [], 'only common words: nothing');
 assert.deepEqual(relatedPaths(paths, ''), []);
 assert.equal(relatedPaths(Array.from({ length: 100 }, (_, i) => `src/login${i}.ts`), 'login').length, 30);
+// `/goal` drafts (dsh's own grammar): the command as typed and the objective; control words and other commands are not goals.
+assert.deepEqual(goalDraft('/goal make the tests pass'), { prefix: '/goal ', objective: 'make the tests pass' });
+assert.deepEqual(goalDraft('  /GOAL edit  ship it\n'), { prefix: '  /GOAL edit  ', objective: 'ship it' });
+assert.deepEqual(goalDraft('/goal editor colors'), { prefix: '/goal ', objective: 'editor colors' }, '"editor" is an objective');
+for (const not of ['/goal', '/goal ', '/goal clear', '/goal Pause', '/goal resume', '/goal edit', '/goal edit ', '/goals x', 'fix /goal x', '/plan x']) assert.equal(goalDraft(not), undefined, not);
 
 const root = await mkdtemp(join(tmpdir(), 'cp-improve-'));
 try {
@@ -266,6 +271,25 @@ try {
   leaving.abort(); await gone.catch(() => {});
   assert.equal(calls.at(-1).signal.aborted, true, 'an aborted request stops its call');
   gate = () => Promise.resolve();
+
+  // `/goal …`: only the objective goes to the model, with the goal rules; the command as typed comes back in front of the
+  // answer (a model that writes `/goal` again does not double it).
+  answer = 'Make the login form work.\nDone when:\n1. `npm test` passes and its result is in the chat.';
+  r = await ask({ sessionId: 's1', text: '/goal edit  fix login' });
+  assert.equal(r.status, 200);
+  assert.equal(r.data.improved, '/goal edit  Make the login form work.\nDone when:\n1. `npm test` passes and its result is in the chat.');
+  assert.match(calls.at(-1).system, /rewrite the objective of a \/goal/); assert.match(calls.at(-1).system, /Done when:/);
+  assert.match(calls.at(-1).system, /unresolved/); assert.match(calls.at(-1).system, /blocked/);
+  assert.ok(calls.at(-1).messages[0].content[0].text.includes('<draft>\nfix login\n</draft>'), 'the objective only');
+  assert.ok(!calls.at(-1).messages[0].content[0].text.includes('<draft>\n/goal'));
+  answer = '/goal Ship the footer link.';
+  r = await ask({ sessionId: 's1', text: '/goal footer' }); assert.equal(r.data.improved, '/goal Ship the footer link.');
+  answer = '/goal ';
+  r = await ask({ sessionId: 's1', text: '/goal footer' }); assert.equal(r.status, 502, 'nothing after the command');
+  // A control word is not an objective: the ordinary rules (the Host never refuses a draft; the browser does).
+  answer = 'x';
+  await ask({ sessionId: 's1', text: '/goal clear' }); assert.match(calls.at(-1).system, /You improve a prompt/);
+  answer = '<think>x</think>Fix the login error in `src/auth/login.ts`.\n1. Reproduce it.\n2. Run `npm test`.';
 
   // Subagent chat, failures, no model.
   origin = 'subagent'; assert.equal((await ask({ sessionId: 's1', text: 'Run' })).status, 409); origin = 'user';
