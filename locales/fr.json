@@ -1619,6 +1619,8 @@
     "feature.keepFocus.description": "Après l’envoi d’une commande /, le curseur reste dans la zone de saisie.",
     "feature.questionFit": "Adapter la carte de question à la fenêtre",
     "feature.questionFit.description": "Quand l’agent vous pose une question, la question et ses réponses défilent ensemble dans la carte, Ignorer et Envoyer restent visibles et la carte utilise la hauteur de la fenêtre.",
+    "feature.headerFit": "Adapter l’en-tête de la conversation à la fenêtre",
+    "feature.headerFit.description": "Dans une fenêtre étroite, les boutons de l’en-tête de la conversation passent sur une deuxième ligne au lieu de se chevaucher, et le titre reste lisible. Une fenêtre large ne change pas.",
     "feature.queueReorder": "Glisser-déposer dans la file",
     "feature.queueReorder.description": "Réordonnez les messages en file d’attente en faisant glisser leur poignée.",
     "feature.copyDeeplink": "Copier le lien de session",

@@ -32,8 +32,9 @@ const { setFeature } = settings.inject();
 setFeature('questionFit', false);
 assert.equal(styles().length, 0, 'switch off removes the style');
 assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.features')), { questionFit: false }, 'the off switch is stored');
+const others = head.length; // other features' styles (the header fit) stay
 setFeature('questionFit', false);
-assert.equal(head.length, 0, 'a second off changes nothing');
+assert.equal(head.length, others, 'a second off changes nothing');
 setFeature('questionFit', true);
 assert.equal(styles().length, 1, 'switch on adds it back');
 setFeature('questionFit', true);

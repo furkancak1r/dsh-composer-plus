@@ -1619,6 +1619,8 @@
     "feature.keepFocus.description": "Setelah Anda mengirim perintah /, kursor tetap berada di composer.",
     "feature.questionFit": "Sesuaikan kartu pertanyaan dengan jendela",
     "feature.questionFit.description": "Saat agen mengajukan pertanyaan, pertanyaan dan jawabannya bergulir bersama di kartu, Lewati dan Kirim tetap terlihat, dan kartu memakai tinggi jendela.",
+    "feature.headerFit": "Sesuaikan header chat dengan jendela",
+    "feature.headerFit.description": "Di jendela yang sempit, tombol di header chat pindah ke baris kedua alih-alih saling menutupi, dan judul chat tetap terbaca. Jendela yang lebar tidak berubah.",
     "feature.queueReorder": "Seret dan lepas antrean",
     "feature.queueReorder.description": "Ubah urutan pesan dalam antrean dengan menyeret pegangannya.",
     "feature.copyDeeplink": "Salin tautan sesi",

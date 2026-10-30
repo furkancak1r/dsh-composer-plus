@@ -1619,6 +1619,8 @@
     "feature.keepFocus.description": "/ コマンドを送信した後も、カーソルは入力欄に残ります。",
     "feature.questionFit": "質問カードをウィンドウに合わせる",
     "feature.questionFit.description": "エージェントが質問すると、質問と回答がカード内で一緒にスクロールし、「スキップ」と「送信」は常に表示され、カードはウィンドウの高さを使います。",
+    "feature.headerFit": "チャットのヘッダーをウィンドウに合わせる",
+    "feature.headerFit.description": "狭いウィンドウでは、チャットのヘッダーのボタンが重ならずに 2 行目へ移り、チャットのタイトルも読めるままです。広いウィンドウは変わりません。",
     "feature.queueReorder": "キューのドラッグ＆ドロップ",
     "feature.queueReorder.description": "ハンドルをドラッグしてキュー内のメッセージを並べ替えます。",
     "feature.copyDeeplink": "セッションリンクをコピー",

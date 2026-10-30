@@ -3083,6 +3083,8 @@
     "feature.keepFocus.description": "/ komutu gönderdikten sonra imleç mesaj alanında kalır.",
     "feature.questionFit": "Soru kartını pencereye sığdır",
     "feature.questionFit.description": "Ajan size bir soru sorduğunda soru ve cevaplar kartta birlikte kayar, Atla ve Gönder görünür kalır ve kart pencerenin yüksekliğini kullanır.",
+    "feature.headerFit": "Sohbet başlığını pencereye sığdır",
+    "feature.headerFit.description": "Dar bir pencerede sohbet başlığındaki düğmeler üst üste binmez, ikinci satıra geçer ve sohbet başlığı okunur kalır. Geniş pencere değişmez.",
     "feature.queueReorder": "Kuyrukta sürükle bırak",
     "feature.queueReorder.description": "Tutamacı sürükleyerek sıradaki mesajların yerini değiştirin.",
     "feature.copyDeeplink": "Oturum bağlantısını kopyala",

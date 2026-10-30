@@ -70,7 +70,7 @@ export const CONTEXT_PATH = '/api/composer-plus.context';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
-export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit',
+export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit',
   'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
   'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'handoffChat', 'contextBreakdown'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
@@ -2029,7 +2029,8 @@ export async function branchOf(subprocess, cwd, signal) {
 /** Branch badge (Host half): when a top-level chat's turn starts and when it ends, the branch of its folder is read (one
  * read per chat at a time; an edge that comes during a read reads again after it) and kept in
  * `storages/dsh-composer-plus/session-branches.json` (`{ [sessionId]: { branch, at } }`, owner-only, newest BRANCHES_MAX).
- * A folder that is not a repository removes the chat's entry; a failed read (no git, time-out) keeps it. The switch is kept here too (`branches.json`, on by
+ * A folder that is not a repository removes the chat's entry; a failed read (no git, time-out) keeps it. The route leaves
+ * out a detached HEAD (a commit id, not a branch). The switch is kept here too (`branches.json`, on by
  * default): off, nothing is read or kept, and the route answers no branches. `settled()` resolves when no read runs. */
 export function installBranches(ctx, home) {
   const saved = mobileSwitch(join(home, 'storages', 'dsh-composer-plus', 'branches.json'), true);
@@ -2086,7 +2087,8 @@ export function installBranches(ctx, home) {
       if (!on) return json({ on: false, branches: {} });
       try {
         const all = await store.read();
-        return json({ on: true, branches: Object.fromEntries(Object.entries(all).map(([id, e]) => [id, e.branch])) });
+        // A detached HEAD (`(abc1234)`, see branchOf) is a commit id, not a branch: no pill on the chat row or in Tether.
+        return json({ on: true, branches: Object.fromEntries(Object.entries(all).filter(([, e]) => !/^\([0-9a-f]{4,64}\)$/.test(e.branch)).map(([id, e]) => [id, e.branch])) });
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
   });
