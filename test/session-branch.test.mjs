@@ -1,5 +1,6 @@
 // Branch badge (Host half + client): at each turn start and end of a top-level chat the Host reads the git branch of the
-// chat's folder and keeps it (owner-only file, newest BRANCHES_MAX); a detached HEAD shows its short id, a folder that is
+// chat's folder and keeps it (owner-only file, newest BRANCHES_MAX); a detached HEAD is kept as its short id but the route
+// leaves it out (no commit id on a chat row), a folder that is
 // not a repository has no entry, a subagent chat is skipped, edges during a read read again once; the switch (on by
 // default) stops it and the route answers nothing then. The client badge shows the branch on each chat row and removes
 // its hosts when it unmounts.
@@ -82,6 +83,13 @@ try {
   await branches.settled();
   assert.equal((await get()).branches['chat-a'], 'main');
   assert.ok(spawned <= 2, `edges during a read are merged (${spawned} git runs)`);
+  // A detached HEAD is a commit id, not a branch: the route leaves it out, so neither the chat row nor Tether shows it.
+  git(repo, 'switch', '-q', '--detach');
+  emit(session('chat-a', repo), 'turn/end'); await branches.settled();
+  assert.equal((await get()).branches['chat-a'], undefined, 'no commit id for a detached HEAD');
+  git(repo, 'switch', '-q', 'main');
+  emit(session('chat-a', repo), 'turn/end'); await branches.settled();
+  assert.equal((await get()).branches['chat-a'], 'main', 'back on a branch: the pill again');
   // The folder stops being a repository: the entry goes.
   rmSync(join(repo, '.git'), { recursive: true, force: true });
   emit(session('chat-b', join(repo, 'sub')), 'turn/end'); await branches.settled();

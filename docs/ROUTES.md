@@ -23,7 +23,7 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.queue-edit` | POST | `{sessionId, itemId, content, seen?}`: give one of your own queued messages new text, images and files (kept attachments by `attachmentId`, a new image as bytes, a new file by its upload `receiptId`); the message keeps its id and its place. | queueEdit | yes |
 | `/api/composer-plus.send-first` | GET | The switch `{on}`. | stopSendFirst | no |
 | `/api/composer-plus.send-first` | POST | `{on}`: the switch (a switch route). | stopSendFirst | no |
-| `/api/composer-plus.branches` | GET | `{on, branches: { [sessionId]: branch }}`: the git branch of each chat's folder at its last turn (none while off). | sessionBranch | yes |
+| `/api/composer-plus.branches` | GET | `{on, branches: { [sessionId]: branch }}`: the git branch of each chat's folder at its last turn (none while off; no entry for a detached HEAD). | sessionBranch | yes |
 | `/api/composer-plus.branches` | POST | `{on}`: the switch (Settings only; the phone gateway refuses it). | sessionBranch | no |
 | `/api/composer-plus.rollback` | GET | No query: the switch `{on}`. `?sessionId`: the withdrawn spans, whether dsh-rewind-plugin owns rollback, and the rollback that Redo can take back (`redo`). | turnRollback | yes |
 | `/api/composer-plus.rollback` | POST | `{on}` (the switch), `{sessionId, seq, preview?, files?}`: list or take back the turns from that message, with the files when `files` is true, or `{sessionId, redo, preview?, files?, overwrite?}`: list or redo that rollback in a new chat (a fork), with the files. | turnRollback | yes |
