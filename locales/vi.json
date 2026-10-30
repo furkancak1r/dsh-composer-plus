@@ -1619,6 +1619,8 @@
     "feature.keepFocus.description": "Sau khi bạn gửi lệnh /, con trỏ vẫn ở trong khung soạn thảo.",
     "feature.questionFit": "Vừa thẻ câu hỏi với cửa sổ",
     "feature.questionFit.description": "Khi tác tử hỏi bạn, câu hỏi và các câu trả lời cuộn cùng nhau trong thẻ, Bỏ qua và Gửi luôn hiện, và thẻ dùng chiều cao của cửa sổ.",
+    "feature.headerFit": "Vừa tiêu đề cuộc trò chuyện với cửa sổ",
+    "feature.headerFit.description": "Trong cửa sổ hẹp, các nút ở tiêu đề cuộc trò chuyện chuyển xuống dòng thứ hai thay vì che nhau, và tên cuộc trò chuyện vẫn đọc được. Cửa sổ rộng không thay đổi.",
     "feature.queueReorder": "Kéo thả hàng đợi",
     "feature.queueReorder.description": "Sắp xếp lại tin nhắn trong hàng đợi bằng cách kéo tay nắm.",
     "feature.copyDeeplink": "Sao chép liên kết phiên",
