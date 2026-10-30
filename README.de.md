@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Starte dsh danach neu. (Die CLI kann nicht in das Desktop-Profil installieren; dieses Profil verwaltet die App.)
 
-> Das pnpm von dsh überspringt Versionen, die jünger als 24 Stunden sind. Gib direkt nach einem Release die Version mit an: `dsh-composer-plus@1.16.0`.
+> Das pnpm von dsh überspringt Versionen, die jünger als 24 Stunden sind. Gib direkt nach einem Release die Version mit an: `dsh-composer-plus@1.16.1`.
 
 ## Funktionen
 
@@ -182,7 +182,7 @@ Getestet mit dsh `0.2.0-rc.2` (Desktop und Web) und `0.2.1-rc.2` (Web). Die CI f
 - **Kein Branch-Etikett an einer Chatzeile:** Der Chat hatte seit der Installation dieser Version keine Runde, sein Ordner ist kein git-Repository, oder **Git-Branch in Chatzeilen** ist aus. Starte dsh nach einem Update neu (die Host-Hälfte zeichnet den Branch auf).
 - **Zielprüfung meldet, dass der Test mit Code 127 oder „not found“ beendet wurde:** Ein dsh, das aus dem Finder oder dem Dock gestartet wurde, kann einen kürzeren PATH als dein Terminal haben und findet daher `npm`, `pnpm` oder `cargo` nicht. Starte dsh aus einem Terminal, oder lege unter **Zielprüfung** → **Bearbeiten** deinen eigenen Testbefehl mit dem vollständigen Pfad fest. **Jetzt ausführen** zeigt das Ergebnis sofort.
 - **Das Ziel schließt sich nicht und der Agent arbeitet weiter:** **Zielprüfung** hat einen fehlschlagenden Test oder fehlende Arbeit gefunden. Die Zeile unter dem Ziel zeigt den Grund (fahre mit der Maus über das Ergebnis, um die Details zu sehen). Behebe die Ursache oder den Testbefehl, oder schließe das Ziel selbst mit `/goal` oder der Zielleiste ab (das wird nicht geprüft).
-- **Die Installation schlägt direkt nach einem Release fehl:** Gib die Version mit an (`dsh-composer-plus@1.16.0`), siehe den Hinweis zur Installation oben.
+- **Die Installation schlägt direkt nach einem Release fehl:** Gib die Version mit an (`dsh-composer-plus@1.16.1`), siehe den Hinweis zur Installation oben.
 - **Jetzt sichern meldet „Eine andere Sicherungsaktion läuft“:** Eine Aktion läuft in einem anderen dsh-Fenster oder in der Rettungskonsole (sie teilen sich eine Sperrdatei, `.composer-plus.lock`, im Sicherungsordner). Warte, bis sie fertig ist. Läuft keine Aktion, wird die Sperre eines beendeten Prozesses beim nächsten Klick übernommen.
 - **Die Rettungskonsole meldet „dsh is running“:** Beende zuerst dsh. Ist dsh wirklich geschlossen, ist die in der Meldung genannte Datei von einem Absturz übrig: Entferne sie und versuche es erneut.
 - **Nach einer Wiederherstellung startet dsh nicht oder ein Plugin fehlt:** Die Plugin-Pakete eines Profils müssen neu installiert werden. Die Rettungskonsole bietet das nach einer Wiederherstellung an; oder führe `pnpm install` in jedem Ordner unter `$DSH_HOME/profiles/` aus, den sie auflistet. Geheimnisse, die nicht im vault waren (anderer Computer), müssen neu eingegeben werden: Die Konsole listet sie auf.

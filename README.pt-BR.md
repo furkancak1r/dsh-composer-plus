@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Depois, reinicie o dsh. (A CLI não consegue instalar no perfil desktop; quem gerencia esse perfil é o app.)
 
-> O pnpm do dsh ignora versões publicadas há menos de 24 horas. Logo depois de uma nova versão, informe a versão: `dsh-composer-plus@1.16.0`.
+> O pnpm do dsh ignora versões publicadas há menos de 24 horas. Logo depois de uma nova versão, informe a versão: `dsh-composer-plus@1.16.1`.
 
 ## Recursos
 
@@ -182,7 +182,7 @@ Testado no dsh `0.2.0-rc.2` (desktop e web) e `0.2.1-rc.2` (web). A CI executa o
 - **Nenhuma etiqueta de branch em uma linha de chat:** o chat não teve nenhum turno desde que você instalou esta versão, a pasta dele não é um repositório git, ou **Branch do Git nas linhas de chat** está desativado. Depois de uma atualização, reinicie o dsh (a parte Host registra o branch).
 - **Verificação da meta diz que o teste saiu com o código 127 ou "not found":** o dsh iniciado pelo Finder ou pelo Dock pode ter um PATH mais curto que o do seu terminal, então ele não encontra `npm`, `pnpm` ou `cargo`. Inicie o dsh a partir de um terminal ou defina o seu próprio comando de teste com o caminho completo em **Verificação da meta** → **Editar**. **Executar agora** mostra o resultado na hora.
 - **A meta não fecha e o agente continua trabalhando:** **Verificação da meta** encontrou um teste com falha ou trabalho faltando; a linha abaixo da meta mostra o motivo (passe o mouse sobre o resultado para ver os detalhes). Corrija a causa ou o comando de teste, ou conclua a meta você mesmo com `/goal` ou com a barra da meta (isso não é verificado).
-- **A instalação falha logo depois de uma nova versão:** informe a versão (`dsh-composer-plus@1.16.0`); veja a nota de instalação acima.
+- **A instalação falha logo depois de uma nova versão:** informe a versão (`dsh-composer-plus@1.16.1`); veja a nota de instalação acima.
 - **Fazer backup agora diz "Outra ação de backup está em andamento":** uma ação está em execução em outra janela do dsh ou no console de resgate (eles compartilham um arquivo de bloqueio, `.composer-plus.lock`, na pasta de backups). Aguarde até ela terminar. Se nenhuma ação estiver em execução, o próximo clique assume o bloqueio de um processo encerrado.
 - **O console de resgate diz "dsh is running":** feche o dsh primeiro. Se o dsh estiver mesmo fechado, o arquivo citado na mensagem sobrou de uma falha: remova-o e tente de novo.
 - **Depois de uma restauração, o dsh não inicia ou falta um plugin:** os pacotes de plugin de um perfil precisam ser instalados de novo. O console de resgate oferece isso depois de uma restauração; ou execute `pnpm install` em cada pasta de `$DSH_HOME/profiles/` que ele listar. Os segredos que não estavam no vault (outro computador) precisam ser informados de novo: o console os lista.
