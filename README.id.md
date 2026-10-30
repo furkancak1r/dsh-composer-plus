@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Lalu mulai ulang dsh. (CLI tidak dapat memasang plugin ke profil desktop; profil itu dikelola oleh aplikasi.)
 
-> pnpm milik dsh melewati versi yang berumur kurang dari 24 jam. Tepat setelah rilis, tambahkan versinya: `dsh-composer-plus@1.16.1`.
+> pnpm milik dsh melewati versi yang berumur kurang dari 24 jam. Tepat setelah rilis, tambahkan versinya: `dsh-composer-plus@1.17.0`.
 
 ## Fitur
 
@@ -189,7 +189,7 @@ Diuji pada dsh `0.2.0-rc.2` (desktop dan web) dan `0.2.1-rc.2` (web). CI menjala
 - **Tidak ada label branch di baris obrolan:** obrolan itu belum memiliki giliran sejak Anda memasang versi ini, foldernya bukan repositori git, atau **Branch Git di baris obrolan** nonaktif. Setelah pembaruan, mulai ulang dsh (bagian Host mencatat branch).
 - **Pemeriksaan tujuan menyebut pengujian keluar dengan kode 127 atau "not found":** dsh yang dimulai dari Finder atau Dock dapat memiliki PATH yang lebih pendek daripada terminal Anda, sehingga tidak menemukan `npm`, `pnpm`, atau `cargo`. Mulai dsh dari terminal, atau atur perintah pengujian Anda sendiri dengan jalur lengkap di **Pemeriksaan tujuan** → **Edit**. **Jalankan sekarang** langsung menampilkan hasilnya.
 - **Tujuan tidak ditutup dan agen terus bekerja:** **Pemeriksaan tujuan** menemukan pengujian yang gagal atau pekerjaan yang belum selesai; baris di bawah tujuan menampilkan alasannya (arahkan penunjuk ke hasil untuk melihat detailnya). Perbaiki penyebabnya atau perintah pengujiannya, atau selesaikan tujuan sendiri dengan `/goal` atau bilah tujuan (penyelesaian itu tidak diperiksa).
-- **Pemasangan gagal tepat setelah rilis:** tambahkan versinya (`dsh-composer-plus@1.16.1`), lihat catatan pemasangan di atas.
+- **Pemasangan gagal tepat setelah rilis:** tambahkan versinya (`dsh-composer-plus@1.17.0`), lihat catatan pemasangan di atas.
 - **Cadangkan sekarang menyatakan "Tindakan pencadangan lain sedang berjalan":** ada tindakan yang berjalan di jendela dsh lain atau di konsol penyelamat (keduanya berbagi file kunci, `.composer-plus.lock`, di folder cadangan). Tunggu sampai tindakan itu selesai. Jika tidak ada tindakan yang berjalan, kunci milik proses yang sudah ditutup diambil alih pada klik berikutnya.
 - **Konsol penyelamat menyatakan "dsh is running":** keluar dari dsh terlebih dahulu. Jika dsh memang sudah tertutup, file yang disebut dalam pesan itu tersisa dari crash: hapus file itu dan coba lagi.
 - **Setelah pemulihan, dsh tidak mau dimulai atau ada plugin yang hilang:** paket plugin sebuah profil harus dipasang lagi. Konsol penyelamat menawarkannya setelah pemulihan; atau jalankan `pnpm install` di setiap folder di bawah `$DSH_HOME/profiles/` yang dicantumkannya. Rahasia yang tidak ada di vault (komputer lain) harus dimasukkan lagi: konsol mencantumkannya.

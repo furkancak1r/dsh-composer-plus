@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Sonra dsh’yi yeniden başlatın. (CLI, masaüstü profiline yükleme yapamaz; bu profili uygulama yönetir.)
 
-> dsh’nin pnpm’i, yayımlanmasının üzerinden 24 saat geçmemiş sürümleri atlar. Bir yayından hemen sonra sürümü ekleyin: `dsh-composer-plus@1.16.1`.
+> dsh’nin pnpm’i, yayımlanmasının üzerinden 24 saat geçmemiş sürümleri atlar. Bir yayından hemen sonra sürümü ekleyin: `dsh-composer-plus@1.17.0`.
 
 ## Özellikler
 
@@ -189,7 +189,7 @@ dsh `0.2.0-rc.2` (masaüstü ve web) ve `0.2.1-rc.2` (web) üzerinde test edildi
 - **Bir sohbet satırında dal etiketi yok:** bu sürümü yüklediğinizden beri sohbette hiç tur olmadı, sohbetin klasörü bir git deposu değil ya da **Sohbet satırlarında Git dalı** kapalı. Bir güncellemeden sonra dsh’yi yeniden başlatın (dalı Host tarafı kaydeder).
 - **Hedef kontrolü, testin 127 koduyla ya da "not found" ile çıktığını söylüyor:** Finder’dan veya Dock’tan başlatılan dsh’nin PATH’i terminalinizdekinden daha kısa olabilir. Bu yüzden dsh `npm`, `pnpm` veya `cargo` aracını bulamaz. dsh’yi bir terminalden başlatın ya da **Hedef kontrolü** → **Düzenle** içinde tam yolu olan kendi test komutunuzu belirleyin. **Şimdi çalıştır** sonucu hemen gösterir.
 - **Hedef kapanmıyor ve ajan çalışmaya devam ediyor:** **Hedef kontrolü** başarısız bir test ya da eksik bir iş buldu. Hedefin altındaki satır nedenini gösterir (ayrıntılar için imleci sonucun üzerine getirin). Nedeni ya da test komutunu düzeltin veya hedefi `/goal` ya da hedef çubuğuyla kendiniz tamamlayın (bu tamamlama kontrol edilmez).
-- **Bir yayından hemen sonra yükleme başarısız oluyor:** sürümü ekleyin (`dsh-composer-plus@1.16.1`) ve yukarıdaki kurulum notuna bakın.
+- **Bir yayından hemen sonra yükleme başarısız oluyor:** sürümü ekleyin (`dsh-composer-plus@1.17.0`) ve yukarıdaki kurulum notuna bakın.
 - **Şimdi yedekle, "Başka bir yedekleme işlemi sürüyor" diyor:** başka bir dsh penceresinde ya da kurtarma konsolunda bir işlem çalışıyor (ikisi, yedek klasöründeki `.composer-plus.lock` kilit dosyasını paylaşır). İşlemin bitmesini bekleyin. Çalışan bir işlem yoksa, kapanmış bir sürecin kilidi bir sonraki tıklamada devralınır.
 - **Kurtarma konsolu "dsh is running" diyor:** önce dsh’den çıkın. dsh gerçekten kapalıysa mesajda adı geçen dosya bir çökmeden kalmıştır: dosyayı silin ve yeniden deneyin.
 - **Geri yüklemeden sonra dsh açılmıyor ya da bir eklenti eksik:** bir profilin eklenti paketlerinin yeniden yüklenmesi gerekir. Kurtarma konsolu bunu geri yüklemeden sonra önerir. Ya da konsolun listelediği, `$DSH_HOME/profiles/` altındaki her klasörde `pnpm install` komutunu çalıştırın. Vault’ta olmayan gizli bilgiler (başka bir bilgisayar) yeniden girilmelidir: konsol bunları listeler.

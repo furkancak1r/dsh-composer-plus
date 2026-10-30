@@ -27,7 +27,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.16.1`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.17.0`.
 
 ## Features
 
@@ -187,7 +187,7 @@ Tested on dsh `0.2.0-rc.2` (desktop and web) and `0.2.1-rc.2` (web). CI runs the
 - **No branch pill on a chat row:** the chat had no turn since you installed this version, its folder is not a git repository, or **Git branch on chat rows** is off. After an update, restart dsh (the Host half records the branch).
 - **Goal check says the test exited with code 127 or "not found":** dsh started from the Finder or the Dock can have a shorter PATH than your terminal, so it does not find `npm`, `pnpm` or `cargo`. Start dsh from a terminal, or set your own test command with the full path under **Goal check** → **Edit**. **Run now** shows the result at once.
 - **The goal does not close and the agent keeps working:** **Goal check** found a failing test or missing work; the row under the goal shows why (hover the result for the details). Fix the cause or the test command, or complete the goal yourself with `/goal` or the goal bar (that is not checked).
-- **Install fails right after a release:** add the version (`dsh-composer-plus@1.16.1`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.17.0`), see the install note above.
 - **Back up now says "another backup action is running":** an action runs in another dsh window or in the rescue console (they share a lock file, `.composer-plus.lock`, in the backup folder). Wait for it. If no action runs, the lock of a closed process is taken over at the next click.
 - **The rescue console says "dsh is running":** quit dsh first. If dsh is really closed, the file named in the message is left from a crash: remove it and try again.
 - **After a restore, dsh does not start or a plugin is missing:** the plugin packages of a profile must be installed again. The rescue console offers it after a restore; or run `pnpm install` in each folder under `$DSH_HOME/profiles/` that it lists. Secrets that were not in the vault (another computer) must be entered again: the console lists them.
