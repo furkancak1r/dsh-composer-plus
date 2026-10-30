@@ -23,6 +23,7 @@ class El {
   constructor(attrs = {}, children = []) { this.attrs = { ...attrs }; this.children = []; this.parentElement = null; this.listeners = new Map(); for (const c of children) this.append(c); }
   append(c) { c.parentElement = this; this.children.push(c); }
   has(sel) { const m = /^\[([\w-]+)\]$/.exec(sel); return m !== null && m[1] in this.attrs; }
+  remove(c) { this.children = this.children.filter((x) => x !== c); }
   closest(sel) { for (let e = this; e !== null; e = e.parentElement) if (e.has(sel)) return e; return null; }
   querySelector(sel) { for (const c of this.children) { if (c.has(sel)) return c; const d = c.querySelector(sel); if (d) return d; } return null; }
   addEventListener(type, fn, capture) { assert.equal(type, 'keydown'); assert.equal(capture, true, 'before the editor'); this.listeners.set(fn, fn); }
@@ -222,6 +223,58 @@ buttonOf(await view.settle()).p.onClick(); await view.settle(); assert.equal(edi
   view = mount(Improve, props); await view.settle();
   assert.equal(inputState.draft, 'fix it now', 'new typing is never overwritten'); assert.deepEqual(notices.at(-1), ['info', 'improve.changed']);
   inputState = { ...inputState, draft: '' };
+}
+// `/goal <objective>`: the one command it takes. dsh shows `/goal` as a command chip (phase 'claimed'), which is one
+// character in its editor offsets: the answer replaces only the objective, the chip stays, and Undo puts the objective back.
+{
+  const n = asks().length; const e0 = edits.length;
+  for (const [state, why] of [[{ draft: '/goal ', phase: 'claimed', claim: { name: 'goal', token: '/goal ' } }, 'improve.empty'],
+    [{ draft: '/goal clear', phase: 'claimed', claim: { name: 'goal', token: '/goal ' } }, 'improve.unsupported'],
+    [{ draft: '/goal edit', phase: 'claimed', claim: { name: 'goal', token: '/goal ' } }, 'improve.unsupported'],
+    [{ draft: '/goal x', phase: 'submitting', claim: { name: 'goal', token: '/goal ' } }, 'improve.unsupported'],
+    [{ draft: '/plan x', phase: 'claimed', claim: { name: 'plan', token: '/plan ' } }, 'improve.unsupported'],
+    [{ draft: '/goal clear', phase: 'plain' }, 'improve.unsupported']]) {
+    inputState = { ...inputState, occurrences: [], ...state };
+    if (why === 'improve.empty') inputState = { ...inputState, draft: '/goal' }; // nothing after the chip yet
+    out = await view.settle(); button = buttonOf(out);
+    assert.equal(button.p.disabled, true, `${state.draft}: ${why}`);
+    button.p.onClick(); await view.settle();
+  }
+  assert.equal(asks().length, n, 'nothing asked');
+  // dsh 0.2.1 draws the claimed command as a chip element in the composer.
+  const chip = new El({ 'data-composer-command': 'goal' }); input.append(chip);
+  inputState = { ...inputState, phase: 'claimed', claim: { name: 'goal', token: '/goal ' }, draft: '/goal make the tests pass', draftRev: inputState.draftRev + 1, occurrences: [] };
+  reply = async (url, init) => ({ status: 200, body: { text: JSON.parse(init.body).text, improved: '/goal Make every test pass.\nDone when:\n1. `npm test` passes.', model: 'big' } });
+  out = await view.settle(); assert.equal(buttonOf(out).p.disabled, false, 'a /goal objective can be improved');
+  buttonOf(out).p.onClick(); out = await view.settle();
+  assert.deepEqual(JSON.parse(asks().at(-1).init.body).text, '/goal make the tests pass', 'the whole draft goes to the Host');
+  assert.equal(edits.length, e0 + 1);
+  // The chip is offset 0 (one character), then the separator space: the objective is [2, 2 + 19).
+  assert.deepEqual(edits.at(-1), { text: 'Make every test pass.\nDone when:\n1. `npm test` passes.', span: { start: 2, end: 21, draftRev: inputState.draftRev - 1 } });
+  // dsh publishes the new draft with the chip's token in front (the fake editor above keeps only the inserted text).
+  inputState = { ...inputState, draft: '/goal Make every test pass.\nDone when:\n1. `npm test` passes.' };
+  out = await view.settle(); assert.equal(buttonOf(out).p['aria-label'], 'improve.undo', 'Undo stays for the chip draft');
+  buttonOf(out).p.onClick(); out = await view.settle();
+  assert.deepEqual(edits.at(-1).text, 'make the tests pass', 'Undo puts the objective back, not the command');
+  assert.deepEqual([edits.at(-1).span.start, edits.at(-1).span.end], [2, '/goal Make every test pass.\nDone when:\n1. `npm test` passes.'.length - 4]);
+  // dsh 0.2.0: the claim is there but the editor keeps `/goal` as text (no chip element): plain offsets.
+  input.remove(chip);
+  inputState = { ...inputState, phase: 'claimed', claim: { name: 'goal', token: '/goal ' }, draft: '/goal ship it', draftRev: inputState.draftRev + 1 };
+  reply = async (url, init) => ({ status: 200, body: { text: JSON.parse(init.body).text, improved: '/goal Ship the footer.', model: 'big' } });
+  buttonOf(await view.settle()).p.onClick(); await view.settle();
+  assert.deepEqual([edits.at(-1).text, edits.at(-1).span.start, edits.at(-1).span.end], ['Ship the footer.', 6, '/goal ship it'.length], '0.2.0: no chip shift');
+  // Typed as plain text (no claim): the same, with plain offsets.
+  inputState = { ...inputState, phase: 'plain', claim: undefined, draft: '/goal  update me', draftRev: inputState.draftRev + 1 };
+  reply = async (url, init) => ({ status: 200, body: { text: JSON.parse(init.body).text, improved: '/goal  Update the readme.', model: 'big' } });
+  buttonOf(await view.settle()).p.onClick(); await view.settle();
+  assert.deepEqual([edits.at(-1).text, edits.at(-1).span.start, edits.at(-1).span.end], ['Update the readme.', 7, '/goal  update me'.length]);
+  // An answer that lost the command is not used (the command would go).
+  inputState = { ...inputState, draft: '/goal fix it', draftRev: inputState.draftRev + 1 };
+  reply = async (url, init) => ({ status: 200, body: { text: JSON.parse(init.body).text, improved: 'Fix it.', model: 'big' } });
+  const e1 = edits.length;
+  buttonOf(await view.settle()).p.onClick(); await view.settle();
+  assert.equal(edits.length, e1); assert.deepEqual(notices.at(-1), ['info', 'improve.same']);
+  inputState = { ...inputState, phase: 'plain', claim: undefined, draft: '', draftRev: inputState.draftRev + 1 };
 }
 // A subagent chat: no button.
 session = { subagent: { address: {} }, removed: false };

@@ -531,6 +531,8 @@ struct ConversationView: View {
     @State private var showChanges = false
     @State private var showIdeas = false
     @State private var showMemory = false
+    @State private var showHandoff = false
+    @State private var showContext = false
     @State private var deleting = false
     /// Turn rollback: the user row whose ↶ was tapped.
     @State private var rollingBack: Line?
@@ -585,6 +587,8 @@ struct ConversationView: View {
                         if c.plus.contains("changes") { Button { showChanges = true } label: { Label("Changes", systemImage: "plusminus") } }
                         if c.plus.contains("ideas") { Button { showIdeas = true } label: { Label("Feature ideas", systemImage: "lightbulb") } }
                         if c.plus.contains("memory-edit") { Button { showMemory = true } label: { Label("Project memory", systemImage: "brain") } }
+                        if c.plus.contains("context") { Button { showContext = true } label: { Label("Context", systemImage: "chart.bar.doc.horizontal") } }
+                        if c.plus.contains("handoff"), c.currentSess?.parent == nil { Button { showHandoff = true } label: { Label("Continue in a new chat", systemImage: "arrow.right.doc.on.clipboard") } }
                         Button { UIPasteboard.general.string = sessionLink(id); UINotificationFeedbackGenerator().notificationOccurred(.success) } label: { Label("Copy session link", systemImage: "link") }
                         if c.transcript.contains(where: { $0.kind == .assistant }) {
                             Button {
@@ -602,6 +606,8 @@ struct ConversationView: View {
             .sheet(isPresented: $showChanges) { if let id = c.current { ChangesSheet(sessionId: id, map: c.plus.contains("graph")) } }
             .sheet(isPresented: $showIdeas) { if let id = c.current { IdeasSheet(sessionId: id) } }
             .sheet(isPresented: $showMemory) { MemorySheet(cwd: c.currentSess?.cwd ?? "") }
+            .sheet(isPresented: $showHandoff) { if let id = c.current { HandoffSheet(sessionId: id) } }
+            .sheet(isPresented: $showContext) { if let id = c.current { ContextSheet(sessionId: id) } }
             .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { text = t; focused = true } } }
             .sheet(isPresented: Binding(get: { redoMarker != nil }, set: { if !$0 { redoMarker = nil } })) { if let m = redoMarker { RedoSheet(marker: m) } }
             .confirmationDialog("Delete this chat?", isPresented: $deleting, titleVisibility: .visible) {
@@ -3358,4 +3364,87 @@ struct MemorySheet: View {
     }
     /// Return and the button both go through the editor, which refuses a second ask while one runs.
     private func send() { let t = text; Task { await m.ask(pick == "all" ? nil : pick, t) } }
+}
+
+/// Continue in a new chat (Composer Plus on the Mac): the Mac writes a handoff note from this chat; the user edits it;
+/// Start new chat makes a new chat in the same project with the note and a link to this chat, and the phone opens it.
+struct HandoffSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let sessionId: String
+    @StateObject private var h = HandoffEditor(call: { _ in [:] })
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Handoff note", text: $h.note, axis: .vertical)
+                        .lineLimit(8...30).font(.callout).disabled(h.busy != nil)
+                        .onChange(of: h.note) { _, v in if v.utf16.count > 12000 { h.note = String(v.prefix(12000)) } }
+                } footer: { Text("Check the note before you start: the new chat knows only the note and the linked chat.") }
+                if let b = h.busy { HStack(spacing: 8) { ProgressView(); Text(b == "start" ? "Starting the new chat…" : "Writing the handoff note…") }.font(.footnote).foregroundStyle(.secondary) }
+                if let f = h.failed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
+                Section {
+                    Button("Start new chat") { Task { if let id = await h.start(sessionId) { dismiss(); c.open(id) } } }
+                        .bold().disabled(h.busy != nil || h.note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Write again") { Task { await h.write(sessionId) } }.disabled(h.busy != nil)
+                }
+            }
+            .navigationTitle("Continue in a new chat").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(h.busy == "start") } }
+            .interactiveDismissDisabled(h.busy == "start")
+            .task {
+                // The note is a model call on the Mac; a start must run to its end there (the gateway never stops it).
+                h.bind { [c] body in try await c.plusCall("handoff", body: body, wait: 190) }
+                if h.note.isEmpty { await h.write(sessionId) }
+            }
+        }
+    }
+}
+
+/// Context breakdown (Composer Plus on the Mac): what fills this chat's model context now, by part, with estimated
+/// tokens and the share of the context window. Read-only; a pull refreshes it.
+struct ContextSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let sessionId: String
+    @State private var data: (parts: [ContextPart], total: Int, window: Int?, model: String?)?
+    @State private var failed: String?
+    private static let names: [String: LocalizedStringKey] = ["system": "System prompt", "instructions": "Project instructions", "skills": "Skills", "user": "Your messages",
+        "replies": "Agent replies and tool calls", "tools": "Tool results", "mcp": "MCP results", "definitions": "Tool definitions", "summary": "Compact summary",
+        "notes": "Other context notes", "rollback": "Rollback markers"]
+    private func share(_ n: Int) -> Double { let base = data?.window ?? data?.total ?? 0; return base > 0 ? min(1, Double(n) / Double(base)) : 0 }
+    var body: some View {
+        NavigationStack {
+            List {
+                if let d = data {
+                    Section {
+                        ProgressView(value: share(d.total)) {
+                            if let w = d.window { Text("\(d.total) of \(w) tokens") } else { Text("\(d.total) tokens") }
+                        }
+                        if let m = d.model { Text("Model: \(m)").font(.caption).foregroundStyle(.secondary) }
+                    } footer: { Text("Estimates with dsh's own rule (about 4 characters per token); the model's own count can differ.") }
+                    ForEach(d.parts) { p in
+                        DisclosureGroup {
+                            ForEach(p.labels, id: \.label) { l in HStack { Text(verbatim: l.label).font(.caption.monospaced()); Spacer(); Text(verbatim: "\(l.tokens)").font(.caption).foregroundStyle(.secondary) } }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack { Text(Self.names[p.id] ?? LocalizedStringKey(p.id)); Spacer(); Text(verbatim: "\(p.tokens) · \(String(format: "%.1f", share(p.tokens) * 100))%").font(.callout.monospacedDigit()) }
+                                ProgressView(value: share(p.tokens))
+                            }
+                        }
+                        .disabled(p.labels.isEmpty)
+                    }
+                } else if failed == nil { HStack(spacing: 8) { ProgressView(); Text("Reading the chat…") } }
+                if let f = failed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
+            }
+            .refreshable { await load() }
+            .navigationTitle("Context").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .task { await load() }
+        }
+    }
+    private func load() async {
+        do { data = contextParts(try await c.plusCall("context", query: ["sessionId": sessionId])); failed = nil }
+        catch { failed = userText(error) }
+    }
 }
