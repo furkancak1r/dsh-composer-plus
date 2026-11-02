@@ -70,7 +70,7 @@ export const CONTEXT_PATH = '/api/composer-plus.context';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
-export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit',
+export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit',
   'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
   'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'handoffChat', 'contextBreakdown'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
@@ -2408,7 +2408,10 @@ function installRollback(ctx, home, store) {
         const rewind = rewindLoaded(agent);
         if (request.method === 'GET') {
           const events = session.snapshotEvents();
-          return json({ on, rewind, spans: rollbackSpans(events), redo: on && !rewind && isRootChat(session) && !redone.has(session.id, redoTarget(events)) ? redoTarget(events) ?? null : null });
+          // For Option picks: `withdrawn`, the spans of both marker kinds (rule 9: also dsh-rewind-plugin's), and `inherited`,
+          // a fork's inherited event count (rule 10). It gives no buttons to an answer in either.
+          const inherited = Number.isSafeInteger(session.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0;
+          return json({ on, rewind, spans: rollbackSpans(events), withdrawn: rollbackSpans(events, [ROLLBACK_SOURCE, REWIND_SOURCE]), inherited, redo: on && !rewind && isRootChat(session) && !redone.has(session.id, redoTarget(events)) ? redoTarget(events) ?? null : null });
         }
         if (!on) return json({ error: 'Turn rollback is switched off' }, 409);
         if (!isRootChat(session)) return json({ error: 'a subagent chat cannot be rolled back' }, 409);

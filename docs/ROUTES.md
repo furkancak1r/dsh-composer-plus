@@ -25,7 +25,7 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.send-first` | POST | `{on}`: the switch (a switch route). | stopSendFirst | no |
 | `/api/composer-plus.branches` | GET | `{on, branches: { [sessionId]: branch }}`: the git branch of each chat's folder at its last turn (none while off; no entry for a detached HEAD). | sessionBranch | yes |
 | `/api/composer-plus.branches` | POST | `{on}`: the switch (Settings only; the phone gateway refuses it). | sessionBranch | no |
-| `/api/composer-plus.rollback` | GET | No query: the switch `{on}`. `?sessionId`: the withdrawn spans, whether dsh-rewind-plugin owns rollback, and the rollback that Redo can take back (`redo`). | turnRollback | yes |
+| `/api/composer-plus.rollback` | GET | No query: the switch `{on}`. `?sessionId`: the withdrawn spans, whether dsh-rewind-plugin owns rollback, the rollback that Redo can take back (`redo`), the spans that rollbacks of both kinds withdrew (`withdrawn`: Turn rollback's and dsh-rewind-plugin's), and a fork's inherited event count (`inherited`, 0 for a chat that is not a fork). | turnRollback | yes |
 | `/api/composer-plus.rollback` | POST | `{on}` (the switch), `{sessionId, seq, preview?, files?}`: list or take back the turns from that message, with the files when `files` is true, or `{sessionId, redo, preview?, files?, overwrite?}`: list or redo that rollback in a new chat (a fork), with the files. | turnRollback | yes |
 | `/api/composer-plus.delete-chat` | POST | `{sessionId}`: stop the chat and move its log folders, with its subagent chats, to the Trash. | deleteChat | yes |
 | `/api/composer-plus.content-search` | GET | The switch `{on, active}`. | contentSearch | no |
