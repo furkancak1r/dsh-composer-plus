@@ -9,7 +9,10 @@
 //    chat → a new chat opens whose first message is the edited note and a dsh-session: link.
 // 5. Switching each feature off removes its item / page; no page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-harness-ideas.mjs /path/to/dsh/lib/bin.js [...]
-// SHOT=1 also writes assets/features/{protectedFiles,contextBreakdown,handoffChat}.webp (English UI, made-up project).
+// 1b. Blocked commands: Settings → Blocked commands adds `npm publish` (block) and `git push --force` (ask first); the
+//    agent's `npm publish` is denied, its `git push --force` is refused with the reason (this dsh runs with Full access,
+//    whose approval policy is never, so dsh cannot ask).
+// SHOT=1 also writes assets/features/{protectedFiles,blockedCommands,contextBreakdown,handoffChat}.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
@@ -30,6 +33,7 @@ const until = async (fn, what, ms = 30000) => {
 };
 
 const ASK = 'Check the login settings';
+const PUBLISH = 'Publish the package';
 const NOTE = '## Task\n- Fix the login settings\n## Outputs\n- src/login.js\n## Completed\n- Read README.md\n## Decisions\n- none\n## Open issues\n- .env could not be read\n## Next action\n- Ask the user for the login secret';
 const GOAL = 'Make every login test pass.\nDone when:\n1. `npm test` passes and its output is in the chat.\n2. A part that cannot be done is marked as unresolved.';
 const seen = []; // {kind, text}
@@ -55,8 +59,17 @@ const fake = createServer((req, res) => {
     if (kind === 'improve') return say('Improved.');
     if (kind === 'predict') return say('');
     if (kind === 'title') return say('Login settings');
-    // The chat: read .env (denied), read README.md, then answer.
     const tools = msgs.filter((m) => m.role === 'assistant' && m.tool_calls?.length).length;
+    // Blocked commands: the chat asks to publish; the agent runs `npm publish` (blocked), then `git push --force` (ask first).
+    // Only the tool calls after that message count (the chat can have earlier ones).
+    const asked = msgs.findLastIndex((m) => m.role === 'user' && textOf(m.content).includes(PUBLISH));
+    if (asked !== -1) {
+      const after = msgs.slice(asked + 1).filter((m) => m.role === 'assistant' && m.tool_calls?.length).length;
+      if (after === 0) return tool(`call_publish_${randomUUID().slice(0, 6)}`, 'bash', { command: 'cd web && npm publish --access public' });
+      if (after === 1) return tool(`call_push_${randomUUID().slice(0, 6)}`, 'bash', { command: 'git push origin main --force' });
+      return say('The publish command is blocked, so I stopped. Please publish it yourself.');
+    }
+    // The chat: read .env (denied), read README.md, then answer.
     if (!JSON.stringify(msgs).includes(ASK)) return say('Ready.');
     if (tools === 0) return tool(`call_env_${randomUUID().slice(0, 6)}`, 'read', { file_path: '.env' });
     if (tools === 1) return tool(`call_readme_${randomUUID().slice(0, 6)}`, 'read', { file_path: 'README.md' });
@@ -192,11 +205,29 @@ try {
       await shot(page, home, 'protectedFiles', row);
       console.log('  1: .env denied ("Protected file: .env matches ".env*""), README.md read, defaults shown, docs/** (write only) saved');
 
-      // Settings: the three new rows have their switches and screenshots.
-      for (const name of ['Protected files', 'Continue in a new chat', 'Context breakdown']) {
+      // 1b. Blocked commands: add `npm publish` (block) and `git push --force` (ask first) in Settings.
+      const rules = page.locator('[data-composer-plus-blocked]');
+      await rules.waitFor({ timeout: 10000 });
+      await rules.getByText('No blocked commands.', { exact: true }).waitFor();
+      await rules.getByRole('textbox').fill('npm publish');
+      await rules.getByRole('button', { name: 'Add', exact: true }).click();
+      await rules.getByText('npm publish', { exact: true }).waitFor();
+      await rules.getByRole('textbox').fill('git push --force');
+      await rules.getByRole('button', { name: /^Action: block$/ }).click();
+      await rules.getByRole('button', { name: 'Add', exact: true }).click();
+      await rules.getByText('git push --force', { exact: true }).waitFor();
+      const savedRules = await page.evaluate(async () => (await fetch('/api/composer-plus.blocked-commands')).json());
+      assert.deepEqual(savedRules, { on: true, rules: [{ rule: 'npm publish', mode: 'block' }, { rule: 'git push --force', mode: 'ask' }] });
+      const blockedRow = page.locator('[data-composer-plus-settings] > div').filter({ has: rules });
+      await blockedRow.evaluate((el) => el.scrollIntoView({ block: 'center' })); await pause(300);
+      await shot(page, home, 'blockedCommands', blockedRow);
+
+      // Settings: the new rows have their switches and screenshots.
+      for (const name of ['Protected files', 'Blocked commands', 'Continue in a new chat', 'Context breakdown']) {
         await page.locator('[data-composer-plus-settings]').getByRole('switch', { name, exact: true }).waitFor();
       }
       await back();
+      console.log('  1b: Blocked commands: rules saved (block, ask first)');
 
       // 2. Improve prompt on a /goal draft.
       await input.click(); await page.keyboard.type('/goal', { delay: 30 }); await page.keyboard.press('Space'); await pause(300);
@@ -252,19 +283,33 @@ try {
       await until(async () => (await page.locator('[data-row-key^="session:"]').count()) > before, 'a new chat in the sidebar');
       console.log(`  4: Continue in a new chat… → note written (chat + tool calls), edited, Start → new chat opened with the note${firstMessage ? ' and the link' : ''}`);
 
+      // 4b. Blocked commands in the open (new) chat: the agent runs `npm publish` (block) and `git push --force` (ask first;
+      // this dsh runs with Full access, whose approval policy is never, so dsh cannot ask and the call is refused).
+      await input.click(); await page.keyboard.type(PUBLISH, { delay: 10 }); await page.keyboard.press('Enter');
+      await page.getByText('The publish command is blocked', { exact: false }).first().waitFor({ timeout: 30000 });
+      const publishResult = [...results.entries()].find(([id]) => id.startsWith('call_publish_'))?.[1] ?? '';
+      const pushResult = [...results.entries()].find(([id]) => id.startsWith('call_push_'))?.[1] ?? '';
+      assert.match(publishResult, /Blocked command: npm publish --access public matches "npm publish"/, publishResult);
+      assert.match(publishResult, /ask the user/);
+      assert.match(pushResult, /matches "git push --force" \(ask first, and this chat cannot ask: its approval policy is never\)/, pushResult);
+      console.log('  4b: npm publish denied ("Blocked command: … matches "npm publish""), git push --force refused (approval policy never)');
+
       // 5. Switch off: the menu item and the page go; the gate stops.
       await settings();
-      await setSwitch('Continue in a new chat', false); await setSwitch('Context breakdown', false); await setSwitch('Protected files', false);
+      await setSwitch('Continue in a new chat', false); await setSwitch('Context breakdown', false); await setSwitch('Protected files', false); await setSwitch('Blocked commands', false);
       assert.equal((await page.evaluate(async () => (await fetch('/api/composer-plus.protected-files')).json())).on, false, 'the Host keeps the switch');
+      assert.equal((await page.evaluate(async () => (await fetch('/api/composer-plus.blocked-commands')).json())).on, false, 'the Host keeps the Blocked commands switch');
+      assert.equal(await page.locator('[data-composer-plus-blocked]').count(), 0, 'switched off: no rule list');
       await back();
       await chatRow.click({ button: 'right' }); await pause(500);
       assert.equal(await page.getByText('Continue in a new chat…').count(), 0, 'switched off: no menu item'); await page.keyboard.press('Escape');
       assert.equal(await contextPage.count(), 0, 'switched off: no Context page');
       await settings();
-      await setSwitch('Continue in a new chat', true); await setSwitch('Context breakdown', true); await setSwitch('Protected files', true);
+      await setSwitch('Continue in a new chat', true); await setSwitch('Context breakdown', true); await setSwitch('Protected files', true); await setSwitch('Blocked commands', true);
+      await page.locator('[data-composer-plus-blocked]').getByText('npm publish', { exact: true }).waitFor({ timeout: 10000 });
       await back();
       assert.deepEqual(errors, [], 'no page errors');
-      const ours = failedUrls.filter((u) => /composer-plus\.(protected-files|handoff|context|improve|goal-check)/.test(u));
+      const ours = failedUrls.filter((u) => /composer-plus\.(protected-files|blocked-commands|handoff|context|improve|goal-check)/.test(u));
       assert.deepEqual(ours, [], `no failed request of these features: ${failedUrls.join(', ')}`);
       console.log(`PASS ${bin}`);
     } catch (error) {

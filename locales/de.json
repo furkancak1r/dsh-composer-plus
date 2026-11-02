@@ -2144,7 +2144,21 @@
     "protected.reset": "Standardwerte verwenden",
     "protected.failed": "Die Liste wurde nicht gespeichert: {error}",
     "protected.switch.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
-    "protected.switch.restart": "Starte dsh neu, um „Geschützte Dateien“ zu nutzen."
+    "protected.switch.restart": "Starte dsh neu, um „Geschützte Dateien“ zu nutzen.",
+    "feature.blockedCommands": "Blockierte Befehle",
+    "feature.blockedCommands.description": "Die Shell-Befehle des Agenten (bash, pwsh) können keinen Befehl ausführen, der zu deinen Regeln passt: „blockieren“ lehnt ihn ab, der Agent liest den Grund und wird angewiesen, dich zu fragen; „zuerst fragen“ zeigt die Genehmigungskarte von dsh. Eine Regel ist ein Befehl mit seinen Wörtern in dieser Reihenfolge, zum Beispiel npm publish, git push --force oder ssh *192.168.2.19 (* passt auf beliebigen Text). Die Liste ist anfangs leer. Eine Variable, eine Skriptdatei oder ein anderes Programm kann einen Befehl trotzdem ausführen: Das ist eine Leitplanke, keine Sandbox.",
+    "blocked.list": "Regeln für blockierte Befehle",
+    "blocked.none": "Keine blockierten Befehle.",
+    "blocked.modeBlock": "blockieren",
+    "blocked.modeAsk": "zuerst fragen",
+    "blocked.mode": "Aktion",
+    "blocked.toggleMode": "Zwischen „blockieren“ und „zuerst fragen“ wechseln",
+    "blocked.remove": "{rule} entfernen",
+    "blocked.add": "Hinzufügen",
+    "blocked.placeholder": "Zum Beispiel npm publish",
+    "blocked.failed": "Die Liste wurde nicht gespeichert: {error}",
+    "blocked.switch.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
+    "blocked.switch.restart": "Starte dsh neu, um „Blockierte Befehle“ zu nutzen."
   },
   "common": {
     "ok": "OK",

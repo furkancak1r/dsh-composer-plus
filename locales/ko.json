@@ -2144,7 +2144,21 @@
     "protected.reset": "기본값 사용",
     "protected.failed": "목록을 저장하지 못했습니다: {error}",
     "protected.switch.down": "이 설정을 저장하지 못했습니다: {error}",
-    "protected.switch.restart": "보호된 파일을 사용하려면 dsh를 다시 시작하세요."
+    "protected.switch.restart": "보호된 파일을 사용하려면 dsh를 다시 시작하세요.",
+    "feature.blockedCommands": "차단된 명령",
+    "feature.blockedCommands.description": "에이전트의 셸 명령(bash, pwsh)은 지정한 규칙과 일치하는 명령을 실행할 수 없습니다. “차단”은 그 명령을 거부하며, 에이전트는 이유를 읽고 사용자에게 물어보라는 안내를 받습니다. “먼저 묻기”는 dsh의 승인 카드를 표시합니다. 규칙은 명령과 그 단어를 이 순서로 쓴 것입니다. 예: npm publish, git push --force, ssh *192.168.2.19(*는 모든 텍스트와 일치합니다). 목록은 처음에 비어 있습니다. 변수, 스크립트 파일, 다른 프로그램은 여전히 명령을 실행할 수 있습니다. 이것은 가드레일이며 샌드박스가 아닙니다.",
+    "blocked.list": "차단된 명령 규칙",
+    "blocked.none": "차단된 명령이 없습니다.",
+    "blocked.modeBlock": "차단",
+    "blocked.modeAsk": "먼저 묻기",
+    "blocked.mode": "동작",
+    "blocked.toggleMode": "“차단”과 “먼저 묻기” 사이에서 전환",
+    "blocked.remove": "{rule} 제거",
+    "blocked.add": "추가",
+    "blocked.placeholder": "예: npm publish",
+    "blocked.failed": "목록을 저장하지 못했습니다: {error}",
+    "blocked.switch.down": "이 설정을 저장하지 못했습니다: {error}",
+    "blocked.switch.restart": "차단된 명령을 사용하려면 dsh를 다시 시작하세요."
   },
   "common": {
     "ok": "확인",

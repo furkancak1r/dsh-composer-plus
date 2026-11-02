@@ -49,6 +49,8 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.context` | GET | `?sessionId`: what fills the chat's model context now, by part, with estimated tokens and the context window (read-only, from the chat log). | contextBreakdown | yes |
 | `/api/composer-plus.protected-files` | GET | The switch, the patterns and the defaults. | protectedFiles | no |
 | `/api/composer-plus.protected-files` | POST | `{patterns: [{pattern, mode: all\|write}]}` saves the list; `{on}` (Settings only). | protectedFiles | no |
+| `/api/composer-plus.blocked-commands` | GET | The switch and the rules. | blockedCommands | no |
+| `/api/composer-plus.blocked-commands` | POST | `{rules: [{rule, mode: block\|ask}]}` saves the list; `{on}` (Settings only). | blockedCommands | no |
 | `/api/composer-plus.board` | GET | `{on, backlog}`: the switch and the Backlog column. | taskBoard | no |
 | `/api/composer-plus.board` | POST | `{on}` or `{backlog}` (Backlog goes off only while it is empty: else 409). Settings only. | taskBoard | no |
 | `/api/composer-plus.board-tasks` | GET | `?project=<path>\|all[&done=all][&rev=N]` a board view (`{rev, same}` when nothing changed), `?sessionId` the view of the chat's project, `?task=<id>` one task with comments, `?q=<words>` search, `?export=markdown\|json&project=` the board as text. 409 while the switch is off. | taskBoard | yes |

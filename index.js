@@ -65,6 +65,7 @@ export const SEND_FIRST_PATH = '/api/composer-plus.send-first';
 export const MEMORY_PATH = '/api/composer-plus.memory';
 export const MEMORY_EDIT_PATH = '/api/composer-plus.memory-edit';
 export const PROTECTED_PATH = '/api/composer-plus.protected-files';
+export const BLOCKED_PATH = '/api/composer-plus.blocked-commands';
 export const HANDOFF_PATH = '/api/composer-plus.handoff';
 export const CONTEXT_PATH = '/api/composer-plus.context';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
@@ -72,7 +73,7 @@ export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit',
   'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
-  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'handoffChat', 'contextBreakdown', 'taskBoard'];
+  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -2009,6 +2010,7 @@ export function apply(ctx) {
   installDefaultWorkspace(ctx, home);
   installMemory(ctx, home);
   installProtectedFiles(ctx, home);
+  installBlockedCommands(ctx, home);
   installHandoff(ctx, home);
   installContext(ctx);
   installBoard(ctx, home);
@@ -4165,6 +4167,291 @@ export function installProtectedFiles(ctx, home, file = join(home, 'storages', '
         try { settings = await store.change((s) => (patterns === undefined ? { ...s, on: body.on } : { ...s, patterns })); } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
       }
       return json({ ...settings, defaults: PROTECT_DEFAULTS });
+    },
+  });
+}
+
+/* Blocked commands (after dsh-superagent's `blockedCommands`): the agent's shell tools (`bash`, `pwsh`) do not run a command
+ * that matches one of the user's rules ("block"), or they ask the user first with dsh's own approval card ("ask first").
+ * A `tools/pre-execute` gate, after every other gate. It reads the command text only: a variable (`$CMD`), an alias, a
+ * function, a script file, another interpreter (`python -c`) or an MCP tool can still run the command, which the README
+ * says. On by default with an empty list: it starts no work and opens no port; the Host keeps the switch and the list. */
+export const BLOCK_MAX = 50; // rules
+export const BLOCK_RULE_MAX = 200; // characters of one rule
+const BLOCK_DEPTH = 3; // `bash -c`, `eval` and here-document texts are read again, at most this deep
+const SHELL_NAMES = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'su', 'pwsh', 'powershell']);
+const EVAL_NAMES = new Set(['eval', 'iex', 'invoke-expression']);
+/** `[{rule, mode: 'block'|'ask'}]` with single spaces; of two rules with the same words (any case) the first stays. Strict (a
+ * save): undefined when the list is not valid. Not strict (the saved file): the valid rules, at most BLOCK_MAX. */
+export function parseRules(list, strict = true) {
+  if (!Array.isArray(list) || (strict && list.length > BLOCK_MAX)) return undefined;
+  const out = [];
+  for (const r of list) {
+    const raw = r?.rule;
+    const ok = plainObject(r) && Object.keys(r).every((k) => k === 'rule' || k === 'mode') && (r.mode === 'block' || r.mode === 'ask')
+      && typeof raw === 'string' && raw.length <= BLOCK_RULE_MAX && !/[\0\r\n]/.test(raw) && raw.trim() !== '';
+    if (!ok) { if (strict) return undefined; continue; }
+    const rule = raw.trim().split(/\s+/).join(' ');
+    if (!out.some((o) => o.rule.toLowerCase() === rule.toLowerCase())) out.push({ rule, mode: r.mode });
+    if (out.length === BLOCK_MAX) break;
+  }
+  return out;
+}
+/** Saved settings `{on, rules}`: on with no rules when there is no file. */
+export const blockedStore = (file) => settingsStore(file, (v) => ({ on: v?.on !== false, rules: parseRules(v?.rules, false) ?? [] }));
+/** A command word as a name: its last path part, lower case, without `.exe`, `.cmd`, `.bat` or `.com`. */
+const commandName = (word) => word.slice(Math.max(word.lastIndexOf('/'), word.lastIndexOf('\\')) + 1).toLowerCase().replace(/\.(exe|cmd|bat|com)$/, '');
+/** `*` any characters (also `/`), `?` one; both texts in lower case. A `*` of the rule is checked first, so it also matches
+ * a `*` in the text (`rm *` matches `rm *.log`). The last-star method: at most |p|·|s| steps, never exponential (the gate
+ * runs in the Host's event loop). ponytail: a rule like `*a*a*a…` (200 characters) against a very long word costs |p|·|s|;
+ * the user writes the rules, and a rule without `*` stops at the first different character. */
+export function wildMatch(p, s) {
+  let i = 0; let j = 0; let star = -1; let mark = 0;
+  while (j < s.length) {
+    if (i < p.length && p[i] === '*') { star = i; i += 1; mark = j; }
+    else if (i < p.length && (p[i] === '?' || p[i] === s[j])) { i += 1; j += 1; }
+    else if (star !== -1) { i = star + 1; mark += 1; j = mark; }
+    else return false;
+  }
+  while (p[i] === '*') i += 1;
+  return i === p.length;
+}
+/** The texts that a simple command runs again, found where the shell takes them (AGENTS.md rule 13), and the words after
+ * `eval` (`iex` for pwsh). sh (case-sensitive): after a `-…c…` or `+…c…` group, the first word that is not an option (`--`
+ * or `-` end the options; each `o`/`O` of a group takes a value, as in `-o pipefail`); a here-string (`bash <<< 'npm
+ * publish'`). pwsh (any case, PowerShell's `MatchSwitch`): `-`, `--` or `/` and a prefix of `command` (`-c`, `-co`, …): the
+ * rest of the words; `-cwa`/`-CommandWithArgs`: the next word. One pass, so a long command stays linear.
+ * ponytail: a word that is not an option before `-c` (a script file, su's user) does not end the search, so `bash x.sh -c
+ * 'y'` also reads `y`; that can only make a rule match more often. */
+function rereads(words) {
+  const out = [];
+  let shell = null; // 'sh' or 'ps' after a shell name, until its script
+  let c = false; let skip = 0; // sh: a `-…c…` group was read; option values still to pass
+  const take = (script, ps) => { if (script !== undefined && script !== '') out.push([script, ps]); shell = null; };
+  for (let k = 0; k < words.length; k++) {
+    const word = words[k];
+    const w = word.toLowerCase();
+    if (shell === 'sh') {
+      if (skip > 0) { skip -= 1; continue; }
+      if (w === '--' || w === '-') { if (c) { take(words[k + 1], false); k += 1; } continue; }
+      if (/^[-+][A-Za-z]+$/.test(word)) { c ||= word.includes('c'); skip = word.replace(/[^oO]/g, '').length; continue; }
+      if (w.startsWith('--')) continue;
+      if (w.startsWith('<<<')) { take(w === '<<<' ? words[k + 1] : word.slice(3), false); k += 1; continue; }
+      if (c) { take(word, false); continue; }
+    } else if (shell === 'ps') {
+      const key = w.replace(/^(--?|\/)/, '');
+      if (key !== w && key !== '' && 'command'.startsWith(key)) { take(words.slice(k + 1).join(' '), true); break; }
+      if (key === 'cwa' || key === 'commandwithargs') { take(words[k + 1], true); k += 1; continue; }
+    }
+    const name = commandName(w);
+    if (EVAL_NAMES.has(name)) { if (k + 1 < words.length) out.push([words.slice(k + 1).join(' '), name !== 'eval']); break; }
+    if (SHELL_NAMES.has(name)) { shell = name === 'pwsh' || name === 'powershell' ? 'ps' : 'sh'; c = false; skip = 0; }
+  }
+  return out;
+}
+/** The simple commands of a shell text, each as its words (quotes removed). bash: `; & | ( )`, a newline and `{ }` at a word
+ * start end a command; `'…'`, `"…"` and `\`; `$(…)` and backticks (also inside "…") are commands of their own; `#` at a
+ * word start is a comment; a here-document body is skipped, unless its delimiter is unquoted (then only its `$(…)` and
+ * backticks count). pwsh (`pwsh`): the same separators, the backtick escape, `''` and `""` inside quotes, `$(…)`. The
+ * texts of `bash -c`/`eval` (see rereads) and of here-documents are read again, at most BLOCK_DEPTH deep. Never throws;
+ * linear in the text length (each level reads at most the text once).
+ * ponytail: not a shell parser: `case x in a)`, nested backticks and aliases are not understood; a cut command can only
+ * make a rule match more often (or, past BLOCK_DEPTH, not at all; the README says). */
+export function shellCommands(text, pwsh = false, depth = 0, hereText = false) {
+  const commands = [];
+  if (typeof text !== 'string' || depth > BLOCK_DEPTH) return commands;
+  const esc = pwsh ? '`' : '\\';
+  let words = []; let word = ''; let has = false;
+  let quote = hereText ? 'h' : null; // null, "'", '"' or 'h' (the text of a here-document: only substitutions are commands)
+  let close = null; let parens = 0; let top = hereText; // `top`: this level is text, not commands
+  const stack = []; // the outer command while a $( … ) or ` … ` is read
+  const pending = []; // here-documents whose body starts at the next newline
+  let lineShell = false; // a command of this line names a shell: its here-document bodies are commands (`bash <<'EOF'`)
+  const endWord = () => { if (has) { words.push(word); word = ''; has = false; } };
+  const endCommand = () => {
+    endWord();
+    if (words.length > 0 && !top) {
+      if (words.some((w) => SHELL_NAMES.has(commandName(w)))) lineShell = true;
+      commands.push(words);
+      for (const [script, ps] of rereads(words)) for (const c of shellCommands(script, ps, depth + 1)) commands.push(c);
+    }
+    words = [];
+  };
+  const open = (c) => { stack.push({ words, word, quote, close, parens, top }); words = []; word = ''; has = false; quote = null; close = c; parens = 0; top = false; };
+  const shut = () => { endCommand(); ({ words, word, quote, close, parens, top } = stack.pop()); has = true; };
+  const hereStart = (j) => {
+    let dash = false;
+    if (text[j] === '-') { dash = true; j += 1; }
+    while (text[j] === ' ' || text[j] === '\t') j += 1;
+    let delim = ''; let quoted = false; let q = null;
+    for (; j < text.length; j++) {
+      const d = text[j];
+      if (q !== null) { if (d === q) q = null; else delim += d; continue; }
+      if (d === "'" || d === '"') { q = d; quoted = true; continue; }
+      if (d === '\\') { quoted = true; if (j + 1 < text.length) { j += 1; delim += text[j]; } continue; }
+      if (' \t\n;&|()<>'.includes(d)) break;
+      delim += d;
+    }
+    if (delim !== '' || quoted) pending.push({ delim, dash, quoted });
+    return j;
+  };
+  // The start of each line by its text (and by its text without leading tabs, for `<<-`), made once: finding an end line
+  // is a binary search, so many here-documents without an end line stay linear.
+  let lineIndex;
+  const endLine = (delim, dash, pos) => {
+    if (lineIndex === undefined) {
+      lineIndex = [new Map(), new Map()];
+      for (let s = 0; s <= text.length;) {
+        const nl = text.indexOf('\n', s); const e = nl === -1 ? text.length : nl;
+        const line = text.slice(s, e);
+        for (const [k, key] of [[0, line], [1, line.replace(/^\t+/, '')]]) { const at = lineIndex[k].get(key); if (at === undefined) lineIndex[k].set(key, [s]); else at.push(s); }
+        if (nl === -1) break;
+        s = nl + 1;
+      }
+    }
+    const at = lineIndex[dash ? 1 : 0].get(delim);
+    if (at === undefined) return -1;
+    let lo = 0; let hi = at.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (at[mid] < pos) lo = mid + 1; else hi = mid; }
+    return lo < at.length ? at[lo] : -1;
+  };
+  // The bodies of the pending here-documents, from `pos` (the line after `<<`); answers the index after the last one. A
+  // body with no end line is read as commands (fail safe: `$((1<<2))` is no here-document).
+  const hereBodies = (pos) => {
+    for (const { delim, dash, quoted } of pending.splice(0)) {
+      const begin = pos;
+      const end = endLine(delim, dash, pos);
+      if (end === -1) break;
+      const nl = text.indexOf('\n', end);
+      pos = nl === -1 ? text.length : nl + 1;
+      if (lineShell || !quoted) for (const c of shellCommands(text.slice(begin, end), false, depth + 1, !lineShell)) commands.push(c);
+    }
+    lineShell = false;
+    return pos;
+  };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote === "'") {
+      if (c !== "'") word += c;
+      else if (pwsh && text[i + 1] === "'") { word += "'"; i += 1; } else quote = null;
+      continue;
+    }
+    if (quote === '"' || quote === 'h') {
+      if (c === esc && i + 1 < text.length) {
+        i += 1;
+        const n = text[i];
+        if (n === '\n') continue; // a line goes on
+        if (pwsh || n === '$' || n === '`' || n === '\\' || (quote === '"' && n === '"')) word += n; else word += c + n;
+        continue;
+      }
+      if (c === '"' && quote === '"') { if (pwsh && text[i + 1] === '"') { word += '"'; i += 1; } else quote = null; continue; }
+      if (c === '$' && text[i + 1] === '(') { open(')'); i += 1; continue; }
+      if (c === '`' && !pwsh) { open('`'); continue; }
+      word += c;
+      continue;
+    }
+    if (c === esc && i + 1 < text.length) { i += 1; if (text[i] !== '\n') { word += text[i]; has = true; } continue; }
+    if (c === "'" || c === '"') { quote = c; has = true; continue; }
+    if (c === '$' && text[i + 1] === '(') { open(')'); i += 1; continue; }
+    if (c === '`' && !pwsh) { if (close === '`') shut(); else open('`'); continue; }
+    if (c === ' ' || c === '\t' || c === '\r') { endWord(); continue; }
+    if (c === '\n' || c === ';' || c === '&' || c === '|') {
+      endCommand();
+      if (c === '\n') { if (pending.length > 0) i = hereBodies(i + 1) - 1; lineShell = false; }
+      continue;
+    }
+    if (c === '(') { endCommand(); parens += 1; continue; }
+    if (c === ')') { if (parens > 0) { parens -= 1; endCommand(); } else if (close === ')') shut(); else endCommand(); continue; }
+    if (!has && (c === '{' || c === '}') && (i + 1 === text.length || ' \t\r\n;&|)'.includes(text[i + 1]))) { endCommand(); continue; }
+    if (!has && c === '#') { const n = text.indexOf('\n', i); i = (n === -1 ? text.length : n) - 1; continue; }
+    if (!pwsh && c === '<' && text[i + 1] === '<') {
+      if (text[i + 2] === '<') { word += '<<<'; has = true; i += 2; continue; } // a here-string: its word is text
+      endWord(); i = hereStart(i + 2) - 1; continue;
+    }
+    word += c; has = true;
+  }
+  for (;;) {
+    endCommand();
+    if (stack.length === 0) break;
+    ({ words, word, quote, close, parens, top } = stack.pop());
+    has = true;
+  }
+  return commands;
+}
+/** The rule that a shell command breaks: `{rule, mode, command}` (`command`: the simple command, its words joined), else
+ * undefined. A rule's first word is a command name: any word of a simple command (so `sudo npm publish`, `env A=1 npm
+ * publish` and `/usr/bin/npm publish` match `npm publish`); its other words must follow in the same order, with other
+ * words between them allowed. A block rule wins over an ask rule; else the first rule in the list. */
+export function blockedHit(rules, command, pwsh = false) {
+  if (!Array.isArray(rules) || rules.length === 0 || typeof command !== 'string') return undefined;
+  const commands = shellCommands(command, pwsh).map((words) => ({ words, lower: words.map((w) => w.toLowerCase()), names: words.map(commandName) }));
+  let ask;
+  for (const r of rules) {
+    const want = r.rule.toLowerCase().split(' ');
+    const first = commandName(want[0]);
+    for (const { words, lower, names } of commands) {
+      const start = names.findIndex((n) => wildMatch(first, n));
+      if (start === -1) continue;
+      let x = 1;
+      for (let k = start + 1; k < lower.length && x < want.length; k++) if (wildMatch(want[x], lower[k])) x += 1;
+      if (x < want.length) continue;
+      const hit = { rule: r.rule, mode: r.mode, command: words.join(' ') };
+      if (r.mode === 'block') return hit;
+      ask ??= hit;
+      break;
+    }
+  }
+  return ask;
+}
+const shownCommand = (text) => {
+  const s = text.slice(0, 400).replace(/[\u0000-\u001f\u007f]+/g, ' ');
+  return s.length > 160 ? `${s.slice(0, 159)}…` : s;
+};
+export function installBlockedCommands(ctx, home, file = join(home, 'storages', 'dsh-composer-plus', 'blocked-commands.json')) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const store = blockedStore(file);
+  let settings;
+  const read = store.read().then((s) => { settings = s; });
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    const decision = await next();
+    // A denied or cancelled call stays so; only an allowed call and one that would ask are checked.
+    if ((decision?.kind !== 'allow' && decision?.kind !== 'ask') || (exec.name !== 'bash' && exec.name !== 'pwsh')) return decision;
+    await read;
+    if (!settings.on || settings.rules.length === 0) return decision;
+    const hit = blockedHit(settings.rules, argsOf(exec.arguments)?.command, exec.name === 'pwsh');
+    if (hit === undefined) return decision;
+    const shown = shownCommand(hit.command);
+    // A chat whose approval policy is `never` (Full access, a delegated child) cannot ask: dsh would reject the ask with no
+    // reason, so the agent reads this one instead. The effective policy is the chat's own `approval/policy` event, else the
+    // configured default (dsh-user-approval `effectivePolicy`; `never` when dsh starts with DSH_PERMISSION_MODE=danger-full-access).
+    let never = false;
+    try {
+      const approval = get('approval'); const session = exec.agent?.session;
+      const policy = typeof approval?.effectivePolicy === 'function' ? approval.effectivePolicy(session) : approval?.overrideOf?.(session) ?? approval?.config?.policy;
+      never = policy === 'never';
+    } catch { never = false; }
+    if (hit.mode === 'block' || never) {
+      const why = hit.mode === 'ask' ? ' (ask first, and this chat cannot ask: its approval policy is never)' : '';
+      return { kind: 'deny', reason: `Blocked command: ${shown} matches "${hit.rule}"${why} in Composer Plus → Blocked commands. Do not run it in another way (a script, another shell, a variable). If the task needs it, ask the user.` };
+    }
+    // dsh's approval card shows this reason. It must not start like an Auto review ask: Allow for this chat answers those.
+    const own = `Composer Plus → Blocked commands: ${shown} matches "${hit.rule}" (ask first).`;
+    return { kind: 'ask', reason: decision.kind === 'ask' && typeof decision.reason === 'string' && decision.reason !== '' ? `${own} ${decision.reason}` : own };
+  });
+  ctx.connection.fetch.register({
+    path: BLOCKED_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await read;
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (!plainObject(body)) return json({ error: 'bad request' }, 400);
+        const keys = Object.keys(body).sort().join(',');
+        const rules = keys === 'rules' ? parseRules(body.rules) : undefined;
+        if (!(keys === 'on' && typeof body.on === 'boolean') && rules === undefined) return json({ error: 'bad request' }, 400);
+        try { settings = await store.change((s) => (rules === undefined ? { ...s, on: body.on } : { ...s, rules })); } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      return json(settings);
     },
   });
 }
