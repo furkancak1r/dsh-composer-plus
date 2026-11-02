@@ -68,12 +68,13 @@ export const PROTECTED_PATH = '/api/composer-plus.protected-files';
 export const BLOCKED_PATH = '/api/composer-plus.blocked-commands';
 export const HANDOFF_PATH = '/api/composer-plus.handoff';
 export const CONTEXT_PATH = '/api/composer-plus.context';
+export const PLANNED_PATH = '/api/composer-plus.planned-steps';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit',
   'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
-  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard'];
+  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'plannedSteps'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -2014,6 +2015,7 @@ export function apply(ctx) {
   installHandoff(ctx, home);
   installContext(ctx);
   installBoard(ctx, home);
+  installPlannedSteps(ctx, home);
   installBackup(ctx, home);
 }
 
@@ -6971,4 +6973,190 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
     },
   });
   return { store, ready, tools, sectionFor };
+}
+
+/* Planned steps, after HarnessMM (arXiv 2610.32813, "guarded decision reuse"): the model plans its next commands with the
+ * exact arguments and a guard (`plan_next_steps`). When the newest tool results meet the guard of exactly one step, Composer
+ * Plus answers the agent's next model request itself (dsh's `llm/stream` waterfall) with one assistant message: a short
+ * reasoning block (only when the model's own planning message has one: DeepSeek's thinking mode refuses a history message
+ * without it), a text line and the step's tool call. dsh then runs the call on its normal path (tools/pre-execute: approval,
+ * sandbox, Protected files). Stateless: the plan is the tool call's arguments in the request history, so a restart, a fork,
+ * a rollback or /compact needs no code of its own. No step, two ready steps, a failed guard or any user message → the model. */
+export const PLANNED_TOOL = 'plan_next_steps';
+export const PLANNED_LIMITS = { steps: 8, args: 8 * 1024 };
+export const PLANNED_STEP_TOOLS = ['bash', 'read', 'grep', 'glob'];
+const PLANNED_GUARDS = ['ok', 'always'];
+const PLANNED_ID = /^[a-z0-9-]{1,32}$/;
+/** Composer Plus's own tool-call ids: `cpgs-<8 hex of the plan call's id>-<step number>`. */
+const PLANNED_CALL = /^cpgs-([0-9a-f]{8})-([1-9]\d?)$/;
+const PLANNED_SECTION = `# Planned steps (Composer Plus)
+When you already know the exact next commands and only a tool result decides whether they run (for example: build, then test when the build passes), call \`${PLANNED_TOOL}\` in the same message as the first command. Composer Plus runs each planned step without asking you again when its predecessor finished and its guard holds.
+- \`after\`: "root" (the other tool calls of that message) or the id of an earlier step.
+- \`when\`: "ok" (the predecessor succeeded; for bash: no \`[exit code: N]\` or other fail mark) or "always".
+- Tools: ${PLANNED_STEP_TOOLS.join(', ')}. Write the complete, literal arguments. Do not plan a step whose arguments depend on output that you did not see.
+You see every result. When a guard fails, when two steps are ready at the same time, or after the last step, you answer again. A new user message ends the plan.`;
+
+/** The steps of one `plan_next_steps` call, checked; throws a plain reason (the tool's error text) for a bad plan. */
+export function parsePlan(args) {
+  const fail = (message) => { throw new Error(message); };
+  if (!plainObject(args) || !Array.isArray(args.steps)) fail('"steps" must be a list of steps');
+  if (args.steps.length < 1 || args.steps.length > PLANNED_LIMITS.steps) fail(`a plan has 1 to ${PLANNED_LIMITS.steps} steps`);
+  const ids = new Set();
+  return args.steps.map((s, i) => {
+    const at = `step ${i + 1}`;
+    if (!plainObject(s)) fail(`${at} must be an object`);
+    if (typeof s.id !== 'string' || !PLANNED_ID.test(s.id) || s.id === 'root') fail(`${at}: "id" must be 1 to 32 of a-z, 0-9 and "-" (not "root")`);
+    if (ids.has(s.id)) fail(`${at}: the id "${s.id}" is used twice`);
+    const after = s.after ?? 'root';
+    if (after !== 'root' && !ids.has(after)) fail(`${at}: "after" must be "root" or the id of an earlier step`);
+    const when = s.when ?? 'ok';
+    if (!PLANNED_GUARDS.includes(when)) fail(`${at}: "when" must be "ok" or "always"`);
+    if (!PLANNED_STEP_TOOLS.includes(s.tool)) fail(`${at}: "tool" must be one of ${PLANNED_STEP_TOOLS.join(', ')}`);
+    if (!plainObject(s.arguments)) fail(`${at}: "arguments" must be an object`);
+    if (s.tool === 'bash' && s.arguments.run_in_background === true) fail(`${at}: a planned bash step runs in the foreground (its result is the guard)`);
+    // dsh's bash tool needs a description; it is only the label in the chat.
+    const args2 = s.tool === 'bash' && typeof s.arguments.description !== 'string' ? { description: `Planned step ${s.id}`, ...s.arguments } : s.arguments;
+    if (JSON.stringify(args2).length > PLANNED_LIMITS.args) fail(`${at}: "arguments" are longer than ${PLANNED_LIMITS.args} characters`);
+    ids.add(s.id);
+    return { id: s.id, after, when, tool: s.tool, args: args2 };
+  });
+}
+
+/** One finished call passed: not an error, and for bash no fail mark of dsh in the last 8 lines (the Goal check rule). */
+const plannedOk = (tool, result) => result !== undefined && result.isError !== true
+  && (tool !== 'bash' || !BASH_FAIL.test(textBlocks(result.content).split('\n').slice(-8).join('\n')));
+const planTag = (callId) => createHash('sha256').update(String(callId)).digest('hex').slice(0, 8);
+
+/** The step to run now for a model request's `messages`, or undefined (then the model answers). `tools`: the names that the
+ * request offers. Reads back from the end: tool results, dsh's runtime context, developer and system messages are neutral;
+ * Composer Plus's own step messages are counted; the newest model message before them must hold an accepted plan. Any other
+ * user message (the user, steer, Continue, /compact, a rollback marker) ends the plan. */
+export function nextPlannedStep(messages, tools) {
+  if (!Array.isArray(messages)) return undefined;
+  const results = new Map();
+  const ran = [];
+  let i = messages.length - 1;
+  for (; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role === 'tool') { results.set(m.toolCallId ?? m.source?.callId, m); continue; }
+    if (m?.role === 'developer' || m?.role === 'system') continue;
+    if (m?.role === 'user') { if (m.source?.kind === 'runtime-context') continue; return undefined; }
+    if (m?.role !== 'assistant') return undefined;
+    const calls = (Array.isArray(m.content) ? m.content : []).filter((b) => b?.type === 'tool-call');
+    if (calls.length === 1 && PLANNED_CALL.test(calls[0].id)) { ran.push(calls[0]); continue; }
+    break;
+  }
+  if (i < 0 || !Array.isArray(messages[i].content)) return undefined;
+  const planned = messages[i];
+  const calls = planned.content.filter((b) => b?.type === 'tool-call');
+  const planCall = calls.find((c) => c.name === PLANNED_TOOL);
+  if (planCall === undefined || !plannedOk(PLANNED_TOOL, results.get(planCall.id))) return undefined;
+  let steps;
+  try { steps = parsePlan(argsOf(planCall.arguments)); } catch { return undefined; }
+  const tag = planTag(planCall.id);
+  // `root`: the other calls of the planning message (the plan call alone when there are none); all of them have results.
+  const rootCalls = calls.length > 1 ? calls.filter((c) => c !== planCall) : [planCall];
+  if (!rootCalls.every((c) => results.has(c.id))) return undefined;
+  const done = new Map([['root', rootCalls.every((c) => plannedOk(c.name, results.get(c.id)))]]);
+  for (const call of ran) {
+    const [, t, n] = call.id.match(PLANNED_CALL);
+    const step = steps[Number(n) - 1];
+    if (t !== tag || step === undefined || done.has(step.id) || !results.has(call.id)) return undefined;
+    done.set(step.id, plannedOk(step.tool, results.get(call.id)));
+  }
+  const ready = steps.map((step, k) => ({ step, n: k + 1 })).filter(({ step }) => !done.has(step.id) && done.has(step.after)
+    && (step.when === 'always' || done.get(step.after) === true) && (tools === undefined || tools.has(step.tool)));
+  if (ready.length !== 1) return undefined;
+  return { ...ready[0], tag, reasoning: planned.content.some((b) => b?.type === 'reasoning') };
+}
+
+/** The chunks of the assistant message that runs `found` (the answer of nextPlannedStep). */
+export function plannedStepChunks(found) {
+  const { step, n, tag, reasoning } = found;
+  const id = `cpgs-${tag}-${n}`;
+  const args = JSON.stringify(step.args);
+  const blocks = [];
+  if (reasoning) blocks.push({ type: 'reasoning', text: `Composer Plus ran step "${step.id}" of an earlier ${PLANNED_TOOL} plan because its guard "${step.when}" held after "${step.after}". The model did not reason for this step.` });
+  blocks.push({ type: 'text', text: `Composer Plus · Planned steps: ran \`${step.id}\` (after \`${step.after}\`, guard ${step.when}) without a model call.` });
+  const chunks = [];
+  blocks.forEach((b, index) => {
+    chunks.push({ type: 'block-start', index, blockType: b.type });
+    chunks.push({ type: b.type === 'text' ? 'text-delta' : 'reasoning-delta', index, text: b.text });
+    chunks.push({ type: 'block-end', index, block: b });
+  });
+  const index = blocks.length;
+  chunks.push({ type: 'block-start', index, blockType: 'tool-call' });
+  chunks.push({ type: 'tool-call-delta', index, id, name: step.tool, argumentsDelta: args });
+  chunks.push({ type: 'block-end', index, block: { type: 'tool-call', id, name: step.tool, arguments: args } });
+  chunks.push({ type: 'finish', reason: { kind: 'tool-calls' } });
+  return chunks;
+}
+
+/** The `llm/stream` listener: an agent request of a chat (it has a session, no purpose such as compaction, and offers the
+ * plan tool) with one ready step gets the step's message; every other request goes on to the model. */
+export function plannedStream(options, next) {
+  let found;
+  try {
+    const tools = Array.isArray(options?.tools) ? new Set(options.tools.map((t) => t?.name)) : undefined;
+    if (options?.sessionId !== undefined && options.purpose === undefined && tools?.has(PLANNED_TOOL)) found = nextPlannedStep(options.messages, tools);
+  } catch { found = undefined; }
+  if (found === undefined) return next();
+  const chunks = plannedStepChunks(found);
+  return (async function* () { yield* chunks; })();
+}
+
+/** Planned steps (Host half): the switch route (off by default), and while it is on: the tool, the prompt section and the
+ * `llm/stream` listener, all in one fiber that switching off disposes. */
+export function installPlannedSteps(ctx, home, file = join(home, 'storages', 'dsh-composer-plus', 'planned-steps.json')) {
+  const sw = mobileSwitch(file);
+  let on = false;
+  let fiber;
+  const tool = {
+    name: PLANNED_TOOL,
+    description: `Plan your next tool calls when you already know their exact arguments and only a tool result decides whether they run. Composer Plus runs each step without a new model call when its predecessor finished and its guard holds; you see every result. Call it in the same message as the first command. Steps: ${PLANNED_STEP_TOOLS.join(', ')} only.`,
+    parameters: { type: 'object', properties: {
+      steps: { type: 'array', description: `1 to ${PLANNED_LIMITS.steps} steps, in order`, items: { type: 'object', properties: {
+        id: { type: 'string', description: 'A short name: a-z, 0-9 and "-", such as "test"' },
+        after: { type: 'string', description: '"root" (the default: the other tool calls of this message) or the id of an earlier step' },
+        when: { type: 'string', enum: PLANNED_GUARDS, description: '"ok" (the default): only when the predecessor succeeded; "always": when it finished' },
+        tool: { type: 'string', enum: PLANNED_STEP_TOOLS },
+        arguments: { type: 'object', description: 'The complete, literal arguments of the tool call' },
+      }, required: ['id', 'tool', 'arguments'] } },
+    }, required: ['steps'] },
+    output: textOutput,
+    async execute(args) {
+      const steps = parsePlan(args);
+      return `Plan accepted: ${steps.map((s) => `${s.id} (${s.tool}, after ${s.after}, when ${s.when})`).join('; ')}. Composer Plus runs a step without a model call when its predecessor finished and its guard holds. A failed guard, two ready steps, the last step or a new user message gives the turn back to you.`;
+    },
+  };
+  const apply = (next) => {
+    on = next;
+    if (on && fiber === undefined && typeof ctx.inject === 'function') {
+      fiber = ctx.inject(['tools', 'systemPrompt'], (sub) => {
+        sub.tools.register(tool);
+        sub.systemPrompt.section({ name: 'composer-plus:planned-steps', order: 660, interpolate: false, text: () => PLANNED_SECTION });
+        sub.on('llm/stream', plannedStream);
+      });
+    } else if (!on) { fiber?.dispose?.(); fiber = undefined; }
+  };
+  const ready = sw.read().then(apply, () => apply(false));
+  ctx.effect?.(() => () => { on = false; fiber?.dispose?.(); fiber = undefined; }, 'dsh-composer-plus: planned steps');
+  // One switch change at a time, in order: the saved file and the live state always end on the newest click.
+  let switching = ready;
+  ctx.connection.fetch.register({
+    path: PLANNED_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await ready;
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (!plainObject(body) || Object.keys(body).join() !== 'on' || typeof body.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        const change = switching.then(async () => { await sw.write(body.on); apply(body.on); });
+        switching = change.catch(() => {});
+        try { await change; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      return json({ on });
+    },
+  });
+  return { ready, tool };
 }
