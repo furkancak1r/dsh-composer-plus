@@ -533,6 +533,7 @@ struct ConversationView: View {
     @State private var showMemory = false
     @State private var showHandoff = false
     @State private var showContext = false
+    @State private var showBoard = false
     @State private var deleting = false
     /// Turn rollback: the user row whose ↶ was tapped.
     @State private var rollingBack: Line?
@@ -588,6 +589,7 @@ struct ConversationView: View {
                         if c.plus.contains("ideas") { Button { showIdeas = true } label: { Label("Feature ideas", systemImage: "lightbulb") } }
                         if c.plus.contains("memory-edit") { Button { showMemory = true } label: { Label("Project memory", systemImage: "brain") } }
                         if c.plus.contains("context") { Button { showContext = true } label: { Label("Context", systemImage: "chart.bar.doc.horizontal") } }
+                        if c.plus.contains("board-tasks") { Button { showBoard = true } label: { Label("Task board", systemImage: "rectangle.split.3x1") } }
                         if c.plus.contains("handoff"), c.currentSess?.parent == nil { Button { showHandoff = true } label: { Label("Continue in a new chat", systemImage: "arrow.right.doc.on.clipboard") } }
                         Button { UIPasteboard.general.string = sessionLink(id); UINotificationFeedbackGenerator().notificationOccurred(.success) } label: { Label("Copy session link", systemImage: "link") }
                         if c.transcript.contains(where: { $0.kind == .assistant }) {
@@ -608,6 +610,7 @@ struct ConversationView: View {
             .sheet(isPresented: $showMemory) { MemorySheet(cwd: c.currentSess?.cwd ?? "") }
             .sheet(isPresented: $showHandoff) { if let id = c.current { HandoffSheet(sessionId: id) } }
             .sheet(isPresented: $showContext) { if let id = c.current { ContextSheet(sessionId: id) } }
+            .sheet(isPresented: $showBoard) { if let id = c.current { BoardSheet(sessionId: id) } }
             .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { text = t; focused = true } } }
             .sheet(isPresented: Binding(get: { redoMarker != nil }, set: { if !$0 { redoMarker = nil } })) { if let m = redoMarker { RedoSheet(marker: m) } }
             .confirmationDialog("Delete this chat?", isPresented: $deleting, titleVisibility: .visible) {
@@ -3446,5 +3449,232 @@ struct ContextSheet: View {
     private func load() async {
         do { data = contextParts(try await c.plusCall("context", query: ["sessionId": sessionId])); failed = nil }
         catch { failed = userText(error) }
+    }
+}
+
+/// The column names of the task board, as on the Mac.
+func boardStatusName(_ s: String) -> String {
+    switch s {
+    case "backlog": return String(localized: "Backlog")
+    case "todo": return String(localized: "Todo")
+    case "doing": return String(localized: "Doing")
+    case "review": return String(localized: "Review")
+    case "done": return String(localized: "Done")
+    default: return s
+    }
+}
+
+/// Task board (Composer Plus on the Mac): the kanban board of the chat's project, another project or all projects. The
+/// segmented control picks a column; a tap on a card opens the task. The sheet reads the board again every 5 s while it
+/// is open (the Mac answers "same" when nothing changed).
+struct BoardSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var b: TaskBoard
+    @State private var column = "todo"
+    @State private var creating = false
+    init(sessionId: String) { _b = StateObject(wrappedValue: TaskBoard(sessionId: sessionId) { _, _ in [:] }) }
+    private var ready: Bool { b.loaded && !b.off && !b.missing }
+    private var projectName: String {
+        b.project == "all" ? String(localized: "All projects") : b.projects.first { $0.path == b.project }?.name ?? (b.project as NSString).lastPathComponent
+    }
+    var body: some View {
+        NavigationStack {
+            List {
+                if b.missing { Text("Composer Plus on your Mac has no task board. Update it on the Mac.").foregroundStyle(.secondary) }
+                else if b.off { Text("Task board is off. Switch it on in Settings → Composer Plus on your Mac.").foregroundStyle(.secondary) }
+                else if b.loaded {
+                    let cards = b.columns[column] ?? []
+                    if b.projects.isEmpty { Text("No projects yet. Add a project in the DSH sidebar on your Mac.").foregroundStyle(.secondary) }
+                    else if cards.isEmpty { Text("No tasks.").foregroundStyle(.secondary) }
+                    ForEach(cards) { card in Button { Task { await b.open(card.id) } } label: { BoardCardRow(card: card) } }
+                    if column == "done", b.hiddenDone > 0 { Text("\(b.hiddenDone) older done task(s) are not shown.").font(.caption).foregroundStyle(.secondary) }
+                } else if b.readFailed == nil { HStack(spacing: 8) { ProgressView(); Text("Loading the board…") } }
+                if let f = b.readFailed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
+            }
+            .safeAreaInset(edge: .top) {
+                if ready {
+                    Picker("Column", selection: $column) {
+                        ForEach(b.statuses, id: \.self) { s in Text(verbatim: "\(boardStatusName(s)) \(b.columns[s]?.count ?? 0)").tag(s) }
+                    }
+                    .pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8).background(.bar)
+                }
+            }
+            .refreshable { await b.refresh() }
+            .navigationTitle("Task board").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) { projectMenu }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { creating = true } label: { Image(systemName: "plus") }
+                        .disabled(!ready || b.project == "all" || b.busy != nil)
+                        .accessibilityLabel("New task")
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .onChange(of: b.statuses) { _, s in if !s.contains(column) { column = s.contains("todo") ? "todo" : s.first ?? "todo" } }
+            .sheet(isPresented: $creating) { BoardNewTaskSheet(b: b, project: projectName) }
+            .sheet(isPresented: Binding(get: { b.taskId != nil }, set: { if !$0 { b.close() } })) { BoardTaskSheet(b: b) }
+            .task {
+                b.bind { [c] query, body in try await c.plusCall("board-tasks", query: query, body: body) }
+                // Also reads the open task. Ends when the sheet closes.
+                while !Task.isCancelled { await b.refresh(); try? await Task.sleep(for: .seconds(5)) }
+            }
+        }
+    }
+    /// The title, and under it the shown project: a tap picks "All projects" or one project.
+    private var projectMenu: some View {
+        Menu {
+            Picker("Project", selection: Binding(get: { b.project }, set: { p in Task { await b.select(p) } })) {
+                Text("All projects").tag("all")
+                ForEach(b.projects) { p in Text(verbatim: "\(p.name) (\(p.open))").tag(p.path) }
+            }
+        } label: {
+            VStack(spacing: 0) {
+                Text("Task board").font(.headline).foregroundStyle(.primary)
+                HStack(spacing: 3) { Text(verbatim: projectName).lineLimit(1); Image(systemName: "chevron.down").imageScale(.small) }
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .disabled(!ready)
+        .accessibilityLabel(Text("Task board, project: \(projectName)"))
+    }
+}
+
+/// A card of the task board: title, a person for a human task, one line of the description, the key, tags and comments.
+struct BoardCardRow: View {
+    let card: BoardCard
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(verbatim: card.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).multilineTextAlignment(.leading).lineLimit(3)
+                Spacer(minLength: 0)
+                if card.human { Image(systemName: "person.fill").font(.caption).foregroundStyle(.orange).accessibilityLabel("Human task") }
+            }
+            if !card.preview.isEmpty { Text(verbatim: card.preview).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+            HStack(spacing: 6) {
+                Text(verbatim: card.key).font(.caption2.monospaced()).foregroundStyle(.secondary)
+                ForEach(card.tags.prefix(3), id: \.self) { tag in
+                    Text(verbatim: tag).font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 6).padding(.vertical, 1).background(.quaternary, in: Capsule())
+                }
+                Spacer(minLength: 0)
+                if card.comments > 0 {
+                    Label { Text(verbatim: "\(card.comments)") } icon: { Image(systemName: "bubble.left") }
+                        .font(.caption2).foregroundStyle(.secondary).accessibilityLabel("\(card.comments) comment(s)")
+                }
+            }
+            .lineLimit(1)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+/// One task of the board: Status and Human change at once; the description (Markdown) and the comments are read only;
+/// a new comment; Delete after a confirmation. The board sheet reads the task again every 5 s.
+struct BoardTaskSheet: View {
+    @ObservedObject var b: TaskBoard
+    @Environment(\.dismiss) private var dismiss
+    @State private var text = ""
+    @State private var deleting = false
+    var body: some View {
+        NavigationStack {
+            List {
+                if let t = b.task { content(t) }
+                else if b.gone { Text("This task was deleted.").foregroundStyle(.secondary) }
+                else if let f = b.readFailed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
+                else { HStack(spacing: 8) { ProgressView(); Text("Reading the task…") } }
+            }
+            .refreshable { await b.loadTask() }
+            .safeAreaInset(edge: .bottom) {
+                VStack(alignment: .leading, spacing: 6) {
+                    if let f = b.failed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
+                    if b.task != nil {
+                        HStack(alignment: .bottom) {
+                            TextField("Add a comment", text: $text, axis: .vertical).lineLimit(1...5).textFieldStyle(.roundedBorder).disabled(b.busy != nil)
+                            Button { send() } label: { Image(systemName: "arrow.up.circle.fill").font(.title2) }
+                                .disabled(b.busy != nil || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                                .accessibilityLabel("Send comment")
+                        }
+                    }
+                }
+                .padding(.horizontal).padding(.vertical, 8).background(.bar)
+            }
+            .navigationTitle(b.task?.card.key ?? "").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .confirmationDialog("Delete this task?", isPresented: $deleting, titleVisibility: .visible) {
+                Button("Delete", role: .destructive) { Task { await b.delete() } }
+            } message: { if let t = b.task { Text("\(t.card.key) and its \(t.comments.count) comment(s) are deleted. This cannot be undone.") } }
+        }
+    }
+    @ViewBuilder private func content(_ t: BoardTask) -> some View {
+        Section {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(verbatim: t.card.title).font(.headline)
+                Text(verbatim: [t.card.key, t.project].filter { !$0.isEmpty }.joined(separator: " · ")).font(.caption.monospaced()).foregroundStyle(.secondary)
+                if !t.card.tags.isEmpty {
+                    Label { Text(verbatim: t.card.tags.joined(separator: ", ")) } icon: { Image(systemName: "tag") }.font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .textSelection(.enabled)
+            // Both change at once; the switch shows the asked value while the Mac saves it.
+            Picker(selection: Binding(get: { t.card.status }, set: { s in Task { await b.setStatus(s) } })) {
+                ForEach(b.statuses, id: \.self) { s in Text(verbatim: boardStatusName(s)).tag(s) }
+            } label: { HStack(spacing: 8) { Text("Status"); if b.busy == "status" { ProgressView() } } }
+            .pickerStyle(.menu)
+            Toggle(isOn: Binding(get: { b.busy == "human" ? !t.card.human : t.card.human }, set: { v in Task { await b.setHuman(v) } })) {
+                VStack(alignment: .leading, spacing: 2) { Text("Human"); Text("Agents skip it").font(.caption).foregroundStyle(.secondary) }
+            }
+        }
+        .disabled(b.busy != nil)
+        Section("Description") {
+            if t.description.isEmpty { Text("No description.").foregroundStyle(.secondary) } else { Markdown(text: t.description) }
+        }
+        Section("Comments") {
+            if t.comments.isEmpty { Text("No comments yet.").foregroundStyle(.secondary) }
+            ForEach(t.comments) { m in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        (m.agent ? Text("agent") : Text("you")).font(.caption.bold()).foregroundStyle(m.agent ? Color.accentColor : Color.secondary)
+                        if let d = m.at { Text(d, format: .relative(presentation: .named, unitsStyle: .abbreviated)).font(.caption).foregroundStyle(.secondary) }
+                    }
+                    Markdown(text: m.body)
+                }
+            }
+        }
+        Section { Button("Delete task", role: .destructive) { deleting = true }.disabled(b.busy != nil) }
+    }
+    /// The send button goes through the board, which refuses a second change while one runs (Return adds a line).
+    private func send() { let t = text; Task { if await b.comment(t) { text = "" } } }
+}
+
+/// New task: a title and an optional description (Markdown). It goes to the bottom of Todo of the shown project.
+struct BoardNewTaskSheet: View {
+    @ObservedObject var b: TaskBoard
+    let project: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var text = ""
+    /// Show the board's reason only after this sheet's own Add.
+    @State private var tried = false
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Title", text: $title)
+                    TextField("Description (optional, Markdown)", text: $text, axis: .vertical).lineLimit(3...10)
+                } footer: { Text("The task goes to Todo of \(project).") }
+                if tried, b.busy == nil, let f = b.failed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
+            }
+            .disabled(b.busy != nil)
+            .navigationTitle("New task").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(b.busy == "create") }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Add") { tried = true; let t = title, d = text; Task { if await b.create(title: t, description: d) { dismiss() } } }
+                        .disabled(b.busy != nil || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .interactiveDismissDisabled(b.busy == "create")
     }
 }
