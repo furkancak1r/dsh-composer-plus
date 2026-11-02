@@ -3608,7 +3608,21 @@
     "protected.reset": "Varsayılanları kullan",
     "protected.failed": "Liste kaydedilmedi: {error}",
     "protected.switch.down": "Bu ayar kaydedilemedi: {error}",
-    "protected.switch.restart": "Korunan dosyalar özelliğini kullanmak için dsh’yi yeniden başlatın."
+    "protected.switch.restart": "Korunan dosyalar özelliğini kullanmak için dsh’yi yeniden başlatın.",
+    "feature.blockedCommands": "Engellenen komutlar",
+    "feature.blockedCommands.description": "Ajanın kabuk komutları (bash, pwsh) kurallarınızla eşleşen bir komutu çalıştıramaz: “engelle” kuralı komutu reddeder, ajan nedenini okur ve size sorması istenir; “önce sor” kuralı dsh’nin onay kartını gösterir. Bir kural, bir komuttan ve onun bu sırayla gelen sözcüklerinden oluşur; örneğin npm publish, git push --force ya da ssh *192.168.2.19 (* herhangi bir metinle eşleşir). Liste başta boştur. Bir değişken, bir betik dosyası ya da başka bir program bir komutu yine çalıştırabilir: bu bir korumalı alan değil, bir güvenlik önlemidir.",
+    "blocked.list": "Engellenen komut kuralları",
+    "blocked.none": "Engellenen komut yok.",
+    "blocked.modeBlock": "engelle",
+    "blocked.modeAsk": "önce sor",
+    "blocked.mode": "Eylem",
+    "blocked.toggleMode": "“engelle” ile “önce sor” arasında geçiş yap",
+    "blocked.remove": "{rule} kuralını kaldır",
+    "blocked.add": "Ekle",
+    "blocked.placeholder": "Örneğin npm publish",
+    "blocked.failed": "Liste kaydedilmedi: {error}",
+    "blocked.switch.down": "Bu ayar kaydedilemedi: {error}",
+    "blocked.switch.restart": "Engellenen komutlar özelliğini kullanmak için dsh’yi yeniden başlatın."
   },
   "directory-browser": {
     "browser.title": "Çalışma alanı klasörünü seçin",

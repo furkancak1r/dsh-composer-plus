@@ -2148,7 +2148,21 @@
     "protected.reset": "Usar los valores predeterminados",
     "protected.failed": "No se guardó la lista: {error}",
     "protected.switch.down": "No se pudo guardar este ajuste: {error}",
-    "protected.switch.restart": "Reinicia dsh para usar Archivos protegidos."
+    "protected.switch.restart": "Reinicia dsh para usar Archivos protegidos.",
+    "feature.blockedCommands": "Comandos bloqueados",
+    "feature.blockedCommands.description": "Los comandos de shell del agente (bash, pwsh) no pueden ejecutar un comando que coincida con tus reglas: «bloquear» lo rechaza, el agente lee el motivo y se le indica que te pregunte; «preguntar antes» muestra la tarjeta de aprobación de dsh. Una regla es un comando y sus palabras en este orden, por ejemplo npm publish, git push --force o ssh *192.168.2.19 (* coincide con cualquier texto). La lista está vacía al principio. Una variable, un archivo de script u otro programa aún pueden ejecutar un comando: es una barrera de protección, no un sandbox.",
+    "blocked.list": "Reglas de comandos bloqueados",
+    "blocked.none": "No hay comandos bloqueados.",
+    "blocked.modeBlock": "bloquear",
+    "blocked.modeAsk": "preguntar antes",
+    "blocked.mode": "Acción",
+    "blocked.toggleMode": "Cambiar entre «bloquear» y «preguntar antes»",
+    "blocked.remove": "Quitar {rule}",
+    "blocked.add": "Añadir",
+    "blocked.placeholder": "Por ejemplo, npm publish",
+    "blocked.failed": "No se guardó la lista: {error}",
+    "blocked.switch.down": "No se pudo guardar este ajuste: {error}",
+    "blocked.switch.restart": "Reinicia dsh para usar Comandos bloqueados."
   },
   "common": {
     "ok": "Aceptar",

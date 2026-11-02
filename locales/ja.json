@@ -2148,7 +2148,21 @@
     "protected.reset": "既定値を使う",
     "protected.failed": "リストを保存できませんでした：{error}",
     "protected.switch.down": "この設定を保存できませんでした：{error}",
-    "protected.switch.restart": "保護されたファイルを使うには dsh を再起動してください。"
+    "protected.switch.restart": "保護されたファイルを使うには dsh を再起動してください。",
+    "feature.blockedCommands": "ブロックされたコマンド",
+    "feature.blockedCommands.description": "エージェントのシェルコマンド（bash、pwsh）は、指定したルールに一致するコマンドを実行できません。「ブロック」はそのコマンドを拒否し、エージェントは理由を読み、あなたに確認するよう指示されます。「先に確認」は dsh の承認カードを表示します。ルールは、コマンドとその単語をこの順に並べたものです。例：npm publish、git push --force、ssh *192.168.2.19（* は任意のテキストに一致します）。リストは最初は空です。変数、スクリプトファイル、ほかのプログラムからはコマンドを実行できることがあります。これはガードレールであり、サンドボックスではありません。",
+    "blocked.list": "ブロックするコマンドのルール",
+    "blocked.none": "ブロックされたコマンドはありません。",
+    "blocked.modeBlock": "ブロック",
+    "blocked.modeAsk": "先に確認",
+    "blocked.mode": "動作",
+    "blocked.toggleMode": "「ブロック」と「先に確認」を切り替え",
+    "blocked.remove": "{rule} を削除",
+    "blocked.add": "追加",
+    "blocked.placeholder": "例：npm publish",
+    "blocked.failed": "リストを保存できませんでした：{error}",
+    "blocked.switch.down": "この設定を保存できませんでした：{error}",
+    "blocked.switch.restart": "ブロックされたコマンドを使うには dsh を再起動してください。"
   },
   "common": {
     "ok": "OK",

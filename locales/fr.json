@@ -2148,7 +2148,21 @@
     "protected.reset": "Utiliser les valeurs par défaut",
     "protected.failed": "La liste n’a pas été enregistrée : {error}",
     "protected.switch.down": "Impossible d’enregistrer ce réglage : {error}",
-    "protected.switch.restart": "Redémarrez dsh pour utiliser Fichiers protégés."
+    "protected.switch.restart": "Redémarrez dsh pour utiliser Fichiers protégés.",
+    "feature.blockedCommands": "Commandes bloquées",
+    "feature.blockedCommands.description": "Les commandes shell de l’agent (bash, pwsh) ne peuvent pas exécuter une commande qui correspond à vos règles : « bloquer » la refuse, l’agent lit pourquoi et on lui demande de vous consulter ; « demander d’abord » affiche la carte d’approbation de dsh. Une règle est une commande et ses mots dans cet ordre, par exemple npm publish, git push --force ou ssh *192.168.2.19 (* correspond à n’importe quel texte). La liste est vide au départ. Une variable, un fichier de script ou un autre programme peut encore exécuter une commande : c’est un garde-fou, pas un sandbox.",
+    "blocked.list": "Règles des commandes bloquées",
+    "blocked.none": "Aucune commande bloquée.",
+    "blocked.modeBlock": "bloquer",
+    "blocked.modeAsk": "demander d’abord",
+    "blocked.mode": "Action",
+    "blocked.toggleMode": "Basculer entre « bloquer » et « demander d’abord »",
+    "blocked.remove": "Supprimer {rule}",
+    "blocked.add": "Ajouter",
+    "blocked.placeholder": "Par exemple npm publish",
+    "blocked.failed": "La liste n’a pas été enregistrée : {error}",
+    "blocked.switch.down": "Impossible d’enregistrer ce réglage : {error}",
+    "blocked.switch.restart": "Redémarrez dsh pour utiliser Commandes bloquées."
   },
   "common": {
     "ok": "OK",

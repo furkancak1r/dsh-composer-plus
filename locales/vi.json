@@ -2148,7 +2148,21 @@
     "protected.reset": "Dùng giá trị mặc định",
     "protected.failed": "Danh sách chưa được lưu: {error}",
     "protected.switch.down": "Không lưu được cài đặt này: {error}",
-    "protected.switch.restart": "Khởi động lại dsh để dùng Tệp được bảo vệ."
+    "protected.switch.restart": "Khởi động lại dsh để dùng Tệp được bảo vệ.",
+    "feature.blockedCommands": "Lệnh bị chặn",
+    "feature.blockedCommands.description": "Các lệnh shell của tác tử (bash, pwsh) không thể chạy lệnh khớp với quy tắc của bạn: “chặn” từ chối lệnh đó, tác tử đọc lý do và được yêu cầu hỏi bạn; “hỏi trước” hiện thẻ phê duyệt của dsh. Một quy tắc là một lệnh và các từ của lệnh theo đúng thứ tự này, ví dụ npm publish, git push --force hoặc ssh *192.168.2.19 (* khớp với mọi văn bản). Ban đầu danh sách trống. Một biến, một tệp script hoặc một chương trình khác vẫn có thể chạy lệnh: đây là rào chắn bảo vệ, không phải sandbox.",
+    "blocked.list": "Quy tắc lệnh bị chặn",
+    "blocked.none": "Không có lệnh nào bị chặn.",
+    "blocked.modeBlock": "chặn",
+    "blocked.modeAsk": "hỏi trước",
+    "blocked.mode": "Hành động",
+    "blocked.toggleMode": "Chuyển giữa “chặn” và “hỏi trước”",
+    "blocked.remove": "Xóa {rule}",
+    "blocked.add": "Thêm",
+    "blocked.placeholder": "Ví dụ npm publish",
+    "blocked.failed": "Danh sách chưa được lưu: {error}",
+    "blocked.switch.down": "Không lưu được cài đặt này: {error}",
+    "blocked.switch.restart": "Khởi động lại dsh để dùng Lệnh bị chặn."
   },
   "common": {
     "ok": "OK",

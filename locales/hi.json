@@ -2148,7 +2148,21 @@
     "protected.reset": "डिफ़ॉल्ट इस्तेमाल करें",
     "protected.failed": "सूची सेव नहीं हुई: {error}",
     "protected.switch.down": "यह सेटिंग सेव नहीं हो सकी: {error}",
-    "protected.switch.restart": "सुरक्षित फ़ाइलें उपयोग करने के लिए dsh फिर से शुरू करें।"
+    "protected.switch.restart": "सुरक्षित फ़ाइलें उपयोग करने के लिए dsh फिर से शुरू करें।",
+    "feature.blockedCommands": "ब्लॉक की गई कमांड",
+    "feature.blockedCommands.description": "एजेंट की शेल कमांड (bash, pwsh) आपके नियमों से मेल खाने वाली कमांड नहीं चला सकतीं: “ब्लॉक” उसे मना करता है, एजेंट वजह पढ़ता है और उसे आपसे पूछने को कहा जाता है; “पहले पूछना” dsh का मंज़ूरी कार्ड दिखाता है। नियम एक कमांड और इसी क्रम में उसके शब्द होते हैं, जैसे npm publish, git push --force या ssh *192.168.2.19 (* किसी भी टेक्स्ट से मेल खाता है)। शुरू में सूची खाली होती है। कोई वैरिएबल, स्क्रिप्ट फ़ाइल या दूसरा प्रोग्राम फिर भी कमांड चला सकता है: यह एक सुरक्षा रेलिंग है, सैंडबॉक्स नहीं।",
+    "blocked.list": "ब्लॉक की गई कमांड के नियम",
+    "blocked.none": "कोई ब्लॉक की गई कमांड नहीं।",
+    "blocked.modeBlock": "ब्लॉक",
+    "blocked.modeAsk": "पहले पूछना",
+    "blocked.mode": "कार्रवाई",
+    "blocked.toggleMode": "“ब्लॉक” और “पहले पूछना” के बीच बदलें",
+    "blocked.remove": "{rule} हटाएं",
+    "blocked.add": "जोड़ें",
+    "blocked.placeholder": "उदाहरण के लिए npm publish",
+    "blocked.failed": "सूची सेव नहीं हुई: {error}",
+    "blocked.switch.down": "यह सेटिंग सेव नहीं हो सकी: {error}",
+    "blocked.switch.restart": "ब्लॉक की गई कमांड उपयोग करने के लिए dsh फिर से शुरू करें।"
   },
   "common": {
     "ok": "ठीक है",

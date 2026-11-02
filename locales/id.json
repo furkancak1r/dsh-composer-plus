@@ -2148,7 +2148,21 @@
     "protected.reset": "Gunakan bawaan",
     "protected.failed": "Daftar tidak disimpan: {error}",
     "protected.switch.down": "Pengaturan ini tidak dapat disimpan: {error}",
-    "protected.switch.restart": "Mulai ulang dsh untuk memakai File yang dilindungi."
+    "protected.switch.restart": "Mulai ulang dsh untuk memakai File yang dilindungi.",
+    "feature.blockedCommands": "Perintah yang diblokir",
+    "feature.blockedCommands.description": "Perintah shell agen (bash, pwsh) tidak dapat menjalankan perintah yang cocok dengan aturan Anda: “blokir” menolaknya, lalu agen membaca alasannya dan diminta untuk bertanya kepada Anda; “tanya dulu” menampilkan kartu persetujuan dsh. Aturan adalah perintah beserta kata-katanya dalam urutan ini, misalnya npm publish, git push --force, atau ssh *192.168.2.19 (* cocok dengan teks apa pun). Awalnya daftar ini kosong. Variabel, file skrip, atau program lain tetap dapat menjalankan perintah: ini pagar pengaman, bukan sandbox.",
+    "blocked.list": "Aturan perintah yang diblokir",
+    "blocked.none": "Tidak ada perintah yang diblokir.",
+    "blocked.modeBlock": "blokir",
+    "blocked.modeAsk": "tanya dulu",
+    "blocked.mode": "Tindakan",
+    "blocked.toggleMode": "Beralih antara “blokir” dan “tanya dulu”",
+    "blocked.remove": "Hapus {rule}",
+    "blocked.add": "Tambah",
+    "blocked.placeholder": "Misalnya npm publish",
+    "blocked.failed": "Daftar tidak disimpan: {error}",
+    "blocked.switch.down": "Pengaturan ini tidak dapat disimpan: {error}",
+    "blocked.switch.restart": "Mulai ulang dsh untuk memakai Perintah yang diblokir."
   },
   "common": {
     "ok": "OK",
