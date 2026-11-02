@@ -53,6 +53,8 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.board` | POST | `{on}` or `{backlog}` (Backlog goes off only while it is empty: else 409). Settings only. | taskBoard | no |
 | `/api/composer-plus.board-tasks` | GET | `?project=<path>\|all[&done=all][&rev=N]` a board view (`{rev, same}` when nothing changed), `?sessionId` the view of the chat's project, `?task=<id>` one task with comments, `?q=<words>` search, `?export=markdown\|json&project=` the board as text. 409 while the switch is off. | taskBoard | yes |
 | `/api/composer-plus.board-tasks` | POST | `{op: create\|update\|move\|comment\|uncomment\|delete, …}`: one change of a task (an update with `was` refuses an edit over a newer change: 409). | taskBoard | yes |
+| `/api/composer-plus.planned-steps` | GET | The switch `{on}`. | plannedSteps | no |
+| `/api/composer-plus.planned-steps` | POST | `{on}`: the switch (a switch route). | plannedSteps | no |
 | `/api/composer-plus.memory` | GET | The switch `{on}`. | projectMemory | no |
 | `/api/composer-plus.memory` | POST | `{on}`: the switch (a switch route). | projectMemory | no |
 | `/api/composer-plus.memory-edit` | GET | Every saved note: `{projects: [{id, name, path, count, files}], global, busy}`; 409 while the switch is off. | projectMemory | yes |
