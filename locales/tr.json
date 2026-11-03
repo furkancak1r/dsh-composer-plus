@@ -3406,7 +3406,7 @@
     "ideas.issueOpenHint": "Bu fikrin GitHub issue’sunu aç",
     "ideas.issuing": "GitHub’da issue açılıyor…",
     "feature.sessionBranch": "Sohbet satırlarında Git dalı",
-    "feature.sessionBranch.description": "Kenar çubuğundaki her sohbet satırı, sohbetin proje klasörünün sohbetin son turunda bulunduğu git dalını gösterir. Böylece bir projenin farklı dallarındaki sohbetler birbirine karışmaz. dsh, dalı bir tur başlarken ve biterken kaydeder; o zamandan beri turu olmayan bir sohbette dal görünmez. Sohbetin üstündeki proje satırının adı dalın adıyla aynıysa (örneğin bir “Sohbet başına dal” klasöründe), sohbet satırında dal etiketi görünmez; “Tek listede” görünümünde etiket yine görünür.",
+    "feature.sessionBranch.description": "“Tek listede” görünümünde, kenar çubuğundaki her sohbet satırı, sohbetin proje klasörünün sohbetin son turunda bulunduğu git dalını gösterir. Böylece bir projenin farklı dallarındaki sohbetler birbirine karışmaz. dsh, dalı bir tur başlarken ve biterken kaydeder; o zamandan beri turu olmayan bir sohbette dal görünmez. Diğer görünümlerde sohbet zaten kendi projesinin altında olduğu için hiçbir sohbet satırında dal görünmez.",
     "branch.badge": "Son turdaki Git dalı: {branch}",
     "branch.down": "Bu ayar kaydedilemedi: {error}",
     "branch.restart": "Sohbet satırlarında Git dalı özelliğini kullanmak için dsh’yi yeniden başlatın.",

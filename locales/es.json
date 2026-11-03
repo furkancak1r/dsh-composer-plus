@@ -1946,7 +1946,7 @@
     "ideas.issueOpenHint": "Abrir la issue de GitHub de esta idea",
     "ideas.issuing": "Abriendo la issue de GitHub…",
     "feature.sessionBranch": "Rama de Git en las filas de chat",
-    "feature.sessionBranch.description": "Cada fila de chat de la barra lateral muestra la rama de git en la que estaba la carpeta del proyecto del chat en su último turno, para que no se mezclen los chats de distintas ramas de un mismo proyecto. dsh registra la rama cuando un turno empieza y cuando termina; un chat sin turnos desde entonces no muestra ninguna. Si la fila de proyecto sobre el chat tiene el mismo nombre que la rama (por ejemplo, una carpeta de «Una rama por chat»), la fila del chat no muestra la etiqueta, pero «En una sola lista» sí la muestra.",
+    "feature.sessionBranch.description": "En la vista «En una sola lista», cada fila de chat de la barra lateral muestra la rama de git en la que estaba la carpeta del proyecto del chat en su último turno, para que no se mezclen los chats de distintas ramas de un mismo proyecto. dsh registra la rama cuando un turno empieza y cuando termina; un chat sin turnos desde entonces no muestra ninguna. En las otras vistas, ninguna fila de chat la muestra, porque el chat ya está debajo de su proyecto.",
     "branch.badge": "Rama de Git en el último turno: {branch}",
     "branch.down": "No se pudo guardar este ajuste: {error}",
     "branch.restart": "Reinicia dsh para usar Rama de Git en las filas de chat.",
