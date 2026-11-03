@@ -1,7 +1,8 @@
-// Isolated real-app check of What's new (Automatic updates): a saved record for the running version shows its release notes
-// once after a start, with the GitHub link; Esc and Close close it; the next start shows nothing; an older record goes
-// without a dialog; a newer one (restart pending) stays. No model and no GitHub call: the update check route is answered
-// by the test. Never the normal DSH_HOME.
+// Isolated real-app check of What's new (Automatic updates): a saved record for the running version shows the release notes
+// that ship with it (release-notes.json, from the real Host) once after a start, with the GitHub link; Esc and Close close
+// it; the next start shows nothing; an older record goes without a dialog; a newer one (restart pending) stays. A Turkish
+// browser (tr-TR) shows the Turkish title and notes (test/update.test.mjs checks a language switch while it is open). No
+// model and no GitHub call: the update check route is answered by the test. Never the normal DSH_HOME.
 // PLAYWRIGHT=/path/to/playwright node test/browser-whats-new.mjs /path/to/dsh/lib/bin.js [...]
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -16,6 +17,9 @@ const { chromium } = require(process.env.PLAYWRIGHT);
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const version = JSON.parse(await readFile(join(repo, 'package.json'), 'utf8')).version;
 const KEY = 'dsh-composer-plus.update.whatsNew';
+const shipped = JSON.parse(await readFile(join(repo, 'release-notes.json'), 'utf8')).notes;
+/** The dialog's plain text of a Markdown note (headings and bold marks go), as client.js shows it. */
+const plain = (text) => text.trim().replace(/^#{1,6}\s+/gm, '').replace(/\*\*([^*\n]+)\*\*/g, '$1');
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const browser = await chromium.launch({ channel: 'chrome' });
 try {
@@ -64,11 +68,13 @@ try {
       await dismissStart();
       const notes = '## Tether\n\n- **New:** a demo note for this check.\n\nSecond paragraph.';
       const link = `https://github.com/furkancak1r/dsh-composer-plus/releases/tag/v${version}`;
-      // 1. The running version's record: the dialog shows once, as plain text, with the GitHub link.
+      // 1. The running version's record: the dialog shows once, as plain text, with the GitHub link. The real Host gives
+      // the notes that ship with this copy: the English ones in an English UI, not the record's saved GitHub text.
       await startWith({ version, notes, url: link });
       await dialog.waitFor({ timeout: 10000 });
-      const body = await dialog.locator('[data-composer-plus-whats-new]').innerText();
-      assert.equal(body.trim(), 'Tether\n\n- New: a demo note for this check.\n\nSecond paragraph.', 'the notes show as plain text');
+      const text = dialog.locator('[data-composer-plus-whats-new]');
+      assert.equal((await text.innerText()).trim(), plain(shipped.en), 'the shipped English notes show as plain text');
+      assert.equal(await text.getAttribute('lang'), 'en');
       assert.equal(await dialog.locator('[data-composer-plus-whats-new-link]').getAttribute('href'), link);
       assert.equal(await stored(), null, 'shown once: the record is gone');
       // 2. Esc closes it.
@@ -84,9 +90,29 @@ try {
       // 6. A newer record (installed, restart pending): no dialog, the record stays for the next start.
       await startWith({ version: '99.0.0', notes: 'Later.' });
       assert.equal(await page.getByRole('dialog', { name: /What’s new in Composer Plus/ }).count(), 0); assert.ok(await stored(), 'a newer record stays');
+      // 7. A Turkish browser: the Turkish title and the Turkish notes of the real Host, not the record's English text.
+      const trPage = await browser.newContext({ locale: 'tr-TR', viewport: { width: 1280, height: 900 } }).then(async (c) => {
+        await c.route((u) => u.pathname.endsWith('/api/composer-plus.update'), async (route) => (new URL(route.request().url()).searchParams.get('current') === '1' ? route.continue()
+          : route.fulfill({ contentType: 'application/json', body: JSON.stringify({ name: 'dsh-composer-plus', current: version, latest: version, managed: true, newer: false }) })));
+        const p = await c.newPage(); p.on('pageerror', (e) => errors.push(String(e))); return p;
+      });
+      await trPage.goto(url);
+      await trPage.evaluate(([k, v]) => localStorage.setItem(k, v), [KEY, JSON.stringify({ version, notes: 'GitHub English.', url: link })]);
+      await trPage.reload();
+      for (const name of ['Devam et', 'Daha sonra yapılandır']) { const b = trPage.getByRole('button', { name, exact: true }); if (await b.waitFor({ timeout: 1500 }).then(() => true, () => false)) await b.click(); }
+      const trStart = trPage.getByRole('dialog', { name: /^(Get started|Başlayın)$/ }).getByRole('button', { name: /^(Close|Kapat)$/ });
+      if (await trStart.waitFor({ timeout: 1500 }).then(() => true, () => false)) { await trStart.click(); await trStart.waitFor({ state: 'hidden' }); }
+      const trDialog = trPage.getByRole('dialog', { name: `Composer Plus ${version} sürümündeki yenilikler` });
+      await trDialog.waitFor({ timeout: 15000 });
+      const trText = trDialog.locator('[data-composer-plus-whats-new]');
+      assert.equal((await trText.innerText()).trim(), plain(shipped.tr), 'the Turkish notes in a Turkish UI');
+      assert.equal(await trText.getAttribute('lang'), 'tr');
+      assert.equal(await trDialog.locator('[data-composer-plus-whats-new-close]').innerText(), 'Kapat');
+      await trDialog.locator('[data-composer-plus-whats-new-close]').click(); await trDialog.waitFor({ state: 'hidden', timeout: 5000 });
+      await trPage.context().close();
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: What's new shows ${version}'s notes once (plain text, GitHub link), Esc and Close close it, no repeat, an older record goes, a newer one waits`);
+      console.log(`PASS ${bin}: What's new shows ${version}'s shipped notes once (plain text, GitHub link, English UI: English, tr-TR: Turkish), Esc and Close close it, no repeat, an older record goes, a newer one waits`);
     } finally {
       await context?.close();
       await writeFile(join(home, 'server.log'), log); // the token stays inside the temporary home, never stdout
