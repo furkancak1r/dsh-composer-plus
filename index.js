@@ -6433,124 +6433,76 @@ export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retry
   return { settled: () => new Promise((resolve) => { const wait = () => (busy === null ? resolve() : setTimeout(wait, 10)); wait(); }), tick };
 }
 
-/** Task board (Host half): a kanban board of the dsh projects for the user and the agents, after Kanzo's idea
- * (github.com/emanuele-em/kanzo, AGPL-3.0; no code of it is used here). One owner-only JSON file
- * `storages/dsh-composer-plus/board.json`: `{ v, next, nextComment, backlog, projects: [{path, slug}], tasks: [...] }`.
- * A task belongs to a project folder (a dsh project; a Branch per chat folder `<repo>/.worktrees/<name>` counts as its
- * repository). Task ids are one sequence for all projects; the key is `<slug>#<id>`. Each column has one order (a float
- * position) over all projects: a new task and a status change go to the bottom, a drop before a card goes between it and
- * the card above it. */
+/** Task board (Host half): a kanban board of dsh's real chats. The client draws the cards from dsh's own stores (the chat
+ * list, each chat's live state and the projects); the Host keeps the switch and the record of the chats that the board
+ * started: `storages/dsh-composer-plus/board-chats.json`, `{ chats: { [sessionId]: { prompt, tags, at } } }`, owner-only.
+ * A board start makes a new chat in a dsh project with the user's prompt (dsh's own title service names the chat); one
+ * short call to the new chat's model writes its tags. The old notebook board (`board.json`) is not read or changed. */
 export const BOARD_PATH = '/api/composer-plus.board';
-export const BOARD_TASKS_PATH = '/api/composer-plus.board-tasks';
-export const BOARD_STATUSES = ['backlog', 'todo', 'doing', 'review', 'done'];
-/** The board shows the newest this many done tasks of a view ("Show N older" loads the rest). */
-export const BOARD_DONE_SHOWN = 50;
-export const BOARD_LIMITS = { title: 300, description: 20000, tags: 20, tag: 40, comment: 10000, comments: 500, tasks: 10000, search: 30 };
-const BOARD_AGENT_DONE = 20; // board_list_tasks with a status shows at most this many done tasks (the newest)
-const BOARD_SHOWN_MAX = 2000;
-export const BOARD_SECTION = `# Task board
-This project has open tasks on the user's task board (Composer Plus → Task board). Tasks look like api#12. Keep the board current without being asked:
-- When you start a task from the board, move it to doing (board_next_task takes the top todo task and moves it).
-- Comment on what you did with board_add_comment: the result, the files, the checks and their outcome.
-- Move the task to review when you finish it or when you are blocked. Never move a task to done: the user does that.
-- Leave human tasks and backlog tasks to the user.`;
-
-const boardStatuses = (data) => (data.backlog ? BOARD_STATUSES : BOARD_STATUSES.slice(1));
-/** One line: runs of white space become one space, the ends are trimmed. */
-const boardLine = (raw) => String(raw ?? '').replace(/\s+/g, ' ').trim();
-/** Comma-separated tags: each one trimmed, lower case, one space between words; no empty or repeated tag; first seen first. */
-export const boardTags = (raw) => {
-  const list = Array.isArray(raw) ? raw : String(raw ?? '').split(',');
-  const out = [];
-  for (const part of list) { const tag = boardLine(part).toLowerCase(); if (tag !== '' && !out.includes(tag)) out.push(tag); }
-  if (out.length > BOARD_LIMITS.tags) throw refused(`a task has at most ${BOARD_LIMITS.tags} tags`, 400);
-  if (out.some((tag) => tag.length > BOARD_LIMITS.tag)) throw refused(`a tag has at most ${BOARD_LIMITS.tag} characters`, 400);
-  return out;
-};
-/** A short id for a project name: lower case a–z, 0–9 and "-", at most 24 characters; a taken one gets -2, -3, … */
-export const boardSlug = (name, taken) => {
-  const base = String(name ?? '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24).replace(/-+$/, '') || 'project';
-  if (!taken.has(base)) return base;
-  for (let n = 2; ; n++) if (!taken.has(`${base}-${n}`)) return `${base}-${n}`;
-};
+export const BOARD_CHATS_PATH = '/api/composer-plus.board-chats';
+export const BOARD_LIMITS = { prompt: 20000, tags: 3, tag: 24, chats: 2000 };
+const BOARD_TAG_INPUT = 4000;
+const BOARD_TAG_TOKENS = 200;
+const BOARD_TAG_TIMEOUT_MS = 60000;
+export const BOARD_TAG_SYSTEM = `You label a coding task for a kanban board. Read the user's request and answer with only a JSON array of 1 to ${BOARD_LIMITS.tags} short tags, for example ["frontend","bug"]. Each tag is one or two lower-case words, at most ${BOARD_LIMITS.tag} characters, in the language of the request. No other text.`;
 const BRANCH_DIR = /^(.+?)[\\/]\.worktrees[\\/][^\\/]+(?:[\\/].*)?$/;
 const trimSlash = (p) => (p.length > 1 ? p.replace(/[\\/]+$/, '') : p);
-/** The board project of a chat folder: a Branch per chat folder counts as its repository, then the nearest dsh project at or
- * above the folder; else the folder itself. */
-export function boardProjectOf(cwd, paths) {
-  let root = trimSlash(String(cwd));
-  const branch = BRANCH_DIR.exec(root);
-  if (branch !== null) root = branch[1];
-  let best;
-  for (const p of paths) {
-    const q = trimSlash(p);
-    if ((root === q || root.startsWith(q.endsWith(sep) ? q : q + sep)) && (best === undefined || q.length > best.length)) best = q;
+const boardLine = (raw) => String(raw ?? '').replace(/\s+/g, ' ').trim();
+
+/** The model's tags: the first JSON array of strings, each one line, lower case, at most BOARD_LIMITS.tag characters, no
+ * repeats, at most BOARD_LIMITS.tags. Any other answer gives []. */
+export function boardTags(text) {
+  const m = /\[[\s\S]*?\]/.exec(String(text ?? '').replace(/<think>[\s\S]*?<\/think>/g, ''));
+  let list;
+  try { list = m === null ? [] : JSON.parse(m[0]); } catch { list = []; }
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const item of list) {
+    if (typeof item !== 'string') continue;
+    const tag = boardLine(item).replace(/^[#"'`\-*\s]+|["'`.\s]+$/g, '').toLowerCase();
+    if (tag === '' || tag.length > BOARD_LIMITS.tag || out.includes(tag)) continue;
+    out.push(tag);
+    if (out.length === BOARD_LIMITS.tags) break;
   }
-  return best ?? root;
-}
-const emptyBoard = () => ({ v: 1, next: 1, nextComment: 1, backlog: false, projects: [], tasks: [] });
-const isTime = (v) => typeof v === 'string' && v.length <= 40 && !Number.isNaN(Date.parse(v));
-/** A saved board with every malformed entry left out. */
-function cleanBoard(raw) {
-  if (!plainObject(raw)) throw new Error('the board file is not a JSON object');
-  const data = emptyBoard();
-  data.backlog = raw.backlog === true;
-  const slugs = new Set();
-  for (const p of Array.isArray(raw.projects) ? raw.projects : []) {
-    if (!isText(p?.path, 4096) || !isAbsolute(p.path) || !/^[a-z0-9-]{1,32}$/.test(p?.slug ?? '') || slugs.has(p.slug) || data.projects.some((x) => x.path === p.path)) continue;
-    slugs.add(p.slug); data.projects.push({ path: p.path, slug: p.slug });
-  }
-  const ids = new Set();
-  for (const t of Array.isArray(raw.tasks) ? raw.tasks : []) {
-    if (!Number.isSafeInteger(t?.id) || t.id < 1 || ids.has(t.id) || !data.projects.some((p) => p.path === t.path) || !isText(t.title, BOARD_LIMITS.title)
-      || !BOARD_STATUSES.includes(t.status) || !Number.isFinite(t.position) || !isTime(t.created) || !isTime(t.updated)) continue;
-    ids.add(t.id);
-    const comments = (Array.isArray(t.comments) ? t.comments : []).filter((c) => Number.isSafeInteger(c?.id) && (c.by === 'user' || c.by === 'agent')
-      && isText(c.body, BOARD_LIMITS.comment) && isTime(c.at) && (c.sessionId === undefined || isText(c.sessionId, 128)))
-      .map((c) => ({ id: c.id, by: c.by, ...(c.sessionId === undefined ? {} : { sessionId: c.sessionId }), body: c.body, at: c.at }));
-    data.tasks.push({ id: t.id, path: t.path, title: t.title, description: typeof t.description === 'string' ? t.description.slice(0, BOARD_LIMITS.description) : '',
-      tags: Array.isArray(t.tags) ? t.tags.filter((x) => isText(x, BOARD_LIMITS.tag)).slice(0, BOARD_LIMITS.tags) : [], human: t.human === true,
-      status: t.status, position: t.position, created: t.created, updated: t.updated, comments });
-  }
-  if (data.tasks.some((t) => t.status === 'backlog')) data.backlog = true;
-  // A loop, not Math.max(...list): a spread of about 125k values throws RangeError (the board allows 10k tasks × 500 comments).
-  data.next = data.tasks.reduce((n, t) => Math.max(n, t.id + 1), Math.max(1, Number.isSafeInteger(raw.next) ? raw.next : 1));
-  data.nextComment = data.tasks.reduce((n, t) => t.comments.reduce((m, c) => Math.max(m, c.id + 1), n), Math.max(1, Number.isSafeInteger(raw.nextComment) ? raw.nextComment : 1));
-  return data;
+  return out;
 }
 
-/** The board file: every change runs alone on a copy and replaces the file atomically; the copy becomes the board only
- * after the write (all or none). A broken file is kept as `board.json.broken-<time>` and the board starts empty; a file
- * that cannot be read (other than missing) stops every change, so nothing overwrites it. */
-export function boardStore(file, { now = () => new Date() } = {}) {
-  let data = emptyBoard();
+/** The record of the board's chats: one change at a time, merged into the newest data (a start never drops another
+ * start's entry), each write atomic and owner-only. A missing file is empty; a broken file is kept as
+ * `board-chats.json.broken-<time>` and the record starts empty. At most BOARD_LIMITS.chats entries (the oldest go). */
+export function boardChatsStore(file) {
+  let chats = {};
   let rev = Date.now();
   const ready = (async () => {
     let text;
     try { text = await readFile(file, 'utf8'); } catch (error) { if (error?.code === 'ENOENT') return; throw error; }
-    try { data = cleanBoard(JSON.parse(text)); } catch { await rename(file, `${file}.broken-${Date.now()}`); }
+    try {
+      const raw = JSON.parse(text)?.chats;
+      if (!plainObject(raw)) throw new Error('not an object');
+      for (const [id, c] of Object.entries(raw)) {
+        if (!isText(id, 128) || id === '__proto__' || !plainObject(c) || typeof c.prompt !== 'string' || !Number.isFinite(c.at)) continue;
+        chats[id] = { prompt: c.prompt.slice(0, BOARD_LIMITS.prompt), tags: Array.isArray(c.tags) ? c.tags.filter((t) => isText(t, BOARD_LIMITS.tag)).slice(0, BOARD_LIMITS.tags) : [], at: c.at };
+      }
+    } catch { chats = {}; await rename(file, `${file}.broken-${Date.now()}`).catch(() => {}); }
   })();
   let queue = ready.catch(() => {});
-  const write = async (next) => {
-    await mkdir(dirname(file), { recursive: true });
-    const tmp = `${file}.${process.pid}.tmp`;
-    await writeFile(tmp, JSON.stringify(next), { mode: 0o600 });
-    await rename(tmp, file);
-  };
   return {
     ready,
-    /** The board now (do not change it). Empty until the file is read. */
-    peek: () => data,
     rev: () => rev,
-    /** `fn(draft, now)` changes a copy; it throws to change nothing. Answers what `fn` answers. */
+    list: () => chats,
+    /** `fn(copy)` changes a copy of the record; the copy becomes the record only after the write. */
     change(fn) {
       const done = queue.then(async () => {
         await ready;
-        const draft = structuredClone(data);
-        const result = fn(draft, now().toISOString());
-        await write(draft);
-        data = draft; rev += 1;
-        return result;
+        const next = { ...chats };
+        fn(next);
+        const ids = Object.keys(next);
+        if (ids.length > BOARD_LIMITS.chats) for (const id of ids.sort((a, b) => next[a].at - next[b].at).slice(0, ids.length - BOARD_LIMITS.chats)) delete next[id];
+        await mkdir(dirname(file), { recursive: true });
+        const tmp = `${file}.${process.pid}.tmp`;
+        await writeFile(tmp, JSON.stringify({ chats: next }), { mode: 0o600 });
+        await rename(tmp, file);
+        chats = next; rev += 1;
       });
       queue = done.catch(() => {});
       return done;
@@ -6558,438 +6510,130 @@ export function boardStore(file, { now = () => new Date() } = {}) {
   };
 }
 
-/** The projects of the board: dsh's projects (not Branch per chat folders) and every project that has tasks, A–Z, each
- * with its slug (saved, or the one it gets with its first task) and its counts. */
-export function boardProjects(data, registry = []) {
-  const list = new Map();
-  for (const w of registry) {
-    if (!isText(w?.path, 4096) || !isAbsolute(w.path) || BRANCH_DIR.test(trimSlash(w.path))) continue;
-    const path = trimSlash(w.path);
-    if (!list.has(path)) list.set(path, { path, name: (typeof w.title === 'string' && w.title.trim()) || basename(path) || path });
-  }
-  for (const p of data.projects) if (!list.has(p.path)) list.set(p.path, { path: p.path, name: basename(p.path) || p.path });
-  const taken = new Set(data.projects.map((p) => p.slug));
-  const out = [...list.values()].sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path));
-  for (const p of out) {
-    const saved = data.projects.find((x) => x.path === p.path)?.slug;
-    p.slug = saved ?? boardSlug(p.name, taken);
-    taken.add(p.slug);
-    const own = data.tasks.filter((t) => t.path === p.path);
-    p.open = own.filter((t) => t.status !== 'done').length;
-    p.total = own.length;
-  }
-  return out;
-}
-const byPosition = (a, b) => a.position - b.position || a.id - b.id;
-const slugMap = (projects) => new Map(projects.map((p) => [p.path, p.slug]));
-const keyOf = (t, slugs) => `${slugs.get(t.path) ?? 'task'}#${t.id}`;
-/** A card: the task without its comments (their count instead) and its description cut to a preview. */
-const boardCard = (t, slugs) => ({ id: t.id, key: keyOf(t, slugs), path: t.path, title: t.title, preview: t.description.slice(0, 240), tags: t.tags, human: t.human,
-  status: t.status, position: t.position, created: t.created, updated: t.updated, comments: t.comments.length });
-/** One view of the board: `project` is a project path or 'all'. Done shows its newest BOARD_DONE_SHOWN unless `done`. */
-export function boardView(data, registry, { project = 'all', done = false } = {}) {
-  const projects = boardProjects(data, registry);
-  const slugs = slugMap(projects);
-  const own = data.tasks.filter((t) => project === 'all' || t.path === project).sort(byPosition);
-  const finished = own.filter((t) => t.status === 'done');
-  const hiddenDone = done ? 0 : Math.max(0, finished.length - BOARD_DONE_SHOWN);
-  const hidden = new Set(finished.slice(0, hiddenDone).map((t) => t.id));
-  return { backlog: data.backlog, statuses: boardStatuses(data), projects, project, hiddenDone, tasks: own.filter((t) => !hidden.has(t.id)).map((t) => boardCard(t, slugs)) };
-}
-/** A task with its comments, for the detail panel. */
-export function boardTask(data, registry, id) {
-  const t = data.tasks.find((x) => x.id === id);
-  if (t === undefined) return undefined;
-  const projects = boardProjects(data, registry);
-  return { ...boardCard(t, slugMap(projects)), description: t.description, comments: t.comments, project: projects.find((p) => p.path === t.path)?.name ?? basename(t.path) };
-}
-/** Search every project: each word must be in the key, title, description or tags. Open tasks first, then the newest change. */
-export function boardSearch(data, registry, query) {
-  const slugs = slugMap(boardProjects(data, registry));
-  const words = boardLine(query).toLowerCase().split(' ').filter(Boolean).slice(0, 10);
-  const hits = data.tasks.filter((t) => { const text = `${keyOf(t, slugs)} ${t.title} ${t.description} ${t.tags.join(' ')}`.toLowerCase(); return words.every((w) => text.includes(w)); });
-  hits.sort((a, b) => (a.status === 'done') - (b.status === 'done') || Date.parse(b.updated) - Date.parse(a.updated) || b.id - a.id);
-  return hits.slice(0, BOARD_LIMITS.search).map((t) => boardCard(t, slugs));
-}
-const utcTime = (iso) => `${iso.slice(0, 10)} ${iso.slice(11, 16)} UTC`;
-/** The board (one project or all) as Markdown or JSON, with every done task and every comment. */
-export function boardExport(data, registry, project, format, at = new Date().toISOString()) {
-  const projects = boardProjects(data, registry).filter((p) => (project === 'all' ? p.total > 0 : p.path === project));
-  const statuses = boardStatuses(data);
-  const tasksOf = (p) => data.tasks.filter((t) => t.path === p.path).sort((a, b) => statuses.indexOf(a.status) - statuses.indexOf(b.status) || byPosition(a, b));
-  if (format === 'json') {
-    return JSON.stringify({ exported: at, statuses, projects: projects.map((p) => ({ name: p.name, slug: p.slug, path: p.path, open: p.open, total: p.total,
-      tasks: tasksOf(p).map((t) => ({ key: `${p.slug}#${t.id}`, id: t.id, title: t.title, description: t.description, tags: t.tags, human: t.human, status: t.status,
-        created: t.created, updated: t.updated, comments: t.comments })) })) }, null, 2);
-  }
-  const lines = ['# Task board', '', `Exported ${utcTime(at)}.`];
-  for (const p of projects) {
-    lines.push('', `## ${p.name} \`${p.slug}\``, '', `${p.open} open of ${p.total} task(s).`);
-    for (const status of statuses) {
-      const list = tasksOf(p).filter((t) => t.status === status);
-      if (list.length === 0) continue;
-      lines.push('', `### ${status}`);
-      for (const t of list) {
-        lines.push('', `#### ${p.slug}#${t.id} ${t.title}`, '', `Created ${utcTime(t.created)}, updated ${utcTime(t.updated)}.`);
-        if (t.human) lines.push('Human task.');
-        if (t.tags.length > 0) lines.push(`Tags: ${t.tags.join(', ')}.`);
-        if (t.description !== '') lines.push('', t.description);
-        if (t.comments.length > 0) {
-          lines.push('', 'Comments:', '');
-          for (const c of t.comments) lines.push(`- **${c.by === 'agent' ? 'agent' : 'you'}**, ${utcTime(c.at)}: ${c.body.replace(/\n/g, '\n  ')}`);
-        }
-      }
-    }
-  }
-  return `${lines.join('\n')}\n`;
+/** The dsh project of a board start, by its workspace id: a registered workspace that is not a Branch per chat folder. */
+export function boardProject(registry, id) {
+  if (!isText(id)) return undefined;
+  let list;
+  try { list = registry?.list?.() ?? []; } catch { list = []; }
+  return list.find((w) => w?.id === id && isText(w.path, 4096) && !BRANCH_DIR.test(trimSlash(w.path)));
 }
 
-/** The changes of the board, on a draft (`boardStore.change`). Each throws `refused` to change nothing. */
-const bottomOf = (d, status) => Math.floor(Math.max(0, ...d.tasks.filter((t) => t.status === status).map((t) => t.position))) + 1;
-const findTask = (d, id) => { const t = d.tasks.find((x) => x.id === id); if (t === undefined) throw refused(`no task #${id}`, 404); return t; };
-const checkStatus = (d, status) => { if (!boardStatuses(d).includes(status)) throw refused(`unknown status "${String(status).slice(0, 40)}"; use one of: ${boardStatuses(d).join(', ')}`, 400); return status; };
-const checkTitle = (raw) => { const title = boardLine(raw); if (title === '') throw refused('a task needs a title', 400); if (title.length > BOARD_LIMITS.title) throw refused(`a title has at most ${BOARD_LIMITS.title} characters`, 400); return title; };
-const checkText = (raw) => { const text = String(raw ?? '').trim(); if (text.length > BOARD_LIMITS.description) throw refused(`a description has at most ${BOARD_LIMITS.description} characters`, 400); return text; };
-/** The project's saved slug; a project gets one with its first task. */
-function ensureProject(d, path, registry) {
-  const saved = d.projects.find((p) => p.path === path);
-  if (saved !== undefined) return saved.slug;
-  const listed = boardProjects(d, registry).find((p) => p.path === path);
-  const slug = listed?.slug ?? boardSlug(basename(path), new Set(d.projects.map((p) => p.slug)));
-  d.projects.push({ path, slug });
-  return slug;
-}
-export const boardOps = {
-  create(d, now, { path, title, description = '', tags = [], human = false, status = 'todo' }, registry) {
-    if (d.tasks.length >= BOARD_LIMITS.tasks) throw refused(`the board keeps at most ${BOARD_LIMITS.tasks} tasks; delete old done tasks first`);
-    const task = { id: d.next, path, title: checkTitle(title), description: checkText(description), tags: boardTags(tags), human: human === true,
-      status: checkStatus(d, status), position: 0, created: now, updated: now, comments: [] };
-    task.position = bottomOf(d, task.status);
-    ensureProject(d, path, registry);
-    d.next += 1; d.tasks.push(task);
-    return task.id;
-  },
-  /** `was`: the values that the editor started from; a field that changed meanwhile (an agent, another window) refuses the
-   * whole change with 409. */
-  update(d, now, id, patch, was = {}, registry = []) {
-    const t = findTask(d, id);
-    const same = { title: (v) => t.title === boardLine(v), description: (v) => t.description === String(v ?? '').trim(), tags: (v) => t.tags.join(',') === boardTags(v).join(',') };
-    for (const [field, value] of Object.entries(was)) if (same[field] !== undefined && !same[field](value)) throw refused(`the ${field} changed meanwhile`, 409);
-    let changed = false;
-    if (patch.title !== undefined) { const v = checkTitle(patch.title); changed ||= v !== t.title; t.title = v; }
-    if (patch.description !== undefined) { const v = checkText(patch.description); changed ||= v !== t.description; t.description = v; }
-    if (patch.tags !== undefined) { const v = boardTags(patch.tags); changed ||= v.join(',') !== t.tags.join(','); t.tags = v; }
-    if (patch.human !== undefined) { changed ||= t.human !== (patch.human === true); t.human = patch.human === true; }
-    if (patch.path !== undefined && patch.path !== t.path) { ensureProject(d, patch.path, registry); t.path = patch.path; changed = true; }
-    if (patch.status !== undefined && checkStatus(d, patch.status) !== t.status) { t.position = bottomOf(d, patch.status); t.status = patch.status; changed = true; }
-    if (changed) t.updated = now;
-    return t.id;
-  },
-  /** A drag: to the bottom of `status`, or just above the task `before` in that column. */
-  move(d, now, id, status, before) {
-    const t = findTask(d, id);
-    checkStatus(d, status);
-    const column = () => d.tasks.filter((x) => x.status === status && x.id !== id).sort(byPosition);
-    const target = before === undefined ? undefined : column().find((x) => x.id === before);
-    if (t.status !== status) t.updated = now;
-    t.status = status;
-    if (target === undefined) { t.position = bottomOf({ tasks: column() }, status); return t.id; }
-    const place = () => { const list = column(); const i = list.indexOf(target); return i <= 0 ? [undefined, target] : [list[i - 1], target]; };
-    let [above] = place();
-    if (above !== undefined && target.position - above.position < 1e-9) { column().forEach((x, i) => { x.position = i + 1; }); [above] = place(); }
-    t.position = above === undefined ? target.position - 1 : (above.position + target.position) / 2;
-    return t.id;
-  },
-  comment(d, now, id, { body, by, sessionId }) {
-    const t = findTask(d, id);
-    const text = String(body ?? '').trim();
-    if (text === '') throw refused('a comment needs text', 400);
-    if (text.length > BOARD_LIMITS.comment) throw refused(`a comment has at most ${BOARD_LIMITS.comment} characters`, 400);
-    if (t.comments.length >= BOARD_LIMITS.comments) throw refused(`a task keeps at most ${BOARD_LIMITS.comments} comments`);
-    t.comments.push({ id: d.nextComment, by, ...(isText(sessionId, 128) ? { sessionId } : {}), body: text, at: now });
-    d.nextComment += 1;
-    return t.id;
-  },
-  uncomment(d, id, commentId) {
-    const t = findTask(d, id);
-    const at = t.comments.findIndex((c) => c.id === commentId);
-    if (at < 0) throw refused('no such comment', 404);
-    t.comments.splice(at, 1);
-    return t.id;
-  },
-  remove(d, id) { const t = findTask(d, id); d.tasks.splice(d.tasks.indexOf(t), 1); return t; },
-  /** The top todo task that is not for a person, moved to the bottom of doing; undefined when there is none. */
-  next(d, now, path) {
-    const t = d.tasks.filter((x) => x.status === 'todo' && !x.human && (path === 'all' || x.path === path)).sort(byPosition)[0];
-    if (t === undefined) return undefined;
-    t.position = bottomOf(d, 'doing'); t.status = 'doing'; t.updated = now;
-    return t.id;
-  },
-};
-
-/** Agents' text: `api#12 [todo] Title {tag, tag} (2 comments)` and a task in full. */
-const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const boardTaskLine = (t, slugs) => `${keyOf(t, slugs)} [${t.status}] ${t.title}${t.human ? ' (human)' : ''}${t.tags.length > 0 ? ` {${t.tags.join(', ')}}` : ''}${t.comments.length > 0 ? ` (${plural(t.comments.length, 'comment')})` : ''}`;
-function boardTaskText(t, slugs) {
-  const lines = [`${keyOf(t, slugs)} ${t.title}${t.tags.length > 0 ? ` {${t.tags.join(', ')}}` : ''}`,
-    `status: ${t.status}${t.human ? ', human: for the user, not for agents' : ''}, created ${utcTime(t.created)}${t.updated !== t.created ? `, updated ${utcTime(t.updated)}` : ''}`];
-  if (t.description !== '') lines.push('', t.description);
-  if (t.comments.length > 0) lines.push('', `Comments (${t.comments.length}):`, ...t.comments.map((c) => `- ${c.by === 'agent' ? 'agent' : 'user'}, ${utcTime(c.at)}: ${c.body}`));
-  return lines.join('\n');
-}
-/** `api#12`, `#12`, `12` or 12; a slug that is not the task's project finds nothing. */
-export function boardKey(raw, data, slugs) {
-  const m = /^\s*(?:([a-z0-9-]{1,32})?#)?(\d{1,15})\s*$/i.exec(String(raw ?? ''));
-  if (m === null) throw refused(`"${String(raw).slice(0, 40)}" is not a task: use a key like api#12`, 400);
-  const t = findTask(data, Number(m[2]));
-  if (m[1] !== undefined && slugs.get(t.path) !== m[1].toLowerCase()) throw refused(`no task ${raw}`, 404);
-  return t.id;
+/** One short call to `route` for the tags of a prompt; [] when the call fails or answers nothing usable. */
+export async function boardTagsFor({ llm, route }, prompt, signal) {
+  if (llm?.prepareCall === undefined || route === undefined) return [];
+  const timeout = AbortSignal.timeout(BOARD_TAG_TIMEOUT_MS);
+  const callSignal = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
+  const call = await llm.prepareCall(route, callSignal, (controls, model) => {
+    // The lowest reasoning effort keeps it fast; the output cap never goes above the model's own default.
+    const first = model?.reasoning?.efforts?.[0];
+    const cap = Number.isSafeInteger(model?.defaultMaxTokens) && model.defaultMaxTokens > 0 ? Math.min(BOARD_TAG_TOKENS, model.defaultMaxTokens) : BOARD_TAG_TOKENS;
+    return { ...controls, maxTokens: cap, ...(first === undefined ? {} : { reasoningEffort: first.id }) };
+  });
+  let text = '';
+  let finish;
+  for await (const chunk of call.stream({ ...call.config, system: BOARD_TAG_SYSTEM, signal: callSignal,
+    messages: [{ role: 'user', content: [{ type: 'text', text: String(prompt).slice(0, BOARD_TAG_INPUT) }] }] })) {
+    if (chunk.type === 'text-delta') text += chunk.text;
+    else if (chunk.type === 'finish') finish = chunk.reason;
+  }
+  if (finish?.kind === 'error' || finish?.kind === 'aborted') throw new Error(finish.failure?.message || `the model call ended: ${finish.kind}`);
+  return boardTags(text);
 }
 
-/** Task board (Host half): the switch route, the board route, and while the switch is on the tools and the prompt section. */
+/** Start a board task: a new chat in the project's dsh workspace with `prompt` as its first message (a `/command` that dsh
+ * knows runs as that command), then the record. All or none: when the prompt cannot be sent, the new chat is archived and
+ * the error says so. The prompt is sent with its own timeout, not the request's signal, so a closed request does not leave
+ * an empty chat. Returns `{ sessionId, agent }`. */
+export async function startBoardChat({ sessionController, commands, registry, store }, project, prompt) {
+  const text = String(prompt ?? '').trim();
+  if (text === '' || text.length > BOARD_LIMITS.prompt) throw refused(`a task needs a prompt of at most ${BOARD_LIMITS.prompt} characters`, 400);
+  const workspace = boardProject(registry, project);
+  if (workspace === undefined) throw refused('this is not a dsh project', 404);
+  const { sessionId } = await sessionController.create({ workspaceId: workspace.id });
+  let agent;
+  try {
+    const found = await sessionController.resolveAgent(sessionId);
+    if ('error' in found) throw new Error('the new chat could not start');
+    agent = found.agent;
+    const name = /^\/([\w:.-]+)(?:\s|$)/.exec(text)?.[1];
+    let done;
+    if (name !== undefined && commands?.find?.(agent, name) !== undefined) {
+      done = await commands.execute(agent, text, [], AbortSignal.timeout(STOP_WAIT_MS));
+      if (done?.result?.kind !== 'success') throw new Error(`/${name} failed${done?.result?.text ? `: ${done.result.text}` : ''}`);
+    } else await sessionController.prompt({ requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
+    await store.change((chats) => { chats[sessionId] = { prompt: text, tags: [], at: Date.now() }; });
+  } catch (error) {
+    const undone = await Promise.resolve(registry?.archiveSession?.(sessionId, { stopActivity: true })).then(() => registry?.archiveSession !== undefined, () => false);
+    throw Object.assign(new Error(`${error?.message ?? error}; ${undone ? 'the new chat was archived' : `the new chat ${sessionId} stays empty`}`), { status: Number.isInteger(error?.status) ? error.status : 502 });
+  }
+  return { sessionId, agent };
+}
+
+/** Task board (Host half): the switch route and, while it is on, the board's chat route. */
 export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-composer-plus')) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
-  const store = boardStore(join(dir, 'board.json'));
+  const store = boardChatsStore(join(dir, 'board-chats.json'));
   const sw = mobileSwitch(join(dir, 'board-switch.json'), true);
-  const registry = () => { try { return get('workspaceRegistry')?.list?.() ?? []; } catch { return []; } };
-  const listing = () => boardProjects(store.peek(), registry());
   let on = true;
-  let fiber;
-  const shown = new Set(); // chats whose prompt has the section: it stays (the prompt prefix stays the same)
-  const folderOf = (agent) => {
-    let cwd;
-    try { cwd = get('workingDirectory')?.get?.(agent?.session); } catch { cwd = undefined; }
-    cwd ??= agent?.session?.header?.cwd;
-    return isText(cwd, 4096) && isAbsolute(cwd) ? cwd : undefined;
+  const ready = sw.read().then((v) => { on = v; }, () => {});
+  let closed = false;
+  const tagging = new Set(); // background tag calls; unload stops them
+  ctx.effect?.(() => () => { closed = true; for (const c of tagging) c.abort(); }, 'dsh-composer-plus: task board');
+  /** The tags of a new chat, in the background: the chat's own model (its selection), else dsh's default. */
+  const tag = async (sessionId, agent, prompt) => {
+    const llm = get('llm');
+    if (llm?.prepareCall === undefined || closed) return;
+    const mine = new AbortController();
+    tagging.add(mine);
+    try {
+      const current = ctx.sessionController.agents?.selectionFor?.(agent)?.current;
+      const route = isText(current?.provider) && isText(current?.model) ? { provider: current.provider, model: current.model } : await routeOf(ctx, get);
+      const tags = await boardTagsFor({ llm, route }, prompt, mine.signal);
+      if (tags.length > 0 && !closed) await store.change((chats) => { if (chats[sessionId] !== undefined) chats[sessionId] = { ...chats[sessionId], tags }; });
+    } catch (error) { if (!closed) ctx.logger?.warn?.(`dsh-composer-plus: task board tags failed: ${String(error?.message ?? error).slice(0, 300)}`); }
+    finally { tagging.delete(mine); }
   };
-  const sectionFor = (agent) => {
-    if (!on || !isText(agent?.id)) return '';
-    if (shown.has(agent.id)) return BOARD_SECTION;
-    const cwd = folderOf(agent);
-    if (cwd === undefined) return '';
-    const path = boardProjectOf(cwd, listing().map((p) => p.path));
-    if (!store.peek().tasks.some((t) => t.path === path && ['todo', 'doing', 'review'].includes(t.status))) return '';
-    shown.add(agent.id);
-    if (shown.size > BOARD_SHOWN_MAX) shown.delete(shown.values().next().value);
-    return BOARD_SECTION;
-  };
-  /** The project that a tool names (`project`: a slug, a name or "all"), else the calling chat's project. */
-  const projectArg = (exec, raw, allowAll) => {
-    const projects = listing();
-    const name = boardLine(raw).toLowerCase();
-    if (name === 'all') { if (allowAll) return 'all'; throw refused('name one project, not "all"', 400); }
-    if (name !== '') {
-      const hit = projects.find((p) => p.slug === name) ?? projects.find((p) => p.name.toLowerCase() === name);
-      if (hit === undefined) throw refused(`no project "${String(raw).slice(0, 60)}"; projects: ${projects.map((p) => p.slug).join(', ') || 'none'}`, 404);
-      return hit.path;
-    }
-    const cwd = folderOf(exec?.agent);
-    if (cwd === undefined) throw refused('this chat has no project folder: pass `project` (see board_list_projects)', 400);
-    return boardProjectOf(cwd, projects.map((p) => p.path));
-  };
-  const slugs = () => slugMap(listing());
-  const keyParam = { type: 'string', description: 'The task, like api#12' };
-  const projectParam = { type: 'string', description: 'A project slug or name, or "all". Default: the project of this chat' };
-  const tools = [
-    { name: 'board_list_projects', description: 'List the projects of the task board with their slugs and open task counts.',
-      parameters: { type: 'object', properties: {} }, output: textOutput,
-      async execute(_args, exec) {
-        await store.ready;
-        const projects = listing();
-        let here; try { here = projectArg(exec, '', false); } catch { here = undefined; }
-        return projects.length === 0 ? 'No projects.' : projects.map((p) => `${p.slug}${p.slug !== p.name ? ` "${p.name}"` : ''}: ${p.open} open of ${p.total}${p.path === here ? ' <- this chat' : ''}`).join('\n');
-      } },
-    { name: 'board_list_tasks', description: 'List the tasks of the task board in board order. Without status, done and human tasks are left out.',
-      parameters: { type: 'object', properties: { project: projectParam, status: { type: 'string', description: 'One column (backlog, todo, doing, review, done), or "all"' } } }, output: textOutput,
-      async execute(args, exec) {
-        await store.ready;
-        const d = store.peek(); const path = projectArg(exec, args?.project, true); const s = slugs();
-        const status = boardLine(args?.status).toLowerCase();
-        if (status !== '' && status !== 'all') checkStatus(d, status);
-        const statuses = boardStatuses(d);
-        const own = d.tasks.filter((t) => (path === 'all' || t.path === path) && (status === '' || status === 'all' || t.status === status))
-          .sort((a, b) => statuses.indexOf(a.status) - statuses.indexOf(b.status) || byPosition(a, b));
-        const human = own.filter((t) => t.human).length;
-        const done = own.filter((t) => t.status === 'done');
-        const shownDone = status === '' ? [] : done.slice(-BOARD_AGENT_DONE);
-        const list = own.filter((t) => !t.human && (t.status !== 'done' || shownDone.includes(t)));
-        const lines = list.map((t) => boardTaskLine(t, s));
-        if (lines.length === 0) lines.push(`No tasks in ${path === 'all' ? 'any project' : s.get(path) ?? basename(path)}.`);
-        if (human > 0) lines.push(`(${plural(human, 'human task')} not shown: for the user, not for agents)`);
-        const left = done.filter((t) => !t.human).length - shownDone.filter((t) => !t.human).length;
-        if (left > 0) lines.push(status === '' ? `(${left} done not shown; pass status "done" or "all")` : `(${left} older done not shown)`);
-        return lines.join('\n');
-      } },
-    { name: 'board_get_task', description: 'Show one task of the task board with its description and comments.',
-      parameters: { type: 'object', properties: { id: keyParam }, required: ['id'] }, output: textOutput,
-      async execute(args) { await store.ready; const d = store.peek(); const s = slugs(); return boardTaskText(findTask(d, boardKey(args?.id, d, s)), s); } },
-    { name: 'board_create_task', description: 'Add a task to the task board, at the bottom of todo unless you pass status.',
-      parameters: { type: 'object', properties: { title: { type: 'string' }, description: { type: 'string', description: 'Markdown' }, project: { type: 'string', description: 'A project slug or name. Default: the project of this chat' },
-        tags: { type: 'string', description: 'Comma-separated' }, status: { type: 'string', description: 'A column; default todo' }, human: { type: 'boolean', description: 'For the user, not for agents' } }, required: ['title'] }, output: textOutput,
-      async execute(args, exec) {
-        await store.ready;
-        const path = projectArg(exec, args?.project, false);
-        const id = await store.change((d, now) => boardOps.create(d, now, { path, title: args?.title, description: args?.description, tags: args?.tags, human: args?.human, status: boardLine(args?.status ?? 'todo').toLowerCase() || 'todo' }, registry()));
-        const t = store.peek().tasks.find((x) => x.id === id);
-        return `Created ${keyOf(t, slugs())} in ${t.status}: ${t.title}`;
-      } },
-    { name: 'board_update_task', description: 'Change the fields that you pass of one task of the task board. A new status puts it at the bottom of that column.',
-      parameters: { type: 'object', properties: { id: keyParam, title: { type: 'string' }, description: { type: 'string', description: 'Markdown' }, status: { type: 'string', description: 'A column, like review' },
-        tags: { type: 'string', description: 'Comma-separated; "" removes all' }, human: { type: 'boolean' } }, required: ['id'] }, output: textOutput,
-      async execute(args) {
-        await store.ready;
-        let before;
-        const id = await store.change((d, now) => {
-          const tid = boardKey(args?.id, d, slugMap(boardProjects(d, registry())));
-          before = d.tasks.find((x) => x.id === tid).status;
-          return boardOps.update(d, now, tid, { title: args?.title, description: args?.description, tags: args?.tags, human: typeof args?.human === 'boolean' ? args.human : undefined,
-            status: args?.status === undefined ? undefined : boardLine(args.status).toLowerCase() });
-        });
-        const t = store.peek().tasks.find((x) => x.id === id);
-        return `Updated ${keyOf(t, slugs())}${before !== t.status ? `, ${before} -> ${t.status}` : ''}: ${t.title}`;
-      } },
-    { name: 'board_add_comment', description: 'Comment on a task of the task board, for example to report what you did.',
-      parameters: { type: 'object', properties: { id: keyParam, body: { type: 'string', description: 'Markdown' } }, required: ['id', 'body'] }, output: textOutput,
-      async execute(args, exec) {
-        await store.ready;
-        const id = await store.change((d, now) => boardOps.comment(d, now, boardKey(args?.id, d, slugMap(boardProjects(d, registry()))), { body: args?.body, by: 'agent', sessionId: exec?.agent?.id }));
-        return `Comment added to ${keyOf(store.peek().tasks.find((x) => x.id === id), slugs())}.`;
-      } },
-    { name: 'board_next_task', description: 'Take the top todo task of the task board that is not for a person, move it to doing and show it.',
-      parameters: { type: 'object', properties: { project: projectParam } }, output: textOutput,
-      async execute(args, exec) {
-        await store.ready;
-        const path = projectArg(exec, args?.project, true);
-        const id = await store.change((d, now) => { const tid = boardOps.next(d, now, path); if (tid === undefined) throw Object.assign(new Error('none'), { none: true }); return tid; })
-          .catch((error) => { if (error?.none) return undefined; throw error; });
-        const s = slugs();
-        if (id === undefined) return `Nothing in todo for ${path === 'all' ? 'any project' : s.get(path) ?? basename(path)}.`;
-        return `Moved to doing:\n${boardTaskText(store.peek().tasks.find((x) => x.id === id), s)}`;
-      } },
-    { name: 'board_delete_task', description: 'Delete a task of the task board with its comments. This cannot be undone.',
-      parameters: { type: 'object', properties: { id: keyParam }, required: ['id'] }, output: textOutput,
-      async execute(args) {
-        await store.ready;
-        const s = slugs();
-        const t = await store.change((d) => boardOps.remove(d, boardKey(args?.id, d, s)));
-        return `Deleted ${keyOf(t, s)}${t.comments.length > 0 ? ` and its ${plural(t.comments.length, 'comment')}` : ''}: ${t.title}`;
-      } },
-  ];
-  const apply = (next) => {
-    on = next;
-    if (on && fiber === undefined && typeof ctx.inject === 'function') {
-      fiber = ctx.inject(['tools', 'systemPrompt'], (sub) => {
-        for (const tool of tools) sub.tools.register(tool);
-        sub.systemPrompt.section({ name: 'composer-plus:board', order: 655, interpolate: false, text: (context) => sectionFor(context?.agent) });
-      });
-    } else if (!on) { fiber?.dispose?.(); fiber = undefined; shown.clear(); }
-  };
-  const ready = sw.read().then(apply, () => apply(true));
-  ctx.effect?.(() => () => { on = false; fiber?.dispose?.(); fiber = undefined; }, 'dsh-composer-plus: task board');
   let switching = ready;
   ctx.connection.fetch.register({
     path: BOARD_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     fetch: async (request) => {
       await ready;
-      try {
-        if (request.method === 'POST') {
-          let body;
-          try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
-          const key = plainObject(body) ? Object.keys(body).join() : '';
-          if ((key !== 'on' && key !== 'backlog') || typeof body[key] !== 'boolean') return json({ error: 'bad request' }, 400);
-          if (key === 'on') {
-            const change = switching.then(async () => { await sw.write(body.on); apply(body.on); });
-            switching = change.catch(() => {});
-            await change;
-          } else {
-            await store.change((d) => {
-              if (!body.backlog && d.tasks.some((t) => t.status === 'backlog')) throw refused(`move the ${plural(d.tasks.filter((t) => t.status === 'backlog').length, 'task')} out of Backlog first`);
-              d.backlog = body.backlog;
-            });
-          }
-        }
-        await store.ready.catch(() => {});
-        return json({ on, backlog: store.peek().backlog });
-      } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (!plainObject(body) || Object.keys(body).join() !== 'on' || typeof body.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        try {
+          const change = switching.then(async () => { await sw.write(body.on); on = body.on; });
+          switching = change.catch(() => {});
+          await change;
+        } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      return json({ on });
     },
   });
-  /** The board. GET: `?project=<path>|all[&done=all][&rev=N]` (a view; `{rev, same}` when nothing changed since rev),
-   * `?sessionId=` (the view of that chat's project), `?task=<id>`, `?q=<words>`, `?export=markdown|json&project=`. POST
-   * `{op, …}`: create, update, move, comment, uncomment, delete. While the switch is off: 409. */
+  /** GET `?rev=N`: `{rev, chats}` (`{rev, same}` when nothing changed since rev). POST `{project, prompt}`: start a chat. */
   ctx.connection.fetch.register({
-    path: BOARD_TASKS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    path: BOARD_CHATS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     fetch: async (request) => {
       await ready;
       if (!on) return json({ error: 'Task board is off' }, 409);
       try {
         await store.ready;
-        const known = (path) => isText(path, 4096) && listing().some((p) => p.path === path);
         if (request.method === 'GET') {
-          const q = new URL(request.url).searchParams;
           const rev = store.rev();
-          if (q.has('task')) {
-            const task = boardTask(store.peek(), registry(), Number(q.get('task')));
-            return task === undefined ? json({ error: 'this task was deleted', rev }, 404) : json({ rev, task });
-          }
-          if (q.has('q')) return json({ rev, results: boardSearch(store.peek(), registry(), String(q.get('q')).slice(0, 200)) });
-          let project = q.get('project') ?? 'all';
-          if (q.has('sessionId')) {
-            // The open chat's project; a chat without a folder, or a folder that is no board project, shows every project.
-            const cwd = await chatFolder(ctx.sessionQuery, q.get('sessionId'), request.signal).catch(() => undefined);
-            project = cwd === undefined ? 'all' : boardProjectOf(cwd, listing().map((p) => p.path));
-            if (!known(project)) project = 'all';
-          } else if (project !== 'all' && !known(project)) return json({ error: 'unknown project' }, 404);
-          if (q.has('export')) {
-            const format = q.get('export') === 'json' ? 'json' : 'markdown';
-            const name = project === 'all' ? 'task-board' : `task-board-${listing().find((p) => p.path === project)?.slug ?? 'project'}`;
-            return json({ name: `${name}.${format === 'json' ? 'json' : 'md'}`, text: boardExport(store.peek(), registry(), project, format) });
-          }
-          if (q.get('rev') === String(rev)) return json({ rev, same: true });
-          return json({ rev, ...boardView(store.peek(), registry(), { project, done: q.get('done') === 'all' }) });
+          if (new URL(request.url).searchParams.get('rev') === String(rev)) return json({ rev, same: true });
+          return json({ rev, chats: store.list() });
         }
         let body;
         try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
-        if (!plainObject(body)) return json({ error: 'bad request' }, 400);
-        const id = Number.isSafeInteger(body.id) && body.id > 0 ? body.id : undefined;
-        const text = (v, max) => v === undefined || (typeof v === 'string' && v.length <= max);
-        const fieldsOk = text(body.title, 1000) && text(body.description, BOARD_LIMITS.description + 1000) && (body.tags === undefined || typeof body.tags === 'string' || (Array.isArray(body.tags) && body.tags.every((x) => typeof x === 'string')))
-          && (body.human === undefined || typeof body.human === 'boolean') && text(body.status, 20);
-        let result;
-        switch (body.op) {
-          case 'create':
-            if (!fieldsOk || !known(body.project) || typeof body.title !== 'string') return json({ error: 'bad request' }, 400);
-            result = await store.change((d, now) => boardOps.create(d, now, { path: body.project, title: body.title, description: body.description, tags: body.tags, human: body.human, status: body.status ?? 'todo' }, registry()));
-            break;
-          case 'update': {
-            const was = body.was ?? {};
-            if (id === undefined || !fieldsOk || !plainObject(was) || !Object.entries(was).every(([k, v]) => ['title', 'description', 'tags'].includes(k) && typeof v === 'string')
-              || (body.project !== undefined && !known(body.project))) return json({ error: 'bad request' }, 400);
-            result = await store.change((d, now) => boardOps.update(d, now, id, { title: body.title, description: body.description, tags: body.tags, human: body.human, status: body.status, path: body.project }, was, registry()));
-            break;
-          }
-          case 'move':
-            if (id === undefined || typeof body.status !== 'string' || (body.before !== undefined && !Number.isSafeInteger(body.before))) return json({ error: 'bad request' }, 400);
-            result = await store.change((d, now) => boardOps.move(d, now, id, body.status, body.before));
-            break;
-          case 'comment':
-            if (id === undefined || typeof body.body !== 'string' || body.body.length > BOARD_LIMITS.comment + 1000) return json({ error: 'bad request' }, 400);
-            result = await store.change((d, now) => boardOps.comment(d, now, id, { body: body.body, by: 'user' }));
-            break;
-          case 'uncomment':
-            if (id === undefined || !Number.isSafeInteger(body.comment)) return json({ error: 'bad request' }, 400);
-            result = await store.change((d) => boardOps.uncomment(d, id, body.comment));
-            break;
-          case 'delete':
-            if (id === undefined) return json({ error: 'bad request' }, 400);
-            await store.change((d) => boardOps.remove(d, id));
-            return json({ rev: store.rev(), deleted: id });
-          default: return json({ error: 'bad request' }, 400);
-        }
-        return json({ rev: store.rev(), task: boardTask(store.peek(), registry(), result) });
+        if (!plainObject(body) || !isText(body.project) || typeof body.prompt !== 'string' || body.prompt.length > BOARD_LIMITS.prompt + 1000) return json({ error: 'bad request' }, 400);
+        const { sessionId, agent } = await startBoardChat({ sessionController: ctx.sessionController, commands: get('commands'), registry: get('workspaceRegistry'), store }, body.project, body.prompt);
+        tag(sessionId, agent, body.prompt.trim());
+        return json({ rev: store.rev(), sessionId });
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });
-  return { store, ready, tools, sectionFor };
+  return { store, ready, tag, isOn: () => on };
 }
 
 /* Planned steps, after HarnessMM (arXiv 2610.32813, "guarded decision reuse"): the model plans its next commands with the
