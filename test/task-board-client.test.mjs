@@ -203,6 +203,7 @@ const titles = find(tree, (n) => n.p?.['data-cpb-title'] !== undefined).map((n) 
 assert.ok(titles.includes('Title s1'));
 assert.match(src, /\.cpb-cardtitle\{[^}]*overflow-wrap:anywhere/, 'a long title wraps inside its card');
 assert.doesNotMatch(src, /\.cpb-cardtitle\{[^}]*word-break/, 'a title breaks between words, not in a word');
+assert.match(src, /\.cpb-search\{flex:none;[^}]*height:36px/, 'the search box keeps its height in a long project list (the side is a flex column)');
 const top = find(tree, (n) => n.p?.className === 'cpb-cardtop');
 assert.ok(top.length > 0 && top.every((n) => find(n, (x) => x.p?.['data-cpb-when'] !== undefined).length === 0), 'the time is not next to the title (the title has the full width)');
 assert.equal(find(cards.find((n) => n.p['data-cpb-card'] === 's4'), (x) => x.p?.['data-cpb-when'] !== undefined).length, 1, 'the time is on the meta row');

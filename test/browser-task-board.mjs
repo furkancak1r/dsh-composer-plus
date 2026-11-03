@@ -263,6 +263,14 @@ try {
       const navs = async () => (await boardPage.locator('.cpb-nav').allInnerTexts()).map((x) => x.split('\n')[0].trim());
       const search = boardPage.locator('[data-cpb-search]');
       assert.equal(await search.getAttribute('placeholder'), 'Search projects', 'the label of Project search in a new chat');
+      // The box keeps the height of a project row, also when the list is longer than the side (the owner, with about 20
+      // projects, saw it squeezed: the side is a flex column). A short side gives the same overflow as a long list.
+      const heights = await boardPage.evaluate((el) => {
+        const side = el.querySelector('.cpb-side'); side.style.height = '150px';
+        const out = { search: el.querySelector('[data-cpb-search]').getBoundingClientRect().height, nav: el.querySelector('.cpb-nav').getBoundingClientRect().height, scrolls: side.scrollHeight > side.clientHeight };
+        side.style.height = ''; return out;
+      });
+      assert.ok(heights.scrolls && heights.search >= heights.nav, `the search box is as tall as a project row in a long list (${JSON.stringify(heights)})`);
       await search.fill('DOCS'); await until(async () => (await navs()).join() === 'All projects,docs-site', async () => `search: ${await navs()}`, 5000);
       await search.press('Escape'); assert.equal(await search.inputValue(), '', 'Esc empties the box');
       assert.equal(await boardPage.count(), 1, 'and the page stays');
