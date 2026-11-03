@@ -2958,175 +2958,115 @@ func contextParts(_ o: J) -> (parts: [ContextPart], total: Int, window: Int?, mo
     return (parts, o["total"] as? Int ?? parts.reduce(0) { $0 + $1.tokens }, window, o["model"] as? String)
 }
 
-// MARK: - Task board (Composer Plus on the Mac: /plus/board-tasks)
+// MARK: - Task board (Composer Plus on the Mac: /plus/board-chats)
 
-/// One card of the task board. `comments` is the count (the open task has the list).
-struct BoardCard: Identifiable, Equatable { let id: Int; let key: String; let title: String; let preview: String; let tags: [String]; let human: Bool; let status: String; let comments: Int }
-/// A project of the board with its open and total task counts.
-struct BoardProject: Identifiable, Equatable { let path: String; let name: String; let open: Int; let total: Int; var id: String { path } }
-/// A comment of a task, by an agent or by the user.
-struct BoardComment: Identifiable, Equatable { let id: Int; let agent: Bool; let body: String; let at: Date? }
-/// The open task with its description, its comments and its project name.
-struct BoardTask: Equatable { let card: BoardCard; let description: String; let comments: [BoardComment]; let project: String }
-
-func boardCard(_ t: J) -> BoardCard? {
-    guard let id = t["id"] as? Int, let title = t["title"] as? String, let status = t["status"] as? String else { return nil }
-    let preview = (t["preview"] as? String ?? "").split(whereSeparator: \.isNewline).joined(separator: " ")
-    return BoardCard(id: id, key: t["key"] as? String ?? "#\(id)", title: title, preview: preview, tags: t["tags"] as? [String] ?? [],
-                     human: t["human"] as? Bool == true, status: status, comments: t["comments"] as? Int ?? (t["comments"] as? [Any])?.count ?? 0)
+/// One card of the task board: a dsh chat with its live state, as the desktop board shows it.
+struct BoardCard: Identifiable, Equatable {
+    let id: String; let title: String; let prompt: String; let tags: [String]; let project: String?; let updated: Date?
+    /// "waiting" (orange: an approval, a question or a plan review waits), "running", "unread" (green) or "read".
+    let state: String
 }
-/// The Mac's board view: the columns in the order of `statuses` (each in board order), the projects, and the shown
-/// project (a path or "all"). A task with a status that the view does not list (Backlog while it is off) is left out.
-func boardColumns(_ o: J) -> (statuses: [String], columns: [String: [BoardCard]], projects: [BoardProject], project: String) {
-    var seen = Set<String>()
-    let statuses = (o["statuses"] as? [String] ?? []).filter { seen.insert($0).inserted }
-    var columns = Dictionary(uniqueKeysWithValues: statuses.map { ($0, [BoardCard]()) })
-    for t in o["tasks"] as? [J] ?? [] { if let c = boardCard(t) { columns[c.status]?.append(c) } }
-    let projects = (o["projects"] as? [J] ?? []).compactMap { p -> BoardProject? in
-        guard let path = p["path"] as? String else { return nil }
-        return BoardProject(path: path, name: p["name"] as? String ?? path, open: p["open"] as? Int ?? 0, total: p["total"] as? Int ?? 0)
+/// A project of the board: a DSH workspace (a Branch per chat folder counts as its repository).
+struct BoardProject: Identifiable, Equatable { let id: String; let name: String; let path: String }
+/// The Mac's record of a chat that the board started: its prompt and the tags that AI wrote.
+struct BoardMeta: Equatable { let prompt: String; let tags: [String] }
+
+/// The Mac's `{rev, chats: {id: {prompt, tags, at}}}`.
+func boardMeta(_ o: J) -> [String: BoardMeta] {
+    var out: [String: BoardMeta] = [:]
+    for (id, v) in o["chats"] as? J ?? [:] {
+        guard let m = v as? J, let p = m["prompt"] as? String else { continue }
+        out[id] = BoardMeta(prompt: p, tags: m["tags"] as? [String] ?? [])
     }
-    return (statuses, columns, projects, o["project"] as? String ?? "all")
+    return out
 }
-/// The Mac's `{task}` answer (`?task=` and every change).
-func boardTask(_ o: J) -> BoardTask? {
-    guard let t = o["task"] as? J, let card = boardCard(t) else { return nil }
-    let comments = (t["comments"] as? [J] ?? []).compactMap { c -> BoardComment? in
-        guard let id = c["id"] as? Int, let body = c["body"] as? String else { return nil }
-        return BoardComment(id: id, agent: c["by"] as? String == "agent", body: body, at: boardDate(c["at"]))
+/// The board from the phone's own lists, with the desktop board's rules: a chat that waits for you (a prompt of it is
+/// open) is in Review, a running chat (or one whose subagent runs) in Doing, every other chat in Done (green while it is
+/// unread). Archived and subagent chats are left out. `project` is a workspace id or "all"; `hideDone` hides Done.
+func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<String>, waiting: Set<String>, finished: Set<String>,
+                  meta: [String: BoardMeta], project: String, hideDone: Bool) -> (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
+    let trim = { (p: String) -> String in p.count > 1 && p.hasSuffix("/") ? String(p.dropLast()) : p }
+    let byPath = Dictionary(workspaces.map { (trim($0.path), $0) }, uniquingKeysWith: { a, _ in a })
+    var owner: [String: Workspace] = [:]
+    for w in workspaces {
+        let p = trim(w.path)
+        if let r = p.range(of: "/.worktrees/"), !p[r.upperBound...].contains("/"), let repo = byPath[String(p[..<r.lowerBound])] { owner[w.id] = repo } else { owner[w.id] = w }
     }
-    return BoardTask(card: card, description: t["description"] as? String ?? "", comments: comments, project: t["project"] as? String ?? "")
-}
-/// The Host's ISO time (`toISOString()`, with milliseconds), or one without them.
-func boardDate(_ v: Any?) -> Date? {
-    guard let s = v as? String else { return nil }
-    let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    return f.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+    let projects = workspaces.filter { owner[$0.id]?.id == $0.id }.map { BoardProject(id: $0.id, name: $0.title, path: $0.path) }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+    var projectOf: [String: String] = [:]
+    for w in workspaces { for s in w.sessions where projectOf[s] == nil { projectOf[s] = owner[w.id]?.id } }
+    let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
+    var columns: [String: [BoardCard]] = ["todo": [], "doing": [], "review": [], "done": []]
+    for s in sessions where s.parent == nil && !archived.contains(s.id) {
+        let p = projectOf[s.id]
+        if project != "all", p != project { continue }
+        let state = waiting.contains(s.id) ? "waiting" : isRunning(s, sessions) ? "running" : finished.contains(s.id) ? "unread" : "read"
+        let m = meta[s.id]
+        let card = BoardCard(id: s.id, title: s.title, prompt: m?.prompt ?? "", tags: m?.tags ?? [], project: p.flatMap { names[$0] }, updated: s.updated, state: state)
+        columns[state == "waiting" ? "review" : state == "running" ? "doing" : "done", default: []].append(card)
+    }
+    let order = hideDone ? ["todo", "doing", "review"] : ["todo", "doing", "review", "done"]
+    return (projects, order.map { st in (st, (columns[st] ?? []).sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }) })
 }
 
-/// Task board on the phone (Composer Plus on the Mac): the view of the chat's project (or another one, or all), the open
-/// task, and the changes create, status, human, comment and delete. One change at a time: a second one while one runs
-/// does nothing (the buttons, the Status menu and the Human switch all go through `busy`). A read that started before a
-/// change does not overwrite what the change shows. A refused change keeps its reason in `failed`; a good read keeps it.
+/// The board project of a chat: its workspace, or the repository's workspace for a Branch per chat folder; "all" when none.
+func boardProjectOf(_ session: String, workspaces: [Workspace]) -> String {
+    guard let w = workspaces.first(where: { $0.sessions.contains(session) }) else { return "all" }
+    let trim = { (p: String) -> String in p.count > 1 && p.hasSuffix("/") ? String(p.dropLast()) : p }
+    let p = trim(w.path)
+    if let r = p.range(of: "/.worktrees/"), !p[r.upperBound...].contains("/") {
+        let repo = String(p[..<r.lowerBound])
+        return workspaces.first { trim($0.path) == repo }?.id ?? w.id
+    }
+    return w.id
+}
+
+/// Task board on the phone: the Mac's record of the board's chats (the tags) and one start at a time. The columns come from
+/// the phone's own chat list (`boardColumns`). A start that fails keeps its reason in `failed`.
 @MainActor final class TaskBoard: ObservableObject {
-    @Published private(set) var statuses: [String] = []
-    @Published private(set) var columns: [String: [BoardCard]] = [:]
-    @Published private(set) var projects: [BoardProject] = []
-    /// The shown project: a path, or "all".
-    @Published private(set) var project = "all"
-    @Published private(set) var hiddenDone = 0
+    @Published private(set) var meta: [String: BoardMeta] = [:]
     @Published private(set) var loaded = false
     /// The Mac has the board switched off (409).
     @Published private(set) var off = false
     /// The Mac's plugin has no board route (404): an older Composer Plus.
     @Published private(set) var missing = false
-    /// The open task: its id while the task sheet is open, its data once read, and `gone` when it was deleted meanwhile.
-    @Published private(set) var taskId: Int?
-    @Published private(set) var task: BoardTask?
-    @Published private(set) var gone = false
-    /// "create", "status", "human", "comment" or "delete" while one runs.
-    @Published private(set) var busy: String?
-    /// The reason of the last refused change (until the next change).
+    @Published private(set) var starting = false
     @Published private(set) var failed: String?
-    /// The reason of the last failed read (until the next good read).
     @Published private(set) var readFailed: String?
     private var call: ([String: String], J?) async throws -> J
-    private let sessionId: String
-    /// nil: the chat's project (asked by `sessionId`) until the first view names it.
-    private var pick: String?
-    private var rev: String?, revQuery: [String: String]?
-    private var viewSeq = 0, taskSeq = 0, changes = 0
+    private var rev: String?
+    private var seq = 0
     /// `call(query, body)`: a GET with the query when `body` is nil, else a POST.
-    init(sessionId: String, call: @escaping ([String: String], J?) async throws -> J) { self.sessionId = sessionId; self.call = call }
-    /// The sheet's Client (known only once the view is on screen).
+    init(call: @escaping ([String: String], J?) async throws -> J) { self.call = call }
     func bind(_ call: @escaping ([String: String], J?) async throws -> J) { self.call = call }
 
     func load() async {
-        viewSeq += 1; let mine = viewSeq, mark = changes
-        let base = pick.map { ["project": $0] } ?? ["sessionId": sessionId]
-        var q = base
-        if let rev, revQuery == base { q["rev"] = rev }
+        seq += 1; let mine = seq
         do {
-            let o = try await call(q, nil)
-            guard mine == viewSeq, mark == changes, busy == nil else { return }
-            off = false; missing = false; readFailed = nil
+            let o = try await call(rev.map { ["rev": $0] } ?? [:], nil)
+            guard mine == seq else { return }
+            off = false; missing = false; readFailed = nil; loaded = true
             if o["same"] as? Bool == true { return }
-            let v = boardColumns(o)
-            statuses = v.statuses; columns = v.columns; projects = v.projects; project = v.project
-            hiddenDone = o["hiddenDone"] as? Int ?? 0; loaded = true
-            pick = v.project; rev = (o["rev"] as? Int).map { String($0) }; revQuery = ["project": v.project]
+            meta = boardMeta(o); rev = (o["rev"] as? NSNumber).map { $0.stringValue }
         } catch {
-            guard mine == viewSeq, !Task.isCancelled, !(error is CancellationError) else { return }
+            guard mine == seq, !Task.isCancelled, !(error is CancellationError) else { return }
             let f = error as? Fail
             if f?.status == 409 { off = true; return }
-            if f?.status == 404 {
-                // The picked project left dsh: back to the chat's project. Any other 404 is a Mac without the route.
-                guard f?.errorDescription == "unknown project", pick != nil else { missing = true; return }
-                pick = nil; await load(); return
-            }
+            if f?.status == 404 { missing = true; return }
             readFailed = userText(error)
         }
     }
-    func loadTask() async {
-        guard let id = taskId else { return }
-        taskSeq += 1; let mine = taskSeq, mark = changes
+    /// Start a new chat with the prompt in the project (a workspace id): its session id, or nil when a start runs or the
+    /// Mac refused it (the reason is in `failed`).
+    @discardableResult func start(project: String, prompt: String) async -> String? {
+        let p = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !starting, !p.isEmpty, !project.isEmpty, project != "all" else { return nil }
+        starting = true; failed = nil
+        defer { starting = false }
         do {
-            let o = try await call(["task": String(id)], nil)
-            guard mine == taskSeq, mark == changes, busy == nil, taskId == id else { return }
-            task = boardTask(o); gone = task == nil
-        } catch {
-            guard mine == taskSeq, taskId == id, !Task.isCancelled, !(error is CancellationError) else { return }
-            if (error as? Fail)?.status == 404 { task = nil; gone = true } else { readFailed = userText(error) }
-        }
-    }
-    func refresh() async { await load(); if taskId != nil { await loadTask() } }
-    /// "all" or a project path from `projects`.
-    func select(_ p: String) async { pick = p; await load() }
-    func open(_ id: Int) async { taskId = id; task = nil; gone = false; if busy == nil { failed = nil }; await loadTask() }
-    func close() { taskId = nil; task = nil; gone = false; taskSeq += 1 }
-
-    /// New task at the bottom of Todo of the shown project; not in "All projects".
-    @discardableResult func create(title: String, description: String) async -> Bool {
-        let t = title.trimmingCharacters(in: .whitespacesAndNewlines), d = description.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard project != "all", !t.isEmpty else { return false }
-        var body: J = ["op": "create", "project": project, "title": t]
-        if !d.isEmpty { body["description"] = d }
-        return await change("create", body)
-    }
-    @discardableResult func setStatus(_ s: String) async -> Bool {
-        guard let t = task, t.card.status != s, statuses.contains(s) else { return false }
-        return await change("status", ["op": "update", "id": t.card.id, "status": s])
-    }
-    @discardableResult func setHuman(_ on: Bool) async -> Bool {
-        guard let t = task, t.card.human != on else { return false }
-        return await change("human", ["op": "update", "id": t.card.id, "human": on])
-    }
-    @discardableResult func comment(_ text: String) async -> Bool {
-        let b = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let t = task, !b.isEmpty else { return false }
-        return await change("comment", ["op": "comment", "id": t.card.id, "body": b])
-    }
-    @discardableResult func delete() async -> Bool {
-        guard let t = task else { return false }
-        return await change("delete", ["op": "delete", "id": t.card.id])
-    }
-    /// One change; false when another one runs or the Mac refused it. After it, the view is read again (after a refusal
-    /// also the open task, which can be deleted or changed meanwhile). `failed` stays until the next change.
-    private func change(_ what: String, _ body: J) async -> Bool {
-        guard busy == nil else { return false }
-        busy = what; failed = nil
-        let id = body["id"] as? Int
-        // A read that started before the change ended can answer the old board: the new `changes` drops it.
-        do {
-            let o = try await call([:], body)
-            busy = nil; changes += 1
-            if let id, id == taskId { if o["deleted"] != nil { close() } else if let t = boardTask(o) { task = t } }
-            await load()
-            return true
-        } catch {
-            busy = nil; changes += 1; failed = userText(error)
-            await refresh()
-            return false
-        }
+            let o = try await call([:], ["project": project, "prompt": p])
+            rev = nil; await load()
+            return o["sessionId"] as? String
+        } catch { failed = userText(error); return nil }
     }
 }

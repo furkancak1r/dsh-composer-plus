@@ -51,10 +51,10 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.protected-files` | POST | `{patterns: [{pattern, mode: all\|write}]}` saves the list; `{on}` (Settings only). | protectedFiles | no |
 | `/api/composer-plus.blocked-commands` | GET | The switch and the rules. | blockedCommands | no |
 | `/api/composer-plus.blocked-commands` | POST | `{rules: [{rule, mode: block\|ask}]}` saves the list; `{on}` (Settings only). | blockedCommands | no |
-| `/api/composer-plus.board` | GET | `{on, backlog}`: the switch and the Backlog column. | taskBoard | no |
-| `/api/composer-plus.board` | POST | `{on}` or `{backlog}` (Backlog goes off only while it is empty: else 409). Settings only. | taskBoard | no |
-| `/api/composer-plus.board-tasks` | GET | `?project=<path>\|all[&done=all][&rev=N]` a board view (`{rev, same}` when nothing changed), `?sessionId` the view of the chat's project, `?task=<id>` one task with comments, `?q=<words>` search, `?export=markdown\|json&project=` the board as text. 409 while the switch is off. | taskBoard | yes |
-| `/api/composer-plus.board-tasks` | POST | `{op: create\|update\|move\|comment\|uncomment\|delete, …}`: one change of a task (an update with `was` refuses an edit over a newer change: 409). | taskBoard | yes |
+| `/api/composer-plus.board` | GET | `{on}`: the switch. | taskBoard | no |
+| `/api/composer-plus.board` | POST | `{on}`. Settings only. | taskBoard | no |
+| `/api/composer-plus.board-chats` | GET | `[?rev=N]` the record of the board's chats: `{rev, chats: {<sessionId>: {prompt, tags, at}}}` (`{rev, same}` when nothing changed). 409 while the switch is off. | taskBoard | yes |
+| `/api/composer-plus.board-chats` | POST | `{project: <workspaceId>, prompt}`: a new chat in that dsh project (not a Branch per chat folder) with the prompt (a failed send archives it); `{rev, sessionId}`. One model call then writes the tags. | taskBoard | yes |
 | `/api/composer-plus.planned-steps` | GET | The switch `{on}`. | plannedSteps | no |
 | `/api/composer-plus.planned-steps` | POST | `{on}`: the switch (a switch route). | plannedSteps | no |
 | `/api/composer-plus.memory` | GET | The switch `{on}`. | projectMemory | no |

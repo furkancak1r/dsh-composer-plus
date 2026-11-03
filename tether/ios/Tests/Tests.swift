@@ -1320,124 +1320,77 @@ final class BranchStateTests: XCTestCase {
     }
 }
 
-/// Task board (`/plus/board-tasks`): the columns in the order of `statuses`, the open task, and one change at a time.
+/// Task board (`/plus/board-chats`): the columns from the phone's own lists (waiting → Review, running → Doing, the rest →
+/// Done; archived and subagent chats left out; a Branch per chat folder counts as its repository; Hide finished), the tags
+/// from the Mac, and one start at a time.
 @MainActor final class TaskBoardTests: XCTestCase {
-    func card(_ id: Int, _ status: String, _ extra: J = [:]) -> J {
-        let base: J = ["id": id, "key": "acme#\(id)", "path": "/w/acme", "title": "Task \(id)", "preview": "", "tags": [String](), "human": false,
-                       "status": status, "position": Double(id), "created": "2026-11-02T10:00:00.000Z", "updated": "2026-11-02T10:00:00.000Z", "comments": 0]
-        return base.merging(extra) { _, b in b }
+    func sess(_ id: String, running: Bool = false, parent: String? = nil, updated: Double = 0) -> Sess {
+        var j: J = ["sessionId": id, "running": running, "updatedAt": updated * 1000, "projections": ["values": ["title": "Chat \(id)"]]]
+        if let parent { j["parentSessionId"] = parent; j["origin"] = "subagent" }
+        return Sess(j)!
     }
-    func view(_ project: String = "/w/acme") -> J {
-        ["rev": 7, "backlog": false, "statuses": ["todo", "doing", "review", "done"], "project": project, "hiddenDone": 0,
-         "projects": [["path": "/w/acme", "name": "acme", "slug": "acme", "open": 3, "total": 4], ["path": "/w/blog", "name": "Blog", "slug": "blog", "open": 0, "total": 0]],
-         "tasks": [card(3, "doing"), card(1, "todo", ["human": true, "tags": ["ui", "bug"], "preview": "Line one\nline two", "comments": 2]), card(2, "todo"), card(4, "done"), card(5, "backlog")]]
-    }
+    func ws(_ id: String, _ path: String, _ sessions: [String]) -> Workspace { Workspace(["workspaceId": id, "path": path, "title": (path as NSString).lastPathComponent, "sessionIds": sessions])! }
     func testColumns() {
-        let v = boardColumns(view())
-        XCTAssertEqual(v.statuses, ["todo", "doing", "review", "done"])
-        XCTAssertEqual(v.columns["todo"]?.map(\.id), [1, 2], "the Mac's order in a column")
-        XCTAssertEqual(v.columns["doing"]?.map(\.id), [3]); XCTAssertEqual(v.columns["review"]?.count, 0); XCTAssertEqual(v.columns["done"]?.map(\.id), [4])
-        XCTAssertNil(v.columns["backlog"], "Backlog is off: its task is left out")
-        let c = v.columns["todo"]![0]
-        XCTAssertEqual(c.key, "acme#1"); XCTAssertTrue(c.human); XCTAssertEqual(c.tags, ["ui", "bug"]); XCTAssertEqual(c.comments, 2)
-        XCTAssertEqual(c.preview, "Line one line two", "one line")
-        XCTAssertEqual(v.projects.map(\.name), ["acme", "Blog"]); XCTAssertEqual(v.projects[0].open, 3); XCTAssertEqual(v.project, "/w/acme")
-        var on = view(); on["backlog"] = true; on["statuses"] = ["backlog", "todo", "doing", "review", "done"]
-        let w = boardColumns(on)
-        XCTAssertEqual(w.statuses.first, "backlog"); XCTAssertEqual(w.columns["backlog"]?.map(\.id), [5])
-        var odd = view(); odd["tasks"] = [card(6, "later"), ["id": 7, "title": "No status"], ["title": "No id", "status": "todo"]]
-        XCTAssertTrue(boardColumns(odd).columns.values.allSatisfy(\.isEmpty), "an unknown status and a malformed task are left out")
-        XCTAssertEqual(boardColumns([:]).project, "all"); XCTAssertEqual(boardColumns([:]).statuses, [])
+        let sessions = [sess("a", updated: 3), sess("b", running: true), sess("c"), sess("kid", running: true, parent: "c"), sess("d", updated: 5), sess("e"), sess("f", updated: 1)]
+        let workspaces = [ws("w1", "/w/acme", ["a", "b", "c", "d", "e"]), ws("w2", "/w/acme/.worktrees/feat-x", ["f"]), ws("w3", "/w/blog/", [])]
+        let meta = boardMeta(["rev": 4, "chats": ["a": ["prompt": "Make a chess game", "tags": ["chess", "game"], "at": 1], "bad": ["tags": []]]])
+        XCTAssertEqual(meta["a"]?.tags, ["chess", "game"]); XCTAssertNil(meta["bad"], "no prompt: left out")
+        let v = boardColumns(sessions: sessions, workspaces: workspaces, archived: ["e"], waiting: ["a"], finished: ["d"], meta: meta, project: "all", hideDone: false)
+        XCTAssertEqual(v.columns.map(\.status), ["todo", "doing", "review", "done"])
+        let ids = { (s: String) in v.columns.first { $0.status == s }!.cards.map(\.id) }
+        XCTAssertEqual(ids("review"), ["a"], "a chat that waits for you")
+        XCTAssertEqual(ids("doing"), ["b", "c"], "running, or a running subagent")
+        XCTAssertEqual(ids("done"), ["d", "f"], "the rest, newest first; archived e and the subagent left out")
+        XCTAssertEqual(v.columns[3].cards[0].state, "unread"); XCTAssertEqual(v.columns[3].cards[1].state, "read")
+        XCTAssertEqual(v.columns[2].cards[0].tags, ["chess", "game"]); XCTAssertEqual(v.columns[2].cards[0].prompt, "Make a chess game")
+        XCTAssertEqual(v.projects.map(\.id), ["w1", "w3"], "a Branch per chat folder is no project of its own")
+        XCTAssertEqual(v.columns[3].cards[1].project, "acme", "its chat belongs to the repository")
+        let one = boardColumns(sessions: sessions, workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], project: "w3", hideDone: true)
+        XCTAssertEqual(one.columns.map(\.status), ["todo", "doing", "review"], "Hide finished")
+        XCTAssertTrue(one.columns.allSatisfy(\.cards.isEmpty))
+        XCTAssertEqual(boardProjectOf("f", workspaces: workspaces), "w1", "the board of a branch chat is its repository's")
+        XCTAssertEqual(boardProjectOf("a", workspaces: workspaces), "w1"); XCTAssertEqual(boardProjectOf("zz", workspaces: workspaces), "all")
     }
-    func testTask() {
-        let t = boardTask(["rev": 8, "task": card(1, "review", ["description": "**Bold**", "project": "acme", "comments": [
-            ["id": 1, "by": "agent", "sessionId": "s1", "body": "Done", "at": "2026-11-02T10:00:00.000Z"], ["id": 2, "by": "user", "body": "Thanks", "at": "2026-11-02T10:05:00Z"], ["id": 3, "by": "user"]]])])
-        XCTAssertEqual(t?.card.status, "review"); XCTAssertEqual(t?.description, "**Bold**"); XCTAssertEqual(t?.project, "acme")
-        XCTAssertEqual(t?.comments.map(\.agent), [true, false], "a comment without a body is left out")
-        XCTAssertEqual(t?.comments.map { $0.at?.timeIntervalSince1970 }, [1793613600, 1793613900], "with or without milliseconds")
-        XCTAssertNil(boardTask(["error": "this task was deleted"]))
-    }
-    func testOneChangeAtATime() async {
+    func testOneStartAtATime() async {
         var bodies: [J] = []; var queries: [[String: String]] = []
         var gate: CheckedContinuation<Void, Never>?
-        var hold = false
-        var task = card(1, "todo", ["description": "", "project": "acme", "comments": [J]()])
-        let b = TaskBoard(sessionId: "s1") { q, body in
-            guard let body else {
-                queries.append(q)
-                return q["task"] != nil ? ["rev": 7, "task": task] : self.view(q["project"] ?? "/w/acme")
-            }
+        var hold = false; var refuse = false
+        let b = TaskBoard { q, body in
+            guard let body else { queries.append(q); return q["rev"] == "7" ? ["rev": 7, "same": true] : ["rev": 7, "chats": [String: Any]()] }
             bodies.append(body)
             if hold { await withCheckedContinuation { gate = $0 } }
-            if body["op"] as? String == "comment" { throw Fail("a task keeps at most 500 comments", status: 400) }
-            if body["op"] as? String == "delete" { return ["rev": 9, "deleted": 1] }
-            if let s = body["status"] as? String { task["status"] = s }
-            return ["rev": 8, "task": task]
+            if refuse { throw Fail("admission refused; the new chat was archived", status: 502) }
+            return ["rev": 8, "sessionId": "new1"]
         }
         await b.load()
-        XCTAssertEqual(queries.first, ["sessionId": "s1"], "the chat's project first")
-        XCTAssertEqual(b.project, "/w/acme"); XCTAssertEqual(b.columns["todo"]?.map(\.id), [1, 2])
-        await b.open(1)
-        XCTAssertEqual(b.task?.card.status, "todo")
-        // A status change runs: every other change does nothing.
+        XCTAssertTrue(b.loaded); XCTAssertEqual(queries.first, [:])
+        await b.load(); XCTAssertEqual(queries.last, ["rev": "7"], "then only a newer rev")
+        let empty = await b.start(project: "w1", prompt: "  ")
+        let all = await b.start(project: "all", prompt: "x")
+        XCTAssertNil(empty); XCTAssertNil(all); XCTAssertEqual(bodies.count, 0)
         hold = true
-        let first = Task { await b.setStatus("doing") }
+        let first = Task { await b.start(project: "w1", prompt: " Add a login page ") }
         while gate == nil { await Task.yield() }
-        XCTAssertEqual(b.busy, "status")
-        let human = await b.setHuman(true)
-        let comment = await b.comment("hi")
-        let delete = await b.delete()
-        let create = await b.create(title: "New", description: "")
-        let status = await b.setStatus("review")
-        XCTAssertFalse(human || comment || delete || create || status)
-        XCTAssertEqual(bodies.count, 1, "one request")
+        XCTAssertTrue(b.starting)
+        let second = await b.start(project: "w1", prompt: "Other")
+        XCTAssertNil(second, "a second start while one runs"); XCTAssertEqual(bodies.count, 1)
         hold = false; gate?.resume(); gate = nil
-        let ok = await first.value
-        XCTAssertTrue(ok); XCTAssertNil(b.busy); XCTAssertEqual(b.task?.card.status, "doing")
-        XCTAssertEqual(bodies[0]["op"] as? String, "update"); XCTAssertEqual(bodies[0]["id"] as? Int, 1)
-        XCTAssertEqual(queries.last, ["project": "/w/acme", "rev": "7"], "then the shown project again, with its rev")
-        // A refused change keeps its reason after the reads.
-        let refused = await b.comment("hi")
-        XCTAssertFalse(refused); XCTAssertEqual(b.failed, "a task keeps at most 500 comments")
-        await b.refresh()
-        XCTAssertEqual(b.failed, "a task keeps at most 500 comments")
-        // New task: Todo of the shown project; a new change clears the old reason.
-        let made = await b.create(title: "  Ship it ", description: " ")
-        XCTAssertTrue(made); XCTAssertNil(b.failed)
-        XCTAssertEqual(bodies.last?["op"] as? String, "create"); XCTAssertEqual(bodies.last?["project"] as? String, "/w/acme")
-        XCTAssertEqual(bodies.last?["title"] as? String, "Ship it"); XCTAssertNil(bodies.last?["description"])
-        // All projects: no new task.
-        await b.select("all")
-        XCTAssertEqual(b.project, "all")
-        let none = await b.create(title: "x", description: "")
-        XCTAssertFalse(none); XCTAssertEqual(bodies.last?["title"] as? String, "Ship it")
-        // Deleted: the task closes.
-        let gone = await b.delete()
-        XCTAssertTrue(gone); XCTAssertNil(b.taskId)
+        let id = await first.value
+        XCTAssertEqual(id, "new1"); XCTAssertFalse(b.starting)
+        XCTAssertEqual(bodies[0]["project"] as? String, "w1"); XCTAssertEqual(bodies[0]["prompt"] as? String, "Add a login page")
+        XCTAssertEqual(queries.last, [:], "the record is read again in full after a start")
+        refuse = true
+        let failed = await b.start(project: "w1", prompt: "x")
+        XCTAssertNil(failed); XCTAssertEqual(b.failed, "admission refused; the new chat was archived")
     }
-    /// The Mac's switch is off (409), an older Mac has no route (404), a picked project left dsh (404 "unknown project").
-    func testOffOlderMacAndGoneProject() async {
+    /// The Mac's switch is off (409), an older Mac has no route (404).
+    func testOffAndOlderMac() async {
         var answer: Error? = Fail("Task board is off", status: 409)
-        var queries: [[String: String]] = []
-        let b = TaskBoard(sessionId: "s1") { q, _ in
-            queries.append(q)
-            // A chat's view never answers "unknown project": the Mac shows all projects then.
-            if let a = answer, q["sessionId"] == nil || (a as? Fail)?.errorDescription != "unknown project" { throw a }
-            return ["rev": 1, "statuses": ["todo", "doing", "review", "done"], "projects": [J](), "project": q["project"] ?? "all", "tasks": [J]()]
-        }
-        await b.load()
-        XCTAssertTrue(b.off); XCTAssertFalse(b.missing); XCTAssertNil(b.readFailed)
+        let b = TaskBoard { _, _ in if let a = answer { throw a }; return ["rev": 1, "chats": [String: Any]()] }
+        await b.load(); XCTAssertTrue(b.off); XCTAssertFalse(b.missing)
         answer = Fail("HTTP 404", status: 404)
-        await b.load()
-        XCTAssertTrue(b.missing)
+        await b.load(); XCTAssertTrue(b.missing)
         answer = nil
-        await b.select("/w/old")
-        XCTAssertFalse(b.off); XCTAssertFalse(b.missing); XCTAssertEqual(b.project, "/w/old")
-        answer = Fail("unknown project", status: 404)
-        let n = queries.count
-        await b.refresh()
-        XCTAssertFalse(b.missing, "not an older Mac")
-        XCTAssertEqual(queries.dropFirst(n).first, ["project": "/w/old", "rev": "1"])
-        XCTAssertEqual(queries.last, ["sessionId": "s1"], "back to the chat's project")
+        await b.load(); XCTAssertFalse(b.off); XCTAssertFalse(b.missing); XCTAssertTrue(b.loaded)
     }
 }

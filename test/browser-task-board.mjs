@@ -1,13 +1,14 @@
-// Real-app check of the Task board on each dsh given: a fake model, a throwaway DSH_HOME and two made-up projects
-// (acme-web, docs-site). Never the normal DSH_HOME, no real model. Headless.
-// 1. Left sidebar → Task board opens the page; three tasks are made on the page (New task → title → Enter), one with a
-//    description and tags, one marked Human.
-// 2. A chat in acme-web gets the board rule (it has open tasks) and the board tools; the fake model calls
-//    board_next_task (takes the top todo that is not human), board_add_comment and board_update_task → review. The page
-//    shows the card in Review within the poll time, with the agent's comment that links the chat.
-// 3. Drag and drop: a todo card goes to Doing; the order is kept after a reload.
-// 4. The panel: Status select, a comment (⌘/Ctrl+Enter), Esc closes; `/` search finds a task of another project.
-// 5. Settings → Composer Plus → Task board: switch off → no sidebar row, no tools in the next request; on again.
+// Real-app check of the Task board on each dsh given: a fake model, a throwaway DSH_HOME, made-up projects (acme-web,
+// docs-site). Never the normal DSH_HOME, no real model. Headless.
+// 1. Left sidebar → Task board: a chat started in dsh's own composer is on the board (no tags), not in docs-site; New task → a prompt → Enter:
+//    the card shows at once, its chat starts in acme-web, dsh names it ("Chess game"), the tags come from the chat's own
+//    model ("chess", "game"); it is in Doing while it runs, then in Done with the green dot.
+// 2. Three tasks that wait for the user, never opened: an approval (a test gate asks before `--ask-me`), a question
+//    (ask_user_question) and a plan review (/plan, exit_plan_mode). Each card is orange in Review; Answer on the board
+//    answers it (Allow once, an option, Approve) and the chat goes on to Done.
+// 3. A click on a card opens its chat. Hide finished hides Done and stays after a reload.
+// 4. Fit: at 1180 px the four columns fit the page and a long title wraps inside its card.
+// 5. Settings → Composer Plus → Task board off: no sidebar row, no page; on again.
 // PLAYWRIGHT=/path/to/playwright node test/browser-task-board.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/taskBoard.webp (English UI, made-up projects).
 import assert from 'node:assert/strict';
@@ -15,7 +16,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, symlink, rm, realpath, stat } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, rm, realpath, stat, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -29,31 +30,44 @@ const until = async (fn, what, ms = 30000) => {
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw Error(`timed out: ${typeof what === 'function' ? await what() : what}`); await pause(200); }
 };
 
-const ASK = 'Take the next task from the board and do it';
-const requests = []; // {system, tools}
-const results = new Map();
+// The prompts of the test, and what the fake model does with each.
+const P = {
+  chess: 'html css js ile satranç oyunu yap',
+  approve: 'Run the slow demo check',
+  question: 'Pick a color for the theme',
+  plan: 'Plan the export feature',
+  long: 'Refactor the very long module name supercalifragilisticexpialidocious_and_another_unbroken_identifier_that_is_far_too_long_for_a_card into smaller parts',
+  old: 'Write the FAQ page',
+};
+const TITLES = { [P.chess]: 'Chess game', [P.approve]: 'Slow demo check', [P.question]: 'Theme color', [P.plan]: 'Export feature plan', [P.old]: 'FAQ page' };
+const tagCalls = [];
+let release = null; // holds the chess chat's answer while the test looks at Doing
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const fake = createServer((req, res) => {
-  let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
+  let body = ''; req.on('data', (c) => { body += c; }); req.on('end', async () => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
     const parsed = JSON.parse(body); const msgs = parsed.messages ?? [];
     const system = textOf(msgs.find((m) => m.role === 'system' || m.role === 'developer')?.content);
-    const last = textOf(msgs.at(-1)?.content);
-    for (const m of msgs) if (m.role === 'tool') results.set(m.tool_call_id, textOf(m.content));
+    const all = JSON.stringify(msgs);
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (delta, finish) => res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`);
     const say = (t) => { send({ role: 'assistant', content: t }); send({}, 'stop'); res.end('data: [DONE]\n\n'); };
-    const tool = (id, name, args) => { send({ role: 'assistant', tool_calls: [{ index: 0, id, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }); send({}, 'tool_calls'); res.end('data: [DONE]\n\n'); };
-    if (/session title/i.test(last)) return say('Board task');
-    if (/You predict the next message|You complete the message/.test(JSON.stringify(msgs))) return say('');
-    requests.push({ system, tools: (parsed.tools ?? []).map((x) => x.function?.name) });
-    if (!JSON.stringify(msgs).includes(ASK)) return say('Ready.');
-    const calls = msgs.filter((m) => m.role === 'assistant' && m.tool_calls?.length).length;
-    if (calls === 0) return tool(`call_next_${randomUUID().slice(0, 6)}`, 'board_next_task', {});
-    const taken = /Moved to doing:\n(\S+#\d+)/.exec([...results.values()].join('\n'))?.[1] ?? 'acme-web#1';
-    if (calls === 1) return tool(`call_comment_${randomUUID().slice(0, 6)}`, 'board_add_comment', { id: taken, body: 'Added the rate limit in `src/export.js`; `npm test` passes.' });
-    if (calls === 2) return tool(`call_review_${randomUUID().slice(0, 6)}`, 'board_update_task', { id: taken, status: 'review' });
-    return say(`Done: ${taken} is in review.`);
+    const tool = (name, args) => { send({ role: 'assistant', tool_calls: [{ index: 0, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }); send({}, 'tool_calls'); res.end('data: [DONE]\n\n'); };
+    if (/label a coding task for a kanban board/.test(system)) {
+      const prompt = textOf(msgs.at(-1)?.content); tagCalls.push({ model: parsed.model, prompt });
+      return say(prompt === P.chess ? '["Chess", "game"]' : prompt === P.long ? '["refactor"]' : '["demo"]');
+    }
+    if (/session title/i.test(system) || /session title/i.test(textOf(msgs.at(-1)?.content))) {
+      const hit = Object.keys(TITLES).find((p) => all.includes(JSON.stringify(p).slice(1, -1)));
+      return say(hit ? TITLES[hit] : 'Refactor module');
+    }
+    if (/You predict the next message|You complete the message/.test(all)) return say('');
+    const results = msgs.filter((m) => m.role === 'tool').length;
+    if (all.includes(P.chess)) { if (release) await release; return say('The chess game is in index.html.'); }
+    if (all.includes(P.approve)) return results === 0 ? tool('bash', { command: 'node -e "console.log(42)" --ask-me', description: 'Run the demo check' }) : say('The check passed.');
+    if (all.includes(P.question)) return results === 0 ? tool('ask_user_question', { questions: [{ id: 'color', question: 'Which theme color?', header: 'Theme', options: [{ label: 'Blue' }, { label: 'Green' }] }] }) : say(`Using ${/Green/.test(textOf(msgs.at(-1)?.content)) ? 'green' : 'the color'}.`);
+    if (all.includes(P.plan)) return results === 0 ? tool('exit_plan_mode', { plan: '# Export plan\n\n1. Add the CSV writer.\n2. Add the button.' }) : say('Plan approved; starting.');
+    return say('Done.');
   });
 }).listen(0, '127.0.0.1');
 await new Promise((r) => fake.once('listening', r));
@@ -71,17 +85,23 @@ const shot = async (page, home, name, loc) => {
   console.log(`  shot: assets/features/${name}.webp ${(await stat(out)).size} bytes`);
 };
 
-const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
-    requests.length = 0; results.clear();
+    tagCalls.length = 0;
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-task-board-')));
     const profile = join(home, 'profiles/web');
     await mkdir(join(profile, 'node_modules'), { recursive: true });
     await symlink(repo, join(profile, 'node_modules/dsh-composer-plus'));
     await writeFile(join(profile, 'package.json'), JSON.stringify({ name: 'task-board-test', private: true, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-composer-plus'] } } }));
     await writeFile(join(profile, 'cordis.yml'), '[]\n');
-    await writeFile(join(profile, 'cordis.patch.yml'), `- id: ui-settings-general
+    // A test-only gate: dsh asks the user before a bash call with `--ask-me` (as dsh's own approval: the same card).
+    const gate = join(home, 'ask-gate.mjs');
+    await writeFile(gate, "export const name = 'task-board-ask-gate';\nexport function apply(ctx) {\n  ctx.on('tools/pre-execute', async (exec, next) => {\n    const d = await next();\n    return exec.name === 'bash' && String(exec.arguments?.command ?? '').includes('--ask-me') ? { kind: 'ask', reason: 'Run the demo check?' } : d;\n  });\n}\n");
+    await writeFile(join(profile, 'cordis.patch.yml'), `- insert:
+    - id: task-board-ask-gate
+      name: ${gate}
+- id: ui-settings-general
   name: "@deepseek-ai/dsh-client-ui-settings-general"
   config:
     welcomeNoticeVersion: 2026-09-28.1
@@ -109,22 +129,24 @@ try {
       ids[name] = randomUUID(); tables[ids[name]] = { path: project, title: name, sessionIds: [], createdAt: now, updatedAt: now };
     }
     const acme = join(home, 'projects', 'acme-web');
-    await mkdir(join(home, 'storages'), { recursive: true });
+    await mkdir(join(home, 'storages', 'dsh-composer-plus'), { recursive: true });
     await writeFile(join(home, 'storages/workspace.json'), JSON.stringify({ unit: { name: 'workspace', version: 2 },
       global: { initialized: true, workspaceIds: Object.values(ids), archivedSessionIds: [], pinnedSessionIds: [], defaultWorkspaceId: ids['acme-web'] },
       tables: { workspaces: tables } }));
-    const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3207', '--no-open'], { cwd: acme, env: { ...process.env, HOME: home, DSH_HOME: home, DEMO_KEY: 'demo', DSH_PERMISSION_MODE: 'danger-full-access', npm_config_cache: join(tmpdir(), 'npm-cache'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
+    // The old notebook board of an earlier version: it stays as it is.
+    const oldBoard = '{"v":1,"next":2,"projects":[],"tasks":[{"id":1,"title":"Old task"}]}';
+    await writeFile(join(home, 'storages/dsh-composer-plus/board.json'), oldBoard);
+    const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3207', '--no-open'], { cwd: acme, env: { ...process.env, HOME: home, DSH_HOME: home, DEMO_KEY: 'demo', npm_config_cache: join(tmpdir(), 'npm-cache'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = ''; child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
     const errors = []; let context; let page;
     try {
       for (let i = 0; i < 200 && !log.match(/http:\/\/[^\s]*token=[^\s]*/); i++) { if (child.exitCode !== null) throw Error(`test dsh exited (${child.exitCode})`); await pause(250); }
       const url = log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0]; assert.ok(url, 'test server URL available');
       context = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 860 }, deviceScaleFactor: 2, colorScheme: 'light' });
-      await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.features') === null) localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false,"defaultWorkspace":false}'); });
+      await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.features') === null) localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false,"defaultWorkspace":false,"idleSwitch":false,"notifications":false}'); });
       page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       const failedUrls = []; page.on('response', (r) => { if (r.status() >= 400) failedUrls.push(`${r.status()} ${r.url().replace(/token=[^&]+/, 'token=…')}`); });
       page.on('console', (m) => { if (m.type() === 'error' && !m.text().startsWith('Failed to load resource')) errors.push(`console: ${m.text()}`); });
-      page.on('dialog', (d) => d.accept());
       await page.goto(url);
       for (const name of [/^Continue$/, /^Configure later$/]) {
         const b = page.getByRole('button', { name });
@@ -135,78 +157,106 @@ try {
       const input = page.locator('[data-composer-input]'); await input.waitFor({ timeout: 20000 });
       const boardPage = page.locator('[data-composer-plus-board]');
       const openBoard = async () => { await page.getByRole('button', { name: 'Task board', exact: true }).click(); await boardPage.waitFor({ timeout: 10000 }); await boardPage.locator('[data-cpb-columns]').waitFor({ timeout: 10000 }); };
-
-      // 1. The page and three tasks made on it.
-      await openBoard();
-      await boardPage.locator('.cpb-nav', { hasText: 'acme-web' }).click();
-      await boardPage.locator('h1', { hasText: 'acme-web' }).waitFor();
-      const panel = page.locator('[data-cpb-panel]');
-      const create = async (title, extra) => {
-        await page.keyboard.press('Escape'); await boardPage.locator('[data-cpb-new]').click();
-        const field = panel.locator('[data-cpb-draft-title]'); await field.waitFor(); await field.fill(title);
-        if (extra) await extra();
-        await field.press('Enter');
-        await until(async () => (await boardPage.locator('[data-cpb-card]', { hasText: title }).count()) === 1, `card "${title}"`);
-        await page.keyboard.press('Escape'); await panel.waitFor({ state: 'detached' });
-      };
-      await create('Rate limit the export endpoint', async () => { await panel.getByRole('textbox', { name: 'Tags' }).fill('backend'); await panel.getByRole('textbox', { name: 'Description' }).fill('Big exports slow the database. Limit each key to 5 exports per minute.'); });
-      await create('Renew the TLS certificate', async () => { await panel.getByRole('switch', { name: 'Human' }).click(); });
-      await create('Cache product images on the CDN', async () => { await panel.getByRole('textbox', { name: 'Tags' }).fill('perf'); });
+      const post = (path, body) => page.evaluate(async ([p, b]) => { const r = await fetch(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) }); return { status: r.status, body: await r.json() }; }, [path, body]);
       const column = (status) => boardPage.locator(`[data-cpb-column="${status}"]`);
-      const titles = async (status) => column(status).locator('.cpb-cardtitle').allInnerTexts();
-      assert.deepEqual(await titles('todo'), ['Rate limit the export endpoint', 'Renew the TLS certificate', 'Cache product images on the CDN'], 'new tasks go to the bottom of Todo');
-      await boardPage.locator('[data-cpb-card]', { hasText: 'Renew' }).locator('[aria-label="Human task: agents skip it"]').waitFor();
-      // A task of the other project, made with the Host route (for the search).
-      const docs = join(home, 'projects', 'docs-site');
-      assert.equal((await page.evaluate(async (p) => (await fetch('/api/composer-plus.board-tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ op: 'create', project: p, title: 'Fix the broken links on the FAQ page' }) })).status, docs)), 200);
-      console.log('  1: sidebar → Task board, 3 tasks made on the page (tags, description, Human), new tasks at the bottom of Todo');
+      const card = (title) => boardPage.locator('[data-cpb-card]', { has: page.locator('[data-cpb-title]', { hasText: title }) });
+      const titles = async (status) => column(status).locator('[data-cpb-title]').allInnerTexts();
 
-      // 2. The agent takes the top task that is not human and moves it to review.
-      // Back to the chat: dsh's own chat row (its open selects the conversation panel again).
-      await page.locator('[data-row-key^="session:"]').first().click();
-      await boardPage.waitFor({ state: 'detached', timeout: 10000 });
-      await input.waitFor({ timeout: 10000 }); await input.click();
-      await page.keyboard.type(ASK, { delay: 5 }); await page.keyboard.press('Enter');
-      await page.getByText('is in review', { exact: false }).first().waitFor({ timeout: 40000 });
-      const chatRequest = requests.find((r) => r.tools.includes('board_next_task'));
-      assert.ok(chatRequest, `the board tools are in the request (${JSON.stringify(requests.map((r) => r.tools.filter((x) => x.startsWith('board_'))))})`);
-      assert.ok(requests.some((r) => r.system.includes('# Task board') && r.system.includes('Never move a task to done')), 'the board rule is in the system prompt (open tasks)');
-      const nextResult = [...results.entries()].find(([id]) => id.startsWith('call_next_'))?.[1] ?? '';
-      assert.match(nextResult, /^Moved to doing:\nacme-web#1 Rate limit the export endpoint \{backend\}/, nextResult);
+      // An existing chat, started in dsh's own composer (not on the board), in acme-web (dsh's default project).
+      await input.click(); await page.keyboard.type(P.old, { delay: 5 }); await page.keyboard.press('Enter');
+      await page.getByText('Done.', { exact: true }).first().waitFor({ timeout: 30000 });
+
+      // 1. A prompt starts a chat; it is in Doing while it runs, then in Done with the green dot.
       await openBoard();
-      await until(async () => (await titles('review')).includes('Rate limit the export endpoint'), async () => `review: ${await titles('review')}`, 10000);
-      assert.deepEqual(await titles('todo'), ['Renew the TLS certificate', 'Cache product images on the CDN'], 'the human task stays in Todo');
-      await boardPage.locator('[data-cpb-card]', { hasText: 'Rate limit' }).click();
-      await panel.locator('[data-cpb-comment="agent"]').waitFor();
-      assert.match(await panel.locator('[data-cpb-comment="agent"]').innerText(), /src\/export\.js/);
-      await panel.getByText('Open chat').waitFor();
-      console.log('  2: tools + rule in the chat; board_next_task took acme-web#1 (not the human task), comment + review show on the page');
-
-      // 4 (before the drag, the panel is open). Status select, a comment with ⌘/Ctrl+Enter, Esc closes.
-      await panel.locator('[data-cpb-comment-box]').fill('Looks good, merging after lunch.');
-      await panel.locator('[data-cpb-comment-box]').press(process.platform === 'darwin' ? 'Meta+Enter' : 'Control+Enter');
-      await panel.locator('[data-cpb-comment="user"]').waitFor();
-      await panel.locator('[data-cpb-status]').selectOption('doing');
-      await until(async () => (await titles('doing')).includes('Rate limit the export endpoint'), 'status → doing');
-      await page.keyboard.press('Escape'); await panel.waitFor({ state: 'detached' });
-      await page.keyboard.press('/');
-      const search = page.locator('[data-cpb-search]'); await search.waitFor();
-      await page.keyboard.type('broken links');
-      await search.getByRole('option', { name: /Fix the broken links/ }).waitFor();
-      await page.keyboard.press('Enter');
+      await until(async () => (await titles('done')).includes('FAQ page'), async () => `done: ${await titles('done')}`, 20000);
+      assert.equal(await card('FAQ page').locator('[data-cpb-tag]').count(), 0, 'a chat that the board did not start has no tags');
+      await boardPage.locator('.cpb-nav', { hasText: 'docs-site' }).click();
       await boardPage.locator('h1', { hasText: 'docs-site' }).waitFor();
-      await panel.getByText('docs-site#4').waitFor();
-      await page.keyboard.press('Escape'); await panel.waitFor({ state: 'detached' });
-      console.log('  4: Status → Doing, comment (⌘/Ctrl+Enter), Esc closes, / search opens docs-site#4 in its project');
-
-      // 3. Drag a Todo card to Doing, before the card there; the order stays after a reload.
+      assert.equal(await card('FAQ page').count(), 0, 'a chat of another project is not in docs-site');
+      console.log('  1a: a chat started in dsh\'s composer is on the board (All projects), not in another project');
       await boardPage.locator('.cpb-nav', { hasText: 'acme-web' }).click();
       await boardPage.locator('h1', { hasText: 'acme-web' }).waitFor();
-      await boardPage.locator('[data-cpb-card]', { hasText: 'Cache product' }).dragTo(boardPage.locator('[data-cpb-card]', { hasText: 'Rate limit' }), { targetPosition: { x: 20, y: 4 } });
-      await until(async () => JSON.stringify(await titles('doing')) === JSON.stringify(['Cache product images on the CDN', 'Rate limit the export endpoint']), async () => `doing: ${await titles('doing')}`);
+      let open; release = new Promise((r) => { open = r; });
+      await boardPage.locator('[data-cpb-new]').click();
+      const prompt = page.locator('[data-cpb-prompt]'); await prompt.waitFor();
+      await prompt.fill(P.chess); await prompt.press('Enter');
+      await until(async () => (await titles('doing')).includes('Chess game') || (await titles('todo')).length > 0, 'the card shows at once', 15000);
+      await until(async () => (await titles('doing')).includes('Chess game'), async () => `doing: ${await titles('doing')} todo: ${await titles('todo')}`, 20000);
+      await until(async () => (await card('Chess game').locator('[data-cpb-tag]').allInnerTexts()).join() === 'chess,game', 'the tags', 15000);
+      assert.deepEqual(tagCalls.find((c) => c.prompt === P.chess)?.model, 'demo', 'the tags come from the chat\'s own model');
+      assert.equal(await card('Chess game').locator('.cpb-preview').innerText(), P.chess, 'the prompt shows under the AI title');
+      open(); release = null;
+      await until(async () => (await titles('done')).includes('Chess game'), async () => `done: ${await titles('done')}`, 20000);
+      assert.equal(await card('Chess game').getAttribute('data-cpb-state'), 'unread', 'green until opened');
+      await card('Chess game').locator('[data-cpb-dot="done"]').waitFor();
+      console.log('  1b: New task → prompt → Enter: chat "Chess game" (dsh title), tags chess+game (the chat\'s model), Doing → Done with the green dot');
+
+      // 2. Three waiting chats, never opened: each is orange in Review and is answered on the board.
+      for (const p of [P.approve, P.question, P.plan]) {
+        const r = await post('/api/composer-plus.board-chats', { project: ids['acme-web'], prompt: p === P.plan ? `/plan ${p}` : p });
+        assert.equal(r.status, 200, JSON.stringify(r.body));
+      }
+      await until(async () => (await titles('review')).length === 3, async () => `review: ${await titles('review')} doing: ${await titles('doing')} todo: ${await titles('todo')} done: ${await titles('done')}`, 40000);
+      for (const name of ['Slow demo check', 'Theme color', 'Export feature plan']) assert.equal(await card(name).getAttribute('data-cpb-state'), 'waiting', `${name} is orange`);
+      assert.match(await card('Slow demo check').locator('.cpb-wait').innerText(), /Waiting for approval/);
+      assert.match(await card('Theme color').locator('.cpb-wait').innerText(), /Waiting for answer/);
+      assert.match(await card('Export feature plan').locator('.cpb-wait').innerText(), /Plan awaiting review/);
+      const panel = page.locator('[data-cpb-panel="answer"]');
+      await card('Slow demo check').locator('[data-cpb-answer]').click();
+      await panel.locator('[data-cpb-allow]').waitFor();
+      assert.equal(await panel.locator('[data-cpb-allow]').innerText(), 'Allow once', 'dsh\'s own label');
+      await panel.locator('[data-cpb-allow]').click();
+      await until(async () => (await titles('done')).includes('Slow demo check'), async () => `done: ${await titles('done')}`, 20000);
+      await card('Theme color').locator('[data-cpb-answer]').click();
+      await panel.getByRole('radio', { name: 'Green' }).click();
+      await panel.locator('[data-cpb-send]').click();
+      await until(async () => (await titles('done')).includes('Theme color'), async () => `done: ${await titles('done')}`, 20000);
+      await card('Export feature plan').locator('[data-cpb-answer]').click();
+      await panel.locator('.cpb-plan', { hasText: 'Add the CSV writer' }).waitFor();
+      await panel.locator('[data-cpb-approve]').click();
+      await until(async () => (await titles('done')).includes('Export feature plan'), async () => `done: ${await titles('done')}`, 20000);
+      assert.equal(await panel.count(), 0, 'the panel closes after an answer');
+      assert.deepEqual(await titles('review'), [], 'nothing waits');
+      console.log('  2: approval (Allow once), question (Green) and plan review (Approve) of never-opened chats: orange in Review, answered on the board, then Done');
+
+      // 4. Fit: four columns in the page at 1180 px; a long title wraps inside its card.
+      const r = await post('/api/composer-plus.board-chats', { project: ids['acme-web'], prompt: P.long });
+      assert.equal(r.status, 200);
+      await until(async () => (await titles('done')).some((x) => x.startsWith('Refactor')), 'the long card', 20000);
+      await page.setViewportSize({ width: 1180, height: 820 }); await pause(400);
+      const fit = await boardPage.evaluate((el) => {
+        const cols = el.querySelector('[data-cpb-columns]');
+        const long = [...el.querySelectorAll('[data-cpb-card]')].find((c) => c.querySelector('[data-cpb-title]').textContent.startsWith('Refactor'));
+        const t = long.querySelector('[data-cpb-title]');
+        return { colsOverflow: cols.scrollWidth - cols.clientWidth, cardOverflow: long.scrollWidth - long.clientWidth, titleRight: t.getBoundingClientRect().right, cardRight: long.getBoundingClientRect().right };
+      });
+      assert.ok(fit.colsOverflow <= 1, `the columns fit (${JSON.stringify(fit)})`);
+      assert.ok(fit.cardOverflow <= 1 && fit.titleRight <= fit.cardRight + 0.5, `a long title stays in its card (${JSON.stringify(fit)})`);
+      await page.setViewportSize({ width: 1440, height: 860 });
+      console.log(`  4: at 1180 px the 4 columns fit (overflow ${fit.colsOverflow}px) and a long title wraps in its card`);
+
+      // 3. Hide finished: Done goes, and stays hidden after a reload. A click on a card opens its chat.
+      await boardPage.locator('[data-cpb-hide-done]').click();
+      await column('done').waitFor({ state: 'detached' });
       await page.reload(); await input.waitFor({ timeout: 20000 }); await openBoard();
-      await until(async () => JSON.stringify(await titles('doing')) === JSON.stringify(['Cache product images on the CDN', 'Rate limit the export endpoint']), async () => `after reload: ${await titles('doing')}`);
-      console.log('  3: drag Todo → Doing above a card; the order stays after a reload');
+      assert.equal(await column('done').count(), 0, 'Hide finished stays after a reload');
+      assert.equal(await boardPage.locator('[data-cpb-hide-done]').getAttribute('aria-pressed'), 'true');
+      await boardPage.locator('[data-cpb-hide-done]').click(); await column('done').waitFor();
+      if (process.env.SHOT) {
+        // The Settings picture: a running card (held), an orange card, finished cards; no panel.
+        let openShot; release = new Promise((res) => { openShot = res; });
+        await post('/api/composer-plus.board-chats', { project: ids['acme-web'], prompt: P.chess });
+        await post('/api/composer-plus.board-chats', { project: ids['acme-web'], prompt: P.question });
+        await until(async () => (await titles('doing')).length >= 1 && (await titles('review')).length >= 1, 'the picture board', 30000);
+        await until(async () => (await column('doing').locator('[data-cpb-tag]').count()) >= 2 && (await column('review').locator('.cpb-preview').count()) >= 1, 'the tags of the picture', 15000);
+        await pause(500);
+        await shot(page, home, 'taskBoard', boardPage);
+        openShot(); release = null;
+      }
+      await card('Chess game').first().click();
+      await boardPage.waitFor({ state: 'detached', timeout: 10000 });
+      await page.locator('[data-row-key^="session:"][aria-selected="true"]', { hasText: 'Chess game' }).first().waitFor({ timeout: 10000 });
+      console.log('  3: Hide finished hides Done and stays after a reload; a click on a card opens its chat');
 
       // 5. Switch off and on.
       const settings = async () => {
@@ -225,7 +275,6 @@ try {
       const sw = () => page.locator('[data-composer-plus-settings]').getByRole('switch', { name: 'Task board', exact: true });
       await settings();
       await sw().scrollIntoViewIfNeeded();
-      await page.locator('[data-composer-plus-board-backlog]').waitFor();
       await sw().click(); await until(async () => (await sw().getAttribute('aria-checked')) === 'false', 'switch off');
       assert.equal((await page.evaluate(async () => (await fetch('/api/composer-plus.board')).json())).on, false, 'the Host keeps the switch');
       await back();
@@ -233,26 +282,18 @@ try {
       assert.equal(await boardPage.count(), 0, 'off: no page');
       await settings(); await sw().click(); await until(async () => (await sw().getAttribute('aria-checked')) === 'true', 'switch on'); await back();
       await page.getByRole('button', { name: 'Task board', exact: true }).waitFor();
-      if (process.env.SHOT) {
-        // The Settings picture: every column has cards (Todo, Doing, Review), no panel.
-        const post = (body) => page.evaluate(async (b) => (await fetch('/api/composer-plus.board-tasks', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) })).json(), body);
-        await post({ op: 'move', id: 1, status: 'review' });
-        await post({ op: 'create', project: acme, title: 'Log slow queries over 200 ms', description: 'Add the query and its plan to the log.', tags: 'backend' });
-        await openBoard();
-        await boardPage.locator('.cpb-nav', { hasText: 'acme-web' }).click();
-        await until(async () => (await titles('review')).length === 1 && (await titles('todo')).length === 2, 'the picture board');
-        await shot(page, home, 'taskBoard', boardPage);
-      }
+      assert.equal(await readFile(join(home, 'storages/dsh-composer-plus/board.json'), 'utf8'), oldBoard, 'the old board file stays as it was');
       assert.deepEqual(errors, [], 'no page errors');
       const ours = failedUrls.filter((u) => /composer-plus\.board/.test(u));
       assert.deepEqual(ours, [], `no failed request of the board: ${failedUrls.join(', ')}`);
-      console.log('  5: switch off removes the row and the page (the Host keeps it); on brings them back');
+      console.log('  5: switch off removes the row and the page (the Host keeps it); on brings them back; board.json untouched');
       console.log(`PASS ${bin}`);
     } catch (error) {
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});
       console.error(`FAIL ${bin}: ${error?.stack ?? error}\npage errors: ${JSON.stringify(errors).slice(0, 3000)}\n--- dsh log (end) ---\n${log.slice(-3000)}\nscreenshot: ${join(home, 'failed.png')}`);
       process.exitCode = 1;
     } finally {
+      release = null;
       await context?.close().catch(() => {});
       child.kill('SIGTERM'); await new Promise((r) => (child.exitCode !== null ? r() : child.once('exit', r)));
       if (process.exitCode !== 1) await rm(home, { recursive: true, force: true });
