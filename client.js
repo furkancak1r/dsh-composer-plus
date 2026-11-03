@@ -1327,7 +1327,12 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
 .cpb-pbody{flex:1;overflow-y:auto;padding:4px 20px 20px}
 .cpb-h2{margin:14px 0 6px;font-size:13px;font-weight:600;color:var(--dsw-alias-label-secondary)}
 .cpb-area{width:100%;box-sizing:border-box;min-height:96px;resize:vertical;font:inherit;font-size:14px;color:inherit;padding:8px 10px;border-radius:10px;border:.5px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);outline:none}
-.cpb-select{font:inherit;font-size:13px;color:inherit;border:0;border-radius:99px;background:var(--dsw-alias-bg-module-platform);padding:3px 10px;max-width:100%}
+.cpb-select{flex:1;display:inline-flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;height:36px;padding:0 12px;border:0;border-radius:10px;background:var(--dsw-alias-bg-module-platform);color:inherit;font:inherit;font-size:14px;text-align:left;cursor:pointer}
+.cpb-select span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cpb-select svg{flex:none}
+.cpb-pick{flex-basis:100%;display:flex;flex-direction:column;gap:2px;max-height:280px;overflow-y:auto;padding:6px;box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-1)}
+.cpb-pick .cpb-search{margin:0 0 4px}
+.cpb-pick .cpb-nav[aria-current]{background:var(--dsw-alias-interactive-bg-active)}
 .cpb-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px}
 .cpb-plan{max-height:50vh;overflow:auto;padding:10px 12px;border-radius:12px;background:var(--dsw-alias-bg-module-platform);font-size:13px}
 .cpb-option{display:flex;align-items:flex-start;gap:8px;width:100%;padding:8px 10px;margin-top:6px;border:.5px solid var(--dsw-alias-border-l2);border-radius:10px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
@@ -1339,20 +1344,37 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
 .cpb-note{margin:auto;max-width:420px;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary)}
 .cpb-icon:focus-visible,.cpb-nav:focus-visible,.cpb-card:focus-visible,.cpb-primary:focus-visible,.cpb-ghost:focus-visible,.cpb-toggle:focus-visible,.cpb-option:focus-visible,.cpb-wait button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}`;
 
-    /** The new-task panel: a project and a prompt. Enter starts (Shift+Enter: a new line), Esc closes. */
+    /** The new-task panel: a project and a prompt. Enter starts (Shift+Enter: a new line), Esc closes. The project button
+     * opens the projects with a search box (`draft.find`: the query, null while closed): Enter picks the first match, a
+     * click picks one, Esc or a click in the prompt closes the list. */
     function BoardNewTask({ board, state, projects, t }) {
+      const area = React.useRef(null);
       const d = state.draft;
       if (d === null) return null;
       const h = React.createElement;
       const start = () => { board.create(); };
+      const finding = typeof d.find === 'string';
+      const matches = finding ? projects.filter((p) => matchesQuery(d.find, p.name)) : [];
+      const pick = (p) => { if (p !== undefined) board.editDraft({ project: p.id, find: null }); area.current?.focus(); };
+      const chevron = primitives.IconChevronDownOutlineRegular;
       return h('aside', { className: 'cpb-panel', 'data-cpb-panel': 'new', 'aria-label': t('board.newTask') },
         h('div', { className: 'cpb-ptop' }, h('b', null, t('board.newTask')),
           h('button', { type: 'button', className: 'cpb-icon', 'aria-label': t('board.close'), title: t('board.close'), onClick: () => board.close() }, '✕')),
         h('div', { className: 'cpb-pbody' },
           h('div', { className: 'cpb-row', style: { marginTop: 4 } }, h('span', { className: 'cpb-muted' }, t('board.field.project')),
-            h('select', { className: 'cpb-select', value: d.project, 'aria-label': t('board.field.project'), onChange: (event) => board.editDraft({ project: event.target.value }) },
-              ...projects.map((p) => h('option', { key: p.id, value: p.id }, p.name)))),
-          h('textarea', { className: 'cpb-area', autoFocus: true, rows: 6, style: { marginTop: 12 }, value: d.prompt, placeholder: t('board.promptPlaceholder'), 'aria-label': t('board.promptPlaceholder'), 'data-cpb-prompt': '',
+            h('button', { type: 'button', className: 'cpb-select', 'data-cpb-project': d.project, 'aria-expanded': finding, 'aria-label': t('board.field.project'),
+              onClick: () => board.editDraft({ find: finding ? null : '' }) },
+              h('span', null, projects.find((p) => p.id === d.project)?.name ?? ''), chevron === undefined ? '▾' : h(chevron, { size: 14, 'aria-hidden': true })),
+            finding ? h('div', { className: 'cpb-pick', 'data-cpb-projects': '',
+              onKeyDown: (event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); pick(undefined); board.editDraft({ find: null }); } } },
+              h('input', { type: 'search', className: 'cpb-search', autoFocus: true, value: d.find, placeholder: t('projectPicker.search'), 'aria-label': t('projectPicker.search'),
+                autoComplete: 'off', spellCheck: false, onChange: (event) => board.editDraft({ find: event.target.value }),
+                onKeyDown: (event) => { if (event.key === 'Enter' && !event.nativeEvent?.isComposing) { event.preventDefault(); pick(matches[0]); } } }),
+              ...matches.map((p) => h('button', { key: p.id, type: 'button', className: 'cpb-nav', 'aria-current': p.id === d.project ? 'true' : undefined, onClick: () => pick(p) },
+                h(BoardFolder, { color: boardColor(p.id) }), h('span', null, p.name))),
+              matches.length === 0 ? h('div', { className: 'cpb-muted', role: 'status', style: { padding: '6px 10px', fontSize: 12 } }, t('projectPicker.empty')) : null) : null),
+          h('textarea', { ref: area, className: 'cpb-area', autoFocus: true, rows: 6, style: { marginTop: 12 }, value: d.prompt, placeholder: t('board.promptPlaceholder'), 'aria-label': t('board.promptPlaceholder'), 'data-cpb-prompt': '',
+            onFocus: () => { if (typeof state.draft?.find === 'string') board.editDraft({ find: null }); },
             onChange: (event) => board.editDraft({ prompt: event.target.value, error: null }),
             onKeyDown: (event) => {
               if (event.nativeEvent?.isComposing) return;

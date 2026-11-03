@@ -3545,6 +3545,32 @@ struct BoardSheet: View {
     }
 }
 
+/// New task → Project: the board's projects with a search box; a tap picks one and goes back.
+struct BoardProjectPick: View {
+    let projects: [BoardProject]
+    @Binding var project: String
+    @State private var query = ""
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        let shown = boardProjectList(projects, query: query, recentOnly: false)
+        List {
+            ForEach(shown) { p in
+                Button { project = p.id; dismiss() } label: {
+                    HStack {
+                        Text(verbatim: p.name).foregroundStyle(.primary).lineLimit(1)
+                        Spacer(minLength: 0)
+                        if project == p.id { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                    }
+                }
+                .accessibilityAddTraits(project == p.id ? .isSelected : [])
+            }
+            if shown.isEmpty { Text("No matching project").foregroundStyle(.secondary) }
+        }
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
+        .navigationTitle("Project").navigationBarTitleDisplayMode(.inline)
+    }
+}
+
 /// The board's projects: a search box, "Active in the last 2 hours" (kept on this phone) and Hide finished. A tap picks
 /// "All projects" or one project.
 struct BoardProjectSheet: View {
@@ -3630,7 +3656,9 @@ struct BoardNewTaskSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Picker("Project", selection: $project) { ForEach(projects) { p in Text(verbatim: p.name).tag(p.id) } }
+                NavigationLink { BoardProjectPick(projects: projects, project: $project) } label: {
+                    LabeledContent("Project") { Text(verbatim: projects.first { $0.id == project }?.name ?? "") }
+                }
                 Section {
                     TextField("What should the agent do?", text: $text, axis: .vertical).lineLimit(3...12)
                 } footer: { Text("A new chat starts with this prompt. The title and the tags come from AI.") }

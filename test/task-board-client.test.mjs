@@ -228,6 +228,41 @@ assert.deepEqual(navNames(el), ['board.allProjects']); assert.equal(find(el, (n)
 board.setQuery(''); board.toggleRecent();
 assert.match(src, /\.cpb-col\{flex:1 1 0;min-width:140px/, 'the columns share the width');
 
+// New task → Project: a button opens the projects with a search box; Enter picks the first match, a click picks one,
+// Esc closes the list (not the panel), a focus in the prompt closes it too; the prompt is kept.
+const newPanel = () => { const tr = page[1]({ ...injected, openSession: () => {}, useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
+  const p = find(tr, (n) => typeof n.t === 'function' && n.t.name === 'BoardNewTask')[0]; return p.t(p.p); };
+const pickNames = (el2) => find(el2, (n) => n.p?.['data-cpb-projects'] !== undefined).flatMap((box) => find(box, (n) => n.p?.className === 'cpb-nav').map((n) => n.c[1].c[0]));
+const ev = (o = {}) => ({ preventDefault() {}, stopPropagation() {}, nativeEvent: {}, ...o });
+board.newTask('w1'); board.editDraft({ prompt: 'Keep this text' });
+let np = newPanel();
+const projectButton = () => find(np, (n) => n.p?.['data-cpb-project'] !== undefined)[0];
+assert.equal(projectButton().p['data-cpb-project'], 'w1'); assert.equal(projectButton().c[0].c[0], 'acme', 'the button shows the chosen project');
+assert.equal(pickNames(np).length, 0, 'the list is closed');
+projectButton().p.onClick(); np = newPanel();
+assert.deepEqual(pickNames(np), ['acme', 'blog'], 'the button opens every project');
+const pickSearch = () => find(np, (n) => n.p?.className === 'cpb-search' && n.p?.placeholder === 'projectPicker.search')[0];
+assert.ok(pickSearch(), 'with a search box (the label of Project search in a new chat)');
+pickSearch().p.onChange({ target: { value: 'BLO' } }); np = newPanel();
+assert.deepEqual(pickNames(np), ['blog'], 'the search filters by name');
+pickSearch().p.onKeyDown(ev({ key: 'Enter' }));
+assert.equal(board.getSnapshot().draft.project, 'w3', 'Enter picks the first match'); assert.equal(board.getSnapshot().draft.find, null, 'and closes the list');
+assert.equal(board.getSnapshot().draft.prompt, 'Keep this text', 'the prompt is kept');
+np = newPanel(); projectButton().p.onClick(); np = newPanel();
+pickSearch().p.onChange({ target: { value: 'zzz' } }); np = newPanel();
+assert.equal(pickNames(np).length, 0); assert.ok(find(np, (n) => n.c?.[0] === 'projectPicker.empty').length === 1, 'no match: a note');
+pickSearch().p.onKeyDown(ev({ key: 'Enter' })); assert.equal(board.getSnapshot().draft.project, 'w3', 'Enter with no match picks nothing');
+let stopEsc = 0;
+find(np, (n) => n.p?.['data-cpb-projects'] !== undefined)[0].p.onKeyDown(ev({ key: 'Escape', stopPropagation() { stopEsc += 1; } }));
+assert.equal(board.getSnapshot().draft?.find, null, 'Esc closes the list'); assert.ok(board.getSnapshot().draft !== null && stopEsc === 1, 'not the panel');
+np = newPanel(); projectButton().p.onClick(); np = newPanel();
+find(np, (n) => n.p?.className === 'cpb-nav' && n.c[1].c[0] === 'acme')[0].p.onClick();
+assert.equal(board.getSnapshot().draft.project, 'w1', 'a click picks a project'); assert.equal(board.getSnapshot().draft.find, null);
+np = newPanel(); projectButton().p.onClick(); np = newPanel();
+find(np, (n) => n.p?.['data-cpb-prompt'] !== undefined)[0].p.onFocus();
+assert.equal(board.getSnapshot().draft.find, null, 'a focus in the prompt closes the list');
+board.close();
+
 // The off state and an older Host.
 globalThis.fetch = async () => Response.json({ error: 'Task board is off' }, { status: 409 });
 await board.load(true); assert.equal(board.getSnapshot().off, true);

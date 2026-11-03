@@ -183,7 +183,26 @@ try {
       let open; release = new Promise((r) => { open = r; });
       await boardPage.locator('[data-cpb-new]').click();
       const prompt = page.locator('[data-cpb-prompt]'); await prompt.waitFor();
-      await prompt.fill(P.chess); await prompt.press('Enter');
+      // New task → Project: the button opens the projects with a search box. Type, Enter picks; Esc closes only the list.
+      const projectButton = page.locator('[data-cpb-project]');
+      assert.equal(await projectButton.innerText(), 'acme-web');
+      await prompt.fill(P.chess);
+      await projectButton.click();
+      const pickBox = page.locator('[data-cpb-projects] input[type="search"]');
+      await pickBox.waitFor(); assert.equal(await pickBox.getAttribute('placeholder'), 'Search projects');
+      assert.ok(await pickBox.evaluate((el) => el === document.activeElement), 'the search box has the focus');
+      await pickBox.pressSequentially('DOCS'); await until(async () => (await page.locator('[data-cpb-projects] .cpb-nav').allInnerTexts()).join() === 'docs-site', 'search in New task', 5000);
+      await pickBox.press('Enter');
+      await until(async () => (await projectButton.getAttribute('data-cpb-project')) === ids['docs-site'], 'Enter picks docs-site', 5000);
+      assert.equal(await page.locator('[data-cpb-projects]').count(), 0, 'the list closes');
+      await projectButton.click(); await pickBox.waitFor(); await pickBox.press('Escape');
+      await page.locator('[data-cpb-projects]').waitFor({ state: 'detached' });
+      assert.equal(await page.locator('[data-cpb-panel="new"]').count(), 1, 'Esc closes the list, not the panel');
+      await projectButton.click(); await page.locator('[data-cpb-projects] .cpb-nav', { hasText: 'acme-web' }).click();
+      await until(async () => (await projectButton.getAttribute('data-cpb-project')) === ids['acme-web'], 'a click picks acme-web', 5000);
+      assert.equal(await prompt.inputValue(), P.chess, 'the prompt is kept');
+      console.log('  1c: New task → Project: search (DOCS → docs-site, Enter), Esc closes only the list, a click picks acme-web');
+      await prompt.press('Enter');
       await until(async () => (await titles('doing')).includes('Chess game') || (await titles('todo')).length > 0, 'the card shows at once', 15000);
       await until(async () => (await titles('doing')).includes('Chess game'), async () => `doing: ${await titles('doing')} todo: ${await titles('todo')}`, 20000);
       await until(async () => (await card('Chess game').locator('[data-cpb-tag]').allInnerTexts()).join() === 'chess,game', 'the tags', 15000);
