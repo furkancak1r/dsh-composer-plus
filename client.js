@@ -3883,10 +3883,12 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
 
     const COLLAPSE_HOST = 'data-composer-plus-collapse-projects';
     const OPEN_PROJECT = '[data-row-key^="workspace:"][aria-expanded="true"]';
-    /** The button shows only while a project is open (CSS `:has`, so no state to keep in sync). dsh caps its header action
-     * group at 60px for its own two buttons, so the cap grows while this button is in the group. */
-    const COLLAPSE_CSS = `[${COLLAPSE_HOST}] { display: none; }
-body:has(${OPEN_PROJECT}) [${COLLAPSE_HOST}] { display: inline-flex; }
+    /** The host shows only while it holds the button, that is while a project is open. dsh caps its header action group at
+     * 60px for its own two buttons, so the cap grows while this host is in the group.
+     * No `:has()` on <body>: with it, the browser computed the style of the whole page again at each DOM change, such as
+     * each key press in a text field (test/has-selectors.test.mjs). */
+    const COLLAPSE_CSS = `[${COLLAPSE_HOST}] { display: inline-flex; }
+[${COLLAPSE_HOST}]:empty { display: none; }
 [class*="_headerActions"]:has(> [${COLLAPSE_HOST}]):not([class*="_headerActionsHidden"]) { max-width: 92px; }
 [${COLLAPSE_HOST}] > button { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px;
   padding: 0; border: none; border-radius: var(--dsw-radius-sm); background: none; color: var(--dsw-alias-label-secondary); cursor: pointer; }
@@ -3899,8 +3901,10 @@ body:has(${OPEN_PROJECT}) [${COLLAPSE_HOST}] { display: inline-flex; }
      * shown. Upgrade when dsh adds a header slot. */
     function CollapseProjectsButton({ t }) {
       const [host, setHost] = React.useState(null);
+      const [open, setOpen] = React.useState(false); // a project row is open
       React.useEffect(() => {
         const scan = () => {
+          setOpen(document.querySelector(OPEN_PROJECT) !== null);
           let next = document.querySelector(`[${COLLAPSE_HOST}]`);
           if (next === null) {
             const list = document.querySelector('[data-row-key^="workspace:"]')?.closest('[class*="_listArea"]');
@@ -3915,7 +3919,8 @@ body:has(${OPEN_PROJECT}) [${COLLAPSE_HOST}] { display: inline-flex; }
         };
         scan();
         const observer = new MutationObserver(scan);
-        observer.observe(document.body, { childList: true, subtree: true });
+        // A project opens or closes with dsh's `aria-expanded` on its row; an empty project adds no rows.
+        observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-expanded'] });
         return () => { observer.disconnect(); document.querySelector(`[${COLLAPSE_HOST}]`)?.remove(); };
       }, []);
       const collapse = (event) => {
@@ -3932,7 +3937,7 @@ body:has(${OPEN_PROJECT}) [${COLLAPSE_HOST}] { display: inline-flex; }
         React.createElement('path', { d: 'm5.1 3.1 2.9 2.9 2.9-2.9' }), React.createElement('path', { d: 'm5.1 12.9 2.9-2.9 2.9 2.9' })));
       const trigger = primitives.Tooltip === undefined ? button : React.createElement(primitives.Tooltip, { label, side: 'bottom', delayMs: 500 }, button);
       return React.createElement(React.Fragment, null, React.createElement('style', null, COLLAPSE_CSS),
-        host === null || createPortal === undefined ? null : createPortal(trigger, host));
+        host === null || createPortal === undefined || !open ? null : createPortal(trigger, host));
     }
 
     /** Sidebar → view options → Order by → "By status": with "In one list", finished chats (unread completion, which also
