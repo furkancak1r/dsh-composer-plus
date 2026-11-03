@@ -173,6 +173,9 @@ echo "https://github.com/acme/web/issues/7"
       await page.getByRole('button', { name: 'Open right sidebar' }).click(); await pause(700);
       await page.getByText('Changes', { exact: true }).first().click();
       const panel = page.locator('[data-composer-plus-changes]'); await panel.waitFor({ timeout: 8000 });
+      // The panel opens on Tree (the branch map): the file list is in Uncommitted.
+      await panel.getByRole('button', { name: /^Tree/ }).first().click();
+      await page.getByText('Uncommitted', { exact: true }).last().click();
       await panel.locator('[data-composer-plus-file-menu="app.js"]').waitFor({ timeout: 15000 });
       await panel.locator('[data-composer-plus-file-menu="app.js"]').click();
       await page.getByRole('menuitem', { name: 'Chats that changed this file' }).click();
