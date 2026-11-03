@@ -1,7 +1,7 @@
 // Real-app check of the five-feature change on each dsh given (fake model, throwaway DSH_HOME, made-up git projects, a
 // fake `gh` first on PATH that writes its arguments and stdin to a file and prints an issue URL; headless, no GitHub):
-// 1. Git branch on chat rows: after a turn the chat row shows `main`; `git switch -c feature/login` + one more turn → the
-//    pill shows `feature/login`; switched off → no pill.
+// 1. Git branch on chat rows: in dsh's "In one list" view, after a turn the chat row shows `main`; `git switch -c
+//    feature/login` + one more turn → the pill shows `feature/login`; in the Workspace view no chat row has a pill.
 // 2. Chats that changed this file: two chats write app.js; Changes → app.js "…" → Chats that changed this file lists both,
 //    newest first; a click on the older one opens that chat and its request blinks.
 // 3. Find in chat: Cmd+F on a Mac (Ctrl+F elsewhere) opens the box, Ctrl+F on a Mac does not; "npm test" → "1 / 3" and CSS
@@ -135,23 +135,34 @@ echo "https://github.com/acme/web/issues/7"
         await page.getByRole('button', { name: 'New session in acme-web', exact: true }).click(); await pause(800);
       };
 
-      // 1. Git branch on chat rows.
+      // 1. Git branch on chat rows: only in dsh's "In one list" view; under a project row (Workspace view) no pill.
+      const view = async (groupBy) => {
+        await page.evaluate((g) => { const v = JSON.parse(localStorage.getItem('dsh.workspace.view.v5') ?? 'null') ?? { orderBy: 'updated', groupExpansion: {}, sessionOrderByAccount: {}, archivedFilter: 'default' }; localStorage.setItem('dsh.workspace.view.v5', JSON.stringify({ ...v, groupBy: g })); }, groupBy);
+        await page.reload(); await page.locator('[data-row-key^="session:"]').first().waitFor({ timeout: 15000 }); await input.waitFor({ timeout: 20000 });
+      };
       await send('Edit app 1', 'Edited app 1.');
       assert.equal(await readFile(join(project, 'app.js'), 'utf8'), 'export const v = 1;\n', 'the first chat wrote app.js');
       const chat1 = await current(); assert.ok(chat1, 'the open chat has a sidebar row');
       const pill = (id) => page.locator(`[data-row-key="session:${id}"] [data-composer-plus-branch-name]`);
+      await view('flat');
       await pill(chat1).waitFor({ timeout: 10000 });
       assert.equal(await pill(chat1).getAttribute('data-composer-plus-branch-name'), 'main');
       git(project, 'switch', '-q', '-c', 'feature/login');
       await send('Say hello', 'Hello there.');
       await page.waitForFunction((id) => document.querySelector(`[data-row-key="session:${id}"] [data-composer-plus-branch-name]`)?.dataset.composerPlusBranchName === 'feature/login', chat1, { timeout: 10000 });
       assert.equal(await pill(chat1).getAttribute('title'), 'Git branch at the last turn: feature/login');
-      git(project, 'switch', '-q', 'main');
       if (process.env.SHOT) {
         const r = await page.locator(`[data-row-key="session:${chat1}"]`).boundingBox(); const shot = join(home, 'branch.png');
         await page.screenshot({ path: shot, clip: { x: 0, y: Math.max(0, r.y - 60), width: Math.min(360, r.x + r.width + 8), height: r.height + 100 } }); webp(shot, 'sessionBranch');
       }
-      step('Git branch on chat rows');
+      step('Git branch on chat rows: "In one list" shows main, then feature/login');
+      await view('workspace');
+      await page.locator(`[data-row-key="workspace:${wid}"]`).waitFor({ timeout: 10000 });
+      await pause(1500);
+      assert.equal(await pill(chat1).count(), 0, 'no branch pill under the project row (Workspace view)');
+      assert.equal(await page.locator('[data-composer-plus-branch-name]').count(), 0, 'no branch pill on any chat row in the Workspace view');
+      git(project, 'switch', '-q', 'main');
+      step('Git branch on chat rows: no pill in the Workspace view');
 
       // 2. Chats that changed this file: a second chat writes app.js too.
       await newChat();
