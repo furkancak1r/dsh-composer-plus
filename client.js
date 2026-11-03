@@ -6173,10 +6173,10 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             if (!live && result.application !== 'restart-required' && result.version !== info.latest) throw new Error(firstLine());
             if (result.application === 'failed') console.warn(`dsh-composer-plus: ${info.latest} is installed; dsh could not start it before a restart: ${firstLine()}`);
             try { localStorage.setItem(UPDATE_KEY, info.latest); } catch { /* the status below still says restart */ }
-            // What's new: the notes of this check's own GitHub answer, shown once when this version runs.
-            if (typeof info.notes === 'string' && info.notes !== '') {
-              try { localStorage.setItem(WHATS_NEW_KEY, JSON.stringify({ version: info.latest, notes: info.notes, url: info.url })); } catch { /* no dialog then */ }
-            }
+            // What's new, shown once when this version runs: the new copy's Host gives its notes in each UI language; the
+            // notes of this check's own GitHub answer (English) are kept for a copy that ships none.
+            const notes = typeof info.notes === 'string' && info.notes !== '' ? { notes: info.notes } : {};
+            try { localStorage.setItem(WHATS_NEW_KEY, JSON.stringify({ version: info.latest, ...notes, url: info.url })); } catch { /* no dialog then */ }
             notifyInstalled(info.latest, live);
             return set(live ? { status: 'current', info: { ...info, current: info.latest, newer: false } } : { status: 'restart', info });
           } catch (error) { return set({ status: 'error', info, error: String(error?.message ?? error) }); }
@@ -6185,14 +6185,23 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       };
       return updater;
     }
-    /** What's new: after an update installed version X (`WHATS_NEW_KEY`: X, its release notes and link), the first start that
-     * runs X shows the notes once. The Host tells the running version (`?current=1`, no network call). The record goes away
+    /** What's new: after an update installed version X (`WHATS_NEW_KEY`: X, its link and GitHub's English notes), the first
+     * start that runs X shows the notes once, in the UI language. The Host tells the running version and the notes that ship
+     * with it in each language (`?current=1`, no network call). The record goes away
      * when it shows or when a newer version runs; it stays while dsh still runs an older copy (a restart is pending) or the
      * Host does not answer. One load per start, and the record is taken out of storage before the Host call, so a second
      * window that starts at the same time finds nothing; it goes back only when it must wait (and no newer record came). */
     const WHATS_NEW_KEY = 'dsh-composer-plus.update.whatsNew';
     const versionOf = (text) => { const m = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})$/.exec(String(text ?? '')); return m === null ? undefined : m.slice(1).map(Number); };
     const compareVersions = (a, b) => { for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i]; return 0; };
+    /** The id of `ids` for a UI language: the same id (any case), else its base language (`tr-TR` → `tr`, `en-GB` → `en`). */
+    const matchLanguage = (ids, active) => {
+      const lower = String(active ?? '').toLowerCase();
+      return ids.find((x) => x.toLowerCase() === lower) ?? ids.find((x) => x.toLowerCase() === lower.split('-')[0]);
+    };
+    /** `{ [language]: notes }` from the Host's answer; only language ids with a text. */
+    const notesByLanguage = (value) => (value !== null && typeof value === 'object' ? Object.fromEntries(Object.entries(value)
+      .filter(([id, text]) => /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/.test(id) && typeof text === 'string' && text.trim() !== '')) : {});
     function createWhatsNew() {
       let note = null;
       let loaded = false;
@@ -6212,24 +6221,38 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           let saved;
           try { saved = JSON.parse(raw); } catch { saved = undefined; }
           const version = versionOf(saved?.version);
-          if (version === undefined || typeof saved.notes !== 'string' || saved.notes.trim() === '') return;
-          let current;
+          if (version === undefined) return;
+          let current, shipped = {};
           try {
             const response = await fetch('/api/composer-plus.update?current=1');
-            current = versionOf(response.ok ? (await response.json()).current : undefined);
+            const answer = response.ok ? await response.json() : undefined;
+            current = versionOf(answer?.current);
+            shipped = notesByLanguage(answer?.notes);
           } catch { current = undefined; }
           if (current === undefined) { keep(); return; } // the Host did not answer: try again at the next start
           const order = compareVersions(current, version);
           if (order < 0) { keep(); return; } // dsh still runs the older copy until it restarts
-          if (order === 0) set({ version: saved.version, notes: saved.notes, url: typeof saved.url === 'string' && saved.url.startsWith('https://github.com/') ? saved.url : undefined });
+          if (order !== 0) return;
+          // The saved GitHub body is the English notes when this copy ships none (or no English ones).
+          const notes = { ...(typeof saved.notes === 'string' && saved.notes.trim() !== '' ? { en: saved.notes } : {}), ...shipped };
+          if (Object.keys(notes).length > 0) set({ version: saved.version, notes, url: typeof saved.url === 'string' && saved.url.startsWith('https://github.com/') ? saved.url : undefined });
         },
       };
     }
     /** Release notes are Markdown; the dialog shows them as plain text (no HTML): headings and bold marks go. */
     const plainNotes = (text) => text.replace(/^#{1,6}\s+/gm, '').replace(/\*\*([^*\n]+)\*\*/g, '$1');
-    function WhatsNewDialog({ whatsNew, t }) {
+    /** The notes in the UI language; a language without notes gets the English ones (the owner's choice). ponytail: a map
+     * with no English notes (a broken file) shows its first language rather than nothing. */
+    const notesIn = (notes, active) => {
+      const id = matchLanguage(Object.keys(notes), active) ?? (Object.hasOwn(notes, 'en') ? 'en' : Object.keys(notes)[0]);
+      return { lang: id, text: notes[id] };
+    };
+    function WhatsNewDialog({ whatsNew, locale, t }) {
       const note = React.useSyncExternalStore(whatsNew.subscribe, whatsNew.getSnapshot);
+      // The notes follow a language change while the dialog is open.
+      const active = React.useSyncExternalStore((fn) => locale?.subscribe?.(fn) ?? (() => {}), () => locale?.getSnapshot?.()?.active ?? 'en');
       if (note === null || primitives.Modal === undefined) return null;
+      const shown = notesIn(note.notes, active);
       return React.createElement(primitives.Modal, {
         open: true,
         onClose: whatsNew.close,
@@ -6239,8 +6262,8 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           note.url === undefined ? null : React.createElement('a', { href: note.url, target: '_blank', rel: 'noopener noreferrer', 'data-composer-plus-whats-new-link': '',
             style: { color: 'inherit', fontSize: 13, alignSelf: 'center', marginRight: 'auto' } }, t('update.notes')),
           React.createElement(primitives.Button, { variant: 'outline', 'data-composer-plus-whats-new-close': '', onClick: whatsNew.close }, t('shot.close'))),
-      }, React.createElement('div', { 'data-composer-plus-whats-new': note.version, tabIndex: 0,
-        style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '55vh', overflowY: 'auto', fontSize: 13, lineHeight: '20px' } }, plainNotes(note.notes)));
+      }, React.createElement('div', { 'data-composer-plus-whats-new': note.version, lang: shown.lang, tabIndex: 0,
+        style: { whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', maxHeight: '55vh', overflowY: 'auto', fontSize: 13, lineHeight: '20px' } }, plainNotes(shown.text)));
     }
     function UpdateSettings({ updater, t }) {
       const state = React.useSyncExternalStore(updater.subscribe, updater.getSnapshot);
@@ -6279,9 +6302,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
      * The anchor is the row id that scripts/build-docs.mjs writes (GitHub keeps it in lower case). */
     const README_URL = 'https://github.com/furkancak1r/dsh-composer-plus/blob/main/';
     const readmeFile = (active) => {
-      const ids = ['zh', ...LANGUAGES.map((l) => l.id)];
-      const lower = String(active ?? '').toLowerCase();
-      const id = ids.find((x) => x.toLowerCase() === lower) ?? ids.find((x) => x.toLowerCase() === lower.split('-')[0]);
+      const id = matchLanguage(['zh', ...LANGUAGES.map((l) => l.id)], active);
       return id === undefined ? 'README.md' : `README.${id}.md`;
     };
     const helpUrl = (id, active) => `${README_URL}${readmeFile(active)}#feature-${id.toLowerCase()}`;
@@ -8275,7 +8296,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             name: 'shell.overlay',
             id: 'whats-new',
             locale: LOCALE_NS,
-            inject: () => ({ whatsNew }),
+            inject: () => ({ whatsNew, locale: ctx.locale }),
           }, WhatsNewDialog))];
         });
         feature('mobileConnect', () => [ctx.slots.inject('sidebar.footer.action', () => ctx.slots.register({

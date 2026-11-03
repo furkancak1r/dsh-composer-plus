@@ -1,6 +1,6 @@
 // Update check (Host) and Settings updater / start-up auto-update (Client), without network.
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
-import { checkUpdate, parseVersion, newer, releaseNotes, NOTES_MAX, apply, UPDATE_PATH } from '../index.js';
+import { checkUpdate, parseVersion, newer, releaseNotes, shippedNotes, NOTES_MAX, apply, UPDATE_PATH } from '../index.js';
 assert.deepEqual(parseVersion('v1.2.3'), [1, 2, 3]); assert.equal(parseVersion('1.2.0-beta.1'), undefined); assert.equal(parseVersion('latest'), undefined);
 assert.ok(newer([1, 10, 0], [1, 9, 9]) && !newer([1, 1, 1], [1, 1, 1]) && !newer([1, 0, 9], [1, 1, 0]));
 const fake = (tag, npmOk = true, gh = 200) => async (url) => url.includes('api.github.com')
@@ -21,12 +21,15 @@ assert.ok(!('notes' in await checkUpdate(withBody('## Install\n\nonly install'),
 assert.ok(!('notes' in await checkUpdate(withBody(null), pkg)) && !('notes' in await checkUpdate(withBody({ x: 1 }), pkg)) && !('notes' in await checkUpdate(withBody('  '), pkg)), 'no text body: no notes');
 assert.equal(releaseNotes('a'.repeat(NOTES_MAX + 50)).length, NOTES_MAX, 'long notes are cut');
 assert.equal(releaseNotes('Fixes.\n### Install notes\nkeep'), 'Fixes.\n### Install notes\nkeep', 'only a "## Install" heading cuts');
-{ // `?current=1`: the running version, with no network call.
+{ // `?current=1`: the running version and its shipped notes in each language, with no network call.
   const routes = new Map(); const realFetch = globalThis.fetch; let fetched = 0; globalThis.fetch = async () => { fetched++; return new Response('{}'); };
   const home = (await import('node:fs')).mkdtempSync((await import('node:path')).join((await import('node:os')).tmpdir(), 'cp-update-')); process.env.DSH_HOME = home;
   apply({ on() {}, effect() {}, connection: { fetch: { register: (r) => routes.set(r.path, r) } }, sessionController: {}, sessionQuery: {}, subprocess: {} });
   const answer = await routes.get(UPDATE_PATH).fetch(new Request(`http://h${UPDATE_PATH}?current=1`));
-  assert.deepEqual(await answer.json(), { current: JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).version }); assert.equal(fetched, 0, 'no network call');
+  const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url))).version;
+  const notes = shippedNotes(readFileSync(new URL('../release-notes.json', import.meta.url), 'utf8'), version);
+  assert.ok(notes?.tr && notes.en && notes.tr !== notes.en, 'this copy ships its notes in Turkish and English');
+  assert.deepEqual(await answer.json(), { current: version, notes }); assert.equal(fetched, 0, 'no network call');
   globalThis.fetch = realFetch; delete process.env.DSH_HOME; await new Promise((r) => setTimeout(r, 50)); (await import('node:fs')).rmSync(home, { recursive: true, force: true }); }
 
 // Client: real client.js with a fake /api/composer-plus.update, plugin manager and Notification.
@@ -93,9 +96,10 @@ mem.set('dsh-composer-plus.features', JSON.stringify({ autoUpdate: false })); ti
 // What's new: an update with notes keeps them; the first start that runs that version shows them once, closable.
 { const KEY = 'dsh-composer-plus.update.whatsNew';
   globalThis.localStorage.removeItem = (k) => { mem.delete(k); };
-  let running = '1.1.1'; const asked = [];
+  // `shipped`: the notes that the running copy's Host gives (`?current=1`); `lang`: dsh's active UI language.
+  let running = '1.1.1', shipped = null, lang = 'en'; const asked = [];
   globalThis.fetch = async (url) => {
-    if (url === '/api/composer-plus.update?current=1') { asked.push(url); return running === null ? new Response('not found', { status: 404 }) : new Response(JSON.stringify({ current: running })); }
+    if (url === '/api/composer-plus.update?current=1') { asked.push(url); return running === null ? new Response('not found', { status: 404 }) : new Response(JSON.stringify(shipped === null ? { current: running } : { current: running, notes: shipped })); }
     return url === '/api/composer-plus.update' ? new Response(JSON.stringify(answer.body)) : new Response('{}');
   };
   const R = { createElement: (t, p, ...c) => ({ t, p, c }), Fragment: 'F', useSyncExternalStore: (_, get) => get() };
@@ -103,12 +107,12 @@ mem.set('dsh-composer-plus.features', JSON.stringify({ autoUpdate: false })); ti
   const settle = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
   const start = async () => {
     const regs = new Map(); timers = [];
-    p2.apply({ effect: () => {}, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: () => (k) => k },
+    p2.apply({ effect: () => {}, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: () => (k) => k, subscribe: () => () => {}, getSnapshot: () => ({ active: lang }) },
       slots: { inject: (_, f) => f(), register: (o, C) => { regs.set(o.id, { o, C }); return () => { regs.delete(o.id); }; } },
       inject: (deps, setup) => { if (deps[0] === 'remote.pluginManager') setup({ remote: { pluginManager: { installBundle: async () => ({ ok: true, value: { application: 'restart-required' } }) } }, effect: () => {} }); return { dispose() {} }; } });
     await settle();
     const seat = regs.get('whats-new');
-    return { regs, seat, render: () => seat.C({ ...seat.o.inject(), t: (k, v) => (v?.version ? `${k}:${v.version}` : k) }) };
+    return { regs, seat, render: (extra = {}) => seat.C({ ...seat.o.inject(), t: (k, v) => (v?.version ? `${k}:${v.version}` : k), ...extra }) };
   };
   mem.clear(); answer = info('1.2.0', { url: 'https://github.com/x/releases/tag/v1.2.0', notes: '## Tether\n\n- **New:** a thing.' });
   let s = await start(); assert.equal(s.seat.o.name, 'shell.overlay'); assert.equal(s.render(), null, 'nothing to show before an update');
@@ -141,8 +145,33 @@ mem.set('dsh-composer-plus.features', JSON.stringify({ autoUpdate: false })); ti
     let release; const slow = globalThis.fetch; globalThis.fetch = (url) => new Promise((r) => { release = () => r(new Response(JSON.stringify({ current: '1.2.0' }))); });
     await start(); mem.set(KEY, JSON.stringify({ version: '1.4.0', notes: 'Newer.' })); release(); await settle(); globalThis.fetch = slow;
     assert.equal(JSON.parse(mem.get(KEY)).version, '1.4.0', 'a newer record that came meanwhile stays'); }
-  // A release without notes keeps no record.
-  mem.clear(); running = '1.1.1'; answer = info('1.2.0'); s = await start(); await timers.find((t) => t.ms === 15000 && t.live).f(); assert.ok(!mem.has(KEY));
+  // A release without a GitHub body still keeps a record: the new copy's Host gives the notes.
+  mem.clear(); running = '1.1.1'; answer = info('1.2.0'); s = await start(); await timers.find((t) => t.ms === 15000 && t.live).f();
+  assert.deepEqual(JSON.parse(mem.get(KEY)), { version: '1.2.0' }, 'a record without notes');
+  // ... and when that copy ships none either, nothing shows and the record goes.
+  running = '1.2.0'; s = await start(); assert.equal(s.render(), null); assert.ok(!mem.has(KEY));
+  // The notes in the UI language: the shipped notes of the running copy, the same id first, then its base language,
+  // else English (a language without notes). The text has the `lang` of the notes that it shows.
+  { shipped = { en: 'English.', zh: '中文。', tr: 'Türkçe.', 'pt-BR': 'Português.' };
+    const body = (tree) => [tree.c[0].p.lang, tree.c[0].c[0]];
+    mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'GitHub English.' })); lang = 'tr'; s = await start(); let tree = s.render();
+    assert.deepEqual(body(tree), ['tr', 'Türkçe.'], 'Turkish UI: Turkish notes');
+    for (const [ui, want] of [['tr-TR', ['tr', 'Türkçe.']], ['pt-br', ['pt-BR', 'Português.']], ['zh', ['zh', '中文。']], ['en-GB', ['en', 'English.']], ['it', ['en', 'English.']], ['pt-PT', ['en', 'English.']]]) {
+      lang = ui; assert.deepEqual(body(s.render()), want, `${ui} UI`);
+    }
+    assert.deepEqual(body(s.render({ locale: undefined })), ['en', 'English.'], 'no locale service: English');
+    tree.p.onClose();
+    // A copy that ships notes for some languages: the rest gets GitHub's English body of the record.
+    // Not text, blank, or not a language id (`__proto__` stays plain data): left out.
+    shipped = JSON.parse('{"tr":"Türkçe.","de":5,"fr":"  ","__proto__":"Proto.","EN_us":"Bad id."}');
+    mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'GitHub English.' })); lang = 'de'; s = await start();
+    assert.deepEqual(body(s.render()), ['en', 'GitHub English.'], 'German UI, no German notes: English');
+    for (const ui of ['fr', '__proto__', 'EN_us']) { lang = ui; assert.deepEqual(body(s.render()), ['en', 'GitHub English.'], `${ui}: left out`); }
+    lang = 'tr'; assert.deepEqual(body(s.render()), ['tr', 'Türkçe.']);
+    // An older copy's Host (no notes in its answer): the record's English notes in any UI language.
+    shipped = null; mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'GitHub English.' })); lang = 'tr'; s = await start();
+    assert.deepEqual(body(s.render()), ['en', 'GitHub English.'], 'no shipped notes: the saved English notes');
+    lang = 'en'; running = '1.1.1'; }
   // Automatic updates switched off: no dialog seat and no Host call.
   mem.set(KEY, JSON.stringify({ version: '1.1.1', notes: 'x' })); mem.set('dsh-composer-plus.features', JSON.stringify({ autoUpdate: false })); const before = asked.length;
   s = await start(); assert.equal(s.seat, undefined); assert.equal(asked.length, before); assert.ok(mem.has(KEY)); }

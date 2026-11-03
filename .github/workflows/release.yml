@@ -2,7 +2,8 @@ name: release
 # Publishes each GitHub release to npm with trusted publishing (OIDC). No npm token is stored.
 # Release events publish only when the repository variable NPM_TRUSTED_PUBLISHING is "on".
 # One-time setup (npm asks for 2FA once): ~/ai-maintenance/dsh-composer-plus/bin/npm-setup.sh
-# Manual run: tag = vX.Y.Z publishes that release again if npm does not have it.
+# Manual run: tag = vX.Y.Z publishes that release again if npm does not have it (after a failed notes check: fix the
+# body with gh release edit or the file with a new commit and tag, then run it again).
 # No tag = check publish <x.y.z>-trust.<run> with npm tag "trust-check"; the plugin and "npm install" ignore it.
 on:
   release:
@@ -30,6 +31,11 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
       - run: git config --global user.email ci@example.com && git config --global user.name ci
+      # What's new shows release-notes.json in the UI language: every release needs the notes in all 13 languages, and the
+      # GitHub release body must be the English notes (older copies save it). v1.18.0 and older tags have no such script.
+      - name: Check release notes
+        if: env.TAG != '' && hashFiles('scripts/release-notes.mjs') != ''
+        run: node scripts/release-notes.mjs
       - run: npm test
       - name: Publish
         run: |
