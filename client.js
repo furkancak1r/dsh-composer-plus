@@ -1047,9 +1047,6 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     const BOARD_KEYS = { project: 'dsh-composer-plus.board.project', hideDone: 'dsh-composer-plus.board.hideDone', recent: 'dsh-composer-plus.board.recent' };
     const BOARD_STATUSES = ['todo', 'doing', 'review', 'done'];
     const BOARD_ASKS = ['approval', 'question', 'plan-review'];
-    const BOARD_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#14b8a6', '#3b82f6', '#a855f7', '#ec4899'];
-    /** A stable color per project id. */
-    const boardColor = (id) => { let n = 0; for (const ch of String(id ?? '')) n = (n * 31 + ch.codePointAt(0)) >>> 0; return BOARD_COLORS[n % BOARD_COLORS.length]; };
     const boardSaved = (key, fallback) => { try { const raw = localStorage.getItem(key); return raw === null ? fallback : JSON.parse(raw); } catch { return fallback; } };
     const boardSave = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode: the choice lasts this page */ } };
     /** "now", "5m ago", "3h ago", "2d ago" (dsh's UI language), then a date. `at`: epoch ms or an ISO time. */
@@ -1104,7 +1101,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           // The new chat that New task opened, before its first message: Todo (a click opens it). Other blank chats never show.
           const pid = chatProject.get(id);
           if (id === task && (project === 'all' || pid === project)) {
-            columns.todo.push({ id, title: '', prompt: '', tags: [], projectId: pid, project: pid === undefined ? undefined : byProject.get(pid)?.name, updatedAt: summary.updatedAt ?? 0, state: 'draft' });
+            columns.todo.push({ id, title: '', prompt: '', tags: [], project: pid === undefined ? undefined : byProject.get(pid)?.name, updatedAt: summary.updatedAt ?? 0, state: 'draft' });
           }
           continue;
         }
@@ -1122,7 +1119,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         if (project !== 'all' && projectId !== project) continue;
         const m = meta[id];
         const card = { id, title: (summary.title === undefined && m?.prompt ? m.prompt.split('\n')[0] : undefined) ?? summary.displayTitle ?? id, prompt: m?.prompt ?? '',
-          tags: m?.tags ?? [], projectId, project: p?.name, updatedAt: summary.updatedAt ?? m?.at ?? 0,
+          tags: m?.tags ?? [], project: p?.name, updatedAt: summary.updatedAt ?? m?.at ?? 0,
           state: ask !== undefined ? 'waiting' : running ? 'running' : status?.completionUnread === true ? 'unread' : 'read', ...(ask === undefined ? {} : { ask }) };
         columns[ask !== undefined ? 'review' : running ? 'doing' : 'done'].push(card);
       }
@@ -1263,8 +1260,9 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     }
     const BoardIcon = ({ size = 16 }) => React.createElement('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, 'aria-hidden': true },
       React.createElement('rect', { x: 1.75, y: 2.25, width: 12.5, height: 11.5, rx: 2 }), React.createElement('path', { d: 'M5.75 2.5v11M10.25 2.5v11M3.5 5h.5M7.75 5h.5M7.75 7.5h.5M12 5h.5', strokeLinecap: 'round' }));
-    const BoardFolder = ({ color }) => React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true },
-      React.createElement('path', { d: 'M1.75 4.25c0-.83.67-1.5 1.5-1.5h3l1.5 1.75h5c.83 0 1.5.67 1.5 1.5v6.25c0 .83-.67 1.5-1.5 1.5H3.25c-.83 0-1.5-.67-1.5-1.5V4.25Z', stroke: color, strokeWidth: 1.2, strokeLinejoin: 'round' }));
+    // The board's only colors are the states (orange, blue, green): a project has no color of its own.
+    const BoardFolder = () => React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true },
+      React.createElement('path', { d: 'M1.75 4.25c0-.83.67-1.5 1.5-1.5h3l1.5 1.75h5c.83 0 1.5.67 1.5 1.5v6.25c0 .83-.67 1.5-1.5 1.5H3.25c-.83 0-1.5-.67-1.5-1.5V4.25Z', stroke: 'currentColor', strokeWidth: 1.2, strokeLinejoin: 'round' }));
 
     const BOARD_CSS = `
 .cpb-page{position:relative;display:flex;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font-size:14px;line-height:1.5}
@@ -1457,7 +1455,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           h('div', { className: 'cpb-cardtop' }, dot(c), h('span', { className: 'cpb-cardtitle', 'data-cpb-title': '' }, titleOf(c))),
           c.prompt && c.prompt.split('\n')[0] !== c.title ? h('div', { className: 'cpb-preview' }, c.prompt) : null,
           h('div', { className: 'cpb-meta' },
-            state.project === 'all' && c.project ? h('span', { className: 'cpb-chip' }, h('span', { style: { width: 6, height: 6, borderRadius: '50%', background: boardColor(c.projectId), flex: 'none' } }), c.project) : null,
+            state.project === 'all' && c.project ? h('span', { className: 'cpb-chip' }, c.project) : null,
             ...c.tags.map((tag) => h('span', { key: tag, className: 'cpb-tag', 'data-cpb-tag': tag }, tag)),
             h('span', { className: 'cpb-when', 'data-cpb-when': '' }, c.state === 'draft' ? t('board.waitingFirst') : boardWhen(c.updatedAt, locale))),
           c.ask ? h('div', { className: 'cpb-wait' }, h('span', null, waitText(c.ask.kind)),
@@ -1487,7 +1485,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           projects.length > 0 ? h('button', { type: 'button', className: 'cpb-filter', 'data-cpb-recent': '', 'aria-pressed': state.recent, onClick: () => board.toggleRecent() },
             primitives.IconAlarmClockOutlineRegular === undefined ? null : h(primitives.IconAlarmClockOutlineRegular, { size: 14 }), h('span', null, t('recentProjects.option'))) : null,
           ...listed.map((p) => h('button', { key: p.id, type: 'button', className: 'cpb-nav', title: p.path, 'aria-current': state.project === p.id ? 'page' : undefined, onClick: () => board.setProject(p.id) },
-            h(BoardFolder, { color: boardColor(p.id) }), h('span', null, p.name), h('span', { className: 'cpb-count' }, p.active > 0 ? String(p.active) : ''))),
+            h(BoardFolder), h('span', null, p.name), h('span', { className: 'cpb-count' }, p.active > 0 ? String(p.active) : ''))),
           projects.length > 0 && listed.length === 0 ? h('div', { className: 'cpb-muted', role: 'status', 'data-cpb-noproject': '', style: { padding: '6px 10px', fontSize: 12 } }, t('projectPicker.empty')) : null),
         h('div', { className: 'cpb-main' },
           h('header', { className: 'cpb-head' },

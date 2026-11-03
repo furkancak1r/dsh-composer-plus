@@ -292,6 +292,13 @@ try {
         side.style.height = ''; return out;
       });
       assert.ok(heights.scrolls && heights.search >= heights.nav, `the search box is as tall as a project row in a long list (${JSON.stringify(heights)})`);
+      // Only the states have colors: a project folder has the row's text color, and a card's project chip has no dot.
+      const colors = await boardPage.evaluate((el) => ({
+        folders: [...el.querySelectorAll('.cpb-nav')].slice(1).map((n) => getComputedStyle(n.querySelector('path')).stroke === getComputedStyle(n).color),
+        chips: [...el.querySelectorAll('.cpb-card .cpb-chip')].map((c) => c.children.length),
+      }));
+      assert.ok(colors.folders.length === 2 && colors.folders.every(Boolean), `a project folder has no color of its own (${JSON.stringify(colors)})`);
+      assert.ok(colors.chips.every((n) => n === 0), `a card's project has no colored dot (${JSON.stringify(colors)})`);
       await search.fill('DOCS'); await until(async () => (await navs()).join() === 'All projects,docs-site', async () => `search: ${await navs()}`, 5000);
       await search.press('Escape'); assert.equal(await search.inputValue(), '', 'Esc empties the box');
       assert.equal(await boardPage.count(), 1, 'and the page stays');

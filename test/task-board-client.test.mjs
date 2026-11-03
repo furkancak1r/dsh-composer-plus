@@ -234,6 +234,12 @@ const side = () => page[1]({ ...injected, openSession: () => {}, useSessions: (f
 const navNames = (el) => find(el, (n) => n.p?.className === 'cpb-nav').map((n) => n.c[1].c[0]);
 let el = side();
 assert.deepEqual(navNames(el), ['board.allProjects', 'acme', 'blog']);
+// Only the states have colors: a project row and a card's project chip use the text color, not a color per project.
+const folders = find(el, (n) => n.p?.className === 'cpb-nav').slice(1).map((n) => n.c[0]);
+assert.ok(folders.length === 2 && folders.every((f) => find(f.t(f.p ?? {}), (x) => x.t === 'path')[0].p.stroke === 'currentColor'), 'a project folder has no color of its own');
+const chips = find(el, (n) => n.p?.className === 'cpb-chip');
+assert.ok(chips.length > 0 && chips.every((n) => n.c.length === 1 && typeof n.c[0] === 'string'), 'a card shows its project as plain text, without a colored dot');
+assert.doesNotMatch(src, /BOARD_COLORS|boardColor/, 'no project colors');
 const search = find(el, (n) => n.p?.['data-cpb-search'] !== undefined)[0];
 assert.equal(search.p.placeholder, 'projectPicker.search', 'the label of Project search in a new chat');
 search.p.onChange({ target: { value: 'blo' } }); el = side();
