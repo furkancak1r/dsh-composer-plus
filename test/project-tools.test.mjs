@@ -40,8 +40,9 @@ globalThis.document = { body, activeElement: body, createElement: (tag) => new E
   querySelector: (s) => body.querySelector(s), querySelectorAll: (s) => body.querySelectorAll(s),
   addEventListener: (type, fn) => { listeners[type] = fn; }, removeEventListener: (type, fn) => { if (listeners[type] === fn) delete listeners[type]; } };
 let observer = null;
+let observed = null;
 globalThis.MutationObserver = class { constructor(fn) { this.fn = fn; }
-  observe(target, opts) { assert.equal(target, body); assert.deepEqual(opts, { childList: true, subtree: true }); observer = this; }
+  observe(target, opts) { assert.equal(target, body); observed = opts; observer = this; }
   disconnect() { observer = null; } };
 
 // Fake React with per-component hook state; effects rerun when their dependencies change.
@@ -114,13 +115,22 @@ const project = (id, open, ...children) => {
 const cb = mount(find('collapse-projects'), { t: (k) => k });
 out = cb.settle();
 const css = out.c[0].c[0];
-assert.ok(css.includes('body:has([data-row-key^="workspace:"][aria-expanded="true"]) [data-composer-plus-collapse-projects] { display: inline-flex; }'), 'shown only while a project is open');
+// The button shows only while a project is open: the empty host is hidden (no `body:has(…)`, see has-selectors.test.mjs).
+assert.ok(!css.includes('body:has('), 'no style rule on the whole page');
+assert.ok(css.includes('[data-composer-plus-collapse-projects]:empty { display: none; }'), 'an empty host takes no room');
 assert.ok(css.includes('[class*="_headerActions"]:has(> [data-composer-plus-collapse-projects]):not([class*="_headerActionsHidden"]) { max-width: 92px; }'), 'room for a third button');
+assert.deepEqual(observed, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-expanded'] }, 'a project that opens or closes is seen');
 assert.equal(out.c[1], null, 'no project rows yet (rail or loading): no button');
-// 5 projects, 3 open; "c" holds the child project "c1" (Workspace tree).
-for (const s of [project('a', true), project('b', false), project('c', true, project('c1', true)), project('d', false), project('e', false)]) tree.append(s);
+// 5 projects, all closed: the host is there, the button is not.
+const rows = [project('a', false), project('b', false), project('c', false, project('c1', false)), project('d', false), project('e', false)];
+for (const s of rows) tree.append(s);
 observer.fn(); out = cb.settle();
 const host = actions.children[0];
+assert.equal(host.getAttribute('data-composer-plus-collapse-projects'), '', 'the host waits in the header');
+assert.equal(out.c[1], null, 'no open project: no button');
+// 3 open; "c" holds the child project "c1" (Workspace tree). dsh changes only `aria-expanded` on the rows.
+for (const id of ['a', 'c', 'c1']) document.querySelector(`[data-row-key="workspace:${id}"]`).setAttribute('aria-expanded', 'true');
+observer.fn(); out = cb.settle();
 assert.equal(host.getAttribute('data-composer-plus-collapse-projects'), '', 'first in the header actions');
 assert.equal(actions.children[1].children[0], viewOptions, 'dsh buttons keep their order'); assert.equal(actions.children[2], add);
 assert.equal(out.c[1].host, host);
@@ -132,7 +142,9 @@ button.p.onClick({ currentTarget: domButton, detail: 1 });
 assert.deepEqual(order, ['c1', 'c', 'a'], 'every open project closes once, innermost first');
 assert.equal(document.querySelectorAll('[data-row-key^="workspace:"][aria-expanded="true"]').length, 0, '3 of 5 open → all closed');
 assert.equal(document.activeElement, body, 'a mouse click does not move the focus');
-document.querySelector('[data-row-key="workspace:b"]').click(); order.length = 0; domButton.focus();
+observer.fn(); assert.equal(cb.settle().c[1], null, 'all closed: the button goes');
+document.querySelector('[data-row-key="workspace:b"]').click(); order.length = 0;
+observer.fn(); assert.equal(cb.settle().c[1].host, host, 'a project opens: the button comes back'); domButton.focus();
 button.p.onClick({ currentTarget: domButton, detail: 0 });
 assert.deepEqual(order, ['b']); assert.equal(document.activeElement, viewOptions, 'after a key press the focus moves to the next header button');
 cb.unmount(); assert.equal(observer, null, 'unmount stops watching');
