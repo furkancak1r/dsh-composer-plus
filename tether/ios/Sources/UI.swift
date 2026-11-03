@@ -3474,6 +3474,7 @@ struct BoardSheet: View {
     @State private var creating = false
     @State private var project: String
     @AppStorage("boardHideDone") private var hideDone = false
+    @State private var picking = false
     init(project: String) { _project = State(initialValue: project) }
     private var ready: Bool { b.loaded && !b.off && !b.missing }
     private var view: (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
@@ -3515,6 +3516,7 @@ struct BoardSheet: View {
             }
             .onChange(of: hideDone) { _, on in if on, column == "done" { column = "doing" } }
             .sheet(isPresented: $creating) { BoardNewTaskSheet(b: b, projects: v.projects, project: project == "all" ? v.projects.first?.id ?? "" : project) }
+            .sheet(isPresented: $picking) { BoardProjectSheet(projects: v.projects, project: $project, hideDone: $hideDone).presentationDetents([.medium, .large]) }
             .task {
                 b.bind { [c] query, body in try await c.plusCall("board-chats", query: query, body: body) }
                 while !Task.isCancelled { await b.load(); try? await Task.sleep(for: .seconds(5)) }
@@ -3529,15 +3531,9 @@ struct BoardSheet: View {
         }
         dismiss(); c.open(card.id)
     }
-    /// The title, and under it the shown project: a tap picks "All projects" or one project, or Hide finished.
+    /// The title, and under it the shown project: a tap opens the project list (search, Active in the last 2 hours, Hide finished).
     private func projectMenu(_ projects: [BoardProject]) -> some View {
-        Menu {
-            Picker("Project", selection: $project) {
-                Text("All projects").tag("all")
-                ForEach(projects) { p in Text(verbatim: p.name).tag(p.id) }
-            }
-            Toggle("Hide finished", isOn: $hideDone)
-        } label: {
+        Button { picking = true } label: {
             VStack(spacing: 0) {
                 Text("Task board").font(.headline).foregroundStyle(.primary)
                 HStack(spacing: 3) { Text(verbatim: projectName).lineLimit(1); Image(systemName: "chevron.down").imageScale(.small) }
@@ -3546,6 +3542,46 @@ struct BoardSheet: View {
         }
         .disabled(!ready)
         .accessibilityLabel(Text("Task board, project: \(projectName)"))
+    }
+}
+
+/// The board's projects: a search box, "Active in the last 2 hours" (kept on this phone) and Hide finished. A tap picks
+/// "All projects" or one project.
+struct BoardProjectSheet: View {
+    let projects: [BoardProject]
+    @Binding var project: String
+    @Binding var hideDone: Bool
+    @AppStorage("boardRecentProjects") private var recentOnly = false
+    @State private var query = ""
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        let shown = boardProjectList(projects, query: query, recentOnly: recentOnly)
+        NavigationStack {
+            List {
+                Section {
+                    Toggle("Active in the last 2 hours", isOn: $recentOnly)
+                    Toggle("Hide finished", isOn: $hideDone)
+                }
+                Section {
+                    if query.isEmpty { row("all", String(localized: "All projects")) }
+                    ForEach(shown) { p in row(p.id, p.name) }
+                    if shown.isEmpty { Text("No matching project").foregroundStyle(.secondary) }
+                }
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
+            .navigationTitle("Project").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+    private func row(_ id: String, _ name: String) -> some View {
+        Button { project = id; dismiss() } label: {
+            HStack {
+                Text(verbatim: name).foregroundStyle(.primary).lineLimit(1)
+                Spacer(minLength: 0)
+                if project == id { Image(systemName: "checkmark").foregroundStyle(.tint) }
+            }
+        }
+        .accessibilityAddTraits(project == id ? .isSelected : [])
     }
 }
 

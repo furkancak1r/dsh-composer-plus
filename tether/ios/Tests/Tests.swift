@@ -1355,6 +1355,18 @@ final class BranchStateTests: XCTestCase {
         XCTAssertEqual(boardProjectOf("f", workspaces: workspaces), "w1", "the board of a branch chat is its repository's")
         XCTAssertEqual(boardProjectOf("a", workspaces: workspaces), "w1"); XCTAssertEqual(boardProjectOf("zz", workspaces: workspaces), "all")
     }
+    func testProjectSearchAndRecent() {
+        let now = Date(timeIntervalSince1970: 100_000)
+        let sessions = [sess("old", updated: 100_000 - 3 * 3600), sess("fresh", updated: 100_000 - 600), sess("unseen", updated: 1), sess("gone", updated: 100_000 - 60), sess("br", updated: 100_000 - 60)]
+        let workspaces = [ws("w1", "/w/Çalışma", ["old"]), ws("w2", "/w/blog", ["fresh"]), ws("w3", "/w/docs", ["unseen"]), ws("w4", "/w/arch", ["gone"]),
+                          ws("w5", "/w/acme/.worktrees/x", ["br"]), ws("w6", "/w/acme", [])]
+        let v = boardColumns(sessions: sessions, workspaces: workspaces, archived: ["gone"], waiting: [], finished: ["unseen"], meta: [:], project: "all", hideDone: false, now: now)
+        XCTAssertEqual(v.projects.filter(\.recent).map(\.id), ["w6", "w2", "w3"], "changed in 2 hours (also in a Branch per chat folder) or finished unseen; not 3 hours old or archived")
+        XCTAssertEqual(boardProjectList(v.projects, query: "", recentOnly: true).map(\.id), ["w6", "w2", "w3"])
+        XCTAssertEqual(boardProjectList(v.projects, query: "calis", recentOnly: false).map(\.id), ["w1"], "case and accents ignored")
+        XCTAssertEqual(boardProjectList(v.projects, query: "calis", recentOnly: true).map(\.id), [], "both filters")
+        XCTAssertEqual(boardProjectList(v.projects, query: "w", recentOnly: false).map(\.id), [], "the name only, not the path")
+    }
     func testOneStartAtATime() async {
         var bodies: [J] = []; var queries: [[String: String]] = []
         var gate: CheckedContinuation<Void, Never>?

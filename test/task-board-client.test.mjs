@@ -76,6 +76,31 @@ assert.deepEqual(ids(board.columns({ workspaces, list, statuses, meta: chats, pr
 assert.deepEqual(ids(board.columns({ workspaces, list, statuses, project: 'w3' }), 'done'), []);
 assert.equal(board.columns({ workspaces, list: { byId: Object.fromEntries([summary('n1', { title: undefined, displayTitle: 'acme' })]) }, statuses: new Map(), meta: { n1: { prompt: 'Make a chess game\nwith tests', tags: [], at: 1 } } }).columns[3].cards[0].title,
   'Make a chess game', 'no dsh title yet: the first line of the prompt');
+// The project list: "Active in the last 2 hours" (waiting, running, unread, starting or changed in 2 hours) and the search.
+const T = 10 * 3600 * 1000;
+const quiet = { ...list, byId: Object.fromEntries(Object.entries(list.byId).map(([id, s]) => [id, { ...s, running: false }])) };
+const quietWith = (id, o) => ({ ...quiet, byId: { ...quiet.byId, [id]: { ...quiet.byId[id], ...o } } });
+const recentOf = (o) => board.columns({ workspaces, list: quiet, statuses: new Map(), now: T, ...o }).projects.filter((p) => p.recent).map((p) => p.id);
+assert.deepEqual(v.projects.map((p) => p.recent), [true, false], 'a waiting or running chat makes its project recent');
+assert.deepEqual(recentOf({}), [], 'old, idle and read chats: not recent');
+assert.deepEqual(recentOf({ list: quietWith('s2', { running: true }) }), ['w1'], 'a running chat');
+assert.deepEqual(recentOf({ list: quietWith('s7', { updatedAt: T - 3600 * 1000 }) }), ['w1'], 'changed 1 hour ago (in a Branch per chat folder: its repository)');
+assert.deepEqual(recentOf({ list: quietWith('s4', { updatedAt: T - 3 * 3600 * 1000 }) }), [], '3 hours ago: not recent');
+assert.deepEqual(recentOf({ statuses: new Map([['s4', { completionUnread: true }]]) }), ['w1'], 'finished and not opened yet');
+assert.deepEqual(recentOf({ list: quietWith('s6', { updatedAt: T }) }), [], 'an archived chat does not count');
+assert.deepEqual(recentOf({ list: quietWith('s5', { updatedAt: T }) }), [], 'a blank chat does not count');
+assert.deepEqual(recentOf({ starting: [{ key: 'starting-9', project: 'w3', prompt: 'x', at: 1 }] }), ['w3'], 'a task that starts now');
+const named = [{ id: 'a', name: 'Çalışma', path: '/w/x', recent: false }, { id: 'b', name: 'blog', path: '/w/blog', recent: true }, { id: 'c', name: 'Docs Site', path: '/w/d', recent: false }];
+const listed = () => board.shownProjects(named).map((p) => p.id);
+assert.deepEqual(listed(), ['a', 'b', 'c']);
+board.setQuery('CALIS'); assert.deepEqual(listed(), ['a'], 'case, accents and dotless ı ignored');
+board.setQuery('site docs'); assert.deepEqual(listed(), ['c'], 'every word, in any order');
+board.setQuery('w'); assert.deepEqual(listed(), [], 'the name only, not the path');
+board.setQuery('');
+board.toggleRecent(); assert.deepEqual(listed(), ['b'], 'only recent projects');
+assert.equal(mem.get('dsh-composer-plus.board.recent'), 'true', 'the filter stays on this device');
+board.setQuery('cal'); assert.deepEqual(listed(), [], 'both at once');
+board.setQuery(''); board.toggleRecent(); assert.equal(board.getSnapshot().recent, false);
 // Hide finished, 50 shown.
 v = board.columns({ workspaces, list, statuses, hideDone: true });
 assert.deepEqual(v.columns.map((c) => c.status), ['todo', 'doing', 'review'], 'Hide finished hides Done');
@@ -177,6 +202,29 @@ await allow.p.onClick(); await tick(); assert.deepEqual(answers, [['approval', '
 const titles = find(tree, (n) => n.p?.['data-cpb-title'] !== undefined).map((n) => n.c[0]);
 assert.ok(titles.includes('Title s1'));
 assert.match(src, /\.cpb-cardtitle\{[^}]*overflow-wrap:anywhere/, 'a long title wraps inside its card');
+assert.doesNotMatch(src, /\.cpb-cardtitle\{[^}]*word-break/, 'a title breaks between words, not in a word');
+const top = find(tree, (n) => n.p?.className === 'cpb-cardtop');
+assert.ok(top.length > 0 && top.every((n) => find(n, (x) => x.p?.['data-cpb-when'] !== undefined).length === 0), 'the time is not next to the title (the title has the full width)');
+assert.equal(find(cards.find((n) => n.p['data-cpb-card'] === 's4'), (x) => x.p?.['data-cpb-when'] !== undefined).length, 1, 'the time is on the meta row');
+// The project list: the search box and the filter; no match shows a note.
+const side = () => page[1]({ ...injected, openSession: () => {}, useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
+const navNames = (el) => find(el, (n) => n.p?.className === 'cpb-nav').map((n) => n.c[1].c[0]);
+let el = side();
+assert.deepEqual(navNames(el), ['board.allProjects', 'acme', 'blog']);
+const search = find(el, (n) => n.p?.['data-cpb-search'] !== undefined)[0];
+assert.equal(search.p.placeholder, 'projectPicker.search', 'the label of Project search in a new chat');
+search.p.onChange({ target: { value: 'blo' } }); el = side();
+assert.deepEqual(navNames(el), ['board.allProjects', 'blog'], 'the search filters the list; All projects stays');
+let stopped = 0;
+find(el, (n) => n.p?.['data-cpb-search'] !== undefined)[0].p.onKeyDown({ key: 'Escape', preventDefault() {}, stopPropagation() { stopped += 1; } });
+assert.equal(board.getSnapshot().query, '', 'Esc empties the box'); assert.equal(stopped, 1, 'and the page does not get that Esc');
+const recentButton = find(side(), (n) => n.p?.['data-cpb-recent'] !== undefined)[0];
+assert.equal(recentButton.p['aria-pressed'], false); assert.equal(recentButton.c.at(-1).c[0], 'recentProjects.option', 'the label of Recent projects filter');
+recentButton.p.onClick(); el = side();
+assert.deepEqual(navNames(el), ['board.allProjects', 'acme'], 'only the project with a waiting chat');
+board.setQuery('blog'); el = side();
+assert.deepEqual(navNames(el), ['board.allProjects']); assert.equal(find(el, (n) => n.p?.['data-cpb-noproject'] !== undefined)[0].c[0], 'projectPicker.empty');
+board.setQuery(''); board.toggleRecent();
 assert.match(src, /\.cpb-col\{flex:1 1 0;min-width:140px/, 'the columns share the width');
 
 // The off state and an older Host.

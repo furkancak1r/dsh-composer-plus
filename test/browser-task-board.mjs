@@ -7,7 +7,9 @@
 //    (ask_user_question) and a plan review (/plan, exit_plan_mode). Each card is orange in Review; Answer on the board
 //    answers it (Allow once, an option, Approve) and the chat goes on to Done.
 // 3. A click on a card opens its chat. Hide finished hides Done and stays after a reload.
-// 4. Fit: at 1180 px the four columns fit the page and a long title wraps inside its card.
+// 4. Fit: at 1180 px the four columns fit the page and a long title wraps inside its card; at 900 px a title of normal
+//    words breaks only between words (the time is on the meta row, not next to the title).
+// 6. The project list: the search box and "Active in the last 2 hours" (an old project hides; the filter stays after a reload).
 // 5. Settings → Composer Plus → Task board off: no sidebar row, no page; on again.
 // PLAYWRIGHT=/path/to/playwright node test/browser-task-board.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/taskBoard.webp (English UI, made-up projects).
@@ -38,8 +40,10 @@ const P = {
   plan: 'Plan the export feature',
   long: 'Refactor the very long module name supercalifragilisticexpialidocious_and_another_unbroken_identifier_that_is_far_too_long_for_a_card into smaller parts',
   old: 'Write the FAQ page',
+  words: 'Find why the job stays pending',
 };
-const TITLES = { [P.chess]: 'Chess game', [P.approve]: 'Slow demo check', [P.question]: 'Theme color', [P.plan]: 'Export feature plan', [P.old]: 'FAQ page' };
+// The Turkish title is like the owner's report ("Pending durumunda kalma sorunu"): words that a narrow card broke.
+const TITLES = { [P.chess]: 'Chess game', [P.approve]: 'Slow demo check', [P.question]: 'Theme color', [P.plan]: 'Export feature plan', [P.old]: 'FAQ page', [P.words]: 'Pending durumunda kalma sorunu' };
 const tagCalls = [];
 let release = null; // holds the chess chat's answer while the test looks at Doing
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
@@ -222,7 +226,9 @@ try {
       // 4. Fit: four columns in the page at 1180 px; a long title wraps inside its card.
       const r = await post('/api/composer-plus.board-chats', { project: ids['acme-web'], prompt: P.long });
       assert.equal(r.status, 200);
+      assert.equal((await post('/api/composer-plus.board-chats', { project: ids['acme-web'], prompt: P.words })).status, 200);
       await until(async () => (await titles('done')).some((x) => x.startsWith('Refactor')), 'the long card', 20000);
+      await until(async () => (await titles('done')).includes(TITLES[P.words]), 'the Turkish title', 20000);
       await page.setViewportSize({ width: 1180, height: 820 }); await pause(400);
       const fit = await boardPage.evaluate((el) => {
         const cols = el.querySelector('[data-cpb-columns]');
@@ -232,8 +238,45 @@ try {
       });
       assert.ok(fit.colsOverflow <= 1, `the columns fit (${JSON.stringify(fit)})`);
       assert.ok(fit.cardOverflow <= 1 && fit.titleRight <= fit.cardRight + 0.5, `a long title stays in its card (${JSON.stringify(fit)})`);
+      // A narrow window (the columns at their 140 px minimum): each word of a title stays whole on one line (the owner saw
+      // "firması / na", "araştırm / ası").
+      await page.setViewportSize({ width: 760, height: 820 }); await pause(400);
+      const colWidth = await column('done').evaluate((el) => Math.round(el.getBoundingClientRect().width));
+      assert.ok(colWidth <= 150, `the columns are at their minimum width (${colWidth}px)`);
+      const words = await boardPage.evaluate((el) => [...el.querySelectorAll('[data-cpb-card]')].flatMap((c) => {
+        const t = c.querySelector('[data-cpb-title]'); const out = [];
+        if (t.textContent.startsWith('Refactor')) return out; // an unbroken name longer than the card has to break
+        const node = t.firstChild; const text = node?.textContent ?? '';
+        for (const m of text.matchAll(/\S+/g)) {
+          const r = document.createRange(); r.setStart(node, m.index); r.setEnd(node, m.index + m[0].length);
+          if (r.getClientRects().length > 1) out.push(m[0]);
+        }
+        const when = c.querySelector('[data-cpb-when]');
+        if (when === null || when.closest('.cpb-cardtop') !== null) out.push(`time next to "${text}"`);
+        return out;
+      }));
+      assert.deepEqual(words, [], `at ${colWidth} px columns no word of a title breaks, and the time is not beside the title`);
       await page.setViewportSize({ width: 1440, height: 860 });
-      console.log(`  4: at 1180 px the 4 columns fit (overflow ${fit.colsOverflow}px) and a long title wraps in its card`);
+      console.log(`  4: at 1180 px the 4 columns fit (overflow ${fit.colsOverflow}px) and a long title wraps in its card; in ${colWidth} px columns titles break only between words`);
+
+      // 6. The project list: search, and "Active in the last 2 hours" (docs-site has no chat: it hides; stays after a reload).
+      const navs = async () => (await boardPage.locator('.cpb-nav').allInnerTexts()).map((x) => x.split('\n')[0].trim());
+      const search = boardPage.locator('[data-cpb-search]');
+      assert.equal(await search.getAttribute('placeholder'), 'Search projects', 'the label of Project search in a new chat');
+      await search.fill('DOCS'); await until(async () => (await navs()).join() === 'All projects,docs-site', async () => `search: ${await navs()}`, 5000);
+      await search.press('Escape'); assert.equal(await search.inputValue(), '', 'Esc empties the box');
+      assert.equal(await boardPage.count(), 1, 'and the page stays');
+      await until(async () => (await navs()).join() === 'All projects,acme-web,docs-site', async () => `after Esc: ${await navs()}`, 5000);
+      const recentButton = boardPage.locator('[data-cpb-recent]');
+      assert.equal(await recentButton.innerText(), 'Active in the last 2 hours', 'the label of Recent projects filter');
+      await recentButton.click(); await until(async () => (await navs()).join() === 'All projects,acme-web', async () => `recent: ${await navs()}`, 5000);
+      await search.fill('docs'); await boardPage.locator('[data-cpb-noproject]', { hasText: 'No matching project' }).waitFor();
+      await search.fill('');
+      await page.reload(); await input.waitFor({ timeout: 20000 }); await openBoard();
+      assert.equal(await boardPage.locator('[data-cpb-recent]').getAttribute('aria-pressed'), 'true', 'the filter stays after a reload');
+      assert.deepEqual(await navs(), ['All projects', 'acme-web']);
+      await boardPage.locator('[data-cpb-recent]').click(); await until(async () => (await navs()).length === 3, 'filter off', 5000);
+      console.log('  6: project search (DOCS → docs-site, Esc empties) and Active in the last 2 hours (docs-site hides, kept after a reload)');
 
       // 3. Hide finished: Done goes, and stays hidden after a reload. A click on a card opens its chat.
       await boardPage.locator('[data-cpb-hide-done]').click();
@@ -255,7 +298,9 @@ try {
       }
       await card('Chess game').first().click();
       await boardPage.waitFor({ state: 'detached', timeout: 10000 });
-      await page.locator('[data-row-key^="session:"][aria-selected="true"]', { hasText: 'Chess game' }).first().waitFor({ timeout: 10000 });
+      // The chat opens. Its sidebar row can be under "Show N more sessions" (more chats now), so check the chat header.
+      await page.locator('[data-composer-input]').waitFor({ timeout: 10000 });
+      await page.getByText('The chess game is in index.html.', { exact: true }).first().waitFor({ timeout: 10000 });
       console.log('  3: Hide finished hides Done and stays after a reload; a click on a card opens its chat');
 
       // 5. Switch off and on.
