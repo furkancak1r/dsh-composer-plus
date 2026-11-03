@@ -2064,7 +2064,7 @@
     "context.part.notes": "Ghi chú ngữ cảnh khác",
     "context.part.rollback": "Dấu hoàn tác",
     "feature.taskBoard": "Bảng tác vụ",
-    "feature.taskBoard.description": "Bảng kanban các cuộc trò chuyện dsh của bạn ở thanh bên trái (Bảng tác vụ), với trạng thái trực tiếp giống thanh bên: cuộc trò chuyện đang chờ bạn phê duyệt, trả lời hoặc xem xét kế hoạch nằm ở Đang duyệt (màu cam), cuộc trò chuyện đang chạy nằm ở Đang làm, cuộc trò chuyện đã xong nằm ở Xong (màu xanh lá cho đến khi bạn mở). Tác vụ mới chỉ cần một prompt: tính năng bắt đầu một cuộc trò chuyện mới trong dự án, dsh đặt tên cho nó và mô hình của cuộc trò chuyện viết nhãn. Nhấp vào thẻ để mở cuộc trò chuyện, hoặc nhấp Trả lời trên thẻ màu cam để trả lời ngay trên bảng. Ẩn mục đã xong ẩn cột Xong.",
+    "feature.taskBoard.description": "Bảng kanban các cuộc trò chuyện dsh của bạn ở thanh bên trái (Bảng tác vụ), với trạng thái trực tiếp giống thanh bên: cuộc trò chuyện đang chờ bạn phê duyệt, trả lời hoặc xem xét kế hoạch nằm ở Đang duyệt (màu cam), cuộc trò chuyện đang chạy nằm ở Đang làm, cuộc trò chuyện đã xong nằm ở Xong (màu xanh lá cho đến khi bạn mở). Tác vụ mới chỉ cần một prompt: tính năng bắt đầu một cuộc trò chuyện mới trong dự án, dsh đặt tên cho nó và mô hình của cuộc trò chuyện viết nhãn. Nhấp vào thẻ để mở cuộc trò chuyện, hoặc nhấp Trả lời trên thẻ màu cam để trả lời ngay trên bảng. Ẩn mục đã xong ẩn cột Xong. Phía trên danh sách dự án, “Tìm dự án” và “Hoạt động trong 2 giờ qua” thu hẹp danh sách.",
     "board.title": "Bảng tác vụ",
     "board.allProjects": "Tất cả dự án",
     "board.projects": "Dự án",

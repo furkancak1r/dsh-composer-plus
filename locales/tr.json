@@ -3524,7 +3524,7 @@
     "context.part.notes": "Diğer bağlam notları",
     "context.part.rollback": "Geri alma işaretleri",
     "feature.taskBoard": "Görev panosu",
-    "feature.taskBoard.description": "Sol kenar çubuğunda dsh sohbetlerinizin kanban panosu (Görev panosu), kenar çubuğunun gösterdiği canlı durumla: onayınızı, yanıtınızı ya da plan incelemenizi bekleyen sohbet İncelemede sütunundadır (turuncu), çalışan sohbet Yapılıyor sütunundadır, biten sohbet Bitti sütunundadır (siz açana kadar yeşil). Yeni görev yalnız bir istem alır: projede yeni bir sohbet başlatır, sohbete dsh ad verir ve etiketlerini sohbetin modeli yazar. Sohbetini açmak için bir karta tıklayın ya da turuncu bir kartı panoda yanıtlamak için Yanıtla düğmesine tıklayın. Bitenleri gizle, Bitti sütununu gizler.",
+    "feature.taskBoard.description": "Sol kenar çubuğunda dsh sohbetlerinizin kanban panosu (Görev panosu), kenar çubuğunun gösterdiği canlı durumla: onayınızı, yanıtınızı ya da plan incelemenizi bekleyen sohbet İncelemede sütunundadır (turuncu), çalışan sohbet Yapılıyor sütunundadır, biten sohbet Bitti sütunundadır (siz açana kadar yeşil). Yeni görev yalnız bir istem alır: projede yeni bir sohbet başlatır, sohbete dsh ad verir ve etiketlerini sohbetin modeli yazar. Sohbetini açmak için bir karta tıklayın ya da turuncu bir kartı panoda yanıtlamak için Yanıtla düğmesine tıklayın. Bitenleri gizle, Bitti sütununu gizler. Proje listesinin üstündeki “Projelerde ara” ve “Son 2 saatte aktif olanlar” listeyi daraltır.",
     "board.title": "Görev panosu",
     "board.allProjects": "Tüm projeler",
     "board.projects": "Projeler",

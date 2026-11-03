@@ -2968,8 +2968,13 @@ struct BoardCard: Identifiable, Equatable {
     /// "waiting" (orange: an approval, a question or a plan review waits), "running", "unread" (green) or "read".
     let state: String
 }
-/// A project of the board: a DSH workspace (a Branch per chat folder counts as its repository).
-struct BoardProject: Identifiable, Equatable { let id: String; let name: String; let path: String }
+/// A project of the board: a DSH workspace (a Branch per chat folder counts as its repository). `recent`: a chat of it
+/// waits, runs, finished unseen or changed in the last 2 hours (the Recent projects rule).
+struct BoardProject: Identifiable, Equatable { let id: String; let name: String; let path: String; var recent = false }
+/// The board's project list: each word of `query` in the name (case and accents ignored), only recent ones when `recentOnly`.
+func boardProjectList(_ projects: [BoardProject], query: String, recentOnly: Bool) -> [BoardProject] {
+    projects.filter { (!recentOnly || $0.recent) && searchHit(query, $0.name) }
+}
 /// The Mac's record of a chat that the board started: its prompt and the tags that AI wrote.
 struct BoardMeta: Equatable { let prompt: String; let tags: [String] }
 
@@ -2986,7 +2991,7 @@ func boardMeta(_ o: J) -> [String: BoardMeta] {
 /// open) is in Review, a running chat (or one whose subagent runs) in Doing, every other chat in Done (green while it is
 /// unread). Archived and subagent chats are left out. `project` is a workspace id or "all"; `hideDone` hides Done.
 func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<String>, waiting: Set<String>, finished: Set<String>,
-                  meta: [String: BoardMeta], project: String, hideDone: Bool) -> (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
+                  meta: [String: BoardMeta], project: String, hideDone: Bool, now: Date = Date()) -> (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
     let trim = { (p: String) -> String in p.count > 1 && p.hasSuffix("/") ? String(p.dropLast()) : p }
     let byPath = Dictionary(workspaces.map { (trim($0.path), $0) }, uniquingKeysWith: { a, _ in a })
     var owner: [String: Workspace] = [:]
@@ -2994,9 +2999,11 @@ func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<Strin
         let p = trim(w.path)
         if let r = p.range(of: "/.worktrees/"), !p[r.upperBound...].contains("/"), let repo = byPath[String(p[..<r.lowerBound])] { owner[w.id] = repo } else { owner[w.id] = w }
     }
-    let projects = workspaces.filter { owner[$0.id]?.id == $0.id }.map { BoardProject(id: $0.id, name: $0.title, path: $0.path) }.sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     var projectOf: [String: String] = [:]
     for w in workspaces { for s in w.sessions where projectOf[s] == nil { projectOf[s] = owner[w.id]?.id } }
+    let recent = Set(sessions.filter { $0.parent == nil && !archived.contains($0.id) && recentChat($0, all: sessions, now: now, open: nil, waiting: waiting, finished: finished) }.compactMap { projectOf[$0.id] })
+    let projects = workspaces.filter { owner[$0.id]?.id == $0.id }.map { BoardProject(id: $0.id, name: $0.title, path: $0.path, recent: recent.contains($0.id)) }
+        .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
     var columns: [String: [BoardCard]] = ["todo": [], "doing": [], "review": [], "done": []]
     for s in sessions where s.parent == nil && !archived.contains(s.id) {
