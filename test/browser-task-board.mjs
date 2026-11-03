@@ -1,8 +1,9 @@
 // Real-app check of the Task board on each dsh given: a fake model, a throwaway DSH_HOME, made-up projects (acme-web,
 // docs-site). Never the normal DSH_HOME, no real model. Headless.
-// 1. Left sidebar → Task board: a chat started in dsh's own composer is on the board (no tags), not in docs-site; New task → a prompt → Enter:
-//    the card shows at once, its chat starts in acme-web, dsh names it ("Chess game"), the tags come from the chat's own
-//    model ("chess", "game"); it is in Doing while it runs, then in Done with the green dot.
+// 1. Left sidebar → Task board: a chat started in dsh's own composer is on the board (no tags), not in docs-site. New task
+//    (acme-web shown) opens dsh's own new chat in acme-web (the board goes); back on the board, the chat waits in Todo as
+//    "New task"; a click opens it, its first message goes from dsh's composer and the board comes back by itself. dsh names
+//    it ("Chess game"), the tags come from the chat's own model ("chess", "game"); Doing while it runs, then Done (green).
 // 2. Three tasks that wait for the user, never opened: an approval (a test gate asks before `--ask-me`), a question
 //    (ask_user_question) and a plan review (/plan, exit_plan_mode). Each card is orange in Review; Answer on the board
 //    answers it (Allow once, an option, Approve) and the chat goes on to Done.
@@ -161,10 +162,17 @@ try {
       const input = page.locator('[data-composer-input]'); await input.waitFor({ timeout: 20000 });
       const boardPage = page.locator('[data-composer-plus-board]');
       const openBoard = async () => { await page.getByRole('button', { name: 'Task board', exact: true }).click(); await boardPage.waitFor({ timeout: 10000 }); await boardPage.locator('[data-cpb-columns]').waitFor({ timeout: 10000 }); };
-      const post = (path, body) => page.evaluate(async ([p, b]) => { const r = await fetch(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) }); return { status: r.status, body: await r.json() }; }, [path, body]);
       const column = (status) => boardPage.locator(`[data-cpb-column="${status}"]`);
       const card = (title) => boardPage.locator('[data-cpb-card]', { has: page.locator('[data-cpb-title]', { hasText: title }) });
       const titles = async (status) => column(status).locator('[data-cpb-title]').allInnerTexts();
+      /** A board task the user's way: New task on the board (acme-web shown), the first message in dsh's composer; the board comes back. */
+      const task = async (text) => {
+        await boardPage.locator('[data-cpb-new]').click();
+        await boardPage.waitFor({ state: 'detached', timeout: 10000 });
+        await input.waitFor({ timeout: 10000 }); await pause(300);
+        await input.click(); await page.keyboard.insertText(text); await pause(200); await page.keyboard.press('Enter');
+        await boardPage.waitFor({ timeout: 15000 }); await boardPage.locator('[data-cpb-columns]').waitFor({ timeout: 10000 });
+      };
 
       // An existing chat, started in dsh's own composer (not on the board), in acme-web (dsh's default project).
       await input.click(); await page.keyboard.type(P.old, { delay: 5 }); await page.keyboard.press('Enter');
@@ -181,44 +189,37 @@ try {
       await boardPage.locator('.cpb-nav', { hasText: 'acme-web' }).click();
       await boardPage.locator('h1', { hasText: 'acme-web' }).waitFor();
       let open; release = new Promise((r) => { open = r; });
+      // New task: dsh's own new chat in acme-web; the board goes. Its composer is dsh's (the + attach button is there).
       await boardPage.locator('[data-cpb-new]').click();
-      const prompt = page.locator('[data-cpb-prompt]'); await prompt.waitFor();
-      // New task → Project: the button opens the projects with a search box. Type, Enter picks; Esc closes only the list.
-      const projectButton = page.locator('[data-cpb-project]');
-      assert.equal(await projectButton.innerText(), 'acme-web');
-      await prompt.fill(P.chess);
-      await projectButton.click();
-      const pickBox = page.locator('[data-cpb-projects] input[type="search"]');
-      await pickBox.waitFor(); assert.equal(await pickBox.getAttribute('placeholder'), 'Search projects');
-      assert.ok(await pickBox.evaluate((el) => el === document.activeElement), 'the search box has the focus');
-      await pickBox.pressSequentially('DOCS'); await until(async () => (await page.locator('[data-cpb-projects] .cpb-nav').allInnerTexts()).join() === 'docs-site', 'search in New task', 5000);
-      await pickBox.press('Enter');
-      await until(async () => (await projectButton.getAttribute('data-cpb-project')) === ids['docs-site'], 'Enter picks docs-site', 5000);
-      assert.equal(await page.locator('[data-cpb-projects]').count(), 0, 'the list closes');
-      await projectButton.click(); await pickBox.waitFor(); await pickBox.press('Escape');
-      await page.locator('[data-cpb-projects]').waitFor({ state: 'detached' });
-      assert.equal(await page.locator('[data-cpb-panel="new"]').count(), 1, 'Esc closes the list, not the panel');
-      await projectButton.click(); await page.locator('[data-cpb-projects] .cpb-nav', { hasText: 'acme-web' }).click();
-      await until(async () => (await projectButton.getAttribute('data-cpb-project')) === ids['acme-web'], 'a click picks acme-web', 5000);
-      assert.equal(await prompt.inputValue(), P.chess, 'the prompt is kept');
-      console.log('  1c: New task → Project: search (DOCS → docs-site, Enter), Esc closes only the list, a click picks acme-web');
-      await prompt.press('Enter');
-      await until(async () => (await titles('doing')).includes('Chess game') || (await titles('todo')).length > 0, 'the card shows at once', 15000);
+      await boardPage.waitFor({ state: 'detached', timeout: 10000 });
+      await input.waitFor({ timeout: 10000 });
+      const chip = async () => page.evaluate(() => document.querySelector('[class*="_heroWorkspaceRow"] button[class*="_workspace"]')?.textContent?.trim() ?? '');
+      await until(async () => /acme-web/.test(await chip()), async () => `new chat project: ${await chip()}`, 10000);
+      // Back to the board before a message: the new chat waits in Todo as "New task"; a click opens it again.
+      await openBoard();
+      await until(async () => (await titles('todo')).join() === 'New task', async () => `todo: ${await titles('todo')}`, 10000);
+      assert.match(await column('todo').locator('[data-cpb-when]').innerText(), /Write the first message/);
+      await column('todo').locator('[data-cpb-card]').click();
+      await boardPage.waitFor({ state: 'detached', timeout: 10000 });
+      await until(async () => /acme-web/.test(await chip()), 'the same new chat in acme-web', 10000);
+      // The first message, from dsh's own composer: the board comes back by itself.
+      await input.click(); await page.keyboard.type(P.chess, { delay: 5 }); await page.keyboard.press('Enter');
+      await boardPage.waitFor({ timeout: 15000 });
+      console.log('  1c: New task opens dsh\'s new chat in acme-web; Todo shows it as "New task" until its first message; that message brings the board back');
       await until(async () => (await titles('doing')).includes('Chess game'), async () => `doing: ${await titles('doing')} todo: ${await titles('todo')}`, 20000);
+      assert.deepEqual(await titles('todo'), [], 'it left Todo');
       await until(async () => (await card('Chess game').locator('[data-cpb-tag]').allInnerTexts()).join() === 'chess,game', 'the tags', 15000);
       assert.deepEqual(tagCalls.find((c) => c.prompt === P.chess)?.model, 'demo', 'the tags come from the chat\'s own model');
       assert.equal(await card('Chess game').locator('.cpb-preview').innerText(), P.chess, 'the prompt shows under the AI title');
       open(); release = null;
       await until(async () => (await titles('done')).includes('Chess game'), async () => `done: ${await titles('done')}`, 20000);
-      assert.equal(await card('Chess game').getAttribute('data-cpb-state'), 'unread', 'green until opened');
-      await card('Chess game').locator('[data-cpb-dot="done"]').waitFor();
-      console.log('  1b: New task → prompt → Enter: chat "Chess game" (dsh title), tags chess+game (the chat\'s model), Doing → Done with the green dot');
+      // It is still dsh's open chat behind the board: no green dot, as in dsh's own sidebar (dsh's `isMain` rule). The
+      // green dot of a chat that is not open is checked in step 2.
+      assert.equal(await card('Chess game').getAttribute('data-cpb-state'), 'read', 'dsh\'s open chat: no green dot');
+      console.log('  1b: chat "Chess game" (dsh title), tags chess+game from its first message (the chat\'s model), Doing → Done');
 
       // 2. Three waiting chats, never opened: each is orange in Review and is answered on the board.
-      for (const p of [P.approve, P.question, P.plan]) {
-        const r = await post('/api/composer-plus.board-chats', { project: ids['acme-web'], prompt: p === P.plan ? `/plan ${p}` : p });
-        assert.equal(r.status, 200, JSON.stringify(r.body));
-      }
+      for (const p of [P.approve, P.question, P.plan]) await task(p === P.plan ? `/plan ${p}` : p);
       await until(async () => (await titles('review')).length === 3, async () => `review: ${await titles('review')} doing: ${await titles('doing')} todo: ${await titles('todo')} done: ${await titles('done')}`, 40000);
       for (const name of ['Slow demo check', 'Theme color', 'Export feature plan']) assert.equal(await card(name).getAttribute('data-cpb-state'), 'waiting', `${name} is orange`);
       assert.match(await card('Slow demo check').locator('.cpb-wait').innerText(), /Waiting for approval/);
@@ -230,6 +231,9 @@ try {
       assert.equal(await panel.locator('[data-cpb-allow]').innerText(), 'Allow once', 'dsh\'s own label');
       await panel.locator('[data-cpb-allow]').click();
       await until(async () => (await titles('done')).includes('Slow demo check'), async () => `done: ${await titles('done')}`, 20000);
+      // Not dsh's open chat (later tasks opened after it): green until opened.
+      assert.equal(await card('Slow demo check').getAttribute('data-cpb-state'), 'unread', 'green until opened');
+      await card('Slow demo check').locator('[data-cpb-dot="done"]').waitFor();
       await card('Theme color').locator('[data-cpb-answer]').click();
       await panel.getByRole('radio', { name: 'Green' }).click();
       await panel.locator('[data-cpb-send]').click();
@@ -243,9 +247,7 @@ try {
       console.log('  2: approval (Allow once), question (Green) and plan review (Approve) of never-opened chats: orange in Review, answered on the board, then Done');
 
       // 4. Fit: four columns in the page at 1180 px; a long title wraps inside its card.
-      const r = await post('/api/composer-plus.board-chats', { project: ids['acme-web'], prompt: P.long });
-      assert.equal(r.status, 200);
-      assert.equal((await post('/api/composer-plus.board-chats', { project: ids['acme-web'], prompt: P.words })).status, 200);
+      await task(P.long); await task(P.words);
       await until(async () => (await titles('done')).some((x) => x.startsWith('Refactor')), 'the long card', 20000);
       await until(async () => (await titles('done')).includes(TITLES[P.words]), 'the Turkish title', 20000);
       await page.setViewportSize({ width: 1180, height: 820 }); await pause(400);
@@ -315,8 +317,7 @@ try {
       if (process.env.SHOT) {
         // The Settings picture: a running card (held), an orange card, finished cards; no panel.
         let openShot; release = new Promise((res) => { openShot = res; });
-        await post('/api/composer-plus.board-chats', { project: ids['acme-web'], prompt: P.chess });
-        await post('/api/composer-plus.board-chats', { project: ids['acme-web'], prompt: P.question });
+        await task(P.chess); await task(P.question);
         await until(async () => (await titles('doing')).length >= 1 && (await titles('review')).length >= 1, 'the picture board', 30000);
         await until(async () => (await column('doing').locator('[data-cpb-tag]').count()) >= 2 && (await column('review').locator('.cpb-preview').count()) >= 1, 'the tags of the picture', 15000);
         await pause(500);

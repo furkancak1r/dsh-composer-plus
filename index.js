@@ -6436,8 +6436,9 @@ export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retry
 /** Task board (Host half): a kanban board of dsh's real chats. The client draws the cards from dsh's own stores (the chat
  * list, each chat's live state and the projects); the Host keeps the switch and the record of the chats that the board
  * started: `storages/dsh-composer-plus/board-chats.json`, `{ chats: { [sessionId]: { prompt, tags, at } } }`, owner-only.
- * A board start makes a new chat in a dsh project with the user's prompt (dsh's own title service names the chat); one
- * short call to the new chat's model writes its tags. The old notebook board (`board.json`) is not read or changed. */
+ * New task opens dsh's own new chat screen; the client sends `{sessionId}` of that chat. When its first message of its own
+ * arrives (the user's, from dsh's composer: attachments, commands and the model menu as usual), the Host keeps its text
+ * as the card's prompt and one short call to the chat's model writes its tags. The old `board.json` is not read. */
 export const BOARD_PATH = '/api/composer-plus.board';
 export const BOARD_CHATS_PATH = '/api/composer-plus.board-chats';
 export const BOARD_LIMITS = { prompt: 20000, tags: 3, tag: 24, chats: 2000 };
@@ -6445,8 +6446,6 @@ const BOARD_TAG_INPUT = 4000;
 const BOARD_TAG_TOKENS = 200;
 const BOARD_TAG_TIMEOUT_MS = 60000;
 export const BOARD_TAG_SYSTEM = `You label a coding task for a kanban board. Read the user's request and answer with only a JSON array of 1 to ${BOARD_LIMITS.tags} short tags, for example ["frontend","bug"]. Each tag is one or two lower-case words, at most ${BOARD_LIMITS.tag} characters, in the language of the request. No other text.`;
-const BRANCH_DIR = /^(.+?)[\\/]\.worktrees[\\/][^\\/]+(?:[\\/].*)?$/;
-const trimSlash = (p) => (p.length > 1 ? p.replace(/[\\/]+$/, '') : p);
 const boardLine = (raw) => String(raw ?? '').replace(/\s+/g, ' ').trim();
 
 /** The model's tags: the first JSON array of strings, each one line, lower case, at most BOARD_LIMITS.tag characters, no
@@ -6510,12 +6509,18 @@ export function boardChatsStore(file) {
   };
 }
 
-/** The dsh project of a board start, by its workspace id: a registered workspace that is not a Branch per chat folder. */
-export function boardProject(registry, id) {
-  if (!isText(id)) return undefined;
-  let list;
-  try { list = registry?.list?.() ?? []; } catch { list = []; }
-  return list.find((w) => w?.id === id && isText(w.path, 4096) && !BRANCH_DIR.test(trimSlash(w.path)));
+/** The text of a chat's first message of its own: the first `user/message` from the user at or after `from` (a fork's
+ * inherited events come first, rule 10) that no rollback withdrew (Composer Plus's and dsh-rewind-plugin's markers, rule 9),
+ * at most BOARD_LIMITS.prompt characters; undefined when there is none. */
+export function boardPromptOf(events, from = 0) {
+  const spans = rollbackSpans(events, [ROLLBACK_SOURCE, REWIND_SOURCE]);
+  for (const e of events) {
+    if (e?.type !== 'user/message' || e.data?.source?.kind !== 'user' || !Number.isSafeInteger(e.seq) || e.seq < from) continue;
+    if (spans.some(([a, b]) => e.seq >= a && e.seq <= b)) continue;
+    const text = textBlocks(e.data?.content).trim();
+    if (text !== '') return text.slice(0, BOARD_LIMITS.prompt);
+  }
+  return undefined;
 }
 
 /** One short call to `route` for the tags of a prompt; [] when the call fails or answers nothing usable. */
@@ -6540,35 +6545,6 @@ export async function boardTagsFor({ llm, route }, prompt, signal) {
   return boardTags(text);
 }
 
-/** Start a board task: a new chat in the project's dsh workspace with `prompt` as its first message (a `/command` that dsh
- * knows runs as that command), then the record. All or none: when the prompt cannot be sent, the new chat is archived and
- * the error says so. The prompt is sent with its own timeout, not the request's signal, so a closed request does not leave
- * an empty chat. Returns `{ sessionId, agent }`. */
-export async function startBoardChat({ sessionController, commands, registry, store }, project, prompt) {
-  const text = String(prompt ?? '').trim();
-  if (text === '' || text.length > BOARD_LIMITS.prompt) throw refused(`a task needs a prompt of at most ${BOARD_LIMITS.prompt} characters`, 400);
-  const workspace = boardProject(registry, project);
-  if (workspace === undefined) throw refused('this is not a dsh project', 404);
-  const { sessionId } = await sessionController.create({ workspaceId: workspace.id });
-  let agent;
-  try {
-    const found = await sessionController.resolveAgent(sessionId);
-    if ('error' in found) throw new Error('the new chat could not start');
-    agent = found.agent;
-    const name = /^\/([\w:.-]+)(?:\s|$)/.exec(text)?.[1];
-    let done;
-    if (name !== undefined && commands?.find?.(agent, name) !== undefined) {
-      done = await commands.execute(agent, text, [], AbortSignal.timeout(STOP_WAIT_MS));
-      if (done?.result?.kind !== 'success') throw new Error(`/${name} failed${done?.result?.text ? `: ${done.result.text}` : ''}`);
-    } else await sessionController.prompt({ requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
-    await store.change((chats) => { chats[sessionId] = { prompt: text, tags: [], at: Date.now() }; });
-  } catch (error) {
-    const undone = await Promise.resolve(registry?.archiveSession?.(sessionId, { stopActivity: true })).then(() => registry?.archiveSession !== undefined, () => false);
-    throw Object.assign(new Error(`${error?.message ?? error}; ${undone ? 'the new chat was archived' : `the new chat ${sessionId} stays empty`}`), { status: Number.isInteger(error?.status) ? error.status : 502 });
-  }
-  return { sessionId, agent };
-}
-
 /** Task board (Host half): the switch route and, while it is on, the board's chat route. */
 export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-composer-plus')) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
@@ -6586,13 +6562,29 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
     const mine = new AbortController();
     tagging.add(mine);
     try {
-      const current = ctx.sessionController.agents?.selectionFor?.(agent)?.current;
+      const current = agent === undefined ? undefined : ctx.sessionController.agents?.selectionFor?.(agent)?.current;
       const route = isText(current?.provider) && isText(current?.model) ? { provider: current.provider, model: current.model } : await routeOf(ctx, get);
       const tags = await boardTagsFor({ llm, route }, prompt, mine.signal);
       if (tags.length > 0 && !closed) await store.change((chats) => { if (chats[sessionId] !== undefined) chats[sessionId] = { ...chats[sessionId], tags }; });
     } catch (error) { if (!closed) ctx.logger?.warn?.(`dsh-composer-plus: task board tags failed: ${String(error?.message ?? error).slice(0, 300)}`); }
     finally { tagging.delete(mine); }
   };
+  /** A board chat that has no prompt yet gets its first message of its own as its prompt, and its tags. Once per chat: the
+   * record changes one at a time and sets the prompt only while it is empty, so a second message, or the route and the
+   * event at the same time, do not write it again or call the model again. */
+  const name = async (sessionId, agent, prompt) => {
+    if (prompt === undefined || closed || store.list()[sessionId]?.prompt !== '') return;
+    try {
+      let set = false;
+      await store.change((chats) => { if (chats[sessionId]?.prompt === '') { chats[sessionId] = { ...chats[sessionId], prompt }; set = true; } });
+      if (set) await tag(sessionId, agent, prompt);
+    } catch (error) { ctx.logger?.warn?.(`dsh-composer-plus: task board record failed: ${String(error?.message ?? error).slice(0, 300)}`); }
+  };
+  ctx.on?.('session/event', (session, event) => {
+    if (!on || closed || event?.type !== 'user/message') return;
+    const from = Number.isSafeInteger(session.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0;
+    name(session.id, get('agents')?.get?.(session.id), boardPromptOf([event], from));
+  });
   let switching = ready;
   ctx.connection.fetch.register({
     path: BOARD_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
@@ -6611,7 +6603,9 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
       return json({ on });
     },
   });
-  /** GET `?rev=N`: `{rev, chats}` (`{rev, same}` when nothing changed since rev). POST `{project, prompt}`: start a chat. */
+  /** GET `?rev=N`: `{rev, chats}` (`{rev, same}` when nothing changed since rev). POST `{sessionId}`: New task opened this
+   * dsh chat; it goes on the board (Todo until its first message). A message that came before the POST is read from the
+   * chat's log, so a fast first message still names the card. */
   ctx.connection.fetch.register({
     path: BOARD_CHATS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     fetch: async (request) => {
@@ -6626,14 +6620,19 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
         }
         let body;
         try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
-        if (!plainObject(body) || !isText(body.project) || typeof body.prompt !== 'string' || body.prompt.length > BOARD_LIMITS.prompt + 1000) return json({ error: 'bad request' }, 400);
-        const { sessionId, agent } = await startBoardChat({ sessionController: ctx.sessionController, commands: get('commands'), registry: get('workspaceRegistry'), store }, body.project, body.prompt);
-        tag(sessionId, agent, body.prompt.trim());
+        if (!plainObject(body) || Object.keys(body).join() !== 'sessionId' || !isText(body.sessionId, 128) || body.sessionId === '__proto__') return json({ error: 'bad request' }, 400);
+        const { sessionId } = body;
+        const found = await ctx.sessionController.resolveAgent(sessionId);
+        if (found === undefined || 'error' in found) return json({ error: 'this is not a dsh chat' }, 404);
+        if (store.list()[sessionId] === undefined) await store.change((chats) => { chats[sessionId] ??= { prompt: '', tags: [], at: Date.now() }; });
+        const session = found.agent?.session;
+        const from = Number.isSafeInteger(session?.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0;
+        await name(sessionId, found.agent, boardPromptOf(session?.snapshotEvents?.() ?? [], from));
         return json({ rev: store.rev(), sessionId });
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });
-  return { store, ready, tag, isOn: () => on };
+  return { store, ready, tag, name, isOn: () => on };
 }
 
 /* Planned steps, after HarnessMM (arXiv 2610.32813, "guarded decision reuse"): the model plans its next commands with the

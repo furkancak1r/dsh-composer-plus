@@ -1,8 +1,9 @@
 // Task board (client half, real client.js with fake dsh stores and a fake fetch): the columns come from dsh's own chat
 // list, session status and projects (orange → Review, running or a running subagent → Doing, the rest → Done with the
-// green dot while unread; archived, blank and subagent chats left out; a Branch per chat project counts as its
-// repository; newest first; Done shows 50; Hide finished); a start shows in Todo at once, runs one at a time and puts the
-// prompt back on a failure; one answer at a time from every entry point, and a request that changed or was answered
+// green dot while unread; archived and subagent chats left out, a blank chat only as the new task in Todo; a Branch per
+// chat project counts as its repository; newest first; Done shows 50; Hide finished); New task opens dsh's own new chat
+// (one at a time, a failure shows its reason), records it, and its first message brings the board back (once, only for
+// that chat); one answer at a time from every entry point, and a request that changed or was answered
 // elsewhere is not answered; the answers have dsh's own shapes (approval outcome, plan review, questions); the poll asks
 // only for a newer rev and stops with the page; switching the feature off removes the page, the row and the panels.
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
@@ -28,8 +29,8 @@ globalThis.fetch = async (url, init) => {
   const body = JSON.parse(init.body); posts.push(body);
   if (gate) await gate.promise;
   if (refuse) { const r = refuse; refuse = null; return Response.json({ error: r.error }, { status: r.status }); }
-  rev += 1; chats = { ...chats, [`new${posts.length}`]: { prompt: body.prompt, tags: [], at: 9 } };
-  return Response.json({ rev, sessionId: `new${posts.length}` });
+  rev += 1; chats = { ...chats, [body.sessionId]: { prompt: '', tags: [], at: 9 } };
+  return Response.json({ rev, sessionId: body.sessionId });
 };
 const hold = () => { let open; gate = { promise: new Promise((r) => { open = r; }) }; return () => { gate = null; open(); }; };
 
@@ -89,7 +90,6 @@ assert.deepEqual(recentOf({ list: quietWith('s4', { updatedAt: T - 3 * 3600 * 10
 assert.deepEqual(recentOf({ statuses: new Map([['s4', { completionUnread: true }]]) }), ['w1'], 'finished and not opened yet');
 assert.deepEqual(recentOf({ list: quietWith('s6', { updatedAt: T }) }), [], 'an archived chat does not count');
 assert.deepEqual(recentOf({ list: quietWith('s5', { updatedAt: T }) }), [], 'a blank chat does not count');
-assert.deepEqual(recentOf({ starting: [{ key: 'starting-9', project: 'w3', prompt: 'x', at: 1 }] }), ['w3'], 'a task that starts now');
 const named = [{ id: 'a', name: 'Çalışma', path: '/w/x', recent: false }, { id: 'b', name: 'blog', path: '/w/blog', recent: true }, { id: 'c', name: 'Docs Site', path: '/w/d', recent: false }];
 const listed = () => board.shownProjects(named).map((p) => p.id);
 assert.deepEqual(listed(), ['a', 'b', 'c']);
@@ -108,9 +108,11 @@ const many = { byId: Object.fromEntries(Array.from({ length: 60 }, (_, i) => sum
 v = board.columns({ workspaces: { items: [], archivedSessionIds: [] }, list: many, statuses: new Map() });
 assert.equal(v.columns[3].cards.length, 50); assert.equal(v.hiddenDone, 10); assert.equal(v.columns[3].cards[0].id, 'm59');
 assert.equal(board.columns({ workspaces: { items: [] }, list: many, statuses: new Map(), doneAll: true }).columns[3].cards.length, 60);
-// Starting tasks show in Todo until their chat is on the list.
-v = board.columns({ workspaces, list, statuses, starting: [{ key: 'starting-1', project: 'w1', prompt: 'Add a login page', at: 1 }, { key: 'starting-2', project: 'w1', prompt: 'x', at: 2, sessionId: 's2' }] });
-assert.deepEqual(ids(v, 'todo'), ['starting-1'], 'a start whose chat shows leaves Todo');
+// The new task's blank chat shows in Todo (no other blank chat); once it has a message it is a normal card.
+v = board.columns({ workspaces, list, statuses, task: 's5' });
+assert.deepEqual(ids(v, 'todo'), ['s5'], 'the new task before its first message'); assert.equal(v.columns[0].cards[0].state, 'draft');
+assert.deepEqual(ids(board.columns({ workspaces, list, statuses, task: 's5', project: 'w3' }), 'todo'), [], 'only in its own project');
+assert.deepEqual(ids(board.columns({ workspaces, list, statuses, task: 's1' }), 'todo'), [], 'a chat with a message is not a draft');
 
 // The store: read, then only a newer rev; the poll stops with the page.
 board.start(); await tick();
@@ -123,28 +125,49 @@ board.setProject('w1'); assert.equal(JSON.parse(mem.get('dsh-composer-plus.board
 board.toggleHideDone(); assert.equal(board.getSnapshot().hideDone, true); assert.equal(mem.get('dsh-composer-plus.board.hideDone'), 'true', 'Hide finished stays on this device');
 board.toggleHideDone();
 
-// New task: one start at a time; the card shows in Todo at once; a failure puts the prompt back with the reason.
-assert.equal(board.newTask(undefined), false, 'no project: no panel');
-board.newTask('w1'); board.editDraft({ prompt: '  ' });
-assert.equal(await board.create(), false, 'an empty prompt starts nothing'); assert.equal(posts.length, 0);
-board.editDraft({ prompt: 'Add a login page' });
-let open = hold();
-const c1 = board.create(); await tick();
-assert.equal(board.getSnapshot().draft, null, 'the panel closes');
-assert.deepEqual(board.getSnapshot().starting.map((s) => s.prompt), ['Add a login page'], 'the card shows in Todo at once');
-assert.equal(board.newTask('w1'), false, 'no second panel while a start runs');
-assert.equal(await board.create(), false, 'and no second start');
-board.editDraft({ prompt: 'Second' }); assert.equal(board.getSnapshot().draft, null, 'no panel to edit while a start runs');
-open(); assert.equal(await c1, true);
-assert.deepEqual(posts, [{ project: 'w1', prompt: 'Add a login page' }], 'one start');
-assert.equal(board.getSnapshot().starting[0].sessionId, 'new1', 'the start knows its chat');
-board.newTask('w1'); board.editDraft({ prompt: 'Keep me' });
-refuse = { status: 502, error: 'admission refused; the new chat was archived' };
-assert.equal(await board.create(), false);
-assert.equal(board.getSnapshot().draft?.prompt, 'Keep me', 'the prompt is not lost'); assert.match(board.getSnapshot().draft.error, /admission refused/);
-assert.equal(board.getSnapshot().starting.length, 1, 'the failed card leaves Todo');
-board.close();
-
+// New task: dsh's own New session; one at a time; the chat is recorded; its first message brings the board back.
+const opens = []; let openGate = null; let openFails = null;
+const openNew = async (project) => { opens.push(project); if (openGate) await openGate.promise; if (openFails) { const e = openFails; openFails = null; throw e; } return `chat${opens.length}`; };
+assert.equal(await board.newTask('w1', undefined), false, 'no New session in this dsh: nothing');
+let releaseOpen; openGate = { promise: new Promise((res) => { releaseOpen = res; }) };
+const n1 = board.newTask('w1', openNew); await tick();
+assert.equal(await board.newTask('w1', openNew), false, 'a second New task while one opens');
+assert.deepEqual(opens, ['w1'], 'one New session');
+openGate = null; releaseOpen(); assert.equal(await n1, true);
+assert.equal(board.getSnapshot().task, 'chat1', 'the new task waits for its first message');
+assert.deepEqual(posts, [{ sessionId: 'chat1' }], 'the Host records the chat');
+await board.newTask(undefined, openNew); assert.equal(opens[1], undefined, 'All projects: dsh picks the project');
+assert.equal(board.getSnapshot().task, 'chat2', 'the newest task');
+assert.equal(board.sent('chat1'), false, 'another chat\'s message does not bring the board back');
+assert.equal(board.sent('chat2'), true, 'its first message: back to the board'); assert.equal(board.getSnapshot().task, null);
+assert.equal(board.sent('chat2'), false, 'once');
+openFails = new Error('the new chat did not open');
+assert.equal(await board.newTask('w1', openNew), false); assert.equal(board.getSnapshot().toast, 'the new chat did not open', 'a failure shows its reason');
+assert.equal(board.getSnapshot().task, null);
+refuse = { status: 404, error: 'this is not a dsh chat' };
+assert.equal(await board.newTask('w1', openNew), false); assert.equal(board.getSnapshot().task, null, 'the Host refused: no task'); assert.equal(board.getSnapshot().toast, 'this is not a dsh chat');
+// The watcher: the task's chat leaves blank → back(); another chat or a still blank one does nothing.
+const listeners = new Set(); let snap = { byId: { chat9: { blank: true }, other: { blank: false } } };
+const fakeList = { getSnapshot: () => snap, subscribe: (fn) => { listeners.add(fn); return () => listeners.delete(fn); } };
+const fire = () => { for (const fn of [...listeners]) fn(); };
+const watch = eval(`(${/function watchBoardTask\(board, list, back\) \{[\s\S]*?\n    \}/.exec(readFileSync(new URL('../client.js', import.meta.url), 'utf8'))[0]})`);
+let backs = 0; const stopWatch = watch(board, fakeList, () => { backs += 1; });
+await board.newTask('w1', async () => 'chat9');
+fire(); assert.equal(backs, 0, 'still blank');
+snap = { byId: { chat9: { blank: false } } }; fire(); assert.equal(backs, 1, 'the first message went: back to the board');
+fire(); assert.equal(backs, 1, 'once');
+stopWatch(); assert.equal(listeners.size, 0, 'the feature going off stops the watcher');
+// openBoardTask: dsh's startSession, then the blank chat in the main view.
+const openTask = eval(`(${/function openBoardTask\(uiWorkspace, list, project, wait = 15000\) \{[\s\S]*?\n    \}/.exec(readFileSync(new URL('../client.js', import.meta.url), 'utf8'))[0]})`);
+snap = { byId: { old: { id: 'old', blank: true, retainedBy: { mainView: 1 } } } };
+const started = [];
+// dsh moves the main view in two steps: first the old blank chat stays retained, then the new one comes. Another blank
+// chat that is not in the main view (an older empty chat in the sidebar) is not the new one.
+const ui = { startSession: (w) => { started.push(w); fire(); snap = { byId: { other: { id: 'other', blank: true, retainedBy: {} }, old: { id: 'old', blank: true, retainedBy: { mainView: 1 } }, fresh: { id: 'fresh', blank: true, retainedBy: { mainView: 1 } } } }; fire(); } };
+assert.equal(await openTask(ui, fakeList, 'w1'), 'fresh', 'the blank chat that dsh opened in the main view, not the one that was open before'); assert.deepEqual(started, ['w1']);
+await assert.rejects(openTask({}, fakeList, 'w1'), /no New session/);
+await assert.rejects(openTask({ startSession: () => { throw new Error('boom'); } }, fakeList, 'w1'), /boom/);
+assert.equal(listeners.size, 0, 'no listener left');
 // Answers: one at a time (buttons, Enter, ⌘/Ctrl+Enter all go through board.answer); a changed or settled request is not answered.
 answers = [];
 let gateAnswer; const slow = ask('approval', { answer: (v2) => { answers.push(['approval', v2]); return new Promise((r) => { gateAnswer = r; }); } });
@@ -187,8 +210,7 @@ board.setProject('all');
 const tree = page[1]({ ...injected, openSession: (id) => opened.push(id), useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
 assert.ok(pageEl);
 const cards = find(tree, (n) => n.p?.['data-cpb-card'] !== undefined);
-assert.equal(cards.length, 8, '7 chats and the start whose chat is not on the list yet');
-assert.equal(cards.find((n) => n.p['data-cpb-state'] === 'starting')?.p.role, undefined, 'a starting card opens nothing');
+assert.equal(cards.length, 7, '7 chats (the blank one is no task now)');
 const card = cards.find((n) => n.p['data-cpb-card'] === 's4');
 card.p.onClick({ target: { closest: () => null } }); assert.deepEqual(opened, ['s4'], 'a click opens the chat');
 const answerButton = find(tree, (n) => n.p?.['data-cpb-answer'] === 's1')[0];
@@ -228,40 +250,26 @@ assert.deepEqual(navNames(el), ['board.allProjects']); assert.equal(find(el, (n)
 board.setQuery(''); board.toggleRecent();
 assert.match(src, /\.cpb-col\{flex:1 1 0;min-width:140px/, 'the columns share the width');
 
-// New task → Project: a button opens the projects with a search box; Enter picks the first match, a click picks one,
-// Esc closes the list (not the panel), a focus in the prompt closes it too; the prompt is kept.
-const newPanel = () => { const tr = page[1]({ ...injected, openSession: () => {}, useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
-  const p = find(tr, (n) => typeof n.t === 'function' && n.t.name === 'BoardNewTask')[0]; return p.t(p.p); };
-const pickNames = (el2) => find(el2, (n) => n.p?.['data-cpb-projects'] !== undefined).flatMap((box) => find(box, (n) => n.p?.className === 'cpb-nav').map((n) => n.c[1].c[0]));
-const ev = (o = {}) => ({ preventDefault() {}, stopPropagation() {}, nativeEvent: {}, ...o });
-board.newTask('w1'); board.editDraft({ prompt: 'Keep this text' });
-let np = newPanel();
-const projectButton = () => find(np, (n) => n.p?.['data-cpb-project'] !== undefined)[0];
-assert.equal(projectButton().p['data-cpb-project'], 'w1'); assert.equal(projectButton().c[0].c[0], 'acme', 'the button shows the chosen project');
-assert.equal(pickNames(np).length, 0, 'the list is closed');
-projectButton().p.onClick(); np = newPanel();
-assert.deepEqual(pickNames(np), ['acme', 'blog'], 'the button opens every project');
-const pickSearch = () => find(np, (n) => n.p?.className === 'cpb-search' && n.p?.placeholder === 'projectPicker.search')[0];
-assert.ok(pickSearch(), 'with a search box (the label of Project search in a new chat)');
-pickSearch().p.onChange({ target: { value: 'BLO' } }); np = newPanel();
-assert.deepEqual(pickNames(np), ['blog'], 'the search filters by name');
-pickSearch().p.onKeyDown(ev({ key: 'Enter' }));
-assert.equal(board.getSnapshot().draft.project, 'w3', 'Enter picks the first match'); assert.equal(board.getSnapshot().draft.find, null, 'and closes the list');
-assert.equal(board.getSnapshot().draft.prompt, 'Keep this text', 'the prompt is kept');
-np = newPanel(); projectButton().p.onClick(); np = newPanel();
-pickSearch().p.onChange({ target: { value: 'zzz' } }); np = newPanel();
-assert.equal(pickNames(np).length, 0); assert.ok(find(np, (n) => n.c?.[0] === 'projectPicker.empty').length === 1, 'no match: a note');
-pickSearch().p.onKeyDown(ev({ key: 'Enter' })); assert.equal(board.getSnapshot().draft.project, 'w3', 'Enter with no match picks nothing');
-let stopEsc = 0;
-find(np, (n) => n.p?.['data-cpb-projects'] !== undefined)[0].p.onKeyDown(ev({ key: 'Escape', stopPropagation() { stopEsc += 1; } }));
-assert.equal(board.getSnapshot().draft?.find, null, 'Esc closes the list'); assert.ok(board.getSnapshot().draft !== null && stopEsc === 1, 'not the panel');
-np = newPanel(); projectButton().p.onClick(); np = newPanel();
-find(np, (n) => n.p?.className === 'cpb-nav' && n.c[1].c[0] === 'acme')[0].p.onClick();
-assert.equal(board.getSnapshot().draft.project, 'w1', 'a click picks a project'); assert.equal(board.getSnapshot().draft.find, null);
-np = newPanel(); projectButton().p.onClick(); np = newPanel();
-find(np, (n) => n.p?.['data-cpb-prompt'] !== undefined)[0].p.onFocus();
-assert.equal(board.getSnapshot().draft.find, null, 'a focus in the prompt closes the list');
-board.close();
+// The page: New task calls dsh's New session for the shown project; the draft card says "New task", opens its chat.
+const newCalls = [];
+board.setProject('w1');
+let pg = page[1]({ ...injected, openSession: (id) => opened.push(id), openNewTask: async (p) => { newCalls.push(p); return 's5'; }, useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
+await find(pg, (n) => n.p?.['data-cpb-new'] !== undefined)[0].p.onClick(); await tick();
+assert.deepEqual(newCalls, ['w1'], 'the shown project');
+pg = page[1]({ ...injected, openSession: (id) => opened.push(id), openNewTask: async () => 's5', useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
+const draft = find(pg, (n) => n.p?.['data-cpb-card'] === 's5')[0];
+assert.equal(draft.p['data-cpb-state'], 'draft'); assert.equal(find(draft, (n) => n.p?.['data-cpb-title'] !== undefined)[0].c[0], 'board.newTask');
+assert.equal(find(draft, (n) => n.p?.['data-cpb-when'] !== undefined)[0].c[0], 'board.waitingFirst');
+draft.p.onClick({ target: { closest: () => null } }); assert.equal(opened.at(-1), 's5', 'a click opens its chat to write the first message');
+board.setProject('all');
+pg = page[1]({ ...injected, openSession: () => {}, openNewTask: async (p) => { newCalls.push(p); return 's5'; }, useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
+await find(pg, (n) => n.p?.['data-cpb-new'] !== undefined)[0].p.onClick(); await tick();
+assert.equal(newCalls.at(-1), undefined, 'All projects: dsh picks');
+pg = page[1]({ ...injected, openNewTask: undefined, openSession: () => {}, useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
+assert.equal(find(pg, (n) => n.p?.['data-cpb-new'] !== undefined).length, 0, 'no New session: no button');
+await assert.rejects(injected.openNewTask('w1'), /no New session/, 'the injected opener before dsh\'s services come');
+assert.doesNotMatch(src, /function BoardNewTask|data-cpb-prompt/, 'no panel of our own for the prompt');
+board.sent('s5');
 
 // The off state and an older Host.
 globalThis.fetch = async () => Response.json({ error: 'Task board is off' }, { status: 409 });
@@ -272,9 +280,10 @@ assert.ok(/feature\('taskBoard', \(\) => \[ctx\.slots\.inject\('main'/.test(src)
 
 // Switching the feature off removes the page, the sidebar row and the panels.
 const toggles = [...live.values()].find(([o]) => o.id === 'composer-plus')[0].inject();
-globalThis.fetch = async (url, init) => (url === '/api/composer-plus.board' ? Response.json({ on: JSON.parse(init?.body ?? '{"on":true}').on }) : Response.json({}, { status: 409 }));
-board.newTask('w1');
+globalThis.fetch = async (url, init) => (url === '/api/composer-plus.board' ? Response.json({ on: JSON.parse(init?.body ?? '{"on":true}').on }) : Response.json({ rev: 9, sessionId: 'chatX' }));
+board.openAnswer('s1'); await board.newTask('w1', async () => 'chatX');
+assert.equal(board.getSnapshot().task, 'chatX', 'a new task waits');
 await toggles.setFeature('taskBoard', false); await tick();
 assert.ok(![...live.values()].some(([o]) => o.key === 'composer-plus-board' || o.id === 'composer-plus-board'), 'page and row removed');
-assert.equal(board.getSnapshot().draft, null, 'the panel goes');
+assert.equal(board.getSnapshot().answering, null, 'the panel goes'); assert.equal(board.getSnapshot().task, null, 'the new task is forgotten');
 console.log('task board: client ok');

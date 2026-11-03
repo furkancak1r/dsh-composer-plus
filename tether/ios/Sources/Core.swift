@@ -1046,6 +1046,8 @@ struct Sess: Identifiable {
     let id: String, title: String, cwd: String, parent: String?, running: Bool, preset: String?, model: String?, context: Double?, permission: String?, todos: [Todo]?, updated: Date?, questions: [Prompt], goal: Goal?
     /// dsh's `plan` projection ({active, pending?}); nil when dsh does not send it.
     var plan: J? = nil
+    /// dsh's "New session" chat with no message yet (dsh's `blank`).
+    var blank = false
     init?(_ j: J) {
         guard let id = j["sessionId"] as? String else { return nil }
         let p = (j["projections"] as? J)?["values"] as? J
@@ -1067,6 +1069,7 @@ struct Sess: Identifiable {
         let cp = p?["contextPressure"] as? J, used = (cp?["projectedTokens"] as? NSNumber)?.doubleValue, win = (cp?["contextWindow"] as? NSNumber)?.doubleValue
         context = used.flatMap { u in win.flatMap { $0 > 0 ? u / $0 : nil } }
         plan = p?["plan"] as? J
+        blank = j["blank"] as? Bool ?? false
     }
 }
 
@@ -1868,7 +1871,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private func closeScreen() {
         ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil
         urlSession?.invalidateAndCancel(); urlSession = nil // pooled TLS sockets belong to the old Mac's pin
-        sessions = []; sessionsLoaded = false; transcript = []; streaming = ""; reasoning = ""; running = false; prompts = []; branches = [:]
+        sessions = []; sessionsLoaded = false; transcript = []; streaming = ""; reasoning = ""; running = false; prompts = []; branches = [:]; boardTask = nil; boardBack = false
         current = nil; path = []; goal = nil; state = .off; upstream = ""; route = nil; lastFail = nil; attempt = 0; probing = false
         outgoing = []; loadingChat = false; editingQueued = nil
         workspaces = []; pinned = []; archived = []; commands = []; catalog = []; presets = []; perms = []; skills = []
@@ -2377,6 +2380,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         } else { branches = [:] }
         sessions = fresh
         sessionsLoaded = true
+        boardSent()
         // session/list carries projections.values.userQuestions ({active, settled}, verified live by gateway/e2e.mjs).
         let live = prompts.filter { $0.event != "userQuestions/answer" }, waiting = Set(live.compactMap(\.agentId))
         prompts = live + fresh.flatMap(\.questions).filter { !waiting.contains($0.agentId ?? "") }
@@ -2412,10 +2416,42 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         return J()
     }
 
-    func create(cwd: String?, workspaceId: String? = nil) async throws {
+    @discardableResult func create(cwd: String?, workspaceId: String? = nil) async throws -> String? {
         let v = try await rpc("session/create", ["request": Self.createRequest(cwd: cwd, workspaceId: workspaceId)]) as? J
         try await loadSessions()
-        if let id = v?["sessionId"] as? String { fresh = id; open(id) }
+        guard let id = v?["sessionId"] as? String else { return nil }
+        fresh = id; open(id)
+        return id
+    }
+
+    // MARK: Task board new task (Composer Plus `taskBoard`)
+
+    /// The new chat that the board's + opened; the board opens again when its first message went (`boardBack`).
+    @Published private(set) var boardTask: String?
+    /// The board's sheet opens again (the chat view shows it): set when the new task's first message went.
+    @Published var boardBack = false
+    /// One new task at a time (a second tap while one opens does nothing).
+    @Published private(set) var boardOpening = false
+    /// New task: a new chat in `project` (a workspace id; nil or "all": the Mac's default, as Quick chat), recorded on the
+    /// Mac's board. The chat opens; the board comes back after its first message (`boardSent`). A failure: its reason.
+    func boardNewTask(project: String?) async throws {
+        guard !boardOpening else { return }
+        boardOpening = true
+        defer { boardOpening = false }
+        let id: String?
+        if let project, project != "all" { id = try await create(cwd: nil, workspaceId: project) }
+        else {
+            let o = plus.contains("new-session-workspace") ? try? await plusCall("new-session-workspace", body: [:]) : nil
+            id = try await create(cwd: nil, workspaceId: Self.defaultWorkspaceId(o))
+        }
+        guard let id else { throw Fail(String(localized: "The new chat did not open.")) }
+        boardTask = id
+        _ = try await plusCall("board-chats", body: ["sessionId": id])
+    }
+    /// The chat list changed: when the new task's chat is not blank any more, its first message went and the board opens.
+    func boardSent() {
+        guard let t = boardTask, let s = sessions.first(where: { $0.id == t }), !s.blank else { return }
+        boardTask = nil; boardBack = true
     }
 
     /// The workspace of a Mac answer to `/plus/new-session-workspace`; nil (DSH picks) for anything else.
@@ -2989,9 +3025,10 @@ func boardMeta(_ o: J) -> [String: BoardMeta] {
 }
 /// The board from the phone's own lists, with the desktop board's rules: a chat that waits for you (a prompt of it is
 /// open) is in Review, a running chat (or one whose subagent runs) in Doing, every other chat in Done (green while it is
-/// unread). Archived and subagent chats are left out. `project` is a workspace id or "all"; `hideDone` hides Done.
+/// unread). Archived and subagent chats are left out; a blank chat (no message yet) shows only when it is `task`, the new
+/// task, in Todo. `project` is a workspace id or "all"; `hideDone` hides Done.
 func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<String>, waiting: Set<String>, finished: Set<String>,
-                  meta: [String: BoardMeta], project: String, hideDone: Bool, now: Date = Date()) -> (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
+                  meta: [String: BoardMeta], task: String? = nil, project: String, hideDone: Bool, now: Date = Date()) -> (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
     let trim = { (p: String) -> String in p.count > 1 && p.hasSuffix("/") ? String(p.dropLast()) : p }
     let byPath = Dictionary(workspaces.map { (trim($0.path), $0) }, uniquingKeysWith: { a, _ in a })
     var owner: [String: Workspace] = [:]
@@ -3001,14 +3038,18 @@ func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<Strin
     }
     var projectOf: [String: String] = [:]
     for w in workspaces { for s in w.sessions where projectOf[s] == nil { projectOf[s] = owner[w.id]?.id } }
-    let recent = Set(sessions.filter { $0.parent == nil && !archived.contains($0.id) && recentChat($0, all: sessions, now: now, open: nil, waiting: waiting, finished: finished) }.compactMap { projectOf[$0.id] })
+    let recent = Set(sessions.filter { $0.parent == nil && !$0.blank && !archived.contains($0.id) && recentChat($0, all: sessions, now: now, open: nil, waiting: waiting, finished: finished) }.compactMap { projectOf[$0.id] })
     let projects = workspaces.filter { owner[$0.id]?.id == $0.id }.map { BoardProject(id: $0.id, name: $0.title, path: $0.path, recent: recent.contains($0.id)) }
         .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
     var columns: [String: [BoardCard]] = ["todo": [], "doing": [], "review": [], "done": []]
-    for s in sessions where s.parent == nil && !archived.contains(s.id) {
+    for s in sessions where s.parent == nil && !archived.contains(s.id) && (!s.blank || s.id == task) {
         let p = projectOf[s.id]
         if project != "all", p != project { continue }
+        if s.blank {
+            columns["todo", default: []].append(BoardCard(id: s.id, title: String(localized: "New task"), prompt: "", tags: [], project: p.flatMap { names[$0] }, updated: s.updated, state: "draft"))
+            continue
+        }
         let state = waiting.contains(s.id) ? "waiting" : isRunning(s, sessions) ? "running" : finished.contains(s.id) ? "unread" : "read"
         let m = meta[s.id]
         let card = BoardCard(id: s.id, title: s.title, prompt: m?.prompt ?? "", tags: m?.tags ?? [], project: p.flatMap { names[$0] }, updated: s.updated, state: state)
@@ -3030,8 +3071,8 @@ func boardProjectOf(_ session: String, workspaces: [Workspace]) -> String {
     return w.id
 }
 
-/// Task board on the phone: the Mac's record of the board's chats (the tags) and one start at a time. The columns come from
-/// the phone's own chat list (`boardColumns`). A start that fails keeps its reason in `failed`.
+/// Task board on the phone: the Mac's record of the board's chats (the tags). The columns come from the phone's own chat
+/// list (`boardColumns`); New task is `Client.boardNewTask`.
 @MainActor final class TaskBoard: ObservableObject {
     @Published private(set) var meta: [String: BoardMeta] = [:]
     @Published private(set) var loaded = false
@@ -3039,8 +3080,6 @@ func boardProjectOf(_ session: String, workspaces: [Workspace]) -> String {
     @Published private(set) var off = false
     /// The Mac's plugin has no board route (404): an older Composer Plus.
     @Published private(set) var missing = false
-    @Published private(set) var starting = false
-    @Published private(set) var failed: String?
     @Published private(set) var readFailed: String?
     private var call: ([String: String], J?) async throws -> J
     private var rev: String?
@@ -3064,18 +3103,5 @@ func boardProjectOf(_ session: String, workspaces: [Workspace]) -> String {
             if f?.status == 404 { missing = true; return }
             readFailed = userText(error)
         }
-    }
-    /// Start a new chat with the prompt in the project (a workspace id): its session id, or nil when a start runs or the
-    /// Mac refused it (the reason is in `failed`).
-    @discardableResult func start(project: String, prompt: String) async -> String? {
-        let p = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !starting, !p.isEmpty, !project.isEmpty, project != "all" else { return nil }
-        starting = true; failed = nil
-        defer { starting = false }
-        do {
-            let o = try await call([:], ["project": project, "prompt": p])
-            rev = nil; await load()
-            return o["sessionId"] as? String
-        } catch { failed = userText(error); return nil }
     }
 }

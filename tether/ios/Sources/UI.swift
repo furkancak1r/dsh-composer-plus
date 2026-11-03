@@ -611,6 +611,8 @@ struct ConversationView: View {
             .sheet(isPresented: $showHandoff) { if let id = c.current { HandoffSheet(sessionId: id) } }
             .sheet(isPresented: $showContext) { if let id = c.current { ContextSheet(sessionId: id) } }
             .sheet(isPresented: $showBoard) { BoardSheet(project: boardProjectOf(c.current ?? "", workspaces: c.workspaces)) }
+            // Task board → +: the new chat opened here; its first message went, so the board opens again.
+            .onChange(of: c.boardBack) { _, back in if back { c.boardBack = false; showBoard = true } }
             .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { text = t; focused = true } } }
             .sheet(isPresented: Binding(get: { redoMarker != nil }, set: { if !$0 { redoMarker = nil } })) { if let m = redoMarker { RedoSheet(marker: m) } }
             .confirmationDialog("Delete this chat?", isPresented: $deleting, titleVisibility: .visible) {
@@ -3471,7 +3473,6 @@ struct BoardSheet: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var b = TaskBoard { _, _ in [:] }
     @State private var column = "doing"
-    @State private var creating = false
     @State private var project: String
     @AppStorage("boardHideDone") private var hideDone = false
     @State private var picking = false
@@ -3479,7 +3480,7 @@ struct BoardSheet: View {
     private var ready: Bool { b.loaded && !b.off && !b.missing }
     private var view: (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
         boardColumns(sessions: c.sessions, workspaces: c.workspaces, archived: Set(c.archived), waiting: Set(c.prompts.compactMap(\.agentId)),
-                     finished: c.finished, meta: b.meta, project: project, hideDone: hideDone)
+                     finished: c.finished, meta: b.meta, task: c.boardTask, project: project, hideDone: hideDone)
     }
     private var projectName: String { project == "all" ? String(localized: "All projects") : view.projects.first { $0.id == project }?.name ?? String(localized: "All projects") }
     var body: some View {
@@ -3508,14 +3509,15 @@ struct BoardSheet: View {
             .toolbar {
                 ToolbarItem(placement: .principal) { projectMenu(v.projects) }
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { creating = true } label: { Image(systemName: "plus") }
-                        .disabled(!ready || b.starting || (project == "all" && v.projects.isEmpty))
+                    // New task: the board closes and a new chat opens in the project (photos, files and commands as in any
+                    // chat); after its first message the board opens again.
+                    Button { let p = project; dismiss(); c.run { try await c.boardNewTask(project: p) } } label: { Image(systemName: "plus") }
+                        .disabled(!ready || c.boardOpening)
                         .accessibilityLabel("New task")
                 }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
             .onChange(of: hideDone) { _, on in if on, column == "done" { column = "doing" } }
-            .sheet(isPresented: $creating) { BoardNewTaskSheet(b: b, projects: v.projects, project: project == "all" ? v.projects.first?.id ?? "" : project) }
             .sheet(isPresented: $picking) { BoardProjectSheet(projects: v.projects, project: $project, hideDone: $hideDone).presentationDetents([.medium, .large]) }
             .task {
                 b.bind { [c] query, body in try await c.plusCall("board-chats", query: query, body: body) }
@@ -3542,32 +3544,6 @@ struct BoardSheet: View {
         }
         .disabled(!ready)
         .accessibilityLabel(Text("Task board, project: \(projectName)"))
-    }
-}
-
-/// New task → Project: the board's projects with a search box; a tap picks one and goes back.
-struct BoardProjectPick: View {
-    let projects: [BoardProject]
-    @Binding var project: String
-    @State private var query = ""
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        let shown = boardProjectList(projects, query: query, recentOnly: false)
-        List {
-            ForEach(shown) { p in
-                Button { project = p.id; dismiss() } label: {
-                    HStack {
-                        Text(verbatim: p.name).foregroundStyle(.primary).lineLimit(1)
-                        Spacer(minLength: 0)
-                        if project == p.id { Image(systemName: "checkmark").foregroundStyle(.tint) }
-                    }
-                }
-                .accessibilityAddTraits(project == p.id ? .isSelected : [])
-            }
-            if shown.isEmpty { Text("No matching project").foregroundStyle(.secondary) }
-        }
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
-        .navigationTitle("Project").navigationBarTitleDisplayMode(.inline)
     }
 }
 
@@ -3628,6 +3604,7 @@ struct BoardCardRow: View {
                 Text(verbatim: card.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             if card.state == "waiting" { Text("Waiting for you · tap to answer").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
+            if card.state == "draft" { Text("Write the first message").font(.caption).foregroundStyle(.secondary) }
             if card.project != nil || !card.tags.isEmpty {
                 HStack(spacing: 6) {
                     if let p = card.project { Text(verbatim: p).font(.caption2).foregroundStyle(.secondary) }
@@ -3640,41 +3617,5 @@ struct BoardCardRow: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// New task: a project and a prompt. The Mac starts a new chat with it; AI names it and writes its tags.
-struct BoardNewTaskSheet: View {
-    @EnvironmentObject var c: Client
-    @ObservedObject var b: TaskBoard
-    let projects: [BoardProject]
-    @State var project: String
-    @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    /// Show the board's reason only after this sheet's own Start.
-    @State private var tried = false
-    var body: some View {
-        NavigationStack {
-            Form {
-                NavigationLink { BoardProjectPick(projects: projects, project: $project) } label: {
-                    LabeledContent("Project") { Text(verbatim: projects.first { $0.id == project }?.name ?? "") }
-                }
-                Section {
-                    TextField("What should the agent do?", text: $text, axis: .vertical).lineLimit(3...12)
-                } footer: { Text("A new chat starts with this prompt. The title and the tags come from AI.") }
-                if tried, !b.starting, let f = b.failed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
-            }
-            .disabled(b.starting)
-            .navigationTitle("New task").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(b.starting) }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Start") { tried = true; let t = text, p = project; Task { if await b.start(project: p, prompt: t) != nil { dismiss() } } }
-                        .disabled(b.starting || project.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .interactiveDismissDisabled(b.starting)
     }
 }
