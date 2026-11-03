@@ -688,6 +688,19 @@ export const releaseNotes = (body) => {
   const text = body.replace(/\r\n?/g, '\n').split(/^## Install\b/m)[0].trim().slice(0, NOTES_MAX);
   return text === '' ? undefined : text;
 };
+/** A UI language id in `release-notes.json` (`en`, `zh`, `pt-BR`); other keys, such as `__proto__`, are not read. */
+const NOTES_LANG_RE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/;
+/** The release notes that ship with this copy (`release-notes.json`: `{ version, notes: { [language]: markdown } }`), for
+ * What's new in the UI language: `{ [language]: text }`, or undefined when the file is for another version or has no
+ * text. The copy that runs after an update has them; the older copy that installed it saved only GitHub's English body. */
+export const shippedNotes = (text, version = PACKAGE.version) => {
+  let data;
+  try { data = JSON.parse(text); } catch { return undefined; }
+  if (data?.version !== version || data.notes === null || typeof data.notes !== 'object') return undefined;
+  const notes = Object.fromEntries(Object.entries(data.notes).filter(([id]) => NOTES_LANG_RE.test(id))
+    .map(([id, body]) => [id, releaseNotes(body)]).filter(([, body]) => body !== undefined));
+  return Object.keys(notes).length === 0 ? undefined : notes;
+};
 /** Latest GitHub release vs this copy. `managed` is false for a renamed or linked local copy, which pnpm can't upgrade. */
 export async function checkUpdate(fetchImpl = fetch, pkg = PACKAGE, signal) {
   const current = parseVersion(pkg.version);
@@ -1898,8 +1911,12 @@ export function apply(ctx) {
   ctx.connection.fetch.register({
     path: UPDATE_PATH, methods: ['GET'], requestBody: 'buffered',
     fetch: async (request) => {
-      // `?current=1`: only the version that this Host runs (What's new after an update); no network call.
-      if (new URL(request.url).searchParams.get('current') === '1') return json({ current: PACKAGE.version });
+      // `?current=1`: the version that this Host runs and its shipped release notes (What's new after an update); no
+      // network call. A missing or broken notes file leaves `notes` out.
+      if (new URL(request.url).searchParams.get('current') === '1') {
+        const notes = await readFile(new URL('./release-notes.json', import.meta.url), 'utf8').then(shippedNotes, () => undefined);
+        return json(notes === undefined ? { current: PACKAGE.version } : { current: PACKAGE.version, notes });
+      }
       try { return json(await checkUpdate(fetch, PACKAGE, request.signal)); } catch (error) { return json({ error: String(error?.message ?? error) }, 502); }
     },
   });
