@@ -19,4 +19,13 @@ for (const id of rows.keys()) assert.ok(features.includes(id), `tether/FEATURES.
 const routes = Object.entries(host).filter(([k, v]) => k.endsWith('_PATH') && typeof v === 'string').map(([, v]) => v);
 for (const name of PLUS.keys()) assert.ok(routes.includes(`/api/composer-plus.${name}`), `PLUS "${name}" is a Host route`);
 for (const name of ['mobile', 'resume', 'content-search', 'update', 'shot']) assert.ok(!PLUS.has(name), `PLUS never has "${name}"`);
+
+// The phone calls a route only when its Mac's gateway has it (AGENTS.md rule 8): an older gateway answers 403 to each
+// call. `diff` and `idea-history` run only inside the Changes and Feature ideas sheets, which open behind their own gate.
+const swift = ['UI', 'Core'].map((n) => readFileSync(new URL(`../tether/ios/Sources/${n}.swift`, import.meta.url), 'utf8')).join('\n');
+const SHEET = { diff: 'changes', 'idea-history': 'ideas' };
+for (const name of new Set([...swift.matchAll(/plusCall\("([a-z-]+)"/g)].map((m) => m[1]))) {
+  assert.ok(PLUS.has(name), `the phone calls "${name}": it is in PLUS`);
+  assert.ok(swift.includes(`plus.contains("${SHEET[name] ?? name}")`), `the phone calls "${name}" only behind plus.contains("${SHEET[name] ?? name}")`);
+}
 console.log(`tether parity: ${features.length} features, ${[...rows.values()].filter((r) => r.status === 'yes').length} in Tether`);

@@ -611,6 +611,8 @@ struct ConversationView: View {
             .sheet(isPresented: $showHandoff) { if let id = c.current { HandoffSheet(sessionId: id) } }
             .sheet(isPresented: $showContext) { if let id = c.current { ContextSheet(sessionId: id) } }
             .sheet(isPresented: $showBoard) { BoardSheet(project: boardProjectOf(c.current ?? "", workspaces: c.workspaces)) }
+            // Task board → +: the new chat opened here; its first message went, so the board opens again.
+            .onChange(of: c.boardBack) { _, back in if back { c.boardBack = false; showBoard = true } }
             .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { text = t; focused = true } } }
             .sheet(isPresented: Binding(get: { redoMarker != nil }, set: { if !$0 { redoMarker = nil } })) { if let m = redoMarker { RedoSheet(marker: m) } }
             .confirmationDialog("Delete this chat?", isPresented: $deleting, titleVisibility: .visible) {
@@ -3470,8 +3472,8 @@ struct BoardSheet: View {
     @EnvironmentObject var c: Client
     @Environment(\.dismiss) private var dismiss
     @StateObject private var b = TaskBoard { _, _ in [:] }
-    @State private var column = "doing"
-    @State private var creating = false
+    /// The column that the user picked; nil until then (the board opens on Review when a chat waits, else Doing).
+    @State private var column: String?
     @State private var project: String
     @AppStorage("boardHideDone") private var hideDone = false
     @State private var picking = false
@@ -3479,7 +3481,7 @@ struct BoardSheet: View {
     private var ready: Bool { b.loaded && !b.off && !b.missing }
     private var view: (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
         boardColumns(sessions: c.sessions, workspaces: c.workspaces, archived: Set(c.archived), waiting: Set(c.prompts.compactMap(\.agentId)),
-                     finished: c.finished, meta: b.meta, project: project, hideDone: hideDone)
+                     finished: c.finished, meta: b.meta, task: c.boardTask, project: project, hideDone: hideDone)
     }
     private var projectName: String { project == "all" ? String(localized: "All projects") : view.projects.first { $0.id == project }?.name ?? String(localized: "All projects") }
     var body: some View {
@@ -3489,15 +3491,16 @@ struct BoardSheet: View {
                 if b.missing { Text("Composer Plus on your Mac has no task board. Update it on the Mac.").foregroundStyle(.secondary) }
                 else if b.off { Text("Task board is off. Switch it on in Settings → Composer Plus on your Mac.").foregroundStyle(.secondary) }
                 else if b.loaded {
-                    let cards = v.columns.first { $0.status == column }?.cards ?? []
+                    let shown = boardStartColumn(v.columns, current: column)
+                    let cards = v.columns.first { $0.status == shown }?.cards ?? []
                     if cards.isEmpty { Text("No chats here.").foregroundStyle(.secondary) }
-                    ForEach(cards.prefix(100)) { card in Button { tap(card) } label: { BoardCardRow(card: card) } }
+                    ForEach(cards.prefix(100)) { card in Button { tap(card) } label: { BoardCardRow(card: card, progress: b.progress[card.id]) } }
                 } else if b.readFailed == nil { HStack(spacing: 8) { ProgressView(); Text("Loading the board…") } }
                 if let f = b.readFailed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
             }
             .safeAreaInset(edge: .top) {
                 if ready {
-                    Picker("Column", selection: $column) {
+                    Picker("Column", selection: Binding(get: { boardStartColumn(v.columns, current: column) }, set: { column = $0 })) {
                         ForEach(v.columns, id: \.status) { col in Text(verbatim: "\(boardStatusName(col.status)) \(col.cards.count)").tag(col.status) }
                     }
                     .pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8).background(.bar)
@@ -3508,18 +3511,28 @@ struct BoardSheet: View {
             .toolbar {
                 ToolbarItem(placement: .principal) { projectMenu(v.projects) }
                 ToolbarItem(placement: .topBarLeading) {
-                    Button { creating = true } label: { Image(systemName: "plus") }
-                        .disabled(!ready || b.starting || (project == "all" && v.projects.isEmpty))
+                    // New task: the board closes and a new chat opens in the project (photos, files and commands as in any
+                    // chat); after its first message the board opens again.
+                    Button { let p = project; dismiss(); c.run { try await c.boardNewTask(project: p) } } label: { Image(systemName: "plus") }
+                        .disabled(!ready || c.boardOpening)
                         .accessibilityLabel("New task")
                 }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
-            .onChange(of: hideDone) { _, on in if on, column == "done" { column = "doing" } }
-            .sheet(isPresented: $creating) { BoardNewTaskSheet(b: b, projects: v.projects, project: project == "all" ? v.projects.first?.id ?? "" : project) }
+            // The column is fixed once the board shows (a chat that starts to wait later does not move the view); a column
+            // that goes (Todo after the first message, Done with Hide finished) falls back in `boardStartColumn`.
+            .onChange(of: ready, initial: true) { _, r in if r, column == nil { column = boardStartColumn(view.columns) } }
             .sheet(isPresented: $picking) { BoardProjectSheet(projects: v.projects, project: $project, hideDone: $hideDone).presentationDetents([.medium, .large]) }
             .task {
                 b.bind { [c] query, body in try await c.plusCall("board-chats", query: query, body: body) }
-                while !Task.isCancelled { await b.load(); try? await Task.sleep(for: .seconds(5)) }
+                // An older Mac's gateway has no board-progress (403 to each read): then no progress line.
+                if c.plus.contains("board-progress") { b.bindProgress { [c] id in try await c.plusCall("board-progress", query: ["sessionId": id]) } }
+                while !Task.isCancelled {
+                    await b.load()
+                    // The progress line of the running cards (the Mac's setting picks Fast or AI summary).
+                    await b.loadProgress(view.columns.first { $0.status == "doing" }?.cards.map(\.id) ?? [])
+                    try? await Task.sleep(for: .seconds(5))
+                }
             }
         }
     }
@@ -3564,7 +3577,7 @@ struct BoardProjectSheet: View {
                 }
                 Section {
                     if query.isEmpty { row("all", String(localized: "All projects")) }
-                    ForEach(shown) { p in row(p.id, p.name) }
+                    ForEach(shown) { p in row(p.id, p.name, waiting: p.waiting) }
                     if shown.isEmpty { Text("No matching project").foregroundStyle(.secondary) }
                 }
             }
@@ -3573,10 +3586,12 @@ struct BoardProjectSheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
     }
-    private func row(_ id: String, _ name: String) -> some View {
+    /// A project row: the name (a long one on two lines) and an orange dot while a chat of it waits for you.
+    private func row(_ id: String, _ name: String, waiting: Bool = false) -> some View {
         Button { project = id; dismiss() } label: {
             HStack {
-                Text(verbatim: name).foregroundStyle(.primary).lineLimit(1)
+                Text(verbatim: name).foregroundStyle(.primary).lineLimit(2)
+                if waiting { Circle().fill(.orange).frame(width: 8, height: 8).accessibilityLabel(Text("Waiting for you")) }
                 Spacer(minLength: 0)
                 if project == id { Image(systemName: "checkmark").foregroundStyle(.tint) }
             }
@@ -3589,6 +3604,8 @@ struct BoardProjectSheet: View {
 /// title, the prompt, the project and the tags.
 struct BoardCardRow: View {
     let card: BoardCard
+    /// A running card: what it does now (the Mac's Progress on hover setting: Fast or AI summary).
+    var progress: String? = nil
     private var dot: Color? { card.state == "waiting" ? .orange : card.state == "running" ? .blue : card.state == "unread" ? .green : nil }
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -3602,6 +3619,8 @@ struct BoardCardRow: View {
                 Text(verbatim: card.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(2)
             }
             if card.state == "waiting" { Text("Waiting for you · tap to answer").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
+            if card.state == "draft" { Text("Write the first message").font(.caption).foregroundStyle(.secondary) }
+            if card.state == "running", let progress { Text(verbatim: progress).font(.caption).foregroundStyle(.blue).lineLimit(2) }
             if card.project != nil || !card.tags.isEmpty {
                 HStack(spacing: 6) {
                     if let p = card.project { Text(verbatim: p).font(.caption2).foregroundStyle(.secondary) }
@@ -3614,39 +3633,5 @@ struct BoardCardRow: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-    }
-}
-
-/// New task: a project and a prompt. The Mac starts a new chat with it; AI names it and writes its tags.
-struct BoardNewTaskSheet: View {
-    @EnvironmentObject var c: Client
-    @ObservedObject var b: TaskBoard
-    let projects: [BoardProject]
-    @State var project: String
-    @Environment(\.dismiss) private var dismiss
-    @State private var text = ""
-    /// Show the board's reason only after this sheet's own Start.
-    @State private var tried = false
-    var body: some View {
-        NavigationStack {
-            Form {
-                Picker("Project", selection: $project) { ForEach(projects) { p in Text(verbatim: p.name).tag(p.id) } }
-                Section {
-                    TextField("What should the agent do?", text: $text, axis: .vertical).lineLimit(3...12)
-                } footer: { Text("A new chat starts with this prompt. The title and the tags come from AI.") }
-                if tried, !b.starting, let f = b.failed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
-            }
-            .disabled(b.starting)
-            .navigationTitle("New task").navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(b.starting) }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Start") { tried = true; let t = text, p = project; Task { if await b.start(project: p, prompt: t) != nil { dismiss() } } }
-                        .disabled(b.starting || project.isEmpty || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .interactiveDismissDisabled(b.starting)
     }
 }

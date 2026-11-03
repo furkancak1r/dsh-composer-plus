@@ -54,7 +54,9 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.board` | GET | `{on}`: the switch. | taskBoard | no |
 | `/api/composer-plus.board` | POST | `{on}`. Settings only. | taskBoard | no |
 | `/api/composer-plus.board-chats` | GET | `[?rev=N]` the record of the board's chats: `{rev, chats: {<sessionId>: {prompt, tags, at}}}` (`{rev, same}` when nothing changed). 409 while the switch is off. | taskBoard | yes |
-| `/api/composer-plus.board-chats` | POST | `{project: <workspaceId>, prompt}`: a new chat in that dsh project (not a Branch per chat folder) with the prompt (a failed send archives it); `{rev, sessionId}`. One model call then writes the tags. | taskBoard | yes |
+| `/api/composer-plus.board-chats` | POST | `{sessionId}`: New task opened this dsh chat; it goes on the record with an empty prompt (`{rev, sessionId}`; 404 for a chat that dsh does not have). Its first message of its own becomes the prompt (also when it came before this call), and one model call then writes the tags. | taskBoard | yes |
+| `/api/composer-plus.board-progress` | GET | `{mode}` ("fast" or "ai"); `?sessionId=` the progress of a chat that dsh has open: `{mode, since?, todos?: {done, total, current?}, tool?: {name, detail, running}, said?}`, and in AI mode `summary?` and `pending?` (one background call to the chat's model per new step, at most one per chat at a time and one per 20 s). 404 for a chat that is not open, 409 while the board is off. | taskBoard | yes |
+| `/api/composer-plus.board-progress` | POST | `{mode}`: "fast" (the default, no model call) or "ai". Settings only. | taskBoard | no |
 | `/api/composer-plus.planned-steps` | GET | The switch `{on}`. | plannedSteps | no |
 | `/api/composer-plus.planned-steps` | POST | `{on}`: the switch (a switch route). | plannedSteps | no |
 | `/api/composer-plus.memory` | GET | The switch `{on}`. | projectMemory | no |
