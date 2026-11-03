@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BOARD_PATH, BOARD_CHATS_PATH, BOARD_LIMITS, BOARD_TAG_SYSTEM, ROLLBACK_SOURCE, REWIND_SOURCE, boardTags, boardChatsStore, boardPromptOf, installBoard } from '../index.js';
+import { BOARD_PATH, BOARD_CHATS_PATH, BOARD_PROGRESS_PATH, BOARD_PROGRESS, BOARD_PROGRESS_SYSTEM, BOARD_LIMITS, BOARD_TAG_SYSTEM, ROLLBACK_SOURCE, REWIND_SOURCE, boardTags, boardChatsStore, boardPromptOf, boardProgressOf, installBoard } from '../index.js';
 
 const root = await mkdtemp(join(tmpdir(), 'cp-board-'));
 const pause = (ms = 0) => new Promise((r) => setTimeout(r, ms));
@@ -33,6 +33,37 @@ try {
   }
   assert.equal(boardPromptOf([msg(0, 'x'.repeat(BOARD_LIMITS.prompt + 5))]).length, BOARD_LIMITS.prompt);
   assert.equal(boardPromptOf([]), undefined); assert.equal(boardPromptOf([msg(0, '   ')]), undefined);
+
+  // Progress of a running chat, from its own log: the open turn, the todo list, the newest tool call and the agent's line.
+  const ev = (seq, type, data, extra = {}) => ({ seq, type, data, ...extra });
+  const callEv = (seq, id, name, args) => ev(seq, 'tool/call', { callId: id, name, arguments: JSON.stringify(args) });
+  const resultEv = (seq, id) => ev(seq, 'tool/result', { message: { source: { callId: id }, content: [{ type: 'text', text: 'ok' }] } });
+  const said = (seq, text) => ev(seq, 'assistant/message', { message: { content: [{ type: 'text', text }] } });
+  const todos = (seq, list) => ev(seq, 'todo/write', { todos: list });
+  const log = [
+    ev(0, 'turn/start', {}, { time: 1000 }), said(1, 'Old reply'), callEv(2, 'c0', 'read', { file_path: '/old.js' }), resultEv(3, 'c0'), ev(4, 'turn/end', {}),
+    ev(5, 'turn/start', {}, { time: 5000 }), msg(6, 'Add tests'),
+    todos(7, [{ content: 'Read the code', status: 'completed' }, { content: 'Write the tests', status: 'in_progress' }, { content: 'Run them', status: 'pending' }]),
+    callEv(8, 'c1', 'todo_write', {}), resultEv(9, 'c1'),
+    said(10, 'I read the code.\n\nNow I write the tests.'),
+    callEv(11, 'c2', 'bash', { command: 'npm test -- --watch=false\nexit', description: 'Run the unit tests' }),
+  ];
+  assert.deepEqual(boardProgressOf(log), { since: 5000, todos: { done: 1, total: 3, current: 'Write the tests' }, tool: { name: 'bash', detail: 'Run the unit tests', running: true }, said: 'Now I write the tests.' },
+    'the open turn: its start, the todo list, the running step (not todo_write), the agent\'s last line');
+  assert.equal(boardProgressOf([...log, resultEv(12, 'c2')]).tool.running, false, 'a step with its result is done');
+  assert.equal(boardProgressOf([...log, resultEv(12, 'other')]).tool.running, true, 'the result of another call does not end it');
+  assert.deepEqual(boardProgressOf(log.slice(0, 10)), { since: 5000, todos: { done: 1, total: 3, current: 'Write the tests' } }, 'a new turn: no step and no line of the last turn; todo_write is not a step');
+  assert.deepEqual(boardProgressOf([...log.slice(0, 5)]).tool, { name: 'read', detail: '/old.js', running: false }, 'one turn only');
+  assert.deepEqual(boardProgressOf([ev(0, 'turn/start', {}, { time: 1 }), callEv(1, 'x', 'grep', { pattern: 'TODO' })]).tool, { name: 'grep', detail: 'TODO', running: true }, 'a pattern as the detail');
+  assert.equal(boardProgressOf(log.slice(0, 5), 5).tool, undefined, 'a fork: the parent\'s events do not count');
+  assert.deepEqual(boardProgressOf(log, 5).todos.current, 'Write the tests');
+  for (const kind of [ROLLBACK_SOURCE, REWIND_SOURCE]) {
+    const back = [...log, ev(12, 'user/message', { source: { kind } }, { sourceEventSeqs: [11] }), callEv(13, 'c3', 'edit', { file_path: '/a.js' })];
+    assert.deepEqual(boardProgressOf(back).tool, { name: 'edit', detail: '/a.js', running: true }, `a step that ${kind} withdrew does not show`);
+    assert.equal(boardProgressOf([...log, ev(12, 'user/message', { source: { kind } }, { sourceEventSeqs: [7] })]).todos, undefined, `nor a todo list that ${kind} withdrew`);
+  }
+  assert.equal(boardProgressOf([callEv(0, 'b', 'bash', { command: 'x'.repeat(500) })]).tool.detail.length, BOARD_PROGRESS.detail + 1, 'a long detail is cut');
+  assert.deepEqual(boardProgressOf([]), {});
 
   // The record: merged, owner-only, newest kept, broken file kept aside.
   const file = join(root, 'a', 'board-chats.json');
@@ -148,10 +179,68 @@ try {
   assert.equal(llmCalls.length, 3, 'one tag call for a chat named twice at the same time');
   for (const bad of [{ project: 'w1', prompt: 'x' }, { sessionId: 3 }, { sessionId: '' }, { sessionId: 'n1', prompt: 'x' }, { sessionId: '__proto__' }, []]) assert.equal((await call(BOARD_CHATS_PATH, bad)).status, 400, JSON.stringify(bad));
   assert.equal((await call(BOARD_CHATS_PATH, { sessionId: 'nope' })).status, 404, 'not a dsh chat');
-  // Off: 409 for the chat route, and a message records nothing; the switch is saved; the old board.json is untouched.
+  // Progress on hover: fast by default (the log only, no model call); AI summary as a setting.
+  const P = BOARD_PROGRESS_PATH;
+  assert.deepEqual((await call(P)).body, { mode: 'fast' }, 'fast (no AI) by default');
+  chat('run', [...log]);
+  const before = llmCalls.length;
+  r = await call(P, undefined, '?sessionId=run');
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, { mode: 'fast', ...boardProgressOf(log) });
+  assert.equal(llmCalls.length, before, 'fast: no model call');
+  assert.equal((await call(P, undefined, '?sessionId=nope')).status, 404, 'a chat that dsh does not have open');
+  for (const bad of [{ mode: 'slow' }, { mode: 'ai', x: 1 }, { on: true }, []]) assert.equal((await call(P, bad)).status, 400, JSON.stringify(bad));
+  assert.deepEqual((await call(P, { mode: 'ai' })).body, { mode: 'ai' });
+  assert.equal((await stat(join(dir, 'board-progress.json'))).mode & 0o777, 0o600, 'owner-only setting');
+  selection = { provider: 'demo', model: 'chat-model' };
+  answer = '  Writing the tests\n(step 2 of 3).  ';
+  r = await call(P, undefined, '?sessionId=run');
+  assert.equal(r.body.pending, true, 'AI: the summary call runs in the background');
+  await waitFor(() => llmCalls.length > before); await pause(10);
+  const sum = llmCalls.at(-1);
+  assert.equal(sum.opts.system, BOARD_PROGRESS_SYSTEM); assert.deepEqual(sum.route, { provider: 'demo', model: 'chat-model' }, 'the chat\'s own model');
+  assert.match(sum.opts.messages[0].content[0].text, /Tool call bash/, 'the chat\'s newest part goes to the model');
+  assert.equal(sum.controls.reasoningEffort, 'low');
+  r = await call(P, undefined, '?sessionId=run');
+  assert.equal(r.body.summary, 'Writing the tests (step 2 of 3).', 'one line'); assert.equal(r.body.pending, undefined);
+  assert.equal(r.body.tool.name, 'bash', 'the fast part is there too');
+  const calls = llmCalls.length;
+  await call(P, undefined, '?sessionId=run');
+  assert.equal(llmCalls.length, calls, 'the chat did not move on: no new call');
+  chats.get('run').events.push(resultEv(12, 'c2'));
+  await call(P, undefined, '?sessionId=run'); await pause(10);
+  assert.equal(llmCalls.length, calls, `it moved on, but less than ${BOARD_PROGRESS.gapMs / 1000} s after the last call: no new call`);
+  assert.equal((await call(P, undefined, '?sessionId=run')).body.summary, 'Writing the tests (step 2 of 3).', 'the last summary stays');
+  // Later (the gap passed, shown with a shifted clock): no new call while the chat did not move on; a new step starts one.
+  const realNow = Date.now;
+  try {
+    Date.now = () => realNow() + 60000;
+    await call(P, undefined, '?sessionId=run');
+    await waitFor(() => llmCalls.length > calls); await pause(10);
+    assert.equal(llmCalls.length, calls + 1, 'the gap passed and the chat moved on (the result came): one new call');
+    await call(P, undefined, '?sessionId=run'); await pause(10);
+    const settled = llmCalls.length;
+    assert.equal(settled, calls + 1, 'the same step: no second call');
+    Date.now = () => realNow() + 120000;
+    await call(P, undefined, '?sessionId=run'); await pause(10);
+    assert.equal(llmCalls.length, settled, 'the gap passed but nothing changed: no new call');
+    // One call per chat at a time: while one runs, a newer step and the gap do not start a second one.
+    let release; gate = new Promise((res) => { release = res; });
+    chats.get('run').events.push(said(13, 'Tests pass.'));
+    await call(P, undefined, '?sessionId=run');
+    await waitFor(() => llmCalls.length > settled);
+    chats.get('run').events.push(said(14, 'Done.'));
+    Date.now = () => realNow() + 180000;
+    await call(P, undefined, '?sessionId=run'); await pause(10);
+    assert.equal(llmCalls.length, settled + 1, 'one summary call at a time per chat');
+    release(); gate = undefined; await pause(10);
+  } finally { Date.now = realNow; }
+  assert.deepEqual((await call(P, { mode: 'fast' })).body, { mode: 'fast' });
+  assert.equal((await call(P, undefined, '?sessionId=run')).body.summary, undefined, 'fast: no summary');
   assert.deepEqual((await call(BOARD_PATH, { on: false })).body, { on: false });
   assert.equal((await call(BOARD_CHATS_PATH)).status, 409);
   assert.equal((await call(BOARD_CHATS_PATH, { sessionId: 'n1' })).status, 409);
+  assert.equal((await call(BOARD_PROGRESS_PATH, undefined, '?sessionId=run')).status, 409, 'off: no progress');
   assert.equal(JSON.parse(await readFile(join(dir, 'board-switch.json'), 'utf8')).on, false);
   assert.equal(await readFile(join(dir, 'board.json'), 'utf8'), '{"tasks":[{"id":1}]}', 'the old board file stays as it is');
   await call(BOARD_PATH, { on: true });
@@ -163,10 +252,11 @@ try {
   selection = { provider: 'demo', model: 'chat-model' }; answer = '["late"]'; ignoreAbort = true;
   let open; gate = new Promise((res) => { open = res; });
   chat('n5'); await call(BOARD_CHATS_PATH, { sessionId: 'n5' }); send('n5', msg(0, 'third'));
-  await waitFor(() => llmCalls.length >= 4);
+  const atUnload = llmCalls.length;
+  await waitFor(() => llmCalls.length > atUnload);
   effects.forEach((f) => f?.());
   open(); await pause(20);
-  assert.ok(llmCalls[3].signal.aborted, 'unload stops the tag call');
+  assert.ok(llmCalls.at(-1).signal.aborted, 'unload stops the tag call');
   assert.deepEqual(board.store.list().n5.tags, [], 'no tags after unload');
   // A second Host start reads the saved record and the switch.
   const again = installBoard({ ...ctx, connection: { fetch: { register: () => {} } } }, home);

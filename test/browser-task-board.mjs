@@ -14,6 +14,8 @@
 //    Only the list scrolls (the search box stays in view); a project with a waiting chat has dsh's orange dot.
 // 7. A narrow board (760 px): the header stays on one line (Hide finished shows only its icon); the New task hint wraps.
 //    Todo shows only while a New task waits.
+// 8. Progress on hover: a running card (held) shows its box after a short hover: the time, the todo step, the running
+//    tool; Settings → Task board → Progress on hover → AI summary adds the chat model's summary; back to Fast.
 // 5. Settings → Composer Plus → Task board off: no sidebar row, no page; on again.
 // PLAYWRIGHT=/path/to/playwright node test/browser-task-board.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/taskBoard.webp (English UI, made-up projects).
@@ -46,11 +48,14 @@ const P = {
   old: 'Write the FAQ page',
   words: 'Find why the job stays pending',
   notes: 'Draft the release notes',
+  work: 'Build the export page step by step',
 };
 // The Turkish title is like the owner's report ("Pending durumunda kalma sorunu"): words that a narrow card broke.
-const TITLES = { [P.chess]: 'Chess game', [P.approve]: 'Slow demo check', [P.question]: 'Theme color', [P.plan]: 'Export feature plan', [P.old]: 'FAQ page', [P.words]: 'Pending durumunda kalma sorunu', [P.notes]: 'Release notes' };
+const TITLES = { [P.chess]: 'Chess game', [P.approve]: 'Slow demo check', [P.question]: 'Theme color', [P.plan]: 'Export feature plan', [P.old]: 'FAQ page', [P.words]: 'Pending durumunda kalma sorunu', [P.notes]: 'Release notes', [P.work]: 'Export page' };
 const tagCalls = [];
 let release = null; // holds the chess chat's answer while the test looks at Doing
+let workFlag = ''; // the work chat's bash waits for this file (its turn runs) while the test looks at its progress
+let summaryCalls = 0;
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const fake = createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; }); req.on('end', async () => {
@@ -70,9 +75,15 @@ const fake = createServer((req, res) => {
       const hit = Object.keys(TITLES).find((p) => all.includes(JSON.stringify(p).slice(1, -1)));
       return say(hit ? TITLES[hit] : 'Refactor module');
     }
+    if (/progress note of a running coding task/.test(system)) { summaryCalls += 1; return say('Building the export page: step 2 of 3, the tests run now.'); }
     if (/You predict the next message|You complete the message/.test(all)) return say('');
     const results = msgs.filter((m) => m.role === 'tool').length;
     if (all.includes(P.chess)) { if (release) await release; return say('The chess game is in index.html.'); }
+    if (all.includes(P.work)) {
+      if (results === 0) return tool('todo_write', { todos: [{ content: 'Write the page', status: 'completed' }, { content: 'Run the tests', status: 'in_progress' }, { content: 'Ship it', status: 'pending' }] });
+      if (results === 1) { send({ role: 'assistant', content: 'The page is written. Now the tests run.' }); return tool('bash', { command: `until [ -f '${workFlag}' ]; do sleep 0.2; done`, description: 'Run the page tests' }); }
+      return say('The export page is done.');
+    }
     if (all.includes(P.approve)) return results === 0 ? tool('bash', { command: 'node -e "console.log(42)" --ask-me', description: 'Run the demo check' }) : say('The check passed.');
     if (all.includes(P.question)) return results === 0 ? tool('ask_user_question', { questions: [{ id: 'color', question: 'Which theme color?', header: 'Theme', options: [{ label: 'Blue' }, { label: 'Green' }] }] }) : say(`Using ${/Green/.test(textOf(msgs.at(-1)?.content)) ? 'green' : 'the color'}.`);
     if (all.includes(P.plan)) return results === 0 ? tool('exit_plan_mode', { plan: '# Export plan\n\n1. Add the CSV writer.\n2. Add the button.' }) : say('Plan approved; starting.');
@@ -97,7 +108,7 @@ const shot = async (page, home, name, loc) => {
 const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
-    tagCalls.length = 0;
+    tagCalls.length = 0; summaryCalls = 0;
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-task-board-')));
     const profile = join(home, 'profiles/web');
     await mkdir(join(profile, 'node_modules'), { recursive: true });
@@ -138,6 +149,7 @@ try {
       ids[name] = randomUUID(); tables[ids[name]] = { path: project, title: name, sessionIds: [], createdAt: now, updatedAt: now };
     }
     const acme = join(home, 'projects', 'acme-web');
+    workFlag = join(home, 'work-go');
     await mkdir(join(home, 'storages', 'dsh-composer-plus'), { recursive: true });
     await writeFile(join(home, 'storages/workspace.json'), JSON.stringify({ unit: { name: 'workspace', version: 2 },
       global: { initialized: true, workspaceIds: Object.values(ids), archivedSessionIds: [], pinnedSessionIds: [], defaultWorkspaceId: ids['acme-web'] },
@@ -384,7 +396,7 @@ try {
         await until(async () => (await titles('doing')).length >= 1 && (await titles('review')).length >= 1, 'the picture board', 30000);
         await until(async () => (await column('doing').locator('[data-cpb-tag]').count()) >= 2 && (await column('review').locator('.cpb-preview').count()) >= 1, 'the tags of the picture', 15000);
         await pause(500);
-        await shot(page, home, 'taskBoard', boardPage);
+        // The picture is taken in step 8 (with the progress box); this sets up its Review card.
         openShot(); release = null;
       }
       await card('Chess game').first().click();
@@ -409,6 +421,62 @@ try {
         await overlay.waitFor({ state: 'detached' }); await pause(400);
       };
       const sw = () => page.locator('[data-composer-plus-settings]').getByRole('switch', { name: 'Task board', exact: true });
+
+      // 8. Progress on hover: the work chat runs (its bash is held); its box shows the time, the todo step and the step
+      //    that runs now (Fast, no model call); then AI summary from Settings, and back to Fast.
+      await openBoard();
+      await task(P.work);
+      await until(async () => (await titles('doing')).includes('Export page'), async () => `doing: ${await titles('doing')}`, 20000);
+      const workCard = card('Export page');
+      const box = page.locator('[data-cpb-progress]');
+      await page.mouse.move(2, 2);
+      await workCard.hover(); await pause(150);
+      assert.equal(await box.count(), 0, 'a short pass opens no box');
+      await box.waitFor({ timeout: 5000 });
+      await until(async () => /Run the page tests/.test(await box.innerText().catch(() => '')), async () => `box: ${await box.innerText().catch(() => '')}`, 10000);
+      const boxText = await box.innerText();
+      assert.match(boxText, /Running for (<1m|\d+m)/, 'the time'); assert.match(boxText, /Step 2 of 3: Run the tests/, 'the todo step');
+      assert.match(boxText, /Now: bash · Run the page tests/, 'the step that runs now');
+      assert.equal(await box.getAttribute('role'), 'tooltip'); assert.equal(await workCard.getAttribute('aria-describedby'), await box.getAttribute('id'), 'the card names its box');
+      assert.equal(await box.getAttribute('data-cpb-progress-mode'), 'fast', 'Fast (no AI) by default'); assert.equal(summaryCalls, 0, 'no model call in Fast');
+      const inView = await box.evaluate((el) => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth && r.top >= 0 && r.bottom <= innerHeight; });
+      assert.ok(inView, 'the box is in the window');
+      await page.keyboard.press('Escape'); await box.waitFor({ state: 'detached', timeout: 3000 });
+      await page.mouse.move(2, 2);
+      // Keyboard focus opens it at once.
+      await workCard.focus(); await box.waitFor({ timeout: 3000 }); await page.mouse.move(2, 2);
+      await boardPage.locator('[data-cpb-hide-done]').focus(); await box.waitFor({ state: 'detached', timeout: 3000 });
+      // Settings: AI summary.
+      await settings();
+      const modeButton = page.locator('[data-composer-plus-board-progress] button');
+      await modeButton.scrollIntoViewIfNeeded();
+      assert.equal(await modeButton.innerText(), 'Fast (no AI)', 'the default in Settings');
+      await modeButton.click(); await page.getByRole('menuitem', { name: 'AI summary', exact: true }).click();
+      await until(async () => (await modeButton.innerText()) === 'AI summary', 'mode AI', 5000);
+      assert.equal((await page.evaluate(async () => (await fetch('/api/composer-plus.board-progress')).json())).mode, 'ai', 'the Host keeps the mode');
+      await back(); await openBoard();
+      await card('Export page').hover();
+      await box.waitFor({ timeout: 5000 });
+      await until(async () => /Building the export page: step 2 of 3/.test(await box.innerText().catch(() => '')), async () => `ai box: ${await box.innerText().catch(() => '')}`, 15000);
+      assert.equal(summaryCalls, 1, 'one summary call for this step');
+      assert.match(await box.innerText(), /Now: bash · Run the page tests/, 'the fast lines stay under the summary');
+      await page.mouse.move(2, 2); await box.waitFor({ state: 'detached', timeout: 3000 });
+      if (process.env.SHOT) {
+        // Keyboard focus keeps the box open while the picture helper moves the pointer away.
+        await card('Export page').focus(); await box.waitFor();
+        await until(async () => /Building the export page/.test(await box.innerText().catch(() => '')), 'the summary in the picture', 10000);
+        await shot(page, home, 'taskBoard', boardPage);
+        assert.equal(await box.count(), 1, 'the picture has the box');
+        await boardPage.locator('[data-cpb-hide-done]').focus(); await box.waitFor({ state: 'detached', timeout: 3000 });
+      }
+      await settings(); await modeButton.click(); await page.getByRole('menuitem', { name: 'Fast (no AI)', exact: true }).click();
+      await until(async () => (await modeButton.innerText()) === 'Fast (no AI)', 'mode fast', 5000);
+      await back();
+      await writeFile(workFlag, 'go');
+      await openBoard();
+      await until(async () => (await titles('done')).includes('Export page'), async () => `done: ${await titles('done')}`, 20000);
+      assert.equal(await card('Export page').getAttribute('title'), 'Export page', 'a finished card: its native title again');
+      console.log('  8: progress on hover (400 ms; focus at once; Esc closes): time, todo step, the running step (Fast, no model call); AI summary from Settings (one call), back to Fast');
       await settings();
       await sw().scrollIntoViewIfNeeded();
       await sw().click(); await until(async () => (await sw().getAttribute('aria-checked')) === 'false', 'switch off');

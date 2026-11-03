@@ -6523,26 +6523,80 @@ export function boardPromptOf(events, from = 0) {
   return undefined;
 }
 
-/** One short call to `route` for the tags of a prompt; [] when the call fails or answers nothing usable. */
-export async function boardTagsFor({ llm, route }, prompt, signal) {
-  if (llm?.prepareCall === undefined || route === undefined) return [];
-  const timeout = AbortSignal.timeout(BOARD_TAG_TIMEOUT_MS);
+/** One short background call to `route` with `system` and one user message: the answer's text. The lowest reasoning effort
+ * keeps it fast; the output cap never goes above the model's own default. Throws when the call ends with an error. */
+async function boardCall({ llm, route }, system, text, { tokens, timeoutMs }, signal) {
+  const timeout = AbortSignal.timeout(timeoutMs);
   const callSignal = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
   const call = await llm.prepareCall(route, callSignal, (controls, model) => {
-    // The lowest reasoning effort keeps it fast; the output cap never goes above the model's own default.
     const first = model?.reasoning?.efforts?.[0];
-    const cap = Number.isSafeInteger(model?.defaultMaxTokens) && model.defaultMaxTokens > 0 ? Math.min(BOARD_TAG_TOKENS, model.defaultMaxTokens) : BOARD_TAG_TOKENS;
+    const cap = Number.isSafeInteger(model?.defaultMaxTokens) && model.defaultMaxTokens > 0 ? Math.min(tokens, model.defaultMaxTokens) : tokens;
     return { ...controls, maxTokens: cap, ...(first === undefined ? {} : { reasoningEffort: first.id }) };
   });
-  let text = '';
+  let out = '';
   let finish;
-  for await (const chunk of call.stream({ ...call.config, system: BOARD_TAG_SYSTEM, signal: callSignal,
-    messages: [{ role: 'user', content: [{ type: 'text', text: String(prompt).slice(0, BOARD_TAG_INPUT) }] }] })) {
-    if (chunk.type === 'text-delta') text += chunk.text;
+  for await (const chunk of call.stream({ ...call.config, system, signal: callSignal, messages: [{ role: 'user', content: [{ type: 'text', text }] }] })) {
+    if (chunk.type === 'text-delta') out += chunk.text;
     else if (chunk.type === 'finish') finish = chunk.reason;
   }
   if (finish?.kind === 'error' || finish?.kind === 'aborted') throw new Error(finish.failure?.message || `the model call ended: ${finish.kind}`);
-  return boardTags(text);
+  return out;
+}
+
+/** One short call to `route` for the tags of a prompt; [] when it answers nothing usable. */
+export async function boardTagsFor({ llm, route }, prompt, signal) {
+  if (llm?.prepareCall === undefined || route === undefined) return [];
+  return boardTags(await boardCall({ llm, route }, BOARD_TAG_SYSTEM, String(prompt).slice(0, BOARD_TAG_INPUT), { tokens: BOARD_TAG_TOKENS, timeoutMs: BOARD_TAG_TIMEOUT_MS }, signal));
+}
+
+/* Progress on hover: what a running chat does now. "fast" (the default) reads the chat's log only; "ai" also asks the
+ * chat's model for a one- or two-sentence summary (Settings → Task board → Progress on hover). */
+export const BOARD_PROGRESS_PATH = '/api/composer-plus.board-progress';
+export const BOARD_PROGRESS_MODES = ['fast', 'ai'];
+export const BOARD_PROGRESS = { detail: 120, said: 200, summary: 240, input: 6000, tokens: 200, timeoutMs: 30000, gapMs: 20000, kept: 200 };
+export const BOARD_PROGRESS_SYSTEM = `You write the progress note of a running coding task on a kanban card. Read the newest part of the task's chat. Answer with one or two short sentences, at most ${BOARD_PROGRESS.summary} characters: what the agent does now and how far the task is. Use the language of the user's messages. Plain text only: no Markdown, no other text.`;
+/** Tool calls that the progress does not show as "the step": the todo list has its own line, a plan is not work. */
+const BOARD_PROGRESS_QUIET = new Set(['todo_write', 'plan_next_steps']);
+/** A tool call in a few words: its description (bash, a subagent), else its command's first line, a path or a pattern. */
+const toolDetail = (args) => {
+  if (!plainObject(args)) return '';
+  const pick = [args.description, args.command, args.file_path, args.path, args.pattern, args.url, args.query].find((v) => typeof v === 'string' && v.trim() !== '');
+  return pick === undefined ? '' : cutEnd(boardLine(pick.trim().split('\n')[0]), BOARD_PROGRESS.detail);
+};
+
+/** What a running chat does now, from its own events (from `from`: a fork's inherited events come first, rule 10; steps that
+ * a rollback withdrew are left out, rule 9): `since` (the start of the newest turn, epoch ms), `todos` (`{done, total,
+ * current?}` of the newest todo list), `tool` (`{name, detail, running}`: the newest tool call of that turn, running while it
+ * has no result) and `said` (the last line of the agent's newest text in that turn). */
+export function boardProgressOf(events, from = 0) {
+  const hidden = withdrawn(events);
+  const out = {};
+  let call;
+  for (const [i, e] of events.entries()) {
+    if (i < from || hidden(e.seq)) continue;
+    if (e.type === 'turn/start') { out.since = Number.isFinite(e.time) ? e.time : undefined; call = undefined; delete out.said; }
+    else if (e.type === 'todo/write' && Array.isArray(e.data?.todos)) {
+      const todos = e.data.todos.filter((x) => typeof x?.content === 'string' && x.content.trim() !== '');
+      const current = todos.find((x) => x.status === 'in_progress');
+      out.todos = todos.length === 0 ? undefined
+        : { done: todos.filter((x) => x.status === 'completed').length, total: todos.length, ...(current === undefined ? {} : { current: cutEnd(boardLine(current.content), BOARD_PROGRESS.detail) }) };
+    } else if (e.type === 'tool/call' && isText(e.data?.name, 200) && !BOARD_PROGRESS_QUIET.has(e.data.name)) {
+      call = { id: e.data.callId, name: e.data.name, detail: toolDetail(argsOf(e.data.arguments)), running: true };
+    } else if (e.type === 'tool/result' && call !== undefined && e.data?.message?.source?.callId === call.id) call.running = false;
+    else if (e.type === 'assistant/message') {
+      const line = textBlocks(e.data?.message?.content).split('\n').map(boardLine).filter(Boolean).at(-1);
+      if (line !== undefined) out.said = cutEnd(line, BOARD_PROGRESS.said);
+    }
+  }
+  if (call !== undefined) { const { id: _, ...tool } = call; out.tool = tool; }
+  return JSON.parse(JSON.stringify(out));
+}
+
+/** One short call for the progress summary of a chat's newest part; '' when it answers nothing. */
+export async function boardSummaryFor({ llm, route }, transcript, signal) {
+  if (llm?.prepareCall === undefined || route === undefined) return '';
+  const text = await boardCall({ llm, route }, BOARD_PROGRESS_SYSTEM, `The task's chat (its newest part):\n\n${transcript}\n\nThe progress note:`, { tokens: BOARD_PROGRESS.tokens, timeoutMs: BOARD_PROGRESS.timeoutMs }, signal);
+  return cutEnd(boardLine(text.replace(/<think>[\s\S]*?<\/think>/g, '')), BOARD_PROGRESS.summary);
 }
 
 /** Task board (Host half): the switch route and, while it is on, the board's chat route. */
@@ -6553,8 +6607,13 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
   let on = true;
   const ready = sw.read().then((v) => { on = v; }, () => {});
   let closed = false;
-  const tagging = new Set(); // background tag calls; unload stops them
+  const tagging = new Set(); // background tag and summary calls; unload stops them
   ctx.effect?.(() => () => { closed = true; for (const c of tagging) c.abort(); }, 'dsh-composer-plus: task board');
+  /** The chat's own model (its selection), else dsh's default. */
+  const chatRoute = async (agent) => {
+    const current = agent === undefined ? undefined : ctx.sessionController.agents?.selectionFor?.(agent)?.current;
+    return isText(current?.provider) && isText(current?.model) ? { provider: current.provider, model: current.model } : routeOf(ctx, get);
+  };
   /** The tags of a new chat, in the background: the chat's own model (its selection), else dsh's default. */
   const tag = async (sessionId, agent, prompt) => {
     const llm = get('llm');
@@ -6562,9 +6621,7 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
     const mine = new AbortController();
     tagging.add(mine);
     try {
-      const current = agent === undefined ? undefined : ctx.sessionController.agents?.selectionFor?.(agent)?.current;
-      const route = isText(current?.provider) && isText(current?.model) ? { provider: current.provider, model: current.model } : await routeOf(ctx, get);
-      const tags = await boardTagsFor({ llm, route }, prompt, mine.signal);
+      const tags = await boardTagsFor({ llm, route: await chatRoute(agent) }, prompt, mine.signal);
       if (tags.length > 0 && !closed) await store.change((chats) => { if (chats[sessionId] !== undefined) chats[sessionId] = { ...chats[sessionId], tags }; });
     } catch (error) { if (!closed) ctx.logger?.warn?.(`dsh-composer-plus: task board tags failed: ${String(error?.message ?? error).slice(0, 300)}`); }
     finally { tagging.delete(mine); }
@@ -6632,7 +6689,58 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });
-  return { store, ready, tag, name, isOn: () => on };
+  /** Progress on hover. The mode is a setting (`board-progress.json`, owner-only). In "ai" mode one summary call per chat
+   * runs at a time, in the background: a new one only when the chat moved on and BOARD_PROGRESS.gapMs after the last one
+   * started; the answer gives the newest summary that is ready (`pending` while a call runs). */
+  const progress = settingsStore(join(dir, 'board-progress.json'), (v) => ({ mode: v?.mode === 'ai' ? 'ai' : 'fast' }));
+  const summaries = new Map(); // sessionId → { key, at, text?, busy }
+  const summaryOf = (sessionId, agent, events, from) => {
+    const key = events.at(-1)?.seq;
+    const kept = summaries.get(sessionId);
+    const llm = get('llm');
+    if (!closed && llm?.prepareCall !== undefined && kept?.busy !== true && kept?.key !== key && Date.now() - (kept?.at ?? 0) >= BOARD_PROGRESS.gapMs) {
+      const entry = { key, at: Date.now(), text: kept?.text, busy: true };
+      summaries.delete(sessionId); summaries.set(sessionId, entry);
+      if (summaries.size > BOARD_PROGRESS.kept) summaries.delete(summaries.keys().next().value);
+      const mine = new AbortController();
+      tagging.add(mine);
+      (async () => {
+        try { const text = await boardSummaryFor({ llm, route: await chatRoute(agent) }, goalTranscript(events, from, BOARD_PROGRESS.input), mine.signal); if (text !== '') entry.text = text; }
+        catch (error) { if (!closed) ctx.logger?.warn?.(`dsh-composer-plus: task board summary failed: ${String(error?.message ?? error).slice(0, 300)}`); }
+        finally { entry.busy = false; tagging.delete(mine); }
+      })();
+    }
+    const now = summaries.get(sessionId);
+    return { ...(now?.text ? { summary: now.text } : {}), ...(now?.busy ? { pending: true } : {}) };
+  };
+  /** GET `?sessionId=`: `{mode, since?, todos?, tool?, said?, summary?, pending?}` of a chat that dsh has open (404
+   * otherwise; 409 while the board is off). GET: `{mode}`. POST `{mode}`: "fast" or "ai" (Settings only). */
+  ctx.connection.fetch.register({
+    path: BOARD_PROGRESS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await ready;
+      try {
+        if (request.method === 'POST') {
+          let body;
+          try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+          if (!plainObject(body) || Object.keys(body).join() !== 'mode' || !BOARD_PROGRESS_MODES.includes(body.mode)) return json({ error: 'bad request' }, 400);
+          return json(await progress.change(() => ({ mode: body.mode })));
+        }
+        const { mode } = await progress.read();
+        const sessionId = new URL(request.url).searchParams.get('sessionId');
+        if (sessionId === null) return json({ mode });
+        if (!on) return json({ error: 'Task board is off' }, 409);
+        if (!isText(sessionId, 128)) return json({ error: 'bad request' }, 400);
+        const agent = get('agents')?.get?.(sessionId);
+        const session = agent?.session;
+        if (typeof session?.snapshotEvents !== 'function') return json({ error: 'dsh has no open chat with this id' }, 404);
+        const events = session.snapshotEvents();
+        const from = Number.isSafeInteger(session.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0;
+        return json({ mode, ...boardProgressOf(events, from), ...(mode === 'ai' ? summaryOf(sessionId, agent, events, from) : {}) });
+      } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+    },
+  });
+  return { store, ready, tag, name, isOn: () => on, progress };
 }
 
 /* Planned steps, after HarnessMM (arXiv 2610.32813, "guarded decision reuse"): the model plans its next commands with the

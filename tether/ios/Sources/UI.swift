@@ -3494,7 +3494,7 @@ struct BoardSheet: View {
                     let shown = boardStartColumn(v.columns, current: column)
                     let cards = v.columns.first { $0.status == shown }?.cards ?? []
                     if cards.isEmpty { Text("No chats here.").foregroundStyle(.secondary) }
-                    ForEach(cards.prefix(100)) { card in Button { tap(card) } label: { BoardCardRow(card: card) } }
+                    ForEach(cards.prefix(100)) { card in Button { tap(card) } label: { BoardCardRow(card: card, progress: b.progress[card.id]) } }
                 } else if b.readFailed == nil { HStack(spacing: 8) { ProgressView(); Text("Loading the board…") } }
                 if let f = b.readFailed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
             }
@@ -3525,7 +3525,14 @@ struct BoardSheet: View {
             .sheet(isPresented: $picking) { BoardProjectSheet(projects: v.projects, project: $project, hideDone: $hideDone).presentationDetents([.medium, .large]) }
             .task {
                 b.bind { [c] query, body in try await c.plusCall("board-chats", query: query, body: body) }
-                while !Task.isCancelled { await b.load(); try? await Task.sleep(for: .seconds(5)) }
+                // An older Mac's gateway has no board-progress (403 to each read): then no progress line.
+                if c.plus.contains("board-progress") { b.bindProgress { [c] id in try await c.plusCall("board-progress", query: ["sessionId": id]) } }
+                while !Task.isCancelled {
+                    await b.load()
+                    // The progress line of the running cards (the Mac's setting picks Fast or AI summary).
+                    await b.loadProgress(view.columns.first { $0.status == "doing" }?.cards.map(\.id) ?? [])
+                    try? await Task.sleep(for: .seconds(5))
+                }
             }
         }
     }
@@ -3597,6 +3604,8 @@ struct BoardProjectSheet: View {
 /// title, the prompt, the project and the tags.
 struct BoardCardRow: View {
     let card: BoardCard
+    /// A running card: what it does now (the Mac's Progress on hover setting: Fast or AI summary).
+    var progress: String? = nil
     private var dot: Color? { card.state == "waiting" ? .orange : card.state == "running" ? .blue : card.state == "unread" ? .green : nil }
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -3611,6 +3620,7 @@ struct BoardCardRow: View {
             }
             if card.state == "waiting" { Text("Waiting for you · tap to answer").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
             if card.state == "draft" { Text("Write the first message").font(.caption).foregroundStyle(.secondary) }
+            if card.state == "running", let progress { Text(verbatim: progress).font(.caption).foregroundStyle(.blue).lineLimit(2) }
             if card.project != nil || !card.tags.isEmpty {
                 HStack(spacing: 6) {
                     if let p = card.project { Text(verbatim: p).font(.caption2).foregroundStyle(.secondary) }

@@ -1400,6 +1400,24 @@ final class BranchStateTests: XCTestCase {
         XCTAssertFalse(none.columns.contains { $0.status == "todo" }, "and no Todo column")
         XCTAssertFalse(none.projects[0].recent, "a blank chat does not make its project recent")
     }
+    /// A running card's progress line: the AI summary, else the step, else the tool now or the last one, else the agent's line.
+    func testProgressLine() async {
+        XCTAssertEqual(boardProgressLine(["mode": "ai", "summary": "Writing the tests.", "todos": ["done": 1, "total": 3, "current": "x"]]), "Writing the tests.")
+        XCTAssertEqual(boardProgressLine(["todos": ["done": 1, "total": 3, "current": "Write the tests"], "tool": ["name": "bash", "running": true]]), "Step 2 of 3: Write the tests")
+        XCTAssertEqual(boardProgressLine(["todos": ["done": 3, "total": 3], "tool": ["name": "bash", "detail": "Run tests", "running": true]]), "Now: bash · Run tests", "no step in progress: the tool")
+        XCTAssertEqual(boardProgressLine(["tool": ["name": "read", "detail": "", "running": false]]), "Last step: read")
+        XCTAssertEqual(boardProgressLine(["said": "I am done."]), "I am done.")
+        XCTAssertNil(boardProgressLine(["mode": "fast"]))
+        var asked: [String] = []
+        let b = TaskBoard { _, _ in [:] }
+        b.bindProgress { id in asked.append(id); if id == "gone" { throw Fail("HTTP 404", status: 404) }; return ["tool": ["name": "bash", "running": true]] }
+        await b.loadProgress(["a", "gone"] + (1...10).map { "r\($0)" })
+        XCTAssertEqual(asked.count, 8, "at most 8 reads")
+        XCTAssertEqual(b.progress["a"], "Now: bash"); XCTAssertNil(b.progress["gone"], "a failed read: no line")
+        b.bindProgress { _ in ["said": "x"] }
+        await b.loadProgress(["a"])
+        XCTAssertEqual(b.progress.keys.sorted(), ["a"], "only the ids given stay")
+    }
     /// The Mac's switch is off (409), an older Mac has no route (404).
     func testOffAndOlderMac() async {
         var answer: Error? = Fail("Task board is off", status: 409)

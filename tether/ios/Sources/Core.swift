@@ -3015,6 +3015,23 @@ func boardProjectList(_ projects: [BoardProject], query: String, recentOnly: Boo
 /// The Mac's record of a chat that the board started: its prompt and the tags that AI wrote.
 struct BoardMeta: Equatable { let prompt: String; let tags: [String] }
 
+/// The progress line of a running card (`GET /plus/board-progress?sessionId=`): the AI summary in AI mode, else the step
+/// of the todo list, else the tool that runs now (or the last one), else the agent's last line. nil when there is none.
+func boardProgressLine(_ o: J) -> String? {
+    if let s = o["summary"] as? String, !s.isEmpty { return s }
+    let todos = o["todos"] as? J
+    if let total = (todos?["total"] as? NSNumber)?.intValue, total > 0, let cur = todos?["current"] as? String, !cur.isEmpty {
+        let n = min(((todos?["done"] as? NSNumber)?.intValue ?? 0) + 1, total)
+        return String(localized: "Step \(n) of \(total): \(cur)")
+    }
+    if let tool = o["tool"] as? J, let name = tool["name"] as? String, !name.isEmpty {
+        let step = (tool["detail"] as? String).flatMap { $0.isEmpty ? nil : "\(name) · \($0)" } ?? name
+        return tool["running"] as? Bool == true ? String(localized: "Now: \(step)") : String(localized: "Last step: \(step)")
+    }
+    if let said = o["said"] as? String, !said.isEmpty { return said }
+    return nil
+}
+
 /// The Mac's `{rev, chats: {id: {prompt, tags, at}}}`.
 func boardMeta(_ o: J) -> [String: BoardMeta] {
     var out: [String: BoardMeta] = [:]
@@ -3090,12 +3107,26 @@ func boardProjectOf(_ session: String, workspaces: [Workspace]) -> String {
     /// The Mac's plugin has no board route (404): an older Composer Plus.
     @Published private(set) var missing = false
     @Published private(set) var readFailed: String?
+    /// The progress line of each running card that the sheet shows (`loadProgress`).
+    @Published private(set) var progress: [String: String] = [:]
     private var call: ([String: String], J?) async throws -> J
     private var rev: String?
     private var seq = 0
     /// `call(query, body)`: a GET with the query when `body` is nil, else a POST.
     init(call: @escaping ([String: String], J?) async throws -> J) { self.call = call }
     func bind(_ call: @escaping ([String: String], J?) async throws -> J) { self.call = call }
+    private var progressCall: ((String) async throws -> J)?
+    func bindProgress(_ call: @escaping (String) async throws -> J) { progressCall = call }
+    /// The progress of the running cards, at most 8 (the newest first): one read each. A chat that stopped, an older Mac
+    /// (404) or a failed read has no line. Only the ids given stay.
+    func loadProgress(_ ids: [String]) async {
+        guard let progressCall else { return }
+        var next: [String: String] = [:]
+        for id in ids.prefix(8) {
+            if let o = try? await progressCall(id), let line = boardProgressLine(o) { next[id] = line }
+        }
+        if !Task.isCancelled { progress = next }
+    }
 
     func load() async {
         seq += 1; let mine = seq

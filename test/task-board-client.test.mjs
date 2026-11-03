@@ -315,6 +315,158 @@ assert.doesNotMatch(src, /function BoardNewTask|data-cpb-prompt/, 'no panel of o
 board.sent('s5');
 
 // The off state and an older Host.
+// Progress on hover: the lines from the Host's answer.
+const boardElapsed = eval(`(${/const boardElapsed = (\(since, now = Date\.now\(\)\) => \{[\s\S]*?\n    \});/.exec(src)[1]})`);
+const lines = eval(`(${/function boardProgressLines(\(p, t, now = Date\.now\(\)\) \{[\s\S]*?\n    \})/.exec(src)[0].replace('function boardProgressLines', 'function')})`);
+const tt = (k, v) => `${k}${v ? JSON.stringify(v) : ''}`;
+const NOW = 10 * 60000;
+assert.equal(boardElapsed(NOW - 30000, NOW), '<1m'); assert.equal(boardElapsed(NOW - 4 * 60000, NOW), '4m'); assert.equal(boardElapsed(0, 65 * 60000), '1h 5m'); assert.equal(boardElapsed(undefined, NOW), '');
+const full = { mode: 'fast', since: NOW - 4 * 60000, todos: { done: 1, total: 3, current: 'Write the tests' }, tool: { name: 'bash', detail: 'Run the unit tests', running: true }, said: 'Now I write the tests.' };
+assert.deepEqual(lines(full, tt, NOW).map((l) => l.text), ['board.progress.for{"time":"4m"}', 'board.progress.step{"n":"2","total":"3","step":"Write the tests"}', 'board.progress.now{"step":"bash · Run the unit tests"}', 'Now I write the tests.'], 'fast: time, step, tool, the agent\'s line');
+assert.equal(lines({ ...full, tool: { name: 'read', detail: '', running: false } }, tt, NOW)[2].text, 'board.progress.last{"step":"read"}', 'a finished step');
+assert.equal(lines({ ...full, todos: { done: 3, total: 3 } }, tt, NOW)[1].text, 'board.progress.done{"done":"3","total":"3"}', 'no step in progress: the count');
+assert.deepEqual(lines({ ...full, mode: 'ai', summary: 'Writing the tests.' }, tt, NOW)[0], { kind: 'summary', text: 'Writing the tests.' }, 'AI: the summary first');
+assert.deepEqual(lines({ ...full, mode: 'ai', pending: true }, tt, NOW)[0], { kind: 'summary', text: 'board.progress.summarizing', muted: true }, 'AI: while the first summary is written');
+assert.equal(lines({ said: 'Same', summary: 'Same' }, tt, NOW).filter((l) => l.text === 'Same').length, 1, 'the same line once');
+assert.deepEqual(lines({}, tt, NOW), []); assert.deepEqual(lines(null, tt, NOW), []);
+// The reads of a box: now, then every 2 s; stop ends them, and a read that ends after stop is dropped.
+const poll = eval(`(${/function pollBoardProgress(\(sessionId, call, onData, every = BOARD_POLL_MS\) \{[\s\S]*?\n    \})/.exec(src)[0].replace('function pollBoardProgress', 'function').replace('BOARD_POLL_MS', '2000')})`);
+{
+  const seen = []; let reads = 0; let late;
+  const stop = poll('s2', async (id) => { reads += 1; if (reads === 3) return new Promise((r) => { late = r; }); return { id, n: reads }; }, (x) => seen.push(x));
+  await tick();
+  assert.deepEqual(seen, [{ data: { id: 's2', n: 1 } }], 'read at once');
+  const next = timers.find((x) => x.ms === 2000); assert.ok(next, 'then again in 2 s');
+  timers = timers.filter((x) => x !== next); next.f(); await tick();
+  assert.equal(seen.length, 2);
+  const third = timers.find((x) => x.ms === 2000); timers = timers.filter((x) => x !== third); third.f(); await tick();
+  stop(); late({ id: 's2', n: 3 }); await tick();
+  assert.equal(seen.length, 2, 'a read that ends after the box closed is dropped');
+  assert.equal(timers.filter((x) => x.ms === 2000).length, 0, 'and no next read');
+  const stop1 = poll('s3', async () => ({ ok: 1 }), () => {}); await tick();
+  assert.equal(timers.filter((x) => x.ms === 2000).length, 1, 'a next read waits');
+  stop1(); assert.equal(timers.filter((x) => x.ms === 2000).length, 0, 'closing the box cancels the next read');
+  const errs = []; const stop2 = poll('s2', async () => { throw new Error('gone'); }, (x) => errs.push(x)); await tick(); stop2();
+  assert.deepEqual(errs, [{ error: 'gone' }]); timers = timers.filter((x) => x.ms !== 2000);
+}
+// The page: a running card opens the box after 400 ms of hover (at once on focus); other cards have none.
+{
+  const pg = () => page[1]({ ...injected, openSession: () => {}, useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
+  board.setProject('all');
+  let el = pg();
+  const runCard = find(el, (n) => n.p?.['data-cpb-card'] === 's2')[0];
+  const doneCard = find(el, (n) => n.p?.['data-cpb-card'] === 's4')[0];
+  assert.equal(runCard.p.title, undefined, 'a running card: no native title next to the box');
+  assert.equal(typeof runCard.p.onMouseEnter, 'function'); assert.equal(doneCard.p.onMouseEnter, undefined, 'only a running card has the box');
+  const fakeEl = { getBoundingClientRect: () => ({ left: 10, top: 100, bottom: 160, width: 180 }) };
+  globalThis.window.innerHeight = 900;
+  timers = [];
+  runCard.p.onMouseEnter({ currentTarget: fakeEl });
+  const wait = timers.find((x) => x.ms === 400); assert.ok(wait, 'the box waits 400 ms (a pointer that passes opens nothing)');
+  runCard.p.onMouseLeave(); assert.equal(timers.includes(wait), false, 'leaving before cancels it');
+  const placeOf = eval(`(${/const placeOf = (\(el\) => \{[\s\S]*?\n      \});/.exec(src)[1]})`);
+  globalThis.window.innerWidth = 1000;
+  assert.deepEqual(placeOf({ getBoundingClientRect: () => ({ left: 10, top: 100, bottom: 160, width: 180 }) }), { left: 10, width: 220, top: 166 }, 'under the card, at least 220 px wide');
+  assert.deepEqual(placeOf({ getBoundingClientRect: () => ({ left: 900, top: 100, bottom: 160, width: 300 }) }), { left: 692, width: 300, top: 166 }, 'a card at the right edge: the box stays in the window');
+  assert.deepEqual(placeOf({ getBoundingClientRect: () => ({ left: 10, top: 700, bottom: 800, width: 180 }) }), { left: 10, width: 220, bottom: 206 }, 'no room below: above the card');
+  assert.match(src, /className: 'cpb-list', onScroll: \(\) => hideProgress\(\)/, 'a column scroll closes the box');
+  assert.match(src, /hover !== null && view\.columns\.some\(\(col\) => col\.status === 'doing'/, 'the box shows only for a card that is still in Doing');
+  assert.match(src, /if \(live\.current\.hover !== null\) \{ event\.preventDefault\(\); hideProgress\(\); return; \}/, 'Esc closes the box first');
+  assert.match(src, /\.cpb-progress\{position:fixed;[^}]*pointer-events:none/, 'the box is above the columns and lets the pointer through');
+  // The box itself: role tooltip, the lines, and the card names it while it shows.
+  const box = eval(`(${/function BoardProgressBox\([\s\S]*?\n    \}/.exec(src)[0].replace('function BoardProgressBox', 'function')})`);
+  let hookState = null;
+  const R = { ...React, useState: () => [hookState, () => {}], useEffect: () => {} };
+  const run = (st) => { hookState = st; return new Function('React', 'boardProgressLines', 'pollBoardProgress', 'readBoardProgress', `return (${box.toString()})`)(R, lines, poll, async () => full)({ sessionId: 's2', place: { left: 1 }, t: tt }); };
+  const shown = run({ data: full });
+  assert.equal(shown.p.role, 'tooltip'); assert.equal(shown.p.id, 'cpb-progress-s2'); assert.deepEqual(shown.p.style, { left: 1 });
+  assert.equal(shown.c[0].length, 4, 'four lines');
+  assert.equal(run(null).c[0].c[0], 'board.loading', 'while the first read runs');
+  assert.equal(run({ error: 'x' }).c[0].c[0], 'board.progress.failed{"error":"x"}');
+  assert.equal(run({ data: { mode: 'fast' } }).c[0].c[0], 'board.progress.none', 'a turn with no step yet');
+}
+// A card that leaves Doing (its turn ends) gets no leave event. Its box must not come back by itself when the chat runs
+// again (it reads every 2 s, in AI summary mode with model calls). Hooks that keep their state between renders.
+{
+  const saved = { useState: React.useState, useRef: React.useRef, useEffect: React.useEffect };
+  const slots = []; let at = 0; let effects = [];
+  React.useState = (v) => { const i = at++; if (!(i in slots)) slots[i] = typeof v === 'function' ? v() : v; return [slots[i], (n) => { slots[i] = typeof n === 'function' ? n(slots[i]) : n; }]; };
+  React.useRef = (v) => { const i = at++; if (!(i in slots)) slots[i] = { current: v }; return slots[i]; };
+  React.useEffect = (f, deps) => {
+    const i = at++; const old = slots[i];
+    if (old === undefined || deps === undefined || deps.some((d, k) => !Object.is(d, old.deps[k]))) effects.push(() => { if (typeof old?.cleanup === 'function') old.cleanup(); slots[i] = { deps, cleanup: f() }; });
+  };
+  const listOf = (running) => ({ ...list, byId: { ...list.byId, s2: { ...list.byId.s2, running } } });
+  const render = (running) => {
+    at = 0; effects = [];
+    const el = page[1]({ ...injected, openSession: () => {}, useSessions: (f) => f(listOf(running)), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
+    for (const e of effects) e();
+    return el;
+  };
+  const hasBox = (el) => find(el, (n) => n.t?.name === 'BoardProgressBox').length > 0;
+  const rect = { getBoundingClientRect: () => ({ left: 10, top: 100, bottom: 160, width: 180 }) };
+  const cardOf = (el, id) => find(el, (n) => n.p?.['data-cpb-card'] === id)[0];
+  const enter = (el, id = 's2') => cardOf(el, id).p.onMouseEnter({ currentTarget: rect });
+  const fire = () => { const w = timers.find((x) => x.ms === 400); timers = timers.filter((x) => x !== w); w?.f(); };
+  const boxOf = (el) => find(el, (n) => n.t?.name === 'BoardProgressBox')[0]?.p.sessionId;
+  try {
+    enter(render(true)); fire();
+    assert.equal(hasBox(render(true)), true, 'the hovered running card shows its box');
+    assert.equal(hasBox(render(false)), false, 'the turn ended: no box');
+    render(false);
+    assert.equal(hasBox(render(true)), false, 'the chat runs again, nobody pointed at it: no box');
+    // The 400 ms wait ends after the card left Doing.
+    enter(render(true)); render(false); fire(); render(false);
+    assert.equal(hasBox(render(true)), false, 'a late wait does not bring the box back either');
+    // s2 has the keyboard focus (its box shows), the pointer waits on s3 (also in Doing); s2's turn ends: s3's box opens.
+    let el = render(true);
+    cardOf(el, 's2').p.onFocus({ target: rect, currentTarget: rect });
+    assert.equal(boxOf(render(true)), 's2');
+    enter(render(true), 's3'); render(false); render(false); fire();
+    assert.equal(boxOf(render(false)), 's3', 'the wait on another card goes on');
+    el = render(false); cardOf(el, 's3').p.onMouseLeave(); render(false);
+  } finally {
+    Object.assign(React, saved);
+    for (const s of slots) if (typeof s?.cleanup === 'function') s.cleanup();
+    timers = timers.filter((x) => x.ms !== 400 && x.ms !== 2000);
+  }
+}
+// Settings → Progress on hover: Fast by default, one change at a time, a failure keeps the saved mode.
+{
+  const make = eval(`(${/function createBoardProgressMode\([\s\S]*?\n    \}/.exec(src)[0].replace('function createBoardProgressMode', 'function').replace('route = BOARD_PROGRESS_ROUTE', "route = '/p'")})`);
+  const sent = []; let fail = false; let release;
+  const realFetch = globalThis.fetch;
+  let holdGet = null;
+  globalThis.fetch = async (url, init) => {
+    if (init?.method === 'POST') { sent.push(JSON.parse(init.body)); await new Promise((r) => { release = r; }); return fail ? Response.json({ error: 'disk full' }, { status: 500 }) : Response.json(JSON.parse(init.body)); }
+    if (holdGet) await holdGet.promise;
+    return Response.json({ mode: 'fast' });
+  };
+  const m = make();
+  {
+    // A load that started before a change and ends during it does not undo the change.
+    let openGet; holdGet = { promise: new Promise((r) => { openGet = r; }) };
+    const loading = m.load(); await tick();
+    const change = m.setMode('ai'); await tick();
+    release(); await change;
+    holdGet = null; openGet(); await loading;
+    assert.equal(m.getSnapshot().mode, 'ai', 'an older load that ends after the change does not overwrite it');
+    sent.length = 0;
+    const back = m.setMode('fast'); await tick(); release(); await back;
+    sent.length = 0;
+  }
+  assert.equal(m.getSnapshot().mode, 'fast', 'Fast (no AI) by default');
+  const first = m.setMode('ai'); const second = m.setMode('fast'); await tick();
+  assert.deepEqual(sent, [{ mode: 'ai' }], 'one change at a time');
+  await m.load(); assert.equal(m.getSnapshot().mode, 'ai', 'a load during the change does not undo it');
+  release(); await first; await second;
+  assert.equal(m.getSnapshot().mode, 'ai'); assert.equal(m.getSnapshot().busy, false); assert.equal(m.getSnapshot().error, undefined);
+  fail = true; const third = m.setMode('fast'); await tick(); release(); await third;
+  assert.equal(m.getSnapshot().mode, 'ai', 'a failed change keeps the saved mode'); assert.equal(m.getSnapshot().error, 'disk full');
+  await m.setMode('slow'); assert.equal(sent.length, 2, 'no unknown mode');
+  globalThis.fetch = realFetch;
+}
+
 globalThis.fetch = async () => Response.json({ error: 'Task board is off' }, { status: 409 });
 await board.load(true); assert.equal(board.getSnapshot().off, true);
 globalThis.fetch = async () => new Response('', { status: 404 });
