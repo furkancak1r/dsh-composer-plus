@@ -3472,7 +3472,8 @@ struct BoardSheet: View {
     @EnvironmentObject var c: Client
     @Environment(\.dismiss) private var dismiss
     @StateObject private var b = TaskBoard { _, _ in [:] }
-    @State private var column = "doing"
+    /// The column that the user picked; nil until then (the board opens on Review when a chat waits, else Doing).
+    @State private var column: String?
     @State private var project: String
     @AppStorage("boardHideDone") private var hideDone = false
     @State private var picking = false
@@ -3490,7 +3491,8 @@ struct BoardSheet: View {
                 if b.missing { Text("Composer Plus on your Mac has no task board. Update it on the Mac.").foregroundStyle(.secondary) }
                 else if b.off { Text("Task board is off. Switch it on in Settings → Composer Plus on your Mac.").foregroundStyle(.secondary) }
                 else if b.loaded {
-                    let cards = v.columns.first { $0.status == column }?.cards ?? []
+                    let shown = boardStartColumn(v.columns, current: column)
+                    let cards = v.columns.first { $0.status == shown }?.cards ?? []
                     if cards.isEmpty { Text("No chats here.").foregroundStyle(.secondary) }
                     ForEach(cards.prefix(100)) { card in Button { tap(card) } label: { BoardCardRow(card: card) } }
                 } else if b.readFailed == nil { HStack(spacing: 8) { ProgressView(); Text("Loading the board…") } }
@@ -3498,7 +3500,7 @@ struct BoardSheet: View {
             }
             .safeAreaInset(edge: .top) {
                 if ready {
-                    Picker("Column", selection: $column) {
+                    Picker("Column", selection: Binding(get: { boardStartColumn(v.columns, current: column) }, set: { column = $0 })) {
                         ForEach(v.columns, id: \.status) { col in Text(verbatim: "\(boardStatusName(col.status)) \(col.cards.count)").tag(col.status) }
                     }
                     .pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8).background(.bar)
@@ -3517,7 +3519,9 @@ struct BoardSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
-            .onChange(of: hideDone) { _, on in if on, column == "done" { column = "doing" } }
+            // The column is fixed once the board shows (a chat that starts to wait later does not move the view); a column
+            // that goes (Todo after the first message, Done with Hide finished) falls back in `boardStartColumn`.
+            .onChange(of: ready, initial: true) { _, r in if r, column == nil { column = boardStartColumn(view.columns) } }
             .sheet(isPresented: $picking) { BoardProjectSheet(projects: v.projects, project: $project, hideDone: $hideDone).presentationDetents([.medium, .large]) }
             .task {
                 b.bind { [c] query, body in try await c.plusCall("board-chats", query: query, body: body) }
@@ -3566,7 +3570,7 @@ struct BoardProjectSheet: View {
                 }
                 Section {
                     if query.isEmpty { row("all", String(localized: "All projects")) }
-                    ForEach(shown) { p in row(p.id, p.name) }
+                    ForEach(shown) { p in row(p.id, p.name, waiting: p.waiting) }
                     if shown.isEmpty { Text("No matching project").foregroundStyle(.secondary) }
                 }
             }
@@ -3575,10 +3579,12 @@ struct BoardProjectSheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
         }
     }
-    private func row(_ id: String, _ name: String) -> some View {
+    /// A project row: the name (a long one on two lines) and an orange dot while a chat of it waits for you.
+    private func row(_ id: String, _ name: String, waiting: Bool = false) -> some View {
         Button { project = id; dismiss() } label: {
             HStack {
-                Text(verbatim: name).foregroundStyle(.primary).lineLimit(1)
+                Text(verbatim: name).foregroundStyle(.primary).lineLimit(2)
+                if waiting { Circle().fill(.orange).frame(width: 8, height: 8).accessibilityLabel(Text("Waiting for you")) }
                 Spacer(minLength: 0)
                 if project == id { Image(systemName: "checkmark").foregroundStyle(.tint) }
             }

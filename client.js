@@ -1074,7 +1074,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * record of the board's chats (`{prompt, tags, at}` by id); `task`: the new chat that New task opened. A Branch per chat
      * workspace (`<repo>/.worktrees/<name>`) counts as its repository's project. Archived and subagent chats never show, and
      * a blank chat (no message yet) shows only when it is `task` (Todo), as in dsh's sidebar. Each column is newest first;
-     * Done shows BOARD_DONE_SHOWN unless `doneAll`. A project is `recent` when a chat of it is waiting, running, finished and
+     * Todo shows only while it has that chat. Done shows BOARD_DONE_SHOWN unless `doneAll`. `waiting`: the project's chats that
+     * wait for you (the orange dot of the project list). A project is `recent` when a chat of it is waiting, running, finished and
      * not opened yet, or updated in the last 2 hours (the rule of the Recent projects filter). */
     function boardColumns({ workspaces, list, statuses, meta = {}, task, project = 'all', hideDone = false, doneAll = false, now = Date.now() }) {
       const items = workspaces?.items ?? [];
@@ -1087,7 +1088,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       }
       const projects = items.filter((w) => ownerOf.get(w.workspaceId) === w).map((w) => {
         const path = String(w.path ?? '');
-        return { id: w.workspaceId, name: (typeof w.title === 'string' && w.title.trim()) || path.split(/[\\/]/).filter(Boolean).at(-1) || path, path, active: 0, recent: false };
+        return { id: w.workspaceId, name: (typeof w.title === 'string' && w.title.trim()) || path.split(/[\\/]/).filter(Boolean).at(-1) || path, path, active: 0, waiting: 0, recent: false };
       });
       const byProject = new Map(projects.map((p) => [p.id, p]));
       const chatProject = new Map();
@@ -1113,6 +1114,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         const projectId = chatProject.get(id);
         const p = projectId === undefined ? undefined : byProject.get(projectId);
         if (p !== undefined && (ask !== undefined || running)) p.active += 1;
+        if (p !== undefined && ask !== undefined) p.waiting += 1;
         if (p !== undefined && (ask !== undefined || running || status?.completionUnread === true || (summary.updatedAt ?? 0) >= now - RECENT_MS)) p.recent = true;
         if (ask !== undefined) counts.waiting += 1; else if (running) counts.running += 1;
         shown.add(id);
@@ -1126,7 +1128,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       for (const s of BOARD_STATUSES) columns[s].sort((a, b) => b.updatedAt - a.updatedAt);
       const hiddenDone = doneAll ? 0 : Math.max(0, columns.done.length - BOARD_DONE_SHOWN);
       if (hiddenDone > 0) columns.done = columns.done.slice(0, BOARD_DONE_SHOWN);
-      const statusesShown = hideDone ? BOARD_STATUSES.slice(0, 3) : BOARD_STATUSES;
+      // Todo shows only while the new task waits for its first message (an empty Todo only took a quarter of the width).
+      const statusesShown = BOARD_STATUSES.filter((s) => (s !== 'todo' || columns.todo.length > 0) && (s !== 'done' || !hideDone));
       return { projects: projects.sort((a, b) => a.name.localeCompare(b.name)), counts, hiddenDone: hideDone ? 0 : hiddenDone,
         columns: statusesShown.map((status) => ({ status, cards: columns[status] })) };
     }
@@ -1264,28 +1267,39 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     const BoardFolder = () => React.createElement('svg', { width: 16, height: 16, viewBox: '0 0 16 16', fill: 'none', 'aria-hidden': true },
       React.createElement('path', { d: 'M1.75 4.25c0-.83.67-1.5 1.5-1.5h3l1.5 1.75h5c.83 0 1.5.67 1.5 1.5v6.25c0 .83-.67 1.5-1.5 1.5H3.25c-.83 0-1.5-.67-1.5-1.5V4.25Z', stroke: 'currentColor', strokeWidth: 1.2, strokeLinejoin: 'round' }));
 
+    const BoardCheck = () => React.createElement('svg', { width: 12, height: 12, viewBox: '0 0 12 12', fill: 'none', 'aria-hidden': true, 'data-cpb-check': '' },
+      React.createElement('path', { d: 'M2.5 6.2 4.9 8.5 9.5 3.5', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }));
+
     const BOARD_CSS = `
 .cpb-page{position:relative;display:flex;width:100%;height:100%;min-width:0;min-height:0;overflow:hidden;color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-base);font-size:14px;line-height:1.5}
 [data-platform=darwin] .cpb-page{padding-top:var(--dsh-frame-top-clearance,0px);box-sizing:border-box}
 .cpb-side{flex:none;width:clamp(150px,18%,220px);padding:14px 8px;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;border-right:.5px solid var(--dsw-alias-border-l2);overflow:auto}
+/* Only the project list scrolls: the title, All projects, the search box and the filter stay (the side scrolls only when it is too short for them). */
+.cpb-projects{flex:1 1 auto;min-height:72px;display:flex;flex-direction:column;gap:2px;overflow-y:auto}
 .cpb-brand{display:flex;align-items:center;gap:8px;padding:4px 10px 12px;font-size:15px;font-weight:600;min-width:0}
 .cpb-label{padding:14px 10px 4px;font-size:12px;color:var(--dsw-alias-label-tertiary)}
 .cpb-search{flex:none;width:100%;height:36px;margin:2px 0 6px;padding:0 12px;box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l2);border-radius:10px;background:none;color:inherit;font:inherit;font-size:14px;min-width:0}
 .cpb-search:focus{outline:2px solid var(--dsw-alias-interactive-border-focus,#3b82f6);outline-offset:-1px}
-.cpb-filter{display:flex;align-items:center;gap:6px;width:100%;margin-bottom:4px;padding:4px 10px;border:0;border-radius:8px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:16px;text-align:left;cursor:pointer;min-width:0}
+.cpb-filter{flex:none;display:inline-flex;align-items:center;gap:6px;align-self:flex-start;max-width:100%;margin-bottom:6px;padding:5px 10px;box-sizing:border-box;border:.5px solid var(--dsw-alias-border-l2);border-radius:12px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;line-height:16px;text-align:left;cursor:pointer;min-width:0}
 .cpb-filter:hover{background:var(--dsw-alias-interactive-bg-hover)}
-.cpb-filter[aria-pressed=true]{background:var(--dsw-alias-interactive-bg-active);color:var(--dsw-alias-label-primary)}
+.cpb-filter[aria-pressed=true]{background:var(--dsw-alias-interactive-bg-active);border-color:transparent;color:var(--dsw-alias-label-primary)}
 .cpb-filter svg{flex:none}
 .cpb-filter span{flex:1;min-width:0;overflow-wrap:anywhere}
 .cpb-nav{display:flex;align-items:center;gap:8px;width:100%;padding:7px 10px;border:0;border-radius:10px;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;min-width:0}
 .cpb-nav:hover{background:var(--dsw-alias-interactive-bg-hover)}
 .cpb-nav[aria-current=page]{background:var(--dsw-alias-interactive-bg-active)}
 .cpb-nav svg{flex:none}
-.cpb-nav span:first-of-type{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.cpb-count{font-size:12px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
-.cpb-main{flex:1;min-width:0;display:flex;flex-direction:column}
-.cpb-head{display:flex;align-items:center;gap:10px;min-height:64px;padding:12px 20px;box-sizing:border-box;flex-wrap:wrap}
-.cpb-head h1{margin:0;font-size:18px;font-weight:600;line-height:26px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cpb-nav>span:first-of-type{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cpb-count{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
+.cpb-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.cpb-main{flex:1;min-width:0;display:flex;flex-direction:column;container-type:inline-size}
+.cpb-head{display:flex;align-items:center;gap:10px;min-height:64px;padding:12px 20px;box-sizing:border-box}
+.cpb-head h1{flex:0 1 auto;margin:0;font-size:18px;font-weight:600;line-height:26px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cpb-head>.cpb-muted{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cpb-head>button{flex:none}
+/* A narrow board keeps the header on one line: Hide finished shows only its icon, then the counts go (the column heads count too). */
+@container (max-width:620px){.cpb-toggle>span{display:none}.cpb-toggle{padding:0 9px}}
+@container (max-width:440px){.cpb-head>.cpb-muted{display:none}}
 .cpb-muted{color:var(--dsw-alias-label-secondary);font-size:13px}
 .cpb-chip{display:inline-flex;align-items:center;gap:5px;max-width:100%;min-width:0;padding:1px 8px;border-radius:99px;background:var(--dsw-alias-bg-module-platform);color:var(--dsw-alias-label-secondary);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .cpb-spacer{flex:1}
@@ -1311,6 +1325,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
 .cpb-cardtop>[data-cpb-dot]{flex:none;display:inline-flex;margin-top:5px}
 .cpb-cardtitle{flex:1;min-width:0;overflow-wrap:anywhere;font-weight:500}
 .cpb-when{margin-left:auto;padding-left:4px;font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary);white-space:nowrap}
+.cpb-card[data-cpb-state=draft] .cpb-when{margin-left:0;padding-left:0;white-space:normal;overflow-wrap:anywhere;min-width:0}
 .cpb-preview{margin-top:3px;font-size:13px;color:var(--dsw-alias-label-secondary);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .cpb-meta{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:6px;min-width:0}
 .cpb-tag{padding:0 8px;border-radius:99px;background:var(--dsw-alias-bg-module-platform);font-size:12px;line-height:20px;color:var(--dsw-alias-label-secondary);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1338,7 +1353,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
 .cpb-input{width:100%;box-sizing:border-box;margin-top:6px;font:inherit;font-size:14px;color:inherit;padding:7px 10px;border-radius:10px;border:.5px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-layer-1);outline:none}
 .cpb-toast{position:absolute;left:50%;bottom:24px;z-index:9;transform:translateX(-50%);padding:8px 16px;border-radius:99px;background:var(--dsw-alias-label-primary);color:var(--dsw-alias-bg-base);font-size:13px;max-width:80%}
 .cpb-note{margin:auto;max-width:420px;padding:24px;text-align:center;color:var(--dsw-alias-label-secondary)}
-.cpb-icon:focus-visible,.cpb-nav:focus-visible,.cpb-card:focus-visible,.cpb-primary:focus-visible,.cpb-ghost:focus-visible,.cpb-toggle:focus-visible,.cpb-option:focus-visible,.cpb-wait button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}`;
+.cpb-icon:focus-visible,.cpb-nav:focus-visible,.cpb-filter:focus-visible,.cpb-card:focus-visible,.cpb-primary:focus-visible,.cpb-ghost:focus-visible,.cpb-toggle:focus-visible,.cpb-option:focus-visible,.cpb-wait button:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary);outline-offset:-2px}`;
 
     /** The quick answer of a waiting chat: an approval (Reject, Allow once), a plan review (the plan; Approve, or Request
      * changes with an optional note) or questions (options or your own text). The labels are dsh's own. */
@@ -1465,6 +1480,15 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           h('div', { className: 'cpb-colhead' }, h(BoardStatusIcon, { status }), h('span', null, name), cards.length > 0 ? h('span', { className: 'cpb-count' }, String(cards.length)) : null),
           h('div', { className: 'cpb-list' }, ...items));
       };
+      // A project row's count: its running and waiting chats; an orange dot (dsh's own) while a chat waits for you. A screen
+      // reader reads the counts line ("1 running · 1 waiting for you"), not the bare number.
+      const countOf = (running, waiting) => {
+        if (running + waiting === 0) return h('span', { className: 'cpb-count' });
+        const text = t('board.counts', { running: String(running), waiting: String(waiting) });
+        return h('span', { className: 'cpb-count', title: text },
+          waiting > 0 && primitives.StateDot !== undefined ? h('span', { 'data-cpb-waiting': '', 'aria-hidden': true }, h(primitives.StateDot, { state: 'warning' })) : null,
+          h('span', { 'aria-hidden': true }, String(running + waiting)), h('span', { className: 'cpb-sr' }, text));
+      };
       let body;
       if (state.restart) body = h('div', { className: 'cpb-note' }, t('board.restart'));
       else if (state.off) body = h('div', { className: 'cpb-note' }, t('board.off'));
@@ -1476,23 +1500,26 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         h('nav', { className: 'cpb-side', 'aria-label': t('board.projects') },
           h('div', { className: 'cpb-brand' }, h(BoardIcon, { size: 18 }), h('span', { style: { minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }, t('board.title'))),
           h('button', { type: 'button', className: 'cpb-nav', 'aria-current': state.project === 'all' ? 'page' : undefined, onClick: () => board.setProject('all') },
-            h(BoardIcon, { size: 16 }), h('span', null, t('board.allProjects')), h('span', { className: 'cpb-count' }, view.counts.running + view.counts.waiting > 0 ? String(view.counts.running + view.counts.waiting) : '')),
+            h(BoardIcon, { size: 16 }), h('span', null, t('board.allProjects')), countOf(view.counts.running, view.counts.waiting)),
           projects.length > 0 ? h('div', { className: 'cpb-label' }, t('board.projects')) : null,
           // Esc empties the box (a second Esc goes on to the page); the key does not reach the page's own keys.
           projects.length > 0 ? h('input', { type: 'search', className: 'cpb-search', 'data-cpb-search': '', value: state.query, placeholder: t('projectPicker.search'), 'aria-label': t('projectPicker.search'),
             autoComplete: 'off', spellCheck: false, onChange: (event) => board.setQuery(event.target.value),
             onKeyDown: (event) => { if (event.key === 'Escape' && state.query !== '') { event.preventDefault(); event.stopPropagation(); board.setQuery(''); } } }) : null,
           projects.length > 0 ? h('button', { type: 'button', className: 'cpb-filter', 'data-cpb-recent': '', 'aria-pressed': state.recent, onClick: () => board.toggleRecent() },
-            primitives.IconAlarmClockOutlineRegular === undefined ? null : h(primitives.IconAlarmClockOutlineRegular, { size: 14 }), h('span', null, t('recentProjects.option'))) : null,
-          ...listed.map((p) => h('button', { key: p.id, type: 'button', className: 'cpb-nav', title: p.path, 'aria-current': state.project === p.id ? 'page' : undefined, onClick: () => board.setProject(p.id) },
-            h(BoardFolder), h('span', null, p.name), h('span', { className: 'cpb-count' }, p.active > 0 ? String(p.active) : ''))),
-          projects.length > 0 && listed.length === 0 ? h('div', { className: 'cpb-muted', role: 'status', 'data-cpb-noproject': '', style: { padding: '6px 10px', fontSize: 12 } }, t('projectPicker.empty')) : null),
+            primitives.IconAlarmClockOutlineRegular === undefined ? null : h(primitives.IconAlarmClockOutlineRegular, { size: 14 }), h('span', null, t('recentProjects.option')),
+            state.recent ? h(BoardCheck) : null) : null,
+          h('div', { className: 'cpb-projects', 'data-cpb-projects': '' },
+            ...listed.map((p) => h('button', { key: p.id, type: 'button', className: 'cpb-nav', title: `${p.name}\n${p.path}`, 'aria-current': state.project === p.id ? 'page' : undefined, onClick: () => board.setProject(p.id) },
+              h(BoardFolder), h('span', null, p.name), countOf(p.active - p.waiting, p.waiting))),
+            projects.length > 0 && listed.length === 0 ? h('div', { className: 'cpb-muted', role: 'status', 'data-cpb-noproject': '', style: { padding: '6px 10px', fontSize: 12 } }, t('projectPicker.empty')) : null)),
         h('div', { className: 'cpb-main' },
           h('header', { className: 'cpb-head' },
             h('h1', null, current?.name ?? t('board.allProjects')),
             state.meta === null ? null : h('span', { className: 'cpb-muted' }, t('board.counts', { running: String(view.counts.running), waiting: String(view.counts.waiting) })),
             h('span', { className: 'cpb-spacer' }),
-            h('button', { type: 'button', className: 'cpb-toggle', 'aria-pressed': state.hideDone, 'data-cpb-hide-done': '', onClick: () => board.toggleHideDone() }, h(BoardStatusIcon, { status: 'done' }), t('board.hideDone')),
+            h('button', { type: 'button', className: 'cpb-toggle', 'aria-pressed': state.hideDone, 'data-cpb-hide-done': '', title: t('board.hideDone'), 'aria-label': t('board.hideDone'), onClick: () => board.toggleHideDone() },
+              h(BoardStatusIcon, { status: 'done' }), h('span', null, t('board.hideDone'))),
             openNewTask !== undefined ? h('button', { type: 'button', className: 'cpb-primary', 'data-cpb-new': '', onClick: newTask }, '+ ', t('board.newTask')) : null),
           projects.length === 0 && state.meta !== null ? h('div', { className: 'cpb-muted', style: { padding: '0 20px 8px' } }, t('board.empty')) : null,
           body),

@@ -64,18 +64,18 @@ const workspaces = { items: [{ workspaceId: 'w1', title: 'acme', path: '/w/acme'
 archivedSessionIds: ['s6'] };
 const ids = (v, s) => v.columns.find((c) => c.status === s)?.cards.map((c) => c.id);
 let v = board.columns({ workspaces, list, statuses, meta: chats });
-assert.deepEqual(v.columns.map((c) => c.status), ['todo', 'doing', 'review', 'done']);
+assert.deepEqual(v.columns.map((c) => c.status), ['doing', 'review', 'done'], 'no new task waits: no Todo column');
 assert.deepEqual(ids(v, 'review'), ['s1'], 'orange: Review');
 assert.deepEqual(ids(v, 'doing'), ['s2', 's3'], 'running, or a running subagent: Doing');
 assert.deepEqual(ids(v, 'done'), ['s4', 's8', 's9', 's7'], 'the rest: Done, newest first (s5 blank, s6 archived, kid a subagent left out; an answered request is not orange)');
-assert.equal(v.columns[3].cards[0].state, 'unread', 'the green dot while unread'); assert.equal(v.columns[3].cards[1].state, 'read');
-assert.deepEqual(v.projects.map((p) => [p.id, p.name, p.active]), [['w1', 'acme', 3], ['w3', 'blog', 0]], 'a Branch per chat folder is no project of its own');
-const s1 = v.columns[2].cards[0];
+assert.equal(v.columns[2].cards[0].state, 'unread', 'the green dot while unread'); assert.equal(v.columns[2].cards[1].state, 'read');
+assert.deepEqual(v.projects.map((p) => [p.id, p.name, p.active, p.waiting]), [['w1', 'acme', 3, 1], ['w3', 'blog', 0, 0]], 'a Branch per chat folder is no project of its own; acme has 1 chat that waits');
+const s1 = v.columns[1].cards[0];
 assert.equal(s1.title, 'Title s1'); assert.deepEqual(s1.tags, ['chess', 'game']); assert.equal(s1.prompt, 'html css js ile satranç oyunu yap'); assert.equal(s1.ask.kind, 'approval');
 assert.deepEqual(v.counts, { running: 2, waiting: 1 });
 assert.deepEqual(ids(board.columns({ workspaces, list, statuses, meta: chats, project: 'w1' }), 'done'), ['s4', 's8', 's9', 's7'], 'the branch chat belongs to its repository');
 assert.deepEqual(ids(board.columns({ workspaces, list, statuses, project: 'w3' }), 'done'), []);
-assert.equal(board.columns({ workspaces, list: { byId: Object.fromEntries([summary('n1', { title: undefined, displayTitle: 'acme' })]) }, statuses: new Map(), meta: { n1: { prompt: 'Make a chess game\nwith tests', tags: [], at: 1 } } }).columns[3].cards[0].title,
+assert.equal(board.columns({ workspaces, list: { byId: Object.fromEntries([summary('n1', { title: undefined, displayTitle: 'acme' })]) }, statuses: new Map(), meta: { n1: { prompt: 'Make a chess game\nwith tests', tags: [], at: 1 } } }).columns[2].cards[0].title,
   'Make a chess game', 'no dsh title yet: the first line of the prompt');
 // The project list: "Active in the last 2 hours" (waiting, running, unread, starting or changed in 2 hours) and the search.
 const T = 10 * 3600 * 1000;
@@ -103,16 +103,18 @@ board.setQuery('cal'); assert.deepEqual(listed(), [], 'both at once');
 board.setQuery(''); board.toggleRecent(); assert.equal(board.getSnapshot().recent, false);
 // Hide finished, 50 shown.
 v = board.columns({ workspaces, list, statuses, hideDone: true });
-assert.deepEqual(v.columns.map((c) => c.status), ['todo', 'doing', 'review'], 'Hide finished hides Done');
+assert.deepEqual(v.columns.map((c) => c.status), ['doing', 'review'], 'Hide finished hides Done');
+assert.deepEqual(board.columns({ workspaces, list, statuses, hideDone: true, task: 's5' }).columns.map((c) => c.status), ['todo', 'doing', 'review'], 'and Todo shows with a new task');
 const many = { byId: Object.fromEntries(Array.from({ length: 60 }, (_, i) => summary(`m${i}`, { updatedAt: i }))) };
 v = board.columns({ workspaces: { items: [], archivedSessionIds: [] }, list: many, statuses: new Map() });
-assert.equal(v.columns[3].cards.length, 50); assert.equal(v.hiddenDone, 10); assert.equal(v.columns[3].cards[0].id, 'm59');
-assert.equal(board.columns({ workspaces: { items: [] }, list: many, statuses: new Map(), doneAll: true }).columns[3].cards.length, 60);
+assert.equal(v.columns[2].cards.length, 50); assert.equal(v.hiddenDone, 10); assert.equal(v.columns[2].cards[0].id, 'm59');
+assert.equal(board.columns({ workspaces: { items: [] }, list: many, statuses: new Map(), doneAll: true }).columns[2].cards.length, 60);
 // The new task's blank chat shows in Todo (no other blank chat); once it has a message it is a normal card.
 v = board.columns({ workspaces, list, statuses, task: 's5' });
+assert.deepEqual(v.columns.map((c) => c.status), ['todo', 'doing', 'review', 'done'], 'a new task waits: Todo shows');
 assert.deepEqual(ids(v, 'todo'), ['s5'], 'the new task before its first message'); assert.equal(v.columns[0].cards[0].state, 'draft');
-assert.deepEqual(ids(board.columns({ workspaces, list, statuses, task: 's5', project: 'w3' }), 'todo'), [], 'only in its own project');
-assert.deepEqual(ids(board.columns({ workspaces, list, statuses, task: 's1' }), 'todo'), [], 'a chat with a message is not a draft');
+assert.equal(ids(board.columns({ workspaces, list, statuses, task: 's5', project: 'w3' }), 'todo'), undefined, 'only in its own project (no Todo in another)');
+assert.equal(ids(board.columns({ workspaces, list, statuses, task: 's1' }), 'todo'), undefined, 'a chat with a message is not a draft');
 
 // The store: read, then only a newer rev; the poll stops with the page.
 board.start(); await tick();
@@ -240,6 +242,38 @@ assert.ok(folders.length === 2 && folders.every((f) => find(f.t(f.p ?? {}), (x) 
 const chips = find(el, (n) => n.p?.className === 'cpb-chip');
 assert.ok(chips.length > 0 && chips.every((n) => n.c.length === 1 && typeof n.c[0] === 'string'), 'a card shows its project as plain text, without a colored dot');
 assert.doesNotMatch(src, /BOARD_COLORS|boardColor/, 'no project colors');
+// Only the project list scrolls: the projects are in their own box, after the search box and the filter.
+const projectsBox = find(el, (n) => n.p?.['data-cpb-projects'] !== undefined)[0];
+assert.deepEqual(find(projectsBox, (n) => n.p?.className === 'cpb-nav').map((n) => n.c[1].c[0]), ['acme', 'blog'], 'the project rows are in the scrolling box');
+assert.equal(find(projectsBox, (n) => n.p?.['data-cpb-search'] !== undefined || n.p?.['data-cpb-recent'] !== undefined).length, 0, 'the search box and the filter stay outside it');
+assert.match(src, /\.cpb-projects\{[^}]*overflow-y:auto/, 'the project box scrolls');
+// The orange dot: acme has a chat that waits; blog has none. The count reads as the counts line.
+const navRow = (name) => find(el, (n) => n.p?.className === 'cpb-nav' && n.c[1]?.c?.[0] === name)[0];
+const dotOf = (row) => find(row, (n) => n.p?.['data-cpb-waiting'] !== undefined);
+assert.equal(dotOf(navRow('acme')).length, 1, 'a project with a waiting chat has the orange dot');
+assert.equal(find(dotOf(navRow('acme'))[0], (n) => n.t === 'StateDot')[0].p.state, 'warning', 'dsh\'s own orange dot');
+assert.equal(dotOf(navRow('blog')).length, 0, 'no waiting chat: no dot');
+{
+  // Running chats but none that waits: the count, no dot.
+  const calm = page[1]({ ...injected, openSession: () => {}, useSessions: (f) => f(list), useSessionStatus: (f) => f(new Map([['kid', { running: true }]])), useWorkspaces: (f) => f(workspaces), t: (k) => k });
+  const acme = find(calm, (n) => n.p?.className === 'cpb-nav' && n.c[1]?.c?.[0] === 'acme')[0];
+  assert.equal(dotOf(acme).length, 0, 'running only: no orange dot');
+  assert.equal(find(acme, (n) => n.p?.className === 'cpb-count')[0].c[1].c[0], '2', 'the count of running chats');
+}
+assert.equal(dotOf(navRow('board.allProjects')).length, 1, 'All projects has it too');
+assert.equal(find(navRow('acme'), (n) => n.p?.className === 'cpb-sr')[0].c[0], 'board.counts', 'a screen reader reads the counts, not a bare number');
+assert.equal(find(navRow('blog'), (n) => n.p?.className === 'cpb-count')[0].c.length, 0, 'no running or waiting chat: no count');
+// The tooltip of a project row: the full name, then the path.
+assert.equal(navRow('acme').p.title, 'acme\n/w/acme');
+// The header: Hide finished keeps its name for a screen reader and as a tooltip; a narrow board shows only its icon.
+const hideButton = find(el, (n) => n.p?.['data-cpb-hide-done'] !== undefined)[0];
+assert.equal(hideButton.p['aria-label'], 'board.hideDone'); assert.equal(hideButton.p.title, 'board.hideDone');
+assert.equal(hideButton.c[1].c[0], 'board.hideDone', 'the visible name is in its own span (hidden in a narrow board)');
+assert.match(src, /\.cpb-main\{[^}]*container-type:inline-size/, 'the header reacts to the board width, not the window');
+assert.match(src, /@container \(max-width:620px\)\{\.cpb-toggle>span\{display:none\}/, 'icon only in a narrow board');
+assert.doesNotMatch(src, /\.cpb-head\{[^}]*flex-wrap:wrap/, 'the header does not wrap to a second line');
+assert.match(src, /\.cpb-card\[data-cpb-state=draft\] \.cpb-when\{[^}]*white-space:normal/, 'the draft hint wraps instead of being cut');
+assert.match(src, /\.cpb-filter\{[^}]*border:\.5px solid/, 'the filter looks like a button');
 const search = find(el, (n) => n.p?.['data-cpb-search'] !== undefined)[0];
 assert.equal(search.p.placeholder, 'projectPicker.search', 'the label of Project search in a new chat');
 search.p.onChange({ target: { value: 'blo' } }); el = side();
@@ -248,8 +282,11 @@ let stopped = 0;
 find(el, (n) => n.p?.['data-cpb-search'] !== undefined)[0].p.onKeyDown({ key: 'Escape', preventDefault() {}, stopPropagation() { stopped += 1; } });
 assert.equal(board.getSnapshot().query, '', 'Esc empties the box'); assert.equal(stopped, 1, 'and the page does not get that Esc');
 const recentButton = find(side(), (n) => n.p?.['data-cpb-recent'] !== undefined)[0];
-assert.equal(recentButton.p['aria-pressed'], false); assert.equal(recentButton.c.at(-1).c[0], 'recentProjects.option', 'the label of Recent projects filter');
+assert.equal(recentButton.p['aria-pressed'], false); assert.equal(recentButton.c[1].c[0], 'recentProjects.option', 'the label of Recent projects filter');
+assert.equal(recentButton.c.at(-1), null, 'off: no check mark');
 recentButton.p.onClick(); el = side();
+const recentOn = find(el, (n) => n.p?.['data-cpb-recent'] !== undefined)[0];
+assert.equal(recentOn.p['aria-pressed'], true); assert.equal(find(recentOn.c.at(-1).t(), (n) => n.p?.['data-cpb-check'] !== undefined).length, 1, 'on: a check mark');
 assert.deepEqual(navNames(el), ['board.allProjects', 'acme'], 'only the project with a waiting chat');
 board.setQuery('blog'); el = side();
 assert.deepEqual(navNames(el), ['board.allProjects']); assert.equal(find(el, (n) => n.p?.['data-cpb-noproject'] !== undefined)[0].c[0], 'projectPicker.empty');

@@ -3005,8 +3005,9 @@ struct BoardCard: Identifiable, Equatable {
     let state: String
 }
 /// A project of the board: a DSH workspace (a Branch per chat folder counts as its repository). `recent`: a chat of it
-/// waits, runs, finished unseen or changed in the last 2 hours (the Recent projects rule).
-struct BoardProject: Identifiable, Equatable { let id: String; let name: String; let path: String; var recent = false }
+/// waits, runs, finished unseen or changed in the last 2 hours (the Recent projects rule). `waiting`: a chat of it waits for
+/// you (the orange dot of the project list).
+struct BoardProject: Identifiable, Equatable { let id: String; let name: String; let path: String; var recent = false; var waiting = false }
 /// The board's project list: each word of `query` in the name (case and accents ignored), only recent ones when `recentOnly`.
 func boardProjectList(_ projects: [BoardProject], query: String, recentOnly: Bool) -> [BoardProject] {
     projects.filter { (!recentOnly || $0.recent) && searchHit(query, $0.name) }
@@ -3026,7 +3027,7 @@ func boardMeta(_ o: J) -> [String: BoardMeta] {
 /// The board from the phone's own lists, with the desktop board's rules: a chat that waits for you (a prompt of it is
 /// open) is in Review, a running chat (or one whose subagent runs) in Doing, every other chat in Done (green while it is
 /// unread). Archived and subagent chats are left out; a blank chat (no message yet) shows only when it is `task`, the new
-/// task, in Todo. `project` is a workspace id or "all"; `hideDone` hides Done.
+/// task, in Todo (the Todo column shows only then). `project` is a workspace id or "all"; `hideDone` hides Done.
 func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<String>, waiting: Set<String>, finished: Set<String>,
                   meta: [String: BoardMeta], task: String? = nil, project: String, hideDone: Bool, now: Date = Date()) -> (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
     let trim = { (p: String) -> String in p.count > 1 && p.hasSuffix("/") ? String(p.dropLast()) : p }
@@ -3039,7 +3040,8 @@ func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<Strin
     var projectOf: [String: String] = [:]
     for w in workspaces { for s in w.sessions where projectOf[s] == nil { projectOf[s] = owner[w.id]?.id } }
     let recent = Set(sessions.filter { $0.parent == nil && !$0.blank && !archived.contains($0.id) && recentChat($0, all: sessions, now: now, open: nil, waiting: waiting, finished: finished) }.compactMap { projectOf[$0.id] })
-    let projects = workspaces.filter { owner[$0.id]?.id == $0.id }.map { BoardProject(id: $0.id, name: $0.title, path: $0.path, recent: recent.contains($0.id)) }
+    let waits = Set(sessions.filter { $0.parent == nil && !archived.contains($0.id) && waiting.contains($0.id) }.compactMap { projectOf[$0.id] })
+    let projects = workspaces.filter { owner[$0.id]?.id == $0.id }.map { BoardProject(id: $0.id, name: $0.title, path: $0.path, recent: recent.contains($0.id), waiting: waits.contains($0.id)) }
         .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
     var columns: [String: [BoardCard]] = ["todo": [], "doing": [], "review": [], "done": []]
@@ -3055,8 +3057,15 @@ func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<Strin
         let card = BoardCard(id: s.id, title: s.title, prompt: m?.prompt ?? "", tags: m?.tags ?? [], project: p.flatMap { names[$0] }, updated: s.updated, state: state)
         columns[state == "waiting" ? "review" : state == "running" ? "doing" : "done", default: []].append(card)
     }
-    let order = hideDone ? ["todo", "doing", "review"] : ["todo", "doing", "review", "done"]
+    // Todo shows only while the new task waits for its first message, as on the Mac.
+    let order = ["todo", "doing", "review", "done"].filter { ($0 != "todo" || !(columns["todo"] ?? []).isEmpty) && ($0 != "done" || !hideDone) }
     return (projects, order.map { st in (st, (columns[st] ?? []).sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }) })
+}
+
+/// The column that the board opens on: Review when a chat waits for you, else Doing; a shown column stays.
+func boardStartColumn(_ columns: [(status: String, cards: [BoardCard])], current: String? = nil) -> String {
+    if let current, columns.contains(where: { $0.status == current }) { return current }
+    return columns.first { $0.status == "review" }?.cards.isEmpty == false ? "review" : "doing"
 }
 
 /// The board project of a chat: its workspace, or the repository's workspace for a Branch per chat folder; "all" when none.
