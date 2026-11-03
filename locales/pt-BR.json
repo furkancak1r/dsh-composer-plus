@@ -1946,7 +1946,7 @@
     "ideas.issueOpenHint": "Abrir a issue do GitHub desta ideia",
     "ideas.issuing": "Abrindo a issue no GitHub…",
     "feature.sessionBranch": "Branch do Git nas linhas de chat",
-    "feature.sessionBranch.description": "Cada linha de chat na barra lateral mostra o branch do git em que a pasta do projeto do chat estava no último turno do chat, para que chats em branches diferentes de um mesmo projeto não se misturem. O dsh registra o branch quando um turno começa e quando termina; um chat sem turno desde então não mostra nenhum. Se a linha de projeto acima do chat tem o mesmo nome do branch (por exemplo, uma pasta de “Um branch por chat”), a linha do chat não mostra a etiqueta, mas “Em uma única lista” ainda a mostra.",
+    "feature.sessionBranch.description": "Na visualização “Em uma única lista”, cada linha de chat na barra lateral mostra o branch do git em que a pasta do projeto do chat estava no último turno do chat, para que chats em branches diferentes de um mesmo projeto não se misturem. O dsh registra o branch quando um turno começa e quando termina; um chat sem turno desde então não mostra nenhum. Nas outras visualizações, nenhuma linha de chat o mostra, porque o chat já fica abaixo do projeto dele.",
     "branch.badge": "Branch do Git no último turno: {branch}",
     "branch.down": "Não foi possível salvar esta configuração: {error}",
     "branch.restart": "Reinicie o dsh para usar Branch do Git nas linhas de chat.",

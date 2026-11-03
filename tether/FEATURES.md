@@ -20,7 +20,7 @@ While a Composer Plus action in this table waits for the Mac, Tether shows a wai
 | deleteChat | yes | Chat title menu, or touch and hold a chat in Sessions → Delete…. |
 | projectName | yes | The folder name under the composer and in each chat row. |
 | projectStatus | yes | Each project header in Sessions shows the waiting hand, the green dot or the spinner. The green dots come from the Mac: a chat opened in dsh or on another phone loses its dot here too. Tether has no "Workspace Tree" view, so a header shows only its own chats (the desktop tree rule, a parent folder that also counts its branch folders, does not apply). |
-| sessionBranch | yes | Each chat row in Sessions shows the git branch of its folder at its last turn, next to the title (from the Mac; its switch stays on the Mac). |
+| sessionBranch | yes | With the filter menu → Group by → In one list, each chat row in Sessions shows the git branch of its folder at its last turn, next to the title (from the Mac; its switch stays on the Mac). By project, no row shows it: the chat is under its folder. |
 | markProjectRead | yes | Sessions → the "…" button next to a project header → Mark all as read (shown while a chat of that project has a green dot). Clears the green dots of that project's chats on the phone and in the Mac's unread list (Tether's dots); the desktop's own dots clear when opened there. |
 | activeProjectsFirst | yes | Sessions follows dsh's project order, which the desktop moves. |
 | recentProjects | yes | Sessions filter menu → Active in the last 2 hours. Tether has no "Workspace Tree" view (projects are not nested on the phone), so the tree rule of the desktop (parent folders stay, older chats hide) does not apply there. |

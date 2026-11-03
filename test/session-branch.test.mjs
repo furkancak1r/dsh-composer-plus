@@ -113,7 +113,7 @@ try {
     let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
     const portals = [];
     // A tiny sidebar: two session rows and one project row; rows hold the hosts that useRowHosts adds.
-    const mkRow = (key) => { const row = { key, children: [], getAttribute: () => key, insertBefore: (h) => { row.children.push(h); h.parent = row; }, querySelector: () => row.children.find((h) => h.attrs?.[0] !== undefined) ?? null }; return row; };
+    const mkRow = (key) => { const row = { key, children: [], getAttribute: () => key, insertBefore: (h) => { row.children.push(h); h.parent = row; }, querySelector: (sel) => (sel.includes('workspace:') ? null : row.children.find((h) => h.attrs?.[0] !== undefined) ?? null) }; return row; };
     const rows = [mkRow('session:s1'), mkRow('session:s2'), mkRow('workspace:w1')];
     globalThis.document = {
       querySelectorAll: (sel) => { if (sel.startsWith('[data-row-key^="session:"]')) return rows.filter((r) => r.key.startsWith('session:')); if (sel.startsWith('[data-composer-plus-branch-badge]')) return rows.flatMap((r) => r.children); return []; },
@@ -157,16 +157,21 @@ try {
       assert.equal(sent.length, 0, 'mounting reads nothing (the switch store has the list)');
       draw();
       assert.deepEqual(portals.map((x) => [x.key, x.el.c[0], x.el.p.title]), [['s1', 'feature/x', 'branch.badge:feature/x'], ['s2', '(abc1234)', 'branch.badge:(abc1234)']], 'one pill per chat row with a branch');
-      // A chat under a project row whose name is its branch (a Branch per chat worktree): no pill. Another project: a pill.
-      const project = (key, title) => ({ getAttribute: (n) => (n === 'data-row-key' ? key : null), querySelector: () => null, title });
-      const group = { children: [project('workspace:wt', 'feature/x'), rows[0], rows[1]], parentElement: null };
-      rows[0].parentElement = group; rows[1].parentElement = group;
+      // A chat under a project row (dsh's Workspaces views): no pill, whatever the project's name; Ungrouped (key
+      // `workspace:`) too. The project row can be the group's child or sit inside one (a nested project in the tree).
+      const project = (key) => ({ getAttribute: (n) => (n === 'data-row-key' ? key : null), querySelector: () => null });
       for (const r of rows) for (const h of r.children) h.parentElement = r;
-      const drawIn = (items) => { at = 0; effects = []; portals.length = 0; SessionBranchBadges({ branchSwitch: store, useSessionStatus: () => new Map(), useWorkspaces: (sel) => sel({ items }), t: (k, v) => `${k}:${v.branch}` }); };
-      drawIn([{ workspaceId: 'wt', title: 'feature/x' }]);
-      assert.deepEqual(portals.map((x) => x.key), ['s2'], 'no pill under a project named as the branch');
-      drawIn([{ workspaceId: 'wt', title: 'acme-web' }]);
-      assert.deepEqual(portals.map((x) => x.key), ['s1', 's2'], 'a project with another name keeps the pill');
+      for (const head of [project('workspace:w-acme'), project('workspace:'), { getAttribute: () => null, querySelector: () => project('workspace:w-sub') }]) {
+        const group = { children: [head, rows[0], rows[1]], parentElement: null };
+        rows[0].parentElement = group; rows[1].parentElement = group;
+        draw();
+        assert.deepEqual(portals.map((x) => x.key), [], `no pill under a project row (${head.getAttribute('data-row-key') ?? 'nested'})`);
+      }
+      // "In one list": no project row above the chat, so the pill shows.
+      const flat = { children: [rows[0], rows[1]], parentElement: null };
+      rows[0].parentElement = flat; rows[1].parentElement = flat;
+      draw();
+      assert.deepEqual(portals.map((x) => x.key), ['s1', 's2'], 'In one list keeps the pill');
       delete rows[0].parentElement; delete rows[1].parentElement;
       assert.equal(rows[2].children.length, 0, 'no host on project rows');
       for (const c of cleanups) if (typeof c === 'function') c();

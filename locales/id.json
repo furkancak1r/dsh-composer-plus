@@ -1946,7 +1946,7 @@
     "ideas.issueOpenHint": "Buka isu GitHub untuk ide ini",
     "ideas.issuing": "Membuka isu GitHub…",
     "feature.sessionBranch": "Branch Git di baris obrolan",
-    "feature.sessionBranch.description": "Setiap baris obrolan di bilah samping menampilkan branch git tempat folder proyek obrolan berada pada giliran terakhir obrolan itu, sehingga obrolan di branch berbeda dari satu proyek tidak tercampur. dsh mencatat branch saat giliran dimulai dan saat berakhir; obrolan yang belum punya giliran sejak itu tidak menampilkannya. Jika baris proyek di atas obrolan bernama sama dengan branch-nya (misalnya folder “Branch per obrolan”), baris obrolan tidak menampilkan label, tetapi “Dalam satu daftar” tetap menampilkannya.",
+    "feature.sessionBranch.description": "Dalam tampilan “Dalam satu daftar”, setiap baris obrolan di bilah samping menampilkan branch git tempat folder proyek obrolan berada pada giliran terakhir obrolan itu, sehingga obrolan di branch berbeda dari satu proyek tidak tercampur. dsh mencatat branch saat giliran dimulai dan saat berakhir; obrolan yang belum punya giliran sejak itu tidak menampilkannya. Dalam tampilan lain, tidak ada baris obrolan yang menampilkannya, karena obrolan sudah berada di bawah proyeknya.",
     "branch.badge": "Branch Git pada giliran terakhir: {branch}",
     "branch.down": "Tidak dapat menyimpan pengaturan ini: {error}",
     "branch.restart": "Mulai ulang dsh untuk menggunakan Branch Git di baris obrolan.",

@@ -1975,8 +1975,8 @@ struct SessionsView: View {
                     if c.pinned.contains(s.id) { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.orange) }
                     // Color.primary: in a Button, .primary is the blue tint and every chat looks like a link
                     Text(s.title).foregroundStyle(Color.primary).lineLimit(1)
-                    // Branch badge (Composer Plus): the git branch of the chat's folder at its last turn.
-                    if let b = c.branches[s.id] {
+                    // Branch badge (Composer Plus): the git branch of the chat's folder at its last turn, in "In one list" only.
+                    if let b = rowBranch(c.branches, s.id, oneList: c.oneList) {
                         Text(b).font(.caption2.monospaced()).lineLimit(1).truncationMode(.middle).frame(maxWidth: 110, alignment: .leading)
                             .padding(.horizontal, 5).padding(.vertical, 1).background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
                             .foregroundStyle(Color.secondary).accessibilityLabel(Text("Git branch at the last turn: \(b)"))

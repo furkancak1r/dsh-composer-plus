@@ -638,6 +638,8 @@ func sessionBranches(_ o: J) -> [String: String] {
     guard o["on"] as? Bool == true, let b = o["branches"] as? J else { return [:] }
     return b.compactMapValues { v in (v as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(200)) } }
 }
+/// The pill of one chat row: only in "In one list"; by project the chat is already under its folder, as on the Mac.
+func rowBranch(_ branches: [String: String], _ id: String, oneList: Bool) -> String? { oneList ? branches[id] : nil }
 /// Find in chat: text folded for matching, as on the Mac (case, accents, Turkish dotless ı).
 func findFold(_ s: String) -> String { s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).replacingOccurrences(of: "ı", with: "i") }
 /// Find in chat: the shown rows that hold `query` (your messages and the answers that the screen shows; folded steps and

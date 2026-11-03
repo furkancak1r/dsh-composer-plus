@@ -1946,7 +1946,7 @@
     "ideas.issueOpenHint": "Mở issue GitHub của ý tưởng này",
     "ideas.issuing": "Đang mở issue trên GitHub…",
     "feature.sessionBranch": "Branch Git trên dòng cuộc trò chuyện",
-    "feature.sessionBranch.description": "Mỗi dòng cuộc trò chuyện ở thanh bên hiển thị branch git mà thư mục dự án của cuộc trò chuyện đang ở trong lượt cuối của cuộc trò chuyện đó, để các cuộc trò chuyện trên những branch khác nhau của cùng một dự án không lẫn vào nhau. dsh ghi lại branch khi một lượt bắt đầu và khi kết thúc; cuộc trò chuyện chưa có lượt nào kể từ đó sẽ không hiển thị branch. Nếu dòng dự án phía trên cuộc trò chuyện có cùng tên với branch (ví dụ thư mục của “Branch riêng cho từng cuộc trò chuyện”), dòng cuộc trò chuyện không hiển thị nhãn, nhưng “Trong một danh sách” vẫn hiển thị nhãn.",
+    "feature.sessionBranch.description": "Ở chế độ xem “Trong một danh sách”, mỗi dòng cuộc trò chuyện ở thanh bên hiển thị branch git mà thư mục dự án của cuộc trò chuyện đang ở trong lượt cuối của cuộc trò chuyện đó, để các cuộc trò chuyện trên những branch khác nhau của cùng một dự án không lẫn vào nhau. dsh ghi lại branch khi một lượt bắt đầu và khi kết thúc; cuộc trò chuyện chưa có lượt nào kể từ đó sẽ không hiển thị branch. Ở các chế độ xem khác, không dòng cuộc trò chuyện nào hiển thị branch, vì cuộc trò chuyện đã nằm dưới dự án của nó.",
     "branch.badge": "Branch Git ở lượt cuối: {branch}",
     "branch.down": "Không thể lưu cài đặt này: {error}",
     "branch.restart": "Khởi động lại dsh để dùng Branch Git trên dòng cuộc trò chuyện.",

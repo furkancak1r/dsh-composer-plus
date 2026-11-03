@@ -389,6 +389,10 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(sessionBranches(["on": true, "branches": ["s1": "main", "s2": "", "s3": 7]]), ["s1": "main"])
         XCTAssertEqual(sessionBranches(["on": false, "branches": ["s1": "main"]]), [:])
         XCTAssertEqual(sessionBranches([:]), [:])
+        // The row shows it only in "In one list": by project the chat is under its folder.
+        XCTAssertEqual(rowBranch(["s1": "main"], "s1", oneList: true), "main")
+        XCTAssertNil(rowBranch(["s1": "main"], "s1", oneList: false))
+        XCTAssertNil(rowBranch(["s1": "main"], "s2", oneList: true))
         XCTAssertEqual(closeFences("```js\r\nx"), "```js\r\nx\n```", "CRLF lines")
         XCTAssertEqual(clampFocus(String(repeating: "x", count: 79) + "😀"), String(repeating: "x", count: 79), "an emoji past 80 UTF-16 units is not split")
         XCTAssertEqual(clampFocus(String(repeating: "x", count: 78) + "😀y"), String(repeating: "x", count: 78) + "😀")

@@ -1946,7 +1946,7 @@
     "ideas.issueOpenHint": "Ouvrir l’issue GitHub de cette idée",
     "ideas.issuing": "Ouverture de l’issue GitHub…",
     "feature.sessionBranch": "Branche Git sur les lignes de discussion",
-    "feature.sessionBranch.description": "Chaque ligne de discussion de la barre latérale affiche la branche git sur laquelle se trouvait le dossier du projet de la discussion lors de son dernier tour : les discussions de branches différentes d’un même projet ne se confondent donc pas. dsh enregistre la branche au début et à la fin de chaque tour ; une discussion sans tour depuis n’en affiche aucune. Si la ligne de projet au-dessus de la discussion porte le même nom que la branche (par exemple un dossier « Une branche par discussion »), la ligne de discussion n’affiche pas de pastille, mais « Dans une seule liste » l’affiche toujours.",
+    "feature.sessionBranch.description": "Dans la vue « Dans une seule liste », chaque ligne de discussion de la barre latérale affiche la branche git sur laquelle se trouvait le dossier du projet de la discussion lors de son dernier tour : les discussions de branches différentes d’un même projet ne se confondent donc pas. dsh enregistre la branche au début et à la fin de chaque tour ; une discussion sans tour depuis n’en affiche aucune. Dans les autres vues, aucune ligne de discussion ne l’affiche, car la discussion est déjà sous son projet.",
     "branch.badge": "Branche Git au dernier tour : {branch}",
     "branch.down": "Impossible d’enregistrer ce réglage : {error}",
     "branch.restart": "Redémarrez dsh pour utiliser Branche Git sur les lignes de discussion.",

@@ -1946,7 +1946,7 @@
     "ideas.issueOpenHint": "Das GitHub-Issue dieser Idee öffnen",
     "ideas.issuing": "GitHub-Issue wird geöffnet…",
     "feature.sessionBranch": "Git-Branch in Chatzeilen",
-    "feature.sessionBranch.description": "Jede Chatzeile in der Seitenleiste zeigt den git-Branch, auf dem der Projektordner des Chats in dessen letzter Runde war, damit sich Chats auf verschiedenen Branches eines Projekts nicht vermischen. dsh speichert den Branch, wenn eine Runde beginnt und wenn sie endet; ein Chat ohne Runde seitdem zeigt keinen. Wenn die Projektzeile über dem Chat denselben Namen wie der Branch hat (zum Beispiel ein Ordner von „Ein Branch pro Chat“), zeigt die Chatzeile kein Etikett, aber „In einer Liste“ zeigt es weiterhin.",
+    "feature.sessionBranch.description": "In der Ansicht „In einer Liste“ zeigt jede Chatzeile in der Seitenleiste den git-Branch, auf dem der Projektordner des Chats in dessen letzter Runde war, damit sich Chats auf verschiedenen Branches eines Projekts nicht vermischen. dsh speichert den Branch, wenn eine Runde beginnt und wenn sie endet; ein Chat ohne Runde seitdem zeigt keinen. In den anderen Ansichten zeigt keine Chatzeile den Branch, weil der Chat schon unter seinem Projekt steht.",
     "branch.badge": "Git-Branch in der letzten Runde: {branch}",
     "branch.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
     "branch.restart": "Starte dsh neu, um Git-Branch in Chatzeilen zu nutzen.",
