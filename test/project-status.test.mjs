@@ -1,6 +1,6 @@
 // Runs the real client.js ProjectStatusMarkers with fake React/DOM: a project row shows the same status as its
 // chats (pending > unread done > running incl. subagents), ignores archived/blank/subagent chats, and portals
-// the marker into each `workspace:<id>` row.
+// the marker into each `workspace:<id>` row, dsh's Ungrouped row (`workspace:`) too.
 import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
 const src=readFileSync(new URL('../client.js',import.meta.url),'utf8');
 let mod;globalThis.window={__ModuleLoader__:{load:m=>{mod=m;}}};eval(src);
@@ -57,6 +57,30 @@ Object.assign(list.byId.b,{running:false});statuses.delete('kid');assert.equal(r
   view='workspace';
   assert.deepEqual(marks(),{ta:'ongoing project.running:1',tbx:'ongoing project.running:1'},'WorkSpace: each project shows only its own chats');
   delete globalThis.localStorage;
+}
+// dsh's Ungrouped row (`workspace:`, no project id) holds each chat that no project holds: it shows their status like a
+// project row. A project's own chat (pb runs) does not count there; subagent, blank and archived chats never count.
+{
+  const ungrouped=mkEl({'data-row-key':'workspace:'});rows.push(ungrouped);
+  Object.assign(list.byId,Object.fromEntries([summary('u1'),summary('u2'),summary('u3',{origin:'subagent',running:true}),summary('u4',{blank:true,running:true})]));
+  list.ids=['pa','pb','pc','pbx','p2','u1','u2','u3','u4'];
+  const marks=()=>Object.fromEntries(render().c.map(p=>[p.key,`${p.portal.c[0].p.state} ${p.portal.p.title}`]));
+  render();const stop=layout[0]();
+  assert.deepEqual(marks(),{ta:'ongoing project.running:1',tbx:'ongoing project.running:1'},'Ungrouped idle: no marker; the project rows keep theirs');
+  Object.assign(list.byId.u1,{running:true});
+  assert.equal(marks()[''],'ongoing project.running:1','a running Ungrouped chat: the spinner on the Ungrouped row');
+  assert.equal(render().c.find(p=>p.key==='').host,ungrouped.children[0],'portaled into the Ungrouped row');
+  statuses.set('u2',{pendingInteraction:{kind:'approval'}});
+  assert.equal(marks()[''],'warning project.approval','waiting beats running');
+  statuses.set('u2',{completionUnread:true});
+  assert.equal(marks()[''],'done project.done · project.running:1','unread done beats running');
+  statuses.delete('u2');workspaces.archivedSessionIds=['u1'];
+  assert.equal(marks()[''],undefined,'an archived chat does not count');
+  assert.deepEqual(marks(),{ta:'ongoing project.running:1',tbx:'ongoing project.running:1'},'the other rows stay as before');
+  // Switched off: the row scan stops and every marker host (the Ungrouped one too) goes.
+  const removed=[];const all=globalThis.document.querySelectorAll;globalThis.document.querySelectorAll=q=>q==='[data-composer-plus-project-status]'?rows.flatMap(r=>r.children).map(h=>({remove:()=>removed.push(h)})):[];
+  stop();assert.ok(removed.includes(ungrouped.children[0]),'off removes the Ungrouped marker host');
+  globalThis.document.querySelectorAll=all;
 }
 console.log('project-status checks passed');
 

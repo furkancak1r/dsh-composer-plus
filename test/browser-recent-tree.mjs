@@ -6,7 +6,9 @@
 // (no active chat of its own). Off: everything shows again.
 // Then Project status: a chat that runs in mono-app also shows its spinner on mono's row, also while mono is collapsed;
 // in "WorkSpace" mono shows only its own chats (no spinner); when the chat ends, the spinner goes.
-// SHOTS=<dir> keeps three sidebar pictures there (before and after the filter, and the parent's spinner).
+// Then dsh's Ungrouped row: weather-cli is deleted (its chat goes to Ungrouped), and a turn there shows the spinner on the
+// Ungrouped row; the Project status switch removes and restores the markers.
+// SHOTS=<dir> keeps four sidebar pictures there (before and after the filter, the parent's spinner, Ungrouped's spinner).
 // PLAYWRIGHT=/path/to/playwright node test/browser-recent-tree.mjs /path/to/dsh/lib/bin.js [...]
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -47,7 +49,7 @@ const TASKS = [...OLD, NEW];
 const SLOW = 'Slow app task';
 const held = [];
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-recent-tree-')));
@@ -188,9 +190,58 @@ try {
       await until(async () => (await status('mono')) === '1 chat(s) running', 'tree again: mono shows the spinner');
       while (held.length > 0) held.shift()();
       await until(async () => (await status('mono')) === null && (await status('mono-app')) === null, 'the chat ended: no spinner (the chat is open, so no done dot)');
+
+      // Project status on dsh's Ungrouped row (`workspace:`, no project id). dsh's own Delete workspace moves the chat of
+      // weather-cli to Ungrouped. A turn there shows the spinner on that row (both views, also collapsed) and counts only
+      // there; a turn in mono-app keeps its own markers. Off: no marker; on again: back.
+      const ungrouped = page.locator('[data-row-key="workspace:"]');
+      const ungroupedStatus = async () => {
+        const mark = ungrouped.locator('[data-composer-plus-project-status] [title]');
+        return (await mark.count()) === 0 ? null : mark.first().getAttribute('title');
+      };
+      await row('weather-cli').hover();
+      await page.getByRole('button', { name: 'Workspace actions for weather-cli', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'Delete workspace', exact: true }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Delete workspace', exact: true }).click();
+      await until(async () => (await ungrouped.count()) > 0 && (await row('weather-cli').count()) === 0, 'the chat of the deleted project shows under Ungrouped');
+      assert.equal(await ungroupedStatus(), null, 'Ungrouped: nothing runs yet');
+      await expand('mono'); // collapsed above; mono-app sits inside it in the tree
+      await newChatIn('mono-app', SLOW, false);
+      await until(async () => (await status('mono-app')) === '1 chat(s) running', 'mono-app shows its running chat');
+      if ((await ungrouped.getAttribute('aria-expanded')) !== 'true') await ungrouped.click();
+      await chatRow(OLD[2]).click(); await pause(600);
+      await page.locator('[data-composer-input]').click(); await page.keyboard.type(`${SLOW} in Ungrouped`); await page.keyboard.press('Enter');
+      await until(async () => (await ungroupedStatus()) === '1 chat(s) running', 'Ungrouped shows the chat that runs there');
+      assert.deepEqual([await status('mono'), await status('mono-app')], ['1 chat(s) running', '1 chat(s) running'], 'the project rows count only their own chats');
+      await ungrouped.click();
+      await until(async () => (await ungrouped.getAttribute('aria-expanded')) === 'false', 'Ungrouped collapses');
+      assert.equal(await ungroupedStatus(), '1 chat(s) running', 'collapsed Ungrouped still shows the running chat');
+      if (process.env.SHOTS) await page.screenshot({ path: join(process.env.SHOTS, 'ungrouped-status.png'), clip: { x: 0, y: 0, width: 420, height: 520 } });
+      await view('WorkSpace');
+      await until(async () => (await ungroupedStatus()) === '1 chat(s) running', 'WorkSpace: Ungrouped shows the spinner too');
+      await view('Workspace Tree');
+      const toggle = async () => {
+        const direct = page.getByRole('button', { name: 'Settings', exact: true });
+        if (await direct.isVisible()) await direct.click();
+        else { await page.getByRole('button', { name: 'Account menu', exact: true }).click(); await page.getByRole('menuitem', { name: /^Settings/ }).click(); }
+        await page.getByText('Composer Plus', { exact: true }).click();
+        const sw = page.getByRole('switch', { name: 'Project status', exact: true });
+        await sw.waitFor({ timeout: 10000 });
+        const was = await sw.getAttribute('aria-checked');
+        await sw.click();
+        await until(async () => (await sw.getAttribute('aria-checked')) !== was, 'Project status switched');
+        await page.keyboard.press('Escape'); await pause(600);
+      };
+      await toggle();
+      await until(async () => (await page.locator('[data-composer-plus-project-status]').count()) === 0, 'off: every marker host goes, the Ungrouped one too');
+      await toggle();
+      await until(async () => (await ungroupedStatus()) === '1 chat(s) running' && (await status('mono-app')) === '1 chat(s) running', 'on again: the markers are back');
+      while (held.length > 0) held.shift()();
+      await until(async () => (await ungroupedStatus()) === null, 'the Ungrouped chat ended: no spinner (it is open, so no done dot)');
+      await until(async () => (await status('mono-app')) === 'A chat finished', 'mono-app: its chat finished while another chat was open (done dot)');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: tree keeps the parent of an active project and hides its old chats; WorkSpace filters projects only; off shows all; the parent row shows its branch's running chat in the tree only; no page errors`);
+      console.log(`PASS ${bin}: tree keeps the parent of an active project and hides its old chats; WorkSpace filters projects only; off shows all; the parent row shows its branch's running chat in the tree only; Ungrouped shows its running chat (both views, collapsed, off/on); no page errors`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});

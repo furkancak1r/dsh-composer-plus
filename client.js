@@ -4404,6 +4404,11 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       for (const item of items) for (let up = parents.get(item.workspaceId); up !== undefined; up = parents.get(up)) out.get(up).push(...item.sessionIds);
       return out;
     }
+    /** dsh's Ungrouped chats: each chat in the list that no project holds (dsh's `groupByWorkspace` rule). */
+    function ungroupedIds(items, list) {
+      const grouped = new Set(items.flatMap((item) => item.sessionIds));
+      return (list.ids ?? []).filter((id) => !grouped.has(id));
+    }
     function ProjectStatusMarkers({ useWorkspaces, useSessions, useSessionStatus, t }) {
       const workspaces = useWorkspaces((state) => state);
       const list = useSessions((state) => state);
@@ -4411,12 +4416,14 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       // Read at each render: a view change moves the nested project rows, and the row scan below renders this again.
       const tree = groupByOf() === 'workspace-tree';
       const byKey = React.useMemo(() => {
-        const archived = new Set(workspaces?.archivedSessionIds ?? []);
-        const ids = treeSessionIds(workspaces?.items ?? [], tree);
         const out = new Map();
-        for (const workspace of workspaces?.items ?? []) {
-          const status = list === undefined || statuses === undefined ? null : projectStatus(ids.get(workspace.workspaceId), list, statuses, archived);
-          if (status !== null) out.set(workspace.workspaceId, status);
+        const items = workspaces?.items;
+        if (items === undefined || list === undefined || statuses === undefined) return out;
+        const archived = new Set(workspaces.archivedSessionIds ?? []);
+        // dsh's Ungrouped row has the key `workspace:` (no project id) and holds the chats that no project holds.
+        for (const [key, ids] of treeSessionIds(items, tree).set('', ungroupedIds(items, list))) {
+          const status = projectStatus(ids, list, statuses, archived);
+          if (status !== null) out.set(key, status);
         }
         return out;
       }, [workspaces, list, statuses, tree]);
@@ -4461,9 +4468,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * chats are never active, as in dsh's own row status. "In one list" has no project rows, so nothing is hidden there. */
     function staleRows(workspaces, list, statuses, cutoff, tree = false) {
       const archived = new Set(workspaces.archivedSessionIds ?? []);
-      const grouped = new Set(workspaces.items.flatMap((item) => item.sessionIds));
       const groups = [...workspaces.items.map((item) => ({ key: item.workspaceId, sessionIds: item.sessionIds })),
-        { key: '', sessionIds: (list.ids ?? []).filter((id) => !grouped.has(id)) }];
+        { key: '', sessionIds: ungroupedIds(workspaces.items, list) }];
       const recent = (id) => {
         const summary = list.byId[id];
         if (summary === undefined || summary.origin === 'subagent') return false;
