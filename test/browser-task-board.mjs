@@ -1,22 +1,26 @@
 // Real-app check of the Task board on each dsh given: a fake model, a throwaway DSH_HOME, made-up projects (acme-web,
 // docs-site). Never the normal DSH_HOME, no real model. Headless.
 // 1. Left sidebar → Task board: a chat started in dsh's own composer is on the board (no tags), not in docs-site. New task
-//    (acme-web shown) opens dsh's own new chat in acme-web (the board goes); back on the board, the chat waits in Todo as
-//    "New task"; a click opens it, its first message goes from dsh's composer and the board comes back by itself. dsh names
+//    (acme-web shown) opens dsh's own new chat in acme-web (the board goes); back on the board, the chat waits at the top of
+//    Doing as "New task" (no Todo column); a click opens it, its first message goes from dsh's composer and the board comes back by itself. dsh names
 //    it ("Chess game"), the tags come from the chat's own model ("chess", "game"); Doing while it runs, then Done (green).
 // 2. Three tasks that wait for the user, never opened: an approval (a test gate asks before `--ask-me`), a question
 //    (ask_user_question) and a plan review (/plan, exit_plan_mode). Each card is orange in Review; Answer on the board
 //    answers it (Allow once, an option, Approve) and the chat goes on to Done.
-// 3. A click on a card opens its chat. Hide finished hides Done and stays after a reload.
+// 3. Done: × takes one card off the board (Undo shows for 8 s and puts it back), Clear all asks first (the count, All
+//    projects, the unread card that stays, "the chats stay in dsh"; Cancel does nothing) and then takes the read Done
+//    cards off it; Removed (N) lists them and Put back brings one back; no Hide finished. The chats stay in dsh's sidebar;
+//    the cards stay off after a reload and after a dsh restart (step 9); a removed chat that runs again comes back. A
+//    click on a card opens its chat.
 // 4. Fit: at 1180 px the four columns fit the page and a long title wraps inside its card; at 900 px a title of normal
 //    words breaks only between words (the time is on the meta row, not next to the title).
 // 6. The project list: the search box and "Active in the last 2 hours" (an old project hides; the filter stays after a reload).
 //    Only the list scrolls (the search box stays in view); a project with a waiting chat has dsh's orange dot.
-// 7. A narrow board (760 px): the header stays on one line (Hide finished shows only its icon); the New task hint wraps.
-//    Todo shows only while a New task waits.
+// 7. A narrow board (760 px): the header stays on one line; the New task hint wraps in its card at the top of Doing.
 // 8. Progress on hover: a running card (held) shows its box after a short hover: the time, the todo step, the running
 //    tool; Settings → Task board → Progress on hover → AI summary adds the chat model's summary; back to Fast.
 // 5. Settings → Composer Plus → Task board off: no sidebar row, no page; on again.
+// 9. A dsh restart (same DSH_HOME): the removed cards stay off the board; the chats are still in dsh.
 // PLAYWRIGHT=/path/to/playwright node test/browser-task-board.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/taskBoard.webp (English UI, made-up projects).
 import assert from 'node:assert/strict';
@@ -49,11 +53,14 @@ const P = {
   words: 'Find why the job stays pending',
   notes: 'Draft the release notes',
   work: 'Build the export page step by step',
+  green: 'Sketch the onboarding flow',
+  tail: 'Tidy the changelog',
 };
 // The Turkish title is like the owner's report ("Pending durumunda kalma sorunu"): words that a narrow card broke.
-const TITLES = { [P.chess]: 'Chess game', [P.approve]: 'Slow demo check', [P.question]: 'Theme color', [P.plan]: 'Export feature plan', [P.old]: 'FAQ page', [P.words]: 'Pending durumunda kalma sorunu', [P.notes]: 'Release notes', [P.work]: 'Export page' };
+const TITLES = { [P.chess]: 'Chess game', [P.approve]: 'Slow demo check', [P.question]: 'Theme color', [P.plan]: 'Export feature plan', [P.old]: 'FAQ page', [P.words]: 'Pending durumunda kalma sorunu', [P.notes]: 'Release notes', [P.work]: 'Export page', [P.green]: 'Onboarding flow', [P.tail]: 'Changelog tidy' };
 const tagCalls = [];
 let release = null; // holds the chess chat's answer while the test looks at Doing
+let greenGate = null; // holds the onboarding chat's answer until another chat is open (then it finishes unread: green)
 let workFlag = ''; // the work chat's bash waits for this file (its turn runs) while the test looks at its progress
 let summaryCalls = 0;
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
@@ -79,6 +86,7 @@ const fake = createServer((req, res) => {
     if (/You predict the next message|You complete the message/.test(all)) return say('');
     const results = msgs.filter((m) => m.role === 'tool').length;
     if (all.includes(P.chess)) { if (release) await release; return say('The chess game is in index.html.'); }
+    if (all.includes(P.green) && greenGate) { await greenGate; return say('Done.'); }
     if (all.includes(P.work)) {
       if (results === 0) return tool('todo_write', { todos: [{ content: 'Write the page', status: 'completed' }, { content: 'Run the tests', status: 'in_progress' }, { content: 'Ship it', status: 'pending' }] });
       if (results === 1) { send({ role: 'assistant', content: 'The page is written. Now the tests run.' }); return tool('bash', { command: `until [ -f '${workFlag}' ]; do sleep 0.2; done`, description: 'Run the page tests' }); }
@@ -157,12 +165,19 @@ try {
     // The old notebook board of an earlier version: it stays as it is.
     const oldBoard = '{"v":1,"next":2,"projects":[],"tasks":[{"id":1,"title":"Old task"}]}';
     await writeFile(join(home, 'storages/dsh-composer-plus/board.json'), oldBoard);
-    const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3207', '--no-open'], { cwd: acme, env: { ...process.env, HOME: home, DSH_HOME: home, DEMO_KEY: 'demo', npm_config_cache: join(tmpdir(), 'npm-cache'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
-    let log = ''; child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
+    // dsh in the throwaway DSH_HOME; step 9 starts it again with the same home (a restart).
+    let child; let log = '';
+    const startDsh = async () => {
+      log = '';
+      child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3207', '--no-open'], { cwd: acme, env: { ...process.env, HOME: home, DSH_HOME: home, DEMO_KEY: 'demo', npm_config_cache: join(tmpdir(), 'npm-cache'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
+      for (let i = 0; i < 200 && !log.match(/http:\/\/[^\s]*token=[^\s]*/); i++) { if (child.exitCode !== null) throw Error(`test dsh exited (${child.exitCode})`); await pause(250); }
+      return log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0];
+    };
+    const stopDsh = async () => { child.kill('SIGTERM'); await new Promise((r) => (child.exitCode !== null ? r() : child.once('exit', r))); };
     const errors = []; let context; let page;
     try {
-      for (let i = 0; i < 200 && !log.match(/http:\/\/[^\s]*token=[^\s]*/); i++) { if (child.exitCode !== null) throw Error(`test dsh exited (${child.exitCode})`); await pause(250); }
-      const url = log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0]; assert.ok(url, 'test server URL available');
+      const url = await startDsh(); assert.ok(url, 'test server URL available');
       context = await browser.newContext({ locale: 'en-US', viewport: { width: 1440, height: 860 }, deviceScaleFactor: 2, colorScheme: 'light' });
       await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.features') === null) localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false,"defaultWorkspace":false,"idleSwitch":false,"notifications":false}'); });
       page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
@@ -197,7 +212,8 @@ try {
       // 1. A prompt starts a chat; it is in Doing while it runs, then in Done with the green dot.
       await openBoard();
       await until(async () => (await titles('done')).includes('FAQ page'), async () => `done: ${await titles('done')}`, 20000);
-      assert.equal(await column('todo').count(), 0, 'no New task waits: no Todo column');
+      assert.equal(await column('todo').count(), 0, 'no Todo column');
+      assert.equal(await boardPage.locator('[data-cpb-hide-done]').count(), 0, 'no Hide finished');
       assert.equal(await card('FAQ page').locator('[data-cpb-tag]').count(), 0, 'a chat that the board did not start has no tags');
       await boardPage.locator('.cpb-nav', { hasText: 'docs-site' }).click();
       await boardPage.locator('h1', { hasText: 'docs-site' }).waitFor();
@@ -212,19 +228,22 @@ try {
       await input.waitFor({ timeout: 10000 });
       const chip = async () => page.evaluate(() => document.querySelector('[class*="_heroWorkspaceRow"] button[class*="_workspace"]')?.textContent?.trim() ?? '');
       await until(async () => /acme-web/.test(await chip()), async () => `new chat project: ${await chip()}`, 10000);
-      // Back to the board before a message: the new chat waits in Todo as "New task"; a click opens it again.
+      // Back to the board before a message: the new chat waits at the top of Doing as "New task"; a click opens it again.
       await openBoard();
-      await until(async () => (await titles('todo')).join() === 'New task', async () => `todo: ${await titles('todo')}`, 10000);
-      assert.match(await column('todo').locator('[data-cpb-when]').innerText(), /Write the first message/);
-      await column('todo').locator('[data-cpb-card]').click();
+      await until(async () => (await titles('doing'))[0] === 'New task', async () => `doing: ${await titles('doing')}`, 10000);
+      assert.equal(await column('todo').count(), 0, 'still no Todo column');
+      const draftCard = column('doing').locator('[data-cpb-card][data-cpb-state="draft"]');
+      assert.match(await draftCard.locator('[data-cpb-when]').innerText(), /Write the first message/);
+      assert.equal(await draftCard.locator('[data-cpb-dot]').count(), 0, 'no blue dot: it does not run');
+      await draftCard.click();
       await boardPage.waitFor({ state: 'detached', timeout: 10000 });
       await until(async () => /acme-web/.test(await chip()), 'the same new chat in acme-web', 10000);
       // The first message, from dsh's own composer: the board comes back by itself.
       await input.click(); await page.keyboard.type(P.chess, { delay: 5 }); await page.keyboard.press('Enter');
       await boardPage.waitFor({ timeout: 15000 });
-      console.log('  1c: New task opens dsh\'s new chat in acme-web; Todo shows it as "New task" until its first message; that message brings the board back');
-      await until(async () => (await titles('doing')).includes('Chess game'), async () => `doing: ${await titles('doing')} todo: ${await titles('todo')}`, 20000);
-      assert.equal(await column('todo').count(), 0, 'it left Todo, and the empty Todo column goes');
+      console.log('  1c: New task opens dsh\'s new chat in acme-web; Doing shows it first as "New task" until its first message; that message brings the board back');
+      await until(async () => (await titles('doing')).includes('Chess game'), async () => `doing: ${await titles('doing')}`, 20000);
+      assert.equal(await column('doing').locator('[data-cpb-state="draft"]').count(), 0, 'no New task card any more');
       await until(async () => (await card('Chess game').locator('[data-cpb-tag]').allInnerTexts()).join() === 'chess,game', 'the tags', 15000);
       assert.deepEqual(tagCalls.find((c) => c.prompt === P.chess)?.model, 'demo', 'the tags come from the chat\'s own model');
       assert.equal(await card('Chess game').locator('.cpb-preview').innerText(), P.chess, 'the prompt shows under the AI title');
@@ -237,7 +256,7 @@ try {
 
       // 2. Three waiting chats, never opened: each is orange in Review and is answered on the board.
       for (const p of [P.approve, P.question, P.plan]) await task(p === P.plan ? `/plan ${p}` : p);
-      await until(async () => (await titles('review')).length === 3, async () => `review: ${await titles('review')} doing: ${await titles('doing')} todo: ${await titles('todo')} done: ${await titles('done')}`, 40000);
+      await until(async () => (await titles('review')).length === 3, async () => `review: ${await titles('review')} doing: ${await titles('doing')} done: ${await titles('done')}`, 40000);
       for (const name of ['Slow demo check', 'Theme color', 'Export feature plan']) assert.equal(await card(name).getAttribute('data-cpb-state'), 'waiting', `${name} is orange`);
       // The project list shows dsh's orange dot on acme-web (its chats wait), none on docs-site.
       const projectRow = (name) => boardPage.locator('[data-cpb-projects] .cpb-nav', { hasText: name });
@@ -284,7 +303,7 @@ try {
       assert.ok(fit.cardOverflow <= 1 && fit.titleRight <= fit.cardRight + 0.5, `a long title stays in its card (${JSON.stringify(fit)})`);
       // A narrow window (the columns at their 140 px minimum): each word of a title stays whole on one line (the owner saw
       // "firması / na", "araştırm / ası").
-      // Three columns (no New task waits, so no Todo): 640 px puts them at their minimum.
+      // Three columns: 640 px puts them at their minimum.
       await page.setViewportSize({ width: 640, height: 820 }); await pause(400);
       const colWidth = await column('done').evaluate((el) => Math.round(el.getBoundingClientRect().width));
       assert.ok(colWidth <= 150, `the columns are at their minimum width (${colWidth}px)`);
@@ -353,42 +372,141 @@ try {
       await boardPage.locator('[data-cpb-recent]').click(); await until(async () => (await navs()).length === 3, 'filter off', 5000);
       console.log('  6: project search (DOCS → docs-site, Esc empties) and Active in the last 2 hours (docs-site hides, kept after a reload)');
 
-      // 7. A narrow board: the header is one line (Hide finished only its icon, its name as the label); a New task's hint
-      //    wraps in its card. Todo shows while the New task waits.
+      // 7. A narrow board: the header is one line; a New task's hint wraps in its card (the top of Doing).
       await boardPage.locator('[data-cpb-new]').click(); await boardPage.waitFor({ state: 'detached', timeout: 10000 });
       await input.waitFor({ timeout: 10000 }); await openBoard();
-      await until(async () => (await titles('todo')).join() === 'New task', async () => `todo: ${await titles('todo')}`, 10000);
+      await until(async () => (await titles('doing'))[0] === 'New task', async () => `doing: ${await titles('doing')}`, 10000);
       for (const width of [900, 760]) {
         await page.setViewportSize({ width, height: 820 }); await pause(400);
         const head = await boardPage.evaluate((el) => {
           const items = [...el.querySelector('.cpb-head').children].filter((x) => getComputedStyle(x).display !== 'none' && x.getBoundingClientRect().width > 0);
           const tops = items.map((x) => Math.round(x.getBoundingClientRect().top + x.getBoundingClientRect().height / 2));
-          const hint = el.querySelector('[data-cpb-column="todo"] [data-cpb-when]'); const card = hint.closest('[data-cpb-card]');
-          const toggle = el.querySelector('[data-cpb-hide-done]');
+          const hint = el.querySelector('[data-cpb-column="doing"] [data-cpb-state="draft"] [data-cpb-when]'); const card = hint.closest('[data-cpb-card]');
+          const clear = el.querySelector('[data-cpb-clear-all]'); const head = clear?.closest('.cpb-colhead');
           return { spread: Math.max(...tops) - Math.min(...tops), headH: el.querySelector('.cpb-head').getBoundingClientRect().height,
             hintCut: hint.scrollWidth - hint.clientWidth, hintRight: hint.getBoundingClientRect().right - card.getBoundingClientRect().right,
-            toggleText: toggle.querySelector('span')?.getBoundingClientRect().width ?? 0, label: toggle.getAttribute('aria-label') };
+            clearOut: clear ? clear.getBoundingClientRect().right - head.getBoundingClientRect().right : 0, clearCut: clear ? clear.scrollWidth - clear.clientWidth : 0 };
         });
         assert.ok(head.spread <= 4 && head.headH <= 66, `at ${width} px the header is one line (${JSON.stringify(head)})`);
         assert.ok(head.hintCut <= 1 && head.hintRight <= 0.5, `at ${width} px the New task hint is not cut (${JSON.stringify(head)})`);
-        assert.equal(head.label, 'Hide finished', 'the toggle keeps its name');
-        if (width === 760) assert.equal(head.toggleText, 0, 'a narrow board: Hide finished shows only its icon');
+        assert.ok(head.clearOut <= 0.5 && head.clearCut <= 1, `at ${width} px Clear all stays whole in the Done head (${JSON.stringify(head)})`);
+        const heads = await boardPage.evaluate((el) => [...el.querySelectorAll('.cpb-colhead')].map((x) => Math.round(x.getBoundingClientRect().height)));
+        assert.ok(Math.max(...heads) - Math.min(...heads) <= 1, `the Done head with Clear all is as tall as the others (${heads})`);
       }
       await page.setViewportSize({ width: 1440, height: 860 }); await pause(300);
-      // Its first message: the board comes back and Todo goes again.
-      await column('todo').locator('[data-cpb-card]').click(); await boardPage.waitFor({ state: 'detached', timeout: 10000 });
+      // Its first message: the board comes back and the New task card goes.
+      await column('doing').locator('[data-cpb-state="draft"]').click(); await boardPage.waitFor({ state: 'detached', timeout: 10000 });
       await input.click(); await page.keyboard.insertText(P.notes); await pause(200); await page.keyboard.press('Enter');
       await boardPage.locator('[data-cpb-columns]').waitFor({ timeout: 15000 });
-      await until(async () => (await column('todo').count()) === 0, 'Todo goes after the first message', 10000);
-      console.log('  7: Todo shows while a New task waits; at 900 and 760 px the header is one line and the hint is not cut');
+      await until(async () => (await column('doing').locator('[data-cpb-state="draft"]').count()) === 0, 'the New task card goes after the first message', 10000);
+      await until(async () => (await titles('done')).includes('Release notes'), async () => `done: ${await titles('done')}`, 20000);
+      console.log('  7: the New task card is the top of Doing; at 900 and 760 px the header is one line, the hint is not cut and Clear all fits');
 
-      // 3. Hide finished: Done goes, and stays hidden after a reload. A click on a card opens its chat.
-      await boardPage.locator('[data-cpb-hide-done]').click();
-      await column('done').waitFor({ state: 'detached' });
+      // 3. Done: × on one card, then Clear all. No chat is deleted; the cards stay off after a reload; a removed chat that
+      //    runs again comes back.
+      const sidebarChat = (title) => page.locator('[data-row-key^="session:"]', { hasText: title });
+      /** A chat's row in dsh's sidebar (it can be under "Show N more sessions"). */
+      const sidebarRow = async (title) => {
+        const row = sidebarChat(title).first();
+        for (let i = 0; i < 5 && !(await row.isVisible().catch(() => false)); i++) {
+          const more = page.getByRole('button', { name: /^Show \d+ more/ }).first();
+          if (!(await more.isVisible().catch(() => false))) break;
+          await more.click(); await pause(300);
+        }
+        await row.waitFor({ timeout: 10000 });
+        return row;
+      };
+      const doneBefore = await titles('done');
+      assert.ok(doneBefore.includes('FAQ page') && doneBefore.length >= 5, `finished cards (${doneBefore})`);
+      assert.equal(await column('doing').locator('[data-cpb-hide]').count() + await column('review').locator('[data-cpb-hide]').count(), 0, 'only Done cards have the ×');
+      assert.equal(await card('FAQ page').locator('[data-cpb-hide]').getAttribute('aria-label'), 'Remove from the board: FAQ page');
+      // × and Undo: the card goes, Undo puts it back.
+      const undoButton = boardPage.locator('[data-cpb-undo]');
+      await card('FAQ page').locator('[data-cpb-hide]').click();
+      await until(async () => !(await titles('done')).includes('FAQ page'), 'the × takes the card off', 5000);
+      assert.equal(await boardPage.count(), 1, 'the × does not open the chat');
+      assert.match(await boardPage.locator('[data-cpb-undo-bar]').innerText(), /1 removed from the board\. The chats stay in dsh\./);
+      await undoButton.click();
+      await until(async () => (await titles('done')).includes('FAQ page'), 'Undo puts the card back', 5000);
+      await until(async () => (await undoButton.count()) === 0, 'Undo goes after it', 3000);
+      assert.equal(Object.keys(JSON.parse(await readFile(join(home, 'storages/dsh-composer-plus/board-chats.json'), 'utf8')).hidden).length, 0, 'the Host list is empty again');
+      await card('FAQ page').locator('[data-cpb-hide]').click();
+      await until(async () => !(await titles('done')).includes('FAQ page'), 'the × takes the card off', 5000);
+      assert.deepEqual((await titles('done')).sort(), doneBefore.filter((x) => x !== 'FAQ page').sort(), 'only that card');
+      // Undo goes by itself after 8 s.
+      await undoButton.waitFor({ state: 'detached', timeout: 12000 });
+      let record = JSON.parse(await readFile(join(home, 'storages/dsh-composer-plus/board-chats.json'), 'utf8'));
+      assert.equal(Object.keys(record.hidden).length, 1, 'the Host keeps it in board-chats.json');
       await page.reload(); await input.waitFor({ timeout: 20000 }); await openBoard();
-      assert.equal(await column('done').count(), 0, 'Hide finished stays after a reload');
-      assert.equal(await boardPage.locator('[data-cpb-hide-done]').getAttribute('aria-pressed'), 'true');
-      await boardPage.locator('[data-cpb-hide-done]').click(); await column('done').waitFor();
+      assert.equal((await titles('done')).includes('FAQ page'), false, 'still off after a reload');
+      // Clear all asks first; Cancel changes nothing.
+      const clear = column('done').locator('[data-cpb-clear-all]');
+      assert.equal(await clear.innerText(), 'Clear all'); assert.equal(await clear.getAttribute('title'), 'Take the finished cards in Done off the board. It asks first; unread cards stay. The chats stay in dsh.');
+      const doneAtClear = await titles('done');
+      // dsh keeps its green dots only in its window: after the reloads, count the unread cards now.
+      const unreadNow = await column('done').locator('[data-cpb-card][data-cpb-state="unread"]').count();
+      const readNow = doneAtClear.length - unreadNow;
+      const dialog = page.getByRole('dialog', { name: 'Clear all?' });
+      await clear.click(); await dialog.waitFor({ timeout: 5000 });
+      // The board shows acme-web (the project picked in step 1, kept after a reload): the dialog names it.
+      assert.equal(await boardPage.locator('h1').innerText(), 'acme-web');
+      assert.match(await dialog.innerText(), new RegExp(`${readNow} finished card\\(s\\) of acme-web leave the board`), 'the count and the project');
+      assert.match(await dialog.innerText(), /No chat is deleted: the chats stay in dsh\. Undo or Removed brings the cards back\./);
+      if (unreadNow > 0) assert.match(await dialog.innerText(), new RegExp(`${unreadNow} unread card\\(s\\) stay on the board`));
+      await dialog.locator('[data-cpb-clear-cancel]').click(); await dialog.waitFor({ state: 'detached', timeout: 5000 });
+      assert.deepEqual((await titles('done')).sort(), doneAtClear.sort(), 'Cancel: nothing goes');
+      // A green card: the onboarding chat finishes after another chat (the changelog one) became dsh's open chat.
+      let openGreen; greenGate = new Promise((r) => { openGreen = r; });
+      await task(P.green); await task(P.tail);
+      await until(async () => (await titles('done')).includes('Changelog tidy'), async () => `done: ${await titles('done')}`, 20000);
+      openGreen(); greenGate = null;
+      await until(async () => (await column('done').locator('[data-cpb-card][data-cpb-state="unread"]').count()) >= 1, 'a green card in Done', 20000);
+      const greens = await column('done').locator('[data-cpb-card][data-cpb-state="unread"] [data-cpb-title]').allInnerTexts();
+      await clear.click(); await dialog.waitFor({ timeout: 5000 });
+      assert.match(await dialog.innerText(), new RegExp(`${greens.length} unread card\\(s\\) stay on the board`), 'the unread card that stays');
+      if (process.env.SHOT) { await pause(800); await page.screenshot({ path: join(repo, 'build', 'board-clear-dialog.png') }); console.log('  shot: build/board-clear-dialog.png'); }
+      await dialog.locator('[data-cpb-clear-confirm]').click(); await dialog.waitFor({ state: 'detached', timeout: 5000 });
+      await until(async () => (await titles('done')).join() === greens.join(), async () => `done after Clear all: ${await titles('done')} (green: ${greens})`, 5000);
+      assert.ok((await titles('review')).length === 0 && (await titles('doing')).length === 0, 'nothing else changed');
+      record = JSON.parse(await readFile(join(home, 'storages/dsh-composer-plus/board-chats.json'), 'utf8'));
+      const removedCount = Object.keys(record.hidden).length;
+      assert.equal(removedCount, doneBefore.length + 2 - greens.length, 'every read Done chat is on the Host\'s list (and FAQ page from the ×)');
+      // Removed (N): Put back brings one card back.
+      const removedButton = column('done').locator('[data-cpb-removed]');
+      assert.equal(await removedButton.innerText(), `Removed (${removedCount})`);
+      await removedButton.click();
+      const removedPanel = page.locator('[data-cpb-panel="removed"]'); await removedPanel.waitFor();
+      assert.match(await removedPanel.innerText(), /These chats stay in dsh\. Put back shows a card in Done again\./);
+      assert.equal(await removedPanel.locator('[data-cpb-removed-card]').count(), removedCount);
+      await removedPanel.locator('[data-cpb-removed-card]', { hasText: 'Slow demo check' }).locator('[data-cpb-unhide]').click();
+      await until(async () => (await titles('done')).includes('Slow demo check'), 'Put back shows the card in Done', 5000);
+      await until(async () => (await removedPanel.locator('[data-cpb-removed-card]').count()) === removedCount - 1, 'and it leaves Removed', 5000);
+      if (process.env.SHOT) { await page.screenshot({ path: join(repo, 'build', 'board-removed.png') }); console.log('  shot: build/board-removed.png'); }
+      await page.keyboard.press('Escape'); await removedPanel.waitFor({ state: 'detached', timeout: 3000 });
+      // Clear all again: the put back card goes; the green ones stay.
+      await clear.click(); await dialog.waitFor({ timeout: 5000 }); await dialog.locator('[data-cpb-clear-confirm]').click(); await dialog.waitFor({ state: 'detached' });
+      await until(async () => !(await titles('done')).includes('Slow demo check'), 'Clear all again', 5000);
+      const listed = await page.evaluate(async () => (await (await fetch('/api/composer-plus.board-chats')).json()).hidden.length);
+      assert.equal(listed, removedCount);
+      // Mark the green card read (open it), so the next steps start with an empty Done as before.
+      for (const g of greens) { await card(g).click(); await boardPage.waitFor({ state: 'detached', timeout: 10000 }); await openBoard(); }
+      await until(async () => (await column('done').locator('[data-cpb-card][data-cpb-state="unread"]').count()) === 0, 'no green card', 10000);
+      await clear.click(); await dialog.waitFor({ timeout: 5000 }); await dialog.locator('[data-cpb-clear-confirm]').click(); await dialog.waitFor({ state: 'detached' });
+      await until(async () => (await titles('done')).length === 0, async () => `done after the last Clear all: ${await titles('done')}`, 5000);
+      assert.equal(await clear.count(), 0, 'an empty Done has no Clear all');
+      await undoButton.waitFor({ state: 'detached', timeout: 12000 });
+      // No chat is deleted: dsh's sidebar still lists them; one opens and runs again, and its card comes back.
+      await boardPage.locator('.cpb-nav', { hasText: 'acme-web' }).click();
+      await sidebarRow('Theme color');
+      const faq = await sidebarRow('FAQ page');
+      await faq.click(); await boardPage.waitFor({ state: 'detached', timeout: 10000 });
+      await page.getByText('Done.', { exact: true }).first().waitFor({ timeout: 10000 });
+      await input.click(); await page.keyboard.insertText('And add a contact link'); await pause(200); await page.keyboard.press('Enter');
+      await page.getByText('Done.', { exact: true }).nth(1).waitFor({ timeout: 30000 });
+      await openBoard();
+      await until(async () => (await titles('done')).includes('FAQ page'), async () => `done: ${await titles('done')}`, 15000);
+      assert.equal((await titles('done')).length, 1, 'only the chat that ran again comes back');
+      assert.equal(await page.evaluate(async () => (await (await fetch('/api/composer-plus.board-chats')).json()).hidden.length), removedCount + greens.length - 1, 'it left the Host list');
       if (process.env.SHOT) {
         // The Settings picture: a running card (held), an orange card, finished cards; no panel.
         let openShot; release = new Promise((res) => { openShot = res; });
@@ -399,12 +517,12 @@ try {
         // The picture is taken in step 8 (with the progress box); this sets up its Review card.
         openShot(); release = null;
       }
-      await card('Chess game').first().click();
+      await card('FAQ page').first().click();
       await boardPage.waitFor({ state: 'detached', timeout: 10000 });
-      // The chat opens. Its sidebar row can be under "Show N more sessions" (more chats now), so check the chat header.
+      // The chat opens. Its sidebar row can be under "Show N more sessions" (more chats now), so check the chat text.
       await page.locator('[data-composer-input]').waitFor({ timeout: 10000 });
-      await page.getByText('The chess game is in index.html.', { exact: true }).first().waitFor({ timeout: 10000 });
-      console.log('  3: Hide finished hides Done and stays after a reload; a click on a card opens its chat');
+      await page.getByText('And add a contact link', { exact: true }).first().waitFor({ timeout: 10000 });
+      console.log('  3: × takes one Done card off and Undo puts it back (8 s); Clear all asks (count, project, unread stays; Cancel does nothing), then takes the read cards; Removed → Put back; kept on the Host after a reload; chats stay in dsh; one that runs again comes back; a click opens a chat');
 
       // 5. Switch off and on.
       const settings = async () => {
@@ -445,7 +563,7 @@ try {
       await page.mouse.move(2, 2);
       // Keyboard focus opens it at once.
       await workCard.focus(); await box.waitFor({ timeout: 3000 }); await page.mouse.move(2, 2);
-      await boardPage.locator('[data-cpb-hide-done]').focus(); await box.waitFor({ state: 'detached', timeout: 3000 });
+      await boardPage.locator('[data-cpb-new]').focus(); await box.waitFor({ state: 'detached', timeout: 3000 });
       // Settings: AI summary.
       await settings();
       const modeButton = page.locator('[data-composer-plus-board-progress] button');
@@ -467,7 +585,7 @@ try {
         await until(async () => /Building the export page/.test(await box.innerText().catch(() => '')), 'the summary in the picture', 10000);
         await shot(page, home, 'taskBoard', boardPage);
         assert.equal(await box.count(), 1, 'the picture has the box');
-        await boardPage.locator('[data-cpb-hide-done]').focus(); await box.waitFor({ state: 'detached', timeout: 3000 });
+        await boardPage.locator('[data-cpb-new]').focus(); await box.waitFor({ state: 'detached', timeout: 3000 });
       }
       await settings(); await modeButton.click(); await page.getByRole('menuitem', { name: 'Fast (no AI)', exact: true }).click();
       await until(async () => (await modeButton.innerText()) === 'Fast (no AI)', 'mode fast', 5000);
@@ -491,6 +609,26 @@ try {
       const ours = failedUrls.filter((u) => /composer-plus\.board/.test(u));
       assert.deepEqual(ours, [], `no failed request of the board: ${failedUrls.join(', ')}`);
       console.log('  5: switch off removes the row and the page (the Host keeps it); on brings them back; board.json untouched');
+
+      // 9. A dsh restart: the cards that were taken off stay off; the chats are still in dsh.
+      await openBoard();
+      const doneAtStop = await titles('done');
+      const hiddenAtStop = await page.evaluate(async () => (await (await fetch('/api/composer-plus.board-chats')).json()).hidden);
+      assert.ok(hiddenAtStop.length >= 5, `chats off the board before the restart (${hiddenAtStop.length})`);
+      await stopDsh();
+      const again = await startDsh(); assert.ok(again, 'dsh started again');
+      await page.goto(again); await input.waitFor({ timeout: 20000 }); await openBoard();
+      await until(async () => (await titles('done')).length > 0, 'the board after the restart', 15000);
+      const afterRestart = await page.evaluate(async () => (await (await fetch('/api/composer-plus.board-chats')).json()).hidden);
+      assert.deepEqual(afterRestart.sort(), hiddenAtStop.sort(), 'the Host read its list again');
+      // (A chat that waited for an answer before the stop can be in Done now: dsh does not keep its open question.)
+      const onBoard = await boardPage.locator('[data-cpb-card]').evaluateAll((els) => els.map((e) => e.getAttribute('data-cpb-card')));
+      assert.deepEqual(onBoard.filter((id) => afterRestart.includes(id)), [], 'after a dsh restart, no removed card is on the board');
+      const doneNow = await titles('done');
+      assert.ok(doneAtStop.every((x) => doneNow.includes(x)), `the cards that were in Done stay (${doneAtStop} → ${doneNow})`);
+      // A removed chat is still in dsh's sidebar.
+      await sidebarRow('Slow demo check');
+      console.log('  9: after a dsh restart the removed cards stay off the board');
       console.log(`PASS ${bin}`);
     } catch (error) {
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});
@@ -499,7 +637,7 @@ try {
     } finally {
       release = null;
       await context?.close().catch(() => {});
-      child.kill('SIGTERM'); await new Promise((r) => (child.exitCode !== null ? r() : child.once('exit', r)));
+      if (child) await stopDsh();
       if (process.exitCode !== 1) await rm(home, { recursive: true, force: true });
     }
   }

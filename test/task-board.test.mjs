@@ -2,8 +2,9 @@
 // chat goes on the record (board-chats.json: merged, owner-only, the newest 2,000, a broken file kept aside). Its first
 // message of its own (the user's, after a fork's inherited events, not one that a rollback withdrew) becomes the card's
 // prompt, once, also when it came before the POST; one call to the chat's own model (its selection; dsh's default without
-// one) writes the tags, cleaned, and a bad answer adds none. The switch: off → 409; the old board.json is never read.
-// Unload stops a tag call.
+// one) writes the tags, cleaned, and a bad answer adds none. × and Clear all hide finished chats in the same file (merged,
+// the newest 5,000, kept after a restart, a running chat not hidden, a chat that runs again comes back; no chat changes).
+// The switch: off → 409; the old board.json is never read. Unload stops a tag call.
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -92,6 +93,24 @@ try {
   const mixed = boardChatsStore(join(root, 'broken', 'board-chats.json'));
   await mixed.ready;
   assert.deepEqual(mixed.list(), { good: { prompt: 'p', tags: ['ok'], at: 5 } }, 'malformed entries left out');
+  assert.deepEqual(mixed.hidden(), {}, 'a file of an older version has no hidden chats');
+  // The hidden chats (× and Clear all): in the same file, merged, the newest 5,000, a change that changes nothing writes nothing.
+  await Promise.all([store.change((c, h) => { h.a = 1; }), store.change((c, h) => { h.b = 2; h.c = 2; })]);
+  assert.deepEqual(Object.keys(store.hidden()).sort(), ['a', 'b', 'c'], 'two hides at the same time: both stay');
+  assert.deepEqual(Object.keys(store.list()).sort(), ['s1', 's2'], 'a hide does not drop a chat of the record');
+  await store.change((c) => { c.s4 = { prompt: 'four', tags: [], at: 4 }; });
+  assert.deepEqual(Object.keys(store.hidden()).sort(), ['a', 'b', 'c'], 'and a start does not drop a hidden chat');
+  assert.deepEqual(JSON.parse(await readFile(file, 'utf8')).hidden, { a: 1, b: 2, c: 2 });
+  const revSame = store.rev();
+  await store.change(() => false);
+  assert.equal(store.rev(), revSame, 'a change that returns false writes nothing');
+  await big.change((c, h) => { for (let i = 0; i < BOARD_LIMITS.hidden + 3; i++) h[`h${i}`] = i; });
+  assert.equal(Object.keys(big.hidden()).length, BOARD_LIMITS.hidden, 'at most 5,000 hidden'); assert.equal(big.hidden().h0, undefined, 'the oldest go');
+  const reread = boardChatsStore(file); await reread.ready;
+  assert.deepEqual(reread.hidden(), { a: 1, b: 2, c: 2 }, 'a new start reads the hidden chats');
+  await writeFile(join(root, 'broken', 'board-chats.json'), JSON.stringify({ chats: {}, hidden: { ok: 3, bad: 'x', __proto__: 1, [`${'x'.repeat(129)}`]: 1 } }));
+  const half = boardChatsStore(join(root, 'broken', 'board-chats.json')); await half.ready;
+  assert.deepEqual(half.hidden(), { ok: 3 }, 'malformed hidden ids left out');
 
   // installBoard: the switch, the routes, the tags from the chat's model, off, unload.
   const home = join(root, 'home');
@@ -118,10 +137,10 @@ try {
   };
   let selection = { provider: 'demo', model: 'chat-model' };
   // Fake dsh chats: their events (snapshotEvents), fork offset and the session/event handler of the Host.
-  const chats = new Map(); let onEvent;
-  const chat = (id, events = [], inherited = 0) => { const session = { id, inheritedEventCount: inherited, snapshotEvents: () => chats.get(id).events }; chats.set(id, { events, session, agent: { id, session } }); return session; };
+  const chats = new Map(); let onEvent; let onStatus;
+  const chat = (id, events = [], inherited = 0) => { const session = { id, inheritedEventCount: inherited, snapshotEvents: () => chats.get(id).events }; chats.set(id, { events, session, agent: { id, session, status: 'idle' } }); return session; };
   const ctx = {
-    on: (name, fn) => { if (name === 'session/event') onEvent = fn; }, effect: (f) => { effects.push(f()); },
+    on: (name, fn) => { if (name === 'session/event') onEvent = fn; if (name === 'agent/status') onStatus = fn; }, effect: (f) => { effects.push(f()); },
     logger: { warn: (m) => warnings.push(m) },
     get: (name) => (name === 'llm' ? llm : name === 'agents' ? { get: (id) => chats.get(id)?.agent } : name === 'agentDefaultModel' ? { currentSelection: () => ({ provider: 'demo', model: 'fallback' }) } : undefined),
     connection: { fetch: { register: (x) => routes.set(x.path, x) } },
@@ -179,6 +198,45 @@ try {
   assert.equal(llmCalls.length, 3, 'one tag call for a chat named twice at the same time');
   for (const bad of [{ project: 'w1', prompt: 'x' }, { sessionId: 3 }, { sessionId: '' }, { sessionId: 'n1', prompt: 'x' }, { sessionId: '__proto__' }, []]) assert.equal((await call(BOARD_CHATS_PATH, bad)).status, 400, JSON.stringify(bad));
   assert.equal((await call(BOARD_CHATS_PATH, { sessionId: 'nope' })).status, 404, 'not a dsh chat');
+  // × and Clear all: finished chats go off the board; the chats stay in dsh; a chat that runs again comes back.
+  assert.deepEqual((await call(BOARD_CHATS_PATH)).body.hidden, [], 'nothing hidden yet');
+  chat('d1'); chat('d2'); chat('d3'); chat('busy'); chats.get('busy').agent.status = 'running';
+  const before0 = [...chats.keys()];
+  const [h1, h2] = await Promise.all([call(BOARD_CHATS_PATH, { hide: ['d1'] }), call(BOARD_CHATS_PATH, { hide: ['d2', 'd3', 'gone-from-dsh'] })]);
+  assert.equal(h1.status, 200); assert.equal(h2.status, 200);
+  assert.deepEqual(h2.body.hidden.sort(), ['d1', 'd2', 'd3', 'gone-from-dsh'], 'a × and a Clear all at the same time: both stay (merged on the Host)');
+  assert.deepEqual((await call(BOARD_CHATS_PATH)).body.hidden.sort(), ['d1', 'd2', 'd3', 'gone-from-dsh'], 'GET gives the list');
+  assert.deepEqual([...chats.keys()], before0, 'no chat changes in dsh'); assert.equal(board.store.list().n1.prompt, 'html css js ile satranç oyunu yap', 'the record of the chats stays');
+  assert.deepEqual((await call(BOARD_CHATS_PATH, { hide: ['busy'] })).body.hidden.includes('busy'), false, 'a chat that runs now is not hidden');
+  assert.ok(JSON.parse(await readFile(join(dir, 'board-chats.json'), 'utf8')).hidden.d2 > 0, 'kept in the owner-only file');
+  for (const bad of [{ hide: [] }, { hide: 'd1' }, { hide: [3] }, { hide: [''] }, { hide: ['__proto__'] }, { hide: ['x'.repeat(129)] }, { hide: Array.from({ length: BOARD_LIMITS.hidden + 1 }, (_, i) => `z${i}`) }, { hide: ['d1'], sessionId: 'd1' }]) {
+    assert.equal((await call(BOARD_CHATS_PATH, bad)).status, 400, JSON.stringify(bad).slice(0, 60));
+  }
+  const revHidden = board.store.rev();
+  onStatus({ agent: chats.get('d2').agent, status: 'idle' }); await pause(10);
+  assert.equal(board.store.rev(), revHidden, 'idle: nothing changes');
+  onStatus({ agent: chats.get('n1').agent, status: 'running' }); await pause(10);
+  assert.equal(board.store.rev(), revHidden, 'a chat that was not hidden runs: nothing is written');
+  onStatus({ agent: { id: 'd3', session: { header: { origin: 'subagent' } } }, status: 'running' }); await pause(10);
+  assert.ok(board.store.hidden().d3, 'a subagent with the same id does not count');
+  onStatus({ agent: chats.get('d2').agent, status: 'running' }); await pause(10);
+  assert.deepEqual(Object.keys(board.store.hidden()).sort(), ['d1', 'd3', 'gone-from-dsh'], 'a hidden chat that runs again comes back');
+  // Undo and Put back: {unhide}; an id that is not on the list changes nothing (no write); a hide and an unhide at the same
+  // time are merged one after the other.
+  const [u1, h3] = await Promise.all([call(BOARD_CHATS_PATH, { unhide: ['d1'] }), call(BOARD_CHATS_PATH, { hide: ['d2'] })]);
+  assert.equal(u1.status, 200); assert.equal(h3.status, 200);
+  assert.deepEqual(Object.keys(board.store.hidden()).sort(), ['d2', 'd3', 'gone-from-dsh'], 'a put back and a hide at the same time: both apply');
+  assert.deepEqual((await call(BOARD_CHATS_PATH)).body.hidden.sort(), ['d2', 'd3', 'gone-from-dsh']);
+  const revUnhide = board.store.rev();
+  assert.deepEqual((await call(BOARD_CHATS_PATH, { unhide: ['never', 'd1'] })).body.hidden.sort(), ['d2', 'd3', 'gone-from-dsh'], 'ids that are not hidden: nothing changes');
+  assert.equal(board.store.rev(), revUnhide, 'and nothing is written');
+  assert.equal(JSON.parse(await readFile(join(dir, 'board-chats.json'), 'utf8')).hidden.d1, undefined, 'the file has it no more');
+  assert.deepEqual([...chats.keys()], before0, 'a put back changes no chat in dsh either');
+  assert.equal((await call(BOARD_CHATS_PATH, { unhide: ['toString'] })).status, 200, 'an id like an Object method is a plain id');
+  assert.equal(board.store.rev(), revUnhide, 'and it is not on the list');
+  for (const bad of [{ unhide: [] }, { unhide: 'd2' }, { unhide: [3] }, { unhide: ['__proto__'] }, { unhide: ['d2'], hide: ['d3'] }, { unhide: Array.from({ length: BOARD_LIMITS.hidden + 1 }, (_, i) => `z${i}`) }]) {
+    assert.equal((await call(BOARD_CHATS_PATH, bad)).status, 400, JSON.stringify(bad).slice(0, 60));
+  }
   // Progress on hover: fast by default (the log only, no model call); AI summary as a setting.
   const P = BOARD_PROGRESS_PATH;
   assert.deepEqual((await call(P)).body, { mode: 'fast' }, 'fast (no AI) by default');
@@ -262,6 +320,7 @@ try {
   const again = installBoard({ ...ctx, connection: { fetch: { register: () => {} } } }, home);
   await again.ready; await again.store.ready;
   assert.deepEqual(again.store.list().n1.tags, ['chess', 'game']);
+  assert.deepEqual(Object.keys(again.store.hidden()).sort(), ['d2', 'd3', 'gone-from-dsh'], 'the hidden chats stay hidden after a restart (the put back one is not)');
   assert.equal(again.isOn(), true);
   console.log('task board: host ok');
 } finally { await rm(root, { recursive: true, force: true }); }

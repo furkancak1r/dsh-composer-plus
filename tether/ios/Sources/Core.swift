@@ -3228,7 +3228,7 @@ func boardProgressLine(_ o: J) -> String? {
     return nil
 }
 
-/// The Mac's `{rev, chats: {id: {prompt, tags, at}}}`.
+/// The Mac's `{rev, chats: {id: {prompt, tags, at}}, hidden: [id]}`.
 func boardMeta(_ o: J) -> [String: BoardMeta] {
     var out: [String: BoardMeta] = [:]
     for (id, v) in o["chats"] as? J ?? [:] {
@@ -3240,9 +3240,11 @@ func boardMeta(_ o: J) -> [String: BoardMeta] {
 /// The board from the phone's own lists, with the desktop board's rules: a chat that waits for you (a prompt of it is
 /// open) is in Review, a running chat (or one whose subagent runs) in Doing, every other chat in Done (green while it is
 /// unread). Archived and subagent chats are left out; a blank chat (no message yet) shows only when it is `task`, the new
-/// task, in Todo (the Todo column shows only then). `project` is a workspace id or "all"; `hideDone` hides Done.
+/// task, as the first card of Doing. `hidden`: finished chats that the user took off the board (swipe and Clear all); they
+/// are left out of Done only (they are in `removed`, newest first), so a hidden chat that runs or waits again shows.
+/// `project` is a workspace id or "all".
 func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<String>, waiting: Set<String>, finished: Set<String>,
-                  meta: [String: BoardMeta], task: String? = nil, project: String, hideDone: Bool, now: Date = Date()) -> (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
+                  meta: [String: BoardMeta], task: String? = nil, hidden: Set<String> = [], project: String, now: Date = Date()) -> (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])], removed: [BoardCard]) {
     let trim = { (p: String) -> String in p.count > 1 && p.hasSuffix("/") ? String(p.dropLast()) : p }
     let byPath = Dictionary(workspaces.map { (trim($0.path), $0) }, uniquingKeysWith: { a, _ in a })
     var owner: [String: Workspace] = [:]
@@ -3257,23 +3259,32 @@ func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<Strin
     let projects = workspaces.filter { owner[$0.id]?.id == $0.id }.map { BoardProject(id: $0.id, name: $0.title, path: $0.path, recent: recent.contains($0.id), waiting: waits.contains($0.id)) }
         .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
     let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
-    var columns: [String: [BoardCard]] = ["todo": [], "doing": [], "review": [], "done": []]
+    var columns: [String: [BoardCard]] = ["doing": [], "review": [], "done": []]
+    var draft: BoardCard?
+    var removed: [BoardCard] = []
     for s in sessions where s.parent == nil && !archived.contains(s.id) && (!s.blank || s.id == task) {
         let p = projectOf[s.id]
         if project != "all", p != project { continue }
         if s.blank {
-            columns["todo", default: []].append(BoardCard(id: s.id, title: String(localized: "New task"), prompt: "", tags: [], project: p.flatMap { names[$0] }, updated: s.updated, state: "draft"))
+            draft = BoardCard(id: s.id, title: String(localized: "New task"), prompt: "", tags: [], project: p.flatMap { names[$0] }, updated: s.updated, state: "draft")
             continue
         }
         let state = waiting.contains(s.id) ? "waiting" : isRunning(s, sessions) ? "running" : finished.contains(s.id) ? "unread" : "read"
         let m = meta[s.id]
         let card = BoardCard(id: s.id, title: s.title, prompt: m?.prompt ?? "", tags: m?.tags ?? [], project: p.flatMap { names[$0] }, updated: s.updated, state: state)
+        if state != "waiting", state != "running", hidden.contains(s.id) { removed.append(card); continue }
         columns[state == "waiting" ? "review" : state == "running" ? "doing" : "done", default: []].append(card)
     }
-    // Todo shows only while the new task waits for its first message, as on the Mac.
-    let order = ["todo", "doing", "review", "done"].filter { ($0 != "todo" || !(columns["todo"] ?? []).isEmpty) && ($0 != "done" || !hideDone) }
-    return (projects, order.map { st in (st, (columns[st] ?? []).sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }) })
+    let newest = { (a: BoardCard, b: BoardCard) in (a.updated ?? .distantPast) > (b.updated ?? .distantPast) }
+    // No Todo column, as on the Mac: the new task waits for its first message as the first card of Doing.
+    return (projects, ["doing", "review", "done"].map { st in
+        let cards = (columns[st] ?? []).sorted(by: newest)
+        return (st, st == "doing" ? (draft.map { [$0] } ?? []) + cards : cards)
+    }, removed.sorted(by: newest))
 }
+
+/// Clear all takes only the read cards of Done: an unread (green) card stays, its answer is not seen yet.
+func boardClearIds(_ done: [BoardCard]) -> [String] { done.filter { $0.state == "read" }.map(\.id) }
 
 /// The column that the board opens on: Review when a chat waits for you, else Doing; a shown column stays.
 func boardStartColumn(_ columns: [(status: String, cards: [BoardCard])], current: String? = nil) -> String {
@@ -3293,10 +3304,24 @@ func boardProjectOf(_ session: String, workspaces: [Workspace]) -> String {
     return w.id
 }
 
-/// Task board on the phone: the Mac's record of the board's chats (the tags). The columns come from the phone's own chat
-/// list (`boardColumns`); New task is `Client.boardNewTask`.
+/// Task board on the phone: the Mac's record of the board's chats (the tags) and the chats taken off the board. The columns
+/// come from the phone's own chat list (`boardColumns`); New task is `Client.boardNewTask`.
 @MainActor final class TaskBoard: ObservableObject {
     @Published private(set) var meta: [String: BoardMeta] = [:]
+    /// The Mac's list of chats taken off the board (swipe and Clear all); nil from an older Mac, which has neither.
+    @Published private(set) var hidden: Set<String>?
+    /// The ids of the hide or put back that runs now: they move at once. One change of the list at a time.
+    @Published private(set) var hiding: Set<String>?
+    @Published private(set) var unhiding: Set<String>?
+    /// The reason of a change that failed (the cards move back).
+    @Published var hideFailed: String?
+    /// The ids of the last removal while its Undo shows (`undoSeconds`).
+    @Published private(set) var undo: [String]?
+    var undoSeconds: Double = 8
+    private var undoTimer: Task<Void, Never>?
+    /// What the board leaves out of Done now.
+    var shownHidden: Set<String> { (hidden ?? []).union(hiding ?? []).subtracting(unhiding ?? []) }
+    var changing: Bool { hiding != nil || unhiding != nil }
     @Published private(set) var loaded = false
     /// The Mac has the board switched off (409).
     @Published private(set) var off = false
@@ -3332,12 +3357,60 @@ func boardProjectOf(_ session: String, workspaces: [Workspace]) -> String {
             off = false; missing = false; readFailed = nil; loaded = true
             if o["same"] as? Bool == true { return }
             meta = boardMeta(o); rev = (o["rev"] as? NSNumber).map { $0.stringValue }
+            hidden = (o["hidden"] as? [String]).map(Set.init)
         } catch {
             guard mine == seq, !Task.isCancelled, !(error is CancellationError) else { return }
             let f = error as? Fail
             if f?.status == 409 { off = true; return }
             if f?.status == 404 { missing = true; return }
             readFailed = userText(error)
+        }
+    }
+
+    /// Swipe on a Done card, Clear all: take `ids` off the board (the chats stay in DSH). One change of the list at a time (a
+    /// second one while one runs does nothing, also Undo and Put back); the cards go at once; the Mac merges the ids into its
+    /// newest list and answers it, and a read that started before that answer is dropped. A failure brings the cards back
+    /// and keeps its reason in `hideFailed`. After it, Undo shows for `undoSeconds`.
+    @discardableResult func hide(_ ids: [String]) async -> Bool {
+        let list = unique(ids)
+        guard await change("hide", list) else { return false }
+        undo = list
+        undoTimer?.cancel()
+        let wait = undoSeconds
+        undoTimer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            if !Task.isCancelled { self?.undo = nil }
+        }
+        return true
+    }
+    /// Undo: put back the cards of the last removal.
+    @discardableResult func undoLast() async -> Bool {
+        guard let ids = undo, !changing else { return false }
+        dropUndo()
+        return await change("unhide", ids)
+    }
+    /// Put back on the Removed list: the card shows in Done again.
+    @discardableResult func unhide(_ ids: [String]) async -> Bool {
+        let ok = await change("unhide", unique(ids))
+        if ok { dropUndo() }
+        return ok
+    }
+    func dropUndo() { undoTimer?.cancel(); undoTimer = nil; undo = nil }
+    private func unique(_ ids: [String]) -> [String] { var seen = Set<String>(); return ids.filter { !$0.isEmpty && seen.insert($0).inserted } }
+    private func change(_ kind: String, _ list: [String]) async -> Bool {
+        guard !changing, let before = hidden, !list.isEmpty else { return false }
+        seq += 1
+        if kind == "hide" { hiding = Set(list) } else { unhiding = Set(list) }
+        hideFailed = nil
+        defer { hiding = nil; unhiding = nil }
+        do {
+            let o = try await call([:], [kind: list])
+            seq += 1
+            hidden = (o["hidden"] as? [String]).map(Set.init) ?? (kind == "hide" ? before.union(list) : before.subtracting(list)); rev = nil
+            return true
+        } catch {
+            if !(error is CancellationError) { hideFailed = userText(error) }
+            return false
         }
     }
 }
