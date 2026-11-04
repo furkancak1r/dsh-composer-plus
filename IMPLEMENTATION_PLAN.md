@@ -1596,6 +1596,249 @@ Status: RESOLVED locally (2026-11-03, /implement-plan), not committed or release
 - F-05 fix: `readProgress` is gone from `BoardPage`, its spread and `BoardProgressBox` (the box calls `readBoardProgress`); the test has no `readProgress`/`reads`.
 - All: `npm test` exit 0; Semgrep (`--config auto`, repo and `--max-target-bytes 0` on client.js/index.js) 0 findings; `test/browser-task-board.mjs` PASS on 0.2.1-rc.2 and 0.2.0-rc.2 (no SHOT, the picture is unchanged); iOS 67/67; gateway 28/28; `git diff --check` clean. Not done (not requested): commit, push, release, live desktop copy, Tether install.
 
+## Release 1.20.0 and live desktop copy (2026-11-03)
+Owner request (chat): "release yap canlıyı vs güncelle npm"; Tether on the iPhone: the owner chose "Evet, Tether'ı da kur" on a question card.
+- Minor bump: since v1.19.1, ba2f55c (Progress on hover) and 165433c (New task opens dsh's own chat) add features; acbd2da, 04ca30a, 302e3c8 and 7b79738 are fixes and UX changes of the same board (merged as 3f545ad).
+- release-notes.json 1.20.0: English notes written by hand, 12 translations by a subagent (same shape, no code spans, each bold name = that language's label from client.js en/zh and locales/*.json; script check 0 problems; `node test/release-notes.test.mjs` passes).
+- GitHub: 8fb4ce2 (version 1.20.0 in package.json, the 26 notes of the 13 READMEs, release-notes.json) on main; `npm test` exit 0, Semgrep 0 findings, `npm pack --dry-run` 90 files; CI test.yml run 41658059121 green. Release v1.20.0 (Latest) on 8fb4ce2 with `notes.en` as its body (the first `gh release create` with a short SHA failed: "target_commitish is invalid"; the full SHA works); `releases/latest` answers tag v1.20.0, target 8fb4ce2, body = notes.en.
+- npm: release.yml run 41658372809 (notes check "13 languages for 1.20.0", npm test) published 1.20.0 with provenance (sigstore log index 3672872223); `registry.npmjs.org/dsh-composer-plus/1.20.0` gives version 1.20.0, shasum 02614e2 (same as the workflow log), 90 files, attestations, gitHead 8fb4ce2; dist-tag `latest` 1.20.0. The exact-version URL answered 404 for about 3 minutes after the publish (registry cache).
+- Live desktop copy: backup `~/Documents/testdeepseekharness/backup-before-v1200-20261103-174315` (full copy, `diff -rq` clean). Before the copy, index.js, backup.mjs, release-notes.json and tether/gateway/* were equal to v1.19.1, client.js too (line 12 aside). Copied from v1.20.0: client.js (line 12 kept as `id: '@local/dsh-composer-history'`, the only difference), index.js, release-notes.json, tether/gateway/server.mjs, assets/features/taskBoard.webp; locale/*.json unchanged; package.json version 1.19.1 → 1.20.0 (name, private flag unchanged); cordis.patch.yml untouched; `node --check` of the three code files passes. dsh not restarted: the copy loads at the owner's next dsh start.
+- Tether on the iPhone: built from 3f545ad's iOS code without signing (BUILD SUCCEEDED). Open: Auto Review stopped the signing step (it accepts only a chat message as the owner's approval, not a question card); not signed or installed yet.
+
+## agentbox ideas: Next waiting chat and Option picks (2026-11-02, branch `docs/agentbox-feature-comparison`)
+Source: a read-only comparison with [savannahfeder/agentbox](https://github.com/savannahfeder/agentbox) at 3241b2b (2026-10-30). The owner approved the ranked list and chose items 1 (`nextWaiting`) and 2 (`optionPicks`) for this plan. Items 3–8 (`laterChat`, `branchCleanup`, `agentProposals`, `leftoverPrograms`, `chatPriority`, `runQueue`) are not in this plan.
+
+### Step 0: the three open questions of the comparison (checked 2026-11-02)
+Checked in the installed dsh packages (`~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2` and `dsh-0.2.1-rc.2`) and, for item 2, on the running dsh (0.2.1-rc.5).
+1. **Can the plugin register a keyboard shortcut? Yes.**
+   - `@deepseek-ai/dsh-client-shortcuts` (both versions, same `types.d.ts`) gives `ctx.shortcuts.register({ id, label, aliases, defaults, regions, modals, resolve })`. The return value is a disposer. The command shows in dsh's own Keyboard shortcuts page, and the user can change its key.
+   - dsh's own plugins do this through `ctx.inject(['shortcuts', …])` (`dsh-client-ui-theme` line 1955, `dsh-client-ui-workspace` `installWorkspaceShortcuts`). Our package does not list `@deepseek-ai/dsh-client-shortcuts` in `dsh.client.inject` today: add it, and use `injectScope(['shortcuts'], …)`, so an older dsh without the service only loses the key.
+   - Limits (`isWebBindingAllowed`, `bindingIssue` in `dsh-client-shortcuts/lib/client.js`):
+     - `register` throws on a duplicate id or on a default that overlaps another command's default for the same profile.
+     - On the web on macOS and Windows, a two-modifier key must be the primary key plus Alt or Shift.
+     - A key without a modifier is refused, except on desktop macOS and Windows.
+   - Taken defaults (macOS): Cmd+N/K/O/B/P/T/,/` and Cmd+Alt+G/F/B/O on desktop; Cmd+Alt+N/K/O/B/P/T/, and Cmd+Shift+F/B/O on the web.
+   - Chosen for `nextWaiting`: **Cmd+Shift+E** (Ctrl+Shift+E on Windows and Linux).
+     - No dsh package (0.2.0-rc.2, 0.2.1-rc.2) and no Composer Plus handler uses `KeyE`.
+     - [Chrome's shortcut list](https://support.google.com/chrome/answer/157179?hl=en&co=GENIE.Platform%3DDesktop) (read 2026-11-02) has no Cmd+Shift+E or Ctrl+Shift+E.
+     - Cmd+Shift+J is not usable: Chrome uses it for Downloads on a Mac and for Developer Tools on Windows and Linux.
+     - dsh's own `bindingIssue` accepts Cmd+Shift+E for desktop macOS, Windows and Linux and for web macOS and Windows. I ran the functions from `dsh-client-shortcuts/lib/client.js` on Node.
+     - It answers `unsupported-browser` for web Linux. dsh's own commands (`installWorkspaceShortcuts`) also set no `web:linux` default. Do the same: on web Linux the command has no key until the user sets one.
+   - Fixed keys: `registerFixed` + `observeFixedInput` (used by `dsh-client-ui-theme` for Cmd+=) show a key in the shortcut list without making it editable. Not used here.
+2. **Do background jobs and terminal tabs carry `DSH_SESSION_ID`? Yes.**
+   - Code:
+     - `dsh-shell-env` `collect()` puts `DSH_SESSION_ID` (the agent's chat id) into every bash tool call.
+     - `dsh-tool-bash` passes it as `dshEnv` to the background path (`run_in_background`) and to the promoted path too.
+     - `dsh-bash-local` spreads `spec.dshEnv` into the child `env`.
+     - The persistent bash tool (`dsh-terminal-bash` `childEnvironment`) sets `DSH_SESSION_ID` and `DSH_PTY_SESSION_ID`.
+     - A terminal tab (`dsh-api-terminal-controller`, line 992) sets `env: { DSH_SESSION_ID: agent.id }`.
+   - Runtime: a background job of this chat (`node -e 'setTimeout(…)' probe`) showed this chat's `DSH_SESSION_ID` in `ps -E -ww` (macOS 27.0.1, same user).
+   - Caveat: a process that rewrites its title (Node `process.title=…`) overwrites the area that `ps -E` reads: `ps -E` then shows no variables. A probe with `process.title` showed 0 variables. A leftover-program finder needs a second source, such as `ps -o ppid` up to the shell of the chat, or it misses such processes. This matters for item 6 (`leftoverPrograms`), not for this plan.
+3. **Is there a hook that can hold the start of a turn? Yes, `agent/pre-step`.**
+   - `dsh-agent-loop` awaits `dispatch.waterfall("agent/pre-step", { agent, messages, turn, step, signal }, next)` before every step (line 909 on 0.2.1-rc.2, 911 on 0.2.0-rc.2). The first step of a turn comes right after `turn/start` is logged.
+   - A handler may await before `next()`. `dsh-compaction-basic` does this: it compacts and then calls `next()`. A handler may also answer `{ kind: 'reject' }`, which ends the turn as blocked (`dsh-api-session-controller` does this for archived chats).
+   - So a run limit (item 8, `runQueue`) can hold a turn at its first step. The `turn/start` event is already in the log then, so the chat shows "running" while it waits. This matters for item 8, not for this plan.
+
+### Objective
+1. `nextWaiting`, client only, on by default:
+   - One action opens the next chat that waits for you: first the orange dot (a question, an approval or a plan review that you can answer), then the green dot (a finished turn that you did not open), the longest-waiting first in each group. The chat on screen is skipped.
+   - Entry points:
+     - a "Next waiting chat (N)" button in the sidebar header, shown only while N > 0, placed like Collapse all projects;
+     - a dsh shortcut `composerPlus.nextWaiting`, default Cmd+Shift+E / Ctrl+Shift+E (none on web Linux), which the user can change on dsh's Keyboard shortcuts page.
+   - Tether: a "Next waiting chat (N)" button in the Sessions toolbar and in the chat title menu, from data that Tether already has (`waitingChats`, `finished`).
+2. `optionPicks`, client only, on by default, no model call of its own:
+   - dsh's question card (`ask_user_question`): keys `1`–`9` pick option N of the question on screen, the same as a click (dsh's `choose`). Enter still submits, as in dsh.
+   - The latest finished answer of the open chat: when its last section is an option list, each option gets a button. A click sends `Option N: <text>` as your message (`queue` mode, like a typed message). The option marked "(recommended)" is highlighted.
+   - Tether: the same buttons under the latest assistant message, which send through the phone's existing `prompt(...)`.
+
+### Option list rule (`parseOptions`, one pure function, also in Swift)
+- The text is the closing answer: the `text` blocks of `turn-tail` `closing.blocks`, joined with no separator, as dsh's own `assistantText` joins them (copy button; both versions). Reasoning and tool blocks are left out. A running or a stopped (`interrupted`) answer gives nothing.
+- The options are a numbered list (`1.` or `1)`, 1 to 9 items, numbers in order from 1) that is the last block of the answer. Only blank lines may come after it.
+- It counts only under a Markdown heading (`#`–`####`) or a bold line whose text is one of these words, case- and accent-insensitive, with or without a colon:
+  - "Options", "Seçenekler", "Choices", "Next steps";
+  - the `optionPicks.heading` word of each of the 13 language packs (for example zh "选项").
+- An item with "(recommended)", "(önerilen)" or the language pack's `optionPicks.recommended` word is the recommended one. The marker is removed from the button text.
+- Each button text is the item's first line, at most 200 characters. The whole item (also its later lines) goes into the sent message.
+- No match: no buttons. A list in the middle of the answer, a list in a code block, a list under another heading, and more than 9 items: no buttons.
+- No system-prompt rule that asks agents to end with an Options section (owner's decision, see Decisions).
+
+### Invariants
+- Every AGENTS.md rule:
+  - own `FEATURES` key installed with `feature(id, setup)`; switching off removes every listener, observer, DOM host, style and shortcut that the feature added;
+  - screenshot (`SHOT_OF`, `SHOTS`, `assets/features/<shot>.webp` ≤ 60 kB, demo dsh with made-up projects only);
+  - texts `en` + `zh` + 11 `locales/*.json`, then `npm run build:locales`;
+  - `docs/features.json` (`how` ×13, `llms`, `shot`), `npm run build:readme`, Limits and FAQ ×13 by hand;
+  - unit tests in `package.json` `test`; real isolated dsh 0.2.0-rc.2 and 0.2.1-rc.2;
+  - `tether/FEATURES.md` rows.
+- Neither feature opens a port, runs a server or starts a model turn without a click. `optionPicks` starts a turn only on the user's click or key, through dsh's own send path. So neither feature goes into `OFF_BY_DEFAULT`.
+- No new Host route, so no `PLUS` entry and no Host switch. The Turn rollback route `GET ?sessionId` answers two more fields (phase 3, see Decisions): `withdrawn` and `inherited`; its `routes` text in `docs/features.json` says so.
+- Rule 9: no option buttons for an answer that Turn rollback or dsh-rewind-plugin withdrew. The browser cannot read the log, so the rollback route gives `withdrawn` (the spans of both marker kinds) and the client rollback store keeps it (merged like `spans`). Test both marker kinds in Tether with `withdrawKinds` / `withoutRolledBack`.
+- Rule 7: one pick at a time per chat. A second click, key or tap while a send runs does nothing. After a pick, all buttons of that answer stay off until a new turn ends. The guard is in the store, so it covers button, key and Tether alike.
+- Rule 10: the latest answer of a forked chat may be an inherited one. Show buttons only when the closing answer's seq is at or after the fork's `inheritedEventCount` (a fork starts with no buttons until its own first answer). The browser has no such value (checked: dsh's client session, chat view and session list do not carry it; only the Host `Session.inheritedEventCount`, both versions), so the rollback route gives it as `inherited`.
+- No new dependency; no change to dsh files.
+
+### Acceptance criteria
+- `nextWaiting`:
+  1. With chats A (question, since t0), B (approval, since t1 > t0), C (green) and D (green, older than C), the order is A, B, D, C. The chat on screen is skipped. A subagent row and a request with `answerable: false` do not count.
+  2. Button: hidden when N = 0; N updates live; a click opens the chat (`uiWorkspace.openSession`).
+  3. Shortcut: listed on dsh's Keyboard shortcuts page; `resolve` answers `blocked` with a translated reason when N = 0; it works while the composer has the focus (`regions: ['page', 'editable']`).
+  4. Switched off: the button, its host and style, the shortcut row and every subscription are gone (a test counts them).
+  5. dsh without the shortcuts service: the button still works, no error.
+- `optionPicks`:
+  1. `parseOptions` table test passes: the match cases, the no-match cases above, CRLF, a code fence, nested lists, 10 items, the recommended markers in 3 languages, an empty item.
+  2. Question card: `1`–`9` call dsh's own option button (a `click()` on the N-th `[role="radio"]` or `[role="checkbox"]` in `[data-question-key]`). Keys do nothing:
+     - when the focus is in a text field (the custom answer field);
+     - with a modifier key held;
+     - during IME composition;
+     - when N is greater than the number of options;
+     - when no question card is on screen.
+  3. Answer buttons show only under the newest `turn-tail` of the open chat, when the chat is idle, the composer is empty, and the answer is not withdrawn (both kinds) and not inherited (fork).
+  4. A click sends `Option N: <item>` once (`queue`). A double click, a second key or a Tether tap during the send sends nothing more. A failed send shows dsh's notice and enables the buttons again.
+  5. While buttons show, Next message prediction hides its guess (one owner of the space above the composer); it comes back when the buttons go.
+  6. Switched off: no key listener, no buttons, no style.
+- Both:
+  - `npm test` exit 0 (new tests in `package.json`; `test/toggles.test.mjs` 51 rows, 44 on after phase 4 (50 and 43 after phase 2); `tether-parity`, `shots`, `feature-docs`, `readme-labels`, `readme`, `locale`).
+  - iOS unit tests green.
+  - New `test/browser-agentbox-ideas.mjs` PASS on 0.2.0-rc.2 and 0.2.1-rc.2.
+  - `git diff --check` clean.
+
+### Phases and checks
+| Phase | Work | Check |
+|---|---|---|
+| 1 | `nextWaiting` core: pure `waitingOrder(statusSnapshot, byId, waits, now)` → `{ order, onScreen }` (shared with Open waiting chat when idle; `watchIdleSwitch` uses it, same behavior) | `test/next-waiting.test.mjs` (order, skip, subagent, answerable); `test/idle-switch.test.mjs` unchanged and green |
+| 2 | `nextWaiting` UI: sidebar header button (host like `CollapseProjectsButton`), shortcut through `injectScope(['shortcuts'])`, `@deepseek-ai/dsh-client-shortcuts` in `package.json` `dsh.client.inject` | same test: fake `shortcuts` service (register, disposer, blocked reason), off removes all; no shortcuts service → button only |
+| 3 | `optionPicks` parser and store: `parseOptions`, `createOptionPicks` (per chat: picked seq, busy; one send at a time) | `test/option-picks.test.mjs` (parser table; guard from button, key and a second caller; failure enables again; rollback span; fork offset) |
+| 4 | `optionPicks` UI: question-card keys (window `keydown` in capture, only when `[data-question-key]` is in the open chat); answer buttons portaled under the newest `[data-chat-flow-kind="turn-tail"]` row (like `MessageLinks`); send through `ctx.conversation.send(text)` in the chat's scope (both versions: `IConversation.send(text)`); prediction hides while buttons show | same test with fake DOM; `test/predict-client.test.mjs` still green |
+| 5 | Tether: `waitingOrder` and `parseOptions` in `Core.swift`; Sessions toolbar button and title-menu item; option buttons under the latest assistant `LineView`; one tap at a time | iOS unit tests (order, parser table same as JS, withdrawn both kinds, fork) |
+| 6 | Texts ×13, `npm run build:locales`; `docs/features.json` `how` ×13 + `llms`; `npm run build:readme`; Limits and FAQ ×13; keyboard table rows in 13 READMEs; screenshots (`SHOT=1`, demo data); `tether/FEATURES.md` | `npm test`; `test/browser-agentbox-ideas.mjs` on 0.2.0-rc.2 and 0.2.1-rc.2; simulator check of Tether with `tether/build/demo-gateway.mjs` |
+
+### Allowed paths
+`client.js`, `package.json` (`test` script, `dsh.client.inject`), `index.js` (only `SHOTS`), `locales/*.json`, `locale/*.json` (generated), `assets/features/{nextWaiting,optionPicks}.webp`, `docs/features.json`, `README*.md`, `llms.txt`, `test/next-waiting.test.mjs`, `test/option-picks.test.mjs`, `test/browser-agentbox-ideas.mjs`, `test/toggles.test.mjs` (counts), `tether/FEATURES.md`, `tether/ios/Sources/{Core,UI}.swift`, `tether/ios/Tests/Tests.swift`, `tether/ios/Resources/*` (strings), `IMPLEMENTATION_PLAN.md`.
+
+### Decisions
+- One shared ordering function for Open waiting chat when idle and Next waiting chat, so the two features never disagree about "next".
+- The shortcut is an editable dsh command, not a fixed key, so a user with a key conflict changes it in dsh's own page.
+- Question card keys: digits, not Cmd+digit, as dsh shows the numbers on the card. They are local keys, not a dsh shortcut: dsh refuses a default without a modifier on the web.
+- Answer buttons send a normal visible message (`Option N: …`), not a hidden note, so the chat log and Tether show what you chose.
+- Phase 3: the two values that the browser cannot read (rule 9 `withdrawn`, rule 10 `inherited`) come from the existing Turn rollback route (`GET ?sessionId`) and its client store, which every chat already loads. No new route. The route answers this GET also while the Turn rollback switch is off (the switch only refuses POST), so phase 4 calls `rollback.load(sessionId)` itself and shows no buttons until that answer came (an older Host without the fields: `withdrawn` falls back to `spans`, `inherited` to 0).
+- **No system-prompt rule (owner, 2026-11-02):** do not add a rule that asks agents to end with an Options section. The owner will discuss it separately later. `optionPicks` works only on answers that already end with such a list.
+- Phase 4: the answer buttons use dsh's own list slot `conversation.chat.turnTail` (both versions; dsh-client-ui-plan and dsh-client-ui-deliverables use it), not a DOM portal. The slot gives `seq` (the answer's closing seq) and `turn` as dsh's turn object, not a number: the cell compares only `seq`. The chat, session and input hooks come from dsh's session scope (`useChat`, `useSession`, `useInput`, both versions).
+- Phase 4: Next message prediction steps back through a synchronous gate (`createOptionsGate`): it reads the same chat view and asks "does this chat offer options now (not picked, not withdrawn as far as this window knows)". A gate that waits for the buttons to render was too late: the prediction call started first (seen in the real dsh). The gate is open only while the `optionPicks` switch is on.
+- Phase 4: the buttons wait for a fresh Turn rollback GET per state of the idle chat (`createRollbackCheck`, key = node count and newest seq). So a rollback marker, from either plugin, is known before the buttons show. One GET per state, shared by every answer of the chat.
+- Phase 4: the 800 ms key guard counts from the moment a question shows, per question of a card (`data-question-key` and the question's `aria-labelledby`). With two cards on screen, only the card that has the focus takes the key.
+- Phase 4: the plan said "the composer is empty" for the buttons. While you type, the buttons hide, but the chat still offers options, so the prediction stays back too (it would only show for an empty composer anyway).
+
+### Risks
+- dsh markup changes (`[data-question-key]`, `role="radio"`, `data-chat-flow-kind="turn-tail"`, the sidebar header classes) make the keys or buttons disappear. They fail closed: no wrong send. Mark each with a `ponytail:` comment and the upgrade path (a dsh slot).
+- A digit key pressed just after a question card appears can pick an option the user did not read. agentbox found the same problem and ignores a pick in the first 800 ms after the view changes. Use the same 800 ms guard.
+- `parseOptions` can miss lists that agents write in other shapes. This is safe (no buttons). Keep the rule strict; widen it only with a test case.
+- Cmd+Shift+E can be taken by a browser extension or another app; the user can change the key on dsh's Keyboard shortcuts page.
+
+### Last checkpoint
+2026-11-02 08:35: Step 0 done (three facts verified, evidence above). Plan written. No code changed.
+
+2026-11-02, phase 1 done (not committed):
+- `client.js`: new pure `waitingOrder(statusSnapshot, byId, waits, now)` → `{ order, onScreen }`, placed just before `watchIdleSwitch`.
+  - It returns every chat that waits, next first: orange before green, the longest-waiting first in each group.
+  - A tie keeps dsh's order: `Array.prototype.sort` is stable, which is the old `since <` rule.
+  - `waits` keeps the first-seen time of each wait key and forgets the ended ones.
+  - `watchIdleSwitch` now takes `order[0]` and `onScreen` from it. Its behavior is unchanged.
+- New `test/next-waiting.test.mjs`, added to the `test` script after `idle-switch`. It covers:
+  - acceptance case 1 (A, B, D, C);
+  - a newer orange chat before an older green one;
+  - a tie in dsh's order;
+  - left out: subagent rows, unknown chats, `answerable: false` and chats without a dot;
+  - one entry per chat (orange wins);
+  - `onScreen`;
+  - forgetting a wait that ended and a new wait when the dot comes back;
+  - the empty case.
+- Checks:
+  - `node test/next-waiting.test.mjs` green;
+  - `node test/idle-switch.test.mjs` green, unchanged;
+  - `npm test` exit 0;
+  - `git diff --check` clean.
+- Mutations, each in a temp copy of `client.js`: green before orange; newest first; subagent counted; unknown chat counted; `answerable` ignored; no forgetting; `since` reset on each call; `onScreen` never set.
+  - Each one makes `next-waiting` red.
+  - Six of the eight also make `idle-switch` red. "No forgetting" and "unknown chat counted" make only the new test red.
+- Next: phase 2 (sidebar header button and the dsh shortcut, Cmd+Shift+E).
+
+2026-11-02, phase 2 done (not committed). The owner asked for the button, the shortcut and their tests:
+- `client.js`:
+  - `watchNextWaiting(status, sessionsList)`: the live list `[{ sessionId, done }]` from `waitingOrder`, without the chat on screen. The snapshot keeps its identity until the list changes.
+  - `registerNextWaitingKey(shortcuts, t, count, open)`: dsh command `composerPlus.nextWaiting`, regions page and editable, default Cmd+Shift+E on desktop macOS, Windows, Linux and web macOS, Windows (no web Linux default). `blocked` with `nextWaiting.none` at 0. When dsh refuses the default, the command comes without a key. A second copy (same id) gets no command.
+  - `NextWaitingButton`: first in dsh's header actions (found through `_listArea` → `_sectionHeader` → `_headerActions`, also in "In one list"), hidden at 0 and in the narrow sidebar (rail), a dot in the color of the next chat, the count, dsh's Tooltip. It moves first again when Collapse all projects adds its host.
+  - `feature('nextWaiting')`: one scope `['uiSession', 'sessions', 'uiWorkspace']` for the list and the `shell.overlay` slot `next-waiting`, and one scope `['shortcuts']` for the command. Without the shortcuts service, the button still works.
+  - Verified in dsh's renderer (`bindInjectSources`, both versions): a slot's `hooks` must come from `inject()`, not from the register options.
+  - `FEATURES` (after `idleSwitch`), `SHOT_OF`, texts `feature.nextWaiting(.description)`, `nextWaiting.button/command/none` in en, zh and 11 `locales/*.json`; `npm run build:locales`.
+- `package.json`: `@deepseek-ai/dsh-client-shortcuts` in `dsh.client.inject`.
+- `index.js`: `nextWaiting` in `SHOTS`. `assets/features/nextWaiting.webp` (13 kB, from the demo dsh of `test/browser-agentbox-ideas.mjs` with `SHOT=1`, English UI, made-up chats).
+- Docs: `docs/features.json` entry (13 `how`, `llms`); `npm run build:readme`; in 13 READMEs by hand: a keyboard table row, a Limits item, a FAQ entry and the real-app test line. `tether/FEATURES.md`: `nextWaiting | no` until phase 5.
+- Tests:
+  - `test/next-waiting.test.mjs` part 2: the live list, the command (shape, id pattern, defaults, blocked reason, run, refused default, duplicate id), the button (mini DOM: host first, hidden at 0, count, orange and green dot, CSS rules, moves first again, one host, unmount removes it, no header), and the feature through `plugin.apply` (slot and command on by default, hooks from `inject()`, the key and the button open the same chat, a stale click does nothing, switch off removes slot, command, subscriptions and scopes, off and on gives one command, no shortcuts service keeps the button).
+  - `test/toggles.test.mjs`: 50 rows, 43 on. `test/notify.test.mjs`: its fake `inject` skips the new scope.
+  - New `test/browser-agentbox-ideas.mjs` (fake model, temp DSH_HOME, headless Chrome): PASS on 0.2.0-rc.2 and 0.2.1-rc.2. Button with count 3 and orange dot, first in the header; Cmd+Shift+E with the focus in the composer opens the chat that asked first; the button opens the next; answered chats leave; the green chat comes last; the button goes at 0 and the key does nothing; dsh's Keyboard shortcuts page lists "Next waiting chat ⇧ ⌘ E"; switched off, no host and no command; no page errors.
+- Checks: `npm test` exit 0; `git diff --check` clean; `node scripts/build-docs.mjs --check` passed.
+- Mutations on the new code (11, each in a temp copy): key never blocked, chat on screen kept, web Linux default, page region only, button at 0, shortcut not removed, list not disposed, no fallback without key, always orange dot, not first in the header, open ignores the list. All 11 make `next-waiting` red.
+- Next: phase 3 (`optionPicks` parser and store).
+
+2026-11-02, phase 3 done (not committed). The owner asked to start phase 3:
+- `client.js` (pure, no UI yet; `optionPicks` is not in `FEATURES` until phase 4):
+  - `parseOptions(text)` → `[{ n, label, text, recommended }]`: the option list rule of this plan. Headings and "(recommended)" words in the 13 languages, folded with the Settings `fold` (case, accents, Turkish ı). Label: first line without `**`, `__`, backticks and link targets, at most 200 characters; text: the whole item, its common indent removed.
+  - `chatOffer(chat, spans, from)` → `{ seq, turn, latest, options }`: the closing answer of the newest turn that `spans` did not withdraw, at or after `from`; not `running` or `interrupted`; `latest` is the newest turn, withdrawn ones too.
+  - `createOptionPicks(send)`: per chat `{ busy, picked: { seq, latest }, error }` (frozen); `open(id, offer)`; `pick(id, offer, n)` sends `Option n: <item>` once. Refused while one runs (any answer of that chat) and for a picked answer until a newer turn shows; a failed send keeps the offer open with the reason.
+- Host and rollback store (rules 9 and 10, see Decisions): Turn rollback `GET ?sessionId` also answers `withdrawn` (both marker kinds) and `inherited` (`Session.inheritedEventCount`, else 0); `createRollback` keeps both (`withdrawn` merged like `spans`, also on a finished rollback). `docs/features.json` route text and `docs/ROUTES.md` updated.
+- Tests:
+  - New `test/option-picks.test.mjs` (in `package.json` after `next-waiting`): the parser's match cases and 26 no-match cases (CRLF, fences, nested and indented lines, 9 and 10 items, marks in 6 languages, empty items, headings that only contain the word); `chatOffer` (newest turn, reasoning left out, dsh's join, running, stopped, no answer, both marker kinds as spans, fork offset); the store guard (second click during a send, another answer during a send, picked twice, other chat independent, newer turn and rollback open again, failure keeps the offer, bad input, frozen states).
+  - `test/turn-rollback.test.mjs`: `inherited` (a fork, not a count), `withdrawn` with a dsh-rewind marker. `test/turn-rollback-client.test.mjs`: `inherited`, `withdrawn` (both kinds, older Host, merge with a rollback that ends during a load); this also covers the old `spans` merge, which no test checked before.
+- Mutations (each in a temp copy): 26 on parser, offer and store; 3 on the Host and store plumbing; 2 on the merges. All red.
+- Checks: `npm test` exit 0; `git diff --check` clean; `node scripts/build-docs.mjs --check` passed.
+- Next: phase 4 (`optionPicks` UI: the switch, question-card digit keys, answer buttons, prediction hides).
+
+2026-11-02, phase 4 done (not committed). The owner asked to start phase 4:
+- `client.js`:
+  - `OptionPicks` in dsh's `conversation.chat.turnTail` slot (`option-picks`, order 100): buttons only under the answer whose seq is the chat's offer (`chatOffer` through a per-snapshot memo), while the chat is idle and the composer is empty, after `createRollbackCheck` got a Turn rollback GET for this state of the chat. Recommended option marked, the whole item in the tooltip, buttons off during the send, dsh's reason in a line after a failed send.
+  - `installOptionKeys(document)`: window `keydown` (capture); keys 1–9 click dsh's N-th `role="radio"`/`"checkbox"` of the question on screen; refused in a text field, with a modifier, during IME composition, with a dialog or menu open, for a missing or locked option, and in the first 800 ms of each question.
+  - `createOptionsGate`: Next message prediction asks no guess while the chat offers options (`NextPrediction` gets `optionsGate` and dsh's `useChat`).
+  - Send: `ctx.sessions.scope(id).get('conversation').send(text)` (dsh's `IConversation.send`, queue, both versions).
+  - `createRollback().load` now returns true when the Host answered.
+  - `FEATURES` (after `nextWaiting`), `SHOT_OF`, texts `feature.optionPicks(.description)`, `optionPicks.group/recommended/failed` in en, zh and 11 `locales/*.json`; `npm run build:locales`.
+- `index.js`: `optionPicks` in `SHOTS`. `assets/features/optionPicks.webp` (10.5 kB, `SHOT=1`, English UI, made-up chat).
+- Docs: `docs/features.json` entry (13 `how`, `llms`); `npm run build:readme`; hand-written parts in 13 READMEs (keyboard row `1`–`9`, Limits, FAQ; written by a subagent, checked by `readme`, `readme-labels`, `feature-docs`); the dev comment above `browser-agentbox-ideas.mjs` stays English in every README (it is in a code block, which `test/readme.test.mjs` compares). `tether/FEATURES.md`: `optionPicks | no` until phase 5.
+- Tests:
+  - New `test/option-picks-ui.test.mjs` (in `package.json` after `option-picks`): which answer shows buttons (idle, empty composer, Host answer per state, newest only, running, subagent, removed, blank), one send on a double click, buttons off during the send, picked answer hidden, failed send keeps the buttons with the reason, rollback of the pick offers again, rollback of only the answer keeps the pick, fork offset, no Host answer; the gate (switch, pick); prediction makes no call while options are offered and works without the gate; keys (guard, per-question guard, 1–9 only, modifiers, IME, text field, composer, dialog, locked option, checkboxes, two cards and the focus, off removes listener and observer); the feature through `plugin.apply` (slot on by default, prediction reads the gate, off removes the slot, the keys and the gate).
+  - `test/turn-rollback-client.test.mjs`: `load` answers true or false. `test/toggles.test.mjs`: 51 rows, 44 on.
+  - `test/browser-agentbox-ideas.mjs` extended: PASS on 0.2.1-rc.2 and 0.2.0-rc.2 (again after the last code change). Three buttons in dsh's turn tail with the recommended mark; no prediction call meanwhile; text in the composer hides them; a double click sends one message with the whole item; a Turn rollback (Chat only) of the pick offers the options again; on a question card, key 3 then key 2 pick the options, key 9 does nothing, a digit in the answer field is text; switched off, no buttons; on again, they come back.
+  - Two bugs found in the real dsh: the slot's `turn` prop is dsh's turn object (the cell compared it with a number, so no buttons showed), and a gate that waited for the buttons to render let the prediction call start first. Both fixed, both in the unit test now.
+- Mutations (27, each in a temp copy): all red. "load answers true on a failure" was green first; the new `load` test makes it red. A held key (`event.repeat`) is refused too (found in the diff review).
+- Checks: `npm test` exit 0; `git diff --check` clean; `node scripts/build-docs.mjs --check` passed.
+- Next: phase 5 (Tether: Swift `waitingOrder` and `parseOptions`, Sessions toolbar button and title-menu item, option buttons under the latest assistant message).
+
+2026-11-02, phase 5 in progress (not committed; phases 1–4 are commit e5a37f7). The owner asked to start phase 5:
+- `tether/ios/Sources/Core.swift`:
+  - `waitingOrder(prompts:finished:sessions:open:seen:now:)` → `[Waiting]`: the Mac's order (orange before green, longest-waiting first, a tie keeps the given order); a subagent's request counts for its top-level chat; unknown chats and the chat on screen are left out; `seen` forgets ended waits. `Client.nextWaiting()` / `openNextWaiting()`.
+  - `parseOptions(_:)` → `[ChatOption]` (the client.js rule, NSRegularExpression), `optionHeadings` / `optionRecommended` (the same words as client.js), `chatOffer(_:from:)` → `OptionOffer` read from the chat log (turns from `turn/start`; the newest turn whose answer no rollback span covers, both marker kinds; completed; at or after `from`).
+  - `Client.optionOffer` (idle root chat, after the Mac's rollback GET gave `inherited`: `optionsFrom`), `pickOption` (one pick per chat at a time through `optionBusy`; `optionPicked` keeps the picked answer off until a newer turn start), `loadPrediction` asks nothing while options are offered.
+- `tether/ios/Sources/UI.swift`: `OptionButtons` under the matching assistant row (empty composer only), the prediction chip hides while options show; title menu → Next waiting chat (N).
+- One parser table for both apps: new `test/fixtures/option-lists.json` (45 cases, made from client.js); `test/option-picks.test.mjs` checks client.js against it and checks that Swift's word lists equal client.js's; the iOS test reads the same file.
+- `tether/FEATURES.md`: `nextWaiting | yes` (Sessions toolbar button and title menu), `optionPicks | yes`.
+- Checks: iOS unit tests 65/65 (new `AgentboxIdeasTests`: the shared table, `chatOffer` with both withdraw kinds, /compact, fork offset, the client guard, `waitingOrder`); 15 Swift mutations all red; `npm test` exit 0; `git diff --check` clean.
+- 2026-11-04, the owner approved the Sessions toolbar button in chat: `SessionsView` gets a trailing button (a dot in the next chat's color, orange or green, and the count N; VoiceOver "Next waiting chat (N)") while connected and another chat waits; a tap calls `openNextWaiting()`. iOS unit tests 65/65 again.
+- Phase 5 done.
+
+2026-11-04, phase 6 done (not committed):
+- Simulator check (agent-device, iPhone 17 Pro Max, iOS 26.5) against a throwaway copy of the demo gateway, `tether/build/demo-gateway-agentbox.mjs` (git ignores `build/`): the last answer of a chat ends with an "Options" list, the `unread` route gives one green chat, `DEMO_ASK=1` gives a subagent question, `DEMO_DIR` keeps the pairing over a restart.
+  - Sessions toolbar: "Next waiting chat (1)" with a green dot; a tap opened the green chat, which then lost its dot, and the button went away.
+  - Option buttons: three buttons under the newest answer, "Recommended" on option 2, no prediction chip; a tap sent `session/prompt` mode `queue` with "Option 2: Run the full test suite first" (gateway log); the buttons did not come back.
+  - A subagent question: the question sheet opens first (as before); after the answer, the toolbar button showed again. The chat title menu → "Next waiting chat (1)" opened the waiting chat.
+  - The shared simulator "iPhone 17 Pro" was not usable: a test run of another worktree (`feat-simplify-task-board-done-column`) put its own build on it during the check. The check used a second simulator, which is shut down again.
+- Docs: `tether/README.md` "Son eklenenler" gets both features (Turkish); `docs/features.json` `llms` of both features names the Tether place; `npm run build:readme` (llms.txt). The 13 README rows keep the desktop text (most rows do not name Tether; `tether/FEATURES.md` has the phone place).
+- Checks: `npm test` exit 0, `git diff --check` clean, `node scripts/build-docs.mjs --check` passed.
+- Open: commit by the owner; the real-iPhone build only when the owner asks.
+
+2026-11-04, main merged into the branch (the owner asked: "çakışmaları dalda çöz"; `main` itself was not changed):
+- Conflicts: `client.js` (`FEATURES`: main's list with `nextWaiting`, `optionPicks` after `idleSwitch`; `LANGUAGE_PACKS` from `npm run build:locales`), `package.json` (both sides' tests), `test/toggles.test.mjs` (54 rows, 46 on, main's style ids plus `option-picks`), this file (main's sections, then this one).
+- Checks: `npm test` exit 0 (a first run had two `tether-gateway` failures from a port timeout under load; the file alone passed 28/28, then the full run passed); iOS unit tests 71/71; `test/browser-agentbox-ideas.mjs` PASS on 0.2.1-rc.2 and 0.2.0-rc.2; `node scripts/build-docs.mjs --check` passed; `git diff --check` clean.
+
 ## Task board: no Todo column, a simpler Done column (2026-11-04, branch `feat/simplify-task-board-done-column`)
 Owner request: remove the Todo column; add **Clear all** to Done (it takes every card that is in Done now off the board; the chats stay in dsh); remove **Hide finished**; an × in each Done card takes only that card off the board (only Done cards have it). No action deletes a chat. Owner answers (2026-11-04): the New task that waits for its first message shows at the top of **Doing** (no blue dot); removed cards are kept on the Mac in a file (they stay removed after a dsh restart, Tether sees the same list); when a removed chat runs again, its card comes back (Doing while it runs, then Done again).
 - Host (index.js, installBoard): `board-chats.json` gets `hidden: {<sessionId>: at}` next to `chats` (the same store, one change at a time, merged into the newest data, owner-only, at most BOARD_LIMITS.hidden = 5,000, the oldest go). `GET board-chats` adds `hidden: [ids]`; `POST board-chats {hide: [ids]}` (1..5,000 ids) adds them and answers `{rev, hidden}`; a chat that runs at that moment is not added. `agent/status` running → that chat leaves `hidden` (a change that finds nothing writes nothing).

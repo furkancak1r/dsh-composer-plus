@@ -83,6 +83,8 @@ dsh plugin --profile web add dsh-composer-plus
 | **按状态排序** | <a id="feature-statusorder"></a>侧边栏 → 视图选项 → **排序方式** → **按状态**（配合 **单列表** 使用）。已完成的对话排在最前（即带 dsh “完成”圆点的对话，以出错结束的回合也会显示这个圆点），然后是正在运行或等待中的对话，再然后是带有活跃自动化任务（Schedule）的对话，其余对话按 dsh 的顺序排列。打开已完成的对话后，它会往下移。只有视图会改变：选择 **手动排序** 或 **最近更新** 即可恢复。 | <a href="assets/features/statusOrder.webp"><img src="assets/features/statusOrder.webp" width="160" alt="截图：按状态排序"></a> |
 | **后台通知** | <a id="feature-notifications"></a>dsh 在后台时，如果回合完成（通知显示回复的第一行），或对话确实在等你处理，你都会收到通知。等你处理的情况包括：审批（显示工具名称）、回答（显示问题）或计划审阅。请求必须在 1.5 秒后仍未处理，才会发出通知，因此被自动处理的审批（Auto Review 授权、其他插件）不会发出通知；请求一旦得到处理，对应的通知也会立即撤回。程序坞/任务栏角标会显示等待中的对话数量。点击通知会打开对应的对话。 | <a href="assets/features/notifications.webp"><img src="assets/features/notifications.webp" width="160" alt="截图：后台通知"></a> |
 | **空闲时打开等待中的对话** | <a id="feature-idleswitch"></a>当某个对话提出问题，或等待审批或计划审阅（橙色圆点），或完成了你尚未查看的一轮（绿色圆点），而你 30 秒没有使用 dsh 时，dsh 会打开该对话。橙色对话先于绿色对话打开。同一组中，等待最久的先打开；下一个会在再次 30 秒没有使用后打开。按键、点击、移动鼠标、滚轮或触摸都会让 30 秒重新计时。有焦点的输入框中有文字、选中了文本，或打开了菜单或对话框时，也不会切换。等待中的对话正在屏幕上时，不会切换。如果你没有回答就离开了等待中的对话，再次 30 秒没有使用后，它会再次打开。绿色对话打开后，它的圆点会消失；下一个绿色对话要等你再次使用 dsh，之后又 30 秒没有使用时才会打开。dsh 在后台时也会生效，但 dsh 不会被带到前台。 | <a href="assets/features/idleSwitch.webp"><img src="assets/features/idleSwitch.webp" width="160" alt="截图：空闲时打开等待中的对话"></a> |
+| **下一个等待中的对话** | <a id="feature-nextwaiting"></a>侧边栏标题栏中的按钮显示还有多少其他对话在等你，圆点颜色与下一个对话一致：它提出问题或等待审批或计划审阅时为橙色，完成了你尚未查看的一轮时为绿色。点击按钮或按 Cmd+Shift+E（Windows 和 Linux 上为 Ctrl+Shift+E）即可打开该对话。橙色对话先于绿色对话；同一组中，等待最久的对话排在前面。当前屏幕上的对话不计入。没有其他对话在等你时，按钮不显示，按键也不起作用。可在 dsh 的键盘快捷键页面（下一个等待中的对话）中更改按键。 | <a href="assets/features/nextWaiting.webp"><img src="assets/features/nextWaiting.webp" width="160" alt="截图：下一个等待中的对话"></a> |
+| **选项按钮** | <a id="feature-optionpicks"></a>当回答以选项列表结尾（“选项”标题或加粗的“选项”行下的 1 到 9 项编号列表，也包括“下一步”以及应用各语言中的同义词）时，回答下方会为每个选项显示一个按钮。点击即把“Option N: …”连同整个选项作为你的消息发送，就像你自己输入的一样。标有“（推荐）”的选项会有标记。按钮只显示在最新的回答下，且对话空闲、输入框为空时才显示；已选择过的回答和被回退撤回的回答不显示按钮。按钮显示期间，“下一条消息预测”不会给出猜测。在智能体的提问卡片上，按 1–9 键与点击效果相同，选择对应选项（在回答输入框中无效，问题出现后的前 0.8 秒内也无效）。 | <a href="assets/features/optionPicks.webp"><img src="assets/features/optionPicks.webp" width="160" alt="截图：选项按钮"></a> |
 | **应用语言** | <a id="feature-language"></a>设置 → Composer Plus → **应用语言** 可以把整个 dsh 界面切换为 Türkçe、Español、Português (Brasil)、Français、Deutsch、Русский、日本語、한국어、Bahasa Indonesia、Tiếng Việt 或 हिन्दी（见下文）。 | <a href="assets/features/language.webp"><img src="assets/features/language.webp" width="160" alt="截图：应用语言"></a> |
 | **手机连接（iPhone）** | <a id="feature-mobileconnect"></a>通过 [Tether](tether/) 应用在 iPhone 上使用 dsh，可以在同一 Wi-Fi 下使用，也可以通过 [Tailscale](https://tailscale.com) 使用。请在 **设置 → Composer Plus** 中开启它（默认关闭，因为它会在这台 Mac 上开放一个网络端口）。然后点击侧边栏左下角的 **手机连接**：用 iPhone 相机扫描二维码（轻点 **Open in Tether**），或用 Tether 中的 **Scan code** 扫描，轻点 **Connect**，然后点击 **Approve**。请先安装 Tether：没有它，相机无法打开这个二维码。手机可以显示你的对话、发送消息（可附照片：输入框的 **+** → Camera、Photos 或 Paste image）、回答审批和问题，以及切换模型和智能体。你可以配对任意多台 Mac：点击应用左上角的 Mac 名称即可在它们之间切换。**手机连接** 面板会列出已配对的 iPhone 及其上次连接时间：点击 **Remove** 可立即断开其中一部。“Tailscale only”会拒绝来自本地网络的连接（适用于共享 Wi-Fi），访问日志会显示谁尝试过连接。在 Tether 中，“Settings → Privacy”可以用 Face ID 锁定应用。 | <a href="assets/features/mobileConnect.webp"><img src="assets/features/mobileConnect.webp" width="160" alt="截图：手机连接（iPhone）"></a> |
 | **自动更新** | <a id="feature-autoupdate"></a>dsh 启动时，插件会检查 [最新的 GitHub release](https://github.com/furkancak1r/dsh-composer-plus/releases/latest)。如果它比当前版本新，并且已发布到 npm，插件会通过 dsh 自带的插件管理器（与 设置 → 插件 相同的途径）安装这个确切的版本，并通知你。重启 dsh 即可加载新版本。**设置 → Composer Plus → Composer Plus 更新** 会显示版本号，并提供 **检查更新** / **立即更新**。dsh 第一次以新版本启动时，会显示一次 **Composer Plus N 的新功能** 窗口，内容是该版本的发布说明，使用 **应用语言** 中选择的语言（说明随新版本一起安装，不会额外联网；没有该语言的说明时显示英文说明）；点击 **关闭** 或按 `Esc` 关闭。 | <a href="assets/features/autoUpdate.webp"><img src="assets/features/autoUpdate.webp" width="160" alt="截图：自动更新"></a> |
@@ -137,6 +139,8 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 | Mac 上为 `Cmd+F`，Windows 和 Linux 上为 `Ctrl+F` | 打开的对话 | 打开 **在对话中查找** |
 | `Enter` / `Shift+Enter`、`↓` / `↑` | **在对话中查找** 框 | 下一个 / 上一个匹配项 |
 | `Esc` | **在对话中查找** 框 | 关闭查找框 |
+| Mac 上为 `Cmd+Shift+E`，Windows 和 Linux 上为 `Ctrl+Shift+E` | dsh 中任意位置 | 打开 **下一个等待中的对话**（可在 dsh 的键盘快捷键页面中更改） |
+| `1`–`9` | dsh 的问题卡片（不在其回答输入框中） | 选择该选项（**选项按钮**） |
 
 打开的 `/` 或 `@` 菜单会自己占用这些按键。
 
@@ -234,6 +238,8 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **工作区树中的分支** 会在无需点击的情况下写入 git：移动对话时，它把项目文件夹切回原来的分支（`git switch`），并添加一个 worktree（`git worktree add`）。它从不删除分支、worktree 或文件。dsh 不能更改对话的文件夹，所以被移动的对话是一个副本（dsh 自己的分叉，带有新的 id），旧对话会被归档。副本会继续已停止的任务；分支出现时正在运行的工具调用会以拒绝结束，智能体会在新文件夹中再次运行它。旧对话的目标不会随之移动。只有文件夹是仓库主文件夹的对话会移动，而且只针对它在该轮中创建并切换到的分支（`git switch -c`、`git checkout -b`）：只用 `git branch` 创建的分支、有未提交改动的文件夹、链接的 worktree 或子文件夹都不会移动。只有直接位于 `<project>/.worktrees/` 中且有分支的 worktree 会显示在树中；分离的 worktree 或位于其他位置的 worktree 不会显示。只有当原对话是正在打开的对话时，副本才会自动打开（插件通过 dsh 的侧边栏行判断）；否则它在分支项目中。
 - **在对话中查找** 只搜索页面显示的内容：已加载的消息和回复（向上滚动或点击 **加载更早** 可查看更早的内容），不搜索已收起的工具步骤，也不搜索工具输出中被折叠的文本。它最多统计 2,000 个匹配项（之后显示“2000+”）。它使用浏览器的高亮 API（Chromium 105 及更高版本；桌面应用支持）：在较旧的浏览器中，计数和跳转仍然可用，只是没有颜色。`Cmd+F`（Mac）或 `Ctrl+F`（Windows 和 Linux）只在屏幕上有对话时打开它；在其他地方，浏览器自带的查找照常工作。在 Mac 上，`Ctrl+F` 在文本框中仍保持 macOS 的用法（光标向前移动一个字符）。
 - **空闲时打开等待中的对话** 只知道 dsh 自己的窗口看到的操作：在其他应用中的操作不算，因此 dsh 在后台时，它会在 30 秒后打开等待中的对话。它不会把 dsh 带到前台。只阅读而不按键、不点击、不移动鼠标，也算空闲。它只看带有 dsh 橙色圆点（问题、审批或计划审阅）或绿色圆点（你尚未打开的已完成一轮）的对话；子代理的请求显示在其父对话中。橙色对话先打开。打开绿色对话会去掉它的圆点，所以下一个绿色对话要等你下一次按键、点击、移动鼠标、滚动滚轮或触摸后才开始计 30 秒：你回来时，其他绿色圆点仍在。等待中的对话在屏幕上时，不会打开其他对话；你没有回答就离开的对话，在再次 30 秒没有使用后可能会再次打开。30 秒不能更改。
+- **下一个等待中的对话** 计入的对话与 **空闲时打开等待中的对话** 相同：dsh 的橙色圆点（可在此处回答的问题、审批或计划审阅）和绿色圆点（你尚未打开的已完成一轮）；子代理的请求显示在其父对话中。dsh 不记录对话开始等待的时间，因此顺序从本窗口看到它的那一刻算起：重新加载后，已在等待的对话保持 dsh 的顺序。该按键是 dsh 快捷键：在 Linux 的浏览器中，它没有默认按键，需要你在 dsh 的键盘快捷键页面中设置；浏览器扩展或其他应用也可能先占用 `Cmd+Shift+E`。dsh 的侧边栏标题栏没有扩展插槽，所以按钮放在 dsh 的标题栏结构中；如果 dsh 更新改变了它，按钮不会显示，但按键仍然可用。窄侧边栏中没有该按钮。
+- **选项按钮** 只读取以选项列表结尾的回答：一个从 1 开始编号、有 1 到 9 项的编号列表，位于回答的最后，紧接在标题或加粗行“选项”或“下一步”之下（也包括英文的“Options”“Choices”“Next steps”以及应用其他语言中的相同词语）。回答中间的列表、代码块中的列表或其他标题下的列表不显示按钮。Composer Plus 不会要求智能体写这样的列表。按钮只显示在最新的回答下，且对话空闲、输入框为空时才显示；并且要等 Composer Plus 知道哪些回答已被回退撤回之后才显示。在 dsh 的问题卡片上，问题出现后的前 0.8 秒内按 1–9 键无效，这样你本想用于别处的按键不会选中你还没读过的选项。dsh 的问题卡片没有按键 API，所以这些按键在 dsh 的标记中查找卡片上的按钮；如果 dsh 更新改变了这些标记，按键将不起作用。
 - 重启前发出的通知，点击后只会把 dsh 带到前台。
 - 活跃项目通过 dsh 保存的项目顺序来移动，因此新顺序在重启后依然保留。不属于任何项目的对话（“未分组”）无法移动；dsh 总是把它们列在最后。
 - dsh 在侧边栏的视图选项菜单中没有扩展点，所以近期项目选项被添加到 dsh 自己的菜单中。如果 dsh 更新修改了这个菜单，该选项将不会显示，所有项目都保持可见。筛选作用于项目行，因此 **单列表** 不会被筛选。在 **按工作区树** 中，只要父文件夹中的某个项目处于活跃状态，父文件夹就会保持显示，最近 2 小时内不活跃的对话行也会被隐藏；在 **按工作区** 中只筛选项目行。筛选会从 dsh 保存的视图设置（不是公开 API）读取 dsh 当前的视图；如果 dsh 更新改了它的名称，**按工作区树** 会按 **按工作区** 的方式筛选。项目状态也读取同一设置：在 **按工作区树** 中，父文件夹的行也会统计其中各项目的对话；如果 dsh 改了该设置的名称，每行只显示自己的对话。**按状态** 也有同类限制：dsh 没有排序插槽，因此该菜单项和行顺序依赖 dsh 的菜单和列表标记。
@@ -330,6 +336,10 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 **dsh 能自己打开向我提问的对话吗？** 可以，使用 **空闲时打开等待中的对话**（默认开启）：当某个对话在等待回答、审批或计划审阅，而你 30 秒没有使用 dsh 时，dsh 会打开它。完成了你尚未查看的一轮的对话（绿色圆点）也会这样打开，在橙色对话之后。你在输入、滚动或移动鼠标时，它会等待。
 
+**能直接跳到下一个在等我的对话吗？** 可以，使用 **下一个等待中的对话**（默认开启）：按 `Cmd+Shift+E`（Windows 和 Linux 上为 `Ctrl+Shift+E`），或点击侧边栏标题栏中带数字的按钮。提出问题或等待审批的对话排在前面，然后是完成了你尚未查看的一轮的对话。
+
+**能一键回答智能体给出的选项吗？** 可以，使用 **选项按钮**（默认开启）：当回答以“选项”列表结尾时，点击回答下方的按钮。它会把“Option N: …”作为你的消息发送。在智能体的提问卡片上，按 1–9 键。
+
 **如何把 DeepSeek Harness 界面切换为土耳其语、西班牙语、日语……？** 设置 → Composer Plus → **应用语言**。
 
 **如何在 iPhone 上使用 dsh？** 用 Xcode 从 `tether/ios` 构建 Tether 应用，开启 **设置 → Composer Plus → 手机连接（iPhone）**，点击左下角的 **手机连接**，扫描二维码（用 iPhone 相机或 Tether 中的 **Scan code**），轻点 **Connect**，然后点击 **Approve**。不在家时，请在两台设备上都使用 Tailscale。
@@ -359,6 +369,8 @@ PLAYWRIGHT=/path/to/playwright node test/browser-recent-finished.mjs /path/to/ds
 PLAYWRIGHT=/path/to/playwright node test/browser-recent-tree.mjs /path/to/dsh/lib/bin.js
 # Order by status (fake model + Schedule): real-app test + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-status-order.mjs /path/to/dsh/lib/bin.js
+# Next waiting chat and Option buttons (fake model): the sidebar button and Cmd+Shift+E open the waiting chats in order, the Keyboard shortcuts row, the option buttons and the question card keys, switch off + their thumbnails
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-agentbox-ideas.mjs /path/to/dsh/lib/bin.js
 # every Settings feature row shows a loading screenshot and a ? link to its README row
 PLAYWRIGHT=/path/to/playwright node test/browser-settings-shots.mjs /path/to/dsh/lib/bin.js
 # What's new after an update: the release notes show once, Esc and Close close them

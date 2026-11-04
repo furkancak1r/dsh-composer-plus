@@ -26,6 +26,8 @@ Composer Plus'ın her özelliğinin Tether'deki yeri [FEATURES.md](FEATURES.md) 
 
 Son eklenenler:
 
+- **Next waiting chat**: başka bir sohbet sizi beklerken Oturumlar'ın sağ üstünde bir nokta ve bir sayı görünür. Sayı, bekleyen sohbetlerin sayısıdır. Nokta sıradaki sohbetin rengindedir: soru, onay ya da plan bekliyorsa turuncu, bitmiş ama açılmamışsa yeşil. Dokununca o sohbet açılır. Turuncu sohbetler önce gelir. Her grupta en uzun bekleyen önce gelir. Aynı öğe sohbet başlığı menüsünde de vardır.
+- **Seçenek düğmeleri**: boşta olan bir sohbetin son cevabı bir seçenek listesiyle bitiyorsa ("Options" başlığı altında 1'den başlayan bir liste), cevabın altında her seçenek için bir düğme çıkar. "(recommended)" yazan seçenek işaretlidir. Dokununca "Option N: …" sizin mesajınız olarak gider. Düğmeler yalnız yazı alanı boşken görünür. Geri alınan bir cevapta ve kopya sohbetin (fork) ana sohbetten gelen cevabında düğme çıkmaz.
 - **Mark all as read**: Oturumlar'da proje başlığının yanındaki **…** düğmesine dokunun. Projenin bütün yeşil noktaları telefonda ve Mac'in okunmamış listesinde gider. Aynı menüde **Copy path** da vardır.
 - **Copy message link**: bir mesajı basılı tutun. Bağlantı sohbeti ve mesajı gösterir. Mesajınızdaki bağlantının altında **Open message** düğmesi çıkar. Dokununca o sohbet açılır ve mesaj 2 sn işaretlenir.
 - **Kuyruktaki mesajı düzenleme**: kuyruk satırının menüsü → **Edit**. Metni değiştirin, görselleri ve dosyaları kaldırın ya da **Add photo or file** ile yenilerini ekleyin. Mesaj kuyruktaki yerini korur. Görsel ya da dosya içeren bir mesaj için Mac'teki Composer Plus'ın güncel olması gerekir.

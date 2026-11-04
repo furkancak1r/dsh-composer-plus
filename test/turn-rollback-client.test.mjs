@@ -36,7 +36,7 @@ assert.equal(inSpans([[9, 20]], undefined), false);
   const done = await first; await other;
   assert.deepEqual(done, { span: [9, 20], text: 'second', markerSeq: 20 });
   assert.deepEqual(calls.map((c) => c[0]), [{ sessionId: 'chat-a', seq: 9, files: true }, { sessionId: 'chat-b', seq: 4, files: false }]);
-  assert.deepEqual(store.of('chat-a'), { spans: [[9, 20]], rewind: false, busy: false, error: null, redo: 20 }, 'the newest rollback can be redone');
+  assert.deepEqual(store.of('chat-a'), { spans: [[9, 20]], withdrawn: [[9, 20]], rewind: false, busy: false, error: null, redo: 20, inherited: 0 }, 'the newest rollback can be redone');
   assert.ok(changes >= 3);
   g = gate(); g.go();
   const failing = createRollback(async () => reply(409, { error: 'the running turn did not stop' }));
@@ -53,7 +53,7 @@ assert.equal(inSpans([[9, 20]], undefined), false);
     const rs = createRollback(async (init, query) => {
       if (init === undefined) { const answer = getAnswer; await rg.p; return reply(200, answer); }
       const body = JSON.parse(init.body); sent.push(body); await rg.p;
-      return reply(200, body.seq !== undefined ? { span: [9, 20], markerSeq: 20 } : { sessionId: 'fork-1', files: { restored: ['a.js'], deleted: [], skipped: [], changed: [] } });
+      return reply(200, body.seq !== undefined ? { span: body.seq === 40 ? [40, 41] : [9, 20], markerSeq: body.seq === 40 ? 41 : 20 } : { sessionId: 'fork-1', files: { restored: ['a.js'], deleted: [], skipped: [], changed: [] } });
     });
     rg.go(); await rs.run('c', 9, true); assert.equal(rs.of('c').redo, 20);
     rg = gate();
@@ -69,15 +69,30 @@ assert.equal(inSpans([[9, 20]], undefined), false);
     assert.equal(rs.of('c').redo, null, 'an older GET answer does not bring the offer back');
     assert.deepEqual(sent.at(-1), { sessionId: 'c', redo: 20, files: true, overwrite: false });
     getAnswer = { spans: [[9, 20]], redo: null }; await rs.load('c'); assert.equal(rs.of('c').redo, null);
+    assert.deepEqual(rs.of('c').withdrawn, [[9, 20]], 'an answer without `withdrawn` (an older Host): its spans count; the rollback\'s span is kept once');
+    getAnswer = { spans: [[9, 20]], withdrawn: [[9, 20], [22, 25]], redo: null }; await rs.load('c');
+    assert.deepEqual(rs.of('c').withdrawn, [[9, 20], [22, 25]], 'dsh-rewind-plugin\'s span added');
+    // A load that started before a rollback ended answers without its span: the rollback's span stays.
+    rg = gate(); getAnswer = { spans: [], withdrawn: [[22, 25]], redo: null };
+    const early = rs.load('c'); const late = rs.run('c', 40, false); rg.go(); await late; await early;
+    assert.deepEqual(rs.of('c').withdrawn, [[9, 20], [22, 25], [40, 41]], 'the span of a rollback that ended during an older load stays');
+    assert.deepEqual(rs.of('c').spans, [[9, 20], [40, 41]], 'the ↶ view keeps it too');
     getAnswer = { spans: [[9, 20]], redo: 31 }; await rs.load('c'); assert.equal(rs.of('c').redo, 31, 'a fresh GET answer counts');
     rs.dismissRedo('c'); assert.equal(rs.of('c').redo, null);
     const failing = createRollback(async () => reply(409, { error: 'this rollback can no longer be redone' }));
     failing.of('x'); await failing.load('x');
   }
-  // load: spans from the log (after a reload) and whether dsh-rewind-plugin owns rollback.
-  const loaded = createRollback(async (init, query) => { assert.equal(query, '?sessionId=chat%2Fx'); return reply(200, { on: true, rewind: true, spans: [[3, 7]] }); });
+  // load: spans from the log (after a reload), whether dsh-rewind-plugin owns rollback, and a fork's inherited event count.
+  let answerInherited = 12;
+  const loaded = createRollback(async (init, query) => { assert.equal(query, '?sessionId=chat%2Fx'); return reply(200, { on: true, rewind: true, spans: [[3, 7]], withdrawn: [[3, 7], [8, 9]], inherited: answerInherited }); });
   await loaded.load('chat/x');
-  assert.deepEqual(loaded.of('chat/x').spans, [[3, 7]]); assert.equal(loaded.of('chat/x').rewind, true);
+  assert.deepEqual(loaded.of('chat/x').spans, [[3, 7]]); assert.equal(loaded.of('chat/x').rewind, true); assert.equal(loaded.of('chat/x').inherited, 12, 'a fork');
+  assert.deepEqual(loaded.of('chat/x').withdrawn, [[3, 7], [8, 9]], 'withdrawn: both marker kinds, kept once each');
+  for (const bad of [-3, 2.5, '12', undefined]) { answerInherited = bad; await loaded.load('chat/x'); assert.equal(loaded.of('chat/x').inherited, 0, `not a count: ${bad}`); }
+  // load tells whether the Host answered: Option picks shows no buttons before (rules 9 and 10).
+  assert.equal(await loaded.load('chat/x'), true, 'the Host answered');
+  assert.equal(await createRollback(async () => reply(500, { error: 'down' })).load('c'), false, 'an error: no answer');
+  assert.equal(await createRollback(async () => { throw new Error('offline'); }).load('c'), false, 'no connection: no answer');
   const preview = createRollback(async (init) => reply(200, { git: true, snapshot: true, files: [{ path: 'a.js', action: 'restore' }], echo: JSON.parse(init.body) }));
   assert.deepEqual((await preview.preview('chat-a', 9)).echo, { sessionId: 'chat-a', seq: 9, preview: true });
 }
