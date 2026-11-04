@@ -3466,8 +3466,9 @@ func boardStatusName(_ s: String) -> String {
 
 /// Task board (Composer Plus on the Mac): the DSH chats as a kanban board, with their live state. The segmented control
 /// picks a column. A tap on a card opens its chat; a tap on a waiting card opens its question or approval. + starts a new
-/// chat with a prompt (the Mac names it and AI writes the tags). In Done, × takes one card off the board and Clear all takes
-/// every Done card off it (the chats stay in DSH). The sheet reads the tags again every 5 s while it is open.
+/// chat with a prompt (the Mac names it and AI writes the tags). In Done, a swipe takes one card off the board; the ⋯ menu
+/// has Clear all (it asks first; unread cards stay) and Removed (Put back). Undo shows for 8 s after a removal. No chat is
+/// deleted. The sheet reads the tags again every 5 s while it is open.
 struct BoardSheet: View {
     @EnvironmentObject var c: Client
     @Environment(\.dismiss) private var dismiss
@@ -3476,9 +3477,12 @@ struct BoardSheet: View {
     @State private var column: String?
     @State private var project: String
     @State private var picking = false
+    /// The open Clear all question: the read Done cards at the tap.
+    @State private var clearing: BoardClearAsk?
+    @State private var showRemoved = false
     init(project: String) { _project = State(initialValue: project) }
     private var ready: Bool { b.loaded && !b.off && !b.missing }
-    private var view: (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
+    private var view: (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])], removed: [BoardCard]) {
         boardColumns(sessions: c.sessions, workspaces: c.workspaces, archived: Set(c.archived), waiting: Set(c.prompts.compactMap(\.agentId)),
                      finished: c.finished, meta: b.meta, task: c.boardTask, hidden: b.shownHidden, project: project)
     }
@@ -3493,27 +3497,20 @@ struct BoardSheet: View {
                     let shown = boardStartColumn(v.columns, current: column)
                     let cards = v.columns.first { $0.status == shown }?.cards ?? []
                     if cards.isEmpty { Text("No chats here.").foregroundStyle(.secondary) }
-                    // Done: Clear all (every card in Done now) and × on each card. Only with a Mac that keeps the list.
+                    // Done: a swipe (or the VoiceOver action) takes the card off the board. Only with a Mac that keeps the list.
                     let canHide = shown == "done" && b.hidden != nil
-                    if canHide, !cards.isEmpty {
-                        // Not a destructive (red) button: no chat is deleted.
-                        Button("Clear all") { let ids = cards.map(\.id); Task { await b.hide(ids) } }
-                            .disabled(b.hiding != nil)
-                            .accessibilityHint(Text("Takes every card in Done off the board. The chats stay in DSH."))
-                    }
                     ForEach(cards.prefix(100)) { card in
-                        if canHide {
-                            // Two buttons in one row: each borderless, so a tap fires only the one under the finger.
-                            HStack(spacing: 8) {
-                                Button { tap(card) } label: { BoardCardRow(card: card, progress: b.progress[card.id]).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }
-                                    .buttonStyle(.borderless)
-                                Button { Task { await b.hide([card.id]) } } label: { Image(systemName: "xmark").font(.footnote.weight(.semibold)).foregroundStyle(.secondary).frame(width: 32, height: 32).contentShape(Rectangle()) }
-                                    .buttonStyle(.borderless).disabled(b.hiding != nil)
-                                    .accessibilityLabel(Text("Remove from the board: \(card.title)"))
+                        Button { tap(card) } label: { BoardCardRow(card: card, progress: b.progress[card.id]) }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                                // Not a destructive (red) action: no chat is deleted.
+                                if canHide {
+                                    Button { Task { await b.hide([card.id]) } } label: { Label("Remove from the board", systemImage: "eye.slash") }
+                                        .tint(.gray).disabled(b.changing)
+                                }
                             }
-                        } else {
-                            Button { tap(card) } label: { BoardCardRow(card: card, progress: b.progress[card.id]) }
-                        }
+                    }
+                    if canHide, !v.removed.isEmpty {
+                        Button("Removed (\(v.removed.count))") { showRemoved = true }.font(.footnote)
                     }
                     if let f = b.hideFailed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
                 } else if b.readFailed == nil { HStack(spacing: 8) { ProgressView(); Text("Loading the board…") } }
@@ -3525,6 +3522,17 @@ struct BoardSheet: View {
                         ForEach(v.columns, id: \.status) { col in Text(verbatim: "\(boardStatusName(col.status)) \(col.cards.count)").tag(col.status) }
                     }
                     .pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8).background(.bar)
+                }
+            }
+            .safeAreaInset(edge: .bottom) {
+                // Undo after a removal (8 s).
+                if let ids = b.undo {
+                    HStack(spacing: 12) {
+                        Text("\(ids.count) card(s) removed from the board.").font(.footnote).lineLimit(2)
+                        Spacer(minLength: 0)
+                        Button("Undo") { Task { await b.undoLast() } }.font(.footnote.weight(.semibold)).disabled(b.changing)
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 12).background(.bar)
                 }
             }
             .refreshable { await b.load() }
@@ -3539,7 +3547,25 @@ struct BoardSheet: View {
                         .accessibilityLabel("New task")
                 }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                // ⋯: Clear all (it asks first) and Removed. Only with a Mac that keeps the list.
+                if ready, b.hidden != nil {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        let done = v.columns.first { $0.status == "done" }?.cards ?? []
+                        let ids = boardClearIds(done)
+                        Menu {
+                            Button { clearing = BoardClearAsk(ids: ids, unread: done.count - ids.count, project: project == "all" ? nil : projectName) } label: { Label("Clear all", systemImage: "eye.slash") }
+                                .disabled(ids.isEmpty || b.changing)
+                            Button { showRemoved = true } label: { Label("Removed (\(v.removed.count))", systemImage: "tray") }
+                        } label: { Image(systemName: "ellipsis.circle") }
+                        .accessibilityLabel("More")
+                    }
+                }
             }
+            .confirmationDialog("Clear all?", isPresented: Binding(get: { clearing != nil }, set: { if !$0 { clearing = nil } }), titleVisibility: .visible, presenting: clearing) { ask in
+                Button("Clear all") { clearing = nil; Task { await b.hide(ask.ids) } }
+                Button("Cancel", role: .cancel) { clearing = nil }
+            } message: { ask in Text(verbatim: ask.message) }
+            .sheet(isPresented: $showRemoved) { BoardRemovedSheet(b: b, cards: v.removed, all: project == "all").presentationDetents([.medium, .large]) }
             // The column is fixed once the board shows (a chat that starts to wait later does not move the view).
             .onChange(of: ready, initial: true) { _, r in if r, column == nil { column = boardStartColumn(view.columns) } }
             .sheet(isPresented: $picking) { BoardProjectSheet(projects: v.projects, project: $project).presentationDetents([.medium, .large]) }
@@ -3575,6 +3601,47 @@ struct BoardSheet: View {
         }
         .disabled(!ready)
         .accessibilityLabel(Text("Task board, project: \(projectName)"))
+    }
+}
+
+/// The Clear all question: the read Done cards at the tap, the unread ones that stay, the shown project (nil: all).
+struct BoardClearAsk {
+    let ids: [String]; let unread: Int; let project: String?
+    var message: String {
+        let n = ids.count
+        var out = project.map { String(localized: "\(n) finished card(s) of \($0) leave the board.") } ?? String(localized: "\(n) finished card(s) of all projects leave the board.")
+        if unread > 0 { out += " " + String(localized: "\(unread) unread card(s) stay.") }
+        return out + " " + String(localized: "The chats stay in DSH. Undo or Removed brings the cards back.")
+    }
+}
+
+/// Removed: the cards of the shown project that are off the board (newest first, at most 100); Put back shows a card in
+/// Done again. The chats were never changed.
+struct BoardRemovedSheet: View {
+    @ObservedObject var b: TaskBoard
+    let cards: [BoardCard]
+    let all: Bool
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    if cards.isEmpty { Text("No cards are off the board.").foregroundStyle(.secondary) }
+                    ForEach(cards.prefix(100)) { card in
+                        HStack(spacing: 8) {
+                            BoardCardRow(card: BoardCard(id: card.id, title: card.title, prompt: card.prompt, tags: card.tags, project: all ? card.project : nil, updated: card.updated, state: "read"))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Button("Put back") { Task { await b.unhide([card.id]) } }
+                                .buttonStyle(.bordered).controlSize(.small).disabled(b.changing)
+                                .accessibilityLabel(Text("Put back: \(card.title)"))
+                        }
+                    }
+                    if let f = b.hideFailed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
+                } footer: { Text("These chats stay in DSH. Put back shows a card in Done again.") }
+            }
+            .navigationTitle("Removed").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
     }
 }
 

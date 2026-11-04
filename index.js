@@ -6660,7 +6660,7 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
   // off, so the record does not hide a chat that ran in the meantime. A chat that is not hidden writes nothing.
   ctx.on?.('agent/status', ({ agent, status } = {}) => {
     if (closed || status !== 'running' || !isText(agent?.id, 128) || agent.session?.header?.origin === 'subagent') return;
-    store.change((chats, hidden) => (agent.id in hidden ? void delete hidden[agent.id] : false))
+    store.change((chats, hidden) => (Object.hasOwn(hidden, agent.id) ? void delete hidden[agent.id] : false))
       .catch((error) => ctx.logger?.warn?.(`dsh-composer-plus: task board record failed: ${String(error?.message ?? error).slice(0, 300)}`));
   });
   let switching = ready;
@@ -6685,7 +6685,8 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
    * opened this dsh chat; it goes on the board (in Doing as "New task" until its first message). A message that came before
    * the POST is read from the chat's log, so a fast first message still names the card. POST `{hide: [ids]}`: take these
    * finished chats off the board (× on a Done card, Clear all); merged into the newest list, so two hides at the same time
-   * both stay. A chat that runs at that moment is not hidden. Answers `{rev, hidden}`. No chat changes in dsh. */
+   * both stay. A chat that runs at that moment is not hidden. POST `{unhide: [ids]}`: put them back (Undo, Put back); an
+   * id that is not on the list changes nothing. Both answer `{rev, hidden}`. No chat changes in dsh. */
   ctx.connection.fetch.register({
     path: BOARD_CHATS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     fetch: async (request) => {
@@ -6701,12 +6702,20 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
         let body;
         try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
         const id = (v) => isText(v, 128) && v !== '__proto__';
-        if (plainObject(body) && Object.keys(body).join() === 'hide') {
-          const ids = body.hide;
+        const key = plainObject(body) ? Object.keys(body).join() : '';
+        if (key === 'hide' || key === 'unhide') {
+          const ids = body[key];
           if (!Array.isArray(ids) || ids.length === 0 || ids.length > BOARD_LIMITS.hidden || !ids.every(id)) return json({ error: 'bad request' }, 400);
           const at = Date.now();
           await store.change((chats, hidden) => {
+            if (key === 'unhide') {
+              const back = ids.filter((sid) => Object.hasOwn(hidden, sid));
+              if (back.length === 0) return false;
+              for (const sid of back) delete hidden[sid];
+              return undefined;
+            }
             for (const sid of ids) if ((get('agents')?.get?.(sid)?.status ?? 'idle') === 'idle') hidden[sid] = at;
+            return undefined;
           });
           return json({ rev: store.rev(), hidden: Object.keys(store.hidden()) });
         }

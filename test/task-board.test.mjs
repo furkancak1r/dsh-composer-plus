@@ -221,6 +221,22 @@ try {
   assert.ok(board.store.hidden().d3, 'a subagent with the same id does not count');
   onStatus({ agent: chats.get('d2').agent, status: 'running' }); await pause(10);
   assert.deepEqual(Object.keys(board.store.hidden()).sort(), ['d1', 'd3', 'gone-from-dsh'], 'a hidden chat that runs again comes back');
+  // Undo and Put back: {unhide}; an id that is not on the list changes nothing (no write); a hide and an unhide at the same
+  // time are merged one after the other.
+  const [u1, h3] = await Promise.all([call(BOARD_CHATS_PATH, { unhide: ['d1'] }), call(BOARD_CHATS_PATH, { hide: ['d2'] })]);
+  assert.equal(u1.status, 200); assert.equal(h3.status, 200);
+  assert.deepEqual(Object.keys(board.store.hidden()).sort(), ['d2', 'd3', 'gone-from-dsh'], 'a put back and a hide at the same time: both apply');
+  assert.deepEqual((await call(BOARD_CHATS_PATH)).body.hidden.sort(), ['d2', 'd3', 'gone-from-dsh']);
+  const revUnhide = board.store.rev();
+  assert.deepEqual((await call(BOARD_CHATS_PATH, { unhide: ['never', 'd1'] })).body.hidden.sort(), ['d2', 'd3', 'gone-from-dsh'], 'ids that are not hidden: nothing changes');
+  assert.equal(board.store.rev(), revUnhide, 'and nothing is written');
+  assert.equal(JSON.parse(await readFile(join(dir, 'board-chats.json'), 'utf8')).hidden.d1, undefined, 'the file has it no more');
+  assert.deepEqual([...chats.keys()], before0, 'a put back changes no chat in dsh either');
+  assert.equal((await call(BOARD_CHATS_PATH, { unhide: ['toString'] })).status, 200, 'an id like an Object method is a plain id');
+  assert.equal(board.store.rev(), revUnhide, 'and it is not on the list');
+  for (const bad of [{ unhide: [] }, { unhide: 'd2' }, { unhide: [3] }, { unhide: ['__proto__'] }, { unhide: ['d2'], hide: ['d3'] }, { unhide: Array.from({ length: BOARD_LIMITS.hidden + 1 }, (_, i) => `z${i}`) }]) {
+    assert.equal((await call(BOARD_CHATS_PATH, bad)).status, 400, JSON.stringify(bad).slice(0, 60));
+  }
   // Progress on hover: fast by default (the log only, no model call); AI summary as a setting.
   const P = BOARD_PROGRESS_PATH;
   assert.deepEqual((await call(P)).body, { mode: 'fast' }, 'fast (no AI) by default');
@@ -304,7 +320,7 @@ try {
   const again = installBoard({ ...ctx, connection: { fetch: { register: () => {} } } }, home);
   await again.ready; await again.store.ready;
   assert.deepEqual(again.store.list().n1.tags, ['chess', 'game']);
-  assert.deepEqual(Object.keys(again.store.hidden()).sort(), ['d1', 'd3', 'gone-from-dsh'], 'the hidden chats stay hidden after a restart');
+  assert.deepEqual(Object.keys(again.store.hidden()).sort(), ['d2', 'd3', 'gone-from-dsh'], 'the hidden chats stay hidden after a restart (the put back one is not)');
   assert.equal(again.isOn(), true);
   console.log('task board: host ok');
 } finally { await rm(root, { recursive: true, force: true }); }

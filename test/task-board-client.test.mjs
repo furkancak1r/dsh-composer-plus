@@ -35,6 +35,7 @@ globalThis.fetch = async (url, init) => {
   if (gate) await gate.promise;
   if (refuse) { const r = refuse; refuse = null; return Response.json({ error: r.error }, { status: r.status }); }
   if (body.hide) { rev += 1; hiddenIds = [...new Set([...hiddenIds, ...body.hide])]; return Response.json({ rev, hidden: hiddenIds }); }
+  if (body.unhide) { rev += 1; hiddenIds = hiddenIds.filter((id) => !body.unhide.includes(id)); return Response.json({ rev, hidden: hiddenIds }); }
   rev += 1; chats = { ...chats, [body.sessionId]: { prompt: '', tags: [], at: 9 } };
   return Response.json({ rev, sessionId: body.sessionId });
 };
@@ -44,7 +45,7 @@ let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, 
 eval(readFileSync(new URL('../client.js', import.meta.url), 'utf8'));
 const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment: 'F', useState: (v) => [typeof v === 'function' ? v() : v, () => {}], useRef: (v) => ({ current: v }),
   useEffect: () => {}, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: () => {} };
-const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Menu: 'Menu', Input: 'Input', StateDot: 'StateDot' } : {}));
+const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Menu: 'Menu', Input: 'Input', StateDot: 'StateDot', Modal: 'Modal', Button: 'Button' } : {}));
 const live = new Map(); let next = 0;
 plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: (ns) => (k) => `${ns}:${k}`, resolveText: (x) => x },
   slots: { inject: (n, f) => { const off = f(); return () => off(); }, register: (o, C) => { const key = next++; live.set(key, [o, C]); return () => live.delete(key); } } });
@@ -110,16 +111,21 @@ board.setQuery(''); board.toggleRecent(); assert.equal(board.getSnapshot().recen
 // Hidden chats (× and Clear all): left out of Done only; a hidden chat that runs or waits shows again.
 v = board.columns({ workspaces, list, statuses, hidden: new Set(['s4', 's9', 's1', 's2']) });
 assert.deepEqual(ids(v, 'done'), ['s8', 's7'], 'hidden finished chats are not in Done');
-assert.deepEqual(v.doneIds, ['s8', 's7'], 'Clear all takes the shown Done ids');
+assert.deepEqual(v.clearIds, ['s8', 's7'], 'Clear all takes the shown read Done ids'); assert.equal(v.unreadDone, 0);
+assert.deepEqual(v.removed.map((c) => c.id), ['s4', 's9'], 'Removed: the hidden finished chats, newest first (not the ones that run or wait)');
+assert.equal(v.removed[0].state, 'unread', 'a removed card keeps its state');
 assert.deepEqual(ids(v, 'review'), ['s1'], 'a hidden chat that waits for you shows in Review');
 assert.deepEqual(ids(v, 'doing'), ['s2', 's3'], 'a hidden chat that runs shows in Doing');
 assert.deepEqual(v.counts, { running: 2, waiting: 1 }, 'the counts are the same');
-assert.deepEqual(board.columns({ workspaces, list, statuses, hidden: new Set(['s7']), project: 'w1' }).doneIds, ['s4', 's8', 's9'], 'only the shown project');
+v = board.columns({ workspaces, list, statuses, hidden: new Set(['s7']), project: 'w1' });
+assert.deepEqual(v.clearIds, ['s8', 's9'], 'only the shown project; an unread (green) card stays'); assert.equal(v.unreadDone, 1, 's4 is unread');
+assert.deepEqual(v.removed.map((c) => c.id), ['s7'], 'Removed of the shown project');
+assert.deepEqual(board.columns({ workspaces, list, statuses, hidden: new Set(['s7']), project: 'w3' }).removed, [], 'another project: none');
 assert.equal(board.columns({ workspaces, list, statuses, hideDone: true }).columns.length, 3, 'no Hide finished: Done always shows');
 const many = { byId: Object.fromEntries(Array.from({ length: 60 }, (_, i) => summary(`m${i}`, { updatedAt: i }))) };
 v = board.columns({ workspaces: { items: [], archivedSessionIds: [] }, list: many, statuses: new Map() });
 assert.equal(v.columns[2].cards.length, 50); assert.equal(v.hiddenDone, 10); assert.equal(v.columns[2].cards[0].id, 'm59');
-assert.equal(v.doneIds.length, 60, 'Clear all also takes the older ones behind Show N older');
+assert.equal(v.clearIds.length, 60, 'Clear all also takes the older ones behind Show N older');
 assert.equal(board.columns({ workspaces: { items: [] }, list: many, statuses: new Map(), doneAll: true }).columns[2].cards.length, 60);
 // The new task's blank chat is the first card of Doing (no other blank chat); once it has a message it is a normal card.
 v = board.columns({ workspaces, list, statuses, task: 's5' });
@@ -339,13 +345,74 @@ assert.match(src, /\.cpb-col\{flex:1 1 0;min-width:140px/, 'the columns share th
   assert.deepEqual(posts, [{ hide: ['s4'] }], 'one request, with only that chat');
   assert.deepEqual([...board.getSnapshot().hidden], ['s4'], 'the Host\'s answer is the list');
   el = pgOf(); assert.deepEqual(cardIds(el, 'done'), ['s8', 's9', 's7'], 'a read that started before the answer does not bring it back');
-  // Clear all: every Done card of the board (also the older ones), one request.
+  // Undo shows after the ×, for 8 s; its timer ends it.
+  const undoBar = (e) => find(e, (n) => n.p?.['data-cpb-undo'] !== undefined)[0];
+  assert.deepEqual(board.getSnapshot().undo, ['s4'], 'Undo for the card that went');
+  assert.equal(undoBar(el).c[0], 'board.undo'); assert.equal(find(el, (n) => n.p?.['data-cpb-undo-bar'] !== undefined)[0].c[0].c[0], 'board.undoText');
+  const undoTimers = () => timers.filter((x) => x.ms === 8000);
+  assert.equal(undoTimers().length, 1, 'one Undo timer'); undoTimers()[0].f();
+  assert.equal(board.getSnapshot().undo, null, 'after 8 s Undo goes'); assert.equal(undoBar(pgOf()), undefined);
+  // Removed (1): its panel lists s4 and puts it back.
+  el = pgOf();
+  const removedButton = find(col(el, 'done'), (n) => n.p?.['data-cpb-removed'] !== undefined)[0];
+  assert.equal(removedButton.c[0], 'board.removed', 'Removed (N) under Done'); removedButton.p.onClick();
+  const removedPanel = () => { const n = find(pgOf(), (x) => typeof x.t === 'function' && x.t.name === 'BoardRemoved')[0]; return n.t(n.p); };
+  let rp = removedPanel();
+  assert.equal(rp.p['data-cpb-panel'], 'removed');
+  assert.deepEqual(find(rp, (n) => n.p?.['data-cpb-removed-card'] !== undefined).map((n) => n.p['data-cpb-removed-card']), ['s4'], 'the removed card');
+  const putBack = find(rp, (n) => n.p?.['data-cpb-unhide'] === 's4')[0];
+  assert.equal(putBack.c[0], 'board.putBack'); assert.equal(putBack.p['aria-label'], 'board.putBack: Title s4');
   posts.length = 0;
-  await find(col(el, 'done'), (n) => n.p?.['data-cpb-clear-all'] !== undefined)[0].p.onClick();
-  assert.deepEqual(posts, [{ hide: ['s8', 's9', 's7'] }], 'Clear all sends every card that is in Done now');
-  el = pgOf(); assert.deepEqual(cardIds(el, 'done'), [], 'Done is empty');
-  assert.equal(find(col(el, 'done'), (n) => n.p?.['data-cpb-clear-all'] !== undefined).length, 0, 'an empty Done has no Clear all');
+  const back = hold(); const backing = putBack.p.onClick(); await tick();
+  assert.deepEqual(cardIds(pgOf(), 'done'), ['s4', 's8', 's9', 's7'], 'Put back: the card is in Done at once');
+  assert.equal(find(removedPanel(), (n) => n.p?.['data-cpb-unhide'] !== undefined).length, 0, 'and not in Removed');
+  assert.equal(await board.hide(['s8']), false, 'no hide while a put back runs');
+  assert.equal(find(col(pgOf(), 'done'), (n) => n.p?.['data-cpb-hide'] === 's8')[0].p.disabled, true, 'the × waits too');
+  back(); await backing; await tick(); await tick(); assert.deepEqual(posts, [{ unhide: ['s4'] }], 'one request');
+  assert.deepEqual([...board.getSnapshot().hidden], [], 'the Host\'s answer');
+  board.close(); assert.equal(board.getSnapshot().removedOpen, false, 'Esc or ✕ closes Removed');
+  // Clear all asks first: the count and the project; an unread (green) card stays.
+  el = pgOf(); posts.length = 0;
+  find(col(el, 'done'), (n) => n.p?.['data-cpb-clear-all'] !== undefined)[0].p.onClick();
+  assert.deepEqual(posts, [], 'no request before the answer');
+  assert.deepEqual(board.getSnapshot().clearing, { ids: ['s8', 's9', 's7'], unread: 1, project: undefined }, 'the read cards; s4 is unread and stays');
+  const dialog = () => { const n = find(pgOf(), (x) => typeof x.t === 'function' && x.t.name === 'BoardClearDialog')[0]; return n.t(n.p); };
+  let d = dialog();
+  assert.equal(d.p.title, 'board.clearTitle'); assert.equal(d.p.description, 'board.clearAllProjects', 'All projects: it says so');
+  assert.equal(find(d, (n) => n.p?.['data-cpb-clear-note'] !== undefined)[0].c[0], 'board.clearKeep', 'the chats stay in dsh');
+  assert.equal(find(d, (n) => n.p?.['data-cpb-clear-unread'] !== undefined)[0].c[0], 'board.clearUnread', 'the unread cards that stay');
+  find(d.p.footer, (n) => n.p?.['data-cpb-clear-cancel'] !== undefined)[0].p.onClick();
+  assert.equal(board.getSnapshot().clearing, null, 'Cancel: nothing goes'); assert.deepEqual(posts, []);
+  board.setProject('w1'); el = pgOf();
+  find(col(el, 'done'), (n) => n.p?.['data-cpb-clear-all'] !== undefined)[0].p.onClick();
+  d = dialog(); assert.equal(d.p.description, 'board.clearProject', 'a project: its name'); assert.equal(board.getSnapshot().clearing.project, 'acme');
+  find(d.p.footer, (n) => n.p?.['data-cpb-clear-confirm'] !== undefined)[0].p.onClick(); await tick(); await tick();
+  assert.equal(board.getSnapshot().clearing, null, 'the dialog closes');
+  assert.deepEqual(posts, [{ hide: ['s8', 's9', 's7'] }], 'Clear all sends the read cards that were in Done at the click');
+  el = pgOf(); assert.deepEqual(cardIds(el, 'done'), ['s4'], 'the unread card stays');
+  assert.equal(find(col(el, 'done'), (n) => n.p?.['data-cpb-clear-all'] !== undefined).length, 0, 'only unread cards: no Clear all');
   assert.deepEqual(cardIds(el, 'review'), ['s1'], 'Review stays'); assert.deepEqual(cardIds(el, 'doing'), ['s2', 's3'], 'Doing stays');
+  assert.equal(await board.confirmClear(), false, 'the question is gone: a second confirm does nothing');
+  // Undo puts back the whole Clear all.
+  posts.length = 0;
+  assert.equal(await undoBar(pgOf()).p.onClick(), undefined); await tick(); await tick();
+  assert.deepEqual(posts, [{ unhide: ['s8', 's9', 's7'] }], 'Undo puts back every card of the last removal');
+  assert.deepEqual(cardIds(pgOf(), 'done'), ['s4', 's8', 's9', 's7']); assert.equal(board.getSnapshot().undo, null, 'Undo goes after it');
+  assert.equal(await board.undo(), false, 'nothing to undo');
+  board.setProject('all');
+  // One change of the list at a time also for Clear all: no question while a hide runs, no confirm while one runs.
+  const busy = hold(); const running = board.hide(['s7']); await tick();
+  assert.equal(board.askClear(['s8'], 0), false, 'no question while a hide runs');
+  busy(); await running; board.askClear(['s8'], 0);
+  const busy2 = hold(); const again = board.unhide(['s7']); await tick();
+  assert.equal(await board.confirmClear(), false, 'no confirm while a put back runs');
+  assert.deepEqual(board.getSnapshot().clearing?.ids, ['s8'], 'and the question stays open (it is not lost)'); busy2(); await again;
+  board.cancelClear(); hiddenIds = []; await board.load(true);
+  // A failed put back: the card goes back to Removed with the reason.
+  await board.hide(['s9']); refuse = { status: 500, error: 'disk busy' };
+  assert.equal(await board.unhide(['s9']), false); assert.equal(board.getSnapshot().toast, 'disk busy');
+  assert.equal(cardIds(pgOf(), 'done').includes('s9'), false, 'a failed put back leaves the card off'); assert.equal(board.getSnapshot().unhiding, null);
+  hiddenIds = []; await board.load(true); board.reset();
   // A failure: the cards come back, the reason shows.
   hiddenIds = []; await board.load(true);
   refuse = { status: 500, error: 'disk full' };
@@ -360,7 +427,9 @@ assert.match(src, /\.cpb-col\{flex:1 1 0;min-width:140px/, 'the columns share th
   await board.load(true);
   assert.equal(board.getSnapshot().hidden, null);
   el = pgOf(); assert.deepEqual(xs(el, 'done'), [], 'an older Host: no ×'); assert.equal(find(el, (n) => n.p?.['data-cpb-clear-all'] !== undefined).length, 0, 'and no Clear all');
-  assert.equal(await board.hide(['s4']), false, 'and no hide'); assert.equal(oldPosts, 0, 'no request to an older Host');
+  assert.equal(find(el, (n) => n.p?.['data-cpb-removed'] !== undefined).length, 0, 'and no Removed');
+  assert.equal(await board.hide(['s4']), false, 'and no hide'); assert.equal(await board.unhide(['s4']), false, 'and no put back');
+  assert.equal(board.askClear(['s4'], 0), false, 'and no question'); assert.equal(oldPosts, 0, 'no request to an older Host');
   globalThis.fetch = realFetch; hiddenIds = []; await board.load(true);
   assert.match(src, /\.cpb-x\{[^}]*flex:none/, 'the × keeps its size next to a long title');
 }

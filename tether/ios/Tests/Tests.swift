@@ -1362,6 +1362,9 @@ final class BranchStateTests: XCTestCase {
         let hids = { (s: String) in hid.columns.first { $0.status == s }!.cards.map(\.id) }
         XCTAssertEqual(hids("done"), ["f"], "a hidden finished chat is not in Done")
         XCTAssertEqual(hids("review"), ["a"], "a hidden chat that waits shows"); XCTAssertEqual(hids("doing"), ["b", "c"], "a hidden chat that runs shows")
+        XCTAssertEqual(hid.removed.map(\.id), ["d"], "Removed: the hidden finished chat only"); XCTAssertEqual(hid.removed.first?.state, "unread")
+        // Clear all takes only the read cards: an unread (green) one stays.
+        XCTAssertEqual(boardClearIds(v.columns[2].cards), ["f"], "d is unread: it stays")
         let calm = boardColumns(sessions: sessions, workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], project: "all")
         XCTAssertEqual(calm.projects.map(\.waiting), [false, false], "running only: no orange dot")
         XCTAssertEqual(boardProjectOf("f", workspaces: workspaces), "w1", "the board of a branch chat is its repository's")
@@ -1404,8 +1407,8 @@ final class BranchStateTests: XCTestCase {
         XCTAssertTrue(none.columns.allSatisfy(\.cards.isEmpty), "no task: a blank chat never shows")
         XCTAssertFalse(none.projects[0].recent, "a blank chat does not make its project recent")
     }
-    /// × and Clear all: the Mac's list; one hide at a time; the cards go at once; an older read does not bring them back; a
-    /// failure brings them back with its reason; an older Mac (no list) has neither.
+    /// Swipe and Clear all: the Mac's list; one change at a time; the cards go at once; an older read does not bring them back;
+    /// a failure brings them back with its reason; Undo and Put back send {unhide}; an older Mac (no list) has none of them.
     func testHide() async {
         var list: [String] = []; var posts: [J] = []; var fail: Error?
         var holdHide: CheckedContinuation<Void, Never>?; var holdRead: CheckedContinuation<Void, Never>?; var holding = false; var holdingRead = false
@@ -1415,7 +1418,8 @@ final class BranchStateTests: XCTestCase {
                 // Only the first request waits: a second hide while one runs must not get here (it would fail, not hang).
                 if holding, holdHide == nil { await withCheckedContinuation { holdHide = $0 } }
                 if let f = fail { fail = nil; throw f }
-                list = Array(Set(list + (body["hide"] as? [String] ?? []))).sorted(); return ["rev": 2, "hidden": list]
+                let back = Set(body["unhide"] as? [String] ?? [])
+                list = Array(Set(list + (body["hide"] as? [String] ?? [])).subtracting(back)).sorted(); return ["rev": 2, "hidden": list]
             }
             let answer: J = ["rev": 1, "chats": [String: Any](), "hidden": list]
             if holdingRead { await withCheckedContinuation { holdRead = $0 } }
@@ -1430,7 +1434,7 @@ final class BranchStateTests: XCTestCase {
         holdingRead = true
         let read = Task { await b.load() }
         while holdRead == nil { await Task.yield() }
-        holding = false; holdHide?.resume()
+        holding = false; holdHide?.resume(); holdHide = nil
         let firstOK = await first.value; XCTAssertTrue(firstOK)
         holdingRead = false; holdRead?.resume(); await read.value
         XCTAssertEqual(b.hidden, ["d1"], "a read that the Mac answered before the hide does not bring the card back")
@@ -1438,13 +1442,40 @@ final class BranchStateTests: XCTestCase {
         let cleared = await b.hide(["d2", "d3", "d2"]); XCTAssertTrue(cleared)
         XCTAssertEqual(posts.last?["hide"] as? [String], ["d2", "d3"], "Clear all: every id once")
         XCTAssertEqual(b.hidden, ["d1", "d2", "d3"])
+        XCTAssertEqual(b.undo, ["d2", "d3"], "Undo for the last removal")
+        // Undo puts back the whole Clear all.
+        let undone = await b.undoLast(); XCTAssertTrue(undone)
+        XCTAssertEqual(posts.last?["unhide"] as? [String], ["d2", "d3"]); XCTAssertEqual(b.hidden, ["d1"]); XCTAssertNil(b.undo, "Undo goes after it")
+        let noUndo = await b.undoLast(); XCTAssertFalse(noUndo, "nothing to undo")
+        // Put back from Removed; while it runs, the card is back at once and no other change starts.
+        holding = true
+        let putting = Task { await b.unhide(["d1"]) }
+        while holdHide == nil { await Task.yield() }
+        XCTAssertFalse(b.shownHidden.contains("d1"), "Put back: the card is back at once")
+        let during = await b.hide(["d5"]); XCTAssertFalse(during, "no hide while a put back runs")
+        holding = false; holdHide?.resume(); holdHide = nil
+        let putOK = await putting.value; XCTAssertTrue(putOK); XCTAssertEqual(b.hidden, [])
+        // The Undo timer: it goes by itself.
+        b.undoSeconds = 0.05
+        _ = await b.hide(["d6"]); XCTAssertEqual(b.undo, ["d6"])
+        try? await Task.sleep(for: .milliseconds(300)); XCTAssertNil(b.undo, "Undo goes after its time")
         fail = Fail("disk full", status: 500)
         let failed = await b.hide(["d4"]); XCTAssertFalse(failed)
         XCTAssertNil(b.hiding); XCTAssertFalse(b.shownHidden.contains("d4"), "a failed hide brings the card back"); XCTAssertNotNil(b.hideFailed)
+        fail = Fail("disk full", status: 500)
+        let failedBack = await b.unhide(["d6"]); XCTAssertFalse(failedBack)
+        XCTAssertNil(b.unhiding); XCTAssertTrue(b.shownHidden.contains("d6"), "a failed put back leaves the card off")
         let empty = await b.hide([]); XCTAssertFalse(empty, "nothing to hide: no request")
         let old = TaskBoard { _, body in if body != nil { XCTFail("no request to an older Mac") }; return ["rev": 1, "chats": [String: Any]()] }
         await old.load(); XCTAssertNil(old.hidden, "an older Mac has no list")
         let oldHide = await old.hide(["d1"]); XCTAssertFalse(oldHide, "and no hide")
+        let oldBack = await old.unhide(["d1"]); XCTAssertFalse(oldBack, "and no put back")
+        // The Clear all question names the count, the project, the unread cards that stay and that the chats stay.
+        let ask = BoardClearAsk(ids: ["a", "b"], unread: 1, project: "acme")
+        XCTAssertTrue(ask.message.contains("2 finished card(s) of acme")); XCTAssertTrue(ask.message.contains("1 unread card(s) stay"))
+        XCTAssertTrue(ask.message.contains("The chats stay in DSH"))
+        XCTAssertTrue(BoardClearAsk(ids: ["a"], unread: 0, project: nil).message.contains("of all projects"))
+        XCTAssertFalse(BoardClearAsk(ids: ["a"], unread: 0, project: nil).message.contains("unread"))
     }
     /// A running card's progress line: the AI summary, else the step, else the tool now or the last one, else the agent's line.
     func testProgressLine() async {
