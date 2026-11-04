@@ -21,7 +21,7 @@
  * - Backup: archives of the dsh home in ~/Desktop/dsh-backups (secrets masked, their copies in a local vault), automatic
  *   backups, session log check and repair, and a rescue console in the backup folder for a restore while dsh is closed.
  */
-import { closeSync, constants, fstatSync, openSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, openSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { appendFile, copyFile, cp, lstat, mkdir, mkdtemp, open, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
@@ -726,6 +726,63 @@ export async function checkUpdate(fetchImpl = fetch, pkg = PACKAGE, signal) {
   // A release can go out before `npm publish`; offer only what pnpm can install.
   const npm = await fetchImpl(`https://registry.npmjs.org/${NPM_NAME}/${info.latest}`, opts);
   return { ...info, newer: npm.ok };
+}
+
+/** Daily active count: each release carries this file; `scripts/active-count.mjs` reads its GitHub download count. */
+export const ACTIVE_ASSET = 'active.txt';
+const ACTIVE_EVERY_MS = 60 * 60 * 1000;
+/** Anonymous daily active count: at most one request per UTC day for this version's release file. GitHub raises the file's
+ * download count when it answers the request; the request has no id, cookie, query or chat data, and the body is not read.
+ * No request from a renamed copy, a pre-release version or a git checkout (`dev`). The day is kept in `file` (owner-only)
+ * and in memory, so a failed save never sends a second request that day. A failed request (network, 403, 429, 5xx) keeps
+ * no day: the next call tries again. A 404 (the release has no such file) counts as done.
+ * ponytail: two dsh profiles that start at the same moment with one DSH_HOME can count one day twice; no lock. */
+export function activeCounter({ file, pkg = PACKAGE, fetchImpl = fetch, now = Date.now, dev = false }) {
+  const on = !dev && pkg.name === NPM_NAME && parseVersion(pkg.version) !== undefined;
+  let day; // the UTC day that this copy counted last
+  let loaded;
+  let running;
+  const tick = async (signal) => {
+    if (!on) return 'skip';
+    const today = new Date(now()).toISOString().slice(0, 10);
+    day ??= await (loaded ??= readFile(file, 'utf8').then((text) => JSON.parse(text)?.day).catch(() => undefined));
+    if (day === today) return 'done';
+    const timeout = AbortSignal.timeout(10000);
+    let response;
+    try {
+      response = await fetchImpl(`https://github.com/furkancak1r/dsh-composer-plus/releases/download/v${pkg.version}/${ACTIVE_ASSET}`,
+        { redirect: 'manual', headers: { 'user-agent': NPM_NAME }, signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]) });
+    } catch { return 'retry'; }
+    response.body?.cancel().catch(() => {});
+    if (response.status >= 400 && response.status !== 404) return 'retry';
+    day = today;
+    try {
+      await mkdir(dirname(file), { recursive: true });
+      const tmp = `${file}.${process.pid}.tmp`;
+      await writeFile(tmp, JSON.stringify({ day }), { mode: 0o600 });
+      await rename(tmp, file);
+    } catch { /* the day stays in memory */ }
+    return 'sent';
+  };
+  // One call at a time: a second call while one runs gets the same answer.
+  return (signal) => (running ??= tick(signal).finally(() => { running = undefined; }));
+}
+
+/** Daily active count (see activeCounter): once when dsh is ready, then each hour, so a dsh that stays open counts each day.
+ * ponytail: "git checkout" means a `.git` next to index.js (this repo, its worktrees, CI); a user who runs a clone is not
+ * counted. */
+function installActiveCount(ctx, home) {
+  const count = activeCounter({ file: join(home, 'storages', 'dsh-composer-plus', 'active.json'), dev: existsSync(new URL('./.git', import.meta.url)) });
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  ctx.effect?.(() => {
+    const abort = new AbortController();
+    const run = () => { count(abort.signal).catch(() => {}); };
+    const timer = setInterval(run, ACTIVE_EVERY_MS);
+    timer.unref?.();
+    const ready = get('appReady');
+    const cancel = ready?.onReady !== undefined ? ready.onReady(run) : (() => { const t = setTimeout(run, 3000); return () => clearTimeout(t); })();
+    return () => { abort.abort(); clearInterval(timer); cancel?.(); };
+  }, 'dsh-composer-plus: active count');
 }
 
 /** A Host switch (Mobile connect, Content search): `{ on }` in an owner-only JSON file. A missing or unreadable file, or
@@ -2016,6 +2073,7 @@ export function apply(ctx) {
   installResume(ctx, home);
   installIdeas(ctx, home);
   installContentSearch(ctx, home);
+  installActiveCount(ctx, home);
   installRollback(ctx, home, snapshots);
   installDeleteChat(ctx, home, snapshots);
   // One queue change (a move or an edit) per chat at a time.

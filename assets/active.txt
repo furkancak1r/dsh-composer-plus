@@ -1,0 +1,1 @@
+Composer Plus daily active count. Each installed copy asks for this file at most once a day; GitHub counts the requests. The request contains no data about the user.
