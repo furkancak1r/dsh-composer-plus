@@ -47,8 +47,31 @@ const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment:
   useEffect: () => {}, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: () => {} };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Menu: 'Menu', Input: 'Input', StateDot: 'StateDot', Modal: 'Modal', Button: 'Button' } : {}));
 const live = new Map(); let next = 0;
-plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: (ns) => (k) => `${ns}:${k}`, resolveText: (x) => x },
+// dsh's services for the Task board key: the Keyboard shortcuts service (it refuses a default that another command has)
+// and the layout (selectPanel opens a main panel). Only the board's key scope runs here.
+const commands = []; const selected = []; let keyFibers = 0;
+const shortcutsService = { register: (command) => { commands.push(command); return () => { commands.splice(commands.indexOf(command), 1); }; } };
+const inject = (deps, setup) => {
+  const offs = []; const fiber = { dispose: () => { for (const o of offs.splice(0).reverse()) o?.(); if (deps.join() === 'shortcuts,layout') keyFibers -= 1; } };
+  if (deps.join() === 'shortcuts,layout') { keyFibers += 1; setup({ shortcuts: shortcutsService, layout: { selectPanel: (id) => selected.push(id) }, effect: (f) => offs.push(f()) }); }
+  return fiber;
+};
+plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: (ns) => (k) => `${ns}:${k}`, resolveText: (x) => x }, inject,
   slots: { inject: (n, f) => { const off = f(); return () => off(); }, register: (o, C) => { const key = next++; live.set(key, [o, C]); return () => live.delete(key); } } });
+// Cmd+Shift+K (Ctrl+Shift+K) opens the board from anywhere, also from the composer; it is on dsh's Keyboard shortcuts page.
+{
+  const boardKey = commands.find((c) => c.id === 'composerPlus.taskBoard');
+  assert.ok(boardKey, 'on by default: the Task board command'); assert.equal(keyFibers, 1);
+  assert.match(boardKey.id, /^[a-z][a-zA-Z0-9-]*(?:\.[a-zA-Z][a-zA-Z0-9-]*)+$/u, 'dsh\'s command id pattern');
+  assert.equal(boardKey.label(), 'dsh-composer-plus:board.title', 'its row on the Keyboard shortcuts page: the Task board label');
+  assert.deepEqual(boardKey.regions, ['page', 'editable'], 'works while the composer has the focus'); assert.deepEqual(boardKey.modals, [], 'not in a dialog');
+  assert.deepEqual(Object.keys(boardKey.defaults).sort(), ['desktop:linux', 'desktop:macos', 'desktop:windows', 'web:macos', 'web:windows'], 'no web Linux default, as in dsh');
+  for (const binding of Object.values(boardKey.defaults)) assert.deepEqual(binding, { code: 'KeyK', modifiers: ['primary', 'shift'] }, 'Cmd+Shift+K / Ctrl+Shift+K');
+  const handled = boardKey.resolve({}); assert.equal(handled.status, 'handled'); handled.run();
+  assert.deepEqual(selected, ['composer-plus-board'], 'the key opens the board panel (the panel of the sidebar row)');
+}
+// A taken default (dsh refuses it) is handled by registerCommand, which test/next-waiting.test.mjs checks.
+assert.match(readFileSync(new URL('../client.js', import.meta.url), 'utf8'), /\.\.\.injectScope\(\['shortcuts', 'layout'\], \(scope\) => \{\n\s*\/\/ The key goes with the feature/, 'the key is part of the taskBoard feature');
 const page = [...live.values()].find(([o]) => o.name === 'main');
 const row = [...live.values()].find(([o]) => o.name === 'sidebar.panellist');
 assert.equal(page[0].key, 'composer-plus-board'); assert.equal(row[0].id, 'composer-plus-board', 'the sidebar row opens the same panel');
@@ -74,15 +97,23 @@ let v = board.columns({ workspaces, list, statuses, meta: chats });
 assert.deepEqual(v.columns.map((c) => c.status), ['doing', 'review', 'done'], 'three columns: no Todo');
 assert.deepEqual(ids(v, 'review'), ['s1'], 'orange: Review');
 assert.deepEqual(ids(v, 'doing'), ['s2', 's3'], 'running, or a running subagent: Doing');
-assert.deepEqual(ids(v, 'done'), ['s4', 's8', 's9', 's7'], 'the rest: Done, newest first (s5 blank, s6 archived, kid a subagent left out; an answered request is not orange)');
-assert.equal(v.columns[2].cards[0].state, 'unread', 'the green dot while unread'); assert.equal(v.columns[2].cards[1].state, 'read');
+assert.deepEqual(ids(v, 'done'), ['s4'], 'Done: the finished chats that you did not read yet (green)');
+assert.equal(v.columns[2].cards[0].state, 'unread', 'the green dot while unread');
+assert.deepEqual(v.recent.map((c) => c.id), ['s8', 's9', 's7'], 'a read card leaves Done for Recently finished, newest first (s5 blank, s6 archived, kid a subagent left out; an answered request is not orange)');
+assert.equal(v.recent[0].state, 'read'); assert.equal(v.recentCount, 3); assert.equal(v.unreadDone, 1);
+// The board's own unread set: a chat that finished behind a panel while it was dsh's open chat (no dsh dot) stays in Done.
+v = board.columns({ workspaces, list, statuses, fresh: new Set(['s9']) });
+assert.deepEqual(ids(v, 'done'), ['s4', 's9'], 'fresh: unread for the board'); assert.equal(v.columns[2].cards[1].state, 'unread');
+assert.deepEqual(v.recent.map((c) => c.id), ['s8', 's7']);
+assert.deepEqual(ids(board.columns({ workspaces, list, statuses: new Map([['s2', { running: true }]]), fresh: new Set(['s2']) }), 'doing'), ['s2', 's3'], 'a fresh chat that runs again is in Doing');
+v = board.columns({ workspaces, list, statuses, meta: chats });
 assert.deepEqual(v.projects.map((p) => [p.id, p.name, p.active, p.waiting]), [['w1', 'acme', 3, 1], ['w3', 'blog', 0, 0]], 'a Branch per chat folder is no project of its own; acme has 1 chat that waits');
 const s1 = v.columns[1].cards[0];
 assert.equal(s1.title, 'Title s1'); assert.deepEqual(s1.tags, ['chess', 'game']); assert.equal(s1.prompt, 'html css js ile satranç oyunu yap'); assert.equal(s1.ask.kind, 'approval');
 assert.deepEqual(v.counts, { running: 2, waiting: 1 });
-assert.deepEqual(ids(board.columns({ workspaces, list, statuses, meta: chats, project: 'w1' }), 'done'), ['s4', 's8', 's9', 's7'], 'the branch chat belongs to its repository');
+assert.deepEqual(board.columns({ workspaces, list, statuses, meta: chats, project: 'w1' }).recent.map((c) => c.id), ['s8', 's9', 's7'], 'the branch chat belongs to its repository');
 assert.deepEqual(ids(board.columns({ workspaces, list, statuses, project: 'w3' }), 'done'), []);
-assert.equal(board.columns({ workspaces, list: { byId: Object.fromEntries([summary('n1', { title: undefined, displayTitle: 'acme' })]) }, statuses: new Map(), meta: { n1: { prompt: 'Make a chess game\nwith tests', tags: [], at: 1 } } }).columns[2].cards[0].title,
+assert.equal(board.columns({ workspaces, list: { byId: Object.fromEntries([summary('n1', { title: undefined, displayTitle: 'acme' })]) }, statuses: new Map(), meta: { n1: { prompt: 'Make a chess game\nwith tests', tags: [], at: 1 } } }).recent[0].title,
   'Make a chess game', 'no dsh title yet: the first line of the prompt');
 // The project list: "Active in the last 2 hours" (waiting, running, unread, starting or changed in 2 hours) and the search.
 const T = 10 * 3600 * 1000;
@@ -95,6 +126,7 @@ assert.deepEqual(recentOf({ list: quietWith('s2', { running: true }) }), ['w1'],
 assert.deepEqual(recentOf({ list: quietWith('s7', { updatedAt: T - 3600 * 1000 }) }), ['w1'], 'changed 1 hour ago (in a Branch per chat folder: its repository)');
 assert.deepEqual(recentOf({ list: quietWith('s4', { updatedAt: T - 3 * 3600 * 1000 }) }), [], '3 hours ago: not recent');
 assert.deepEqual(recentOf({ statuses: new Map([['s4', { completionUnread: true }]]) }), ['w1'], 'finished and not opened yet');
+assert.deepEqual(recentOf({ fresh: new Set(['s4']) }), ['w1'], 'finished behind a panel, not seen yet');
 assert.deepEqual(recentOf({ list: quietWith('s6', { updatedAt: T }) }), [], 'an archived chat does not count');
 assert.deepEqual(recentOf({ list: quietWith('s5', { updatedAt: T }) }), [], 'a blank chat does not count');
 const named = [{ id: 'a', name: 'Çalışma', path: '/w/x', recent: false }, { id: 'b', name: 'blog', path: '/w/blog', recent: true }, { id: 'c', name: 'Docs Site', path: '/w/d', recent: false }];
@@ -110,8 +142,8 @@ board.setQuery('cal'); assert.deepEqual(listed(), [], 'both at once');
 board.setQuery(''); board.toggleRecent(); assert.equal(board.getSnapshot().recent, false);
 // Hidden chats (× and Clear all): left out of Done only; a hidden chat that runs or waits shows again.
 v = board.columns({ workspaces, list, statuses, hidden: new Set(['s4', 's9', 's1', 's2']) });
-assert.deepEqual(ids(v, 'done'), ['s8', 's7'], 'hidden finished chats are not in Done');
-assert.deepEqual(v.clearIds, ['s8', 's7'], 'Clear all takes the shown read Done ids'); assert.equal(v.unreadDone, 0);
+assert.deepEqual(ids(v, 'done'), [], 'hidden finished chats are not in Done'); assert.deepEqual(v.recent.map((c) => c.id), ['s8', 's7'], 'nor in Recently finished');
+assert.deepEqual(v.clearIds, ['s8', 's7'], 'Clear all takes the shown read finished ids'); assert.equal(v.unreadDone, 0);
 assert.deepEqual(v.removed.map((c) => c.id), ['s4', 's9'], 'Removed: the hidden finished chats, newest first (not the ones that run or wait)');
 assert.equal(v.removed[0].state, 'unread', 'a removed card keeps its state');
 assert.deepEqual(ids(v, 'review'), ['s1'], 'a hidden chat that waits for you shows in Review');
@@ -123,10 +155,17 @@ assert.deepEqual(v.removed.map((c) => c.id), ['s7'], 'Removed of the shown proje
 assert.deepEqual(board.columns({ workspaces, list, statuses, hidden: new Set(['s7']), project: 'w3' }).removed, [], 'another project: none');
 assert.equal(board.columns({ workspaces, list, statuses, hideDone: true }).columns.length, 3, 'no Hide finished: Done always shows');
 const many = { byId: Object.fromEntries(Array.from({ length: 60 }, (_, i) => summary(`m${i}`, { updatedAt: i }))) };
-v = board.columns({ workspaces: { items: [], archivedSessionIds: [] }, list: many, statuses: new Map() });
+const manyUnread = new Map(Object.keys(many.byId).map((id) => [id, { completionUnread: true }]));
+v = board.columns({ workspaces: { items: [], archivedSessionIds: [] }, list: many, statuses: manyUnread });
 assert.equal(v.columns[2].cards.length, 50); assert.equal(v.hiddenDone, 10); assert.equal(v.columns[2].cards[0].id, 'm59');
+assert.equal(v.unreadDone, 60, 'the unread count also counts the older ones');
+assert.equal(board.columns({ workspaces: { items: [] }, list: many, statuses: manyUnread, doneAll: true }).columns[2].cards.length, 60);
+// Recently finished: the 10 newest read cards until Show N older; Clear all takes them all.
+v = board.columns({ workspaces: { items: [], archivedSessionIds: [] }, list: many, statuses: new Map() });
+assert.equal(v.columns[2].cards.length, 0, 'nothing unread: Done has no card'); assert.equal(v.hiddenDone, 0);
+assert.equal(v.recent.length, 10); assert.equal(v.recent[0].id, 'm59'); assert.equal(v.recentCount, 60);
 assert.equal(v.clearIds.length, 60, 'Clear all also takes the older ones behind Show N older');
-assert.equal(board.columns({ workspaces: { items: [] }, list: many, statuses: new Map(), doneAll: true }).columns[2].cards.length, 60);
+assert.equal(board.columns({ workspaces: { items: [] }, list: many, statuses: new Map(), recentAll: true }).recent.length, 60);
 // The new task's blank chat is the first card of Doing (no other blank chat); once it has a message it is a normal card.
 v = board.columns({ workspaces, list, statuses, task: 's5' });
 assert.deepEqual(v.columns.map((c) => c.status), ['doing', 'review', 'done'], 'a new task waits: still no Todo');
@@ -231,9 +270,54 @@ board.setProject('all');
 const tree = page[1]({ ...injected, openSession: (id) => opened.push(id), useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
 assert.ok(pageEl);
 const cards = find(tree, (n) => n.p?.['data-cpb-card'] !== undefined);
-assert.equal(cards.length, 7, '7 chats (the blank one is no task now)');
+assert.equal(cards.length, 4, 'Doing 2, Review 1, Done 1 unread card; the 3 read cards are in a closed Recently finished (the blank one is no task now)');
+// Recently finished: a quiet row under the unread cards in Done; it opens the read cards in place (kept on this device).
+{
+  const pg = () => page[1]({ ...injected, openSession: () => {}, useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
+  const doneCol = (el) => find(el, (n) => n.p?.['data-cpb-column'] === 'done')[0];
+  const doneIds = (el) => find(doneCol(el), (n) => n.p?.['data-cpb-card'] !== undefined).map((n) => n.p['data-cpb-card']);
+  const row = (el) => find(doneCol(el), (n) => n.p?.['data-cpb-recent-done'] !== undefined)[0];
+  let el = pg();
+  assert.equal(board.getSnapshot().recentOpen, false, 'closed by default');
+  assert.deepEqual(doneIds(el), ['s4'], 'Done: the unread card only');
+  assert.equal(row(el).p['aria-expanded'], false); assert.equal(row(el).c.at(-1).c[0], 'board.recentDone', 'Recently finished (N)');
+  assert.equal(find(doneCol(el), (n) => n.p?.className === 'cpb-count')[0].c[0], '1', 'the Done count is the unread cards');
+  assert.equal(find(doneCol(el), (n) => n.p?.['data-cpb-clear-all'] !== undefined).length, 0, 'closed: no Clear all (it never takes cards that you do not see)');
+  row(el).p.onClick(); el = pg();
+  assert.equal(board.getSnapshot().recentOpen, true); assert.equal(mem.get('dsh-composer-plus.board.recentDone'), 'true', 'kept on this device');
+  assert.equal(row(el).p['aria-expanded'], true);
+  assert.deepEqual(doneIds(el), ['s4', 's8', 's9', 's7'], 'open: the read cards under the row, newest first');
+  const items = find(doneCol(el), (n) => n.p?.className === 'cpb-list')[0].c;
+  assert.deepEqual(items.map((n) => n.p['data-cpb-card'] ?? (n.p['data-cpb-recent-done'] !== undefined ? 'row' : n.p.key)), ['s4', 'row', 's8', 's9', 's7'], 'unread first, then the row, then the read cards');
+  assert.equal(find(doneCol(el), (n) => n.p?.['data-cpb-clear-all'] !== undefined).length, 1, 'open: Clear all');
+  assert.equal(find(doneCol(el), (n) => n.p?.['data-cpb-recent-older'] !== undefined).length, 0, '3 read cards: no Show N older');
+  row(el).p.onClick(); assert.equal(board.getSnapshot().recentOpen, false); assert.equal(mem.get('dsh-composer-plus.board.recentDone'), 'false');
+  assert.match(src, /\.cpb-rdone\[aria-expanded=true\]>svg\{transform:none\}/, 'the chevron turns when it opens');
+  // Many read cards: 10, then Show N older; a project pick starts again at 10.
+  const many = { byId: Object.fromEntries(Array.from({ length: 14 }, (_, i) => summary(`r${i}`, { updatedAt: i }))) };
+  const pgMany = () => page[1]({ ...injected, openSession: () => {}, useSessions: (f) => f(many), useSessionStatus: (f) => f(new Map()), useWorkspaces: (f) => f({ items: [], archivedSessionIds: [] }), t: (k) => k });
+  board.toggleRecentDone(); el = pgMany();
+  assert.equal(doneIds(el).length, 10, 'the 10 newest');
+  const older = find(doneCol(el), (n) => n.p?.['data-cpb-recent-older'] !== undefined)[0];
+  assert.equal(older.c[0], 'board.showOlder'); older.p.onClick();
+  assert.equal(doneIds(pgMany()).length, 14, 'Show N older: all of them');
+  board.setProject('all'); assert.equal(doneIds(pgMany()).length, 10, 'a project pick shows the 10 newest again');
+  board.toggleRecentDone();
+}
 const card = cards.find((n) => n.p['data-cpb-card'] === 's4');
 card.p.onClick({ target: { closest: () => null } }); assert.deepEqual(opened, ['s4'], 'a click opens the chat');
+// A card that waits for you: a click (or Enter) opens the answer panel, not the chat (the panel has Open chat).
+{
+  const orange = cards.find((n) => n.p['data-cpb-card'] === 's1');
+  assert.equal(orange.p['aria-haspopup'], 'dialog', 'a screen reader hears that it opens a panel'); assert.equal(card.p['aria-haspopup'], undefined, 'other cards open the chat');
+  orange.p.onClick({ target: { closest: () => null } });
+  assert.equal(board.getSnapshot().answering, 's1', 'a click on an orange card opens Answer'); assert.deepEqual(opened, ['s4'], 'and not the chat');
+  board.close();
+  let prevented = 0;
+  orange.p.onKeyDown({ key: 'Enter', target: 'self', currentTarget: 'self', preventDefault() { prevented += 1; } });
+  assert.equal(board.getSnapshot().answering, 's1', 'Enter on it opens Answer too'); assert.equal(prevented, 1); assert.deepEqual(opened, ['s4']);
+  board.close();
+}
 const answerButton = find(tree, (n) => n.p?.['data-cpb-answer'] === 's1')[0];
 assert.ok(answerButton, 'the orange card has Answer'); answerButton.p.onClick(); assert.equal(board.getSnapshot().answering, 's1');
 const tree2 = page[1]({ ...injected, openSession: () => {}, useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
@@ -250,10 +334,21 @@ assert.match(src, /\.cpb-search\{flex:none;[^}]*height:36px/, 'the search box ke
 const top = find(tree, (n) => n.p?.className === 'cpb-cardtop');
 assert.ok(top.length > 0 && top.every((n) => find(n, (x) => x.p?.['data-cpb-when'] !== undefined).length === 0), 'the time is not next to the title (the title has the full width)');
 assert.equal(find(cards.find((n) => n.p['data-cpb-card'] === 's4'), (x) => x.p?.['data-cpb-when'] !== undefined).length, 1, 'the time is on the meta row');
-// The project list: the search box and the filter; no match shows a note.
+// The projects are a dropdown at the top of the board (no side column): closed, the page shows no project list.
 const side = () => page[1]({ ...injected, openSession: () => {}, useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
 const navNames = (el) => find(el, (n) => n.p?.className === 'cpb-nav').map((n) => n.c[1].c[0]);
+const menuOf = (e) => find(e, (n) => n.p?.['data-cpb-projects-menu'] !== undefined)[0];
+const projectButton = (e) => find(e, (n) => n.p?.['data-cpb-project-button'] !== undefined)[0];
 let el = side();
+assert.equal(menuOf(el), undefined, 'closed: no project list'); assert.deepEqual(navNames(el), []);
+assert.doesNotMatch(src, /cpb-side|cpb-brand/, 'no side column next to the board');
+assert.equal(find(find(el, (n) => n.t === 'header')[0], (n) => n.p?.['data-cpb-project-button'] !== undefined).length, 1, 'the project button is at the top of the board');
+assert.equal(projectButton(el).p['aria-expanded'], false); assert.equal(projectButton(el).p['aria-label'], 'board.projects: board.allProjects');
+assert.equal(find(projectButton(el), (n) => n.p?.['data-cpb-waiting'] !== undefined).length, 1, 'a chat waits for you: the orange dot on the closed list');
+projectButton(el).p.onClick(); el = side();
+assert.equal(projectButton(el).p['aria-expanded'], true, 'a click opens the list');
+assert.equal(menuOf(el).p.id, projectButton(el).p['aria-controls']);
+// The project list: the search box and the filter; no match shows a note.
 assert.deepEqual(navNames(el), ['board.allProjects', 'acme', 'blog']);
 // Only the states have colors: a project row and a card's project chip use the text color, not a color per project.
 const folders = find(el, (n) => n.p?.className === 'cpb-nav').slice(1).map((n) => n.c[0]);
@@ -308,6 +403,51 @@ assert.deepEqual(navNames(el), ['board.allProjects', 'acme'], 'only the project 
 board.setQuery('blog'); el = side();
 assert.deepEqual(navNames(el), ['board.allProjects']); assert.equal(find(el, (n) => n.p?.['data-cpb-noproject'] !== undefined)[0].c[0], 'projectPicker.empty');
 board.setQuery(''); board.toggleRecent();
+// Enter in Search projects picks the first project that the list shows and closes the list; an empty box or no match
+// does nothing. A click on a row picks it. Esc and Tab out close the list; the board stays.
+{
+  const searchOf = (e) => find(e, (n) => n.p?.['data-cpb-search'] !== undefined)[0];
+  const enter = (e) => { let prevented = 0; searchOf(e).p.onKeyDown({ key: 'Enter', preventDefault() { prevented += 1; }, stopPropagation() {}, nativeEvent: {} }); return prevented; };
+  board.setProject('all'); board.toggleProjects(true);
+  assert.equal(enter(side()), 1, 'Enter does not submit anything else'); assert.equal(board.getSnapshot().project, 'all', 'an empty box: nothing');
+  assert.equal(board.getSnapshot().projectsOpen, true, 'and the list stays');
+  board.setQuery('zzz'); enter(side()); assert.equal(board.getSnapshot().project, 'all', 'no match: nothing');
+  board.setQuery('BL'); searchOf(side()).p.onKeyDown({ key: 'Enter', preventDefault() {}, stopPropagation() {}, nativeEvent: { isComposing: true } });
+  assert.equal(board.getSnapshot().project, 'all', 'Enter that ends an IME composition picks nothing');
+  enter(side());
+  assert.equal(board.getSnapshot().project, 'w3', 'Enter: the first match (blog)'); assert.equal(JSON.parse(mem.get('dsh-composer-plus.board.project')), 'w3', 'the pick stays');
+  assert.equal(board.getSnapshot().projectsOpen, false, 'the list closes'); assert.equal(board.getSnapshot().query, '', 'and its box empties');
+  el = side(); assert.equal(projectButton(el).p['aria-label'], 'board.projects: blog', 'the top shows the picked project'); assert.equal(projectButton(el).p.title, 'blog\n/w/blog/');
+  assert.equal(find(find(el, (n) => n.t === 'h1')[0], (n) => n.c?.[0] === 'blog').length, 1, 'its name is the heading');
+  board.toggleProjects(true); board.toggleRecent(); board.setQuery('a');
+  enter(side()); assert.equal(board.getSnapshot().project, 'w1', 'with Active in the last 2 hours: the first project that the list shows (acme, not blog)');
+  board.toggleRecent();
+  board.toggleProjects(true);
+  find(side(), (n) => n.p?.className === 'cpb-nav' && n.c[1]?.c?.[0] === 'board.allProjects')[0].p.onClick();
+  assert.equal(board.getSnapshot().project, 'all', 'a click picks All projects'); assert.equal(board.getSnapshot().projectsOpen, false, 'and closes the list');
+  board.toggleProjects(true);
+  find(side(), (n) => n.p?.className === 'cpb-nav' && n.c[1]?.c?.[0] === 'blog')[0].p.onClick();
+  assert.equal(board.getSnapshot().project, 'w3', 'a click picks a project');
+  // Esc in the list closes it; it does not reach the page (the page would close a panel).
+  board.toggleProjects(true); board.setQuery('bl');
+  let stops = 0; const esc = { key: 'Escape', preventDefault() {}, stopPropagation() { stops += 1; } };
+  menuOf(side()).p.onKeyDown(esc);
+  assert.equal(board.getSnapshot().projectsOpen, false, 'Esc closes the list'); assert.equal(stops, 1); assert.equal(board.getSnapshot().query, '', 'a closed list forgets its search');
+  board.toggleProjects(); assert.equal(board.getSnapshot().projectsOpen, true, 'a second click on the button: open'); board.toggleProjects(); assert.equal(board.getSnapshot().projectsOpen, false, 'and closed');
+  // Tab out of the list (the focus goes to a card): closed. A focus inside it, or no new focus (a click on the page): open.
+  board.toggleProjects(true); el = side();
+  const wrap = find(el, (n) => n.p?.className === 'cpb-pwrap')[0];
+  const inside = {}; wrap.p.ref.current = { contains: (x) => x === inside };
+  wrap.p.onBlur({ relatedTarget: inside }); assert.equal(board.getSnapshot().projectsOpen, true, 'focus inside: open');
+  wrap.p.onBlur({ relatedTarget: null }); assert.equal(board.getSnapshot().projectsOpen, true, 'no new focus: open (a press outside closes it)');
+  wrap.p.onBlur({ relatedTarget: {} }); assert.equal(board.getSnapshot().projectsOpen, false, 'focus outside: closed');
+  assert.match(src, /if \(s\.projectsOpen\) \{ event\.preventDefault\(\); board\.toggleProjects\(false\); return; \}/, 'Esc on the page closes an open list first');
+  assert.match(src, /\.cpb-drop\{position:absolute;[^}]*z-index:20/, 'the list opens over the columns');
+  assert.match(src, /\.cpb-drop\{[^}]*max-height:min\(/, 'a long list stays in the window');
+  board.start(); board.toggleProjects(true); board.setQuery('bl'); board.stop(); await tick();
+  assert.equal(board.getSnapshot().projectsOpen, false, 'leaving the board closes the list'); assert.equal(board.getSnapshot().query, '');
+  board.setProject('all');
+}
 assert.match(src, /\.cpb-col\{flex:1 1 0;min-width:140px/, 'the columns share the width');
 
 // × and Clear all: only in Done; one hide at a time in every entry point; the cards go at once; the Host's answer is the
@@ -315,11 +455,12 @@ assert.match(src, /\.cpb-col\{flex:1 1 0;min-width:140px/, 'the columns share th
 {
   const pgOf = () => page[1]({ ...injected, openSession: (id) => opened.push(id), useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), t: (k) => k });
   board.setProject('all'); hiddenIds = []; await board.load(true);
+  board.toggleRecentDone(); assert.equal(board.getSnapshot().recentOpen, true, 'Recently finished is open for this part');
   let el = pgOf();
   const col = (e, st) => find(e, (n) => n.p?.['data-cpb-column'] === st)[0];
   const xs = (e, st) => find(col(e, st), (n) => n.p?.['data-cpb-hide'] !== undefined).map((n) => n.p['data-cpb-hide']);
   const cardIds = (e, st) => find(col(e, st), (n) => n.p?.['data-cpb-card'] !== undefined).map((n) => n.p['data-cpb-card']);
-  assert.deepEqual(xs(el, 'done'), ['s4', 's8', 's9', 's7'], 'each Done card has its ×');
+  assert.deepEqual(xs(el, 'done'), ['s4', 's8', 's9', 's7'], 'each finished card (unread and Recently finished) has its ×');
   assert.deepEqual([...xs(el, 'doing'), ...xs(el, 'review')], [], 'only Done cards have the ×');
   const x4 = find(col(el, 'done'), (n) => n.p?.['data-cpb-hide'] === 's4')[0];
   assert.equal(x4.p['aria-label'], 'board.hideCard: Title s4', 'the × names its card for a screen reader'); assert.equal(x4.p.title, 'board.hideCard');
@@ -391,6 +532,7 @@ assert.match(src, /\.cpb-col\{flex:1 1 0;min-width:140px/, 'the columns share th
   assert.deepEqual(posts, [{ hide: ['s8', 's9', 's7'] }], 'Clear all sends the read cards that were in Done at the click');
   el = pgOf(); assert.deepEqual(cardIds(el, 'done'), ['s4'], 'the unread card stays');
   assert.equal(find(col(el, 'done'), (n) => n.p?.['data-cpb-clear-all'] !== undefined).length, 0, 'only unread cards: no Clear all');
+  assert.equal(find(col(el, 'done'), (n) => n.p?.['data-cpb-recent-done'] !== undefined).length, 0, 'no read card: no Recently finished row');
   assert.deepEqual(cardIds(el, 'review'), ['s1'], 'Review stays'); assert.deepEqual(cardIds(el, 'doing'), ['s2', 's3'], 'Doing stays');
   assert.equal(await board.confirmClear(), false, 'the question is gone: a second confirm does nothing');
   // Undo puts back the whole Clear all.
@@ -432,6 +574,7 @@ assert.match(src, /\.cpb-col\{flex:1 1 0;min-width:140px/, 'the columns share th
   assert.equal(board.askClear(['s4'], 0), false, 'and no question'); assert.equal(oldPosts, 0, 'no request to an older Host');
   globalThis.fetch = realFetch; hiddenIds = []; await board.load(true);
   assert.match(src, /\.cpb-x\{[^}]*flex:none/, 'the × keeps its size next to a long title');
+  board.toggleRecentDone();
 }
 
 // The page: New task calls dsh's New session for the shown project; the draft card says "New task", opens its chat.
@@ -524,6 +667,16 @@ const poll = eval(`(${/function pollBoardProgress(\(sessionId, call, onData, eve
   assert.equal(shown.c[0].length, 4, 'four lines');
   assert.equal(run(null).c[0].c[0], 'board.loading', 'while the first read runs');
   assert.equal(run({ error: 'x' }).c[0].c[0], 'board.progress.failed{"error":"x"}');
+  assert.equal(run({ error: 'restart' }).c[0].c[0], 'board.progress.restart{"error":"restart"}', 'an older Host half: restart dsh, not an error');
+  // dsh still runs the Host half it started with (no route: dsh's own empty 404) → "restart"; the route's own 404 keeps its text.
+  const readProgress = eval(`(${/const readBoardProgress = (async \(id\) => \{[\s\S]*?\n    \});/.exec(src)[1].replace('BOARD_PROGRESS_ROUTE', "'/p'")})`);
+  const realFetch = globalThis.fetch;
+  for (const [res, want] of [[new Response('', { status: 404 }), 'restart'], [Response.json({ error: 'dsh has no open chat with this id' }, { status: 404 }), 'dsh has no open chat with this id'], [Response.json({ error: 'Task board is off' }, { status: 409 }), 'Task board is off']]) {
+    globalThis.fetch = async () => res;
+    await assert.rejects(readProgress('s2'), (e) => e.message === want, want);
+  }
+  globalThis.fetch = async () => Response.json({ mode: 'fast' }); assert.deepEqual(await readProgress('s2'), { mode: 'fast' });
+  globalThis.fetch = realFetch;
   assert.equal(run({ data: { mode: 'fast' } }).c[0].c[0], 'board.progress.none', 'a turn with no step yet');
 }
 // A card that leaves Doing (its turn ends) gets no leave event. Its box must not come back by itself when the chat runs
@@ -605,7 +758,46 @@ const poll = eval(`(${/function pollBoardProgress(\(sessionId, call, onData, eve
   fail = true; const third = m.setMode('fast'); await tick(); release(); await third;
   assert.equal(m.getSnapshot().mode, 'ai', 'a failed change keeps the saved mode'); assert.equal(m.getSnapshot().error, 'disk full');
   await m.setMode('slow'); assert.equal(sent.length, 2, 'no unknown mode');
+  globalThis.fetch = async () => new Response('', { status: 404 });
+  await m.setMode('fast');
+  assert.equal(m.getSnapshot().error, 'restart', 'an older Host half: restart dsh'); assert.equal(m.getSnapshot().mode, 'ai');
+  assert.match(src, /t\(state\.error === 'restart' \? 'board\.progress\.restart' : 'board\.down'/, 'Settings shows the restart text');
   globalThis.fetch = realFetch;
+}
+
+// The board's own unread set (watchFresh): dsh gives no green dot to a chat that finishes while it is the open chat, also
+// behind a panel. Such a chat stays unread for the board until it is the open chat with no panel over it, runs again or goes.
+{
+  const watch = eval(`(${/function watchFresh\(board, status, list, panelInfo\) \{[\s\S]*?\n    \}/.exec(src)[0].replace('function watchFresh', 'function')})`);
+  const store = (v) => { const fns = new Set(); return { v, getSnapshot() { return this.v; }, subscribe: (f) => { fns.add(f); return () => fns.delete(f); }, set(n) { this.v = n; for (const f of [...fns]) f(); }, fns }; };
+  const row = (id, main, o = {}) => [id, { id, blank: false, running: false, retainedBy: main ? { mainView: 1 } : {}, ...o }];
+  const st = store(new Map([['a', { running: true }], ['b', { running: true }]]));
+  const ls = store({ byId: Object.fromEntries([row('a', true), row('b', false)]) });
+  const panel = store({ activePanelId: 'composer-plus-board' });
+  board.setFresh([], [...board.getSnapshot().fresh]);
+  const stop = watch(board, st, ls, panel);
+  st.set(new Map([['a', { running: false }], ['b', { running: false, completionUnread: true }]]));
+  assert.deepEqual([...board.getSnapshot().fresh], ['a'], 'the open chat finished behind the board: unread for the board (b has dsh\'s own dot)');
+  st.set(new Map([['a', { running: false }], ['b', { running: false }]]));
+  assert.deepEqual([...board.getSnapshot().fresh], ['a'], 'another change keeps it');
+  st.set(new Map([['a', { running: true }]])); assert.deepEqual([...board.getSnapshot().fresh], [], 'it runs again: dropped');
+  st.set(new Map([['a', { running: false }]])); assert.deepEqual([...board.getSnapshot().fresh], ['a'], 'and finishes behind the board again');
+  panel.set({ activePanelId: null }); assert.deepEqual([...board.getSnapshot().fresh], [], 'the chat shows (no panel over it): read');
+  // A chat that finishes while you look at it (no panel): never unread. A chat that is not the open chat: dsh's dot does it.
+  st.set(new Map([['a', { running: true }]])); st.set(new Map([['a', { running: false }]]));
+  assert.deepEqual([...board.getSnapshot().fresh], [], 'finished on screen: read');
+  panel.set({ activePanelId: 'composer-plus-board' });
+  st.set(new Map([['b', { running: true }]])); st.set(new Map([['b', { running: false }]]));
+  assert.deepEqual([...board.getSnapshot().fresh], [], 'not the open chat: not ours');
+  // The chat goes away (archived, deleted): dropped.
+  st.set(new Map([['a', { running: true }]])); st.set(new Map([['a', { running: false }]]));
+  assert.deepEqual([...board.getSnapshot().fresh], ['a']);
+  ls.set({ byId: Object.fromEntries([row('b', false)]) }); assert.deepEqual([...board.getSnapshot().fresh], [], 'a chat that went is dropped');
+  stop(); assert.equal(st.fns.size + ls.fns.size + panel.fns.size, 0, 'stop removes every listener');
+  assert.equal(typeof watch(board, st, ls, undefined), 'function', 'no panelInfo (another dsh): nothing to watch'); assert.equal(st.fns.size, 0, 'and no listener');
+  assert.match(src, /\.\.\.injectScope\(\['layout', 'uiSession', 'sessions'\], \(scope\) => \{\n[^\n]*\n[^\n]*\n\s*scope\.effect\(\(\) => watchFresh\(board/, 'the watcher is part of the taskBoard feature (the switch removes it)');
+  board.setFresh(['s9']); assert.deepEqual([...board.getSnapshot().fresh], ['s9']);
+  const before = board.getSnapshot(); board.setFresh(['s9']); assert.equal(board.getSnapshot(), before, 'a call that changes nothing sets nothing');
 }
 
 globalThis.fetch = async () => Response.json({ error: 'Task board is off' }, { status: 409 });
@@ -619,7 +811,15 @@ const toggles = [...live.values()].find(([o]) => o.id === 'composer-plus')[0].in
 globalThis.fetch = async (url, init) => (url === '/api/composer-plus.board' ? Response.json({ on: JSON.parse(init?.body ?? '{"on":true}').on }) : Response.json({ rev: 9, sessionId: 'chatX' }));
 board.openAnswer('s1'); await board.newTask('w1', async () => 'chatX');
 assert.equal(board.getSnapshot().task, 'chatX', 'a new task waits');
+board.toggleProjects(true); board.setQuery('ac');
 await toggles.setFeature('taskBoard', false); await tick();
 assert.ok(![...live.values()].some(([o]) => o.key === 'composer-plus-board' || o.id === 'composer-plus-board'), 'page and row removed');
 assert.equal(board.getSnapshot().answering, null, 'the panel goes'); assert.equal(board.getSnapshot().task, null, 'the new task is forgotten');
+assert.equal(board.getSnapshot().projectsOpen, false, 'the project list closes'); assert.equal(board.getSnapshot().query, '', 'and forgets its search');
+assert.equal(board.getSnapshot().fresh.size, 0, 'the board\'s own unread set is forgotten');
+assert.equal(commands.some((c) => c.id === 'composerPlus.taskBoard'), false, 'off: no Task board key'); assert.equal(keyFibers, 0, 'off: its scope is gone');
+await toggles.setFeature('taskBoard', true); await tick();
+assert.equal(commands.filter((c) => c.id === 'composerPlus.taskBoard').length, 1, 'on again: one key, not two');
+await toggles.setFeature('taskBoard', false); await tick();
+assert.match(src, /document\.addEventListener\('pointerdown', onDown, true\);\n\s*return \(\) => \{ document\.removeEventListener\('pointerdown', onDown, true\); \};/, 'the outside-press listener goes with the list and the page');
 console.log('task board: client ok');

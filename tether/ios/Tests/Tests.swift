@@ -1669,6 +1669,14 @@ final class BranchStateTests: XCTestCase {
         XCTAssertEqual(hid.removed.map(\.id), ["d"], "Removed: the hidden finished chat only"); XCTAssertEqual(hid.removed.first?.state, "unread")
         // Clear all takes only the read cards: an unread (green) one stays.
         XCTAssertEqual(boardClearIds(v.columns[2].cards), ["f"], "d is unread: it stays")
+        // Done shows the unread cards; a read card is in Recently finished (10, then Show N older).
+        let split = boardDoneSplit(v.columns[2].cards)
+        XCTAssertEqual(split.unread.map(\.id), ["d"], "Done: the unread card"); XCTAssertEqual(split.recent.map(\.id), ["f"], "Recently finished: the read one")
+        XCTAssertEqual(split.recentCount, 1)
+        let many = (0..<14).map { BoardCard(id: "r\($0)", title: "", prompt: "", tags: [], project: nil, updated: nil, state: "read") }
+        XCTAssertEqual(boardDoneSplit(many).recent.count, 10, "the 10 newest"); XCTAssertEqual(boardDoneSplit(many).recentCount, 14)
+        XCTAssertEqual(boardDoneSplit(many, shown: 14).recent.count, 14, "Show N older: all of them")
+        XCTAssertEqual(boardDoneSplit(many, shown: -1).recent.count, 0)
         let calm = boardColumns(sessions: sessions, workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], project: "all")
         XCTAssertEqual(calm.projects.map(\.waiting), [false, false], "running only: no orange dot")
         XCTAssertEqual(boardProjectOf("f", workspaces: workspaces), "w1", "the board of a branch chat is its repository's")
