@@ -26,7 +26,8 @@ import { appendFile, copyFile, cp, lstat, mkdir, mkdtemp, open, readdir, readFil
 import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
-import { createGateway } from './tether/gateway/server.mjs';
+import { createGateway, createRelay, macName, normFp, parseComputerLink } from './tether/gateway/server.mjs';
+import { request as httpsRequest } from 'node:https';
 import * as backups from './backup.mjs';
 
 export const name = 'dsh-composer-plus';
@@ -40,6 +41,7 @@ export const CONTINUE_PATH = '/api/composer-plus.continue';
 export const UPDATE_PATH = '/api/composer-plus.update';
 export const SHOT_PATH = '/api/composer-plus.shot';
 export const MOBILE_PATH = '/api/composer-plus.mobile';
+export const COMPUTERS_PATH = '/api/composer-plus.computers';
 export const RESUME_PATH = '/api/composer-plus.resume';
 export const IDEAS_PATH = '/api/composer-plus.ideas';
 export const LATER_PATH = '/api/composer-plus.later';
@@ -79,7 +81,7 @@ export const PLANNED_PATH = '/api/composer-plus.planned-steps';
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit',
-  'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
+  'queueReorder', 'mobileConnect', 'remoteComputers', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
   'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'plannedSteps', 'memoryHistory', 'memoryExport', 'memorySource', 'memoryCopy', 'memoryStale', 'memoryPerChat', 'memorySuggest'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
@@ -877,6 +879,200 @@ export function mobileGateway({ upstreamUrl, dir, make = createGateway, retryMs 
       // The gateway retries by itself (for example when Wi-Fi comes back): a running gateway has no error to show.
       return { running, admin, ...(error === undefined || running ? {} : { error }) };
     },
+  };
+}
+
+/** Remote computers: one pinned `POST /pair` to another Mac's front door. It waits until someone clicks Approve or Deny
+ * there (at most `waitMs`), and stops when `signal` aborts (Cancel, the switch goes off). */
+export function pairWithComputer(link, name, signal, waitMs = 150e3) {
+  return new Promise((resolve, reject) => {
+    let reached = false;
+    // Self-signed certificate: the pin in 'secureConnect' below is the check, and the code goes out only after it.
+    // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
+    const req = httpsRequest({ host: link.host, port: link.port, method: 'POST', path: '/pair', rejectUnauthorized: false, agent: false, signal,
+      timeout: 5000, headers: { 'content-type': 'application/json' } }, (res) => {
+      let text = '';
+      res.setEncoding('utf8');
+      res.on('data', (d) => { if (text.length < 8192) text += d; }).on('end', () => {
+        let data = null;
+        try { data = JSON.parse(text); } catch { /* not JSON */ }
+        resolve({ status: res.statusCode, data });
+      }).on('error', reject);
+    });
+    req.on('socket', (s) => s.once('secureConnect', () => {
+      // The pin first: nothing (not the code) goes to a Mac that shows another certificate.
+      if (normFp(s.getPeerCertificate().fingerprint256 ?? '') !== link.fp) return req.destroy(Object.assign(new Error('pin'), { code: 'EPIN' }));
+      reached = true;
+      req.setTimeout(waitMs); // the other Mac now waits for a click
+      req.end(JSON.stringify({ code: link.code, name, kind: 'computer' }));
+    }));
+    req.on('timeout', () => req.destroy(Object.assign(new Error('timeout'), { code: reached ? 'EWAIT' : 'ETIMEDOUT' })));
+    req.on('error', reject);
+  });
+}
+
+/** Real-app tests only (`test/browser-computers.mjs`): `DSH_COMPUTERS_TEST_LOOPBACK=1` puts the front door on 127.0.0.1 in
+ * place of the Tailscale address, so two throwaway dsh on one Mac can pair. Never set in normal use. */
+const doorTest = () => (process.env.DSH_COMPUTERS_TEST_LOOPBACK === '1'
+  ? { tailnetOnly: false, notify: false, tailscale: { installed: true, online: true, ip: '127.0.0.1', name: null }, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0', bind: '127.0.0.1' }) }
+  : {});
+
+/** Remote computers (the Host half). `computers.json` keeps the switch, the "Let other computers open this Mac" choice and
+ * the computers that this Mac can open (with their tokens; owner-only, like dsh's own credentials file). The front door
+ * is a `createGateway({mode: 'computer'})` of its own folder; one relay per computer runs on loopback while needed.
+ * `make`, `relay` and `pair` are test seams. */
+export function computersService({ file, dir, upstreamUrl, macName: ownName, make = createGateway, relay = createRelay, pair = pairWithComputer, port, pageOrigins = () => [] }) {
+  let state = { on: false, accept: false, list: [] };
+  const ready = readFile(file, 'utf8').then((text) => {
+    const d = JSON.parse(text);
+    // A hand-edited file cannot point a relay anywhere else: the same address rules as a pasted link.
+    const list = Array.isArray(d?.list) ? d.list.filter((c) => typeof c?.fp === 'string' && typeof c?.host === 'string' && Number.isInteger(c?.port) && isText(c?.token, 128)
+      && parseComputerLink(`dsh-computer://pair?v=1&host=${encodeURIComponent(c.host)}&port=${c.port}&fp=${encodeURIComponent(c.fp)}&code=x`)?.fp === c.fp) : [];
+    state = { on: d?.on === true, accept: d?.accept === true, list };
+  }).catch(() => {});
+  let queue = Promise.resolve(); // one change at a time: save, then start or stop
+  const run = (fn) => { const done = queue.then(fn); queue = done.catch(() => {}); return done; };
+  const save = async (next) => {
+    await mkdir(dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(next), { mode: 0o600 });
+    await rename(tmp, file);
+    state = next; // only after a good save: a failed one changes nothing
+  };
+  let door, doorError;
+  const relays = new Map(); // fp → relay
+  const failures = new Map(); // fp → 'unpaired' | 'pin' | 'unreachable'
+  let adding; // { controller, name } while one pairing waits
+  let closed = false;
+  const startDoor = async () => {
+    if (door || closed) return;
+    doorError = undefined;
+    const g = make({ mode: 'computer', dir, upstreamUrl, notify: true, ...(port === undefined ? {} : { port }), ...doorTest() });
+    door = g;
+    try { await g.start(); } catch (e) { doorError = String(e?.message ?? e); }
+  };
+  const stopDoor = async () => { const g = door; door = undefined; doorError = undefined; await g?.close().catch(() => {}); };
+  const stopRelays = async () => { const all = [...relays.values()]; relays.clear(); await Promise.all(all.map((r) => r.close().catch(() => {}))); };
+  const apply = async () => {
+    if (state.on && state.accept) await startDoor(); else await stopDoor();
+    if (!state.on) { adding?.controller.abort(); await stopRelays(); }
+  };
+  const started = ready.then(() => run(apply));
+  const view = () => {
+    const g = door?.state();
+    return {
+      on: state.on,
+      self: { name: ownName },
+      computers: state.list.map((c) => ({ id: c.fp, name: c.label ?? c.mac ?? c.host, mac: c.mac ?? null, label: c.label ?? null, host: c.host, port: c.port,
+        state: failures.get(c.fp) ?? (relays.get(c.fp)?.fail === 'pin' ? 'pin' : 'ok') })),
+      adding: adding === undefined ? null : { name: adding.name },
+      accept: { on: state.accept, running: g?.running === true, address: g?.running ? g.address : null, port: g?.running ? g.port : null,
+        ...(doorError === undefined || g?.running ? {} : { error: doorError }),
+        code: g?.code ?? null, pending: g?.pending ?? [], last: g?.last ?? null,
+        devices: (g?.devices ?? []).map(({ id, name, createdAt, lastSeenAt, connections }) => ({ id, name, createdAt, lastSeenAt: lastSeenAt ?? null, connections })) },
+    };
+  };
+  const find = (id) => state.list.find((c) => c.fp === id);
+  async function openRelay(c) {
+    let r = relays.get(c.fp);
+    if (r === undefined) {
+      // dsh's own page may show the computer in its Browser tab (an iframe on dsh web); no other page may frame it.
+      r = relay({ host: c.host, port: c.port, fp: c.fp, token: c.token, frameAncestors: pageOrigins(), onUnauthorized: () => { failures.set(c.fp, 'unpaired'); } });
+      relays.set(c.fp, r);
+      try { await r.start(); } catch (e) { relays.delete(c.fp); throw e; }
+    }
+    return r.ticketUrl();
+  }
+  /** One request body → its answer `{status, body}`. */
+  async function handle(body) {
+    await started;
+    if (body !== null && typeof body === 'object' && Object.hasOwn(body, 'on')) {
+      if (typeof body.on !== 'boolean') return { status: 400, body: { error: 'bad request' } };
+      await run(async () => { await save({ ...state, on: body.on }); await apply(); });
+      return { status: 200, body: view() };
+    }
+    if (!state.on) return { status: 409, body: { error: 'Remote computers is off' } };
+    if (body !== null && typeof body === 'object' && Object.hasOwn(body, 'accept')) {
+      if (typeof body.accept !== 'boolean') return { status: 400, body: { error: 'bad request' } };
+      await run(async () => { await save({ ...state, accept: body.accept }); await apply(); });
+      return { status: 200, body: view() };
+    }
+    const action = body?.action;
+    if (action === 'code') {
+      if (!door?.state().running) return { status: 409, body: { error: doorError ?? 'Let other computers open this Mac is off' } };
+      door.newCode();
+      return { status: 200, body: view() };
+    }
+    if (action === 'approve' || action === 'deny') {
+      if (!isText(body.id, 64) || !door?.settle(body.id, action === 'approve')) return { status: 409, body: { error: 'This request is no longer waiting.' } };
+      return { status: 200, body: view() };
+    }
+    if (action === 'revoke') {
+      if (!isText(body.id, 64)) return { status: 400, body: { error: 'bad request' } };
+      door?.revoke(body.id);
+      return { status: 200, body: view() };
+    }
+    if (action === 'add') {
+      const link = parseComputerLink(body.link);
+      if (link === null) return { status: 400, body: { error: typeof body.link === 'string' && body.link.trim().startsWith('tether://') ? 'tether-link' : 'bad-link' } };
+      if (adding !== undefined) return { status: 409, body: { error: 'busy' } };
+      const controller = new AbortController();
+      adding = { controller, name: link.mac ?? link.host };
+      try {
+        let answer;
+        try { answer = await pair(link, ownName, controller.signal); } catch (e) {
+          if (controller.signal.aborted) return { status: 409, body: { error: 'cancelled' } };
+          return { status: 502, body: { error: e?.code === 'EPIN' ? 'pin' : e?.code === 'EWAIT' ? 'no-answer' : 'unreachable' } };
+        }
+        const d = answer.data;
+        if (answer.status !== 200 || !isText(d?.token, 128) || !isText(d?.deviceId, 64)) {
+          return { status: answer.status === 403 ? 403 : 502, body: { error: d?.error === 'pairing denied' ? 'denied' : d?.error === 'pairing expired' ? 'expired' : answer.status === 403 ? 'code' : answer.status === 429 ? 'rate' : 'unreachable' } };
+        }
+        const mac = typeof d.mac === 'string' ? d.mac.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 64) || link.mac : link.mac;
+        await run(async () => {
+          // The same Mac (its certificate, or its address with an older certificate) replaces its old entry and keeps its name.
+          const old = state.list.filter((c) => c.fp === link.fp || (c.host === link.host && c.port === link.port && (c.mac === undefined || c.mac === mac)));
+          const label = old.find((c) => c.label !== undefined)?.label;
+          const entry = { fp: link.fp, host: link.host, port: link.port, token: d.token, deviceId: d.deviceId, expiresAt: typeof d.expiresAt === 'string' ? d.expiresAt : null,
+            ...(mac ? { mac } : {}), ...(label ? { label } : {}) };
+          const at = state.list.findIndex((c) => old.includes(c));
+          const rest = state.list.filter((c) => !old.includes(c));
+          await save({ ...state, list: at < 0 ? [...rest, entry] : [...rest.slice(0, at), entry, ...rest.slice(at)] });
+          for (const c of old) { failures.delete(c.fp); const r = relays.get(c.fp); relays.delete(c.fp); await r?.close().catch(() => {}); }
+        });
+        return { status: 200, body: { ...view(), added: link.fp } };
+      } finally { adding = undefined; }
+    }
+    if (action === 'cancel-add') { adding?.controller.abort(); return { status: 200, body: view() }; }
+    if (action === 'open') {
+      const c = isText(body.id, 64) ? find(body.id) : undefined;
+      if (c === undefined) return { status: 404, body: { error: 'unknown computer' } };
+      if (failures.get(c.fp) === 'unpaired') return { status: 409, body: { error: 'unpaired' } };
+      try { return { status: 200, body: { url: await openRelay(c) } }; } catch (e) { return { status: 500, body: { error: String(e?.message ?? e) } }; }
+    }
+    if (action === 'rename' || action === 'remove') {
+      const c = isText(body.id, 64) ? find(body.id) : undefined;
+      if (c === undefined) return { status: 404, body: { error: 'unknown computer' } };
+      if (action === 'rename' && typeof body.name !== 'string') return { status: 400, body: { error: 'bad request' } };
+      await run(async () => {
+        if (action === 'remove') {
+          await save({ ...state, list: state.list.filter((x) => x.fp !== c.fp) });
+          const r = relays.get(c.fp); relays.delete(c.fp); failures.delete(c.fp); await r?.close().catch(() => {});
+        } else {
+          const label = body.name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 64);
+          await save({ ...state, list: state.list.map((x) => (x.fp !== c.fp ? x : label === '' ? (({ label: _, ...rest }) => rest)(x) : { ...x, label })) });
+        }
+      });
+      return { status: 200, body: view() };
+    }
+    return { status: 400, body: { error: 'bad request' } };
+  }
+  return {
+    ready: started,
+    view: async () => { await started; return view(); },
+    handle: (body) => handle(body).catch((error) => ({ status: 500, body: { error: String(error?.message ?? error) } })),
+    /** Plugin unload: stop the front door and every relay; later calls start nothing. */
+    close: async () => { closed = true; adding?.controller.abort(); await queue; await stopDoor(); await stopRelays(); },
   };
 }
 
@@ -2002,6 +2198,9 @@ export function apply(ctx) {
       } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
     },
   });
+  // Remote computers: needs the web server (its loopback URL) like Mobile connect, and starts in the same `webServer`
+  // scope (startComputers below); off until the user switches it on.
+  let computers;
   // Mobile connect (Tether). The phone gateway needs dsh's web server for its loopback URL; a profile without one
   // (headless) never starts it. Off until the user switches it on in Settings.
   const mobileSaved = mobileSwitch(join(home, 'storages', 'dsh-composer-plus', 'mobile.json'));
@@ -2019,6 +2218,35 @@ export function apply(ctx) {
       mobileRead.then(() => { if (mobileOn && mobile === gateway) gateway.start(); });
       return () => { if (mobile === gateway) mobile = undefined; gateway.close(); };
     }, 'dsh-composer-plus: mobile connect');
+    startComputers(webCtx);
+  });
+  function startComputers(webCtx) {
+    const service = computersService({
+      file: join(home, 'storages', 'dsh-composer-plus', 'computers.json'),
+      dir: process.env.DSH_COMPUTERS_DIR || join(home, 'storages', 'dsh-composer-plus', 'computers'),
+      upstreamUrl: () => ctx.connection.authenticatedUrl(`http://127.0.0.1:${webCtx.webServer.port}`),
+      macName: macName(),
+      port: Number(process.env.DSH_COMPUTERS_PORT || 19392),
+      pageOrigins: () => [`${webCtx.webServer.protocol === 'https:' ? 'https' : 'http'}://127.0.0.1:${webCtx.webServer.port}`],
+    });
+    computers = service;
+    webCtx.effect(() => () => { if (computers === service) computers = undefined; service.close(); }, 'dsh-composer-plus: remote computers');
+  }
+  ctx.connection.fetch.register({
+    path: COMPUTERS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      // A page that a front door serves (another Mac opened this one) gets `via`: its client shows no picker, so a
+      // computer is never opened inside another computer's page.
+      const via = request.headers.get('x-composer-plus-via') === 'computer';
+      if (computers === undefined) return json({ on: false, available: false, via, computers: [] });
+      if (request.method === 'GET') return json({ ...(await computers.view()), available: true, via });
+      // Only the page of this Mac changes its computers: a page opened from another Mac reads them but changes nothing.
+      if (via) return json({ error: 'not from another computer' }, 403);
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      const { status, body: answer } = await computers.handle(body);
+      return json({ ...answer, ...(status === 200 ? { available: true, via } : {}) }, status);
+    },
   });
   ctx.connection.fetch.register({
     path: MOBILE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
