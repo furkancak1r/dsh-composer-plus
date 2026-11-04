@@ -593,6 +593,156 @@ func predictAfter(_ events: [J]) -> Int? {
     return nil
 }
 
+/// Next waiting chat (Composer Plus `nextWaiting`): one chat that waits for you. `done`: a green dot (a finished turn
+/// that you did not open), else orange (a question, an approval or a plan review). `since`: when this iPhone first saw it.
+struct Waiting: Equatable { let id: String; let done: Bool; let since: Date }
+/// The chats that wait for you, next first: orange before green, the longest-waiting first in each group (a tie keeps
+/// the order given: the prompts as they came, then the green chats in list order). The same order as the Mac's
+/// `waitingOrder` (client.js). A subagent's request counts for its top-level chat, as dsh shows it there. Unknown chats
+/// and the chat on screen (`open`) are left out. `seen` (wait key → first time) keeps the times and forgets ended waits.
+func waitingOrder(prompts: [Prompt], finished: Set<String>, sessions: [Sess], open: String?, seen: inout [String: Date], now: Date) -> [Waiting] {
+    let byId = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+    func root(_ id: String) -> String? {
+        var s = byId[id], hops = 0
+        while let p = s?.parent, hops < 16 { s = byId[p]; hops += 1 }
+        return s?.parent == nil ? s?.id : nil
+    }
+    var keys: [(key: String, id: String, done: Bool)] = [], orange = Set<String>()
+    for p in prompts { // one entry per chat: orange wins over green
+        guard let a = p.agentId, let r = root(a), !orange.contains(r) else { continue }
+        orange.insert(r); keys.append(("ask:\(p.id)", r, false))
+    }
+    for s in sessions where s.parent == nil && finished.contains(s.id) && !orange.contains(s.id) { keys.append(("done:\(s.id)", s.id, true)) }
+    let live = Set(keys.map(\.key))
+    seen = seen.filter { live.contains($0.key) }
+    var out: [Waiting] = []
+    for k in keys {
+        let t = seen[k.key] ?? now
+        seen[k.key] = t
+        if k.id != open { out.append(Waiting(id: k.id, done: k.done, since: t)) }
+    }
+    return out.enumerated().sorted { a, b in
+        a.element.done != b.element.done ? !a.element.done : a.element.since != b.element.since ? a.element.since < b.element.since : a.offset < b.offset
+    }.map(\.element)
+}
+
+/// Option buttons (Composer Plus `optionPicks`): the words of client.js `OPTION_HEADINGS` and `OPTION_RECOMMENDED`.
+/// test/option-picks.test.mjs fails when the two lists differ from client.js.
+let optionHeadings = ["Options", "Choices", "Next steps", "Seçenekler", "Sonraki adımlar", "选项", "下一步", "Opciones", "Próximos pasos",
+    "Opções", "Próximos passos", "Choix", "Prochaines étapes", "Optionen", "Nächste Schritte", "Варианты", "Следующие шаги", "選択肢",
+    "次のステップ", "선택지", "다음 단계", "Opsi", "Pilihan", "Langkah selanjutnya", "Lựa chọn", "Các bước tiếp theo", "विकल्प", "अगले कदम"]
+let optionRecommended = ["recommended", "önerilen", "推荐", "recomendado", "recomendada", "recommandé", "recommandée", "empfohlen",
+    "рекомендуется", "рекомендуемый", "推奨", "おすすめ", "권장", "추천", "disarankan", "direkomendasikan", "khuyên dùng", "đề xuất",
+    "अनुशंसित", "सुझाया गया"]
+/// The Mac's `fold` (case, accents, width, Turkish ı).
+private func optionFold(_ s: String) -> String {
+    s.folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: nil).replacingOccurrences(of: "ı", with: "i")
+}
+private let optionHeadingWords = Set(optionHeadings.map(optionFold)), optionRecommendedWords = Set(optionRecommended.map(optionFold))
+private let optionItemRE = try! NSRegularExpression(pattern: #"^([0-9]{1,2})([.)])(?:[ \t]+(.*))?$"#)
+private let optionHashRE = try! NSRegularExpression(pattern: #"^#{1,4}[ \t]+(.+?)[ \t#]*$"#)
+private let optionBoldRE = try! NSRegularExpression(pattern: #"^(?:\*\*|__)(.+?)(?:\*\*|__)[ \t]*[:：]?[ \t]*$"#)
+private let optionMarkRE = try! NSRegularExpression(pattern: #"[ \t]*(\*\*|__)?[(（][ \t]*([^()（）\n]{1,40}?)[ \t]*[)）](\*\*|__)?"#)
+private let optionLinkRE = try! NSRegularExpression(pattern: #"\[([^\]]*)\]\([^)]*\)"#)
+private let optionFenceRE = try! NSRegularExpression(pattern: #"^ {0,3}(```|~~~)"#)
+/// The groups of the first match of `re` in `s` (group 0 is the whole match); nil without a match.
+private func groups(_ re: NSRegularExpression, _ s: String) -> [String?]? {
+    let ns = s as NSString
+    guard let m = re.firstMatch(in: s, range: NSRange(location: 0, length: ns.length)) else { return nil }
+    return (0..<m.numberOfRanges).map { m.range(at: $0).location == NSNotFound ? nil : ns.substring(with: m.range(at: $0)) }
+}
+private func isOptionHeading(_ line: String) -> Bool {
+    guard let raw = (groups(optionHashRE, line) ?? groups(optionBoldRE, line))?[1] else { return false }
+    let text = raw.replacingOccurrences(of: #"[*_]"#, with: "", options: .regularExpression)
+        .replacingOccurrences(of: #"[ \t]*[:：]$"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+    return optionHeadingWords.contains(optionFold(text))
+}
+private func leadingBlank(_ l: String) -> Int { l.prefix { $0 == " " || $0 == "\t" }.count }
+private func trimEnd(_ l: String) -> String { var s = l; while let c = s.last, c.isWhitespace { s.removeLast() }; return s }
+
+/// One option of an answer: `label` is the button text (the item's first line without Markdown marks, at most 200
+/// characters); `text` is the whole item, its later lines too (the sent message).
+struct ChatOption: Equatable { let n: Int; let label: String; let text: String; let recommended: Bool }
+/// The options at the end of an answer: the same rule as client.js `parseOptions` (one test table for both). The list
+/// is the last block: 1 to 9 items numbered from 1 with one delimiter, right under a heading (`#`–`####`) or a bold line
+/// whose text is one of `optionHeadings`. Anything else gives no options: a wrong button is worse than none.
+func parseOptions(_ text: String) -> [ChatOption] {
+    var lines = text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n")
+    let blank = { (l: String) in l.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    while let l = lines.last, blank(l) { lines.removeLast() }
+    // From the end: the list (items, indented lines, blank lines); the line above it must be the heading.
+    var at = lines.count - 1
+    while at >= 0, blank(lines[at]) || leadingBlank(lines[at]) > 0 || groups(optionItemRE, lines[at]) != nil { at -= 1 }
+    guard at >= 0, isOptionHeading(lines[at]) else { return [] }
+    // A heading inside a code block is code. A fence inside the list is indented: it is part of an item.
+    var fenced = false
+    for l in lines[..<at] where groups(optionFenceRE, l) != nil { fenced.toggle() }
+    guard !fenced else { return [] }
+    var items: [(n: Int, delimiter: String, first: String, rest: [String])] = []
+    for l in lines[(at + 1)...] {
+        if let g = groups(optionItemRE, l), let n = g[1].flatMap({ Int($0) }) { items.append((n, g[2] ?? "", g[3] ?? "", [])) }
+        else if !items.isEmpty { items[items.count - 1].rest.append(l) }
+        else if !blank(l) { return [] } // an indented line before the first item is not part of a list
+    }
+    guard (1...9).contains(items.count) else { return [] }
+    var out: [ChatOption] = []
+    for (i, item) in items.enumerated() {
+        guard item.n == i + 1, item.delimiter == items[0].delimiter else { return [] }
+        // The recommended mark leaves the item; other parentheses stay.
+        var marked = false, first = item.first
+        let ns = item.first as NSString
+        for m in optionMarkRE.matches(in: item.first, range: NSRange(location: 0, length: ns.length)).reversed() {
+            let word = ns.substring(with: m.range(at: 2))
+            if optionRecommendedWords.contains(optionFold(word)) {
+                marked = true
+                first = (first as NSString).replacingCharacters(in: m.range, with: "")
+            }
+        }
+        first = first.trimmingCharacters(in: .whitespacesAndNewlines)
+        var label = optionLinkRE.stringByReplacingMatches(in: first, range: NSRange(location: 0, length: (first as NSString).length), withTemplate: "$1")
+        label = label.replacingOccurrences(of: #"\*\*|__|`"#, with: "", options: .regularExpression).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !label.isEmpty else { return [] }
+        var rest = item.rest
+        while let l = rest.last, blank(l) { rest.removeLast() }
+        let indent = rest.filter { !blank($0) }.map(leadingBlank).min() ?? 0
+        // ponytail: the Mac counts 200 UTF-16 units, this counts characters; they differ only for emoji and rare scripts.
+        out.append(ChatOption(n: item.n, label: label.count > 200 ? String(label.prefix(199)) + "…" : label,
+                              text: ([first] + rest.map { trimEnd(String($0.dropFirst(min(indent, leadingBlank($0))))) }).joined(separator: "\n"),
+                              recommended: marked))
+    }
+    return out
+}
+
+/// The option list that the open chat offers now (client.js `chatOffer`, read from the log): the last answer of the
+/// newest turn that a rollback did not withdraw (both marker kinds; a rollback hides a turn from its user message on,
+/// so the turn's own `turn/start` stays in the log), when that turn finished normally and its answer is at or after a
+/// fork's inherited event count `from` (rule 10: the parent's answers offer nothing). The answer's text blocks are
+/// joined as dsh joins them. `latest`: the newest turn start, withdrawn turns too (a pick waits for a newer turn).
+struct OptionOffer: Equatable { let seq: Int; let latest: Int; let options: [ChatOption] }
+func chatOffer(_ events: [J], from: Int = 0) -> OptionOffer? {
+    let spans = events.compactMap(rollbackSpan)
+    var turns: [(start: Int, end: Int?, completed: Bool, answer: J?)] = []
+    for e in events {
+        guard let seq = e["seq"] as? Int else { continue }
+        switch e["type"] as? String {
+        case "turn/start": turns.append((seq, nil, false, nil))
+        case "assistant/message": if let i = turns.indices.last, turns[i].end == nil { turns[i].answer = e }
+        case "turn/end":
+            if let i = turns.indices.last, turns[i].end == nil {
+                turns[i].end = seq
+                turns[i].completed = ((e["data"] as? J)?["reason"] as? J)?["kind"] as? String == "completed"
+            }
+        default: break
+        }
+    }
+    guard let latest = turns.last?.start,
+          let turn = turns.last(where: { t in let s = (t.answer?["seq"] as? Int) ?? t.end ?? t.start; return !spans.contains { $0.contains(s) } }),
+          turn.completed, let answer = turn.answer, let seq = answer["seq"] as? Int, seq >= from else { return nil }
+    let blocks = ((answer["data"] as? J)?["message"] as? J)?["content"] as? [J] ?? []
+    let options = parseOptions(blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined())
+    return options.isEmpty ? nil : OptionOffer(seq: seq, latest: latest, options: options)
+}
+
 /// Copy session link: dsh's session URI. Pasted into another chat, dsh attaches that chat as read-only context.
 func sessionLink(_ id: String) -> String {
     let json = (try? JSONSerialization.data(withJSONObject: [id], options: [.withoutEscapingSlashes])).map { String(decoding: $0.dropFirst().dropLast(), as: UTF8.self) } ?? "\"\(id)\""
@@ -1514,6 +1664,50 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         guard plus.contains("rollback"), let o = try? await plusCall("rollback", query: ["sessionId": sid]), current == sid else { return }
         rollbackOn = o["on"] as? Bool == true && o["rewind"] as? Bool != true
         redoOffer = o["redo"] as? Int
+        // Option buttons: where a fork's own events start (an older Mac does not send it: 0).
+        optionsFrom = max(0, o["inherited"] as? Int ?? 0)
+    }
+
+    // MARK: Option buttons (Composer Plus `optionPicks`)
+
+    /// The open chat's first own event (a fork starts with its parent's events). nil until the Mac's rollback route
+    /// answered for this chat: until then no option buttons, so a fork never offers its parent's options (rule 10).
+    @Published var optionsFrom: Int?
+    /// One pick per chat at a time (rule 7): the buttons and a second tap both check it.
+    @Published var optionBusy = Set<String>()
+    /// The answer that was picked in each chat: its buttons stay off until a newer turn (or a rollback of the pick).
+    @Published var optionPicked: [String: OptionOffer] = [:]
+    /// The options of the open chat's last answer, when the chat is idle and they are not picked: nil otherwise.
+    var optionOffer: OptionOffer? {
+        guard let sid = current, currentSess?.parent == nil, !running, let from = optionsFrom, let o = chatOffer(events, from: from),
+              optionsOpen(sid, o) || optionBusy.contains(sid) else { return nil }
+        return o
+    }
+    func optionsOpen(_ sid: String, _ o: OptionOffer) -> Bool {
+        !optionBusy.contains(sid) && !(optionPicked[sid].map { $0.seq == o.seq && $0.latest == o.latest } ?? false)
+    }
+    /// Sends option `n` of `offer` as your message `Option n: <item>`; nothing while a pick of this chat runs or when
+    /// this answer was picked. A failed send leaves the buttons on (the error shows as for any send).
+    func pickOption(_ offer: OptionOffer, _ n: Int) async throws {
+        guard let sid = current, let o = offer.options.first(where: { $0.n == n }), optionsOpen(sid, offer) else { return }
+        optionBusy.insert(sid)
+        defer { optionBusy.remove(sid) }
+        try await prompt("Option \(n): \(o.text)", images: [])
+        optionPicked[sid] = offer
+    }
+
+    // MARK: Next waiting chat (Composer Plus `nextWaiting`)
+
+    /// When this iPhone first saw each wait (`waitingOrder`): kept while the app runs.
+    private var waitSeen: [String: Date] = [:]
+    /// The chats that wait for you, next first, without the chat on screen.
+    func nextWaiting(now: Date = .now) -> [Waiting] {
+        waitingOrder(prompts: prompts, finished: finished, sessions: sessions, open: onScreen, seen: &waitSeen, now: now)
+    }
+    /// Opens the next chat that waits for you; nothing when none waits.
+    func openNextWaiting() {
+        guard let next = nextWaiting().first else { return }
+        open(next.id)
     }
     /// Redo (Turn rollback): the rollback marker seq that the Mac offers to redo; nil = no offer.
     @Published var redoOffer: Int?
@@ -1585,6 +1779,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// feature is off (or the chat moved on); then nothing shows. Only one call per finished turn.
     func loadPrediction() {
         guard plus.contains("predict"), let sid = current, currentSess?.parent == nil, let seq = predictAfter(events) else { return }
+        // Option buttons offer the next step: no guess (and no model call) for that answer.
+        if let o = chatOffer(events, from: optionsFrom ?? 0), optionsOpen(sid, o) { return }
         let key = "\(sid):\(seq)"
         guard predicted != key else { return }
         predicted = key
@@ -2137,7 +2333,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let old = followId { send(["type": "cancel", "streamId": old]) }
         current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; contextWindow = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
         hasOlder = false; oldestSeq = nil; throughSeq = nil; events = []; continueSeq = nil; rollbackOn = false; prediction = nil; redoOffer = nil
-        branch = nil; newBranch = false
+        branch = nil; newBranch = false; optionsFrom = nil
         running = currentSess?.running ?? false
         loadingChat = true
         openFollow(sid)

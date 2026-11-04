@@ -311,7 +311,12 @@ try {
       return { status: response.status, json: await response.json() };
     };
     assert.deepEqual((await call({}, 'GET')).json, { on: true }, 'on by default');
-    assert.deepEqual((await call({ sessionId: 'chat-a' }, 'GET')).json, { on: true, rewind: false, spans: [], redo: null });
+    assert.deepEqual((await call({ sessionId: 'chat-a' }, 'GET')).json, { on: true, rewind: false, spans: [], withdrawn: [], inherited: 0, redo: null });
+    // A fork's inherited event count (dsh's Session.inheritedEventCount), for Option picks (rule 10).
+    session.inheritedEventCount = 9;
+    assert.equal((await call({ sessionId: 'chat-a' }, 'GET')).json.inherited, 9, 'a fork: its inherited event count');
+    for (const bad of [-1, 1.5, '9', undefined]) { session.inheritedEventCount = bad; assert.equal((await call({ sessionId: 'chat-a' }, 'GET')).json.inherited, 0, `not a count: 0 (${bad})`); }
+    delete session.inheritedEventCount;
     assert.equal((await call('{bad')).status, 400);
     assert.equal((await call({ sessionId: 'chat-a', seq: 8 })).status, 400, 'only a message of the user');
     assert.equal((await call({ sessionId: 'missing', seq: 9 })).status, 409);
@@ -338,6 +343,13 @@ try {
     assert.ok(res.json.files.restored.includes('keep.txt'));
     assert.equal(readFileSync(join(repo, 'keep.txt'), 'utf8'), 'keep\n');
     assert.deepEqual((await call({ sessionId: 'chat-a' }, 'GET')).json.spans, [[9, 20]]);
+    // `withdrawn` (for Option picks) also has dsh-rewind-plugin's spans; `spans` (the ↶ view) does not.
+    {
+      appended.push({ seq: 30, type: 'user/message', data: { source: { kind: REWIND_SOURCE } }, sourceEventSeqs: [25, 27] });
+      const json = (await call({ sessionId: 'chat-a' }, 'GET')).json;
+      assert.deepEqual(json.spans, [[9, 20]]); assert.deepEqual(json.withdrawn, [[9, 20], [25, 30]], 'both marker kinds');
+      appended.pop();
+    }
     // Redo: offered for the newest rollback while its marker is the chat's last user message.
     {
       assert.equal((await call({ sessionId: 'chat-a' }, 'GET')).json.redo, 20);

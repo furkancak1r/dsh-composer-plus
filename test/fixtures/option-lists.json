@@ -1,0 +1,470 @@
+{
+ "about": "parseOptions cases: client.js and Tether (tether/ios/Tests) must give these options. test/option-picks.test.mjs checks client.js.",
+ "cases": [
+  {
+   "text": "I fixed the login.\n\n## Options\n\n1. Merge it\n2. Add a test first (recommended)\n3. Leave it\n",
+   "options": [
+    {
+     "n": 1,
+     "label": "Merge it",
+     "text": "Merge it",
+     "recommended": false
+    },
+    {
+     "n": 2,
+     "label": "Add a test first",
+     "text": "Add a test first",
+     "recommended": true
+    },
+    {
+     "n": 3,
+     "label": "Leave it",
+     "text": "Leave it",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "Done.\n\n**Options:**\n1) Ship\n2) Wait",
+   "options": [
+    {
+     "n": 1,
+     "label": "Ship",
+     "text": "Ship",
+     "recommended": false
+    },
+    {
+     "n": 2,
+     "label": "Wait",
+     "text": "Wait",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "Done.\n__Next steps__\n1. Ship",
+   "options": [
+    {
+     "n": 1,
+     "label": "Ship",
+     "text": "Ship",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "#### options :\n1. a\n2. b",
+   "options": [
+    {
+     "n": 1,
+     "label": "a",
+     "text": "a",
+     "recommended": false
+    },
+    {
+     "n": 2,
+     "label": "b",
+     "text": "b",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "### Choices ###\n1. a",
+   "options": [
+    {
+     "n": 1,
+     "label": "a",
+     "text": "a",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "Done.\r\n\r\n## Options\r\n1. Ship\r\n2. Wait\r\n",
+   "options": [
+    {
+     "n": 1,
+     "label": "Ship",
+     "text": "Ship",
+     "recommended": false
+    },
+    {
+     "n": 2,
+     "label": "Wait",
+     "text": "Wait",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "## Options\n\n1. Ship\n\n2. Wait\n\n\n",
+   "options": [
+    {
+     "n": 1,
+     "label": "Ship",
+     "text": "Ship",
+     "recommended": false
+    },
+    {
+     "n": 2,
+     "label": "Wait",
+     "text": "Wait",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "Bitti.\n\n## Seçenekler\n1. Birleştir (önerilen)\n2. Bekle",
+   "options": [
+    {
+     "n": 1,
+     "label": "Birleştir",
+     "text": "Birleştir",
+     "recommended": true
+    },
+    {
+     "n": 2,
+     "label": "Bekle",
+     "text": "Bekle",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "完成。\n\n**选项：**\n1. 合并（推荐）\n2. 等待",
+   "options": [
+    {
+     "n": 1,
+     "label": "合并",
+     "text": "合并",
+     "recommended": true
+    },
+    {
+     "n": 2,
+     "label": "等待",
+     "text": "等待",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "## SECENEKLER\n1. a (ONERILEN)",
+   "options": [
+    {
+     "n": 1,
+     "label": "a",
+     "text": "a",
+     "recommended": true
+    }
+   ]
+  },
+  {
+   "text": "## Opciones\n1. Fusionar (Recomendada)\n2. Esperar",
+   "options": [
+    {
+     "n": 1,
+     "label": "Fusionar",
+     "text": "Fusionar",
+     "recommended": true
+    },
+    {
+     "n": 2,
+     "label": "Esperar",
+     "text": "Esperar",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "## Варианты\n1. Слить (рекомендуется)",
+   "options": [
+    {
+     "n": 1,
+     "label": "Слить",
+     "text": "Слить",
+     "recommended": true
+    }
+   ]
+  },
+  {
+   "text": "## Options\n1. Ship **(Recommended)**",
+   "options": [
+    {
+     "n": 1,
+     "label": "Ship",
+     "text": "Ship",
+     "recommended": true
+    }
+   ]
+  },
+  {
+   "text": "## Options\n1. Ship (fast)\n2. Wait (recommended) for CI",
+   "options": [
+    {
+     "n": 1,
+     "label": "Ship (fast)",
+     "text": "Ship (fast)",
+     "recommended": false
+    },
+    {
+     "n": 2,
+     "label": "Wait for CI",
+     "text": "Wait for CI",
+     "recommended": true
+    }
+   ]
+  },
+  {
+   "text": "## Options\n1. **Refactor** the `auth` module, see [notes](https://x.test/n)\n   It touches 4 files.\n   - keeps the API\n2. Stop",
+   "options": [
+    {
+     "n": 1,
+     "label": "Refactor the auth module, see notes",
+     "text": "**Refactor** the `auth` module, see [notes](https://x.test/n)\nIt touches 4 files.\n- keeps the API",
+     "recommended": false
+    },
+    {
+     "n": 2,
+     "label": "Stop",
+     "text": "Stop",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "## Options\n1. xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "options": [
+    {
+     "n": 1,
+     "label": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx…",
+     "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "## Options\n1. o1\n2. o2\n3. o3\n4. o4\n5. o5\n6. o6\n7. o7\n8. o8\n9. o9",
+   "options": [
+    {
+     "n": 1,
+     "label": "o1",
+     "text": "o1",
+     "recommended": false
+    },
+    {
+     "n": 2,
+     "label": "o2",
+     "text": "o2",
+     "recommended": false
+    },
+    {
+     "n": 3,
+     "label": "o3",
+     "text": "o3",
+     "recommended": false
+    },
+    {
+     "n": 4,
+     "label": "o4",
+     "text": "o4",
+     "recommended": false
+    },
+    {
+     "n": 5,
+     "label": "o5",
+     "text": "o5",
+     "recommended": false
+    },
+    {
+     "n": 6,
+     "label": "o6",
+     "text": "o6",
+     "recommended": false
+    },
+    {
+     "n": 7,
+     "label": "o7",
+     "text": "o7",
+     "recommended": false
+    },
+    {
+     "n": 8,
+     "label": "o8",
+     "text": "o8",
+     "recommended": false
+    },
+    {
+     "n": 9,
+     "label": "o9",
+     "text": "o9",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "Here is the code:\n```js\nconst a = 1;\n```\n\n## Options\n1. Keep\n2. Drop",
+   "options": [
+    {
+     "n": 1,
+     "label": "Keep",
+     "text": "Keep",
+     "recommended": false
+    },
+    {
+     "n": 2,
+     "label": "Drop",
+     "text": "Drop",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "## Options\n1. Run it:\n   ```sh\n   npm test\n   ```\n2. Skip",
+   "options": [
+    {
+     "n": 1,
+     "label": "Run it:",
+     "text": "Run it:\n```sh\nnpm test\n```",
+     "recommended": false
+    },
+    {
+     "n": 2,
+     "label": "Skip",
+     "text": "Skip",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "## Options\n1. a\n\n   more\n2. b",
+   "options": [
+    {
+     "n": 1,
+     "label": "a",
+     "text": "a\n\nmore",
+     "recommended": false
+    },
+    {
+     "n": 2,
+     "label": "b",
+     "text": "b",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "## Options\n1. a\n   2. sub\n2. b",
+   "options": [
+    {
+     "n": 1,
+     "label": "a",
+     "text": "a\n2. sub",
+     "recommended": false
+    },
+    {
+     "n": 2,
+     "label": "b",
+     "text": "b",
+     "recommended": false
+    }
+   ]
+  },
+  {
+   "text": "",
+   "options": []
+  },
+  {
+   "text": "Done. Everything works.",
+   "options": []
+  },
+  {
+   "text": "1. Ship\n2. Wait",
+   "options": []
+  },
+  {
+   "text": "## Options\n1. Ship\n2. Wait\n\nTell me which one.",
+   "options": []
+  },
+  {
+   "text": "## Options\n1. Ship\n\n## Notes\nnothing",
+   "options": []
+  },
+  {
+   "text": "## Summary\n1. Fixed A\n2. Fixed B",
+   "options": []
+  },
+  {
+   "text": "## My options today\n1. a",
+   "options": []
+  },
+  {
+   "text": "Options\n1. a",
+   "options": []
+  },
+  {
+   "text": "##### Options\n1. a",
+   "options": []
+  },
+  {
+   "text": "**Options** below\n1. a",
+   "options": []
+  },
+  {
+   "text": "## Options\nPick one:\n1. a",
+   "options": []
+  },
+  {
+   "text": "## Options\n   indented note\n1. a",
+   "options": []
+  },
+  {
+   "text": "## Options\n2. a\n3. b",
+   "options": []
+  },
+  {
+   "text": "## Options\n1. a\n3. b",
+   "options": []
+  },
+  {
+   "text": "## Options\n1. a\n1. b",
+   "options": []
+  },
+  {
+   "text": "## Options\n1. a\n2) b",
+   "options": []
+  },
+  {
+   "text": "## Options\n1. o\n2. o\n3. o\n4. o\n5. o\n6. o\n7. o\n8. o\n9. o\n10. o",
+   "options": []
+  },
+  {
+   "text": "## Options\n- a\n- b",
+   "options": []
+  },
+  {
+   "text": "## Options\n1.\n2. b",
+   "options": []
+  },
+  {
+   "text": "## Options\n1. (recommended)",
+   "options": []
+  },
+  {
+   "text": "```md\n## Options\n1. a\n2. b",
+   "options": []
+  },
+  {
+   "text": "```\nx\n```\n```md\n## Options\n1. a",
+   "options": []
+  },
+  {
+   "text": "## Options\n1.Ship",
+   "options": []
+  },
+  {
+   "text": "## Options\n 1. a",
+   "options": []
+  }
+ ]
+}
