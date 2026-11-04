@@ -644,6 +644,7 @@ struct ConversationView: View {
             } message: { Text("The agent keeps working toward this until it is complete.") }
             // per-session draft: going back or switching sessions never loses typed text
             .onAppear { text = c.draft(c.current) }
+            .onChange(of: c.draftPushed) { text = c.draft(c.current); focused = true }
             .onChange(of: c.current) { text = c.draft(c.current); guess = nil; improving?.task.cancel(); improving = nil; improved = nil }
             .onChange(of: text) { c.setDraft(text, c.current) }
             // Complete while typing: ask after a pause; a newer keystroke cancels this task. Typing along the guess needs no ask.
@@ -2660,6 +2661,14 @@ struct ChangesSheet: View {
             List {
                 // Five modes do not fit the phone's width as segments (Branch and This chat were off screen): a menu row
                 // shows the current mode and lists all five.
+                if let n = c.diffNotes[sessionId], !n.isEmpty {
+                    Section {
+                        ForEach(n) { x in VStack(alignment: .leading, spacing: 2) { Text("\(x.path):\(x.line)").font(.caption.monospaced()); Text(x.note).font(.footnote) } }
+                            .onDelete { c.diffNotes[sessionId]?.remove(atOffsets: $0) }
+                        Button("Send to composer") { c.sendDiffNotes(sessionId); dismiss() }.bold()
+                        Button("Clear", role: .destructive) { c.diffNotes[sessionId] = nil }
+                    } header: { Text("\(n.count) note(s) on the diff") }
+                }
                 Picker("Mode", selection: $mode) { ForEach(Self.modes, id: \.id) { Text($0.label).tag($0.id) } }
                 // the row text toggles too, not only the switch (the switch keeps its own tap)
                 Toggle(isOn: $ws) {
@@ -3072,18 +3081,23 @@ struct DiffView: View {
     @AppStorage("changesHideWhitespace") private var ws = false
     @State private var d: J?
     @State private var failed: String?
+    @State private var noting: (line: String, old: Int?, new: Int?)?
+    @State private var noteText = ""
     var body: some View {
         ScrollView([.vertical, .horizontal]) {
             if let failed { Text(failed).foregroundStyle(.secondary).padding() }
             else if let d {
                 if d["binary"] as? Bool == true { Text("binary").foregroundStyle(.secondary).padding() }
-                let lines = (d["patch"] as? String ?? "").split(separator: "\n", omittingEmptySubsequences: false).drop { !$0.hasPrefix("@@") }
+                let lines = numberedPatch((d["patch"] as? String ?? "").split(separator: "\n", omittingEmptySubsequences: false).drop { !$0.hasPrefix("@@") }.map(String.init))
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { _, l in
-                        Text(String(l).isEmpty ? " " : String(l)).font(.caption.monospaced())
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, r in
+                        let l = r.line
+                        Text(l.isEmpty ? " " : l).font(.caption.monospaced())
                             .foregroundStyle(l.hasPrefix("@@") ? Color.secondary : .primary)
                             .padding(.horizontal, 8).frame(maxWidth: .infinity, alignment: .leading)
                             .background(l.hasPrefix("+") ? Color.green.opacity(0.12) : l.hasPrefix("-") ? Color.red.opacity(0.12) : .clear)
+                            // Diff notes: touch and hold a line → Add note… (one line on the phone).
+                            .contextMenu { if c.plus.contains("diff") && (r.old != nil || r.new != nil) { Button { noting = r; noteText = "" } label: { Label("Add note…", systemImage: "text.bubble") } } }
                     }
                     if d["truncated"] as? Bool == true { Text("Diff truncated.").font(.caption).foregroundStyle(.secondary).padding(8) }
                 }
@@ -3091,6 +3105,11 @@ struct DiffView: View {
             } else { ProgressView().padding() }
         }
         .navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
+        .alert("Note on this line", isPresented: Binding(get: { noting != nil }, set: { if !$0 { noting = nil } })) {
+            TextField("What should the agent do here?", text: $noteText)
+            Button("Save note") { if let r = noting { c.addDiffNote(sessionId, path: path, row: r, note: noteText) }; noting = nil }
+            Button("Cancel", role: .cancel) { noting = nil }
+        } message: { Text(noting?.line ?? "") }
         .task(id: ws) {
             do { d = try await c.plusCall("diff", query: changesQuery(sessionId, mode: mode, ws: ws, commit: commit, path: path, pending: pending)) }
             catch { failed = userText(error) }

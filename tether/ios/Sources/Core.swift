@@ -515,6 +515,35 @@ struct Line: Identifiable {
 /// Quote in reply: `quoteText` of client.js for a whole answer at the end of the composer's text. `> ` lines (an empty
 /// line as `>`), at most `quoteMax` characters (cut with …), an empty line before it when the field has text, and an empty
 /// line after it for the reply.
+/// Diff notes (Composer Plus `diffComments`): a note on one line of a Changes diff. The same text rule as the Mac's
+/// `notesText`: `path:line` (with " (removed)" for a removed line), the line as a diff block, the note.
+struct DiffNote: Equatable, Identifiable {
+    let id = UUID()
+    let path: String, side: String, line: Int, text: String, note: String
+}
+/// Each patch row with its old and new line number from the hunk headers (nil for a side the row is not on, and for
+/// `@@` and `\ No newline` rows). The same rule as the Mac's `numberedRows`.
+func numberedPatch(_ rows: [String]) -> [(line: String, old: Int?, new: Int?)] {
+    var oldNo = 0, newNo = 0
+    return rows.map { l in
+        if l.hasPrefix("@@") {
+            if let m = try? /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.firstMatch(in: l), let a = Int(m.1), let b = Int(m.2) { oldNo = a; newNo = b }
+            return (l, nil, nil)
+        }
+        if l.hasPrefix("\\") { return (l, nil, nil) }
+        if l.hasPrefix("+") { defer { newNo += 1 }; return (l, nil, newNo) }
+        if l.hasPrefix("-") { defer { oldNo += 1 }; return (l, oldNo, nil) }
+        defer { oldNo += 1; newNo += 1 }
+        return (l, oldNo, newNo)
+    }
+}
+func diffNotesText(_ notes: [DiffNote]) -> String {
+    notes.map { n in
+        let fence = n.text.contains("```") ? "````" : "```"
+        return "`\(n.path):\(n.line)\(n.side == "old" ? " (removed)" : "")`\n\(fence)diff\n\(n.text)\n\(fence)\n\(n.note.trimmingCharacters(in: .whitespacesAndNewlines))"
+    }.joined(separator: "\n\n")
+}
+
 /// Side chat (Composer Plus `sideChat`): the Bring back text, the same rule as the Mac's `sideBackText`: each question as a
 /// `> ` quote, then its answer, at most `sideBackMax` characters (cut with …).
 let sideBackMax = 12000
@@ -1698,6 +1727,27 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if !query.isEmpty { c.queryItems = query.sorted { $0.key < $1.key }.map { URLQueryItem(name: $0.key, value: $0.value) } }
         return try await call(c.percentEncodedPath + (c.percentEncodedQuery.map { "?" + $0 } ?? ""), body, get: body == nil, wait: wait) as? J ?? [:]
     }
+
+    // MARK: Diff notes (Composer Plus `diffComments`)
+
+    /// Each chat's notes on Changes diffs, until Send or Clear. In memory: the Mac keeps its own tray in its browser.
+    @Published var diffNotes: [String: [DiffNote]] = [:]
+    /// Add a note; false when it is empty or the chat has 50 notes (the Mac's limits; a note at most 2,000 characters).
+    @discardableResult func addDiffNote(_ sid: String, path: String, row: (line: String, old: Int?, new: Int?), note: String) -> Bool {
+        let t = String(note.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
+        guard !t.isEmpty, (diffNotes[sid]?.count ?? 0) < 50, let line = row.new ?? row.old else { return false }
+        diffNotes[sid, default: []].append(DiffNote(path: path, side: row.new == nil ? "old" : "new", line: line, text: row.line, note: t))
+        return true
+    }
+    /// Send to composer: the notes after the chat's draft (an empty line between), then the tray empties.
+    func sendDiffNotes(_ sid: String) {
+        guard let notes = diffNotes[sid], !notes.isEmpty else { return }
+        setDraft(sideBackDraft(draft(sid), diffNotesText(notes)), sid)
+        diffNotes[sid] = nil
+        draftPushed += 1
+    }
+    /// A sheet wrote the open chat's draft (Diff notes → Send): the composer reads the draft again.
+    @Published var draftPushed = 0
 
     // MARK: Side chat (Composer Plus `sideChat`)
 

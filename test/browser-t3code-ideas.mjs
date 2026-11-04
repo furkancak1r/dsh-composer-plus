@@ -24,6 +24,10 @@
 //     opens with the bar ("Side chat of …: read-only"). Its model request has the chat's task, the lead and the question,
 //     not the queued message; its write is denied (dsh's read-only mode) and no approval card shows; the chat's card stays.
 // 12. Bring back: the chat opens and its composer holds the question (quoted) and the answer. 13. Switched off: no button.
+// Diff notes (the demo project is a git repository with one changed file):
+// 14. Right sidebar → Changes → Uncommitted → the file's diff: + on a line → a note → Save; Shift+click a range on another
+//     line → a note. The bar says "2 note(s) on the diff". 15. Send to composer: the chat's composer has both notes as
+//     Markdown after your text; the bar goes; the sent message holds them. 16. Switched off: no + and no bar.
 // PLAYWRIGHT=/path/to/playwright node test/browser-t3code-ideas.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/rejectNote.webp, secretInput.webp and quoteReply.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -52,6 +56,7 @@ const NOTE = 'Do not delete it. Move it to archive/build-old instead.';
 const SECRET_TASK = { S: 'Publish the demo package with my token', D: 'Publish the demo package, ask me first', T: 'Publish the demo package when I am back', O: 'Publish the demo package one more time' };
 const VALUE = `npm_demo_${randomUUID().replaceAll('-', '')}`;
 const QUOTE_TASK = 'Explain the release steps';
+const NOTES_TASK = 'Review my cart change';
 const SIDE_TASK = 'Refactor the cart module'; const SIDE_Q = 'Which file holds the cart totals?'; const SIDE_QUEUED = 'Then update the changelog';
 const calls = []; // {task, msgs, tools}
 const fileSeen = []; // the secret file while the turn runs: {path, mode, dirMode}
@@ -70,6 +75,10 @@ const fake = createServer((req, res) => {
     if (/session title/i.test(textOf(msgs.at(-1)?.content))) return say('Clean up the build');
     if (/You predict the next message|You complete the message that the user is typing/.test(all)) return say('');
     const own = msgs.filter((m) => m.role === 'assistant' && m.tool_calls?.length).length;
+    if (all.includes(NOTES_TASK)) {
+      calls.push({ task: 'N', msgs });
+      return say(textOf(msgs.at(-1)?.content).includes('src/cart.js') ? 'I will apply your notes.' : 'Open Changes to see the diff.');
+    }
     if (all.includes(SIDE_Q)) {
       calls.push({ task: 'SQ', msgs, tools: parsed.tools ?? [] });
       // Count the side chat's own tool calls only (the copied part has the chat's bash call).
@@ -151,6 +160,13 @@ try {
     const project = join(home, 'projects', 'demo-app');
     await mkdir(join(project, 'build-old'), { recursive: true });
     await writeFile(join(project, 'build-old', 'app.js'), 'console.log("old build");\n');
+    // Diff notes: a made-up repository with one changed file (src/cart.js).
+    const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Demo', GIT_AUTHOR_EMAIL: 'demo@example.com', GIT_COMMITTER_NAME: 'Demo', GIT_COMMITTER_EMAIL: 'demo@example.com' };
+    const git = (...args) => execFileSync('git', args, { cwd: project, env: gitEnv, encoding: 'utf8' });
+    await mkdir(join(project, 'src'), { recursive: true });
+    await writeFile(join(project, 'src', 'cart.js'), 'export function total(items) {\n  let sum = 0;\n  for (const i of items) sum += i.price;\n  return sum;\n}\n');
+    git('init', '-q', '-b', 'main'); git('add', 'src/cart.js'); git('commit', '-q', '-m', 'Add the cart');
+    await writeFile(join(project, 'src', 'cart.js'), 'export function total(items) {\n  let sum = 0;\n  for (const i of items) sum += i.price * i.qty;\n  return Math.round(sum * 100) / 100;\n}\n');
     const workspaceId = randomUUID(); const now = new Date().toISOString();
     await mkdir(join(home, 'storages'), { recursive: true });
     await writeFile(join(home, 'storages/workspace.json'), JSON.stringify({ unit: { name: 'workspace', version: 2 },
@@ -440,7 +456,8 @@ try {
       // The composer (and its side button) is hidden under the card: this step uses the button's route; step 12 the button.
       const side = await post('/api/composer-plus.side-chat', { sessionId: parentId, text: SIDE_Q });
       assert.equal(side.status, 200, JSON.stringify(side.data));
-      await until(async () => calls.some((c) => c.task === 'SQ' && c.msgs.some((m) => m.role === 'tool')), 'the side chat writes and reads the result', 40000);
+      // The copy already has the chat's (closed) bash call: wait for the second request, the one after its own write.
+      await until(async () => calls.filter((c) => c.task === 'SQ').length >= 2, 'the side chat writes and reads the result', 40000);
       const sq = calls.filter((c) => c.task === 'SQ');
       const firstSide = JSON.stringify(sq[0].msgs);
       assert.ok(firstSide.includes(SIDE_TASK), 'the side chat knows the chat\'s task');
@@ -498,6 +515,72 @@ try {
       await page.keyboard.press('Escape'); await pause(600);
       assert.equal(await sideButton.count(), 0, 'off: no side button');
       note('13: switched off → no side button');
+
+      // 14. Diff notes: Changes → Uncommitted → the file's diff → a note on one line and on a Shift range.
+      await newChat();
+      await send(NOTES_TASK);
+      await until(async () => (await page.getByText('Open Changes to see the diff.').count()) > 0, 'chat N answers');
+      const notesChat = await page.evaluate(() => document.querySelector('[data-row-key^="session:"][aria-selected="true"]')?.getAttribute('data-row-key')?.slice(8));
+      if (!(await page.locator('[data-composer-plus-changes]').isVisible().catch(() => false))) {
+        await page.getByRole('button', { name: 'Open right sidebar' }).click(); await pause(700);
+        await page.getByText('Changes', { exact: true }).first().click();
+      }
+      const changes = page.locator('[data-composer-plus-changes]'); await changes.waitFor({ timeout: 10000 });
+      await changes.getByRole('button', { name: /^Tree/ }).first().click();
+      await page.getByText('Uncommitted', { exact: true }).last().click();
+      await changes.getByText('src/cart.js', { exact: true }).click();
+      const row = (text) => changes.locator('.cp-note-row').filter({ hasText: text }).first();
+      await row('return Math.round').waitFor({ timeout: 10000 });
+      const addOn = async (text, shift = false) => { await row(text).hover(); await row(text).locator('[data-composer-plus-note-add]').click({ modifiers: shift ? ['Shift'] : [] }); };
+      await addOn('return Math.round');
+      const noteField = changes.locator('[data-composer-plus-note-form] textarea');
+      await noteField.fill('Round in one place, not here.');
+      await noteField.press('Enter');
+      await addOn('+  for (const i of items) sum += i.price * i.qty;');
+      await addOn('-  for (const i of items) sum += i.price;', true);
+      await noteField.fill('Check qty for undefined.');
+      await changes.locator('[data-composer-plus-note-save]').click();
+      const notesBar = changes.locator('[data-composer-plus-notes-bar]');
+      await until(async () => (await notesBar.getAttribute('data-composer-plus-notes-bar').catch(() => null)) === '2', 'two notes in the bar');
+      assert.match(await notesBar.innerText(), /2 note\(s\) on the diff/);
+      if (index === 0 && process.env.SHOT) {
+        await page.mouse.move(1270, 790); await pause(400);
+        const box = await changes.boundingBox();
+        const area = { x: box.x, y: box.y, width: box.width, height: Math.min(box.height, 520) };
+        const png = join(home, 'diffComments.png'); await page.screenshot({ path: png, clip: area });
+        execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.round(area.width * 1.25)), '0', png, '-o', join(repo, 'assets/features/diffComments.webp')]);
+        note(`shot: assets/features/diffComments.webp ${(await stat(join(repo, 'assets/features/diffComments.webp'))).size} bytes`);
+      }
+      note('14: Changes → Uncommitted → src/cart.js: a note on one line and on a Shift range; the bar shows 2 notes');
+
+      // 15. Send to composer: both notes as Markdown after your text; the bar goes; the model gets them.
+      await input.click(); await page.keyboard.type('Please fix these:', { delay: 3 });
+      await notesBar.getByRole('button', { name: 'Send to composer', exact: true }).click();
+      await notesBar.waitFor({ state: 'detached', timeout: 5000 });
+      await input.click(); await page.keyboard.press('Enter');
+      await until(async () => (await page.getByText('I will apply your notes.').count()) > 0, 'chat N answers the notes');
+      const notesSent = textOf(calls.filter((c) => c.task === 'N').at(-1).msgs.findLast((m) => m.role === 'user' && textOf(m.content).includes('src/cart.js')).content);
+      assert.ok(notesSent.startsWith('Please fix these:\n\n`src/cart.js:4`\n```diff\n+  return Math.round(sum * 100) / 100;\n```\nRound in one place, not here.'), `the first note after your text: ${JSON.stringify(notesSent.slice(0, 260))}`);
+      // git shows the two changed lines as a block of two removed and two added lines: the range keeps the rows between.
+      assert.ok(notesSent.endsWith('`src/cart.js:3`\n```diff\n-  for (const i of items) sum += i.price;\n-  return sum;\n+  for (const i of items) sum += i.price * i.qty;\n```\nCheck qty for undefined.'), `the range note: ${JSON.stringify(notesSent)}`);
+      assert.equal(await page.evaluate(() => document.querySelector('[data-row-key^="session:"][aria-selected="true"]')?.getAttribute('data-row-key')?.slice(8)), notesChat, 'the same chat');
+      note('15: Send to composer → the composer had "Please fix these:" + both notes (file:line, diff block, note); the model got them; the bar went');
+
+      // 16. Switched off: no + and no bar.
+      await addOn('return Math.round');
+      await noteField.fill('one more');
+      await noteField.press('Enter');
+      await notesBar.waitFor({ timeout: 5000 });
+      await openSettings();
+      const sw5 = page.getByRole('switch', { name: 'Diff notes', exact: true });
+      await sw5.waitFor({ timeout: 10000 });
+      assert.equal(await sw5.getAttribute('aria-checked'), 'true', 'Diff notes is on by default');
+      await sw5.click();
+      await until(async () => (await sw5.getAttribute('aria-checked')) === 'false', 'Diff notes switched off');
+      await page.keyboard.press('Escape'); await pause(600);
+      assert.equal(await changes.locator('[data-composer-plus-note-add]').count(), 0, 'off: no +');
+      assert.equal(await notesBar.count(), 0, 'off: no bar');
+      note('16: switched off → no + and no bar');
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;

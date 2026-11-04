@@ -337,6 +337,22 @@ final class CoreTests: XCTestCase {
     }
 
     /// Quote in reply: the same quote rule as the Mac (`quoteText` in client.js) for a whole answer at the end of the field.
+    @MainActor func testDiffNotes() {
+        // The same line rule as the Mac's numberedRows.
+        let rows = numberedPatch(["@@ -10,4 +10,5 @@ f()", " a", "-b", "+c", "+d", " e", "\\ No newline at end of file", "@@ -40 +41 @@", "-x"])
+        XCTAssertEqual(rows.map { $0.old }, [nil, 10, 11, nil, nil, 12, nil, nil, 40])
+        XCTAssertEqual(rows.map { $0.new }, [nil, 10, nil, 11, 12, 13, nil, nil, nil])
+        let c = Client()
+        XCTAssertFalse(c.addDiffNote("S", path: "a.js", row: rows[0], note: "x"), "not on a hunk header")
+        XCTAssertFalse(c.addDiffNote("S", path: "a.js", row: rows[3], note: "  "), "an empty note")
+        XCTAssertTrue(c.addDiffNote("S", path: "a.js", row: rows[3], note: " Use a constant. "))
+        XCTAssertTrue(c.addDiffNote("S", path: "a.js", row: rows[8], note: "Why?"))
+        XCTAssertEqual(diffNotesText(c.diffNotes["S"] ?? []), "`a.js:11`\n```diff\n+c\n```\nUse a constant.\n\n`a.js:40 (removed)`\n```diff\n-x\n```\nWhy?")
+        XCTAssertEqual(diffNotesText([DiffNote(path: "r.md", side: "new", line: 1, text: "+```js", note: "n")]), "`r.md:1`\n````diff\n+```js\n````\nn", "a longer fence")
+        for i in 0..<48 { c.addDiffNote("S", path: "a.js", row: rows[1], note: "n\(i)") }
+        XCTAssertFalse(c.addDiffNote("S", path: "a.js", row: rows[1], note: "one more"), "at most 50")
+        XCTAssertEqual(c.diffNotes["T"]?.count ?? 0, 0, "per chat")
+    }
     func testSideBack() {
         // The same rule as the Mac's sideBackText: questions as quotes, then the answers; blank messages left out.
         XCTAssertEqual(sideBackText([["role": "user", "text": "Why?\n\nReally"], ["role": "assistant", "text": " Because. "], ["role": "user", "text": " "]]), "> Why?\n>\n> Really\n\nBecause.")
