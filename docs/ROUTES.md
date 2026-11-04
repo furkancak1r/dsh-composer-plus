@@ -59,6 +59,10 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.board-progress` | POST | `{mode}`: "fast" (the default, no model call) or "ai". Settings only. | taskBoard | no |
 | `/api/composer-plus.planned-steps` | GET | The switch `{on}`. | plannedSteps | no |
 | `/api/composer-plus.planned-steps` | POST | `{on}`: the switch (a switch route). | plannedSteps | no |
+| `/api/composer-plus.secrets` | GET | The switch `{on}`. | secretInput | no |
+| `/api/composer-plus.secrets` | POST | `{on}`: the switch (a switch route). Off removes the tool and declines the open requests. | secretInput | no |
+| `/api/composer-plus.secret-answer` | GET | `?sessionId=`: `{on, asks: [{askId, callId, label, purpose}]}`, the open `request_secret` requests of that chat; never a value. | secretInput | yes |
+| `/api/composer-plus.secret-answer` | POST | `{sessionId, askId, value}` (1–8,192 characters, no NUL) saves the value to an owner-only file and gives the agent its path; `{sessionId, askId, decline: true}` declines. One answer per request: an unknown or answered request, or another chat, is 404. | secretInput | yes |
 | `/api/composer-plus.memory` | GET | The switch `{on}`. | projectMemory | no |
 | `/api/composer-plus.memory` | POST | `{on}`: the switch (a switch route). | projectMemory | no |
 | `/api/composer-plus.memory-edit` | GET | Every saved note: `{projects: [{id, name, path, count, files}], global, busy}`; 409 while the switch is off. | projectMemory | yes |

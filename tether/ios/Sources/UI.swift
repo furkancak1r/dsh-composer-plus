@@ -539,6 +539,8 @@ struct ConversationView: View {
     @State private var rollingBack: Line?
     /// Redo: the rollback marker whose Redo was tapped.
     @State private var redoMarker: Int?
+    /// Secret input: the request whose sheet is open.
+    @State private var enteringSecret: Client.SecretAsk?
     /// Open message: the row that blinks for 2 s after the jump.
     @State private var marked: UUID?
     /// Find in chat: the search text while the find bar is open (nil = closed), and the current hit.
@@ -750,6 +752,7 @@ struct ConversationView: View {
                         if c.shownTodos.contains(where: { $0.status != "completed" }) { todoCard }
                         if !c.queued.isEmpty { queueDock }
                         if let m = c.redoSeq, c.plus.contains("rollback") { redoBar(m) }
+                        if let a = c.secretAsk, a.sessionId == c.current { secretBar(a) }
                         if !suggestions.isEmpty { suggestionList }
                         composer
                         statusLine
@@ -764,6 +767,7 @@ struct ConversationView: View {
                 .onChange(of: c.running, initial: true) { turnStart = c.running ? (turnStart ?? .now) : nil }
                 .onChange(of: c.current) { openTurns = [] }
                 .task(id: c.jump) { await jump(proxy) }
+                .task(id: c.plus.contains("secret-answer") ? c.secretWaiting : nil) { await c.watchSecret() }
                 .task(id: marked) { if marked != nil { try? await Task.sleep(for: .seconds(2)); if !Task.isCancelled { withAnimation { marked = nil } } } }
         }
     }
@@ -813,6 +817,20 @@ struct ConversationView: View {
         guard let target else { c.error = String(localized: "This message is not in the chat any more."); return }
         withAnimation { proxy.scrollTo(target, anchor: .center) }
         marked = target
+    }
+
+    /// Secret input (Composer Plus): the agent waits for a secret; Enter opens the sheet with a secure field.
+    func secretBar(_ a: Client.SecretAsk) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "lock.fill").font(.caption).foregroundStyle(.secondary)
+            Text("Secret: \(a.label)").font(.footnote).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+            Button { enteringSecret = a } label: { Text("Enter").font(.footnote.weight(.medium)) }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+        }
+        .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 4)
+        .background(Color(.secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 10).padding(.top, 6)
+        .sheet(item: $enteringSecret) { SecretSheet(ask: $0) }
     }
 
     /// Redo (Composer Plus turn rollback): after a rollback, while nothing came after it and the chat is idle.
@@ -2492,6 +2510,43 @@ struct PromptSheet: View {
 
 
 // MARK: - Composer Plus (the dsh-composer-plus plugin on the Mac)
+
+/// Secret input: a secure field for the agent's `request_secret`. Save sends the value to the Mac once (the Mac writes it
+/// to an owner-only file and gives the agent only the path); Decline tells the agent that you did not give it. The value
+/// stays only in this sheet's field until it goes.
+struct SecretSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let ask: Client.SecretAsk
+    @State private var value = ""
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    SecureField(ask.label, text: $value)
+                        .textContentType(.password).autocorrectionDisabled().textInputAutocapitalization(.never)
+                        .submitLabel(.done).onSubmit { save() }
+                        .onChange(of: value) { _, v in if v.count > Client.secretMax { value = String(v.prefix(Client.secretMax)) } }
+                } header: { if !ask.purpose.isEmpty { Text(ask.purpose) } } footer: {
+                    Text("The agent gets only the path of a file on your Mac that holds the value. The file is deleted when this turn ends.")
+                }
+                Section { Button("Decline", role: .destructive) { send(nil) }.disabled(c.secretBusy) }
+            }
+            .navigationTitle("Secret: \(ask.label)").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(value.isEmpty || c.secretBusy) }
+            }
+            .onChange(of: c.secretAsk) { _, now in if now != ask { dismiss() } } // answered here, on the Mac, or the turn stopped
+        }
+        .presentationDetents([.medium])
+    }
+    private func save() { if !value.isEmpty { send(value) } }
+    private func send(_ v: String?) {
+        let a = ask
+        c.run { if try await c.answerSecret(a, value: v) { value = ""; dismiss() } }
+    }
+}
 
 /// Changes → a file → "Chats that changed this file": the chats of the same repository whose write/edit tools changed it,
 /// newest first (the Mac reads them from its chat logs); a tap opens that chat at that request.

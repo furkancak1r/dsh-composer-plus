@@ -298,6 +298,44 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(((long?["content"] as? [J])?.first?["text"] as? String)?.count, Client.rejectNoteMax)
     }
 
+    /// Secret input: the open request of the waiting call from the Mac's answer; the answer bodies (Decline sends no value;
+    /// nothing for an empty, too long or NUL value); the waiting call is the running chat's `request_secret` row without a
+    /// result; one answer at a time.
+    @MainActor func testSecretInput() async throws {
+        let o: J = ["on": true, "asks": [["askId": "k9", "callId": "c9", "label": "Other"], ["askId": "k1", "callId": "c1", "label": "npm token", "purpose": "Publish."]]]
+        let a = try XCTUnwrap(Client.secretAsk(o, sessionId: "S", callId: "c1"))
+        XCTAssertEqual(a, Client.SecretAsk(sessionId: "S", askId: "k1", callId: "c1", label: "npm token", purpose: "Publish."))
+        XCTAssertNil(Client.secretAsk(o, sessionId: "S", callId: "c2"), "another call's request does not show")
+        XCTAssertNil(Client.secretAsk(["asks": [["callId": "c1"]]], sessionId: "S", callId: "c1"), "no askId")
+        XCTAssertEqual(Client.secretBody(a, value: "tok") as NSDictionary?, ["sessionId": "S", "askId": "k1", "value": "tok"])
+        XCTAssertEqual(Client.secretBody(a, value: nil) as NSDictionary?, ["sessionId": "S", "askId": "k1", "decline": true], "Decline sends no value")
+        XCTAssertNil(Client.secretBody(a, value: ""))
+        XCTAssertNil(Client.secretBody(a, value: "a\0b"))
+        XCTAssertNil(Client.secretBody(a, value: String(repeating: "x", count: Client.secretMax + 1)))
+        XCTAssertNotNil(Client.secretBody(a, value: String(repeating: "x", count: Client.secretMax)))
+        let c = Client()
+        c.current = "S"; c.path = ["S"]
+        c.transcript = [Line(kind: .tool, text: "request_secret", callId: "c1", tool: "request_secret")]
+        XCTAssertNil(c.secretWaiting, "not while the chat is idle")
+        c.running = true
+        XCTAssertEqual(c.secretWaiting, "c1")
+        c.transcript[0].output = "The user saved it"
+        XCTAssertNil(c.secretWaiting, "a call with a result does not wait")
+        c.transcript.append(Line(kind: .tool, text: "bash", callId: "c2", tool: "bash"))
+        XCTAssertNil(c.secretWaiting, "another tool does not wait for a secret")
+        // One answer at a time: while one runs, a second returns at once without a call.
+        c.secretBusy = true
+        let sent = try await c.answerSecret(a, value: "tok")
+        XCTAssertFalse(sent, "nothing goes while another answer runs"); XCTAssertTrue(c.secretBusy)
+        // No Mac: the answer fails and the guard is free again.
+        c.secretBusy = false
+        do { try await c.answerSecret(a, value: "tok"); XCTFail("no Mac: the answer fails") } catch {}
+        XCTAssertFalse(c.secretBusy)
+        // Nothing to send: no call, no error.
+        let empty = try await c.answerSecret(a, value: "")
+        XCTAssertFalse(empty)
+    }
+
     @MainActor func testOpenFromOtherTab() {
         let c = Client()
         c.tab = 1

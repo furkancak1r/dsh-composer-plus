@@ -1862,6 +1862,50 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         return ["requestId": UUID().uuidString, "sessionId": sid, "mode": "steer", "content": promptContent(t, images: [], receipts: [])]
     }
 
+    /// Secret input (Composer Plus `secretInput`): the agent's `request_secret` call waits for a value. The phone reads the
+    /// chat's open request from the Mac and sends the value (or Decline) once; the agent gets only a file path on the Mac.
+    struct SecretAsk: Equatable, Identifiable { let sessionId: String, askId: String, callId: String, label: String, purpose: String; var id: String { askId } }
+    @Published var secretAsk: SecretAsk?
+    @Published var secretBusy = false
+    static let secretMax = 8192
+    /// The call id of the open chat's `request_secret` call that has no result yet, while the turn runs.
+    var secretWaiting: String? {
+        running ? transcript.last(where: { $0.kind == .tool && $0.tool == "request_secret" && $0.output == nil })?.callId : nil
+    }
+    /// The Mac's open request for `callId` from its `GET secret-answer` answer (`{asks: [{askId, callId, label, purpose}]}`).
+    static func secretAsk(_ o: J, sessionId: String, callId: String) -> SecretAsk? {
+        guard let a = (o["asks"] as? [J])?.first(where: { $0["callId"] as? String == callId }), let id = a["askId"] as? String else { return nil }
+        return SecretAsk(sessionId: sessionId, askId: id, callId: callId, label: a["label"] as? String ?? "", purpose: a["purpose"] as? String ?? "")
+    }
+    /// The answer body: nil value = Decline; nil for an empty, too long or NUL value (the Mac refuses those too).
+    static func secretBody(_ a: SecretAsk, value: String?) -> J? {
+        guard let value else { return ["sessionId": a.sessionId, "askId": a.askId, "decline": true] }
+        guard !value.isEmpty, value.count <= secretMax, !value.contains("\0") else { return nil }
+        return ["sessionId": a.sessionId, "askId": a.askId, "value": value]
+    }
+    /// Ask the Mac each second until it keeps the request of the waiting call (dsh shows the call a moment before).
+    func watchSecret() async {
+        guard plus.contains("secret-answer"), let sid = current, let callId = secretWaiting else { secretAsk = nil; return }
+        if secretAsk?.callId == callId { return }
+        secretAsk = nil
+        while !Task.isCancelled, current == sid, secretWaiting == callId {
+            if let o = try? await plusCall("secret-answer", query: ["sessionId": sid]), current == sid, secretWaiting == callId,
+               let a = Self.secretAsk(o, sessionId: sid, callId: callId) { secretAsk = a; return }
+            try? await Task.sleep(for: .seconds(1))
+        }
+    }
+    /// Save (value) or Decline (nil), one answer at a time. One address only (`wait`): a second try on another address
+    /// would send the value twice.
+    /// true when the Mac took the answer; false when nothing went (another answer runs, or the value is not valid).
+    @discardableResult
+    func answerSecret(_ a: SecretAsk, value: String?) async throws -> Bool {
+        guard !secretBusy, let body = Self.secretBody(a, value: value) else { return false }
+        secretBusy = true; defer { secretBusy = false }
+        _ = try await plusCall("secret-answer", body: body, wait: 15)
+        if secretAsk == a { secretAsk = nil }
+        return true
+    }
+
     /// Plan mode: leave it as dsh's plan chip does.
     func leavePlan() async throws { try await execute("/plan off") }
 
