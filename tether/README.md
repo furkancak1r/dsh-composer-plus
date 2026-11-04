@@ -117,6 +117,8 @@ Uygulama her yerde (sol üstteki Mac adı, Ayarlar, eşleşme ekranı) Mac'in bi
 - Her Mac kendi sertifika parmak izini, token'ını ve adreslerini (LAN, Tailscale) ayrı saklar. Bir Mac'in token'ı başka bir Mac'e hiç gönderilmez.
 - Aynı anda yalnız ekrandaki Mac'e bağlanılır. Geçişte eski Mac'in bağlantısı kapanır, ekran temizlenir ve yeni Mac'e bağlanılır. Geç gelen eski yanıtlar yok sayılır.
 - Okunmamış noktaları, son görülen liste ve taslaklar Mac'e göre ayrı tutulur.
+- Bildirim ayarları da Mac'e göre ayrıdır. Ayarlar → **Notifications** bölümü ekrandaki Mac'in (Macs listesinde onay işaretli olan) **Send notifications** anahtarını ve **Only between these hours** aralığını gösterir. Bölümün altında hangi Mac'in ayarı olduğu yazar. Ayarlar yalnız bu iPhone'da saklanır.
+- Yeni eşleşen her Mac'te bildirimler kapalı başlar. Eski sürümdeki tek bildirim ayarı, güncellemeden sonraki ilk açılışta o an eşleşmiş tüm Mac'lere aynen kopyalanır. Bir Mac'in eşleşmesini kaldırmak onun bildirim ayarını da siler.
 - Gateway, Mac'in adını (`scutil --get ComputerName`) QR koduna, `/pair` ve `/me` yanıtlarına ve Bonjour ilanına ekler. Eski bir gateway ad göndermezse telefon Mac'in adresini gösterir.
 - Eski sürümle eşleşmiş iPhone'un eşleşmesi ilk açılışta listeye taşınır; yeniden eşleşme gerekmez.
 - Sınır: ekrandaki Mac dışındaki Mac'lerden onay ve soru bildirimi gelmez. Onları görmek için o Mac'e geçin.

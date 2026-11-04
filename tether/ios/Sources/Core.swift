@@ -255,7 +255,8 @@ func nextActive(_ list: [Pairing], removed fp: String) -> String? {
     return rest.isEmpty ? nil : rest[min(i, rest.count - 1)].fp
 }
 /// UserDefaults key of one per-Mac value. Session ids are unique only inside one DSH, so unread dots, the last seen list
-/// and drafts of two Macs must not share a key. The first Mac (migrated from the one-Mac build) keeps the old bare key.
+/// and drafts of two Macs must not share a key; each Mac also has its own notification settings (Client.notifyKeys).
+/// The first Mac (migrated from the one-Mac build) keeps the old bare key.
 func macKey(_ key: String, _ fp: String?, legacy: String?) -> String {
     guard let fp, fp != legacy else { return key }
     return "\(key).\(fp.prefix(16))"
@@ -1370,6 +1371,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         let saved = UserDefaults.standard.string(forKey: "activeMac")
         activeFp = list.contains { $0.fp == saved } ? saved : list.first?.fp
         finished = Set(UserDefaults.standard.stringArray(forKey: macKey("finished", activeFp, legacy: legacy)) ?? [])
+        Client.splitNotify(.standard, macs: list.map(\.fp), legacy: legacy)
+        loadNotify()
         // A paired Mac connects as soon as the app is active: the first frames show the spinner, not "Not connected".
         if activeFp != nil { state = .connecting }
     }
@@ -1457,10 +1460,19 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var tsError: String?
     private var tsTried = false
 
-    /// Settings › Notifications (kept on this iPhone): turn finished, approval, question and error notifications.
-    /// Off by default. Tether asks iOS for the permission only when the user switches it on.
+    /// Settings › Notifications (kept on this iPhone, one set for each paired Mac): turn finished, approval, question and
+    /// error notifications of the Mac on screen. Off by default for each Mac. Tether asks iOS for the permission only when
+    /// the user switches it on.
     static let notifyKey = "notifications"
-    @Published private(set) var notifyOn = UserDefaults.standard.bool(forKey: Client.notifyKey)
+    /// Settings › Notifications › Only between these hours. Off by default: every hour.
+    /// From and To are minutes after midnight. To before From goes past midnight; From equal to To is all day.
+    static let hoursKey = "notifyHours", fromKey = "notifyFrom", toKey = "notifyTo"
+    /// The settings that each Mac has (see macKey). Older builds kept one set for every Mac under these bare keys.
+    static let notifyKeys = [notifyKey, hoursKey, fromKey, toKey]
+    /// Every UserDefaults key that belongs to one Mac: unpairing (and a new certificate for the same Mac) removes them.
+    static let perMacKeys = ["seenSessions", "finished", "drafts"] + notifyKeys
+    /// The values of the Mac on screen; `loadNotify` reads them when the Mac changes.
+    @Published private(set) var notifyOn = false
     /// The iOS permission ask runs: the switch waits, so a second tap cannot start a second ask.
     @Published private(set) var notifyAsking = false
     /// iOS refused the permission (now or before): the switch stays off and Settings says where to allow it.
@@ -1468,25 +1480,43 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// The iOS permission ask. iOS shows its alert only the first time; after that it gives the saved answer. Tests replace it.
     var askNotify: () async -> Bool = { (try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound])) ?? false }
 
-    /// The Settings switch. Switching it on asks iOS first; a refusal keeps it off.
+    /// The Settings switch of the Mac on screen. Switching it on asks iOS first; a refusal keeps it off. The user can switch
+    /// Macs while iOS asks: the answer goes to the Mac that asked, and shows only while that Mac is on screen.
     @discardableResult func setNotify(_ on: Bool) async -> Bool {
-        guard on != notifyOn, !notifyAsking else { return on == notifyOn }
+        guard on != notifyOn, !notifyAsking, let mac = activeFp else { return on == notifyOn }
         if on {
             notifyAsking = true
             defer { notifyAsking = false }
             guard await askNotify() else { notifyDenied = true; return false }
         }
-        notifyDenied = false; notifyOn = on
-        UserDefaults.standard.set(on, forKey: Client.notifyKey)
+        notifyDenied = false
+        UserDefaults.standard.set(on, forKey: macKey(Client.notifyKey, mac, legacy: legacyFp))
+        if activeFp == mac { notifyOn = on }
         return true
     }
 
-    /// Settings › Notifications › Only between these hours (kept on this iPhone). Off by default: every hour.
-    /// From and To are minutes after midnight. To before From goes past midnight; From equal to To is all day.
-    static let hoursKey = "notifyHours", fromKey = "notifyFrom", toKey = "notifyTo"
-    @Published var notifyHours = UserDefaults.standard.bool(forKey: Client.hoursKey) { didSet { UserDefaults.standard.set(notifyHours, forKey: Client.hoursKey) } }
-    @Published var notifyFrom = UserDefaults.standard.object(forKey: Client.fromKey) as? Int ?? 8 * 60 { didSet { UserDefaults.standard.set(notifyFrom, forKey: Client.fromKey) } }
-    @Published var notifyTo = UserDefaults.standard.object(forKey: Client.toKey) as? Int ?? 22 * 60 { didSet { UserDefaults.standard.set(notifyTo, forKey: Client.toKey) } }
+    @Published var notifyHours = false { didSet { saveNotify(Client.hoursKey, notifyHours) } }
+    @Published var notifyFrom = 8 * 60 { didSet { saveNotify(Client.fromKey, notifyFrom) } }
+    @Published var notifyTo = 22 * 60 { didSet { saveNotify(Client.toKey, notifyTo) } }
+    private func saveNotify(_ k: String, _ v: Any) { if activeFp != nil { UserDefaults.standard.set(v, forKey: key(k)) } }
+    /// Show the notification settings of the Mac on screen. A Mac with no saved value (a new Mac), or no Mac, is off.
+    private func loadNotify() {
+        let d = UserDefaults.standard, mac = activeFp != nil
+        notifyOn = mac && d.bool(forKey: key(Client.notifyKey))
+        notifyHours = mac && d.bool(forKey: key(Client.hoursKey))
+        notifyFrom = (mac ? d.object(forKey: key(Client.fromKey)) as? Int : nil) ?? 8 * 60
+        notifyTo = (mac ? d.object(forKey: key(Client.toKey)) as? Int : nil) ?? 22 * 60
+    }
+    /// Older builds kept one notification set for every Mac under the bare keys. Once, copy it to each paired Mac (the
+    /// owner's choice: nothing changes for the Macs that are paired now; a Mac paired later starts off). The bare keys
+    /// stay only for the Mac that the one-Mac build migrated (macKey gives it the bare key). Copy, then remove, then set
+    /// the flag: when the app stops between them, the next start does it again with the same result.
+    static func splitNotify(_ d: UserDefaults, macs: [String], legacy: String?) {
+        guard !d.bool(forKey: "notifyPerMac") else { return }
+        for k in notifyKeys { if let v = d.object(forKey: k) { for fp in macs { d.set(v, forKey: macKey(k, fp, legacy: legacy)) } } }
+        if !macs.contains(where: { $0 == legacy }) { for k in notifyKeys { d.removeObject(forKey: k) } }
+        d.set(true, forKey: "notifyPerMac")
+    }
     /// The four notifications (turn finished, approval, question, error) go out at `now`: switched on, and inside the hours when they are on.
     func shouldNotify(at now: Date = .now) -> Bool {
         guard notifyOn else { return false }
@@ -2060,10 +2090,15 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     /// The new pairing goes on screen. An older entry for the same Mac (an old certificate) leaves this iPhone and
     /// gives its name to the new one.
-    private func adopt(_ p: Pairing) {
+    /// Its notification settings go to the new one too, when the new one has none yet.
+    func adopt(_ p: Pairing) {
         let gone = replacedBy(pairings, p).subtracting([p.fp])
         let label = pairings.first { gone.contains($0.fp) && $0.label != nil }?.label
-        for fp in gone { for k in ["seenSessions", "finished", "drafts"] { UserDefaults.standard.removeObject(forKey: macKey(k, fp, legacy: legacyFp)) } }
+        let d = UserDefaults.standard
+        for k in Client.notifyKeys where d.object(forKey: macKey(k, p.fp, legacy: legacyFp)) == nil {
+            for fp in gone { if let v = d.object(forKey: macKey(k, fp, legacy: legacyFp)) { d.set(v, forKey: macKey(k, p.fp, legacy: legacyFp)); break } }
+        }
+        for fp in gone { for k in Client.perMacKeys { d.removeObject(forKey: macKey(k, fp, legacy: legacyFp)) } }
         pairings.removeAll { gone.contains($0.fp) }
         if let label, let i = pairings.firstIndex(where: { $0.fp == p.fp }), pairings[i].label == nil { pairings[i].label = label }
         switchMac(p.fp, force: true)
@@ -2077,6 +2112,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         closeScreen()
         activeFp = fp
         finished = Set(UserDefaults.standard.stringArray(forKey: key("finished")) ?? [])
+        loadNotify()
         connect()
     }
 
@@ -2104,12 +2140,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         guard let gone = fp ?? activeFp else { return }
         let next = nextActive(pairings, removed: gone)
         let wasActive = gone == activeFp
-        for k in ["seenSessions", "finished", "drafts"] { UserDefaults.standard.removeObject(forKey: macKey(k, gone, legacy: legacyFp)) }
+        for k in Client.perMacKeys { UserDefaults.standard.removeObject(forKey: macKey(k, gone, legacy: legacyFp)) }
         if wasActive { closeScreen() }
         pairings.removeAll { $0.fp == gone }
         if wasActive {
             activeFp = nil
-            if let next { switchMac(next, force: true) } else { finished = [] }
+            if let next { switchMac(next, force: true) } else { finished = []; loadNotify() }
         }
         if let why { error = why }
     }
