@@ -6435,13 +6435,15 @@ export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retry
 
 /** Task board (Host half): a kanban board of dsh's real chats. The client draws the cards from dsh's own stores (the chat
  * list, each chat's live state and the projects); the Host keeps the switch and the record of the chats that the board
- * started: `storages/dsh-composer-plus/board-chats.json`, `{ chats: { [sessionId]: { prompt, tags, at } } }`, owner-only.
- * New task opens dsh's own new chat screen; the client sends `{sessionId}` of that chat. When its first message of its own
- * arrives (the user's, from dsh's composer: attachments, commands and the model menu as usual), the Host keeps its text
- * as the card's prompt and one short call to the chat's model writes its tags. The old `board.json` is not read. */
+ * started: `storages/dsh-composer-plus/board-chats.json`, `{ chats: { [sessionId]: { prompt, tags, at } }, hidden:
+ * { [sessionId]: at } }`, owner-only. New task opens dsh's own new chat screen; the client sends `{sessionId}` of that chat.
+ * When its first message of its own arrives (the user's, from dsh's composer: attachments, commands and the model menu as
+ * usual), the Host keeps its text as the card's prompt and one short call to the chat's model writes its tags. `hidden`:
+ * finished chats that the user took off the board (× on a Done card, Clear all); the chats stay in dsh, and a chat that
+ * runs again leaves the list (its card comes back). The old `board.json` is not read. */
 export const BOARD_PATH = '/api/composer-plus.board';
 export const BOARD_CHATS_PATH = '/api/composer-plus.board-chats';
-export const BOARD_LIMITS = { prompt: 20000, tags: 3, tag: 24, chats: 2000 };
+export const BOARD_LIMITS = { prompt: 20000, tags: 3, tag: 24, chats: 2000, hidden: 5000 };
 const BOARD_TAG_INPUT = 4000;
 const BOARD_TAG_TOKENS = 200;
 const BOARD_TAG_TIMEOUT_MS = 60000;
@@ -6467,41 +6469,53 @@ export function boardTags(text) {
 }
 
 /** The record of the board's chats: one change at a time, merged into the newest data (a start never drops another
- * start's entry), each write atomic and owner-only. A missing file is empty; a broken file is kept as
- * `board-chats.json.broken-<time>` and the record starts empty. At most BOARD_LIMITS.chats entries (the oldest go). */
+ * start's entry, a hide never drops another hide's ids), each write atomic and owner-only. A missing file is empty; a
+ * broken file is kept as `board-chats.json.broken-<time>` and the record starts empty. At most BOARD_LIMITS.chats chats
+ * and BOARD_LIMITS.hidden hidden ids (the oldest go). */
 export function boardChatsStore(file) {
   let chats = {};
+  let hidden = {};
   let rev = Date.now();
   const ready = (async () => {
     let text;
     try { text = await readFile(file, 'utf8'); } catch (error) { if (error?.code === 'ENOENT') return; throw error; }
     try {
-      const raw = JSON.parse(text)?.chats;
+      const data = JSON.parse(text);
+      const raw = data?.chats;
       if (!plainObject(raw)) throw new Error('not an object');
       for (const [id, c] of Object.entries(raw)) {
         if (!isText(id, 128) || id === '__proto__' || !plainObject(c) || typeof c.prompt !== 'string' || !Number.isFinite(c.at)) continue;
         chats[id] = { prompt: c.prompt.slice(0, BOARD_LIMITS.prompt), tags: Array.isArray(c.tags) ? c.tags.filter((t) => isText(t, BOARD_LIMITS.tag)).slice(0, BOARD_LIMITS.tags) : [], at: c.at };
       }
-    } catch { chats = {}; await rename(file, `${file}.broken-${Date.now()}`).catch(() => {}); }
+      // A file of an older version has no `hidden`: nothing is hidden.
+      if (plainObject(data.hidden)) for (const [id, at] of Object.entries(data.hidden)) if (isText(id, 128) && id !== '__proto__' && Number.isFinite(at)) hidden[id] = at;
+    } catch { chats = {}; hidden = {}; await rename(file, `${file}.broken-${Date.now()}`).catch(() => {}); }
   })();
   let queue = ready.catch(() => {});
+  const newest = (record, limit, at) => {
+    const ids = Object.keys(record);
+    if (ids.length > limit) for (const id of ids.sort((a, b) => at(record[a]) - at(record[b])).slice(0, ids.length - limit)) delete record[id];
+  };
   return {
     ready,
     rev: () => rev,
     list: () => chats,
-    /** `fn(copy)` changes a copy of the record; the copy becomes the record only after the write. */
+    hidden: () => hidden,
+    /** `fn(copy, hiddenCopy)` changes copies of the record; the copies become the record only after the write. A change
+     * that returns false writes nothing. */
     change(fn) {
       const done = queue.then(async () => {
         await ready;
         const next = { ...chats };
-        fn(next);
-        const ids = Object.keys(next);
-        if (ids.length > BOARD_LIMITS.chats) for (const id of ids.sort((a, b) => next[a].at - next[b].at).slice(0, ids.length - BOARD_LIMITS.chats)) delete next[id];
+        const nextHidden = { ...hidden };
+        if (fn(next, nextHidden) === false) return;
+        newest(next, BOARD_LIMITS.chats, (c) => c.at);
+        newest(nextHidden, BOARD_LIMITS.hidden, (at) => at);
         await mkdir(dirname(file), { recursive: true });
         const tmp = `${file}.${process.pid}.tmp`;
-        await writeFile(tmp, JSON.stringify({ chats: next }), { mode: 0o600 });
+        await writeFile(tmp, JSON.stringify({ chats: next, hidden: nextHidden }), { mode: 0o600 });
         await rename(tmp, file);
-        chats = next; rev += 1;
+        chats = next; hidden = nextHidden; rev += 1;
       });
       queue = done.catch(() => {});
       return done;
@@ -6642,6 +6656,13 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
     const from = Number.isSafeInteger(session.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0;
     name(session.id, get('agents')?.get?.(session.id), boardPromptOf([event], from));
   });
+  // A chat that the user took off the board and that runs again comes back (Doing, then Done). Also while the switch is
+  // off, so the record does not hide a chat that ran in the meantime. A chat that is not hidden writes nothing.
+  ctx.on?.('agent/status', ({ agent, status } = {}) => {
+    if (closed || status !== 'running' || !isText(agent?.id, 128) || agent.session?.header?.origin === 'subagent') return;
+    store.change((chats, hidden) => (agent.id in hidden ? void delete hidden[agent.id] : false))
+      .catch((error) => ctx.logger?.warn?.(`dsh-composer-plus: task board record failed: ${String(error?.message ?? error).slice(0, 300)}`));
+  });
   let switching = ready;
   ctx.connection.fetch.register({
     path: BOARD_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
@@ -6660,9 +6681,11 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
       return json({ on });
     },
   });
-  /** GET `?rev=N`: `{rev, chats}` (`{rev, same}` when nothing changed since rev). POST `{sessionId}`: New task opened this
-   * dsh chat; it goes on the board (Todo until its first message). A message that came before the POST is read from the
-   * chat's log, so a fast first message still names the card. */
+  /** GET `?rev=N`: `{rev, chats, hidden}` (`{rev, same}` when nothing changed since rev). POST `{sessionId}`: New task
+   * opened this dsh chat; it goes on the board (in Doing as "New task" until its first message). A message that came before
+   * the POST is read from the chat's log, so a fast first message still names the card. POST `{hide: [ids]}`: take these
+   * finished chats off the board (× on a Done card, Clear all); merged into the newest list, so two hides at the same time
+   * both stay. A chat that runs at that moment is not hidden. Answers `{rev, hidden}`. No chat changes in dsh. */
   ctx.connection.fetch.register({
     path: BOARD_CHATS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     fetch: async (request) => {
@@ -6673,11 +6696,21 @@ export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-compos
         if (request.method === 'GET') {
           const rev = store.rev();
           if (new URL(request.url).searchParams.get('rev') === String(rev)) return json({ rev, same: true });
-          return json({ rev, chats: store.list() });
+          return json({ rev, chats: store.list(), hidden: Object.keys(store.hidden()) });
         }
         let body;
         try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
-        if (!plainObject(body) || Object.keys(body).join() !== 'sessionId' || !isText(body.sessionId, 128) || body.sessionId === '__proto__') return json({ error: 'bad request' }, 400);
+        const id = (v) => isText(v, 128) && v !== '__proto__';
+        if (plainObject(body) && Object.keys(body).join() === 'hide') {
+          const ids = body.hide;
+          if (!Array.isArray(ids) || ids.length === 0 || ids.length > BOARD_LIMITS.hidden || !ids.every(id)) return json({ error: 'bad request' }, 400);
+          const at = Date.now();
+          await store.change((chats, hidden) => {
+            for (const sid of ids) if ((get('agents')?.get?.(sid)?.status ?? 'idle') === 'idle') hidden[sid] = at;
+          });
+          return json({ rev: store.rev(), hidden: Object.keys(store.hidden()) });
+        }
+        if (!plainObject(body) || Object.keys(body).join() !== 'sessionId' || !id(body.sessionId)) return json({ error: 'bad request' }, 400);
         const { sessionId } = body;
         const found = await ctx.sessionController.resolveAgent(sessionId);
         if (found === undefined || 'error' in found) return json({ error: 'this is not a dsh chat' }, 404);

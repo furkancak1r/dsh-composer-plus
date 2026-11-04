@@ -3457,7 +3457,6 @@ struct ContextSheet: View {
 /// The column names of the task board, as on the Mac.
 func boardStatusName(_ s: String) -> String {
     switch s {
-    case "todo": return String(localized: "Todo")
     case "doing": return String(localized: "Doing")
     case "review": return String(localized: "Review")
     case "done": return String(localized: "Done")
@@ -3467,7 +3466,8 @@ func boardStatusName(_ s: String) -> String {
 
 /// Task board (Composer Plus on the Mac): the DSH chats as a kanban board, with their live state. The segmented control
 /// picks a column. A tap on a card opens its chat; a tap on a waiting card opens its question or approval. + starts a new
-/// chat with a prompt (the Mac names it and AI writes the tags). The sheet reads the tags again every 5 s while it is open.
+/// chat with a prompt (the Mac names it and AI writes the tags). In Done, × takes one card off the board and Clear all takes
+/// every Done card off it (the chats stay in DSH). The sheet reads the tags again every 5 s while it is open.
 struct BoardSheet: View {
     @EnvironmentObject var c: Client
     @Environment(\.dismiss) private var dismiss
@@ -3475,13 +3475,12 @@ struct BoardSheet: View {
     /// The column that the user picked; nil until then (the board opens on Review when a chat waits, else Doing).
     @State private var column: String?
     @State private var project: String
-    @AppStorage("boardHideDone") private var hideDone = false
     @State private var picking = false
     init(project: String) { _project = State(initialValue: project) }
     private var ready: Bool { b.loaded && !b.off && !b.missing }
     private var view: (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
         boardColumns(sessions: c.sessions, workspaces: c.workspaces, archived: Set(c.archived), waiting: Set(c.prompts.compactMap(\.agentId)),
-                     finished: c.finished, meta: b.meta, task: c.boardTask, project: project, hideDone: hideDone)
+                     finished: c.finished, meta: b.meta, task: c.boardTask, hidden: b.shownHidden, project: project)
     }
     private var projectName: String { project == "all" ? String(localized: "All projects") : view.projects.first { $0.id == project }?.name ?? String(localized: "All projects") }
     var body: some View {
@@ -3494,7 +3493,29 @@ struct BoardSheet: View {
                     let shown = boardStartColumn(v.columns, current: column)
                     let cards = v.columns.first { $0.status == shown }?.cards ?? []
                     if cards.isEmpty { Text("No chats here.").foregroundStyle(.secondary) }
-                    ForEach(cards.prefix(100)) { card in Button { tap(card) } label: { BoardCardRow(card: card, progress: b.progress[card.id]) } }
+                    // Done: Clear all (every card in Done now) and × on each card. Only with a Mac that keeps the list.
+                    let canHide = shown == "done" && b.hidden != nil
+                    if canHide, !cards.isEmpty {
+                        // Not a destructive (red) button: no chat is deleted.
+                        Button("Clear all") { let ids = cards.map(\.id); Task { await b.hide(ids) } }
+                            .disabled(b.hiding != nil)
+                            .accessibilityHint(Text("Takes every card in Done off the board. The chats stay in DSH."))
+                    }
+                    ForEach(cards.prefix(100)) { card in
+                        if canHide {
+                            // Two buttons in one row: each borderless, so a tap fires only the one under the finger.
+                            HStack(spacing: 8) {
+                                Button { tap(card) } label: { BoardCardRow(card: card, progress: b.progress[card.id]).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }
+                                    .buttonStyle(.borderless)
+                                Button { Task { await b.hide([card.id]) } } label: { Image(systemName: "xmark").font(.footnote.weight(.semibold)).foregroundStyle(.secondary).frame(width: 32, height: 32).contentShape(Rectangle()) }
+                                    .buttonStyle(.borderless).disabled(b.hiding != nil)
+                                    .accessibilityLabel(Text("Remove from the board: \(card.title)"))
+                            }
+                        } else {
+                            Button { tap(card) } label: { BoardCardRow(card: card, progress: b.progress[card.id]) }
+                        }
+                    }
+                    if let f = b.hideFailed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
                 } else if b.readFailed == nil { HStack(spacing: 8) { ProgressView(); Text("Loading the board…") } }
                 if let f = b.readFailed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
             }
@@ -3519,10 +3540,9 @@ struct BoardSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
             }
-            // The column is fixed once the board shows (a chat that starts to wait later does not move the view); a column
-            // that goes (Todo after the first message, Done with Hide finished) falls back in `boardStartColumn`.
+            // The column is fixed once the board shows (a chat that starts to wait later does not move the view).
             .onChange(of: ready, initial: true) { _, r in if r, column == nil { column = boardStartColumn(view.columns) } }
-            .sheet(isPresented: $picking) { BoardProjectSheet(projects: v.projects, project: $project, hideDone: $hideDone).presentationDetents([.medium, .large]) }
+            .sheet(isPresented: $picking) { BoardProjectSheet(projects: v.projects, project: $project).presentationDetents([.medium, .large]) }
             .task {
                 b.bind { [c] query, body in try await c.plusCall("board-chats", query: query, body: body) }
                 // An older Mac's gateway has no board-progress (403 to each read): then no progress line.
@@ -3544,7 +3564,7 @@ struct BoardSheet: View {
         }
         dismiss(); c.open(card.id)
     }
-    /// The title, and under it the shown project: a tap opens the project list (search, Active in the last 2 hours, Hide finished).
+    /// The title, and under it the shown project: a tap opens the project list (search, Active in the last 2 hours).
     private func projectMenu(_ projects: [BoardProject]) -> some View {
         Button { picking = true } label: {
             VStack(spacing: 0) {
@@ -3558,12 +3578,11 @@ struct BoardSheet: View {
     }
 }
 
-/// The board's projects: a search box, "Active in the last 2 hours" (kept on this phone) and Hide finished. A tap picks
-/// "All projects" or one project.
+/// The board's projects: a search box and "Active in the last 2 hours" (kept on this phone). A tap picks "All projects" or
+/// one project.
 struct BoardProjectSheet: View {
     let projects: [BoardProject]
     @Binding var project: String
-    @Binding var hideDone: Bool
     @AppStorage("boardRecentProjects") private var recentOnly = false
     @State private var query = ""
     @Environment(\.dismiss) private var dismiss
@@ -3573,7 +3592,6 @@ struct BoardProjectSheet: View {
             List {
                 Section {
                     Toggle("Active in the last 2 hours", isOn: $recentOnly)
-                    Toggle("Hide finished", isOn: $hideDone)
                 }
                 Section {
                     if query.isEmpty { row("all", String(localized: "All projects")) }

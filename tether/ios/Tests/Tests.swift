@@ -1325,8 +1325,8 @@ final class BranchStateTests: XCTestCase {
 }
 
 /// Task board (`/plus/board-chats`): the columns from the phone's own lists (waiting → Review, running → Doing, the rest →
-/// Done; archived and subagent chats left out; a Branch per chat folder counts as its repository; Hide finished), the tags
-/// from the Mac, and one start at a time.
+/// Done; archived and subagent chats left out; a Branch per chat folder counts as its repository; no Todo, no Hide
+/// finished), the tags from the Mac, × and Clear all (one hide at a time, an older read dropped), and one start at a time.
 @MainActor final class TaskBoardTests: XCTestCase {
     func sess(_ id: String, running: Bool = false, parent: String? = nil, updated: Double = 0) -> Sess {
         var j: J = ["sessionId": id, "running": running, "updatedAt": updated * 1000, "projections": ["values": ["title": "Chat \(id)"]]]
@@ -1339,8 +1339,8 @@ final class BranchStateTests: XCTestCase {
         let workspaces = [ws("w1", "/w/acme", ["a", "b", "c", "d", "e"]), ws("w2", "/w/acme/.worktrees/feat-x", ["f"]), ws("w3", "/w/blog/", [])]
         let meta = boardMeta(["rev": 4, "chats": ["a": ["prompt": "Make a chess game", "tags": ["chess", "game"], "at": 1], "bad": ["tags": []]]])
         XCTAssertEqual(meta["a"]?.tags, ["chess", "game"]); XCTAssertNil(meta["bad"], "no prompt: left out")
-        let v = boardColumns(sessions: sessions, workspaces: workspaces, archived: ["e"], waiting: ["a"], finished: ["d"], meta: meta, project: "all", hideDone: false)
-        XCTAssertEqual(v.columns.map(\.status), ["doing", "review", "done"], "no new task waits: no Todo column")
+        let v = boardColumns(sessions: sessions, workspaces: workspaces, archived: ["e"], waiting: ["a"], finished: ["d"], meta: meta, project: "all")
+        XCTAssertEqual(v.columns.map(\.status), ["doing", "review", "done"], "three columns: no Todo")
         let ids = { (s: String) in v.columns.first { $0.status == s }!.cards.map(\.id) }
         XCTAssertEqual(ids("review"), ["a"], "a chat that waits for you")
         XCTAssertEqual(ids("doing"), ["b", "c"], "running, or a running subagent")
@@ -1350,15 +1350,19 @@ final class BranchStateTests: XCTestCase {
         XCTAssertEqual(v.projects.map(\.waiting), [true, false], "acme has a chat that waits for you (the orange dot)")
         XCTAssertEqual(boardStartColumn(v.columns), "review", "a chat waits: the board opens on Review")
         XCTAssertEqual(boardStartColumn(v.columns, current: "done"), "done", "the picked column stays")
-        XCTAssertEqual(boardStartColumn(v.columns, current: "todo"), "review", "a column that went falls back")
+        XCTAssertEqual(boardStartColumn(v.columns, current: "todo"), "review", "a column that is not there falls back")
         XCTAssertEqual(v.projects.map(\.id), ["w1", "w3"], "a Branch per chat folder is no project of its own")
         XCTAssertEqual(v.columns[2].cards[1].project, "acme", "its chat belongs to the repository")
-        let one = boardColumns(sessions: sessions, workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], project: "w3", hideDone: true)
-        XCTAssertEqual(one.columns.map(\.status), ["doing", "review"], "Hide finished")
+        let one = boardColumns(sessions: sessions, workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], project: "w3")
+        XCTAssertEqual(one.columns.map(\.status), ["doing", "review", "done"], "Done always shows")
         XCTAssertTrue(one.columns.allSatisfy(\.cards.isEmpty))
         XCTAssertEqual(boardStartColumn(one.columns), "doing", "nothing waits: Doing")
-        XCTAssertEqual(boardStartColumn(one.columns, current: "done"), "doing", "Done hidden: back to Doing")
-        let calm = boardColumns(sessions: sessions, workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], project: "all", hideDone: false)
+        // Hidden chats (× and Clear all): out of Done only; one that waits or runs shows.
+        let hid = boardColumns(sessions: sessions, workspaces: workspaces, archived: ["e"], waiting: ["a"], finished: ["d"], meta: meta, hidden: ["d", "a", "b"], project: "all")
+        let hids = { (s: String) in hid.columns.first { $0.status == s }!.cards.map(\.id) }
+        XCTAssertEqual(hids("done"), ["f"], "a hidden finished chat is not in Done")
+        XCTAssertEqual(hids("review"), ["a"], "a hidden chat that waits shows"); XCTAssertEqual(hids("doing"), ["b", "c"], "a hidden chat that runs shows")
+        let calm = boardColumns(sessions: sessions, workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], project: "all")
         XCTAssertEqual(calm.projects.map(\.waiting), [false, false], "running only: no orange dot")
         XCTAssertEqual(boardProjectOf("f", workspaces: workspaces), "w1", "the board of a branch chat is its repository's")
         XCTAssertEqual(boardProjectOf("a", workspaces: workspaces), "w1"); XCTAssertEqual(boardProjectOf("zz", workspaces: workspaces), "all")
@@ -1368,7 +1372,7 @@ final class BranchStateTests: XCTestCase {
         let sessions = [sess("old", updated: 100_000 - 3 * 3600), sess("fresh", updated: 100_000 - 600), sess("unseen", updated: 1), sess("gone", updated: 100_000 - 60), sess("br", updated: 100_000 - 60)]
         let workspaces = [ws("w1", "/w/Çalışma", ["old"]), ws("w2", "/w/blog", ["fresh"]), ws("w3", "/w/docs", ["unseen"]), ws("w4", "/w/arch", ["gone"]),
                           ws("w5", "/w/acme/.worktrees/x", ["br"]), ws("w6", "/w/acme", [])]
-        let v = boardColumns(sessions: sessions, workspaces: workspaces, archived: ["gone"], waiting: [], finished: ["unseen"], meta: [:], project: "all", hideDone: false, now: now)
+        let v = boardColumns(sessions: sessions, workspaces: workspaces, archived: ["gone"], waiting: [], finished: ["unseen"], meta: [:], project: "all", now: now)
         XCTAssertEqual(v.projects.filter(\.recent).map(\.id), ["w6", "w2", "w3"], "changed in 2 hours (also in a Branch per chat folder) or finished unseen; not 3 hours old or archived")
         XCTAssertEqual(boardProjectList(v.projects, query: "", recentOnly: true).map(\.id), ["w6", "w2", "w3"])
         XCTAssertEqual(boardProjectList(v.projects, query: "calis", recentOnly: false).map(\.id), ["w1"], "case and accents ignored")
@@ -1383,22 +1387,64 @@ final class BranchStateTests: XCTestCase {
         XCTAssertTrue(b.loaded); XCTAssertEqual(queries.first, [:]); XCTAssertEqual(b.meta["s1"]?.prompt, "", "a new task before its first message")
         await b.load(); XCTAssertEqual(queries.last, ["rev": "7"], "then only a newer rev")
     }
-    /// New task: dsh's blank chat shows in Todo only when it is the board's new task; after its first message it is a
-    /// normal card, and the board opens again (`boardSent`).
+    /// New task: dsh's blank chat is the first card of Doing only when it is the board's new task; after its first message
+    /// it is a normal card, and the board opens again (`boardSent`).
     func testNewTaskDraft() {
         let blank = Sess(["sessionId": "n1", "blank": true, "updatedAt": 5000, "projections": ["values": [String: Any]()]])!
         let other = Sess(["sessionId": "n2", "blank": true, "projections": ["values": [String: Any]()]])!
         XCTAssertTrue(blank.blank); XCTAssertFalse(sess("a").blank)
         let workspaces = [ws("w1", "/w/acme", ["n1", "n2", "a"])]
-        let v = boardColumns(sessions: [blank, other, sess("a")], workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], task: "n1", project: "all", hideDone: false)
-        let todo = v.columns.first { $0.status == "todo" }!.cards
-        XCTAssertEqual(todo.map(\.id), ["n1"], "only the new task's blank chat, not another blank chat")
-        XCTAssertEqual(todo[0].state, "draft"); XCTAssertEqual(todo[0].project, "acme")
-        let none = boardColumns(sessions: [blank], workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], project: "all", hideDone: false)
-        XCTAssertEqual(v.columns.map(\.status), ["todo", "doing", "review", "done"], "a new task waits: Todo shows")
+        let running = sess("r", running: true, updated: 9000)
+        let v = boardColumns(sessions: [blank, other, sess("a"), running], workspaces: workspaces + [ws("w2", "/w/x", ["r"])], archived: [], waiting: [], finished: [], meta: [:], task: "n1", project: "all")
+        let doing = v.columns.first { $0.status == "doing" }!.cards
+        XCTAssertEqual(doing.map(\.id), ["n1", "r"], "the new task's blank chat first in Doing (not another blank chat), before a newer running chat")
+        XCTAssertEqual(doing[0].state, "draft"); XCTAssertEqual(doing[0].project, "acme")
+        let none = boardColumns(sessions: [blank], workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], project: "all")
+        XCTAssertEqual(v.columns.map(\.status), ["doing", "review", "done"], "a new task waits: still no Todo")
         XCTAssertTrue(none.columns.allSatisfy(\.cards.isEmpty), "no task: a blank chat never shows")
-        XCTAssertFalse(none.columns.contains { $0.status == "todo" }, "and no Todo column")
         XCTAssertFalse(none.projects[0].recent, "a blank chat does not make its project recent")
+    }
+    /// × and Clear all: the Mac's list; one hide at a time; the cards go at once; an older read does not bring them back; a
+    /// failure brings them back with its reason; an older Mac (no list) has neither.
+    func testHide() async {
+        var list: [String] = []; var posts: [J] = []; var fail: Error?
+        var holdHide: CheckedContinuation<Void, Never>?; var holdRead: CheckedContinuation<Void, Never>?; var holding = false; var holdingRead = false
+        let b = TaskBoard { q, body in
+            if let body {
+                posts.append(body)
+                // Only the first request waits: a second hide while one runs must not get here (it would fail, not hang).
+                if holding, holdHide == nil { await withCheckedContinuation { holdHide = $0 } }
+                if let f = fail { fail = nil; throw f }
+                list = Array(Set(list + (body["hide"] as? [String] ?? []))).sorted(); return ["rev": 2, "hidden": list]
+            }
+            let answer: J = ["rev": 1, "chats": [String: Any](), "hidden": list]
+            if holdingRead { await withCheckedContinuation { holdRead = $0 } }
+            return answer
+        }
+        await b.load(); XCTAssertEqual(b.hidden, [], "the Mac's list")
+        holding = true
+        let first = Task { await b.hide(["d1"]) }
+        while holdHide == nil { await Task.yield() }
+        XCTAssertEqual(b.shownHidden, ["d1"], "the card goes at once")
+        let second = await b.hide(["d2"]); XCTAssertFalse(second, "a second hide while one runs does nothing")
+        holdingRead = true
+        let read = Task { await b.load() }
+        while holdRead == nil { await Task.yield() }
+        holding = false; holdHide?.resume()
+        let firstOK = await first.value; XCTAssertTrue(firstOK)
+        holdingRead = false; holdRead?.resume(); await read.value
+        XCTAssertEqual(b.hidden, ["d1"], "a read that the Mac answered before the hide does not bring the card back")
+        XCTAssertEqual(posts.count, 1); XCTAssertEqual(posts[0]["hide"] as? [String], ["d1"])
+        let cleared = await b.hide(["d2", "d3", "d2"]); XCTAssertTrue(cleared)
+        XCTAssertEqual(posts.last?["hide"] as? [String], ["d2", "d3"], "Clear all: every id once")
+        XCTAssertEqual(b.hidden, ["d1", "d2", "d3"])
+        fail = Fail("disk full", status: 500)
+        let failed = await b.hide(["d4"]); XCTAssertFalse(failed)
+        XCTAssertNil(b.hiding); XCTAssertFalse(b.shownHidden.contains("d4"), "a failed hide brings the card back"); XCTAssertNotNil(b.hideFailed)
+        let empty = await b.hide([]); XCTAssertFalse(empty, "nothing to hide: no request")
+        let old = TaskBoard { _, body in if body != nil { XCTFail("no request to an older Mac") }; return ["rev": 1, "chats": [String: Any]()] }
+        await old.load(); XCTAssertNil(old.hidden, "an older Mac has no list")
+        let oldHide = await old.hide(["d1"]); XCTAssertFalse(oldHide, "and no hide")
     }
     /// A running card's progress line: the AI summary, else the step, else the tool now or the last one, else the agent's line.
     func testProgressLine() async {
