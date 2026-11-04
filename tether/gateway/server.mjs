@@ -2,7 +2,8 @@
 // It runs in dsh-composer-plus's Host half while Mobile connect is on (see index.js). Phones talk to it; it talks to
 // DSH on 127.0.0.1 with the host's own auth cookie.
 import { createServer as createHttps, request as httpsRequest } from 'node:https'
-import { createServer as createHttp, request as httpRequest } from 'node:http'
+import { Agent as HttpAgent, createServer as createHttp, request as httpRequest } from 'node:http'
+import { connect as tlsConnect } from 'node:tls'
 import { createHash, randomBytes, randomUUID, timingSafeEqual, X509Certificate } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { execFile, execFileSync, spawn } from 'node:child_process'
@@ -215,6 +216,179 @@ export function wsConnect(url, headers = {}, tls = {}) {
   })
 }
 
+// ---- Remote computers: one HTTP hop that streams a request (and a WebSocket upgrade) to the next hop. ----
+/** Request headers that a hop sets itself: the next hop never sees the caller's. */
+const HOP_DROP = new Set(['host', 'origin', 'cookie', 'authorization', 'sec-fetch-site', 'x-composer-plus-via', 'connection', 'keep-alive', 'proxy-connection', 'transfer-encoding', 'te', 'trailer', 'upgrade'])
+/** The caller's headers without `HOP_DROP`, plus `set`. A header the caller sent twice keeps its values. */
+export function hopHeaders(headers, set = {}) {
+  const out = {}
+  for (const [k, v] of Object.entries(headers)) if (!HOP_DROP.has(k.toLowerCase()) && v !== undefined) out[k] = v
+  return { ...out, ...set }
+}
+/** An absolute `location` of the next hop becomes a path, so a redirect stays on the hop that the browser uses. */
+export const relativeLocation = (loc) => {
+  if (typeof loc !== 'string' || !/^[a-z][a-z0-9+.-]*:\/\//i.test(loc)) return loc
+  try { const u = new URL(loc); return u.pathname + u.search + u.hash } catch { return '/' }
+}
+/** Streams `req` to the next hop and its answer back. `opts`: node http request options of the next hop (with its
+ * headers). The answer loses `set-cookie` unless `keepCookies`, and an absolute `location` becomes a path. */
+function pipeHttp(req, res, opts, { keepCookies = false, bodiless = false, onStatus, onError = (r) => reply(r, 502, { error: 'computer unavailable' }) } = {}) {
+  return new Promise((done) => {
+    const up = httpRequest({ ...opts, method: req.method, path: req.url }, (u) => {
+      // `onStatus` returns 'skip': this answer is dropped and the caller tries again (nothing is written yet).
+      if (onStatus?.(u.statusCode) === 'skip') { u.resume(); u.on('end', done); u.on('error', done); return }
+      const h = { ...u.headers }
+      if (!keepCookies) delete h['set-cookie']
+      if (h.location) h.location = relativeLocation(h.location)
+      delete h.connection; delete h['keep-alive']; delete h['transfer-encoding']
+      if (!res.headersSent && !res.destroyed) res.writeHead(u.statusCode, h)
+      u.pipe(res)
+      u.on('end', done); u.on('error', () => { res.destroy(); done() })
+    })
+    up.on('error', () => { if (!res.headersSent) onError(res); else res.destroy(); done() })
+    // The caller went away: stop the next hop too (a stopped download, a closed tab).
+    res.on('close', () => { if (!res.writableFinished) up.destroy() })
+    // `bodiless`: a GET or HEAD tried again after a failed first hop; its request stream has ended already.
+    if (bodiless) up.end(); else req.pipe(up)
+  })
+}
+/** The pairing link of Remote computers (pasted on the other Mac): `dsh-computer://pair?v=1&host&port&fp&code&mac`. */
+export function computerLink({ host, port, fp, code, mac }) {
+  const q = new URLSearchParams({ v: '1', host: String(host ?? ''), port: String(port), fp, code })
+  if (mac) q.set('mac', mac)
+  return 'dsh-computer://pair?' + String(q).replace(/\+/g, '%20')
+}
+const isLoopback4 = (h) => /^127\.\d+\.\d+\.\d+$/.test(h)
+/** A pasted pairing link, checked: a Tailscale IPv4 address (or loopback, for one Mac), a port, a SHA-256 fingerprint and
+ * a code. Anything else is null, so a link never points the relay at the internet or at the local network. */
+export function parseComputerLink(text) {
+  let u
+  try { u = new URL(String(text ?? '').trim()) } catch { return null }
+  if (u.protocol !== 'dsh-computer:' || u.hostname !== 'pair') return null
+  const q = u.searchParams, host = q.get('host') ?? '', port = Number(q.get('port')), fp = normFp(q.get('fp') ?? ''), code = q.get('code') ?? ''
+  if (q.get('v') !== '1' || !/^\d+\.\d+\.\d+\.\d+$/.test(host) || !(isTailnet(host) || isLoopback4(host))) return null
+  if (!Number.isInteger(port) || port < 1 || port > 65535 || fp.length !== 64 || code.length < 1 || code.length > 128) return null
+  const mac = String(q.get('mac') ?? '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 64)
+  return { host, port, fp, code, ...(mac ? { mac } : {}) }
+}
+/** A WebSocket upgrade through one hop: the raw handshake goes to the next hop, then the two sockets are joined. */
+function pipeUpgrade(req, socket, head, opts) {
+  const up = httpRequest({ ...opts, method: req.method, path: req.url, headers: { ...opts.headers, connection: 'Upgrade', upgrade: req.headers.upgrade ?? 'websocket' } })
+  up.on('upgrade', (u, upSock, upHead) => {
+    const lines = [`HTTP/1.1 101 ${u.statusMessage || 'Switching Protocols'}`]
+    for (let i = 0; i < u.rawHeaders.length; i += 2) if (u.rawHeaders[i].toLowerCase() !== 'set-cookie') lines.push(`${u.rawHeaders[i]}: ${u.rawHeaders[i + 1]}`)
+    socket.write(lines.join('\r\n') + '\r\n\r\n')
+    if (upHead?.length) socket.write(upHead)
+    if (head?.length) upSock.write(head)
+    upSock.pipe(socket); socket.pipe(upSock)
+    const end = () => { upSock.destroy(); socket.destroy() }
+    upSock.on('error', end); socket.on('error', end); upSock.on('close', end); socket.on('close', end)
+  })
+  up.on('response', (u) => { u.resume(); socket.end(`HTTP/1.1 ${u.statusCode} ${u.statusMessage}\r\nConnection: close\r\n\r\n`) })
+  up.on('error', () => socket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n'))
+  socket.on('error', () => up.destroy())
+  up.end()
+}
+
+/** Remote computers, the Mac that opens: one loopback port per paired computer. The browser (dsh's Browser tab or a
+ * browser window) gets a one-time ticket URL; the ticket becomes this port's own cookie. Each request then goes to the
+ * computer over TLS that must show the pinned certificate (checked before one byte goes out), with the computer's token. */
+export function createRelay({ host, port, fp, token, ticketTtlMs = 60e3, onUnauthorized, connectTimeoutMs = 5000, frameAncestors = [] }) {
+  const pin = normFp(fp)
+  const tickets = new Map() // one-time ticket → expiry
+  const cookieValue = randomBytes(32).toString('base64url')
+  let server, own
+  let fail = null // the last reason that the computer did not answer (shown on the page)
+  // A pinned TLS socket to the computer. Kept alive between requests, one pool per relay.
+  const connectPinned = (_o, callback) => {
+    let called = false // one answer per socket: a time-out, a pin check or an error, whichever comes first
+    const cb = (e, s) => { if (!called) { called = true; callback(e, s) } }
+    // Self-signed certificate: no CA can vouch for it, so the pin below (the fingerprint from the pairing link) is the check,
+    // and nothing goes out before it (test/computers.test.mjs "gets no byte").
+    const s = tlsConnect({ host, port, rejectUnauthorized: false, ALPNProtocols: ['http/1.1'] }) // nosemgrep: problem-based-packs.insecure-transport.js-node.bypass-tls-verification.bypass-tls-verification
+    const timer = setTimeout(() => { fail = 'unreachable'; s.destroy(); cb(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })) }, connectTimeoutMs)
+    s.once('secureConnect', () => {
+      clearTimeout(timer)
+      if (normFp(s.getPeerCertificate().fingerprint256 ?? '') !== pin) { fail = 'pin'; s.destroy(); return cb(Object.assign(new Error('certificate pin mismatch'), { code: 'EPIN' })) }
+      fail = null; cb(null, s)
+    })
+    s.on('error', (e) => { clearTimeout(timer); if (fail !== 'pin') fail = 'unreachable'; cb(e) })
+  }
+  class PinnedAgent extends HttpAgent { createConnection(o, cb) { connectPinned(o, cb) } }
+  const agent = new PinnedAgent({ keepAlive: true, maxSockets: 32 })
+  const cookieName = () => 'cp-computer-' + own
+  const hasCookie = (req) => String(req.headers.cookie ?? '').split(';').some((c) => c.trim() === `${cookieName()}=${cookieValue}`)
+  // Only the page of this port: its own Host, an Origin of this port (when the browser sends one), no cross-site request.
+  // One exception: dsh's own page (another loopback port, so "same-site") opens this port in its Browser tab, which is a
+  // navigation to `/` (the ticket, then its redirect). A navigation cannot read the answer, and the page may be framed
+  // only by dsh (`frame-ancestors` below), so another local page gets nothing from it.
+  const trusted = (req) => {
+    if (req.headers.host !== `127.0.0.1:${own}`) return false
+    const origin = req.headers.origin
+    if (origin !== undefined && origin !== `http://127.0.0.1:${own}`) return false
+    const site = req.headers['sec-fetch-site']
+    if (site === 'same-site') return req.method === 'GET' && req.headers['sec-fetch-mode'] === 'navigate' && new URL(req.url, 'http://x').pathname === '/'
+    return site === undefined || site === 'same-origin' || site === 'none'
+  }
+  const ancestors = ["'self'", ...frameAncestors].join(' ')
+  const text = (res, status, body) => { if (!res.headersSent) res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(body) }
+  const next = (req) => ({ agent, headers: hopHeaders(req.headers, { host: `${host}:${port}`, authorization: `Bearer ${token}`, ...(req.headers.origin !== undefined ? { origin: `https://${host}:${port}` } : {}) }) })
+  // The computer no longer knows this Mac (it removed it, or the token is too old): say so, and drop the computer's answer.
+  const status = (code) => { if (code === 401) { onUnauthorized?.(); return 'skip' } }
+  const UNPAIRED = 'That Mac removed this one, or the pairing is too old. Remove it in Settings → Composer Plus → Remote computers and pair again.'
+  async function onRequest(req, res) {
+    if (!trusted(req)) return text(res, 403, 'Forbidden')
+    const url = new URL(req.url, 'http://x')
+    const ticket = url.searchParams.get('cp-ticket')
+    if (ticket !== null) {
+      const exp = tickets.get(ticket)
+      tickets.delete(ticket) // one use, also when it is too old
+      if (req.method !== 'GET' || url.pathname !== '/' || exp === undefined || exp < Date.now()) return text(res, 403, 'This link was already used or is too old. Pick the computer again.')
+      res.writeHead(303, { location: './', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'content-security-policy': `frame-ancestors ${ancestors}`, 'set-cookie': `${cookieName()}=${cookieValue}; Path=/; HttpOnly; SameSite=Strict` })
+      return res.end()
+    }
+    if (!hasCookie(req)) return text(res, 401, 'Pick the computer again in dsh.')
+    // Each answer may show only in this port's own frames and in dsh's page (its Browser tab).
+    const writeHead = res.writeHead.bind(res)
+    res.writeHead = (code, headers = {}) => writeHead(code, { ...headers, 'content-security-policy': [headers['content-security-policy'] ?? [], `frame-ancestors ${ancestors}`].flat() })
+    let unpaired = false
+    await pipeHttp(req, res, next(req), { onStatus: (code) => { const r = status(code); if (r === 'skip') unpaired = true; return r },
+      onError: (r) => text(r, 502, fail === 'pin' ? 'This computer shows another certificate. Pair it again in dsh.' : 'This computer does not answer over Tailscale. Make sure that it is awake and that Tailscale is on.') })
+    if (unpaired) text(res, 401, UNPAIRED)
+  }
+  function onUpgrade(req, socket, head) {
+    if (!trusted(req) || !hasCookie(req)) return socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')
+    pipeUpgrade(req, socket, head, next(req))
+  }
+  return {
+    async start() {
+      if (server) return own
+      const s = createHttp(onRequest)
+      s.on('upgrade', onUpgrade)
+      await new Promise((ok, bad) => { s.once('error', bad); s.listen(0, '127.0.0.1', ok) })
+      server = s; own = s.address().port
+      return own
+    },
+    /** A one-time URL that opens the computer in a browser (valid `ticketTtlMs`). */
+    ticketUrl() {
+      const now = Date.now()
+      for (const [k, exp] of tickets) if (exp < now) tickets.delete(k)
+      const t = randomBytes(24).toString('base64url')
+      tickets.set(t, now + ticketTtlMs)
+      return `http://127.0.0.1:${own}/?cp-ticket=${t}`
+    },
+    get port() { return own },
+    get fail() { return fail },
+    async close() {
+      agent.destroy()
+      if (!server) return
+      const s = server; server = undefined
+      s.closeAllConnections?.()
+      await new Promise((ok) => s.close(ok))
+    },
+  }
+}
+
 // ---- Upstream: the DSH host on loopback, authenticated with the URL that dsh-composer-plus (Mobile connect) gives. ----
 function send(method, url, body, headers = {}, signal) {
   return new Promise((ok, bad) => {
@@ -254,17 +428,26 @@ function makeUpstream(upstreamUrl) {
       return r
     }),
     mux: () => retry(() => wsConnect(base.replace(/^http/, 'ws') + '/api/remote.mux', { cookie })),
+    /** Remote computers: dsh's origin and cookie for a streamed hop. `fresh` logs in again (dsh answered 401). */
+    hop: async (fresh = false) => { if (!cookie || fresh) await login(); return { base, cookie } },
   }
 }
 
 // ---- Gateway ----
 export function createGateway(opts = {}) {
+  // `mode: 'computer'` (Remote computers): the front door that lets another Mac open this Mac's dsh. It listens on the
+  // Tailscale address only, does not announce itself, pairs only a Composer Plus (`kind: 'computer'`) and, after the token
+  // check, streams each request and WebSocket to this Mac's dsh. Its devices are other Macs, never phones.
+  const computer = opts.mode === 'computer'
   const dir = opts.dir ?? process.env.DSH_MOBILE_DIR ?? join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'storages', 'dsh-composer-plus', 'mobile')
   const iface = opts.iface ?? process.env.DSH_MOBILE_IFACE ?? 'en0'
-  const netInfo = opts.netInfo ?? (() => {
-    const a = (networkInterfaces()[iface] ?? []).find(i => i.family === 'IPv4' && !i.internal)
-    return a && { address: a.address, netmask: a.netmask }
-  })
+  const netInfo = opts.netInfo ?? (computer
+    // The tailnet as the network (100.64.0.0/10), bound to this Mac's own Tailscale address.
+    ? () => ts.online && ts.ip ? { address: ts.ip, netmask: '255.192.0.0', bind: ts.ip } : undefined
+    : () => {
+      const a = (networkInterfaces()[iface] ?? []).find(i => i.family === 'IPv4' && !i.internal)
+      return a && { address: a.address, netmask: a.netmask }
+    })
   const mac = opts.macName ?? macName()
   const codeTtl = opts.codeTtlMs ?? 5 * 60e3
   const approveTtl = opts.approveTtlMs ?? 120e3
@@ -279,7 +462,7 @@ export function createGateway(opts = {}) {
   const saveDevices = () => { saveJson(devFile, devices); seenDirty = false; seenSavedAt = Date.now() }
   // "Tailscale only" (the Mac page): kept in its own file, so it survives a restart of the gateway and of dsh.
   const settingsFile = join(dir, 'settings.json')
-  let tailnetOnly = readJson(settingsFile, {})?.tailnetOnly === true
+  let tailnetOnly = computer ? opts.tailnetOnly !== false : readJson(settingsFile, {})?.tailnetOnly === true
   // ---- Access log: each connection attempt with its outcome, oldest first (memory and access.json). ----
   const logFile = join(dir, 'access.json')
   let log = [readJson(logFile, [])].flat().filter(e => typeof e?.at === 'string' && typeof e.ip === 'string' && Number.isSafeInteger(e.n)).slice(-LOG_MAX), logTimer
@@ -318,7 +501,8 @@ export function createGateway(opts = {}) {
   const bump = (map, k, ms) => { const now = Date.now(), b = map.get(k); if (!b || now - b.t > ms) { map.set(k, { t: now, n: 1 }); return 1 } return ++b.n }
   const blocked = ip => { const b = fails.get(ip); return b && Date.now() - b.t < 60e3 && b.n >= 10 }
   const fail = ip => bump(fails, ip, 60e3)
-  const allowReq = ip => !blocked(ip) && bump(reqHits, ip, 10e3) <= 300
+  // A computer loads dsh's whole web app (hundreds of files at the first open): only failed tries limit it.
+  const allowReq = ip => !blocked(ip) && (computer || bump(reqHits, ip, 10e3) <= 300)
 
   function ensureCert() {
     const k = join(dir, 'key.pem'), c = join(dir, 'cert.pem')
@@ -359,7 +543,7 @@ export function createGateway(opts = {}) {
   function notify(msg) {
     if (opts.notify === false) return
     const safe = msg.replace(/[^\w .:'-]/g, '')
-    spawn('osascript', ['-e', 'display notification "' + safe + '" with title "Tether"'], { stdio: 'ignore' }).on('error', () => {})
+    spawn('osascript', ['-e', 'display notification "' + safe + '" with title "' + (computer ? 'Composer Plus' : 'Tether') + '"'], { stdio: 'ignore' }).on('error', () => {})
   }
 
   // ---- Pairing: one-time code (5 min) shown as QR, then explicit approval on the Mac. ----
@@ -372,9 +556,10 @@ export function createGateway(opts = {}) {
   function newCode() {
     const net = bound ?? netInfo()
     code = { value: randomBytes(16).toString('base64url'), expires: Date.now() + codeTtl }
-    code.payload = pairLink({ host: net?.address, port, fp, code: code.value, mac, ts: ts.online ? ts.ip : null })
+    code.payload = computer ? computerLink({ host: net?.address, port, fp, code: code.value, mac })
+      : pairLink({ host: net?.address, port, fp, code: code.value, mac, ts: ts.online ? ts.ip : null })
     qrReady = false
-    if (opts.qr !== false) {
+    if (opts.qr !== false && !computer) {
       const c = code
       const { SDKROOT, ...env } = process.env // a stale SDKROOT (e.g. Command Line Tools) breaks the swift script; let xcrun pick the SDK
       spawn('swift', [join(HERE, 'qr.swift'), c.payload, join(dir, 'qr.png')], { stdio: 'ignore', env })
@@ -385,10 +570,14 @@ export function createGateway(opts = {}) {
   async function pair(req, res, ip) {
     let b
     try { b = JSON.parse(await readBody(req, 4096)) } catch { return reply(res, 400, { error: 'bad request' }) }
-    const ok = code && typeof b?.code === 'string' && Date.now() < code.expires && safeEq(b.code, code.value)
+    // A front door of Remote computers pairs only another Composer Plus, and Tether's gateway never pairs one: a phone
+    // must not get dsh's whole web app, and a computer token must not open the phone routes.
+    const kindOk = computer ? b?.kind === 'computer' : b?.kind === undefined
+    const ok = kindOk && code && typeof b?.code === 'string' && Date.now() < code.expires && safeEq(b.code, code.value)
     if (!ok) { fail(ip); logAttempt(ip, null, 'refused', 'code'); return reply(res, 403, { error: 'invalid or expired pairing code' }) }
     code = null // one-time: a replayed code is rejected
-    const p = { id: randomUUID(), name: String(b.name ?? 'iPhone').replace(/[\u0000-\u001f]/g, '').slice(0, 64) || 'iPhone', ip, at: Date.now(), res }
+    const fallback = computer ? 'Mac' : 'iPhone'
+    const p = { id: randomUUID(), name: String(b.name ?? fallback).replace(/[\u0000-\u001f]/g, '').slice(0, 64) || fallback, ip, at: Date.now(), res }
     pending.set(p.id, p)
     notify('Pairing request from ' + p.name)
     const t = setTimeout(() => { if (pending.has(p.id)) { record(p, 'expired'); settle(p.id, false, false) } }, approveTtl)
@@ -497,6 +686,7 @@ export function createGateway(opts = {}) {
     const dev = auth(req)
     if (!dev) { fail(ip); logAttempt(ip, null, 'refused', 'token'); return reply(res, 401, { error: 'unauthorized' }) }
     track(dev, req.socket)
+    if (computer) return toDsh(req, res)
     if (req.method === 'GET' && path === '/me') return reply(res, 200, { deviceId: dev.id, name: dev.name, expiresAt: dev.expiresAt, upstream: upState, tailscale: ts.online ? ts.ip : null, mac, plus: [...PLUS.keys()] })
     if (path.startsWith('/plus/')) return plus(req, res, path.slice(6))
     if (req.method !== 'POST' || !path.startsWith('/api/')) return reply(res, 404, { error: 'not found' })
@@ -532,12 +722,40 @@ export function createGateway(opts = {}) {
       res.writeHead(up.status, { 'content-type': up.headers['content-type'] ?? 'application/json' }); res.end(up.body)
     } catch { reply(res, 502, { error: 'DSH host unavailable' }) }
   }
+  /** Remote computers: a paired Mac's request goes to this Mac's dsh as dsh's own page would send it: a loopback Host, an
+   * Origin of that address (only when the browser sent one), dsh's cookie and `x-composer-plus-via` (the client then hides
+   * its own computer picker). The caller's cookies, token and site header never reach dsh, and dsh's cookies stay here. */
+  const dshHop = async (req, fresh) => {
+    const { base, cookie } = await upstream.hop(fresh)
+    const u = new URL(base)
+    return { host: u.hostname, port: u.port, headers: hopHeaders(req.headers, { host: u.host, cookie, 'x-composer-plus-via': 'computer', ...(req.headers.origin !== undefined ? { origin: u.origin } : {}) }) }
+  }
+  async function toDsh(req, res) {
+    let opts
+    try { opts = await dshHop(req) } catch { return reply(res, 502, { error: 'DSH host unavailable' }) }
+    // dsh restarted (its cookie is gone): a request without a body logs in again and goes once more; one with a body
+    // cannot, its stream is spent, so it answers 401 and the page sends it again.
+    const retry = req.method === 'GET' || req.method === 'HEAD'
+    let again = false
+    await pipeHttp(req, res, opts, {
+      onStatus: (s) => { if (s === 401 && retry) { again = true; return 'skip' } },
+      onError: (r) => reply(r, 502, { error: 'DSH host unavailable' }),
+    })
+    if (again && !res.headersSent) {
+      try { opts = await dshHop(req, true) } catch { return reply(res, 502, { error: 'DSH host unavailable' }) }
+      await pipeHttp(req, res, opts, { bodiless: true, onError: (r) => reply(r, 502, { error: 'DSH host unavailable' }) })
+    }
+  }
   function onUpgrade(req, socket, head) {
     const ip = socket.remoteAddress
     if (!allowReq(ip)) { logAttempt(ip, null, 'refused', 'rate'); return socket.end('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n') }
-    if (new URL(req.url, 'https://x').pathname !== '/api/remote.mux') return socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n')
+    if (!computer && new URL(req.url, 'https://x').pathname !== '/api/remote.mux') return socket.end('HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n')
     const dev = auth(req)
     if (!dev) { fail(ip); logAttempt(ip, null, 'refused', 'token'); return socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n') }
+    if (computer) {
+      track(dev, socket)
+      return dshHop(req).then((o) => pipeUpgrade(req, socket, head, o), () => socket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n'))
+    }
     const ws = acceptWs(req, socket, head)
     if (!ws) return
     track(dev, socket)
@@ -580,14 +798,21 @@ export function createGateway(opts = {}) {
     ws.onClose = () => { for (const id of [...subs.keys()]) unsub(id); up?.close(); if (!up) upP?.then(u => u.close(), () => {}) }
   }
 
-  async function start() {
+  // One start at a time: the network watch and a click can start together (each awaits before it listens).
+  let starting
+  function start() {
     wanted = true
-    if (running) return
+    if (running) return Promise.resolve()
+    return starting ??= startOnce().finally(() => { starting = undefined })
+  }
+  async function startOnce() {
+    // A front door of Remote computers needs this Mac's Tailscale address: read the status first.
+    if (computer) await refreshTs()
     const net = netInfo()
     // shortcut: Mac'te Wi-Fi/LAN IPv4 yoksa gateway başlamaz, sadece-Tailscale Mac'ler gerekirse kaldır
-    if (!net) throw new Error('no IPv4 address on ' + iface + ' (Wi-Fi off?)')
+    if (!net) throw new Error(computer ? 'Tailscale is off on this Mac' : 'no IPv4 address on ' + iface + ' (Wi-Fi off?)')
     ensureCert()
-    await refreshTs()
+    if (!computer) await refreshTs()
     const s = createHttps({ key, cert, minVersion: 'TLSv1.2' }, onRequest)
     s.on('connection', sock => {
       // LAN or tailnet only (or tailnet only), decided by the socket's own addresses
@@ -608,12 +833,12 @@ export function createGateway(opts = {}) {
     await new Promise((ok, bad) => { s.once('error', bad); s.listen(port, net.bind ?? '::', ok) })
     server = s; bound = net; port = s.address().port; running = true
     advertise()
-    connectEvents()
+    if (!computer) connectEvents() // a computer gets dsh's own `$events` through its streamed page
   }
   // Bonjour gives each device on the Wi-Fi the Mac name, the port and the certificate fingerprint: not while "Tailscale only"
   // is on (the phone reaches the Mac over the tailnet with the address from pairing; mDNS does not cross Tailscale).
   function advertise() {
-    const want = running && !tailnetOnly && opts.bonjour !== false
+    const want = running && !tailnetOnly && !computer && opts.bonjour !== false
     if (want === !!bonjour) return
     if (!want) { bonjour.kill(); bonjour = null; return }
     // The service name is the Mac's name, so the phone's "Macs on this network" list tells two Macs apart.
