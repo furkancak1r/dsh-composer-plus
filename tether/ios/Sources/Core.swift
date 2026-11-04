@@ -1660,6 +1660,23 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         return try await call(c.percentEncodedPath + (c.percentEncodedQuery.map { "?" + $0 } ?? ""), body, get: body == nil, wait: wait) as? J ?? [:]
     }
 
+    /// Do not use memory in this chat (`/plus/memory-chat`): nil while unknown, an older Mac, or Project memory off.
+    @Published var memoryChatOff: Bool?
+    /// One change at a time: the menu item is off while one runs.
+    @Published private(set) var memoryChatBusy = false
+    /// Suggest for memory shows for this chat: Project memory is on and used in it (not a subagent chat).
+    @Published var memorySuggestable = false
+    func loadMemoryChat(_ sid: String) async {
+        guard plus.contains("memory-chat"), let o = try? await plusCall("memory-chat", query: ["sessionId": sid]), current == sid, !memoryChatBusy else { if !plus.contains("memory-chat") { memoryChatOff = nil; memorySuggestable = false }; return }
+        memoryChatOff = memoryChatState(o); memorySuggestable = memorySuggestState(o)
+    }
+    func setMemoryChat(_ off: Bool) async {
+        guard let sid = current, !memoryChatBusy else { return }
+        memoryChatBusy = true
+        defer { memoryChatBusy = false }
+        do { let o = try await plusCall("memory-chat", body: ["sessionId": sid, "off": off], wait: 30); if current == sid { memoryChatOff = o["off"] as? Bool == true; memorySuggestable = memorySuggestState(o) } }
+        catch { self.error = userText(error) }
+    }
     private func loadRollback(_ sid: String) async {
         guard plus.contains("rollback"), let o = try? await plusCall("rollback", query: ["sessionId": sid]), current == sid else { return }
         rollbackOn = o["on"] as? Bool == true && o["rewind"] as? Bool != true
@@ -2337,7 +2354,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         running = currentSess?.running ?? false
         loadingChat = true
         openFollow(sid)
-        Task { await loadCommands(); await loadGoal(); await loadRollback(sid); await loadBranch(sid) }
+        memoryChatOff = nil; memorySuggestable = false
+        Task { await loadCommands(); await loadGoal(); await loadRollback(sid); await loadBranch(sid); await loadMemoryChat(sid) }
     }
 
     // MARK: Branch per chat (Composer Plus `worktreeChats`)
@@ -3053,7 +3071,11 @@ enum ScenePhaseKind { case active, inactive, background }
 // MARK: - Project memory (Composer Plus `/plus/memory-edit`)
 
 /// One saved note.
-struct MemoryNote: Identifiable, Equatable { let id: String; let text: String; let added: String?; let topic: String? }
+struct MemoryNote: Identifiable, Equatable {
+    let id: String; let text: String; let added: String?; let topic: String?
+    /// The chat (and message) that the note came from (Memory note source link); nil for a note without one.
+    var sourceSession: String? = nil; var sourceSeq: Int? = nil
+}
 /// One project memory (or the global memory: `id == "global"`).
 struct MemoryGroup: Identifiable, Equatable {
     let id: String, name: String, path: String?, count: Int, notes: [MemoryNote]
@@ -3062,7 +3084,10 @@ struct MemoryGroup: Identifiable, Equatable {
         notes = (j["files"] as? [J] ?? []).flatMap { f -> [MemoryNote] in
             let topic = f["topic"] as? String
             return (f["entries"] as? [J] ?? []).enumerated().compactMap { n, e in
-                (e["text"] as? String).map { MemoryNote(id: "\(id)/\(topic ?? "")/\(n)", text: $0, added: e["added"] as? String, topic: topic) }
+                (e["text"] as? String).map { text in
+                    let src = e["source"] as? J
+                    return MemoryNote(id: "\(id)/\(topic ?? "")/\(n)", text: text, added: e["added"] as? String, topic: topic, sourceSession: src?["sessionId"] as? String, sourceSeq: src?["seq"] as? Int)
+                }
             }
         }
     }
@@ -3140,6 +3165,216 @@ func memoryChanges(_ o: J) -> [MemoryChange] {
         }
     }
     func discard() { if busy == nil { preview = nil; applied = nil; failed = nil } }
+
+    // MARK: Memory version history (`/plus/memory-history`)
+    struct Version: Identifiable, Equatable { let id: String; let time: Double; let actor: String; let notes: Int }
+    struct OpenVersion: Equatable { let id: String; let time: Double; let patch: String; let truncated: Bool; let version: String }
+    /// The memory whose versions show ("global" or a project id), or nil.
+    @Published private(set) var historyScope: String?
+    @Published private(set) var versions: [Version] = []
+    @Published private(set) var openVersion: OpenVersion?
+    @Published private(set) var restored = false
+    private var historyCall: ([String: String], J?) async throws -> J = { _, _ in [:] }
+    private var historySeq = 0
+    func bindHistory(_ call: @escaping ([String: String], J?) async throws -> J) { historyCall = call }
+    @discardableResult func openHistory(_ scope: String) async -> Bool {
+        guard busy == nil else { return false }
+        historySeq += 1; let mine = historySeq
+        historyScope = scope; versions = []; openVersion = nil; restored = false; failed = nil; preview = nil; applied = nil
+        do {
+            let o = try await historyCall(["scope": scope], nil)
+            if mine == historySeq { versions = (o["versions"] as? [J] ?? []).compactMap(memoryVersion) }
+        } catch { if mine == historySeq { failed = userText(error) } }
+        return true
+    }
+    func closeHistory() { if busy == nil { historySeq += 1; historyScope = nil; versions = []; openVersion = nil; restored = false } }
+
+    // MARK: Export to AGENTS.md (`/plus/memory-export`)
+    struct Export: Equatable { let project: String; let id: String?; let patch: String; let truncated: Bool; let created: Bool }
+    @Published private(set) var exported: Export?
+    @Published private(set) var exportDone = false
+    private var exportCall: (J) async throws -> J = { _ in [:] }
+    func bindExport(_ call: @escaping (J) async throws -> J) { exportCall = call }
+    @discardableResult func exportPreview(_ project: String) async -> Bool {
+        guard busy == nil else { return false }
+        busy = "export"; failed = nil; exported = nil; exportDone = false; preview = nil; applied = nil
+        defer { busy = nil }
+        do {
+            let o = try await exportCall(["preview": ["project": project]])
+            exported = Export(project: project, id: o["id"] as? String, patch: o["patch"] as? String ?? "", truncated: o["truncated"] as? Bool ?? false, created: o["created"] as? Bool ?? false)
+            return true
+        } catch { failed = userText(error); return false }
+    }
+    @discardableResult func exportApply() async -> Bool {
+        guard busy == nil, let id = exported?.id else { return false }
+        busy = "export"; failed = nil
+        defer { busy = nil }
+        do { _ = try await exportCall(["apply": id]); exported = nil; exportDone = true; return true }
+        catch {
+            failed = userText(error)
+            if let f = error as? Fail, f.status == 409 || f.status == 410 { exported = nil }
+            return false
+        }
+    }
+    func exportDiscard() { if busy == nil { exported = nil; exportDone = false } }
+
+    // MARK: Copy notes to another project (`/plus/memory-copy`)
+    struct CopyTarget: Identifiable, Equatable { let id: String; let title: String; let path: String; let memory: String }
+    /// The memory whose notes are picked ("global" or a project id), the picked notes, and dsh's projects.
+    @Published private(set) var copyFrom: String?
+    @Published private(set) var copyPicked: [MemoryNote] = []
+    @Published private(set) var copyTargets: [CopyTarget] = []
+    @Published private(set) var copied: (count: Int, skipped: Int, to: String)?
+    private var copyCall: (J?) async throws -> J = { _ in [:] }
+    func bindCopy(_ call: @escaping (J?) async throws -> J) { copyCall = call }
+    @discardableResult func startCopy(_ from: String) async -> Bool {
+        guard busy == nil else { return false }
+        copyFrom = from; copyPicked = []; copyTargets = []; copied = nil; failed = nil
+        do {
+            let o = try await copyCall(nil)
+            copyTargets = (o["projects"] as? [J] ?? []).compactMap { p in
+                guard let id = p["workspaceId"] as? String, let m = p["memory"] as? String, m != from else { return nil }
+                return CopyTarget(id: id, title: p["title"] as? String ?? id, path: p["path"] as? String ?? "", memory: m)
+            }
+        } catch { failed = userText(error) }
+        return true
+    }
+    func pick(_ note: MemoryNote) {
+        guard busy == nil, copyFrom != nil else { return }
+        if copyPicked.contains(note) { copyPicked.removeAll { $0 == note } } else { copyPicked.append(note) }
+    }
+    func cancelCopy() { if busy == nil { copyFrom = nil; copyPicked = []; copyTargets = [] } }
+
+    // MARK: Stale notes (`/plus/memory-stale`): read-only, beside any other action; the newest check wins.
+    /// What each stale note of the checked project names that the project does not have: "\(topic)/\(text)" → lines.
+    @Published private(set) var stale: [String: [String]] = [:]
+    @Published private(set) var staleProject: String?
+    private var staleCall: (String) async throws -> J = { _ in [:] }
+    private var staleSeq = 0
+    func bindStale(_ call: @escaping (String) async throws -> J) { staleCall = call }
+    static func staleKey(_ topic: String?, _ text: String) -> String { "\(topic ?? "")\u{0}\(text)" }
+    func checkStale(_ project: String?) async {
+        staleSeq += 1; let mine = staleSeq
+        guard let project else { stale = [:]; staleProject = nil; return }
+        do {
+            let o = try await staleCall(project)
+            guard mine == staleSeq else { return }
+            var out: [String: [String]] = [:]
+            for n in o["notes"] as? [J] ?? [] {
+                guard let text = n["text"] as? String else { continue }
+                out[Self.staleKey(n["topic"] as? String, text)] = (n["missing"] as? [J] ?? []).compactMap { m in
+                    guard let name = m["name"] as? String else { return nil }
+                    switch m["kind"] as? String {
+                    case "path": return String(localized: "file not found: \(name)")
+                    case "script": return String(localized: "npm script not found: \(name)")
+                    case "branch": return String(localized: "branch not found: \(name)")
+                    default: return nil
+                    }
+                }
+            }
+            stale = out; staleProject = project
+        } catch { if mine == staleSeq { stale = [:]; staleProject = nil } }
+    }
+    /// All the picked notes go to the project, or none (the Mac refuses all of them when one cannot be saved).
+    @discardableResult func copy(to target: CopyTarget) async -> Bool {
+        guard busy == nil, let from = copyFrom, !copyPicked.isEmpty else { return false }
+        busy = "copy"; failed = nil; loadSeq += 1
+        defer { busy = nil }
+        do {
+            let notes: [J] = copyPicked.map { ["topic": $0.topic as Any? ?? NSNull(), "text": $0.text] }
+            let o = try await copyCall(["copy": ["from": from, "notes": notes, "to": target.id]])
+            take(o); copied = (o["copied"] as? Int ?? 0, o["skipped"] as? Int ?? 0, target.title)
+            copyFrom = nil; copyPicked = []; copyTargets = []
+            return true
+        } catch { failed = userText(error); return false }
+    }
+    @discardableResult func open(version id: String) async -> Bool {
+        guard busy == nil, let scope = historyScope else { return false }
+        historySeq += 1; let mine = historySeq
+        openVersion = nil; failed = nil; restored = false
+        do {
+            let o = try await historyCall(["scope": scope, "id": id], nil)
+            guard mine == historySeq, let v = o["version"] as? String else { return false }
+            openVersion = OpenVersion(id: id, time: o["time"] as? Double ?? 0, patch: o["patch"] as? String ?? "", truncated: o["truncated"] as? Bool ?? false, version: v)
+            return true
+        } catch { if mine == historySeq { failed = userText(error) }; return false }
+    }
+    /// Restore the open version: all or none, only while the memory is as it was when the version opened (else 409).
+    @discardableResult func restore() async -> Bool {
+        guard busy == nil, let scope = historyScope, let v = openVersion else { return false }
+        busy = "restore"; failed = nil; loadSeq += 1; historySeq += 1
+        defer { busy = nil }
+        do {
+            let o = try await historyCall([:], ["restore": ["scope": scope, "id": v.id, "version": v.version]])
+            take(o); versions = (o["versions"] as? [J] ?? []).compactMap(memoryVersion); openVersion = nil; restored = true
+            return true
+        } catch {
+            failed = userText(error)
+            if let f = error as? Fail, f.status == 409 || f.status == 404 { openVersion = nil; Task { await load() } }
+            return false
+        }
+    }
+}
+/// The Use project memory item: nil (hidden) while the feature or Project memory is off, or in a subagent chat (it follows
+/// its root chat); else whether the memory is off for this chat.
+func memoryChatState(_ o: J) -> Bool? {
+    guard o["on"] as? Bool == true, o["memory"] as? Bool == true, o["root"] as? Bool != true else { return nil }
+    return o["off"] as? Bool == true
+}
+/// Suggest for memory: only while Project memory is on, the chat is not a subagent chat and its memory is not switched off
+/// (the switch counts only while Do not use memory in this chat is on).
+func memorySuggestState(_ o: J) -> Bool {
+    o["memory"] as? Bool == true && o["root"] as? Bool != true && !(o["on"] as? Bool == true && o["off"] as? Bool == true)
+}
+func memoryVersion(_ v: J) -> MemoryEditor.Version? {
+    guard let id = v["id"] as? String else { return nil }
+    return MemoryEditor.Version(id: id, time: v["time"] as? Double ?? 0, actor: v["actor"] as? String ?? "", notes: v["notes"] as? Int ?? 0)
+}
+
+/// Suggest for memory (`/plus/memory-suggest`): the chat's model suggests notes; nothing is saved before Accept. One ask or
+/// accept at a time from every button; Reject stays on the phone.
+@MainActor final class MemorySuggester: ObservableObject {
+    struct Item: Identifiable, Equatable { let id: Int; let text: String; let why: String; let global: Bool; let topic: String?; var state: String }
+    /// "ask" or "accept" while one runs.
+    @Published private(set) var busy: String?
+    @Published private(set) var items: [Item] = []
+    @Published private(set) var skipped = 0
+    @Published private(set) var asked = false
+    @Published var failed: String?
+    private var key: String?
+    private var call: (J) async throws -> J
+    init(call: @escaping (J) async throws -> J) { self.call = call }
+    func bind(_ call: @escaping (J) async throws -> J) { self.call = call }
+    @discardableResult func ask(_ sessionId: String) async -> Bool {
+        guard busy == nil else { return false }
+        busy = "ask"; failed = nil; items = []; skipped = 0; key = nil
+        defer { busy = nil; asked = true }
+        do {
+            let o = try await call(["sessionId": sessionId])
+            key = o["id"] as? String; skipped = o["skipped"] as? Int ?? 0
+            items = (o["suggestions"] as? [J] ?? []).enumerated().compactMap { i, s in
+                guard let text = s["text"] as? String else { return nil }
+                return Item(id: i, text: text, why: s["why"] as? String ?? "", global: s["global"] as? Bool == true, topic: s["topic"] as? String, state: "new")
+            }
+            return true
+        } catch { failed = userText(error); return false }
+    }
+    @discardableResult func accept(_ index: Int) async -> Bool {
+        guard busy == nil, let key, let at = items.firstIndex(where: { $0.id == index }), items[at].state == "new" else { return false }
+        busy = "accept"; failed = nil; items[at].state = "saving"
+        defer { busy = nil }
+        do { _ = try await call(["accept": ["id": key, "index": index]]); items[at].state = "saved"; return true }
+        catch {
+            let saved = (error as? Fail)?.status == 409 && userText(error).contains("already saved")
+            items[at].state = saved ? "saved" : "new"
+            if !saved { failed = userText(error) }
+            return false
+        }
+    }
+    func reject(_ index: Int) {
+        guard busy != "accept", let at = items.firstIndex(where: { $0.id == index }), items[at].state == "new" else { return }
+        items[at].state = "rejected"
+    }
 }
 
 /// Continue in a new chat (Composer Plus on the Mac): the Mac writes a handoff note with the chat's own model; the user
