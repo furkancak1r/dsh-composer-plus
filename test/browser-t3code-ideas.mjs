@@ -15,8 +15,12 @@
 //    dsh output or the page. The file is gone when the turn ends; the row says "Saved".
 // 6. Decline: the agent reads "did not give". 7. dsh's Stop while the card waits: the card goes, no file.
 // 8. Switched off (Settings → Composer Plus → Secret input): the tool is not in the next model request.
+// Quote in reply:
+// 9. A selection in your own message shows no Quote; a part of an answer → Quote → the quote goes after the text that you
+//    typed, the composer has the focus, and the sent message holds your text, the quote and the next line in order.
+// 10. Switched off: no Quote button.
 // PLAYWRIGHT=/path/to/playwright node test/browser-t3code-ideas.mjs /path/to/dsh/lib/bin.js [...]
-// SHOT=1 also writes assets/features/rejectNote.webp and secretInput.webp (English UI, made-up project).
+// SHOT=1 also writes assets/features/rejectNote.webp, secretInput.webp and quoteReply.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
@@ -42,6 +46,7 @@ const TASK = { A: 'Clean up the old build folder', B: 'Clean up the old build fo
 const NOTE = 'Do not delete it. Move it to archive/build-old instead.';
 const SECRET_TASK = { S: 'Publish the demo package with my token', D: 'Publish the demo package, ask me first', T: 'Publish the demo package when I am back', O: 'Publish the demo package one more time' };
 const VALUE = `npm_demo_${randomUUID().replaceAll('-', '')}`;
+const QUOTE_TASK = 'Explain the release steps';
 const calls = []; // {task, msgs, tools}
 const fileSeen = []; // the secret file while the turn runs: {path, mode, dirMode}
 const fake = createServer((req, res) => {
@@ -59,6 +64,10 @@ const fake = createServer((req, res) => {
     if (/session title/i.test(textOf(msgs.at(-1)?.content))) return say('Clean up the build');
     if (/You predict the next message|You complete the message that the user is typing/.test(all)) return say('');
     const own = msgs.filter((m) => m.role === 'assistant' && m.tool_calls?.length).length;
+    if (all.includes(QUOTE_TASK)) {
+      calls.push({ task: 'Q', msgs });
+      return say(textOf(msgs.at(-1)?.content).includes('Do it on Friday.') ? 'Noted: the tag goes out on Friday.' : 'Step one: run the tests.\n\nStep two: tag the release and push the tag.');
+    }
     const secretTask = Object.keys(SECRET_TASK).find((k) => all.includes(SECRET_TASK[k]));
     if (secretTask !== undefined) {
       calls.push({ task: secretTask, msgs, tools: parsed.tools ?? [] });
@@ -334,6 +343,68 @@ try {
       await walk(home);
       assert.deepEqual(leaks, [], 'the value is in no file of the dsh home');
       note('no trace: the value is in no file of the dsh home (chat logs decompressed) and not in the dsh output');
+
+      // 9. Quote in reply: select a part of an answer → Quote → the quote at the composer's caret, after your text.
+      await newChat();
+      await send(QUOTE_TASK);
+      await until(async () => (await page.getByText('Step two: tag the release and push the tag.').count()) > 0, 'chat Q answers');
+      // Select `text` inside the first matching element (`scope`) of the open chat; the browser fires selectionchange.
+      const select = (scope, text) => page.evaluate(([scope, text]) => {
+        const root = [...document.querySelectorAll(scope)].find((el) => el.textContent.includes(text));
+        if (root === undefined) return false;
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+          const i = n.data.indexOf(text);
+          if (i < 0) continue;
+          const range = document.createRange(); range.setStart(n, i); range.setEnd(n, i + text.length);
+          const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+          return true;
+        }
+        return false;
+      }, [scope, text]);
+      const ANSWER = '[data-conversation-session] [data-chat-flow-kind="assistant-step"][data-turn-process-answer="true"] [data-slot="conversation.chat.node"]';
+      const quoteButton = page.locator('[data-composer-plus-quote]');
+      await input.click(); await page.keyboard.type('About step two:', { delay: 5 });
+      // A selection in your own message shows no button.
+      assert.equal(await select('[data-conversation-session] [data-chat-flow-kind]', QUOTE_TASK), true, 'the user message is selectable');
+      await pause(500);
+      assert.equal(await quoteButton.count(), 0, 'no Quote for your own message');
+      assert.equal(await select(ANSWER, 'tag the release and push the tag'), true, 'the answer text is selectable');
+      await quoteButton.waitFor({ timeout: 5000 });
+      assert.equal(await quoteButton.innerText(), '❝ Quote');
+      if (index === 0 && process.env.SHOT) {
+        await page.mouse.move(1000, 700); await pause(300);
+        // The answer node is `display: contents` (no box): use its row.
+        const a = await page.locator('[data-chat-flow-kind="assistant-step"][data-turn-process-answer="true"]').filter({ hasText: 'Step two' }).first().boundingBox();
+        const b = await quoteButton.boundingBox();
+        const x = Math.max(0, Math.min(a.x, b.x) - 16); const y = Math.max(0, Math.min(a.y, b.y) - 16);
+        const area = { x, y, width: Math.min(1280 - x, Math.max(a.x + a.width, b.x + b.width) - x + 16), height: Math.max(a.y + a.height, b.y + b.height) - y + 16 };
+        const png = join(home, 'quoteReply.png'); await page.screenshot({ path: png, clip: area });
+        execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.round(area.width * 1.25)), '0', png, '-o', join(repo, 'assets/features/quoteReply.webp')]);
+        note(`shot: assets/features/quoteReply.webp ${(await stat(join(repo, 'assets/features/quoteReply.webp'))).size} bytes`);
+      }
+      await quoteButton.click();
+      await quoteButton.waitFor({ state: 'detached', timeout: 5000 });
+      assert.equal(await input.evaluate((el) => el.contains(document.activeElement) || el === document.activeElement), true, 'the composer has the focus');
+      await page.keyboard.type('Do it on Friday.', { delay: 5 });
+      await page.keyboard.press('Enter');
+      await until(async () => (await page.getByText('Noted: the tag goes out on Friday.').count()) > 0, 'chat Q answers the quote');
+      const sent = textOf(calls.filter((c) => c.task === 'Q').at(-1).msgs.at(-1).content);
+      assert.equal(sent, 'About step two:\n\n> tag the release and push the tag\n\nDo it on Friday.', `the message holds your text, the quote and the next line in order: ${JSON.stringify(sent)}`);
+      note('9: a selection in your message shows no Quote; a part of the answer → Quote → "About step two:\\n\\n> …\\n\\nDo it on Friday." reaches the model');
+
+      // 10. Switched off: no button.
+      await openSettings();
+      const sw3 = page.getByRole('switch', { name: 'Quote in reply', exact: true });
+      await sw3.waitFor({ timeout: 10000 });
+      assert.equal(await sw3.getAttribute('aria-checked'), 'true', 'Quote in reply is on by default');
+      await sw3.click();
+      await until(async () => (await sw3.getAttribute('aria-checked')) === 'false', 'Quote in reply switched off');
+      await page.keyboard.press('Escape'); await pause(600);
+      assert.equal(await select(ANSWER, 'run the tests'), true);
+      await pause(800);
+      assert.equal(await quoteButton.count(), 0, 'off: no Quote');
+      note('10: switched off → no Quote button');
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;

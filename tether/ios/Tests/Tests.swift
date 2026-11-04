@@ -336,6 +336,20 @@ final class CoreTests: XCTestCase {
         XCTAssertFalse(empty)
     }
 
+    /// Quote in reply: the same quote rule as the Mac (`quoteText` in client.js) for a whole answer at the end of the field.
+    func testQuoteDraft() {
+        XCTAssertEqual(quoteDraft("", "Use pnpm."), "> Use pnpm.\n\n")
+        XCTAssertEqual(quoteDraft("", "  a\r\n\r\nb\u{00a0}c  "), "> a\n>\n> b c\n\n", "CRLF, an empty line, NBSP, trim")
+        XCTAssertEqual(quoteDraft("My note", "x"), "My note\n\n> x\n\n")
+        XCTAssertEqual(quoteDraft("My note\n", "x"), "My note\n\n> x\n\n")
+        XCTAssertEqual(quoteDraft("My note\n\n", "x"), "My note\n\n> x\n\n")
+        XCTAssertEqual(quoteDraft("kept", " \n "), "kept", "a blank answer changes nothing")
+        let long = quoteDraft("", String(repeating: "😀", count: quoteMax + 5))
+        XCTAssertEqual(long.dropFirst(2).dropLast(2).unicodeScalars.count, quoteMax, "cut to quoteMax code points, as the Mac")
+        XCTAssertTrue(long.hasSuffix("…\n\n"))
+        XCTAssertEqual(quoteDraft("", String(repeating: "a", count: quoteMax)), "> " + String(repeating: "a", count: quoteMax) + "\n\n")
+    }
+
     @MainActor func testOpenFromOtherTab() {
         let c = Client()
         c.tab = 1

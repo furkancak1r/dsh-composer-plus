@@ -688,7 +688,7 @@ struct ConversationView: View {
                             Group {
                                 switch row {
                                 case .line(let l):
-                                    LineView(line: l, onEdit: { text = $0; focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
+                                    LineView(line: l, onEdit: { text = $0; focused = true }, onQuote: { text = quoteDraft(text, $0); focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
                                     // Option buttons (Composer Plus): under the answer that ends with an option list.
                                     if l.kind == .assistant, let o = c.optionOffer, o.seq == l.seq, text.isEmpty, images.isEmpty, files.isEmpty { OptionButtons(offer: o) }
                                 case .steps(let ls, let live): StepsView(lines: ls, live: live && c.streaming.isEmpty)
@@ -1387,6 +1387,8 @@ struct LineView: View {
     let line: Line
     var live = false
     var onEdit: ((String) -> Void)? = nil
+    /// Quote in reply: puts this answer as a quote in the composer.
+    var onQuote: ((String) -> Void)? = nil
     /// Turn rollback (Composer Plus): nil when this row cannot be rolled back.
     var onRollback: (() -> Void)? = nil
     @State private var open = false
@@ -1397,6 +1399,7 @@ struct LineView: View {
             Button { UIPasteboard.general.string = [line.text, line.output].compactMap { $0 }.joined(separator: "\n\n") } label: { Label("Copy", systemImage: "doc.on.doc") }
             if line.kind == .assistant || line.kind == .reasoning, !live { Button { selecting = true } label: { Label("Select Text", systemImage: "selection.pin.in.out") } }
             if line.kind == .assistant, !live { ShareLink(item: line.text) { Label("Share", systemImage: "square.and.arrow.up") } }
+            if line.kind == .assistant, !live, let onQuote { Button { onQuote(line.text) } label: { Label("Quote", systemImage: "quote.opening") } }
             // Copy message link (Composer Plus): the chat's link and this message's seq; dsh on the Mac opens it.
             if line.kind == .user || line.kind == .assistant, !live, let seq = line.seq, let sid = c.current {
                 Button { UIPasteboard.general.string = messageLink(sid, seq); UINotificationFeedbackGenerator().notificationOccurred(.success) } label: { Label("Copy message link", systemImage: "link") }

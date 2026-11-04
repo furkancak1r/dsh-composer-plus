@@ -512,6 +512,24 @@ struct Line: Identifiable {
 
 // MARK: - Composer Plus features (the dsh-composer-plus plugin on the Mac; see tether/FEATURES.md)
 
+/// Quote in reply: `quoteText` of client.js for a whole answer at the end of the composer's text. `> ` lines (an empty
+/// line as `>`), at most `quoteMax` characters (cut with …), an empty line before it when the field has text, and an empty
+/// line after it for the reply.
+let quoteMax = 2000
+func quoteDraft(_ draft: String, _ answer: String) -> String {
+    var t = answer.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        .replacingOccurrences(of: "\u{00a0}", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty else { return draft }
+    if t.unicodeScalars.count > quoteMax {
+        var s = String.UnicodeScalarView(); s.append(contentsOf: t.unicodeScalars.prefix(quoteMax - 1))
+        t = String(s).replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) + "…"
+    }
+    let quote = t.split(separator: "\n", omittingEmptySubsequences: false)
+        .map { $0.trimmingCharacters(in: .whitespaces).isEmpty ? ">" : "> " + $0 }.joined(separator: "\n")
+    let lead = draft.isEmpty || draft.hasSuffix("\n\n") ? "" : draft.hasSuffix("\n") ? "\n" : "\n\n"
+    return draft + lead + quote + "\n\n"
+}
+
 /// Turn rollback: the rows that a rollback took out of the chat. dsh keeps them in the log; its marker message
 /// (`composer-plus-rollback`, or `dsh-rewind` from dsh-rewind-plugin) names them in `sourceEventSeqs`. A span is
 /// [first, marker], both included. dsh's /compact marker is not a withdraw: its messages stay.

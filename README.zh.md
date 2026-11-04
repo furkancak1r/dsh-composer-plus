@@ -76,6 +76,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **本对话内允许** | <a id="feature-allowforchat"></a>当 Auto Review 询问你时，审批卡片上会多出 **本对话内允许**：从此以后，同一对话中的同一工具都会被允许，参数不限，直到时限结束（默认 1 小时；可在 **设置 → Composer Plus → 本对话内允许** 中选择）。之后代理会再次询问。标题栏中的标签会列出这些授权及其结束时间，也可以撤销它们。授权在重启后仍然有效。 | <a href="assets/features/allowForChat.webp"><img src="assets/features/allowForChat.webp" width="160" alt="截图：本对话内允许"></a> |
 | **拒绝并附言** | <a id="feature-rejectnote"></a>审批卡片的 **拒绝** 旁边会多出 **拒绝并附言…**。点击它，写下原因或应改做什么，然后点 **拒绝**（或按 `Enter`；`Shift+Enter` 换行，`Esc` 关闭输入框）。附言会先作为一条消息发进正在等待的这一轮，然后请求被拒绝：模型在同一轮中读到拒绝和你的附言，你无需再发一条消息。如果附言发不出去，就什么也不会被拒绝，输入框保持打开。Tether 中：审批页 → Reject with note。 | <a href="assets/features/rejectNote.webp"><img src="assets/features/rejectNote.webp" width="160" alt="截图：拒绝并附言"></a> |
 | **密钥输入** | <a id="feature-secretinput"></a>代理会获得工具 `request_secret`。当它需要密码、令牌或 API 密钥时，会用这个工具索要，而不是在对话里问你：工具行上会出现一个卡片，显示名称、它为什么需要这个值、一个密码输入框，以及 **保存** 和 **拒绝**。**保存** 会把值写入这台 Mac 上只有你能读取的文件，代理只拿到文件路径，并把它作为命令的输入使用（例如 `"$(cat <path>)"`）。之后的工具结果如果显示该值，会在模型看到之前替换为 `[secret]`。这一轮结束时文件会被删除。**拒绝** 会告诉代理你没有提供该值。在 **设置 → Composer Plus** 中关闭它即可移除该工具。Tether 中：输入框上方的 “Secret: …” 条 → Enter。 | <a href="assets/features/secretInput.webp"><img src="assets/features/secretInput.webp" width="160" alt="截图：密钥输入"></a> |
+| **引用回复** | <a id="feature-quotereply"></a>在回答中选中一段文字：选区上方会出现 **引用** 按钮。点击它，这段文字会以 Markdown 引用（`> …`）的形式插入输入框的光标处，后面留一个空行，并且输入框会获得焦点，你可以直接在下面写回复。只适用于回答正文，不适用于思考过程、工具行或你自己的消息。引用最多 2,000 个字符。`Cmd+Z`（`Ctrl+Z`）可以撤销。Tether 中：长按一条回答 → Quote（整条回答）。 | <a href="assets/features/quoteReply.webp"><img src="assets/features/quoteReply.webp" width="160" alt="截图：引用回复"></a> |
 | **项目状态** | <a id="feature-projectstatus"></a>侧边栏中的项目行会显示与其对话相同的加载图标 / 等待 / 完成标记。因此，即使项目已折叠，你也能知道其中有对话正在运行或需要你处理。等待你处理的对话优先显示，其次是你尚未打开的已完成对话（绿色圆点，即使另一个对话仍在运行也会显示），最后是加载图标。将鼠标悬停在上面可查看详情。在**按工作区树**中，父文件夹的行也会显示其中每个项目（例如 `.worktrees/` 中的每个分支文件夹）的对话状态，折叠时也一样。 | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="截图：项目状态"></a> |
 | **对话行显示 Git 分支** | <a id="feature-sessionbranch"></a>在侧边栏的“单列表”视图中，每个对话行会显示一个小的灰色标签，内容是该对话最后一轮时项目文件夹所在的 git 分支（例如 `main` 或 `feature/login`；分离的 HEAD 没有分支，不显示标签）。同一项目中位于不同分支的两个对话不再看起来一样，你也能立即发现自己是否要在错误的分支上继续对话。将鼠标悬停在标签上可查看完整名称。Host 部分会在每轮开始和结束时读取分支（`git branch --show-current`，只读）；安装后还没有新一轮的对话，或不是 git 仓库的文件夹，不会显示标签。在“按工作区”和“按工作区树”视图中，对话已位于其项目行下，因此对话行不显示标签。 | <a href="assets/features/sessionBranch.webp"><img src="assets/features/sessionBranch.webp" width="160" alt="截图：对话行显示 Git 分支"></a> |
 | **全部标为已读** | <a id="feature-markprojectread"></a>在侧边栏中，点击项目的 **…** 按钮 → **全部标为已读**。该项目中所有对话的绿色未读圆点会立即消失；其他项目的圆点保持不变。项目中没有未读对话时，此项显示为灰色（**没有未读对话**）。 | <a href="assets/features/markProjectRead.webp"><img src="assets/features/markProjectRead.webp" width="160" alt="截图：全部标为已读"></a> |
@@ -224,6 +225,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **Composer Plus N 的新功能** 使用 **应用语言** 中的语言显示说明。带其他地区的界面语言使用其基础语言的说明（`en-GB` 显示英文说明，`zh-TW` 显示 `zh` 的中文说明）。没有说明的语言（由其他语言包添加的语言，或不是 `pt-BR` 的 `pt-PT`）显示英文说明。说明随新版本一起安装。如果运行的副本没有可读的说明文件（`release-notes.json`），窗口会显示 GitHub 上的英文说明。
 - **拒绝并附言** 会先把附言作为一条消息发进正在等待的这一轮，然后拒绝该请求；dsh 会在对话中把附言显示为你的消息。附言输入框打开时，卡片上只显示 **取消** 和 **拒绝**，所以一次点击不会误允许该请求；`Esc` 或 **取消** 会让 dsh 的按钮重新出现。空附言不会发送任何内容（请使用 dsh 自己的 **拒绝**）。如果附言发出后拒绝失败（例如该请求在此期间已在别处被回答），附言会留在对话中，模型会在它的下一步读到它。按钮放在 dsh 审批卡片的标记（`data-approval-key`）中，因为 dsh 没有给卡片操作的插槽；如果 dsh 更新改变了这部分标记，按钮就不会显示，dsh 自己的 **拒绝** 照常可用。一条附言最多 4,000 个字符。
 - **密钥输入** 只隐藏值的完整原文：同一对话之后的工具结果中，它会被替换为 `[secret]`。但代理仍然可以用 shell 命令读取文件，并以其他形式（base64、其中一部分、加入空格）输出该值，这种形式会到达模型。代理自己的文件工具（read、grep、write、edit）无法打开密钥文件夹。如果该值同时也是常见词，该对话的其他结果中也会显示 `[secret]`。文件会保留到这一轮结束；如果 dsh 在这一轮中退出，下次启动时会删除它。每个对话同一时间只能有一个未完成的请求。该工具会给每次模型请求增加约 870 个字符（估计约 220 个 token）：不用时请关闭。
+- **引用回复** 引用的是页面上显示的文字：代码块、表格或列表会变成普通的行，不带 Markdown 标记。如果选区从一条回答开始、在另一条回答结束，或者碰到思考过程、工具行或你自己的消息，就不会显示按钮：请只在一条回答内选择。按钮通过 dsh 的对话结构找到回答，因为 dsh 没有用于文字选区的插槽；如果 dsh 更新改变了这种结构，按钮就不会显示。如果引用位于输入框末尾，后面会多加一个空行，让你接着输入的内容从下一行开始；dsh 发送时会去掉末尾的空行。
 - **本对话内允许** 从授权的那一刻开始计算时限。新的时限会立即应用于仍在生效的授权，因此更短的时限可能会让它们立即结束。1.12 及更早版本的授权没有时间信息：更新后，代理会就这些工具再询问一次。
 - **保持输入框焦点** 只在发送 `/` 命令或技能后才会把焦点还给输入框。dsh 解析命令时，输入框会有几毫秒处于只读状态，因此这段时间内按下的键会丢失。如果 dsh 的 `/` 菜单仍然打开，`Enter` 会选择高亮的行，而不会发送。
 - **问题卡片适应窗口** 只改变 dsh 的问题卡片，不改变计划审阅卡片。它通过 dsh 的标记（`data-question-key`、`data-question-scroll`）找到卡片；如果 dsh 更新改变了这些标记，卡片会按 dsh 自己的样子显示。卡片高度跟随窗口，而不是对话：在较窄侧边面板中的对话里，较高的卡片仍可能超出对话上方。
@@ -329,6 +331,8 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 **如何不在对话中输入就把密码或令牌交给代理？** 使用 **密钥输入**（默认开启）：让代理使用 `request_secret`，或等它主动询问。在工具行的卡片中输入值，然后点击 **保存**。代理只拿到保存该值的文件路径，文件在这一轮结束时删除。
 
+**如何只回复长回答中的一部分？** 选中那一部分，然后点击选区上方的 **引用**（**引用回复**，默认开启）。这部分会以 `> …` 引用的形式进入输入框，你在下面写回复即可。
+
 **如何让 Auto Review 在同一个对话中不再反复询问同一个工具？** 点击审批卡片上的 **本对话内允许**。它只覆盖该对话中的这个确切工具，默认有效 1 小时；可以在标题栏的标签中撤销它。在 **设置 → Composer Plus → 本对话内允许** 中更改时间。
 
 **我的 iPhone 丢了。如何阻止它访问我的 Mac？** 点击侧边栏左下角的 **手机连接**，然后点击该 iPhone 旁边的 **Remove**。它的密钥会立即失效；只有通过你在 Mac 上批准的新配对，它才能重新连接。
@@ -380,7 +384,7 @@ PLAYWRIGHT=/path/to/playwright node test/browser-recent-tree.mjs /path/to/dsh/li
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-status-order.mjs /path/to/dsh/lib/bin.js
 # Next waiting chat and Option buttons (fake model): the sidebar button and Cmd+Shift+E open the waiting chats in order, the Keyboard shortcuts row, the option buttons and the question card keys, switch off + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-agentbox-ideas.mjs /path/to/dsh/lib/bin.js
-# Reject with note and Secret input (fake model + a test-only approval gate): the button on dsh's card, the note after the rejection in the next request, Esc; the secret card, Save, the value in no request, file or page, Decline, Stop, switch off + their thumbnails
+# Reject with note, Secret input and Quote in reply (fake model + a test-only approval gate): the button on dsh's card, the note after the rejection in the next request, Esc; the secret card, Save, the value in no request, file or page, Decline, Stop; a selected part of an answer → Quote → the sent message; switch off + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-t3code-ideas.mjs /path/to/dsh/lib/bin.js
 # every Settings feature row shows a loading screenshot and a ? link to its README row
 PLAYWRIGHT=/path/to/playwright node test/browser-settings-shots.mjs /path/to/dsh/lib/bin.js
