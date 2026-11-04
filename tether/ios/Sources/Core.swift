@@ -788,6 +788,8 @@ func sessionBranches(_ o: J) -> [String: String] {
     guard o["on"] as? Bool == true, let b = o["branches"] as? J else { return [:] }
     return b.compactMapValues { v in (v as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(200)) } }
 }
+/// The pill of one chat row: only in "In one list"; by project the chat is already under its folder, as on the Mac.
+func rowBranch(_ branches: [String: String], _ id: String, oneList: Bool) -> String? { oneList ? branches[id] : nil }
 /// Find in chat: text folded for matching, as on the Mac (case, accents, Turkish dotless ı).
 func findFold(_ s: String) -> String { s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil).replacingOccurrences(of: "ı", with: "i") }
 /// Find in chat: the shown rows that hold `query` (your messages and the answers that the screen shows; folded steps and
@@ -1194,6 +1196,8 @@ struct Sess: Identifiable {
     let id: String, title: String, cwd: String, parent: String?, running: Bool, preset: String?, model: String?, context: Double?, permission: String?, todos: [Todo]?, updated: Date?, questions: [Prompt], goal: Goal?
     /// dsh's `plan` projection ({active, pending?}); nil when dsh does not send it.
     var plan: J? = nil
+    /// dsh's "New session" chat with no message yet (dsh's `blank`).
+    var blank = false
     init?(_ j: J) {
         guard let id = j["sessionId"] as? String else { return nil }
         let p = (j["projections"] as? J)?["values"] as? J
@@ -1215,6 +1219,7 @@ struct Sess: Identifiable {
         let cp = p?["contextPressure"] as? J, used = (cp?["projectedTokens"] as? NSNumber)?.doubleValue, win = (cp?["contextWindow"] as? NSNumber)?.doubleValue
         context = used.flatMap { u in win.flatMap { $0 > 0 ? u / $0 : nil } }
         plan = p?["plan"] as? J
+        blank = j["blank"] as? Bool ?? false
     }
 }
 
@@ -2062,7 +2067,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private func closeScreen() {
         ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil
         urlSession?.invalidateAndCancel(); urlSession = nil // pooled TLS sockets belong to the old Mac's pin
-        sessions = []; sessionsLoaded = false; transcript = []; streaming = ""; reasoning = ""; running = false; prompts = []; branches = [:]
+        sessions = []; sessionsLoaded = false; transcript = []; streaming = ""; reasoning = ""; running = false; prompts = []; branches = [:]; boardTask = nil; boardBack = false
         current = nil; path = []; goal = nil; state = .off; upstream = ""; route = nil; lastFail = nil; attempt = 0; probing = false
         outgoing = []; loadingChat = false; editingQueued = nil
         workspaces = []; pinned = []; archived = []; commands = []; catalog = []; presets = []; perms = []; skills = []
@@ -2571,6 +2576,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         } else { branches = [:] }
         sessions = fresh
         sessionsLoaded = true
+        boardSent()
         // session/list carries projections.values.userQuestions ({active, settled}, verified live by gateway/e2e.mjs).
         let live = prompts.filter { $0.event != "userQuestions/answer" }, waiting = Set(live.compactMap(\.agentId))
         prompts = live + fresh.flatMap(\.questions).filter { !waiting.contains($0.agentId ?? "") }
@@ -2606,10 +2612,42 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         return J()
     }
 
-    func create(cwd: String?, workspaceId: String? = nil) async throws {
+    @discardableResult func create(cwd: String?, workspaceId: String? = nil) async throws -> String? {
         let v = try await rpc("session/create", ["request": Self.createRequest(cwd: cwd, workspaceId: workspaceId)]) as? J
         try await loadSessions()
-        if let id = v?["sessionId"] as? String { fresh = id; open(id) }
+        guard let id = v?["sessionId"] as? String else { return nil }
+        fresh = id; open(id)
+        return id
+    }
+
+    // MARK: Task board new task (Composer Plus `taskBoard`)
+
+    /// The new chat that the board's + opened; the board opens again when its first message went (`boardBack`).
+    @Published private(set) var boardTask: String?
+    /// The board's sheet opens again (the chat view shows it): set when the new task's first message went.
+    @Published var boardBack = false
+    /// One new task at a time (a second tap while one opens does nothing).
+    @Published private(set) var boardOpening = false
+    /// New task: a new chat in `project` (a workspace id; nil or "all": the Mac's default, as Quick chat), recorded on the
+    /// Mac's board. The chat opens; the board comes back after its first message (`boardSent`). A failure: its reason.
+    func boardNewTask(project: String?) async throws {
+        guard !boardOpening else { return }
+        boardOpening = true
+        defer { boardOpening = false }
+        let id: String?
+        if let project, project != "all" { id = try await create(cwd: nil, workspaceId: project) }
+        else {
+            let o = plus.contains("new-session-workspace") ? try? await plusCall("new-session-workspace", body: [:]) : nil
+            id = try await create(cwd: nil, workspaceId: Self.defaultWorkspaceId(o))
+        }
+        guard let id else { throw Fail(String(localized: "The new chat did not open.")) }
+        boardTask = id
+        _ = try await plusCall("board-chats", body: ["sessionId": id])
+    }
+    /// The chat list changed: when the new task's chat is not blank any more, its first message went and the board opens.
+    func boardSent() {
+        guard let t = boardTask, let s = sessions.first(where: { $0.id == t }), !s.blank else { return }
+        boardTask = nil; boardBack = true
     }
 
     /// The workspace of a Mac answer to `/plus/new-session-workspace`; nil (DSH picks) for anything else.
@@ -3152,4 +3190,154 @@ func contextParts(_ o: J) -> (parts: [ContextPart], total: Int, window: Int?, mo
     }
     let window = (o["window"] as? Int).flatMap { $0 > 0 ? $0 : nil }
     return (parts, o["total"] as? Int ?? parts.reduce(0) { $0 + $1.tokens }, window, o["model"] as? String)
+}
+
+// MARK: - Task board (Composer Plus on the Mac: /plus/board-chats)
+
+/// One card of the task board: a dsh chat with its live state, as the desktop board shows it.
+struct BoardCard: Identifiable, Equatable {
+    let id: String; let title: String; let prompt: String; let tags: [String]; let project: String?; let updated: Date?
+    /// "waiting" (orange: an approval, a question or a plan review waits), "running", "unread" (green) or "read".
+    let state: String
+}
+/// A project of the board: a DSH workspace (a Branch per chat folder counts as its repository). `recent`: a chat of it
+/// waits, runs, finished unseen or changed in the last 2 hours (the Recent projects rule). `waiting`: a chat of it waits for
+/// you (the orange dot of the project list).
+struct BoardProject: Identifiable, Equatable { let id: String; let name: String; let path: String; var recent = false; var waiting = false }
+/// The board's project list: each word of `query` in the name (case and accents ignored), only recent ones when `recentOnly`.
+func boardProjectList(_ projects: [BoardProject], query: String, recentOnly: Bool) -> [BoardProject] {
+    projects.filter { (!recentOnly || $0.recent) && searchHit(query, $0.name) }
+}
+/// The Mac's record of a chat that the board started: its prompt and the tags that AI wrote.
+struct BoardMeta: Equatable { let prompt: String; let tags: [String] }
+
+/// The progress line of a running card (`GET /plus/board-progress?sessionId=`): the AI summary in AI mode, else the step
+/// of the todo list, else the tool that runs now (or the last one), else the agent's last line. nil when there is none.
+func boardProgressLine(_ o: J) -> String? {
+    if let s = o["summary"] as? String, !s.isEmpty { return s }
+    let todos = o["todos"] as? J
+    if let total = (todos?["total"] as? NSNumber)?.intValue, total > 0, let cur = todos?["current"] as? String, !cur.isEmpty {
+        let n = min(((todos?["done"] as? NSNumber)?.intValue ?? 0) + 1, total)
+        return String(localized: "Step \(n) of \(total): \(cur)")
+    }
+    if let tool = o["tool"] as? J, let name = tool["name"] as? String, !name.isEmpty {
+        let step = (tool["detail"] as? String).flatMap { $0.isEmpty ? nil : "\(name) · \($0)" } ?? name
+        return tool["running"] as? Bool == true ? String(localized: "Now: \(step)") : String(localized: "Last step: \(step)")
+    }
+    if let said = o["said"] as? String, !said.isEmpty { return said }
+    return nil
+}
+
+/// The Mac's `{rev, chats: {id: {prompt, tags, at}}}`.
+func boardMeta(_ o: J) -> [String: BoardMeta] {
+    var out: [String: BoardMeta] = [:]
+    for (id, v) in o["chats"] as? J ?? [:] {
+        guard let m = v as? J, let p = m["prompt"] as? String else { continue }
+        out[id] = BoardMeta(prompt: p, tags: m["tags"] as? [String] ?? [])
+    }
+    return out
+}
+/// The board from the phone's own lists, with the desktop board's rules: a chat that waits for you (a prompt of it is
+/// open) is in Review, a running chat (or one whose subagent runs) in Doing, every other chat in Done (green while it is
+/// unread). Archived and subagent chats are left out; a blank chat (no message yet) shows only when it is `task`, the new
+/// task, in Todo (the Todo column shows only then). `project` is a workspace id or "all"; `hideDone` hides Done.
+func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<String>, waiting: Set<String>, finished: Set<String>,
+                  meta: [String: BoardMeta], task: String? = nil, project: String, hideDone: Bool, now: Date = Date()) -> (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
+    let trim = { (p: String) -> String in p.count > 1 && p.hasSuffix("/") ? String(p.dropLast()) : p }
+    let byPath = Dictionary(workspaces.map { (trim($0.path), $0) }, uniquingKeysWith: { a, _ in a })
+    var owner: [String: Workspace] = [:]
+    for w in workspaces {
+        let p = trim(w.path)
+        if let r = p.range(of: "/.worktrees/"), !p[r.upperBound...].contains("/"), let repo = byPath[String(p[..<r.lowerBound])] { owner[w.id] = repo } else { owner[w.id] = w }
+    }
+    var projectOf: [String: String] = [:]
+    for w in workspaces { for s in w.sessions where projectOf[s] == nil { projectOf[s] = owner[w.id]?.id } }
+    let recent = Set(sessions.filter { $0.parent == nil && !$0.blank && !archived.contains($0.id) && recentChat($0, all: sessions, now: now, open: nil, waiting: waiting, finished: finished) }.compactMap { projectOf[$0.id] })
+    let waits = Set(sessions.filter { $0.parent == nil && !archived.contains($0.id) && waiting.contains($0.id) }.compactMap { projectOf[$0.id] })
+    let projects = workspaces.filter { owner[$0.id]?.id == $0.id }.map { BoardProject(id: $0.id, name: $0.title, path: $0.path, recent: recent.contains($0.id), waiting: waits.contains($0.id)) }
+        .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
+    let names = Dictionary(projects.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
+    var columns: [String: [BoardCard]] = ["todo": [], "doing": [], "review": [], "done": []]
+    for s in sessions where s.parent == nil && !archived.contains(s.id) && (!s.blank || s.id == task) {
+        let p = projectOf[s.id]
+        if project != "all", p != project { continue }
+        if s.blank {
+            columns["todo", default: []].append(BoardCard(id: s.id, title: String(localized: "New task"), prompt: "", tags: [], project: p.flatMap { names[$0] }, updated: s.updated, state: "draft"))
+            continue
+        }
+        let state = waiting.contains(s.id) ? "waiting" : isRunning(s, sessions) ? "running" : finished.contains(s.id) ? "unread" : "read"
+        let m = meta[s.id]
+        let card = BoardCard(id: s.id, title: s.title, prompt: m?.prompt ?? "", tags: m?.tags ?? [], project: p.flatMap { names[$0] }, updated: s.updated, state: state)
+        columns[state == "waiting" ? "review" : state == "running" ? "doing" : "done", default: []].append(card)
+    }
+    // Todo shows only while the new task waits for its first message, as on the Mac.
+    let order = ["todo", "doing", "review", "done"].filter { ($0 != "todo" || !(columns["todo"] ?? []).isEmpty) && ($0 != "done" || !hideDone) }
+    return (projects, order.map { st in (st, (columns[st] ?? []).sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }) })
+}
+
+/// The column that the board opens on: Review when a chat waits for you, else Doing; a shown column stays.
+func boardStartColumn(_ columns: [(status: String, cards: [BoardCard])], current: String? = nil) -> String {
+    if let current, columns.contains(where: { $0.status == current }) { return current }
+    return columns.first { $0.status == "review" }?.cards.isEmpty == false ? "review" : "doing"
+}
+
+/// The board project of a chat: its workspace, or the repository's workspace for a Branch per chat folder; "all" when none.
+func boardProjectOf(_ session: String, workspaces: [Workspace]) -> String {
+    guard let w = workspaces.first(where: { $0.sessions.contains(session) }) else { return "all" }
+    let trim = { (p: String) -> String in p.count > 1 && p.hasSuffix("/") ? String(p.dropLast()) : p }
+    let p = trim(w.path)
+    if let r = p.range(of: "/.worktrees/"), !p[r.upperBound...].contains("/") {
+        let repo = String(p[..<r.lowerBound])
+        return workspaces.first { trim($0.path) == repo }?.id ?? w.id
+    }
+    return w.id
+}
+
+/// Task board on the phone: the Mac's record of the board's chats (the tags). The columns come from the phone's own chat
+/// list (`boardColumns`); New task is `Client.boardNewTask`.
+@MainActor final class TaskBoard: ObservableObject {
+    @Published private(set) var meta: [String: BoardMeta] = [:]
+    @Published private(set) var loaded = false
+    /// The Mac has the board switched off (409).
+    @Published private(set) var off = false
+    /// The Mac's plugin has no board route (404): an older Composer Plus.
+    @Published private(set) var missing = false
+    @Published private(set) var readFailed: String?
+    /// The progress line of each running card that the sheet shows (`loadProgress`).
+    @Published private(set) var progress: [String: String] = [:]
+    private var call: ([String: String], J?) async throws -> J
+    private var rev: String?
+    private var seq = 0
+    /// `call(query, body)`: a GET with the query when `body` is nil, else a POST.
+    init(call: @escaping ([String: String], J?) async throws -> J) { self.call = call }
+    func bind(_ call: @escaping ([String: String], J?) async throws -> J) { self.call = call }
+    private var progressCall: ((String) async throws -> J)?
+    func bindProgress(_ call: @escaping (String) async throws -> J) { progressCall = call }
+    /// The progress of the running cards, at most 8 (the newest first): one read each. A chat that stopped, an older Mac
+    /// (404) or a failed read has no line. Only the ids given stay.
+    func loadProgress(_ ids: [String]) async {
+        guard let progressCall else { return }
+        var next: [String: String] = [:]
+        for id in ids.prefix(8) {
+            if let o = try? await progressCall(id), let line = boardProgressLine(o) { next[id] = line }
+        }
+        if !Task.isCancelled { progress = next }
+    }
+
+    func load() async {
+        seq += 1; let mine = seq
+        do {
+            let o = try await call(rev.map { ["rev": $0] } ?? [:], nil)
+            guard mine == seq else { return }
+            off = false; missing = false; readFailed = nil; loaded = true
+            if o["same"] as? Bool == true { return }
+            meta = boardMeta(o); rev = (o["rev"] as? NSNumber).map { $0.stringValue }
+        } catch {
+            guard mine == seq, !Task.isCancelled, !(error is CancellationError) else { return }
+            let f = error as? Fail
+            if f?.status == 409 { off = true; return }
+            if f?.status == 404 { missing = true; return }
+            readFailed = userText(error)
+        }
+    }
 }

@@ -65,14 +65,16 @@ export const SEND_FIRST_PATH = '/api/composer-plus.send-first';
 export const MEMORY_PATH = '/api/composer-plus.memory';
 export const MEMORY_EDIT_PATH = '/api/composer-plus.memory-edit';
 export const PROTECTED_PATH = '/api/composer-plus.protected-files';
+export const BLOCKED_PATH = '/api/composer-plus.blocked-commands';
 export const HANDOFF_PATH = '/api/composer-plus.handoff';
 export const CONTEXT_PATH = '/api/composer-plus.context';
+export const PLANNED_PATH = '/api/composer-plus.planned-steps';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit',
   'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
-  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'handoffChat', 'contextBreakdown'];
+  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'plannedSteps'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -685,6 +687,19 @@ export const releaseNotes = (body) => {
   if (typeof body !== 'string') return undefined;
   const text = body.replace(/\r\n?/g, '\n').split(/^## Install\b/m)[0].trim().slice(0, NOTES_MAX);
   return text === '' ? undefined : text;
+};
+/** A UI language id in `release-notes.json` (`en`, `zh`, `pt-BR`); other keys, such as `__proto__`, are not read. */
+const NOTES_LANG_RE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8})?$/;
+/** The release notes that ship with this copy (`release-notes.json`: `{ version, notes: { [language]: markdown } }`), for
+ * What's new in the UI language: `{ [language]: text }`, or undefined when the file is for another version or has no
+ * text. The copy that runs after an update has them; the older copy that installed it saved only GitHub's English body. */
+export const shippedNotes = (text, version = PACKAGE.version) => {
+  let data;
+  try { data = JSON.parse(text); } catch { return undefined; }
+  if (data?.version !== version || data.notes === null || typeof data.notes !== 'object') return undefined;
+  const notes = Object.fromEntries(Object.entries(data.notes).filter(([id]) => NOTES_LANG_RE.test(id))
+    .map(([id, body]) => [id, releaseNotes(body)]).filter(([, body]) => body !== undefined));
+  return Object.keys(notes).length === 0 ? undefined : notes;
 };
 /** Latest GitHub release vs this copy. `managed` is false for a renamed or linked local copy, which pnpm can't upgrade. */
 export async function checkUpdate(fetchImpl = fetch, pkg = PACKAGE, signal) {
@@ -1896,8 +1911,12 @@ export function apply(ctx) {
   ctx.connection.fetch.register({
     path: UPDATE_PATH, methods: ['GET'], requestBody: 'buffered',
     fetch: async (request) => {
-      // `?current=1`: only the version that this Host runs (What's new after an update); no network call.
-      if (new URL(request.url).searchParams.get('current') === '1') return json({ current: PACKAGE.version });
+      // `?current=1`: the version that this Host runs and its shipped release notes (What's new after an update); no
+      // network call. A missing or broken notes file leaves `notes` out.
+      if (new URL(request.url).searchParams.get('current') === '1') {
+        const notes = await readFile(new URL('./release-notes.json', import.meta.url), 'utf8').then(shippedNotes, () => undefined);
+        return json(notes === undefined ? { current: PACKAGE.version } : { current: PACKAGE.version, notes });
+      }
       try { return json(await checkUpdate(fetch, PACKAGE, request.signal)); } catch (error) { return json({ error: String(error?.message ?? error) }, 502); }
     },
   });
@@ -2009,8 +2028,11 @@ export function apply(ctx) {
   installDefaultWorkspace(ctx, home);
   installMemory(ctx, home);
   installProtectedFiles(ctx, home);
+  installBlockedCommands(ctx, home);
   installHandoff(ctx, home);
   installContext(ctx);
+  installBoard(ctx, home);
+  installPlannedSteps(ctx, home);
   installBackup(ctx, home);
 }
 
@@ -4171,6 +4193,291 @@ export function installProtectedFiles(ctx, home, file = join(home, 'storages', '
   });
 }
 
+/* Blocked commands (after dsh-superagent's `blockedCommands`): the agent's shell tools (`bash`, `pwsh`) do not run a command
+ * that matches one of the user's rules ("block"), or they ask the user first with dsh's own approval card ("ask first").
+ * A `tools/pre-execute` gate, after every other gate. It reads the command text only: a variable (`$CMD`), an alias, a
+ * function, a script file, another interpreter (`python -c`) or an MCP tool can still run the command, which the README
+ * says. On by default with an empty list: it starts no work and opens no port; the Host keeps the switch and the list. */
+export const BLOCK_MAX = 50; // rules
+export const BLOCK_RULE_MAX = 200; // characters of one rule
+const BLOCK_DEPTH = 3; // `bash -c`, `eval` and here-document texts are read again, at most this deep
+const SHELL_NAMES = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish', 'su', 'pwsh', 'powershell']);
+const EVAL_NAMES = new Set(['eval', 'iex', 'invoke-expression']);
+/** `[{rule, mode: 'block'|'ask'}]` with single spaces; of two rules with the same words (any case) the first stays. Strict (a
+ * save): undefined when the list is not valid. Not strict (the saved file): the valid rules, at most BLOCK_MAX. */
+export function parseRules(list, strict = true) {
+  if (!Array.isArray(list) || (strict && list.length > BLOCK_MAX)) return undefined;
+  const out = [];
+  for (const r of list) {
+    const raw = r?.rule;
+    const ok = plainObject(r) && Object.keys(r).every((k) => k === 'rule' || k === 'mode') && (r.mode === 'block' || r.mode === 'ask')
+      && typeof raw === 'string' && raw.length <= BLOCK_RULE_MAX && !/[\0\r\n]/.test(raw) && raw.trim() !== '';
+    if (!ok) { if (strict) return undefined; continue; }
+    const rule = raw.trim().split(/\s+/).join(' ');
+    if (!out.some((o) => o.rule.toLowerCase() === rule.toLowerCase())) out.push({ rule, mode: r.mode });
+    if (out.length === BLOCK_MAX) break;
+  }
+  return out;
+}
+/** Saved settings `{on, rules}`: on with no rules when there is no file. */
+export const blockedStore = (file) => settingsStore(file, (v) => ({ on: v?.on !== false, rules: parseRules(v?.rules, false) ?? [] }));
+/** A command word as a name: its last path part, lower case, without `.exe`, `.cmd`, `.bat` or `.com`. */
+const commandName = (word) => word.slice(Math.max(word.lastIndexOf('/'), word.lastIndexOf('\\')) + 1).toLowerCase().replace(/\.(exe|cmd|bat|com)$/, '');
+/** `*` any characters (also `/`), `?` one; both texts in lower case. A `*` of the rule is checked first, so it also matches
+ * a `*` in the text (`rm *` matches `rm *.log`). The last-star method: at most |p|·|s| steps, never exponential (the gate
+ * runs in the Host's event loop). ponytail: a rule like `*a*a*a…` (200 characters) against a very long word costs |p|·|s|;
+ * the user writes the rules, and a rule without `*` stops at the first different character. */
+export function wildMatch(p, s) {
+  let i = 0; let j = 0; let star = -1; let mark = 0;
+  while (j < s.length) {
+    if (i < p.length && p[i] === '*') { star = i; i += 1; mark = j; }
+    else if (i < p.length && (p[i] === '?' || p[i] === s[j])) { i += 1; j += 1; }
+    else if (star !== -1) { i = star + 1; mark += 1; j = mark; }
+    else return false;
+  }
+  while (p[i] === '*') i += 1;
+  return i === p.length;
+}
+/** The texts that a simple command runs again, found where the shell takes them (AGENTS.md rule 13), and the words after
+ * `eval` (`iex` for pwsh). sh (case-sensitive): after a `-…c…` or `+…c…` group, the first word that is not an option (`--`
+ * or `-` end the options; each `o`/`O` of a group takes a value, as in `-o pipefail`); a here-string (`bash <<< 'npm
+ * publish'`). pwsh (any case, PowerShell's `MatchSwitch`): `-`, `--` or `/` and a prefix of `command` (`-c`, `-co`, …): the
+ * rest of the words; `-cwa`/`-CommandWithArgs`: the next word. One pass, so a long command stays linear.
+ * ponytail: a word that is not an option before `-c` (a script file, su's user) does not end the search, so `bash x.sh -c
+ * 'y'` also reads `y`; that can only make a rule match more often. */
+function rereads(words) {
+  const out = [];
+  let shell = null; // 'sh' or 'ps' after a shell name, until its script
+  let c = false; let skip = 0; // sh: a `-…c…` group was read; option values still to pass
+  const take = (script, ps) => { if (script !== undefined && script !== '') out.push([script, ps]); shell = null; };
+  for (let k = 0; k < words.length; k++) {
+    const word = words[k];
+    const w = word.toLowerCase();
+    if (shell === 'sh') {
+      if (skip > 0) { skip -= 1; continue; }
+      if (w === '--' || w === '-') { if (c) { take(words[k + 1], false); k += 1; } continue; }
+      if (/^[-+][A-Za-z]+$/.test(word)) { c ||= word.includes('c'); skip = word.replace(/[^oO]/g, '').length; continue; }
+      if (w.startsWith('--')) continue;
+      if (w.startsWith('<<<')) { take(w === '<<<' ? words[k + 1] : word.slice(3), false); k += 1; continue; }
+      if (c) { take(word, false); continue; }
+    } else if (shell === 'ps') {
+      const key = w.replace(/^(--?|\/)/, '');
+      if (key !== w && key !== '' && 'command'.startsWith(key)) { take(words.slice(k + 1).join(' '), true); break; }
+      if (key === 'cwa' || key === 'commandwithargs') { take(words[k + 1], true); k += 1; continue; }
+    }
+    const name = commandName(w);
+    if (EVAL_NAMES.has(name)) { if (k + 1 < words.length) out.push([words.slice(k + 1).join(' '), name !== 'eval']); break; }
+    if (SHELL_NAMES.has(name)) { shell = name === 'pwsh' || name === 'powershell' ? 'ps' : 'sh'; c = false; skip = 0; }
+  }
+  return out;
+}
+/** The simple commands of a shell text, each as its words (quotes removed). bash: `; & | ( )`, a newline and `{ }` at a word
+ * start end a command; `'…'`, `"…"` and `\`; `$(…)` and backticks (also inside "…") are commands of their own; `#` at a
+ * word start is a comment; a here-document body is skipped, unless its delimiter is unquoted (then only its `$(…)` and
+ * backticks count). pwsh (`pwsh`): the same separators, the backtick escape, `''` and `""` inside quotes, `$(…)`. The
+ * texts of `bash -c`/`eval` (see rereads) and of here-documents are read again, at most BLOCK_DEPTH deep. Never throws;
+ * linear in the text length (each level reads at most the text once).
+ * ponytail: not a shell parser: `case x in a)`, nested backticks and aliases are not understood; a cut command can only
+ * make a rule match more often (or, past BLOCK_DEPTH, not at all; the README says). */
+export function shellCommands(text, pwsh = false, depth = 0, hereText = false) {
+  const commands = [];
+  if (typeof text !== 'string' || depth > BLOCK_DEPTH) return commands;
+  const esc = pwsh ? '`' : '\\';
+  let words = []; let word = ''; let has = false;
+  let quote = hereText ? 'h' : null; // null, "'", '"' or 'h' (the text of a here-document: only substitutions are commands)
+  let close = null; let parens = 0; let top = hereText; // `top`: this level is text, not commands
+  const stack = []; // the outer command while a $( … ) or ` … ` is read
+  const pending = []; // here-documents whose body starts at the next newline
+  let lineShell = false; // a command of this line names a shell: its here-document bodies are commands (`bash <<'EOF'`)
+  const endWord = () => { if (has) { words.push(word); word = ''; has = false; } };
+  const endCommand = () => {
+    endWord();
+    if (words.length > 0 && !top) {
+      if (words.some((w) => SHELL_NAMES.has(commandName(w)))) lineShell = true;
+      commands.push(words);
+      for (const [script, ps] of rereads(words)) for (const c of shellCommands(script, ps, depth + 1)) commands.push(c);
+    }
+    words = [];
+  };
+  const open = (c) => { stack.push({ words, word, quote, close, parens, top }); words = []; word = ''; has = false; quote = null; close = c; parens = 0; top = false; };
+  const shut = () => { endCommand(); ({ words, word, quote, close, parens, top } = stack.pop()); has = true; };
+  const hereStart = (j) => {
+    let dash = false;
+    if (text[j] === '-') { dash = true; j += 1; }
+    while (text[j] === ' ' || text[j] === '\t') j += 1;
+    let delim = ''; let quoted = false; let q = null;
+    for (; j < text.length; j++) {
+      const d = text[j];
+      if (q !== null) { if (d === q) q = null; else delim += d; continue; }
+      if (d === "'" || d === '"') { q = d; quoted = true; continue; }
+      if (d === '\\') { quoted = true; if (j + 1 < text.length) { j += 1; delim += text[j]; } continue; }
+      if (' \t\n;&|()<>'.includes(d)) break;
+      delim += d;
+    }
+    if (delim !== '' || quoted) pending.push({ delim, dash, quoted });
+    return j;
+  };
+  // The start of each line by its text (and by its text without leading tabs, for `<<-`), made once: finding an end line
+  // is a binary search, so many here-documents without an end line stay linear.
+  let lineIndex;
+  const endLine = (delim, dash, pos) => {
+    if (lineIndex === undefined) {
+      lineIndex = [new Map(), new Map()];
+      for (let s = 0; s <= text.length;) {
+        const nl = text.indexOf('\n', s); const e = nl === -1 ? text.length : nl;
+        const line = text.slice(s, e);
+        for (const [k, key] of [[0, line], [1, line.replace(/^\t+/, '')]]) { const at = lineIndex[k].get(key); if (at === undefined) lineIndex[k].set(key, [s]); else at.push(s); }
+        if (nl === -1) break;
+        s = nl + 1;
+      }
+    }
+    const at = lineIndex[dash ? 1 : 0].get(delim);
+    if (at === undefined) return -1;
+    let lo = 0; let hi = at.length;
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (at[mid] < pos) lo = mid + 1; else hi = mid; }
+    return lo < at.length ? at[lo] : -1;
+  };
+  // The bodies of the pending here-documents, from `pos` (the line after `<<`); answers the index after the last one. A
+  // body with no end line is read as commands (fail safe: `$((1<<2))` is no here-document).
+  const hereBodies = (pos) => {
+    for (const { delim, dash, quoted } of pending.splice(0)) {
+      const begin = pos;
+      const end = endLine(delim, dash, pos);
+      if (end === -1) break;
+      const nl = text.indexOf('\n', end);
+      pos = nl === -1 ? text.length : nl + 1;
+      if (lineShell || !quoted) for (const c of shellCommands(text.slice(begin, end), false, depth + 1, !lineShell)) commands.push(c);
+    }
+    lineShell = false;
+    return pos;
+  };
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote === "'") {
+      if (c !== "'") word += c;
+      else if (pwsh && text[i + 1] === "'") { word += "'"; i += 1; } else quote = null;
+      continue;
+    }
+    if (quote === '"' || quote === 'h') {
+      if (c === esc && i + 1 < text.length) {
+        i += 1;
+        const n = text[i];
+        if (n === '\n') continue; // a line goes on
+        if (pwsh || n === '$' || n === '`' || n === '\\' || (quote === '"' && n === '"')) word += n; else word += c + n;
+        continue;
+      }
+      if (c === '"' && quote === '"') { if (pwsh && text[i + 1] === '"') { word += '"'; i += 1; } else quote = null; continue; }
+      if (c === '$' && text[i + 1] === '(') { open(')'); i += 1; continue; }
+      if (c === '`' && !pwsh) { open('`'); continue; }
+      word += c;
+      continue;
+    }
+    if (c === esc && i + 1 < text.length) { i += 1; if (text[i] !== '\n') { word += text[i]; has = true; } continue; }
+    if (c === "'" || c === '"') { quote = c; has = true; continue; }
+    if (c === '$' && text[i + 1] === '(') { open(')'); i += 1; continue; }
+    if (c === '`' && !pwsh) { if (close === '`') shut(); else open('`'); continue; }
+    if (c === ' ' || c === '\t' || c === '\r') { endWord(); continue; }
+    if (c === '\n' || c === ';' || c === '&' || c === '|') {
+      endCommand();
+      if (c === '\n') { if (pending.length > 0) i = hereBodies(i + 1) - 1; lineShell = false; }
+      continue;
+    }
+    if (c === '(') { endCommand(); parens += 1; continue; }
+    if (c === ')') { if (parens > 0) { parens -= 1; endCommand(); } else if (close === ')') shut(); else endCommand(); continue; }
+    if (!has && (c === '{' || c === '}') && (i + 1 === text.length || ' \t\r\n;&|)'.includes(text[i + 1]))) { endCommand(); continue; }
+    if (!has && c === '#') { const n = text.indexOf('\n', i); i = (n === -1 ? text.length : n) - 1; continue; }
+    if (!pwsh && c === '<' && text[i + 1] === '<') {
+      if (text[i + 2] === '<') { word += '<<<'; has = true; i += 2; continue; } // a here-string: its word is text
+      endWord(); i = hereStart(i + 2) - 1; continue;
+    }
+    word += c; has = true;
+  }
+  for (;;) {
+    endCommand();
+    if (stack.length === 0) break;
+    ({ words, word, quote, close, parens, top } = stack.pop());
+    has = true;
+  }
+  return commands;
+}
+/** The rule that a shell command breaks: `{rule, mode, command}` (`command`: the simple command, its words joined), else
+ * undefined. A rule's first word is a command name: any word of a simple command (so `sudo npm publish`, `env A=1 npm
+ * publish` and `/usr/bin/npm publish` match `npm publish`); its other words must follow in the same order, with other
+ * words between them allowed. A block rule wins over an ask rule; else the first rule in the list. */
+export function blockedHit(rules, command, pwsh = false) {
+  if (!Array.isArray(rules) || rules.length === 0 || typeof command !== 'string') return undefined;
+  const commands = shellCommands(command, pwsh).map((words) => ({ words, lower: words.map((w) => w.toLowerCase()), names: words.map(commandName) }));
+  let ask;
+  for (const r of rules) {
+    const want = r.rule.toLowerCase().split(' ');
+    const first = commandName(want[0]);
+    for (const { words, lower, names } of commands) {
+      const start = names.findIndex((n) => wildMatch(first, n));
+      if (start === -1) continue;
+      let x = 1;
+      for (let k = start + 1; k < lower.length && x < want.length; k++) if (wildMatch(want[x], lower[k])) x += 1;
+      if (x < want.length) continue;
+      const hit = { rule: r.rule, mode: r.mode, command: words.join(' ') };
+      if (r.mode === 'block') return hit;
+      ask ??= hit;
+      break;
+    }
+  }
+  return ask;
+}
+const shownCommand = (text) => {
+  const s = text.slice(0, 400).replace(/[\u0000-\u001f\u007f]+/g, ' ');
+  return s.length > 160 ? `${s.slice(0, 159)}…` : s;
+};
+export function installBlockedCommands(ctx, home, file = join(home, 'storages', 'dsh-composer-plus', 'blocked-commands.json')) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const store = blockedStore(file);
+  let settings;
+  const read = store.read().then((s) => { settings = s; });
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    const decision = await next();
+    // A denied or cancelled call stays so; only an allowed call and one that would ask are checked.
+    if ((decision?.kind !== 'allow' && decision?.kind !== 'ask') || (exec.name !== 'bash' && exec.name !== 'pwsh')) return decision;
+    await read;
+    if (!settings.on || settings.rules.length === 0) return decision;
+    const hit = blockedHit(settings.rules, argsOf(exec.arguments)?.command, exec.name === 'pwsh');
+    if (hit === undefined) return decision;
+    const shown = shownCommand(hit.command);
+    // A chat whose approval policy is `never` (Full access, a delegated child) cannot ask: dsh would reject the ask with no
+    // reason, so the agent reads this one instead. The effective policy is the chat's own `approval/policy` event, else the
+    // configured default (dsh-user-approval `effectivePolicy`; `never` when dsh starts with DSH_PERMISSION_MODE=danger-full-access).
+    let never = false;
+    try {
+      const approval = get('approval'); const session = exec.agent?.session;
+      const policy = typeof approval?.effectivePolicy === 'function' ? approval.effectivePolicy(session) : approval?.overrideOf?.(session) ?? approval?.config?.policy;
+      never = policy === 'never';
+    } catch { never = false; }
+    if (hit.mode === 'block' || never) {
+      const why = hit.mode === 'ask' ? ' (ask first, and this chat cannot ask: its approval policy is never)' : '';
+      return { kind: 'deny', reason: `Blocked command: ${shown} matches "${hit.rule}"${why} in Composer Plus → Blocked commands. Do not run it in another way (a script, another shell, a variable). If the task needs it, ask the user.` };
+    }
+    // dsh's approval card shows this reason. It must not start like an Auto review ask: Allow for this chat answers those.
+    const own = `Composer Plus → Blocked commands: ${shown} matches "${hit.rule}" (ask first).`;
+    return { kind: 'ask', reason: decision.kind === 'ask' && typeof decision.reason === 'string' && decision.reason !== '' ? `${own} ${decision.reason}` : own };
+  });
+  ctx.connection.fetch.register({
+    path: BLOCKED_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await read;
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (!plainObject(body)) return json({ error: 'bad request' }, 400);
+        const keys = Object.keys(body).sort().join(',');
+        const rules = keys === 'rules' ? parseRules(body.rules) : undefined;
+        if (!(keys === 'on' && typeof body.on === 'boolean') && rules === undefined) return json({ error: 'bad request' }, 400);
+        try { settings = await store.change((s) => (rules === undefined ? { ...s, on: body.on } : { ...s, rules })); } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      return json(settings);
+    },
+  });
+}
+
 /** Worktree chats: a `.worktreeinclude` larger than this is refused (a cut pattern could name more than the user wrote). */
 export const INCLUDE_MAX = 64 * 1024;
 const WORKTREES_MAX = 20;
@@ -6127,4 +6434,500 @@ export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retry
     },
   });
   return { settled: () => new Promise((resolve) => { const wait = () => (busy === null ? resolve() : setTimeout(wait, 10)); wait(); }), tick };
+}
+
+/** Task board (Host half): a kanban board of dsh's real chats. The client draws the cards from dsh's own stores (the chat
+ * list, each chat's live state and the projects); the Host keeps the switch and the record of the chats that the board
+ * started: `storages/dsh-composer-plus/board-chats.json`, `{ chats: { [sessionId]: { prompt, tags, at } } }`, owner-only.
+ * New task opens dsh's own new chat screen; the client sends `{sessionId}` of that chat. When its first message of its own
+ * arrives (the user's, from dsh's composer: attachments, commands and the model menu as usual), the Host keeps its text
+ * as the card's prompt and one short call to the chat's model writes its tags. The old `board.json` is not read. */
+export const BOARD_PATH = '/api/composer-plus.board';
+export const BOARD_CHATS_PATH = '/api/composer-plus.board-chats';
+export const BOARD_LIMITS = { prompt: 20000, tags: 3, tag: 24, chats: 2000 };
+const BOARD_TAG_INPUT = 4000;
+const BOARD_TAG_TOKENS = 200;
+const BOARD_TAG_TIMEOUT_MS = 60000;
+export const BOARD_TAG_SYSTEM = `You label a coding task for a kanban board. Read the user's request and answer with only a JSON array of 1 to ${BOARD_LIMITS.tags} short tags, for example ["frontend","bug"]. Each tag is one or two lower-case words, at most ${BOARD_LIMITS.tag} characters, in the language of the request. No other text.`;
+const boardLine = (raw) => String(raw ?? '').replace(/\s+/g, ' ').trim();
+
+/** The model's tags: the first JSON array of strings, each one line, lower case, at most BOARD_LIMITS.tag characters, no
+ * repeats, at most BOARD_LIMITS.tags. Any other answer gives []. */
+export function boardTags(text) {
+  const m = /\[[\s\S]*?\]/.exec(String(text ?? '').replace(/<think>[\s\S]*?<\/think>/g, ''));
+  let list;
+  try { list = m === null ? [] : JSON.parse(m[0]); } catch { list = []; }
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const item of list) {
+    if (typeof item !== 'string') continue;
+    const tag = boardLine(item).replace(/^[#"'`\-*\s]+|["'`.\s]+$/g, '').toLowerCase();
+    if (tag === '' || tag.length > BOARD_LIMITS.tag || out.includes(tag)) continue;
+    out.push(tag);
+    if (out.length === BOARD_LIMITS.tags) break;
+  }
+  return out;
+}
+
+/** The record of the board's chats: one change at a time, merged into the newest data (a start never drops another
+ * start's entry), each write atomic and owner-only. A missing file is empty; a broken file is kept as
+ * `board-chats.json.broken-<time>` and the record starts empty. At most BOARD_LIMITS.chats entries (the oldest go). */
+export function boardChatsStore(file) {
+  let chats = {};
+  let rev = Date.now();
+  const ready = (async () => {
+    let text;
+    try { text = await readFile(file, 'utf8'); } catch (error) { if (error?.code === 'ENOENT') return; throw error; }
+    try {
+      const raw = JSON.parse(text)?.chats;
+      if (!plainObject(raw)) throw new Error('not an object');
+      for (const [id, c] of Object.entries(raw)) {
+        if (!isText(id, 128) || id === '__proto__' || !plainObject(c) || typeof c.prompt !== 'string' || !Number.isFinite(c.at)) continue;
+        chats[id] = { prompt: c.prompt.slice(0, BOARD_LIMITS.prompt), tags: Array.isArray(c.tags) ? c.tags.filter((t) => isText(t, BOARD_LIMITS.tag)).slice(0, BOARD_LIMITS.tags) : [], at: c.at };
+      }
+    } catch { chats = {}; await rename(file, `${file}.broken-${Date.now()}`).catch(() => {}); }
+  })();
+  let queue = ready.catch(() => {});
+  return {
+    ready,
+    rev: () => rev,
+    list: () => chats,
+    /** `fn(copy)` changes a copy of the record; the copy becomes the record only after the write. */
+    change(fn) {
+      const done = queue.then(async () => {
+        await ready;
+        const next = { ...chats };
+        fn(next);
+        const ids = Object.keys(next);
+        if (ids.length > BOARD_LIMITS.chats) for (const id of ids.sort((a, b) => next[a].at - next[b].at).slice(0, ids.length - BOARD_LIMITS.chats)) delete next[id];
+        await mkdir(dirname(file), { recursive: true });
+        const tmp = `${file}.${process.pid}.tmp`;
+        await writeFile(tmp, JSON.stringify({ chats: next }), { mode: 0o600 });
+        await rename(tmp, file);
+        chats = next; rev += 1;
+      });
+      queue = done.catch(() => {});
+      return done;
+    },
+  };
+}
+
+/** The text of a chat's first message of its own: the first `user/message` from the user at or after `from` (a fork's
+ * inherited events come first, rule 10) that no rollback withdrew (Composer Plus's and dsh-rewind-plugin's markers, rule 9),
+ * at most BOARD_LIMITS.prompt characters; undefined when there is none. */
+export function boardPromptOf(events, from = 0) {
+  const spans = rollbackSpans(events, [ROLLBACK_SOURCE, REWIND_SOURCE]);
+  for (const e of events) {
+    if (e?.type !== 'user/message' || e.data?.source?.kind !== 'user' || !Number.isSafeInteger(e.seq) || e.seq < from) continue;
+    if (spans.some(([a, b]) => e.seq >= a && e.seq <= b)) continue;
+    const text = textBlocks(e.data?.content).trim();
+    if (text !== '') return text.slice(0, BOARD_LIMITS.prompt);
+  }
+  return undefined;
+}
+
+/** One short background call to `route` with `system` and one user message: the answer's text. The lowest reasoning effort
+ * keeps it fast; the output cap never goes above the model's own default. Throws when the call ends with an error. */
+async function boardCall({ llm, route }, system, text, { tokens, timeoutMs }, signal) {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  const callSignal = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
+  const call = await llm.prepareCall(route, callSignal, (controls, model) => {
+    const first = model?.reasoning?.efforts?.[0];
+    const cap = Number.isSafeInteger(model?.defaultMaxTokens) && model.defaultMaxTokens > 0 ? Math.min(tokens, model.defaultMaxTokens) : tokens;
+    return { ...controls, maxTokens: cap, ...(first === undefined ? {} : { reasoningEffort: first.id }) };
+  });
+  let out = '';
+  let finish;
+  for await (const chunk of call.stream({ ...call.config, system, signal: callSignal, messages: [{ role: 'user', content: [{ type: 'text', text }] }] })) {
+    if (chunk.type === 'text-delta') out += chunk.text;
+    else if (chunk.type === 'finish') finish = chunk.reason;
+  }
+  if (finish?.kind === 'error' || finish?.kind === 'aborted') throw new Error(finish.failure?.message || `the model call ended: ${finish.kind}`);
+  return out;
+}
+
+/** One short call to `route` for the tags of a prompt; [] when it answers nothing usable. */
+export async function boardTagsFor({ llm, route }, prompt, signal) {
+  if (llm?.prepareCall === undefined || route === undefined) return [];
+  return boardTags(await boardCall({ llm, route }, BOARD_TAG_SYSTEM, String(prompt).slice(0, BOARD_TAG_INPUT), { tokens: BOARD_TAG_TOKENS, timeoutMs: BOARD_TAG_TIMEOUT_MS }, signal));
+}
+
+/* Progress on hover: what a running chat does now. "fast" (the default) reads the chat's log only; "ai" also asks the
+ * chat's model for a one- or two-sentence summary (Settings → Task board → Progress on hover). */
+export const BOARD_PROGRESS_PATH = '/api/composer-plus.board-progress';
+export const BOARD_PROGRESS_MODES = ['fast', 'ai'];
+export const BOARD_PROGRESS = { detail: 120, said: 200, summary: 240, input: 6000, tokens: 200, timeoutMs: 30000, gapMs: 20000, kept: 200 };
+export const BOARD_PROGRESS_SYSTEM = `You write the progress note of a running coding task on a kanban card. Read the newest part of the task's chat. Answer with one or two short sentences, at most ${BOARD_PROGRESS.summary} characters: what the agent does now and how far the task is. Use the language of the user's messages. Plain text only: no Markdown, no other text.`;
+/** Tool calls that the progress does not show as "the step": the todo list has its own line, a plan is not work. */
+const BOARD_PROGRESS_QUIET = new Set(['todo_write', 'plan_next_steps']);
+/** A tool call in a few words: its description (bash, a subagent), else its command's first line, a path or a pattern. */
+const toolDetail = (args) => {
+  if (!plainObject(args)) return '';
+  const pick = [args.description, args.command, args.file_path, args.path, args.pattern, args.url, args.query].find((v) => typeof v === 'string' && v.trim() !== '');
+  return pick === undefined ? '' : cutEnd(boardLine(pick.trim().split('\n')[0]), BOARD_PROGRESS.detail);
+};
+
+/** What a running chat does now, from its own events (from `from`: a fork's inherited events come first, rule 10; steps that
+ * a rollback withdrew are left out, rule 9): `since` (the start of the newest turn, epoch ms), `todos` (`{done, total,
+ * current?}` of the newest todo list), `tool` (`{name, detail, running}`: the newest tool call of that turn, running while it
+ * has no result) and `said` (the last line of the agent's newest text in that turn). */
+export function boardProgressOf(events, from = 0) {
+  const hidden = withdrawn(events);
+  const out = {};
+  let call;
+  for (const [i, e] of events.entries()) {
+    if (i < from || hidden(e.seq)) continue;
+    if (e.type === 'turn/start') { out.since = Number.isFinite(e.time) ? e.time : undefined; call = undefined; delete out.said; }
+    else if (e.type === 'todo/write' && Array.isArray(e.data?.todos)) {
+      const todos = e.data.todos.filter((x) => typeof x?.content === 'string' && x.content.trim() !== '');
+      const current = todos.find((x) => x.status === 'in_progress');
+      out.todos = todos.length === 0 ? undefined
+        : { done: todos.filter((x) => x.status === 'completed').length, total: todos.length, ...(current === undefined ? {} : { current: cutEnd(boardLine(current.content), BOARD_PROGRESS.detail) }) };
+    } else if (e.type === 'tool/call' && isText(e.data?.name, 200) && !BOARD_PROGRESS_QUIET.has(e.data.name)) {
+      call = { id: e.data.callId, name: e.data.name, detail: toolDetail(argsOf(e.data.arguments)), running: true };
+    } else if (e.type === 'tool/result' && call !== undefined && e.data?.message?.source?.callId === call.id) call.running = false;
+    else if (e.type === 'assistant/message') {
+      const line = textBlocks(e.data?.message?.content).split('\n').map(boardLine).filter(Boolean).at(-1);
+      if (line !== undefined) out.said = cutEnd(line, BOARD_PROGRESS.said);
+    }
+  }
+  if (call !== undefined) { const { id: _, ...tool } = call; out.tool = tool; }
+  return JSON.parse(JSON.stringify(out));
+}
+
+/** One short call for the progress summary of a chat's newest part; '' when it answers nothing. */
+export async function boardSummaryFor({ llm, route }, transcript, signal) {
+  if (llm?.prepareCall === undefined || route === undefined) return '';
+  const text = await boardCall({ llm, route }, BOARD_PROGRESS_SYSTEM, `The task's chat (its newest part):\n\n${transcript}\n\nThe progress note:`, { tokens: BOARD_PROGRESS.tokens, timeoutMs: BOARD_PROGRESS.timeoutMs }, signal);
+  return cutEnd(boardLine(text.replace(/<think>[\s\S]*?<\/think>/g, '')), BOARD_PROGRESS.summary);
+}
+
+/** Task board (Host half): the switch route and, while it is on, the board's chat route. */
+export function installBoard(ctx, home, dir = join(home, 'storages', 'dsh-composer-plus')) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const store = boardChatsStore(join(dir, 'board-chats.json'));
+  const sw = mobileSwitch(join(dir, 'board-switch.json'), true);
+  let on = true;
+  const ready = sw.read().then((v) => { on = v; }, () => {});
+  let closed = false;
+  const tagging = new Set(); // background tag and summary calls; unload stops them
+  ctx.effect?.(() => () => { closed = true; for (const c of tagging) c.abort(); }, 'dsh-composer-plus: task board');
+  /** The chat's own model (its selection), else dsh's default. */
+  const chatRoute = async (agent) => {
+    const current = agent === undefined ? undefined : ctx.sessionController.agents?.selectionFor?.(agent)?.current;
+    return isText(current?.provider) && isText(current?.model) ? { provider: current.provider, model: current.model } : routeOf(ctx, get);
+  };
+  /** The tags of a new chat, in the background: the chat's own model (its selection), else dsh's default. */
+  const tag = async (sessionId, agent, prompt) => {
+    const llm = get('llm');
+    if (llm?.prepareCall === undefined || closed) return;
+    const mine = new AbortController();
+    tagging.add(mine);
+    try {
+      const tags = await boardTagsFor({ llm, route: await chatRoute(agent) }, prompt, mine.signal);
+      if (tags.length > 0 && !closed) await store.change((chats) => { if (chats[sessionId] !== undefined) chats[sessionId] = { ...chats[sessionId], tags }; });
+    } catch (error) { if (!closed) ctx.logger?.warn?.(`dsh-composer-plus: task board tags failed: ${String(error?.message ?? error).slice(0, 300)}`); }
+    finally { tagging.delete(mine); }
+  };
+  /** A board chat that has no prompt yet gets its first message of its own as its prompt, and its tags. Once per chat: the
+   * record changes one at a time and sets the prompt only while it is empty, so a second message, or the route and the
+   * event at the same time, do not write it again or call the model again. */
+  const name = async (sessionId, agent, prompt) => {
+    if (prompt === undefined || closed || store.list()[sessionId]?.prompt !== '') return;
+    try {
+      let set = false;
+      await store.change((chats) => { if (chats[sessionId]?.prompt === '') { chats[sessionId] = { ...chats[sessionId], prompt }; set = true; } });
+      if (set) await tag(sessionId, agent, prompt);
+    } catch (error) { ctx.logger?.warn?.(`dsh-composer-plus: task board record failed: ${String(error?.message ?? error).slice(0, 300)}`); }
+  };
+  ctx.on?.('session/event', (session, event) => {
+    if (!on || closed || event?.type !== 'user/message') return;
+    const from = Number.isSafeInteger(session.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0;
+    name(session.id, get('agents')?.get?.(session.id), boardPromptOf([event], from));
+  });
+  let switching = ready;
+  ctx.connection.fetch.register({
+    path: BOARD_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await ready;
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (!plainObject(body) || Object.keys(body).join() !== 'on' || typeof body.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        try {
+          const change = switching.then(async () => { await sw.write(body.on); on = body.on; });
+          switching = change.catch(() => {});
+          await change;
+        } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      return json({ on });
+    },
+  });
+  /** GET `?rev=N`: `{rev, chats}` (`{rev, same}` when nothing changed since rev). POST `{sessionId}`: New task opened this
+   * dsh chat; it goes on the board (Todo until its first message). A message that came before the POST is read from the
+   * chat's log, so a fast first message still names the card. */
+  ctx.connection.fetch.register({
+    path: BOARD_CHATS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await ready;
+      if (!on) return json({ error: 'Task board is off' }, 409);
+      try {
+        await store.ready;
+        if (request.method === 'GET') {
+          const rev = store.rev();
+          if (new URL(request.url).searchParams.get('rev') === String(rev)) return json({ rev, same: true });
+          return json({ rev, chats: store.list() });
+        }
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (!plainObject(body) || Object.keys(body).join() !== 'sessionId' || !isText(body.sessionId, 128) || body.sessionId === '__proto__') return json({ error: 'bad request' }, 400);
+        const { sessionId } = body;
+        const found = await ctx.sessionController.resolveAgent(sessionId);
+        if (found === undefined || 'error' in found) return json({ error: 'this is not a dsh chat' }, 404);
+        if (store.list()[sessionId] === undefined) await store.change((chats) => { chats[sessionId] ??= { prompt: '', tags: [], at: Date.now() }; });
+        const session = found.agent?.session;
+        const from = Number.isSafeInteger(session?.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0;
+        await name(sessionId, found.agent, boardPromptOf(session?.snapshotEvents?.() ?? [], from));
+        return json({ rev: store.rev(), sessionId });
+      } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
+    },
+  });
+  /** Progress on hover. The mode is a setting (`board-progress.json`, owner-only). In "ai" mode one summary call per chat
+   * runs at a time, in the background: a new one only when the chat moved on and BOARD_PROGRESS.gapMs after the last one
+   * started; the answer gives the newest summary that is ready (`pending` while a call runs). */
+  const progress = settingsStore(join(dir, 'board-progress.json'), (v) => ({ mode: v?.mode === 'ai' ? 'ai' : 'fast' }));
+  const summaries = new Map(); // sessionId → { key, at, text?, busy }
+  const summaryOf = (sessionId, agent, events, from) => {
+    const key = events.at(-1)?.seq;
+    const kept = summaries.get(sessionId);
+    const llm = get('llm');
+    if (!closed && llm?.prepareCall !== undefined && kept?.busy !== true && kept?.key !== key && Date.now() - (kept?.at ?? 0) >= BOARD_PROGRESS.gapMs) {
+      const entry = { key, at: Date.now(), text: kept?.text, busy: true };
+      summaries.delete(sessionId); summaries.set(sessionId, entry);
+      if (summaries.size > BOARD_PROGRESS.kept) summaries.delete(summaries.keys().next().value);
+      const mine = new AbortController();
+      tagging.add(mine);
+      (async () => {
+        try { const text = await boardSummaryFor({ llm, route: await chatRoute(agent) }, goalTranscript(events, from, BOARD_PROGRESS.input), mine.signal); if (text !== '') entry.text = text; }
+        catch (error) { if (!closed) ctx.logger?.warn?.(`dsh-composer-plus: task board summary failed: ${String(error?.message ?? error).slice(0, 300)}`); }
+        finally { entry.busy = false; tagging.delete(mine); }
+      })();
+    }
+    const now = summaries.get(sessionId);
+    return { ...(now?.text ? { summary: now.text } : {}), ...(now?.busy ? { pending: true } : {}) };
+  };
+  /** GET `?sessionId=`: `{mode, since?, todos?, tool?, said?, summary?, pending?}` of a chat that dsh has open (404
+   * otherwise; 409 while the board is off). GET: `{mode}`. POST `{mode}`: "fast" or "ai" (Settings only). */
+  ctx.connection.fetch.register({
+    path: BOARD_PROGRESS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await ready;
+      try {
+        if (request.method === 'POST') {
+          let body;
+          try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+          if (!plainObject(body) || Object.keys(body).join() !== 'mode' || !BOARD_PROGRESS_MODES.includes(body.mode)) return json({ error: 'bad request' }, 400);
+          return json(await progress.change(() => ({ mode: body.mode })));
+        }
+        const { mode } = await progress.read();
+        const sessionId = new URL(request.url).searchParams.get('sessionId');
+        if (sessionId === null) return json({ mode });
+        if (!on) return json({ error: 'Task board is off' }, 409);
+        if (!isText(sessionId, 128)) return json({ error: 'bad request' }, 400);
+        const agent = get('agents')?.get?.(sessionId);
+        const session = agent?.session;
+        if (typeof session?.snapshotEvents !== 'function') return json({ error: 'dsh has no open chat with this id' }, 404);
+        const events = session.snapshotEvents();
+        const from = Number.isSafeInteger(session.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0;
+        return json({ mode, ...boardProgressOf(events, from), ...(mode === 'ai' ? summaryOf(sessionId, agent, events, from) : {}) });
+      } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+    },
+  });
+  return { store, ready, tag, name, isOn: () => on, progress };
+}
+
+/* Planned steps, after HarnessMM (arXiv 2610.32813, "guarded decision reuse"): the model plans its next commands with the
+ * exact arguments and a guard (`plan_next_steps`). When the newest tool results meet the guard of exactly one step, Composer
+ * Plus answers the agent's next model request itself (dsh's `llm/stream` waterfall) with one assistant message: a short
+ * reasoning block (only when the model's own planning message has one: DeepSeek's thinking mode refuses a history message
+ * without it), a text line and the step's tool call. dsh then runs the call on its normal path (tools/pre-execute: approval,
+ * sandbox, Protected files). Stateless: the plan is the tool call's arguments in the request history, so a restart, a fork,
+ * a rollback or /compact needs no code of its own. No step, two ready steps, a failed guard or any user message → the model. */
+export const PLANNED_TOOL = 'plan_next_steps';
+export const PLANNED_LIMITS = { steps: 8, args: 8 * 1024 };
+export const PLANNED_STEP_TOOLS = ['bash', 'read', 'grep', 'glob'];
+const PLANNED_GUARDS = ['ok', 'always'];
+const PLANNED_ID = /^[a-z0-9-]{1,32}$/;
+/** Composer Plus's own tool-call ids: `cpgs-<8 hex of the plan call's id>-<step number>`. */
+const PLANNED_CALL = /^cpgs-([0-9a-f]{8})-([1-9]\d?)$/;
+const PLANNED_SECTION = `# Planned steps (Composer Plus)
+When you already know the exact next commands and only a tool result decides whether they run (for example: build, then test when the build passes), call \`${PLANNED_TOOL}\` in the same message as the first command. Composer Plus runs each planned step without asking you again when its predecessor finished and its guard holds.
+- \`after\`: "root" (the other tool calls of that message) or the id of an earlier step.
+- \`when\`: "ok" (the predecessor succeeded; for bash: no \`[exit code: N]\` or other fail mark) or "always".
+- Tools: ${PLANNED_STEP_TOOLS.join(', ')}. Write the complete, literal arguments. Do not plan a step whose arguments depend on output that you did not see.
+You see every result. When a guard fails, when two steps are ready at the same time, or after the last step, you answer again. A new user message ends the plan.`;
+
+/** The steps of one `plan_next_steps` call, checked; throws a plain reason (the tool's error text) for a bad plan. */
+export function parsePlan(args) {
+  const fail = (message) => { throw new Error(message); };
+  if (!plainObject(args) || !Array.isArray(args.steps)) fail('"steps" must be a list of steps');
+  if (args.steps.length < 1 || args.steps.length > PLANNED_LIMITS.steps) fail(`a plan has 1 to ${PLANNED_LIMITS.steps} steps`);
+  const ids = new Set();
+  return args.steps.map((s, i) => {
+    const at = `step ${i + 1}`;
+    if (!plainObject(s)) fail(`${at} must be an object`);
+    if (typeof s.id !== 'string' || !PLANNED_ID.test(s.id) || s.id === 'root') fail(`${at}: "id" must be 1 to 32 of a-z, 0-9 and "-" (not "root")`);
+    if (ids.has(s.id)) fail(`${at}: the id "${s.id}" is used twice`);
+    const after = s.after ?? 'root';
+    if (after !== 'root' && !ids.has(after)) fail(`${at}: "after" must be "root" or the id of an earlier step`);
+    const when = s.when ?? 'ok';
+    if (!PLANNED_GUARDS.includes(when)) fail(`${at}: "when" must be "ok" or "always"`);
+    if (!PLANNED_STEP_TOOLS.includes(s.tool)) fail(`${at}: "tool" must be one of ${PLANNED_STEP_TOOLS.join(', ')}`);
+    if (!plainObject(s.arguments)) fail(`${at}: "arguments" must be an object`);
+    if (s.tool === 'bash' && s.arguments.run_in_background === true) fail(`${at}: a planned bash step runs in the foreground (its result is the guard)`);
+    // dsh's bash tool needs a description; it is only the label in the chat.
+    const args2 = s.tool === 'bash' && typeof s.arguments.description !== 'string' ? { description: `Planned step ${s.id}`, ...s.arguments } : s.arguments;
+    if (JSON.stringify(args2).length > PLANNED_LIMITS.args) fail(`${at}: "arguments" are longer than ${PLANNED_LIMITS.args} characters`);
+    ids.add(s.id);
+    return { id: s.id, after, when, tool: s.tool, args: args2 };
+  });
+}
+
+/** One finished call passed: not an error, and for bash no fail mark of dsh in the last 8 lines (the Goal check rule). */
+const plannedOk = (tool, result) => result !== undefined && result.isError !== true
+  && (tool !== 'bash' || !BASH_FAIL.test(textBlocks(result.content).split('\n').slice(-8).join('\n')));
+const planTag = (callId) => createHash('sha256').update(String(callId)).digest('hex').slice(0, 8);
+
+/** The step to run now for a model request's `messages`, or undefined (then the model answers). `tools`: the names that the
+ * request offers. Reads back from the end: tool results, dsh's runtime context, developer and system messages are neutral;
+ * Composer Plus's own step messages are counted; the newest model message before them must hold an accepted plan. Any other
+ * user message (the user, steer, Continue, /compact, a rollback marker) ends the plan. */
+export function nextPlannedStep(messages, tools) {
+  if (!Array.isArray(messages)) return undefined;
+  const results = new Map();
+  const ran = [];
+  let i = messages.length - 1;
+  for (; i >= 0; i--) {
+    const m = messages[i];
+    if (m?.role === 'tool') { results.set(m.toolCallId ?? m.source?.callId, m); continue; }
+    if (m?.role === 'developer' || m?.role === 'system') continue;
+    if (m?.role === 'user') { if (m.source?.kind === 'runtime-context') continue; return undefined; }
+    if (m?.role !== 'assistant') return undefined;
+    const calls = (Array.isArray(m.content) ? m.content : []).filter((b) => b?.type === 'tool-call');
+    if (calls.length === 1 && PLANNED_CALL.test(calls[0].id)) { ran.push(calls[0]); continue; }
+    break;
+  }
+  if (i < 0 || !Array.isArray(messages[i].content)) return undefined;
+  const planned = messages[i];
+  const calls = planned.content.filter((b) => b?.type === 'tool-call');
+  const planCall = calls.find((c) => c.name === PLANNED_TOOL);
+  if (planCall === undefined || !plannedOk(PLANNED_TOOL, results.get(planCall.id))) return undefined;
+  let steps;
+  try { steps = parsePlan(argsOf(planCall.arguments)); } catch { return undefined; }
+  const tag = planTag(planCall.id);
+  // `root`: the other calls of the planning message (the plan call alone when there are none); all of them have results.
+  const rootCalls = calls.length > 1 ? calls.filter((c) => c !== planCall) : [planCall];
+  if (!rootCalls.every((c) => results.has(c.id))) return undefined;
+  const done = new Map([['root', rootCalls.every((c) => plannedOk(c.name, results.get(c.id)))]]);
+  for (const call of ran) {
+    const [, t, n] = call.id.match(PLANNED_CALL);
+    const step = steps[Number(n) - 1];
+    if (t !== tag || step === undefined || done.has(step.id) || !results.has(call.id)) return undefined;
+    done.set(step.id, plannedOk(step.tool, results.get(call.id)));
+  }
+  const ready = steps.map((step, k) => ({ step, n: k + 1 })).filter(({ step }) => !done.has(step.id) && done.has(step.after)
+    && (step.when === 'always' || done.get(step.after) === true) && (tools === undefined || tools.has(step.tool)));
+  if (ready.length !== 1) return undefined;
+  return { ...ready[0], tag, reasoning: planned.content.some((b) => b?.type === 'reasoning') };
+}
+
+/** The chunks of the assistant message that runs `found` (the answer of nextPlannedStep). */
+export function plannedStepChunks(found) {
+  const { step, n, tag, reasoning } = found;
+  const id = `cpgs-${tag}-${n}`;
+  const args = JSON.stringify(step.args);
+  const blocks = [];
+  if (reasoning) blocks.push({ type: 'reasoning', text: `Composer Plus ran step "${step.id}" of an earlier ${PLANNED_TOOL} plan because its guard "${step.when}" held after "${step.after}". The model did not reason for this step.` });
+  blocks.push({ type: 'text', text: `Composer Plus · Planned steps: ran \`${step.id}\` (after \`${step.after}\`, guard ${step.when}) without a model call.` });
+  const chunks = [];
+  blocks.forEach((b, index) => {
+    chunks.push({ type: 'block-start', index, blockType: b.type });
+    chunks.push({ type: b.type === 'text' ? 'text-delta' : 'reasoning-delta', index, text: b.text });
+    chunks.push({ type: 'block-end', index, block: b });
+  });
+  const index = blocks.length;
+  chunks.push({ type: 'block-start', index, blockType: 'tool-call' });
+  chunks.push({ type: 'tool-call-delta', index, id, name: step.tool, argumentsDelta: args });
+  chunks.push({ type: 'block-end', index, block: { type: 'tool-call', id, name: step.tool, arguments: args } });
+  chunks.push({ type: 'finish', reason: { kind: 'tool-calls' } });
+  return chunks;
+}
+
+/** The `llm/stream` listener: an agent request of a chat (it has a session, no purpose such as compaction, and offers the
+ * plan tool) with one ready step gets the step's message; every other request goes on to the model. */
+export function plannedStream(options, next) {
+  let found;
+  try {
+    const tools = Array.isArray(options?.tools) ? new Set(options.tools.map((t) => t?.name)) : undefined;
+    if (options?.sessionId !== undefined && options.purpose === undefined && tools?.has(PLANNED_TOOL)) found = nextPlannedStep(options.messages, tools);
+  } catch { found = undefined; }
+  if (found === undefined) return next();
+  const chunks = plannedStepChunks(found);
+  return (async function* () { yield* chunks; })();
+}
+
+/** Planned steps (Host half): the switch route (off by default), and while it is on: the tool, the prompt section and the
+ * `llm/stream` listener, all in one fiber that switching off disposes. */
+export function installPlannedSteps(ctx, home, file = join(home, 'storages', 'dsh-composer-plus', 'planned-steps.json')) {
+  const sw = mobileSwitch(file);
+  let on = false;
+  let fiber;
+  const tool = {
+    name: PLANNED_TOOL,
+    description: `Plan your next tool calls when you already know their exact arguments and only a tool result decides whether they run. Composer Plus runs each step without a new model call when its predecessor finished and its guard holds; you see every result. Call it in the same message as the first command. Steps: ${PLANNED_STEP_TOOLS.join(', ')} only.`,
+    parameters: { type: 'object', properties: {
+      steps: { type: 'array', description: `1 to ${PLANNED_LIMITS.steps} steps, in order`, items: { type: 'object', properties: {
+        id: { type: 'string', description: 'A short name: a-z, 0-9 and "-", such as "test"' },
+        after: { type: 'string', description: '"root" (the default: the other tool calls of this message) or the id of an earlier step' },
+        when: { type: 'string', enum: PLANNED_GUARDS, description: '"ok" (the default): only when the predecessor succeeded; "always": when it finished' },
+        tool: { type: 'string', enum: PLANNED_STEP_TOOLS },
+        arguments: { type: 'object', description: 'The complete, literal arguments of the tool call' },
+      }, required: ['id', 'tool', 'arguments'] } },
+    }, required: ['steps'] },
+    output: textOutput,
+    async execute(args) {
+      const steps = parsePlan(args);
+      return `Plan accepted: ${steps.map((s) => `${s.id} (${s.tool}, after ${s.after}, when ${s.when})`).join('; ')}. Composer Plus runs a step without a model call when its predecessor finished and its guard holds. A failed guard, two ready steps, the last step or a new user message gives the turn back to you.`;
+    },
+  };
+  const apply = (next) => {
+    on = next;
+    if (on && fiber === undefined && typeof ctx.inject === 'function') {
+      fiber = ctx.inject(['tools', 'systemPrompt'], (sub) => {
+        sub.tools.register(tool);
+        sub.systemPrompt.section({ name: 'composer-plus:planned-steps', order: 660, interpolate: false, text: () => PLANNED_SECTION });
+        sub.on('llm/stream', plannedStream);
+      });
+    } else if (!on) { fiber?.dispose?.(); fiber = undefined; }
+  };
+  const ready = sw.read().then(apply, () => apply(false));
+  ctx.effect?.(() => () => { on = false; fiber?.dispose?.(); fiber = undefined; }, 'dsh-composer-plus: planned steps');
+  // One switch change at a time, in order: the saved file and the live state always end on the newest click.
+  let switching = ready;
+  ctx.connection.fetch.register({
+    path: PLANNED_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await ready;
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (!plainObject(body) || Object.keys(body).join() !== 'on' || typeof body.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        const change = switching.then(async () => { await sw.write(body.on); apply(body.on); });
+        switching = change.catch(() => {});
+        try { await change; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      return json({ on });
+    },
+  });
+  return { ready, tool };
 }

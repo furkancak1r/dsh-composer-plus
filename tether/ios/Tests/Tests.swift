@@ -389,6 +389,10 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(sessionBranches(["on": true, "branches": ["s1": "main", "s2": "", "s3": 7]]), ["s1": "main"])
         XCTAssertEqual(sessionBranches(["on": false, "branches": ["s1": "main"]]), [:])
         XCTAssertEqual(sessionBranches([:]), [:])
+        // The row shows it only in "In one list": by project the chat is under its folder.
+        XCTAssertEqual(rowBranch(["s1": "main"], "s1", oneList: true), "main")
+        XCTAssertNil(rowBranch(["s1": "main"], "s1", oneList: false))
+        XCTAssertNil(rowBranch(["s1": "main"], "s2", oneList: true))
         XCTAssertEqual(closeFences("```js\r\nx"), "```js\r\nx\n```", "CRLF lines")
         XCTAssertEqual(clampFocus(String(repeating: "x", count: 79) + "😀"), String(repeating: "x", count: 79), "an emoji past 80 UTF-16 units is not split")
         XCTAssertEqual(clampFocus(String(repeating: "x", count: 78) + "😀y"), String(repeating: "x", count: 78) + "😀")
@@ -1432,5 +1436,111 @@ final class BranchStateTests: XCTestCase {
         await m.load()
         XCTAssertGreaterThanOrEqual(loads, 1)
         XCTAssertEqual(m.failed, "Nothing was saved: add \"a\" in global: MEMORY.md is full", "the reason stays after the list is read again")
+    }
+}
+
+/// Task board (`/plus/board-chats`): the columns from the phone's own lists (waiting → Review, running → Doing, the rest →
+/// Done; archived and subagent chats left out; a Branch per chat folder counts as its repository; Hide finished), the tags
+/// from the Mac, and one start at a time.
+@MainActor final class TaskBoardTests: XCTestCase {
+    func sess(_ id: String, running: Bool = false, parent: String? = nil, updated: Double = 0) -> Sess {
+        var j: J = ["sessionId": id, "running": running, "updatedAt": updated * 1000, "projections": ["values": ["title": "Chat \(id)"]]]
+        if let parent { j["parentSessionId"] = parent; j["origin"] = "subagent" }
+        return Sess(j)!
+    }
+    func ws(_ id: String, _ path: String, _ sessions: [String]) -> Workspace { Workspace(["workspaceId": id, "path": path, "title": (path as NSString).lastPathComponent, "sessionIds": sessions])! }
+    func testColumns() {
+        let sessions = [sess("a", updated: 3), sess("b", running: true), sess("c"), sess("kid", running: true, parent: "c"), sess("d", updated: 5), sess("e"), sess("f", updated: 1)]
+        let workspaces = [ws("w1", "/w/acme", ["a", "b", "c", "d", "e"]), ws("w2", "/w/acme/.worktrees/feat-x", ["f"]), ws("w3", "/w/blog/", [])]
+        let meta = boardMeta(["rev": 4, "chats": ["a": ["prompt": "Make a chess game", "tags": ["chess", "game"], "at": 1], "bad": ["tags": []]]])
+        XCTAssertEqual(meta["a"]?.tags, ["chess", "game"]); XCTAssertNil(meta["bad"], "no prompt: left out")
+        let v = boardColumns(sessions: sessions, workspaces: workspaces, archived: ["e"], waiting: ["a"], finished: ["d"], meta: meta, project: "all", hideDone: false)
+        XCTAssertEqual(v.columns.map(\.status), ["doing", "review", "done"], "no new task waits: no Todo column")
+        let ids = { (s: String) in v.columns.first { $0.status == s }!.cards.map(\.id) }
+        XCTAssertEqual(ids("review"), ["a"], "a chat that waits for you")
+        XCTAssertEqual(ids("doing"), ["b", "c"], "running, or a running subagent")
+        XCTAssertEqual(ids("done"), ["d", "f"], "the rest, newest first; archived e and the subagent left out")
+        XCTAssertEqual(v.columns[2].cards[0].state, "unread"); XCTAssertEqual(v.columns[2].cards[1].state, "read")
+        XCTAssertEqual(v.columns[1].cards[0].tags, ["chess", "game"]); XCTAssertEqual(v.columns[1].cards[0].prompt, "Make a chess game")
+        XCTAssertEqual(v.projects.map(\.waiting), [true, false], "acme has a chat that waits for you (the orange dot)")
+        XCTAssertEqual(boardStartColumn(v.columns), "review", "a chat waits: the board opens on Review")
+        XCTAssertEqual(boardStartColumn(v.columns, current: "done"), "done", "the picked column stays")
+        XCTAssertEqual(boardStartColumn(v.columns, current: "todo"), "review", "a column that went falls back")
+        XCTAssertEqual(v.projects.map(\.id), ["w1", "w3"], "a Branch per chat folder is no project of its own")
+        XCTAssertEqual(v.columns[2].cards[1].project, "acme", "its chat belongs to the repository")
+        let one = boardColumns(sessions: sessions, workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], project: "w3", hideDone: true)
+        XCTAssertEqual(one.columns.map(\.status), ["doing", "review"], "Hide finished")
+        XCTAssertTrue(one.columns.allSatisfy(\.cards.isEmpty))
+        XCTAssertEqual(boardStartColumn(one.columns), "doing", "nothing waits: Doing")
+        XCTAssertEqual(boardStartColumn(one.columns, current: "done"), "doing", "Done hidden: back to Doing")
+        let calm = boardColumns(sessions: sessions, workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], project: "all", hideDone: false)
+        XCTAssertEqual(calm.projects.map(\.waiting), [false, false], "running only: no orange dot")
+        XCTAssertEqual(boardProjectOf("f", workspaces: workspaces), "w1", "the board of a branch chat is its repository's")
+        XCTAssertEqual(boardProjectOf("a", workspaces: workspaces), "w1"); XCTAssertEqual(boardProjectOf("zz", workspaces: workspaces), "all")
+    }
+    func testProjectSearchAndRecent() {
+        let now = Date(timeIntervalSince1970: 100_000)
+        let sessions = [sess("old", updated: 100_000 - 3 * 3600), sess("fresh", updated: 100_000 - 600), sess("unseen", updated: 1), sess("gone", updated: 100_000 - 60), sess("br", updated: 100_000 - 60)]
+        let workspaces = [ws("w1", "/w/Çalışma", ["old"]), ws("w2", "/w/blog", ["fresh"]), ws("w3", "/w/docs", ["unseen"]), ws("w4", "/w/arch", ["gone"]),
+                          ws("w5", "/w/acme/.worktrees/x", ["br"]), ws("w6", "/w/acme", [])]
+        let v = boardColumns(sessions: sessions, workspaces: workspaces, archived: ["gone"], waiting: [], finished: ["unseen"], meta: [:], project: "all", hideDone: false, now: now)
+        XCTAssertEqual(v.projects.filter(\.recent).map(\.id), ["w6", "w2", "w3"], "changed in 2 hours (also in a Branch per chat folder) or finished unseen; not 3 hours old or archived")
+        XCTAssertEqual(boardProjectList(v.projects, query: "", recentOnly: true).map(\.id), ["w6", "w2", "w3"])
+        XCTAssertEqual(boardProjectList(v.projects, query: "calis", recentOnly: false).map(\.id), ["w1"], "case and accents ignored")
+        XCTAssertEqual(boardProjectList(v.projects, query: "calis", recentOnly: true).map(\.id), [], "both filters")
+        XCTAssertEqual(boardProjectList(v.projects, query: "w", recentOnly: false).map(\.id), [], "the name only, not the path")
+    }
+    /// The record is read in full, then only a newer rev.
+    func testLoadRev() async {
+        var queries: [[String: String]] = []
+        let b = TaskBoard { q, _ in queries.append(q); return q["rev"] == "7" ? ["rev": 7, "same": true] : ["rev": 7, "chats": ["s1": ["prompt": "", "tags": [], "at": 1]]] }
+        await b.load()
+        XCTAssertTrue(b.loaded); XCTAssertEqual(queries.first, [:]); XCTAssertEqual(b.meta["s1"]?.prompt, "", "a new task before its first message")
+        await b.load(); XCTAssertEqual(queries.last, ["rev": "7"], "then only a newer rev")
+    }
+    /// New task: dsh's blank chat shows in Todo only when it is the board's new task; after its first message it is a
+    /// normal card, and the board opens again (`boardSent`).
+    func testNewTaskDraft() {
+        let blank = Sess(["sessionId": "n1", "blank": true, "updatedAt": 5000, "projections": ["values": [String: Any]()]])!
+        let other = Sess(["sessionId": "n2", "blank": true, "projections": ["values": [String: Any]()]])!
+        XCTAssertTrue(blank.blank); XCTAssertFalse(sess("a").blank)
+        let workspaces = [ws("w1", "/w/acme", ["n1", "n2", "a"])]
+        let v = boardColumns(sessions: [blank, other, sess("a")], workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], task: "n1", project: "all", hideDone: false)
+        let todo = v.columns.first { $0.status == "todo" }!.cards
+        XCTAssertEqual(todo.map(\.id), ["n1"], "only the new task's blank chat, not another blank chat")
+        XCTAssertEqual(todo[0].state, "draft"); XCTAssertEqual(todo[0].project, "acme")
+        let none = boardColumns(sessions: [blank], workspaces: workspaces, archived: [], waiting: [], finished: [], meta: [:], project: "all", hideDone: false)
+        XCTAssertEqual(v.columns.map(\.status), ["todo", "doing", "review", "done"], "a new task waits: Todo shows")
+        XCTAssertTrue(none.columns.allSatisfy(\.cards.isEmpty), "no task: a blank chat never shows")
+        XCTAssertFalse(none.columns.contains { $0.status == "todo" }, "and no Todo column")
+        XCTAssertFalse(none.projects[0].recent, "a blank chat does not make its project recent")
+    }
+    /// A running card's progress line: the AI summary, else the step, else the tool now or the last one, else the agent's line.
+    func testProgressLine() async {
+        XCTAssertEqual(boardProgressLine(["mode": "ai", "summary": "Writing the tests.", "todos": ["done": 1, "total": 3, "current": "x"]]), "Writing the tests.")
+        XCTAssertEqual(boardProgressLine(["todos": ["done": 1, "total": 3, "current": "Write the tests"], "tool": ["name": "bash", "running": true]]), "Step 2 of 3: Write the tests")
+        XCTAssertEqual(boardProgressLine(["todos": ["done": 3, "total": 3], "tool": ["name": "bash", "detail": "Run tests", "running": true]]), "Now: bash · Run tests", "no step in progress: the tool")
+        XCTAssertEqual(boardProgressLine(["tool": ["name": "read", "detail": "", "running": false]]), "Last step: read")
+        XCTAssertEqual(boardProgressLine(["said": "I am done."]), "I am done.")
+        XCTAssertNil(boardProgressLine(["mode": "fast"]))
+        var asked: [String] = []
+        let b = TaskBoard { _, _ in [:] }
+        b.bindProgress { id in asked.append(id); if id == "gone" { throw Fail("HTTP 404", status: 404) }; return ["tool": ["name": "bash", "running": true]] }
+        await b.loadProgress(["a", "gone"] + (1...10).map { "r\($0)" })
+        XCTAssertEqual(asked.count, 8, "at most 8 reads")
+        XCTAssertEqual(b.progress["a"], "Now: bash"); XCTAssertNil(b.progress["gone"], "a failed read: no line")
+        b.bindProgress { _ in ["said": "x"] }
+        await b.loadProgress(["a"])
+        XCTAssertEqual(b.progress.keys.sorted(), ["a"], "only the ids given stay")
+    }
+    /// The Mac's switch is off (409), an older Mac has no route (404).
+    func testOffAndOlderMac() async {
+        var answer: Error? = Fail("Task board is off", status: 409)
+        let b = TaskBoard { _, _ in if let a = answer { throw a }; return ["rev": 1, "chats": [String: Any]()] }
+        await b.load(); XCTAssertTrue(b.off); XCTAssertFalse(b.missing)
+        answer = Fail("HTTP 404", status: 404)
+        await b.load(); XCTAssertTrue(b.missing)
+        answer = nil
+        await b.load(); XCTAssertFalse(b.off); XCTAssertFalse(b.missing); XCTAssertTrue(b.loaded)
     }
 }

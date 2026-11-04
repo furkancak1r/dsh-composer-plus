@@ -12,7 +12,7 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.file-chats` | GET | `?sessionId&path` (`path` from the repository top): the chats of the same repository whose write/edit tools changed that file, one row per request, newest first (read from the chat logs only). | changesPanel | yes |
 | `/api/composer-plus.graph` | GET | `?sessionId`: the branch map of the chat's folder: the branches (the current branch or a detached HEAD first, then local, then remote ones without a local branch of the same name; at most 60), the main branch, and for each branch its state (`main`, `merged`, `waiting`), whether the main branch has its work, its target branch, the merge commit that took it and its row on the map (read from the newest 20,000 commits; `partial` when the history is longer). `&ref=refs/heads/…`, `refs/remotes/…` or `HEAD`: that branch's newest 300 commits (first-parent line) with their refs, 404 when the branch is gone. Read-only git; also the newest turn for Last Turn. | changesPanel | yes |
 | `/api/composer-plus.shot` | GET | `?id=<shot>`: one shipped Settings screenshot (`SHOTS` in index.js only). | Settings | no |
-| `/api/composer-plus.update` | GET | No query: the latest GitHub release compared with this copy (`latest`, `newer`, `managed`, `url`, `notes`); calls GitHub and npm. `?current=1`: only the running version (What's new), no network call. | autoUpdate | no |
+| `/api/composer-plus.update` | GET | No query: the latest GitHub release compared with this copy (`latest`, `newer`, `managed`, `url`, `notes`); calls GitHub and npm. `?current=1`: the running version and the release notes that ship with it, per UI language (`notes`, from `release-notes.json`; What's new), no network call. | autoUpdate | no |
 | `/api/composer-plus.grants` | GET | The grants that still run, `{ [sessionId]: [tool] }`. `?detail=1`: `{ttlMs, grants: { [sessionId]: { [tool]: msLeft \| null } }}` with the time limit. | allowForChat | yes |
 | `/api/composer-plus.grants` | POST | `{action: "grant", sessionId, tool}` or `{action: "revoke", sessionId}`, or `{ttlMs}` (Settings only: 15 min, 1 h, 4 h, 8 h or `null` = until revoked). `?detail=1` answers the detailed form. | allowForChat | yes |
 | `/api/composer-plus.mobile` | GET | The switch and the gateway state. | mobileConnect | no |
@@ -49,6 +49,16 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.context` | GET | `?sessionId`: what fills the chat's model context now, by part, with estimated tokens and the context window (read-only, from the chat log). | contextBreakdown | yes |
 | `/api/composer-plus.protected-files` | GET | The switch, the patterns and the defaults. | protectedFiles | no |
 | `/api/composer-plus.protected-files` | POST | `{patterns: [{pattern, mode: all\|write}]}` saves the list; `{on}` (Settings only). | protectedFiles | no |
+| `/api/composer-plus.blocked-commands` | GET | The switch and the rules. | blockedCommands | no |
+| `/api/composer-plus.blocked-commands` | POST | `{rules: [{rule, mode: block\|ask}]}` saves the list; `{on}` (Settings only). | blockedCommands | no |
+| `/api/composer-plus.board` | GET | `{on}`: the switch. | taskBoard | no |
+| `/api/composer-plus.board` | POST | `{on}`. Settings only. | taskBoard | no |
+| `/api/composer-plus.board-chats` | GET | `[?rev=N]` the record of the board's chats: `{rev, chats: {<sessionId>: {prompt, tags, at}}}` (`{rev, same}` when nothing changed). 409 while the switch is off. | taskBoard | yes |
+| `/api/composer-plus.board-chats` | POST | `{sessionId}`: New task opened this dsh chat; it goes on the record with an empty prompt (`{rev, sessionId}`; 404 for a chat that dsh does not have). Its first message of its own becomes the prompt (also when it came before this call), and one model call then writes the tags. | taskBoard | yes |
+| `/api/composer-plus.board-progress` | GET | `{mode}` ("fast" or "ai"); `?sessionId=` the progress of a chat that dsh has open: `{mode, since?, todos?: {done, total, current?}, tool?: {name, detail, running}, said?}`, and in AI mode `summary?` and `pending?` (one background call to the chat's model per new step, at most one per chat at a time and one per 20 s). 404 for a chat that is not open, 409 while the board is off. | taskBoard | yes |
+| `/api/composer-plus.board-progress` | POST | `{mode}`: "fast" (the default, no model call) or "ai". Settings only. | taskBoard | no |
+| `/api/composer-plus.planned-steps` | GET | The switch `{on}`. | plannedSteps | no |
+| `/api/composer-plus.planned-steps` | POST | `{on}`: the switch (a switch route). | plannedSteps | no |
 | `/api/composer-plus.memory` | GET | The switch `{on}`. | projectMemory | no |
 | `/api/composer-plus.memory` | POST | `{on}`: the switch (a switch route). | projectMemory | no |
 | `/api/composer-plus.memory-edit` | GET | Every saved note: `{projects: [{id, name, path, count, files}], global, busy}`; 409 while the switch is off. | projectMemory | yes |

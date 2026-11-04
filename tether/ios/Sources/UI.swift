@@ -533,6 +533,7 @@ struct ConversationView: View {
     @State private var showMemory = false
     @State private var showHandoff = false
     @State private var showContext = false
+    @State private var showBoard = false
     @State private var deleting = false
     /// Turn rollback: the user row whose ↶ was tapped.
     @State private var rollingBack: Line?
@@ -591,6 +592,7 @@ struct ConversationView: View {
                         if c.plus.contains("ideas") { Button { showIdeas = true } label: { Label("Feature ideas", systemImage: "lightbulb") } }
                         if c.plus.contains("memory-edit") { Button { showMemory = true } label: { Label("Project memory", systemImage: "brain") } }
                         if c.plus.contains("context") { Button { showContext = true } label: { Label("Context", systemImage: "chart.bar.doc.horizontal") } }
+                        if c.plus.contains("board-chats") { Button { showBoard = true } label: { Label("Task board", systemImage: "rectangle.split.3x1") } }
                         if c.plus.contains("handoff"), c.currentSess?.parent == nil { Button { showHandoff = true } label: { Label("Continue in a new chat", systemImage: "arrow.right.doc.on.clipboard") } }
                         Button { UIPasteboard.general.string = sessionLink(id); UINotificationFeedbackGenerator().notificationOccurred(.success) } label: { Label("Copy session link", systemImage: "link") }
                         if c.transcript.contains(where: { $0.kind == .assistant }) {
@@ -611,6 +613,9 @@ struct ConversationView: View {
             .sheet(isPresented: $showMemory) { MemorySheet(cwd: c.currentSess?.cwd ?? "") }
             .sheet(isPresented: $showHandoff) { if let id = c.current { HandoffSheet(sessionId: id) } }
             .sheet(isPresented: $showContext) { if let id = c.current { ContextSheet(sessionId: id) } }
+            .sheet(isPresented: $showBoard) { BoardSheet(project: boardProjectOf(c.current ?? "", workspaces: c.workspaces)) }
+            // Task board → +: the new chat opened here; its first message went, so the board opens again.
+            .onChange(of: c.boardBack) { _, back in if back { c.boardBack = false; showBoard = true } }
             .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { text = t; focused = true } } }
             .sheet(isPresented: Binding(get: { redoMarker != nil }, set: { if !$0 { redoMarker = nil } })) { if let m = redoMarker { RedoSheet(marker: m) } }
             .confirmationDialog("Delete this chat?", isPresented: $deleting, titleVisibility: .visible) {
@@ -2022,8 +2027,8 @@ struct SessionsView: View {
                     if c.pinned.contains(s.id) { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.orange) }
                     // Color.primary: in a Button, .primary is the blue tint and every chat looks like a link
                     Text(s.title).foregroundStyle(Color.primary).lineLimit(1)
-                    // Branch badge (Composer Plus): the git branch of the chat's folder at its last turn.
-                    if let b = c.branches[s.id] {
+                    // Branch badge (Composer Plus): the git branch of the chat's folder at its last turn, in "In one list" only.
+                    if let b = rowBranch(c.branches, s.id, oneList: c.oneList) {
                         Text(b).font(.caption2.monospaced()).lineLimit(1).truncationMode(.middle).frame(maxWidth: 110, alignment: .leading)
                             .padding(.horizontal, 5).padding(.vertical, 1).background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
                             .foregroundStyle(Color.secondary).accessibilityLabel(Text("Git branch at the last turn: \(b)"))
@@ -3496,5 +3501,187 @@ struct ContextSheet: View {
     private func load() async {
         do { data = contextParts(try await c.plusCall("context", query: ["sessionId": sessionId])); failed = nil }
         catch { failed = userText(error) }
+    }
+}
+
+/// The column names of the task board, as on the Mac.
+func boardStatusName(_ s: String) -> String {
+    switch s {
+    case "todo": return String(localized: "Todo")
+    case "doing": return String(localized: "Doing")
+    case "review": return String(localized: "Review")
+    case "done": return String(localized: "Done")
+    default: return s
+    }
+}
+
+/// Task board (Composer Plus on the Mac): the DSH chats as a kanban board, with their live state. The segmented control
+/// picks a column. A tap on a card opens its chat; a tap on a waiting card opens its question or approval. + starts a new
+/// chat with a prompt (the Mac names it and AI writes the tags). The sheet reads the tags again every 5 s while it is open.
+struct BoardSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var b = TaskBoard { _, _ in [:] }
+    /// The column that the user picked; nil until then (the board opens on Review when a chat waits, else Doing).
+    @State private var column: String?
+    @State private var project: String
+    @AppStorage("boardHideDone") private var hideDone = false
+    @State private var picking = false
+    init(project: String) { _project = State(initialValue: project) }
+    private var ready: Bool { b.loaded && !b.off && !b.missing }
+    private var view: (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])]) {
+        boardColumns(sessions: c.sessions, workspaces: c.workspaces, archived: Set(c.archived), waiting: Set(c.prompts.compactMap(\.agentId)),
+                     finished: c.finished, meta: b.meta, task: c.boardTask, project: project, hideDone: hideDone)
+    }
+    private var projectName: String { project == "all" ? String(localized: "All projects") : view.projects.first { $0.id == project }?.name ?? String(localized: "All projects") }
+    var body: some View {
+        let v = view
+        NavigationStack {
+            List {
+                if b.missing { Text("Composer Plus on your Mac has no task board. Update it on the Mac.").foregroundStyle(.secondary) }
+                else if b.off { Text("Task board is off. Switch it on in Settings → Composer Plus on your Mac.").foregroundStyle(.secondary) }
+                else if b.loaded {
+                    let shown = boardStartColumn(v.columns, current: column)
+                    let cards = v.columns.first { $0.status == shown }?.cards ?? []
+                    if cards.isEmpty { Text("No chats here.").foregroundStyle(.secondary) }
+                    ForEach(cards.prefix(100)) { card in Button { tap(card) } label: { BoardCardRow(card: card, progress: b.progress[card.id]) } }
+                } else if b.readFailed == nil { HStack(spacing: 8) { ProgressView(); Text("Loading the board…") } }
+                if let f = b.readFailed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
+            }
+            .safeAreaInset(edge: .top) {
+                if ready {
+                    Picker("Column", selection: Binding(get: { boardStartColumn(v.columns, current: column) }, set: { column = $0 })) {
+                        ForEach(v.columns, id: \.status) { col in Text(verbatim: "\(boardStatusName(col.status)) \(col.cards.count)").tag(col.status) }
+                    }
+                    .pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8).background(.bar)
+                }
+            }
+            .refreshable { await b.load() }
+            .navigationTitle("Task board").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) { projectMenu(v.projects) }
+                ToolbarItem(placement: .topBarLeading) {
+                    // New task: the board closes and a new chat opens in the project (photos, files and commands as in any
+                    // chat); after its first message the board opens again.
+                    Button { let p = project; dismiss(); c.run { try await c.boardNewTask(project: p) } } label: { Image(systemName: "plus") }
+                        .disabled(!ready || c.boardOpening)
+                        .accessibilityLabel("New task")
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            // The column is fixed once the board shows (a chat that starts to wait later does not move the view); a column
+            // that goes (Todo after the first message, Done with Hide finished) falls back in `boardStartColumn`.
+            .onChange(of: ready, initial: true) { _, r in if r, column == nil { column = boardStartColumn(view.columns) } }
+            .sheet(isPresented: $picking) { BoardProjectSheet(projects: v.projects, project: $project, hideDone: $hideDone).presentationDetents([.medium, .large]) }
+            .task {
+                b.bind { [c] query, body in try await c.plusCall("board-chats", query: query, body: body) }
+                // An older Mac's gateway has no board-progress (403 to each read): then no progress line.
+                if c.plus.contains("board-progress") { b.bindProgress { [c] id in try await c.plusCall("board-progress", query: ["sessionId": id]) } }
+                while !Task.isCancelled {
+                    await b.load()
+                    // The progress line of the running cards (the Mac's setting picks Fast or AI summary).
+                    await b.loadProgress(view.columns.first { $0.status == "doing" }?.cards.map(\.id) ?? [])
+                    try? await Task.sleep(for: .seconds(5))
+                }
+            }
+        }
+    }
+    /// A waiting chat opens its question or approval (the same sheet as everywhere in the app); another chat opens.
+    private func tap(_ card: BoardCard) {
+        if card.state == "waiting", let i = c.prompts.firstIndex(where: { $0.agentId == card.id }) {
+            if i > 0 { c.prompts.insert(c.prompts.remove(at: i), at: 0) }
+            return
+        }
+        dismiss(); c.open(card.id)
+    }
+    /// The title, and under it the shown project: a tap opens the project list (search, Active in the last 2 hours, Hide finished).
+    private func projectMenu(_ projects: [BoardProject]) -> some View {
+        Button { picking = true } label: {
+            VStack(spacing: 0) {
+                Text("Task board").font(.headline).foregroundStyle(.primary)
+                HStack(spacing: 3) { Text(verbatim: projectName).lineLimit(1); Image(systemName: "chevron.down").imageScale(.small) }
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .disabled(!ready)
+        .accessibilityLabel(Text("Task board, project: \(projectName)"))
+    }
+}
+
+/// The board's projects: a search box, "Active in the last 2 hours" (kept on this phone) and Hide finished. A tap picks
+/// "All projects" or one project.
+struct BoardProjectSheet: View {
+    let projects: [BoardProject]
+    @Binding var project: String
+    @Binding var hideDone: Bool
+    @AppStorage("boardRecentProjects") private var recentOnly = false
+    @State private var query = ""
+    @Environment(\.dismiss) private var dismiss
+    var body: some View {
+        let shown = boardProjectList(projects, query: query, recentOnly: recentOnly)
+        NavigationStack {
+            List {
+                Section {
+                    Toggle("Active in the last 2 hours", isOn: $recentOnly)
+                    Toggle("Hide finished", isOn: $hideDone)
+                }
+                Section {
+                    if query.isEmpty { row("all", String(localized: "All projects")) }
+                    ForEach(shown) { p in row(p.id, p.name, waiting: p.waiting) }
+                    if shown.isEmpty { Text("No matching project").foregroundStyle(.secondary) }
+                }
+            }
+            .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search projects")
+            .navigationTitle("Project").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+        }
+    }
+    /// A project row: the name (a long one on two lines) and an orange dot while a chat of it waits for you.
+    private func row(_ id: String, _ name: String, waiting: Bool = false) -> some View {
+        Button { project = id; dismiss() } label: {
+            HStack {
+                Text(verbatim: name).foregroundStyle(.primary).lineLimit(2)
+                if waiting { Circle().fill(.orange).frame(width: 8, height: 8).accessibilityLabel(Text("Waiting for you")) }
+                Spacer(minLength: 0)
+                if project == id { Image(systemName: "checkmark").foregroundStyle(.tint) }
+            }
+        }
+        .accessibilityAddTraits(project == id ? .isSelected : [])
+    }
+}
+
+/// A card of the task board: the live dot (orange: waits for you, blue: running, green: finished and not read), the
+/// title, the prompt, the project and the tags.
+struct BoardCardRow: View {
+    let card: BoardCard
+    /// A running card: what it does now (the Mac's Progress on hover setting: Fast or AI summary).
+    var progress: String? = nil
+    private var dot: Color? { card.state == "waiting" ? .orange : card.state == "running" ? .blue : card.state == "unread" ? .green : nil }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                if let dot { Circle().fill(dot).frame(width: 8, height: 8) }
+                Text(verbatim: card.title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary).multilineTextAlignment(.leading).lineLimit(3)
+                Spacer(minLength: 0)
+                if let u = card.updated { Text(u, format: .relative(presentation: .named, unitsStyle: .abbreviated)).font(.caption2).foregroundStyle(.secondary) }
+            }
+            if !card.prompt.isEmpty, card.prompt.split(separator: "\n").first.map(String.init) != card.title {
+                Text(verbatim: card.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+            if card.state == "waiting" { Text("Waiting for you · tap to answer").font(.caption.weight(.semibold)).foregroundStyle(.orange) }
+            if card.state == "draft" { Text("Write the first message").font(.caption).foregroundStyle(.secondary) }
+            if card.state == "running", let progress { Text(verbatim: progress).font(.caption).foregroundStyle(.blue).lineLimit(2) }
+            if card.project != nil || !card.tags.isEmpty {
+                HStack(spacing: 6) {
+                    if let p = card.project { Text(verbatim: p).font(.caption2).foregroundStyle(.secondary) }
+                    ForEach(card.tags.prefix(3), id: \.self) { tag in
+                        Text(verbatim: tag).font(.caption2).foregroundStyle(.secondary).padding(.horizontal, 6).padding(.vertical, 1).background(.quaternary, in: Capsule())
+                    }
+                }
+                .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 }
