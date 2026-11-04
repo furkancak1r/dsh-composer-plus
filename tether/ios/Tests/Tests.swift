@@ -698,33 +698,43 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(c.tsReady, "cancel changes nothing")
     }
 
-    /// Notifications: off by default and no iOS permission ask; switched on, it stays on after a restart.
+    /// Two test Macs, A ("a1", on screen) and B ("b2"), with no saved values. Call the result to remove the test keys and
+    /// put back the real pairings (the Keychain item belongs to the real app).
+    @MainActor private func twoMacs(_ c: Client) -> () -> Void {
+        let d = UserDefaults.standard, saved = c.pairings, savedFp = c.activeFp
+        let keys = ["a1", "b2", "a1new"].flatMap { fp in Client.perMacKeys.map { macKey($0, fp, legacy: nil) } }
+        keys.forEach { d.removeObject(forKey: $0) }
+        c.pairings = [Pairing(host: "192.168.1.2", port: 19390, fp: "a1", token: "ta", deviceId: "d", name: "n", expiresAt: "", mac: "A"),
+                      Pairing(host: "192.168.1.3", port: 19390, fp: "b2", token: "tb", deviceId: "d", name: "n", expiresAt: "", mac: "B")]
+        c.switchMac("a1", force: true)
+        return { keys.forEach { d.removeObject(forKey: $0) }; c.pairings = saved; c.activeFp = savedFp }
+    }
+
+    /// Notifications: off by default and no iOS permission ask; switched on, it stays on (saved for the Mac on screen).
     @MainActor func testNotificationsSwitch() async {
-        let d = UserDefaults.standard, was = d.object(forKey: Client.notifyKey)
-        d.removeObject(forKey: Client.notifyKey)
-        defer { d.set(was, forKey: Client.notifyKey) }
+        let c = Client(), undo = twoMacs(c)
+        defer { undo() }
         var asks = 0, allow = false
-        let c = Client(); c.askNotify = { asks += 1; return allow }
+        c.askNotify = { asks += 1; return allow }
+        let saved = { UserDefaults.standard.bool(forKey: macKey(Client.notifyKey, "a1", legacy: nil)) }
         XCTAssertFalse(c.notifyOn, "off by default"); XCTAssertEqual(asks, 0, "no permission ask before the user switches it on")
         let refused = await c.setNotify(true)
         XCTAssertFalse(refused); XCTAssertFalse(c.notifyOn, "iOS refused: it stays off"); XCTAssertTrue(c.notifyDenied)
         allow = true
         let on = await c.setNotify(true)
         XCTAssertTrue(on); XCTAssertTrue(c.notifyOn); XCTAssertFalse(c.notifyDenied); XCTAssertEqual(asks, 2)
-        XCTAssertTrue(Client().notifyOn, "a new start keeps it on")
+        XCTAssertTrue(saved(), "saved for this Mac")
         await c.setNotify(false)
         XCTAssertFalse(c.notifyOn); XCTAssertEqual(asks, 2, "switching it off asks nothing")
-        XCTAssertFalse(Client().notifyOn)
+        XCTAssertFalse(saved())
     }
 
-    /// Notification hours: off by default (every hour); on, only inside From–To, also past midnight; kept after a restart.
+    /// Notification hours: off by default (every hour); on, only inside From–To, also past midnight; saved for the Mac.
     @MainActor func testNotificationHours() async {
-        let d = UserDefaults.standard, keys = [Client.notifyKey, Client.hoursKey, Client.fromKey, Client.toKey]
-        let was = keys.map { d.object(forKey: $0) }
-        keys.forEach { d.removeObject(forKey: $0) }
-        defer { for (k, v) in zip(keys, was) { d.set(v, forKey: k) } }
         let at = { (h: Int, m: Int) in Calendar.current.date(bySettingHour: h, minute: m, second: 0, of: .now)! }
-        let c = Client(); c.askNotify = { true }
+        let c = Client(), undo = twoMacs(c)
+        defer { undo() }
+        c.askNotify = { true }
         XCTAssertFalse(c.notifyHours, "off by default")
         XCTAssertFalse(c.shouldNotify(at: at(12, 0)), "Send notifications off: nothing")
         await c.setNotify(true)
@@ -738,11 +748,103 @@ final class CoreTests: XCTestCase {
         c.notifyTo = 22 * 60
         XCTAssertTrue(c.shouldNotify(at: at(12, 0)), "the same time for both: all day")
         c.notifyTo = 7 * 60
-        let cold = Client()
-        XCTAssertTrue(cold.notifyHours); XCTAssertEqual(cold.notifyFrom, 22 * 60); XCTAssertEqual(cold.notifyTo, 7 * 60)
-        XCTAssertFalse(cold.shouldNotify(at: at(12, 0)), "a new start keeps the hours")
+        c.switchMac("b2"); c.switchMac("a1") // loadNotify reads the saved values back (init uses the same load)
+        XCTAssertTrue(c.notifyHours); XCTAssertEqual(c.notifyFrom, 22 * 60); XCTAssertEqual(c.notifyTo, 7 * 60)
+        XCTAssertFalse(c.shouldNotify(at: at(12, 0)), "the hours are saved")
         await c.setNotify(false)
         XCTAssertFalse(c.shouldNotify(at: at(23, 30)), "Send notifications off wins over the hours")
+    }
+
+    /// Each Mac has its own notification settings; a new Mac starts off; unpairing removes that Mac's settings.
+    @MainActor func testNotificationsPerMac() async {
+        let c = Client(), undo = twoMacs(c)
+        defer { undo() }
+        c.askNotify = { true }
+        let d = UserDefaults.standard, noon = Calendar.current.date(bySettingHour: 12, minute: 0, second: 0, of: .now)!
+        XCTAssertFalse(c.notifyOn, "A: off by default")
+        await c.setNotify(true); c.notifyHours = true; c.notifyFrom = 22 * 60; c.notifyTo = 7 * 60
+        c.switchMac("b2")
+        XCTAssertFalse(c.notifyOn, "B stays off"); XCTAssertFalse(c.notifyHours); XCTAssertEqual(c.notifyFrom, 8 * 60); XCTAssertEqual(c.notifyTo, 22 * 60)
+        XCTAssertFalse(c.shouldNotify(at: noon), "B's settings apply while B is on screen")
+        await c.setNotify(true)
+        XCTAssertTrue(c.shouldNotify(at: noon), "B: on, every hour")
+        c.switchMac("a1")
+        XCTAssertTrue(c.notifyOn); XCTAssertTrue(c.notifyHours); XCTAssertEqual(c.notifyFrom, 22 * 60); XCTAssertEqual(c.notifyTo, 7 * 60)
+        XCTAssertFalse(c.shouldNotify(at: noon), "A's hours apply on A, not B's")
+        // Unpair B (not on screen): its settings leave this iPhone; A stays as it is.
+        c.forget(fp: "b2")
+        for k in Client.notifyKeys { XCTAssertNil(d.object(forKey: macKey(k, "b2", legacy: nil)), "B's \(k) is gone") }
+        XCTAssertTrue(c.notifyOn)
+        // Unpair the last Mac: no Mac on screen, everything off.
+        c.forget()
+        XCTAssertFalse(c.notifyOn); XCTAssertFalse(c.notifyHours); XCTAssertFalse(c.shouldNotify(at: noon))
+        XCTAssertNil(d.object(forKey: macKey(Client.notifyKey, "a1", legacy: nil)))
+    }
+
+    /// Older builds kept one notification set for every Mac. It goes to each paired Mac once; the bare keys stay only for
+    /// the migrated Mac. With no saved set every Mac is off, and a Mac paired later has no value (off).
+    @MainActor func testNotifySplit() {
+        let name = "tether-notify-split-test", d = UserDefaults(suiteName: name)!
+        d.removePersistentDomain(forName: name)
+        defer { d.removePersistentDomain(forName: name) }
+        let k = { (key: String, fp: String) in macKey(key, fp, legacy: nil) }
+        d.set(true, forKey: Client.notifyKey); d.set(true, forKey: Client.hoursKey); d.set(22 * 60, forKey: Client.fromKey); d.set(7 * 60, forKey: Client.toKey)
+        Client.splitNotify(d, macs: ["a1", "b2"], legacy: nil)
+        for fp in ["a1", "b2"] {
+            XCTAssertTrue(d.bool(forKey: k(Client.notifyKey, fp))); XCTAssertTrue(d.bool(forKey: k(Client.hoursKey, fp)))
+            XCTAssertEqual(d.object(forKey: k(Client.fromKey, fp)) as? Int, 22 * 60); XCTAssertEqual(d.object(forKey: k(Client.toKey, fp)) as? Int, 7 * 60)
+        }
+        for key in Client.notifyKeys { XCTAssertNil(d.object(forKey: key), "no migrated Mac: the bare \(key) goes") }
+        XCTAssertTrue(d.bool(forKey: "notifyPerMac"))
+        // It runs once: a later change of one Mac stays.
+        d.set(false, forKey: k(Client.notifyKey, "a1")); d.set(true, forKey: Client.notifyKey)
+        Client.splitNotify(d, macs: ["a1", "b2"], legacy: nil)
+        XCTAssertFalse(d.bool(forKey: k(Client.notifyKey, "a1")), "the second run changes nothing")
+        XCTAssertNil(d.object(forKey: k(Client.notifyKey, "c3")), "a Mac paired later: off")
+        // The migrated Mac keeps the bare keys; the other Macs get a copy. A switch that is off is copied too.
+        d.removePersistentDomain(forName: name)
+        d.set(false, forKey: Client.notifyKey); d.set(9 * 60, forKey: Client.fromKey)
+        Client.splitNotify(d, macs: ["old", "b2"], legacy: "old")
+        XCTAssertEqual(macKey(Client.notifyKey, "old", legacy: "old"), Client.notifyKey)
+        XCTAssertEqual(d.object(forKey: Client.notifyKey) as? Bool, false); XCTAssertEqual(d.object(forKey: Client.fromKey) as? Int, 9 * 60)
+        XCTAssertEqual(d.object(forKey: k(Client.notifyKey, "b2")) as? Bool, false); XCTAssertEqual(d.object(forKey: k(Client.fromKey, "b2")) as? Int, 9 * 60)
+        XCTAssertNil(d.object(forKey: k(Client.hoursKey, "b2")), "no saved hours: nothing to copy")
+        // The migrated Mac was unpaired before: the bare keys go.
+        d.removePersistentDomain(forName: name)
+        d.set(true, forKey: Client.notifyKey)
+        Client.splitNotify(d, macs: ["b2"], legacy: "old")
+        XCTAssertTrue(d.bool(forKey: k(Client.notifyKey, "b2"))); XCTAssertNil(d.object(forKey: Client.notifyKey))
+        // Nothing saved (never switched on): every Mac stays off.
+        d.removePersistentDomain(forName: name)
+        Client.splitNotify(d, macs: ["a1"], legacy: nil)
+        XCTAssertNil(d.object(forKey: k(Client.notifyKey, "a1"))); XCTAssertTrue(d.bool(forKey: "notifyPerMac"))
+    }
+
+    /// The iOS ask runs while the user switches Macs: the answer goes to the Mac that asked, not to the Mac on screen.
+    @MainActor func testNotifyAskWhileSwitching() async {
+        let c = Client(), undo = twoMacs(c)
+        defer { undo() }
+        c.askNotify = { await MainActor.run { c.switchMac("b2") }; return true }
+        let ok = await c.setNotify(true)
+        XCTAssertTrue(ok); XCTAssertEqual(c.activeFp, "b2")
+        XCTAssertFalse(c.notifyOn, "B on screen stays off")
+        XCTAssertNil(UserDefaults.standard.object(forKey: macKey(Client.notifyKey, "b2", legacy: nil)))
+        c.switchMac("a1")
+        XCTAssertTrue(c.notifyOn, "A asked: A is on")
+    }
+
+    /// The same Mac paired again with a new certificate: its notification settings go to the new pairing.
+    @MainActor func testAdoptKeepsNotify() async {
+        let c = Client(), undo = twoMacs(c)
+        defer { undo() }
+        c.askNotify = { true }
+        await c.setNotify(true); c.notifyHours = true; c.notifyFrom = 21 * 60
+        let p = Pairing(host: "192.168.1.2", port: 19390, fp: "a1new", token: "tn", deviceId: "d", name: "n", expiresAt: "", mac: "A")
+        c.pairings = upserted(c.pairings, p)
+        c.adopt(p)
+        XCTAssertEqual(c.pairings.map(\.fp), ["b2", "a1new"]); XCTAssertEqual(c.activeFp, "a1new")
+        XCTAssertTrue(c.notifyOn); XCTAssertTrue(c.notifyHours); XCTAssertEqual(c.notifyFrom, 21 * 60)
+        XCTAssertNil(UserDefaults.standard.object(forKey: macKey(Client.notifyKey, "a1", legacy: nil)), "the old certificate's keys go")
     }
 
     /// DSH desktop's chat shape: steps fold into one row; a finished turn folds to its summary and its answer.

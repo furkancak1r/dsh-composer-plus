@@ -2372,6 +2372,8 @@ struct SettingsView: View {
                     }
                 } header: { Text("Notifications") } footer: {
                     VStack(alignment: .leading, spacing: 6) {
+                        // the switch and the hours belong to the Mac on screen (the checkmark in Macs)
+                        if let p = c.pairing { Text("These settings are for \(p.title) only. Each Mac has its own; a new Mac starts with them off.") }
                         Text(c.notifyDenied
                              ? "iOS does not allow notifications from Tether. Allow them in iOS Settings › Notifications › Tether, then turn this on again."
                              : "Tether tells you when a turn finished, when a chat waits for an approval or a question, and when another chat has an error. It can do this only while it keeps its connection: while it is open and for a short time after you leave it.")
