@@ -47,7 +47,7 @@ export const PLUS = new Map([
   ['changes', ['GET']], ['diff', ['GET']], ['file-chats', ['GET']], ['graph', ['GET']], ['continue', ['POST']], ['grants', ['GET', 'POST']],
   ['rollback', ['GET', 'POST']], ['delete-chat', ['POST']], ['ideas', ['POST']], ['later', ['GET', 'POST']], ['idea-history', ['GET', 'POST']],
   ['queue-move', ['POST']], ['queue-edit', ['POST']], ['branches', ['GET']], ['predict', ['POST']], ['complete', ['POST']], ['improve', ['POST']], ['unread', ['GET', 'POST']],
-  ['worktrees', ['GET', 'POST']], ['new-session-workspace', ['POST']], ['memory-edit', ['GET', 'POST']], ['handoff', ['POST']], ['context', ['GET']],
+  ['worktrees', ['GET', 'POST']], ['new-session-workspace', ['POST']], ['memory-edit', ['GET', 'POST']], ['memory-history', ['GET', 'POST']], ['memory-export', ['POST']], ['memory-copy', ['GET', 'POST']], ['memory-stale', ['GET']], ['memory-chat', ['GET', 'POST']], ['memory-suggest', ['POST']], ['handoff', ['POST']], ['context', ['GET']],
   ['board-chats', ['GET', 'POST']], ['board-progress', ['GET']],
 ])
 /** Allow for this chat: an Auto Review ask (`approval/request` with this reason) for a tool that the chat granted. */

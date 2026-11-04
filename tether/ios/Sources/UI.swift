@@ -531,6 +531,7 @@ struct ConversationView: View {
     @State private var showChanges = false
     @State private var showIdeas = false
     @State private var showMemory = false
+    @State private var showSuggest = false
     @State private var showHandoff = false
     @State private var showContext = false
     @State private var showBoard = false
@@ -588,6 +589,11 @@ struct ConversationView: View {
                         if c.plus.contains("changes") { Button { showChanges = true } label: { Label("Changes", systemImage: "plusminus") } }
                         if c.plus.contains("ideas") { Button { showIdeas = true } label: { Label("Feature ideas", systemImage: "lightbulb") } }
                         if c.plus.contains("memory-edit") { Button { showMemory = true } label: { Label("Project memory", systemImage: "brain") } }
+                        if let off = c.memoryChatOff {
+                            Toggle(isOn: Binding(get: { !off }, set: { on in Task { await c.setMemoryChat(!on) } })) { Label("Use project memory", systemImage: "brain.head.profile") }
+                                .disabled(c.memoryChatBusy)
+                        }
+                        if c.plus.contains("memory-suggest"), c.memorySuggestable { Button { showSuggest = true } label: { Label("Suggest for memory", systemImage: "sparkles") } }
                         if c.plus.contains("context") { Button { showContext = true } label: { Label("Context", systemImage: "chart.bar.doc.horizontal") } }
                         if c.plus.contains("board-chats") { Button { showBoard = true } label: { Label("Task board", systemImage: "rectangle.split.3x1") } }
                         if c.plus.contains("handoff"), c.currentSess?.parent == nil { Button { showHandoff = true } label: { Label("Continue in a new chat", systemImage: "arrow.right.doc.on.clipboard") } }
@@ -608,6 +614,7 @@ struct ConversationView: View {
             .sheet(isPresented: $showChanges) { if let id = c.current { ChangesSheet(sessionId: id, map: c.plus.contains("graph")) } }
             .sheet(isPresented: $showIdeas) { if let id = c.current { IdeasSheet(sessionId: id) } }
             .sheet(isPresented: $showMemory) { MemorySheet(cwd: c.currentSess?.cwd ?? "") }
+            .sheet(isPresented: $showSuggest) { if let id = c.current { MemorySuggestSheet(sessionId: id) } }
             .sheet(isPresented: $showHandoff) { if let id = c.current { HandoffSheet(sessionId: id) } }
             .sheet(isPresented: $showContext) { if let id = c.current { ContextSheet(sessionId: id) } }
             .sheet(isPresented: $showBoard) { BoardSheet(project: boardProjectOf(c.current ?? "", workspaces: c.workspaces)) }
@@ -2910,6 +2917,25 @@ struct CommitView: View {
     }
 }
 
+/// A unified patch from its first hunk, colored by line (Changes, Project memory → History).
+struct PatchLines: View {
+    let patch: String
+    var truncated = false
+    var body: some View {
+        let lines = patch.split(separator: "\n", omittingEmptySubsequences: false).filter { !$0.hasPrefix("--- ") && !$0.hasPrefix("+++ ") }.drop { !$0.hasPrefix("@@") }
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, l in
+                Text(String(l).isEmpty ? " " : String(l)).font(.caption.monospaced())
+                    .foregroundStyle(l.hasPrefix("@@") ? Color.secondary : .primary)
+                    .padding(.horizontal, 8).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(l.hasPrefix("+") ? Color.green.opacity(0.12) : l.hasPrefix("-") ? Color.red.opacity(0.12) : .clear)
+            }
+            if truncated { Text("Diff truncated.").font(.caption).foregroundStyle(.secondary).padding(8) }
+        }
+        .textSelection(.enabled)
+    }
+}
+
 /// One file's diff: the patch from its first hunk, colored by line.
 struct DiffView: View {
     @EnvironmentObject var c: Client
@@ -2925,17 +2951,7 @@ struct DiffView: View {
             if let failed { Text(failed).foregroundStyle(.secondary).padding() }
             else if let d {
                 if d["binary"] as? Bool == true { Text("binary").foregroundStyle(.secondary).padding() }
-                let lines = (d["patch"] as? String ?? "").split(separator: "\n", omittingEmptySubsequences: false).drop { !$0.hasPrefix("@@") }
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(lines.enumerated()), id: \.offset) { _, l in
-                        Text(String(l).isEmpty ? " " : String(l)).font(.caption.monospaced())
-                            .foregroundStyle(l.hasPrefix("@@") ? Color.secondary : .primary)
-                            .padding(.horizontal, 8).frame(maxWidth: .infinity, alignment: .leading)
-                            .background(l.hasPrefix("+") ? Color.green.opacity(0.12) : l.hasPrefix("-") ? Color.red.opacity(0.12) : .clear)
-                    }
-                    if d["truncated"] as? Bool == true { Text("Diff truncated.").font(.caption).foregroundStyle(.secondary).padding(8) }
-                }
-                .textSelection(.enabled)
+                PatchLines(patch: d["patch"] as? String ?? "", truncated: d["truncated"] as? Bool == true)
             } else { ProgressView().padding() }
         }
         .navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
@@ -3269,6 +3285,9 @@ struct MemorySheet: View {
     @State private var picked = false
     @State private var filter = ""
     @State private var text = ""
+    @State private var copySearch = ""
+    /// Case and accents ignored, as Project search in a new chat.
+    private func folded(_ s: String) -> String { s.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil) }
     init(cwd: String) {
         self.cwd = cwd
         _m = StateObject(wrappedValue: MemoryEditor(call: { _ in [:] }))
@@ -3291,7 +3310,10 @@ struct MemorySheet: View {
                         ForEach(m.projects) { p in Text("\(p.name) (\(p.count))").tag(p.id) }
                     }
                     .disabled(m.busy != nil)
-                    .onChange(of: pick) { _, _ in m.discard() }
+                    .onChange(of: pick) { _, p in
+                        m.discard(); m.closeHistory(); m.exportDiscard(); m.cancelCopy()
+                        if c.plus.contains("memory-stale") { Task { await m.checkStale(p == "all" || p == "global" ? nil : p) } }
+                    }
                 }
                 ForEach(groups) { g in
                     let notes = g.notes.filter(shown)
@@ -3303,6 +3325,14 @@ struct MemorySheet: View {
                                     Text(n.text).font(.subheadline)
                                     let meta = [n.topic.map { String(localized: "Topic: \($0)") }, n.added].compactMap { $0 }.joined(separator: " · ")
                                     if !meta.isEmpty { Text(meta).font(.caption2).foregroundStyle(.secondary) }
+                                    if g.id == m.staleProject, let miss = m.stale[MemoryEditor.staleKey(n.topic, n.text)] {
+                                        Text("⚠ " + miss.joined(separator: " · ")).font(.caption2).foregroundStyle(.orange)
+                                    }
+                                    // Memory note source link: the chat opens at the message that the note came from.
+                                    if let sid = n.sourceSession {
+                                        Button { dismiss(); c.openMessage(sid, seq: n.sourceSeq ?? 0) } label: { Label("Source", systemImage: "arrow.up.forward.square").font(.caption) }
+                                            .buttonStyle(.borderless)
+                                    }
                                 }
                                 .textSelection(.enabled)
                             }
@@ -3315,6 +3345,73 @@ struct MemorySheet: View {
                     }
                 }
                 if m.loaded && total == 0 { Text("No notes saved yet.").foregroundStyle(.secondary) }
+                if c.plus.contains("memory-copy"), pick != "all" {
+                    Section {
+                        if m.copyFrom == pick {
+                            Text(m.copyPicked.isEmpty ? String(localized: "Pick the notes to copy.") : String(localized: "\(m.copyPicked.count) note(s) picked. Select the project to copy them to.")).font(.footnote)
+                            ForEach(groups.flatMap(\.notes)) { n in
+                                Button { m.pick(n) } label: {
+                                    Label(n.text, systemImage: m.copyPicked.contains(n) ? "checkmark.circle.fill" : "circle").font(.subheadline)
+                                }
+                                .disabled(m.busy != nil)
+                            }
+                            TextField("Search projects", text: $copySearch).textInputAutocapitalization(.never).autocorrectionDisabled()
+                            ForEach(m.copyTargets.filter { copySearch.isEmpty || folded($0.title + " " + $0.path).contains(folded(copySearch)) }) { p in
+                                Button { Task { await m.copy(to: p) } } label: {
+                                    VStack(alignment: .leading, spacing: 2) { Text(p.title); Text(p.path).font(.caption2).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle) }
+                                }
+                                .disabled(m.busy != nil || m.copyPicked.isEmpty)
+                            }
+                            Button("Discard", role: .destructive) { m.cancelCopy() }.disabled(m.busy != nil)
+                        } else {
+                            Button { Task { await m.startCopy(pick) } } label: { Label("Copy to project", systemImage: "doc.on.doc") }.disabled(m.busy != nil)
+                            if let d = m.copied { Text("Copied \(d.count) note(s) to \(d.to); \(d.skipped) were already there.").font(.footnote).foregroundStyle(.secondary) }
+                        }
+                    } header: { Text("Copy notes to another project") }
+                }
+                if c.plus.contains("memory-export"), pick != "all", pick != "global" {
+                    Section {
+                        if let e = m.exported, e.project == pick {
+                            Text(e.id == nil ? String(localized: "AGENTS.md already has these notes.") : e.created ? String(localized: "The project has no AGENTS.md: this makes it.") : String(localized: "Check the change to AGENTS.md, then write it.")).font(.footnote)
+                            if e.id != nil {
+                                Button("Write AGENTS.md") { Task { await m.exportApply() } }.bold().disabled(m.busy != nil)
+                                ScrollView(.horizontal) { PatchLines(patch: e.patch, truncated: e.truncated) }
+                            }
+                            Button("Discard", role: .destructive) { m.exportDiscard() }.disabled(m.busy != nil)
+                        } else {
+                            Button { Task { await m.exportPreview(pick) } } label: { Label("Export to AGENTS.md", systemImage: "square.and.arrow.down.on.square") }.disabled(m.busy != nil)
+                            if m.exportDone { Text("AGENTS.md was written.").font(.footnote).foregroundStyle(.secondary) }
+                        }
+                    }
+                }
+                if c.plus.contains("memory-history"), pick != "all" {
+                    Section {
+                        if m.historyScope != pick {
+                            Button { Task { await m.openHistory(pick) } } label: { Label("History", systemImage: "clock.arrow.circlepath") }.disabled(m.busy != nil)
+                        } else {
+                            if m.versions.isEmpty { Text("No earlier version yet. A version is kept before each save.").font(.footnote).foregroundStyle(.secondary) }
+                            ForEach(m.versions) { v in
+                                Button { Task { await m.open(version: v.id) } } label: {
+                                    HStack {
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(Date(timeIntervalSince1970: v.time / 1000), format: .dateTime.day().month().year().hour().minute()).font(.subheadline)
+                                            Text("Before a change by \(memoryActor(v.actor))").font(.caption2).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                        if m.openVersion?.id == v.id { Image(systemName: "checkmark").foregroundStyle(.tint) }
+                                    }
+                                }
+                                .disabled(m.busy != nil)
+                            }
+                            if let v = m.openVersion {
+                                Button("Restore") { Task { await m.restore() } }.bold().disabled(m.busy != nil || v.patch.isEmpty)
+                                ScrollView(.horizontal) { PatchLines(patch: v.patch, truncated: v.truncated) }
+                            }
+                            if m.restored { Text("Version restored. The notes before it are kept as a new version.").font(.footnote).foregroundStyle(.secondary) }
+                            Button("Close history") { m.closeHistory() }.disabled(m.busy != nil)
+                        }
+                    } header: { Text("Memory versions") }
+                }
                 if let p = m.preview {
                     Section {
                         Text(p.note.isEmpty ? (p.changes.isEmpty ? String(localized: "The model proposes no change.") : String(localized: "Check these \(p.changes.count) change(s), then apply them.")) : p.note).font(.footnote)
@@ -3339,7 +3436,7 @@ struct MemorySheet: View {
             .searchable(text: $filter, prompt: "Filter notes")
             .safeAreaInset(edge: .bottom) {
                 VStack(alignment: .leading, spacing: 6) {
-                    if let b = m.busy { HStack(spacing: 8) { ProgressView(); Text(b == "apply" ? "Saving the changes…" : "The model prepares the changes…") }.font(.footnote).foregroundStyle(.secondary) }
+                    if let b = m.busy { HStack(spacing: 8) { ProgressView(); Text(b == "apply" ? "Saving the changes…" : b == "restore" ? "Restoring the version…" : b == "export" ? "Working on AGENTS.md…" : b == "copy" ? "Copying the notes…" : "The model prepares the changes…") }.font(.footnote).foregroundStyle(.secondary) }
                     else if let n = m.applied { Text("Saved \(n) change(s).").font(.footnote).foregroundStyle(.secondary) }
                     if let f = m.failed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
                     HStack(alignment: .bottom) {
@@ -3360,15 +3457,32 @@ struct MemorySheet: View {
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .task {
                 m.bind { [c] body in try await c.plusCall("memory-edit", body: body, wait: body == nil ? nil : 150) }
+                m.bindStale { [c] project in try await c.plusCall("memory-stale", query: ["project": project]) }
+                m.bindCopy { [c] body in try await c.plusCall("memory-copy", body: body, wait: body == nil ? nil : 60) }
+                m.bindExport { [c] body in try await c.plusCall("memory-export", body: body, wait: 60) }
+                m.bindHistory { [c] query, body in try await c.plusCall("memory-history", query: query, body: body, wait: body == nil ? nil : 60) }
                 await m.load()
                 // The chat's own project first, when it has notes.
-                if !picked, let p = m.projects.first(where: { $0.path == cwd }) { pick = p.id }
+                if !picked, let p = m.projects.first(where: { $0.path == cwd }) { pick = p.id; if c.plus.contains("memory-stale") { await m.checkStale(p.id) } }
                 picked = true
             }
         }
     }
     /// Return and the button both go through the editor, which refuses a second ask while one runs.
     private func send() { let t = text; Task { await m.ask(pick == "all" ? nil : pick, t) } }
+}
+
+/// Who changed the memory after a version (the journal actor).
+func memoryActor(_ a: String) -> String {
+    switch a {
+    case "agent": return String(localized: "the agent")
+    case "review": return String(localized: "the review after a turn")
+    case "editor": return String(localized: "Project memory")
+    case "restore": return String(localized: "a restore")
+    case "copy": return String(localized: "a copy from another project")
+    case "suggest": return String(localized: "a suggestion")
+    default: return String(localized: "another change")
+    }
 }
 
 /// Continue in a new chat (Composer Plus on the Mac): the Mac writes a handoff note from this chat; the user edits it;
@@ -3401,6 +3515,51 @@ struct HandoffSheet: View {
                 // The note is a model call on the Mac; a start must run to its end there (the gateway never stops it).
                 h.bind { [c] body in try await c.plusCall("handoff", body: body, wait: 190) }
                 if h.note.isEmpty { await h.write(sessionId) }
+            }
+        }
+    }
+}
+
+/// Suggest for memory (Composer Plus on the Mac): the chat's model on the Mac suggests notes from this chat (one model call
+/// when the sheet opens or on Ask again); Accept saves one note with this chat as its source, Reject only hides it here.
+struct MemorySuggestSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let sessionId: String
+    @StateObject private var s = MemorySuggester(call: { _ in [:] })
+    var body: some View {
+        NavigationStack {
+            List {
+                if s.busy == "ask" { HStack(spacing: 8) { ProgressView(); Text("The chat’s model reads the chat…") }.font(.footnote).foregroundStyle(.secondary) }
+                else if s.asked, s.failed == nil, s.items.isEmpty { Text("The model found nothing new worth keeping.").font(.footnote).foregroundStyle(.secondary) }
+                ForEach(s.items) { x in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(verbatim: x.text).strikethrough(x.state == "rejected").foregroundStyle(x.state == "rejected" ? .secondary : .primary)
+                        let meta = [x.global ? String(localized: "Global memory") : nil, x.topic.map { String(localized: "Topic: \($0)") }, x.why.isEmpty ? nil : x.why].compactMap { $0 }.joined(separator: " · ")
+                        if !meta.isEmpty { Text(verbatim: meta).font(.caption).foregroundStyle(.secondary) }
+                        switch x.state {
+                        case "saved": Label("Saved", systemImage: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
+                        case "rejected": Text("Rejected").font(.caption).foregroundStyle(.secondary)
+                        default:
+                            HStack {
+                                Button("Reject") { s.reject(x.id) }.buttonStyle(.bordered).disabled(s.busy != nil)
+                                Button("Accept") { Task { await s.accept(x.id) } }.buttonStyle(.borderedProminent).disabled(s.busy != nil)
+                                if x.state == "saving" { ProgressView() }
+                            }.font(.callout)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+                if s.skipped > 0 { Text("\(s.skipped) suggestion(s) were left out: already saved, too long, or looked like a key or password.").font(.footnote).foregroundStyle(.orange) }
+                if let f = s.failed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
+                if s.asked, s.busy == nil { Button("Ask again") { Task { await s.ask(sessionId) } } }
+            }
+            .navigationTitle("Suggest for memory").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .task {
+                // A model call on the Mac; an Accept must run to its end there (the gateway never stops it).
+                s.bind { [c] body in try await c.plusCall("memory-suggest", body: body, wait: body["accept"] == nil ? 190 : 60) }
+                if !s.asked { await s.ask(sessionId) }
             }
         }
     }

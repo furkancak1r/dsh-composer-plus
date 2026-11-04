@@ -1322,6 +1322,195 @@ final class BranchStateTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(loads, 1)
         XCTAssertEqual(m.failed, "Nothing was saved: add \"a\" in global: MEMORY.md is full", "the reason stays after the list is read again")
     }
+    /// Memory history (`/plus/memory-history`): the versions, a version's diff, Restore once; a second action while it runs
+    /// does nothing; a refused restore closes the version and keeps the reason.
+    func testHistoryRestoreOneAtATime() async {
+        var calls: [(q: [String: String], b: J?)] = []
+        var gate: CheckedContinuation<Void, Never>?
+        var hold = false; var refuse = false
+        let m = MemoryEditor { _ in self.list }
+        m.bindHistory { q, b in
+            calls.append((q, b))
+            if b != nil {
+                if hold { await withCheckedContinuation { gate = $0 } }
+                if refuse { throw Fail("the memory changed after you opened this version; open it again", status: 409) }
+                return self.list.merging(["restored": "v1", "versions": [["id": "v0", "time": 3.0, "actor": "restore", "notes": 1]]]) { a, _ in a }
+            }
+            if q["id"] == nil { return ["on": true, "versions": [["id": "v1", "time": 1_700_000_000_000.0, "actor": "editor", "notes": 2], ["actor": "x"]]] }
+            return ["id": "v1", "time": 1_700_000_000_000.0, "actor": "editor", "version": "ver1", "patch": "@@ -1,1 +1,1 @@\n-- a\n+- b\n", "truncated": false]
+        }
+        let opened = await m.openHistory("p1")
+        XCTAssertTrue(opened); XCTAssertEqual(m.historyScope, "p1")
+        XCTAssertEqual(m.versions.map(\.id), ["v1"], "a version without an id is left out")
+        let shown = await m.open(version: "v1")
+        XCTAssertTrue(shown); XCTAssertEqual(m.openVersion?.version, "ver1")
+        XCTAssertEqual(calls.last?.q, ["scope": "p1", "id": "v1"])
+        hold = true
+        let restoring = Task { await m.restore() }
+        while gate == nil { await Task.yield() }
+        XCTAssertEqual(m.busy, "restore")
+        let again = await m.restore(); let ask = await m.ask("p1", "x"); let other = await m.openHistory("global")
+        XCTAssertFalse(again); XCTAssertFalse(ask); XCTAssertFalse(other)
+        m.closeHistory(); XCTAssertEqual(m.historyScope, "p1", "the history stays while the restore runs")
+        hold = false; gate?.resume(); gate = nil
+        let done = await restoring.value
+        XCTAssertTrue(done); XCTAssertTrue(m.restored); XCTAssertNil(m.openVersion)
+        XCTAssertEqual(calls.filter { $0.b != nil }.count, 1, "one restore")
+        XCTAssertEqual((calls.first { $0.b != nil }?.b?["restore"] as? J)?["version"] as? String, "ver1")
+        XCTAssertEqual(m.versions.first?.actor, "restore")
+        // A refused restore: the version closes, the reason stays.
+        _ = await m.open(version: "v1")
+        refuse = true
+        let refused = await m.restore()
+        XCTAssertFalse(refused); XCTAssertNil(m.openVersion)
+        XCTAssertEqual(m.failed, "the memory changed after you opened this version; open it again")
+    }
+    /// Copy notes to another project (`/plus/memory-copy`): the targets leave out the same memory, a copy runs once, a second
+    /// action while it runs does nothing, a refused copy keeps the picks and the reason.
+    func testCopyOneAtATime() async {
+        var posts: [J] = []
+        var gate: CheckedContinuation<Void, Never>?
+        var hold = false; var refuse = false
+        let m = MemoryEditor { _ in self.list }
+        m.bindCopy { b in
+            guard let b else { return ["projects": [["workspaceId": "w1", "title": "acme-api", "path": "/p/api", "memory": "p2"], ["workspaceId": "w0", "title": "acme-shop", "path": "/p/acme-shop", "memory": "p1"]]] }
+            posts.append(b)
+            if hold { await withCheckedContinuation { gate = $0 } }
+            if refuse { throw Fail("Nothing was copied: \"a\": MEMORY.md is full", status: 409) }
+            return self.list.merging(["copied": 1, "skipped": 1]) { a, _ in a }
+        }
+        await m.load()
+        let started = await m.startCopy("p1")
+        XCTAssertTrue(started); XCTAssertEqual(m.copyTargets.map(\.id), ["w1"], "the same memory is not a target")
+        let none = await m.copy(to: m.copyTargets[0])
+        XCTAssertFalse(none, "nothing picked: no copy")
+        m.pick(m.projects[0].notes[0]); m.pick(m.projects[0].notes[1])
+        hold = true
+        let copying = Task { await m.copy(to: m.copyTargets[0]) }
+        while gate == nil { await Task.yield() }
+        XCTAssertEqual(m.busy, "copy")
+        let again = await m.copy(to: m.copyTargets[0]); let ask = await m.ask("p1", "x")
+        XCTAssertFalse(again); XCTAssertFalse(ask)
+        m.pick(m.projects[0].notes[0]); m.cancelCopy()
+        XCTAssertEqual(m.copyPicked.count, 2, "the picks stay while it runs")
+        hold = false; gate?.resume(); gate = nil
+        let done = await copying.value
+        XCTAssertTrue(done); XCTAssertEqual(m.copied?.count, 1); XCTAssertEqual(m.copied?.to, "acme-api"); XCTAssertNil(m.copyFrom)
+        XCTAssertEqual(posts.count, 1)
+        let notes = (posts[0]["copy"] as? J)?["notes"] as? [J]
+        XCTAssertEqual(notes?.map { $0["text"] as? String }, ["The user uses yarn", "Deploy with make release"])
+        XCTAssertTrue(notes?[0]["topic"] is NSNull); XCTAssertEqual(notes?[1]["topic"] as? String, "deploy")
+        _ = await m.startCopy("p1"); m.pick(m.projects[0].notes[0]); refuse = true
+        let refused = await m.copy(to: m.copyTargets[0])
+        XCTAssertFalse(refused); XCTAssertEqual(m.copyPicked.count, 1); XCTAssertEqual(m.failed, "Nothing was copied: \"a\": MEMORY.md is full")
+    }
+    /// Stale notes (`/plus/memory-stale`): the Mac's answer becomes one warning line per note; the newest check wins; no
+    /// project clears them.
+    func testStaleNotes() async {
+        var asked: [String] = []
+        let m = MemoryEditor { _ in self.list }
+        m.bindStale { p in
+            asked.append(p)
+            return ["notes": [["topic": NSNull(), "text": "Uses `src/old.ts`", "missing": [["kind": "path", "name": "src/old.ts"], ["kind": "script", "name": "deploy"], ["kind": "x", "name": "y"]]]]]
+        }
+        await m.checkStale("p1")
+        XCTAssertEqual(asked, ["p1"]); XCTAssertEqual(m.staleProject, "p1")
+        XCTAssertEqual(m.stale[MemoryEditor.staleKey(nil, "Uses `src/old.ts`")], [String(localized: "file not found: src/old.ts"), String(localized: "npm script not found: deploy")])
+        await m.checkStale(nil)
+        XCTAssertTrue(m.stale.isEmpty); XCTAssertNil(m.staleProject)
+    }
+    /// Do not use memory in this chat: the menu item shows only while the feature and Project memory are on, not in a subagent.
+    func testMemoryChatState() {
+        XCTAssertEqual(memoryChatState(["on": true, "memory": true, "off": true]), true)
+        XCTAssertEqual(memoryChatState(["on": true, "memory": true, "off": false]), false)
+        XCTAssertNil(memoryChatState(["on": false, "memory": true, "off": true]), "the feature is off")
+        XCTAssertNil(memoryChatState(["on": true, "memory": false]), "Project memory is off")
+        XCTAssertNil(memoryChatState(["on": true, "memory": true, "off": true, "root": true]), "a subagent chat")
+    }
+    /// Suggest for memory: the menu item shows only while the memory is used in this chat; one ask or accept at a time;
+    /// an accept that the Mac already saved counts as saved; Reject sends nothing.
+    func testMemorySuggest() async {
+        XCTAssertTrue(memorySuggestState(["on": true, "memory": true, "off": false]))
+        XCTAssertTrue(memorySuggestState(["on": false, "memory": true, "off": true]), "the per-chat switch counts only while its feature is on")
+        XCTAssertFalse(memorySuggestState(["on": true, "memory": true, "off": true]), "the memory is off in this chat")
+        XCTAssertFalse(memorySuggestState(["on": true, "memory": false]), "Project memory is off")
+        XCTAssertFalse(memorySuggestState(["on": true, "memory": true, "root": true]), "a subagent chat")
+        var bodies: [J] = []
+        var gate: CheckedContinuation<Void, Never>?
+        var hold = false; var answer: Error?
+        let s = MemorySuggester { b in
+            bodies.append(b)
+            if b["accept"] != nil {
+                if hold { await withCheckedContinuation { gate = $0 } }
+                if let answer { throw answer }
+                return ["saved": true]
+            }
+            return ["id": "k1", "skipped": 1, "suggestions": [["text": "The user uses yarn", "why": "L2"], ["text": "Deploy with make release", "topic": "deploy", "global": true], ["why": "no text"]]]
+        }
+        let asked = await s.ask("session-1")
+        XCTAssertTrue(asked); XCTAssertEqual(s.items.map(\.text), ["The user uses yarn", "Deploy with make release"]); XCTAssertEqual(s.skipped, 1)
+        XCTAssertEqual(s.items[1].topic, "deploy"); XCTAssertTrue(s.items[1].global)
+        hold = true
+        let saving = Task { await s.accept(0) }
+        while gate == nil { await Task.yield() }
+        XCTAssertEqual(s.busy, "accept"); XCTAssertEqual(s.items[0].state, "saving")
+        let second = await s.accept(1); let again = await s.ask("session-1"); s.reject(1)
+        XCTAssertFalse(second); XCTAssertFalse(again); XCTAssertEqual(s.items[1].state, "new", "no Reject while a note is saved")
+        hold = false; gate?.resume(); gate = nil
+        let done = await saving.value
+        XCTAssertTrue(done); XCTAssertEqual(s.items[0].state, "saved")
+        let twice = await s.accept(0)
+        XCTAssertFalse(twice)
+        XCTAssertEqual(bodies.count, 2); XCTAssertEqual((bodies[1]["accept"] as? J)?["id"] as? String, "k1"); XCTAssertEqual((bodies[1]["accept"] as? J)?["index"] as? Int, 0)
+        answer = Fail("this suggestion is already saved", status: 409)
+        _ = await s.accept(1)
+        XCTAssertEqual(s.items[1].state, "saved"); XCTAssertNil(s.failed)
+        _ = await s.ask("session-1"); answer = Fail("Nothing was saved: MEMORY.md is full", status: 409)
+        let refused = await s.accept(0)
+        XCTAssertFalse(refused); XCTAssertEqual(s.items[0].state, "new"); XCTAssertEqual(s.failed, "Nothing was saved: MEMORY.md is full")
+        s.reject(0); XCTAssertEqual(s.items[0].state, "rejected")
+        XCTAssertEqual(bodies.count, 5, "Reject sends nothing")
+    }
+    /// Memory note source link: a note's source chat and message come from the Mac's list; a note without one has none.
+    func testNoteSource() {
+        let g = memoryGroups(["projects": [["id": "p1", "name": "acme", "count": 2, "files": [["topic": NSNull(), "entries": [
+            ["text": "a", "source": ["sessionId": "session-1", "seq": 8]], ["text": "b"], ["text": "c", "source": ["sessionId": "session-2"]]]]]]]])
+        XCTAssertEqual(g.projects[0].notes.map(\.sourceSession), ["session-1", nil, "session-2"])
+        XCTAssertEqual(g.projects[0].notes.map(\.sourceSeq), [8, nil, nil])
+    }
+    /// Export to AGENTS.md (`/plus/memory-export`): the diff first, Write once; a second action while it runs does nothing;
+    /// a refused write drops the preview and keeps the reason.
+    func testExportOneAtATime() async {
+        var bodies: [J] = []
+        var gate: CheckedContinuation<Void, Never>?
+        var hold = false; var refuse = false
+        let m = MemoryEditor { _ in self.list }
+        m.bindExport { b in
+            bodies.append(b)
+            if b["apply"] != nil {
+                if hold { await withCheckedContinuation { gate = $0 } }
+                if refuse { throw Fail("AGENTS.md changed after the preview; preview again", status: 409) }
+                return ["written": "AGENTS.md"]
+            }
+            return ["id": "e1", "created": false, "patch": "@@ -1,1 +1,2 @@\n # Rules\n+- a\n", "truncated": false]
+        }
+        let shown = await m.exportPreview("p1")
+        XCTAssertTrue(shown); XCTAssertEqual(m.exported?.id, "e1"); XCTAssertEqual((bodies[0]["preview"] as? J)?["project"] as? String, "p1")
+        hold = true
+        let writing = Task { await m.exportApply() }
+        while gate == nil { await Task.yield() }
+        XCTAssertEqual(m.busy, "export")
+        let again = await m.exportApply(); let other = await m.exportPreview("p1"); let ask = await m.ask("p1", "x")
+        XCTAssertFalse(again); XCTAssertFalse(other); XCTAssertFalse(ask)
+        m.exportDiscard(); XCTAssertNotNil(m.exported, "the preview stays while it writes")
+        hold = false; gate?.resume(); gate = nil
+        let done = await writing.value
+        XCTAssertTrue(done); XCTAssertTrue(m.exportDone); XCTAssertNil(m.exported)
+        XCTAssertEqual(bodies.map { Array($0.keys) }, [["preview"], ["apply"]])
+        _ = await m.exportPreview("p1"); refuse = true
+        let refused = await m.exportApply()
+        XCTAssertFalse(refused); XCTAssertNil(m.exported); XCTAssertEqual(m.failed, "AGENTS.md changed after the preview; preview again")
+    }
 }
 
 /// Task board (`/plus/board-chats`): the columns from the phone's own lists (waiting → Review, running → Doing, the rest →
