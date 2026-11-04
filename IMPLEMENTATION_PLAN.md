@@ -1580,3 +1580,25 @@ Checked in the installed dsh packages (`~/Documents/testdeepseekharness/work/dsh
 - Mutations (27, each in a temp copy): all red. "load answers true on a failure" was green first; the new `load` test makes it red. A held key (`event.repeat`) is refused too (found in the diff review).
 - Checks: `npm test` exit 0; `git diff --check` clean; `node scripts/build-docs.mjs --check` passed.
 - Next: phase 5 (Tether: Swift `waitingOrder` and `parseOptions`, Sessions toolbar button and title-menu item, option buttons under the latest assistant message).
+
+2026-11-02, phase 5 in progress (not committed; phases 1–4 are commit e5a37f7). The owner asked to start phase 5:
+- `tether/ios/Sources/Core.swift`:
+  - `waitingOrder(prompts:finished:sessions:open:seen:now:)` → `[Waiting]`: the Mac's order (orange before green, longest-waiting first, a tie keeps the given order); a subagent's request counts for its top-level chat; unknown chats and the chat on screen are left out; `seen` forgets ended waits. `Client.nextWaiting()` / `openNextWaiting()`.
+  - `parseOptions(_:)` → `[ChatOption]` (the client.js rule, NSRegularExpression), `optionHeadings` / `optionRecommended` (the same words as client.js), `chatOffer(_:from:)` → `OptionOffer` read from the chat log (turns from `turn/start`; the newest turn whose answer no rollback span covers, both marker kinds; completed; at or after `from`).
+  - `Client.optionOffer` (idle root chat, after the Mac's rollback GET gave `inherited`: `optionsFrom`), `pickOption` (one pick per chat at a time through `optionBusy`; `optionPicked` keeps the picked answer off until a newer turn start), `loadPrediction` asks nothing while options are offered.
+- `tether/ios/Sources/UI.swift`: `OptionButtons` under the matching assistant row (empty composer only), the prediction chip hides while options show; title menu → Next waiting chat (N).
+- One parser table for both apps: new `test/fixtures/option-lists.json` (45 cases, made from client.js); `test/option-picks.test.mjs` checks client.js against it and checks that Swift's word lists equal client.js's; the iOS test reads the same file.
+- `tether/FEATURES.md`: `nextWaiting | yes` (Sessions toolbar button and title menu), `optionPicks | yes`.
+- Checks: iOS unit tests 65/65 (new `AgentboxIdeasTests`: the shared table, `chatOffer` with both withdraw kinds, /compact, fork offset, the client guard, `waitingOrder`); 15 Swift mutations all red; `npm test` exit 0; `git diff --check` clean.
+- 2026-11-04, the owner approved the Sessions toolbar button in chat: `SessionsView` gets a trailing button (a dot in the next chat's color, orange or green, and the count N; VoiceOver "Next waiting chat (N)") while connected and another chat waits; a tap calls `openNextWaiting()`. iOS unit tests 65/65 again.
+- Phase 5 done.
+
+2026-11-04, phase 6 done (not committed):
+- Simulator check (agent-device, iPhone 17 Pro Max, iOS 26.5) against a throwaway copy of the demo gateway, `tether/build/demo-gateway-agentbox.mjs` (git ignores `build/`): the last answer of a chat ends with an "Options" list, the `unread` route gives one green chat, `DEMO_ASK=1` gives a subagent question, `DEMO_DIR` keeps the pairing over a restart.
+  - Sessions toolbar: "Next waiting chat (1)" with a green dot; a tap opened the green chat, which then lost its dot, and the button went away.
+  - Option buttons: three buttons under the newest answer, "Recommended" on option 2, no prediction chip; a tap sent `session/prompt` mode `queue` with "Option 2: Run the full test suite first" (gateway log); the buttons did not come back.
+  - A subagent question: the question sheet opens first (as before); after the answer, the toolbar button showed again. The chat title menu → "Next waiting chat (1)" opened the waiting chat.
+  - The shared simulator "iPhone 17 Pro" was not usable: a test run of another worktree (`feat-simplify-task-board-done-column`) put its own build on it during the check. The check used a second simulator, which is shut down again.
+- Docs: `tether/README.md` "Son eklenenler" gets both features (Turkish); `docs/features.json` `llms` of both features names the Tether place; `npm run build:readme` (llms.txt). The 13 README rows keep the desktop text (most rows do not name Tether; `tether/FEATURES.md` has the phone place).
+- Checks: `npm test` exit 0, `git diff --check` clean, `node scripts/build-docs.mjs --check` passed.
+- Open: commit by the owner; the real-iPhone build only when the owner asks.

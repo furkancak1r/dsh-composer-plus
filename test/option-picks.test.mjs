@@ -78,6 +78,15 @@ for (const [text, why] of [
   ['## Options\n 1. a', 'an indented list is part of something else'],
 ]) assert.deepEqual(parseOptions(text), [], why);
 
+// --- One table for both apps: Tether's Swift parseOptions reads the same cases (tether/ios/Tests). ---
+const shared = JSON.parse(readFileSync(new URL('./fixtures/option-lists.json', import.meta.url), 'utf8')).cases;
+for (const { text, options } of shared) assert.deepEqual(parseOptions(text), options, `fixture: ${JSON.stringify(text).slice(0, 60)}`);
+assert.ok(shared.length >= 40 && shared.some((x) => x.options.length === 0) && shared.some((x) => x.options.some((o) => o.recommended)), 'the fixture has match, no-match and recommended cases');
+// Tether keeps the same heading and "recommended" words.
+{ const swift = readFileSync(new URL('../tether/ios/Sources/Core.swift', import.meta.url), 'utf8');
+  const words = (name, from) => JSON.parse(`[${from.match(new RegExp(`${name} = \\[([^\\]]*)\\]`))[1].replace(/'/g, '"')}]`);
+  for (const [js, sw] of [['OPTION_HEADINGS', 'optionHeadings'], ['OPTION_RECOMMENDED', 'optionRecommended']]) assert.deepEqual(words(sw, swift), words(js, src), `Tether's ${sw} = client.js ${js}`); }
+
 // --- chatOffer: the newest answer that is still in the chat ---
 const tail = (turn, seq, text, status = 'settled') => ({ kind: 'turn-tail', anchorSeq: seq, data: { turn, seq: seq + 1, closing: text === null ? null
   : { status, turn, blocks: [{ kind: 'reasoning', text: '## Options\n1. secret' }, ...(Array.isArray(text) ? text : [text]).map((t) => ({ kind: 'text', text: t }))], finalNode: { seq } } } });

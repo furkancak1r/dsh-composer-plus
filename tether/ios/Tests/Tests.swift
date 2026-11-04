@@ -1220,6 +1220,121 @@ final class BranchTreeTests: XCTestCase {
     }
 }
 
+/// The agentbox ideas: Option buttons (`optionPicks`) and Next waiting chat (`nextWaiting`), the same rules as client.js.
+final class AgentboxIdeasTests: XCTestCase {
+    /// Option buttons: the same parser table as client.js (test/fixtures/option-lists.json, read from the repository).
+    func testOptionListsMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/option-lists.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 40)
+        for c in cases {
+            let text = c["text"] as? String ?? ""
+            let want = (c["options"] as? [J] ?? []).map { ChatOption(n: $0["n"] as? Int ?? 0, label: $0["label"] as? String ?? "", text: $0["text"] as? String ?? "", recommended: $0["recommended"] as? Bool ?? false) }
+            XCTAssertEqual(parseOptions(text), want, text)
+        }
+    }
+
+    private func turn(_ s: Int, _ user: String, _ answer: String?, end: String? = "completed") -> [J] {
+        var e: [J] = [["type": "turn/start", "seq": s, "data": J()], ["type": "user/message", "seq": s + 1, "data": ["content": user, "source": ["kind": "user"]]]]
+        if let answer { e.append(["type": "assistant/message", "seq": s + 2, "data": ["message": ["content": [["type": "reasoning", "text": "## Options\n1. secret"], ["type": "text", "text": answer]]]]]) }
+        if let end { e.append(["type": "turn/end", "seq": s + 3, "data": ["reason": ["kind": end]]]) }
+        return e
+    }
+    private let opts = "Done.\n\n## Options\n1. Merge it\n2. Add a test (recommended)\n   with a fixture"
+
+    /// Which answer offers its options: the newest finished turn still in the chat, not a fork's inherited answer.
+    func testChatOffer() {
+        let two = turn(1, "hi", "Hi.") + turn(10, "fix it", opts)
+        XCTAssertEqual(chatOffer(two)?.seq, 12); XCTAssertEqual(chatOffer(two)?.latest, 10)
+        XCTAssertEqual(chatOffer(two)?.options.map(\.label), ["Merge it", "Add a test"], "reasoning is left out")
+        XCTAssertEqual(chatOffer(two)?.options.last?.text, "Add a test\nwith a fixture")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + turn(10, "b", "No list.")), "an older list does not come back")
+        XCTAssertNil(chatOffer(turn(1, "a", opts, end: nil)), "not while the turn runs")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + turn(10, "b", nil, end: nil)), "a newer running turn hides the older list")
+        XCTAssertNil(chatOffer(turn(1, "a", opts, end: "interrupted")), "not a stopped turn")
+        XCTAssertNil(chatOffer(turn(1, "a", nil)), "a turn without an answer")
+        XCTAssertNil(chatOffer([]))
+        // dsh joins the text blocks with nothing between them.
+        let split: [J] = [["type": "turn/start", "seq": 1, "data": J()], ["type": "assistant/message", "seq": 2, "data": ["message": ["content": [["type": "text", "text": "## Opt"], ["type": "text", "text": "ions\n1. a"]]]]], ["type": "turn/end", "seq": 3, "data": ["reason": ["kind": "completed"]]]]
+        XCTAssertEqual(chatOffer(split)?.options.map(\.label), ["a"])
+        // Rule 9: both withdraw kinds; the turn before the withdrawn one offers again; /compact withdraws nothing.
+        for kind in [rollbackSource, "dsh-rewind"] {
+            let marker: J = ["type": "user/message", "seq": 20, "sourceEventSeqs": [11, 12, 13], "data": ["content": [], "source": ["kind": kind]]]
+            let back = turn(1, "a", opts) + turn(10, "b", "## Options\n1. Revert") + [marker]
+            XCTAssertEqual(chatOffer(back)?.seq, 3, kind); XCTAssertEqual(chatOffer(back)?.latest, 10, "latest counts the withdrawn turn")
+        }
+        let compact: J = ["type": "user/message", "seq": 20, "sourceEventSeqs": [11, 12, 13], "data": ["content": [], "source": ["kind": "compact-checkpoint"]]]
+        XCTAssertEqual(chatOffer(turn(1, "a", opts) + turn(10, "b", "## Options\n1. Keep") + [compact])?.seq, 12, "/compact is not a withdraw")
+        // Rule 10: a fork's inherited answer is its parent's.
+        XCTAssertNil(chatOffer(turn(1, "a", opts), from: 5), "the parent's answer in a fork")
+        XCTAssertEqual(chatOffer(turn(1, "a", opts) + turn(10, "b", opts), from: 5)?.seq, 12, "the fork's own answer")
+    }
+
+    /// The client: no buttons before the Mac told where the chat's own events start, not while it runs; the pick guard
+    /// (a failed send keeps the offer; a picked answer stays off until a newer turn); prediction steps back.
+    @MainActor func testOptionPicksClient() async throws {
+        let c = Client()
+        c.current = "A"; c.path = ["A"]
+        c.sessions = [Sess(["sessionId": "A", "projections": ["values": ["title": "A"]]])!]
+        c.replaySnapshot(turn(1, "hi", "Hi.") + turn(10, "fix it", opts))
+        XCTAssertNil(c.optionOffer, "the fork offset is not known yet")
+        c.optionsFrom = 0
+        XCTAssertEqual(c.optionOffer?.seq, 12)
+        c.running = true; XCTAssertNil(c.optionOffer, "not while the chat runs"); c.running = false
+        let offer = try XCTUnwrap(c.optionOffer)
+        // No Mac: the send fails; the buttons stay on, the guard is free again.
+        do { try await c.pickOption(offer, 2); XCTFail("no Mac: the send fails") } catch {}
+        XCTAssertTrue(c.optionsOpen("A", offer), "a failed send keeps the offer"); XCTAssertTrue(c.optionBusy.isEmpty)
+        try await c.pickOption(offer, 7) // no option 7: nothing, no error
+        // A picked answer stays off; a newer turn start (also a rollback of the pick) opens it again; chats are independent.
+        c.optionPicked["A"] = offer
+        XCTAssertNil(c.optionOffer, "picked: no buttons")
+        XCTAssertFalse(c.optionsOpen("A", offer))
+        XCTAssertTrue(c.optionsOpen("A", OptionOffer(seq: 12, latest: 30, options: offer.options)), "after a rollback of the pick")
+        XCTAssertTrue(c.optionsOpen("B", offer), "another chat is independent")
+        // While a pick of this chat runs, nothing else is sent.
+        c.optionPicked["A"] = nil; c.optionBusy.insert("A")
+        XCTAssertFalse(c.optionsOpen("A", offer)); XCTAssertEqual(c.optionOffer?.seq, 12, "the buttons stay (off) while the pick is sent")
+        try await c.pickOption(offer, 1) // returns at once: one pick at a time
+        XCTAssertEqual(c.optionBusy, ["A"])
+        // A subagent chat offers nothing (as on the Mac).
+        c.sessions = [Sess(["sessionId": "A", "parentSessionId": "P", "origin": "subagent"])!]
+        XCTAssertNil(c.optionOffer)
+    }
+
+    /// Next waiting chat: orange (a prompt) before green (finished, unread), the longest-waiting first in each group, one
+    /// entry per chat, a subagent's request in its parent chat, the chat on screen left out, ended waits forgotten.
+    func testWaitingOrder() {
+        let s = { (id: String, parent: String?) in Sess(parent == nil ? ["sessionId": id] : ["sessionId": id, "parentSessionId": parent!, "origin": "subagent"])! }
+        let sessions = [s("a", nil), s("b", nil), s("c", nil), s("d", nil), s("k", "b")]
+        let ask = { (id: String, agent: String) in Prompt(id: id, event: "approval/request", agentId: agent, request: [:]) }
+        var seen: [String: Date] = [:]
+        let t0 = Date(timeIntervalSince1970: 1000)
+        // t0: c finished (green); t1: a asks; t2: b's subagent asks, d finished.
+        _ = waitingOrder(prompts: [], finished: ["c"], sessions: sessions, open: nil, seen: &seen, now: t0)
+        _ = waitingOrder(prompts: [ask("p1", "a")], finished: ["c"], sessions: sessions, open: nil, seen: &seen, now: t0 + 1)
+        var r = waitingOrder(prompts: [ask("p1", "a"), ask("p2", "k")], finished: ["c", "d"], sessions: sessions, open: nil, seen: &seen, now: t0 + 2)
+        XCTAssertEqual(r.map(\.id), ["a", "b", "c", "d"], "orange first (a asked first), then green (c finished first)")
+        XCTAssertEqual(r.map(\.done), [false, false, true, true])
+        // A newer question before an older green chat.
+        r = waitingOrder(prompts: [ask("p1", "a"), ask("p9", "d")], finished: ["c"], sessions: sessions, open: nil, seen: &seen, now: t0 + 3)
+        XCTAssertEqual(r.map(\.id), ["a", "d", "c"], "a newer question comes before an older green chat")
+        r = waitingOrder(prompts: [ask("p1", "a"), ask("p3", "a")], finished: ["a", "c"], sessions: sessions, open: nil, seen: &seen, now: t0 + 4)
+        XCTAssertEqual(r.map(\.id), ["a", "c"], "one entry per chat, orange wins")
+        r = waitingOrder(prompts: [ask("p1", "a")], finished: ["c"], sessions: sessions, open: "a", seen: &seen, now: t0 + 5)
+        XCTAssertEqual(r.map(\.id), ["c"], "the chat on screen is left out")
+        XCTAssertEqual(r.first?.since, t0, "c keeps the time it was first seen")
+        XCTAssertNil(seen["done:d"], "an ended wait is forgotten")
+        XCTAssertNotNil(seen["ask:p1"], "the chat on screen still keeps its wait")
+        r = waitingOrder(prompts: [ask("x", "gone")], finished: ["gone"], sessions: sessions, open: nil, seen: &seen, now: t0 + 6)
+        XCTAssertTrue(r.isEmpty, "unknown chats do not count")
+        // A tie keeps the given order.
+        var fresh: [String: Date] = [:]
+        r = waitingOrder(prompts: [ask("q2", "b"), ask("q1", "a")], finished: [], sessions: sessions, open: nil, seen: &fresh, now: t0)
+        XCTAssertEqual(r.map(\.id), ["b", "a"])
+    }
+}
+
 /// Branch per chat: the branch line under the chat title.
 final class BranchStateTests: XCTestCase {
     func testOutsideARepoOrNoBranchIsNil() {

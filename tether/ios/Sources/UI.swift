@@ -575,6 +575,9 @@ struct ConversationView: View {
                     if !macSubtitle.isEmpty { Label(macSubtitle, systemImage: "laptopcomputer") }
                     if let id = c.current {
                         if let p = c.currentSess?.parent { Button { c.open(p) } label: { Label("Open parent session", systemImage: "arrow.turn.left.up") } }
+                        // Next waiting chat (Composer Plus): the chat that waits for you longest, orange before green.
+                        let waiting = c.nextWaiting().count
+                        if waiting > 0 { Button { c.openNextWaiting() } label: { Label("Next waiting chat (\(waiting))", systemImage: "arrow.forward.circle") } }
                         Button { newTitle = c.currentSess?.title ?? ""; renaming = true } label: { Label("Rename", systemImage: "pencil") }
                         Button { editGoal() } label: { Label(c.goal == nil ? String(localized: "Set goal…") : String(localized: "Edit goal…"), systemImage: "target") }
                         Button { c.run { try await c.fork(id) } } label: { Label("Fork", systemImage: "arrow.triangle.branch") }
@@ -677,7 +680,10 @@ struct ConversationView: View {
                         ForEach(rows) { row in
                             Group {
                                 switch row {
-                                case .line(let l): LineView(line: l, onEdit: { text = $0; focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
+                                case .line(let l):
+                                    LineView(line: l, onEdit: { text = $0; focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
+                                    // Option buttons (Composer Plus): under the answer that ends with an option list.
+                                    if l.kind == .assistant, let o = c.optionOffer, o.seq == l.seq, text.isEmpty, images.isEmpty, files.isEmpty { OptionButtons(offer: o) }
                                 case .steps(let ls, let live): StepsView(lines: ls, live: live && c.streaming.isEmpty)
                                 case .turn(let l, let foldable):
                                     TurnRow(line: l, foldable: foldable, open: openTurns.contains(l.id)) {
@@ -1011,7 +1017,7 @@ struct ConversationView: View {
                 }
             }
             // Next message prediction (Composer Plus): the guess for this chat, over an empty composer; a tap puts it in.
-            if let p = c.prediction, text.isEmpty, images.isEmpty, files.isEmpty, !c.running {
+            if let p = c.prediction, text.isEmpty, images.isEmpty, files.isEmpty, !c.running, c.optionOffer == nil {
                 Button { text = p.text; c.prediction = nil; focused = true } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles").font(.caption).foregroundStyle(.secondary)
@@ -1319,6 +1325,37 @@ struct OutgoingView: View {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .accessibilityElement(children: .combine)
+    }
+}
+
+/// Option buttons (Composer Plus `optionPicks`): one button per option of the answer; a tap sends "Option N: …" as your
+/// message. The recommended option is marked. While a pick is sent, every button is off (one pick at a time).
+struct OptionButtons: View {
+    @EnvironmentObject var c: Client
+    let offer: OptionOffer
+    var body: some View {
+        let busy = c.current.map { c.optionBusy.contains($0) } ?? true
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(offer.options, id: \.n) { o in
+                Button {
+                    UISelectionFeedbackGenerator().selectionChanged()
+                    c.run(waits: false) { try await c.pickOption(offer, o.n) }
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(verbatim: "\(o.n).").foregroundStyle(.secondary).monospacedDigit()
+                        Text(verbatim: o.label).multilineTextAlignment(.leading)
+                        if o.recommended { Text("Recommended").font(.caption2).padding(.horizontal, 5).background(Color(.tertiarySystemFill), in: Capsule()) }
+                    }
+                    .font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered).tint(o.recommended ? .accentColor : .secondary)
+                .disabled(busy)
+                .accessibilityLabel(Text(o.recommended ? "Option \(o.n): \(o.label), recommended" : "Option \(o.n): \(o.label)"))
+                .accessibilityHint(Text("Sends this option as your message"))
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("Options of this answer"))
     }
 }
 
@@ -1885,6 +1922,19 @@ struct SessionsView: View {
             .navigationDestination(for: String.self) { _ in ConversationView() }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { MacPicker() }
+                // Next waiting chat (Composer Plus): only while another chat waits for you; the dot has the next one's color.
+                if c.state == .connected, let next = c.nextWaiting().first {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        let n = c.nextWaiting().count
+                        Button { c.openNextWaiting() } label: {
+                            HStack(spacing: 4) {
+                                Circle().fill(next.done ? Color.green : Color.orange).frame(width: 8, height: 8)
+                                Text(verbatim: "\(n)").font(.subheadline.monospacedDigit())
+                            }
+                        }
+                        .accessibilityLabel(Text("Next waiting chat (\(n))"))
+                    }
+                }
                 // Collapse all projects (Composer Plus): in view only while a project is open, as on the desktop
                 if c.state == .connected && query.isEmpty && !openProjects(c.sessionGroups(project: project.isEmpty ? nil : project), folds: shownFolds).isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
