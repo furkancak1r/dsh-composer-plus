@@ -4,14 +4,15 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { LANGUAGES } from './build-locales.mjs';
-import { NOTES_MAX, releaseNotes } from '../index.js';
+import { ACTIVE_ASSET, NOTES_MAX, releaseNotes } from '../index.js';
 
 /** dsh's own two languages and the 11 of locales/. */
 export const NOTES_LANGUAGES = ['en', 'zh', ...LANGUAGES.map(([id]) => id)];
 
 /** The problems of a release-notes.json (`data`); an empty list when it is complete. `body` is the GitHub release body:
- * older copies show it after they install this version, so it must be the English notes. */
-export function checkReleaseNotes(data, { version, tag, body } = {}) {
+ * older copies show it after they install this version, so it must be the English notes. `assets` are the names of the
+ * release's files: each release carries assets/active.txt for the daily active count. */
+export function checkReleaseNotes(data, { version, tag, body, assets } = {}) {
   const problems = [];
   if (data?.version !== version) problems.push(`release-notes.json: version ${JSON.stringify(data?.version)} is not package.json's ${version}`);
   if (tag !== undefined && tag !== `v${version}`) problems.push(`tag ${tag} does not match package.json version ${version}`);
@@ -28,6 +29,7 @@ export function checkReleaseNotes(data, { version, tag, body } = {}) {
     else if (id !== 'en' && releaseNotes(text) === english) problems.push(`release-notes.json: the ${id} notes are the English text (not translated)`);
   }
   if (body !== undefined && releaseNotes(body) !== english) problems.push('the GitHub release body is not the English notes of release-notes.json (use notes.en as the body)');
+  if (assets !== undefined && !assets.includes(ACTIVE_ASSET)) problems.push(`the GitHub release has no ${ACTIVE_ASSET} (daily active count): gh release upload ${tag ?? `v${version}`} assets/${ACTIVE_ASSET}`);
   return problems;
 }
 
@@ -37,7 +39,8 @@ if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.a
   let data;
   try { data = JSON.parse(read('release-notes.json')); } catch (error) { data = undefined; console.log(`release-notes.json: ${error.message}`); }
   const event = process.env.GITHUB_EVENT_NAME === 'release' ? JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8')) : undefined;
-  const problems = checkReleaseNotes(data, { version, tag: process.env.TAG || undefined, body: event === undefined ? undefined : event.release?.body ?? '' });
+  const problems = checkReleaseNotes(data, { version, tag: process.env.TAG || undefined, body: event === undefined ? undefined : event.release?.body ?? '',
+    assets: event === undefined ? undefined : (event.release?.assets ?? []).map((a) => a?.name) });
   for (const problem of problems) console.log(process.env.GITHUB_ACTIONS === 'true' ? `::error::${problem}` : problem);
   if (problems.length > 0) process.exit(1);
   console.log(`release notes: ${NOTES_LANGUAGES.length} languages for ${version}`);
