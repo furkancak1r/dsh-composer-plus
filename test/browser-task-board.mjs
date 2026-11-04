@@ -7,6 +7,9 @@
 // 2. Three tasks that wait for the user, never opened: an approval (a test gate asks before `--ask-me`), a question
 //    (ask_user_question) and a plan review (/plan, exit_plan_mode). Each card is orange in Review; Answer on the board
 //    answers it (Allow once, an option, Approve) and the chat goes on to Done.
+// 3b. Done shows the unread (green) cards only: a card that you open leaves Done by itself and Recently finished (N)
+//    shows it (closed by default, kept after a reload); a New task that finishes behind the board is green in Done (dsh
+//    gives the open chat no dot) until you open it.
 // 3. Done: × takes one card off the board (Undo shows for 8 s and puts it back), Clear all asks first (the count, All
 //    projects, the unread card that stays, "the chats stay in dsh"; Cancel does nothing) and then takes the read Done
 //    cards off it; Removed (N) lists them and Put back brings one back; no Hide finished. The chats stay in dsh's sidebar;
@@ -14,12 +17,15 @@
 //    click on a card opens its chat.
 // 4. Fit: at 1180 px the four columns fit the page and a long title wraps inside its card; at 900 px a title of normal
 //    words breaks only between words (the time is on the meta row, not next to the title).
-// 6. The project list: the search box and "Active in the last 2 hours" (an old project hides; the filter stays after a reload).
-//    Only the list scrolls (the search box stays in view); a project with a waiting chat has dsh's orange dot.
+// 6. The projects: a dropdown at the top of the board (no side column; the board has the full width). The search box
+//    (Enter picks the first match) and "Active in the last 2 hours" (an old project hides; the filter stays after a
+//    reload); Esc and a press outside close it. Only the list scrolls (the search box stays in view); a project with a
+//    waiting chat has dsh's orange dot.
 // 7. A narrow board (760 px): the header stays on one line; the New task hint wraps in its card at the top of Doing.
 // 8. Progress on hover: a running card (held) shows its box after a short hover: the time, the todo step, the running
 //    tool; Settings → Task board → Progress on hover → AI summary adds the chat model's summary; back to Fast.
-// 5. Settings → Composer Plus → Task board off: no sidebar row, no page; on again.
+// 0. Cmd+Shift+K (Ctrl+Shift+K) opens the board from a chat, also from the composer; dsh's Keyboard shortcuts page lists it.
+// 5. Settings → Composer Plus → Task board off: no sidebar row, no page, no key; on again.
 // 9. A dsh restart (same DSH_HOME): the removed cards stay off the board; the chats are still in dsh.
 // PLAYWRIGHT=/path/to/playwright node test/browser-task-board.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/taskBoard.webp (English UI, made-up projects).
@@ -196,6 +202,16 @@ try {
       const column = (status) => boardPage.locator(`[data-cpb-column="${status}"]`);
       const card = (title) => boardPage.locator('[data-cpb-card]', { has: page.locator('[data-cpb-title]', { hasText: title }) });
       const titles = async (status) => column(status).locator('[data-cpb-title]').allInnerTexts();
+      // Done shows the unread cards; a read card leaves them for Recently finished (a row that opens them in place).
+      const recentRow = () => column('done').locator('[data-cpb-recent-done]');
+      const openRecent = async () => { if ((await recentRow().count()) > 0 && (await recentRow().getAttribute('aria-expanded')) !== 'true') await recentRow().click(); };
+      // The projects are a dropdown at the top of the board: open it, then a row picks a project and closes it.
+      const projectsMenu = boardPage.locator('[data-cpb-projects-menu]');
+      const openProjects = async () => { if (!(await projectsMenu.isVisible())) await boardPage.locator('[data-cpb-project-button]').click(); await projectsMenu.waitFor({ timeout: 5000 }); };
+      const pickProject = async (name) => {
+        await openProjects(); await projectsMenu.locator('.cpb-nav', { hasText: name }).click();
+        await projectsMenu.waitFor({ state: 'detached', timeout: 5000 }); await boardPage.locator('h1', { hasText: name }).waitFor();
+      };
       /** A board task the user's way: New task on the board (acme-web shown), the first message in dsh's composer; the board comes back. */
       const task = async (text) => {
         await boardPage.locator('[data-cpb-new]').click();
@@ -209,18 +225,36 @@ try {
       await input.click(); await page.keyboard.type(P.old, { delay: 5 }); await page.keyboard.press('Enter');
       await page.getByText('Done.', { exact: true }).first().waitFor({ timeout: 30000 });
 
+      // 0. Cmd+Shift+K (Ctrl+Shift+K) opens the board from the chat, also while the composer has the focus; dsh's Keyboard
+      //    shortcuts page lists it.
+      await input.click(); assert.equal(await boardPage.count(), 0, 'the chat is open');
+      await page.keyboard.press('ControlOrMeta+Shift+KeyK');
+      await boardPage.waitFor({ timeout: 5000 });
+      await page.keyboard.press('ControlOrMeta+Slash');
+      const keys = page.getByRole('dialog'); await keys.waitFor({ timeout: 10000 });
+      const keyRow = await keys.getByText('Task board', { exact: true }).first().locator('xpath=ancestor::li[1]').innerText();
+      assert.match(keyRow.replace(/\s+/g, ' '), /Task board (⇧ ⌘|Ctrl \+ Shift|Shift \+ Ctrl|Ctrl\+Shift) ?\+? ?K/i, `listed with its key: ${keyRow}`);
+      await page.keyboard.press('Escape'); await keys.waitFor({ state: 'hidden' });
+      // Back to the chat (its sidebar row), then the key again: the board.
+      await page.locator('[data-row-key^="session:"]').first().click(); await boardPage.waitFor({ state: 'detached', timeout: 10000 });
+      await input.click(); await page.keyboard.press('ControlOrMeta+Shift+KeyK'); await boardPage.waitFor({ timeout: 5000 });
+      console.log('  0: Cmd+Shift+K opens the board from the chat (the composer has the focus); dsh\'s Keyboard shortcuts page lists it');
+
       // 1. A prompt starts a chat; it is in Doing while it runs, then in Done with the green dot.
       await openBoard();
-      await until(async () => (await titles('done')).includes('FAQ page'), async () => `done: ${await titles('done')}`, 20000);
+      // FAQ page finished while you looked at it: read, so it is not in Done but in Recently finished (closed by default).
+      await recentRow().waitFor({ timeout: 20000 });
+      assert.equal(await recentRow().getAttribute('aria-expanded'), 'false', 'Recently finished is closed by default');
+      assert.equal(await recentRow().innerText(), 'Recently finished (1)');
+      assert.deepEqual(await titles('done'), [], 'a read card is not in Done');
+      await recentRow().click(); await until(async () => (await titles('done')).includes('FAQ page'), async () => `done: ${await titles('done')}`, 5000);
       assert.equal(await column('todo').count(), 0, 'no Todo column');
       assert.equal(await boardPage.locator('[data-cpb-hide-done]').count(), 0, 'no Hide finished');
       assert.equal(await card('FAQ page').locator('[data-cpb-tag]').count(), 0, 'a chat that the board did not start has no tags');
-      await boardPage.locator('.cpb-nav', { hasText: 'docs-site' }).click();
-      await boardPage.locator('h1', { hasText: 'docs-site' }).waitFor();
+      await pickProject('docs-site');
       assert.equal(await card('FAQ page').count(), 0, 'a chat of another project is not in docs-site');
       console.log('  1a: a chat started in dsh\'s composer is on the board (All projects), not in another project');
-      await boardPage.locator('.cpb-nav', { hasText: 'acme-web' }).click();
-      await boardPage.locator('h1', { hasText: 'acme-web' }).waitFor();
+      await pickProject('acme-web');
       let open; release = new Promise((r) => { open = r; });
       // New task: dsh's own new chat in acme-web; the board goes. Its composer is dsh's (the + attach button is there).
       await boardPage.locator('[data-cpb-new]').click();
@@ -249,24 +283,34 @@ try {
       assert.equal(await card('Chess game').locator('.cpb-preview').innerText(), P.chess, 'the prompt shows under the AI title');
       open(); release = null;
       await until(async () => (await titles('done')).includes('Chess game'), async () => `done: ${await titles('done')}`, 20000);
-      // It is still dsh's open chat behind the board: no green dot, as in dsh's own sidebar (dsh's `isMain` rule). The
-      // green dot of a chat that is not open is checked in step 2.
-      assert.equal(await card('Chess game').getAttribute('data-cpb-state'), 'read', 'dsh\'s open chat: no green dot');
+      // It is still dsh's open chat behind the board, so dsh gives it no green dot (its `isMain` rule); you did not see the
+      // answer yet, so the board keeps it green in Done (its own unread set) until you open it.
+      assert.equal(await card('Chess game').getAttribute('data-cpb-state'), 'unread', 'finished behind the board: green');
+      const doneCount = () => column('done').locator('.cpb-colhead .cpb-count').innerText().catch(() => '0');
+      assert.equal(await doneCount(), '1', 'the Done count is the unread cards');
       console.log('  1b: chat "Chess game" (dsh title), tags chess+game from its first message (the chat\'s model), Doing → Done');
 
       // 2. Three waiting chats, never opened: each is orange in Review and is answered on the board.
       for (const p of [P.approve, P.question, P.plan]) await task(p === P.plan ? `/plan ${p}` : p);
       await until(async () => (await titles('review')).length === 3, async () => `review: ${await titles('review')} doing: ${await titles('doing')} done: ${await titles('done')}`, 40000);
       for (const name of ['Slow demo check', 'Theme color', 'Export feature plan']) assert.equal(await card(name).getAttribute('data-cpb-state'), 'waiting', `${name} is orange`);
-      // The project list shows dsh's orange dot on acme-web (its chats wait), none on docs-site.
+      // The closed project list has dsh's orange dot (a chat waits); the open list shows it on acme-web, none on docs-site.
+      await boardPage.locator('[data-cpb-project-button] [data-cpb-waiting]').waitFor({ timeout: 5000 });
+      await openProjects();
       const projectRow = (name) => boardPage.locator('[data-cpb-projects] .cpb-nav', { hasText: name });
       await projectRow('acme-web').locator('[data-cpb-waiting]').waitFor({ timeout: 5000 });
       assert.equal(await projectRow('docs-site').locator('[data-cpb-waiting]').count(), 0, 'no waiting chat: no dot');
       assert.match(await projectRow('acme-web').locator('.cpb-sr').textContent(), /3 waiting for you/, 'a screen reader reads the counts');
+      await page.keyboard.press('Escape'); await projectsMenu.waitFor({ state: 'detached', timeout: 3000 });
       assert.match(await card('Slow demo check').locator('.cpb-wait').innerText(), /Waiting for approval/);
       assert.match(await card('Theme color').locator('.cpb-wait').innerText(), /Waiting for answer/);
       assert.match(await card('Export feature plan').locator('.cpb-wait').innerText(), /Plan awaiting review/);
       const panel = page.locator('[data-cpb-panel="answer"]');
+      // A click on an orange card (not on Answer) opens the answer panel, not the chat.
+      await card('Slow demo check').locator('[data-cpb-title]').click();
+      await panel.locator('[data-cpb-allow]').waitFor({ timeout: 5000 });
+      assert.equal(await boardPage.count(), 1, 'a click on an orange card keeps the board (no chat opens)');
+      await page.keyboard.press('Escape'); await panel.waitFor({ state: 'detached', timeout: 3000 });
       await card('Slow demo check').locator('[data-cpb-answer]').click();
       await panel.locator('[data-cpb-allow]').waitFor();
       assert.equal(await panel.locator('[data-cpb-allow]').innerText(), 'Allow once', 'dsh\'s own label');
@@ -303,8 +347,8 @@ try {
       assert.ok(fit.cardOverflow <= 1 && fit.titleRight <= fit.cardRight + 0.5, `a long title stays in its card (${JSON.stringify(fit)})`);
       // A narrow window (the columns at their 140 px minimum): each word of a title stays whole on one line (the owner saw
       // "firması / na", "araştırm / ası").
-      // Three columns: 640 px puts them at their minimum.
-      await page.setViewportSize({ width: 640, height: 820 }); await pause(400);
+      // Three columns: 540 px puts them at their minimum (the board has the full width: no project column next to it).
+      await page.setViewportSize({ width: 540, height: 820 }); await pause(400);
       const colWidth = await column('done').evaluate((el) => Math.round(el.getBoundingClientRect().width));
       assert.ok(colWidth <= 150, `the columns are at their minimum width (${colWidth}px)`);
       const words = await boardPage.evaluate((el) => [...el.querySelectorAll('[data-cpb-card]')].flatMap((c) => {
@@ -323,41 +367,65 @@ try {
       await page.setViewportSize({ width: 1440, height: 860 });
       console.log(`  4: at 1180 px the columns fit (overflow ${fit.colsOverflow}px) and a long title wraps in its card; in ${colWidth} px columns titles break only between words`);
 
-      // 6. The project list: search, and "Active in the last 2 hours" (docs-site has no chat: it hides; stays after a reload).
-      const navs = async () => (await boardPage.locator('.cpb-nav').allInnerTexts()).map((x) => x.split('\n')[0].trim());
+      // 6. The projects: a dropdown at the top of the board (no side column; the board has the full width). Search, Enter
+      //    (the first match), "Active in the last 2 hours" (docs-site has no chat: it hides; stays after a reload), Esc and
+      //    a press outside close it.
+      const pageBox = await boardPage.evaluate((el) => ({ page: el.getBoundingClientRect().width, main: el.querySelector('.cpb-main').getBoundingClientRect().width, side: el.querySelectorAll('nav').length }));
+      assert.ok(pageBox.side === 0 && pageBox.main >= pageBox.page - 1, `closed: no project list; the board has the full width (${JSON.stringify(pageBox)})`);
+      const projectButton = boardPage.locator('[data-cpb-project-button]');
+      assert.equal(await projectButton.getAttribute('aria-expanded'), 'false');
+      const nameCut = await projectButton.locator('span').first().evaluate((el) => ({ text: el.textContent, cut: el.scrollWidth - el.clientWidth }));
+      assert.ok(nameCut.text === 'acme-web' && nameCut.cut <= 0, `a wide board shows the whole project name (${JSON.stringify(nameCut)})`);
+      assert.equal(await projectButton.locator('xpath=ancestor::header').count(), 1, 'the project button is at the top of the board');
+      await projectButton.click(); await projectsMenu.waitFor({ timeout: 3000 });
+      assert.equal(await projectButton.getAttribute('aria-expanded'), 'true', 'a click opens the list');
+      const navs = async () => (await projectsMenu.locator('.cpb-nav').allInnerTexts()).map((x) => x.split('\n')[0].trim());
       const search = boardPage.locator('[data-cpb-search]');
+      assert.equal(await search.evaluate((el) => el === document.activeElement), true, 'the focus is in Search projects');
       assert.equal(await search.getAttribute('placeholder'), 'Search projects', 'the label of Project search in a new chat');
-      // The box keeps the height of a project row, also when the list is longer than the side (the owner, with about 20
-      // projects, saw it squeezed: the side is a flex column). A short side gives the same overflow as a long list.
-      const heights = await boardPage.evaluate((el) => {
-        const side = el.querySelector('.cpb-side'); side.style.height = '150px';
-        const out = { search: el.querySelector('[data-cpb-search]').getBoundingClientRect().height, nav: el.querySelector('.cpb-nav').getBoundingClientRect().height, scrolls: side.scrollHeight > side.clientHeight };
-        side.style.height = ''; return out;
+      // The list opens over the columns, in the window; a short window: the search box keeps the height of a project row
+      // and only the project list scrolls (the search box stays).
+      const over = await boardPage.evaluate((el) => {
+        const m = el.querySelector('[data-cpb-projects-menu]').getBoundingClientRect(); const col = el.querySelector('[data-cpb-column="doing"]').getBoundingClientRect();
+        const top = document.elementFromPoint(m.left + 20, Math.min(m.bottom, col.top + 30) - 4);
+        return { inWindow: m.left >= 0 && m.right <= innerWidth && m.bottom <= innerHeight, overCols: m.bottom > col.top && el.querySelector('[data-cpb-projects-menu]').contains(top) };
       });
-      assert.ok(heights.scrolls && heights.search >= heights.nav, `the search box is as tall as a project row in a long list (${JSON.stringify(heights)})`);
-      // Only the project list scrolls: with a list taller than its box, a scroll moves the projects and the search box stays.
+      assert.ok(over.inWindow && over.overCols, `the list opens over the columns, in the window (${JSON.stringify(over)})`);
       const scroll = await boardPage.evaluate((el) => {
-        const side = el.querySelector('.cpb-side'); const box = el.querySelector('[data-cpb-projects]'); const input = el.querySelector('[data-cpb-search]');
-        side.style.height = '330px';
+        const menu = el.querySelector('[data-cpb-projects-menu]'); const box = el.querySelector('[data-cpb-projects]'); const input = el.querySelector('[data-cpb-search]');
+        menu.style.maxHeight = '260px';
         for (let i = 0; i < 12; i++) { const b = box.firstElementChild.cloneNode(true); b.setAttribute('data-cpb-clone', ''); box.append(b); }
-        const before = input.getBoundingClientRect().top; box.scrollTop = 200; side.scrollTop = 200;
-        const out = { boxScrolls: box.scrollHeight > box.clientHeight, boxMoved: box.scrollTop > 0, sideScrolls: side.scrollHeight > side.clientHeight + 1, searchMoved: input.getBoundingClientRect().top - before };
-        for (const b of box.querySelectorAll('[data-cpb-clone]')) b.remove(); side.style.height = ''; box.scrollTop = 0;
+        const before = input.getBoundingClientRect().top; box.scrollTop = 200; menu.scrollTop = 200;
+        const out = { boxScrolls: box.scrollHeight > box.clientHeight, boxMoved: box.scrollTop > 0, menuScrolls: menu.scrollHeight > menu.clientHeight + 1, searchMoved: input.getBoundingClientRect().top - before,
+          search: input.getBoundingClientRect().height, nav: box.firstElementChild.getBoundingClientRect().height, menuH: menu.getBoundingClientRect().height };
+        for (const b of box.querySelectorAll('[data-cpb-clone]')) b.remove(); menu.style.maxHeight = ''; box.scrollTop = 0;
         return out;
       });
-      assert.ok(scroll.boxScrolls && scroll.boxMoved && !scroll.sideScrolls && Math.abs(scroll.searchMoved) < 1, `only the project list scrolls (${JSON.stringify(scroll)})`);
+      assert.ok(scroll.boxScrolls && scroll.boxMoved && !scroll.menuScrolls && Math.abs(scroll.searchMoved) < 1 && scroll.menuH <= 261, `only the project list scrolls (${JSON.stringify(scroll)})`);
+      assert.ok(scroll.search >= scroll.nav, `the search box is as tall as a project row in a long list (${JSON.stringify(scroll)})`);
       assert.equal(await boardPage.locator('[data-cpb-projects] .cpb-nav', { hasText: 'acme-web' }).getAttribute('title'), `acme-web\n${acme}`, 'the tooltip: the full name, then the path');
       // Only the states have colors: a project folder has the row's text color, and a card's project chip has no dot.
       const colors = await boardPage.evaluate((el) => ({
-        folders: [...el.querySelectorAll('.cpb-nav')].slice(1).map((n) => getComputedStyle(n.querySelector('path')).stroke === getComputedStyle(n).color),
+        folders: [...el.querySelectorAll('[data-cpb-projects] .cpb-nav')].map((n) => getComputedStyle(n.querySelector('path')).stroke === getComputedStyle(n).color),
         chips: [...el.querySelectorAll('.cpb-card .cpb-chip')].map((c) => c.children.length),
       }));
       assert.ok(colors.folders.length === 2 && colors.folders.every(Boolean), `a project folder has no color of its own (${JSON.stringify(colors)})`);
       assert.ok(colors.chips.every((n) => n === 0), `a card's project has no colored dot (${JSON.stringify(colors)})`);
       await search.fill('DOCS'); await until(async () => (await navs()).join() === 'All projects,docs-site', async () => `search: ${await navs()}`, 5000);
       await search.press('Escape'); assert.equal(await search.inputValue(), '', 'Esc empties the box');
-      assert.equal(await boardPage.count(), 1, 'and the page stays');
+      assert.equal(await boardPage.count(), 1, 'and the page stays'); assert.equal(await projectsMenu.count(), 1, 'and the list stays');
       await until(async () => (await navs()).join() === 'All projects,acme-web,docs-site', async () => `after Esc: ${await navs()}`, 5000);
+      // Enter: the first match; the list closes and the board shows that project. An empty box: nothing.
+      await search.press('Enter'); assert.equal(await projectsMenu.count(), 1, 'Enter in an empty box picks nothing');
+      await search.fill('DOCS'); await search.press('Enter');
+      await projectsMenu.waitFor({ state: 'detached', timeout: 3000 }); await boardPage.locator('h1', { hasText: 'docs-site' }).waitFor({ timeout: 3000 });
+      assert.equal(await projectButton.evaluate((el) => el === document.activeElement), true, 'the focus goes back to the project button');
+      // A second Esc closes the list; the board stays (no panel closes). A press outside it closes it too.
+      await openProjects(); assert.equal(await search.inputValue(), '', 'a closed list forgets its search');
+      await search.press('Escape'); await projectsMenu.waitFor({ state: 'detached', timeout: 3000 });
+      assert.equal(await boardPage.count(), 1, 'Esc closes only the list');
+      await openProjects(); await column('done').click({ position: { x: 20, y: 20 } }); await projectsMenu.waitFor({ state: 'detached', timeout: 3000 });
+      await pickProject('acme-web'); await openProjects();
       const recentButton = boardPage.locator('[data-cpb-recent]');
       assert.equal(await recentButton.innerText(), 'Active in the last 2 hours', 'the label of Recent projects filter');
       assert.equal(await recentButton.locator('[data-cpb-check]').count(), 0, 'off: no check mark');
@@ -367,10 +435,13 @@ try {
       await search.fill('docs'); await boardPage.locator('[data-cpb-noproject]', { hasText: 'No matching project' }).waitFor();
       await search.fill('');
       await page.reload(); await input.waitFor({ timeout: 20000 }); await openBoard();
+      assert.equal(await projectsMenu.count(), 0, 'after a reload the list is closed');
+      await boardPage.locator('h1', { hasText: 'acme-web' }).waitFor({ timeout: 5000 }); await openProjects();
       assert.equal(await boardPage.locator('[data-cpb-recent]').getAttribute('aria-pressed'), 'true', 'the filter stays after a reload');
       assert.deepEqual(await navs(), ['All projects', 'acme-web']);
       await boardPage.locator('[data-cpb-recent]').click(); await until(async () => (await navs()).length === 3, 'filter off', 5000);
-      console.log('  6: project search (DOCS → docs-site, Esc empties) and Active in the last 2 hours (docs-site hides, kept after a reload)');
+      await page.keyboard.press('Escape'); await projectsMenu.waitFor({ state: 'detached', timeout: 3000 });
+      console.log('  6: projects dropdown at the top (board full width; opens over the columns; only the list scrolls): search (DOCS, Esc empties, Enter picks docs-site), Esc and a press outside close it, Active in the last 2 hours (docs-site hides, kept after a reload)');
 
       // 7. A narrow board: the header is one line; a New task's hint wraps in its card (the top of Doing).
       await boardPage.locator('[data-cpb-new]').click(); await boardPage.waitFor({ state: 'detached', timeout: 10000 });
@@ -439,9 +510,10 @@ try {
       assert.equal(Object.keys(record.hidden).length, 1, 'the Host keeps it in board-chats.json');
       await page.reload(); await input.waitFor({ timeout: 20000 }); await openBoard();
       assert.equal((await titles('done')).includes('FAQ page'), false, 'still off after a reload');
+      assert.equal(await recentRow().getAttribute('aria-expanded'), 'true', 'Recently finished stays open after a reload (this device)');
       // Clear all asks first; Cancel changes nothing.
       const clear = column('done').locator('[data-cpb-clear-all]');
-      assert.equal(await clear.innerText(), 'Clear all'); assert.equal(await clear.getAttribute('title'), 'Take the finished cards in Done off the board. It asks first; unread cards stay. The chats stay in dsh.');
+      assert.equal(await clear.innerText(), 'Clear all'); assert.equal(await clear.getAttribute('title'), 'Take the cards of Recently finished off the board. It asks first; unread cards stay. The chats stay in dsh.');
       const doneAtClear = await titles('done');
       // dsh keeps its green dots only in its window: after the reloads, count the unread cards now.
       const unreadNow = await column('done').locator('[data-cpb-card][data-cpb-state="unread"]').count();
@@ -460,7 +532,10 @@ try {
       await task(P.green); await task(P.tail);
       await until(async () => (await titles('done')).includes('Changelog tidy'), async () => `done: ${await titles('done')}`, 20000);
       openGreen(); greenGate = null;
-      await until(async () => (await column('done').locator('[data-cpb-card][data-cpb-state="unread"]').count()) >= 1, 'a green card in Done', 20000);
+      // Onboarding flow finishes while another chat is open: dsh's green dot. Changelog tidy finishes behind the board while
+      // it is dsh's open chat: the board's own green. Both stay in Done until you open them.
+      await until(async () => (await card('Onboarding flow').getAttribute('data-cpb-state').catch(() => '')) === 'unread', 'a green card in Done', 20000);
+      await until(async () => (await card('Changelog tidy').getAttribute('data-cpb-state').catch(() => '')) === 'unread', 'finished behind the board: green', 10000);
       const greens = await column('done').locator('[data-cpb-card][data-cpb-state="unread"] [data-cpb-title]').allInnerTexts();
       await clear.click(); await dialog.waitFor({ timeout: 5000 });
       assert.match(await dialog.innerText(), new RegExp(`${greens.length} unread card\\(s\\) stay on the board`), 'the unread card that stays');
@@ -486,17 +561,29 @@ try {
       // Clear all again: the put back card goes; the green ones stay.
       await clear.click(); await dialog.waitFor({ timeout: 5000 }); await dialog.locator('[data-cpb-clear-confirm]').click(); await dialog.waitFor({ state: 'detached' });
       await until(async () => !(await titles('done')).includes('Slow demo check'), 'Clear all again', 5000);
-      const listed = await page.evaluate(async () => (await (await fetch('/api/composer-plus.board-chats')).json()).hidden.length);
-      assert.equal(listed, removedCount);
-      // Mark the green card read (open it), so the next steps start with an empty Done as before.
+      // The card moves at once; the Host's list follows when its write ends.
+      const hostCount = () => page.evaluate(async () => (await (await fetch('/api/composer-plus.board-chats')).json()).hidden.length);
+      await until(async () => (await hostCount()) === removedCount, async () => `Host list: ${await hostCount()} (expected ${removedCount})`, 5000);
+      // Open the green cards: each one leaves Done by itself and is in Recently finished (read).
       for (const g of greens) { await card(g).click(); await boardPage.waitFor({ state: 'detached', timeout: 10000 }); await openBoard(); }
       await until(async () => (await column('done').locator('[data-cpb-card][data-cpb-state="unread"]').count()) === 0, 'no green card', 10000);
+      await recentRow().click(); await until(async () => (await recentRow().getAttribute('aria-expanded')) === 'false', 'closed', 3000);
+      assert.deepEqual(await titles('done'), [], 'a card that you opened left Done');
+      assert.equal(await recentRow().innerText(), `Recently finished (${greens.length})`, 'Recently finished has them');
+      assert.equal(await clear.count(), 0, 'closed: no Clear all (it never takes cards that you do not see)');
+      // The chevron: right while closed, down while open (after its 120 ms turn).
+      const chevron = async () => { await pause(300); return recentRow().locator('svg').evaluate((el) => getComputedStyle(el).transform); };
+      assert.equal(await chevron(), 'matrix(0, -1, 1, 0, 0, 0)', 'closed: the chevron points right');
+      if (process.env.SHOT) { await page.screenshot({ path: join(repo, 'build', 'board-recent-closed.png') }); console.log('  shot: build/board-recent-closed.png'); }
+      await recentRow().click(); await until(async () => (await titles('done')).length === greens.length, 'open: the read cards', 3000);
+      assert.equal(await chevron(), 'none', 'open: the chevron points down');
+      for (const g of greens) assert.equal(await card(g).getAttribute('data-cpb-state'), 'read', `${g} is read`);
       await clear.click(); await dialog.waitFor({ timeout: 5000 }); await dialog.locator('[data-cpb-clear-confirm]').click(); await dialog.waitFor({ state: 'detached' });
       await until(async () => (await titles('done')).length === 0, async () => `done after the last Clear all: ${await titles('done')}`, 5000);
       assert.equal(await clear.count(), 0, 'an empty Done has no Clear all');
       await undoButton.waitFor({ state: 'detached', timeout: 12000 });
       // No chat is deleted: dsh's sidebar still lists them; one opens and runs again, and its card comes back.
-      await boardPage.locator('.cpb-nav', { hasText: 'acme-web' }).click();
+      await pickProject('acme-web');
       await sidebarRow('Theme color');
       const faq = await sidebarRow('FAQ page');
       await faq.click(); await boardPage.waitFor({ state: 'detached', timeout: 10000 });
@@ -522,6 +609,7 @@ try {
       // The chat opens. Its sidebar row can be under "Show N more sessions" (more chats now), so check the chat text.
       await page.locator('[data-composer-input]').waitFor({ timeout: 10000 });
       await page.getByText('And add a contact link', { exact: true }).first().waitFor({ timeout: 10000 });
+      console.log('  3b: Done shows the unread cards; an opened card leaves it for Recently finished (closed by default, kept after a reload); a chat that finishes behind the board is green until opened');
       console.log('  3: × takes one Done card off and Undo puts it back (8 s); Clear all asks (count, project, unread stays; Cancel does nothing), then takes the read cards; Removed → Put back; kept on the Host after a reload; chats stay in dsh; one that runs again comes back; a click opens a chat');
 
       // 5. Switch off and on.
@@ -602,8 +690,15 @@ try {
       await back();
       assert.equal(await page.getByRole('button', { name: 'Task board', exact: true }).count(), 0, 'off: no sidebar row');
       assert.equal(await boardPage.count(), 0, 'off: no page');
+      await page.keyboard.press('ControlOrMeta+Shift+KeyK'); await pause(600);
+      assert.equal(await boardPage.count(), 0, 'off: Cmd+Shift+K opens nothing');
+      await page.keyboard.press('ControlOrMeta+Slash');
+      const keysOff = page.getByRole('dialog'); await keysOff.waitFor({ timeout: 10000 });
+      assert.equal(await keysOff.getByText('Task board', { exact: true }).count(), 0, 'off: no Task board row on the Keyboard shortcuts page');
+      await page.keyboard.press('Escape'); await keysOff.waitFor({ state: 'hidden' });
       await settings(); await sw().click(); await until(async () => (await sw().getAttribute('aria-checked')) === 'true', 'switch on'); await back();
       await page.getByRole('button', { name: 'Task board', exact: true }).waitFor();
+      await page.keyboard.press('ControlOrMeta+Shift+KeyK'); await boardPage.waitFor({ timeout: 5000 });
       assert.equal(await readFile(join(home, 'storages/dsh-composer-plus/board.json'), 'utf8'), oldBoard, 'the old board file stays as it was');
       assert.deepEqual(errors, [], 'no page errors');
       const ours = failedUrls.filter((u) => /composer-plus\.board/.test(u));

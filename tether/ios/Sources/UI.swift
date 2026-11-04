@@ -3689,6 +3689,9 @@ struct BoardSheet: View {
     /// The open Clear all question: the read Done cards at the tap.
     @State private var clearing: BoardClearAsk?
     @State private var showRemoved = false
+    /// Recently finished under Done: open or closed (kept on this phone, as on the Mac), and how many read cards it shows.
+    @AppStorage("boardRecentDone") private var recentOpen = false
+    @State private var recentShown = 10
     init(project: String) { _project = State(initialValue: project) }
     private var ready: Bool { b.loaded && !b.off && !b.missing }
     private var view: (projects: [BoardProject], columns: [(status: String, cards: [BoardCard])], removed: [BoardCard]) {
@@ -3704,19 +3707,29 @@ struct BoardSheet: View {
                 else if b.off { Text("Task board is off. Switch it on in Settings → Composer Plus on your Mac.").foregroundStyle(.secondary) }
                 else if b.loaded {
                     let shown = boardStartColumn(v.columns, current: column)
-                    let cards = v.columns.first { $0.status == shown }?.cards ?? []
-                    if cards.isEmpty { Text("No chats here.").foregroundStyle(.secondary) }
+                    let all = v.columns.first { $0.status == shown }?.cards ?? []
+                    // Done: the unread cards; a card that you read leaves them for Recently finished (a row that opens it).
+                    let split = boardDoneSplit(all, shown: recentShown)
+                    let cards = shown == "done" ? split.unread : all
+                    if cards.isEmpty, shown != "done" || split.recentCount == 0 { Text("No chats here.").foregroundStyle(.secondary) }
                     // Done: a swipe (or the VoiceOver action) takes the card off the board. Only with a Mac that keeps the list.
                     let canHide = shown == "done" && b.hidden != nil
-                    ForEach(cards.prefix(100)) { card in
-                        Button { tap(card) } label: { BoardCardRow(card: card, progress: b.progress[card.id]) }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                                // Not a destructive (red) action: no chat is deleted.
-                                if canHide {
-                                    Button { Task { await b.hide([card.id]) } } label: { Label("Remove from the board", systemImage: "eye.slash") }
-                                        .tint(.gray).disabled(b.changing)
-                                }
+                    ForEach(cards.prefix(100)) { card in cardRow(card, canHide: canHide) }
+                    if shown == "done", split.recentCount > 0 {
+                        Button { recentOpen.toggle(); recentShown = 10 } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "chevron.right").imageScale(.small).rotationEffect(.degrees(recentOpen ? 90 : 0))
+                                Text("Recently finished (\(split.recentCount))")
                             }
+                            .font(.footnote).foregroundStyle(.secondary)
+                        }
+                        .accessibilityValue(Text(recentOpen ? "Open" : "Closed"))
+                        if recentOpen {
+                            ForEach(split.recent) { card in cardRow(card, canHide: canHide) }
+                            if split.recentCount > split.recent.count {
+                                Button("Show \(split.recentCount - split.recent.count) older") { recentShown = split.recentCount }.font(.footnote)
+                            }
+                        }
                     }
                     if canHide, !v.removed.isEmpty {
                         Button("Removed (\(v.removed.count))") { showRemoved = true }.font(.footnote)
@@ -3728,7 +3741,8 @@ struct BoardSheet: View {
             .safeAreaInset(edge: .top) {
                 if ready {
                     Picker("Column", selection: Binding(get: { boardStartColumn(v.columns, current: column) }, set: { column = $0 })) {
-                        ForEach(v.columns, id: \.status) { col in Text(verbatim: "\(boardStatusName(col.status)) \(col.cards.count)").tag(col.status) }
+                        // Done counts its unread cards, as on the Mac (the read ones are in Recently finished).
+                        ForEach(v.columns, id: \.status) { col in Text(verbatim: "\(boardStatusName(col.status)) \(col.status == "done" ? boardDoneSplit(col.cards).unread.count : col.cards.count)").tag(col.status) }
                     }
                     .pickerStyle(.segmented).padding(.horizontal).padding(.vertical, 8).background(.bar)
                 }
@@ -3762,6 +3776,7 @@ struct BoardSheet: View {
                         let done = v.columns.first { $0.status == "done" }?.cards ?? []
                         let ids = boardClearIds(done)
                         Menu {
+                            // Clear all takes the cards of Recently finished (the read ones); unread cards stay.
                             Button { clearing = BoardClearAsk(ids: ids, unread: done.count - ids.count, project: project == "all" ? nil : projectName) } label: { Label("Clear all", systemImage: "eye.slash") }
                                 .disabled(ids.isEmpty || b.changing)
                             Button { showRemoved = true } label: { Label("Removed (\(v.removed.count))", systemImage: "tray") }
@@ -3790,6 +3805,16 @@ struct BoardSheet: View {
                 }
             }
         }
+    }
+    /// A card: a tap opens it; in Done, a swipe takes it off the board (not red: no chat is deleted).
+    private func cardRow(_ card: BoardCard, canHide: Bool) -> some View {
+        Button { tap(card) } label: { BoardCardRow(card: card, progress: b.progress[card.id]) }
+            .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                if canHide {
+                    Button { Task { await b.hide([card.id]) } } label: { Label("Remove from the board", systemImage: "eye.slash") }
+                        .tint(.gray).disabled(b.changing)
+                }
+            }
     }
     /// A waiting chat opens its question or approval (the same sheet as everywhere in the app); another chat opens.
     private func tap(_ card: BoardCard) {

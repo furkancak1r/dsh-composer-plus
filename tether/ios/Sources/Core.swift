@@ -3521,6 +3521,13 @@ func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<Strin
 /// Clear all takes only the read cards of Done: an unread (green) card stays, its answer is not seen yet.
 func boardClearIds(_ done: [BoardCard]) -> [String] { done.filter { $0.state == "read" }.map(\.id) }
 
+/// Done as the Mac shows it: the unread (green) cards; a card that you read leaves them for Recently finished (`recent`,
+/// newest first). `shown`: how many read cards Recently finished shows (10, then Show N older).
+func boardDoneSplit(_ done: [BoardCard], shown: Int = 10) -> (unread: [BoardCard], recent: [BoardCard], recentCount: Int) {
+    let read = done.filter { $0.state == "read" }
+    return (done.filter { $0.state != "read" }, Array(read.prefix(max(0, shown))), read.count)
+}
+
 /// The column that the board opens on: Review when a chat waits for you, else Doing; a shown column stays.
 func boardStartColumn(_ columns: [(status: String, cards: [BoardCard])], current: String? = nil) -> String {
     if let current, columns.contains(where: { $0.status == current }) { return current }
