@@ -48,7 +48,7 @@ export const PLUS = new Map([
   ['rollback', ['GET', 'POST']], ['delete-chat', ['POST']], ['ideas', ['POST']], ['later', ['GET', 'POST']], ['idea-history', ['GET', 'POST']],
   ['queue-move', ['POST']], ['queue-edit', ['POST']], ['branches', ['GET']], ['predict', ['POST']], ['complete', ['POST']], ['improve', ['POST']], ['unread', ['GET', 'POST']],
   ['worktrees', ['GET', 'POST']], ['new-session-workspace', ['POST']], ['memory-edit', ['GET', 'POST']], ['handoff', ['POST']], ['context', ['GET']],
-  ['board-chats', ['GET', 'POST']], ['board-progress', ['GET']], ['secret-answer', ['GET', 'POST']],
+  ['board-chats', ['GET', 'POST']], ['board-progress', ['GET']], ['secret-answer', ['GET', 'POST']], ['side-chat', ['GET', 'POST']],
 ])
 /** Allow for this chat: an Auto Review ask (`approval/request` with this reason) for a tool that the chat granted. */
 export const AUTO_REVIEW_ASK = 'Auto review denied tool '

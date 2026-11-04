@@ -72,7 +72,7 @@ export const PLANNED_PATH = '/api/composer-plus.planned-steps';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
-export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'allowForChat', 'rejectNote', 'secretInput', 'quoteReply', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit',
+export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'allowForChat', 'rejectNote', 'secretInput', 'quoteReply', 'sideChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit',
   'queueReorder', 'mobileConnect', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
   'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'plannedSteps'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
@@ -2030,6 +2030,7 @@ export function apply(ctx) {
   installProtectedFiles(ctx, home);
   installBlockedCommands(ctx, home);
   installHandoff(ctx, home);
+  installSideChat(ctx);
   installContext(ctx);
   installBoard(ctx, home);
   installPlannedSteps(ctx, home);
@@ -3952,6 +3953,107 @@ export function installHandoff(ctx, home) {
         if (mine.signal.aborted) return json({ error: 'a newer handoff note replaced this one' }, 409);
         return json({ error: String(error?.message ?? error) }, status(error));
       } finally { if (writing.get(id) === mine) writing.delete(id); }
+    },
+  });
+}
+
+/* Side chat (after t3code): ask a side question while the chat works. The Host copies the chat (dsh's own fork) up to the
+ * newest moment at which no queued or steering message waits, so no waiting message of the chat runs in the copy. The copy
+ * gets dsh's read-only permission mode and the chat's model, and its first message is a short lead and the question. Bring
+ * back reads the side chat's own messages (after the copied part, rule 10; rolled-back ones left out, rule 9). Nothing is
+ * written to the project. */
+export const SIDE_CHAT_PATH = '/api/composer-plus.side-chat';
+export const SIDE_TEXT_MAX = 8000;
+export const SIDE_LEAD = 'Side question. This chat is a copy of the chat above, made while that chat can still be working. Answer only the question below and do not continue the earlier task. Do not change files: only read, search and run commands that change nothing.\n\nQuestion:\n';
+/** The fork point: the newest seq after which no queued (next turn) or steering (next step) message waits in the inbox.
+ * dsh's fork copies the inbox splices before the cut, so a waiting message there would run in the copy. */
+export function sideForkSeq(events) {
+  const pending = { 'next-turn': 0, 'next-step': 0 };
+  let cut;
+  for (const e of events) {
+    const s = e.type === 'agent/inbox/spliced' ? e.data : undefined;
+    if (s !== undefined && pending[s.target] !== undefined) pending[s.target] += (Array.isArray(s.inserted) ? s.inserted.length : 0) - (Number.isSafeInteger(s.removedCount) ? s.removedCount : 0);
+    if (pending['next-turn'] <= 0 && pending['next-step'] <= 0 && Number.isSafeInteger(e.seq)) cut = e.seq;
+  }
+  return cut;
+}
+/** The side chat's title: `↳ ` and the first line of the question, at most 60 characters (with …). */
+export const sideTitle = (text) => {
+  const line = text.trim().split('\n')[0].trim();
+  return `↳ ${[...line].length > 60 ? `${[...line].slice(0, 59).join('').trimEnd()}…` : line}`;
+};
+/** A side chat's own messages for Bring back: `{parent, messages, truncated}`, the lead taken off its first message;
+ * undefined for a chat that is not a side chat. */
+export function sideChatOf(header, events, inherited) {
+  const from = Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0;
+  // Only the last reply before each question (and at the end): not the agent's notes between its tool calls.
+  const own = events.filter((e) => e.seq >= from);
+  const last = new Set();
+  let reply;
+  for (const e of own) {
+    if (e.type === 'assistant/message' && textBlocks(e.data?.message?.content).trim() !== '') reply = e.seq;
+    else if (e.type === 'user/message' && (e.data?.source === undefined || e.data.source?.kind === 'user')) { if (reply !== undefined) last.add(reply); reply = undefined; }
+  }
+  if (reply !== undefined) last.add(reply);
+  const { messages, truncated } = chatTranscript(own.filter((e) => e.type !== 'assistant/message' || last.has(e.seq)));
+  if (typeof header?.parentSession !== 'string' || messages[0]?.role !== 'user' || !messages[0].text.startsWith(SIDE_LEAD.trim())) return undefined;
+  return { parent: header.parentSession, messages: [{ role: 'user', text: messages[0].text.slice(SIDE_LEAD.length).trim() }, ...messages.slice(1)], truncated };
+}
+/** Start a side chat of `sessionId` with `text`. All or none: when its first message cannot be sent, the copy is archived. */
+export async function startSideChat({ sessionController, sessionQuery, presets, goals, registry }, sessionId, text, signal) {
+  if (presets?.names?.includes?.('read-only') !== true) throw refused('this dsh has no read-only permission mode, so a side chat cannot start');
+  const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
+  let header, cut;
+  try { header = observation.header; cut = sideForkSeq(observation.events ?? []); } finally { observation[Symbol.dispose]?.(); }
+  if (header?.origin === 'subagent' || (header?.delegationDepth ?? 0) > 0) throw refused('not for a subagent chat');
+  if (cut === undefined) throw refused('this chat has nothing to copy yet');
+  const parent = await sessionController.resolveAgent(sessionId);
+  const model = 'error' in parent ? undefined : sessionController.agents?.selectionFor?.(parent.agent)?.current;
+  const { sessionId: created } = await sessionController.fork({ sessionId, atSeq: cut });
+  try {
+    const found = await sessionController.resolveAgent(created);
+    if ('error' in found) throw new Error('the side chat could not start');
+    presets.set(found.agent.session, 'read-only');
+    // The copy has the chat's title: name it after the question (a user title, so dsh does not rename it later).
+    await Promise.resolve(sessionController.rename?.({ sessionId: created, title: sideTitle(text) })).catch(() => {});
+    // dsh's fork takes the default model: the side chat keeps the chat's own. A copied goal would ask it to go on working.
+    if (model !== undefined) await sessionController.selectModel?.({ sessionId: created, provider: model.provider, model: model.model }).catch(() => {});
+    try { const goal = goals?.get?.(found.agent); if (goal !== undefined) goals.clear(found.agent, { id: goal.id, revision: goal.revision }); } catch { /* no goal service */ }
+    await sessionController.prompt({ requestId: randomUUID(), sessionId: created, mode: 'queue', content: [{ type: 'text', text: `${SIDE_LEAD}${text}` }] }, signal);
+  } catch (error) {
+    const undone = await Promise.resolve(registry?.archiveSession?.(created, { stopActivity: true })).then(() => registry?.archiveSession !== undefined, () => false);
+    throw Object.assign(new Error(`${error?.message ?? error}; ${undone ? 'the side chat was archived' : `the side chat ${created} stays without a question`}`), { status: Number.isInteger(error?.status) ? error.status : 502 });
+  }
+  return { sessionId: created };
+}
+export function installSideChat(ctx) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const starting = new Set(); // one start per chat at a time
+  ctx.connection.fetch.register({
+    path: SIDE_CHAT_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      const status = (error) => (Number.isInteger(error?.status) ? error.status : /not found|unknown session/i.test(String(error?.message)) ? 404 : 500);
+      if (request.method === 'GET') {
+        const id = new URL(request.url).searchParams.get('sessionId');
+        if (!isText(id)) return json({ error: 'bad request' }, 400);
+        try {
+          const observation = await ctx.sessionQuery.observeSession(id, { signal: request.signal, projectionMode: 'none' });
+          let side;
+          try { side = sideChatOf(observation.header, observation.events ?? [], observation.inheritedEventCount); } finally { observation[Symbol.dispose]?.(); }
+          return side === undefined ? json({ error: 'not a side chat' }, 404) : json(side);
+        } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
+      }
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      const keys = plainObject(body) ? Object.keys(body).sort().join(',') : '';
+      const text = typeof body?.text === 'string' ? body.text.trim() : '';
+      if (keys !== 'sessionId,text' || !isText(body.sessionId) || !isText(text, SIDE_TEXT_MAX)) return json({ error: 'bad request' }, 400);
+      const id = body.sessionId;
+      if (starting.has(id)) return json({ error: 'a side chat of this chat is still starting' }, 409);
+      starting.add(id);
+      try {
+        return json(await startSideChat({ sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, presets: get('permissionPresets'), goals: get('goals'), registry: get('workspaceRegistry') }, id, text, request.signal));
+      } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); } finally { starting.delete(id); }
     },
   });
 }

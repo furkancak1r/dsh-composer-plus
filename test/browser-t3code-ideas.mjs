@@ -19,6 +19,11 @@
 // 9. A selection in your own message shows no Quote; a part of an answer → Quote → the quote goes after the text that you
 //    typed, the composer has the focus, and the sent message holds your text, the quote and the next line in order.
 // 10. Switched off: no Quote button.
+// Side chat:
+// 11. While the chat waits on an approval card (its turn runs), a queued message waits too. The side question → a new chat
+//     opens with the bar ("Side chat of …: read-only"). Its model request has the chat's task, the lead and the question,
+//     not the queued message; its write is denied (dsh's read-only mode) and no approval card shows; the chat's card stays.
+// 12. Bring back: the chat opens and its composer holds the question (quoted) and the answer. 13. Switched off: no button.
 // PLAYWRIGHT=/path/to/playwright node test/browser-t3code-ideas.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/rejectNote.webp, secretInput.webp and quoteReply.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -47,6 +52,7 @@ const NOTE = 'Do not delete it. Move it to archive/build-old instead.';
 const SECRET_TASK = { S: 'Publish the demo package with my token', D: 'Publish the demo package, ask me first', T: 'Publish the demo package when I am back', O: 'Publish the demo package one more time' };
 const VALUE = `npm_demo_${randomUUID().replaceAll('-', '')}`;
 const QUOTE_TASK = 'Explain the release steps';
+const SIDE_TASK = 'Refactor the cart module'; const SIDE_Q = 'Which file holds the cart totals?'; const SIDE_QUEUED = 'Then update the changelog';
 const calls = []; // {task, msgs, tools}
 const fileSeen = []; // the secret file while the turn runs: {path, mode, dirMode}
 const fake = createServer((req, res) => {
@@ -64,6 +70,18 @@ const fake = createServer((req, res) => {
     if (/session title/i.test(textOf(msgs.at(-1)?.content))) return say('Clean up the build');
     if (/You predict the next message|You complete the message that the user is typing/.test(all)) return say('');
     const own = msgs.filter((m) => m.role === 'assistant' && m.tool_calls?.length).length;
+    if (all.includes(SIDE_Q)) {
+      calls.push({ task: 'SQ', msgs, tools: parsed.tools ?? [] });
+      // Count the side chat's own tool calls only (the copied part has the chat's bash call).
+      const at = msgs.findLastIndex((m) => m.role === 'user' && textOf(m.content).includes(SIDE_Q));
+      if (msgs.slice(at).filter((m) => m.role === 'assistant' && m.tool_calls?.length).length === 0) return call('write', { file_path: 'notes.txt', content: 'side note' }, 'I will write a note.');
+      return say('Side answer: the totals are in cart/totals.js. I could not write a note: this side chat is read-only.');
+    }
+    if (all.includes(SIDE_TASK)) {
+      calls.push({ task: 'SP', msgs });
+      if (own === 0) return call('bash', { command: 'rm -rf build-old', description: 'Delete the old build folder' }, 'I will clean up first.');
+      return say('Parent goes on.');
+    }
     if (all.includes(QUOTE_TASK)) {
       calls.push({ task: 'Q', msgs });
       return say(textOf(msgs.at(-1)?.content).includes('Do it on Friday.') ? 'Noted: the tag goes out on Friday.' : 'Step one: run the tests.\n\nStep two: tag the release and push the tag.');
@@ -106,7 +124,8 @@ try {
     await writeFile(join(profile, 'cordis.yml'), '[]\n');
     // A test-only gate: dsh's approval card for `rm -rf build-old` (this permission mode would run it without a card).
     const gate = join(home, 'ask-gate.mjs');
-    await writeFile(gate, "export const name = 't3code-ideas-ask-gate';\nexport function apply(ctx) {\n  ctx.on('tools/pre-execute', async (exec, next) => {\n    const d = await next();\n    return exec.name === 'bash' && String(exec.arguments?.command ?? '').includes('build-old') && d?.kind === 'allow' ? { kind: 'ask', reason: 'Deletes a folder' } : d;\n  });\n}\n");
+    // Also a test-only route that queues a message through dsh's own prompt (the composer is hidden under a card).
+    await writeFile(gate, "export const name = 't3code-ideas-ask-gate';\nexport const inject = ['connection', 'sessionController'];\nexport function apply(ctx) {\n  ctx.connection.fetch.register({ path: '/api/t3ideas-test.queue', methods: ['POST'], requestBody: 'buffered', fetch: async (request) => { const b = await request.json(); await ctx.sessionController.prompt({ requestId: crypto.randomUUID(), sessionId: b.sessionId, mode: 'queue', content: [{ type: 'text', text: b.text }] }, AbortSignal.timeout(10000)); return Response.json({ ok: true }); } });\n  ctx.on('tools/pre-execute', async (exec, next) => {\n    const d = await next();\n    return exec.name === 'bash' && String(exec.arguments?.command ?? '').includes('build-old') && d?.kind === 'allow' ? { kind: 'ask', reason: 'Deletes a folder' } : d;\n  });\n}\n");
     await writeFile(join(profile, 'cordis.patch.yml'), `- insert:
     - id: t3code-ideas-ask-gate
       name: ${gate}
@@ -405,6 +424,80 @@ try {
       await pause(800);
       assert.equal(await quoteButton.count(), 0, 'off: no Quote');
       note('10: switched off → no Quote button');
+
+      // 11. Side chat while the chat waits on an approval card, with a queued message.
+      await newChat();
+      await send(SIDE_TASK);
+      await card.waitFor({ timeout: 30000 });
+      const parentId = await until(() => page.evaluate(() => document.querySelector('[data-row-key^="session:"][aria-selected="true"]')?.getAttribute('data-row-key')?.slice(8)), 'parent chat id');
+      // dsh hides the composer while the card shows: queue a message through dsh's own prompt (test-only route).
+      const post = (path, body) => page.evaluate(async ([path, body]) => {
+        const r = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+        return { status: r.status, data: await r.json().catch(() => ({})) };
+      }, [path, body]);
+      assert.equal((await post('/api/t3ideas-test.queue', { sessionId: parentId, text: SIDE_QUEUED })).status, 200, 'a message waits in the queue');
+      assert.equal((await post('/api/composer-plus.side-chat', { sessionId: parentId, text: '  ' })).status, 400, 'an empty question is refused');
+      // The composer (and its side button) is hidden under the card: this step uses the button's route; step 12 the button.
+      const side = await post('/api/composer-plus.side-chat', { sessionId: parentId, text: SIDE_Q });
+      assert.equal(side.status, 200, JSON.stringify(side.data));
+      await until(async () => calls.some((c) => c.task === 'SQ' && c.msgs.some((m) => m.role === 'tool')), 'the side chat writes and reads the result', 40000);
+      const sq = calls.filter((c) => c.task === 'SQ');
+      const firstSide = JSON.stringify(sq[0].msgs);
+      assert.ok(firstSide.includes(SIDE_TASK), 'the side chat knows the chat\'s task');
+      assert.ok(!firstSide.includes(SIDE_QUEUED), 'the queued message does not run in the side chat');
+      // dsh adds its runtime-context messages after the question: find the side chat's own first message.
+      const asked = sq[0].msgs.filter((m) => m.role === 'user').map((m) => textOf(m.content)).find((x) => x.startsWith('Side question.'));
+      assert.ok(asked?.endsWith(SIDE_Q), `its first own message is the lead and the question: ${JSON.stringify(asked?.slice(-80))}`);
+      const writeResult = textOf(sq[1].msgs.filter((m) => m.role === 'tool').at(-1).content);
+      assert.match(writeResult, /read-only|denied|sandbox/i, `the write is denied: ${writeResult.slice(0, 200)}`);
+      assert.equal(await access(join(project, 'notes.txt')).then(() => true, () => false), false, 'no file written');
+      assert.equal(await card.isVisible(), true, 'the chat\'s card stays');
+      assert.equal(calls.filter((c) => c.task === 'SP').length, 1, 'the chat made no model call meanwhile');
+      note('11: side chat while the chat waits on its card: it knows the task, gets the lead + question, its write is denied, no card in it, the chat\'s card stays');
+      // The button path: a side question typed in another chat's composer opens the side chat with the bar.
+      await card.getByRole('button', { name: 'Reject', exact: true }).click();
+      // The chat ends its turn, then runs the queued message.
+      await until(async () => calls.filter((c) => c.task === 'SP').length >= 3 && (await page.getByText('Parent goes on.').count()) > 0, 'the chat runs its turn and the queued message', 40000);
+      assert.ok(JSON.stringify(calls.filter((c) => c.task === 'SP').at(-1).msgs).includes(SIDE_QUEUED), 'the queued message ran in the chat');
+      await pause(800);
+      const sideButton = page.locator('[data-composer-plus-side]');
+      await input.click(); await page.keyboard.type(SIDE_Q, { delay: 3 });
+      await sideButton.click();
+      const bar = page.locator('[data-composer-plus-side-bar]');
+      await bar.waitFor({ timeout: 20000 });
+      assert.match(await bar.innerText(), /Side chat of .*read-only/);
+      await until(async () => (await page.getByText(/^Side answer: the totals are in cart\/totals\.js/).count()) > 0, 'the side chat answers', 40000);
+      const sideRow = await page.evaluate(() => document.querySelector('[data-row-key^="session:"][aria-selected="true"]')?.innerText ?? '');
+      assert.match(sideRow, /↳ Which file holds the cart totals\?/, `the side chat is named after the question: ${sideRow}`);
+      if (index === 0 && process.env.SHOT) {
+        await page.mouse.move(1000, 100); await pause(400);
+        const box = await bar.boundingBox();
+        const area = { x: Math.max(0, box.x - 16), y: Math.max(0, box.y - 140), width: Math.min(1280, box.width + 32), height: box.height + 156 };
+        const png = join(home, 'sideChat.png'); await page.screenshot({ path: png, clip: area });
+        execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.round(area.width * 1.25)), '0', png, '-o', join(repo, 'assets/features/sideChat.webp')]);
+        note(`shot: assets/features/sideChat.webp ${(await stat(join(repo, 'assets/features/sideChat.webp'))).size} bytes`);
+      }
+      // 12. Bring back.
+      const back = bar.getByRole('button', { name: 'Bring back', exact: true });
+      await until(async () => !(await back.isDisabled()), 'Bring back is on after the answer', 20000);
+      await back.click();
+      await until(async () => (await input.innerText()).includes('> Which file holds the cart totals?'), 'the chat composer holds the side chat', 20000);
+      const draft = await input.innerText();
+      assert.match(draft, /> Which file holds the cart totals\?\s+Side answer: the totals are in cart\/totals\.js/, `question quoted, then the answer: ${JSON.stringify(draft)}`);
+      assert.equal(await page.evaluate(() => document.querySelector('[data-row-key^="session:"][aria-selected="true"]')?.getAttribute('data-row-key')?.slice(8)), parentId, 'the chat is open');
+      assert.equal(await bar.count(), 0, 'no bar in the chat itself');
+      note('12: Bring back opens the chat; its composer holds the quoted question and the answer');
+
+      // 13. Switched off: no side button.
+      await openSettings();
+      const sw4 = page.getByRole('switch', { name: 'Side chat', exact: true });
+      await sw4.waitFor({ timeout: 10000 });
+      assert.equal(await sw4.getAttribute('aria-checked'), 'true', 'Side chat is on by default');
+      await sw4.click();
+      await until(async () => (await sw4.getAttribute('aria-checked')) === 'false', 'Side chat switched off');
+      await page.keyboard.press('Escape'); await pause(600);
+      assert.equal(await sideButton.count(), 0, 'off: no side button');
+      note('13: switched off → no side button');
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;

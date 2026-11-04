@@ -515,6 +515,27 @@ struct Line: Identifiable {
 /// Quote in reply: `quoteText` of client.js for a whole answer at the end of the composer's text. `> ` lines (an empty
 /// line as `>`), at most `quoteMax` characters (cut with …), an empty line before it when the field has text, and an empty
 /// line after it for the reply.
+/// Side chat (Composer Plus `sideChat`): the Bring back text, the same rule as the Mac's `sideBackText`: each question as a
+/// `> ` quote, then its answer, at most `sideBackMax` characters (cut with …).
+let sideBackMax = 12000
+func sideBackText(_ messages: [J]) -> String {
+    let parts: [String] = messages.compactMap { m in
+        guard let t = (m["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
+        guard m["role"] as? String == "user" else { return t }
+        return t.split(separator: "\n", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces).isEmpty ? ">" : "> " + $0 }.joined(separator: "\n")
+    }
+    let text = parts.joined(separator: "\n\n")
+    guard text.unicodeScalars.count > sideBackMax else { return text }
+    var s = String.UnicodeScalarView(); s.append(contentsOf: text.unicodeScalars.prefix(sideBackMax - 1))
+    return String(s).replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) + "…"
+}
+/// The draft with the Bring back text after it (an empty line between).
+func sideBackDraft(_ draft: String, _ text: String) -> String {
+    guard !text.isEmpty else { return draft }
+    let lead = draft.isEmpty || draft.hasSuffix("\n\n") ? "" : draft.hasSuffix("\n") ? "\n" : "\n\n"
+    return draft + lead + text + "\n\n"
+}
+
 let quoteMax = 2000
 func quoteDraft(_ draft: String, _ answer: String) -> String {
     var t = answer.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
@@ -1678,6 +1699,46 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         return try await call(c.percentEncodedPath + (c.percentEncodedQuery.map { "?" + $0 } ?? ""), body, get: body == nil, wait: wait) as? J ?? [:]
     }
 
+    // MARK: Side chat (Composer Plus `sideChat`)
+
+    /// The open chat's parent when it is a side chat (the Mac's GET answers), else nil.
+    @Published var sideParent: String?
+    /// One start or Bring back at a time (rule 7): the buttons and a second tap all check it.
+    @Published private(set) var sideBusy = false
+    private func loadSide(_ sid: String) async {
+        guard plus.contains("side-chat") else { sideParent = nil; return }
+        let o = try? await plusCall("side-chat", query: ["sessionId": sid])
+        if current == sid { sideParent = o?["parent"] as? String }
+    }
+    /// Start a side chat with `text`; the phone opens it. Nil when it did not start (the reason is in `error`).
+    func startSide(_ sid: String, _ text: String) async -> String? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard plus.contains("side-chat"), !sideBusy, !t.isEmpty, t.utf16.count <= 8000 else { return nil }
+        sideBusy = true
+        defer { sideBusy = false }
+        do {
+            // The start makes a chat on the Mac: it runs to its end there.
+            let o = try await plusCall("side-chat", body: ["sessionId": sid, "text": t], wait: 60)
+            guard let id = o["sessionId"] as? String else { return nil }
+            open(id)
+            return id
+        } catch { self.error = userText(error); return nil }
+    }
+    /// Bring back: read the side chat again, open its parent and put the text after the parent's draft.
+    func bringBack(_ sid: String) async {
+        guard plus.contains("side-chat"), !sideBusy else { return }
+        sideBusy = true
+        defer { sideBusy = false }
+        do {
+            let o = try await plusCall("side-chat", query: ["sessionId": sid])
+            guard let parent = o["parent"] as? String else { return }
+            let text = sideBackText(o["messages"] as? [J] ?? [])
+            guard !text.isEmpty else { return }
+            setDraft(sideBackDraft(draft(parent), text), parent)
+            open(parent)
+        } catch { self.error = userText(error) }
+    }
+
     private func loadRollback(_ sid: String) async {
         guard plus.contains("rollback"), let o = try? await plusCall("rollback", query: ["sessionId": sid]), current == sid else { return }
         rollbackOn = o["on"] as? Bool == true && o["rewind"] as? Bool != true
@@ -2418,11 +2479,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let old = followId { send(["type": "cancel", "streamId": old]) }
         current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; contextWindow = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
         hasOlder = false; oldestSeq = nil; throughSeq = nil; events = []; continueSeq = nil; rollbackOn = false; prediction = nil; redoOffer = nil
-        branch = nil; newBranch = false; optionsFrom = nil
+        branch = nil; newBranch = false; optionsFrom = nil; sideParent = nil
         running = currentSess?.running ?? false
         loadingChat = true
         openFollow(sid)
-        Task { await loadCommands(); await loadGoal(); await loadRollback(sid); await loadBranch(sid) }
+        Task { await loadCommands(); await loadGoal(); await loadRollback(sid); await loadBranch(sid); await loadSide(sid) }
     }
 
     // MARK: Branch per chat (Composer Plus `worktreeChats`)

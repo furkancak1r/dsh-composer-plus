@@ -532,6 +532,7 @@ struct ConversationView: View {
     @State private var showIdeas = false
     @State private var showMemory = false
     @State private var showHandoff = false
+    @State private var showSide = false
     @State private var showContext = false
     @State private var showBoard = false
     @State private var deleting = false
@@ -596,6 +597,7 @@ struct ConversationView: View {
                         if c.plus.contains("context") { Button { showContext = true } label: { Label("Context", systemImage: "chart.bar.doc.horizontal") } }
                         if c.plus.contains("board-chats") { Button { showBoard = true } label: { Label("Task board", systemImage: "rectangle.split.3x1") } }
                         if c.plus.contains("handoff"), c.currentSess?.parent == nil { Button { showHandoff = true } label: { Label("Continue in a new chat", systemImage: "arrow.right.doc.on.clipboard") } }
+                        if c.plus.contains("side-chat"), c.currentSess?.parent == nil { Button { showSide = true } label: { Label("Side chat…", systemImage: "bubble.left.and.bubble.right") } }
                         Button { UIPasteboard.general.string = sessionLink(id); UINotificationFeedbackGenerator().notificationOccurred(.success) } label: { Label("Copy session link", systemImage: "link") }
                         if c.transcript.contains(where: { $0.kind == .assistant }) {
                             Button {
@@ -614,6 +616,7 @@ struct ConversationView: View {
             .sheet(isPresented: $showIdeas) { if let id = c.current { IdeasSheet(sessionId: id) } }
             .sheet(isPresented: $showMemory) { MemorySheet(cwd: c.currentSess?.cwd ?? "") }
             .sheet(isPresented: $showHandoff) { if let id = c.current { HandoffSheet(sessionId: id) } }
+            .sheet(isPresented: $showSide) { if let id = c.current { SideChatSheet(sessionId: id) } }
             .sheet(isPresented: $showContext) { if let id = c.current { ContextSheet(sessionId: id) } }
             .sheet(isPresented: $showBoard) { BoardSheet(project: boardProjectOf(c.current ?? "", workspaces: c.workspaces)) }
             // Task board → +: the new chat opened here; its first message went, so the board opens again.
@@ -753,6 +756,7 @@ struct ConversationView: View {
                         if !c.queued.isEmpty { queueDock }
                         if let m = c.redoSeq, c.plus.contains("rollback") { redoBar(m) }
                         if let a = c.secretAsk, a.sessionId == c.current { secretBar(a) }
+                        if let p = c.sideParent, let id = c.current { sideBar(id, parent: p) }
                         if !suggestions.isEmpty { suggestionList }
                         composer
                         statusLine
@@ -831,6 +835,21 @@ struct ConversationView: View {
         .background(Color(.secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .padding(.horizontal, 10).padding(.top, 6)
         .sheet(item: $enteringSecret) { SecretSheet(ask: $0) }
+    }
+
+    /// Side chat (Composer Plus): in a side chat, Bring back puts its questions and answers into the chat's composer.
+    func sideBar(_ id: String, parent: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bubble.left.and.bubble.right").font(.caption).foregroundStyle(.secondary)
+            Text("Side chat: read-only").font(.footnote).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+            Button { Task { await c.bringBack(id) } } label: { Text("Bring back").font(.footnote.weight(.medium)) }
+                .buttonStyle(.borderedProminent).controlSize(.small).disabled(c.sideBusy || c.running)
+            Button { c.open(parent) } label: { Text("Back to the chat").font(.footnote) }
+                .buttonStyle(.bordered).controlSize(.small)
+        }
+        .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 4)
+        .background(Color(.secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 10).padding(.top, 6)
     }
 
     /// Redo (Composer Plus turn rollback): after a rollback, while nothing came after it and the chat is idle.
@@ -3535,6 +3554,35 @@ struct HandoffSheet: View {
                 h.bind { [c] body in try await c.plusCall("handoff", body: body, wait: 190) }
                 if h.note.isEmpty { await h.write(sessionId) }
             }
+        }
+    }
+}
+
+/// Side chat (Composer Plus on the Mac): a question for a read-only copy of this chat; the chat goes on working. The phone
+/// opens the side chat. One start at a time (`c.sideBusy`).
+struct SideChatSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let sessionId: String
+    @State private var question = ""
+    @FocusState private var focused: Bool
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Your side question", text: $question, axis: .vertical).lineLimit(3...12).focused($focused)
+                        .onChange(of: question) { _, v in if v.utf16.count > 8000 { question = String(v.prefix(8000)) } }
+                } footer: { Text("A copy of this chat answers in read-only mode. This chat goes on working. In the side chat, Bring back puts the answer into this chat's message field.") }
+                if c.sideBusy { HStack(spacing: 8) { ProgressView(); Text("Starting the side chat…") }.font(.footnote).foregroundStyle(.secondary) }
+                Section {
+                    Button("Ask") { Task { if await c.startSide(sessionId, question) != nil { dismiss() } } }
+                        .bold().disabled(c.sideBusy || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .navigationTitle("Side chat").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(c.sideBusy) } }
+            .interactiveDismissDisabled(c.sideBusy)
+            .onAppear { focused = true }
         }
     }
 }

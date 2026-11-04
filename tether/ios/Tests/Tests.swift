@@ -337,6 +337,18 @@ final class CoreTests: XCTestCase {
     }
 
     /// Quote in reply: the same quote rule as the Mac (`quoteText` in client.js) for a whole answer at the end of the field.
+    func testSideBack() {
+        // The same rule as the Mac's sideBackText: questions as quotes, then the answers; blank messages left out.
+        XCTAssertEqual(sideBackText([["role": "user", "text": "Why?\n\nReally"], ["role": "assistant", "text": " Because. "], ["role": "user", "text": " "]]), "> Why?\n>\n> Really\n\nBecause.")
+        XCTAssertEqual(sideBackText([]), "")
+        let long = sideBackText([["role": "assistant", "text": String(repeating: "😀", count: sideBackMax + 3)]])
+        XCTAssertEqual(long.unicodeScalars.count, sideBackMax); XCTAssertTrue(long.hasSuffix("…"))
+        XCTAssertEqual(sideBackText([["role": "assistant", "text": String(repeating: "a", count: sideBackMax)]]).count, sideBackMax, "the limit itself is not cut")
+        XCTAssertEqual(sideBackDraft("", "> q\n\nA"), "> q\n\nA\n\n")
+        XCTAssertEqual(sideBackDraft("My note", "x"), "My note\n\nx\n\n")
+        XCTAssertEqual(sideBackDraft("My note\n", "x"), "My note\n\nx\n\n")
+        XCTAssertEqual(sideBackDraft("My note", ""), "My note")
+    }
     func testQuoteDraft() {
         XCTAssertEqual(quoteDraft("", "Use pnpm."), "> Use pnpm.\n\n")
         XCTAssertEqual(quoteDraft("", "  a\r\n\r\nb\u{00a0}c  "), "> a\n>\n> b c\n\n", "CRLF, an empty line, NBSP, trim")

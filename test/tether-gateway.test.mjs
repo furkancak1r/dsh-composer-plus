@@ -375,6 +375,11 @@ test('composer-plus routes: allowlisted methods pass with the query or body; swi
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.secret-answer?sessionId=s', body: '', type: null })
     await call(t.gw, 'POST', '/plus/secret-answer', { sessionId: 's', askId: 'a1', value: 'tok' }, auth)
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'POST', url: '/api/composer-plus.secret-answer', body: JSON.stringify({ sessionId: 's', askId: 'a1', value: 'tok' }), type: 'application/json' })
+    // Side chat: the phone starts one (a question) and reads a side chat for Bring back.
+    await call(t.gw, 'POST', '/plus/side-chat', { sessionId: 's', text: 'Why?' }, auth)
+    assert.deepEqual(t.dsh.plus.at(-1), { method: 'POST', url: '/api/composer-plus.side-chat', body: JSON.stringify({ sessionId: 's', text: 'Why?' }), type: 'application/json' })
+    await call(t.gw, 'GET', '/plus/side-chat?sessionId=side1', undefined, auth)
+    assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.side-chat?sessionId=side1', body: '', type: null })
     // An older plugin without the route: its 404 reaches the phone, which hides the feature.
     assert.equal((await call(t.gw, 'GET', '/plus/changes?sessionId=s', undefined, auth)).status, 404)
     const seen = t.dsh.plus.length
@@ -385,7 +390,7 @@ test('composer-plus routes: allowlisted methods pass with the query or body; swi
       ['POST', '/plus/complete', { on: true }], ['GET', '/plus/complete'],
       ['POST', '/plus/improve', { model: { provider: 'x', model: 'y' } }], ['GET', '/plus/improve?catalog=1'], ['POST', '/plus/unread', { on: false }],
       ['GET', '/plus/default-workspace'], ['POST', '/plus/default-workspace', { workspaceId: 'w' }], ['POST', '/plus/new-session-workspace', { on: false }], ['GET', '/plus/new-session-workspace'],
-      ['GET', '/plus/secrets'], ['POST', '/plus/secrets', { on: false }], ['POST', '/plus/secret-answer', { on: false }],
+      ['GET', '/plus/secrets'], ['POST', '/plus/secrets', { on: false }], ['POST', '/plus/secret-answer', { on: false }], ['POST', '/plus/side-chat', { on: true }],
       ['GET', '/plus/shot?id=x'], ['POST', '/plus/changes', {}], ['POST', '/plus/graph', {}], ['GET', '/plus/../mobile'], ['POST', '/plus/continue', 'not json']]) {
       assert.equal((await call(t.gw, m, p, b, auth)).status, p.endsWith('continue') ? 400 : p.includes('..') ? 404 : 403, p)
     }
