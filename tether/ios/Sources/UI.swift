@@ -533,6 +533,7 @@ struct ConversationView: View {
     @State private var showMemory = false
     @State private var showSuggest = false
     @State private var showHandoff = false
+    @State private var showSide = false
     @State private var showContext = false
     @State private var showBoard = false
     @State private var deleting = false
@@ -540,6 +541,8 @@ struct ConversationView: View {
     @State private var rollingBack: Line?
     /// Redo: the rollback marker whose Redo was tapped.
     @State private var redoMarker: Int?
+    /// Secret input: the request whose sheet is open.
+    @State private var enteringSecret: Client.SecretAsk?
     /// Open message: the row that blinks for 2 s after the jump.
     @State private var marked: UUID?
     /// Find in chat: the search text while the find bar is open (nil = closed), and the current hit.
@@ -600,6 +603,7 @@ struct ConversationView: View {
                         if c.plus.contains("context") { Button { showContext = true } label: { Label("Context", systemImage: "chart.bar.doc.horizontal") } }
                         if c.plus.contains("board-chats") { Button { showBoard = true } label: { Label("Task board", systemImage: "rectangle.split.3x1") } }
                         if c.plus.contains("handoff"), c.currentSess?.parent == nil { Button { showHandoff = true } label: { Label("Continue in a new chat", systemImage: "arrow.right.doc.on.clipboard") } }
+                        if c.plus.contains("side-chat"), c.currentSess?.parent == nil { Button { showSide = true } label: { Label("Side chat…", systemImage: "bubble.left.and.bubble.right") } }
                         Button { UIPasteboard.general.string = sessionLink(id); UINotificationFeedbackGenerator().notificationOccurred(.success) } label: { Label("Copy session link", systemImage: "link") }
                         if c.transcript.contains(where: { $0.kind == .assistant }) {
                             Button {
@@ -619,6 +623,7 @@ struct ConversationView: View {
             .sheet(isPresented: $showMemory) { MemorySheet(cwd: c.currentSess?.cwd ?? "") }
             .sheet(isPresented: $showSuggest) { if let id = c.current { MemorySuggestSheet(sessionId: id) } }
             .sheet(isPresented: $showHandoff) { if let id = c.current { HandoffSheet(sessionId: id) } }
+            .sheet(isPresented: $showSide) { if let id = c.current { SideChatSheet(sessionId: id) } }
             .sheet(isPresented: $showContext) { if let id = c.current { ContextSheet(sessionId: id) } }
             .sheet(isPresented: $showBoard) { BoardSheet(project: boardProjectOf(c.current ?? "", workspaces: c.workspaces)) }
             // Task board → +: the new chat opened here; its first message went, so the board opens again.
@@ -646,6 +651,7 @@ struct ConversationView: View {
             } message: { Text("The agent keeps working toward this until it is complete.") }
             // per-session draft: going back or switching sessions never loses typed text
             .onAppear { text = c.draft(c.current) }
+            .onChange(of: c.draftPushed) { text = c.draft(c.current); focused = true }
             .onChange(of: c.current) { text = c.draft(c.current); guess = nil; improving?.task.cancel(); improving = nil; improved = nil }
             .onChange(of: text) { c.setDraft(text, c.current) }
             // Complete while typing: ask after a pause; a newer keystroke cancels this task. Typing along the guess needs no ask.
@@ -693,7 +699,7 @@ struct ConversationView: View {
                             Group {
                                 switch row {
                                 case .line(let l):
-                                    LineView(line: l, onEdit: { text = $0; focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
+                                    LineView(line: l, onEdit: { text = $0; focused = true }, onQuote: { text = quoteDraft(text, $0); focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
                                     // Option buttons (Composer Plus): under the answer that ends with an option list.
                                     if l.kind == .assistant, let o = c.optionOffer, o.seq == l.seq, text.isEmpty, images.isEmpty, files.isEmpty { OptionButtons(offer: o) }
                                 case .steps(let ls, let live): StepsView(lines: ls, live: live && c.streaming.isEmpty)
@@ -757,6 +763,8 @@ struct ConversationView: View {
                         if c.shownTodos.contains(where: { $0.status != "completed" }) { todoCard }
                         if !c.queued.isEmpty { queueDock }
                         if let m = c.redoSeq, c.plus.contains("rollback") { redoBar(m) }
+                        if let a = c.secretAsk, a.sessionId == c.current { secretBar(a) }
+                        if let p = c.sideParent, let id = c.current { sideBar(id, parent: p) }
                         if !suggestions.isEmpty { suggestionList }
                         composer
                         statusLine
@@ -771,6 +779,7 @@ struct ConversationView: View {
                 .onChange(of: c.running, initial: true) { turnStart = c.running ? (turnStart ?? .now) : nil }
                 .onChange(of: c.current) { openTurns = [] }
                 .task(id: c.jump) { await jump(proxy) }
+                .task(id: c.plus.contains("secret-answer") ? c.secretWaiting : nil) { await c.watchSecret() }
                 .task(id: marked) { if marked != nil { try? await Task.sleep(for: .seconds(2)); if !Task.isCancelled { withAnimation { marked = nil } } } }
         }
     }
@@ -820,6 +829,35 @@ struct ConversationView: View {
         guard let target else { c.error = String(localized: "This message is not in the chat any more."); return }
         withAnimation { proxy.scrollTo(target, anchor: .center) }
         marked = target
+    }
+
+    /// Secret input (Composer Plus): the agent waits for a secret; Enter opens the sheet with a secure field.
+    func secretBar(_ a: Client.SecretAsk) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "lock.fill").font(.caption).foregroundStyle(.secondary)
+            Text("Secret: \(a.label)").font(.footnote).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+            Button { enteringSecret = a } label: { Text("Enter").font(.footnote.weight(.medium)) }
+                .buttonStyle(.borderedProminent).controlSize(.small)
+        }
+        .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 4)
+        .background(Color(.secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 10).padding(.top, 6)
+        .sheet(item: $enteringSecret) { SecretSheet(ask: $0) }
+    }
+
+    /// Side chat (Composer Plus): in a side chat, Bring back puts its questions and answers into the chat's composer.
+    func sideBar(_ id: String, parent: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "bubble.left.and.bubble.right").font(.caption).foregroundStyle(.secondary)
+            Text("Side chat: read-only").font(.footnote).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading)
+            Button { Task { await c.bringBack(id) } } label: { Text("Bring back").font(.footnote.weight(.medium)) }
+                .buttonStyle(.borderedProminent).controlSize(.small).disabled(c.sideBusy || c.running)
+            Button { c.open(parent) } label: { Text("Back to the chat").font(.footnote) }
+                .buttonStyle(.bordered).controlSize(.small)
+        }
+        .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 4)
+        .background(Color(.secondarySystemBackground).opacity(0.6), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.horizontal, 10).padding(.top, 6)
     }
 
     /// Redo (Composer Plus turn rollback): after a rollback, while nothing came after it and the chat is idle.
@@ -1376,6 +1414,8 @@ struct LineView: View {
     let line: Line
     var live = false
     var onEdit: ((String) -> Void)? = nil
+    /// Quote in reply: puts this answer as a quote in the composer.
+    var onQuote: ((String) -> Void)? = nil
     /// Turn rollback (Composer Plus): nil when this row cannot be rolled back.
     var onRollback: (() -> Void)? = nil
     @State private var open = false
@@ -1386,6 +1426,7 @@ struct LineView: View {
             Button { UIPasteboard.general.string = [line.text, line.output].compactMap { $0 }.joined(separator: "\n\n") } label: { Label("Copy", systemImage: "doc.on.doc") }
             if line.kind == .assistant || line.kind == .reasoning, !live { Button { selecting = true } label: { Label("Select Text", systemImage: "selection.pin.in.out") } }
             if line.kind == .assistant, !live { ShareLink(item: line.text) { Label("Share", systemImage: "square.and.arrow.up") } }
+            if line.kind == .assistant, !live, let onQuote { Button { onQuote(line.text) } label: { Label("Quote", systemImage: "quote.opening") } }
             // Copy message link (Composer Plus): the chat's link and this message's seq; dsh on the Mac opens it.
             if line.kind == .user || line.kind == .assistant, !live, let seq = line.seq, let sid = c.current {
                 Button { UIPasteboard.general.string = messageLink(sid, seq); UINotificationFeedbackGenerator().notificationOccurred(.success) } label: { Label("Copy message link", systemImage: "link") }
@@ -2388,6 +2429,8 @@ struct PromptSheet: View {
     let p: Prompt
     @State private var picked: [String: Set<String>] = [:]
     @State private var custom: [String: String] = [:]
+    @State private var noting = false
+    @State private var note = ""
     var body: some View {
         NavigationStack {
             Form {
@@ -2418,6 +2461,7 @@ struct PromptSheet: View {
                             }
                         }
                         Button("Deny", role: .destructive) { send("rejected") }
+                        Button("Reject with note…") { noting = true }
                     } footer: {
                         if isAutoReviewAsk, c.plus.contains("grants") { Text("Allow for this chat: \(p.request["toolName"] as? String ?? "") runs without asking in this chat, with any arguments, until the time limit set on the Mac ends (1 hour by default). If the tool can write, that includes any write.") }
                     }
@@ -2449,6 +2493,28 @@ struct PromptSheet: View {
             }
             .navigationTitle(p.event == "approval/request" ? "Approval needed" : "Question")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $noting) {
+                NavigationStack {
+                    Form {
+                        Section {
+                            TextField("Tell the agent why, or what to do instead", text: $note, axis: .vertical).lineLimit(3...8)
+                                .onChange(of: note) { _, v in if v.count > Client.rejectNoteMax { note = String(v.prefix(Client.rejectNoteMax)) } }
+                        } footer: { Text("The agent reads the rejection and your note in the same turn.") }
+                    }
+                    .navigationTitle("Reject with note").navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("Cancel") { noting = false } }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Reject") {
+                                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                                let text = note
+                                c.run { try await c.rejectWithNote(p, text); noting = false }
+                            }.disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || c.rejectingNote.contains(p.id))
+                        }
+                    }
+                }
+                .presentationDetents([.medium])
+            }
         }
     }
     private var isAutoReviewAsk: Bool { (p.request["reason"] as? String)?.hasPrefix("Auto review denied tool ") == true && p.agentId != nil }
@@ -2474,6 +2540,43 @@ struct PromptSheet: View {
 
 
 // MARK: - Composer Plus (the dsh-composer-plus plugin on the Mac)
+
+/// Secret input: a secure field for the agent's `request_secret`. Save sends the value to the Mac once (the Mac writes it
+/// to an owner-only file and gives the agent only the path); Decline tells the agent that you did not give it. The value
+/// stays only in this sheet's field until it goes.
+struct SecretSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let ask: Client.SecretAsk
+    @State private var value = ""
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    SecureField(ask.label, text: $value)
+                        .textContentType(.password).autocorrectionDisabled().textInputAutocapitalization(.never)
+                        .submitLabel(.done).onSubmit { save() }
+                        .onChange(of: value) { _, v in if v.count > Client.secretMax { value = String(v.prefix(Client.secretMax)) } }
+                } header: { if !ask.purpose.isEmpty { Text(ask.purpose) } } footer: {
+                    Text("The agent gets only the path of a file on your Mac that holds the value. The file is deleted when this turn ends.")
+                }
+                Section { Button("Decline", role: .destructive) { send(nil) }.disabled(c.secretBusy) }
+            }
+            .navigationTitle("Secret: \(ask.label)").navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) { Button("Save") { save() }.disabled(value.isEmpty || c.secretBusy) }
+            }
+            .onChange(of: c.secretAsk) { _, now in if now != ask { dismiss() } } // answered here, on the Mac, or the turn stopped
+        }
+        .presentationDetents([.medium])
+    }
+    private func save() { if !value.isEmpty { send(value) } }
+    private func send(_ v: String?) {
+        let a = ask
+        c.run { if try await c.answerSecret(a, value: v) { value = ""; dismiss() } }
+    }
+}
 
 /// Changes → a file → "Chats that changed this file": the chats of the same repository whose write/edit tools changed it,
 /// newest first (the Mac reads them from its chat logs); a tap opens that chat at that request.
@@ -2565,6 +2668,14 @@ struct ChangesSheet: View {
             List {
                 // Five modes do not fit the phone's width as segments (Branch and This chat were off screen): a menu row
                 // shows the current mode and lists all five.
+                if let n = c.diffNotes[sessionId], !n.isEmpty {
+                    Section {
+                        ForEach(n) { x in VStack(alignment: .leading, spacing: 2) { Text("\(x.path):\(x.line)").font(.caption.monospaced()); Text(x.note).font(.footnote) } }
+                            .onDelete { c.diffNotes[sessionId]?.remove(atOffsets: $0) }
+                        Button("Send to composer") { c.sendDiffNotes(sessionId); dismiss() }.bold()
+                        Button("Clear", role: .destructive) { c.diffNotes[sessionId] = nil }
+                    } header: { Text("\(n.count) note(s) on the diff") }
+                }
                 Picker("Mode", selection: $mode) { ForEach(Self.modes, id: \.id) { Text($0.label).tag($0.id) } }
                 // the row text toggles too, not only the switch (the switch keeps its own tap)
                 Toggle(isOn: $ws) {
@@ -2971,14 +3082,20 @@ struct CommitView: View {
 struct PatchLines: View {
     let patch: String
     var truncated = false
+    /// Diff notes: touch and hold a line → Add note… (one line on the phone). Nil: no menu.
+    var note: ((_ row: (line: String, old: Int?, new: Int?)) -> Void)? = nil
     var body: some View {
-        let lines = patch.split(separator: "\n", omittingEmptySubsequences: false).filter { !$0.hasPrefix("--- ") && !$0.hasPrefix("+++ ") }.drop { !$0.hasPrefix("@@") }
+        // Number first, then hide header rows: a removed "-- …" line shows as "--- …" and must still count.
+        let lines = numberedPatch(patch.split(separator: "\n", omittingEmptySubsequences: false).drop { !$0.hasPrefix("@@") }.map(String.init))
+            .filter { !$0.line.hasPrefix("--- ") && !$0.line.hasPrefix("+++ ") }
         VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(lines.enumerated()), id: \.offset) { _, l in
-                Text(String(l).isEmpty ? " " : String(l)).font(.caption.monospaced())
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, r in
+                let l = r.line
+                Text(l.isEmpty ? " " : l).font(.caption.monospaced())
                     .foregroundStyle(l.hasPrefix("@@") ? Color.secondary : .primary)
                     .padding(.horizontal, 8).frame(maxWidth: .infinity, alignment: .leading)
                     .background(l.hasPrefix("+") ? Color.green.opacity(0.12) : l.hasPrefix("-") ? Color.red.opacity(0.12) : .clear)
+                    .contextMenu { if let note, r.old != nil || r.new != nil { Button { note(r) } label: { Label("Add note…", systemImage: "text.bubble") } } }
             }
             if truncated { Text("Diff truncated.").font(.caption).foregroundStyle(.secondary).padding(8) }
         }
@@ -2996,15 +3113,23 @@ struct DiffView: View {
     @AppStorage("changesHideWhitespace") private var ws = false
     @State private var d: J?
     @State private var failed: String?
+    @State private var noting: (line: String, old: Int?, new: Int?)?
+    @State private var noteText = ""
     var body: some View {
         ScrollView([.vertical, .horizontal]) {
             if let failed { Text(failed).foregroundStyle(.secondary).padding() }
             else if let d {
                 if d["binary"] as? Bool == true { Text("binary").foregroundStyle(.secondary).padding() }
-                PatchLines(patch: d["patch"] as? String ?? "", truncated: d["truncated"] as? Bool == true)
+                PatchLines(patch: d["patch"] as? String ?? "", truncated: d["truncated"] as? Bool == true,
+                           note: c.plus.contains("diff") ? { r in noting = r; noteText = "" } : nil)
             } else { ProgressView().padding() }
         }
         .navigationTitle((path as NSString).lastPathComponent).navigationBarTitleDisplayMode(.inline)
+        .alert("Note on this line", isPresented: Binding(get: { noting != nil }, set: { if !$0 { noting = nil } })) {
+            TextField("What should the agent do here?", text: $noteText)
+            Button("Save note") { if let r = noting { c.addDiffNote(sessionId, path: path, row: r, note: noteText) }; noting = nil }
+            Button("Cancel", role: .cancel) { noting = nil }
+        } message: { Text(noting?.line ?? "") }
         .task(id: ws) {
             do { d = try await c.plusCall("diff", query: changesQuery(sessionId, mode: mode, ws: ws, commit: commit, path: path, pending: pending)) }
             catch { failed = userText(error) }
@@ -3611,6 +3736,35 @@ struct MemorySuggestSheet: View {
                 s.bind { [c] body in try await c.plusCall("memory-suggest", body: body, wait: body["accept"] == nil ? 190 : 60) }
                 if !s.asked { await s.ask(sessionId) }
             }
+        }
+    }
+}
+
+/// Side chat (Composer Plus on the Mac): a question for a read-only copy of this chat; the chat goes on working. The phone
+/// opens the side chat. One start at a time (`c.sideBusy`).
+struct SideChatSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let sessionId: String
+    @State private var question = ""
+    @FocusState private var focused: Bool
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Your side question", text: $question, axis: .vertical).lineLimit(3...12).focused($focused)
+                        .onChange(of: question) { _, v in if v.utf16.count > 8000 { question = String(v.prefix(8000)) } }
+                } footer: { Text("A copy of this chat answers in read-only mode. This chat goes on working. In the side chat, Bring back puts the answer into this chat's message field.") }
+                if c.sideBusy { HStack(spacing: 8) { ProgressView(); Text("Starting the side chat…") }.font(.footnote).foregroundStyle(.secondary) }
+                Section {
+                    Button("Ask") { Task { if await c.startSide(sessionId, question) != nil { dismiss() } } }
+                        .bold().disabled(c.sideBusy || question.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            .navigationTitle("Side chat").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(c.sideBusy) } }
+            .interactiveDismissDisabled(c.sideBusy)
+            .onAppear { focused = true }
         }
     }
 }

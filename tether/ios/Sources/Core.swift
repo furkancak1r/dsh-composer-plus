@@ -512,6 +512,74 @@ struct Line: Identifiable {
 
 // MARK: - Composer Plus features (the dsh-composer-plus plugin on the Mac; see tether/FEATURES.md)
 
+/// Quote in reply: `quoteText` of client.js for a whole answer at the end of the composer's text. `> ` lines (an empty
+/// line as `>`), at most `quoteMax` characters (cut with …), an empty line before it when the field has text, and an empty
+/// line after it for the reply.
+/// Diff notes (Composer Plus `diffComments`): a note on one line of a Changes diff. The same text rule as the Mac's
+/// `notesText`: `path:line` (with " (removed)" for a removed line), the line as a diff block, the note.
+struct DiffNote: Equatable, Identifiable {
+    let id = UUID()
+    let path: String, side: String, line: Int, text: String, note: String
+}
+/// Each patch row with its old and new line number from the hunk headers (nil for a side the row is not on, and for
+/// `@@` and `\ No newline` rows). The same rule as the Mac's `numberedRows`.
+func numberedPatch(_ rows: [String]) -> [(line: String, old: Int?, new: Int?)] {
+    var oldNo = 0, newNo = 0
+    return rows.map { l in
+        if l.hasPrefix("@@") {
+            if let m = try? /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.firstMatch(in: l), let a = Int(m.1), let b = Int(m.2) { oldNo = a; newNo = b }
+            return (l, nil, nil)
+        }
+        if l.hasPrefix("\\") { return (l, nil, nil) }
+        if l.hasPrefix("+") { defer { newNo += 1 }; return (l, nil, newNo) }
+        if l.hasPrefix("-") { defer { oldNo += 1 }; return (l, oldNo, nil) }
+        defer { oldNo += 1; newNo += 1 }
+        return (l, oldNo, newNo)
+    }
+}
+func diffNotesText(_ notes: [DiffNote]) -> String {
+    notes.map { n in
+        let fence = n.text.contains("```") ? "````" : "```"
+        return "`\(n.path):\(n.line)\(n.side == "old" ? " (removed)" : "")`\n\(fence)diff\n\(n.text)\n\(fence)\n\(n.note.trimmingCharacters(in: .whitespacesAndNewlines))"
+    }.joined(separator: "\n\n")
+}
+
+/// Side chat (Composer Plus `sideChat`): the Bring back text, the same rule as the Mac's `sideBackText`: each question as a
+/// `> ` quote, then its answer, at most `sideBackMax` characters (cut with …).
+let sideBackMax = 12000
+func sideBackText(_ messages: [J]) -> String {
+    let parts: [String] = messages.compactMap { m in
+        guard let t = (m["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty else { return nil }
+        guard m["role"] as? String == "user" else { return t }
+        return t.split(separator: "\n", omittingEmptySubsequences: false).map { $0.trimmingCharacters(in: .whitespaces).isEmpty ? ">" : "> " + $0 }.joined(separator: "\n")
+    }
+    let text = parts.joined(separator: "\n\n")
+    guard text.unicodeScalars.count > sideBackMax else { return text }
+    var s = String.UnicodeScalarView(); s.append(contentsOf: text.unicodeScalars.prefix(sideBackMax - 1))
+    return String(s).replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) + "…"
+}
+/// The draft with the Bring back text after it (an empty line between).
+func sideBackDraft(_ draft: String, _ text: String) -> String {
+    guard !text.isEmpty else { return draft }
+    let lead = draft.isEmpty || draft.hasSuffix("\n\n") ? "" : draft.hasSuffix("\n") ? "\n" : "\n\n"
+    return draft + lead + text + "\n\n"
+}
+
+let quoteMax = 2000
+func quoteDraft(_ draft: String, _ answer: String) -> String {
+    var t = answer.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n")
+        .replacingOccurrences(of: "\u{00a0}", with: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty else { return draft }
+    if t.unicodeScalars.count > quoteMax {
+        var s = String.UnicodeScalarView(); s.append(contentsOf: t.unicodeScalars.prefix(quoteMax - 1))
+        t = String(s).replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression) + "…"
+    }
+    let quote = t.split(separator: "\n", omittingEmptySubsequences: false)
+        .map { $0.trimmingCharacters(in: .whitespaces).isEmpty ? ">" : "> " + $0 }.joined(separator: "\n")
+    let lead = draft.isEmpty || draft.hasSuffix("\n\n") ? "" : draft.hasSuffix("\n") ? "\n" : "\n\n"
+    return draft + lead + quote + "\n\n"
+}
+
 /// Turn rollback: the rows that a rollback took out of the chat. dsh keeps them in the log; its marker message
 /// (`composer-plus-rollback`, or `dsh-rewind` from dsh-rewind-plugin) names them in `sourceEventSeqs`. A span is
 /// [first, marker], both included. dsh's /compact marker is not a withdraw: its messages stay.
@@ -1677,6 +1745,68 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         do { let o = try await plusCall("memory-chat", body: ["sessionId": sid, "off": off], wait: 30); if current == sid { memoryChatOff = o["off"] as? Bool == true; memorySuggestable = memorySuggestState(o) } }
         catch { self.error = userText(error) }
     }
+
+    // MARK: Diff notes (Composer Plus `diffComments`)
+
+    /// Each chat's notes on Changes diffs, until Send or Clear. In memory: the Mac keeps its own tray in its browser.
+    @Published var diffNotes: [String: [DiffNote]] = [:]
+    /// Add a note; false when it is empty or the chat has 50 notes (the Mac's limits; a note at most 2,000 characters).
+    @discardableResult func addDiffNote(_ sid: String, path: String, row: (line: String, old: Int?, new: Int?), note: String) -> Bool {
+        let t = String(note.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2000))
+        guard !t.isEmpty, (diffNotes[sid]?.count ?? 0) < 50, let line = row.new ?? row.old else { return false }
+        diffNotes[sid, default: []].append(DiffNote(path: path, side: row.new == nil ? "old" : "new", line: line, text: row.line, note: t))
+        return true
+    }
+    /// Send to composer: the notes after the chat's draft (an empty line between), then the tray empties.
+    func sendDiffNotes(_ sid: String) {
+        guard let notes = diffNotes[sid], !notes.isEmpty else { return }
+        setDraft(sideBackDraft(draft(sid), diffNotesText(notes)), sid)
+        diffNotes[sid] = nil
+        draftPushed += 1
+    }
+    /// A sheet wrote the open chat's draft (Diff notes → Send): the composer reads the draft again.
+    @Published var draftPushed = 0
+
+    // MARK: Side chat (Composer Plus `sideChat`)
+
+    /// The open chat's parent when it is a side chat (the Mac's GET answers), else nil.
+    @Published var sideParent: String?
+    /// One start or Bring back at a time (rule 7): the buttons and a second tap all check it.
+    @Published private(set) var sideBusy = false
+    private func loadSide(_ sid: String) async {
+        guard plus.contains("side-chat") else { sideParent = nil; return }
+        let o = try? await plusCall("side-chat", query: ["sessionId": sid])
+        if current == sid { sideParent = o?["parent"] as? String }
+    }
+    /// Start a side chat with `text`; the phone opens it. Nil when it did not start (the reason is in `error`).
+    func startSide(_ sid: String, _ text: String) async -> String? {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard plus.contains("side-chat"), !sideBusy, !t.isEmpty, t.utf16.count <= 8000 else { return nil }
+        sideBusy = true
+        defer { sideBusy = false }
+        do {
+            // The start makes a chat on the Mac: it runs to its end there.
+            let o = try await plusCall("side-chat", body: ["sessionId": sid, "text": t], wait: 60)
+            guard let id = o["sessionId"] as? String else { return nil }
+            open(id)
+            return id
+        } catch { self.error = userText(error); return nil }
+    }
+    /// Bring back: read the side chat again, open its parent and put the text after the parent's draft.
+    func bringBack(_ sid: String) async {
+        guard plus.contains("side-chat"), !sideBusy else { return }
+        sideBusy = true
+        defer { sideBusy = false }
+        do {
+            let o = try await plusCall("side-chat", query: ["sessionId": sid])
+            guard let parent = o["parent"] as? String else { return }
+            let text = sideBackText(o["messages"] as? [J] ?? [])
+            guard !text.isEmpty else { return }
+            setDraft(sideBackDraft(draft(parent), text), parent)
+            open(parent)
+        } catch { self.error = userText(error) }
+    }
+
     private func loadRollback(_ sid: String) async {
         guard plus.contains("rollback"), let o = try? await plusCall("rollback", query: ["sessionId": sid]), current == sid else { return }
         rollbackOn = o["on"] as? Bool == true && o["rewind"] as? Bool != true
@@ -1854,6 +1984,73 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         let mine = grantWrites
         let o = try await plusCall("grants", body: body)
         if mine == grantWrites { grants = o.compactMapValues { $0 as? [String] } }
+    }
+
+    /// Reject with note (Composer Plus on the Mac does the same): the note goes first as a steer into the waiting turn,
+    /// then the approval gets "rejected". The model reads the rejection and the note in one step. A failed steer rejects
+    /// nothing (the sheet stays); one rejection per request at a time.
+    @Published var rejectingNote: Set<String> = []
+    private var noteSent: Set<String> = []
+    func rejectWithNote(_ p: Prompt, _ text: String) async throws {
+        guard let r = Self.rejectNoteRequest(p, text), !rejectingNote.contains(p.id) else { return }
+        rejectingNote.insert(p.id); defer { rejectingNote.remove(p.id) }
+        if !noteSent.contains(p.id) {
+            _ = try await rpc("session/prompt", ["request": r])
+            noteSent.insert(p.id)
+        }
+        try await answer(p, "rejected")
+        noteSent.remove(p.id)
+    }
+    static let rejectNoteMax = 4000
+    /// The steer of a note: nil for a prompt that is not an approval of a chat, or for an empty note.
+    static func rejectNoteRequest(_ p: Prompt, _ text: String) -> J? {
+        let t = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(rejectNoteMax))
+        guard p.event == "approval/request", let sid = p.agentId, !t.isEmpty else { return nil }
+        return ["requestId": UUID().uuidString, "sessionId": sid, "mode": "steer", "content": promptContent(t, images: [], receipts: [])]
+    }
+
+    /// Secret input (Composer Plus `secretInput`): the agent's `request_secret` call waits for a value. The phone reads the
+    /// chat's open request from the Mac and sends the value (or Decline) once; the agent gets only a file path on the Mac.
+    struct SecretAsk: Equatable, Identifiable { let sessionId: String, askId: String, callId: String, label: String, purpose: String; var id: String { askId } }
+    @Published var secretAsk: SecretAsk?
+    @Published var secretBusy = false
+    static let secretMax = 8192
+    /// The call id of the open chat's `request_secret` call that has no result yet, while the turn runs.
+    var secretWaiting: String? {
+        running ? transcript.last(where: { $0.kind == .tool && $0.tool == "request_secret" && $0.output == nil })?.callId : nil
+    }
+    /// The Mac's open request for `callId` from its `GET secret-answer` answer (`{asks: [{askId, callId, label, purpose}]}`).
+    static func secretAsk(_ o: J, sessionId: String, callId: String) -> SecretAsk? {
+        guard let a = (o["asks"] as? [J])?.first(where: { $0["callId"] as? String == callId }), let id = a["askId"] as? String else { return nil }
+        return SecretAsk(sessionId: sessionId, askId: id, callId: callId, label: a["label"] as? String ?? "", purpose: a["purpose"] as? String ?? "")
+    }
+    /// The answer body: nil value = Decline; nil for an empty, too long or NUL value (the Mac refuses those too).
+    static func secretBody(_ a: SecretAsk, value: String?) -> J? {
+        guard let value else { return ["sessionId": a.sessionId, "askId": a.askId, "decline": true] }
+        guard !value.isEmpty, value.count <= secretMax, !value.contains("\0") else { return nil }
+        return ["sessionId": a.sessionId, "askId": a.askId, "value": value]
+    }
+    /// Ask the Mac each second until it keeps the request of the waiting call (dsh shows the call a moment before).
+    func watchSecret() async {
+        guard plus.contains("secret-answer"), let sid = current, let callId = secretWaiting else { secretAsk = nil; return }
+        if secretAsk?.callId == callId { return }
+        secretAsk = nil
+        while !Task.isCancelled, current == sid, secretWaiting == callId {
+            if let o = try? await plusCall("secret-answer", query: ["sessionId": sid]), current == sid, secretWaiting == callId,
+               let a = Self.secretAsk(o, sessionId: sid, callId: callId) { secretAsk = a; return }
+            try? await Task.sleep(for: .seconds(1))
+        }
+    }
+    /// Save (value) or Decline (nil), one answer at a time. One address only (`wait`): a second try on another address
+    /// would send the value twice.
+    /// true when the Mac took the answer; false when nothing went (another answer runs, or the value is not valid).
+    @discardableResult
+    func answerSecret(_ a: SecretAsk, value: String?) async throws -> Bool {
+        guard !secretBusy, let body = Self.secretBody(a, value: value) else { return false }
+        secretBusy = true; defer { secretBusy = false }
+        _ = try await plusCall("secret-answer", body: body, wait: 15)
+        if secretAsk == a { secretAsk = nil }
+        return true
     }
 
     /// Plan mode: leave it as dsh's plan chip does.
@@ -2350,12 +2547,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let old = followId { send(["type": "cancel", "streamId": old]) }
         current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; contextWindow = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
         hasOlder = false; oldestSeq = nil; throughSeq = nil; events = []; continueSeq = nil; rollbackOn = false; prediction = nil; redoOffer = nil
-        branch = nil; newBranch = false; optionsFrom = nil
+        branch = nil; newBranch = false; optionsFrom = nil; sideParent = nil
         running = currentSess?.running ?? false
         loadingChat = true
         openFollow(sid)
         memoryChatOff = nil; memorySuggestable = false
-        Task { await loadCommands(); await loadGoal(); await loadRollback(sid); await loadBranch(sid); await loadMemoryChat(sid) }
+        Task { await loadCommands(); await loadGoal(); await loadRollback(sid); await loadBranch(sid); await loadMemoryChat(sid); await loadSide(sid) }
     }
 
     // MARK: Branch per chat (Composer Plus `worktreeChats`)

@@ -22,8 +22,8 @@
  *   backups, session log check and repair, and a rescue console in the backup folder for a restore while dsh is closed.
  */
 import { closeSync, constants, existsSync, fstatSync, openSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
-import { appendFile, copyFile, cp, lstat, mkdir, mkdtemp, open, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
-import { createHash, randomUUID } from 'node:crypto';
+import { appendFile, chmod, copyFile, cp, lstat, mkdir, mkdtemp, open, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { createGateway, createRelay, macName, normFp, parseComputerLink } from './tether/gateway/server.mjs';
@@ -80,7 +80,7 @@ export const PLANNED_PATH = '/api/composer-plus.planned-steps';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
-export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'allowForChat', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit',
+export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'allowForChat', 'rejectNote', 'secretInput', 'quoteReply', 'sideChat', 'diffComments', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit',
   'queueReorder', 'mobileConnect', 'remoteComputers', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
   'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'plannedSteps', 'memoryHistory', 'memoryExport', 'memorySource', 'memoryCopy', 'memoryStale', 'memoryPerChat', 'memorySuggest'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
@@ -2322,9 +2322,11 @@ export function apply(ctx) {
   installProtectedFiles(ctx, home);
   installBlockedCommands(ctx, home);
   installHandoff(ctx, home);
+  installSideChat(ctx);
   installContext(ctx);
   installBoard(ctx, home);
   installPlannedSteps(ctx, home);
+  installSecrets(ctx, home);
   installBackup(ctx, home);
 }
 
@@ -4243,6 +4245,107 @@ export function installHandoff(ctx, home) {
         if (mine.signal.aborted) return json({ error: 'a newer handoff note replaced this one' }, 409);
         return json({ error: String(error?.message ?? error) }, status(error));
       } finally { if (writing.get(id) === mine) writing.delete(id); }
+    },
+  });
+}
+
+/* Side chat (after t3code): ask a side question while the chat works. The Host copies the chat (dsh's own fork) up to the
+ * newest moment at which no queued or steering message waits, so no waiting message of the chat runs in the copy. The copy
+ * gets dsh's read-only permission mode and the chat's model, and its first message is a short lead and the question. Bring
+ * back reads the side chat's own messages (after the copied part, rule 10; rolled-back ones left out, rule 9). Nothing is
+ * written to the project. */
+export const SIDE_CHAT_PATH = '/api/composer-plus.side-chat';
+export const SIDE_TEXT_MAX = 8000;
+export const SIDE_LEAD = 'Side question. This chat is a copy of the chat above, made while that chat can still be working. Answer only the question below and do not continue the earlier task. Do not change files: only read, search and run commands that change nothing.\n\nQuestion:\n';
+/** The fork point: the newest seq after which no queued (next turn) or steering (next step) message waits in the inbox.
+ * dsh's fork copies the inbox splices before the cut, so a waiting message there would run in the copy. */
+export function sideForkSeq(events) {
+  const pending = { 'next-turn': 0, 'next-step': 0 };
+  let cut;
+  for (const e of events) {
+    const s = e.type === 'agent/inbox/spliced' ? e.data : undefined;
+    if (s !== undefined && pending[s.target] !== undefined) pending[s.target] += (Array.isArray(s.inserted) ? s.inserted.length : 0) - (Number.isSafeInteger(s.removedCount) ? s.removedCount : 0);
+    if (pending['next-turn'] <= 0 && pending['next-step'] <= 0 && Number.isSafeInteger(e.seq)) cut = e.seq;
+  }
+  return cut;
+}
+/** The side chat's title: `↳ ` and the first line of the question, at most 60 characters (with …). */
+export const sideTitle = (text) => {
+  const line = text.trim().split('\n')[0].trim();
+  return `↳ ${[...line].length > 60 ? `${[...line].slice(0, 59).join('').trimEnd()}…` : line}`;
+};
+/** A side chat's own messages for Bring back: `{parent, messages, truncated}`, the lead taken off its first message;
+ * undefined for a chat that is not a side chat. */
+export function sideChatOf(header, events, inherited) {
+  const from = Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0;
+  // Only the last reply before each question (and at the end): not the agent's notes between its tool calls.
+  const own = events.filter((e) => e.seq >= from);
+  const last = new Set();
+  let reply;
+  for (const e of own) {
+    if (e.type === 'assistant/message' && textBlocks(e.data?.message?.content).trim() !== '') reply = e.seq;
+    else if (e.type === 'user/message' && (e.data?.source === undefined || e.data.source?.kind === 'user')) { if (reply !== undefined) last.add(reply); reply = undefined; }
+  }
+  if (reply !== undefined) last.add(reply);
+  const { messages, truncated } = chatTranscript(own.filter((e) => e.type !== 'assistant/message' || last.has(e.seq)));
+  if (typeof header?.parentSession !== 'string' || messages[0]?.role !== 'user' || !messages[0].text.startsWith(SIDE_LEAD.trim())) return undefined;
+  return { parent: header.parentSession, messages: [{ role: 'user', text: messages[0].text.slice(SIDE_LEAD.length).trim() }, ...messages.slice(1)], truncated };
+}
+/** Start a side chat of `sessionId` with `text`. All or none: when its first message cannot be sent, the copy is archived. */
+export async function startSideChat({ sessionController, sessionQuery, presets, goals, registry }, sessionId, text, signal) {
+  if (presets?.names?.includes?.('read-only') !== true) throw refused('this dsh has no read-only permission mode, so a side chat cannot start');
+  const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
+  let header, cut;
+  try { header = observation.header; cut = sideForkSeq(observation.events ?? []); } finally { observation[Symbol.dispose]?.(); }
+  if (header?.origin === 'subagent' || (header?.delegationDepth ?? 0) > 0) throw refused('not for a subagent chat');
+  if (cut === undefined) throw refused('this chat has nothing to copy yet');
+  const parent = await sessionController.resolveAgent(sessionId);
+  const model = 'error' in parent ? undefined : sessionController.agents?.selectionFor?.(parent.agent)?.current;
+  const { sessionId: created } = await sessionController.fork({ sessionId, atSeq: cut });
+  try {
+    const found = await sessionController.resolveAgent(created);
+    if ('error' in found) throw new Error('the side chat could not start');
+    presets.set(found.agent.session, 'read-only');
+    // The copy has the chat's title: name it after the question (a user title, so dsh does not rename it later).
+    await Promise.resolve(sessionController.rename?.({ sessionId: created, title: sideTitle(text) })).catch(() => {});
+    // dsh's fork takes the default model: the side chat keeps the chat's own. A copied goal would ask it to go on working.
+    if (model !== undefined) await sessionController.selectModel?.({ sessionId: created, provider: model.provider, model: model.model }).catch(() => {});
+    try { const goal = goals?.get?.(found.agent); if (goal !== undefined) goals.clear(found.agent, { id: goal.id, revision: goal.revision }); } catch { /* no goal service */ }
+    await sessionController.prompt({ requestId: randomUUID(), sessionId: created, mode: 'queue', content: [{ type: 'text', text: `${SIDE_LEAD}${text}` }] }, signal);
+  } catch (error) {
+    const undone = await Promise.resolve(registry?.archiveSession?.(created, { stopActivity: true })).then(() => registry?.archiveSession !== undefined, () => false);
+    throw Object.assign(new Error(`${error?.message ?? error}; ${undone ? 'the side chat was archived' : `the side chat ${created} stays without a question`}`), { status: Number.isInteger(error?.status) ? error.status : 502 });
+  }
+  return { sessionId: created };
+}
+export function installSideChat(ctx) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const starting = new Set(); // one start per chat at a time
+  ctx.connection.fetch.register({
+    path: SIDE_CHAT_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      const status = (error) => (Number.isInteger(error?.status) ? error.status : /not found|unknown session/i.test(String(error?.message)) ? 404 : 500);
+      if (request.method === 'GET') {
+        const id = new URL(request.url).searchParams.get('sessionId');
+        if (!isText(id)) return json({ error: 'bad request' }, 400);
+        try {
+          const observation = await ctx.sessionQuery.observeSession(id, { signal: request.signal, projectionMode: 'none' });
+          let side;
+          try { side = sideChatOf(observation.header, observation.events ?? [], observation.inheritedEventCount); } finally { observation[Symbol.dispose]?.(); }
+          return side === undefined ? json({ error: 'not a side chat' }, 404) : json(side);
+        } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
+      }
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      const keys = plainObject(body) ? Object.keys(body).sort().join(',') : '';
+      const text = typeof body?.text === 'string' ? body.text.trim() : '';
+      if (keys !== 'sessionId,text' || !isText(body.sessionId) || !isText(text, SIDE_TEXT_MAX)) return json({ error: 'bad request' }, 400);
+      const id = body.sessionId;
+      if (starting.has(id)) return json({ error: 'a side chat of this chat is still starting' }, 409);
+      starting.add(id);
+      try {
+        return json(await startSideChat({ sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, presets: get('permissionPresets'), goals: get('goals'), registry: get('workspaceRegistry') }, id, text, request.signal));
+      } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); } finally { starting.delete(id); }
     },
   });
 }
@@ -7943,6 +8046,186 @@ export function plannedStream(options, next) {
   if (found === undefined) return next();
   const chunks = plannedStepChunks(found);
   return (async function* () { yield* chunks; })();
+}
+
+/* Secret input (after t3code's `request_secret`): the agent asks for a secret with the tool `request_secret`; you type it in a
+ * card in the chat (or on the phone); the value goes to an owner-only file and the agent gets only the file's path. The
+ * value never goes into a tool result, the model request or the chat log: a `tools/post-execute` listener also puts
+ * `[secret]` in place of its exact text in every later tool result of the chat (a `cat` of the file). The agent's own file
+ * tools cannot open the secrets folder. Files go when the asking chat's turn ends and at Host start. On by default (the
+ * owner's choice): it opens no port and starts no model call; the Host keeps the switch. */
+export const SECRETS_PATH = '/api/composer-plus.secrets';
+export const SECRET_ANSWER_PATH = '/api/composer-plus.secret-answer';
+export const SECRET_TOOL = 'request_secret';
+export const SECRET_MAX = 8192; // characters of one value
+const SECRET_LABEL_MAX = 80;
+const SECRET_PURPOSE_MAX = 300;
+const SECRET_FILE_RE = /^[0-9a-f]{32}$/;
+const SECRET_MARK = '[secret]';
+const SECRET_DESCRIPTION = `Ask the user for one secret (a password, a token, an API key) in a private card, and wait. You never see the value: you get the path of an owner-only file that holds it. Use the file only as input in a shell command, for example "$(cat <path>)" or "< <path>"; never print, echo, log or copy its content, and never write it into a project file. The file is deleted when this turn ends. When the user asks how to give you a secret, call this tool instead of asking for it in the chat.`;
+/** `{label, purpose}` from the model, or a reason when the arguments are not valid. */
+export function parseSecretAsk(args) {
+  const label = typeof args?.label === 'string' ? args.label.trim() : '';
+  const purpose = typeof args?.purpose === 'string' ? args.purpose.trim() : '';
+  if (label === '' || label.length > SECRET_LABEL_MAX || /[\0\r\n]/.test(label)) return { error: `label must be 1 to ${SECRET_LABEL_MAX} characters on one line` };
+  if (purpose.length > SECRET_PURPOSE_MAX || purpose.includes('\0')) return { error: `purpose must be at most ${SECRET_PURPOSE_MAX} characters` };
+  return { label, purpose };
+}
+/** Put SECRET_MARK in place of each value (longest first, so a value inside another goes with it) in the text blocks. */
+export function maskSecrets(blocks, values) {
+  if (!Array.isArray(blocks) || values.length === 0) return undefined;
+  const sorted = [...values].sort((a, b) => b.length - a.length);
+  let changed = false;
+  const out = blocks.map((b) => {
+    if (b?.type !== 'text' || typeof b.text !== 'string') return b;
+    let text = b.text;
+    for (const v of sorted) if (text.includes(v)) text = text.split(v).join(SECRET_MARK);
+    if (text === b.text) return b;
+    changed = true;
+    return { ...b, text };
+  });
+  return changed ? out : undefined;
+}
+export function installSecrets(ctx, home, dir = join(home, 'storages', 'dsh-composer-plus')) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const sw = mobileSwitch(join(dir, 'secrets.json'), true);
+  const folder = join(dir, 'secrets');
+  let on = false;
+  let fiber;
+  const asks = new Map(); // askId → { sessionId, callId, label, purpose, resolve }
+  const values = new Map(); // sessionId → Map(file name → value)
+  const valuesOf = (sessionId) => [...(values.get(sessionId)?.values() ?? [])];
+  /** Remove one chat's files (or all files, at start) and forget their values. A name that is not ours is left. */
+  const sweep = async (sessionId) => {
+    const names = sessionId === undefined ? await readdir(folder).catch(() => []) : [...(values.get(sessionId)?.keys() ?? [])];
+    if (sessionId === undefined) values.clear(); else values.delete(sessionId);
+    for (const name of names) if (SECRET_FILE_RE.test(name)) await unlink(join(folder, name)).catch(() => {});
+  };
+  /** Write one value to a new owner-only file; the folder is a real folder of ours (0700), never a link. */
+  const save = async (sessionId, value) => {
+    await mkdir(folder, { recursive: true, mode: 0o700 });
+    const info = await lstat(folder);
+    if (!info.isDirectory()) throw new Error('the secrets folder is not a folder');
+    if ((info.mode & 0o077) !== 0) await chmod(folder, 0o700);
+    const name = randomBytes(16).toString('hex');
+    const path = join(folder, name);
+    const handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    try { await handle.writeFile(value); } finally { await handle.close(); }
+    if (!values.has(sessionId)) values.set(sessionId, new Map());
+    values.get(sessionId).set(name, value);
+    return path;
+  };
+  const end = (askId, answer) => { const ask = asks.get(askId); if (ask === undefined) return false; asks.delete(askId); ask.resolve(answer); return true; };
+  const tool = {
+    name: SECRET_TOOL,
+    description: SECRET_DESCRIPTION,
+    parameters: { type: 'object', properties: {
+      label: { type: 'string', description: `What the value is, shown to the user, at most ${SECRET_LABEL_MAX} characters (for example "GitHub token")` },
+      purpose: { type: 'string', description: 'Why you need it and what you will do with it, in one or two sentences' },
+    }, required: ['label'] },
+    output: textOutput,
+    async execute(args, exec) {
+      const ask = parseSecretAsk(args);
+      if (ask.error !== undefined) throw new Error(ask.error);
+      const sessionId = exec?.agent?.session?.id;
+      if (typeof sessionId !== 'string') throw new Error('request_secret needs a chat');
+      if ([...asks.values()].some((a) => a.sessionId === sessionId)) throw new Error('one secret request at a time: wait for the open one');
+      const askId = randomUUID();
+      const answer = await new Promise((resolve) => {
+        asks.set(askId, { sessionId, callId: exec?.callId, label: ask.label, purpose: ask.purpose, resolve });
+        const stop = () => end(askId, { decline: true, reason: 'stopped' });
+        if (exec?.signal?.aborted) stop(); else exec?.signal?.addEventListener?.('abort', stop, { once: true });
+      });
+      if (answer.path === undefined) return answer.reason === 'stopped' ? 'The request was stopped before the user answered.' : 'The user did not give this secret. Go on without it, or ask the user what to do.';
+      return `The user saved "${ask.label}" to ${answer.path} (owner-only). Use it only as input in a shell command, for example "$(cat ${answer.path})" or "< ${answer.path}". Do not print, echo, log or copy its content. The file is deleted when this turn ends.`;
+    },
+  };
+  const apply = (next) => {
+    on = next;
+    if (on && fiber === undefined && typeof ctx.inject === 'function') {
+      fiber = ctx.inject(['tools'], (sub) => {
+        sub.tools.register(tool);
+        sub.on('tools/post-execute', async (exec, result, next) => {
+          const decision = await next();
+          const list = valuesOf(exec.agent?.session?.id);
+          if (list.length === 0 || decision?.kind !== 'accept' || decision.value !== undefined) return decision;
+          const content = maskSecrets(decision.content ?? result?.content, list);
+          return content === undefined ? decision : { ...decision, content };
+        });
+      });
+    } else if (!on) {
+      fiber?.dispose?.(); fiber = undefined;
+      for (const askId of [...asks.keys()]) end(askId, { decline: true });
+    }
+  };
+  // The agent's own file tools never open the secrets folder (the real path that dsh's file tools use, rule 12).
+  ctx.on('tools/pre-execute', async (exec, next) => {
+    const decision = await next();
+    if (decision?.kind !== 'allow' && decision?.kind !== 'ask') return decision;
+    const name = exec.name;
+    let key = PROTECT_READS[name] ?? PROTECT_WRITES[name];
+    if (name === 'str_replace_editor') key = 'path';
+    const raw = key === undefined ? undefined : argsOf(exec.arguments)?.[key];
+    if (typeof raw !== 'string' || raw === '') return decision;
+    const session = exec.agent?.session;
+    let cwd;
+    try { cwd = get('workingDirectory')?.get?.(session); } catch { cwd = undefined; }
+    cwd ??= session?.header?.cwd;
+    if (typeof cwd !== 'string' || !isAbsolute(cwd)) return decision;
+    let root = folder;
+    try { root = await realpath(folder); } catch { /* not made yet: nothing to read */ }
+    const real = await toolTarget(cwd, raw);
+    const inside = (p) => p !== undefined && relativeInside(root, p) !== undefined;
+    if (!inside(real) && !inside(resolve(cwd, raw))) return decision;
+    return { kind: 'deny', reason: 'This file holds a secret from Composer Plus → Secret input. Use it only as input in a shell command; do not open it with a file tool.' };
+  });
+  // A chat's files go when its turn ends (any end: done, stopped, failed).
+  ctx.on('agent/status', ({ agent, status }) => {
+    if (status === 'running' || agent?.id === undefined || !values.has(agent.id)) return;
+    sweep(agent.id).catch(() => {});
+  });
+  const ready = sweep().then(() => sw.read()).then(apply, () => apply(true));
+  ctx.effect?.(() => () => { on = false; fiber?.dispose?.(); fiber = undefined; for (const askId of [...asks.keys()]) end(askId, { decline: true }); sweep().catch(() => {}); }, 'dsh-composer-plus: secret input');
+  let switching = ready;
+  ctx.connection.fetch.register({
+    path: SECRETS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await ready;
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (!plainObject(body) || Object.keys(body).join() !== 'on' || typeof body.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        const change = switching.then(async () => { await sw.write(body.on); apply(body.on); });
+        switching = change.catch(() => {});
+        try { await change; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      return json({ on });
+    },
+  });
+  ctx.connection.fetch.register({
+    path: SECRET_ANSWER_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await ready;
+      if (request.method === 'GET') {
+        const sessionId = new URL(request.url).searchParams.get('sessionId');
+        if (!isText(sessionId)) return json({ error: 'bad request' }, 400);
+        return json({ on, asks: [...asks].filter(([, a]) => a.sessionId === sessionId).map(([askId, a]) => ({ askId, callId: a.callId, label: a.label, purpose: a.purpose })) });
+      }
+      let body;
+      try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      const keys = plainObject(body) ? Object.keys(body).sort().join(',') : '';
+      const decline = keys === 'askId,decline,sessionId' && body.decline === true;
+      const value = keys === 'askId,sessionId,value' && typeof body.value === 'string' ? body.value : undefined;
+      if (!isText(body?.sessionId) || !isText(body?.askId) || (!decline && (value === undefined || value === '' || value.length > SECRET_MAX || value.includes('\0')))) return json({ error: 'bad request' }, 400);
+      const ask = asks.get(body.askId);
+      if (ask === undefined || ask.sessionId !== body.sessionId) return json({ error: 'no such request' }, 404);
+      if (decline) { end(body.askId, { decline: true }); return json({ declined: true }); }
+      asks.delete(body.askId); // one answer: a second answer while the file is written finds no request
+      try { const path = await save(ask.sessionId, value); ask.resolve({ path }); return json({ saved: true }); }
+      catch (error) { asks.set(body.askId, ask); return json({ error: `could not save the secret: ${error?.code ?? error?.message ?? error}` }, 500); }
+    },
+  });
+  return { asks, values, folder, ready };
 }
 
 /** Planned steps (Host half): the switch route (off by default), and while it is on: the tool, the prompt section and the

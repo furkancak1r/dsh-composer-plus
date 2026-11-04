@@ -59,6 +59,12 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.board-progress` | POST | `{mode}`: "fast" (the default, no model call) or "ai". Settings only. | taskBoard | no |
 | `/api/composer-plus.planned-steps` | GET | The switch `{on}`. | plannedSteps | no |
 | `/api/composer-plus.planned-steps` | POST | `{on}`: the switch (a switch route). | plannedSteps | no |
+| `/api/composer-plus.secrets` | GET | The switch `{on}`. | secretInput | no |
+| `/api/composer-plus.secrets` | POST | `{on}`: the switch (a switch route). Off removes the tool and declines the open requests. | secretInput | no |
+| `/api/composer-plus.secret-answer` | GET | `?sessionId=`: `{on, asks: [{askId, callId, label, purpose}]}`, the open `request_secret` requests of that chat; never a value. | secretInput | yes |
+| `/api/composer-plus.secret-answer` | POST | `{sessionId, askId, value}` (1–8,192 characters, no NUL) saves the value to an owner-only file and gives the agent its path; `{sessionId, askId, decline: true}` declines. One answer per request: an unknown or answered request, or another chat, is 404. | secretInput | yes |
+| `/api/composer-plus.side-chat` | GET | `?sessionId=<side chat>`: `{parent, messages: [{role, text}], truncated}`, the side chat's own messages for Bring back (after the copied part; rolled-back messages left out; the last reply of each question). Another chat is 404. | sideChat | yes |
+| `/api/composer-plus.side-chat` | POST | `{sessionId, text}` (1–8,000 characters): a read-only copy of the chat (dsh's fork, before any message that still waits in the queue) with the chat's model and no goal; its first message is a short lead and the question. Answers `{sessionId}`. A subagent chat, a chat with nothing to copy or a dsh without the read-only mode is 409; one start per chat at a time (409); a failed send archives the copy. | sideChat | yes |
 | `/api/composer-plus.memory` | GET | The switch `{on}`. | projectMemory | no |
 | `/api/composer-plus.memory` | POST | `{on}`: the switch (a switch route). | projectMemory | no |
 | `/api/composer-plus.memory-edit` | GET | Every saved note: `{projects: [{id, name, path, count, files}], global, busy}`; 409 while the switch is off. | projectMemory | yes |

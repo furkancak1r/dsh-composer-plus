@@ -281,6 +281,103 @@ final class CoreTests: XCTestCase {
         XCTAssertNil(Client.subagentRequest(Sess(["sessionId": "root"])!, "x"))
     }
 
+    /// Reject with note: the steer goes to the approval's own chat, trimmed and cut to the limit; nothing for an empty
+    /// note, a question or an approval without a chat.
+    @MainActor func testRejectNoteRequest() {
+        let p = Prompt(id: "e1", event: "approval/request", agentId: "s1", request: ["toolName": "bash"])
+        let r = Client.rejectNoteRequest(p, "  Move it instead.\n ")
+        XCTAssertEqual(r?["sessionId"] as? String, "s1")
+        XCTAssertEqual(r?["mode"] as? String, "steer")
+        XCTAssertEqual((r?["content"] as? [J])?.count, 1)
+        XCTAssertEqual((r?["content"] as? [J])?.first?["text"] as? String, "Move it instead.")
+        XCTAssertNotNil(r?["requestId"] as? String)
+        XCTAssertNil(Client.rejectNoteRequest(p, "  \n "), "an empty note sends nothing")
+        XCTAssertNil(Client.rejectNoteRequest(Prompt(id: "q", event: "user-questions/request", agentId: "s1", request: [:]), "x"), "not for a question")
+        XCTAssertNil(Client.rejectNoteRequest(Prompt(id: "e2", event: "approval/request", agentId: nil, request: [:]), "x"), "not without a chat")
+        let long = Client.rejectNoteRequest(p, String(repeating: "x", count: Client.rejectNoteMax + 10))
+        XCTAssertEqual(((long?["content"] as? [J])?.first?["text"] as? String)?.count, Client.rejectNoteMax)
+    }
+
+    /// Secret input: the open request of the waiting call from the Mac's answer; the answer bodies (Decline sends no value;
+    /// nothing for an empty, too long or NUL value); the waiting call is the running chat's `request_secret` row without a
+    /// result; one answer at a time.
+    @MainActor func testSecretInput() async throws {
+        let o: J = ["on": true, "asks": [["askId": "k9", "callId": "c9", "label": "Other"], ["askId": "k1", "callId": "c1", "label": "npm token", "purpose": "Publish."]]]
+        let a = try XCTUnwrap(Client.secretAsk(o, sessionId: "S", callId: "c1"))
+        XCTAssertEqual(a, Client.SecretAsk(sessionId: "S", askId: "k1", callId: "c1", label: "npm token", purpose: "Publish."))
+        XCTAssertNil(Client.secretAsk(o, sessionId: "S", callId: "c2"), "another call's request does not show")
+        XCTAssertNil(Client.secretAsk(["asks": [["callId": "c1"]]], sessionId: "S", callId: "c1"), "no askId")
+        XCTAssertEqual(Client.secretBody(a, value: "tok") as NSDictionary?, ["sessionId": "S", "askId": "k1", "value": "tok"])
+        XCTAssertEqual(Client.secretBody(a, value: nil) as NSDictionary?, ["sessionId": "S", "askId": "k1", "decline": true], "Decline sends no value")
+        XCTAssertNil(Client.secretBody(a, value: ""))
+        XCTAssertNil(Client.secretBody(a, value: "a\0b"))
+        XCTAssertNil(Client.secretBody(a, value: String(repeating: "x", count: Client.secretMax + 1)))
+        XCTAssertNotNil(Client.secretBody(a, value: String(repeating: "x", count: Client.secretMax)))
+        let c = Client()
+        c.current = "S"; c.path = ["S"]
+        c.transcript = [Line(kind: .tool, text: "request_secret", callId: "c1", tool: "request_secret")]
+        XCTAssertNil(c.secretWaiting, "not while the chat is idle")
+        c.running = true
+        XCTAssertEqual(c.secretWaiting, "c1")
+        c.transcript[0].output = "The user saved it"
+        XCTAssertNil(c.secretWaiting, "a call with a result does not wait")
+        c.transcript.append(Line(kind: .tool, text: "bash", callId: "c2", tool: "bash"))
+        XCTAssertNil(c.secretWaiting, "another tool does not wait for a secret")
+        // One answer at a time: while one runs, a second returns at once without a call.
+        c.secretBusy = true
+        let sent = try await c.answerSecret(a, value: "tok")
+        XCTAssertFalse(sent, "nothing goes while another answer runs"); XCTAssertTrue(c.secretBusy)
+        // No Mac: the answer fails and the guard is free again.
+        c.secretBusy = false
+        do { try await c.answerSecret(a, value: "tok"); XCTFail("no Mac: the answer fails") } catch {}
+        XCTAssertFalse(c.secretBusy)
+        // Nothing to send: no call, no error.
+        let empty = try await c.answerSecret(a, value: "")
+        XCTAssertFalse(empty)
+    }
+
+    /// Quote in reply: the same quote rule as the Mac (`quoteText` in client.js) for a whole answer at the end of the field.
+    @MainActor func testDiffNotes() {
+        // The same line rule as the Mac's numberedRows.
+        let rows = numberedPatch(["@@ -10,4 +10,5 @@ f()", " a", "-b", "+c", "+d", " e", "\\ No newline at end of file", "@@ -40 +41 @@", "-x"])
+        XCTAssertEqual(rows.map { $0.old }, [nil, 10, 11, nil, nil, 12, nil, nil, 40])
+        XCTAssertEqual(rows.map { $0.new }, [nil, 10, nil, 11, 12, 13, nil, nil, nil])
+        let c = Client()
+        XCTAssertFalse(c.addDiffNote("S", path: "a.js", row: rows[0], note: "x"), "not on a hunk header")
+        XCTAssertFalse(c.addDiffNote("S", path: "a.js", row: rows[3], note: "  "), "an empty note")
+        XCTAssertTrue(c.addDiffNote("S", path: "a.js", row: rows[3], note: " Use a constant. "))
+        XCTAssertTrue(c.addDiffNote("S", path: "a.js", row: rows[8], note: "Why?"))
+        XCTAssertEqual(diffNotesText(c.diffNotes["S"] ?? []), "`a.js:11`\n```diff\n+c\n```\nUse a constant.\n\n`a.js:40 (removed)`\n```diff\n-x\n```\nWhy?")
+        XCTAssertEqual(diffNotesText([DiffNote(path: "r.md", side: "new", line: 1, text: "+```js", note: "n")]), "`r.md:1`\n````diff\n+```js\n````\nn", "a longer fence")
+        for i in 0..<48 { c.addDiffNote("S", path: "a.js", row: rows[1], note: "n\(i)") }
+        XCTAssertFalse(c.addDiffNote("S", path: "a.js", row: rows[1], note: "one more"), "at most 50")
+        XCTAssertEqual(c.diffNotes["T"]?.count ?? 0, 0, "per chat")
+    }
+    func testSideBack() {
+        // The same rule as the Mac's sideBackText: questions as quotes, then the answers; blank messages left out.
+        XCTAssertEqual(sideBackText([["role": "user", "text": "Why?\n\nReally"], ["role": "assistant", "text": " Because. "], ["role": "user", "text": " "]]), "> Why?\n>\n> Really\n\nBecause.")
+        XCTAssertEqual(sideBackText([]), "")
+        let long = sideBackText([["role": "assistant", "text": String(repeating: "😀", count: sideBackMax + 3)]])
+        XCTAssertEqual(long.unicodeScalars.count, sideBackMax); XCTAssertTrue(long.hasSuffix("…"))
+        XCTAssertEqual(sideBackText([["role": "assistant", "text": String(repeating: "a", count: sideBackMax)]]).count, sideBackMax, "the limit itself is not cut")
+        XCTAssertEqual(sideBackDraft("", "> q\n\nA"), "> q\n\nA\n\n")
+        XCTAssertEqual(sideBackDraft("My note", "x"), "My note\n\nx\n\n")
+        XCTAssertEqual(sideBackDraft("My note\n", "x"), "My note\n\nx\n\n")
+        XCTAssertEqual(sideBackDraft("My note", ""), "My note")
+    }
+    func testQuoteDraft() {
+        XCTAssertEqual(quoteDraft("", "Use pnpm."), "> Use pnpm.\n\n")
+        XCTAssertEqual(quoteDraft("", "  a\r\n\r\nb\u{00a0}c  "), "> a\n>\n> b c\n\n", "CRLF, an empty line, NBSP, trim")
+        XCTAssertEqual(quoteDraft("My note", "x"), "My note\n\n> x\n\n")
+        XCTAssertEqual(quoteDraft("My note\n", "x"), "My note\n\n> x\n\n")
+        XCTAssertEqual(quoteDraft("My note\n\n", "x"), "My note\n\n> x\n\n")
+        XCTAssertEqual(quoteDraft("kept", " \n "), "kept", "a blank answer changes nothing")
+        let long = quoteDraft("", String(repeating: "😀", count: quoteMax + 5))
+        XCTAssertEqual(long.dropFirst(2).dropLast(2).unicodeScalars.count, quoteMax, "cut to quoteMax code points, as the Mac")
+        XCTAssertTrue(long.hasSuffix("…\n\n"))
+        XCTAssertEqual(quoteDraft("", String(repeating: "a", count: quoteMax)), "> " + String(repeating: "a", count: quoteMax) + "\n\n")
+    }
+
     @MainActor func testOpenFromOtherTab() {
         let c = Client()
         c.tab = 1
