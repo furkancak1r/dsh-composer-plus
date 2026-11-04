@@ -74,6 +74,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **任务看板** | <a id="feature-taskboard"></a>左侧边栏 → **任务看板**。dsh 对话的看板，显示与侧边栏相同的实时状态：等待你审批、回答或审阅计划的对话在**审核**中并带橙色圆点，运行中的对话在**进行中**，已完成的对话在**已完成**中（打开前为绿色）。在左侧选择一个项目或**所有项目**；“每个对话一个分支”的文件夹算作它所属的项目。在列表上方的**搜索项目**中输入，可按名称查找项目（不区分大小写和重音符号；按 `Esc` 清空搜索框）；点击**最近 2 小时内活跃**，则只显示有对话正在等待、正在运行、已完成但尚未查看，或在最近 2 小时内有变化的项目（此设置保存在此设备上）。**新建任务**（或按 `n`）会在看板显示的项目中打开 dsh 自己的新对话（选择**所有项目**时，在 dsh 的新会话所选的项目中打开），因此你可以像在任何对话中一样添加文件、使用命令和选择模型。你的第一条消息发出后，会自动回到看板。在此之前，该对话以**新建任务**显示在**待办**中：点击它即可写第一条消息。只有这时才显示**待办**列。有对话在等待你的项目，在项目列表中带橙色圆点。dsh 为对话命名，对话的模型根据这条消息最多写出 3 个标签。点击卡片可打开它的对话。在橙色卡片上点击**回答**，即可直接在看板上回答：**拒绝**或**允许一次**；计划则选**同意执行**或**要求修改**；问题则选择选项或输入你自己的文字。**隐藏已完成**会在此设备上隐藏**已完成**。将指针指向**进行中**里的卡片（或把键盘焦点移到卡片上），即可看到它的进度：运行了多久、待办列表中的当前步骤、正在运行的工具，以及智能体的最后一行。在设置 → Composer Plus → 任务看板中，**悬停显示进度**可选择**快速（不用 AI）**（默认：只读取对话）或 **AI 摘要**（再向对话的模型发送一次简短调用，额外写出一两句话）。 | <a href="assets/features/taskBoard.webp"><img src="assets/features/taskBoard.webp" width="160" alt="截图：任务看板"></a> |
 | **项目记忆** | <a id="feature-projectmemory"></a>默认关闭：请在 **设置 → Composer Plus** 中开启。每个项目文件夹都有自己的记忆，该项目之后的对话都会读取，就像 DS Bot 为每个 Bot 保存一份记忆。每个回合结束后，会用对话的模型调用一次，读取新消息（不含已回滚的消息），把你长期的偏好、决定和事实保存为简短笔记，并修改或删除旧笔记。智能体也可以自己保存、删除和搜索笔记（`memory_remember`、`memory_forget`、`memory_recall`）。笔记也可以是全局的：所有项目都会读取。新对话会在系统提示词中获得这些笔记；之后保存的笔记从下一个对话开始显示。文件是 dsh 主目录下的 Markdown（`storages/dsh-composer-plus/memory/`），绝不写入项目文件夹。 同一行的 **打开记忆** 会按项目（以及全局记忆）分组显示所有已保存的笔记，并可筛选。用你自己的话写下要修改的内容（例如“我从 yarn 换成了 pnpm”），然后点 **预览修改**：由 dsh 的默认模型提出修改，只有点 **应用** 才会保存。在 Tether 中：聊天标题菜单 → Project memory。 | <a href="assets/features/projectMemory.webp"><img src="assets/features/projectMemory.webp" width="160" alt="截图：项目记忆"></a> |
 | **本对话内允许** | <a id="feature-allowforchat"></a>当 Auto Review 询问你时，审批卡片上会多出 **本对话内允许**：从此以后，同一对话中的同一工具都会被允许，参数不限，直到时限结束（默认 1 小时；可在 **设置 → Composer Plus → 本对话内允许** 中选择）。之后代理会再次询问。标题栏中的标签会列出这些授权及其结束时间，也可以撤销它们。授权在重启后仍然有效。 | <a href="assets/features/allowForChat.webp"><img src="assets/features/allowForChat.webp" width="160" alt="截图：本对话内允许"></a> |
+| **拒绝并附言** | <a id="feature-rejectnote"></a>审批卡片的 **拒绝** 旁边会多出 **拒绝并附言…**。点击它，写下原因或应改做什么，然后点 **拒绝**（或按 `Enter`；`Shift+Enter` 换行，`Esc` 关闭输入框）。附言会先作为一条消息发进正在等待的这一轮，然后请求被拒绝：模型在同一轮中读到拒绝和你的附言，你无需再发一条消息。如果附言发不出去，就什么也不会被拒绝，输入框保持打开。Tether 中：审批页 → Reject with note。 | <a href="assets/features/rejectNote.webp"><img src="assets/features/rejectNote.webp" width="160" alt="截图：拒绝并附言"></a> |
 | **项目状态** | <a id="feature-projectstatus"></a>侧边栏中的项目行会显示与其对话相同的加载图标 / 等待 / 完成标记。因此，即使项目已折叠，你也能知道其中有对话正在运行或需要你处理。等待你处理的对话优先显示，其次是你尚未打开的已完成对话（绿色圆点，即使另一个对话仍在运行也会显示），最后是加载图标。将鼠标悬停在上面可查看详情。在**按工作区树**中，父文件夹的行也会显示其中每个项目（例如 `.worktrees/` 中的每个分支文件夹）的对话状态，折叠时也一样。 | <a href="assets/features/projectStatus.webp"><img src="assets/features/projectStatus.webp" width="160" alt="截图：项目状态"></a> |
 | **对话行显示 Git 分支** | <a id="feature-sessionbranch"></a>在侧边栏的“单列表”视图中，每个对话行会显示一个小的灰色标签，内容是该对话最后一轮时项目文件夹所在的 git 分支（例如 `main` 或 `feature/login`；分离的 HEAD 没有分支，不显示标签）。同一项目中位于不同分支的两个对话不再看起来一样，你也能立即发现自己是否要在错误的分支上继续对话。将鼠标悬停在标签上可查看完整名称。Host 部分会在每轮开始和结束时读取分支（`git branch --show-current`，只读）；安装后还没有新一轮的对话，或不是 git 仓库的文件夹，不会显示标签。在“按工作区”和“按工作区树”视图中，对话已位于其项目行下，因此对话行不显示标签。 | <a href="assets/features/sessionBranch.webp"><img src="assets/features/sessionBranch.webp" width="160" alt="截图：对话行显示 Git 分支"></a> |
 | **全部标为已读** | <a id="feature-markprojectread"></a>在侧边栏中，点击项目的 **…** 按钮 → **全部标为已读**。该项目中所有对话的绿色未读圆点会立即消失；其他项目的圆点保持不变。项目中没有未读对话时，此项显示为灰色（**没有未读对话**）。 | <a href="assets/features/markProjectRead.webp"><img src="assets/features/markProjectRead.webp" width="160" alt="截图：全部标为已读"></a> |
@@ -219,6 +220,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - dsh 的队列没有 `move` 操作，所以由插件的 Host 端在 dsh 的队列中直接移动排队的消息本身（一次改动，还是同一条消息）。带有图片或文件的消息也能移动。只有你自己的消息可以移动：队列中的目标轮次或对问题的回答会留在原处。如果在你拖动时有消息开始发送，则不会移动任何消息，并会显示一条提示说明这一点。
 - 如果新版本不改动任何 dsh 设置，dsh 0.2.1 会立即加载更新；否则（以及在 dsh 0.2.0 上），请重启 dsh 来加载更新。插件从不替你重启 dsh。没有 dsh 插件管理器的网页版/CLI profile 只会提示有新版本。
 - **Composer Plus N 的新功能** 使用 **应用语言** 中的语言显示说明。带其他地区的界面语言使用其基础语言的说明（`en-GB` 显示英文说明，`zh-TW` 显示 `zh` 的中文说明）。没有说明的语言（由其他语言包添加的语言，或不是 `pt-BR` 的 `pt-PT`）显示英文说明。说明随新版本一起安装。如果运行的副本没有可读的说明文件（`release-notes.json`），窗口会显示 GitHub 上的英文说明。
+- **拒绝并附言** 会先把附言作为一条消息发进正在等待的这一轮，然后拒绝该请求；dsh 会在对话中把附言显示为你的消息。附言输入框打开时，卡片上只显示 **取消** 和 **拒绝**，所以一次点击不会误允许该请求；`Esc` 或 **取消** 会让 dsh 的按钮重新出现。空附言不会发送任何内容（请使用 dsh 自己的 **拒绝**）。如果附言发出后拒绝失败（例如该请求在此期间已在别处被回答），附言会留在对话中，模型会在它的下一步读到它。按钮放在 dsh 审批卡片的标记（`data-approval-key`）中，因为 dsh 没有给卡片操作的插槽；如果 dsh 更新改变了这部分标记，按钮就不会显示，dsh 自己的 **拒绝** 照常可用。一条附言最多 4,000 个字符。
 - **本对话内允许** 从授权的那一刻开始计算时限。新的时限会立即应用于仍在生效的授权，因此更短的时限可能会让它们立即结束。1.12 及更早版本的授权没有时间信息：更新后，代理会就这些工具再询问一次。
 - **保持输入框焦点** 只在发送 `/` 命令或技能后才会把焦点还给输入框。dsh 解析命令时，输入框会有几毫秒处于只读状态，因此这段时间内按下的键会丢失。如果 dsh 的 `/` 菜单仍然打开，`Enter` 会选择高亮的行，而不会发送。
 - **问题卡片适应窗口** 只改变 dsh 的问题卡片，不改变计划审阅卡片。它通过 dsh 的标记（`data-question-key`、`data-question-scroll`）找到卡片；如果 dsh 更新改变了这些标记，卡片会按 dsh 自己的样子显示。卡片高度跟随窗口，而不是对话：在较窄侧边面板中的对话里，较高的卡片仍可能超出对话上方。
@@ -320,6 +322,8 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 **如何阻止智能体运行 `npm publish` 或 `git push --force`？** **设置 → Composer Plus → 禁止的命令**：输入 `npm publish`，选择 **阻止** 或 **先询问**，然后点击 **添加**。**阻止** 会拒绝该命令，智能体会问你；**先询问** 每次都会显示审批卡片。受保护的文件覆盖智能体的文件工具；禁止的命令覆盖它的 shell 命令。
 
+**我能告诉智能体为什么拒绝了一个工具调用吗？** 可以，使用 **拒绝并附言**（默认开启）：点击审批卡片上的 **拒绝并附言…**，写下原因或应改做什么，然后点击 **拒绝**。智能体会在同一轮中读到拒绝和你的附言。
+
 **如何让 Auto Review 在同一个对话中不再反复询问同一个工具？** 点击审批卡片上的 **本对话内允许**。它只覆盖该对话中的这个确切工具，默认有效 1 小时；可以在标题栏的标签中撤销它。在 **设置 → Composer Plus → 本对话内允许** 中更改时间。
 
 **我的 iPhone 丢了。如何阻止它访问我的 Mac？** 点击侧边栏左下角的 **手机连接**，然后点击该 iPhone 旁边的 **Remove**。它的密钥会立即失效；只有通过你在 Mac 上批准的新配对，它才能重新连接。
@@ -371,6 +375,8 @@ PLAYWRIGHT=/path/to/playwright node test/browser-recent-tree.mjs /path/to/dsh/li
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-status-order.mjs /path/to/dsh/lib/bin.js
 # Next waiting chat and Option buttons (fake model): the sidebar button and Cmd+Shift+E open the waiting chats in order, the Keyboard shortcuts row, the option buttons and the question card keys, switch off + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-agentbox-ideas.mjs /path/to/dsh/lib/bin.js
+# Reject with note (fake model + a test-only approval gate): the button on dsh's card, the note after the rejection in the next request, Esc, switch off + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-t3code-ideas.mjs /path/to/dsh/lib/bin.js
 # every Settings feature row shows a loading screenshot and a ? link to its README row
 PLAYWRIGHT=/path/to/playwright node test/browser-settings-shots.mjs /path/to/dsh/lib/bin.js
 # What's new after an update: the release notes show once, Esc and Close close them

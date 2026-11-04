@@ -1839,6 +1839,29 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if mine == grantWrites { grants = o.compactMapValues { $0 as? [String] } }
     }
 
+    /// Reject with note (Composer Plus on the Mac does the same): the note goes first as a steer into the waiting turn,
+    /// then the approval gets "rejected". The model reads the rejection and the note in one step. A failed steer rejects
+    /// nothing (the sheet stays); one rejection per request at a time.
+    @Published var rejectingNote: Set<String> = []
+    private var noteSent: Set<String> = []
+    func rejectWithNote(_ p: Prompt, _ text: String) async throws {
+        guard let r = Self.rejectNoteRequest(p, text), !rejectingNote.contains(p.id) else { return }
+        rejectingNote.insert(p.id); defer { rejectingNote.remove(p.id) }
+        if !noteSent.contains(p.id) {
+            _ = try await rpc("session/prompt", ["request": r])
+            noteSent.insert(p.id)
+        }
+        try await answer(p, "rejected")
+        noteSent.remove(p.id)
+    }
+    static let rejectNoteMax = 4000
+    /// The steer of a note: nil for a prompt that is not an approval of a chat, or for an empty note.
+    static func rejectNoteRequest(_ p: Prompt, _ text: String) -> J? {
+        let t = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(rejectNoteMax))
+        guard p.event == "approval/request", let sid = p.agentId, !t.isEmpty else { return nil }
+        return ["requestId": UUID().uuidString, "sessionId": sid, "mode": "steer", "content": promptContent(t, images: [], receipts: [])]
+    }
+
     /// Plan mode: leave it as dsh's plan chip does.
     func leavePlan() async throws { try await execute("/plan off") }
 

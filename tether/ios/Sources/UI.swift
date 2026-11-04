@@ -2381,6 +2381,8 @@ struct PromptSheet: View {
     let p: Prompt
     @State private var picked: [String: Set<String>] = [:]
     @State private var custom: [String: String] = [:]
+    @State private var noting = false
+    @State private var note = ""
     var body: some View {
         NavigationStack {
             Form {
@@ -2411,6 +2413,7 @@ struct PromptSheet: View {
                             }
                         }
                         Button("Deny", role: .destructive) { send("rejected") }
+                        Button("Reject with note…") { noting = true }
                     } footer: {
                         if isAutoReviewAsk, c.plus.contains("grants") { Text("Allow for this chat: \(p.request["toolName"] as? String ?? "") runs without asking in this chat, with any arguments, until the time limit set on the Mac ends (1 hour by default). If the tool can write, that includes any write.") }
                     }
@@ -2442,6 +2445,28 @@ struct PromptSheet: View {
             }
             .navigationTitle(p.event == "approval/request" ? "Approval needed" : "Question")
             .navigationBarTitleDisplayMode(.inline)
+            .sheet(isPresented: $noting) {
+                NavigationStack {
+                    Form {
+                        Section {
+                            TextField("Tell the agent why, or what to do instead", text: $note, axis: .vertical).lineLimit(3...8)
+                                .onChange(of: note) { _, v in if v.count > Client.rejectNoteMax { note = String(v.prefix(Client.rejectNoteMax)) } }
+                        } footer: { Text("The agent reads the rejection and your note in the same turn.") }
+                    }
+                    .navigationTitle("Reject with note").navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) { Button("Cancel") { noting = false } }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Reject") {
+                                UINotificationFeedbackGenerator().notificationOccurred(.warning)
+                                let text = note
+                                c.run { try await c.rejectWithNote(p, text); noting = false }
+                            }.disabled(note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || c.rejectingNote.contains(p.id))
+                        }
+                    }
+                }
+                .presentationDetents([.medium])
+            }
         }
     }
     private var isAutoReviewAsk: Bool { (p.request["reason"] as? String)?.hasPrefix("Auto review denied tool ") == true && p.agentId != nil }

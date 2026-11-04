@@ -1838,3 +1838,148 @@ Checked in the installed dsh packages (`~/Documents/testdeepseekharness/work/dsh
 2026-11-04, main merged into the branch (the owner asked: "çakışmaları dalda çöz"; `main` itself was not changed):
 - Conflicts: `client.js` (`FEATURES`: main's list with `nextWaiting`, `optionPicks` after `idleSwitch`; `LANGUAGE_PACKS` from `npm run build:locales`), `package.json` (both sides' tests), `test/toggles.test.mjs` (54 rows, 46 on, main's style ids plus `option-picks`), this file (main's sections, then this one).
 - Checks: `npm test` exit 0 (a first run had two `tether-gateway` failures from a port timeout under load; the file alone passed 28/28, then the full run passed); iOS unit tests 71/71; `test/browser-agentbox-ideas.mjs` PASS on 0.2.1-rc.2 and 0.2.0-rc.2; `node scripts/build-docs.mjs --check` passed; `git diff --check` clean.
+
+## t3code ideas: feature gap plan (2026-11-04, branch `docs/t3code-feature-gap-plan`)
+Request (owner): find the t3code features that dsh and Composer Plus do not have and that help in daily use; rank them; write a plan; write no code now.
+Status: plan approved by the owner (2026-11-04). No code changed. Open: the owner's choice of candidates and the three decisions below. Phase 0 starts only after that choice.
+
+### Sources
+- t3code: github.com/pingdotgg/t3code `main` at 8b44f42 (2026-11-04), MIT. Read: README, `docs/user/*` (composer, thread-sidebar, source-control, project-settings, keybindings, usage, permission-modes, html-renders, snap-shot, prompt-links, guest-links, outside-agents, devices, activity-log, faq), the file list of `apps/web/src/components/chat/`, `SecretRequestCard.tsx`, `AssistantSelectionToolbar.tsx`, `ThreadServersPanel.tsx`, `promptStashStore.ts`, `apps/server/src/secrets/SecretRequests.ts`. No t3code code is copied: behavior only, in our own words.
+- dsh: the running app 0.2.1-rc.5 (`app.asar`, 308 packages, read only) and the test installs 0.2.0-rc.2 and 0.2.1-rc.2. Read: locale dictionaries in `lib/client.js`, `installWorkspaceShortcuts` (dsh-client-ui-workspace), the approval card (dsh-client-ui-approval), the composer paste handler (dsh-client-ui-conversation), package READMEs.
+- Composer Plus: `FEATURES` (56 ids), `docs/features.json`, `tether/FEATURES.md`, earlier comparisons in this file (agentbox, HarnessMM, superagent, X article).
+
+### dsh facts checked for this plan (0.2.1-rc.5)
+- Approval card: English dictionary has only `waiting`, `detail.aria`, `escalation`, `reject`, `allowOnce`. `dsh-user-approval` outcomes are `allowed-once | rejected | cancelled | unavailable`: no reason field.
+- No `request_secret` tool, no secret prompt. `dsh-client-ui-secret-mask` README: "Masking changes only what is drawn; the message text, the copy action, and the model input keep the original characters."
+- No Quote/Cite label in any client dictionary.
+- Plan mode README: "every tool remains available, so use sandbox mode and approval prompts for enforced limits". So plan mode cannot make a side chat read-only.
+- dsh shortcuts: `session.new/search/rename/fork/archive`, `workspace.add`, sidebar, terminal and approval commands. `navigation.back/forward` exist only inside the sidebar browser.
+- Paste: the composer handler calls `keyboard.paste(text)` for any size.
+- Fork: `sessionController.fork({ sessionId, atSeq? })`; no `atSeq` → the latest completed-turn prefix.
+- Usage: per turn (`message.turnUsage.*`) and per chat (**Session statistics**). No report over all chats found. Settings → Account was not opened (only its class names were seen).
+- Background jobs: `dsh-tool-jobs` `completionDelivery: wakeup` opens a turn on an idle owner when a job ends. dsh's jobs menu lists and stops jobs.
+- Sidebar browser: `tab.actions.openTab("browser", { params: { url } })` inside dsh-client-ui-sidebar-browser. Plugin access to it is not verified.
+
+### Candidates (ranked by daily use)
+Wave 1:
+| # | id | What | Side | Tether |
+|---|---|---|---|---|
+| 1 | `rejectNote` | Approval card → **Reject with note…**: steer the note into the running turn, then reject | client (Host route only if phase 0 needs it) | yes |
+| 2 | `secretInput` | Tool `request_secret`: a private card; the value goes to an owner-only file, the agent gets only the path | Host + client | yes |
+| 3 | `quoteReply` | Select text in an answer → **Quote** → `> …` at the composer cursor | client | yes (whole message) |
+| 4 | `sideChat` | Ask a side question in a fork of the chat while it works; **Bring back** puts the answer and a `dsh-session:` link in the composer | Host + client | yes |
+| 5 | `diffComments` | Line notes on Composer Plus Changes diffs; **Send to composer** | client | yes (one line) |
+Wave 2:
+| # | id | What | Side | Tether |
+|---|---|---|---|---|
+| 6 | `chatHistory` | Back/forward through opened chats (two dsh shortcuts) | client | no (iOS back gesture) |
+| 7 | `devServers` | Listening ports of the chat's processes: **Open**, **Stop** | Host + client | yes (list + Stop) |
+| 8 | `largePaste` | A paste of 32 KiB or more becomes a `.txt` attachment | client | no |
+| 9 | `usageReport` | Tokens, cache hit and estimated cost over all chats by day, model and project | Host + client | yes (read only) |
+None opens a port, runs a server or starts a model turn without a click: none goes into `OFF_BY_DEFAULT`.
+
+### Design notes per candidate
+- `rejectNote`: steer first, then dsh's own Reject. A failed steer does not reject (the card stays). A failed reject leaves the note queued and shows the reason (rule 11). One action per request at a time from the button, Enter and a second click (rule 7). Tether: approval sheet button, existing steer and reject calls.
+- `secretInput`:
+  - Host switch `GET/POST {on}` at `/api/composer-plus.secrets`; answer route `POST /api/composer-plus.secret-answer {sessionId, requestId, value | decline}` (`PLUS`, `routes`).
+  - Value file `storages/dsh-composer-plus/secrets/<random>` (folder 0700, file 0600), deleted when the asking turn ends and swept at Host start.
+  - `tools/post-execute` replaces the exact value with `[secret]` in every tool result of that chat. Limit: encoded forms (base64) are not replaced.
+  - `read`, `read_image`, `grep` cannot open the secrets folder (Protected files' `toolTarget`, rule 12 cases).
+  - The gateway access log never holds the value.
+  - Card: dsh `tool.call.toolview` slot first, else `conversation.input.dock`.
+  - Default on (proposal); token cost of the tool schema measured in phase 0 (guess ~150 tokens).
+- `quoteReply`: only a selection inside one assistant text block; at most 2,000 characters (cut with `…`); insert through `inputActions.captureInsertion()` / `insertText()` (one undo step).
+- `sideChat`:
+  - `POST /api/composer-plus.side-chat {sessionId, text}` and `GET ?sessionId` (list), both in `PLUS`.
+  - Fork with no `atSeq`, then `prompt` (queue) with a "read only, change no files" lead.
+  - Read-only is only an instruction: plan mode does not block tools (fact above). Option to check in phase 0: start the fork with dsh's read-only sandbox mode.
+  - Own messages start at `inheritedEventCount` (rule 10); withdrawn messages are left out (rule 9); one start or Bring back at a time (rule 7).
+  - Close = dsh's archive (undo stays).
+- `diffComments`: notes per chat in localStorage; Markdown `path:12-14`, a ```diff``` block and the note; the tray empties after the send. Not on dsh's own Last Turn view.
+- `chatHistory`: a stack of opened chats; archived or deleted chats are skipped; `composerPlus.chatBack` / `composerPlus.chatForward`; defaults chosen with dsh's `bindingIssue` and Chrome's list; no web Linux default.
+- `devServers`: macOS `lsof -nP -iTCP -sTCP:LISTEN`, Linux `/proc`; match by `DSH_SESSION_ID`, else by the parent chain (a process that sets `process.title` hides its environment); poll every 5 s only while the chat shows; Windows: "not supported" (`ponytail:` note). Overlaps dsh's jobs menu: the new parts are the port, **Open** and processes outside jobs. Merges with agentbox item `leftoverPrograms`.
+- `largePaste`: capture-phase `paste` listener on the composer root; attachment through `conversation.fileUploads`; one shortcut pastes as text. When the root is not found, the normal paste runs.
+- `usageReport`: per-chat cache of the last read `seq`; inherited fork events are not counted (rule 10); withdrawn turns are counted (they were paid) and the docs say so; editable price table, first values checked on DeepSeek's price page on the day of the work. Drop it when the owner does not pay per token.
+
+### Rejected (exists or low value)
+Queue/Steer and steer queued (dsh); prompt recall, rewind with files, queue edit (`inputHistory`, `turnRollback`, `queueEdit`); `/goal`, context meter, `/compact` (dsh, `goalCheck`, `contextBreakdown`); message search, thread links, `@` threads (dsh search, `contentSearch`, `copyDeeplink`); pin, archive undo, fork, worktree per chat, notifications (dsh, `worktreeChats`, `notifications`); mobile app and remote (`mobileConnect`, Tether); HTML replies (dsh `present` + HTML preview); PR/CI watch (dsh job wakeup + `gh run watch`); git buttons and worktree cleanup (owner's `/gt`, `/merge-main`); prompt stash (dsh keeps a draft per chat); project model defaults (one provider); resume at quota reset (no quota windows; `dsh-llm-retry`, `continueButton`); guest links, webhooks, MCP for outside agents, push notifications (need an internet port or relay; Tether is LAN/Tailscale only); Devices, SnapShots (agent-device; system screenshot + paste); Mermaid/LaTeX (new 1–2 MB dependency); snooze, settle, multi-model send, themes, icons, viewed marks (rare or cosmetic); find over the whole chat (an extension of `findInChat`, separate request).
+
+### Not verified (do not assume)
+1. Does a subagent's approval request show in the parent chat? Check with one subagent in the real dsh. If not, it is one more candidate.
+2. Does Settings → Account show usage history? (`usageReport`)
+3. Can a plugin open dsh's sidebar browser tab? (`devServers` Open)
+4. Does a steer sent while an approval waits reach the first model request after the reject? (`rejectNote`)
+
+### Decisions (owner, 2026-11-04)
+- Build 1–3 now: `rejectNote`, `secretInput`, `quoteReply`. 4–5 (`sideChat`, `diffComments`) later, not in this work. Wave 2 (6–8) is not chosen.
+- `secretInput` is on by default; its token cost goes into the docs.
+- `usageReport` is dropped: the owner does not pay DeepSeek per token.
+- Phase 0 probes only what 1–3 need: steer during an approval, a long-waiting tool, `post-execute` value replace, the `toolview` slot, the token cost of the tool, the selection and insert path for quotes. Fork, shortcut, paste, browser-tab and subagent-approval probes wait for their features.
+
+### Common work for each chosen feature (AGENTS.md)
+Own `FEATURES` id and `feature(id, setup)`, off removes everything (Host switch for `secretInput`); `SHOT_OF`, `SHOTS`, `assets/features/<id>.webp` ≤ 60 kB from a demo dsh (`SHOT=1`, English UI, made-up data); texts en/zh + 11 `locales/*.json`, `npm run build:locales`; `docs/features.json` (`how` ×13, `llms`, `shot`, routes), `npm run build:readme`, Limits and FAQ ×13 by hand; unit test in the `test` script, `test/toggles.test.mjs` counts; real isolated dsh 0.2.0-rc.2 and 0.2.1-rc.2 in a new `test/browser-t3code-ideas.mjs` (headless, `chromiumSandbox: true`); `tether/FEATURES.md` row, `PLUS` for new phone routes, calls only when `c.plus.contains(...)`; rules 7, 9, 10, 11, 12 where they apply.
+
+### Phases and checks
+| Phase | Work | Check |
+|---|---|---|
+| 0 | Probes in /tmp, no product code: steer during an approval; a long-waiting tool + `post-execute` value replace; `toolview` slot; token cost of `request_secret`; quote selection + insert | evidence for each item written here; the plan changes where a probe fails |
+| 1 | `rejectNote` | unit test, real dsh ×2, iOS tests |
+| 2 | `secretInput` | unit test (value absent from the log, the model request, tool results and the gateway log; symlink, `..`, FIFO; deletion at turn end), real dsh ×2, iOS |
+| 3 | `quoteReply` | unit test, real dsh ×2, iOS |
+| End | `npm test`, `git diff --check`, `node scripts/build-docs.mjs --check`, `npm pack --dry-run` | all green |
+Close one phase at a time: diff review, checks, checkpoint here. Commit, version, release and the live copy only when the owner asks.
+
+### Allowed paths
+`client.js`, `index.js`, `package.json` (`test`, `dsh.client.inject` if needed), `locales/*.json`, `locale/*.json` (built), `assets/features/<new id>.webp`, `docs/features.json`, `docs/ROUTES.md`, `README*.md`, `llms.txt`, `test/*`, `tether/FEATURES.md`, `tether/gateway/server.mjs` (`PLUS`), `tether/ios/{Sources,Tests,Resources}/*`, `IMPLEMENTATION_PLAN.md`. No new dependency; no change to dsh files.
+
+### Risks
+- dsh markup (approval card, selection area, paste root) can change: the feature goes quiet, no wrong send; mark each with `ponytail:` and the upgrade path (a dsh slot).
+- `secretInput` does not stop an agent that sends the value elsewhere or prints an encoded form: limits in 13 READMEs.
+- `sideChat` read-only rests on the lead text unless a read-only sandbox works for the fork.
+- `devServers`: `ps -E` misses processes that set their title; no Windows.
+
+### Acceptance criteria
+- Each chosen feature passes every item of the common work; `npm test` exit 0.
+- Switched off, a feature leaves nothing (a test counts it).
+- `secretInput`: the value is not in the session log, a model request, a tool result or the gateway log (a test searches each).
+- `rejectNote`: in the real dsh, the note is in the first model request after the reject.
+- `test/browser-t3code-ideas.mjs` PASS on 0.2.0-rc.2 and 0.2.1-rc.2.
+
+### Last checkpoint
+2026-11-04: comparison done, plan written. No code changed. Next: the owner's choice of candidates and decisions, then phase 0.
+
+2026-11-04 11:35, phase 0 started (owner chose 1–3):
+- API facts found (0.2.1-rc.2 types): the client session face has `prompt(content, 'queue' | 'steer')` (`ctx.sessions.sessionOf(ctx.sessions.scope(id))`); dsh's `IConversation.send` only queues. Host tools may return `PostToolDecision { kind: 'accept', content }` from `tools/post-execute` (replaces the content); `finalizeContent` exists for a tool's own last-mile transform. Composer Plus already registers tools through `ctx.inject(['tools', …])` and reads the approval card through `[data-approval-key]` (`allowForChat`).
+- Probe written, not run: `/tmp/cp-phase0/probe.mjs` + `probe-plugin.mjs` (fake model, throwaway DSH_HOME, headless Chrome with `chromiumSandbox: true`, no Composer Plus). Auto review refused its run: a headless Playwright launch outside the project's own test commands needs the owner's explicit approval. Waiting for that approval.
+
+2026-11-04 11:45, phase 0 done (the owner approved the headless probe in the chat). Same results on 0.2.1-rc.2 and 0.2.0-rc.2, no page errors:
+- Setup notes: a Host plugin needs `export const inject = [...]` for `ctx.connection` (without it: "cannot get property "connection" without inject", the entry does not activate). The default permission mode runs `rm -rf build-old` without a card, so the probe adds a test-only `tools/pre-execute` gate that answers `ask` (the same trick as `test/browser-planned-steps.mjs`). Host `sessionController.prompt(request, signal)` needs a signal (without one: "reading 'throwIfAborted'"). Session logs are `session.v4.jsonl.zstd`; node's `zstdDecompressSync` gave text without the events, `zstd -dc` gives the whole log: use `zstd -dc` (or dsh's `sessionQuery`) in tests.
+- Q1 `rejectNote`, answered YES:
+  - While dsh's approval card shows, dsh hides the composer (`[data-composer-input]` is in the DOM but not visible). So the note needs its own field on the card (as planned), not the composer.
+  - A steer while the card waits is accepted (`session/prompt` mode `steer` → `{accepted: true}`); the card stays; no model call happens.
+  - After a click on Reject, the first model request ends with: assistant (the bash call), tool `Error: the user rejected tool "bash"`, user `<the note>`. One model call. So the model reads the rejection and then the note, in that order.
+  - Decision: client side only. The client sends the steer through the chat's client session face (`ctx.sessions.sessionOf(ctx.sessions.scope(id)).prompt([{type:'text', text}], 'steer')`, the same RPC as the probe) and then answers the card (`pendingInteraction.answer('rejected')` or a click on dsh's Reject). No Host route. Tether: the gateway already forwards `session/prompt`; the phone sends the steer, then its existing reject.
+- Q2 `secretInput`, answered YES:
+  - A tool that waits 25 s for an answer keeps the turn open; no tool-call timeout (the tool declares no `timeoutMs`).
+  - With a `tools/post-execute` listener that returns `{ kind: 'accept', content }` with the value replaced: the model request has `[secret]`, the session log has `[secret]` and not the value.
+  - Control run (listener off, `NO_REPLACE=1`, 0.2.1-rc.2): the value is in the model request and in the session log. So the check measures what it should.
+  - Decision: the design stands (Host tool + post-execute replace in every tool result of the chat). The tool should not return the value at all (only the path); the replace is the second line of defense for a later `cat` by the agent.
+- Q3 tool row hooks (both versions): the call row is `[data-chat-flow-kind="tool-call"]` with `data-chat-node-key="<seq>:tool-call<callId>"`, and inside it `[data-tool="<tool name>"][data-state="running"]`. So the client can find the waiting `request_secret` row by `data-tool="request_secret"` and `data-state="running"` (DOM fallback, `ponytail:` note). Still open for phase 2: whether the `tool.call.toolview` slot gives a cleaner hook for our own tool (try it first).
+- Q4 `quoteReply` hooks (both versions): an answer's text is inside `[data-chat-flow-kind="assistant-step"][data-turn-process-answer="true"]` (`data-chat-group-part="response"`) → `[data-slot="conversation.chat.node"]` → the Markdown elements. A selection counts when its range is inside one such `conversation.chat.node` of an `assistant-step` row. Tool output rows are `tool-call` rows, so they are left out by this rule.
+- Q5 token cost: the probe schema (name, a 1-line description, one parameter) is 276 characters ≈ 70 tokens (dsh's 4-characters-per-token rule). The real `request_secret` schema with a usage description will be larger; measure it in phase 2 for the docs (estimate: 150–250 tokens).
+- Probe files stay in /tmp only (not in the repo); the temp DSH_HOMEs were removed.
+Next: phase 1 (`rejectNote`).
+
+2026-11-04 12:55, phase 1 done (`rejectNote`, not committed):
+- client.js: `createRejectNote(steer)` (store per request key: open, busy, error, noteSent; one rejection per request at a time from the button, Enter and a second caller; the note first, then `answer('rejected')`; a failed steer rejects nothing; a failed reject after a sent note keeps `noteSent`, so a retry does not send the note twice; an empty note does nothing; cut to 4,000 characters). `RejectNote` in dsh's `conversation.session.header.utilities` slot, portaled into the approval card row (`[data-approval-key]`, as Allow for this chat): "Reject with note…" left of Reject (CSS order −1; Allow for this chat moved to −2); the field hides dsh's Reject and Allow once while it shows (no allow by mistake); Enter sends, Shift+Enter is a new line, Esc and Cancel close; IME is ignored. The steer uses the chat's client session (`ctx.sessions.sessionOf(scope).prompt([text], 'steer')`; a `RemoteResult` `ok: false` is an error). `FEATURES` (after allowForChat), `SHOT_OF`, `SHOTS`, en/zh texts, 11 locale packs, `build:locales`.
+- Found in the real dsh: Enter in an empty field reached the store and rejected without a note (the first design let an empty note reject). Now an empty note does nothing; the real test checks it. dsh's own card ignores Enter/Esc while the focus is in a text field (dsh-client-ui-approval `keydown`: `closest("input, textarea, …")`), so Enter in the note never allows.
+- Docs: `docs/features.json` (how ×13, llms, shot), `build:readme`; Limits + FAQ ×13 (12 by a subagent, checked by `readme`, `readme-labels`, `feature-docs`); dev block line ×13. `tether/FEATURES.md`: `rejectNote | yes`.
+- Tether: approval sheet → "Reject with note…" → a sheet with the note; `Client.rejectWithNote` (steer through `session/prompt`, then the existing `answer(p, "rejected")`; one per request; `noteSent` for a retry); pure `Client.rejectNoteRequest` with `testRejectNoteRequest`. No new gateway route (`session/prompt` is in `RPC`).
+- Checks:
+  - `test/reject-note.test.mjs` (in `package.json` after chat-grant): store, component and the feature through `plugin.apply`. 14 mutations (busy guard, answerable, steer failure, note twice, reject before steer, no cut, other chat, Enter not stopped, Shift+Enter, IME, `ok: false` ignored, effect on the object, empty enables Reject, empty note rejects): all red. Two were green first ("other chat", "effect on the object"); the test now renders twice and checks the field stays open.
+  - `test/toggles.test.mjs`: 55 rows, 47 on.
+  - `test/browser-t3code-ideas.mjs` PASS on 0.2.1-rc.2 and 0.2.0-rc.2: button left of Reject; the field has the focus and hides dsh's two buttons; Enter on an empty field does nothing; the next model request ends with the rejection result and then the note (one model call); `build-old` kept; the note shows in the chat; Esc closes without a rejection and brings dsh's buttons back; dsh's Reject still works; off → no button; no page errors. `assets/features/rejectNote.webp` 8.3 kB (SHOT=1, English UI, made-up project, checked by eye).
+  - iOS unit tests 72/72 (simulator iPhone 17 Pro Max). The sheet was not looked at on a simulator.
+  - `npm test` exit 0; `git diff --check` clean; `node scripts/build-docs.mjs --check` passed; `npm pack --dry-run` ships `assets/features/rejectNote.webp`.
+- Not done (not requested): commit, version bump, release notes, live desktop copy, iPhone build.
+Next: phase 2 (`secretInput`).

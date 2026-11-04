@@ -281,6 +281,23 @@ final class CoreTests: XCTestCase {
         XCTAssertNil(Client.subagentRequest(Sess(["sessionId": "root"])!, "x"))
     }
 
+    /// Reject with note: the steer goes to the approval's own chat, trimmed and cut to the limit; nothing for an empty
+    /// note, a question or an approval without a chat.
+    @MainActor func testRejectNoteRequest() {
+        let p = Prompt(id: "e1", event: "approval/request", agentId: "s1", request: ["toolName": "bash"])
+        let r = Client.rejectNoteRequest(p, "  Move it instead.\n ")
+        XCTAssertEqual(r?["sessionId"] as? String, "s1")
+        XCTAssertEqual(r?["mode"] as? String, "steer")
+        XCTAssertEqual((r?["content"] as? [J])?.count, 1)
+        XCTAssertEqual((r?["content"] as? [J])?.first?["text"] as? String, "Move it instead.")
+        XCTAssertNotNil(r?["requestId"] as? String)
+        XCTAssertNil(Client.rejectNoteRequest(p, "  \n "), "an empty note sends nothing")
+        XCTAssertNil(Client.rejectNoteRequest(Prompt(id: "q", event: "user-questions/request", agentId: "s1", request: [:]), "x"), "not for a question")
+        XCTAssertNil(Client.rejectNoteRequest(Prompt(id: "e2", event: "approval/request", agentId: nil, request: [:]), "x"), "not without a chat")
+        let long = Client.rejectNoteRequest(p, String(repeating: "x", count: Client.rejectNoteMax + 10))
+        XCTAssertEqual(((long?["content"] as? [J])?.first?["text"] as? String)?.count, Client.rejectNoteMax)
+    }
+
     @MainActor func testOpenFromOtherTab() {
         let c = Client()
         c.tab = 1
