@@ -55,10 +55,10 @@ try {
   const rows = (await readFile(join(dir, 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(rows.map((r) => r.op), ['add', 'add', 'replace', 'remove']);
   assert.match(rows[2].before, /Turkish/); assert.match(rows[2].after, /English/);
-  // Size limit: MEMORY.md cannot pass 4,000 characters.
+  // Size limit: MEMORY.md cannot pass 8,000 characters (4,000 until 1.21.1).
   const big = memoryStore(join(root, 'big'));
   const bigScope = big.project(project);
-  await assert.rejects((async () => { for (let i = 0; i < 30; i++) await big.add({ scope: bigScope, text: `Fact number ${i} ${'x'.repeat(200)}`, actor: 'agent' }); })(), /would have \d+ of its 4000/);
+  await assert.rejects((async () => { for (let i = 0; i < 60; i++) await big.add({ scope: bigScope, text: `Fact number ${i} ${'x'.repeat(200)}`, actor: 'agent' }); })(), /would have \d+ of its 8000/);
 
   // A symlink or a FIFO in place of MEMORY.md is not followed and does not block (rule 6).
   const outside = join(root, 'outside.md'); await writeFile(outside, '# Memory\n\n- SECRET outside entry\n');

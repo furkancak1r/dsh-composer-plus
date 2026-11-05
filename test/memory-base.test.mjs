@@ -58,7 +58,7 @@ try {
       await now.remove({ scope: p, topic: 'api', match: 'port 8080', actor: 'editor' });
       await now.add({ scope: p, topic: 'deploy', text: 'Deploys need a tag', actor: 'editor' });
       await now.add({ scope: store.GLOBAL, text: `One more global fact ${'y'.repeat(250)}`, actor: 'editor' });
-    }), /would have \d+ of its 4000/);
+    }), /would have \d+ of its 8000/);
     assert.deepEqual(await files(), was, 'the last change failed: every file as it was, no new topic, no journal row');
     assert.deepEqual(undone, [p.key], 'the copy of a failed save is undone (the global scope was refused before its first write: no copy)');
     // A copy that cannot be kept: nothing is saved.

@@ -75,7 +75,7 @@ try {
   const files = async () => Promise.all([join(a.dir, 'MEMORY.md'), join(a.dir, 'style.md'), join(home, 'storages', 'dsh-composer-plus', 'memory', 'journal.jsonl')].map((f) => readFile(f, 'utf8').catch(() => null)));
   const was = await files();
   const full = await call(MEMORY_COPY_PATH, { copy: { from: w.id, notes: [{ text: 'Prefer small functions', topic: 'style' }, { text: `A long web note ${'y'.repeat(250)}` }], to: 'w-api' } });
-  assert.equal(full.status, 409); assert.match(full.body.error, /^Nothing was copied: "A long web note .*would have \d+ of its 4000/);
+  assert.equal(full.status, 409); assert.match(full.body.error, /^Nothing was copied: "A long web note .*would have \d+ of its 8000/);
   assert.deepEqual(await files(), was, 'the last note failed: no topic file, no change, no journal row');
   // One memory action at a time.
   let release; const hold = new Promise((r) => { release = r; });
@@ -177,7 +177,7 @@ try {
     // A refused copy: the reason shows, the picks stay for another try.
     section.memoryEditor.startCopy(id); await new Promise((r) => setTimeout(r, 10));
     section.memoryEditor.pickNote('\u0000Run the tests with npm test');
-    copyError = { status: 409, text: 'Nothing was copied: "x": MEMORY.md of the project memory would have 4100 of its 4000 characters.' };
+    copyError = { status: 409, text: 'Nothing was copied: "x": MEMORY.md of the project memory would have 8100 of its 8000 characters.' };
     assert.equal(await section.memoryEditor.copyTo('w-api'), false);
     assert.match(section.memoryEditor.getSnapshot().error, /^Nothing was copied/);
     assert.equal(section.memoryEditor.getSnapshot().copy.picked.length, 1);

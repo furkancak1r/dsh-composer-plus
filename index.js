@@ -5752,7 +5752,8 @@ function installDefaultWorkspace(ctx, home) {
  *   <dir>/journal.jsonl                                       every change, with the line before and after
  *   <dir>/reviewed.json                                       how far the review read each chat (event seq)
  * Off by default: the review makes a model call after each finished turn. The Host keeps the switch (`memory.json`). */
-export const MEMORY_LIMITS = { entry: 300, main: 4000, topic: 16000, topics: 40 };
+// 2026-11-05 (owner): MEMORY.md 4000 → 8000 characters; each MEMORY.md goes into every chat's system prompt.
+export const MEMORY_LIMITS = { entry: 300, main: 8000, topic: 16000, topics: 40 };
 export const MEMORY_TOOLS = ['memory_remember', 'memory_forget', 'memory_recall'];
 const MEMORY_MAIN = 'MEMORY.md';
 const MEMORY_EMPTY = '# Memory\n\n## Index\n';

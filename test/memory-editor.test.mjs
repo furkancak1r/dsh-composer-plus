@@ -169,7 +169,7 @@ try {
   const move2 = await call(MEMORY_EDIT_PATH, { preview: { project: b.id, text: 'move the deploy rule to global' } });
   const refusedApply = await call(MEMORY_EDIT_PATH, { apply: move2.body.id });
   assert.equal(refusedApply.status, 409);
-  assert.match(refusedApply.body.error, /^Nothing was saved: add "The blog deploys with git push on the main branch" in global: MEMORY\.md of the global memory would have \d+ of its 4000 characters/);
+  assert.match(refusedApply.body.error, /^Nothing was saved: add "The blog deploys with git push on the main branch" in global: MEMORY\.md of the global memory would have \d+ of its 8000 characters/);
   assert.deepEqual(await files(), full, 'the limit: every file as it was, no journal row');
   assert.equal(full[0], was[0]); assert.equal(full[1], was[1]); assert.equal(full[2], null, 'no new topic file');
   // The count: a note that is already saved changes nothing, so it is not counted.
@@ -283,7 +283,7 @@ try {
     applyError = { status: 500, text: 'Nothing was saved: add "x" in acme-shop: EACCES' };
     assert.equal(await section.memoryEditor.apply(), false);
     assert.equal(section.memoryEditor.getSnapshot().preview?.id, 'p1', 'a 500 keeps the preview');
-    applyError = { status: 409, text: 'Nothing was saved: add "x" in global: MEMORY.md of the global memory would have 4053 of its 4000 characters.' };
+    applyError = { status: 409, text: 'Nothing was saved: add "x" in global: MEMORY.md of the global memory would have 8053 of its 8000 characters.' };
     assert.equal(await section.memoryEditor.apply(), false);
     await new Promise((r) => setTimeout(r, 10));
     assert.equal(section.memoryEditor.getSnapshot().preview, null, 'a 409 drops the preview');
