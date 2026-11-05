@@ -2229,3 +2229,11 @@ Owner choice: "Notları göster + yeniden başlat uyarısı".
 - Tests: `test/whats-new-current.test.mjs` (in `test`), `test/update.test.mjs` adapted, real dsh `test/browser-whats-new.mjs` on 0.2.0-rc.2 and 0.2.1-rc.2.
 Out of scope: version bump, release, live copy install. Workaround now: restart dsh.
 Last checkpoint (2026-11-05): done, not committed. `node test/whats-new-current.test.mjs` red on HEAD (no `installedUpdate`; with the new index.js, the HEAD client keeps no seen version), green now. Real dsh `test/browser-whats-new.mjs` (steps 1–9, `chromiumSandbox: true`) PASS on 0.2.1-rc.2 and 0.2.0-rc.2; `test/browser-settings-shots.mjs` PASS on 0.2.1-rc.2. `npm test` exit 0 (one earlier full run failed once with `ETIMEDOUT` in `test/tether-gateway.test.mjs` "token"; two single reruns and the next full run passed: flaky, gateway not changed). `git diff --check` clean.
+
+## MEMORY.md limit 8000 and release 1.21.1 (2026-11-05)
+Owner request: raise the MEMORY.md limit (global memory was at 3,746 of 4,000). Owner choices: 8,000 characters; repository + new release.
+- `MEMORY_LIMITS.main` 4000 → 8000 (project and global MEMORY.md; topics stay 16,000). Every MEMORY.md goes into each chat's system prompt.
+- Tests: project-memory, memory-base, memory-copy, memory-editor. `test/project-memory.test.mjs` red on the old index.js (4056 of 4000), green now. `npm test` exit 0, Semgrep 0 findings, CI green.
+- Docs: `docs/features.json` + `llms.txt` (build:readme); version notes ×13; `release-notes.json` 1.21.1 in 13 languages (also the What's new fix of 3ce3625, first released here).
+- Release: commit 68137e3, GitHub release v1.21.1 (latest, active.txt), release.yml published `dsh-composer-plus@1.21.1` with provenance; registry exact-version URL 200.
+- Live desktop copy: backup `/Users/furkancakir/Documents/testdeepseekharness/backup-before-v1211-20261105-153818`; copied index.js, client.js (line 12 kept), release-notes.json; package.json version 1.21.1; locale files were already equal; cordis.patch.yml unchanged. dsh not restarted: the new limit loads at the owner's next dsh start.
