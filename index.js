@@ -709,6 +709,19 @@ export const shippedNotes = (text, version = PACKAGE.version) => {
     .map(([id, body]) => [id, releaseNotes(body)]).filter(([, body]) => body !== undefined));
   return Object.keys(notes).length === 0 ? undefined : notes;
 };
+/** The notes that ship with this running copy, read once at start. A copy updated without a dsh restart runs this old Host
+ * next to a newer `release-notes.json` on disk; reading once keeps the running version's own notes (What's new). */
+const SHIPPED_NOTES = (() => { try { return shippedNotes(readFileSync(new URL('./release-notes.json', import.meta.url), 'utf8')); } catch { return undefined; } })();
+/** The version installed on disk (`package.json`), only when it is newer than the running copy: a copy updated without a
+ * dsh restart still runs the old Host, so the Settings row asks for a restart. undefined for an unreadable, broken or
+ * non-x.y.z file, a running version that is not x.y.z, or a disk version that is not newer. */
+export const installedUpdate = (file = new URL('./package.json', import.meta.url), running = PACKAGE.version) => {
+  const now = parseVersion(running);
+  if (now === undefined) return undefined;
+  let version;
+  try { version = parseVersion(JSON.parse(readFileSync(file, 'utf8'))?.version); } catch { return undefined; }
+  return version !== undefined && newer(version, now) ? version.join('.') : undefined;
+};
 /** Latest GitHub release vs this copy. `managed` is false for a renamed or linked local copy, which pnpm can't upgrade. */
 export async function checkUpdate(fetchImpl = fetch, pkg = PACKAGE, signal) {
   const current = parseVersion(pkg.version);
@@ -2170,13 +2183,17 @@ export function apply(ctx) {
   ctx.connection.fetch.register({
     path: UPDATE_PATH, methods: ['GET'], requestBody: 'buffered',
     fetch: async (request) => {
-      // `?current=1`: the version that this Host runs and its shipped release notes (What's new after an update); no
+      // `?current=1`: the version that this Host runs and its shipped release notes (What's new), read at start; no
       // network call. A missing or broken notes file leaves `notes` out.
       if (new URL(request.url).searchParams.get('current') === '1') {
-        const notes = await readFile(new URL('./release-notes.json', import.meta.url), 'utf8').then(shippedNotes, () => undefined);
-        return json(notes === undefined ? { current: PACKAGE.version } : { current: PACKAGE.version, notes });
+        return json(SHIPPED_NOTES === undefined ? { current: PACKAGE.version } : { current: PACKAGE.version, notes: SHIPPED_NOTES });
       }
-      try { return json(await checkUpdate(fetch, PACKAGE, request.signal)); } catch (error) { return json({ error: String(error?.message ?? error) }, 502); }
+      // `installed`: a newer version on disk than the one that runs (updated without a restart).
+      try {
+        const info = await checkUpdate(fetch, PACKAGE, request.signal);
+        const installed = installedUpdate();
+        return json(installed === undefined ? info : { ...info, installed });
+      } catch (error) { return json({ error: String(error?.message ?? error) }, 502); }
     },
   });
   // Allow for this chat. `GET` answers the old shape (`{sessionId: [tool]}`, only grants that still run: the gateway and an

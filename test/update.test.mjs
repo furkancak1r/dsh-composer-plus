@@ -36,7 +36,7 @@ assert.equal(releaseNotes('Fixes.\n### Install notes\nkeep'), 'Fixes.\n### Insta
 const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } }; eval(readFileSync(new URL('../client.js', import.meta.url), 'utf8'));
 const shown = []; globalThis.Notification = class { static permission = 'granted'; constructor(title, o) { shown.push(o.body); } };
-let answer; globalThis.fetch = async (url) => { assert.equal(url, '/api/composer-plus.update'); return new Response(answer.raw ?? JSON.stringify(answer.body), { status: answer.status ?? 200 }); };
+let answer; globalThis.fetch = async (url) => { if (url === '/api/composer-plus.update?current=1') return new Response('not found', { status: 404 }); assert.equal(url, '/api/composer-plus.update'); return new Response(answer.raw ?? JSON.stringify(answer.body), { status: answer.status ?? 200 }); };
 let timers = []; globalThis.setTimeout = (f, ms) => { const t = { f, ms, live: true }; timers.push(t); return t; }; globalThis.clearTimeout = (t) => { if (t) t.live = false; };
 const plugin = mod.factory((n) => (n === 'react' ? { createElement: (t, p, ...c) => ({ t, p, c }) } : {}));
 function boot(manager) {
@@ -94,7 +94,7 @@ timers = []; app = boot(null); answer = info('1.2.0'); await timers.find((t) => 
 mem.set('dsh-composer-plus.features', JSON.stringify({ autoUpdate: false })); timers = []; app = boot(); assert.ok(!timers.some((t) => t.ms === 15000 && t.live));
 
 // What's new: an update with notes keeps them; the first start that runs that version shows them once, closable.
-{ const KEY = 'dsh-composer-plus.update.whatsNew';
+{ const KEY = 'dsh-composer-plus.update.whatsNew', SEEN = 'dsh-composer-plus.update.seen';
   globalThis.localStorage.removeItem = (k) => { mem.delete(k); };
   // `shipped`: the notes that the running copy's Host gives (`?current=1`); `lang`: dsh's active UI language.
   let running = '1.1.1', shipped = null, lang = 'en'; const asked = [];
@@ -116,11 +116,11 @@ mem.set('dsh-composer-plus.features', JSON.stringify({ autoUpdate: false })); ti
   };
   mem.clear(); answer = info('1.2.0', { url: 'https://github.com/x/releases/tag/v1.2.0', notes: '## Tether\n\n- **New:** a thing.' });
   let s = await start(); assert.equal(s.seat.o.name, 'shell.overlay'); assert.equal(s.render(), null, 'nothing to show before an update');
-  assert.deepEqual(asked, [], 'no record: no Host call');
+  assert.deepEqual(asked, ['/api/composer-plus.update?current=1'], 'one Host call per start (the running version)'); assert.equal(mem.get(SEEN), '1.1.1', 'a fresh install only remembers the running version');
   await timers.find((t) => t.ms === 15000 && t.live).f();
   assert.deepEqual(JSON.parse(mem.get(KEY)), { version: '1.2.0', notes: '## Tether\n\n- **New:** a thing.', url: 'https://github.com/x/releases/tag/v1.2.0' }, 'the install keeps the notes of its own check');
   // dsh still runs the old copy (no restart yet): nothing shows, the record stays.
-  s = await start(); assert.equal(s.render(), null); assert.ok(mem.has(KEY)); assert.equal(asked.length, 1);
+  s = await start(); assert.equal(s.render(), null); assert.ok(mem.has(KEY)); assert.equal(asked.length, 2);
   // The Host does not answer: the record stays for the next start.
   running = null; s = await start(); assert.equal(s.render(), null); assert.ok(mem.has(KEY));
   // The first start that runs 1.2.0: the notes show once, as plain text, with the GitHub link.
@@ -131,13 +131,13 @@ mem.set('dsh-composer-plus.features', JSON.stringify({ autoUpdate: false })); ti
   tree.p.footer.c[1].p.onClick(); assert.equal(s.render(), null, 'Close closes it');
   s = await start(); assert.equal(s.render(), null, 'the next start shows nothing'); const calls = asked.length;
   // Esc / ✕ (the Modal's onClose) close it too.
-  mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'Fixes.', url: 'javascript:alert(1)' })); s = await start(); tree = s.render();
+  mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'Fixes.', url: 'javascript:alert(1)' })); mem.set(SEEN, '1.1.1'); s = await start(); tree = s.render();
   assert.equal(tree.p.footer.c[0], null, 'only github.com links'); tree.p.onClose(); assert.equal(s.render(), null);
   // A newer copy already runs: the old record goes without a dialog. A broken record goes too.
   mem.set(KEY, JSON.stringify({ version: '1.1.9', notes: 'Old.' })); s = await start(); assert.equal(s.render(), null); assert.ok(!mem.has(KEY));
-  mem.set(KEY, '{broken'); s = await start(); assert.equal(s.render(), null); assert.ok(!mem.has(KEY)); assert.equal(asked.length, calls + 2, 'a broken record asks nothing');
+  mem.set(KEY, '{broken'); s = await start(); assert.equal(s.render(), null); assert.ok(!mem.has(KEY)); assert.equal(asked.length, calls + 3, 'a broken record: one Host call (for the seen version)');
   // Two windows start at the same time: only one shows it (the record leaves storage before the Host answers).
-  { mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'Once.' })); running = '1.2.0';
+  { mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'Once.' })); mem.set(SEEN, '1.1.1'); running = '1.2.0';
     const [w1, w2] = await Promise.all([start(), start()]);
     assert.equal([w1.render(), w2.render()].filter(Boolean).length, 1, 'one window shows it'); assert.ok(!mem.has(KEY)); }
   // While the Host does not answer, the record goes back for the next start, but never over a newer record.
@@ -154,7 +154,7 @@ mem.set('dsh-composer-plus.features', JSON.stringify({ autoUpdate: false })); ti
   // else English (a language without notes). The text has the `lang` of the notes that it shows.
   { shipped = { en: 'English.', zh: '中文。', tr: 'Türkçe.', 'pt-BR': 'Português.' };
     const body = (tree) => [tree.c[0].p.lang, tree.c[0].c[0]];
-    mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'GitHub English.' })); lang = 'tr'; s = await start(); let tree = s.render();
+    mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'GitHub English.' })); mem.set(SEEN, '1.1.1'); lang = 'tr'; s = await start(); let tree = s.render();
     assert.deepEqual(body(tree), ['tr', 'Türkçe.'], 'Turkish UI: Turkish notes');
     for (const [ui, want] of [['tr-TR', ['tr', 'Türkçe.']], ['pt-br', ['pt-BR', 'Português.']], ['zh', ['zh', '中文。']], ['en-GB', ['en', 'English.']], ['it', ['en', 'English.']], ['pt-PT', ['en', 'English.']]]) {
       lang = ui; assert.deepEqual(body(s.render()), want, `${ui} UI`);
@@ -164,12 +164,12 @@ mem.set('dsh-composer-plus.features', JSON.stringify({ autoUpdate: false })); ti
     // A copy that ships notes for some languages: the rest gets GitHub's English body of the record.
     // Not text, blank, or not a language id (`__proto__` stays plain data): left out.
     shipped = JSON.parse('{"tr":"Türkçe.","de":5,"fr":"  ","__proto__":"Proto.","EN_us":"Bad id."}');
-    mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'GitHub English.' })); lang = 'de'; s = await start();
+    mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'GitHub English.' })); mem.set(SEEN, '1.1.1'); lang = 'de'; s = await start();
     assert.deepEqual(body(s.render()), ['en', 'GitHub English.'], 'German UI, no German notes: English');
     for (const ui of ['fr', '__proto__', 'EN_us']) { lang = ui; assert.deepEqual(body(s.render()), ['en', 'GitHub English.'], `${ui}: left out`); }
     lang = 'tr'; assert.deepEqual(body(s.render()), ['tr', 'Türkçe.']);
     // An older copy's Host (no notes in its answer): the record's English notes in any UI language.
-    shipped = null; mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'GitHub English.' })); lang = 'tr'; s = await start();
+    shipped = null; mem.set(KEY, JSON.stringify({ version: '1.2.0', notes: 'GitHub English.' })); mem.set(SEEN, '1.1.1'); lang = 'tr'; s = await start();
     assert.deepEqual(body(s.render()), ['en', 'GitHub English.'], 'no shipped notes: the saved English notes');
     lang = 'en'; running = '1.1.1'; }
   // Automatic updates switched off: no dialog seat and no Host call.
