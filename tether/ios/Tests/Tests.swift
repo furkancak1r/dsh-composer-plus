@@ -833,6 +833,18 @@ final class CoreTests: XCTestCase {
         XCTAssertTrue(c.notifyOn, "A asked: A is on")
     }
 
+    /// Push (APNs): the Mac gets this Mac's switch, hours and the phone's time zone; off (or no token) tells it to stop.
+    @MainActor func testPushBody() {
+        let on = Client.pushBody(on: true, token: "ab", sandbox: true, hours: true, from: 22 * 60, to: 7 * 60, tz: "Europe/Istanbul")
+        XCTAssertEqual(on["on"] as? Bool, true); XCTAssertEqual(on["token"] as? String, "ab"); XCTAssertEqual(on["sandbox"] as? Bool, true)
+        XCTAssertEqual(on["hours"] as? [String: AnyHashable], ["from": 22 * 60, "to": 7 * 60, "tz": "Europe/Istanbul"])
+        XCTAssertTrue(Client.pushBody(on: true, token: "ab", sandbox: false, hours: false, from: 0, to: 0, tz: "UTC")["hours"] is NSNull, "hours off: every hour")
+        XCTAssertEqual(Client.pushBody(on: false, token: "ab", sandbox: true, hours: true, from: 1, to: 2, tz: "UTC") as NSDictionary, ["on": false])
+        XCTAssertEqual(Client.pushBody(on: true, token: nil, sandbox: true, hours: false, from: 1, to: 2, tz: "UTC") as NSDictionary, ["on": false], "no token yet: no push")
+        // A new Client (or a Mac switch) does not push until that Mac's /me says it can.
+        XCTAssertFalse(Client().pushOn)
+    }
+
     /// The same Mac paired again with a new certificate: its notification settings go to the new pairing.
     @MainActor func testAdoptKeepsNotify() async {
         let c = Client(), undo = twoMacs(c)

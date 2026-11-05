@@ -156,14 +156,32 @@ Gateway asla public internete açılmaz: yalnızca yerel ağdan ve tailnet'ten (
 - **Rate limit / brute force**: IP başına 10 sn'de 300 istek; 60 sn'de 10 hatalı auth → IP bloke.
 - **RPC allowlist**: yalnızca `server.mjs` içindeki `RPC` / `STREAMS` / `EVENTS` kümeleri geçer; diğerleri 403, hatalı WS frame'i soketi kapatır. Host'un ev dizini gibi bilgiler event akışından düşürülür.
 - **Onaylar**: telefon yalnızca "bir kez izin ver" / "reddet" diyebilir; yanıt yoksa veya "Mac'te karar ver" seçilirse karar DSH masaüstüne kalır (ilk yanıt kazanır).
-- Telemetri, üçüncü taraf servis, internet çıkışı yok.
+- Telemetri ve üçüncü taraf servis yok. Tek internet çıkışı isteğe bağlı push'tur (aşağıda): Mac yalnız Apple'ın APNs sunucusuna bağlanır.
+
+## Push bildirimleri (Tether kapalıyken)
+
+Mac'te bir APNs anahtarı varsa gateway, Tether'ın dört bildirimini (Turn finished, Approval needed, DSH has a question, DSH error) Apple'ın push hizmetiyle (APNs) gönderir. Bildirimler Tether kapalıyken ve telefon kilitliyken de gelir. Mac uyanık ve dsh açık olmalıdır. Anahtar yoksa her şey eskisi gibidir: bildirim yalnız Tether açıkken gelir.
+
+Kurulum (bir kez, Mac'te):
+
+1. Apple Developer → Keys: APNs anahtarı oluşturun (Sandbox, topic `com.furkancakir.dshmobile`) ve `.p8` dosyasını indirin.
+2. `~/.dsh/storages/dsh-composer-plus/mobile/apns.json` dosyasını yazın (yalnız sahibi okuyabilsin: `chmod 600`):
+   `{ "keyFile": "/…/AuthKey_XXXXXXXXXX.p8", "keyId": "XXXXXXXXXX", "teamId": "9LYL5R6LS4", "topic": "com.furkancakir.dshmobile" }`
+3. Mobile connect'i kapatıp açın (ya da dsh'yi yeniden başlatın). Mac sayfasındaki cihaz listesinde push'u açık telefonun `push` alanı `true` olur.
+
+- Uygulama `aps-environment` yetkisiyle ve push açık bir App ID profiliyle imzalanmalıdır. Joker (`*`) App ID'li profil push vermez.
+- Telefon, ekrandaki Mac'in **Send notifications** anahtarını, **Only between these hours** aralığını, kendi saat dilimini ve cihaz token'ını `POST /push` ile o Mac'e gönderir. Ayar Mac'e göre ayrıdır. Saat aralığını Mac, telefonun saat diliminde uygular. Eşleşmeyi kaldırmak push'u kapatır.
+- Push açıkken gateway onay ve soru isteklerini hemen "Mac'te karar ver"e düşürmez. Bildirime dokunup Tether'ı açınca istek telefonda görünür. Masaüstü de aynı anda yanıtlayabilir (ilk yanıt kazanır, 10 dk sonra masaüstüne kalır).
+- Bildirimde sohbet başlığı, araç adı ya da hata metni Apple'ın sunucusundan geçer.
+- Push varken Tether aynı bildirimi yerelde ikinci kez göstermez.
 
 ## Bilinen sınırlamalar
 
 Kodda `shortcut:` yorumlarıyla işaretli:
 
 - Bağlam penceresi doluluğu gösterilmez (DSH model kataloğunda limit yok); yalnızca token sayıları.
-- APNs yok: bildirimler yalnızca iOS soketi canlı tuttuğu sürece (arka plana geçtikten sonra birkaç saniye) gelir.
+- APNs anahtarı yoksa bildirimler yalnızca iOS soketi canlı tuttuğu sürece (arka plana geçtikten sonra birkaç saniye) gelir. Anahtarla da Mac uykudaysa ya da dsh kapalıysa bildirim gelmez.
+- Push yalnız ekrandaki Mac'ten değil, push'u açtığınız her Mac'ten gelir: her Mac kendi ayarını tutar.
 - Sohbet önce yalnız son mesajları gösterir. Daha eski mesajlar için sohbetin başındaki **Load earlier messages** düğmesine dokunun.
 - Yanıtlanmayan telefon istekleri 10 dk sonra DSH masaüstüne düşer (sabit süre).
 - Rate limit sayaçları bellekte; tek ev ağı için yeterli.
@@ -173,7 +191,7 @@ Kodda `shortcut:` yorumlarıyla işaretli:
 
 ## Desteklenmeyenler
 
-Tailscale dışında internet üzerinden erişim (relay, açık port), aynı anda birden fazla Mac'e bağlı kalma, dosya gezgini / terminal, arka plan push bildirimleri, ses girişi, iPad'e özel düzen.
+Tailscale dışında internet üzerinden erişim (relay, açık port), aynı anda birden fazla Mac'e bağlı kalma, dosya gezgini / terminal, App Store / TestFlight sürümü (push yalnız geliştirme imzasıyla, Sandbox), ses girişi, iPad'e özel düzen.
 
 ## Ajanla iPhone testi (agent-device)
 

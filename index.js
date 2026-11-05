@@ -887,6 +887,8 @@ export function mobileGateway({ upstreamUrl, dir, make = createGateway, retryMs 
     close: () => { closed = true; return run(stop); },
     /** An event for the connected phones (`$events`); nothing while no gateway runs. */
     emit: (event, args) => { gateway?.emit?.(event, args); },
+    /** A push notification (APNs) for the phones that want one; nothing while no gateway runs. */
+    push: (title, body) => { gateway?.push?.(title, body); },
     state: () => {
       const running = gateway?.state().running === true;
       // The gateway retries by itself (for example when Wi-Fi comes back): a running gateway has no error to show.
@@ -2299,7 +2301,13 @@ export function apply(ctx) {
   ctx.on('agent/status', ({ agent, status }) => {
     if (agent?.session?.header?.origin === 'subagent') return; // the parent chat shows its subagents' work
     if (status === 'running') { busy.add(agent.id); if (mobileOn === true) changeUnread([], [agent.id]); }
-    else if (busy.delete(agent.id) && mobileOn === true) changeUnread([agent.id], []);
+    else if (busy.delete(agent.id) && mobileOn === true) {
+      changeUnread([agent.id], []);
+      // Tether's "Turn finished" also while Tether is closed (APNs, when the gateway has a key): the chat's title.
+      let title;
+      try { title = ctx.sessionProjections?.snapshot?.(agent.session, ['title'])?.values?.title; } catch { /* no title */ }
+      mobile?.push('Turn finished', isText(title, 4096) ? title : '');
+    }
   });
   ctx.connection.fetch.register({
     path: UNREAD_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',

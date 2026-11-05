@@ -66,6 +66,8 @@ Xcode on this Mac has no Apple account, so `-allowProvisioningUpdates` fails ("N
 - `dev.key` + `dev.pem` (= `dev.cer`): the Apple Development certificate of team 9LYL5R6LS4. It ends on 2027-10-20.
 - `dev.mobileprovision`: "Tether Device Build 2026-10-20", App ID `9LYL5R6LS4.*`, includes the owner's iPhone 13 (device name `iPhone`). It ends on 2027-10-20. A new iPhone is not in it: then the owner must make a new profile.
 - `ent.plist`: the app's entitlements.
+- `push.mobileprovision`: "Tether Push Dev 2026-11-05", App ID `9LYL5R6LS4.com.furkancakir.dshmobile` with Push Notifications (`aps-environment = development`), the owner's iPhone 13. It ends on 2027-11-05. Sign the app with this profile, so that push (APNs) works. The wildcard `dev.mobileprovision` gives no push.
+- `AuthKey_7QP662HXV5.p8`: the APNs key (Sandbox, topic `com.furkancakir.dshmobile` only). The live gateway reads it through `~/.dsh/storages/dsh-composer-plus/mobile/apns.json`. Never print, copy or commit it.
 - `tether-sign.keychain-db`, `kc.pw` and `dev.p12`: do not use them. `kc.pw` does not open the keychain or `dev.p12`.
 
 Use these files only when the owner asks for an iPhone build. Never print, copy or commit the key. Build without signing, then sign with a temporary keychain under `build/signing/` (git ignores `build/`) and delete it at once:
@@ -79,10 +81,11 @@ openssl pkcs12 -export -legacy -inkey "$S/dev.key" -in "$S/dev.pem" -name "Tethe
 security import "$W/tmp.p12" -k "$KC" -f pkcs12 -P "$PW" -T /usr/bin/codesign >/dev/null && rm "$W/tmp.p12"
 security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$PW" "$KC" >/dev/null
 ID=$(security find-identity -v -p codesigning "$KC" | awk '/Apple Development/ {print $2; exit}')
-cp "$S/dev.mobileprovision" "$A/embedded.mobileprovision"
+cp "$S/push.mobileprovision" "$A/embedded.mobileprovision"
+cp "$S/ent.plist" "$W/push-ent.plist"; /usr/libexec/PlistBuddy -c "Add :aps-environment string development" "$W/push-ent.plist"
 for x in "$A"/*.dylib; do codesign -f -s "$ID" --keychain "$KC" --timestamp=none "$x"; done
-codesign -f -s "$ID" --keychain "$KC" --entitlements "$S/ent.plist" --timestamp=none "$A" && codesign --verify --deep --strict "$A" && echo signed
-security delete-keychain "$KC"; unset PW
+codesign -f -s "$ID" --keychain "$KC" --entitlements "$W/push-ent.plist" --timestamp=none "$A" && codesign --verify --deep --strict "$A" && echo signed
+security delete-keychain "$KC"; rm -f "$W/push-ent.plist"; unset PW
 ```
 
 Then install with `xcrun devicectl device install app --device iPhone build/DerivedData/Build/Products/Debug-iphoneos/DSHMobile.app`. This keeps the app's data (pairings, settings). `agent-device install` and `reinstall` remove it, so after them the phone must pair again.

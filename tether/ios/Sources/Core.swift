@@ -1559,14 +1559,66 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         }
         notifyDenied = false
         UserDefaults.standard.set(on, forKey: macKey(Client.notifyKey, mac, legacy: legacyFp))
-        if activeFp == mac { notifyOn = on }
+        if activeFp == mac { notifyOn = on; if on { registerPush() }; syncPush() }
         return true
     }
 
     @Published var notifyHours = false { didSet { saveNotify(Client.hoursKey, notifyHours) } }
     @Published var notifyFrom = 8 * 60 { didSet { saveNotify(Client.fromKey, notifyFrom) } }
     @Published var notifyTo = 22 * 60 { didSet { saveNotify(Client.toKey, notifyTo) } }
-    private func saveNotify(_ k: String, _ v: Any) { if activeFp != nil { UserDefaults.standard.set(v, forKey: key(k)) } }
+    private func saveNotify(_ k: String, _ v: Any) { if activeFp != nil { UserDefaults.standard.set(v, forKey: key(k)); syncPush() } }
+
+    // MARK: Push (APNs): the notifications also while Tether is closed
+    /// The Mac on screen can send Tether's notifications through APNs (`/me` → push: it has an APNs key).
+    @Published private(set) var macPush = false
+    /// The Mac on screen sends this iPhone its notifications through APNs now: Tether then sends no local ones (no double).
+    @Published private(set) var pushOn = false
+    /// This iPhone's APNs device token (hex), the same for every Mac.
+    static let pushTokenKey = "apnsToken"
+    private var pushTask: Task<Void, Never>?
+    /// `POST /push` body: this Mac's switch and hours, the device token, and the phone's time zone for the hours.
+    static func pushBody(on: Bool, token: String?, sandbox: Bool, hours: Bool, from: Int, to: Int, tz: String) -> J {
+        guard on, let token else { return ["on": false] }
+        return ["on": true, "token": token, "sandbox": sandbox, "hours": hours ? ["from": from, "to": to, "tz": tz] as J : NSNull()]
+    }
+    /// Ask iOS for the device token; it comes to `pushToken(_:)` (AppDelegate). iOS gives one only with the push entitlement.
+    func registerPush() { if notifyOn, macPush { UIApplication.shared.registerForRemoteNotifications() } }
+    func pushToken(_ hex: String) {
+        UserDefaults.standard.set(hex, forKey: Client.pushTokenKey)
+        syncPush()
+    }
+    /// Send the Mac on screen this Mac's notification settings (half a second after the last change: a time picker
+    /// changes many times). A Mac without APNs gets nothing.
+    func syncPush() {
+        guard macPush, let mac = activeFp else { return }
+        pushTask?.cancel()
+        #if DEBUG
+        let sandbox = true // a development build gets its token from APNs' sandbox
+        #else
+        let sandbox = false
+        #endif
+        let body = Client.pushBody(on: notifyOn, token: UserDefaults.standard.string(forKey: Client.pushTokenKey), sandbox: sandbox,
+                                   hours: notifyHours, from: notifyFrom, to: notifyTo, tz: TimeZone.current.identifier)
+        pushTask = Task {
+            try? await Task.sleep(for: .milliseconds(500))
+            guard !Task.isCancelled, self.activeFp == mac else { return }
+            let r = try? await self.call("/push", body) as? J
+            if self.activeFp == mac { self.pushOn = r?["push"] as? Bool == true }
+        }
+    }
+    /// Unpair: the Mac stops its pushes to this iPhone. Best effort, with that Mac's own pin and token: the pairing is gone after.
+    private func unpush(_ p: Pairing) {
+        let s = URLSession(configuration: .ephemeral, delegate: Pinner(fp: p.fp), delegateQueue: nil)
+        for host in [p.host] + (p.ts.map { [$0] } ?? []) {
+            guard let u = URL(string: "https://\(host):\(p.port)/push") else { continue }
+            var r = URLRequest(url: u, timeoutInterval: 5)
+            r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            r.setValue("Bearer \(p.token)", forHTTPHeaderField: "Authorization")
+            r.httpBody = try? JSONSerialization.data(withJSONObject: ["on": false])
+            s.dataTask(with: r).resume()
+        }
+        s.finishTasksAndInvalidate()
+    }
     /// Show the notification settings of the Mac on screen. A Mac with no saved value (a new Mac), or no Mac, is off.
     private func loadNotify() {
         let d = UserDefaults.standard, mac = activeFp != nil
@@ -2322,6 +2374,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         outgoing = []; loadingChat = false; editingQueued = nil
         workspaces = []; pinned = []; archived = []; commands = []; catalog = []; presets = []; perms = []; skills = []
         usage = nil; model = nil; defaultModel = nil; inbox = [:]; liveTodos = nil; contextWindow = nil; turnStartedAt = nil; hasOlder = false
+        pushTask?.cancel(); macPush = false; pushOn = false // the next Mac's /me tells
     }
 
     /// Rename a paired Mac on this iPhone only; a blank name goes back to the name the Mac reports. A saved name stays
@@ -2337,6 +2390,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         guard let gone = fp ?? activeFp else { return }
         let next = nextActive(pairings, removed: gone)
         let wasActive = gone == activeFp
+        if let p = pairings.first(where: { $0.fp == gone }) { unpush(p) }
         for k in Client.perMacKeys { UserDefaults.standard.removeObject(forKey: macKey(k, gone, legacy: legacyFp)) }
         if wasActive { closeScreen() }
         pairings.removeAll { $0.fp == gone }
@@ -2476,6 +2530,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let t = me["tailscale"] as? String, isTailnet(t), t != pairing?.ts { pairing?.ts = t } // learned without re-pairing
         if let m = (me["mac"] as? String).flatMap(macLabel), m != pairing?.mac { pairing?.mac = m } // a gateway that reports its name
         plus = Set(me["plus"] as? [String] ?? [])
+        if (me["push"] as? Bool == true) != macPush { macPush = me["push"] as? Bool == true; registerPush(); syncPush() }
         if plus.contains("grants") { await loadGrants() }
     }
 
@@ -3136,7 +3191,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     // shortcut: only notifies while iOS keeps the socket alive (seconds after backgrounding); real wake-ups need APNs via a relay, out of scope for LAN-only.
     private func notify(_ title: String, _ body: String) {
-        guard shouldNotify(), UIApplication.shared.applicationState != .active else { return }
+        // The Mac pushes the same alerts through APNs (also while Tether is closed): no second, local one.
+        guard shouldNotify(), !pushOn, UIApplication.shared.applicationState != .active else { return }
         let c = UNMutableNotificationContent(); c.title = title; c.body = body; c.sound = .default
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
     }

@@ -3,13 +3,25 @@ import SwiftUI
 import PhotosUI
 import AVFoundation
 
+/// iOS gives the APNs device token only to an app delegate: it goes to the Client, which sends it to the Mac.
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    var onToken: ((String) -> Void)?
+    func application(_ app: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
+        onToken?(token.map { String(format: "%02x", $0) }.joined())
+    }
+    // ponytail: no token (no push entitlement, no network): Tether keeps its local notifications; the next start asks again.
+    func application(_ app: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {}
+}
+
 @main struct DSHMobileApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var client = Client()
     @StateObject private var lock = AppLock()
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
             Root().environmentObject(client).environmentObject(lock)
+                .onAppear { delegate.onToken = { [weak client] t in client?.pushToken(t) } }
                 .background(LockWindow(lock: lock))
                 .onChange(of: phase, initial: true) { _, p in
                     lock.phase(p == .active ? .active : p == .inactive ? .inactive : .background)
@@ -2376,6 +2388,8 @@ struct SettingsView: View {
                         if let p = c.pairing { Text("These settings are for \(p.title) only. Each Mac has its own; a new Mac starts with them off.") }
                         Text(c.notifyDenied
                              ? "iOS does not allow notifications from Tether. Allow them in iOS Settings › Notifications › Tether, then turn this on again."
+                             : c.pushOn
+                             ? "Tether tells you when a turn finished, when a chat waits for an approval or a question, and when a chat has an error. The Mac sends them through Apple's push service, so they come also while Tether is closed. The Mac must be awake with DSH open."
                              : "Tether tells you when a turn finished, when a chat waits for an approval or a question, and when another chat has an error. It can do this only while it keeps its connection: while it is open and for a short time after you leave it.")
                         if c.notifyOn, c.notifyHours {
                             Text("Outside these hours, Tether sends no notifications. When To is before From, the hours go past midnight (for example 22:00 to 07:00). The same time for both means all day.")

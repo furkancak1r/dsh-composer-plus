@@ -729,3 +729,113 @@ test('token: renews when half-expired, rejects when expired', async () => {
     assert.equal((await call(gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + token })).status, 401)
   } finally { await gw.close(); t.dsh.close() }
 })
+
+// ---- Push (APNs): notifications while Tether is closed ----
+test('push: hours rule as in Tether (past midnight, same time = all day, time zone)', async () => {
+  const { inHours } = await import('../tether/gateway/server.mjs')
+  const at = (iso) => new Date(iso)
+  assert.equal(inHours(null, at('2026-11-05T03:00:00Z')), true, 'no hours: every hour')
+  const day = { from: 9 * 60, to: 18 * 60, tz: 'UTC' }
+  assert.equal(inHours(day, at('2026-11-05T08:59:00Z')), false); assert.equal(inHours(day, at('2026-11-05T09:00:00Z')), true)
+  assert.equal(inHours(day, at('2026-11-05T17:59:00Z')), true); assert.equal(inHours(day, at('2026-11-05T18:00:00Z')), false, 'To is not inside')
+  const night = { from: 22 * 60, to: 7 * 60, tz: 'UTC' }
+  assert.equal(inHours(night, at('2026-11-05T23:30:00Z')), true); assert.equal(inHours(night, at('2026-11-05T06:59:00Z')), true, 'past midnight')
+  assert.equal(inHours(night, at('2026-11-05T12:00:00Z')), false)
+  assert.equal(inHours({ from: 600, to: 600, tz: 'UTC' }, at('2026-11-05T03:00:00Z')), true, 'the same time for both: all day')
+  // The phone's time zone, not the Mac's: 09:00 in Istanbul (UTC+3) is 06:00 UTC.
+  assert.equal(inHours({ from: 9 * 60, to: 10 * 60, tz: 'Europe/Istanbul' }, at('2026-11-05T06:30:00Z')), true)
+  assert.equal(inHours({ from: 9 * 60, to: 10 * 60, tz: 'Bad/Zone' }, at('2026-11-05T12:00:00Z')), true, 'unknown zone: every hour')
+})
+
+test('push: a closed Tether gets approval, question, error and turn alerts through APNs; off and outside hours it gets none', async () => {
+  const { createSecureServer } = await import('node:http2')
+  const { generateKeyPairSync, verify } = await import('node:crypto')
+  const { execFileSync } = await import('node:child_process')
+  // A fake APNs: an HTTP/2 TLS server that records each request and answers 200 (or 410 for a token that left the iPhone).
+  const tlsDir = mkdtempSync(join(tmpdir(), 'apns-'))
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', join(tlsDir, 'k.pem'), '-out', join(tlsDir, 'c.pem'), '-days', '1', '-subj', '/CN=localhost'], { stdio: 'ignore' })
+  const got = []
+  const apnsServer = createSecureServer({ key: readFileSync(join(tlsDir, 'k.pem')), cert: readFileSync(join(tlsDir, 'c.pem')) }, (req, res) => {
+    let b = ''
+    req.on('data', d => b += d).on('end', () => {
+      got.push({ path: req.headers[':path'], auth: req.headers.authorization, topic: req.headers['apns-topic'], type: req.headers['apns-push-type'], body: JSON.parse(b) })
+      const gone = req.headers[':path'].endsWith('dead'.repeat(16))
+      res.writeHead(gone ? 410 : 200, { 'content-type': 'application/json' }); res.end(gone ? JSON.stringify({ reason: 'Unregistered' }) : '')
+    })
+  })
+  await new Promise(r => apnsServer.listen(0, '127.0.0.1', r))
+  const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+  const prevTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // the fake APNs only; Apple's real server has a public certificate
+  const t = await setup({ apns: { key: privateKey, keyId: 'KEY1234567', teamId: '9LYL5R6LS4', topic: 'com.furkancakir.dshmobile', origin: 'https://127.0.0.1:' + apnsServer.address().port } })
+  try {
+    await waitFor(() => t.gw.state().upstream === 'connected')
+    const { token } = await pairDevice(t.gw)
+    const me = await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + token })
+    assert.equal(me.json.push, true, '/me tells the phone that this Mac can push')
+    const dev = 'ab'.repeat(32)
+    const setPush = body => call(t.gw, 'POST', '/push', body, { authorization: 'Bearer ' + token })
+    assert.equal((await setPush({ on: true, token: 'xyz', sandbox: true, hours: null })).status, 400, 'a token must be hex')
+    assert.equal((await setPush({ on: true, token: dev, sandbox: true, hours: { from: 1, to: 2 } })).status, 400, 'hours need a time zone')
+    assert.equal((await setPush({ on: true, token: dev, sandbox: true, hours: null })).status, 200)
+    assert.equal(t.gw.state().devices[0].push, true); assert.equal(JSON.stringify(t.gw.state()).includes(dev), false, 'the device token stays off the Mac page')
+
+    // No phone is connected (Tether is closed): the approval waits for the phone and goes out as a push.
+    t.dsh.push({ type: 'waterfall', event: 'approval/request', eventId: 'p1', agentId: 'a', request: { toolName: 'bash' } })
+    await waitFor(() => got.length === 1)
+    assert.equal(got[0].path, '/3/device/' + dev); assert.equal(got[0].topic, 'com.furkancakir.dshmobile'); assert.equal(got[0].type, 'alert')
+    assert.deepEqual(got[0].body.aps.alert, { title: 'Approval needed', body: 'bash' })
+    assert.equal(t.dsh.results.length, 0, 'not answered "next" at once: the phone can still answer it')
+    // The provider token: ES256, signed with the .p8 key, with the key id and the team id.
+    const [h, c, s] = got[0].auth.replace(/^bearer /, '').split('.')
+    assert.deepEqual(JSON.parse(Buffer.from(h, 'base64url')), { alg: 'ES256', kid: 'KEY1234567' })
+    assert.equal(JSON.parse(Buffer.from(c, 'base64url')).iss, '9LYL5R6LS4')
+    assert.ok(verify('sha256', Buffer.from(h + '.' + c), { key: publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(s, 'base64url')))
+    // The phone opens Tether from the push: it gets the waiting approval.
+    const p = await phoneWs(t.gw, token)
+    p.json({ type: 'open', streamId: 'ev', endpoint: '$events', payload: { args: {} } })
+    await waitFor(() => p.frames.some(f => f.value?.eventId === 'p1'))
+    p.close?.()
+
+    t.dsh.push({ type: 'waterfall', event: 'user-questions/request', eventId: 'q1', agentId: 'a', request: { questions: [{ id: 'x', question: 'Which branch?' }] } })
+    t.dsh.push({ type: 'emit', event: 'api-session/error', args: ['s1', 'Provider failed'] })
+    t.gw.push('Turn finished', 'Fix the login')
+    await waitFor(() => got.length === 4)
+    // dsh's events come over a socket, Turn finished from the Host at once: compare without the order (APNs keeps none).
+    const byTitle = (a, b) => a.title.localeCompare(b.title)
+    assert.deepEqual(got.slice(1).map(g => g.body.aps.alert).sort(byTitle), [
+      { title: 'DSH error', body: 'Provider failed' }, { title: 'DSH has a question', body: 'Which branch?' }, { title: 'Turn finished', body: 'Fix the login' }])
+
+    // Outside the hours (an empty window of one minute that is never now): nothing.
+    const now = new Date(), m = now.getUTCHours() * 60 + now.getUTCMinutes(), off = (m + 720) % 1440
+    await setPush({ on: true, token: dev, sandbox: true, hours: { from: off, to: (off + 1) % 1440, tz: 'UTC' } })
+    t.gw.push('Turn finished', 'quiet')
+    // Switched off: nothing, and the token leaves the Mac.
+    await setPush({ on: false })
+    assert.equal(t.gw.state().devices[0].push, false)
+    t.gw.push('Turn finished', 'off')
+    await sleep(200)
+    assert.equal(got.length, 4, 'no push outside the hours or while switched off')
+    // A token that left the iPhone (410): the Mac forgets it.
+    await setPush({ on: true, token: 'dead'.repeat(16), sandbox: true, hours: null })
+    t.gw.push('Turn finished', 'gone')
+    await waitFor(() => t.gw.state().devices[0].push === false)
+    assert.equal(JSON.parse(readFileSync(join(t.dir, 'devices.json'), 'utf8'))[0].push.token, undefined, 'saved without the dead token')
+  } finally {
+    await t.done(); apnsServer.close()
+    if (prevTls === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; else process.env.NODE_TLS_REJECT_UNAUTHORIZED = prevTls
+  }
+})
+
+test('push: no APNs key means no push and asks go back to dsh at once, as before', async () => {
+  const t = await setup()
+  try {
+    await waitFor(() => t.gw.state().upstream === 'connected')
+    const { token } = await pairDevice(t.gw)
+    assert.equal((await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + token })).json.push, false)
+    await call(t.gw, 'POST', '/push', { on: true, token: 'ab'.repeat(32), sandbox: true, hours: null }, { authorization: 'Bearer ' + token })
+    t.dsh.push({ type: 'waterfall', event: 'approval/request', eventId: 'n1', agentId: 'a', request: { toolName: 'bash' } })
+    await waitFor(() => t.dsh.results.length === 1)
+    assert.deepEqual(t.dsh.results[0].outcome, { kind: 'next' }, 'without a key nothing waits for a phone')
+  } finally { await t.done() }
+})
