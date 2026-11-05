@@ -767,7 +767,9 @@ test('push: a closed Tether gets approval, question, error and turn alerts throu
   const { privateKey, publicKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
   const prevTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // the fake APNs only; Apple's real server has a public certificate
-  const t = await setup({ apns: { key: privateKey, keyId: 'KEY1234567', teamId: '9LYL5R6LS4', topic: 'com.furkancakir.dshmobile', origin: 'https://127.0.0.1:' + apnsServer.address().port } })
+  // The Host half names each chat (about): its title and project go into the alert under this Mac's name.
+  const about = id => id === 'a' ? { chat: 'Login page', project: 'recipe-box' } : id === 's1' ? { chat: 'Search', project: undefined } : id === 'boom' ? (() => { throw new Error('x') })() : {}
+  const t = await setup({ macName: 'Studio Mac', about, apns: { key: privateKey, keyId: 'KEY1234567', teamId: '9LYL5R6LS4', topic: 'com.furkancakir.dshmobile', origin: 'https://127.0.0.1:' + apnsServer.address().port } })
   try {
     await waitFor(() => t.gw.state().upstream === 'connected')
     const { token } = await pairDevice(t.gw)
@@ -784,7 +786,7 @@ test('push: a closed Tether gets approval, question, error and turn alerts throu
     t.dsh.push({ type: 'waterfall', event: 'approval/request', eventId: 'p1', agentId: 'a', request: { toolName: 'bash' } })
     await waitFor(() => got.length === 1)
     assert.equal(got[0].path, '/3/device/' + dev); assert.equal(got[0].topic, 'com.furkancakir.dshmobile'); assert.equal(got[0].type, 'alert')
-    assert.deepEqual(got[0].body.aps.alert, { title: 'Approval needed', body: 'bash' })
+    assert.deepEqual(got[0].body.aps.alert, { title: 'Approval needed', subtitle: 'Studio Mac · recipe-box', body: 'Login page\nbash' })
     assert.equal(t.dsh.results.length, 0, 'not answered "next" at once: the phone can still answer it')
     // The provider token: ES256, signed with the .p8 key, with the key id and the team id.
     const [h, c, s] = got[0].auth.replace(/^bearer /, '').split('.')
@@ -799,12 +801,22 @@ test('push: a closed Tether gets approval, question, error and turn alerts throu
 
     t.dsh.push({ type: 'waterfall', event: 'user-questions/request', eventId: 'q1', agentId: 'a', request: { questions: [{ id: 'x', question: 'Which branch?' }] } })
     t.dsh.push({ type: 'emit', event: 'api-session/error', args: ['s1', 'Provider failed'] })
-    t.gw.push('Turn finished', 'Fix the login')
+    t.gw.push('Turn finished', 'Fixed the login.\nTests pass.', 'a')
     await waitFor(() => got.length === 4)
     // dsh's events come over a socket, Turn finished from the Host at once: compare without the order (APNs keeps none).
     const byTitle = (a, b) => a.title.localeCompare(b.title)
     assert.deepEqual(got.slice(1).map(g => g.body.aps.alert).sort(byTitle), [
-      { title: 'DSH error', body: 'Provider failed' }, { title: 'DSH has a question', body: 'Which branch?' }, { title: 'Turn finished', body: 'Fix the login' }])
+      { title: 'DSH error', subtitle: 'Studio Mac', body: 'Search\nProvider failed' },
+      { title: 'DSH has a question', subtitle: 'Studio Mac · recipe-box', body: 'Login page\nWhich branch?' },
+      { title: 'Turn finished', subtitle: 'Studio Mac · recipe-box', body: 'Login page\nFixed the login.\nTests pass.' }])
+    // An unknown chat, a failing lookup and a long reply: the Mac name stays, the body is cut, the push still goes out.
+    t.gw.push('Turn finished', '界'.repeat(5000), 'boom') // 3 bytes per character in UTF-8
+    t.gw.push('Turn finished', 'done', 'gone-chat')
+    await waitFor(() => got.length === 6)
+    const last = got.slice(4).map(g => g.body.aps.alert).sort((a, b) => a.body.length - b.body.length)
+    assert.deepEqual(last[0], { title: 'Turn finished', subtitle: 'Studio Mac', body: 'done' })
+    assert.equal(last[1].subtitle, 'Studio Mac'); assert.equal(last[1].body, '界'.repeat(600), 'a long reply is cut')
+    assert.ok(got.every(g => Buffer.byteLength(JSON.stringify(g.body)) < 4096), 'under the APNs payload limit')
 
     // Outside the hours (an empty window of one minute that is never now): nothing.
     const now = new Date(), m = now.getUTCHours() * 60 + now.getUTCMinutes(), off = (m + 720) % 1440
@@ -815,7 +827,7 @@ test('push: a closed Tether gets approval, question, error and turn alerts throu
     assert.equal(t.gw.state().devices[0].push, false)
     t.gw.push('Turn finished', 'off')
     await sleep(200)
-    assert.equal(got.length, 4, 'no push outside the hours or while switched off')
+    assert.equal(got.length, 6, 'no push outside the hours or while switched off')
     // A token that left the iPhone (410): the Mac forgets it.
     await setPush({ on: true, token: 'dead'.repeat(16), sandbox: true, hours: null })
     t.gw.push('Turn finished', 'gone')

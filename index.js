@@ -855,7 +855,7 @@ export function unreadStore(file) {
 
 /** Mobile connect: one gateway at a time. Start and stop calls run in order, so a fast toggle never leaves two gateways or a
  * half-closed one. `upstreamUrl` gives dsh's authenticated loopback URL; it is asked again at each DSH login. */
-export function mobileGateway({ upstreamUrl, dir, make = createGateway, retryMs = 300 }) {
+export function mobileGateway({ upstreamUrl, dir, about, make = createGateway, retryMs = 300 }) {
   let gateway, admin, error, closed = false, queue = Promise.resolve();
   const run = (fn) => (queue = queue.then(fn, fn));
   // A plugin reload starts the new gateway while the old one still closes its pairing page: wait for the port (about 3 s).
@@ -877,7 +877,7 @@ export function mobileGateway({ upstreamUrl, dir, make = createGateway, retryMs 
       if (gateway !== undefined || closed) return;
       error = undefined;
       try {
-        gateway = make({ dir, upstreamUrl });
+        gateway = make({ dir, upstreamUrl, about });
         admin = `http://127.0.0.1:${await listenAdmin(gateway)}/`;
         await gateway.start();
       } catch (e) { error = String(e?.message ?? e); if (admin === undefined) await stop(); }
@@ -888,7 +888,7 @@ export function mobileGateway({ upstreamUrl, dir, make = createGateway, retryMs 
     /** An event for the connected phones (`$events`); nothing while no gateway runs. */
     emit: (event, args) => { gateway?.emit?.(event, args); },
     /** A push notification (APNs) for the phones that want one; nothing while no gateway runs. */
-    push: (title, body) => { gateway?.push?.(title, body); },
+    push: (title, detail, sessionId) => { gateway?.push?.(title, detail, sessionId); },
     state: () => {
       const running = gateway?.state().running === true;
       // The gateway retries by itself (for example when Wi-Fi comes back): a running gateway has no error to show.
@@ -2227,10 +2227,25 @@ export function apply(ctx) {
   let mobileOn; // the user's choice; the saved value applies only until the user changes it
   const mobileRead = mobileSaved.read().then((on) => { mobileOn ??= on; });
   let mobileQueue = Promise.resolve(); // one switch change at a time: save, then start or stop
+  const serviceOf = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  /** The words of a Tether push about a chat: its title and its project (dsh's project title, else the folder name; a
+   * branch folder `<repo>/.worktrees/<name>` gives its repository's name). Empty for a chat that is not loaded. */
+  const chatAbout = (sessionId) => {
+    const session = serviceOf('agents')?.get?.(sessionId)?.session;
+    if (session === undefined) return {};
+    let chat, cwd, project;
+    try { chat = ctx.sessionProjections?.snapshot?.(session, ['title'])?.values?.title; } catch { /* no title */ }
+    try { cwd = serviceOf('workingDirectory')?.get?.(session); } catch { /* dsh 0.2.0 has none */ }
+    if (!isText(cwd, 4096)) cwd = session.header?.cwd;
+    let list;
+    try { list = serviceOf('workspaceRegistry')?.list?.(); } catch { /* not ready */ }
+    return { chat: isText(chat, 4096) ? chat : undefined, project: projectOf(cwd, list) };
+  };
   ctx.inject?.(['webServer'], (webCtx) => {
     const gateway = mobileGateway({
       dir: process.env.DSH_MOBILE_DIR || join(home, 'storages', 'dsh-composer-plus', 'mobile'),
       upstreamUrl: () => ctx.connection.authenticatedUrl(`http://127.0.0.1:${webCtx.webServer.port}`),
+      about: chatAbout,
     });
     mobile = gateway;
     webCtx.effect(() => {
@@ -2303,10 +2318,11 @@ export function apply(ctx) {
     if (status === 'running') { busy.add(agent.id); if (mobileOn === true) changeUnread([], [agent.id]); }
     else if (busy.delete(agent.id) && mobileOn === true) {
       changeUnread([agent.id], []);
-      // Tether's "Turn finished" also while Tether is closed (APNs, when the gateway has a key): the chat's title.
-      let title;
-      try { title = ctx.sessionProjections?.snapshot?.(agent.session, ['title'])?.values?.title; } catch { /* no title */ }
-      mobile?.push('Turn finished', isText(title, 4096) ? title : '');
+      // Tether's "Turn finished" also while Tether is closed (APNs, when the gateway has a key): the agent's reply, under
+      // the Mac, the project and the chat's title (chatAbout).
+      let reply = '';
+      try { reply = lastReply(agent.session?.snapshotEvents?.() ?? []); } catch { /* no log */ }
+      mobile?.push('Turn finished', reply, agent.id);
     }
   });
   ctx.connection.fetch.register({
@@ -3089,6 +3105,26 @@ export const predictStore = (file) => settingsStore(file, (v) => ({ on: v?.on !=
 
 /** Text blocks of a message content, joined. */
 const textBlocks = (content) => (Array.isArray(content) ? content.filter((b) => b?.type === 'text' && typeof b.text === 'string').map((b) => b.text).join('') : '');
+/** A chat folder's project name in a Tether push: a branch folder `<repo>/.worktrees/<name>` gives its repository's
+ * name, else dsh's project title (`workspaces`: `workspaceRegistry.list()`), else the folder name. */
+export function projectOf(cwd, workspaces) {
+  if (!isText(cwd, 4096) || !isAbsolute(cwd)) return undefined;
+  const folder = cwd.replace(/(.)[\\/]+$/, '$1');
+  if (basename(dirname(folder)) === '.worktrees') return basename(dirname(dirname(folder))) || undefined;
+  const w = Array.isArray(workspaces) ? workspaces.find((x) => x?.path === folder) : undefined;
+  return isText(w?.title, 512) ? w.title : basename(folder) || undefined;
+}
+/** The agent's last reply text in the chat's last turn (Tether's Turn finished push), or '' when that turn has none.
+ * A reply that a rollback withdrew does not count. */
+export function lastReply(events) {
+  const start = events.findLastIndex((e) => e.type === 'turn/start');
+  const gone = withdrawn(events);
+  for (let i = events.length - 1; i > start; i--) {
+    const text = events[i].type === 'assistant/message' && !gone(events[i].seq) ? textBlocks(events[i].data?.message?.content).trim() : '';
+    if (text !== '') return text;
+  }
+  return '';
+}
 /** The recent conversation for the prediction: the user's own messages and the agent's replies (no tools, no hidden
  * context), oldest first, the newest kept when it is long. `undefined` when the chat has no reply after its last message. */
 export function predictTranscript(events) {

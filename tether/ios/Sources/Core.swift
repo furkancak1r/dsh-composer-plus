@@ -929,6 +929,25 @@ func turnLine(reason: String?, start: Date?, end: Date?) -> Line {
     }
 }
 
+/// The project of a chat folder in a notification, as the Mac's push names it: a branch folder
+/// `<repo>/.worktrees/<name>` is its repository, else dsh's project title, else the folder name.
+func projectName(_ cwd: String, _ workspaces: [Workspace]) -> String {
+    var folder = cwd
+    while folder.count > 1, folder.hasSuffix("/") { folder.removeLast() }
+    let parent = (folder as NSString).deletingLastPathComponent
+    if (parent as NSString).lastPathComponent == ".worktrees" { return ((parent as NSString).deletingLastPathComponent as NSString).lastPathComponent }
+    return workspaces.first { $0.path == folder }?.title ?? (folder as NSString).lastPathComponent
+}
+
+/// The agent's last reply in the last turn of a transcript (Turn finished), or "" when that turn has none.
+func lastReply(_ transcript: [Line]) -> String {
+    for l in transcript.reversed() {
+        if l.kind == .user { break }
+        if l.kind == .assistant, !l.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return l.text }
+    }
+    return ""
+}
+
 /// One row of the chat as DSH desktop shows it.
 enum ChatRow: Identifiable {
     case line(Line)
@@ -2563,8 +2582,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             let req = v["request"] as? J ?? [:]
             prompts.append(Prompt(id: id, event: ev, agentId: v["agentId"] as? String, request: req))
             UINotificationFeedbackGenerator().notificationOccurred(.warning)
-            if ev == "approval/request" { notify(String(localized: "Approval needed"), req["toolName"] as? String ?? "") }
-            else { notify(String(localized: "DSH has a question"), Question.parse(req).first?.question ?? "") }
+            let sid = v["agentId"] as? String
+            if ev == "approval/request" { notify(String(localized: "Approval needed"), req["toolName"] as? String ?? "", session: sid) }
+            else { notify(String(localized: "DSH has a question"), Question.parse(req).first?.question ?? "", session: sid) }
         case "cancel": prompts.removeAll { $0.id == v["eventId"] as? String }
         case "emit":
             if let e = v["event"] as? String, ["api-session/added", "api-session/removed", "api-session/status", "api-session/activity", "agent-preset/selected"].contains(e) {
@@ -2588,7 +2608,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             if transcript.last?.kind != .error || transcript.last?.text != m { transcript.append(Line(kind: .error, text: m)) }
             UINotificationFeedbackGenerator().notificationOccurred(.error)
         } else {
-            notify(String(localized: "DSH error"), (sessions.first { $0.id == sid }?.title).map { "\($0): \(m)" } ?? m)
+            notify(String(localized: "DSH error"), m, session: sid)
         }
     }
 
@@ -2813,7 +2833,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             transcript.append(turnLine(reason: reason?["kind"] as? String, start: turnStartedAt,
                                        end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
-                notify(String(localized: "Turn finished"), currentSess?.title ?? "")
+                notify(String(localized: "Turn finished"), lastReply(transcript), session: current)
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
             running = false
@@ -3190,10 +3210,14 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
 
     // shortcut: only notifies while iOS keeps the socket alive (seconds after backgrounding); real wake-ups need APNs via a relay, out of scope for LAN-only.
-    private func notify(_ title: String, _ body: String) {
+    private func notify(_ title: String, _ detail: String, session sid: String?) {
         // The Mac pushes the same alerts through APNs (also while Tether is closed): no second, local one.
         guard shouldNotify(), !pushOn, UIApplication.shared.applicationState != .active else { return }
-        let c = UNMutableNotificationContent(); c.title = title; c.body = body; c.sound = .default
+        // The same words as the Mac's push: Mac · project above, the chat's title and the detail below.
+        let s = sessions.first { $0.id == sid }
+        let c = UNMutableNotificationContent(); c.title = title; c.sound = .default
+        c.subtitle = [pairing?.title, s.map { projectName($0.cwd, workspaces) }].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        c.body = [s?.title, detail].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
     }
 

@@ -654,6 +654,20 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.transcript.count, 1)
     }
 
+    /// A notification names the chat's project (as the Mac's push) and Turn finished shows the last reply of the turn.
+    func testNotificationWords() {
+        let spaces = [Workspace(["workspaceId": "w1", "path": "/u/dev/recipe-box", "title": "Recipes"])!, Workspace(["workspaceId": "w2", "path": "/u/dev/plain"])!]
+        XCTAssertEqual(projectName("/u/dev/recipe-box", spaces), "Recipes")
+        XCTAssertEqual(projectName("/u/dev/recipe-box/", spaces), "Recipes")
+        XCTAssertEqual(projectName("/u/dev/plain", spaces), "plain")
+        XCTAssertEqual(projectName("/u/dev/other", []), "other")
+        XCTAssertEqual(projectName("/u/dev/recipe-box/.worktrees/feat-login", spaces), "recipe-box", "a branch folder: its repository")
+        let t = [Line(kind: .user, text: "a"), Line(kind: .assistant, text: "old"), Line(kind: .user, text: "b"),
+                 Line(kind: .assistant, text: "Looking."), Line(kind: .tool, text: "bash"), Line(kind: .assistant, text: "Fixed it."), Line(kind: .tool, text: "ls"), Line(kind: .turn, text: "Completed")]
+        XCTAssertEqual(lastReply(t), "Fixed it.")
+        XCTAssertEqual(lastReply(Array(t.prefix(3)) + [Line(kind: .tool, text: "bash")]), "", "no reply in this turn: not the old one")
+    }
+
     func testGoal() {
         XCTAssertNil(Goal(["objective": "no id"]))
         let g = Goal(["id": "g1", "revision": 3, "objective": "ship", "phase": "paused", "roundsStarted": 2, "maxGoalRounds": 10])

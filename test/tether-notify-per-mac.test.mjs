@@ -63,7 +63,14 @@ assert.match(ui, /didRegisterForRemoteNotificationsWithDeviceToken[\s\S]*onToken
 // The gateway pushes the same four alerts as the app: approval, question, error and Turn finished (from the Host half).
 const gw = read('tether/gateway/server.mjs'), host = read('index.js');
 assert.match(gw, /path === '\/push'\) return setPush\(req, res, dev\)/, 'POST /push stores the phone\'s settings with its pairing');
-assert.match(gw, /pushAll\('Approval needed', /); assert.match(gw, /pushAll\('DSH has a question', /); assert.match(gw, /pushAll\('DSH error', /);
-assert.match(host, /mobile\?\.push\('Turn finished', /, 'the Host half pushes Turn finished when a root chat stops');
-assert.match(gw, /if \(!inHours\(d\.push\.hours\)\) continue/, 'the gateway keeps the phone\'s hours');
+assert.match(gw, /pushAll\('Approval needed', v\.request\?\.toolName, v\.agentId\)/); assert.match(gw, /pushAll\('DSH has a question', [^\n]*, v\.agentId\)/); assert.match(gw, /pushAll\('DSH error', v\.args\[1\], v\.args\[0\]\)/);
+assert.match(host, /mobile\?\.push\('Turn finished', reply, agent\.id\)/, 'the Host half pushes Turn finished with the reply when a root chat stops');
+// Each alert names its Mac and project (subtitle) and the chat (body), on the Mac's push and on the phone's own one.
+assert.match(gw, /alert: \{ title, subtitle, body \}/, 'the push has a subtitle');
+assert.match(host, /about: chatAbout,/, 'the Host half names the chat and its project for the gateway');
+const notify = body('private func notify(');
+assert.match(notify, /c\.subtitle = \[pairing\?\.title, s\.map \{ projectName\(\$0\.cwd, workspaces\) \}\]/, 'the local alert: Mac · project');
+assert.match(notify, /c\.body = \[s\?\.title, detail\]/, 'the local alert: the chat title, then the detail');
+assert.match(core, /notify\(String\(localized: "Turn finished"\), lastReply\(transcript\), session: current\)/, 'the local Turn finished shows the reply');
+assert.match(gw, /pushTo\(\)\.filter\(d => inHours\(d\.push\.hours\)\)/, 'the gateway keeps the phone\'s hours');
 console.log('tether notify per Mac: keys per Mac, off by default, split once, no Host route, pushed by the Mac (APNs) with each Mac\'s own settings');

@@ -172,7 +172,8 @@ Kurulum (bir kez, Mac'te):
 - Uygulama `aps-environment` yetkisiyle ve push açık bir App ID profiliyle imzalanmalıdır. Joker (`*`) App ID'li profil push vermez.
 - Telefon, ekrandaki Mac'in **Send notifications** anahtarını, **Only between these hours** aralığını, kendi saat dilimini ve cihaz token'ını `POST /push` ile o Mac'e gönderir. Ayar Mac'e göre ayrıdır. Saat aralığını Mac, telefonun saat diliminde uygular. Eşleşmeyi kaldırmak push'u kapatır.
 - Push açıkken gateway onay ve soru isteklerini hemen "Mac'te karar ver"e düşürmez. Bildirime dokunup Tether'ı açınca istek telefonda görünür. Masaüstü de aynı anda yanıtlayabilir (ilk yanıt kazanır, 10 dk sonra masaüstüne kalır).
-- Bildirimde sohbet başlığı, araç adı ya da hata metni Apple'ın sunucusundan geçer.
+- Her bildirimin alt başlığı Mac'in adı ve sohbetin projesidir (`Studio Mac · recipe-box`; dal klasörü `.worktrees/<ad>` deponun adını verir). Gövdede önce sohbet başlığı, sonra ayrıntı vardır: Turn finished'da AI'ın son yanıtı, onayda araç adı, soruda soru, hatada hata metni. Push en çok 600 karakter taşır.
+- Bildirimde Mac adı, proje adı, sohbet başlığı ve AI yanıtının metni Apple'ın sunucusundan geçer ve kilit ekranında görünür. Gizlemek için iOS Ayarlar → Bildirimler → Tether → Önizlemeleri Göster → Kilit Açıkken.
 - Push varken Tether aynı bildirimi yerelde ikinci kez göstermez.
 
 ## Bilinen sınırlamalar

@@ -575,12 +575,22 @@ export function createGateway(opts = {}) {
   // A Remote computers front door has no phones.
   const apns = computer ? {} : opts.apns ? { push: apnsSender(opts.apns, { origin: opts.apns.origin }) } : loadApns(join(dir, 'apns.json'))
   const pushTo = () => apns.push ? devices.filter(d => d.push?.on === true && typeof d.push.token === 'string') : []
-  /** One alert to each phone that wants this Mac's notifications now (switched on, inside its hours). */
-  function pushAll(title, body) {
-    for (const d of pushTo()) {
-      if (!inHours(d.push.hours)) continue
+  /** One alert to each phone that wants this Mac's notifications now (switched on, inside its hours). The subtitle names
+   * this Mac and the chat's project; the body is the chat's title, then `detail` (the reply, tool, question or error).
+   * `opts.about(sessionId)` gives `{ chat, project }` (the Host half); without it the subtitle is the Mac name only. */
+  function pushAll(title, detail, sessionId) {
+    const to = pushTo().filter(d => inHours(d.push.hours))
+    if (to.length === 0) return
+    let about = {}
+    try { if (typeof sessionId === 'string') about = opts.about?.(sessionId) ?? {} } catch {}
+    const some = s => typeof s === 'string' && s.trim() !== ''
+    // ponytail: 160 + 600 characters keep the payload under APNs' 4 KB also for 3-byte (CJK) text.
+    const cut = (s, n) => [...s].slice(0, n).join('') // by code point: an emoji is not split in half
+    const subtitle = cut([mac, about.project].filter(some).join(' · '), 160)
+    const body = cut([about.chat, detail].filter(some).join('\n'), 600)
+    for (const d of to) {
       const token = d.push.token
-      apns.push.send(token, d.push.sandbox === true, { aps: { alert: { title, body: String(body ?? '').slice(0, 200) }, sound: 'default' } }).then(r => {
+      apns.push.send(token, d.push.sandbox === true, { aps: { alert: { title, subtitle, body }, sound: 'default' } }).then(r => {
         // The app left the iPhone (or the token is not for this app): forget the token; the phone sends a new one.
         if ((r.status === 410 || r.reason === 'BadDeviceToken') && d.push?.token === token) { delete d.push.token; saveDevices() }
       }, () => {})
@@ -720,7 +730,7 @@ export function createGateway(opts = {}) {
     if (f.type !== 'item') { ev.ws?.close(); return }
     const v = f.value ?? {}
     if (v.type === 'ready') { ev.clientId = v.clientId; upState = 'connected'; return } // host.home is dropped here
-    if (v.type === 'emit' && v.event === 'api-session/error' && typeof v.args?.[1] === 'string' && v.args[1]) pushAll('DSH error', v.args[1])
+    if (v.type === 'emit' && v.event === 'api-session/error' && typeof v.args?.[1] === 'string' && v.args[1]) pushAll('DSH error', v.args[1], v.args[0])
     if (v.type === 'emit' && EVENTS.has(v.event)) return toPhones({ type: 'emit', event: v.event, args: v.args })
     if (v.type === 'cancel') looking.delete(v.eventId)
     if (v.type === 'cancel' && dropPending(v.eventId)) return toPhones({ type: 'cancel', eventId: v.eventId })
@@ -745,8 +755,8 @@ export function createGateway(opts = {}) {
   }
   function askPhones(v) {
     const frame = { type: 'waterfall', event: v.event, eventId: v.eventId, agentId: v.agentId, request: v.request }
-    if (v.event === 'approval/request') pushAll('Approval needed', v.request?.toolName)
-    else pushAll('DSH has a question', v.request?.questions?.[0]?.question)
+    if (v.event === 'approval/request') pushAll('Approval needed', v.request?.toolName, v.agentId)
+    else pushAll('DSH has a question', v.request?.questions?.[0]?.question, v.agentId)
     // shortcut: unanswered phone prompts fall back to 'next' (DSH desktop still decides) after a fixed timeout; make it configurable per event if users want longer.
     const timer = setTimeout(() => { if (dropPending(v.eventId, { kind: 'next' })) toPhones({ type: 'cancel', eventId: v.eventId }) }, waterfallTtl)
     pendingEv.set(v.eventId, { frame, timer })
