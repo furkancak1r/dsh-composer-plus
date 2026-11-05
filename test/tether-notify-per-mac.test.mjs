@@ -44,7 +44,26 @@ assert.match(ui, /Text\("These settings are for \\\(/, 'the Notifications footer
 assert.ok(read('tether/ios/Resources/en.lproj/Localizable.strings').includes('"These settings are for %@ only. Each Mac has its own; a new Mac starts with them off."'), 'the footer is in Localizable.strings');
 
 // The setting stays on the phone: no Host route, so no PLUS entry and no plus.contains gate.
-assert.deepEqual([...PLUS.keys()].filter((k) => /notif/.test(k)), [], 'no notification route in PLUS');
-assert.doesNotMatch(core + ui, /plusCall\("notif/, 'the phone calls no notification route');
+assert.deepEqual([...PLUS.keys()].filter((k) => /notif|push/.test(k)), [], 'no notification route in PLUS');
+assert.doesNotMatch(core + ui, /plusCall\("(notif|push)/, 'the phone calls no notification route');
 assert.match(read('tether/FEATURES.md'), /^\| notifications \| yes \| .*each paired Mac.*off by default.*\|$/m, 'FEATURES.md says per Mac, off by default');
-console.log('tether notify per Mac: keys per Mac, off by default, split once, no Host route');
+
+// The cause of "Tether shows no notifications": Tether made them itself, only while iOS kept its socket (seconds after it
+// left the screen), so a closed Tether got none. Now the Mac sends them through APNs. The phone gives each Mac that Mac's
+// own switch and hours (the per-Mac setting decides, not a shared one) with the device token, on each change.
+assert.match(body('func syncPush('), /pushBody\(on: notifyOn, token: [\s\S]*hours: notifyHours, from: notifyFrom, to: notifyTo, tz: TimeZone\.current\.identifier\)[\s\S]*call\("\/push"/, 'syncPush sends this Mac\'s settings to its gateway');
+assert.match(body('private func saveNotify('), /syncPush\(\)/, 'a change of the hours goes to the Mac');
+assert.match(body('@discardableResult func setNotify('), /registerPush\(\)[\s\S]*syncPush\(\)/, 'the switch asks iOS for a device token and tells the Mac');
+assert.match(core, /me\["push"\] as\? Bool == true\) != macPush \{[^\n]*registerPush\(\); syncPush\(\)/, 'a Mac that can push gets the settings when it connects');
+assert.match(body('private func notify('), /guard shouldNotify\(\), !pushOn,/, 'no local notification while the Mac pushes the same one');
+assert.match(body('func forget('), /unpush\(p\)/, 'unpairing stops the Mac\'s pushes');
+assert.match(ui, /@UIApplicationDelegateAdaptor\(AppDelegate\.self\)/, 'iOS gives the device token to an app delegate');
+assert.match(ui, /didRegisterForRemoteNotificationsWithDeviceToken[\s\S]*onToken\?\(/, 'the token goes to the Client');
+
+// The gateway pushes the same four alerts as the app: approval, question, error and Turn finished (from the Host half).
+const gw = read('tether/gateway/server.mjs'), host = read('index.js');
+assert.match(gw, /path === '\/push'\) return setPush\(req, res, dev\)/, 'POST /push stores the phone\'s settings with its pairing');
+assert.match(gw, /pushAll\('Approval needed', /); assert.match(gw, /pushAll\('DSH has a question', /); assert.match(gw, /pushAll\('DSH error', /);
+assert.match(host, /mobile\?\.push\('Turn finished', /, 'the Host half pushes Turn finished when a root chat stops');
+assert.match(gw, /if \(!inHours\(d\.push\.hours\)\) continue/, 'the gateway keeps the phone\'s hours');
+console.log('tether notify per Mac: keys per Mac, off by default, split once, no Host route, pushed by the Mac (APNs) with each Mac\'s own settings');

@@ -4,7 +4,8 @@
 import { createServer as createHttps, request as httpsRequest } from 'node:https'
 import { Agent as HttpAgent, createServer as createHttp, request as httpRequest } from 'node:http'
 import { connect as tlsConnect } from 'node:tls'
-import { createHash, randomBytes, randomUUID, timingSafeEqual, X509Certificate } from 'node:crypto'
+import { connect as h2Connect } from 'node:http2'
+import { createHash, createPrivateKey, randomBytes, randomUUID, sign as cryptoSign, timingSafeEqual, X509Certificate } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { execFile, execFileSync, spawn } from 'node:child_process'
 import { homedir, hostname, networkInterfaces } from 'node:os'
@@ -389,6 +390,79 @@ export function createRelay({ host, port, fp, token, ticketTtlMs = 60e3, onUnaut
   }
 }
 
+// ---- Push (APNs): Tether's notifications also while it is closed. ----
+/** An APNs provider token: a JWT (ES256) of the `.p8` key `key`, its `keyId` and the `teamId`, issued at `iat` (seconds). */
+export function apnsJwt({ key, keyId, teamId }, iat = Math.floor(Date.now() / 1000)) {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url')
+  const data = b64({ alg: 'ES256', kid: keyId }) + '.' + b64({ iss: teamId, iat })
+  return data + '.' + cryptoSign('sha256', Buffer.from(data), { key, dsaEncoding: 'ieee-p1363' }).toString('base64url')
+}
+/** Inside Tether's "Only between these hours" (`{from, to, tz}`, minutes after midnight in the phone's time zone) at `now`,
+ * with Tether's rule: To before From goes past midnight, the same time for both is all day. No hours: every hour. */
+export function inHours(hours, now = new Date()) {
+  if (!hours || hours.from === hours.to) return true
+  let t
+  try {
+    const [h, m] = new Intl.DateTimeFormat('en-GB', { timeZone: hours.tz, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(now).split(':').map(Number)
+    t = h * 60 + m
+  } catch { return true } // an unknown time zone: every hour, as with no hours
+  return hours.from < hours.to ? t >= hours.from && t < hours.to : t >= hours.from || t < hours.to
+}
+/** Sends alerts to APNs over HTTP/2 with a provider token. `cfg`: `{ key, keyId, teamId, topic }` (`key` a private key
+ * object). `send(token, sandbox, payload)` answers `{ status, reason }` (200: APNs took it). `origin` replaces Apple's
+ * server (tests). */
+export function apnsSender(cfg, { origin } = {}) {
+  const sessions = new Map()
+  let jwt, jwtAt = 0
+  const session = (sandbox) => {
+    const o = origin ?? (sandbox ? 'https://api.sandbox.push.apple.com' : 'https://api.push.apple.com')
+    let s = sessions.get(o)
+    if (!s || s.closed || s.destroyed) {
+      s = h2Connect(o)
+      s.unref()
+      s.on('error', () => {}).on('goaway', () => s.close()).on('close', () => { if (sessions.get(o) === s) sessions.delete(o) })
+      sessions.set(o, s)
+    }
+    return s
+  }
+  const send = (token, sandbox, payload) => new Promise((done) => {
+    const now = Date.now()
+    // APNs refuses a token older than an hour, and one that changes more often than every 20 minutes.
+    if (!jwt || now - jwtAt > 50 * 60e3) { jwt = apnsJwt(cfg); jwtAt = now }
+    let req
+    try {
+      req = session(sandbox).request({ ':method': 'POST', ':path': '/3/device/' + token, authorization: 'bearer ' + jwt,
+        'apns-topic': cfg.topic, 'apns-push-type': 'alert', 'apns-priority': '10',
+        // APNs keeps it for an hour while the iPhone is off or has no network.
+        'apns-expiration': String(Math.floor(now / 1000) + 3600), 'content-type': 'application/json' })
+    } catch (e) { return done({ status: 0, reason: e.message }) }
+    let status = 0, body = ''
+    const timer = setTimeout(() => req.close(), 10e3)
+    timer.unref()
+    req.setEncoding('utf8')
+    req.on('response', (h) => { status = h[':status'] }).on('data', (d) => { if (body.length < 4096) body += d }).on('error', () => {})
+    req.on('close', () => {
+      clearTimeout(timer)
+      let reason
+      try { reason = JSON.parse(body).reason } catch {}
+      if (reason === 'ExpiredProviderToken') jwt = undefined
+      done({ status, reason })
+    })
+    req.end(JSON.stringify(payload))
+  })
+  return { send, close: () => { for (const s of sessions.values()) s.close(); sessions.clear() } }
+}
+/** The APNs settings of this Mac: `apns.json` in the gateway folder, `{ keyFile, keyId, teamId, topic }` (the `.p8` key
+ * that Apple gives). No file: no push. A wrong file: no push, and `error` says why. */
+function loadApns(file) {
+  if (!existsSync(file)) return {}
+  try {
+    const c = JSON.parse(readFileSync(file, 'utf8'))
+    if (typeof c?.keyFile !== 'string' || !/^[A-Z0-9]{10}$/.test(c.keyId) || !/^[A-Z0-9]{10}$/.test(c.teamId) || !/^[\w.-]{1,200}$/.test(c.topic)) throw new Error('needs keyFile, keyId, teamId and topic')
+    return { push: apnsSender({ key: createPrivateKey(readFileSync(c.keyFile)), keyId: c.keyId, teamId: c.teamId, topic: c.topic }) }
+  } catch (e) { return { error: 'apns.json: ' + e.message } }
+}
+
 // ---- Upstream: the DSH host on loopback, authenticated with the URL that dsh-composer-plus (Mobile connect) gives. ----
 function send(method, url, body, headers = {}, signal) {
   return new Promise((ok, bad) => {
@@ -496,6 +570,33 @@ export function createGateway(opts = {}) {
   const conns = new Set(), devSockets = new Map(), pending = new Map()
   const reqHits = new Map(), fails = new Map()
   const evSubs = new Set(), pendingEv = new Map(), ev = { ws: null, clientId: null }
+  // Push (APNs): Tether's notifications also while it is closed. Each phone sends its device token and the notification
+  // settings of this Mac (`POST /push`); they stay in devices.json with the phone's pairing, so unpairing ends them.
+  // A Remote computers front door has no phones.
+  const apns = computer ? {} : opts.apns ? { push: apnsSender(opts.apns, { origin: opts.apns.origin }) } : loadApns(join(dir, 'apns.json'))
+  const pushTo = () => apns.push ? devices.filter(d => d.push?.on === true && typeof d.push.token === 'string') : []
+  /** One alert to each phone that wants this Mac's notifications now (switched on, inside its hours). */
+  function pushAll(title, body) {
+    for (const d of pushTo()) {
+      if (!inHours(d.push.hours)) continue
+      const token = d.push.token
+      apns.push.send(token, d.push.sandbox === true, { aps: { alert: { title, body: String(body ?? '').slice(0, 200) }, sound: 'default' } }).then(r => {
+        // The app left the iPhone (or the token is not for this app): forget the token; the phone sends a new one.
+        if ((r.status === 410 || r.reason === 'BadDeviceToken') && d.push?.token === token) { delete d.push.token; saveDevices() }
+      }, () => {})
+    }
+  }
+  /** `POST /push` from a paired phone: `{ token, sandbox, on, hours: {from, to, tz} | null }`. */
+  async function setPush(req, res, dev) {
+    let b
+    try { b = JSON.parse(await readBody(req, 4096)) } catch { return reply(res, 400, { error: 'bad request' }) }
+    const mins = v => Number.isInteger(v) && v >= 0 && v < 1440
+    const hours = b?.hours === null ? null : mins(b?.hours?.from) && mins(b.hours.to) && typeof b.hours.tz === 'string' && b.hours.tz.length <= 64 ? { from: b.hours.from, to: b.hours.to, tz: b.hours.tz } : undefined
+    if (typeof b?.on !== 'boolean' || (b.on && (!/^[0-9a-f]{64,200}$/i.test(b.token ?? '') || typeof b.sandbox !== 'boolean' || hours === undefined))) return reply(res, 400, { error: 'bad request' })
+    dev.push = b.on ? { on: true, token: b.token.toLowerCase(), sandbox: b.sandbox, hours } : { on: false }
+    saveDevices()
+    reply(res, 200, { push: b.on })
+  }
 
   // Rate limits. shortcut: fixed in-memory windows per IP, fine for one household LAN; persist/upgrade if exposed wider.
   const bump = (map, k, ms) => { const now = Date.now(), b = map.get(k); if (!b || now - b.t > ms) { map.set(k, { t: now, n: 1 }); return 1 } return ++b.n }
@@ -619,14 +720,18 @@ export function createGateway(opts = {}) {
     if (f.type !== 'item') { ev.ws?.close(); return }
     const v = f.value ?? {}
     if (v.type === 'ready') { ev.clientId = v.clientId; upState = 'connected'; return } // host.home is dropped here
+    if (v.type === 'emit' && v.event === 'api-session/error' && typeof v.args?.[1] === 'string' && v.args[1]) pushAll('DSH error', v.args[1])
     if (v.type === 'emit' && EVENTS.has(v.event)) return toPhones({ type: 'emit', event: v.event, args: v.args })
     if (v.type === 'cancel') looking.delete(v.eventId)
     if (v.type === 'cancel' && dropPending(v.eventId)) return toPhones({ type: 'cancel', eventId: v.eventId })
     if (v.type !== 'waterfall') return
     if (v.event === 'approval/request') return grantedOrAsk(v)
-    if (!EVENTS.has(v.event) || !evSubs.size) return answer(v.eventId, { kind: 'next' }).catch(() => {})
+    if (!EVENTS.has(v.event) || !holds()) return answer(v.eventId, { kind: 'next' }).catch(() => {})
     askPhones(v)
   }
+  /** The gateway keeps an ask for the phones while one is connected, or while a phone gets pushes: the push opens Tether,
+   * and Tether gets the ask when it connects. dsh's desktop can answer it at the same time. */
+  const holds = () => evSubs.size > 0 || pushTo().length > 0
   /** Allow for this chat, also with no dsh window open: the gateway allows a granted tool itself (the grants that the
    * desktop and the phone save in dsh-composer-plus). Any other approval goes to the phones. */
   async function grantedOrAsk(v) {
@@ -635,11 +740,13 @@ export function createGateway(opts = {}) {
     try { const r = await upstream.rpc('/api/composer-plus.grants', undefined, 'GET'); if (r.status === 200) grants = JSON.parse(r.body) } catch {}
     if (!looking.delete(v.eventId)) return // answered elsewhere (the desktop) while the grants were read
     if (isGrantedAsk(v, grants)) return answer(v.eventId, { kind: 'result', value: 'allowed-once' }).catch(() => {})
-    if (!evSubs.size) return answer(v.eventId, { kind: 'next' }).catch(() => {})
+    if (!holds()) return answer(v.eventId, { kind: 'next' }).catch(() => {})
     askPhones(v)
   }
   function askPhones(v) {
     const frame = { type: 'waterfall', event: v.event, eventId: v.eventId, agentId: v.agentId, request: v.request }
+    if (v.event === 'approval/request') pushAll('Approval needed', v.request?.toolName)
+    else pushAll('DSH has a question', v.request?.questions?.[0]?.question)
     // shortcut: unanswered phone prompts fall back to 'next' (DSH desktop still decides) after a fixed timeout; make it configurable per event if users want longer.
     const timer = setTimeout(() => { if (dropPending(v.eventId, { kind: 'next' })) toPhones({ type: 'cancel', eventId: v.eventId }) }, waterfallTtl)
     pendingEv.set(v.eventId, { frame, timer })
@@ -687,7 +794,9 @@ export function createGateway(opts = {}) {
     if (!dev) { fail(ip); logAttempt(ip, null, 'refused', 'token'); return reply(res, 401, { error: 'unauthorized' }) }
     track(dev, req.socket)
     if (computer) return toDsh(req, res)
-    if (req.method === 'GET' && path === '/me') return reply(res, 200, { deviceId: dev.id, name: dev.name, expiresAt: dev.expiresAt, upstream: upState, tailscale: ts.online ? ts.ip : null, mac, plus: [...PLUS.keys()] })
+    // `push`: this Mac can send Tether's notifications through APNs (it has an APNs key); an older gateway leaves it out.
+    if (req.method === 'GET' && path === '/me') return reply(res, 200, { deviceId: dev.id, name: dev.name, expiresAt: dev.expiresAt, upstream: upState, tailscale: ts.online ? ts.ip : null, mac, plus: [...PLUS.keys()], push: apns.push !== undefined })
+    if (req.method === 'POST' && path === '/push') return setPush(req, res, dev)
     if (path.startsWith('/plus/')) return plus(req, res, path.slice(6))
     if (req.method !== 'POST' || !path.startsWith('/api/')) return reply(res, 404, { error: 'not found' })
     const method = path.slice(5)
@@ -773,7 +882,7 @@ export function createGateway(opts = {}) {
     // A failed connect (DSH restarting) is forgotten so the next stream open retries instead of failing forever.
     const getUp = () => upP ??= upstream.mux().then(u => { up = u; u.onText = t => ws.send(t); u.onClose = () => ws.close(1011); return u }, e => { upP = null; throw e })
     const err = (streamId, message) => ws.send(JSON.stringify({ type: 'error', streamId, error: { code: 'mobile/forbidden', message } }))
-    const unsub = id => { const s = subs.get(id); if (!s) return; subs.delete(id); evSubs.delete(s); if (!evSubs.size) for (const e of [...pendingEv.keys()]) dropPending(e, { kind: 'next' }) }
+    const unsub = id => { const s = subs.get(id); if (!s) return; subs.delete(id); evSubs.delete(s); if (!holds()) for (const e of [...pendingEv.keys()]) dropPending(e, { kind: 'next' }) }
     ws.onText = async text => {
       let f
       try { f = JSON.parse(text) } catch { return ws.close(1007) }
@@ -878,7 +987,9 @@ export function createGateway(opts = {}) {
     code: code && Date.now() < code.expires ? { payload: code.payload, expiresAt: new Date(code.expires).toISOString(), qr: qrReady } : null,
     pending: [...pending.values()].map(({ id, name, ip, at }) => ({ id, name, ip, at, expiresAt: new Date(at + approveTtl).toISOString() })),
     last: last && Date.now() - last.at < 60e3 ? { ...last, at: new Date(last.at).toISOString() } : null,
-    devices: devices.map(({ tokenHash, ...d }) => ({ ...d, connections: devSockets.get(d.id)?.size ?? 0 })),
+    // The APNs device token stays here: the Mac page shows only whether the phone gets pushes.
+    devices: devices.map(({ tokenHash, push, ...d }) => ({ ...d, push: push?.on === true && typeof push.token === 'string', connections: devSockets.get(d.id)?.size ?? 0 })),
+    ...(apns.error ? { pushError: apns.error } : {}),
   })
 
   // ---- Mac admin page: loopback only, plain HTTP. ----
@@ -919,7 +1030,7 @@ export function createGateway(opts = {}) {
     return new Promise((ok, bad) => { adminServer.once('error', bad); adminServer.listen(p, '127.0.0.1', () => ok(adminServer.address().port)) })
   }
   async function close() {
-    clearInterval(watch); await stop(); for (const p of pending.values()) p.res.destroy(); adminServer?.close(); adminServer?.closeAllConnections()
+    clearInterval(watch); await stop(); for (const p of pending.values()) p.res.destroy(); adminServer?.close(); adminServer?.closeAllConnections(); apns.push?.close()
     if (logTimer) flushLog()
     if (seenDirty) try { saveDevices() } catch {}
   }
@@ -927,6 +1038,6 @@ export function createGateway(opts = {}) {
   /** An event from dsh-composer-plus itself (not from dsh's `$events`), for every connected phone. */
   const emit = (event, args) => toPhones({ type: 'emit', event, args })
 
-  return { start, stop, close, state, newCode, settle, revoke, listenAdmin, emit, get port() { return port }, get fingerprint() { return fp } }
+  return { start, stop, close, state, newCode, settle, revoke, listenAdmin, emit, push: pushAll, get port() { return port }, get fingerprint() { return fp } }
 }
 
