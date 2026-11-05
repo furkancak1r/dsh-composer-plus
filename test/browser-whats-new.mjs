@@ -21,7 +21,15 @@ const shipped = JSON.parse(await readFile(join(repo, 'release-notes.json'), 'utf
 /** The dialog's plain text of a Markdown note (headings and bold marks go), as client.js shows it. */
 const plain = (text) => text.trim().replace(/^#{1,6}\s+/gm, '').replace(/\*\*([^*\n]+)\*\*/g, '$1');
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const browser = await chromium.launch({ channel: 'chrome' });
+const SEEN = 'dsh-composer-plus.update.seen';
+// Since 0.2.1-alpha.3 the web app has dsh's account menu (Settings is its first item) in place of the Settings button.
+const openSettings = async (page) => {
+  const direct = page.getByRole('button', { name: 'Settings', exact: true });
+  if (await direct.isVisible()) return direct.click();
+  await page.getByRole('button', { name: 'Account menu', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^Settings/ }).click();
+};
+const browser = await chromium.launch({ channel: 'chrome', chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-whats-new-check-')));
@@ -53,8 +61,11 @@ try {
         if (await close.waitFor({ timeout: 1500 }).then(() => true, () => false)) { await close.click(); await close.waitFor({ state: 'hidden' }); }
       };
       const dialog = page.getByRole('dialog', { name: `What’s new in Composer Plus ${version}` });
+      // A record for the running version comes from an install on an older version (seen: 0.0.1); with any other record,
+      // this copy already ran the running version (seen: the running version), so only the record decides.
       const startWith = async (record) => {
-        await page.evaluate(([k, v]) => { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); }, [KEY, record === null ? null : JSON.stringify(record)]);
+        const seen = record?.version === version ? '0.0.1' : version;
+        await page.evaluate(([k, v, s, sv]) => { if (v === null) localStorage.removeItem(k); else { localStorage.setItem(k, v); localStorage.setItem(s, sv); } }, [KEY, record === null ? null : JSON.stringify(record), SEEN, seen]);
         const before = checks.filter((c) => c === 'current').length;
         await page.reload();
         await dismissStart();
@@ -66,6 +77,9 @@ try {
       const stored = () => page.evaluate((k) => localStorage.getItem(k), KEY);
       await page.goto(url);
       await dismissStart();
+      // The first start of a fresh profile only remembers the running version (no window); wait for it before the records.
+      await page.waitForFunction((s) => localStorage.getItem(s) !== null, SEEN, { timeout: 15000 });
+      assert.equal(await page.getByRole('dialog', { name: /What’s new in Composer Plus/ }).count(), 0, 'a fresh install shows no window');
       const notes = '## Tether\n\n- **New:** a demo note for this check.\n\nSecond paragraph.';
       const link = `https://github.com/furkancak1r/dsh-composer-plus/releases/tag/v${version}`;
       // 1. The running version's record: the dialog shows once, as plain text, with the GitHub link. The real Host gives
@@ -97,7 +111,8 @@ try {
         const p = await c.newPage(); p.on('pageerror', (e) => errors.push(String(e))); return p;
       });
       await trPage.goto(url);
-      await trPage.evaluate(([k, v]) => localStorage.setItem(k, v), [KEY, JSON.stringify({ version, notes: 'GitHub English.', url: link })]);
+      await trPage.waitForFunction((s) => localStorage.getItem(s) !== null, SEEN, { timeout: 15000 });
+      await trPage.evaluate(([k, v, s]) => { localStorage.setItem(k, v); localStorage.setItem(s, '0.0.1'); }, [KEY, JSON.stringify({ version, notes: 'GitHub English.', url: link }), SEEN]);
       await trPage.reload();
       for (const name of ['Devam et', 'Daha sonra yapılandır']) { const b = trPage.getByRole('button', { name, exact: true }); if (await b.waitFor({ timeout: 1500 }).then(() => true, () => false)) await b.click(); }
       const trStart = trPage.getByRole('dialog', { name: /^(Get started|Başlayın)$/ }).getByRole('button', { name: /^(Close|Kapat)$/ });
@@ -110,9 +125,29 @@ try {
       assert.equal(await trDialog.locator('[data-composer-plus-whats-new-close]').innerText(), 'Kapat');
       await trDialog.locator('[data-composer-plus-whats-new-close]').click(); await trDialog.waitFor({ state: 'hidden', timeout: 5000 });
       await trPage.context().close();
+      // 8. A new version runs (seen: an older version; any install path): the notes show once by themselves, then not again.
+      await page.evaluate(([k, s]) => { localStorage.removeItem(k); localStorage.setItem(s, '0.0.1'); }, [KEY, SEEN]);
+      await page.reload(); await dismissStart();
+      await dialog.waitFor({ timeout: 15000 });
+      assert.equal((await dialog.locator('[data-composer-plus-whats-new]').innerText()).trim(), plain(shipped.en), 'the seen path shows the shipped notes');
+      assert.equal(await dialog.locator('[data-composer-plus-whats-new-link]').getAttribute('href'), link);
+      assert.equal(await page.evaluate((s) => localStorage.getItem(s), SEEN), version, 'the seen version moved on');
+      await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'hidden', timeout: 5000 });
+      await startWith(null); assert.equal(await dialog.count(), 0, 'the seen path shows it once');
+      // 9. Settings → Composer Plus → Composer Plus updates → What's new in this version: the running version's notes.
+      await openSettings(page);
+      await page.getByText('Composer Plus', { exact: true }).click();
+      const open = page.locator('[data-composer-plus-update] [data-composer-plus-whats-new-open]');
+      await open.waitFor({ timeout: 10000 });
+      assert.equal(await open.innerText(), 'What’s new in this version'); assert.equal(await open.getAttribute('data-composer-plus-whats-new-open'), version);
+      await open.click(); await dialog.waitFor({ timeout: 5000 });
+      assert.equal((await dialog.locator('[data-composer-plus-whats-new]').innerText()).trim(), plain(shipped.en), 'the button opens the shipped notes');
+      assert.equal(await dialog.locator('[data-composer-plus-whats-new-link]').getAttribute('href'), link);
+      await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'hidden', timeout: 5000 });
+      assert.ok(await page.locator('[data-composer-plus-settings]').isVisible(), 'Esc closes only the notes, Settings stays open');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: What's new shows ${version}'s shipped notes once (plain text, GitHub link, English UI: English, tr-TR: Turkish), Esc and Close close it, no repeat, an older record goes, a newer one waits`);
+      console.log(`PASS ${bin}: What's new shows ${version}'s shipped notes once (plain text, GitHub link, English UI: English, tr-TR: Turkish), Esc and Close close it, no repeat, an older record goes, a newer one waits; a new version after any install shows once; Settings → What’s new in this version opens the running notes`);
     } finally {
       await context?.close();
       await writeFile(join(home, 'server.log'), log); // the token stays inside the temporary home, never stdout
