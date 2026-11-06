@@ -3758,7 +3758,7 @@
     "memorySuggest.skipped": "{count} öneri dışarıda bırakıldı: zaten kayıtlı, çok uzun ya da bir anahtar veya parolaya benziyor.",
     "memorySuggest.kept": "{count} not hafızaya kaydedildi.",
     "feature.remoteComputers": "Uzak bilgisayarlar",
-    "feature.remoteComputers.description": "Diğer Mac’lerinizdeki dsh’yi Tailscale üzerinden açın ve sohbetlerini burada sürdürün. Sohbet başlığının solundaki bilgisayar menüsü bu Mac ile diğerleri arasında geçiş yapar; bir bilgisayar sağ kenar çubuğunun Tarayıcı sekmesinde (ya da bir tarayıcı penceresinde) açılır. Her Mac bir kez eşleştirilir: bağlantısını yapıştırın, sonra o Mac’te “Onayla” düğmesine tıklayın. Ağ portları açtığı için varsayılan olarak kapalıdır.",
+    "feature.remoteComputers.description": "Diğer Mac’lerinizdeki dsh’yi Tailscale üzerinden açın ve bu pencerede kullanın. Sol kenar çubuğunda “Yeni oturum” düğmesinin üstündeki bilgisayar menüsü, tüm pencerede bu Mac ile diğerleri arasında geçiş yapar; bu Mac arka planda çalışmaya devam eder. Her Mac bir kez eşleştirilir: bağlantısını yapıştırın, ona bir ad verin, sonra o Mac’te “Onayla” düğmesine tıklayın. Ağ portları açtığı için varsayılan olarak kapalıdır.",
     "computers.restart": "Uzak bilgisayarlar özelliğini kullanmak için dsh’yi yeniden başlatın.",
     "computers.down": "Uzak bilgisayarlar çalışmıyor: {error}",
     "computers.picker": "Bilgisayar: {name}",
@@ -3768,7 +3768,7 @@
     "computers.state.unpaired": "{name} (yeniden eşleştirin)",
     "computers.state.pin": "{name} (yeni sertifika: yeniden eşleştirin)",
     "computers.addTitle": "Bilgisayar ekle",
-    "computers.addHelp": "Diğer Mac’te Ayarlar → Composer Plus → Uzak bilgisayarlar bölümünü açın, “Diğer bilgisayarların bu Mac’i açmasına izin ver” anahtarını açın, “Eşleştirme bağlantısı oluştur” düğmesine tıklayın ve bağlantıyı kopyalayın. Bağlantıyı buraya yapıştırın, sonra o Mac’te “Onayla” düğmesine tıklayın.",
+    "computers.addHelp": "Diğer Mac’te Ayarlar → Composer Plus → Uzak bilgisayarlar bölümünü açın, “Diğer bilgisayarların bu Mac’i açmasına izin ver” anahtarını açın, “Eşleştirme bağlantısı oluştur” düğmesine tıklayın ve bağlantıyı kopyalayın. Bağlantıyı buraya yapıştırın, Mac’e bir ad verin, sonra o Mac’te “Onayla” düğmesine tıklayın.",
     "computers.linkLabel": "Eşleştirme bağlantısı",
     "computers.connect": "Bağlan",
     "computers.cancel": "İptal",
@@ -3811,7 +3811,14 @@
     "computers.error.code": "Bu bağlantı zaten kullanıldı ya da çok eski. Diğer Mac’te yeni bir bağlantı oluşturun.",
     "computers.error.rate": "Çok fazla deneme yapıldı. Bir dakika bekleyin, sonra yeniden deneyin.",
     "computers.error.unpaired": "O Mac bu Mac’i kaldırdı. Onu burada kaldırın ve yeniden eşleştirin.",
-    "computers.error.other": "Bir sorun oluştu: {error}"
+    "computers.error.other": "Bir sorun oluştu: {error}",
+    "computers.nameLabel": "Ad",
+    "computers.namePlaceholder": "Örneğin: Stüdyo Mac",
+    "computers.nameHelp": "Bilgisayar menüsünde görünen ad. Bu Mac’in ve diğer bilgisayarlarınızın adından farklı olmalıdır.",
+    "computers.duplicateHint": "Bu Mac ya da başka bir bilgisayar aynı adı kullanıyor. “Yeniden adlandır” düğmesine tıklayın ve ona başka bir ad verin.",
+    "computers.back": "Bu Mac’e dön",
+    "computers.error.name-taken": "Bu Mac ya da başka bir bilgisayar bu adı zaten kullanıyor. Başka bir ad yazın.",
+    "computers.error.name-missing": "Bu bilgisayar için bir ad yazın."
   },
   "directory-browser": {
     "browser.title": "Çalışma alanı klasörünü seçin",

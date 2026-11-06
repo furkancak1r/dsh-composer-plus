@@ -2298,7 +2298,7 @@
     "memorySuggest.skipped": "제안 {count}개를 제외했습니다: 이미 저장됨, 너무 김, 또는 키나 비밀번호처럼 보임.",
     "memorySuggest.kept": "메모 {count}개를 메모리에 저장했습니다.",
     "feature.remoteComputers": "원격 컴퓨터",
-    "feature.remoteComputers.description": "Tailscale을 통해 다른 Mac의 dsh를 열고 그 채팅을 여기에서 이어 갑니다. 채팅 제목 왼쪽의 컴퓨터 선택기로 이 Mac과 다른 컴퓨터 사이를 전환합니다. 컴퓨터는 오른쪽 사이드바의 브라우저 탭(또는 브라우저 창)에서 열립니다. 각 Mac은 한 번만 페어링합니다. 링크를 붙여 넣은 다음 그 Mac에서 ‘승인’을 클릭하세요. 네트워크 포트를 열기 때문에 기본적으로 꺼져 있습니다.",
+    "feature.remoteComputers.description": "Tailscale을 통해 다른 Mac의 dsh를 열고 이 창에서 사용합니다. 왼쪽 사이드바의 ‘새 세션’ 위에 있는 컴퓨터 선택기로 창 전체를 이 Mac과 다른 컴퓨터 사이에서 전환합니다. 이 Mac은 백그라운드에서 계속 실행됩니다. 각 Mac은 한 번만 페어링합니다. 링크를 붙여 넣고 이름을 지정한 다음 그 Mac에서 ‘승인’을 클릭하세요. 네트워크 포트를 열기 때문에 기본적으로 꺼져 있습니다.",
     "computers.restart": "원격 컴퓨터를 사용하려면 dsh를 다시 시작하세요.",
     "computers.down": "원격 컴퓨터가 작동하지 않습니다: {error}",
     "computers.picker": "컴퓨터: {name}",
@@ -2308,7 +2308,7 @@
     "computers.state.unpaired": "{name}(다시 페어링 필요)",
     "computers.state.pin": "{name}(새 인증서: 다시 페어링 필요)",
     "computers.addTitle": "컴퓨터 추가",
-    "computers.addHelp": "다른 Mac에서 설정 → Composer Plus → 원격 컴퓨터를 열고 ‘다른 컴퓨터에서 이 Mac 열기 허용’을 켠 다음 ‘페어링 링크 만들기’를 클릭하고 링크를 복사하세요. 링크를 여기에 붙여 넣은 다음 그 Mac에서 ‘승인’을 클릭하세요.",
+    "computers.addHelp": "다른 Mac에서 설정 → Composer Plus → 원격 컴퓨터를 열고 ‘다른 컴퓨터에서 이 Mac 열기 허용’을 켠 다음 ‘페어링 링크 만들기’를 클릭하고 링크를 복사하세요. 링크를 여기에 붙여 넣고 Mac의 이름을 지정한 다음 그 Mac에서 ‘승인’을 클릭하세요.",
     "computers.linkLabel": "페어링 링크",
     "computers.connect": "연결",
     "computers.cancel": "취소",
@@ -2351,7 +2351,14 @@
     "computers.error.code": "이 링크는 이미 사용되었거나 너무 오래되었습니다. 다른 Mac에서 새 링크를 만드세요.",
     "computers.error.rate": "시도 횟수가 너무 많습니다. 1분 기다린 다음 다시 시도하세요.",
     "computers.error.unpaired": "그 Mac에서 이 Mac을 제거했습니다. 여기에서 그 Mac을 제거하고 다시 페어링하세요.",
-    "computers.error.other": "문제가 발생했습니다: {error}"
+    "computers.error.other": "문제가 발생했습니다: {error}",
+    "computers.nameLabel": "이름",
+    "computers.namePlaceholder": "예: 스튜디오 Mac",
+    "computers.nameHelp": "컴퓨터 선택기에 표시되는 이름입니다. 이 Mac 및 다른 컴퓨터의 이름과 달라야 합니다.",
+    "computers.duplicateHint": "이 Mac 또는 다른 컴퓨터에 같은 이름이 있습니다. ‘이름 변경’을 클릭하고 다른 이름을 지정하세요.",
+    "computers.back": "이 Mac으로 돌아가기",
+    "computers.error.name-taken": "이 Mac 또는 다른 컴퓨터가 이미 이 이름을 사용하고 있습니다. 다른 이름을 입력하세요.",
+    "computers.error.name-missing": "이 컴퓨터의 이름을 입력하세요."
   },
   "common": {
     "ok": "확인",

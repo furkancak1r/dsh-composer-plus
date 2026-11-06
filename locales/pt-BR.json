@@ -2298,7 +2298,7 @@
     "memorySuggest.skipped": "{count} sugestão(ões) ficaram de fora: já salvas, longas demais ou pareciam uma chave ou senha.",
     "memorySuggest.kept": "{count} nota(s) salvas na memória.",
     "feature.remoteComputers": "Computadores remotos",
-    "feature.remoteComputers.description": "Abra o dsh dos seus outros Macs pelo Tailscale e continue os chats deles aqui. Um seletor de computadores à esquerda do título do chat alterna entre este Mac e os outros; um computador abre na aba Navegador da barra lateral direita (ou em uma janela do navegador). Cada Mac é pareado só uma vez: cole o link dele e depois clique em “Aprovar” naquele Mac. Desativado por padrão, porque abre portas de rede.",
+    "feature.remoteComputers.description": "Abra o dsh dos seus outros Macs pelo Tailscale e use-os nesta janela. Um seletor de computadores na barra lateral esquerda, acima de “Nova sessão”, alterna a janela inteira entre este Mac e os outros; este Mac continua funcionando em segundo plano. Cada Mac é pareado só uma vez: cole o link dele, dê um nome a ele e depois clique em “Aprovar” naquele Mac. Desativado por padrão, porque abre portas de rede.",
     "computers.restart": "Reinicie o dsh para usar Computadores remotos.",
     "computers.down": "O recurso Computadores remotos não funciona: {error}",
     "computers.picker": "Computador: {name}",
@@ -2308,7 +2308,7 @@
     "computers.state.unpaired": "{name} (pareie de novo)",
     "computers.state.pin": "{name} (novo certificado: pareie de novo)",
     "computers.addTitle": "Adicionar um computador",
-    "computers.addHelp": "No outro Mac, abra Configurações → Composer Plus → Computadores remotos, ative “Permitir que outros computadores abram este Mac”, clique em “Criar link de pareamento” e copie o link. Cole-o aqui e depois clique em “Aprovar” naquele Mac.",
+    "computers.addHelp": "No outro Mac, abra Configurações → Composer Plus → Computadores remotos, ative “Permitir que outros computadores abram este Mac”, clique em “Criar link de pareamento” e copie o link. Cole-o aqui, dê um nome ao Mac e depois clique em “Aprovar” naquele Mac.",
     "computers.linkLabel": "Link de pareamento",
     "computers.connect": "Conectar",
     "computers.cancel": "Cancelar",
@@ -2351,7 +2351,14 @@
     "computers.error.code": "Este link já foi usado ou é antigo demais. Crie um novo link no outro Mac.",
     "computers.error.rate": "Tentativas demais. Aguarde um minuto e tente de novo.",
     "computers.error.unpaired": "Aquele Mac removeu este. Remova-o aqui e pareie de novo.",
-    "computers.error.other": "Algo deu errado: {error}"
+    "computers.error.other": "Algo deu errado: {error}",
+    "computers.nameLabel": "Nome",
+    "computers.namePlaceholder": "Por exemplo: Mac do estúdio",
+    "computers.nameHelp": "O nome no seletor de computadores. Ele precisa ser diferente do nome deste Mac e dos seus outros computadores.",
+    "computers.duplicateHint": "Este Mac ou outro computador tem o mesmo nome. Clique em “Renomear” e dê outro nome a ele.",
+    "computers.back": "Voltar para este Mac",
+    "computers.error.name-taken": "Este Mac ou outro computador já tem este nome. Digite outro nome.",
+    "computers.error.name-missing": "Digite um nome para este computador."
   },
   "common": {
     "ok": "OK",

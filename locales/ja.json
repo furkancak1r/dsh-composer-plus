@@ -2298,7 +2298,7 @@
     "memorySuggest.skipped": "{count} 件の提案を除外しました：保存済み、長すぎる、またはキーやパスワードのように見えます。",
     "memorySuggest.kept": "{count} 件のメモをメモリーに保存しました。",
     "feature.remoteComputers": "リモートコンピュータ",
-    "feature.remoteComputers.description": "ほかの Mac の dsh を Tailscale 経由で開き、そのチャットをここで続けられます。チャットタイトルの左にあるコンピュータの選択メニューで、この Mac とほかのコンピュータを切り替えます。コンピュータは右サイドバーの「ブラウザ」タブ（またはブラウザのウィンドウ）で開きます。各 Mac のペアリングは 1 回だけです。リンクを貼り付けてから、その Mac で「承認」をクリックします。ネットワークポートを開くため、既定ではオフです。",
+    "feature.remoteComputers.description": "ほかの Mac の dsh を Tailscale 経由で開き、このウィンドウで使えます。左サイドバーの「新しいセッション」の上にあるコンピュータの選択メニューで、ウィンドウ全体をこの Mac とほかのコンピュータの間で切り替えます。この Mac はバックグラウンドで動き続けます。各 Mac のペアリングは 1 回だけです。リンクを貼り付けて名前を付けてから、その Mac で「承認」をクリックします。ネットワークポートを開くため、既定ではオフです。",
     "computers.restart": "リモートコンピュータを使うには dsh を再起動してください。",
     "computers.down": "リモートコンピュータが動作していません：{error}",
     "computers.picker": "コンピュータ：{name}",
@@ -2308,7 +2308,7 @@
     "computers.state.unpaired": "{name}（再ペアリングが必要）",
     "computers.state.pin": "{name}（新しい証明書：再ペアリングが必要）",
     "computers.addTitle": "コンピュータを追加",
-    "computers.addHelp": "もう一方の Mac で 設定 → Composer Plus → リモートコンピュータ を開き、「ほかのコンピュータからこの Mac を開けるようにする」をオンにして「ペアリングリンクを作成」をクリックし、リンクをコピーします。ここに貼り付けてから、その Mac で「承認」をクリックします。",
+    "computers.addHelp": "もう一方の Mac で 設定 → Composer Plus → リモートコンピュータ を開き、「ほかのコンピュータからこの Mac を開けるようにする」をオンにして「ペアリングリンクを作成」をクリックし、リンクをコピーします。ここに貼り付けて Mac に名前を付けてから、その Mac で「承認」をクリックします。",
     "computers.linkLabel": "ペアリングリンク",
     "computers.connect": "接続",
     "computers.cancel": "キャンセル",
@@ -2351,7 +2351,14 @@
     "computers.error.code": "このリンクは使用済みか、古すぎます。もう一方の Mac で新しいリンクを作成してください。",
     "computers.error.rate": "試行回数が多すぎます。1 分待ってから、もう一度お試しください。",
     "computers.error.unpaired": "その Mac でこの Mac が削除されました。ここでもその Mac を削除してから、ペアリングし直してください。",
-    "computers.error.other": "問題が発生しました：{error}"
+    "computers.error.other": "問題が発生しました：{error}",
+    "computers.nameLabel": "名前",
+    "computers.namePlaceholder": "例：スタジオの Mac",
+    "computers.nameHelp": "コンピュータの選択メニューに表示される名前です。この Mac やほかのコンピュータとは別の名前にしてください。",
+    "computers.duplicateHint": "この Mac またはほかのコンピュータに同じ名前があります。「名前を変更」をクリックして、別の名前を付けてください。",
+    "computers.back": "この Mac に戻る",
+    "computers.error.name-taken": "この Mac またはほかのコンピュータがすでにこの名前を使っています。別の名前を入力してください。",
+    "computers.error.name-missing": "このコンピュータの名前を入力してください。"
   },
   "common": {
     "ok": "OK",

@@ -1,12 +1,14 @@
 // Real-app check of Remote computers on each dsh given: two throwaway dsh on this Mac, A ("Office Mac") and B ("Studio
 // Mac"), each with its own DSH_HOME, a fake model and made-up projects. Never the normal DSH_HOME and no real model.
 // The front door of B listens on 127.0.0.1 here (DSH_COMPUTERS_TEST_LOOPBACK=1) in place of a Tailscale address.
-// 1. Off by default: no picker in the chat header, no listener.
+// 1. Off by default: no picker, no listener.
 // 2. B: Settings → Remote computers on, Let other computers open this Mac on, Create pairing link.
-// 3. A: switch on, the picker at the left of the chat title, Add a computer…, paste, Connect; B shows the request, Approve.
-// 4. A: pick Studio Mac in the picker: B's dsh opens (in A's Browser tab when this dsh has one, else in a new window) and
-//    shows B's own chat; the page has no picker of its own (`via`).
-// 5. B removes A: A's next open says that it must pair again. A switches off: the picker goes and the relay port closes.
+// 3. A: switch on; the picker is in the left sidebar right of the brand, above New session, not in the chat header;
+//    Add a computer… asks for a name (This Mac's name is refused), paste, Connect; B shows the request, Approve.
+// 4. A: a long turn runs; pick Studio in the picker: B's dsh fills A's window (no new window), with B's chat and the same
+//    picker (from A's relay) in the same place. A's turn ends while B shows. B's picker → This Mac: A comes back with the
+//    finished turn; Studio again: the same page (no reload).
+// 5. B removes A: A's next open closes the page with "pair again". A switches off: nothing stays, the relay closes.
 // PLAYWRIGHT=/path/to/playwright node test/browser-computers.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/remoteComputers.webp (English UI, made-up names only).
 import assert from 'node:assert/strict';
@@ -43,7 +45,10 @@ const fake = createServer((req, res) => {
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo', choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`;
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const answer = (text) => res.end(chunk({ role: 'assistant', content: text }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
-    answer(/session title/i.test(last) ? (JSON.stringify(msgs).includes('garden') ? 'Garden watering' : 'Recipe search') : 'Water the beds at 6 am.');
+    if (/session title/i.test(last)) return answer(JSON.stringify(msgs).includes('garden') ? 'Garden watering' : 'Recipe search');
+    // A turn that runs for some seconds (it must finish while the other Mac shows).
+    if (last.includes('long story')) { setTimeout(() => answer('The story ends here.'), 6000); return; }
+    answer('Water the beds at 6 am.');
   });
 }).listen(0, '127.0.0.1');
 await new Promise((r) => fake.once('listening', r));
@@ -152,21 +157,35 @@ try {
       await linkBox.waitFor();
       const link = await linkBox.inputValue();
       assert.match(link, /^dsh-computer:\/\/pair\?v=1&host=127\.0\.0\.1&port=\d+&fp=[0-9a-f]{64}&code=/);
-      // 3. A switches on; the picker shows at the left of the chat title; Add a computer…
+      // 3. A switches on; the picker is in the sidebar's brand row (right of the brand, above New session).
       await switchOn(pa, 'Remote computers');
       await pa.keyboard.press('Escape');
       const picker = pa.locator('[data-composer-plus-computer-picker]');
       await picker.waitFor({ timeout: 10000 });
       assert.equal((await picker.innerText()).trim(), 'This Mac');
-      // The picker sits in the header, left of everything else there, and is not a window drag area.
-      const leading = await pa.evaluate(() => { const el = document.querySelector('[data-composer-plus-computer-picker]'); return { inLeading: !!el?.closest('[data-conversation-header-leading]'), region: getComputedStyle(el).webkitAppRegion ?? getComputedStyle(el).getPropertyValue('-webkit-app-region') }; });
-      assert.equal(leading.inLeading, true, 'in conversation.header.leading');
+      const place = await pa.evaluate(() => {
+        const host = document.querySelector('[data-composer-plus-computer-host]');
+        const row = host?.parentElement; const brand = host?.previousElementSibling;
+        const ns = document.querySelector('[class*="_newSession"]'); // on dsh web the brand is a "New session" button too
+        const name = document.querySelector('[class*="_brandName"]').getBoundingClientRect();
+        const p = document.querySelector('[data-composer-plus-computer-picker]').getBoundingClientRect();
+        const b = brand.getBoundingClientRect(); const n = ns.getBoundingClientRect();
+        return { inRow: /_logoRow/.test(row?.className ?? ''), afterBrand: /_brand/.test(brand?.className ?? ''), right: p.left >= b.right - 1, above: p.bottom <= n.top + 1, brandWhole: name.right <= b.right + 1,
+          inHeader: !!document.querySelector('[data-conversation-header-leading] [data-composer-plus-computer-picker]'), region: getComputedStyle(host).getPropertyValue('-webkit-app-region') };
+      });
+      assert.deepEqual({ ...place, region: undefined }, { inRow: true, afterBrand: true, right: true, above: true, brandWhole: true, inHeader: false, region: undefined }, 'right of the brand, above New session, not in the chat header; the brand is not cut');
       await picker.click();
       await pa.getByRole('menuitem', { name: 'Add a computer…' }).click();
       const dialog = pa.getByRole('dialog').filter({ hasText: 'Add a computer' });
       await dialog.getByRole('textbox', { name: 'Pairing link' }).fill(link);
+      const nameBox = dialog.getByRole('textbox', { name: 'Name', exact: true });
+      assert.equal(await nameBox.inputValue(), 'Studio Mac', 'the name comes from the link');
+      await nameBox.fill('office mac');
+      await dialog.getByText('already has this name', { exact: false }).waitFor();
+      assert.equal(await dialog.getByRole('button', { name: 'Connect', exact: true }).isDisabled(), true, 'This Mac\'s name: Connect is off');
+      await nameBox.fill('Studio');
       await dialog.getByRole('button', { name: 'Connect', exact: true }).click();
-      await dialog.getByText('Click Approve on Studio Mac', { exact: false }).waitFor({ timeout: 10000 });
+      await dialog.getByText('Click Approve on Studio', { exact: false }).waitFor({ timeout: 10000 });
       // B: the request card; Approve.
       const request = sb.locator('[data-composer-plus-computer-request]');
       await request.waitFor({ timeout: 10000 });
@@ -174,60 +193,72 @@ try {
       await request.getByRole('button', { name: 'Approve', exact: true }).click();
       await dialog.waitFor({ state: 'hidden', timeout: 10000 });
       await sb.getByText('Office Mac can now open this Mac.', { exact: false }).waitFor({ timeout: 10000 });
-      // 4. A: start a chat (the Browser tab belongs to a chat), then pick Studio Mac.
+      // 4. A: a long turn starts, then Studio fills the window.
       const inputA = pa.locator('[data-composer-input]');
-      await inputA.click(); await pa.keyboard.type('Find a soup recipe'); await pa.keyboard.press('Enter');
-      await pa.getByText('Water the beds', { exact: false }).first().waitFor({ timeout: 20000 });
+      await inputA.click(); await pa.keyboard.type('Write a long story'); await pa.keyboard.press('Enter');
+      await pa.locator('[data-row-key^="session:"]').first().waitFor({ timeout: 20000 });
       await picker.click();
       if (index === 0 && process.env.SHOT) {
-        await pa.getByRole('menuitem', { name: 'Studio Mac' }).waitFor();
+        await pa.getByRole('menuitem', { name: 'Studio' }).waitFor();
         await pause(500);
         const box = await picker.boundingBox();
         const menuBox = await pa.getByRole('menu').boundingBox();
-        const clip = { x: Math.max(0, box.x - 260), y: 0, width: 700, height: Math.ceil(menuBox.y + menuBox.height + 24) };
+        const clip = { x: 0, y: 0, width: Math.ceil(Math.max(box.x + box.width, menuBox.x + menuBox.width) + 24), height: Math.ceil(menuBox.y + menuBox.height + 24) };
         const png = join(a.home, 'remoteComputers.png'); await pa.screenshot({ path: png, clip });
         execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.round(clip.width * 1.25)), '0', png, '-o', join(repo, 'assets/features/remoteComputers.webp')]);
       }
       const popup = ctxA.waitForEvent('page', { timeout: 4000 }).catch(() => null);
-      await pa.getByRole('menuitem', { name: 'Studio Mac' }).click();
-      // In the Browser tab (an iframe on web), else in a new window.
-      const win = await popup;
-      let remote;
-      if (win) { await win.waitForLoadState(); remote = win; }
-      else {
-        const frame = await until(async () => pa.frames().find((f) => /^http:\/\/127\.0\.0\.1:\d+\//.test(f.url()) && !f.url().startsWith(new URL(a.url).origin)), 15000, 'Browser tab with the computer');
-        remote = frame;
-      }
-      // B's own dsh: its project, and its chat in its sidebar (a narrow tab shows the sidebar as icons: open it then).
+      await pa.getByRole('menuitem', { name: 'Studio' }).click();
+      const view = pa.locator('iframe[data-composer-plus-computer-view]');
+      await view.waitFor({ timeout: 15000 });
+      assert.equal(await popup, null, 'no new window');
+      const box = await view.boundingBox();
+      assert.ok(box.width >= 1270 && box.height >= 760, `the computer fills the window (${box.width}×${box.height})`);
+      const remote = pa.frameLocator('iframe[data-composer-plus-computer-view]');
       await remote.getByText('garden-notes', { exact: false }).first().waitFor({ timeout: 30000 });
-      const chatRow = remote.locator('[data-row-key^="session:"]').filter({ hasText: 'Garden watering' });
-      if (!(await chatRow.first().isVisible().catch(() => false))) await remote.getByRole('button', { name: /Open sidebar/ }).first().click().catch(() => {});
-      await chatRow.first().waitFor({ timeout: 15000 });
-      assert.equal(await remote.locator('[data-composer-plus-computer-picker]').count(), 0, 'no picker inside the other computer\'s page');
-      await until(async () => /Studio Mac/.test(await picker.innerText()), 5000, 'the picker names the computer');
-      const relayPort = Number(new URL(win ? win.url() : remote.url()).port);
+      await remote.locator('[data-row-key^="session:"]').filter({ hasText: 'Garden watering' }).first().waitFor({ timeout: 15000 });
+      // B's page: the same picker (from A's relay) in the same place, Studio picked.
+      const remotePicker = remote.locator('[data-composer-plus-computer-picker]');
+      await remotePicker.waitFor({ timeout: 15000 });
+      assert.equal((await remotePicker.innerText()).trim(), 'Studio');
+      assert.equal(await pa.locator('[data-composer-plus-computer-back]').count(), 0, 'B said hello: no Back button');
+      // A's turn ends while B shows.
+      await pause(7000);
+      await remotePicker.click();
+      await remote.getByRole('menuitem', { name: /^This Mac \(Office Mac\)/ }).click();
+      await view.waitFor({ state: 'hidden', timeout: 10000 });
+      await pa.getByText('The story ends here.', { exact: false }).first().waitFor({ timeout: 5000 });
+      // Studio again: the same page, no reload (the marker set in it stays).
+      const frame = pa.frames().find((f) => /^http:\/\/127\.0\.0\.1:\d+\//.test(f.url()) && !f.url().startsWith(new URL(a.url).origin));
+      await frame.evaluate(() => { window.__kept = 1; });
+      await picker.click(); await pa.getByRole('menuitem', { name: 'Studio' }).click();
+      await view.waitFor({ timeout: 10000 });
+      assert.equal(await frame.evaluate(() => window.__kept), 1, 'the hidden page stayed (no reload)');
+      const relayPort = Number(new URL(frame.url()).port);
       assert.ok(await listening(relayPort), 'the relay listens');
-      // 5. B removes A; A's next open says it must pair again. Then A switches off.
+      await remotePicker.click(); await remote.getByRole('menuitem', { name: /^This Mac/ }).click();
+      await view.waitFor({ state: 'hidden', timeout: 10000 });
+      // 5. B removes A; A's next open says that it must pair again. Then A switches off.
       await sb.locator('div').filter({ hasText: /^Office Mac/ }).getByRole('button', { name: 'Remove', exact: true }).last().click();
       await sb.getByText('None.', { exact: true }).waitFor({ timeout: 10000 });
-      if (win) await win.close();
-      await picker.click();
-      await pa.getByRole('menuitem', { name: 'Studio Mac' }).click();
-      // The tab shows the relay's reason, and the picker then marks the computer (its next open is refused).
-      await until(async () => { for (const f of pa.frames()) if (/removed this one/.test(await f.locator('body').innerText().catch(() => ''))) return true; return false; }, 20000, 'the tab says that the Mac removed this one');
-      await pa.keyboard.press('Escape');
+      await pa.reload(); await pa.locator('[data-composer-input]').waitFor();
+      await picker.click(); await pa.getByRole('menuitem', { name: 'Studio' }).click();
+      // The relay answers its own text (no hello): after some seconds the page closes and the picker says why.
+      await pa.getByText('That Mac removed this one', { exact: false }).first().waitFor({ timeout: 20000 });
+      await view.waitFor({ state: 'detached', timeout: 10000 });
       await picker.click();
       await pa.getByRole('menuitem', { name: /pair again/ }).waitFor({ timeout: 10000 });
       await pa.keyboard.press('Escape');
       await setSwitch(pa, 'Remote computers', false);
       await pa.keyboard.press('Escape');
       await until(async () => (await picker.count()) === 0, 10000, 'picker removed');
+      assert.equal(await pa.locator('[data-composer-plus-computer-views], [data-composer-plus-computer-host]').count(), 0, 'nothing stays');
       await until(async () => !(await listening(relayPort)), 10000, 'relay closed');
       await setSwitch(pb, 'Remote computers', false);
       await until(async () => !(await listening(DOOR)), 10000, 'front door closed');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: off by default, B accepts + pairing link, A adds with Approve on B, A opens B's dsh (${win ? 'window' : 'Browser tab'}) with B's chat and no nested picker, B removes A, switch off closes the relay and the front door`);
+      console.log(`PASS ${bin}: off by default; picker right of the brand above New session; name asked (This Mac's refused); Approve on B; B fills A's window (no window), B's picker switches back, A's turn finished meanwhile, no reload; B removes A → pair again; off leaves nothing`);
     } catch (error) {
       for (const [n, c] of [['a', ctxA], ['b', ctxB]]) { const p = c?.pages().at(-1); if (p) await p.screenshot({ path: join(n === 'a' ? a.home : b.home, 'failed.png') }).catch(() => {}); }
       console.error(`kept for inspection: ${a.home} ${b.home}; page errors: ${JSON.stringify(errors)}`);
