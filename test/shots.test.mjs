@@ -31,6 +31,7 @@ const React = { createElement: (t, p, ...c) => ({ t, p, c }), Fragment: 'F',
 const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host) => ({ portal: el, host }) } : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Input: 'Input' } : {}));
 let C; plugin.apply({ effect() {}, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: () => (k) => k }, slots: { inject: (n, f) => f(), register: (o, Comp) => { if (o.id === 'composer-plus') C = Comp; return () => {}; } } });
 si = ri = 0; const Shot = C({ useComposerPlusToggles: (f) => f({}), setFeature() {}, t: (k) => k }).c.slice(5)[0].c[0].t;
+state = []; refs = []; // the thumbnail gets its own state, not the Settings page's
 const t = (k, p) => (p?.feature ? `${k}:${p.feature}` : k);
 const render = (id = 'changesPanel', ...rest) => { if (rest[0] === 'none') id = undefined; si = ri = 0; effects = []; const out = Shot({ id, title: 'Changes panel', t }); for (const f of effects) f(); return out; };
 let timers = []; globalThis.setTimeout = (f) => { timers.push(f); return timers.length; }; globalThis.clearTimeout = () => { timers = []; };

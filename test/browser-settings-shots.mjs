@@ -1,10 +1,12 @@
 // Isolated real-app check: every feature row in Settings → Composer Plus shows its screenshot thumbnail, and every
 // thumbnail image loads from the Host route. No model, never the normal DSH_HOME.
+// It also checks the On/off filter (All / On / Off next to Search features). SHOT=1 writes assets/features/featureFilter.webp
+// (English UI, no projects).
 // PLAYWRIGHT=/path/to/playwright node test/browser-settings-shots.mjs /path/to/dsh/lib/bin.js [...]
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { spawn } from 'node:child_process';
-import { mkdtemp, mkdir, writeFile, symlink, rm, realpath } from 'node:fs/promises';
+import { spawn, execFileSync } from 'node:child_process';
+import { mkdtemp, mkdir, writeFile, symlink, rm, realpath, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -20,7 +22,7 @@ const openSettings = async (page) => {
   await page.getByRole('button', { name: 'Account menu', exact: true }).click();
   await page.getByRole('menuitem', { name: /^Settings/ }).click();
 };
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-shots-check-')));
@@ -37,7 +39,7 @@ try {
       for (let i = 0; i < 160 && !log.match(/http:\/\/[^\s]*token=[^\s]*/); i++) { if (child.exitCode !== null) throw Error(`test dsh exited (${child.exitCode})`); await pause(250); }
       const url = log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0]; assert.ok(url, 'test server URL available');
       context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 900 } });
-      await context.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false}'); });
+      await context.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"planToggle":false}'); });
       const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       await page.goto(url);
       for (const name of ['Continue', 'Configure later']) { const b = page.getByRole('button', { name, exact: true }); if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) await b.click(); }
@@ -75,6 +77,40 @@ try {
         assert.equal(h.href, `https://github.com/furkancak1r/dsh-composer-plus/blob/main/README.md#feature-${h.id.toLowerCase()}`, `${h.id}: the link opens its README row`);
         assert.equal(h.target, '_blank'); assert.equal(h.rel, 'noopener noreferrer'); assert.match(h.label, /^How to use it: .+ \(opens the README\)$/);
       }
+      // On/off filter: Off shows only rows whose switch is off, On only rows whose switch is on, All every row again.
+      const states = () => settings.evaluate((root) => [...root.querySelectorAll('[role="switch"]')].map((s) => s.getAttribute('aria-checked')));
+      const group = settings.locator('[data-composer-plus-filter-group]');
+      assert.equal(await group.getAttribute('role'), 'group'); assert.equal(await group.getAttribute('aria-label'), 'Filter by switch state');
+      const all = await states(); const offCount = all.filter((x) => x === 'false').length;
+      assert.equal(all.length, report.rows); assert.ok(offCount >= 2, `some rows are off (${offCount})`);
+      await group.getByRole('button', { name: 'Off', exact: true }).click();
+      let now = await states();
+      assert.equal(now.length, offCount, 'Off: only the switched-off rows'); assert.ok(now.every((x) => x === 'false'));
+      assert.equal(await settings.locator('[data-composer-plus-language]').count(), 0, 'Off hides the language row');
+      assert.equal(await group.getByRole('button', { name: 'Off', exact: true }).getAttribute('aria-pressed'), 'true');
+      // Switching a row on under Off: the row stays and its switch keeps the focus; Off again hides it.
+      const plan = settings.getByRole('switch', { name: 'Shift+Tab plan mode', exact: true });
+      await plan.click();
+      assert.equal(await plan.getAttribute('aria-checked'), 'true'); assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Shift+Tab plan mode', 'the focus stays on the switched row');
+      await group.getByRole('button', { name: 'Off', exact: true }).click();
+      assert.equal(await plan.count(), 0, 'Off again hides the row that is now on'); assert.equal((await states()).length, offCount - 1);
+      await group.getByRole('button', { name: 'On', exact: true }).click();
+      now = await states(); assert.equal(now.length, all.length - offCount + 1, 'On: only the switched-on rows'); assert.ok(now.every((x) => x === 'true'));
+      // Keyboard: Tab from the search box reaches All, and the focused button shows a focus ring.
+      await settings.locator('input[type="search"]').focus(); await page.keyboard.press('Tab');
+      const ring = await page.evaluate(() => { const el = document.activeElement; const cs = getComputedStyle(el); return { filter: el?.dataset.composerPlusFilter, outline: cs.outlineStyle !== 'none' && parseFloat(cs.outlineWidth) > 0, shadow: cs.boxShadow }; });
+      assert.equal(ring.filter, 'all', 'Tab from the search box goes to All'); assert.ok(ring.outline, `the focused filter button shows a focus ring (${JSON.stringify(ring)})`);
+      await group.getByRole('button', { name: 'Off', exact: true }).click();
+      if (process.env.SHOT && bin === process.argv[2]) {
+        await page.mouse.move(5, 5); await page.evaluate(() => document.activeElement?.blur());
+        const top = await settings.boundingBox(); const png = join(tmpdir(), `featureFilter-${process.pid}.png`);
+        await page.screenshot({ path: png, clip: { x: top.x - 8, y: top.y - 4, width: Math.min(900, top.width + 16), height: 420 } });
+        const out = join(repo, 'assets/features/featureFilter.webp');
+        execFileSync('cwebp', ['-quiet', '-q', '78', png, '-o', out]); await rm(png, { force: true });
+        console.log(`shot: assets/features/featureFilter.webp ${(await stat(out)).size} bytes`);
+      }
+      await group.getByRole('button', { name: 'All', exact: true }).click();
+      assert.equal((await states()).length, all.length, 'All shows every row again');
       // Switch the UI to Türkçe: the links follow it to README.tr.md.
       await page.locator('[data-composer-plus-language] button[aria-haspopup="menu"]').click();
       await page.getByRole('menuitem', { name: 'Türkçe' }).or(page.getByRole('menuitemradio', { name: 'Türkçe' })).or(page.getByRole('option', { name: 'Türkçe' })).first().click();
@@ -88,7 +124,7 @@ try {
       assert.equal(await page.evaluate(() => document.activeElement?.dataset.composerPlusHelp), 'language', 'the ? link takes the keyboard focus');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: ${report.rows} feature rows, each with a loading screenshot and a ? link to its README row (README.md, then README.tr.md in Türkçe); the language row has its ? link too; update and language rows have a screenshot`);
+      console.log(`PASS ${bin}: ${report.rows} feature rows, each with a loading screenshot and a ? link to its README row (README.md, then README.tr.md in Türkçe); the language row has its ? link too; update and language rows have a screenshot; the On/off filter shows ${offCount} off rows, keeps a switched row and its focus, and reaches All with Tab`);
     } finally {
       await context?.close();
       await writeFile(join(home, 'server.log'), log); // the token stays inside the temporary home, never stdout
