@@ -94,8 +94,8 @@ async function host({ withWeb = true } = {}) {
   let webSetup;
   apply({ on() {}, sessionController: {}, sessionQuery: {}, subprocess: {},
     connection: { fetch: { register: (r) => routes.set(r.path, r) }, authenticatedUrl: (base) => `${base}/?token=t` },
-    // Task board (on by default) injects its tools at start; only the web server matters here.
-    inject: (deps, setup) => { if (deps.includes('tools')) return { dispose() {} }; assert.deepEqual(deps, ['webServer']); webSetup = setup; } });
+    // Task board and Untangle codebase (on by default) inject their tools and skills at start; only the web server matters here.
+    inject: (deps, setup) => { if (deps.includes('tools') || deps.includes('skills')) return { dispose() {} }; assert.deepEqual(deps, ['webServer']); webSetup = setup; } });
   if (withWeb) webSetup({ webServer: { port: 1 }, effect: (f) => { disposers.push(f()); } });
   const call = async (body) => {
     const response = await routes.get(MOBILE_PATH).fetch(new Request(`http://h${MOBILE_PATH}`, body === undefined ? {} : { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) }));
@@ -139,7 +139,7 @@ async function host({ withWeb = true } = {}) {
   const routes = new Map(); const disposers = [];
   apply({ on() {}, sessionController: {}, sessionQuery: {}, subprocess: {},
     connection: { fetch: { register: (r) => routes.set(r.path, r) }, authenticatedUrl: (base) => `${base}/?token=t` },
-    inject: (deps, setup) => (deps.includes('tools') ? { dispose() {} } : setup({ webServer: { port: 1 }, effect: (f) => { disposers.push(f()); } })) });
+    inject: (deps, setup) => (deps.includes('tools') || deps.includes('skills') ? { dispose() {} } : setup({ webServer: { port: 1 }, effect: (f) => { disposers.push(f()); } })) });
   let state;
   for (let i = 0; i < 100; i++) { state = await (await routes.get(MOBILE_PATH).fetch(new Request(`http://h${MOBILE_PATH}`))).json(); if (state.admin) break; await new Promise((r) => setTimeout(r, 20)); }
   assert.equal(state.on, true); assert.match(state.admin, /^http:\/\/127\.0\.0\.1:\d+\/$/, 'saved on: started at load');

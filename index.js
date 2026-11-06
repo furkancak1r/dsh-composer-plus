@@ -28,6 +28,7 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { createGateway, createRelay, macName, normFp, parseComputerLink } from './tether/gateway/server.mjs';
 import { request as httpsRequest } from 'node:https';
+import { fileURLToPath } from 'node:url';
 import * as backups from './backup.mjs';
 
 export const name = 'dsh-composer-plus';
@@ -82,7 +83,7 @@ export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'allowForChat', 'rejectNote', 'secretInput', 'quoteReply', 'sideChat', 'diffComments', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit', 'windowSize',
   'queueReorder', 'mobileConnect', 'remoteComputers', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
-  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'plannedSteps', 'memoryHistory', 'memoryExport', 'memorySource', 'memoryCopy', 'memoryStale', 'memoryPerChat', 'memorySuggest'];
+  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'plannedSteps', 'untangleCodebase', 'memoryHistory', 'memoryExport', 'memorySource', 'memoryCopy', 'memoryStale', 'memoryPerChat', 'memorySuggest'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -2374,6 +2375,7 @@ export function apply(ctx) {
   installContext(ctx);
   installBoard(ctx, home);
   installPlannedSteps(ctx, home);
+  installUntangle(ctx, home);
   installSecrets(ctx, home);
   installBackup(ctx, home);
 }
@@ -8351,4 +8353,60 @@ export function installPlannedSteps(ctx, home, file = join(home, 'storages', 'ds
     },
   });
   return { ready, tool };
+}
+
+/** Untangle codebase: the shipped copy of caldoai/skills `untangle-codebase` (MIT, © 2026 Maze; see its LICENSE). */
+export const UNTANGLE_PATH = '/api/composer-plus.untangle-codebase';
+export const UNTANGLE_DIR = fileURLToPath(new URL('./assets/skills/untangle-codebase/', import.meta.url));
+/** dsh's `BUNDLED_SKILL_RANK`: a project or user skill with the same name comes first. */
+export const UNTANGLE_RANK = 600;
+/** `name`, `description` and the body of a SKILL.md.
+ * ponytail: one-line frontmatter values only (the shipped file has no YAML blocks); a new upstream copy with a folded
+ * value fails the unit test, then use a YAML parser. */
+export function parseSkillFile(text) {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/.exec(text);
+  if (m === null) throw new Error('SKILL.md has no frontmatter');
+  const value = (match) => match?.[1].trim().replace(/^(["'])(.*)\1$/, '$2') ?? '';
+  const name = value(/^name:[ \t]*(.+)$/m.exec(m[1])); const description = value(/^description:[ \t]*(.+)$/m.exec(m[1]));
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || description === '') throw new Error('SKILL.md needs a name and a description');
+  return { name, description, content: m[2].trim() };
+}
+/** Host half: a skill provider for dsh's catalog, user-invocable only (`/untangle-codebase`), so no model sees it in its
+ * skill list. The switch (on by default) adds and removes the provider in one fiber. */
+export function installUntangle(ctx, home, file = join(home, 'storages', 'dsh-composer-plus', 'untangle-codebase.json'), dir = UNTANGLE_DIR) {
+  const sw = mobileSwitch(file, true);
+  let on = false;
+  let fiber;
+  const load = async () => parseSkillFile(await readFile(join(dir, 'SKILL.md'), 'utf8'));
+  const invocation = { modelInvocable: false, userInvocable: true };
+  const resourceBase = { kind: 'directory', path: dir };
+  const provider = {
+    name: 'composer-plus',
+    list: async () => { const s = await load(); return [{ name: s.name, description: s.description, invocation, provider: 'composer-plus', source: 'bundled', resourceBase, rank: UNTANGLE_RANK }]; },
+    get: async () => ({ ...await load(), invocation, provider: 'composer-plus', source: 'bundled', resourceBase }),
+  };
+  const apply = (next) => {
+    on = next;
+    if (on && fiber === undefined && typeof ctx.inject === 'function') fiber = ctx.inject(['skills'], (sub) => { sub.skills.registerProvider(() => provider); });
+    else if (!on) { fiber?.dispose?.(); fiber = undefined; }
+  };
+  const ready = sw.read().then(apply, () => apply(true));
+  ctx.effect?.(() => () => { on = false; fiber?.dispose?.(); fiber = undefined; }, 'dsh-composer-plus: untangle codebase');
+  let switching = ready;
+  ctx.connection.fetch.register({
+    path: UNTANGLE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await ready;
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (!plainObject(body) || Object.keys(body).join() !== 'on' || typeof body.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        const change = switching.then(async () => { await sw.write(body.on); apply(body.on); });
+        switching = change.catch(() => {});
+        try { await change; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      return json({ on });
+    },
+  });
+  return { ready, provider };
 }

@@ -59,6 +59,8 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.board-progress` | POST | `{mode}`: "fast" (the default, no model call) or "ai". Settings only. | taskBoard | no |
 | `/api/composer-plus.planned-steps` | GET | The switch `{on}`. | plannedSteps | no |
 | `/api/composer-plus.planned-steps` | POST | `{on}`: the switch (a switch route). | plannedSteps | no |
+| `/api/composer-plus.untangle-codebase` | GET | The switch `{on}`. | untangleCodebase | no |
+| `/api/composer-plus.untangle-codebase` | POST | `{on}`: the switch (a switch route). | untangleCodebase | no |
 | `/api/composer-plus.secrets` | GET | The switch `{on}`. | secretInput | no |
 | `/api/composer-plus.secrets` | POST | `{on}`: the switch (a switch route). Off removes the tool and declines the open requests. | secretInput | no |
 | `/api/composer-plus.secret-answer` | GET | `?sessionId=`: `{on, asks: [{askId, callId, label, purpose}]}`, the open `request_secret` requests of that chat; never a value. | secretInput | yes |
