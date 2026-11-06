@@ -38,22 +38,29 @@ assert.deepEqual(check(ok, { body: '' }), ['the GitHub release body is not the E
 assert.equal(check(ok, { body: '## New\n\n- other.' }).length, 1, 'another body');
 assert.equal(check(undefined).length, 2, 'no file: wrong version and every language missing');
 assert.equal(check({ version: '1.2.3', notes: null }).length, 1);
-// Daily active count: each release carries active.txt.
-assert.deepEqual(check(ok, { tag: 'v1.2.3', assets: ['active.txt', 'x.tgz'] }), [], 'the release has active.txt');
-assert.deepEqual(check(ok, { tag: 'v1.2.3', assets: [] }), ['the GitHub release has no active.txt (daily active count): gh release upload v1.2.3 assets/active.txt']);
-assert.ok(readFileSync(new URL('../assets/active.txt', import.meta.url), 'utf8').length > 0, 'assets/active.txt exists');
+// Usage count: each release carries active.txt (daily active count) and installed.txt (unique count).
+assert.deepEqual(check(ok, { tag: 'v1.2.3', assets: ['active.txt', 'installed.txt', 'x.tgz'] }), [], 'the release has both files');
+assert.deepEqual(check(ok, { tag: 'v1.2.3', assets: ['installed.txt'] }), ['the GitHub release has no active.txt (daily active count): gh release upload v1.2.3 assets/active.txt']);
+assert.deepEqual(check(ok, { tag: 'v1.2.3', assets: ['active.txt'] }), ['the GitHub release has no installed.txt (unique count): gh release upload v1.2.3 assets/installed.txt']);
+assert.equal(check(ok, { tag: 'v1.2.3', assets: [] }).length, 2, 'no file: both are named');
+for (const name of ['active.txt', 'installed.txt']) assert.ok(readFileSync(new URL(`../assets/${name}`, import.meta.url), 'utf8').length > 0, `assets/${name} exists`);
 
 // The script as release.yml runs it: TAG, and in a release event the body from GITHUB_EVENT_PATH.
 const dir = mkdtempSync(join(tmpdir(), 'cp-release-notes-'));
 try {
   const run = (env) => { try { return { code: 0, out: execFileSync(process.execPath, ['scripts/release-notes.mjs'], { cwd: new URL('..', import.meta.url), env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' }) }; } catch (e) { return { code: e.status, out: e.stdout }; } };
   const event = join(dir, 'event.json');
-  writeFileSync(event, JSON.stringify({ release: { tag_name: `v${version}`, body: file.notes.en, assets: [{ name: 'active.txt' }] } }));
-  assert.equal(run({ TAG: `v${version}`, GITHUB_EVENT_NAME: 'release', GITHUB_EVENT_PATH: event }).code, 0, 'the release event passes with the English body and active.txt');
-  writeFileSync(event, JSON.stringify({ release: { tag_name: `v${version}`, body: file.notes.en, assets: [] } }));
+  const both = [{ name: 'active.txt' }, { name: 'installed.txt' }];
+  writeFileSync(event, JSON.stringify({ release: { tag_name: `v${version}`, body: file.notes.en, assets: both } }));
+  assert.equal(run({ TAG: `v${version}`, GITHUB_EVENT_NAME: 'release', GITHUB_EVENT_PATH: event }).code, 0, 'the release event passes with the English body, active.txt and installed.txt');
+  writeFileSync(event, JSON.stringify({ release: { tag_name: `v${version}`, body: file.notes.en, assets: [{ name: 'installed.txt' }] } }));
   const noAsset = run({ TAG: `v${version}`, GITHUB_EVENT_NAME: 'release', GITHUB_EVENT_PATH: event });
   assert.equal(noAsset.code, 1); assert.match(noAsset.out, /has no active\.txt/, 'a release without active.txt stops the publish');
-  writeFileSync(event, JSON.stringify({ release: { tag_name: `v${version}`, body: 'Other text.', assets: [{ name: 'active.txt' }] } }));
+  writeFileSync(event, JSON.stringify({ release: { tag_name: `v${version}`, body: file.notes.en, assets: [{ name: 'active.txt' }] } }));
+  const noInstalled = run({ TAG: `v${version}`, GITHUB_EVENT_NAME: 'release', GITHUB_EVENT_PATH: event });
+  assert.equal(noInstalled.code, 1, 'a release without installed.txt stops the publish');
+  assert.match(noInstalled.out, new RegExp(`has no installed\\.txt \\(unique count\\): gh release upload v${version.replaceAll('.', '\\.')} assets/installed\\.txt`), 'the error names the upload command');
+  writeFileSync(event, JSON.stringify({ release: { tag_name: `v${version}`, body: 'Other text.', assets: both } }));
   const bad = run({ TAG: `v${version}`, GITHUB_EVENT_NAME: 'release', GITHUB_EVENT_PATH: event, GITHUB_ACTIONS: 'true' });
   assert.equal(bad.code, 1); assert.match(bad.out, /^::error::the GitHub release body is not the English notes/m, 'an Actions error line');
   assert.equal(run({ TAG: 'v0.0.1' }).code, 1, 'a wrong tag fails');
