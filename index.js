@@ -5282,7 +5282,9 @@ export async function startOnBranch({ subprocess, sessionController, sessionQuer
   const source = attachments.some((a) => a.type === 'file') ? agents?.get?.(sessionId) : undefined;
   const files = attachments.filter((a) => a.type === 'file').map((a) => {
     if (fileUploads?.uploadStream === undefined || store?.readFileStream === undefined) throw refused('this dsh cannot give files to a new chat');
-    const ref = source === undefined ? undefined : fileUploads.resolve?.(source, a.receiptId);
+    const found = source === undefined ? undefined : fileUploads.resolve?.(source, a.receiptId);
+    // dsh 0.2.2 stages `{type, attachment}` (a file or an image); 0.2.0 and 0.2.1 give the file reference itself.
+    const ref = found?.type === undefined ? found : found.type === 'file' ? found.attachment : undefined;
     if (ref === undefined) throw refused('a file of this message is not uploaded any more: add it again');
     return ref;
   });

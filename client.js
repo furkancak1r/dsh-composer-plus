@@ -7745,15 +7745,17 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         done();
         restoreBranchSink(sessionId);
         setBranchMode(sessionId, 'current'); // only this send set 'busy', and the menu cannot change it meanwhile
-        // dsh clears a command's draft only when its submit settles while this composer is open (a chat switch drops the
-        // outcome, and the old `/plan …` draft stays here): open the new chat after that.
-        if (plan) setTimeout(() => open(data.sessionId), 0); else open(data.sessionId);
+        // dsh clears the sent draft only when this answer settles while this composer is open: a `/plan …` submit (every
+        // version) and, from dsh 0.2.2, a plain send too. A chat switch before that drops the answer, so the sent text stays
+        // as this New chat's draft, and dsh shows it again in the next New chat of the project. Open the new chat after that.
+        setTimeout(() => open(data.sessionId), 0);
         return { kind: 'success' };
       };
-      const sink = async (text, attachmentIds, mode, signal) => {
-        if (branchSinks.get(sessionId)?.sink !== sink) return original(text, attachmentIds, mode, signal); // restored meanwhile
+      // `rest`: dsh 0.2.2 adds `accept` (the Host took the message); a send that is not ours keeps it.
+      const sink = async (text, attachmentIds, mode, signal, ...rest) => {
+        if (branchSinks.get(sessionId)?.sink !== sink) return original(text, attachmentIds, mode, signal, ...rest); // restored meanwhile
         const ids = attachmentIds ?? [];
-        if (text === '' && ids.length === 0) return original(text, ids, mode, signal);
+        if (text === '' && ids.length === 0) return original(text, ids, mode, signal, ...rest);
         // The new chat has its own copies: the drafts of this composer go (dsh does this itself after its own send).
         return run(text, async () => (ids.length === 0 ? [] : serialize(ids)), false, () => { for (const id of ids) release(id); });
       };

@@ -167,11 +167,32 @@ assert.deepEqual(await send(''), { kind: 'success' }); assert.deepEqual(s1.sent,
   g.go(); assert.deepEqual(await first, { kind: 'success' });
   assert.deepEqual(calls[0], [ROUTE, { action: 'start', sessionId: 's1', text: 'Fix login' }]);
   assert.equal(blocks.has('s1'), false, 'the block goes when the chat starts');
-  assert.deepEqual(opened, ['new-1'], 'the new chat opens'); assert.equal(s1.deps.defaultSink, s1.original, 'after the start: the original sink');
+  await tick(); assert.deepEqual(opened, ['new-1'], 'the new chat opens'); assert.equal(s1.deps.defaultSink, s1.original, 'after the start: the original sink');
   assert.equal(branchModeOf('s1'), 'current');
 }
+// dsh 0.2.2 clears the sent text from this New chat's composer only when the send's answer settles while the chat is still
+// open (`settleSink`: `pending.then(...)`, dropped once the chat changed). The new chat must open after that, else the
+// sent text stays as this chat's saved draft and dsh shows it again in the next New chat of the project.
+{
+  const composer = { draft: 'Fix signup', open: true };
+  const deps = { defaultSink: async () => ({ kind: 'success' }) }; chooseBranchMode('settle', 'new');
+  installBranchSink('settle', { deps }, { start: async () => ({ sessionId: 'settle-new' }), serialize: async () => [], release() {}, block() {},
+    open: (id) => { composer.open = false; opened.push(id); }, t });
+  // dsh's send: the answer clears the draft only while this composer is still the open one.
+  await deps.defaultSink('Fix signup', [], 'default', undefined, () => {}).then((outcome) => { if (composer.open && outcome.kind === 'success') composer.draft = ''; });
+  assert.equal(composer.draft, '', 'dsh clears the sent text before the new chat opens');
+  assert.notEqual(opened.at(-1), 'settle-new', 'not opened before dsh settles the send');
+  await tick(); assert.equal(opened.at(-1), 'settle-new', 'then the new chat opens');
+  // A send that the wrapper does not take (empty, or after a restore) keeps dsh 0.2.2's `accept` argument.
+  const seen = []; const plain = { defaultSink: async (...args) => { seen.push(args); return { kind: 'success' }; } }; const accept = () => {};
+  chooseBranchMode('pass', 'new');
+  installBranchSink('pass', { deps: plain }, { start: () => assert.fail('no start for an empty send'), serialize: async () => [], release() {}, block() {}, open() {}, t });
+  await plain.defaultSink('', [], 'default', undefined, accept);
+  assert.equal(seen.at(-1)[4], accept, 'accept goes on to dsh');
+  chooseBranchMode('settle', 'current'); chooseBranchMode('pass', 'current');
+}
 // A failed start keeps "New branch" and shows the Host's reason, else a short text; an older Host asks for a restart.
-chooseBranchMode('s1', 'new');
+chooseBranchMode('s1', 'new'); const openedBefore = opened.length;
 for (const [answer, shown] of [[{ status: 409, body: { error: 'this chat has no project folder' } }, 'this chat has no project folder'],
   [new TypeError('Failed to fetch'), en['worktree.failed']], [{ status: 500, body: {} }, en['worktree.failed']],
   [{ status: 200, body: {} }, en['worktree.failed']], [{ status: 404, body: {} }, en['worktree.restart']]]) {
@@ -180,13 +201,13 @@ for (const [answer, shown] of [[{ status: 409, body: { error: 'this chat has no 
   assert.equal(branchModeOf('s1'), 'new'); assert.notEqual(s1.deps.defaultSink, s1.original, 'the wrapper stays for the next try');
   assert.equal(blocks.has('s1'), false, 'a failed start gives the composer back');
 }
-assert.equal(opened.length, 1, 'no chat opens after a failure');
+await tick(); assert.equal(opened.length, openedBefore, 'no chat opens after a failure');
 // Attachments go with the first message in dsh's wire form; after the start this composer frees its drafts.
 {
   reply = () => ({ status: 200, body: { sessionId: 'new-files' } }); released.length = 0;
   assert.deepEqual(await send('', ['img-1', 'doc-1']), { kind: 'success' }, 'files only');
   assert.deepEqual(calls.at(-1), [ROUTE, { action: 'start', sessionId: 's1', text: '', attachments: [{ type: 'image', mediaType: 'image/png', data: 'b64-img-1' }, { type: 'file', receiptId: 'rc-doc-1' }] }]);
-  assert.deepEqual(released, ['img-1', 'doc-1']); assert.equal(opened.at(-1), 'new-files'); assert.equal(s1.deps.defaultSink, s1.original);
+  await tick(); assert.deepEqual(released, ['img-1', 'doc-1']); assert.equal(opened.at(-1), 'new-files'); assert.equal(s1.deps.defaultSink, s1.original);
   // A failed start keeps the drafts (dsh puts them back) and frees no block that another plugin set.
   chooseBranchMode('s1', 'new'); reply = () => ({ status: 409, body: { error: 'a file of this message is not uploaded any more: add it again' } }); released.length = 0;
   assert.deepEqual(await send('Use this', ['doc-2']), { kind: 'error', text: 'a file of this message is not uploaded any more: add it again' });
@@ -239,7 +260,7 @@ assert.ok(!ids().includes('branch-chip') && !ids().includes('branch-status'), 'a
   installBranchSink('solo', { deps }, { start: async (id, body) => { started.push([id, body]); return { sessionId: 'solo-new' }; }, serialize: async () => [], release() {}, block: (id, reason) => blockedSolo.push(reason), open: (id) => started.push(id), t });
   const wrapped = deps.defaultSink; assert.notEqual(wrapped, original);
   installBranchSink('solo', { deps }, { start: () => assert.fail('a second wrapper'), open() {}, t }); assert.equal(deps.defaultSink, wrapped, 'it wraps once');
-  assert.deepEqual(await deps.defaultSink('Hello', [], 'default'), { kind: 'success' });
+  assert.deepEqual(await deps.defaultSink('Hello', [], 'default'), { kind: 'success' }); await tick();
   assert.deepEqual(started, [['solo', 'Hello'], 'solo-new']); assert.equal(deps.defaultSink, original, 'the original sink is back'); assert.equal(branchModeOf('solo'), 'current');
   assert.deepEqual(blockedSolo, [en['worktree.creating'], undefined], 'blocked while it ran');
 }
@@ -252,7 +273,7 @@ setFeature('worktreeChats', true); assert.ok(ids().includes('branch-chip')); ass
   assert.deepEqual(blocks.get('s1'), { reason: en['worktree.creating'] }, 'and its composer block until the Host answers');
   setFeature('worktreeChats', true); chooseBranchMode('s1', 'new');
   assert.equal(s1.deps.defaultSink, s1.original, 'no second start of this chat while the first runs'); assert.equal(branchModeOf('s1'), 'busy');
-  g.go(); assert.deepEqual(await running, { kind: 'success' }); assert.equal(opened.at(-1), 'new-2'); assert.equal(branchModeOf('s1'), 'current');
+  g.go(); assert.deepEqual(await running, { kind: 'success' }); await tick(); assert.equal(opened.at(-1), 'new-2'); assert.equal(branchModeOf('s1'), 'current');
   assert.equal(blocks.has('s1'), false, 'then the block goes');
 }
 

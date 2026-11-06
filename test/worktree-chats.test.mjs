@@ -266,7 +266,15 @@ try {
     const rb = await startOnBranch(withFiles(llmSaying('feat/never-asked')), 'main', '', undefined, [image]);
     assert.match(rb.branch, /^feat\/chat-\d{8}-\d{4}$/, 'files only: the dated name, no model call'); assert.equal(rb.named, false);
     assert.deepEqual(made.prompts.at(-1).content, [image], 'no empty text part');
+    // dsh 0.2.2 stages `{type, attachment}` under a receipt (a file or an image): the file reference is `attachment`.
+    reads.length = 0; uploads.length = 0;
+    const staged = { ...fileUploads, resolve: (agent, receipt) => (agent?.id !== 'main' ? undefined
+      : receipt === 'rc-1' ? { type: 'file', attachment: ref } : receipt === 'rc-img' ? { type: 'image', attachment: { attachmentId: 'img-1' } } : undefined) };
+    const rc = await startOnBranch({ ...withFiles(llmSaying('feat/spec-again')), fileUploads: staged }, 'main', 'Build it', undefined, [{ type: 'file', receiptId: 'rc-1' }]);
+    assert.deepEqual(reads, [ref], 'dsh 0.2.2: the staged file reference is read');
+    assert.deepEqual(uploads, [{ sessionId: rc.sessionId, name: 'spec.pdf', bytes: [1, 2, 3] }], 'dsh 0.2.2: the file is stored for the new chat');
     const trees = git(S, 'worktree', 'list').split('\n').filter(Boolean).length;
+    await assert.rejects(startOnBranch({ ...withFiles(undefined), fileUploads: staged }, 'main', 'x', undefined, [{ type: 'file', receiptId: 'rc-img' }]), (e) => e.status === 409 && /not uploaded any more/.test(e.message), 'a staged image is not a file');
     await assert.rejects(startOnBranch(withFiles(undefined), 'main', 'x', undefined, [{ type: 'file', receiptId: 'gone' }]), (e) => e.status === 409 && /not uploaded any more/.test(e.message));
     await assert.rejects(startOnBranch(deps(undefined), 'main', 'x', undefined, [{ type: 'file', receiptId: 'rc-1' }]), (e) => e.status === 409 && /cannot give files/.test(e.message), 'an older dsh without the upload services');
     assert.equal(git(S, 'worktree', 'list').split('\n').filter(Boolean).length, trees, 'a refused file makes no worktree');
@@ -289,7 +297,7 @@ try {
   await assert.rejects(startOnBranch(deps(undefined), 'empty', 'x'), (e) => e.status === 409 && /no commit/.test(e.message));
   const plain = join(base, 'plain'); mkdirSync(plain); chats.plain = { cwd: plain };
   await assert.rejects(startOnBranch(deps(undefined), 'plain', 'x'), (e) => e.status === 409 && /not in a git repository/.test(e.message));
-  assert.equal(git(S, 'worktree', 'list').split('\n').filter(Boolean).length, 11, 'no refused start made a worktree (main + 10 starts)');
+  assert.equal(git(S, 'worktree', 'list').split('\n').filter(Boolean).length, 12, 'no refused start made a worktree (main + 11 starts)');
 
   // A failure after the worktree exists keeps it and names it.
   registryFails = true;
@@ -357,7 +365,7 @@ try {
   assert.equal(g.status, 200);
   const { worktrees, ...status } = g.data;
   assert.deepEqual(status, { repo: true, root: S, top: S, worktree: false, hasCommit: true, branch: 'main', upstream: 'origin/main', ahead: 0, behind: 0, changes: 2 });
-  assert.ok(Array.isArray(worktrees) && worktrees.length === 12 && worktrees[0].current && worktrees[0].main);
+  assert.ok(Array.isArray(worktrees) && worktrees.length === 13 && worktrees[0].current && worktrees[0].main);
   assert.deepEqual(Object.keys(worktrees[1]).sort(), ['ahead', 'behind', 'branch', 'changes', 'current', 'main', 'path', 'upstream']);
   g = await call('GET', undefined, '?sessionId=wt');
   assert.deepEqual(g.data, { repo: true, root: S, top: r1.path, worktree: true, hasCommit: true, branch: 'feat/dark-mode-toggle', upstream: 'origin/feat/dark-mode-toggle', ahead: 1, behind: 0, changes: 0 }, 'no list without list=1');
