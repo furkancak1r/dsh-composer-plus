@@ -1,9 +1,12 @@
 // Isolated real-app check of What's new (Automatic updates): a saved record for the running version shows the release notes
 // that ship with it (release-notes.json, from the real Host) once after a start, with the GitHub link; Esc and Close close
 // it; the next start shows nothing; an older record goes without a dialog; a newer one (restart pending) stays. A Turkish
-// browser (tr-TR) shows the Turkish title and notes (test/update.test.mjs checks a language switch while it is open). No
-// model and no GitHub call: the update check route is answered by the test. Never the normal DSH_HOME.
+// browser (tr-TR) shows the Turkish title and notes (test/update.test.mjs checks a language switch while it is open). The
+// GitHub star line shows below the notes; its link opens the repository in a new tab and it does not show again; "Do not
+// ask again" removes it at once (test/whats-new-star.test.mjs checks the 30 days). No model and no GitHub call: the update
+// check route and github.com are answered by the test. Never the normal DSH_HOME.
 // PLAYWRIGHT=/path/to/playwright node test/browser-whats-new.mjs /path/to/dsh/lib/bin.js [...]
+// WHATS_NEW_SHOT=/some/folder also saves pictures of the dialog with the star line (English and Turkish).
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
@@ -22,6 +25,17 @@ const shipped = JSON.parse(await readFile(join(repo, 'release-notes.json'), 'utf
 const plain = (text) => text.trim().replace(/^#{1,6}\s+/gm, '').replace(/\*\*([^*\n]+)\*\*/g, '$1');
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const SEEN = 'dsh-composer-plus.update.seen';
+const STAR = 'dsh-composer-plus.whatsNew.star', REPO = 'https://github.com/furkancak1r/dsh-composer-plus';
+/** The test answers github.com itself (the star link): no real GitHub call. */
+const fakeGitHub = (c) => c.route((u) => u.hostname === 'github.com', (route) => route.fulfill({ contentType: 'text/html', body: '<title>repo</title>' }));
+/** The star line comes below the notes, inside the dialog. */
+const starBelowNotes = async (dialog) => {
+  const notes = await dialog.locator('[data-composer-plus-whats-new]').boundingBox(), star = await dialog.locator('[data-composer-plus-whats-new-star]').boundingBox();
+  const box = await dialog.boundingBox();
+  assert.ok(star.y >= notes.y + notes.height - 1, `the star line is below the notes (${star.y} < ${notes.y + notes.height})`);
+  assert.ok(star.y + star.height <= box.y + box.height + 1, 'the star line is inside the dialog');
+};
+const shot = async (dialog, name) => { if (process.env.WHATS_NEW_SHOT) await dialog.screenshot({ path: join(process.env.WHATS_NEW_SHOT, name) }); };
 // Since 0.2.1-alpha.3 the web app has dsh's account menu (Settings is its first item) in place of the Settings button.
 const openSettings = async (page) => {
   const direct = page.getByRole('button', { name: 'Settings', exact: true });
@@ -46,6 +60,7 @@ try {
       for (let i = 0; i < 160 && !log.match(/http:\/\/[^\s]*token=[^\s]*/); i++) { if (child.exitCode !== null) throw Error(`test dsh exited (${child.exitCode})`); await pause(250); }
       const url = log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0]; assert.ok(url, 'test server URL available');
       context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 900 } });
+      await fakeGitHub(context);
       // The start-up update check (15 s) gets an "up to date" answer: no GitHub call, no install.
       const checks = [];
       await context.route((u) => u.pathname.endsWith('/api/composer-plus.update'), async (route) => {
@@ -91,12 +106,21 @@ try {
       assert.equal(await text.getAttribute('lang'), 'en');
       assert.equal(await dialog.locator('[data-composer-plus-whats-new-link]').getAttribute('href'), link);
       assert.equal(await stored(), null, 'shown once: the record is gone');
+      // 1b. The star line: below the notes; its link (name without the ★) opens the repository in a new tab, once.
+      await starBelowNotes(dialog); await shot(dialog, 'whats-new-star-en.png');
+      const starLink = dialog.getByRole('link', { name: 'Star on GitHub', exact: true });
+      assert.equal(await starLink.getAttribute('href'), REPO); assert.equal(await starLink.getAttribute('target'), '_blank');
+      const tab = context.waitForEvent('page'); await starLink.click(); const opened = await tab;
+      await opened.waitForLoadState(); assert.equal(opened.url(), REPO, 'one click opens the repository'); await opened.close();
+      assert.equal(await page.evaluate((k) => localStorage.getItem(k), STAR), 'done', 'the link: never again');
+      assert.ok(await dialog.locator('[data-composer-plus-whats-new-star]').isVisible(), 'the clicked link stays until the dialog closes');
       // 2. Esc closes it.
       await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'hidden', timeout: 5000 });
       // 3. The next start shows nothing.
       await startWith(null); assert.equal(await dialog.count(), 0, 'not shown again');
       // 4. Close closes it.
       await startWith({ version, notes: 'Fixes.', url: link }); await dialog.waitFor({ timeout: 10000 });
+      assert.equal(await dialog.locator('[data-composer-plus-whats-new-star]').count(), 0, 'after the star link: no star line');
       await dialog.locator('[data-composer-plus-whats-new-close]').click(); await dialog.waitFor({ state: 'hidden', timeout: 5000 });
       // 5. An older record (a newer copy already runs): no dialog, the record goes.
       await startWith({ version: '0.0.1', notes: 'Old.' });
@@ -106,6 +130,7 @@ try {
       assert.equal(await page.getByRole('dialog', { name: /What’s new in Composer Plus/ }).count(), 0); assert.ok(await stored(), 'a newer record stays');
       // 7. A Turkish browser: the Turkish title and the Turkish notes of the real Host, not the record's English text.
       const trPage = await browser.newContext({ locale: 'tr-TR', viewport: { width: 1280, height: 900 } }).then(async (c) => {
+        await fakeGitHub(c);
         await c.route((u) => u.pathname.endsWith('/api/composer-plus.update'), async (route) => (new URL(route.request().url()).searchParams.get('current') === '1' ? route.continue()
           : route.fulfill({ contentType: 'application/json', body: JSON.stringify({ name: 'dsh-composer-plus', current: version, latest: version, managed: true, newer: false }) })));
         const p = await c.newPage(); p.on('pageerror', (e) => errors.push(String(e))); return p;
@@ -123,12 +148,23 @@ try {
       assert.equal((await trText.innerText()).trim(), plain(shipped.tr), 'the Turkish notes in a Turkish UI');
       assert.equal(await trText.getAttribute('lang'), 'tr');
       assert.equal(await trDialog.locator('[data-composer-plus-whats-new-close]').innerText(), 'Kapat');
+      // The Turkish star line; "Bir daha sorma" removes it at once and the notes stay.
+      await starBelowNotes(trDialog); await shot(trDialog, 'whats-new-star-tr.png');
+      assert.equal(await trDialog.getByRole('link', { name: 'GitHub’da yıldız ver', exact: true }).getAttribute('href'), REPO);
+      await trDialog.getByRole('button', { name: 'Bir daha sorma', exact: true }).click();
+      await trDialog.locator('[data-composer-plus-whats-new-star]').waitFor({ state: 'detached', timeout: 5000 });
+      assert.ok(await trText.isVisible(), 'Do not ask again: the notes stay');
+      assert.equal(await trPage.evaluate((k) => localStorage.getItem(k), STAR), 'done');
       await trDialog.locator('[data-composer-plus-whats-new-close]').click(); await trDialog.waitFor({ state: 'hidden', timeout: 5000 });
       await trPage.context().close();
       // 8. A new version runs (seen: an older version; any install path): the notes show once by themselves, then not again.
-      await page.evaluate(([k, s]) => { localStorage.removeItem(k); localStorage.setItem(s, '0.0.1'); }, [KEY, SEEN]);
+      await page.evaluate(([k, s, st]) => { localStorage.removeItem(k); localStorage.removeItem(st); localStorage.setItem(s, '0.0.1'); }, [KEY, SEEN, STAR]);
       await page.reload(); await dismissStart();
       await dialog.waitFor({ timeout: 15000 });
+      // The star line again (its record was cleared); "Do not ask again" removes it at once.
+      await dialog.getByRole('button', { name: 'Do not ask again', exact: true }).click();
+      await dialog.locator('[data-composer-plus-whats-new-star]').waitFor({ state: 'detached', timeout: 5000 });
+      assert.equal(await page.evaluate((k) => localStorage.getItem(k), STAR), 'done');
       assert.equal((await dialog.locator('[data-composer-plus-whats-new]').innerText()).trim(), plain(shipped.en), 'the seen path shows the shipped notes');
       assert.equal(await dialog.locator('[data-composer-plus-whats-new-link]').getAttribute('href'), link);
       assert.equal(await page.evaluate((s) => localStorage.getItem(s), SEEN), version, 'the seen version moved on');
@@ -143,11 +179,12 @@ try {
       await open.click(); await dialog.waitFor({ timeout: 5000 });
       assert.equal((await dialog.locator('[data-composer-plus-whats-new]').innerText()).trim(), plain(shipped.en), 'the button opens the shipped notes');
       assert.equal(await dialog.locator('[data-composer-plus-whats-new-link]').getAttribute('href'), link);
+      assert.equal(await dialog.locator('[data-composer-plus-whats-new-star]').count(), 0, 'after Do not ask again: no star line');
       await page.keyboard.press('Escape'); await dialog.waitFor({ state: 'hidden', timeout: 5000 });
       assert.ok(await page.locator('[data-composer-plus-settings]').isVisible(), 'Esc closes only the notes, Settings stays open');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: What's new shows ${version}'s shipped notes once (plain text, GitHub link, English UI: English, tr-TR: Turkish), Esc and Close close it, no repeat, an older record goes, a newer one waits; a new version after any install shows once; Settings → What’s new in this version opens the running notes`);
+      console.log(`PASS ${bin}: What's new shows ${version}'s shipped notes once (plain text, GitHub link, English UI: English, tr-TR: Turkish), Esc and Close close it, no repeat, an older record goes, a newer one waits; a new version after any install shows once; Settings → What’s new in this version opens the running notes; the star line shows below the notes, its link opens the repository once and stops it, Do not ask again removes it at once`);
     } finally {
       await context?.close();
       await writeFile(join(home, 'server.log'), log); // the token stays inside the temporary home, never stdout
