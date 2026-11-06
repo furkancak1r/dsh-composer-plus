@@ -7826,10 +7826,12 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
      *   tab does), so the page is a top-level page in its own storage and gets the relay's cookie. The main window itself
      *   cannot go to the relay: dsh opens each such navigation in the system browser.
      * - dsh web: an iframe (the relay lets dsh's page frame it).
-     * One switch at a time from every entry point (the picker, the other Mac's page). */
-    const COMPUTER_HELLO_MS = 6000; // a page that does not say hello by then gets a "Back to this Mac" button
+     * One switch at a time from every entry point (the picker, the other Mac's page).
+     * `noPicker`: the page on screen did not say hello (it loads, an older Composer Plus there, or the relay's own text), so
+     * it has no picker of its own: this Mac's picker shows over it (`SidebarComputerPicker`). */
+    const COMPUTER_HELLO_MS = 6000; // a page that does not say hello by then: read the states again (`sync`)
     function createComputerViews({ computers, desktop = () => globalThis.dshDesktop?.browser, doc = () => globalThis.document, openAdd = () => {}, now = () => Date.now(), timers = globalThis }) {
-      let state = { current: 'self', busy: false, error: undefined, fallback: false };
+      let state = { current: 'self', busy: false, error: undefined, noPicker: false };
       const listeners = new Set();
       const views = new Map(); // id → { el, lease, release, helloAt }
       let root = null;
@@ -7857,16 +7859,19 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         for (const [vid, v] of views) v.el.style.visibility = vid === id ? 'visible' : 'hidden';
         if (root) root.style.visibility = id === 'self' ? 'hidden' : 'visible';
         if (id !== 'self') views.get(id)?.el.focus?.();
-        else if (views.size > 0) doc().querySelector?.('[data-composer-plus-computer-picker]')?.focus?.();
+        // Back on this Mac: the picker gets the focus after React put it back into the sidebar (out of the float).
+        else if (views.size > 0) timers.setTimeout(() => doc().querySelector?.('[data-composer-plus-computer-picker]')?.focus?.(), 0);
       };
       const armHello = (id) => {
         timers.clearTimeout(helloTimer);
         const v = views.get(id);
         if (v === undefined || id !== state.current) return;
-        if (v.helloAt !== undefined) { if (state.fallback) set({ fallback: false }); return; }
-        // No hello: an older Composer Plus there, or the relay's own text (that Mac removed this one). Read the states again:
-        // a computer that is no longer paired closes (`sync`).
-        helloTimer = timers.setTimeout(() => { if (state.current === id && views.get(id)?.helloAt === undefined) { set({ fallback: true }); computers.refresh?.(); } }, COMPUTER_HELLO_MS);
+        const noPicker = v.helloAt === undefined;
+        if (state.noPicker !== noPicker) set({ noPicker });
+        if (!noPicker) return;
+        // No hello yet: the page loads, an older Composer Plus there, or the relay's own text (that Mac removed this one).
+        // Read the states again after some seconds: a computer that is no longer paired closes (`sync`).
+        helloTimer = timers.setTimeout(() => { if (state.current === id && views.get(id)?.helloAt === undefined) computers.refresh?.(); }, COMPUTER_HELLO_MS);
       };
       /** A new document started in a view: it must say hello again (another page, a reload, the relay's own error text). */
       const loading = (id) => { const v = views.get(id); if (v === undefined) return; v.helloAt = undefined; if (state.current === id) armHello(id); };
@@ -7945,10 +7950,10 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         /** Shows `id` ('self' or a computer). The first time, the computer's page loads; later it shows at once. */
         async select(id) {
           if (stopped || state.busy || id === state.current) return { skipped: true };
-          if (id === 'self') { timers.clearTimeout(helloTimer); show('self'); set({ current: 'self', error: undefined, fallback: false }); return { shown: 'self' }; }
+          if (id === 'self') { timers.clearTimeout(helloTimer); show('self'); set({ current: 'self', error: undefined, noPicker: false }); return { shown: 'self' }; }
           const c = (computers.getSnapshot().computers ?? []).find((x) => x.id === id);
           if (c === undefined) return { skipped: true };
-          if (views.has(id)) { show(id); set({ current: id, error: undefined, fallback: false }); armHello(id); return { shown: id }; }
+          if (views.has(id)) { show(id); set({ current: id, error: undefined, noPicker: views.get(id).helloAt === undefined }); armHello(id); return { shown: id }; }
           set({ busy: true, error: undefined });
           try {
             const { url, error, skipped } = await computers.open(id);
@@ -7957,7 +7962,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             await startLoop();
             await makeView(id, url);
             if (stopped) { dropView(id); return { skipped: true }; }
-            show(id); set({ current: id, fallback: false }); armHello(id);
+            show(id); set({ current: id, noPicker: true }); armHello(id);
             return { shown: id };
           } catch (error) { set({ error: String(error?.message ?? error) }); return { error: String(error?.message ?? error) }; }
           finally { set({ busy: false }); }
@@ -7968,7 +7973,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           for (const id of [...views.keys()]) {
             const c = list.find((x) => x.id === id);
             if (c !== undefined && c.state === 'ok') continue;
-            if (state.current === id) { timers.clearTimeout(helloTimer); show('self'); set({ current: 'self', fallback: false, error: c?.state }); }
+            if (state.current === id) { timers.clearTimeout(helloTimer); show('self'); set({ current: 'self', noPicker: false, error: c?.state }); }
             dropView(id);
           }
         },
@@ -7980,7 +7985,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           timers.clearTimeout(helloTimer);
           for (const id of [...views.keys()]) dropView(id);
           root?.remove(); root = null;
-          state = { current: 'self', busy: false, error: undefined, fallback: false };
+          state = { current: 'self', busy: false, error: undefined, noPicker: false };
           for (const fn of [...listeners]) fn();
         },
         start() { stopped = false; },
@@ -8010,7 +8015,8 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
     }
     /** The computer picker in dsh's left sidebar, right of the brand and above New session. On this Mac it switches the
      * window (`views`); on another Mac's page in this window (`opener`) it asks this Mac to switch. One menu: This Mac, the
-     * computers, Add a computer…. */
+     * computers, Add a computer…. While a computer fills the window, the picker says "Back to this Mac": with no other
+     * computer to pick, a click comes back at once; with more, it opens the menu. */
     function ComputerPicker({ computers, views, opener, t }) {
       const state = React.useSyncExternalStore(computers.subscribe, computers.getSnapshot);
       const viewState = React.useSyncExternalStore(views.subscribe, views.getSnapshot);
@@ -8038,18 +8044,25 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         if (id === 'add') { views.select('self'); computers.openAdd?.(); return; }
         views.select(id);
       };
-      const label = current?.name ?? t('computers.thisMacShort');
+      const away = remote || viewState.current !== 'self';
+      const direct = away && !list.some((c) => c.id !== currentId && c.state === 'ok');
+      const label = away ? t('computers.back') : t('computers.thisMacShort');
       const problem = !remote && viewState.error !== undefined ? computerError(t, viewState.error) : null;
       return React.createElement('div', { 'data-composer-plus-computers': '', style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0, maxWidth: '100%', WebkitAppRegion: 'no-drag' } },
         React.createElement(primitives.Menu, { open, onClose: () => setOpen(false), items, selectedId: current?.id ?? 'self', onSelect: (id) => choose(id), portal: true, dense: true,
-          anchor: React.createElement('button', { type: 'button', 'aria-label': t('computers.picker', { name: label }), 'aria-haspopup': 'menu', 'aria-expanded': open, 'aria-busy': busy || undefined,
-            'data-composer-plus-computer-picker': '', title: label,
-            onClick: () => { if (!open) { if (remote) opener.refresh(); else computers.refresh(); } setOpen(!open); }, // fresh states at each open
+          // Away, the visible label is the button's name; the title names the computer on screen.
+          anchor: React.createElement('button', { type: 'button', 'aria-label': away ? undefined : t('computers.picker', { name: label }), 'aria-haspopup': direct ? undefined : 'menu', 'aria-expanded': direct ? undefined : open, 'aria-busy': busy || undefined,
+            'data-composer-plus-computer-picker': '', title: away ? t('computers.picker', { name: current?.name ?? '' }) : label,
+            onClick: () => {
+              if (direct) { setOpen(false); choose('self'); return; }
+              if (!open) { if (remote) opener.refresh(); else computers.refresh(); } // fresh states at each open
+              setOpen(!open);
+            },
             style: { display: 'inline-flex', alignItems: 'center', gap: 6, height: 28, maxWidth: 'min(160px, 100%)', minWidth: 0, padding: '0 8px', borderRadius: 'var(--dsw-radius-md, 8px)', WebkitAppRegion: 'no-drag',
               background: 'var(--dsw-alias-button-elevated-fill, rgba(127,127,127,.12))', border: '.5px solid var(--dsw-alias-border-l3, transparent)', color: 'var(--dsw-alias-label-primary, inherit)', fontFamily: 'inherit', fontSize: 12, fontWeight: 500, cursor: 'pointer' } },
             React.createElement('span', { style: { display: 'inline-flex', flex: 'none' } }, React.createElement(ComputerIcon, {})),
             React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 } }, label),
-            primitives.IconChevronDownOutlineRegular === undefined ? null : React.createElement('span', { style: { display: 'inline-flex', flex: 'none' } }, React.createElement(primitives.IconChevronDownOutlineRegular, { size: 12, 'aria-hidden': true }))) }),
+            direct || primitives.IconChevronDownOutlineRegular === undefined ? null : React.createElement('span', { style: { display: 'inline-flex', flex: 'none' } }, React.createElement(primitives.IconChevronDownOutlineRegular, { size: 12, 'aria-hidden': true }))) }),
         problem === null ? null : React.createElement('span', { role: 'alert', title: problem, style: { fontSize: 11, color: 'var(--dsw-alias-state-warn-label, #b25000)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 } }, problem));
     }
     /** The sidebar host of the picker: one element in dsh's brand row, after the brand (dsh 0.2.0-rc.2 – 0.2.2-rc.1 draw the
@@ -8082,24 +8095,39 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       }, []);
       return host;
     }
+    /** While a computer fills the window and its page has no picker of its own (`noPicker`), this Mac's picker floats over
+     * it in the same place: the brand row's height and the right edge of the host (both keep their place under the page;
+     * an empty host has no height), or the top left when the sidebar is closed. */
+    const COMPUTER_FLOAT = 'data-composer-plus-computer-float';
+    function useComputerFloat(on, host) {
+      const [float, setFloat] = React.useState(null);
+      React.useLayoutEffect(() => {
+        if (!on) return undefined;
+        const el = document.createElement('div');
+        el.setAttribute(COMPUTER_FLOAT, '');
+        const place = () => {
+          const row = host?.parentElement?.getBoundingClientRect?.();
+          const h = host?.getBoundingClientRect?.();
+          const where = row !== undefined && h !== undefined && h.right > 0 && row.height > 0 ? `top:${row.top + row.height / 2}px;right:${window.innerWidth - h.right}px;transform:translateY(-50%)` : 'top:calc(var(--dsh-frame-top-clearance,0px) + 8px);left:8px';
+          // Over the views (z-index 40), under dsh's menus (70); a solid back so the label reads over the other page.
+          el.style.cssText = `position:fixed;${where};z-index:41;display:flex;max-width:200px;border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-base,#fff);-webkit-app-region:no-drag`;
+        };
+        place();
+        document.body.appendChild(el);
+        window.addEventListener('resize', place);
+        setFloat(el);
+        return () => { window.removeEventListener('resize', place); el.remove(); setFloat(null); };
+      }, [on, host]);
+      return on ? float : null;
+    }
     function SidebarComputerPicker(props) {
       const host = useBrandRowHost();
-      return host === null ? null : createPortal(React.createElement(ComputerPicker, props), host);
-    }
-    /** Over the other Mac's page: a "Back to this Mac" button when that page did not say hello (an older Composer Plus there,
-     * or the relay's own error text), and the reason when a computer did not open. */
-    function ComputerViewsBar({ computers, views, t }) {
-      const v = React.useSyncExternalStore(views.subscribe, views.getSnapshot);
-      const state = React.useSyncExternalStore(computers.subscribe, computers.getSnapshot);
+      const v = React.useSyncExternalStore(props.views.subscribe, props.views.getSnapshot);
+      const state = React.useSyncExternalStore(props.computers.subscribe, props.computers.getSnapshot);
       // A computer that is removed or no longer paired: its page closes.
-      React.useEffect(() => { views.sync(); }, [state]);
-      if (v.current === 'self' || !v.fallback || createPortal === undefined) return null;
-      const name = (state.computers ?? []).find((c) => c.id === v.current)?.name ?? '';
-      return createPortal(React.createElement('div', { 'data-composer-plus-computer-back': '', role: 'status',
-        style: { position: 'fixed', top: 8, left: '50%', transform: 'translateX(-50%)', zIndex: 41, display: 'flex', alignItems: 'center', gap: 8, padding: '4px 6px 4px 12px', borderRadius: 10,
-          background: 'var(--dsw-alias-bg-module-platform, #f2f2f2)', boxShadow: '0 2px 10px rgba(0,0,0,.18)', fontSize: 12, WebkitAppRegion: 'no-drag' } },
-        React.createElement(ComputerIcon, {}), React.createElement('span', null, name),
-        React.createElement(primitives.Button, { variant: 'primary', size: 'small', onClick: () => { views.select('self'); } }, t('computers.back'))), document.body);
+      React.useEffect(() => { props.views.sync(); }, [state]);
+      const target = useComputerFloat(v.current !== 'self' && v.noPicker, host) ?? host;
+      return target === null ? null : createPortal(React.createElement(ComputerPicker, props), target);
     }
     /** Add a computer: paste the other Mac's link and give it a name; the dialog waits until someone clicks Approve there. */
     function createAddComputer() {
@@ -11510,11 +11538,6 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             locale: LOCALE_NS,
             inject: () => ({ computers, views, opener }),
           }, SidebarComputerPicker)), ctx.slots.inject('shell.overlay', () => ctx.slots.register({
-            name: 'shell.overlay',
-            id: 'computer-views-bar',
-            locale: LOCALE_NS,
-            inject: () => ({ computers, views }),
-          }, ComputerViewsBar)), ctx.slots.inject('shell.overlay', () => ctx.slots.register({
             name: 'shell.overlay',
             id: 'add-computer-dialog',
             locale: LOCALE_NS,
