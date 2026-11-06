@@ -50,6 +50,7 @@ let scanDom = () => {};
 let cur;
 const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }),
   useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = v; return [s[i], (x) => { s[i] = x; }]; },
+  useRef: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = { current: v }; return s[i]; },
   useEffect: (f) => { const i = cur.ei++; if (!(i in cur.cleanups)) cur.cleanups[i] = f(); } };
 const mount = (C, props) => {
   const inst = { state: [], cleanups: [] };
