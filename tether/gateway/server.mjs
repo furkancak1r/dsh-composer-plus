@@ -292,10 +292,14 @@ function pipeUpgrade(req, socket, head, opts) {
   up.end()
 }
 
-/** Remote computers, the Mac that opens: one loopback port per paired computer. The browser (dsh's Browser tab or a
- * browser window) gets a one-time ticket URL; the ticket becomes this port's own cookie. Each request then goes to the
- * computer over TLS that must show the pinned certificate (checked before one byte goes out), with the computer's token. */
-export function createRelay({ host, port, fp, token, ticketTtlMs = 60e3, onUnauthorized, connectTimeoutMs = 5000, frameAncestors = [] }) {
+/** The paths that the relay answers itself (never sent to the computer): the other Mac's page asks which computers this
+ * Mac has (`opener`) and switches this Mac's window to one of them (`switch`). */
+export const RELAY_OWN = '/__composer-plus/'
+/** Remote computers, the Mac that opens: one loopback port per paired computer. dsh's window (a `<webview>` on desktop, an
+ * iframe on dsh web) gets a one-time ticket URL; the ticket becomes this port's own cookie. Each request then goes to the
+ * computer over TLS that must show the pinned certificate (checked before one byte goes out), with the computer's token.
+ * `peer`: `{ opener(), signal(event) }` of this Mac, for the paths under `RELAY_OWN`. */
+export function createRelay({ host, port, fp, token, ticketTtlMs = 60e3, onUnauthorized, connectTimeoutMs = 5000, frameAncestors = [], peer }) {
   const pin = normFp(fp)
   const tickets = new Map() // one-time ticket → expiry
   const cookieValue = randomBytes(32).toString('base64url')
@@ -350,13 +354,27 @@ export function createRelay({ host, port, fp, token, ticketTtlMs = 60e3, onUnaut
       return res.end()
     }
     if (!hasCookie(req)) return text(res, 401, 'Pick the computer again in dsh.')
-    // Each answer may show only in this port's own frames and in dsh's page (its Browser tab).
+    // Each answer may show only in this port's own frames and in dsh's page (its window).
     const writeHead = res.writeHead.bind(res)
     res.writeHead = (code, headers = {}) => writeHead(code, { ...headers, 'content-security-policy': [headers['content-security-policy'] ?? [], `frame-ancestors ${ancestors}`].flat() })
+    if (url.pathname.startsWith(RELAY_OWN)) return ownPath(req, res, url.pathname.slice(RELAY_OWN.length))
     let unpaired = false
     await pipeHttp(req, res, next(req), { onStatus: (code) => { const r = status(code); if (r === 'skip') unpaired = true; return r },
       onError: (r) => text(r, 502, fail === 'pin' ? 'This computer shows another certificate. Pair it again in dsh.' : 'This computer does not answer over Tailscale. Make sure that it is awake and that Tailscale is on.') })
     if (unpaired) text(res, 401, UNPAIRED)
+  }
+  /** The other Mac's page (in this Mac's window) reads this Mac's computers and switches the window: nothing else. */
+  async function ownPath(req, res, name) {
+    if (peer === undefined) return reply(res, 404, { error: 'not found' })
+    if (name === 'opener' && req.method === 'GET') { peer.signal({ hello: true }); return reply(res, 200, peer.opener()) }
+    if (name === 'switch' && req.method === 'POST') {
+      let to
+      try { to = JSON.parse(await readBody(req, 1024))?.to } catch { return reply(res, 400, { error: 'bad request' }) }
+      if (to !== 'self' && to !== 'add' && !(typeof to === 'string' && /^[0-9a-f]{64}$/.test(to))) return reply(res, 400, { error: 'bad request' })
+      peer.signal({ switch: to })
+      return reply(res, 200, { ok: true })
+    }
+    return reply(res, 404, { error: 'not found' })
   }
   function onUpgrade(req, socket, head) {
     if (!trusted(req) || !hasCookie(req)) return socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n')

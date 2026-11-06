@@ -315,3 +315,29 @@ test('front door: Tailscale off → it does not start and says why', async () =>
     assert.equal(gw.state().running, false)
   } finally { await gw.close(); dsh.close() }
 })
+
+test('relay: its own paths stay on this Mac; the other Mac never sees them', async () => {
+  const dsh = await mockDsh(); const gw = await frontDoor(dsh)
+  const p = await pairComputer(gw)
+  const signals = []
+  const relay = createRelay({ host: p.host, port: p.port, fp: p.fp, token: p.token, peer: { opener: () => ({ self: { name: 'Office Mac' } }), signal: (e) => signals.push(e) } })
+  const bare = createRelay({ host: p.host, port: p.port, fp: p.fp, token: p.token })
+  await relay.start(); await bare.start()
+  try {
+    const cookie = await openRelay(relay)
+    const before = dsh.seen.length
+    const o = await browserGet(relay.port, '/__composer-plus/opener', { cookie })
+    assert.equal(o.status, 200); assert.deepEqual(JSON.parse(o.body), { self: { name: 'Office Mac' } })
+    assert.match(o.headers['content-security-policy'], /frame-ancestors/)
+    const sw = await browserGet(relay.port, '/__composer-plus/switch', { cookie, method: 'POST', body: '{"to":"add"}', headers: { origin: `http://127.0.0.1:${relay.port}` } })
+    assert.equal(sw.status, 200)
+    assert.equal((await browserGet(relay.port, '/__composer-plus/switch', { cookie, method: 'POST', body: '{"to":"add"}', headers: { origin: 'http://evil.example' } })).status, 403, 'another Origin')
+    assert.equal((await browserGet(relay.port, '/__composer-plus/switch', { cookie })).status, 404, 'a GET does not switch')
+    assert.equal((await browserGet(relay.port, '/__composer-plus/other', { cookie })).status, 404)
+    assert.equal((await browserGet(relay.port, '/__composer-plus/opener')).status, 401, 'no cookie')
+    assert.deepEqual(signals, [{ hello: true }, { switch: 'add' }])
+    assert.equal(dsh.seen.length, before, 'nothing went to the other Mac')
+    // A relay without a peer answers 404 (an older page asks, and gets no picker).
+    assert.equal((await browserGet(bare.port, '/__composer-plus/opener', { cookie: await openRelay(bare) })).status, 404)
+  } finally { await relay.close(); await bare.close(); await gw.close(); dsh.close() }
+})

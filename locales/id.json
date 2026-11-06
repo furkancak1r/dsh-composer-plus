@@ -2352,7 +2352,7 @@
     "memorySuggest.skipped": "{count} saran tidak disertakan: sudah disimpan, terlalu panjang, atau tampak seperti kunci atau kata sandi.",
     "memorySuggest.kept": "{count} catatan disimpan ke memori.",
     "feature.remoteComputers": "Komputer jarak jauh",
-    "feature.remoteComputers.description": "Buka dsh di Mac Anda yang lain melalui Tailscale dan lanjutkan obrolannya di sini. Pemilih komputer di kiri judul obrolan beralih antara Mac ini dan yang lain; komputer terbuka di tab Browser pada bilah samping kanan (atau di jendela browser). Setiap Mac cukup dipasangkan sekali: tempel tautannya, lalu klik “Setujui” di Mac itu. Nonaktif secara default karena membuka port jaringan.",
+    "feature.remoteComputers.description": "Buka dsh di Mac Anda yang lain melalui Tailscale dan gunakan di jendela ini. Pemilih komputer di bilah samping kiri, di atas “Sesi Baru”, mengalihkan seluruh jendela antara Mac ini dan yang lain; Mac ini tetap berjalan di latar belakang. Setiap Mac cukup dipasangkan sekali: tempel tautannya, beri nama, lalu klik “Setujui” di Mac itu. Nonaktif secara default karena membuka port jaringan.",
     "computers.restart": "Mulai ulang dsh untuk menggunakan Komputer jarak jauh.",
     "computers.down": "Komputer jarak jauh tidak berfungsi: {error}",
     "computers.picker": "Komputer: {name}",
@@ -2362,7 +2362,7 @@
     "computers.state.unpaired": "{name} (pasangkan lagi)",
     "computers.state.pin": "{name} (sertifikat baru: pasangkan lagi)",
     "computers.addTitle": "Tambahkan komputer",
-    "computers.addHelp": "Di Mac lain, buka Pengaturan → Composer Plus → Komputer jarak jauh, aktifkan “Izinkan komputer lain membuka Mac ini”, klik “Buat tautan pemasangan”, lalu salin tautannya. Tempel di sini, lalu klik “Setujui” di Mac itu.",
+    "computers.addHelp": "Di Mac lain, buka Pengaturan → Composer Plus → Komputer jarak jauh, aktifkan “Izinkan komputer lain membuka Mac ini”, klik “Buat tautan pemasangan”, lalu salin tautannya. Tempel di sini, beri nama untuk Mac tersebut, lalu klik “Setujui” di Mac itu.",
     "computers.linkLabel": "Tautan pemasangan",
     "computers.connect": "Hubungkan",
     "computers.cancel": "Batal",
@@ -2405,7 +2405,14 @@
     "computers.error.code": "Tautan ini sudah dipakai atau terlalu lama. Buat tautan baru di Mac lain.",
     "computers.error.rate": "Terlalu banyak percobaan. Tunggu satu menit, lalu coba lagi.",
     "computers.error.unpaired": "Mac itu telah menghapus Mac ini. Hapus di sini, lalu pasangkan lagi.",
-    "computers.error.other": "Terjadi masalah: {error}"
+    "computers.error.other": "Terjadi masalah: {error}",
+    "computers.nameLabel": "Nama",
+    "computers.namePlaceholder": "Misalnya: Mac kantor",
+    "computers.nameHelp": "Nama di pemilih komputer. Nama ini harus berbeda dari nama Mac ini dan komputer Anda yang lain.",
+    "computers.duplicateHint": "Mac ini atau komputer lain memiliki nama yang sama. Klik “Ganti nama” dan beri nama lain.",
+    "computers.back": "Kembali ke Mac ini",
+    "computers.error.name-taken": "Mac ini atau komputer lain sudah memakai nama ini. Ketik nama lain.",
+    "computers.error.name-missing": "Ketik nama untuk komputer ini."
   },
   "common": {
     "ok": "OK",

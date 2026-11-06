@@ -2352,7 +2352,7 @@
     "memorySuggest.skipped": "{count} sugerencia(s) se omitieron: ya guardadas, demasiado largas o parecían una clave o contraseña.",
     "memorySuggest.kept": "{count} nota(s) guardadas en la memoria.",
     "feature.remoteComputers": "Equipos remotos",
-    "feature.remoteComputers.description": "Abre el dsh de tus otros Mac a través de Tailscale y continúa sus chats aquí. Un selector de equipos a la izquierda del título del chat cambia entre este Mac y los demás; un equipo se abre en la pestaña Navegador de la barra lateral derecha (o en una ventana del navegador). Cada Mac se empareja una sola vez: pega su enlace y luego haz clic en «Aprobar» en ese Mac. Desactivado de forma predeterminada, porque abre puertos de red.",
+    "feature.remoteComputers.description": "Abre el dsh de tus otros Mac a través de Tailscale y úsalos en esta ventana. Un selector de equipos en la barra lateral izquierda, encima de «Nueva sesión», cambia toda la ventana entre este Mac y los demás; este Mac sigue funcionando en segundo plano. Cada Mac se empareja una sola vez: pega su enlace, ponle un nombre y luego haz clic en «Aprobar» en ese Mac. Desactivado de forma predeterminada, porque abre puertos de red.",
     "computers.restart": "Reinicia dsh para usar Equipos remotos.",
     "computers.down": "Equipos remotos no funciona: {error}",
     "computers.picker": "Equipo: {name}",
@@ -2362,7 +2362,7 @@
     "computers.state.unpaired": "{name} (vuelve a emparejarlo)",
     "computers.state.pin": "{name} (certificado nuevo: vuelve a emparejarlo)",
     "computers.addTitle": "Añadir un equipo",
-    "computers.addHelp": "En el otro Mac, abre Configuración → Composer Plus → Equipos remotos, activa «Permitir que otros equipos abran este Mac», haz clic en «Crear enlace de emparejamiento» y copia el enlace. Pégalo aquí y luego haz clic en «Aprobar» en ese Mac.",
+    "computers.addHelp": "En el otro Mac, abre Configuración → Composer Plus → Equipos remotos, activa «Permitir que otros equipos abran este Mac», haz clic en «Crear enlace de emparejamiento» y copia el enlace. Pégalo aquí, ponle un nombre al Mac y luego haz clic en «Aprobar» en ese Mac.",
     "computers.linkLabel": "Enlace de emparejamiento",
     "computers.connect": "Conectar",
     "computers.cancel": "Cancelar",
@@ -2405,7 +2405,14 @@
     "computers.error.code": "Este enlace ya se usó o es demasiado antiguo. Crea un enlace nuevo en el otro Mac.",
     "computers.error.rate": "Demasiados intentos. Espera un minuto y vuelve a intentarlo.",
     "computers.error.unpaired": "Ese Mac quitó a este. Quítalo aquí y vuelve a emparejarlo.",
-    "computers.error.other": "Algo salió mal: {error}"
+    "computers.error.other": "Algo salió mal: {error}",
+    "computers.nameLabel": "Nombre",
+    "computers.namePlaceholder": "Por ejemplo: Mac del estudio",
+    "computers.nameHelp": "El nombre en el selector de equipos. Debe ser distinto del nombre de este Mac y de tus otros equipos.",
+    "computers.duplicateHint": "Este Mac u otro equipo tiene el mismo nombre. Haz clic en «Cambiar nombre» y ponle otro nombre.",
+    "computers.back": "Volver a este Mac",
+    "computers.error.name-taken": "Este Mac u otro equipo ya tiene este nombre. Escribe otro nombre.",
+    "computers.error.name-missing": "Escribe un nombre para este equipo."
   },
   "common": {
     "ok": "Aceptar",

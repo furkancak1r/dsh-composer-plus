@@ -945,7 +945,7 @@ const doorTest = () => (process.env.DSH_COMPUTERS_TEST_LOOPBACK === '1'
  * the computers that this Mac can open (with their tokens; owner-only, like dsh's own credentials file). The front door
  * is a `createGateway({mode: 'computer'})` of its own folder; one relay per computer runs on loopback while needed.
  * `make`, `relay` and `pair` are test seams. */
-export function computersService({ file, dir, upstreamUrl, macName: ownName, make = createGateway, relay = createRelay, pair = pairWithComputer, port, pageOrigins = () => [] }) {
+export function computersService({ file, dir, upstreamUrl, macName: ownName, make = createGateway, relay = createRelay, pair = pairWithComputer, port, pageOrigins = () => [], pollMs = 20e3 }) {
   let state = { on: false, accept: false, list: [] };
   const ready = readFile(file, 'utf8').then((text) => {
     const d = JSON.parse(text);
@@ -982,13 +982,24 @@ export function computersService({ file, dir, upstreamUrl, macName: ownName, mak
     if (!state.on) { adding?.controller.abort(); await stopRelays(); }
   };
   const started = ready.then(() => run(apply));
+  // The window of this Mac shows one computer at a time; the other Mac's page (through its relay) asks to switch it, and
+  // says hello when it loads. The client reads these events with a long poll (`{action: 'events', after}`).
+  let events = [], eventSeq = 0;
+  const waiters = new Set();
+  const signal = (e) => { events = [...events, { seq: ++eventSeq, ...e }].slice(-20); for (const w of [...waiters]) w(); };
+  const nameOf = (c) => c.label ?? c.mac ?? c.host;
+  const fold = (s) => String(s).normalize('NFC').trim().toLowerCase();
+  /** A name for a computer: no control characters, 1–64 characters; '' when it has none. */
+  const cleanName = (s) => (typeof s === 'string' ? s.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 64) : '');
+  /** True when This Mac or another computer (not one of `except`) has this name. */
+  const taken = (name, except = []) => fold(name) === fold(ownName) || state.list.some((c) => !except.includes(c) && fold(nameOf(c)) === fold(name));
   const view = () => {
     const g = door?.state();
     return {
       on: state.on,
       self: { name: ownName },
-      computers: state.list.map((c) => ({ id: c.fp, name: c.label ?? c.mac ?? c.host, mac: c.mac ?? null, label: c.label ?? null, host: c.host, port: c.port,
-        state: failures.get(c.fp) ?? (relays.get(c.fp)?.fail === 'pin' ? 'pin' : 'ok') })),
+      computers: state.list.map((c) => ({ id: c.fp, name: nameOf(c), mac: c.mac ?? null, label: c.label ?? null, host: c.host, port: c.port,
+        state: failures.get(c.fp) ?? (relays.get(c.fp)?.fail === 'pin' ? 'pin' : 'ok'), duplicate: taken(nameOf(c), [c]) })),
       adding: adding === undefined ? null : { name: adding.name },
       accept: { on: state.accept, running: g?.running === true, address: g?.running ? g.address : null, port: g?.running ? g.port : null,
         ...(doorError === undefined || g?.running ? {} : { error: doorError }),
@@ -1000,8 +1011,12 @@ export function computersService({ file, dir, upstreamUrl, macName: ownName, mak
   async function openRelay(c) {
     let r = relays.get(c.fp);
     if (r === undefined) {
-      // dsh's own page may show the computer in its Browser tab (an iframe on dsh web); no other page may frame it.
-      r = relay({ host: c.host, port: c.port, fp: c.fp, token: c.token, frameAncestors: pageOrigins(), onUnauthorized: () => { failures.set(c.fp, 'unpaired'); } });
+      // dsh's own page shows the computer in its window (an iframe on dsh web); no other page may frame it.
+      const fp = c.fp;
+      r = relay({ host: c.host, port: c.port, fp, token: c.token, frameAncestors: pageOrigins(), onUnauthorized: () => { failures.set(fp, 'unpaired'); },
+        // The other Mac's page gets the names and states of this Mac's computers: no address, no token.
+        peer: { opener: () => ({ self: { name: ownName }, current: fp, computers: view().computers.map(({ id, name, state: s }) => ({ id, name, state: s })) }),
+          signal: (e) => signal({ ...e, from: fp }) } });
       relays.set(c.fp, r);
       try { await r.start(); } catch (e) { relays.delete(c.fp); throw e; }
     }
@@ -1036,9 +1051,26 @@ export function computersService({ file, dir, upstreamUrl, macName: ownName, mak
       door?.revoke(body.id);
       return { status: 200, body: view() };
     }
+    if (action === 'events') {
+      // A long poll: the events after `after`, at once when there are some, else when one comes or after `pollMs`.
+      // No `after`: where the events are now (a new page starts there, so it never runs an old switch).
+      if (!Number.isInteger(body.after) || body.after < 0) return { status: 200, body: { seq: eventSeq, events: [] } };
+      const after = body.after;
+      const newer = () => events.filter((e) => e.seq > after);
+      if (newer().length === 0 && !closed) {
+        await new Promise((done) => { const w = () => { clearTimeout(timer); waiters.delete(w); done(); }; const timer = setTimeout(w, pollMs); waiters.add(w); });
+      }
+      return { status: 200, body: { seq: eventSeq, events: newer() } };
+    }
     if (action === 'add') {
       const link = parseComputerLink(body.link);
       if (link === null) return { status: 400, body: { error: typeof body.link === 'string' && body.link.trim().startsWith('tether://') ? 'tether-link' : 'bad-link' } };
+      // The name first, so that a click of Approve on the other Mac is never wasted. The same Mac paired again does not
+      // count against its own old entry.
+      const name = cleanName(body.name);
+      if (name === '') return { status: 400, body: { error: 'name-missing' } };
+      const sameMac = (c) => c.fp === link.fp || (c.host === link.host && c.port === link.port);
+      if (taken(name, state.list.filter(sameMac))) return { status: 409, body: { error: 'name-taken' } };
       if (adding !== undefined) return { status: 409, body: { error: 'busy' } };
       const controller = new AbortController();
       adding = { controller, name: link.mac ?? link.host };
@@ -1054,11 +1086,15 @@ export function computersService({ file, dir, upstreamUrl, macName: ownName, mak
         }
         const mac = typeof d.mac === 'string' ? d.mac.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 64) || link.mac : link.mac;
         await run(async () => {
-          // The same Mac (its certificate, or its address with an older certificate) replaces its old entry and keeps its name.
+          // The same Mac (its certificate, or its address with an older certificate) replaces its old entry; it gets the
+          // name typed now.
           const old = state.list.filter((c) => c.fp === link.fp || (c.host === link.host && c.port === link.port && (c.mac === undefined || c.mac === mac)));
-          const label = old.find((c) => c.label !== undefined)?.label;
+          // ponytail: another add or rename took the name while this one waited for Approve; a number keeps the new token
+          // (a refusal now would waste the pairing). The user renames it in Settings.
+          let label = name;
+          for (let n = 2; taken(label, old); n++) label = `${name.slice(0, 58)} (${n})`;
           const entry = { fp: link.fp, host: link.host, port: link.port, token: d.token, deviceId: d.deviceId, expiresAt: typeof d.expiresAt === 'string' ? d.expiresAt : null,
-            ...(mac ? { mac } : {}), ...(label ? { label } : {}) };
+            ...(mac ? { mac } : {}), label };
           const at = state.list.findIndex((c) => old.includes(c));
           const rest = state.list.filter((c) => !old.includes(c));
           await save({ ...state, list: at < 0 ? [...rest, entry] : [...rest.slice(0, at), entry, ...rest.slice(at)] });
@@ -1078,15 +1114,19 @@ export function computersService({ file, dir, upstreamUrl, macName: ownName, mak
       const c = isText(body.id, 64) ? find(body.id) : undefined;
       if (c === undefined) return { status: 404, body: { error: 'unknown computer' } };
       if (action === 'rename' && typeof body.name !== 'string') return { status: 400, body: { error: 'bad request' } };
-      await run(async () => {
+      const error = await run(async () => {
         if (action === 'remove') {
           await save({ ...state, list: state.list.filter((x) => x.fp !== c.fp) });
           const r = relays.get(c.fp); relays.delete(c.fp); failures.delete(c.fp); await r?.close().catch(() => {});
-        } else {
-          const label = body.name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 64);
-          await save({ ...state, list: state.list.map((x) => (x.fp !== c.fp ? x : label === '' ? (({ label: _, ...rest }) => rest)(x) : { ...x, label })) });
+          return undefined;
         }
+        const label = cleanName(body.name);
+        if (label === '') return 'name-missing';
+        if (taken(label, state.list.filter((x) => x.fp === c.fp))) return 'name-taken';
+        await save({ ...state, list: state.list.map((x) => (x.fp !== c.fp ? x : { ...x, label })) });
+        return undefined;
       });
+      if (error !== undefined) return { status: error === 'name-missing' ? 400 : 409, body: { error } };
       return { status: 200, body: view() };
     }
     return { status: 400, body: { error: 'bad request' } };
@@ -1096,7 +1136,7 @@ export function computersService({ file, dir, upstreamUrl, macName: ownName, mak
     view: async () => { await started; return view(); },
     handle: (body) => handle(body).catch((error) => ({ status: 500, body: { error: String(error?.message ?? error) } })),
     /** Plugin unload: stop the front door and every relay; later calls start nothing. */
-    close: async () => { closed = true; adding?.controller.abort(); await queue; await stopDoor(); await stopRelays(); },
+    close: async () => { closed = true; for (const w of [...waiters]) w(); adding?.controller.abort(); await queue; await stopDoor(); await stopRelays(); },
   };
 }
 

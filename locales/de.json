@@ -2352,7 +2352,7 @@
     "memorySuggest.skipped": "{count} Vorschlag/Vorschläge wurden weggelassen: schon gespeichert, zu lang oder sahen wie ein Schlüssel oder Passwort aus.",
     "memorySuggest.kept": "{count} Notiz(en) im Gedächtnis gespeichert.",
     "feature.remoteComputers": "Remote-Computer",
-    "feature.remoteComputers.description": "Öffne das dsh deiner anderen Macs über Tailscale und setze ihre Chats hier fort. Eine Computerauswahl links vom Chattitel wechselt zwischen diesem Mac und den anderen; ein Computer öffnet sich im Tab Browser der rechten Seitenleiste (oder in einem Browserfenster). Jeder Mac wird nur einmal gekoppelt: Füge seinen Link ein und klicke dann auf dem anderen Mac auf „Genehmigen“. Standardmäßig aus, weil diese Funktion Netzwerkports öffnet.",
+    "feature.remoteComputers.description": "Öffne das dsh deiner anderen Macs über Tailscale und nutze sie in diesem Fenster. Eine Computerauswahl in der linken Seitenleiste, über „Neue Sitzung“, wechselt das ganze Fenster zwischen diesem Mac und den anderen; dieser Mac läuft im Hintergrund weiter. Jeder Mac wird nur einmal gekoppelt: Füge seinen Link ein, gib ihm einen Namen und klicke dann auf dem anderen Mac auf „Genehmigen“. Standardmäßig aus, weil diese Funktion Netzwerkports öffnet.",
     "computers.restart": "Starte dsh neu, um Remote-Computer zu nutzen.",
     "computers.down": "Remote-Computer funktioniert nicht: {error}",
     "computers.picker": "Computer: {name}",
@@ -2362,7 +2362,7 @@
     "computers.state.unpaired": "{name} (neu koppeln)",
     "computers.state.pin": "{name} (neues Zertifikat: neu koppeln)",
     "computers.addTitle": "Computer hinzufügen",
-    "computers.addHelp": "Öffne auf dem anderen Mac Einstellungen → Composer Plus → Remote-Computer, schalte „Anderen Computern erlauben, diesen Mac zu öffnen“ ein, klicke auf „Kopplungslink erstellen“ und kopiere den Link. Füge ihn hier ein und klicke dann auf dem anderen Mac auf „Genehmigen“.",
+    "computers.addHelp": "Öffne auf dem anderen Mac Einstellungen → Composer Plus → Remote-Computer, schalte „Anderen Computern erlauben, diesen Mac zu öffnen“ ein, klicke auf „Kopplungslink erstellen“ und kopiere den Link. Füge ihn hier ein, gib dem Mac einen Namen und klicke dann auf dem anderen Mac auf „Genehmigen“.",
     "computers.linkLabel": "Kopplungslink",
     "computers.connect": "Verbinden",
     "computers.cancel": "Abbrechen",
@@ -2405,7 +2405,14 @@
     "computers.error.code": "Dieser Link wurde schon benutzt oder ist zu alt. Erstelle auf dem anderen Mac einen neuen Link.",
     "computers.error.rate": "Zu viele Versuche. Warte eine Minute und versuche es dann erneut.",
     "computers.error.unpaired": "Der andere Mac hat diesen Mac entfernt. Entferne ihn hier und kopple ihn neu.",
-    "computers.error.other": "Etwas ist schiefgelaufen: {error}"
+    "computers.error.other": "Etwas ist schiefgelaufen: {error}",
+    "computers.nameLabel": "Name",
+    "computers.namePlaceholder": "Zum Beispiel: Studio-Mac",
+    "computers.nameHelp": "Der Name in der Computerauswahl. Er muss sich vom Namen dieses Macs und deiner anderen Computer unterscheiden.",
+    "computers.duplicateHint": "Dieser Mac oder ein anderer Computer hat denselben Namen. Klicke auf „Umbenennen“ und gib ihm einen anderen Namen.",
+    "computers.back": "Zurück zu diesem Mac",
+    "computers.error.name-taken": "Dieser Mac oder ein anderer Computer hat diesen Namen schon. Gib einen anderen Namen ein.",
+    "computers.error.name-missing": "Gib einen Namen für diesen Computer ein."
   },
   "common": {
     "ok": "OK",

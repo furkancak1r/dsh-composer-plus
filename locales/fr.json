@@ -2352,7 +2352,7 @@
     "memorySuggest.skipped": "{count} suggestion(s) ont été écartées : déjà enregistrées, trop longues ou ressemblant à une clé ou un mot de passe.",
     "memorySuggest.kept": "{count} note(s) enregistrée(s) dans la mémoire.",
     "feature.remoteComputers": "Ordinateurs distants",
-    "feature.remoteComputers.description": "Ouvrez le dsh de vos autres Mac via Tailscale et poursuivez leurs discussions ici. Un sélecteur d’ordinateur à gauche du titre de la discussion permet de passer de ce Mac aux autres ; un ordinateur s’ouvre dans l’onglet Navigateur de la barre latérale droite (ou dans une fenêtre de navigateur). Chaque Mac s’appaire une seule fois : collez son lien, puis cliquez sur « Approuver » sur ce Mac. Désactivé par défaut, car il ouvre des ports réseau.",
+    "feature.remoteComputers.description": "Ouvrez le dsh de vos autres Mac via Tailscale et utilisez-les dans cette fenêtre. Un sélecteur d’ordinateur dans la barre latérale gauche, au-dessus de « Nouvelle session », bascule toute la fenêtre entre ce Mac et les autres ; ce Mac continue de fonctionner en arrière-plan. Chaque Mac s’appaire une seule fois : collez son lien, donnez-lui un nom, puis cliquez sur « Approuver » sur ce Mac. Désactivé par défaut, car il ouvre des ports réseau.",
     "computers.restart": "Redémarrez dsh pour utiliser Ordinateurs distants.",
     "computers.down": "Ordinateurs distants ne fonctionne pas : {error}",
     "computers.picker": "Ordinateur : {name}",
@@ -2362,7 +2362,7 @@
     "computers.state.unpaired": "{name} (à appairer de nouveau)",
     "computers.state.pin": "{name} (nouveau certificat : à appairer de nouveau)",
     "computers.addTitle": "Ajouter un ordinateur",
-    "computers.addHelp": "Sur l’autre Mac, ouvrez Réglages → Composer Plus → Ordinateurs distants, activez « Autoriser d’autres ordinateurs à ouvrir ce Mac », cliquez sur « Créer un lien d’appairage » et copiez le lien. Collez-le ici, puis cliquez sur « Approuver » sur ce Mac.",
+    "computers.addHelp": "Sur l’autre Mac, ouvrez Réglages → Composer Plus → Ordinateurs distants, activez « Autoriser d’autres ordinateurs à ouvrir ce Mac », cliquez sur « Créer un lien d’appairage » et copiez le lien. Collez-le ici, donnez un nom au Mac, puis cliquez sur « Approuver » sur ce Mac.",
     "computers.linkLabel": "Lien d’appairage",
     "computers.connect": "Connecter",
     "computers.cancel": "Annuler",
@@ -2405,7 +2405,14 @@
     "computers.error.code": "Ce lien a déjà été utilisé ou est trop ancien. Créez un nouveau lien sur l’autre Mac.",
     "computers.error.rate": "Trop de tentatives. Attendez une minute, puis réessayez.",
     "computers.error.unpaired": "L’autre Mac a supprimé ce Mac. Supprimez-le ici et appairez-le de nouveau.",
-    "computers.error.other": "Un problème est survenu : {error}"
+    "computers.error.other": "Un problème est survenu : {error}",
+    "computers.nameLabel": "Nom",
+    "computers.namePlaceholder": "Par exemple : Mac du studio",
+    "computers.nameHelp": "Le nom dans le sélecteur d’ordinateur. Il doit être différent du nom de ce Mac et de vos autres ordinateurs.",
+    "computers.duplicateHint": "Ce Mac ou un autre ordinateur a le même nom. Cliquez sur « Renommer » et donnez-lui un autre nom.",
+    "computers.back": "Revenir à ce Mac",
+    "computers.error.name-taken": "Ce Mac ou un autre ordinateur a déjà ce nom. Saisissez un autre nom.",
+    "computers.error.name-missing": "Saisissez un nom pour cet ordinateur."
   },
   "common": {
     "ok": "OK",

@@ -2352,7 +2352,7 @@
     "memorySuggest.skipped": "Đã bỏ qua {count} gợi ý: đã lưu, quá dài, hoặc trông giống khóa hay mật khẩu.",
     "memorySuggest.kept": "Đã lưu {count} ghi chú vào bộ nhớ.",
     "feature.remoteComputers": "Máy tính từ xa",
-    "feature.remoteComputers.description": "Mở dsh trên các máy Mac khác của bạn qua Tailscale và tiếp tục các cuộc trò chuyện của chúng tại đây. Bộ chọn máy tính ở bên trái tiêu đề cuộc trò chuyện dùng để chuyển giữa máy Mac này và các máy khác; một máy tính sẽ mở trong tab Trình duyệt của thanh bên phải (hoặc trong một cửa sổ trình duyệt). Mỗi máy Mac chỉ cần ghép nối một lần: dán liên kết của máy đó, rồi nhấp “Phê duyệt” trên máy Mac đó. Mặc định tắt vì tính năng này mở các cổng mạng.",
+    "feature.remoteComputers.description": "Mở dsh trên các máy Mac khác của bạn qua Tailscale và dùng chúng trong cửa sổ này. Bộ chọn máy tính ở thanh bên trái, phía trên “Phiên mới”, chuyển toàn bộ cửa sổ giữa máy Mac này và các máy khác; máy Mac này vẫn tiếp tục chạy ở chế độ nền. Mỗi máy Mac chỉ cần ghép nối một lần: dán liên kết của máy đó, đặt tên cho máy, rồi nhấp “Phê duyệt” trên máy Mac đó. Mặc định tắt vì tính năng này mở các cổng mạng.",
     "computers.restart": "Khởi động lại dsh để dùng Máy tính từ xa.",
     "computers.down": "Máy tính từ xa không hoạt động: {error}",
     "computers.picker": "Máy tính: {name}",
@@ -2362,7 +2362,7 @@
     "computers.state.unpaired": "{name} (cần ghép nối lại)",
     "computers.state.pin": "{name} (chứng chỉ mới: cần ghép nối lại)",
     "computers.addTitle": "Thêm máy tính",
-    "computers.addHelp": "Trên máy Mac kia, mở Cài đặt → Composer Plus → Máy tính từ xa, bật “Cho phép máy tính khác mở máy Mac này”, nhấp “Tạo liên kết ghép nối” và sao chép liên kết. Dán liên kết vào đây, rồi nhấp “Phê duyệt” trên máy Mac đó.",
+    "computers.addHelp": "Trên máy Mac kia, mở Cài đặt → Composer Plus → Máy tính từ xa, bật “Cho phép máy tính khác mở máy Mac này”, nhấp “Tạo liên kết ghép nối” và sao chép liên kết. Dán liên kết vào đây, đặt tên cho máy Mac, rồi nhấp “Phê duyệt” trên máy Mac đó.",
     "computers.linkLabel": "Liên kết ghép nối",
     "computers.connect": "Kết nối",
     "computers.cancel": "Hủy",
@@ -2405,7 +2405,14 @@
     "computers.error.code": "Liên kết này đã được dùng hoặc đã quá cũ. Hãy tạo liên kết mới trên máy Mac kia.",
     "computers.error.rate": "Quá nhiều lần thử. Hãy chờ một phút rồi thử lại.",
     "computers.error.unpaired": "Máy Mac đó đã xóa máy Mac này. Hãy xóa máy đó ở đây và ghép nối lại.",
-    "computers.error.other": "Đã xảy ra lỗi: {error}"
+    "computers.error.other": "Đã xảy ra lỗi: {error}",
+    "computers.nameLabel": "Tên",
+    "computers.namePlaceholder": "Ví dụ: Mac văn phòng",
+    "computers.nameHelp": "Tên hiển thị trong bộ chọn máy tính. Tên này phải khác với tên của máy Mac này và các máy tính khác của bạn.",
+    "computers.duplicateHint": "Máy Mac này hoặc một máy tính khác có cùng tên. Nhấp “Đổi tên” và đặt một tên khác.",
+    "computers.back": "Quay lại máy Mac này",
+    "computers.error.name-taken": "Máy Mac này hoặc một máy tính khác đã dùng tên này. Nhập tên khác.",
+    "computers.error.name-missing": "Nhập tên cho máy tính này."
   },
   "common": {
     "ok": "OK",
