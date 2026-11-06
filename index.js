@@ -743,55 +743,62 @@ export async function checkUpdate(fetchImpl = fetch, pkg = PACKAGE, signal) {
   return { ...info, newer: npm.ok };
 }
 
-/** Daily active count: each release carries this file; `scripts/active-count.mjs` reads its GitHub download count. */
+/** Usage count: each release carries these files; `scripts/active-count.mjs` reads their GitHub download counts.
+ * active.txt: each copy asks once a UTC day (daily active copies). installed.txt: each copy asks once (unique copies). */
 export const ACTIVE_ASSET = 'active.txt';
+export const INSTALLED_ASSET = 'installed.txt';
 const ACTIVE_EVERY_MS = 60 * 60 * 1000;
-/** Anonymous daily active count: at most one request per UTC day for this version's release file. GitHub raises the file's
+/** Anonymous usage count: at most one request per UTC day for this version's release file `asset`. GitHub raises the file's
  * download count when it answers the request; the request has no id, cookie, query or chat data, and the body is not read.
- * No request from a renamed copy, a pre-release version or a git checkout (`dev`). The day is kept in `file` (owner-only)
- * and in memory, so a failed save never sends a second request that day. A failed request (network, 403, 429, 5xx) keeps
- * no day: the next call tries again. A 404 (the release has no such file) counts as done.
- * ponytail: two dsh profiles that start at the same moment with one DSH_HOME can count one day twice; no lock. */
-export function activeCounter({ file, pkg = PACKAGE, fetchImpl = fetch, now = Date.now, dev = false }) {
+ * No request from a renamed copy, a pre-release version or a git checkout (`dev`). The state is kept in `file`
+ * (owner-only) and in memory, so a failed save never sends a second request. A failed request (network, 403, 429, 5xx)
+ * keeps nothing: the next call tries again. Each other answer keeps the day (`{ day }`): no request again that day.
+ * With `once`, an answer below 400 (GitHub counted it) also keeps `done: true`: no request ever again. A 404 (the release
+ * has no such file) keeps only the day, so the copy asks again the next day and is still counted once.
+ * ponytail: two dsh profiles that start at the same moment with one DSH_HOME can count twice; no lock. */
+export function activeCounter({ file, pkg = PACKAGE, fetchImpl = fetch, now = Date.now, dev = false, asset = ACTIVE_ASSET, once = false }) {
   const on = !dev && pkg.name === NPM_NAME && parseVersion(pkg.version) !== undefined;
-  let day; // the UTC day that this copy counted last
+  let mark; // what `file` holds: `{ day }` (the UTC day of the last answered request), with `once` also `done: true`
   let loaded;
   let running;
   const tick = async (signal) => {
     if (!on) return 'skip';
     const today = new Date(now()).toISOString().slice(0, 10);
-    day ??= await (loaded ??= readFile(file, 'utf8').then((text) => JSON.parse(text)?.day).catch(() => undefined));
-    if (day === today) return 'done';
+    mark ??= await (loaded ??= readFile(file, 'utf8').then((text) => JSON.parse(text)).catch(() => undefined));
+    if (mark?.day === today || (once && mark?.done === true)) return 'done';
     const timeout = AbortSignal.timeout(10000);
     let response;
     try {
-      response = await fetchImpl(`https://github.com/furkancak1r/dsh-composer-plus/releases/download/v${pkg.version}/${ACTIVE_ASSET}`,
+      response = await fetchImpl(`https://github.com/furkancak1r/dsh-composer-plus/releases/download/v${pkg.version}/${asset}`,
         { redirect: 'manual', headers: { 'user-agent': NPM_NAME }, signal: signal === undefined ? timeout : AbortSignal.any([signal, timeout]) });
     } catch { return 'retry'; }
     response.body?.cancel().catch(() => {});
     if (response.status >= 400 && response.status !== 404) return 'retry';
-    day = today;
+    mark = once && response.status !== 404 ? { day: today, done: true } : { day: today };
     try {
       await mkdir(dirname(file), { recursive: true });
       const tmp = `${file}.${process.pid}.tmp`;
-      await writeFile(tmp, JSON.stringify({ day }), { mode: 0o600 });
+      await writeFile(tmp, JSON.stringify(mark), { mode: 0o600 });
       await rename(tmp, file);
-    } catch { /* the day stays in memory */ }
+    } catch { /* the mark stays in memory */ }
     return 'sent';
   };
   // One call at a time: a second call while one runs gets the same answer.
   return (signal) => (running ??= tick(signal).finally(() => { running = undefined; }));
 }
 
-/** Daily active count (see activeCounter): once when dsh is ready, then each hour, so a dsh that stays open counts each day.
+/** Usage count (see activeCounter): the daily active count and the one-time unique count, once when dsh is ready, then
+ * each hour, so a dsh that stays open counts each day and a failed one-time request is tried again.
  * ponytail: "git checkout" means a `.git` next to index.js (this repo, its worktrees, CI); a user who runs a clone is not
  * counted. */
 function installActiveCount(ctx, home) {
-  const count = activeCounter({ file: join(home, 'storages', 'dsh-composer-plus', 'active.json'), dev: existsSync(new URL('./.git', import.meta.url)) });
+  const dir = join(home, 'storages', 'dsh-composer-plus');
+  const dev = existsSync(new URL('./.git', import.meta.url));
+  const counts = [activeCounter({ file: join(dir, 'active.json'), dev }), activeCounter({ file: join(dir, 'installed.json'), dev, asset: INSTALLED_ASSET, once: true })];
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   ctx.effect?.(() => {
     const abort = new AbortController();
-    const run = () => { count(abort.signal).catch(() => {}); };
+    const run = () => { for (const count of counts) count(abort.signal).catch(() => {}); };
     const timer = setInterval(run, ACTIVE_EVERY_MS);
     timer.unref?.();
     const ready = get('appReady');

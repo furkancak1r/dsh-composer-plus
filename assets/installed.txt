@@ -1,0 +1,1 @@
+Composer Plus unique copy count. Each installed copy asks for this file once; GitHub counts the requests. The request contains no data about the user.

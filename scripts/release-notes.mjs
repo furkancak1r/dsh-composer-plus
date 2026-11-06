@@ -4,14 +4,14 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { LANGUAGES } from './build-locales.mjs';
-import { ACTIVE_ASSET, NOTES_MAX, releaseNotes } from '../index.js';
+import { ACTIVE_ASSET, INSTALLED_ASSET, NOTES_MAX, releaseNotes } from '../index.js';
 
 /** dsh's own two languages and the 11 of locales/. */
 export const NOTES_LANGUAGES = ['en', 'zh', ...LANGUAGES.map(([id]) => id)];
 
 /** The problems of a release-notes.json (`data`); an empty list when it is complete. `body` is the GitHub release body:
  * older copies show it after they install this version, so it must be the English notes. `assets` are the names of the
- * release's files: each release carries assets/active.txt for the daily active count. */
+ * release's files: each release carries assets/active.txt (daily active count) and assets/installed.txt (unique count). */
 export function checkReleaseNotes(data, { version, tag, body, assets } = {}) {
   const problems = [];
   if (data?.version !== version) problems.push(`release-notes.json: version ${JSON.stringify(data?.version)} is not package.json's ${version}`);
@@ -29,7 +29,9 @@ export function checkReleaseNotes(data, { version, tag, body, assets } = {}) {
     else if (id !== 'en' && releaseNotes(text) === english) problems.push(`release-notes.json: the ${id} notes are the English text (not translated)`);
   }
   if (body !== undefined && releaseNotes(body) !== english) problems.push('the GitHub release body is not the English notes of release-notes.json (use notes.en as the body)');
-  if (assets !== undefined && !assets.includes(ACTIVE_ASSET)) problems.push(`the GitHub release has no ${ACTIVE_ASSET} (daily active count): gh release upload ${tag ?? `v${version}`} assets/${ACTIVE_ASSET}`);
+  for (const [name, what] of [[ACTIVE_ASSET, 'daily active count'], [INSTALLED_ASSET, 'unique count']]) {
+    if (assets !== undefined && !assets.includes(name)) problems.push(`the GitHub release has no ${name} (${what}): gh release upload ${tag ?? `v${version}`} assets/${name}`);
+  }
   return problems;
 }
 
