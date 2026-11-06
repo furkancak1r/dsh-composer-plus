@@ -1635,6 +1635,8 @@
     "feature.questionFit.description": "Quand l’agent vous pose une question, la question et ses réponses défilent ensemble dans la carte, Ignorer et Envoyer restent visibles et la carte utilise la hauteur de la fenêtre.",
     "feature.headerFit": "Adapter l’en-tête de la conversation à la fenêtre",
     "feature.headerFit.description": "Dans une fenêtre étroite, les boutons de l’en-tête de la conversation passent sur une deuxième ligne au lieu de se chevaucher, et le titre reste lisible. Une fenêtre large ne change pas.",
+    "feature.windowSize": "Mémoriser la taille de la fenêtre",
+    "feature.windowSize.description": "L’application de bureau s’ouvre avec la taille et la position de sa fenêtre lors de la dernière utilisation, et non à la petite taille par défaut. Uniquement dans l’application de bureau.",
     "feature.queueReorder": "Glisser-déposer dans la file",
     "feature.queueReorder.description": "Réordonnez les messages en file d’attente en faisant glisser leur poignée.",
     "feature.copyDeeplink": "Copier le lien de session",

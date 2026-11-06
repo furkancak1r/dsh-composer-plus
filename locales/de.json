@@ -1635,6 +1635,8 @@
     "feature.questionFit.description": "Wenn der Agent Ihnen eine Frage stellt, scrollen Frage und Antworten zusammen in der Karte, Überspringen und Senden bleiben sichtbar, und die Karte nutzt die Höhe des Fensters.",
     "feature.headerFit": "Chat-Kopfzeile an Fenster anpassen",
     "feature.headerFit.description": "In einem schmalen Fenster rücken die Schaltflächen der Chat-Kopfzeile in eine zweite Zeile, statt sich zu überdecken, und der Chat-Titel bleibt lesbar. Ein breites Fenster bleibt unverändert.",
+    "feature.windowSize": "Fenstergröße merken",
+    "feature.windowSize.description": "Die Desktop-App öffnet sich mit der Größe und Position, die ihr Fenster zuletzt hatte, nicht in der kleinen Standardgröße. Nur in der Desktop-App.",
     "feature.queueReorder": "Warteschlange per Drag-and-drop",
     "feature.queueReorder.description": "Eingereihte Nachrichten über ihren Griff per Ziehen neu anordnen.",
     "feature.copyDeeplink": "Sitzungslink kopieren",

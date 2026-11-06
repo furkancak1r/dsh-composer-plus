@@ -1635,6 +1635,8 @@
     "feature.questionFit.description": "Quando o agente faz uma pergunta, a pergunta e as respostas rolam juntas no cartão, Pular e Enviar continuam visíveis e o cartão usa a altura da janela.",
     "feature.headerFit": "Ajustar o cabeçalho do chat à janela",
     "feature.headerFit.description": "Em uma janela estreita, os botões do cabeçalho do chat vão para uma segunda linha em vez de se sobreporem, e o título do chat continua legível. Uma janela larga não muda.",
+    "feature.windowSize": "Lembrar o tamanho da janela",
+    "feature.windowSize.description": "O app para desktop abre com o tamanho e a posição que a janela tinha na última vez, não no tamanho pequeno padrão. Só no app para desktop.",
     "feature.queueReorder": "Arrastar e soltar na fila",
     "feature.queueReorder.description": "Reordene as mensagens na fila arrastando a alça.",
     "feature.copyDeeplink": "Copiar link da sessão",
