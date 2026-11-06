@@ -3724,6 +3724,47 @@ func memoryVersion(_ v: J) -> MemoryEditor.Version? {
     }
 }
 
+/// Report an issue (Composer Plus on the Mac): the Mac's default model writes an English issue draft from the type and the
+/// text; Open issue runs the Mac's own `gh` in the Composer Plus repository. One draft or open at a time (every button goes
+/// through `busy`); the Mac also refuses a second open, and the same text again answers the earlier issue.
+@MainActor final class IssueReporter: ObservableObject {
+    static let kinds = ["bug", "feature", "improvement", "translation", "question"]
+    /// "draft" or "open" while one runs.
+    @Published private(set) var busy: String?
+    @Published var kind = "bug"
+    @Published var text = ""
+    @Published var title = ""
+    @Published var body = ""
+    @Published var failed: String?
+    @Published private(set) var issueURL: URL?
+    @Published private(set) var issueNumber: Int?
+    private var call: (J) async throws -> J
+    init(call: @escaping (J) async throws -> J) { self.call = call }
+    func bind(_ call: @escaping (J) async throws -> J) { self.call = call }
+    func draft() async {
+        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard busy == nil, !t.isEmpty, t.count <= 4000 else { return }
+        busy = "draft"; failed = nil; issueURL = nil; issueNumber = nil
+        defer { busy = nil }
+        do {
+            let o = try await call(["type": kind, "text": t])
+            title = o["title"] as? String ?? ""; body = o["body"] as? String ?? ""
+        } catch { failed = userText(error) }
+    }
+    /// Open the issue as the user sees it; done: the report clears and the link stays.
+    func open() async {
+        guard busy == nil, !title.trimmingCharacters(in: .whitespaces).isEmpty, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        busy = "open"; failed = nil
+        defer { busy = nil }
+        do {
+            let o = try await call(["title": title, "body": body, "open": true])
+            let issue = o["issue"] as? J
+            issueURL = (issue?["url"] as? String).flatMap(URL.init(string:)); issueNumber = issue?["number"] as? Int
+            text = ""; title = ""; body = ""
+        } catch { failed = userText(error) }
+    }
+}
+
 /// Context breakdown (Composer Plus on the Mac): one part of the chat's model context, with its tokens.
 struct ContextPart: Identifiable { let id: String; let tokens: Int; let count: Int; let labels: [(label: String, tokens: Int)] }
 /// The Mac's `GET /plus/context` answer: the parts (biggest first), the total and the context window (when known).

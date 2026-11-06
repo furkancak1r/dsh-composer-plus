@@ -2294,6 +2294,7 @@ struct SettingsView: View {
     @State private var confirmUnpair = false
     @State private var removing: Pairing?
     @State private var lockKind = AppLock.kind
+    @State private var reportingIssue = false
     /// "Face ID", "Touch ID" or the passcode: what this iPhone asks for.
     private var lockName: String { lockKind == .faceID ? "Face ID" : lockKind == .touchID ? "Touch ID" : String(localized: "the passcode") }
     /// A time picker for a notification hour that Client keeps as minutes after midnight.
@@ -2407,6 +2408,11 @@ struct SettingsView: View {
                          ? "Tether asks for \(lockName) when it opens and when you come back to it. Notification previews still show on the Lock Screen: turn them off in iOS Settings › Notifications › Tether."
                          : "Set a passcode on this iPhone to use the app lock.")
                 }
+                if c.plus.contains("issue-report") {
+                    Section {
+                        Button { reportingIssue = true } label: { Label("Report a Composer Plus issue…", systemImage: "exclamationmark.bubble") }
+                    } header: { Text("Composer Plus") } footer: { Text("Describe a bug or an idea in your own words. The AI on your Mac writes an English GitHub issue, and you check it before it opens.") }
+                }
                 if let p = c.pairing {
                     Section("This iPhone") {
                         LabeledContent("Name", value: p.name)
@@ -2434,6 +2440,7 @@ struct SettingsView: View {
             .confirmationDialog(Text("Unpair from \(removing?.title ?? "")?"), isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } }), titleVisibility: .visible, presenting: removing) { p in
                 Button("Unpair", role: .destructive) { c.forget(fp: p.fp) }
             } message: { _ in Text("The token is deleted from this iPhone. Also revoke it on the Mac to invalidate it there.") }
+            .sheet(isPresented: $reportingIssue) { IssueReportSheet() }
         }
     }
 }
@@ -3707,6 +3714,46 @@ struct HandoffSheet: View {
                 h.bind { [c] body in try await c.plusCall("handoff", body: body, wait: 190) }
                 if h.note.isEmpty { await h.write(sessionId) }
             }
+        }
+    }
+}
+
+/// Report a Composer Plus issue (Composer Plus on the Mac): pick a type, describe it; the Mac's default model writes an
+/// English draft; the user edits it; Open issue runs the Mac's own gh in the Composer Plus repository.
+struct IssueReportSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    @StateObject private var r = IssueReporter(call: { _ in [:] })
+    private let names: [String: LocalizedStringKey] = ["bug": "Bug", "feature": "Feature request", "improvement": "Improvement", "translation": "Translation", "question": "Question"]
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Picker("Issue type", selection: $r.kind) { ForEach(IssueReporter.kinds, id: \.self) { Text(names[$0] ?? "").tag($0) } }
+                        .disabled(r.busy != nil)
+                    TextField("What happened, or what do you want?", text: $r.text, axis: .vertical)
+                        .lineLimit(4...12).disabled(r.busy != nil)
+                        .onChange(of: r.text) { _, v in if v.count > 4000 { r.text = String(v.prefix(4000)) } }
+                } footer: { Text("The issue is public on GitHub. Do not write keys, passwords or private paths.") }
+                Section { Button(r.title.isEmpty ? "Write draft" : "Write again") { Task { await r.draft() } }
+                    .disabled(r.busy != nil || r.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+                if !r.title.isEmpty || !r.body.isEmpty {
+                    Section {
+                        TextField("Title", text: $r.title, axis: .vertical).lineLimit(1...3).disabled(r.busy != nil)
+                        TextField("Description (Markdown)", text: $r.body, axis: .vertical).lineLimit(6...30).font(.callout.monospaced()).disabled(r.busy != nil)
+                    } footer: { Text("Check the draft: it opens as you see it, in furkancak1r/dsh-composer-plus, with the gh login of your Mac.") }
+                    Section { Button("Open issue") { Task { await r.open() } }.bold()
+                        .disabled(r.busy != nil || r.title.trimmingCharacters(in: .whitespaces).isEmpty || r.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) }
+                }
+                if let b = r.busy { HStack(spacing: 8) { ProgressView(); Text(b == "open" ? "Opening the issue on GitHub…" : "Writing the draft…") }.font(.footnote).foregroundStyle(.secondary) }
+                if let n = r.issueNumber, let u = r.issueURL { Section { Text("Issue #\(n) is open."); Link("View on GitHub", destination: u) } }
+                if let f = r.failed { Text("Failed: \(f)").font(.footnote).foregroundStyle(.red) }
+            }
+            .navigationTitle("Report a Composer Plus issue").navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() }.disabled(r.busy == "open") } }
+            .interactiveDismissDisabled(r.busy == "open")
+            // The draft is a model call on the Mac; an open runs gh there (at most 60 s) and must run to its end.
+            .task { r.bind { [c] body in try await c.plusCall("issue-report", body: body, wait: body["open"] == nil ? 190 : 75) } }
         }
     }
 }
