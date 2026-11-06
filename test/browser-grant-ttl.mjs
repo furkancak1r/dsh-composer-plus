@@ -1,6 +1,7 @@
 // Real-app check of "Allow for this chat" with a time limit, on each dsh given. Isolated: own DSH_HOME, a fake model that is
 // also the Auto Review reviewer (it always denies, so dsh asks the user), a made-up project. Never the normal profile.
 // 1. /permission auto → a bash call → the approval card shows "Allow for this chat" with "for 1 hour" → click it.
+//    In a narrow window (560 and 420 px) the card's four buttons keep each label on one line in its own button.
 // 2. The same tool again: no card (allowed by the grant); the header chip names the end time.
 // 3. Settings → Allow for this chat → Time limit shows "1 hour" and lists the choices.
 // 4. The grant is moved 61 minutes into the past in chat-grants.json (as if an hour went by) and the page reloads: the
@@ -46,7 +47,7 @@ const fake = createServer((req, res) => {
 await new Promise((r) => fake.once('listening', r));
 const fakePort = fake.address().port;
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
     reviews = 0;
@@ -98,6 +99,26 @@ try {
       const allowChat = page.getByRole('button', { name: 'Allow for this chat', exact: true });
       await allowChat.waitFor({ timeout: 30000 });
       assert.match(await allowChat.getAttribute('title'), /without asking in this chat for 1 hour/);
+      // 1b. A narrow chat (owner report: the four labels broke over several lines, out of their buttons): each label stays
+      // on one line inside its button, no button covers another, and all stay in the card.
+      const fits = () => page.locator('[data-approval-key]').first().evaluate((root) => {
+        const card = root.firstElementChild.getBoundingClientRect();
+        const list = [...root.querySelectorAll('button')].filter((b) => b.offsetParent !== null).map((b) => {
+          const r = b.getBoundingClientRect(); const range = document.createRange(); range.selectNodeContents(b);
+          const lines = new Set([...range.getClientRects()].filter((x) => x.width > 0).map((x) => Math.round(x.top))).size;
+          return { text: b.innerText.trim(), lines, x: r.x, y: r.y, w: r.width, h: r.height, over: b.scrollHeight > b.clientHeight + 1 || b.scrollWidth > b.clientWidth + 1 };
+        });
+        const bad = list.filter((b) => b.lines !== 1 || b.over || b.x < card.x - 1 || b.x + b.w > card.right + 1)
+          .concat(list.filter((a, i) => list.some((b, j) => j > i && a.x < b.x + b.w - 1 && b.x < a.x + a.w - 1 && a.y < b.y + b.h - 1 && b.y < a.y + a.h - 1)));
+        return { count: list.length, bad, width: Math.round(card.width) };
+      });
+      for (const width of [560, 420]) {
+        await page.setViewportSize({ width, height: 860 }); await pause(400);
+        const r = await fits();
+        assert.equal(r.count, 4, `four buttons on the card at ${width} px`);
+        assert.deepEqual(r.bad, [], `at ${width} px (card ${r.width} px) each label is on one line in its own button`);
+      }
+      await page.setViewportSize({ width: 1280, height: 860 }); await pause(400);
       await allowChat.click();
       await page.getByText('Step 1 done.').waitFor({ timeout: 20000 });
       const grantsFile = join(home, 'storages', 'dsh-composer-plus', 'chat-grants.json');
