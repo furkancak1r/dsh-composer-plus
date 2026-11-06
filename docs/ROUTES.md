@@ -62,6 +62,8 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.planned-steps` | POST | `{on}`: the switch (a switch route). | plannedSteps | no |
 | `/api/composer-plus.turkish-skill` | GET | The switch and the pack state `{on, turkish, installed, commit?, checkedAt?, failed?}`. | turkishSkill | no |
 | `/api/composer-plus.turkish-skill` | POST | `{on}`, `{lang}` (dsh's UI language id) or both: the switch (a switch route) and the language that decides the install. | turkishSkill | no |
+| `/api/composer-plus.untangle-codebase` | GET | The switch `{on}`. | untangleCodebase | no |
+| `/api/composer-plus.untangle-codebase` | POST | `{on}`: the switch (a switch route). | untangleCodebase | no |
 | `/api/composer-plus.secrets` | GET | The switch `{on}`. | secretInput | no |
 | `/api/composer-plus.secrets` | POST | `{on}`: the switch (a switch route). Off removes the tool and declines the open requests. | secretInput | no |
 | `/api/composer-plus.secret-answer` | GET | `?sessionId=`: `{on, asks: [{askId, callId, label, purpose}]}`, the open `request_secret` requests of that chat; never a value. | secretInput | yes |
