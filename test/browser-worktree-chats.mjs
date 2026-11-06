@@ -106,7 +106,7 @@ const setSwitch = async (page, on) => {
 const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', GIT_AUTHOR_NAME: 'Demo', GIT_AUTHOR_EMAIL: 'demo@example.com', GIT_COMMITTER_NAME: 'Demo', GIT_COMMITTER_EMAIL: 'demo@example.com' };
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'maintenance.auto=false', ...args], { cwd, env: gitEnv, encoding: 'utf8' });
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', chromiumSandbox: true });
 const results = [];
 try {
   for (const bin of process.argv.slice(2)) {
@@ -278,6 +278,24 @@ try {
         assert.match(await readFile(join(project, '.git/info/exclude'), 'utf8'), /^\.worktrees\/$/m, '.worktrees/ is ignored locally');
         assert.equal(git(project, 'status', '--porcelain').trim(), '', 'the main checkout stays clean');
         step('New branch from the first message, with its image and file');
+        // The sent text leaves the New chat that sent it: dsh 0.2.2 clears it only when the send's answer settles while
+        // that chat is open. The new branch chat, the next New chat of acme-web (dsh reuses the same one) and the saved
+        // drafts show none of it.
+        const sentGone = async (where) => {
+          assert.equal((await input.innerText()).trim(), '', `${where}: the composer is empty`);
+          const kept = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('dsh.conversation.') && (localStorage.getItem(k) ?? '').includes('Add a remember me box')));
+          assert.deepEqual(kept, [], `${where}: no chat keeps the sent text as its draft`);
+        };
+        const branchChat = await page.evaluate(() => document.querySelector('[data-row-key^="session:"][aria-selected="true"]')?.getAttribute('data-row-key'));
+        assert.ok(branchChat, 'the new branch chat is selected');
+        await sentGone('the new branch chat');
+        await page.locator(`[data-row-key="workspace:${id}"]`).hover();
+        await page.getByRole('button', { name: 'New session in acme-web', exact: true }).click();
+        await chip.waitFor({ timeout: 10000 }); await pause(800);
+        await sentGone('the next New chat of acme-web');
+        await page.locator(`[data-row-key="${branchChat}"]`).click(); await pause(800);
+        await sentGone('the new branch chat, clicked again');
+        step('The sent text leaves the New chat (composers and saved drafts)');
         // Workspace tree: the branch folder is a workspace nested inside acme-web (the main project row comes first).
         const rows = await page.evaluate(() => [...document.querySelectorAll('[data-row-key^="workspace:"]')].map((r) => ({ text: r.innerText.trim().split('\n')[0], left: Math.round(r.getBoundingClientRect().left + parseFloat(getComputedStyle(r).paddingLeft || '0')) })));
         const main = rows.find((r) => r.text.includes('acme-web')); const branch = rows.find((r) => r.text.includes('feat/login-remember-me'));
