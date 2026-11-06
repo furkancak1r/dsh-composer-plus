@@ -77,12 +77,13 @@ export const BLOCKED_PATH = '/api/composer-plus.blocked-commands';
 export const HANDOFF_PATH = '/api/composer-plus.handoff';
 export const CONTEXT_PATH = '/api/composer-plus.context';
 export const PLANNED_PATH = '/api/composer-plus.planned-steps';
+export const TURKISH_SKILL_PATH = '/api/composer-plus.turkish-skill';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'allowForChat', 'rejectNote', 'secretInput', 'quoteReply', 'sideChat', 'diffComments', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit',
   'queueReorder', 'mobileConnect', 'remoteComputers', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
-  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'plannedSteps', 'memoryHistory', 'memoryExport', 'memorySource', 'memoryCopy', 'memoryStale', 'memoryPerChat', 'memorySuggest'];
+  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'plannedSteps', 'turkishSkill', 'memoryHistory', 'memoryExport', 'memorySource', 'memoryCopy', 'memoryStale', 'memoryPerChat', 'memorySuggest'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -2367,6 +2368,7 @@ export function apply(ctx) {
   installContext(ctx);
   installBoard(ctx, home);
   installPlannedSteps(ctx, home);
+  installTurkishSkill(ctx, home);
   installSecrets(ctx, home);
   installBackup(ctx, home);
 }
@@ -8344,4 +8346,238 @@ export function installPlannedSteps(ctx, home, file = join(home, 'storages', 'ds
     },
   });
   return { ready, tool };
+}
+
+/** Turkish skill pack: the GitHub repository and the skill folder in it. Only this skill name is accepted, so the pack can
+ * never take the name of another skill (a runtime skill outranks the user's own skills in dsh). */
+export const TURKISH_SKILL = { repo: 'yucezerey/turkish-anti-ai-skill', dir: 'skills/turkish-anti-ai-skill', name: 'turkish-anti-ai-skill' };
+const TURKISH_SKILL_EVERY_MS = 24 * 60 * 60 * 1000;
+/** GitHub's API and raw file hosts. `COMPOSER_PLUS_TURKISH_SKILL_BASE` (a local `http://127.0.0.1:<port>` only) points both at a fake
+ * GitHub for the real-app test (test/browser-turkish-skill.mjs). */
+const turkishSkillHosts = () => {
+  const base = process.env.COMPOSER_PLUS_TURKISH_SKILL_BASE;
+  if (typeof base === 'string' && /^http:\/\/127\.0\.0\.1:\d+$/.test(base)) return { api: `${base}/api`, raw: `${base}/raw` };
+  return { api: 'https://api.github.com', raw: 'https://raw.githubusercontent.com' };
+};
+const TURKISH_SKILL_LIMITS = { files: 20, file: 256 * 1024, total: 1024 * 1024 };
+const TURKISH_SKILL_FILE = /^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*\.md$/;
+/** True for a Turkish UI language id (`tr`, `tr-TR`). */
+export const isTurkishLanguage = (id) => typeof id === 'string' && /^tr(?:-|$)/i.test(id);
+
+/** `name`, `description` and the body of a SKILL.md. Only plain one-line `key: value` fields (quoted or not) and a `>`/`|`
+ * block for the description; anything else throws.
+ * ponytail: not a YAML parser; the pack's SKILL.md uses one-line fields. A folded or nested field fails safe (no install). */
+export function parseSkillFile(text) {
+  const head = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
+  if (head === null) throw new Error('SKILL.md has no frontmatter');
+  const lines = head[1].split(/\r?\n/);
+  const field = (key) => {
+    const at = lines.findIndex((line) => line.startsWith(`${key}:`));
+    if (at < 0) return undefined;
+    let value = lines[at].slice(key.length + 1).trim();
+    if (value === '>' || value === '|') {
+      const block = [];
+      for (const line of lines.slice(at + 1)) { if (!/^\s+\S/.test(line)) break; block.push(line.trim()); }
+      value = block.join(value === '>' ? ' ' : '\n');
+    } else if (/^(["']).*\1$/.test(value)) value = value.slice(1, -1);
+    return value;
+  };
+  const name = field('name');
+  const description = field('description');
+  if (!isText(name, 64) || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name)) throw new Error('SKILL.md has no valid name');
+  if (!isText(description, 1024)) throw new Error('SKILL.md has no valid description');
+  return { name, description, body: text.slice(head[0].length).trim() };
+}
+
+/** Git's blob id of `bytes`: GitHub's tree lists it for each file, so a downloaded file must hash to it. */
+export const gitBlobSha = (bytes) => createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+
+/** A response body, at most `max` bytes (more throws). */
+async function readCapped(response, max) {
+  const chunks = []; let size = 0;
+  for await (const chunk of response.body ?? []) {
+    size += chunk.length;
+    if (size > max) { await response.body.cancel?.().catch(() => {}); throw new Error(`a file is larger than ${max} bytes`); }
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
+}
+
+/** The newest commit of the pack's default branch: one GitHub API call. */
+export async function latestTurkishSkill(fetchImpl, signal) {
+  const response = await fetchImpl(`${turkishSkillHosts().api}/repos/${TURKISH_SKILL.repo}/commits/HEAD`,
+    { signal, redirect: 'error', headers: { accept: 'application/vnd.github.sha', 'user-agent': NPM_NAME } });
+  if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
+  const commit = (await readCapped(response, 1024)).toString('utf8').trim();
+  if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('GitHub sent no commit id');
+  return commit;
+}
+
+/** Downloads the skill folder of `commit` into `dir` (which must not exist): one GitHub API call for the file list, then
+ * each file from raw.githubusercontent.com at that commit. Only regular Markdown files with plain relative names are
+ * taken (no scripts, symlinks or `..`); each one must hash to its id in the list. Limits: TURKISH_SKILL_LIMITS. The folder
+ * is written in a temporary sibling and renamed at the end, so a failed download leaves nothing. Returns the parsed
+ * SKILL.md. */
+export async function downloadTurkishSkill({ fetchImpl, commit, dir, signal }) {
+  if (!/^[0-9a-f]{40}$/.test(commit)) throw new Error('bad commit id');
+  const response = await fetchImpl(`${turkishSkillHosts().api}/repos/${TURKISH_SKILL.repo}/git/trees/${commit}?recursive=1`,
+    { signal, redirect: 'error', headers: { accept: 'application/vnd.github+json', 'user-agent': NPM_NAME } });
+  if (!response.ok) throw new Error(`GitHub answered ${response.status}`);
+  let tree;
+  try { tree = JSON.parse((await readCapped(response, 4 * 1024 * 1024)).toString('utf8')); } catch (error) { throw new Error(`GitHub sent a bad file list: ${error?.message ?? error}`); }
+  if (tree?.truncated !== false || !Array.isArray(tree.tree)) throw new Error('GitHub sent an incomplete file list');
+  const prefix = `${TURKISH_SKILL.dir}/`;
+  const files = tree.tree.filter((e) => e?.type === 'blob' && e.mode === '100644' && typeof e.path === 'string' && e.path.startsWith(prefix)
+    && TURKISH_SKILL_FILE.test(e.path.slice(prefix.length)) && !e.path.slice(prefix.length).split('/').some((part) => part.startsWith('.'))
+    && /^[0-9a-f]{40}$/.test(e.sha) && Number.isSafeInteger(e.size) && e.size >= 0 && e.size <= TURKISH_SKILL_LIMITS.file)
+    .map((e) => ({ path: e.path.slice(prefix.length), sha: e.sha, size: e.size }));
+  if (!files.some((f) => f.path === 'SKILL.md')) throw new Error('the pack has no SKILL.md');
+  if (files.length > TURKISH_SKILL_LIMITS.files || files.reduce((n, f) => n + f.size, 0) > TURKISH_SKILL_LIMITS.total) throw new Error('the pack is too large');
+  await mkdir(dirname(dir), { recursive: true, mode: 0o700 });
+  const tmp = await mkdtemp(`${dir}.tmp-`);
+  try {
+    let skill;
+    for (const file of files) {
+      const raw = await fetchImpl(`${turkishSkillHosts().raw}/${TURKISH_SKILL.repo}/${commit}/${prefix}${file.path}`,
+        { signal, redirect: 'error', headers: { 'user-agent': NPM_NAME } });
+      if (!raw.ok) throw new Error(`${file.path}: GitHub answered ${raw.status}`);
+      const bytes = await readCapped(raw, file.size);
+      if (gitBlobSha(bytes) !== file.sha) throw new Error(`${file.path} does not match the file list`);
+      if (file.path === 'SKILL.md') {
+        skill = parseSkillFile(bytes.toString('utf8'));
+        if (skill.name !== TURKISH_SKILL.name) throw new Error(`SKILL.md names "${skill.name}", not "${TURKISH_SKILL.name}"`);
+      }
+      await mkdir(dirname(join(tmp, file.path)), { recursive: true, mode: 0o700 });
+      await writeFile(join(tmp, file.path), bytes, { mode: 0o600, flag: 'wx' });
+    }
+    signal?.throwIfAborted();
+    await rename(tmp, dir);
+    return skill;
+  } catch (error) { await rm(tmp, { recursive: true, force: true }); throw error; }
+}
+
+/** Turkish skill pack (Host half). On by default: while it is on and the UI language that the client reported is Turkish,
+ * the pack's skill is registered in dsh's skill registry (a runtime skill; its resource folder is the downloaded copy).
+ * The copy is in `cache/composer-plus/turkish-skill/<commit>` (owner-only); once a day the Host asks GitHub for the newest
+ * commit and downloads it when it changed. A failed check keeps the copy in use. Another language unregisters the skill
+ * and keeps the copy; switching off unregisters it and deletes the copy. The switch and the reported language are in
+ * `storages/dsh-composer-plus/turkish-skill.json`.
+ * ponytail: one language for the whole Host: the newest report wins when two browsers use different languages. */
+export function installTurkishSkill(ctx, home, { fetchImpl = fetch, now = Date.now } = {}) {
+  const file = join(home, 'storages', 'dsh-composer-plus', 'turkish-skill.json');
+  const cache = join(home, 'cache', 'composer-plus', 'turkish-skill');
+  const metaFile = join(cache, 'meta.json');
+  let on = true; let lang; let meta; let failed; let fiber; let registered; let closed = false;
+  let abort = new AbortController();
+  const wanted = () => on && isTurkishLanguage(lang);
+  const saveSwitch = async (next) => {
+    await mkdir(dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(next), { mode: 0o600 });
+    await rename(tmp, file);
+  };
+  const saveMeta = async (next) => {
+    await mkdir(cache, { recursive: true, mode: 0o700 });
+    const tmp = `${metaFile}.${process.pid}.tmp`;
+    await writeFile(tmp, JSON.stringify(next), { mode: 0o600 });
+    await rename(tmp, metaFile);
+    meta = next;
+  };
+  const unregister = () => { const had = fiber; fiber = undefined; registered = undefined; try { had?.dispose?.(); } catch { /* dsh is closing */ } };
+  const register = async (commit) => {
+    if (registered === commit && fiber !== undefined) return;
+    const dir = join(cache, commit);
+    const skill = parseSkillFile(await readFile(join(dir, 'SKILL.md'), 'utf8'));
+    if (skill.name !== TURKISH_SKILL.name) throw new Error(`SKILL.md names "${skill.name}"`);
+    if (closed || !wanted()) return;
+    unregister();
+    fiber = ctx.inject(['skills'], (sub) => {
+      sub.skills.register({ name: skill.name, description: skill.description, content: skill.body, source: 'runtime',
+        resourceBase: { kind: 'directory', path: dir.split(sep).join('/') } });
+    });
+    registered = commit;
+  };
+  /** Old copies go after a newer one is in use. */
+  const prune = async (keep) => {
+    for (const name of await readdir(cache).catch(() => [])) if (name !== keep && name !== 'meta.json') await rm(join(cache, name), { recursive: true, force: true });
+  };
+  /** Registers the saved copy, then asks GitHub when the last check (also a failed one) is a day old. `force` (a click on
+   * the switch or a switch to Turkish) asks at once when there is no copy. */
+  const refresh = async (force = false) => {
+    // No skill registry (a test or a dsh without skills): nothing to install, so nothing is downloaded.
+    if (closed || !wanted() || typeof ctx.inject !== 'function') { unregister(); return; }
+    // A broken or missing copy is downloaded again at once.
+    if (meta?.commit !== undefined) { try { await register(meta.commit); } catch { meta = undefined; } }
+    const recent = meta !== undefined && now() - meta.checkedAt < TURKISH_SKILL_EVERY_MS;
+    if (recent && (meta.commit !== undefined || !force)) return;
+    const stop = abort.signal; // a switch-off replaces `abort`, so keep this run's own signal
+    const signal = AbortSignal.any([stop, AbortSignal.timeout(60000)]);
+    try {
+      const commit = await latestTurkishSkill(fetchImpl, signal);
+      if (commit !== meta?.commit) {
+        await rm(join(cache, commit), { recursive: true, force: true });
+        await downloadTurkishSkill({ fetchImpl, commit, dir: join(cache, commit), signal });
+      }
+      signal.throwIfAborted();
+      await saveMeta({ commit, checkedAt: now() });
+      failed = undefined;
+      await register(commit);
+      await prune(commit);
+    } catch (error) {
+      if (stop.aborted) return;
+      failed = String(error?.message ?? error);
+      // The next try waits a day too; the copy in use (if any) stays.
+      await saveMeta({ ...(meta?.commit === undefined ? {} : { commit: meta.commit }), checkedAt: now() }).catch(() => {});
+    }
+  };
+  // One change at a time, in order (a refresh, a switch, a language report).
+  let chain = Promise.resolve();
+  const serial = (fn) => { const run = chain.then(fn); chain = run.catch(() => {}); return run; };
+  const ready = serial(async () => {
+    try { const saved = JSON.parse(await readFile(file, 'utf8')); on = saved?.on !== false; lang = isText(saved?.lang, 35) ? saved.lang : undefined; } catch { /* defaults */ }
+    try {
+      const saved = JSON.parse(await readFile(metaFile, 'utf8'));
+      if (Number.isFinite(saved?.checkedAt)) meta = /^[0-9a-f]{40}$/.test(saved.commit) ? { commit: saved.commit, checkedAt: saved.checkedAt } : { checkedAt: saved.checkedAt };
+    } catch { /* no copy */ }
+  });
+  const tick = (force = false) => serial(() => refresh(force)).catch(() => {});
+  ctx.effect?.(() => {
+    tick();
+    const timer = setInterval(() => tick(), 60 * 60 * 1000);
+    timer.unref?.();
+    return () => { closed = true; clearInterval(timer); abort.abort(); unregister(); };
+  }, 'dsh-composer-plus: turkish skill');
+  const status = () => json({ on, turkish: isTurkishLanguage(lang), installed: registered !== undefined,
+    ...(meta?.commit === undefined || !on ? {} : { commit: meta.commit, checkedAt: meta.checkedAt }), ...(failed === undefined || !on ? {} : { failed }) });
+  ctx.connection.fetch.register({
+    path: TURKISH_SKILL_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await ready;
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        const keys = plainObject(body) ? Object.keys(body).sort().join() : '';
+        if (!['on', 'lang', 'lang,on'].includes(keys) || ('on' in body && typeof body.on !== 'boolean')
+          || ('lang' in body && !(isText(body.lang, 35) && LOCALE_ID.test(body.lang)))) return json({ error: 'bad request' }, 400);
+        // Switching off stops a running download at once; the change then waits for its turn.
+        if (body.on === false) { abort.abort(); abort = new AbortController(); }
+        let changed = false;
+        try {
+          await serial(async () => {
+            const next = { on: 'on' in body ? body.on : on, lang: 'lang' in body ? body.lang : lang };
+            if (next.on === on && next.lang === lang) return;
+            changed = true;
+            // Saved first: a failed save changes nothing.
+            await saveSwitch(next);
+            ({ on, lang } = next);
+            if (!on) { unregister(); failed = undefined; meta = undefined; await rm(cache, { recursive: true, force: true }); }
+          });
+        } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+        // The download runs after the answer; the client asks again for its result.
+        await Promise.race([tick(changed), new Promise((resolve) => { setTimeout(resolve, 50).unref?.(); })]);
+      }
+      return status();
+    },
+  });
+  return { ready, refresh: tick, state: () => ({ on, lang, meta, failed, registered }) };
 }
