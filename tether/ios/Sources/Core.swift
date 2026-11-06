@@ -3029,6 +3029,26 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         return id
     }
 
+    // MARK: Assistant (Composer Plus `assistant`)
+
+    /// One open at a time (a second tap while one opens does nothing).
+    @Published private(set) var assistantOpening = false
+    /// Assistant: the Mac's one assistant chat (`GET /plus/assistant`; the Mac makes it when it has none), opened here.
+    func openAssistant() async throws {
+        guard !assistantOpening else { return }
+        assistantOpening = true
+        defer { assistantOpening = false }
+        let o: J
+        do { o = try await plusCall("assistant") } catch let f as Fail { throw Fail(Self.assistantError(f)) }
+        guard let id = o["sessionId"] as? String, !id.isEmpty else { throw Fail(String(localized: "The assistant chat did not open.")) }
+        if !sessions.contains(where: { $0.id == id }) { try? await loadSessions() }
+        open(id)
+    }
+    /// The words for a failed Assistant tap: the Mac has the feature off (no route: 404; off: 409), else the Mac's reason.
+    static func assistantError(_ f: Fail) -> String {
+        f.status == 404 || f.status == 409 ? String(localized: "Switch on Assistant in Settings → Composer Plus on your Mac.") : (f.errorDescription ?? "")
+    }
+
     /// Quick chat: the Mac's default workspace (Composer Plus → Default workspace for New session). Switched off, an older
     /// Mac or any failure: DSH's own default folder, as before.
     func createQuick() async throws {
