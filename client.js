@@ -381,6 +381,14 @@ ${row} > [class*="_headerUtilities"] { flex-shrink: 1; min-width: 0; }
 ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     };
     const installHeaderFit = (doc, id, marker) => installStyle(doc, 'data-composer-plus-header-fit', headerFitCss(marker), id);
+    /** Approval card fit. dsh's card keeps its button row on one line (`display: flex`, no wrap). With our two buttons
+     * (Allow for this chat, Reject with note…) in a narrow chat, the four buttons shrink and each label breaks over
+     * several lines, out of its button (owner report). While one of our buttons is in the row, the row wraps and each
+     * button keeps its label on one line. Only dsh's markup attribute, no generated class names.
+     * ponytail: a single label wider than the whole card still overflows; then the card's own `overflow: hidden` cuts it. */
+    const APPROVAL_FIT_CSS = `[data-approval-key] :has(> [data-composer-plus-approval-action]) { flex-wrap: wrap; row-gap: 8px; }
+[data-approval-key] :has(> [data-composer-plus-approval-action]) > button { flex: none; white-space: nowrap; }`;
+    const installApprovalFit = (doc, id) => installStyle(doc, 'data-composer-plus-approval-fit', APPROVAL_FIT_CSS, id);
 
     const primitives = require('@deepseek-ai/dsh-client-ui-primitives');
     /** Copy text with dsh's own clipboard helper; true when it worked. Call it inside the user's click. */
@@ -3722,6 +3730,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         disabled: busy,
         title: grantTtl.ttlMs === null ? t('allowChatTitle', { toolName: ask.toolName }) : t('allowChatTitleFor', { toolName: ask.toolName, duration: formatDuration(grantTtl.ttlMs) }),
         style: { order: -2, marginRight: 'auto' }, // first in the row; Reject with note (order -1) stays next to Reject
+        'data-composer-plus-approval-action': '',
         onClick: allow,
       }, t('allowChat')), host, ask.key);
       return chip === null && button === null ? null : React.createElement(React.Fragment, null, chip, button);
@@ -3811,7 +3820,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           React.createElement('div', { className: 'cp-rn-row' },
             React.createElement(primitives.Button, { variant: 'outline', disabled: state.busy, onClick: () => { store.close(ask.key); setText(''); } }, t('rejectNote.cancel')),
             React.createElement(primitives.Button, { variant: 'primary', disabled: state.busy || text.trim() === '', onClick: send }, t('rejectNote.send'))))
-        : React.createElement(primitives.Button, { variant: 'outline', title: t('rejectNote.title'), style: { order: -1 }, onClick: () => store.open(ask.key) }, t('rejectNote.button'));
+        : React.createElement(primitives.Button, { variant: 'outline', title: t('rejectNote.title'), style: { order: -1 }, 'data-composer-plus-approval-action': '', onClick: () => store.open(ask.key) }, t('rejectNote.button'));
       return createPortal(view, host, `reject-note-${ask.key}`);
     }
 
@@ -3875,12 +3884,25 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       try { const v = block?.args?.text?.(key); if (typeof v === 'string') return v; } catch { /* partial arguments */ }
       try { const v = JSON.parse(block?.argsRaw ?? block?.call?.argsRaw ?? '')?.[key]; return typeof v === 'string' ? v : undefined; } catch { return undefined; }
     }
+    /** dsh folds the steps of a turn into a closed group (`hidden="until-found"`) even while the turn runs (the desktop
+     * default "standard" view). The card waits for the user, so open each fold above it through dsh's own way: the
+     * `beforematch` event that browser find sends (dsh's listener opens the group). After dsh's commit; no focus. */
+    function revealSecretCard(card) {
+      setTimeout(() => {
+        if (!card.isConnected) return;
+        for (let el = card.parentElement; el !== null; el = el.parentElement) {
+          if (el.getAttribute('hidden') === 'until-found') el.dispatchEvent(new Event('beforematch'));
+        }
+        card.scrollIntoView?.({ block: 'nearest' });
+      }, 0);
+    }
     /** Secret input: dsh draws each `request_secret` call through this view (dsh's `tool.call.toolview` slot, keyed by the
      * tool name). While the call waits: the label, the purpose, a password field, **Save** and **Decline**. After it: one
      * line ("Saved" / "Declined" / the tool's own result line). The value is in the field and in the POST only. */
     function SecretRow({ sessionId, phase, block, callId, store, t }) {
       const state = React.useSyncExternalStore(store.subscribe, () => store.of(sessionId));
       const [value, setValue] = React.useState('');
+      const revealed = React.useRef(null); // the ask whose folds this row opened: once per ask, a fold you close stays closed
       const running = phase === 'start';
       const ask = state.asks.find((a) => a.callId === callId);
       const found = ask !== undefined || state.done.has(callId);
@@ -3901,7 +3923,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const busy = state.busy.has(ask.askId);
       const save = () => { if (value !== '') store.answer(sessionId, ask, { value }).then((ok) => { if (ok) setValue(''); }); };
       const error = state.error.get(ask.askId);
-      return React.createElement('div', { className: 'cp-sec', 'data-tool': 'request_secret', 'data-state': 'running', 'data-composer-plus-secret': ask.askId },
+      const reveal = (node) => { if (node !== null && revealed.current !== ask.askId) { revealed.current = ask.askId; revealSecretCard(node); } };
+      return React.createElement('div', { ref: reveal, className: 'cp-sec', 'data-tool': 'request_secret', 'data-state': 'running', 'data-composer-plus-secret': ask.askId },
         React.createElement('style', null, SECRET_CSS),
         head,
         ask.purpose ? React.createElement('p', { className: 'cp-sec-p' }, ask.purpose) : null,
@@ -10370,7 +10393,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         }));
         // The Host's grants and their timer belong to the feature: switching it off (or the unload) stops the timer.
         const startGrants = () => { grantsOn = true; if (typeof fetch === 'function') loadGrants(); return () => { grantsOn = false; clearTimeout(expiryTimer); }; };
-        feature('allowForChat', () => [startGrants(), installHeaderFit(globalThis.document, 'allowForChat', 'data-composer-plus-grants'), ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+        feature('allowForChat', () => [startGrants(), installHeaderFit(globalThis.document, 'allowForChat', 'data-composer-plus-grants'), installApprovalFit(globalThis.document, 'allowForChat'), ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
           name: 'conversation.session.header.utilities',
           id: 'chat-tool-grants',
           order: 0,
@@ -10395,7 +10418,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           const result = await session.prompt([{ type: 'text', text }], 'steer');
           if (result?.ok === false) throw new Error(result.error?.message ?? String(result.error?.code ?? 'the note was not accepted'));
         });
-        feature('rejectNote', () => [ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
+        feature('rejectNote', () => [installApprovalFit(globalThis.document, 'rejectNote'), ctx.slots.inject('conversation.session.header.utilities', () => ctx.slots.register({
           name: 'conversation.session.header.utilities',
           id: 'reject-note',
           order: 1,

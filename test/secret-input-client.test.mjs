@@ -14,7 +14,7 @@ const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ??
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
 const ANCHOR = '/** Feature switches, in Settings order.';
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__sec = { createSecrets, SecretRow };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__sec = { createSecrets, SecretRow, revealSecretCard };\n    ${ANCHOR}`));
 const intervals = new Map(); let iid = 0;
 globalThis.setInterval = (f, ms) => { iid += 1; intervals.set(iid, { f, ms }); return iid; };
 globalThis.clearInterval = (id) => { intervals.delete(id); };
@@ -44,6 +44,7 @@ const hold = () => { let open; host.hold = { promise: new Promise((r) => { open 
 let cur;
 const React = { Fragment: 'F', createElement: (ty, p, ...c) => ({ t: ty, p: p ?? {}, c }),
   useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
+  useRef: (v) => React.useState({ current: v })[0],
   useSyncExternalStore: (sub, get) => get(),
   useEffect: (f, deps) => {
     const i = cur.ei++; const old = cur.deps[i];
@@ -56,7 +57,7 @@ const mount = (C, props) => {
   return { inst, render, unmount: () => { for (const c of inst.cleanups) c?.(); } };
 };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el) => el } : { Button: 'Button' }));
-const { createSecrets, SecretRow } = globalThis.__sec;
+const { createSecrets, SecretRow, revealSecretCard } = globalThis.__sec;
 const ev = (key, more = {}) => ({ key, nativeEvent: {}, keyCode: 0, prevented: 0, stopped: 0, preventDefault() { this.prevented += 1; }, stopPropagation() { this.stopped += 1; }, ...more });
 
 // --- createSecrets ---
@@ -219,6 +220,45 @@ const ev = (key, more = {}) => ({ key, nativeEvent: {}, keyCode: 0, prevented: 0
   const v7 = mount(SecretRow, { sessionId: 'S', phase: 'start', block: { args: { text: () => { throw new Error('partial'); } } }, callId: 'call_3', store, t });
   out = v7.render(); assert.equal(out.p['data-composer-plus-secret'], 'k3');
   v7.unmount();
+}
+
+// --- The card opens dsh's closed step groups above it (owner report: the card waited inside a closed group) ---
+{
+  // A fake DOM: card → closed group body → plain hidden box → closed outer row → chat (not hidden).
+  const sent = [];
+  const el = (name, hidden, parentElement) => ({ name, parentElement, getAttribute: (a) => (a === 'hidden' ? hidden : null), dispatchEvent: (e) => { sent.push(`${name}:${e.type}`); return true; } });
+  const chat = el('chat', null, null); const outer = el('outer', 'until-found', chat); const box = el('box', '', outer); const body = el('body', 'until-found', box);
+  const scrolls = [];
+  const card = (parent = body) => ({ isConnected: true, parentElement: parent, scrollIntoView: (o) => scrolls.push(o) });
+  revealSecretCard(card());
+  assert.deepEqual(sent, [], 'after dsh’s commit, not during it'); await flush();
+  assert.deepEqual(sent, ['body:beforematch', 'outer:beforematch'], 'each closed fold above the card, not a plain hidden box or the chat');
+  assert.deepEqual(scrolls, [{ block: 'nearest' }]);
+  sent.length = 0; scrolls.length = 0;
+  revealSecretCard({ ...card(), isConnected: false }); await flush();
+  assert.deepEqual([sent, scrolls], [[], []], 'a card that left the page does nothing');
+  revealSecretCard({ isConnected: true, parentElement: chat }); await flush();
+  assert.deepEqual(sent, [], 'no closed fold: no event, and no scrollIntoView is fine');
+
+  // SecretRow: once per ask through the card's ref; a fold that the user closes again stays closed.
+  const store = createSecrets();
+  host.asks.set('R', [{ askId: 'r1', callId: 'call_r', label: 'Key' }]);
+  const v = mount(SecretRow, { sessionId: 'R', phase: 'start', block: { args: { text: () => undefined } }, callId: 'call_r', store, t });
+  v.render(); await flush(); let out = v.render();
+  assert.equal(out.p['data-composer-plus-secret'], 'r1');
+  out.p.ref(null); out.p.ref(card()); await flush();
+  assert.deepEqual(sent, ['body:beforematch', 'outer:beforematch'], 'the card opens the groups');
+  sent.length = 0;
+  out = v.render(); out.p.ref(null); out.p.ref(card()); await flush();
+  assert.deepEqual(sent, [], 'a new render of the same ask does not open them again');
+  host.asks.set('R', [{ askId: 'r2', callId: 'call_r', label: 'Key' }]); await store.load('R');
+  out = v.render(); assert.equal(out.p['data-composer-plus-secret'], 'r2'); out.p.ref(card()); await flush();
+  assert.deepEqual(sent, ['body:beforematch', 'outer:beforematch'], 'a new ask opens them once more');
+  sent.length = 0;
+  const waiting = mount(SecretRow, { sessionId: 'R', phase: 'start', block: { args: { text: () => undefined } }, callId: 'call_none', store, t });
+  assert.equal(waiting.render().p.ref, undefined, 'the waiting line has no ref'); waiting.unmount();
+  assert.equal(v.render({ phase: 'result' }).p.ref, undefined, 'the result line has no ref');
+  v.unmount();
 }
 
 // --- The feature through plugin.apply ---

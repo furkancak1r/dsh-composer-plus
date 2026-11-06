@@ -9,7 +9,9 @@
 // 3. Esc in the field closes it without a rejection; dsh's own Reject still works.
 // 4. Switched off: no button on the next card. No page errors.
 // Secret input:
-// 5. The agent calls `request_secret`: dsh's row of the call shows the card (label, purpose, a password field). Save sends
+// 5. The agent calls `request_secret` (dsh's desktop view "standard", which folds the turn's steps): the card opens the
+//    closed step group by itself and is on the screen without a click. The card has a label, a purpose and a password
+//    field. Save sends
 //    the value; while the turn runs, the file is owner-only (0600 in a 0700 folder). The agent's `read` of the file is
 //    denied; its `cat` result reaches the model as `[secret]`. The value is not in any model request, the chat log, the
 //    dsh output or the page. The file is gone when the turn ends; the row says "Saved".
@@ -142,6 +144,10 @@ try {
   name: "@deepseek-ai/dsh-client-ui-settings-general"
   config:
     welcomeNoticeVersion: 2026-09-28.1
+- id: ui-chat
+  name: "@deepseek-ai/dsh-client-ui-chat"
+  config:
+    transcriptView: standard
 - id: llm-pi-ai
   config:
     providers:
@@ -286,7 +292,14 @@ try {
       const asks = async () => { const id = await currentChat(); assert.ok(id, 'the open chat has an id'); return page.evaluate(async (sid) => (await fetch(`/api/composer-plus.secret-answer?sessionId=${encodeURIComponent(sid)}`)).json(), id); };
       await newChat();
       await send(SECRET_TASK.S);
-      await secretCard.waitFor({ timeout: 30000 });
+      // The desktop view ("standard", set above) folds the running turn's steps into a closed group: the card must open
+      // it by itself (owner report: the card waited unseen inside the closed group). No click on the group here.
+      await secretCard.waitFor({ state: 'visible', timeout: 30000 });
+      await until(async () => {
+        const box = await secretCard.boundingBox();
+        return box !== null && box.height > 0 && box.y >= 0 && box.y + box.height <= 800;
+      }, 'the card is on the screen without a click', 5000);
+      assert.equal(await secretCard.evaluate((c) => c.closest('[data-step-process]')?.querySelector('[aria-expanded]')?.getAttribute('aria-expanded') ?? 'no group'), 'true', 'the step group that holds the card is open');
       assert.match(await secretCard.innerText(), /Secret: npm token/); assert.match(await secretCard.innerText(), /Publish demo-app to the demo registry\./);
       const secretField = secretCard.getByRole('textbox', { name: 'npm token' }).or(secretCard.locator('input[type="password"]')).first();
       assert.equal(await secretField.getAttribute('type'), 'password'); assert.equal(await secretField.getAttribute('autocomplete'), 'off');
@@ -320,7 +333,7 @@ try {
       const rowText = () => page.locator('[data-tool="request_secret"]').first().textContent({ timeout: 2000 }).catch(() => '');
       await until(async () => (await rowText()).includes('npm token · Saved'), 'the row says "npm token · Saved"', 10000);
       assert.ok(!(await page.content()).includes(VALUE), 'the value is not in the page');
-      note(`5: card (password field) → Save → file 0600 in 0700 while the turn runs → read denied → cat result "token=[secret]" → file gone; value in no model request and not in the page; tool schema ${schemaChars} characters`);
+      note(`5: "standard" view: the card opens its closed step group by itself and is on the screen → card (password field) → Save → file 0600 in 0700 while the turn runs → read denied → cat result "token=[secret]" → file gone; value in no model request and not in the page; tool schema ${schemaChars} characters`);
 
       // 6. Decline.
       await newChat();

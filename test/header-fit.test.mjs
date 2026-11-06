@@ -77,6 +77,27 @@ assert.equal(fits().length, 3, 'on again, and a second on adds no second style')
 for (const f of effects) if (typeof f === 'function') f();
 assert.equal(fits().length, 0, 'unloading the plugin removes every style');
 
+// Approval card fit (owner report: in a narrow chat the four card buttons broke their labels over several lines): one style
+// per feature that adds a button to dsh's approval card, only for a row that holds one of our buttons; each switch
+// removes its own; the labels stay on one line and the row wraps. The layout is checked in a real dsh by
+// test/browser-grant-ttl.mjs (560 and 420 px).
+{
+  const approval = () => head.filter((n) => n.tag === 'style' && n.getAttribute('data-composer-plus-approval-fit') !== null).map((n) => n.getAttribute('data-composer-plus-approval-fit')).sort();
+  plugin.apply(ctx); await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(approval(), ['allowForChat', 'rejectNote'], 'on by default: one approval style per feature');
+  const css = head.find((n) => n.getAttribute('data-composer-plus-approval-fit') === 'rejectNote').textContent;
+  for (const rule of css.split('\n')) assert.ok(rule.startsWith('[data-approval-key] :has(> [data-composer-plus-approval-action])'), `only a card row with our button: ${rule}`);
+  assert.match(css, /\{ flex-wrap: wrap; row-gap: 8px; \}/, 'the row wraps');
+  assert.match(css, /> button \{ flex: none; white-space: nowrap; \}/, 'each label stays on one line');
+  assert.doesNotMatch(css, /position|z-index|display: none|overflow|_[A-Za-z0-9]{6}_/, 'nothing hidden or covered, no hashed class names');
+  assert.equal((src.match(/'data-composer-plus-approval-action': ''/g) ?? []).length, 2, 'both card buttons (Allow for this chat, Reject with note…) carry the marker');
+  const { setFeature: set } = settings.inject();
+  set('rejectNote', false); assert.deepEqual(approval(), ['allowForChat'], 'Reject with note off: its style goes');
+  set('allowForChat', false); assert.deepEqual(approval(), [], 'Allow for this chat off: its style goes');
+  set('rejectNote', true); set('rejectNote', true); assert.deepEqual(approval(), ['rejectNote'], 'on again: one style');
+  set('allowForChat', true);
+}
+
 // Without a DOM (the Host-side test runs) the features install no style and do not throw.
 delete globalThis.document;
 plugin.apply({ ...ctx, effect() {} });
