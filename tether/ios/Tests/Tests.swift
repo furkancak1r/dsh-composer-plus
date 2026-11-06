@@ -1,4 +1,6 @@
 import XCTest
+import Combine
+import SwiftUI
 @testable import DSHMobile
 
 /// Pure security / parsing checks. Network paths are covered by gateway/test.mjs.
@@ -976,17 +978,18 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(queueText(["content": [["type": "text", "text": "hi"]]]), "hi"); XCTAssertNil(queueText(["content": [["type": "image"]]]))
         // Project status: waiting wins, then an unseen finish, then running (with the count); subagents count for their parent.
         let s = { (id: String, run: Bool, parent: String?) in Sess(["sessionId": id, "running": run, "parentSessionId": parent as Any, "origin": "subagent"])! }
-        let all = [s("a", false, nil), s("b", true, nil), s("k", true, "a"), s("d", false, nil)]
-        XCTAssertEqual(projectMark(Array(all[0...1]), all: all, waiting: [], finished: []), .running(2))
-        XCTAssertEqual(projectMark(Array(all[0...1]), all: all, waiting: [], finished: ["a"]), .done)
-        XCTAssertEqual(projectMark(Array(all[0...1]), all: all, waiting: ["b"], finished: ["a"]), .waiting)
-        XCTAssertNil(projectMark([all[3]], all: all, waiting: [], finished: []))
+        let all = [s("a", false, nil), s("b", true, nil), s("k", true, "a"), s("d", false, nil)], busy = runningIds(all)
+        XCTAssertEqual(projectMark(Array(all[0...1]), busy: busy, waiting: [], finished: []), .running(2))
+        XCTAssertEqual(projectMark(Array(all[0...1]), busy: busy, waiting: [], finished: ["a"]), .done)
+        XCTAssertEqual(projectMark(Array(all[0...1]), busy: busy, waiting: ["b"], finished: ["a"]), .waiting)
+        XCTAssertNil(projectMark([all[3]], busy: busy, waiting: [], finished: []))
         // Order by status and the 2-hour filter.
-        XCTAssertEqual([all[3], all[0], all[1]].sorted { statusRank($0, all: all, waiting: [], finished: ["d"]) < statusRank($1, all: all, waiting: [], finished: ["d"]) }.map(\.id), ["d", "a", "b"])
+        XCTAssertEqual([all[3], all[0], all[1]].sorted { statusRank($0, busy: busy, waiting: [], finished: ["d"]) < statusRank($1, busy: busy, waiting: [], finished: ["d"]) }.map(\.id), ["d", "a", "b"])
         let old = Sess(["sessionId": "o", "updatedAt": 1_000_000])!, now = Date(timeIntervalSince1970: 1_000 + 7300)
-        XCTAssertFalse(recentChat(old, all: [old], now: now, open: nil, waiting: [], finished: []))
-        XCTAssertTrue(recentChat(old, all: [old], now: Date(timeIntervalSince1970: 1_000 + 7100), open: nil, waiting: [], finished: []))
-        XCTAssertTrue(recentChat(old, all: [old], now: now, open: "o", waiting: [], finished: []), "the open chat stays")
+        XCTAssertFalse(recentChat(old, busy: [], now: now, open: nil, waiting: [], finished: []))
+        XCTAssertTrue(recentChat(old, busy: [], now: Date(timeIntervalSince1970: 1_000 + 7100), open: nil, waiting: [], finished: []))
+        XCTAssertTrue(recentChat(old, busy: [], now: now, open: "o", waiting: [], finished: []), "the open chat stays")
+        XCTAssertTrue(recentChat(old, busy: ["o"], now: now, open: nil, waiting: [], finished: []), "a running chat stays")
         // Green dots from the Mac: idle root chats only, never the chat on screen, never an id the list does not have.
         // "a" waits for its running subagent "k", so it shows the spinner, not a dot.
         XCTAssertEqual(shownUnread(host: ["a", "b", "k", "d", "gone"], sessions: all, open: nil), ["d"])
@@ -1266,6 +1269,86 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(Client.justFinished(old: busy, new: busy, current: nil), [], "still running: no Finished mark")
         let cold = (Client.snapshot(busy) as [J]).compactMap(Sess.init)
         XCTAssertEqual(Client.justFinished(old: cold, new: [s("p", false), k("p1", "p", false)], current: nil), ["p", "p1"])
+    }
+}
+
+/// Sessions lag, the chat's end and long thinking (iPhone 13): what the screens read is cheap and stays correct.
+@MainActor final class SmoothChatTests: XCTestCase {
+    /// `runningIds` gives the same answer as `isRunning` for each chat: own turn, a running subagent, nested subagents.
+    func testRunningIdsMatchIsRunning() {
+        let s = { (id: String, run: Bool, parent: String?) in Sess(["sessionId": id, "running": run, "parentSessionId": parent as Any, "origin": "subagent"])! }
+        let all = [s("a", false, nil), s("a1", true, "a"), s("b", true, nil), s("c", false, nil), s("c1", false, "c"), s("d", false, nil),
+                   s("d1", false, "d"), s("d2", true, "d1"), s("x", false, "gone")]
+        let busy = runningIds(all)
+        for x in all { XCTAssertEqual(busy.contains(x.id), isRunning(x, all), x.id) }
+        XCTAssertEqual(busy, ["a", "a1", "b", "d1", "d2"], "a running subagent counts for its parent only, not two levels up")
+        XCTAssertTrue(runningIds([]).isEmpty)
+    }
+
+    /// A token changes only `live`: the views that observe Client (Sessions too) are not redrawn for each one.
+    func testStreamingDoesNotRepublishClient() {
+        let c = Client()
+        c.running = true
+        var sent = 0
+        let sub = c.objectWillChange.sink { sent += 1 }
+        defer { sub.cancel() }
+        c.streamFrame(["type": "start"])
+        for i in 0..<50 { c.streamFrame(["type": "chunk", "chunk": ["type": "reasoning-delta", "text": "r\(i) "]]) }
+        XCTAssertEqual(sent, 0, "thinking tokens do not redraw Client's views")
+        for i in 0..<50 { c.streamFrame(["type": "chunk", "chunk": ["type": "text-delta", "text": "t\(i) "]]) }
+        XCTAssertEqual(sent, 1, "only the first text token: `answering` goes on")
+        XCTAssertTrue(c.answering)
+        XCTAssertEqual(c.live.reasoning, (0..<50).map { "r\($0) " }.joined())
+        XCTAssertEqual(c.live.streaming, (0..<50).map { "t\($0) " }.joined())
+        c.streamFrame(["type": "chunk", "chunk": ["type": "text-delta", "text": ""]])
+        XCTAssertEqual(sent, 1, "an empty token changes nothing")
+        c.streamFrame(["type": "end"])
+        XCTAssertEqual(c.live.streaming, ""); XCTAssertEqual(c.live.reasoning, ""); XCTAssertFalse(c.answering)
+        // A new chat starts with no stream text of the old one.
+        c.streamFrame(["type": "chunk", "chunk": ["type": "text-delta", "text": "old"]])
+        c.follow("other")
+        XCTAssertEqual(c.live.streaming, ""); XCTAssertFalse(c.answering)
+    }
+
+    /// A burst of list events loads the list at most twice: once now, once after it for the events during the load.
+    func testCoalescedRunsAtMostTwice() async {
+        var runs = 0
+        let work = Coalesced { runs += 1; try? await Task.sleep(for: .milliseconds(120)) }
+        for _ in 0..<5 { work.run() }
+        try? await Task.sleep(for: .milliseconds(40))
+        XCTAssertEqual(runs, 1, "calls before the load starts join it")
+        for _ in 0..<3 { work.run() }
+        try? await Task.sleep(for: .milliseconds(500))
+        XCTAssertEqual(runs, 2, "calls while it loads: one more load after it")
+        work.run()
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertEqual(runs, 3, "a call after the end runs again")
+        let one = Coalesced { runs += 10 }
+        one.run()
+        try? await Task.sleep(for: .milliseconds(50))
+        XCTAssertEqual(runs, 13, "a single call runs once")
+    }
+
+    /// The chat follows its end until you drag; it follows again when your scroll stops near the end.
+    func testScrollFollow() {
+        let g = { (offset: CGFloat, content: CGFloat, bottom: CGFloat) in
+            ScrollGeometry(contentOffset: CGPoint(x: 0, y: offset), contentSize: CGSize(width: 390, height: content),
+                           contentInsets: EdgeInsets(top: 0, leading: 0, bottom: bottom, trailing: 0), containerSize: CGSize(width: 390, height: 700))
+        }
+        XCTAssertEqual(maxOffset(g(0, 2000, 0)), 1300)
+        XCTAssertEqual(bottomGap(g(1300, 2000, 0)), 0, "at the end")
+        XCTAssertEqual(bottomGap(g(1420, 2000, 120)), 0, "at the end over a 120 pt composer")
+        XCTAssertEqual(bottomGap(g(1000, 2000, 120)), 420)
+        XCTAssertLessThanOrEqual(bottomGap(g(0, 300, 0)), 0, "a short chat is at its end")
+        XCTAssertFalse(scrollFollow(from: .idle, to: .interacting, gap: 0, follow: true), "a drag stops it")
+        XCTAssertTrue(scrollFollow(from: .idle, to: .tracking, gap: 0, follow: true), "a touch is not a drag")
+        XCTAssertTrue(scrollFollow(from: .tracking, to: .idle, gap: 300, follow: true), "a tap keeps following while the reply grows")
+        XCTAssertFalse(scrollFollow(from: .tracking, to: .idle, gap: 0, follow: false), "a tap keeps reading")
+        XCTAssertTrue(scrollFollow(from: .interacting, to: .decelerating, gap: 500, follow: true), "no decision while it moves")
+        XCTAssertTrue(scrollFollow(from: .decelerating, to: .idle, gap: 30, follow: false), "your scroll stops near the end: follow again")
+        XCTAssertFalse(scrollFollow(from: .decelerating, to: .idle, gap: 300, follow: true), "your scroll stops up in the chat: stay")
+        XCTAssertFalse(scrollFollow(from: .animating, to: .idle, gap: 0, follow: false), "an app scroll (Find, Open message) keeps it off")
+        XCTAssertTrue(scrollFollow(from: .animating, to: .idle, gap: 900, follow: true), "an app scroll keeps it on")
     }
 }
 
