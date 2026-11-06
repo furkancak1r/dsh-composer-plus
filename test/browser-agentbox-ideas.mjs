@@ -135,6 +135,23 @@ try {
       assert.match(dot, /state-warn-primary/, 'orange dot: the next chat asks a question');
       const first = await page.evaluate(() => document.querySelector('[class*="_headerActions"]')?.firstElementChild?.hasAttribute('data-composer-plus-next-waiting'));
       assert.equal(first, true, 'first in dsh\'s header buttons');
+      // The header fits: with the button, Collapse all projects and a long label (Turkish "Çalışma alanları"), dsh's search
+      // icon was cut. Now its slot keeps 28 px, the label shortens and no header item overlaps another.
+      const header = () => page.evaluate(() => {
+        const head = document.querySelector('[class*="_listArea"]').parentElement.querySelector(':scope > [class*="_sectionHeader"]');
+        const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, right: r.right, width: r.width }; };
+        const label = head.querySelector(':scope > [class*="_sectionLabel"]');
+        const items = [label, head.querySelector(':scope > [class*="_searchSlot"]'), ...head.querySelector(':scope > [class*="_headerActions"]').querySelectorAll('button')].map(box);
+        const overlap = items.some((a, i) => items.slice(i + 1).some((b) => a.right > b.left + 0.5 && b.right > a.left + 0.5));
+        return { search: box(head.querySelector(':scope > [class*="_searchSlot"]')).width, overlap, clipped: label.scrollWidth > label.clientWidth };
+      });
+      await page.evaluate(() => { for (const el of document.querySelectorAll('[class*="_sectionLabel"]')) el.dataset.cpText = el.textContent; });
+      for (const text of ['Workspaces', 'Çalışma alanları', 'Không gian làm việc']) {
+        await page.evaluate((t) => { for (const el of document.querySelectorAll('[class*="_sectionLabel"]')) el.textContent = t; }, text);
+        const fit = await header();
+        assert.equal(fit.search, 28, `${text}: the search icon keeps its 28 px`); assert.equal(fit.overlap, false, `${text}: nothing overlaps`);
+      }
+      await page.evaluate(() => { for (const el of document.querySelectorAll('[class*="_sectionLabel"]')) el.textContent = el.dataset.cpText; });
       if (index === 0 && process.env.SHOT) {
         // The sidebar with the button and the rows with dsh's dots; nothing personal.
         await page.mouse.move(700, 500); await pause(800);
@@ -149,9 +166,22 @@ try {
       assert.equal(await shown('Which color palette should the theme use?'), false, 'the chat that asked first opens first');
       await page.waitForFunction(() => document.querySelector('[data-composer-plus-next-waiting] > button')?.getAttribute('aria-label') === 'Next waiting chat (2)', null, { timeout: 10000 });
       // The button: the second question. The deploy chat, now off screen, waits again and keeps its place before the green
-      // chat (orange first, and it began to wait first).
+      // chat (orange first, and it began to wait first). Its project is collapsed first ("Collapse all projects"): the
+      // click opens the chat, opens the project again, and the chat's row blinks for 5 s, then dsh's selection stays.
+      await page.locator('[data-composer-plus-collapse-projects] > button').click();
+      await page.waitForFunction(() => document.querySelector('[data-row-key^="workspace:"][aria-expanded="true"]') === null, null, { timeout: 5000 });
       await button.click();
       await card('Which color palette should the theme use?').waitFor({ state: 'visible', timeout: 10000 });
+      await page.waitForFunction(() => document.querySelector('[data-row-key^="session:"][data-composer-plus-locate]') !== null, null, { timeout: 5000 });
+      const located = await page.evaluate(() => {
+        const r = document.querySelector('[data-composer-plus-locate]'); const box = r.getBoundingClientRect();
+        return { selected: r.getAttribute('aria-selected'), text: r.textContent, animation: getComputedStyle(r).animationName,
+          project: document.querySelector('[data-row-key^="workspace:"]')?.getAttribute('aria-expanded'), inView: box.top >= 0 && box.bottom <= innerHeight };
+      });
+      assert.deepEqual({ ...located, text: located.text.includes('Theme colors') }, { selected: 'true', text: true, animation: 'cp-locate', project: 'true', inView: true },
+        'the opened chat\'s row: found, its project open again, in view, blinking');
+      await page.waitForFunction(() => document.querySelector('[data-composer-plus-locate]') === null, null, { timeout: 8000 });
+      assert.equal(await page.locator('[data-row-key^="session:"][aria-selected="true"]').count(), 1, 'after 5 s dsh\'s own selected row stays');
       await page.waitForFunction(() => document.querySelector('[data-composer-plus-next-waiting] > button')?.getAttribute('aria-label') === 'Next waiting chat (2)', null, { timeout: 10000 });
       assert.match(await button.locator('span').evaluate((e) => e.style.background), /state-warn-primary/, 'the deploy chat waits again: still orange next');
       // Answer both questions, then the green chat is the only one left.
