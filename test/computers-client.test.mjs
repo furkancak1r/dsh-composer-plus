@@ -96,7 +96,7 @@ let hookState = []; let hi = 0; let layouts = [];
 const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment: 'F',
   useState: (v) => { const i = hi++; if (!(i in hookState)) hookState[i] = typeof v === 'function' ? v() : v; return [hookState[i], (x) => { hookState[i] = typeof x === 'function' ? x(hookState[i]) : x; }]; },
   useRef: (v) => ({ current: v }), useEffect: () => {}, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: (f) => { layouts.push(f); } };
-const primitives = { Switch: 'Switch', Menu: 'Menu', Input: 'Input', Modal: 'Modal', Button: 'Button' };
+const primitives = { Switch: 'Switch', Menu: 'Menu', Input: 'Input', Modal: 'Modal', Button: 'Button', IconChevronDownOutlineRegular: 'Chevron' };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host) => ({ portal: el, host }) } : n === '@deepseek-ai/dsh-client-ui-primitives' ? primitives : {}));
 const live = new Map(); let next = 0;
 plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: (ns) => (k) => k, resolveText: (x) => x },
@@ -110,7 +110,6 @@ await tick();
 // Off by default: no picker, no views, no dialog, nothing in the chat header.
 assert.equal(overlay('computer-picker'), undefined, 'off by default: no picker');
 assert.equal(overlay('add-computer-dialog'), undefined, 'off by default: no dialog');
-assert.equal(overlay('computer-views-bar'), undefined);
 // Also when the Host gives no switch (an older Host half answers 404): the feature stays off.
 {
   let m2; const w = globalThis.window; globalThis.window = { __ModuleLoader__: { load: (m) => { m2 = m; } }, addEventListener() {}, removeEventListener() {} };
@@ -123,12 +122,13 @@ assert.equal(overlay('computer-views-bar'), undefined);
   assert.equal(live2.some((o) => o.id === 'computer-picker'), false, 'no Host switch: still off');
 }
 
-// Switch on (the Host switch): the picker, the views bar and the dialog come; the chat header gets nothing.
+// Switch on (the Host switch): the picker and the dialog come; the chat header gets nothing.
 await settings.setFeature('remoteComputers', true);
 await tick();
 assert.deepEqual(posts.at(-1), { on: true });
 const pickerEntry = overlay('computer-picker');
-assert.ok(pickerEntry && overlay('computer-views-bar') && overlay('add-computer-dialog'));
+assert.ok(pickerEntry && overlay('add-computer-dialog'));
+assert.equal(overlay('computer-views-bar'), undefined, 'no banner over the other Mac');
 assert.equal([...live.values()].some(([o]) => o.name === 'conversation.header.leading'), false, 'not in the chat header any more');
 const { computers, views, opener: openerStore } = pickerEntry[0].inject();
 assert.equal(computers, settings.computers, 'one store for the picker and Settings');
@@ -217,22 +217,33 @@ wv.fire('dom-ready'); wv.fire('dom-ready');
 assert.deepEqual(loaded, ['http://127.0.0.1:5555/?cp-ticket=t1']);
 assert.equal(wv.style.visibility, 'visible'); assert.equal(wv.focused, 1, 'the page gets the focus');
 assert.equal(views.getSnapshot().current, ID);
-assert.match(renderPicker().c[0].p.anchor.p['aria-label'], /Studio/, 'the picker names it');
-
-// The other Mac's page says hello: no fallback button. A new document in the webview must say hello again.
+// Studio's page did not say hello yet (it has no picker of its own): this Mac's picker floats over it, in the same place.
+// It says "Back to this Mac" (the title names Studio); with no other computer to pick, a click comes back at once.
+const floating = () => mount().out?.host?.hasAttribute('data-composer-plus-computer-float') === true;
+assert.equal(views.getSnapshot().noPicker, true); assert.equal(floating(), true, 'the picker floats over the page');
+let btn = renderPicker().c[0].p.anchor;
+assert.equal(btn.c[1].c[0], 'computers.back', 'away: the button says Back to this Mac');
+assert.match(btn.p.title, /Studio/, 'the title names the computer on screen');
+assert.equal(btn.p['aria-haspopup'], undefined, 'one computer: no menu'); assert.equal(btn.c[2], null, 'no arrow');
+assert.equal(body.querySelector('[data-composer-plus-computer-back]'), null, 'no banner');
+// The other Mac's page says hello (it shows the same picker itself): the float goes. A new document must say hello again.
 await tick();
 wv.fire('did-start-navigation', { isMainFrame: true, url: 'http://127.0.0.1:5555/' });
 pushEvent({ hello: true, from: ID }); await tick();
-runTimers(); assert.equal(views.getSnapshot().fallback, false, 'hello came: no button');
+runTimers(); assert.equal(views.getSnapshot().noPicker, false, 'hello came'); assert.equal(floating(), false, 'its own picker shows: none over it');
 wv.fire('did-start-navigation', { isMainFrame: true, url: 'http://127.0.0.1:5555/' });
+assert.equal(views.getSnapshot().noPicker, true, 'a new document: the picker floats again at once'); assert.equal(floating(), true);
 runTimers(); await tick();
-assert.equal(views.getSnapshot().fallback, true, 'no hello in time: the Back button');
-{ const bar = overlay('computer-views-bar'); const el = bar[1]({ ...bar[0].inject(), t }); assert.equal(el.host, body); assert.ok(JSON.stringify(el.portal).includes('computers.back')); }
+assert.equal(views.getSnapshot().noPicker, true, 'no hello in time: it stays');
 pushEvent({ hello: true, from: ID }); await tick();
-assert.equal(views.getSnapshot().fallback, false, 'a late hello hides it');
+assert.equal(views.getSnapshot().noPicker, false, 'a late hello hides it');
 
-// This Mac: the page hides and stays (no reload, lease kept); Studio again shows it at once.
-await renderPicker().c[0].p.onSelect('self');
+// This Mac, with one click (no menu): the page hides and stays (no reload, lease kept); Studio again shows it at once.
+renderPicker().c[0].p.anchor.p.onClick(); await tick();
+assert.equal(views.getSnapshot().current, 'self', 'the click came back');
+assert.equal(renderPicker().c[0].p.open, false, 'no menu opened');
+btn = renderPicker().c[0].p.anchor;
+assert.equal(btn.c[1].c[0], 'computers.thisMacShort'); assert.equal(btn.p['aria-haspopup'], 'menu', 'on this Mac: the menu'); assert.notEqual(btn.c[2], null);
 assert.equal(root.style.visibility, 'hidden'); assert.equal(wv.style.visibility, 'hidden'); assert.equal(wv.isConnected, true); assert.deepEqual(released, []);
 await renderPicker().c[0].p.onSelect(ID);
 assert.equal(opens, 1, 'no new ticket'); assert.equal(loaded.length, 1, 'no reload'); assert.equal(root.style.visibility, 'visible');
@@ -258,10 +269,14 @@ assert.deepEqual(await views.select('self'), { skipped: true });
 gate.resolve(); gate = null; await o1; await tick();
 assert.equal(views.getSnapshot().current, ID2); assert.equal(leases.length, 2);
 assert.equal(wv.style.visibility, 'hidden', 'Studio stays, hidden');
+// Away with another computer to pick: the button still says Back to this Mac, and the click opens the menu.
+btn = renderPicker().c[0].p.anchor;
+assert.equal(btn.c[1].c[0], 'computers.back'); assert.equal(btn.p['aria-haspopup'], 'menu', 'two computers: the menu');
+btn.p.onClick(); assert.equal(views.getSnapshot().current, ID2, 'the click did not switch');
+menu = renderPicker().c[0]; assert.equal(menu.p.open, true, 'the menu opened'); menu.p.onClose();
 
 // A computer that is removed: its page closes, its lease goes back, the window shows This Mac.
 view = { ...view, computers: view.computers.filter((c) => c.id !== ID2) }; await computers.refresh();
-{ const bar = overlay('computer-views-bar'); bar[1]({ ...bar[0].inject(), t }); }
 views.sync();
 assert.deepEqual(released, ['L2']); assert.equal(views.getSnapshot().current, 'self');
 // A refused open shows the reason under the picker.
@@ -295,15 +310,25 @@ menu.p.onSelect(ID2); await tick();
 assert.deepEqual(posts.at(-1), { url: '/__composer-plus/switch', body: { to: ID2 } });
 menu.p.onSelect(ID); await tick();
 assert.equal(posts.length, before + 1, 'the page that shows does not switch to itself');
+btn = menu.p.anchor; assert.equal(btn.c[1].c[0], 'computers.back', 'the other Mac\'s page says Back to this Mac'); assert.equal(btn.p['aria-haspopup'], 'menu');
+// One computer: the click asks this Mac to come back at once.
+opener = { status: 200, body: { self: { name: 'Office Mac' }, current: ID, computers: [{ id: ID, name: 'Studio', state: 'ok' }] } };
+await openerStore.refresh();
+btn = renderPicker().c[0].p.anchor; assert.equal(btn.p['aria-haspopup'], undefined);
+btn.p.onClick(); await tick();
+assert.deepEqual(posts.at(-1), { url: '/__composer-plus/switch', body: { to: 'self' } });
+assert.equal(renderPicker().c[0].p.open, false, 'no menu opened');
 view = { ...view, via: false }; await computers.refresh();
 
 // Switch off: every page and lease, the root, the timer and the loop go; nothing in the window.
 await views.select(ID);
 wv.fire('did-start-navigation', { isMainFrame: true, url: 'http://127.0.0.1:5555/' });
 assert.equal(timers.size, 1, 'a hello wait runs');
+// The float goes with the picker (React unmounts the slot).
+{ const m = mount(); const f = m.out.host; assert.equal(f.hasAttribute('data-composer-plus-computer-float'), true); assert.equal(f.isConnected, true); m.cleanup(); assert.equal(f.isConnected, false, 'the float is gone'); }
 await settings.setFeature('remoteComputers', false);
 await tick();
-assert.equal(overlay('computer-picker'), undefined); assert.equal(overlay('computer-views-bar'), undefined); assert.equal(overlay('add-computer-dialog'), undefined);
+assert.equal(overlay('computer-picker'), undefined); assert.equal(overlay('add-computer-dialog'), undefined);
 assert.equal(body.querySelector('[data-composer-plus-computer-views]'), null, 'the views root is gone');
 assert.deepEqual(released.sort(), ['L1', 'L2', 'L3'].filter((l) => leases.some((x) => x.lease === l)).sort(), 'every lease went back');
 assert.equal(views.getSnapshot().current, 'self');
