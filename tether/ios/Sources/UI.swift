@@ -2128,6 +2128,14 @@ struct SessionsView: View {
                         .accessibilityValue(Text(active?.title ?? String(localized: "All projects")))
                     }
                 }
+                // Assistant (Composer Plus): only when the Mac's gateway has its route.
+                if c.state == .connected && c.plus.contains("assistant") {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { c.run { try await c.openAssistant() } } label: { Image(systemName: "sparkles") }
+                            .disabled(c.assistantOpening)
+                            .accessibilityLabel("Assistant")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
             }
             .sheet(isPresented: $creating) { NewSessionSheet() }

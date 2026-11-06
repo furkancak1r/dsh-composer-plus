@@ -3,7 +3,7 @@
 // - the feature list of llms.txt,
 // - docs/ROUTES.md (the Host routes of index.js).
 // `npm run build:readme` writes them; `--check` (in `npm test`) fails when a file differs from what this script makes.
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -75,6 +75,9 @@ export async function hostRoutes() {
   const home = mkdtempSync(join(tmpdir(), 'composer-plus-routes-'));
   const before = process.env.DSH_HOME; process.env.DSH_HOME = home;
   try {
+    // A route that exists only while its switch is on (Assistant) is read with that switch on.
+    mkdirSync(join(home, 'storages', 'dsh-composer-plus'), { recursive: true });
+    writeFileSync(join(home, 'storages', 'dsh-composer-plus', 'assistant-switch.json'), JSON.stringify({ on: true }));
     const { apply } = await import('../index.js');
     const routes = [];
     apply({ on() {}, effect() {}, connection: { fetch: { register: (r) => routes.push({ path: r.path, methods: [...r.methods] }) } },

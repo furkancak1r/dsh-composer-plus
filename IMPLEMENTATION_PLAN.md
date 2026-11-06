@@ -2391,3 +2391,55 @@ Phase 3 (2026-11-06): en/zh + 11 locales (subagent) + `build:locales`, `locale.t
 Phase 4 (2026-11-06): `test/browser-computers.mjs` rewritten; PASS on 0.2.1-rc.2, 0.2.2-rc.1 and 0.2.0-rc.2 (picker right of the brand, above New session, brand not cut; Name asked, "office mac" refused; B fills A's window, no new window; B's picker from A's relay switches back; A's 6 s turn finished meanwhile; no reload of the hidden page; B removes A → page closes + "pair again"; off leaves no host/root, relay and door closed). First 0.2.1-rc.2 run: the picker cut the brand (fixed with flex-shrink).
 Checkpoint phases 0–4 (2026-11-06): 11 `how` + 10 READMEs by the second subagent (only lines 183/250/374 and the generated row 102 changed; three extra spaces after `。` in README.ja.md 250 removed by hand); `build:readme`, readme, readme-labels, feature-docs, `build-docs --check` pass; Semgrep (p/javascript, p/security-audit) on index.js, client.js, server.mjs: 0 findings; `npm test` exit 0; `npm pack --dry-run` (105 files, `tether/` only `gateway/*`); `git diff --check` clean. Not committed.
 Open: phase 5, the owner's desktop check with two real Macs. Not checked yet: the real Electron `<webview>` path (lease, cookie, drag strip, focus, Enter/Esc) over Tailscale (only a fake bridge in the unit test). The owner's stored computer has the same name as this Mac: Settings shows the duplicate hint, rename it there.
+
+## Assistant: kişisel asistan sohbeti (`assistant`, 2026-11-06, dal `feat/composer-plus-assistant-chat`)
+İstek (sahip, Türkçe): Grok/ChatGPT gibi tek, kalıcı bir asistan sohbeti. Mac'te sol kenar çubuğunda Task board'un hemen altında, Tether'da Sessions ekranında açılır. Hatırlatma yapar, web'de araştırır, otomasyonları (dsh zamanlanmış görevleri) ve öteki dsh sohbetlerini yönetir. Tasarım fikri: Fei2411/DS-Bot `ds-bot/README.md` (Main Bot, Memory, Scheduled tasks; Apache-2.0, kod alınmadı).
+
+### Hedef
+- Özellik `assistant`: kendi anahtarı, varsayılan kapalı (`OFF_BY_DEFAULT`: başka sohbetlerde model turu başlatır). Anahtarı Host tutar (`assistant-switch.json`).
+- Tek sohbet, klasörü `~/Assistant` (yoksa oluşur, dsh'ye "Assistant" projesi olarak eklenir). Kimliği `$DSH_HOME/storages/dsh-composer-plus/assistant.json` (`{sessionId}`, 0600, atomik yazım). Silinmiş ya da bulunamayan sohbet (`session/not-found`) bir sonraki açılışta yeniden oluşur. Arşivlenmiş sohbet arşivden çıkar. Model seçimine dokunulmaz (dsh'nin varsayılanı).
+- İzin: yeni sohbete `workspace-write` hazır ayarı (approval `ask`). Kullanıcı sonra değiştirirse dokunulmaz. İzin genişletilmez.
+- Araçlar (yalnız asistan sohbeti): `chats_list`, `chat_read` (okuma, onaysız); `chat_send`, `chat_new`, `chat_stop`, `chat_archive` (her çağrı dsh onay kartı: `tools/pre-execute` → `ask`). Silme aracı yok. Otomasyonlar dsh'nin kendi `schedule_*` araçlarıyla.
+- Sistem metni (İngilizce, kısa) yalnız asistan sohbetine (`systemPrompt.section`, ajan kimliği kontrolü).
+- Mac: `sidebar.panellist` girdisi "Assistant" (order 21, Task board 20). Tıklama asistan sohbetini açar. dsh'nin `selectPanel` çağrısı kayıtlı bir `main` paneli istediği için yalnız "Açılıyor…" ya da hata satırı gösteren küçük bir panel kaydedilir; sohbet açılınca dsh paneli kendisi kapatır (`openSession` → `selectPanel(null)`). Yeni bir sayfa yok.
+- Tether: Sessions araç çubuğunda Assistant düğmesi (`c.plus.contains("assistant")`), `GET /plus/assistant` → sohbeti açar. `PLUS += assistant (GET)`. Bildirim için yeni kod yok (Turn finished push zaten var).
+
+### Kararlar ve gerekçeler
+- Araçlar asistan ajanının kendi kapsamına kaydedilir (`agent.ctx.tools.register`, dsh: "Register globally or in the calling agent scope"). Öteki sohbetlerin listesine hiç girmez; bir kayıt hatası aracı başka sohbete sızdırmaz. Asistanın alt ajanları kapsam zincirinden miras alacağı için onlara `tools.restrict({deny})` uygulanır. Her araç ayrıca çağıranı denetler: asistan sohbeti değilse reddeder (birim testi). Kullanıcı `tools.restrict` yazdı; genel kayıt + her sohbete restrict yerine bu yol daha dar ve güvenli. Özet yanıtta bildirilecek.
+- İki rota: `assistant-switch` (GET/POST `{on}`, anahtar; PLUS'ta yok, kural 8) ve `assistant` (GET: sohbet kimliği, yoksa oluşturur; PLUS'ta). Anahtar kapalıyken `assistant` rotası kayıttan kalkar.
+- `chat_archive`, `stopActivity` olmadan arşivler: dsh'nin `stopActivity` seçeneği sohbetin etkin hatırlatmalarını siler. Çalışan ya da hatırlatması olan sohbette dsh'nin nedeni modele döner (önce `chat_stop` ya da kullanıcıya sor).
+- "Seni bekliyor" durumu yalnız çalışan sohbetlerde, kaydın sonundan okunur: yanıtsız `approval/asked` ya da sonucu gelmemiş `ask_user_question`/`exit_plan_mode` çağrısı.
+- Kişisel bilgiler: Project memory'nin "profil" konusu. Yeni kod yok; sistem metninde bir satır.
+
+### Değişecek dosyalar
+index.js, client.js, locales/*.json (build:locales), docs/features.json, docs/ROUTES.md, llms.txt, README*.md (13), assets/features/assistant.webp, tether/gateway/server.mjs, tether/FEATURES.md, tether/ios/Sources/{Core,UI}.swift, tether/ios/Tests/Tests.swift, test/assistant.test.mjs, test/assistant-client.test.mjs, test/browser-assistant.mjs, test/toggles.test.mjs (sayılar), package.json (yalnız `test` betiği), IMPLEMENTATION_PLAN.md.
+
+### Aşamalar ve kontroller
+1. Host (index.js): `installAssistant` (anahtar, `assistant` rotası, sohbet oluşturma/bulma, araçlar, onay, sistem metni). Kontrol: `test/assistant.test.mjs` (sahte dsh): ilk açılış klasör+proje+sohbet+preset; ikinci açılış aynı kimlik; silinmiş → yeni; arşivli → arşivden çıkar; eşzamanlı iki açılış → tek sohbet; araçlar yalnız asistan kapsamında; başka sohbet çağırınca ret; dört değiştiren araçta `ask`; `chat_read` iki geri alma işaretini çıkarır, çatalda `inheritedEventCount`'tan başlar; `chats_list` süzgeçleri ve durumlar; anahtar kapalı → araç, metin, rota yok. `npm test`.
+2. Client (client.js): anahtar deposu, `feature('assistant')` (panellist + main), metinler en/zh/11 dil, Settings satırı ve ekran görüntüsü, belgeler. Kontrol: `test/assistant-client.test.mjs`, `test/toggles.test.mjs`, `npm test`.
+3. Tether: PLUS, `openAssistant()`, Sessions düğmesi, FEATURES.md, iOS birim testi. Kontrol: `npm test` (tether-parity, tether-gateway), iOS testleri (simülatör), agent-device ile simülatörde düğme → asistan sohbeti.
+4. Gerçek dsh (yalıtılmış, sahte model, geçici HOME ve DSH_HOME): 0.2.0-rc.2, 0.2.1-rc.2 (+0.2.2-rc.1, canlı masaüstü sürümü). `test/browser-assistant.mjs`: kenar çubuğu girdisi Task board altında; tıklama sohbeti açar; preset workspace-write; asistan isteğinde araçlar var, başka sohbette yok; "2 dakika sonra su içmemi hatırlat" → `schedule_create` → zamanı gelince asistan sohbeti çalışır; `chats_list` başka projeyi gösterir; `chat_send` onay kartı → Allow → mesaj hedefte; enjeksiyon: `chat_read` sonrası `chat_send` kartı → Reject → hiçbir şey gitmez; anahtar kapalı → girdi, araçlar, metin ve rota yok; sayfa hatası yok. `SHOT=1` → `assets/features/assistant.webp`.
+
+### Riskler
+- 0.2.0-rc.2 web profilinde schedule yok (deneysel paket); 0.2.0/0.2.1'de `schedule_list` yalnız çağıran sohbetin hatırlatmalarını görür, başka sohbetinkini düzenleyemez. 0.2.2'de araçlar tüm Host görevlerini görür. Gerçek dsh'de doğrulanıp sahibe bildirilecek.
+- Onay politikası `never` olan bir hazır ayara (Full access) geçilirse `ask` reddedilir: değiştiren araçlar çalışmaz (güvenli tarafta kalır). Belgelere yazılacak.
+- `workspace-write` ile web araçlarının ve schedule araçlarının onay istemeden çalıştığı gerçek dsh'de doğrulanacak.
+- Asistan bash ile dsh API'sine doğrudan istek atabilir (sandbox ağ erişimi): araç düzeyinde onay bunu kapsamaz. Sınırlar bölümüne yazılacak.
+- dsh boş bir sohbeti aynı projede "New session" için yeniden kullanabilir (asistan sohbeti henüz mesajsızken).
+
+### Yapılmayacak
+Sürüm, npm publish, iPhone kurulumu, canlı masaüstü kopyası, dsh yeniden başlatma.
+
+### Son kontrol noktası
+- 2026-11-06 19:25: plan yazıldı; kod yok.
+- 2026-11-06 20:40: Aşama 1–2 kod tamam. Host `installAssistant` (index.js), client `createAssistant`/`AssistantPage`/`feature('assistant')` (client.js), en/zh/tr metinleri, features.json girdisi (en/zh/tr) ve iki rota, README.md/zh/tr el yazısı kısımlar, 13 README geliştirici satırı. `scripts/build-docs.mjs`: `hostRoutes` anahtarı açık rotayı da okur.
+  - `test/assistant.test.mjs` geçti; 10 mutasyon kırmızı (çağıran kontrolü, ask, tek açılış, arşivden çıkarma, çatal ofseti, metin yalnız asistana, alt ajan restrict, preset, liste süzgeçleri, stopActivity).
+  - `test/assistant-client.test.mjs` geçti; 2 mutasyon kırmızı (tek açılış, varsayılan kapalı). `test/toggles.test.mjs` sayıları 73 → 74.
+  - Gerçek dsh `test/browser-assistant.mjs` 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1: PASS (7 adım + 4b). Bulgular: workspace-write ile schedule_create onay kartı açmadan çalıştı ve hatırlatma zamanı gelince asistan sohbeti çalıştı; chat_send onaydan sonra hedefe düştü; enjeksiyonda kart çıktı, Reject sonrası hiçbir şey gitmedi; başka sohbet `unknown tool "chats_list"` aldı. 4b: 0.2.0 ve 0.2.1'de `schedule_list` başka sohbetin görevini GÖRMEZ (dsh kodu `list({sessionId: agent.session.id})`); 0.2.2-rc.1'de görür ve `schedule_edit` ile duraklatır.
+  - Tether: PLUS `assistant` (GET), `openAssistant()` + `assistantError`, Sessions araç çubuğu düğmesi (sparkles), FEATURES.md satırı; iOS birim testleri 95/95; gateway ve parity testleri geçti.
+- 2026-11-06 21:05: tüm aşamalar bitti, commit yok.
+  - 10 dil iki alt ajanla (es/pt-BR/fr/de/ru, ja/ko/id/vi/hi): dil paketi 8 anahtar, `how` ×10, README gizlilik/sınırlar/SSS ×10; `build:locales`, `build:readme` (ROUTES.md, llms.txt).
+  - `assets/features/assistant.webp` 15.5 kB (SHOT=1, 0.2.1-rc.2, İngilizce arayüz, uydurma projeler; gözle kontrol edildi).
+  - Simülatör (iPhone 17 Pro, agent-device, yalıtılmış dsh 0.2.1-rc.2 + /32 gateway 19400): Sessions'ta Assistant düğmesi var; dokununca "Assistant" sohbeti (~/Assistant) açıldı; geri dönüp tekrar dokununca aynı sohbet; Mac'te tek sohbet ve aynı kimlik. Düzenek durduruldu.
+  - `npm test` exit 0 (74 özellik, 74 görüntü, 96 rota yöntemi, 8603 etiket); `git diff --check` temiz; `npm pack --dry-run` 114 dosya, webp içinde; `test/browser-settings-shots.mjs` 0.2.0-rc.2 ve 0.2.1-rc.2 PASS (74 satır).
+  - Doğrulanmadı: silinmiş sohbetin yeniden oluşması gerçek dsh'de (yalnız birim testi); iPhone (kurulum istenmedi); canlı masaüstü kopyası (istenmedi).

@@ -446,6 +446,15 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(Client.createRequest(cwd: nil, workspaceId: Client.defaultWorkspaceId(["workspaceId": "w1"])) as NSDictionary, ["workspaceId": "w1"])
     }
 
+    /// Assistant: the Mac without the route (404) or with the feature off (409) says where to switch it on; any other
+    /// failure keeps the Mac's reason.
+    @MainActor func testAssistantError() {
+        let off = Client.assistantError(Fail("Assistant is off", status: 409))
+        XCTAssertTrue(off.contains("Composer Plus"))
+        XCTAssertEqual(Client.assistantError(Fail("not found", status: 404)), off)
+        XCTAssertEqual(Client.assistantError(Fail("the assistant chat is busy", status: 500)), "the assistant chat is busy")
+    }
+
     @MainActor func testReasoningSessionModelAndGroups() {
         let md = transcriptMarkdown([Line(kind: .user, text: "hi"), Line(kind: .tool, text: "ls"), Line(kind: .assistant, text: "hello")], title: "T")
         XCTAssertEqual(md, "# T\n\n## You\n\nhi\n\n## Assistant\n\nhello\n")
