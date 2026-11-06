@@ -1,7 +1,7 @@
 name: DSHMobile
 options:
   bundleIdPrefix: com.furkancakir
-  deploymentTarget: { iOS: "17.0" }
+  deploymentTarget: { iOS: "18.0" }
   developmentLanguage: en
 settings:
   base:

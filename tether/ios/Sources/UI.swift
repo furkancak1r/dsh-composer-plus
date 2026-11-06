@@ -153,19 +153,52 @@ struct RunningSpinner: View {
     var size: CGFloat = 14
     @Environment(\.accessibilityReduceMotion) private var still
     var body: some View {
-        // TimelineView, not a repeatForever animation: that one also moves the row in a List when it appears.
-        TimelineView(.animation(paused: still)) { ctx in
-            let turn = ctx.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.5) / 1.5
-            ZStack {
-                Circle().stroke(lineWidth: 2).opacity(0.25)
-                Circle().trim(from: 0, to: 0.3).stroke(style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(still ? -90 : turn * 360 - 90))
-            }
-            .padding(1)
+        ZStack {
+            Circle().stroke(lineWidth: 2).opacity(0.25)
+            // Core Animation turns the arc in the render server: the app draws nothing per frame. A TimelineView
+            // redrew SwiftUI each frame for each spinner (most of the main thread on Sessions, measured on an iPhone
+            // 13); a repeatForever animation also moves the row in a List when it appears.
+            SpinArc(still: still)
         }
+        .padding(1)
         // Color.secondary, not .secondary: inside a Button the hierarchical style turns into the blue tint
         .foregroundStyle(Color.secondary)
         .frame(width: size, height: size)
+    }
+}
+
+/// The turning arc of RunningSpinner: a 30% arc from the top, one turn in 1.5 s; still with Reduce Motion.
+private struct SpinArc: UIViewRepresentable {
+    let still: Bool
+    func makeUIView(context: Context) -> ArcView { ArcView() }
+    func updateUIView(_ v: ArcView, context: Context) { if v.still != still { v.still = still } }
+    final class ArcView: UIView {
+        private let arc = CAShapeLayer()
+        var still = false { didSet { spin() } }
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            arc.fillColor = nil; arc.lineWidth = 2; arc.lineCap = .round; arc.strokeEnd = 0.3
+            layer.addSublayer(arc)
+            registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitAccessibilityContrast.self]) { (v: ArcView, _: UITraitCollection) in v.setNeedsLayout() }
+        }
+        required init?(coder: NSCoder) { nil }
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            arc.frame = bounds
+            let r = max(0, min(bounds.width, bounds.height) / 2 - 1)
+            arc.path = UIBezierPath(arcCenter: CGPoint(x: bounds.midX, y: bounds.midY), radius: r, startAngle: -.pi / 2, endAngle: 1.5 * .pi, clockwise: true).cgPath
+            arc.strokeColor = UIColor.secondaryLabel.resolvedColor(with: traitCollection).cgColor
+        }
+        override func didMoveToWindow() { super.didMoveToWindow(); spin() }
+        private func spin() {
+            arc.removeAnimation(forKey: "turn")
+            guard window != nil, !still else { return }
+            let a = CABasicAnimation(keyPath: "transform.rotation.z")
+            a.fromValue = 0; a.toValue = 2 * Double.pi; a.duration = 1.5; a.repeatCount = .infinity
+            a.isRemovedOnCompletion = false // it keeps turning after the app was in the background
+            arc.add(a, forKey: "turn")
+        }
     }
 }
 
@@ -526,7 +559,9 @@ struct ConversationView: View {
     @State private var importing = false
     @State private var showPhotos = false
     @State private var shooting = false
-    @State private var atBottom = true
+    /// The chat follows its end: each new row, the keyboard and the cards over the composer keep the last message in
+    /// view. A drag up stops it (reading is not moved); ↓, Send, another chat or a drag back to the end start it again.
+    @State private var follow = true
     @State private var creating = false
     /// Queue edit: the queued message whose editor is open.
     @State private var editing: J?
@@ -693,7 +728,8 @@ struct ConversationView: View {
                 let hits = finding.map { findRows(rows, query: $0) } ?? []
                 let findIndex = Dictionary(hits.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 14) {
+                    // Pinned section headers: an open step group (StepsView) keeps its header at the top of the screen.
+                    LazyVStack(alignment: .leading, spacing: 14, pinnedViews: .sectionHeaders) {
                         if c.hasOlder {
                             Button {
                                 loadingOlder = true
@@ -708,47 +744,29 @@ struct ConversationView: View {
                         // DSH desktop's shape: thinking and tool calls fold into one step row; a finished turn folds to
                         // "Completed in …" and its answer until tapped.
                         ForEach(rows) { row in
-                            Group {
-                                switch row {
-                                case .line(let l):
-                                    LineView(line: l, onEdit: { text = $0; focused = true }, onQuote: { text = quoteDraft(text, $0); focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
-                                    // Option buttons (Composer Plus): under the answer that ends with an option list.
-                                    if l.kind == .assistant, let o = c.optionOffer, o.seq == l.seq, text.isEmpty, images.isEmpty, files.isEmpty { OptionButtons(offer: o) }
-                                case .steps(let ls, let live): StepsView(lines: ls, live: live && c.streaming.isEmpty)
-                                case .turn(let l, let foldable):
-                                    TurnRow(line: l, foldable: foldable, open: openTurns.contains(l.id)) {
-                                        withAnimation(.snappy) { if openTurns.contains(l.id) { openTurns.remove(l.id) } else { openTurns.insert(l.id) } }
-                                    }
-                                }
+                            switch row {
+                            // A Section with its own header id: no modifier here, or each part of the Section gets it.
+                            case .steps(let ls, let live): StepsView(lines: ls, live: live && !c.answering) { keepHeader(proxy, $0) }
+                            default: lineRow(row, findIndex, hits.count)
                             }
-                            .id(row.id)
-                            // Open message: the message that the link names blinks for 2 s. Find in chat: hits are tinted,
-                            // the current one more.
-                            .background(row.id == marked ? Color.accentColor.opacity(0.18) : findIndex[row.id].map { Color.yellow.opacity($0 == min(findAt, hits.count - 1) ? 0.45 : 0.18) } ?? .clear,
-                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                         // A message on its way to the Mac: shown at once, faded, until the Mac's copy replaces it.
                         ForEach(c.outgoing.filter { $0.session == c.current }) { o in OutgoingView(o: o) }
-                        if !c.reasoning.isEmpty { StepsView(lines: [Line(kind: .reasoning, text: c.reasoning)], live: true) }
-                        if !c.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: c.streaming), live: true) }
-                        // upload/send progress first, so a large file never looks like a dead Send button
-                        if let s = c.sendStatus ?? (c.running && c.streaming.isEmpty && c.reasoning.isEmpty && c.transcript.last?.kind != .tool ? String(localized: "Working…") : nil) {
-                            HStack(spacing: 6) {
-                                ProgressView().controlSize(.small); Text(s)
-                                // elapsed time tells a slow turn apart from a stuck one
-                                if c.running, let t = c.turnStartedAt ?? turnStart {
-                                    TimelineView(.periodic(from: t, by: 1)) { ctx in Text(elapsedText(Int(ctx.date.timeIntervalSince(t)))).monospacedDigit().foregroundStyle(.tertiary) }
-                                }
-                            }.font(.footnote).foregroundStyle(.secondary)
-                        }
-                        // shortcut: 80 pt tall marker pulled up over the content = "near bottom" tolerance, so a streaming delta never flips atBottom off; use onScrollGeometryChange once iOS 18 is the floor.
-                        Color.clear.frame(height: 80).padding(.top, -80).id("end")
-                            .onAppear { atBottom = true }.onDisappear { atBottom = false }
+                        // The streaming reply: the only views that a token redraws.
+                        LiveTail(text: c.live, turnStart: turnStart) { keepHeader(proxy, $0) }
+                        Color.clear.frame(height: 1).id("end")
                     }.padding(.horizontal, 16).padding(.vertical, 12)
                 }
                 // tapping the transcript closes the keyboard; simultaneous so links/selection keep working
                 .simultaneousGesture(TapGesture().onEnded { focused = false })
                 .defaultScrollAnchor(.bottom)
+                .onScrollPhaseChange { old, new, ctx in
+                    let f = scrollFollow(from: old, to: new, gap: bottomGap(ctx.geometry), follow: follow)
+                    if f != follow { follow = f }
+                }
+                // After layout (not in onChange, where the new row is not laid out yet): every change of the content, the
+                // keyboard or the cards over the composer moves the end, and a following chat goes there.
+                .onScrollGeometryChange(for: CGFloat.self, of: maxOffset) { _, _ in if follow { proxy.scrollTo("end", anchor: .bottom) } }
                 .overlay {
                     if c.transcript.isEmpty && !c.outgoing.contains(where: { $0.session == c.current }) {
                         // The chat's messages are on the way: a spinner, not the "new chat" screen.
@@ -757,8 +775,8 @@ struct ConversationView: View {
                     }
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    if !atBottom && !c.transcript.isEmpty {
-                        Button { withAnimation { proxy.scrollTo("end", anchor: .bottom) } } label: {
+                    if !follow && !c.transcript.isEmpty {
+                        Button { follow = true; withAnimation { proxy.scrollTo("end", anchor: .bottom) } } label: {
                             Image(systemName: "arrow.down").font(.footnote.weight(.semibold)).frame(width: 34, height: 34)
                                 .background(.regularMaterial, in: Circle()).overlay(Circle().strokeBorder(Color(.separator)))
                         }
@@ -782,14 +800,8 @@ struct ConversationView: View {
                         statusLine
                     }.background(.background)
                 }
-                // only follow output while the user is at the bottom, so reading history is not yanked away
-                .onChange(of: c.transcript.count) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
-                .onChange(of: c.streaming) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
-                .onChange(of: c.reasoning) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
-                .onChange(of: c.sendStatus) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
-                .onChange(of: c.outgoing) { if atBottom { proxy.scrollTo("end", anchor: .bottom) } }
                 .onChange(of: c.running, initial: true) { turnStart = c.running ? (turnStart ?? .now) : nil }
-                .onChange(of: c.current) { openTurns = [] }
+                .onChange(of: c.current) { openTurns = []; follow = true; proxy.scrollTo("end", anchor: .bottom) }
                 .task(id: c.jump) { await jump(proxy) }
                 .task(id: c.plus.contains("secret-answer") ? c.secretWaiting : nil) { await c.watchSecret() }
                 .task(id: marked) { if marked != nil { try? await Task.sleep(for: .seconds(2)); if !Task.isCancelled { withAnimation { marked = nil } } } }
@@ -804,6 +816,7 @@ struct ConversationView: View {
         let go = { (by: Int) in
             guard !hits.isEmpty else { return }
             findAt = (at + by + hits.count) % hits.count
+            follow = false
             withAnimation { proxy.scrollTo(hits[findAt].id, anchor: .center) }
         }
         return HStack(spacing: 8) {
@@ -821,7 +834,35 @@ struct ConversationView: View {
             Button { finding = nil; findFocused = false } label: { Text("Done").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle()) }
         }
         .padding(.leading, 12).padding(.trailing, 4).background(.bar)
-        .onChange(of: finding) { if let first = hits.first { withAnimation { proxy.scrollTo(first.id, anchor: .center) } } }
+        .onChange(of: finding) { if let first = hits.first { follow = false; withAnimation { proxy.scrollTo(first.id, anchor: .center) } } }
+    }
+
+    /// A message row or a turn summary row, with its scroll id and its tint (Open message, Find in chat).
+    @ViewBuilder private func lineRow(_ row: ChatRow, _ findIndex: [UUID: Int], _ hitCount: Int) -> some View {
+        Group {
+            switch row {
+            case .line(let l):
+                LineView(line: l, onEdit: { text = $0; focused = true }, onQuote: { text = quoteDraft(text, $0); focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
+                // Option buttons (Composer Plus): under the answer that ends with an option list.
+                if l.kind == .assistant, let o = c.optionOffer, o.seq == l.seq, text.isEmpty, images.isEmpty, files.isEmpty { OptionButtons(offer: o) }
+            case .turn(let l, let foldable):
+                TurnRow(line: l, foldable: foldable, open: openTurns.contains(l.id)) {
+                    withAnimation(.snappy) { if openTurns.contains(l.id) { openTurns.remove(l.id) } else { openTurns.insert(l.id) } }
+                }
+            case .steps: EmptyView()
+            }
+        }
+        .id(row.id)
+        // Open message: the message that the link names blinks for 2 s. Find in chat: hits are tinted, the current one more.
+        .background(row.id == marked ? Color.accentColor.opacity(0.18) : findIndex[row.id].map { Color.yellow.opacity($0 == min(findAt, hitCount - 1) ? 0.45 : 0.18) } ?? .clear,
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    /// A step group closed while you read: its header stays on screen (the steps under it are gone, so the chat could
+    /// move it away). A chat that follows its end goes to the end instead.
+    private func keepHeader(_ proxy: ScrollViewProxy, _ id: AnyHashable) {
+        guard !follow else { return }
+        DispatchQueue.main.async { withAnimation(.snappy) { proxy.scrollTo(id, anchor: nil) } }
     }
 
     /// Open message: wait for the chat's rows (a chat that just opened loads first), load earlier pages until the message
@@ -839,6 +880,7 @@ struct ConversationView: View {
         let target = c.current == j.sessionId ? jumpTarget(chatRows(c.transcript, open: openTurns, running: c.running), seq: j.seq) : nil
         if c.jump == j { c.jump = nil }
         guard let target else { c.error = String(localized: "This message is not in the chat any more."); return }
+        follow = false
         withAnimation { proxy.scrollTo(target, anchor: .center) }
         marked = target
     }
@@ -1230,18 +1272,17 @@ struct ConversationView: View {
     func send() {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines), imgs = images, fs = files
         text = ""; images = []; files = []
+        follow = true // your message and its answer show at the end
         let name = t.hasPrefix("/") ? String(t.dropFirst().prefix { !$0.isWhitespace }) : ""
         // a failed send (link down, Mac asleep) puts the draft back instead of losing it
         let restore = { if text.isEmpty && images.isEmpty && files.isEmpty { text = t; images = imgs; files = fs } }
         // New branch + `/plan <message>`: the branch chat starts in plan mode (not /plan in this chat).
         if c.newBranch, let m = planMessage(t), !m.isEmpty || !imgs.isEmpty || !fs.isEmpty {
-            atBottom = true
             c.run { do { try await c.startOnBranch(m, images: imgs, files: fs, plan: true) } catch { restore(); throw error } }; return
         }
         if imgs.isEmpty, fs.isEmpty, c.commands.contains(where: { $0.name == name }) {
             c.run { do { try await c.execute(t) } catch { restore(); throw error } }; return
         }
-        atBottom = true
         // New branch: the Mac sends the text, the photos and the files to the new chat.
         if c.newBranch, !t.isEmpty || !imgs.isEmpty || !fs.isEmpty {
             c.run { do { try await c.startOnBranch(t, images: imgs, files: fs) } catch { restore(); throw error } }; return
@@ -1558,16 +1599,72 @@ struct LineView: View {
     }
 }
 
+/// The end of the open chat while a turn runs: the streaming thinking and reply, and "Working…" with the turn's time.
+/// It observes `LiveText`, so a token redraws only this, not the chat's rows or the other screens.
+struct LiveTail: View {
+    @EnvironmentObject var c: Client
+    @ObservedObject var text: LiveText
+    /// Fallback when the turn/start event carried no time.
+    let turnStart: Date?
+    let closed: (AnyHashable) -> Void
+    var body: some View {
+        if !text.reasoning.isEmpty { StepsView(lines: [Line(kind: .reasoning, text: text.reasoning)], live: true, anchor: "live-thinking", closed: closed) }
+        if !text.streaming.isEmpty { LineView(line: Line(kind: .assistant, text: text.streaming), live: true) }
+        // upload/send progress first, so a large file never looks like a dead Send button
+        if let s = c.sendStatus ?? (c.running && text.streaming.isEmpty && text.reasoning.isEmpty && c.transcript.last?.kind != .tool ? String(localized: "Working…") : nil) {
+            HStack(spacing: 6) {
+                ProgressView().controlSize(.small); Text(s)
+                // elapsed time tells a slow turn apart from a stuck one
+                if c.running, let t = c.turnStartedAt ?? turnStart {
+                    TimelineView(.periodic(from: t, by: 1)) { ctx in Text(elapsedText(Int(ctx.date.timeIntervalSince(t)))).monospacedDigit().foregroundStyle(.tertiary) }
+                }
+            }.font(.footnote).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// How far the chat is from its end, in points (0 at the end). `contentOffset` counts from the top inset.
+func bottomGap(_ g: ScrollGeometry) -> CGFloat { maxOffset(g) - g.contentOffset.y }
+/// The offset at the end of the content: the last row sits just above the bottom inset (the composer).
+func maxOffset(_ g: ScrollGeometry) -> CGFloat { g.contentSize.height + g.contentInsets.bottom - g.containerSize.height }
+/// Follow the end or not after a scroll phase change: your drag stops it; when your scroll comes to rest near the end
+/// (40 pt), it starts again. A scroll of the app (`.animating`: ↓, Find, Open message) keeps what the app chose.
+func scrollFollow(from old: ScrollPhase, to new: ScrollPhase, gap: CGFloat, follow: Bool) -> Bool {
+    switch new {
+    case .interacting: false
+    case .idle: old == .animating || old == .tracking ? follow : gap <= 40 // a tap (tracking, no drag) changes nothing
+    default: follow
+    }
+}
+
 /// Thinking and tool calls in a row, folded into one line as in DSH desktop: "Read files and searched code" with an
 /// icon and a chevron; tap to see each step. The step that runs now says what it does and stays folded too.
 struct StepsView: View {
     let lines: [Line]
     let live: Bool
+    /// The header's scroll id; the first step's id when nil.
+    var anchor: AnyHashable? = nil
+    /// After a tap closes the group, with the header's id: the chat keeps the header on screen.
+    var closed: ((AnyHashable) -> Void)? = nil
     @State private var open = false
     var body: some View {
         let (title, kind) = stepsTitle(lines, live: live)
-        VStack(alignment: .leading, spacing: 10) {
-            Button { withAnimation(.snappy) { open.toggle() } } label: {
+        let id = anchor ?? AnyHashable(lines[0].id)
+        // A Section of the chat's LazyVStack (pinned section headers): while the group is open, its header stays at the
+        // top of the screen over a long thinking text, so one tap closes it from where you read.
+        Section {
+            if open {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(lines) { l in LineView(line: l, live: live && l.id == lines.last?.id && l.kind == .reasoning) }
+                }
+                .padding(.leading, 10).overlay(alignment: .leading) { Rectangle().fill(Color(.separator)).frame(width: 1) }
+            }
+        } header: {
+            Button {
+                let closing = open
+                withAnimation(.snappy) { open.toggle() }
+                if closing { closed?(id) }
+            } label: {
                 HStack(spacing: 6) {
                     if live { RunningSpinner(size: 13) } else { Image(systemName: stepIcon(kind)).frame(width: 14) }
                     Text(title).lineLimit(1)
@@ -1578,12 +1675,9 @@ struct StepsView: View {
             }
             .buttonStyle(.plain)
             .accessibilityValue(Text(open ? "Expanded" : "Collapsed"))
-            if open {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(lines) { l in LineView(line: l, live: live && l.id == lines.last?.id && l.kind == .reasoning) }
-                }
-                .padding(.leading, 10).overlay(alignment: .leading) { Rectangle().fill(Color(.separator)).frame(width: 1) }
-            }
+            // Opaque while pinned: the steps scroll under it.
+            .padding(.vertical, 4).background(Color(.systemBackground))
+            .id(id)
         }
     }
     private func stepIcon(_ k: String) -> String {
@@ -1895,6 +1989,10 @@ struct SessionsView: View {
     @State private var newTitle = ""
     @State private var deleting: Sess?
     var body: some View {
+        // Once per render: the groups, the running chats and the waiting chats are read by every row, header and button.
+        let groups = c.state == .connected && query.isEmpty ? c.sessionGroups(project: project.isEmpty ? nil : project) : []
+        let busy = runningIds(c.sessions), waiting = c.waitingChats
+        let next = c.state == .connected ? c.nextWaiting() : []
         NavigationStack(path: $c.path) {
             List {
                 // in-list so it scrolls away with the content instead of pinning under the large title
@@ -1904,12 +2002,12 @@ struct SessionsView: View {
                     // sessions need a live link: no cached rows, the overlay explains and offers Tailscale
                 } else if query.isEmpty {
                     // offset id: two DSH workspaces may share a title
-                    ForEach(Array(c.sessionGroups(project: project.isEmpty ? nil : project).enumerated()), id: \.offset) { _, g in
+                    ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
                         // accordion like the desktop sidebar; Archived starts folded; a folded group shows no chats, as on the desktop
                         let folded = groupFolded(shownFolds, g.title)
                         Section {
                             // List's own row insert animation; a custom .move transition made rows pop in on expand
-                            ForEach(folded ? [] : g.items) { s in sessionRow(s) }
+                            ForEach(folded ? [] : g.items) { s in sessionRow(s, busy: busy, waiting: waiting) }
                         } header: {
                             HStack(spacing: 4) {
                                 Button {
@@ -1920,7 +2018,7 @@ struct SessionsView: View {
                                         Label("\(g.title) (\(g.items.count))", systemImage: groupIcon(g.title))
                                         Spacer()
                                         // Project status (Composer Plus): a folded project still says that a chat works or waits
-                                        if let m = projectMark(g.items, all: c.sessions, waiting: c.waitingChats, finished: c.finished) { ProjectMarkView(mark: m) }
+                                        if let m = projectMark(g.items, busy: busy, waiting: waiting, finished: c.finished) { ProjectMarkView(mark: m) }
                                         Image(systemName: "chevron.right").rotationEffect(.degrees(folded ? 0 : 90))
                                     }
                                     .contentShape(Rectangle())
@@ -1949,7 +2047,7 @@ struct SessionsView: View {
                     let ids = Set(titles.map(\.id))
                     let only = c.workspaces.first { $0.id == project }
                     let content = hits.filter { !ids.contains($0.session) && (only?.sessions.contains($0.session) ?? true) }
-                    if !titles.isEmpty { Section("Titles") { ForEach(titles) { s in sessionRow(s) } } }
+                    if !titles.isEmpty { Section("Titles") { ForEach(titles) { s in sessionRow(s, busy: busy, waiting: waiting) } } }
                     Section {
                         ForEach(content) { h in
                             Button { open(h.session) } label: { VStack(alignment: .leading) { Text(c.title(h.session)).foregroundStyle(.primary).lineLimit(1); Text(h.snippet).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
@@ -1988,12 +2086,12 @@ struct SessionsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { MacPicker() }
                 // Next waiting chat (Composer Plus): only while another chat waits for you; the dot has the next one's color.
-                if c.state == .connected, let next = c.nextWaiting().first {
+                if let first = next.first {
                     ToolbarItem(placement: .topBarTrailing) {
-                        let n = c.nextWaiting().count
+                        let n = next.count
                         Button { c.openNextWaiting() } label: {
                             HStack(spacing: 4) {
-                                Circle().fill(next.done ? Color.green : Color.orange).frame(width: 8, height: 8)
+                                Circle().fill(first.done ? Color.green : Color.orange).frame(width: 8, height: 8)
                                 Text(verbatim: "\(n)").font(.subheadline.monospacedDigit())
                             }
                         }
@@ -2001,7 +2099,7 @@ struct SessionsView: View {
                     }
                 }
                 // Collapse all projects (Composer Plus): in view only while a project is open, as on the desktop
-                if c.state == .connected && query.isEmpty && !openProjects(c.sessionGroups(project: project.isEmpty ? nil : project), folds: shownFolds).isEmpty {
+                if c.state == .connected && query.isEmpty && !openProjects(groups, folds: shownFolds).isEmpty {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button { collapseAll() } label: { Image(systemName: "rectangle.compress.vertical") }
                             .accessibilityLabel("Collapse all projects")
@@ -2063,8 +2161,8 @@ struct SessionsView: View {
         }
     }
 
-    func sessionRow(_ s: Sess) -> some View {
-        Button { open(s.id) } label: { row(s) }
+    func sessionRow(_ s: Sess, busy: Set<String>, waiting: Set<String>) -> some View {
+        Button { open(s.id) } label: { row(s, running: busy.contains(s.id), waiting: waiting.contains(s.id)) }
             .swipeActions(edge: .leading) { Button { c.run { try await c.togglePin(s.id) } } label: { Label(pinLabel(s), systemImage: "pin") }.tint(.orange) }
             .swipeActions {
                 Button { c.run { try await c.toggleArchive(s.id) } } label: { Label(archiveLabel(s), systemImage: "archivebox") }.tint(.gray)
@@ -2080,7 +2178,7 @@ struct SessionsView: View {
                 if c.plus.contains("delete-chat") { Button(role: .destructive) { deleting = s } label: { Label("Delete…", systemImage: "trash") } }
             }
     }
-    func row(_ s: Sess) -> some View {
+    func row(_ s: Sess, running: Bool, waiting: Bool) -> some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
@@ -2102,9 +2200,9 @@ struct SessionsView: View {
             }
             Spacer()
             if let g = s.goal, !g.phase.hasPrefix("complete") { Image(systemName: "target").font(.caption).foregroundStyle(g.paused ? Color.secondary : Color.accentColor).accessibilityLabel("Goal: \(g.summary)") }
-            if c.prompts.contains(where: { $0.agentId == s.id }) { Image(systemName: "hand.raised.fill").foregroundStyle(.orange).accessibilityLabel("Waiting for you") }
+            if waiting { Image(systemName: "hand.raised.fill").foregroundStyle(.orange).accessibilityLabel("Waiting for you") }
             // DSH desktop's marks: a turning ring while it runs (also while a subagent runs), green when it finished
-            if isRunning(s, c.sessions) { RunningSpinner().accessibilityLabel("Running") }
+            if running { RunningSpinner().accessibilityLabel("Running") }
             else if c.finished.contains(s.id) { Circle().fill(.green).frame(width: 8, height: 8).accessibilityLabel("Finished") }
         }
     }

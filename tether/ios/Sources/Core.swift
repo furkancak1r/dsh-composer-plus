@@ -1235,31 +1235,36 @@ func parseQuestions(_ v: Any?, session: String) -> [Prompt] {
 /// Project status: the marker of a project row, as Composer Plus draws it in the desktop sidebar. Waiting for you wins,
 /// then a finished chat that you did not open (also while another chat runs), then running.
 enum ProjectMark: Equatable { case waiting, done, running(Int) }
-func projectMark(_ chats: [Sess], all: [Sess], waiting: Set<String>, finished: Set<String>) -> ProjectMark? {
+/// `busy`: `runningIds` of the whole list.
+func projectMark(_ chats: [Sess], busy: Set<String>, waiting: Set<String>, finished: Set<String>) -> ProjectMark? {
     let mine = chats.filter { $0.parent == nil }
     if mine.contains(where: { waiting.contains($0.id) }) { return .waiting }
     if mine.contains(where: { finished.contains($0.id) }) { return .done }
-    let n = mine.filter { isRunning($0, all) }.count
+    let n = mine.filter { busy.contains($0.id) }.count
     return n > 0 ? .running(n) : nil
 }
 /// Order by status (view only): finished and not opened, then running or waiting, then the rest; else dsh's order.
-func statusRank(_ s: Sess, all: [Sess], waiting: Set<String>, finished: Set<String>) -> Int {
-    finished.contains(s.id) ? 0 : isRunning(s, all) || waiting.contains(s.id) ? 1 : 2
+func statusRank(_ s: Sess, busy: Set<String>, waiting: Set<String>, finished: Set<String>) -> Int {
+    finished.contains(s.id) ? 0 : busy.contains(s.id) || waiting.contains(s.id) ? 1 : 2
 }
 /// Recent projects filter: a chat counts when it changed in the last 2 hours, runs, waits, finished unseen, or is open.
-func recentChat(_ s: Sess, all: [Sess], now: Date, open: String?, waiting: Set<String>, finished: Set<String>) -> Bool {
-    s.id == open || waiting.contains(s.id) || finished.contains(s.id) || isRunning(s, all) || (s.updated.map { now.timeIntervalSince($0) <= 7200 } ?? false)
+func recentChat(_ s: Sess, busy: Set<String>, now: Date, open: String?, waiting: Set<String>, finished: Set<String>) -> Bool {
+    s.id == open || waiting.contains(s.id) || finished.contains(s.id) || busy.contains(s.id) || (s.updated.map { now.timeIntervalSince($0) <= 7200 } ?? false)
 }
 
 /// Green dots from the Mac (Composer Plus keeps them): the chats that finished and that no device opened yet. Only root
 /// chats that are idle now, and never the chat on screen (it is read while you look at it).
 func shownUnread(host: [String], sessions: [Sess], open: String?) -> Set<String> {
-    let idle = Set(sessions.filter { $0.parent == nil && !isRunning($0, sessions) }.map(\.id))
+    let busy = runningIds(sessions)
+    let idle = Set(sessions.filter { $0.parent == nil && !busy.contains($0.id) }.map(\.id))
     return Set(host).intersection(idle).subtracting(open.map { [$0] } ?? [])
 }
 
 /// A chat shows "Running" while its own turn or one of its subagents runs, as in the DSH desktop sidebar.
 func isRunning(_ s: Sess, _ all: [Sess]) -> Bool { s.running || all.contains { $0.parent == s.id && $0.running } }
+/// `isRunning` for every chat of a list at once: the chats that run and the parents of running subagents. A list
+/// reads this set once, not the whole list again for each row.
+func runningIds(_ all: [Sess]) -> Set<String> { Set(all.filter(\.running).flatMap { [$0.id] + ($0.parent.map { [$0] } ?? []) }) }
 
 /// Branch per chat: the branch of the chat's folder (`GET /plus/worktrees`); nil outside a git repository.
 struct BranchState: Equatable {
@@ -1427,6 +1432,29 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
 // MARK: - Client
 
+/// The open chat's streaming reply and thinking (`Client.live`).
+@MainActor final class LiveText: ObservableObject {
+    @Published var streaming = ""
+    @Published var reasoning = ""
+    func clear() { if !streaming.isEmpty { streaming = "" }; if !reasoning.isEmpty { reasoning = "" } }
+}
+
+/// Runs `work` for each `run()`, but never twice at the same time: a `run()` while it works runs it once more after
+/// it ends (many calls then make one). A burst of list events loads the list at most twice.
+@MainActor final class Coalesced {
+    private let work: () async -> Void
+    private var running = false, again = false
+    init(_ work: @escaping () async -> Void) { self.work = work }
+    func run() {
+        guard !running else { again = true; return }
+        running = true
+        Task { @MainActor in
+            repeat { again = false; await work() } while again
+            running = false
+        }
+    }
+}
+
 @MainActor final class Client: ObservableObject {
     enum Conn: String { case off = "Not connected", connecting = "Connecting…", connected = "Connected", reconnecting = "Reconnecting…" }
 
@@ -1487,8 +1515,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// Branch badge (Composer Plus): the git branch of each chat's folder at its last turn, as the Mac recorded it.
     @Published var branches: [String: String] = [:]
     @Published var transcript: [Line] = []
-    @Published var streaming = ""
-    @Published var reasoning = ""
+    /// The reply and the thinking while they stream. Not on Client: a token then redraws only the views that show the
+    /// text, not every view of the app (Sessions too, as the stream stays open after Back).
+    let live = LiveText()
+    /// The reply's text streams now (`live.streaming` is not empty). It changes twice per reply, not per token: the chat
+    /// reads it to stop the step group's spinner while the answer is written.
+    @Published private(set) var answering = false
+    private func clearLive() { live.clear(); if answering { answering = false } }
     @Published var running = false
     /// DSH's own turn/start time (event `time`, ms), so the turn timer is right even when the chat is opened mid-turn.
     @Published var turnStartedAt: Date?
@@ -1664,6 +1697,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         return notifyFrom < notifyTo ? (notifyFrom..<notifyTo).contains(m) : m >= notifyFrom || m < notifyTo
     }
 
+    /// `loadSessions` for the Mac's list events, coalesced.
+    private lazy var listLoads = Coalesced { [weak self] in try? await self?.loadSessions() }
     private var urlSession: URLSession?, sessionFp = ""
     private var ws: URLSessionWebSocketTask?
     private var followId: String?
@@ -1706,28 +1741,30 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     func sessionGroups(project: String? = nil, now: Date = .now) -> [(title: String, items: [Sess], path: String?)] {
         // newest activity first inside each group, like the desktop sidebar; pinned keeps the user's pin order
-        let only = workspaces.first { $0.id == project }
-        let wait = waitingChats
-        var roots = sessions.filter { $0.parent == nil && (only?.sessions.contains($0.id) ?? true) }.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
+        // Sets, not arrays: this runs on each render of Sessions (sets keep it linear in the number of chats).
+        let only = workspaces.first { $0.id == project }.map { Set($0.sessions) }
+        let wait = waitingChats, busy = runningIds(sessions), pins = Set(pinned), arch = Set(archived)
+        var roots = sessions.filter { $0.parent == nil && (only?.contains($0.id) ?? true) }.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
         // view only, as on the desktop: a stable sort keeps the newest first inside each rank
         if byStatus { roots = roots.enumerated().sorted { a, b in
-            let (x, y) = (statusRank(a.element, all: sessions, waiting: wait, finished: finished), statusRank(b.element, all: sessions, waiting: wait, finished: finished))
+            let (x, y) = (statusRank(a.element, busy: busy, waiting: wait, finished: finished), statusRank(b.element, busy: busy, waiting: wait, finished: finished))
             return x != y ? x < y : a.offset < b.offset }.map(\.element) }
-        let rest = roots.filter { !pinned.contains($0.id) && !archived.contains($0.id) }
-        var out: [(String, [Sess], String?)] = [(String(localized: "Pinned"), pinned.compactMap { id in roots.first { $0.id == id } }, nil)]
+        let rest = roots.filter { !pins.contains($0.id) && !arch.contains($0.id) }
+        let byId = Dictionary(roots.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var out: [(String, [Sess], String?)] = [(String(localized: "Pinned"), pinned.compactMap { byId[$0] }, nil)]
         if oneList {
             // No projects here, so the 2-hour filter keeps each recent chat (by project it keeps whole projects).
-            let recent = { (s: Sess) in !self.recentOnly || recentChat(s, all: self.sessions, now: now, open: self.current, waiting: wait, finished: self.finished) }
+            let recent = { (s: Sess) in !self.recentOnly || recentChat(s, busy: busy, now: now, open: self.current, waiting: wait, finished: self.finished) }
             out.append((String(localized: "All sessions"), rest.filter(recent), nil))
-            out.append((String(localized: "Archived"), roots.filter { archived.contains($0.id) && recent($0) }, nil))
+            out.append((String(localized: "Archived"), roots.filter { arch.contains($0.id) && recent($0) }, nil))
             return out.filter { !$0.1.isEmpty }.map { (title: $0.0, items: $0.1, path: $0.2) }
         }
         var used = Set<String>()
-        for w in workspaces { let s = rest.filter { w.sessions.contains($0.id) }; used.formUnion(s.map(\.id)); out.append((w.title, s, w.path)) }
+        for w in workspaces { let ids = Set(w.sessions), s = rest.filter { ids.contains($0.id) }; used.formUnion(s.map(\.id)); out.append((w.title, s, w.path)) }
         out.append((String(localized: "Ungrouped"), rest.filter { !used.contains($0.id) }, nil))
-        out.append((String(localized: "Archived"), roots.filter { archived.contains($0.id) }, nil))
+        out.append((String(localized: "Archived"), roots.filter { arch.contains($0.id) }, nil))
         // A project stays when one of its chats is recent; then the whole project shows, as on the desktop.
-        if recentOnly { out = out.filter { $0.0 == String(localized: "Pinned") || $0.1.contains { recentChat($0, all: sessions, now: now, open: current, waiting: wait, finished: finished) } } }
+        if recentOnly { out = out.filter { $0.0 == String(localized: "Pinned") || $0.1.contains { recentChat($0, busy: busy, now: now, open: current, waiting: wait, finished: finished) } } }
         return out.filter { !$0.1.isEmpty }.map { (title: $0.0, items: $0.1, path: $0.2) }
     }
 
@@ -1794,7 +1831,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
                 r.httpMethod = "POST"; r.setValue("application/json", forHTTPHeaderField: "Content-Type")
                 r.httpBody = try JSONSerialization.data(withJSONObject: body)
             }
-            do { got = try await http(p.fp).data(for: r); if activeFp == p.fp { route = rt; lastFail = nil }; break }
+            // Only a change is written: every Client write redraws every view that observes it.
+            do { got = try await http(p.fp).data(for: r); if activeFp == p.fp { if route != rt { route = rt }; if lastFail != nil { lastFail = nil } }; break }
             catch let e as URLError {
                 fails.append("\(rt == .lan ? "LAN" : "Tailscale") \(host): \(failText(e))")
                 if n == list.count - 1 { if activeFp == p.fp { lastFail = fails.joined(separator: "\n") }; throw e }
@@ -2388,7 +2426,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private func closeScreen() {
         ws?.cancel(with: .goingAway, reason: nil); ws = nil; followId = nil
         urlSession?.invalidateAndCancel(); urlSession = nil // pooled TLS sockets belong to the old Mac's pin
-        sessions = []; sessionsLoaded = false; transcript = []; streaming = ""; reasoning = ""; running = false; prompts = []; branches = [:]; boardTask = nil; boardBack = false
+        sessions = []; sessionsLoaded = false; transcript = []; clearLive(); running = false; prompts = []; branches = [:]; boardTask = nil; boardBack = false
         current = nil; path = []; goal = nil; state = .off; upstream = ""; route = nil; lastFail = nil; attempt = 0; probing = false
         outgoing = []; loadingChat = false; editingQueued = nil
         workspaces = []; pinned = []; archived = []; commands = []; catalog = []; presets = []; perms = []; skills = []
@@ -2588,7 +2626,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         case "cancel": prompts.removeAll { $0.id == v["eventId"] as? String }
         case "emit":
             if let e = v["event"] as? String, ["api-session/added", "api-session/removed", "api-session/status", "api-session/activity", "agent-preset/selected"].contains(e) {
-                Task { try? await loadSessions() }
+                listLoads.run() // a burst of events (each turn sends several) loads the list at most twice
             }
             if v["event"] as? String == "api-session/error" { sessionError(v["args"] as? [Any] ?? []) }
             // Green dots changed on the Mac (a turn ended, or a chat was read on the Mac or another phone).
@@ -2649,14 +2687,15 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private var onScreen: String? { path.isEmpty ? nil : current }
     /// The Mac's dots replace this iPhone's. The chat on screen is read: the Mac hears it at once.
     private func applyUnread(_ host: [String]) {
-        finished = shownUnread(host: host, sessions: sessions, open: onScreen)
+        let dots = shownUnread(host: host, sessions: sessions, open: onScreen)
+        if dots != finished { finished = dots }
         if let s = onScreen, host.contains(s) { markRead(s) }
     }
 
     func follow(_ sid: String) {
         if sid == current, followId != nil { return } // re-opening the live session keeps its stream and transcript
         if let old = followId { send(["type": "cancel", "streamId": old]) }
-        current = sid; transcript = []; streaming = ""; reasoning = ""; usage = nil; contextWindow = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
+        current = sid; transcript = []; clearLive(); usage = nil; contextWindow = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
         hasOlder = false; oldestSeq = nil; throughSeq = nil; events = []; continueSeq = nil; rollbackOn = false; prediction = nil; redoOffer = nil
         branch = nil; newBranch = false; optionsFrom = nil; sideParent = nil
         running = currentSess?.running ?? false
@@ -2733,21 +2772,24 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             replaySnapshot(events)
             hasOlder = v["hasMore"] as? Bool == true && oldestSeq != nil
         case "event": if let e = v["event"] as? J { apply(e) }
-        case "assistant-stream":
-            let fr = v["frame"] as? J ?? [:]
-            switch fr["type"] as? String {
-            case "start": streaming = ""; reasoning = ""; running = true
-            case "chunk":
-                let c = fr["chunk"] as? J ?? [:]
-                switch c["type"] as? String {
-                case "text-delta": streaming += c["text"] as? String ?? ""
-                case "reasoning-delta": reasoning += c["text"] as? String ?? ""
-                case "usage": if let u = c["usage"] as? J { usage = u }
-                default: break
-                }
-            case "end": streaming = ""; reasoning = ""
+        case "assistant-stream": streamFrame(v["frame"] as? J ?? [:])
+        default: break
+        }
+    }
+
+    /// One frame of the reply that streams now. The text goes to `live`: a token does not redraw the views of `Client`.
+    func streamFrame(_ fr: J) {
+        switch fr["type"] as? String {
+        case "start": clearLive(); if !running { running = true }
+        case "chunk":
+            let c = fr["chunk"] as? J ?? [:]
+            switch c["type"] as? String {
+            case "text-delta": if let t = c["text"] as? String, !t.isEmpty { live.streaming += t; if !answering { answering = true } }
+            case "reasoning-delta": if let t = c["text"] as? String, !t.isEmpty { live.reasoning += t }
+            case "usage": if let u = c["usage"] as? J { usage = u }
             default: break
             }
+        case "end": clearLive()
         default: break
         }
     }
@@ -2760,7 +2802,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
     /// The rows again from `events`, without the rows a rollback took out. Live state comes from the replay too.
     private func rebuild() {
-        transcript = []; streaming = ""; reasoning = ""; inbox = [:]; liveTodos = nil; turnStartedAt = nil
+        transcript = []; clearLive(); inbox = [:]; liveTodos = nil; turnStartedAt = nil
         replaying = true; withoutRolledBack(events).forEach(draw); replaying = false
         // A rollback can hide a turn's end but not its start: the newest turn event of the whole log decides, as in continueAfter.
         if let last = events.last(where: { ["turn/start", "turn/end"].contains($0["type"] as? String) }) {
@@ -2886,7 +2928,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             catch {} // the Mac could not answer: the local rule below
         }
         if let host {
-            finished = shownUnread(host: host, sessions: fresh, open: onScreen)
+            let dots = shownUnread(host: host, sessions: fresh, open: onScreen)
+            if dots != finished { finished = dots }
             if let s = onScreen, host.contains(s) { markRead(s) }
         } else {
             // An older Mac: guess from two lists. Cold start: compare against the last list seen before the app was
@@ -2894,20 +2937,24 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             let old = sessions.isEmpty ? (UserDefaults.standard.array(forKey: key("seenSessions")) as? [J] ?? []).compactMap(Sess.init) : sessions
             // Drop dots for sessions that vanished (archived elsewhere) so the badge can't stick, and for sessions that run
             // again: a running chat shows the spinner, not "Finished".
-            finished = finished.intersection(fresh.filter { !isRunning($0, fresh) }.map(\.id)).union(Self.justFinished(old: old, new: fresh, current: current))
+            let busy = runningIds(fresh)
+            let dots = finished.intersection(fresh.filter { !busy.contains($0.id) }.map(\.id)).union(Self.justFinished(old: old, new: fresh, current: current))
+            if dots != finished { finished = dots }
         }
+        // Only a change is written (each write redraws every view of Client); the list itself is new each time.
         if wantBranches {
-            do { if let o = try await branchReply { branches = sessionBranches(o) } }
+            do { if let o = try await branchReply { let b = sessionBranches(o); if b != branches { branches = b } } }
             catch is CancellationError { throw CancellationError() } catch {}
-        } else { branches = [:] }
+        } else if !branches.isEmpty { branches = [:] }
         sessions = fresh
-        sessionsLoaded = true
+        if !sessionsLoaded { sessionsLoaded = true }
         boardSent()
         // session/list carries projections.values.userQuestions ({active, settled}, verified live by gateway/e2e.mjs).
-        let live = prompts.filter { $0.event != "userQuestions/answer" }, waiting = Set(live.compactMap(\.agentId))
-        prompts = live + fresh.flatMap(\.questions).filter { !waiting.contains($0.agentId ?? "") }
+        let asks = prompts.filter { $0.event != "userQuestions/answer" }, waiting = Set(asks.compactMap(\.agentId))
+        let next = asks + fresh.flatMap(\.questions).filter { !waiting.contains($0.agentId ?? "") }
+        if next.map(\.id) != prompts.map(\.id) { prompts = next }
         UserDefaults.standard.set(Self.snapshot(fresh), forKey: key("seenSessions"))
-        if let s = currentSess, s.running != running, streaming.isEmpty { running = s.running }
+        if let s = currentSess, s.running != running, !answering { running = s.running }
     }
 
     /// Just the fields justFinished compares, in the wire shape Sess.init reads back.
@@ -3802,7 +3849,8 @@ func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<Strin
     }
     var projectOf: [String: String] = [:]
     for w in workspaces { for s in w.sessions where projectOf[s] == nil { projectOf[s] = owner[w.id]?.id } }
-    let recent = Set(sessions.filter { $0.parent == nil && !$0.blank && !archived.contains($0.id) && recentChat($0, all: sessions, now: now, open: nil, waiting: waiting, finished: finished) }.compactMap { projectOf[$0.id] })
+    let busy = runningIds(sessions)
+    let recent = Set(sessions.filter { $0.parent == nil && !$0.blank && !archived.contains($0.id) && recentChat($0, busy: busy, now: now, open: nil, waiting: waiting, finished: finished) }.compactMap { projectOf[$0.id] })
     let waits = Set(sessions.filter { $0.parent == nil && !archived.contains($0.id) && waiting.contains($0.id) }.compactMap { projectOf[$0.id] })
     let projects = workspaces.filter { owner[$0.id]?.id == $0.id }.map { BoardProject(id: $0.id, name: $0.title, path: $0.path, recent: recent.contains($0.id), waiting: waits.contains($0.id)) }
         .sorted { $0.name.localizedCompare($1.name) == .orderedAscending }
@@ -3817,7 +3865,7 @@ func boardColumns(sessions: [Sess], workspaces: [Workspace], archived: Set<Strin
             draft = BoardCard(id: s.id, title: String(localized: "New task"), prompt: "", tags: [], project: p.flatMap { names[$0] }, updated: s.updated, state: "draft")
             continue
         }
-        let state = waiting.contains(s.id) ? "waiting" : isRunning(s, sessions) ? "running" : finished.contains(s.id) ? "unread" : "read"
+        let state = waiting.contains(s.id) ? "waiting" : busy.contains(s.id) ? "running" : finished.contains(s.id) ? "unread" : "read"
         let m = meta[s.id]
         let card = BoardCard(id: s.id, title: s.title, prompt: m?.prompt ?? "", tags: m?.tags ?? [], project: p.flatMap { names[$0] }, updated: s.updated, state: state)
         if state != "waiting", state != "running", hidden.contains(s.id) { removed.append(card); continue }

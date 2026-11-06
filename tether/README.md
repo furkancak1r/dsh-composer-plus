@@ -4,7 +4,7 @@ DeepSeek Harness için resmi olmayan uzaktan kumanda; DeepSeek ile bağlantısı
 
 Tether, [dsh-composer-plus](../README.md) eklentisinin bir parçasıdır. Mac tarafı ayrı bir eklenti değildir: dsh-composer-plus kuruluyken **Ayarlar → Composer Plus → Mobile connect (iPhone)** anahtarını açın. Anahtar varsayılan olarak kapalıdır, çünkü bu Mac'te bir ağ portu açar.
 
-Mac'te çalışan DeepSeek Harness'ı (DSH) aynı yerel ağdaki ya da Tailscale ile bağlı iPhone'dan kontrol etmek için native SwiftUI iOS uygulaması (iOS 17+) ve küçük bir Mac gateway'i. Yeni bağımlılık yok: gateway yalnızca Node stdlib, iOS yalnızca Apple framework'leri.
+Mac'te çalışan DeepSeek Harness'ı (DSH) aynı yerel ağdaki ya da Tailscale ile bağlı iPhone'dan kontrol etmek için native SwiftUI iOS uygulaması (iOS 18+) ve küçük bir Mac gateway'i. Yeni bağımlılık yok: gateway yalnızca Node stdlib, iOS yalnızca Apple framework'leri.
 
 ## Mimari
 
@@ -65,6 +65,8 @@ Sohbet, DSH masaüstündeki gibi kısa görünür. Ayrıntılar akordiyon gibi k
 - Biten tur "Completed in 1m 5s" satırına katlanır. Altında yalnız son cevap görünür. Satıra dokununca turun bütün adımları açılır.
 - Hata veren ya da durdurulan tur ("Failed", "Stopped") katlanmaz.
 - Bir sohbeti açınca bütün biten turlar kapalı başlar.
+- Açık bir adım grubunun başlığı, grup ekrandayken ekranın üstünde kalır. Uzun bir düşünme metninin ortasındayken başlığa dokunun: grup kapanır ve başlık ekranda kalır.
+- Sohbet son mesajı izler: gönderdiğiniz mesaj, gelen yanıt ve klavye açılınca son mesaj yazma alanının hemen üstünde görünür. Yukarı kaydırınca izleme durur ve okuduğunuz yer kaymaz. ↓ düğmesi ya da sona kadar kaydırmak izlemeyi yeniden başlatır.
 
 ## Oturum listesindeki işaretler
 

@@ -4,7 +4,7 @@ Tether is part of dsh-composer-plus. The rules in `../AGENTS.md` also apply. Pat
 
 Tether has two parts:
 
-- `ios/`: the native SwiftUI iPhone app (iOS 17+). The bundle ID is `com.furkancakir.dshmobile`. XcodeGen makes the project file from `ios/project.yml`. The app is not in the npm package.
+- `ios/`: the native SwiftUI iPhone app (iOS 18+). The bundle ID is `com.furkancakir.dshmobile`. XcodeGen makes the project file from `ios/project.yml`. The app is not in the npm package.
 - `gateway/`: the Mac gateway. It uses only the Node standard library. dsh-composer-plus runs it in the dsh Host process while the user switches on Settings → Composer Plus → Mobile connect (iPhone) (`../index.js`).
 
 ## iPhone and simulator work: use agent-device
@@ -70,10 +70,10 @@ Xcode on this Mac has no Apple account, so `-allowProvisioningUpdates` fails ("N
 - `AuthKey_7QP662HXV5.p8`: the APNs key (Sandbox, topic `com.furkancakir.dshmobile` only). The live gateway reads it through `~/.dsh/storages/dsh-composer-plus/mobile/apns.json`. Never print, copy or commit it.
 - `tether-sign.keychain-db`, `kc.pw` and `dev.p12`: do not use them. `kc.pw` does not open the keychain or `dev.p12`.
 
-Use these files only when the owner asks for an iPhone build. Never print, copy or commit the key. Build without signing, then sign with a temporary keychain under `build/signing/` (git ignores `build/`) and delete it at once:
+Use these files only when the owner asks for an iPhone build. Never print, copy or commit the key. The phone build is Debug (`#if DEBUG` chooses the APNs sandbox) with `SWIFT_OPTIMIZATION_LEVEL=-O`: without it, Swift is not optimized and the app is slow on the iPhone. Build without signing, then sign with a temporary keychain under `build/signing/` (git ignores `build/`) and delete it at once:
 
 ```sh
-xcodebuild -project ios/DSHMobile.xcodeproj -scheme DSHMobile -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO
+xcodebuild -project ios/DSHMobile.xcodeproj -scheme DSHMobile -configuration Debug -destination 'generic/platform=iOS' -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO SWIFT_OPTIMIZATION_LEVEL=-O
 S="$HOME/Library/Application Support/TetherSigning"; W="$PWD/build/signing"; A=build/DerivedData/Build/Products/Debug-iphoneos/DSHMobile.app
 mkdir -p "$W" && chmod 700 "$W"; KC="$W/tmp.keychain-db"; export PW=$(openssl rand -hex 24)
 security create-keychain -p "$PW" "$KC" && security set-keychain-settings "$KC" && security unlock-keychain -p "$PW" "$KC"
