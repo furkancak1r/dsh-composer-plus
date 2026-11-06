@@ -2251,3 +2251,25 @@ Owner request: "canlıyı güncelle release yap npm filan". Commits since v1.21.
 - Version 1.22.0: package.json, the two `dsh-composer-plus@x.y.z` notes in 13 READMEs, `release-notes.json` (New + Fixes in 13 languages; labels from each language pack). `npm test` exit 0, `npm pack --dry-run` 105 files (only `tether/gateway/*` of `tether/`).
 - Release: commit 70ec89f (CI green), GitHub release v1.22.0 (latest, active.txt; `--target` needs the full SHA, a short one gives HTTP 422), release.yml published `dsh-composer-plus@1.22.0` with provenance (shasum 624437d, 105 files); the exact-version registry URL answered 200 about 2 minutes after the publish.
 - Live desktop copy: backup `/Users/furkancakir/Documents/testdeepseekharness/backup-before-v1220-20261106-082003`; copied client.js (line 12 kept), index.js, release-notes.json, tether/gateway/*; package.json version 1.22.0 (name and `private` kept); cordis.patch.yml untouched. Changed against the backup: client.js, package.json, release-notes.json only (index.js and the gateway were already equal). dsh not restarted: the version loads at the owner's next dsh start. Tether (iPhone) not built or installed.
+
+## On/off filter for the Settings feature list (2026-11-06, branch `feat/composer-plus-feature-filter`)
+Owner request: in Settings → Composer Plus, a filter that shows only the features that are on, or only the ones that are off; the state comes from each feature's own switch. Owner choice (asked): the filter is a full feature (own `FEATURES` id, screenshot, README row, Tether row).
+Objective: feature `featureFilter` (on by default, browser switch, no Host route). Next to **Search features**: **All**, **On**, **Off** (a `role="group"` of three native buttons with `aria-pressed`; dsh's `SegmentedControl` is not used because it makes `role="tab"` and `aria-controls` panels that do not exist).
+Invariants:
+- The state of a row is `isOn(enabled, id)` from `useComposerPlusToggles` (Host switches merged by `createToggles`), the same value as the row's Switch.
+- Search and filter both apply. With a filter other than All, the language and update rows hide (they have no on/off state). No result: the existing `settings.searchEmpty` notice.
+- A row that the user switches while a filter is on stays (`kept`) until a filter button is pressed again, so the focus does not fall to `<body>`. Limit: a change from another window or Tether hides the row at once.
+- The choice is not saved: Settings opens with All (as the search box).
+- `feature('featureFilter', () => [])`: it installs nothing; the group shows only while the switch is on; off shows every row.
+- The group is the second child of `[data-composer-plus-search]`: `tree.c` indexes of the other tests do not change.
+Acceptance: `npm test` exit 0; `git diff --check` clean; `test/browser-settings-shots.mjs` PASS on 0.2.0-rc.2 and 0.2.1-rc.2; `assets/features/featureFilter.webp` ≤ about 60 kB and in `npm pack --dry-run`.
+Phases: 1 red unit test `test/feature-filter.test.mjs`; 2 client.js + index.js + toggles counts; 3 texts in en, zh, 11 locales + `build:locales`; 4 `docs/features.json`, hand-written Settings paragraph ×13, `build:readme`, `tether/FEATURES.md` row (no); 5 real dsh check + `SHOT=1` screenshot; 6 `npm test`, diff review.
+Allowed paths: client.js, index.js, locales/*.json, docs/features.json, README*.md, llms.txt, tether/FEATURES.md, assets/features/featureFilter.webp, test/feature-filter.test.mjs, test/toggles.test.mjs, test/browser-settings-shots.mjs, package.json (`test` script only), IMPLEMENTATION_PLAN.md.
+Out of scope: version bump, release notes, commit, live desktop copy, Tether iOS code, `docs/images/settings.webp`, saved filter, counts on the buttons.
+Risks: the focus ring of a native button inside dsh's Settings may not show (check in the real app; add a `:focus-visible` outline if not).
+Last checkpoint (2026-11-06): all phases done, not committed.
+- `test/feature-filter.test.mjs` (in `test` after toggles) red on HEAD ("featureFilter is a FEATURES id"), green now; red on 5 mutations (state not from `isOn`, no `kept`, language row under a filter, switch off still filters, `kept` not cleared).
+- Test mock fixes, no product change: `test/toggles.test.mjs` `useState` returns the query only for the `''` state (counts 67 → 68, 58 → 59); `test/shots.test.mjs` resets the hook state before it renders the thumbnail alone.
+- Texts: 6 keys in en, zh and 11 locales; `build:locales`. Docs: `docs/features.json` entry (13 `how`, `llms`), `build:readme`, one hand-written sentence in the Settings paragraph ×13; `tether/FEATURES.md` row `no`.
+- Real dsh `test/browser-settings-shots.mjs` (now `chromiumSandbox: true`, filter steps added) PASS on 0.2.0-rc.2 (`SHOT=1`: `assets/features/featureFilter.webp` 23,596 bytes, English UI, no projects) and 0.2.1-rc.2: 68 rows, Off shows the 10 off rows, a switched row stays and keeps the focus, Off again hides it, On shows only on rows, Tab from the search reaches All with a visible focus ring (no extra CSS needed), All shows every row.
+- `npm test` exit 0; `git diff --check` clean; `npm pack --dry-run` 106 files with the new webp.
