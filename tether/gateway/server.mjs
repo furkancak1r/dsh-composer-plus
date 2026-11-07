@@ -668,6 +668,8 @@ export function createGateway(opts = {}) {
     if (devices.length !== before) saveDevices()
     for (const s of devSockets.get(id) ?? []) s.destroy()
     devSockets.delete(id)
+    // No paired phone is left to answer the questions that wait for one: they go back to dsh's desktop.
+    if (devices.length === 0) for (const e of [...pendingEv.keys()]) dropPending(e, { kind: 'next' })
     return devices.length !== before
   }
   function notify(msg) {
@@ -755,11 +757,13 @@ export function createGateway(opts = {}) {
     if (v.type === 'cancel' && dropPending(v.eventId)) return toPhones({ type: 'cancel', eventId: v.eventId })
     if (v.type !== 'waterfall') return
     if (v.event === 'approval/request') return grantedOrAsk(v)
-    if (!EVENTS.has(v.event) || !holds()) return answer(v.eventId, { kind: 'next' }).catch(() => {})
+    if (!EVENTS.has(v.event) || devices.length === 0) return answer(v.eventId, { kind: 'next' }).catch(() => {})
     askPhones(v)
   }
-  /** The gateway keeps an ask for the phones while one is connected, or while a phone gets pushes: the push opens Tether,
-   * and Tether gets the ask when it connects. dsh's desktop can answer it at the same time. */
+  /** The gateway keeps an approval for the phones while one is connected, or while a phone gets pushes: the push opens
+   * Tether, and Tether gets the ask when it connects. dsh's desktop can answer it at the same time. A question
+   * (`ask_user_question`) waits for a paired phone also while Tether is closed: dsh's "next" would leave it on the desktop
+   * only, and the phone that opens later could not answer it. The question still shows on the desktop meanwhile. */
   const holds = () => evSubs.size > 0 || pushTo().length > 0
   /** Allow for this chat, also with no dsh window open: the gateway allows a granted tool itself (the grants that the
    * desktop and the phone save in dsh-composer-plus). Any other approval goes to the phones. */
@@ -776,8 +780,10 @@ export function createGateway(opts = {}) {
     const frame = { type: 'waterfall', event: v.event, eventId: v.eventId, agentId: v.agentId, request: v.request }
     if (v.event === 'approval/request') pushAll('Approval needed', v.request?.toolName, v.agentId)
     else pushAll('DSH has a question', v.request?.questions?.[0]?.question, v.agentId)
-    // shortcut: unanswered phone prompts fall back to 'next' (DSH desktop still decides) after a fixed timeout; make it configurable per event if users want longer.
-    const timer = setTimeout(() => { if (dropPending(v.eventId, { kind: 'next' })) toPhones({ type: 'cancel', eventId: v.eventId }) }, waterfallTtl)
+    // shortcut: an unanswered approval falls back to 'next' (DSH desktop still decides) after a fixed timeout; make it configurable if users want longer.
+    // A question has no timeout: dsh waits for its answer, and the phone that opens hours later must still get it.
+    const timer = v.event === 'approval/request'
+      ? setTimeout(() => { if (dropPending(v.eventId, { kind: 'next' })) toPhones({ type: 'cancel', eventId: v.eventId }) }, waterfallTtl) : undefined
     pendingEv.set(v.eventId, { frame, timer })
     toPhones(frame)
   }
@@ -911,7 +917,11 @@ export function createGateway(opts = {}) {
     // A failed connect (DSH restarting) is forgotten so the next stream open retries instead of failing forever.
     const getUp = () => upP ??= upstream.mux().then(u => { up = u; u.onText = t => ws.send(t); u.onClose = () => ws.close(1011); return u }, e => { upP = null; throw e })
     const err = (streamId, message) => ws.send(JSON.stringify({ type: 'error', streamId, error: { code: 'mobile/forbidden', message } }))
-    const unsub = id => { const s = subs.get(id); if (!s) return; subs.delete(id); evSubs.delete(s); if (!holds()) for (const e of [...pendingEv.keys()]) dropPending(e, { kind: 'next' }) }
+    // The last phone left: its approvals go back to dsh's desktop; its questions keep waiting for the phone (askPhones).
+    const unsub = id => {
+      const s = subs.get(id); if (!s) return; subs.delete(id); evSubs.delete(s)
+      if (!holds()) for (const [e, p] of [...pendingEv]) if (p.frame.event === 'approval/request') dropPending(e, { kind: 'next' })
+    }
     ws.onText = async text => {
       let f
       try { f = JSON.parse(text) } catch { return ws.close(1007) }

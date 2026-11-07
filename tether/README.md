@@ -158,6 +158,7 @@ Gateway asla public internete açılmaz: yalnızca yerel ağdan ve tailnet'ten (
 - **Rate limit / brute force**: IP başına 10 sn'de 300 istek; 60 sn'de 10 hatalı auth → IP bloke.
 - **RPC allowlist**: yalnızca `server.mjs` içindeki `RPC` / `STREAMS` / `EVENTS` kümeleri geçer; diğerleri 403, hatalı WS frame'i soketi kapatır. Host'un ev dizini gibi bilgiler event akışından düşürülür.
 - **Onaylar**: telefon yalnızca "bir kez izin ver" / "reddet" diyebilir; yanıt yoksa veya "Mac'te karar ver" seçilirse karar DSH masaüstüne kalır (ilk yanıt kazanır).
+- **Sorular** (`ask_user_question`): eşlenmiş bir telefon varsa gateway soruyu Tether kapalıyken de telefon için tutar; Tether açılınca soru kartı gelir. Soru masaüstünde de görünür (ilk yanıt kazanır) ve zaman aşımı yoktur. Eşlenmiş telefon yoksa soru yalnız masaüstündedir.
 - Telemetri ve üçüncü taraf servis yok. Tek internet çıkışı isteğe bağlı push'tur (aşağıda): Mac yalnız Apple'ın APNs sunucusuna bağlanır.
 
 ## Push bildirimleri (Tether kapalıyken)
@@ -173,7 +174,7 @@ Kurulum (bir kez, Mac'te):
 
 - Uygulama `aps-environment` yetkisiyle ve push açık bir App ID profiliyle imzalanmalıdır. Joker (`*`) App ID'li profil push vermez.
 - Telefon, ekrandaki Mac'in **Send notifications** anahtarını, **Only between these hours** aralığını, kendi saat dilimini ve cihaz token'ını `POST /push` ile o Mac'e gönderir. Ayar Mac'e göre ayrıdır. Saat aralığını Mac, telefonun saat diliminde uygular. Eşleşmeyi kaldırmak push'u kapatır.
-- Push açıkken gateway onay ve soru isteklerini hemen "Mac'te karar ver"e düşürmez. Bildirime dokunup Tether'ı açınca istek telefonda görünür. Masaüstü de aynı anda yanıtlayabilir (ilk yanıt kazanır, 10 dk sonra masaüstüne kalır).
+- Push açıkken gateway onay isteklerini hemen "Mac'te karar ver"e düşürmez. Bildirime dokunup Tether'ı açınca istek telefonda görünür. Masaüstü de aynı anda yanıtlayabilir (ilk yanıt kazanır, onay 10 dk sonra masaüstüne kalır). Sorular push olmadan da telefonu bekler (yukarıda **Sorular**).
 - Her bildirimin alt başlığı Mac'in adı ve sohbetin projesidir (`Studio Mac · recipe-box`; dal klasörü `.worktrees/<ad>` deponun adını verir). Gövdede önce sohbet başlığı, sonra ayrıntı vardır: Turn finished'da AI'ın son yanıtı, onayda araç adı, soruda soru, hatada hata metni. Push en çok 600 karakter taşır.
 - Bildirimde Mac adı, proje adı, sohbet başlığı ve AI yanıtının metni Apple'ın sunucusundan geçer ve kilit ekranında görünür. Gizlemek için iOS Ayarlar → Bildirimler → Tether → Önizlemeleri Göster → Kilit Açıkken.
 - Push varken Tether aynı bildirimi yerelde ikinci kez göstermez.
@@ -186,7 +187,7 @@ Kodda `shortcut:` yorumlarıyla işaretli:
 - APNs anahtarı yoksa bildirimler yalnızca iOS soketi canlı tuttuğu sürece (arka plana geçtikten sonra birkaç saniye) gelir. Anahtarla da Mac uykudaysa ya da dsh kapalıysa bildirim gelmez.
 - Push yalnız ekrandaki Mac'ten değil, push'u açtığınız her Mac'ten gelir: her Mac kendi ayarını tutar.
 - Sohbet önce yalnız son mesajları gösterir. Daha eski mesajlar için sohbetin başındaki **Load earlier messages** düğmesine dokunun.
-- Yanıtlanmayan telefon istekleri 10 dk sonra DSH masaüstüne düşer (sabit süre).
+- Yanıtlanmayan telefon onayları 10 dk sonra DSH masaüstüne düşer (sabit süre). Soruların süresi yoktur.
 - Rate limit sayaçları bellekte; tek ev ağı için yeterli.
 - `Localizable.strings` yalnızca bağlantı durum anahtarlarını kapsar; arayüz metinleri İngilizce.
 - **Tailscale only** açıkken de Mac'in bir Wi‑Fi/Ethernet IPv4 adresi olmalı (gateway yalnızca onunla başlar). Mac'te Tailscale kapalıysa hiçbir iPhone bağlanamaz; panel bunu uyarır.
