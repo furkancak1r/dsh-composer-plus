@@ -2697,7 +2697,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let old = followId { send(["type": "cancel", "streamId": old]) }
         current = sid; transcript = []; clearLive(); usage = nil; contextWindow = nil; model = nil; goal = nil; inbox = [:]; liveTodos = nil
         hasOlder = false; oldestSeq = nil; throughSeq = nil; events = []; continueSeq = nil; rollbackOn = false; prediction = nil; redoOffer = nil
-        branch = nil; newBranch = false; optionsFrom = nil; sideParent = nil
+        branch = nil; branchFacts = nil; newBranch = false; optionsFrom = nil; sideParent = nil
         running = currentSess?.running ?? false
         loadingChat = true
         openFollow(sid)
@@ -2720,8 +2720,20 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if made { fresh = nil }
         guard plus.contains("worktrees"), let o = try? await plusCall("worktrees", query: ["sessionId": sid]), current == sid else { return }
         branch = BranchState(o)
+        branchFacts = o
         // A chat made on this phone starts on "New branch", as on the Mac; the `+` menu switches it off.
         if made { newBranch = currentSess?.parent == nil && Self.startsOnNewBranch(o) }
+    }
+    /// The Mac's last answer for the open chat (`GET /plus/worktrees`); nil until it came.
+    @Published private(set) var branchFacts: J?
+    /// Why the `+` menu's New branch is off for the open chat, or nil when the Mac can make a branch here.
+    var branchUnavailable: String? { Self.branchUnavailable(branchFacts) }
+    static func branchUnavailable(_ o: J?) -> String? {
+        guard let o else { return String(localized: "Checking the chat's folder…") }
+        if o["repo"] as? Bool != true { return String(localized: "This chat's folder is not a git repository.") }
+        if o["hasCommit"] as? Bool == false { return String(localized: "Make the first commit, then start a branch.") }
+        if !(o["root"] is String) || o["worktree"] as? Bool == true { return String(localized: "Start new branches from the repository's main folder.") }
+        return nil
     }
     /// The chat that this phone just made: its first branch read chooses the default.
     private var fresh: String?

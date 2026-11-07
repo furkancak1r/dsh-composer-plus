@@ -95,7 +95,8 @@ Then install with `xcrun devicectl device install app --device iPhone build/Deri
 Simulator:
 
 1. Build: `xcodebuild -project ios/DSHMobile.xcodeproj -scheme DSHMobile -configuration Debug -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -derivedDataPath build/DerivedData build CODE_SIGNING_ALLOWED=NO`
-2. Install: `agent-device install com.furkancakir.dshmobile build/DerivedData/Build/Products/Debug-iphonesimulator/DSHMobile.app --platform ios`
+   To keep the pairing after the app closes, build with `CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM=` in place of `CODE_SIGNING_ALLOWED=NO`. Without a signature the app has no `application-identifier`, the Keychain refuses each read (`-34018`), and each launch shows the pair screen again.
+2. Install: `agent-device install com.furkancakir.dshmobile build/DerivedData/Build/Products/Debug-iphonesimulator/DSHMobile.app --platform ios`. `xcrun simctl install <udid> <app>` keeps the app's data (the pairing).
 3. Open: `agent-device open com.furkancakir.dshmobile --platform ios --foreground`
 
 iPhone (the device name is `iPhone`; if `open` cannot find it, run `agent-device devices --platform ios`):

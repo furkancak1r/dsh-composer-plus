@@ -1682,6 +1682,25 @@ final class BranchStateTests: XCTestCase {
             XCTAssertFalse(Client.startsOnNewBranch(o), key)
         }
     }
+    /// The `+` menu shows New branch in every top-level chat; where the Mac cannot make a branch, it is off with the reason.
+    @MainActor func testNewBranchReason() {
+        let main: J = ["repo": true, "root": "/p/acme", "top": "/p/acme", "worktree": false, "hasCommit": true, "branch": "main"]
+        XCTAssertNil(Client.branchUnavailable(main))
+        var older = main; older["hasCommit"] = nil
+        XCTAssertNil(Client.branchUnavailable(older), "a Mac without hasCommit: the Mac answers at send")
+        XCTAssertEqual(Client.branchUnavailable(nil), "Checking the chat's folder…")
+        XCTAssertEqual(Client.branchUnavailable(["repo": false]), "This chat's folder is not a git repository.")
+        var o = main; o["hasCommit"] = false
+        XCTAssertEqual(Client.branchUnavailable(o), "Make the first commit, then start a branch.")
+        for (key, value) in [("worktree", true as Any), ("root", NSNull())] {
+            var w = main; w[key] = value
+            XCTAssertEqual(Client.branchUnavailable(w), "Start new branches from the repository's main folder.", key)
+        }
+        // Where New branch is on by default, it is never off with a reason.
+        for f in [main, older, o, ["repo": false] as J] {
+            XCTAssertEqual(Client.startsOnNewBranch(f), Client.branchUnavailable(f) == nil)
+        }
+    }
 }
 
 /// Project memory (`/plus/memory-edit`): the list by project, a preview, Apply, and one preview or apply at a time.

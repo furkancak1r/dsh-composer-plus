@@ -656,6 +656,53 @@ test('events: no phone -> next; phone answers approval; first answer wins; host 
   } finally { await t.done() }
 })
 
+test('a question waits for a paired phone while Tether is closed; an approval does not', async () => {
+  const t = await setup({ waterfallTimeoutMs: 100 })
+  try {
+    await waitFor(() => t.gw.state().upstream === 'connected')
+    const ask = id => t.dsh.push({ type: 'waterfall', event: 'user-questions/request', eventId: id, agentId: 'a', request: { questions: [{ id: 'x', question: 'Which branch?' }] } })
+    ask('q0')
+    await waitFor(() => t.dsh.results.length === 1)
+    assert.deepEqual(t.dsh.results[0], { clientId: 'up-1', eventId: 'q0', outcome: { kind: 'next' } }, 'no paired phone: the desktop answers')
+
+    const { token } = await pairDevice(t.gw)
+    ask('q1') // Tether is closed and gets no pushes
+    t.dsh.push({ type: 'waterfall', event: 'approval/request', eventId: 'a1', agentId: 'a', request: { toolName: 'bash' } })
+    await waitFor(() => t.dsh.results.length === 2)
+    assert.deepEqual(t.dsh.results[1].eventId, 'a1', 'the approval goes back to the desktop at once')
+    await sleep(300) // longer than the approvals' time-out
+    assert.equal(t.dsh.results.length, 2, 'the question has no time-out')
+
+    // Tether opens: it gets the question; it closes again: the question still waits.
+    let p = await phoneWs(t.gw, token)
+    p.json({ type: 'open', streamId: 'ev', endpoint: '$events', payload: { args: {} } })
+    await waitFor(() => p.frames.some(f => f.value?.eventId === 'q1'))
+    p.close?.(); await waitFor(() => p.closed)
+    await sleep(100)
+    assert.equal(t.dsh.results.length, 2, 'the last phone left: the question stays for the phone')
+    p = await phoneWs(t.gw, token)
+    p.json({ type: 'open', streamId: 'ev', endpoint: '$events', payload: { args: {} } })
+    await waitFor(() => p.frames.some(f => f.value?.eventId === 'q1'))
+    const r = await rpc(t.gw, token, '$events/result', { clientId: 'mobile', eventId: 'q1', outcome: { kind: 'result', value: { answers: [] } } })
+    assert.equal(r.json.result.ok, true)
+    await waitFor(() => t.dsh.results.length === 3)
+    assert.equal(t.dsh.results[2].eventId, 'q1')
+
+    // The desktop answered first: dsh cancels it, and the phone drops its card.
+    ask('q2')
+    await waitFor(() => p.frames.some(f => f.value?.eventId === 'q2'))
+    t.dsh.push({ type: 'cancel', eventId: 'q2' })
+    await waitFor(() => p.frames.some(f => f.value?.type === 'cancel' && f.value.eventId === 'q2'))
+
+    // The last paired phone is removed: no phone can answer, so the question goes back to the desktop.
+    ask('q3')
+    await waitFor(() => p.frames.some(f => f.value?.eventId === 'q3'))
+    t.gw.revoke(t.gw.state().devices[0].id)
+    await waitFor(() => t.dsh.results.length === 4)
+    assert.deepEqual(t.dsh.results[3], { clientId: 'up-1', eventId: 'q3', outcome: { kind: 'next' } })
+  } finally { await t.done() }
+})
+
 test('allow for this chat: the gateway allows a granted Auto Review ask itself; other approvals go to the phones', async () => {
   const t = await setup()
   try {

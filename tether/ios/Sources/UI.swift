@@ -604,6 +604,8 @@ struct ConversationView: View {
     @State private var improving: (id: UUID, task: Task<Void, Never>)?
     @State private var improved: (before: String, after: String)?
     @FocusState private var focused: Bool
+    /// Messages sent from this composer: each send makes a new text field (`.id`), so the field shows no sent text.
+    @State private var sent = 0
     /// With more than one Mac, the chat says which Mac it runs on.
     private var macSubtitle: String { c.pairings.count > 1 ? c.pairing?.title ?? "" : "" }
     var body: some View {
@@ -1153,6 +1155,9 @@ struct ConversationView: View {
             // while a turn runs, sending queues the next turn like desktop's default busy-Enter; the queue dock's "Send now" steers
             // While the Mac makes the branch, the field takes no text (the sent message is on its way).
             TextField(c.branching ? "Creating branch…" : c.newBranch ? "First message on a new branch…" : c.running ? "Queue a message…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4).disabled(c.branching)
+                // A new field after each send: iOS can keep the sent text on screen while the field has the focus
+                // (pending autocorrection or input method text), although `text` is empty. `send()` gives the focus back.
+                .id(sent)
             HStack(spacing: 10) {
                 Menu {
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -1164,8 +1169,15 @@ struct ConversationView: View {
                         Button { images += (UIPasteboard.general.images ?? []).prefix(4).compactMap { $0.jpegData(compressionQuality: 0.9).flatMap(jpeg) } } label: { Label("Paste image", systemImage: "doc.on.clipboard") }
                     }
                     // Branch per chat: the next message starts a new chat on a new branch (the Mac names it from the text).
-                    if c.branch != nil, c.currentSess?.parent == nil {
-                        Toggle(isOn: $c.newBranch) { Label("New branch", systemImage: "arrow.triangle.branch") }
+                    // Shown for every top-level chat of a Mac that has the route; off (with the reason) where the Mac
+                    // cannot make a branch: not a git repository, no commit yet, a worktree folder, or not read yet.
+                    if c.plus.contains("worktrees"), c.currentSess?.parent == nil {
+                        let why = c.branchUnavailable
+                        Toggle(isOn: $c.newBranch) {
+                            Label("New branch", systemImage: "arrow.triangle.branch")
+                            if let why { Text(why) }
+                        }
+                        .disabled(why != nil && !c.newBranch)
                     }
                 } label: {
                     Image(systemName: "plus").font(.body.weight(.medium)).frame(width: 32, height: 32).background(Color(.tertiarySystemFill), in: Circle())
@@ -1271,7 +1283,9 @@ struct ConversationView: View {
 
     func send() {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines), imgs = images, fs = files
-        text = ""; images = []; files = []
+        text = ""; images = []; files = []; sent += 1
+        // The new field (`.id(sent)`) takes the focus of the old one, so the keyboard stays open.
+        if focused { DispatchQueue.main.async { focused = true } }
         follow = true // your message and its answer show at the end
         let name = t.hasPrefix("/") ? String(t.dropFirst().prefix { !$0.isWhitespace }) : ""
         // a failed send (link down, Mac asleep) puts the draft back instead of losing it
