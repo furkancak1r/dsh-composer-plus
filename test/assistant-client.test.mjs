@@ -1,4 +1,5 @@
-// Assistant (client half, real client.js with fake dsh slots and a fake fetch): off by default (no sidebar row, no panel);
+// Assistant (client half, real client.js with fake dsh slots and a fake fetch): on by default (the row shows before the
+// Host answers); a Host that says off removes the row and the panel;
 // the Host switch turns it on: the sidebar row sits right under Task board and opens the panel, which asks the Host for
 // the chat and opens it with dsh's openSession. One open at a time from every entry point; a failure shows the reason and
 // Try again; an older Host half (404) says to restart dsh. Switching off removes the row and the panel.
@@ -30,10 +31,10 @@ plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, get: (n) => s
   slots: { inject: (n, f) => { const off = f(); return () => off(); }, register: (o, C) => { const key = next++; live.set(key, [o, C]); if (o.name === 'settings.section') settings = o; return () => live.delete(key); } } });
 const rows = () => [...live.values()].filter(([o]) => o.name === 'sidebar.panellist').map(([o]) => o);
 const pages = () => [...live.values()].filter(([o]) => o.name === 'main').map(([o, C]) => [o, C]);
-assert.ok(!rows().some((o) => o.id === 'composer-plus-assistant'), 'off before the Host answers (OFF_BY_DEFAULT)');
+assert.ok(rows().some((o) => o.id === 'composer-plus-assistant'), 'on before the Host answers (not in OFF_BY_DEFAULT)');
 await tick();
 
-// Off by default.
+// This Host was switched off: the row and the panel go.
 assert.ok(!rows().some((o) => o.id === 'composer-plus-assistant'), 'no sidebar row while off');
 assert.ok(!pages().some(([o]) => o.key === 'composer-plus-assistant'), 'no panel while off');
 const toggles = settings.inject().hooks.composerPlusToggles;

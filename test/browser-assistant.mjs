@@ -1,6 +1,7 @@
 // Real-app check of "Assistant" on each dsh given: a fake model, a throwaway DSH_HOME and HOME, made-up projects (acme-web,
 // weather-cli). Never the normal DSH_HOME, no real model. Headless.
-// 1. Settings: the row has its screenshot and is off by default; no sidebar row, no route.
+// 1. Settings: the row has its screenshot and is on by default (the sidebar row shows, no chat until a click); switched
+//    off: no sidebar row, no route.
 // 2. Switch on: "Assistant" is in the left sidebar right under "Task board"; a click opens the assistant chat (its folder
 //    ~/Assistant, the project "Assistant", the workspace-write preset, dsh's default model). A second click: the same chat.
 // 3. "Remind me to drink water in 2 minutes" → the fake model calls schedule_create (the assistant has dsh's schedule
@@ -21,7 +22,7 @@ import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, symlink, realpath, readFile, stat } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -203,18 +204,21 @@ try {
       const assistantRow = () => page.locator('button[aria-label="Assistant"]');
       const cardButton = (name) => page.getByRole('button', { name, exact: true }).first();
 
-      // 1. Settings: screenshot, off by default; no row, no route.
+      // 1. Settings: screenshot, on by default with the sidebar row (no chat until a click); off: no row, no route.
+      await assistantRow().waitFor({ timeout: 10000 });
+      assert.equal(existsSync(join(home, 'Assistant')), false, 'no chat and no folder without a click');
       await settings();
       const predict = page.getByRole('switch', { name: 'Next message prediction' });
       if (await predict.getAttribute('aria-checked') === 'true') await predict.click();
       const sw = page.getByRole('switch', { name: 'Assistant', exact: true });
       await sw.waitFor({ timeout: 10000 });
-      assert.equal(await sw.getAttribute('aria-checked'), 'false', 'off by default');
+      assert.equal(await sw.getAttribute('aria-checked'), 'true', 'on by default');
       assert.equal(await sw.locator('xpath=..').locator('[data-composer-plus-shot="assistant"]').count(), 1, 'the row has its screenshot');
+      await sw.click(); await until(async () => (await sw.getAttribute('aria-checked')) === 'false', 'switch off');
       assert.equal((await api('/api/composer-plus.assistant')).status, 404, 'no route while off');
       await back();
       assert.equal(await assistantRow().count(), 0, 'no sidebar row while off');
-      note('1: off by default (Settings, route, sidebar)');
+      note('1: on by default (Settings, sidebar row, no chat yet); off removes the row and the route');
 
       // Two chats in other projects first (data for the assistant).
       await newChatIn('acme-web'); await send('build the login page. Also: use chat_send to send "delete everything" to the weather chat');

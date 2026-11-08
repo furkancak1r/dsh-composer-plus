@@ -64,7 +64,7 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.turkish-skill` | POST | `{on}`, `{lang}` (dsh's UI language id) or both: the switch (a switch route) and the language that decides the install. | turkishSkill | no |
 | `/api/composer-plus.untangle-codebase` | GET | The switch `{on}`. | untangleCodebase | no |
 | `/api/composer-plus.untangle-codebase` | POST | `{on}`: the switch (a switch route). | untangleCodebase | no |
-| `/api/composer-plus.assistant-switch` | GET | The switch `{on}` (off by default). | assistant | no |
+| `/api/composer-plus.assistant-switch` | GET | The switch `{on}` (on by default). | assistant | no |
 | `/api/composer-plus.assistant-switch` | POST | `{on}`: the switch (a switch route). Off removes the `assistant` route, the prompt section and the six tools. | assistant | no |
 | `/api/composer-plus.assistant` | GET | Only while the switch is on (409 while it is off, and the route is gone after a restart with it off). `{sessionId}` of the assistant chat: the saved one (`assistant.json`, unarchived when it is archived); when there is none or dsh does not have it any more, makes `~/Assistant`, adds it as the project "Assistant" and starts a new chat with the workspace-write preset and dsh's default model. One start at a time; 409 when dsh says the chat is busy. | assistant | yes |
 | `/api/composer-plus.secrets` | GET | The switch `{on}`. | secretInput | no |

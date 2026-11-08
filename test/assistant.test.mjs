@@ -1,4 +1,4 @@
-// Assistant (Host half) with a fake dsh: off by default; the switch adds and removes the `assistant` route, the section and
+// Assistant (Host half) with a fake dsh: on by default (an explicit off stays off); the switch adds and removes the `assistant` route, the section and
 // the tools. The route makes ~/Assistant, adds it as a project, starts one chat with the workspace-write preset and keeps
 // its id; the next call gives the same chat, an archived one is unarchived, a deleted one is made again, two calls at once
 // make one chat. The six tools are registered only in the assistant agent's own scope (a subagent of it gets them
@@ -6,7 +6,7 @@
 // leaves out the messages that a rollback withdrew (both marker kinds) and a fork's copy; chats_list shows other projects,
 // the waiting state and filters.
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ASSISTANT_ASK, ASSISTANT_PATH, ASSISTANT_PRESET, ASSISTANT_SWITCH_PATH, ASSISTANT_TOOLS, assistantRead, installAssistant, waitingOf } from '../index.js';
@@ -97,10 +97,13 @@ const call = async (path, method = 'GET', body) => {
   return { status: res.status, body: await res.json() };
 };
 
-// Off by default: no route, no section, no tools.
-assert.deepEqual((await call(ASSISTANT_SWITCH_PATH)).body, { on: false });
-assert.equal(routes.has(ASSISTANT_PATH), false, 'no assistant route while off'); assert.equal(sections.size, 0); assert.equal(fibers, 0);
+// On by default (no switch file yet): the route and the section are there, but no chat until the first open.
+assert.deepEqual((await call(ASSISTANT_SWITCH_PATH)).body, { on: true });
+assert.equal(routes.has(ASSISTANT_PATH), true, 'the assistant route without a click'); assert.equal(sections.size, 1); assert.equal(fibers, 1); assert.equal(created, 0);
 assert.equal((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: 'yes' })).status, 400);
+// Off: no route, no section, no tools.
+assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: false })).body, { on: false });
+assert.equal(routes.has(ASSISTANT_PATH), false, 'no assistant route while off'); assert.equal(sections.size, 0); assert.equal(fibers, 0);
 
 // On: the route makes the folder, the project and one chat with the narrowest preset.
 assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: true })).body, { on: true });
@@ -236,6 +239,14 @@ const host2 = installAssistant(ctx2, home, { folder, zone: 'Europe/Istanbul' });
 await host2.ready; await tick();
 assert.equal(host2.isOn(), true); assert.equal(host2.id(), 's-assistant-3'); assert.ok(routes2.has(ASSISTANT_PATH));
 assert.equal(again.registered.size, ASSISTANT_TOOLS.length, 'tools after a restart');
+// A restart after an explicit off stays off; a broken switch file reads as the default (on).
+const restart = async (text) => {
+  await writeFile(join(home, 'storages/dsh-composer-plus/assistant-switch.json'), text);
+  const r = new Map(); const h = installAssistant({ ...ctx, connection: { fetch: { register: (route) => { r.set(route.path, route); return async () => r.delete(route.path); } } } }, home, { folder, zone: 'UTC' });
+  await h.ready; return { on: h.isOn(), route: r.has(ASSISTANT_PATH) };
+};
+assert.deepEqual(await restart('{"on":false}'), { on: false, route: false }, 'an explicit off stays off after a restart');
+assert.deepEqual(await restart('{broken'), { on: true, route: true }, 'a broken file: on by default');
 
 await rm(home, { recursive: true, force: true });
 console.log('assistant: ok');

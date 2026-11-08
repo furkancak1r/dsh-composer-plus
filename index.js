@@ -8782,8 +8782,9 @@ export function installUntangle(ctx, home, file = join(home, 'storages', 'dsh-co
  * (tools/pre-execute → ask; Tether shows the same card). No delete tool. The tools go into the assistant agent's own tool
  * scope (dsh's agent-scoped `tools.register`), so no other chat lists them; its subagents get them denied
  * (`tools.restrict`), and each tool also refuses a caller that is not the assistant chat. The short instructions go only
- * to that chat (a system-prompt section that is empty for every other agent). Off by default: its tools start model
- * turns in other chats. The Host keeps the switch (`assistant-switch.json`) and the chat id (`assistant.json`). */
+ * to that chat (a system-prompt section that is empty for every other agent). On by default: a turn in another chat
+ * starts only after the user allows it on the approval card. The Host keeps the switch (`assistant-switch.json`, an
+ * explicit off stays off) and the chat id (`assistant.json`). */
 export const ASSISTANT_PATH = '/api/composer-plus.assistant';
 export const ASSISTANT_SWITCH_PATH = '/api/composer-plus.assistant-switch';
 export const ASSISTANT_TOOLS = ['chats_list', 'chat_read', 'chat_send', 'chat_new', 'chat_stop', 'chat_archive'];
@@ -8839,7 +8840,7 @@ const foldName = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '')
 export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-composer-plus'), folder = join(homedir(), 'Assistant'), zone } = {}) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: assistant: ${text}`);
-  const sw = mobileSwitch(join(dir, 'assistant-switch.json'));
+  const sw = mobileSwitch(join(dir, 'assistant-switch.json'), true);
   // Fixed for the dsh run, so the prompt stays the same and the provider's cache holds.
   const section = ASSISTANT_SECTION.replace('{zone}', zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC');
   const saved = settingsStore(join(dir, 'assistant.json'), (v) => (isText(v?.sessionId, 128) ? { sessionId: v.sessionId } : {}));

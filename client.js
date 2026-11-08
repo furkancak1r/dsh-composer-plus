@@ -8559,9 +8559,9 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
      * on by default: it only makes one short model call per finished turn.) Automatic backup writes a copy of the dsh home
      * (about a gigabyte) on a schedule without a click. Planned steps runs commands that the model planned earlier without a
      * new model call, and adds a tool and a prompt section to every chat. Remote computers opens a relay port per computer
-     * and, when the user lets other computers in, a Tailscale port on this Mac. Assistant gives one chat tools that send
-     * messages to other chats (each after an approval), so they start model turns there. */
-    const OFF_BY_DEFAULT = ['mobileConnect', 'remoteComputers', 'resumeAfterRestart', 'typingCompletion', 'branchTree', 'autoBackup', 'projectMemory', 'plannedSteps', 'assistant'];
+     * and, when the user lets other computers in, a Tailscale port on this Mac. (Assistant is on by default: its tools start
+     * a turn in another chat only after the user allows it on the approval card.) */
+    const OFF_BY_DEFAULT = ['mobileConnect', 'remoteComputers', 'resumeAfterRestart', 'typingCompletion', 'branchTree', 'autoBackup', 'projectMemory', 'plannedSteps'];
     const isOn = (enabled, id) => (OFF_BY_DEFAULT.includes(id) ? enabled[id] === true : enabled[id] !== false);
     const TOGGLES_KEY = 'dsh-composer-plus.features';
     /** `{ [feature]: false }` for switched-off features, kept in the app's own browser storage (per device). The Host switches
