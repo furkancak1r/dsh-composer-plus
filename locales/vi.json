@@ -2229,7 +2229,7 @@
     "board.footnotes": "Chú thích cuối trang",
     "board.down": "Không thể lưu cài đặt này: {error}",
     "feature.assistant": "Trợ lý",
-    "feature.assistant.description": "Một cuộc trò chuyện lâu dài để dùng làm trợ lý cá nhân, trong thư mục ~/Assistant. Mở bằng Trợ lý ở thanh bên trái (bên dưới Bảng tác vụ). Trợ lý đặt lời nhắc và tự động hóa bằng các tác vụ theo lịch của dsh, tìm kiếm trên web, liệt kê và đọc các cuộc trò chuyện khác của bạn, và có thể gửi tin nhắn đến một cuộc trò chuyện, bắt đầu, dừng hoặc lưu trữ một cuộc trò chuyện: mỗi thao tác trong bốn thao tác này đều hỏi bạn trước. Trợ lý không thể xóa cuộc trò chuyện. Chỉ cuộc trò chuyện này có các công cụ này và chỉ dẫn ngắn của nó. Hãy lưu hồ sơ của bạn trong Bộ nhớ dự án của dự án này, chủ đề \"profile\".",
+    "feature.assistant.description": "Một cuộc trò chuyện lâu dài để dùng làm trợ lý cá nhân, trong thư mục ~/Assistant. Mở bằng Trợ lý ở thanh bên trái (bên dưới Bảng tác vụ). Trợ lý đặt lời nhắc và tự động hóa bằng các tác vụ theo lịch của dsh, tìm kiếm trên web, liệt kê và đọc các cuộc trò chuyện khác của bạn, và có thể gửi tin nhắn đến một cuộc trò chuyện, bắt đầu, dừng hoặc lưu trữ một cuộc trò chuyện: mỗi thao tác trong bốn thao tác này đều hỏi bạn trước. Trợ lý không thể xóa cuộc trò chuyện. Chỉ cuộc trò chuyện này có các công cụ này và chỉ dẫn ngắn của nó. Hãy lưu hồ sơ của bạn trong Bộ nhớ dự án của dự án này, chủ đề \"profil\".",
     "assistant.title": "Trợ lý",
     "assistant.opening": "Đang mở cuộc trò chuyện trợ lý…",
     "assistant.failed": "Không thể mở cuộc trò chuyện trợ lý: {error}",

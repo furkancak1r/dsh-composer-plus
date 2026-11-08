@@ -2229,7 +2229,7 @@
     "board.footnotes": "Notas de rodapé",
     "board.down": "Não foi possível salvar esta configuração: {error}",
     "feature.assistant": "Assistente",
-    "feature.assistant.description": "Um chat permanente para usar como seu assistente pessoal, na pasta ~/Assistant. Abra-o com Assistente na barra lateral esquerda (abaixo de Quadro de tarefas). Ele cria lembretes e automações com as tarefas agendadas do dsh, pesquisa na web, lista e lê seus outros chats, e pode enviar uma mensagem a um chat, iniciar, parar ou arquivar um: cada uma dessas quatro ações pergunta a você primeiro. Ele não pode excluir um chat. Só este chat tem essas ferramentas e suas instruções curtas. Guarde seu perfil na memória deste projeto, tema \"profile\".",
+    "feature.assistant.description": "Um chat permanente para usar como seu assistente pessoal, na pasta ~/Assistant. Abra-o com Assistente na barra lateral esquerda (abaixo de Quadro de tarefas). Ele cria lembretes e automações com as tarefas agendadas do dsh, pesquisa na web, lista e lê seus outros chats, e pode enviar uma mensagem a um chat, iniciar, parar ou arquivar um: cada uma dessas quatro ações pergunta a você primeiro. Ele não pode excluir um chat. Só este chat tem essas ferramentas e suas instruções curtas. Guarde seu perfil na memória deste projeto, tema \"profil\".",
     "assistant.title": "Assistente",
     "assistant.opening": "Abrindo o chat do assistente…",
     "assistant.failed": "Não foi possível abrir o chat do assistente: {error}",

@@ -3689,7 +3689,7 @@
     "board.footnotes": "Dipnotlar",
     "board.down": "Bu ayar kaydedilemedi: {error}",
     "feature.assistant": "Asistan",
-    "feature.assistant.description": "Kişisel asistanınız olarak kullandığınız tek ve kalıcı bir sohbet, ~/Assistant klasöründe. Sol kenar çubuğunda Asistan ile açın (Görev panosu'nun altında). dsh'nin zamanlanmış görevleriyle hatırlatma ve otomasyon kurar, web'de arar, öteki sohbetlerinizi listeler ve okur. Bir sohbete mesaj gönderebilir, sohbet açabilir, durdurabilir ya da arşivleyebilir: bu dört işlemin her biri önce size sorar. Sohbet silemez. Bu araçlar ve kısa talimatlar yalnız bu sohbettedir. Profilinizi bu projenin hafızasında, \"profile\" konusunda tutun.",
+    "feature.assistant.description": "Kişisel asistanınız olarak kullandığınız tek ve kalıcı bir sohbet, ~/Assistant klasöründe. Sol kenar çubuğunda Asistan ile açın (Görev panosu'nun altında). dsh'nin zamanlanmış görevleriyle hatırlatma ve otomasyon kurar, web'de arar, öteki sohbetlerinizi listeler ve okur. Bir sohbete mesaj gönderebilir, sohbet açabilir, durdurabilir ya da arşivleyebilir: bu dört işlemin her biri önce size sorar. Sohbet silemez. Bu araçlar ve kısa talimatlar yalnız bu sohbettedir. Profilinizi bu projenin hafızasında, \"profil\" konusunda tutun.",
     "assistant.title": "Asistan",
     "assistant.opening": "Asistan sohbeti açılıyor…",
     "assistant.failed": "Asistan sohbeti açılamadı: {error}",

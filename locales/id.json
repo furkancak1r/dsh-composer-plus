@@ -2229,7 +2229,7 @@
     "board.footnotes": "Catatan kaki",
     "board.down": "Tidak dapat menyimpan pengaturan ini: {error}",
     "feature.assistant": "Asisten",
-    "feature.assistant.description": "Satu obrolan tetap yang Anda pakai sebagai asisten pribadi, di folder ~/Assistant. Buka dengan Asisten di bilah samping kiri (di bawah Papan tugas). Asisten membuat pengingat dan otomatisasi dengan tugas terjadwal dsh, mencari di web, menampilkan daftar dan membaca obrolan Anda yang lain, serta dapat mengirim pesan ke obrolan, memulai, menghentikan, atau mengarsipkan obrolan: masing-masing dari empat tindakan ini bertanya kepada Anda terlebih dahulu. Asisten tidak dapat menghapus obrolan. Hanya obrolan ini yang memiliki alat-alat ini dan instruksi singkatnya. Simpan profil Anda di Memori proyek untuk proyek ini, topik \"profile\".",
+    "feature.assistant.description": "Satu obrolan tetap yang Anda pakai sebagai asisten pribadi, di folder ~/Assistant. Buka dengan Asisten di bilah samping kiri (di bawah Papan tugas). Asisten membuat pengingat dan otomatisasi dengan tugas terjadwal dsh, mencari di web, menampilkan daftar dan membaca obrolan Anda yang lain, serta dapat mengirim pesan ke obrolan, memulai, menghentikan, atau mengarsipkan obrolan: masing-masing dari empat tindakan ini bertanya kepada Anda terlebih dahulu. Asisten tidak dapat menghapus obrolan. Hanya obrolan ini yang memiliki alat-alat ini dan instruksi singkatnya. Simpan profil Anda di Memori proyek untuk proyek ini, topik \"profil\".",
     "assistant.title": "Asisten",
     "assistant.opening": "Membuka obrolan asisten…",
     "assistant.failed": "Tidak dapat membuka obrolan asisten: {error}",

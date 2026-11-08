@@ -2229,7 +2229,7 @@
     "board.footnotes": "Fußnoten",
     "board.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
     "feature.assistant": "Assistent",
-    "feature.assistant.description": "Ein dauerhafter Chat, den du als persönlichen Assistenten nutzt, im Ordner ~/Assistant. Öffne ihn mit Assistent in der linken Seitenleiste (unter Aufgabentafel). Er legt Erinnerungen und Automatisierungen mit den geplanten Aufgaben von dsh an, sucht im Web, listet und liest deine anderen Chats und kann einem Chat eine Nachricht senden oder einen Chat starten, stoppen oder archivieren: Jede dieser vier Aktionen fragt dich zuerst. Er kann keinen Chat löschen. Nur dieser Chat hat diese Tools und seine kurzen Anweisungen. Speichere dein Profil im Gedächtnis dieses Projekts, Thema \"profile\".",
+    "feature.assistant.description": "Ein dauerhafter Chat, den du als persönlichen Assistenten nutzt, im Ordner ~/Assistant. Öffne ihn mit Assistent in der linken Seitenleiste (unter Aufgabentafel). Er legt Erinnerungen und Automatisierungen mit den geplanten Aufgaben von dsh an, sucht im Web, listet und liest deine anderen Chats und kann einem Chat eine Nachricht senden oder einen Chat starten, stoppen oder archivieren: Jede dieser vier Aktionen fragt dich zuerst. Er kann keinen Chat löschen. Nur dieser Chat hat diese Tools und seine kurzen Anweisungen. Speichere dein Profil im Gedächtnis dieses Projekts, Thema \"profil\".",
     "assistant.title": "Assistent",
     "assistant.opening": "Assistenten-Chat wird geöffnet…",
     "assistant.failed": "Der Assistenten-Chat konnte nicht geöffnet werden: {error}",
