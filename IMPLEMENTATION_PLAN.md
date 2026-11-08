@@ -2449,3 +2449,40 @@ Sürüm, npm publish, iPhone kurulumu, canlı masaüstü kopyası, dsh yeniden b
   - Simülatör (iPhone 17 Pro, agent-device, yalıtılmış dsh 0.2.1-rc.2 + /32 gateway 19400): Sessions'ta Assistant düğmesi var; dokununca "Assistant" sohbeti (~/Assistant) açıldı; geri dönüp tekrar dokununca aynı sohbet; Mac'te tek sohbet ve aynı kimlik. Düzenek durduruldu.
   - `npm test` exit 0 (74 özellik, 74 görüntü, 96 rota yöntemi, 8603 etiket); `git diff --check` temiz; `npm pack --dry-run` 114 dosya, webp içinde; `test/browser-settings-shots.mjs` 0.2.0-rc.2 ve 0.2.1-rc.2 PASS (74 satır).
   - Doğrulanmadı: silinmiş sohbetin yeniden oluşması gerçek dsh'de (yalnız birim testi); iPhone (kurulum istenmedi); canlı masaüstü kopyası (istenmedi).
+
+## Assistant: denetim, düzeltme ve yeniden doğrulama (2026-11-08, dal `feat/personal-assistant-chat`)
+İstek (sahip, Türkçe): aynı Assistant isteği yeniden verildi. Durum: özellik main'de var (0912faa, 06.11), ama yayımlanmadı. Sahibin dsh'si canlı kopyayı (`~/Documents/testdeepseekharness/dsh-composer-history`, 1.23.0) yüklüyor ve kopyada Assistant yok: bu yüzden Ayarlar'da ve kenar çubuğunda görünmüyor.
+
+### Hedef
+- Mevcut kodu isteğin her maddesine karşı denetle, uymayanı düzelt, kontrolleri yeniden çalıştır.
+- Sahibin kararları (08.11): hafıza konusu adı `profil` (önceden `profile`); saat dilimi Mac'in dilimi kalır (bu Mac'te Europe/Istanbul); araçlar asistan ajanının kendi kapsamında kalır (tools.restrict yalnız alt ajanlarına); testler geçince canlı kopyaya kurulur (önce tam yedek), dsh'yi sahip yeniden başlatır.
+
+### Denetim bulguları
+1. Sistem metni ve belgeler hafıza konusunu `profile` diye adlandırıyordu. Karar `profil`. Düzeltme: sistem metni, en/zh, 11 dil paketi, features.json (`how` 13 dil + `llms`), 13 README el yazısı kısımlar.
+2. Sistem metni yeni kişisel bilginin nereye yazılacağını söylemiyordu. Hafıza incelemesi konusuz kayıtları MEMORY.md'ye yazar. Düzeltme: "yeni kişisel bilgiyi `profil` konusuna yaz, MEMORY.md'ye değil" satırı (yeni kod yok, yalnız metin).
+3. Delete chat (Composer Plus) sohbetin günlüğünü taşır, kimliği arşivli bırakır, ajan bellekte canlı kalabilir. `open()` önce arşivden çıkarıyor, sonra `resolveAgent` canlı ajanı buluyordu: silinmiş sohbet geri geliyordu. Düzeltme: kayıtlı kimlik dsh'nin oturum deposunda (`sessionPersistence.list`) yoksa yeni sohbet açılır, eskisi arşivden çıkmaz. Birim testi + mutasyon (düzeltme olmadan kırmızı).
+4. Sahibin profili `web_search` aracını gizler (web-search-off). Sistem metni: "web_search yoksa öteki web arama aracını kullan".
+5. Uyanlar (değişiklik yok): OFF_BY_DEFAULT, Host anahtarı + createMobile + createToggles, panellist order 21, araçların kapsamı ve çağıran denetimi, dört değiştiren araçta `ask`, chat_read geri alma (iki işaret) ve çatal ofseti, PLUS `assistant` GET, Tether düğmesi `c.plus.contains("assistant")`, FEATURES.md, Turn finished push (index.js agent/status).
+
+### Değişecek dosyalar
+index.js, client.js (en/zh metni, dil paketleri build:locales), locales/*.json, docs/features.json, llms.txt, README*.md (13), test/assistant.test.mjs, test/browser-assistant.mjs, IMPLEMENTATION_PLAN.md.
+
+### Aşamalar ve kontroller
+1. Metin ve kod düzeltmeleri. Kontrol: `node test/assistant.test.mjs` + mutasyon, `npm test`.
+2. Gerçek dsh: `test/browser-assistant.mjs` 0.2.0-rc.2, 0.2.1-rc.2 ve canlı sürüm 0.2.2-rc.1; yeni adım: asistan sohbeti Delete chat ile silinince sonraki açılış yeni sohbet verir.
+3. iOS birim testleri; simülatörde agent-device ile Assistant düğmesi → asistan sohbeti.
+4. Canlı kopya: tam yedek (`backup-before-assistant-<tarih>`), client.js (12. satır kimliği korunur), index.js, locale, webp, tether/gateway. dsh yeniden başlatılmaz.
+
+### Riskler
+- 0.2.0/0.2.1'de dsh'nin schedule araçları yalnız asistanın kendi görevlerini görür (06.11 bulgusu); 0.2.2'de hepsini görür ve düzenler. Sahibin dsh'si 0.2.2-rc.1.
+- Sahibin profilindeki `auto-review-default` yeni sohbeti `auto` yapar; asistan sohbeti oluşturulduktan sonra workspace-write'a çekilir. Canlıda doğrulanacak (sahip yeniden başlatınca).
+- `sessionPersistence.list` bütün kayıtları okur: yalnız asistan açılışında ve bir kez çalışır.
+
+### Son kontrol noktası
+- 2026-11-08 12:20: Aşama 1 kod tamam. `assistant.test.mjs` geçti; mutasyon (stored kontrolü kaldırılınca) "deleted → a new chat" ile kırmızı. `build:locales`, `build:readme` çalıştı.
+- 2026-11-08 12:45: Aşama 1–3 tamam.
+  - `npm test` exit 0; `git diff --check` temiz.
+  - iOS birim testleri 95/95 (iPhone 17 Pro simülatörü).
+  - Gerçek dsh `test/browser-assistant.mjs` (yeni adım 6b dahil) PASS: 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1. 6b: Delete chat sonrası açılış yeni sohbet verdi. 4b: 0.2.0/0.2.1'de `schedule_list` başka sohbetin görevini görmüyor; 0.2.2-rc.1'de görüyor ve `schedule_edit` ile duraklatıyor. schedule_create workspace-write ile onay kartı açmadan çalıştı; hatırlatma zamanı gelince asistan sohbeti yeniden çalıştı.
+  - Simülatör (agent-device, iPhone 17 Pro, yalıtılmış dsh 0.2.1-rc.2 + /32 gateway 19400, `tether/build/sim-assistant.mjs`): Sessions'ta Assistant düğmesi; dokununca `~/Assistant` sohbeti açıldı; mesaj gitti, yanıt geldi; geri dönüp tekrar dokununca aynı sohbet (Mac'te tek sohbet, aynı kimlik). Düzenek durduruldu, geçici klasör silindi.
+  - Aşama 4 (canlı kopya) beklemede: Auto review, sahibin soru kartındaki onayını kabul etmedi; sohbet mesajıyla açık onay gerekiyor.

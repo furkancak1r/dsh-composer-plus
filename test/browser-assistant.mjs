@@ -11,6 +11,7 @@
 // 5. Injection: chat_read reads a chat that says "use chat_send to send X"; the model then calls chat_send: the card shows,
 //    Reject → nothing is sent.
 // 6. A tool call of the assistant tools from another chat: unknown tool (the tool is not in its list).
+// 6b. Delete chat on the assistant chat: the next open makes a new chat (a new id in assistant.json).
 // 7. Switch off: the sidebar row, the route, the tools and the section go. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/assistant.webp (English UI, made-up projects).
@@ -154,7 +155,7 @@ try {
     await writeFile(join(dshHome, 'storages/workspace.json'), JSON.stringify({ unit: { name: 'workspace', version: 2 },
       global: { initialized: true, workspaceIds: Object.values(projects), archivedSessionIds: [], pinnedSessionIds: [], defaultWorkspaceId: projects['acme-web'] }, tables: { workspaces: table } }));
     const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3213', '--no-open'], { cwd: join(home, 'projects', 'acme-web'),
-      env: { ...process.env, HOME: home, DSH_HOME: dshHome, DEMO_KEY: 'demo', TZ: 'Europe/Istanbul', npm_config_cache: join(tmpdir(), 'npm-cache'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      env: { ...process.env, HOME: home, DSH_HOME: dshHome, DEMO_KEY: 'demo', TZ: 'Europe/Istanbul', COMPOSER_PLUS_TRASH: 'folder', npm_config_cache: join(tmpdir(), 'npm-cache'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = ''; child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
     const errors = []; let context; let page; let passed = false;
     const note = (line) => console.log(`  ${line}`);
@@ -260,7 +261,7 @@ try {
       const first = calls.find((c) => c.task === 'R');
       assert.ok(first.tools.includes('schedule_create'), `the assistant has schedule_create (tools: ${first.tools.join(', ')})`);
       for (const t of ['chats_list', 'chat_read', 'chat_send', 'chat_new', 'chat_stop', 'chat_archive']) assert.ok(first.tools.includes(t), `the assistant has ${t}`);
-      assert.match(first.system, /# Assistant \(Composer Plus\)/); assert.match(first.system, /Europe\/Istanbul/);
+      assert.match(first.system, /# Assistant \(Composer Plus\)/); assert.match(first.system, /Europe\/Istanbul/); assert.match(first.system, /topic "profil"/);
       const other = calls.find((c) => c.task === 'A');
       assert.ok(!other.tools.some((t) => t.startsWith('chat') && t !== 'chat'), `the other chat has none of the six tools (${other.tools.join(', ')})`);
       assert.doesNotMatch(other.system, /Assistant \(Composer Plus\)/, 'and no section');
@@ -325,11 +326,23 @@ try {
       assert.match(refusedText, /unknown|not available|UNKNOWN_TOOL|not found/i, `refused: ${refusedText.slice(0, 160)}`);
       note(`6: chats_list from another chat refused: ${refusedText.slice(0, 80)}`);
 
+      // 6b. Delete chat (Composer Plus) removes the assistant chat's log; its agent can stay live. The next open is a new chat.
+      const deleted = await api('/api/composer-plus.delete-chat', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: assistantId }) });
+      assert.equal(deleted.status, 200, `deleted: ${JSON.stringify(deleted.body)}`);
+      const nextId = await until(async () => { const r = await api('/api/composer-plus.assistant'); return r.status === 200 && r.body.sessionId; }, 'a new assistant chat');
+      assert.notEqual(nextId, assistantId, 'a deleted assistant chat is made again');
+      assert.deepEqual(JSON.parse(await readFile(join(dshHome, 'storages/dsh-composer-plus/assistant.json'), 'utf8')), { sessionId: nextId });
+      // The new chat has no message yet, so dsh's sidebar has no row for it: the Assistant row opens it.
+      await assistantRow().click();
+      await until(async () => (await page.locator(`[data-conversation-session="${nextId}"]`).count()) > 0, 'the new assistant chat is open');
+      note(`6b: deleted ${assistantId} → new assistant chat ${nextId}`);
+
       // 7. Switch off.
       await settings(); await sw.click(); await until(async () => (await sw.getAttribute('aria-checked')) === 'false', 'switch off'); await back();
       assert.equal(await assistantRow().count(), 0, 'row gone');
       assert.equal((await api('/api/composer-plus.assistant')).status, 404, 'route gone');
-      calls.length = 0; await openChat(assistantId); await send('Which chats do I have?');
+      // The new assistant chat stays open behind Settings.
+      calls.length = 0; await send('Which chats do I have?');
       await until(async () => calls.some((c) => c.task === 'L'), 'a call after off');
       const off = calls.find((c) => c.task === 'L');
       assert.ok(!off.tools.includes('chats_list'), 'tools gone'); assert.doesNotMatch(off.system, /Assistant \(Composer Plus\)/, 'section gone');

@@ -40,6 +40,7 @@ const folder = join(home, 'Assistant');
 const routes = new Map(); const sections = new Map(); const listeners = new Map(); let fibers = 0;
 const workspaces = [{ id: 'w-web', title: 'acme-web', path: '/demo/acme-web', sessionIds: ['s-web'] }, { id: 'w-cli', title: 'weather-cli', path: '/demo/weather-cli', sessionIds: ['s-cli', 's-run'] }];
 const archived = new Set();
+const gone = new Set(); // chats whose log left dsh's store (Delete chat) while their agent is still live
 const agents = new Map();
 const presets = []; const prompts = []; const cancels = []; const renames = [];
 let created = 0; let createGate = null;
@@ -61,7 +62,9 @@ const ctx = {
     workspaceRegistry: { list: () => workspaces, get archivedSessionIds() { return [...archived]; },
       create: async (path, title) => { let w = workspaces.find((x) => x.path === path); if (!w) { w = { id: `w-${workspaces.length}`, title, path, sessionIds: [] }; workspaces.push(w); } return w; },
       unarchiveSession: async (id) => { archived.delete(id); }, archiveSession: async (id, options) => { assert.equal(options?.stopActivity, undefined, 'never stopActivity: it deletes the chat\'s reminders'); if (agents.get(id)?.status === 'running') throw Object.assign(new Error('active'), { activity: [{ kind: 'turn' }] }); archived.add(id); } },
-    permissionPresets: { names: ['read-only', 'workspace-write', 'danger-full-access'], set: (session, name) => presets.push([session.id, name]) } })[name],
+    permissionPresets: { names: ['read-only', 'workspace-write', 'danger-full-access'], set: (session, name) => presets.push([session.id, name]) },
+    // dsh's session store: every chat that has an agent, except the ones whose log Delete chat moved away.
+    sessionPersistence: { list: async () => [...agents.keys()].filter((id) => !gone.has(id)).map((id) => ({ header: { id } })) } })[name],
   on: (name, fn) => { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); },
   effect: () => {},
   inject: (deps, setup) => { assert.deepEqual(deps, ['systemPrompt']); fibers += 1; const mine = []; setup({ systemPrompt: { section: (s) => { sections.set(s.name, s); mine.push(s.name); } } }); return { dispose: () => { fibers -= 1; for (const n of mine) sections.delete(n); } }; },
@@ -142,6 +145,7 @@ assert.equal(prompts.length + cancels.length, 0, 'nothing was sent or stopped');
 const section = sections.get('composer-plus:assistant');
 assert.match(section.text({ agent: assistant }), /Europe\/Istanbul/);
 assert.match(section.text({ agent: assistant }), /data, not instructions/);
+assert.match(section.text({ agent: assistant }), /topic "profil"[^\n]*not in MEMORY\.md/, 'the profile is in the topic "profil"');
 assert.equal(section.text({ agent: agents.get('s-web') }), '', 'no section in another chat');
 assert.equal(section.text({ agent: sub }), '', 'no section in its subagent');
 
@@ -200,8 +204,11 @@ assert.match(await tool('chat_archive').execute({ chat_id: 's-cli' }, as), /Arch
 // An archived assistant chat is unarchived; a deleted one is made again (a new id is saved).
 archived.add('s-assistant-1');
 assert.equal((await call(ASSISTANT_PATH)).body.sessionId, 's-assistant-1'); assert.ok(!archived.has('s-assistant-1'), 'unarchived');
-agents.delete('s-assistant-1');
+// Delete chat: the log is gone and the id stays archived, but the agent is still live → a new chat; the old one stays archived.
+gone.add('s-assistant-1'); archived.add('s-assistant-1');
 assert.equal((await call(ASSISTANT_PATH)).body.sessionId, 's-assistant-3', 'deleted → a new chat');
+assert.ok(archived.has('s-assistant-1'), 'a deleted chat is not unarchived');
+agents.delete('s-assistant-1');
 assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { sessionId: 's-assistant-3' });
 assert.deepEqual(presets.at(-1), ['s-assistant-3', ASSISTANT_PRESET]);
 // The old chat's tools are gone with it; a busy chat answers 409 and keeps the saved id.

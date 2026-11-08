@@ -2229,7 +2229,7 @@
     "board.footnotes": "Notes de bas de page",
     "board.down": "Impossible d’enregistrer ce réglage : {error}",
     "feature.assistant": "Assistant",
-    "feature.assistant.description": "Une discussion durable à utiliser comme assistant personnel, dans le dossier ~/Assistant. Ouvrez-la avec Assistant dans la barre latérale gauche (sous Tableau des tâches). Elle crée des rappels et des automatisations avec les tâches planifiées de dsh, cherche sur le web, liste et lit vos autres discussions, et peut envoyer un message à une discussion, en lancer, en arrêter ou en archiver une : chacune de ces quatre actions vous demande d’abord. Elle ne peut pas supprimer de discussion. Seule cette discussion a ces outils et ses courtes consignes. Gardez votre profil dans la mémoire de ce projet, sujet \"profile\".",
+    "feature.assistant.description": "Une discussion durable à utiliser comme assistant personnel, dans le dossier ~/Assistant. Ouvrez-la avec Assistant dans la barre latérale gauche (sous Tableau des tâches). Elle crée des rappels et des automatisations avec les tâches planifiées de dsh, cherche sur le web, liste et lit vos autres discussions, et peut envoyer un message à une discussion, en lancer, en arrêter ou en archiver une : chacune de ces quatre actions vous demande d’abord. Elle ne peut pas supprimer de discussion. Seule cette discussion a ces outils et ses courtes consignes. Gardez votre profil dans la mémoire de ce projet, sujet \"profil\".",
     "assistant.title": "Assistant",
     "assistant.opening": "Ouverture de la discussion de l’assistant…",
     "assistant.failed": "Impossible d’ouvrir la discussion de l’assistant : {error}",
