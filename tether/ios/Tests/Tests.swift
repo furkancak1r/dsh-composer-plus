@@ -278,17 +278,6 @@ final class CoreTests: XCTestCase {
         XCTAssertThrowsError(try Attachment.load(big))
     }
 
-    @MainActor func testSubagentPrompt() {
-        let kid = Sess(["sessionId": "k", "parentSessionId": "p", "origin": "subagent", "projections": ["values": ["title": "k"]]])!
-        let r = Client.subagentRequest(kid, "  go on ")
-        XCTAssertEqual(r?["parentSessionId"] as? String, "p")
-        XCTAssertEqual(r?["childSessionId"] as? String, "k")
-        XCTAssertEqual(r?["delivery"] as? String, "queue")
-        XCTAssertEqual((r?["content"] as? [J])?.first?["text"] as? String, "go on")
-        XCTAssertNil(Client.subagentRequest(kid, "  "))
-        XCTAssertNil(Client.subagentRequest(Sess(["sessionId": "root"])!, "x"))
-    }
-
     /// Reject with note: the steer goes to the approval's own chat, trimmed and cut to the limit; nothing for an empty
     /// note, a question or an approval without a chat.
     @MainActor func testRejectNoteRequest() {
@@ -388,11 +377,22 @@ final class CoreTests: XCTestCase {
 
     @MainActor func testOpenFromOtherTab() {
         let c = Client()
-        c.tab = 1
+        c.tab = .settings
         c.open("x")
-        XCTAssertEqual(c.tab, 0)
+        XCTAssertEqual(c.tab, .sessions)
         XCTAssertEqual(c.path, ["x"])
         XCTAssertEqual(c.current, "x")
+    }
+
+    /// The tab bar: the Assistant has the slot of the old Agents tab, and Tether opens on it. A value that an older build
+    /// could have saved (the Agents tab was 1) does not open a removed screen: the tab is not read from storage.
+    @MainActor func testTabs() {
+        XCTAssertEqual(Client.Tab.allCases, [.sessions, .assistant, .settings])
+        let d = UserDefaults.standard
+        for k in ["tab", "lastTab", "selectedTab"] { d.set("agents", forKey: k) }
+        defer { for k in ["tab", "lastTab", "selectedTab"] { d.removeObject(forKey: k) } }
+        XCTAssertEqual(Client().tab, .assistant, "a new start opens the Assistant, not a saved Agents tab")
+        // After a pairing: testAdoptKeepsNotify.
     }
 
     @MainActor func testPrependHistoryKeepsLiveState() {
@@ -747,7 +747,7 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(permLabel("danger-full-access", nil), "Full access")
         XCTAssertEqual(permLabel("auto", "Smart"), "Smart")
         XCTAssertEqual(permLabel("custom", nil), "custom")
-        let ps = [Preset(id: "standard", name: "Standard", desc: nil, broken: false, isDefault: true), Preset(id: "ptc", name: "PTC", desc: nil, broken: false)]
+        let ps = [Preset(id: "standard", name: "Standard", broken: false, isDefault: true), Preset(id: "ptc", name: "PTC", broken: false)]
         XCTAssertNil(customPreset(nil, ps))
         XCTAssertNil(customPreset("standard", ps))
         XCTAssertEqual(customPreset("ptc", ps)?.name, "PTC")
@@ -928,8 +928,10 @@ final class CoreTests: XCTestCase {
         await c.setNotify(true); c.notifyHours = true; c.notifyFrom = 21 * 60
         let p = Pairing(host: "192.168.1.2", port: 19390, fp: "a1new", token: "tn", deviceId: "d", name: "n", expiresAt: "", mac: "A")
         c.pairings = upserted(c.pairings, p)
+        c.tab = .settings
         c.adopt(p)
         XCTAssertEqual(c.pairings.map(\.fp), ["b2", "a1new"]); XCTAssertEqual(c.activeFp, "a1new")
+        XCTAssertEqual(c.tab, .assistant, "after a pairing, Tether opens on the Assistant")
         XCTAssertTrue(c.notifyOn); XCTAssertTrue(c.notifyHours); XCTAssertEqual(c.notifyFrom, 21 * 60)
         XCTAssertNil(UserDefaults.standard.object(forKey: macKey(Client.notifyKey, "a1", legacy: nil)), "the old certificate's keys go")
     }
