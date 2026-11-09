@@ -2629,3 +2629,10 @@ Doğrulandı 4, ek kanıt gerekli 1, reddedildi 0.
 - Ek kanıt gerekli: her tuş vuruşunda dock girişinin yeniden çizimi ve `:has()` boşluk kuralı. 2. bölümde panel değişince ölçülecek (React.memo ve `:has()` olmadan sınıf işareti).
 Kontroller: `node test/assistant-todos.test.mjs`, `node test/assistant-todos-client.test.mjs`, gerçek dsh `test/browser-assistant-todos.mjs` (0.2.2-rc.1), `npm test`.
 - 1. tur sonucu: F-01..F-04 düzeltildi. Her regresyon testi düzeltmesiz kırmızı, düzeltmeyle yeşil (F-02 gerçek dsh 0.2.2-rc.1'de). `npm test` exit 0.
+
+### Öz denetim 2. tur (kapsam `main...fcddec4`)
+Doğrulandı 3, reddedildi 0.
+- F-05 (P2, AGENTS.md kural 7): `client.js` `createTodos.load`: bir işlem (`act`) sürerken başlayan okuma, işlemden önceki listeyi alıp işlemin yanıtından sonra gelirse yeni listeyi ezer (Host GET kuyruğu beklemez). Kaldırılan madde bir sonraki okumaya kadar geri görünür. Düzeltme: işlem bitince de sayaç artar; işlem sürerken başlayan okuma düşer. Regresyon: istemci testi (işlem sürerken başlayan, sonra dönen okuma).
+- F-06 (P2, çift gönderim): masaüstü uygulama ve Web GUI aynı listeyi gösterir. Bir pencerede devredilen madde öteki pencerede bir sonraki okumaya kadar → düğmesiyle kalır; ikinci tık ikinci "Bunu sen yap" mesajını gönderir. Host sahibi zaten "agent" olan maddeyi yine devrediyor. Düzeltme: Host böyle bir devri 409 ile reddeder ve güncel listeyi verir, mesaj gönderilmez. Regresyon: Host testi.
+- F-07 (P3, belge, AGENTS.md kural 4): README "Limits" bölümünde panelin dsh işaretine bağlılığı ve 1000 px altı davranışı yok; Development bölümünde yeni gerçek dsh testi yok. Düzeltme: 13 README'de bir sınır satırı ve kod bloğuna test satırı.
+- 2. tur sonucu: F-05, F-06 düzeltildi (regresyon testleri düzeltmesiz kırmızı, düzeltmeyle yeşil); F-07 13 README'de sınır satırı ve test komutu. Gerçek dsh 0.2.2-rc.1 PASS, `npm test` exit 0.

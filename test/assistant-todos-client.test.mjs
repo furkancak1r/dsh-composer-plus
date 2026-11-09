@@ -119,6 +119,16 @@ globalThis.fetch = origFetch;
 await props.store.act('s-assistant', 'cccccccc', 'remove');
 items = [{ id: 'cccccccc', text: 'new', owner: 'user', created: 3 }]; slow(); await read; await tick();
 assert.deepEqual(props.store.of('s-assistant').items, [], 'an older read does not bring the removed item back');
+// F-05: a read that starts while an action runs, and ends after it, is dropped too.
+items = [{ id: 'eeeeeeee', text: 'e', owner: 'user', created: 5 }]; await props.store.load('s-assistant');
+let hold; gate = new Promise((r) => { hold = r; });
+const running = props.store.act('s-assistant', 'eeeeeeee', 'remove');
+let late; const realFetch = globalThis.fetch;
+const snapshot = items;
+globalThis.fetch = async (url, init) => { if (init === undefined) { await new Promise((r) => { late = r; }); return Response.json({ on: true, items: snapshot }); } return realFetch(url, init); };
+const during = props.store.load('s-assistant'); await tick();
+globalThis.fetch = realFetch; hold(); gate = null; await running; late(); await during; await tick();
+assert.deepEqual(props.store.of('s-assistant').items, [], 'a read from before the action ended does not bring the item back');
 // A failed action keeps the reason and the Host's list.
 items = [{ id: 'dddddddd', text: 'x', owner: 'user', created: 4 }]; await props.store.load('s-assistant');
 failNext = 'the chat is gone';

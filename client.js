@@ -2678,9 +2678,10 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
               body: JSON.stringify({ sessionId: id, id: itemId, action, ...(action === 'handover' ? { prefix } : {}) }) });
             const data = await response.json().catch(() => ({}));
             const list = items(data);
+            seqs.set(id, (seqs.get(id) ?? 0) + 1); // a read that started while this action ran is old too
             patch(id, { busy: false, ...(list === null ? {} : { items: list }), error: response.ok ? null : data?.error ?? `HTTP ${response.status}` });
             return response.ok;
-          } catch (error) { patch(id, { busy: false, error: String(error?.message ?? error) }); return false; }
+          } catch (error) { seqs.set(id, (seqs.get(id) ?? 0) + 1); patch(id, { busy: false, error: String(error?.message ?? error) }); return false; }
         },
       };
       return store;

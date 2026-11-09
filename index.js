@@ -9371,10 +9371,13 @@ export const todoList = {
     const item = list.find((i) => i.id === id);
     return { list: item === undefined ? list : list.filter((i) => i !== item), item };
   },
-  /** Gives item `id` to the assistant (owner "agent"); `item` is undefined when the list does not have it. */
+  /** Gives item `id` to the assistant (owner "agent"); `item` is undefined when the list does not have it. An item that
+   * is already the assistant's is refused (409): another window still showed its button, and a second message would
+   * give the same task twice. */
   handover(list, id) {
     const before = list.find((i) => i.id === id);
     if (before === undefined) return { list, item: undefined };
+    if (before.owner === 'agent') throw refused('The assistant already does this item.');
     const item = { ...before, owner: 'agent' };
     return { list: list.map((i) => (i === before ? item : i)), item, before };
   },
@@ -9517,7 +9520,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
           return json({ error: String(error?.message ?? error), ...view(sessionId) }, 502);
         }
         return json(view(sessionId));
-      } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
+      } catch (error) { return json({ error: String(error?.message ?? error), ...view(sessionId) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });
   return { ready, store, tools, isOn: () => on };

@@ -32,6 +32,7 @@ r = todoList.remove(two, 'aaaaaaaa'); assert.deepEqual(r.list.map((i) => i.id), 
 r = todoList.remove(two, 'ffffffff'); assert.equal(r.item, undefined); assert.equal(r.list, two);
 r = todoList.handover(two, 'bbbbbbbb'); assert.equal(r.item.owner, 'agent'); assert.equal(r.before.owner, 'user'); assert.equal(two[1].owner, 'user');
 assert.equal(todoList.handover(two, 'ffffffff').item, undefined);
+assert.throws(() => todoList.handover(todoList.handover(two, 'bbbbbbbb').list, 'bbbbbbbb'), (e) => e.status === 409, 'F-06: no second hand over');
 
 // The prompt context.
 assert.equal(todoContext([]), ''); assert.equal(todoContext(undefined), '');
@@ -156,6 +157,9 @@ assert.equal(res.status, 200);
 assert.equal(res.body.items[1].owner, 'agent');
 assert.equal(prompts.length, 1); assert.equal(prompts[0].sessionId, 's-a'); assert.equal(prompts[0].mode, 'queue');
 assert.deepEqual(prompts[0].content, [{ type: 'text', text: 'Bunu sen yap: Ece Hanım ile Excel doldurmak' }]);
+// F-06: a second hand over of the same item (another window still shows →) sends nothing.
+res = await call('POST', { sessionId: 's-a', id: items[1].id, action: 'handover', prefix: 'Bunu sen yap:' });
+assert.equal(res.status, 409, 'already the assistant\'s'); assert.equal(prompts.length, 1, 'no second message'); assert.equal(res.body.items[1].owner, 'agent');
 // A failed send: the owner goes back.
 failPrompt = true;
 res = await call('POST', { sessionId: 's-a', id: items[0].id, action: 'handover', prefix: 'Bunu sen yap:' });
