@@ -2980,3 +2980,6 @@ Project memory notları kullanıcının seçtiği bir klasörde (ör. Obsidian k
 - `[[konu]]` bağlantıları kasada aynı adlı başka notlara gidebilir (Obsidian en kısa yolu seçer).
 - Not içeriği GitHub yedeğine gider; süzgeç yalnız bilinen biçimleri yakalar.
 - 2026-11-09 16:20: plan yazıldı, kod yok. Taban: `fix/asistan-kritik-hatalar` (f1bbb2d), main'de değil.
+- 2026-11-09 17:00: aşama 1-2 bitti, commit `f70f1ec`. `npm test` exit 0.
+- 2026-11-09 17:15: öz denetim turu 1 (`3da3814`): F-01 (P1) kasa düzeninde günlük klasörü yoksa yazma ve geri alma düşüyordu; F-02 (P2) büyük/küçük harf farklı iki aynı adlı proje macOS'ta tek klasöre düşüyordu; F-03 (P2) sınır kalkınca inceleme ve öneri istekleri sınırsız büyüyordu; F-04 (P3) 13 README ve rota belgesi eski sınırları anıyordu.
+- 2026-11-09 17:25: öz denetim turu 2: F-05 (P2) klasör değişince notlar varsayılan düzenden kopyalanıyordu, kullanımdaki kasadan değil; F-06 (P2) başarısız bir kaydın geri alması klasöre o arada konan kullanıcı dosyasını silebiliyordu (yalnız hafıza dosyaları silinir). Canlı verinin kopyasında prova: eski 50 kapsam / 115 dosya / 495 not / 65 konu = yeni 50 / 115 / 495 / 65, 50 kapsamın 50'sinde not metinleri aynı. `npm test` exit 0.

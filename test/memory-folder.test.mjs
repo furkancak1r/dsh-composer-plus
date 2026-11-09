@@ -120,6 +120,12 @@ try {
   assert.deepEqual(JSON.parse(await readFile(join(store2, 'memory-folder.json'), 'utf8')), { folder: join((await import('node:os')).homedir(), 'Notes'), imported: vault2 });
   assert.deepEqual((await call({ folder: '' })).body.folder, '', 'empty: the default again');
   assert.deepEqual(JSON.parse(await readFile(join(store2, 'memory-folder.json'), 'utf8')), { imported: vault2 });
+  // A move to another folder copies from the folder in use (vault2), not from the old default layout.
+  await m.store.add({ scope: m.store.GLOBAL, text: 'Saved in the first vault', actor: 'agent' });
+  const vault3 = join(root, 'vault3');
+  await writeFile(join(store2, 'memory-folder.json'), JSON.stringify({ folder: vault3, imported: vault2 }));
+  const m3 = installMemory(ctx(home2), home2); await m3.ready;
+  assert.match(await readFile(join(vault3, 'Genel', 'MEMORY.md'), 'utf8'), /Saved in the first vault/, 'the notes of the folder in use move');
 
   // A copy that fails at start: the memory stays off for this run (no tools, no review), and switching on is refused.
   if (process.getuid?.() !== 0) {

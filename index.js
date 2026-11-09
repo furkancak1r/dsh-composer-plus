@@ -6311,7 +6311,7 @@ export function memoryStore(dir, { today = () => new Date().toLocaleDateString('
         for (const [path, text] of [...kept].sort((a, b) => (basename(a[0]) === MEMORY_MAIN) - (basename(b[0]) === MEMORY_MAIN))) {
           if (!present.has(path) || readOwn(path) !== text) await writeOwn(path, text);
         }
-        for (const path of present) if (!kept.has(path)) await unlink(path).catch((e) => { if (e?.code !== 'ENOENT') throw e; });
+        for (const path of present) if (!kept.has(path) && (isMemoryFile(basename(path)) || basename(path) === 'project.json')) await unlink(path).catch((e) => { if (e?.code !== 'ENOENT') throw e; });
       } catch (undo) {
         // The files stay changed: the journal keeps each change, so no note is lost. The kept copies stay too.
         if (rows.length > 0) await appendJournal(dir, rows.join('')).catch(() => {});
@@ -6346,15 +6346,15 @@ export function memoryFolderProblem(folder) {
   }
   return undefined;
 }
-/** One time, when the memory folder has neither `Genel` nor `Projeler`: every memory of the default layout (`dir`) is
- * copied there, all or none. The files are written into a hidden folder next to them (Obsidian does not index a
+/** One time, when the memory folder has neither `Genel` nor `Projeler`: every memory of the default layout (`dir`), or of
+ * the memory folder `from` that was in use before, is copied there, all or none. The files are written into a hidden folder next to them (Obsidian does not index a
  * dot-folder), then moved in with two renames; a failure removes what it wrote. The default layout stays as it is.
  * Answers `{scopes, files, entries}` (zero when there was nothing to copy) or undefined when the folder already has notes. */
-export async function importMemory(dir, folder) {
+export async function importMemory(dir, folder, from) {
   const exists = (p) => { try { lstatSync(p); return true; } catch { return false; } };
   const into = [MEMORY_GLOBAL_DIR, MEMORY_PROJECTS_DIR].map((n) => join(folder, n));
   if (into.some(exists)) return undefined;
-  const legacy = memoryStore(dir);
+  const legacy = memoryStore(dir, { folder: from });
   const scopes = [legacy.GLOBAL, ...legacy.projects()];
   const count = { scopes: 0, files: 0, entries: 0 };
   const work = join(folder, `.composer-plus-import-${process.pid}`);
@@ -6380,7 +6380,7 @@ export async function importMemory(dir, folder) {
       throw error;
     }
   } finally { await rm(work, { recursive: true, force: true }).catch(() => {}); }
-  await appendJournal(dir, `${JSON.stringify({ time: new Date().toISOString(), id: randomUUID(), op: 'import', actor: 'import', to: folder, ...count })}\n`);
+  await appendJournal(dir, `${JSON.stringify({ time: new Date().toISOString(), id: randomUUID(), op: 'import', actor: 'import', ...(from === undefined ? {} : { from }), to: folder, ...count })}\n`);
   return count;
 }
 
@@ -7003,7 +7003,7 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
     await rename(tmp, folderFile);
   };
   const imported = folder === undefined || folderProblem !== undefined || importedFolder === folder ? Promise.resolve(true)
-    : importMemory(dir, folder).then(async (count) => {
+    : importMemory(dir, folder, importedFolder !== undefined && memoryFolderProblem(importedFolder) === undefined ? importedFolder : undefined).then(async (count) => {
       if (count !== undefined) log(`copied ${count.entries} notes of ${count.scopes} memories into ${folder}`);
       await writeFolderFile({ folder, imported: folder }); importedFolder = folder;
       return true;
