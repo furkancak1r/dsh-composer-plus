@@ -2694,3 +2694,22 @@ Assistant satırına tıklayınca asistan sohbeti normal bir sohbet kadar hızl�
 - 2026-11-09 15:25: tüm aşamalar bitti, main 0dd0913 üstüne rebase edildi. `npm test` exit 0. Gerçek dsh (headless, sahte model) `test/browser-assistant.mjs` 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS; adım 13: tıklamadan sohbete 18-47 ms, son 8 tur görünür.
   - İnceleme kapısı: 3 tur. Bulunan ve düzeltilen: sınır sohbet sütunu içindeki yeni turu görmüyordu; sohbet yeniden açılınca sınır geri gelmiyordu; düğme metni 1 tur için yanlış çoğuldu; StatusOrder'da yalnız test için kalan yedek. Son tur temiz.
   - Canlı veri kopyası (/tmp/cp-asistan-bench) silindi. Canlı GUI ölçülmedi (Chrome oturumu 401).
+
+## Asistan onay kartı tam metin (2026-11-09, dal `fix/onay-karti-tam-metin`)
+
+### Amaç
+`chat_send` ve `chat_new` onay kartı mesajın tamamını gösterir; kullanıcı onaylamadan önce gönderilecek metni okuyabilir.
+
+### Neden (doğrulandı)
+Kırpma Composer Plus'ta: `index.js` `tools/pre-execute` işleyicisi metni `cutEnd(a.text.trim(), 300)` ile 300 karakterde kesiyordu. dsh çekirdeği kesmiyor: `dsh-client-ui-approval` kartı nedeni `ImxglW_headline` içinde düz metin olarak çizer, gövde (`ImxglW_body`) `max-height: var(--dsh-composer-text-max-height); overflow-y: auto` ile kayar.
+
+### Değişiklik
+Sınır `ASSISTANT_LIMITS.text` (8000; araçlar daha uzun metni zaten reddeder). Metin düz metin kalır (HTML yok); enjeksiyon koruması değişmez.
+
+### Kontroller
+- `test/assistant.test.mjs`: chat_send ve chat_new kartı tam metni (1400+ karakter, `<b>` dahil) taşır; main'de kırmızı.
+- `test/browser-assistant.mjs` adım 5: 703 karakterlik enjekte metnin son sözcükleri kartta, `<b>` öğe değil metin, kart gövdesi `overflow-y: auto`. 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS.
+- `npm test` exit 0.
+
+### Son kontrol noktası
+- 2026-11-09 15:20: kod, testler ve gerçek dsh denemesi bitti; inceleme kapısı sırada.
