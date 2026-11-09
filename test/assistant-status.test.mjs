@@ -47,6 +47,19 @@ assert.deepEqual(tasks.slice(0, 2).map((t) => t.state).sort(), ['running', 'wait
 assert.equal(byId['c-done'].ended, NOW - 5000, 'the ended time from the saved log');
 assert.equal((await statusTasks([...Array(30)].map((_, i) => cat(i, `c-${i}`, `t${i}`)), 0, () => undefined, { now: NOW })).length, STATUS_LIMITS.tasks, 'a limit');
 assert.equal(byId['c-done'].result.length <= STATUS_LIMITS.result + 1, true);
+// A disposed child that ended before today: its saved log is read once, not at each read (the panel reads every 5 s).
+{
+  let reads = 0; let log = children['c-old'].log; let live; const kept = new Map();
+  const old = [cat(0, 'c-old', 'Yesterday', { childCreatedAt: NOW - 2 * 86400000 - 60000 })];
+  const read = () => statusTasks(old, 0, () => live, { logOf: async () => { reads += 1; return log; }, since: today.getTime(), now: NOW, ended: kept });
+  for (let i = 0; i < 3; i++) assert.deepEqual(await read(), [], 'a task that ended before today is left out');
+  assert.equal(reads, 1, 'the saved log of an old ended child is read once');
+  // dsh resumes it (a continuable child gets a new message; its parent gets no new catalog event): it is read again.
+  log = [...log, ev(3, 'turn/start', {})]; live = { status: 'running', session: { snapshotEvents: () => log } };
+  assert.equal((await read())[0]?.state, 'running', 'a resumed child shows as running');
+  log = [...log, reply(4, 'new answer'), ev(5, 'turn/end', { reason: { kind: 'completed' } }, NOW - 500)]; live = undefined;
+  assert.equal((await read())[0]?.result, 'new answer', 'disposed again: its new saved log is read');
+}
 
 // Projects.
 const ws = [{ id: 'w-web', title: 'acme-web', path: '/demo/acme-web', sessionIds: ['s-web', 's-web2', 's-old'] }, { id: 'w-cli', title: 'weather-cli', path: '/demo/weather-cli', sessionIds: ['s-cli', 's-arch'] },

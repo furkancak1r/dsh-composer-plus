@@ -10099,9 +10099,11 @@ export async function statusTasks(events, inherited, agentOf, { logOf = async ()
   const tasks = [];
   for (const e of found.slice(-max * 2)) {
     const d = e.data;
-    // An ended task does not change: `done` (child id → task) keeps it, so its log is read once.
-    if (done.has(d.childId)) { const kept = done.get(d.childId); if ((kept.ended ?? kept.started) >= since) tasks.push(kept); continue; }
     const child = agentOf(d.childId);
+    // An ended task does not change: `done` (child id → task) keeps it, so its log is read once (also when it ended
+    // before `since`). A live child (dsh resumed a continuable one) is read again.
+    if (child !== undefined) done.delete(d.childId);
+    else if (done.has(d.childId)) { const kept = done.get(d.childId); if ((kept.ended ?? kept.started) >= since) tasks.push(kept); continue; }
     let log = [];
     try { log = child === undefined ? await logOf(d.childId) : child.session?.snapshotEvents?.() ?? []; } catch { log = []; }
     const end = log.findLast((x) => x.type === 'turn/end');
@@ -10114,10 +10116,10 @@ export async function statusTasks(events, inherited, agentOf, { logOf = async ()
       : end === undefined ? (child === undefined ? 'stopped' : 'running') : 'done';
     const started = Number.isFinite(d.childCreatedAt) ? d.childCreatedAt : Number.isFinite(e.time) ? e.time : now;
     const ended = state === 'running' || state === 'waiting' ? undefined : Number.isFinite(end?.time) ? end.time : undefined;
-    if ((ended ?? (state === 'running' || state === 'waiting' ? now : started)) < since) continue;
     const result = state === 'failed' ? headLine(end?.data?.reason?.error?.message, STATUS_LIMITS.result) : headLine(lastReply(log), STATUS_LIMITS.result);
     const task = { id: d.childId, title: cutEnd(String(d.label ?? '').trim() || d.childId, 120), state, started, ...(ended === undefined ? {} : { ended }), ...(result === '' ? {} : { result }) };
     if (child === undefined && state !== 'running' && state !== 'waiting' && log.length > 0) done.set(d.childId, task);
+    if ((ended ?? (state === 'running' || state === 'waiting' ? now : started)) < since) continue;
     tasks.push(task);
   }
   // Open tasks first (newest first), then the ended ones (newest end first; a gone task without an end time: its start).
