@@ -9188,6 +9188,9 @@ export const ASSISTANT_FREE_TOOLS = [...ASSISTANT_TOOLS, 'subagent', 'subagent_f
 export const assistantFreeTool = (name) => ASSISTANT_FREE_TOOLS.includes(name) || /^(schedule|job|memory)_/.test(String(name));
 export const ASSISTANT_FREE_SECTION = `# Assistant always free (Composer Plus)
 In this chat you call only these tools yourself: chats_list, chat_read, chat_send, chat_new, chat_stop, chat_archive, the schedule_*, job_* and memory_* tools, subagent, subagent_fork, send_message, list_agents, interrupt_agent, list_subagent_models and ask_user_question. Any other call is refused. This rule comes before the lines above: for every other step (a web search, a web page, a file, a command), start a subagent in the background, say in one line what you started and end your turn. Project work (a code or configuration change in a project's git repository) goes to chat_new with branch true, not to a subagent.`;
+const INTERJECT_SOURCE = 'composer-plus-assistant-interject';
+/** A prompt that you sent (dsh's composer or Tether): dsh's prompt route marks it with its request id. */
+const typedPrompt = (m) => m?.source?.kind === 'user' && typeof m.source.rpcId === 'string';
 const FREE_REASON = (name) => `Composer Plus → Assistant always free: this chat stays free for the user's next message, so it does not run ${name} itself. Start this work with the subagent tool in the background (a code or configuration change in a project: chat_new with branch true), say in one line what you started, and end your turn.`;
 /** Assistant news: a finished turn counts when it ran this long; a wait counts when it lasts this long; news is collected
  * this long before it goes; two news turns are at least `gap` apart; one note names at most `max` chats. */
@@ -9396,6 +9399,47 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   };
   const notifyRead = notifySwitch.read().then((on) => setNotify(on), () => setNotify(false));
   switchRoute(ASSISTANT_NOTIFY_PATH, notifySwitch, setNotify, notifyRead);
+  // Interjection (part of Assistant always free): a message that you type while the assistant's turn runs goes into that
+  // turn at its next step (dsh's steer, as send_message does), not to the queue behind the turn's end. Nothing is cancelled.
+  // ponytail: dsh has no per-chat delivery mode, so the assistant agent's own followup is wrapped (dsh's composer and
+  // Tether send with followup). Upgrade when dsh lets a plugin choose the delivery of a prompt.
+  const interjects = (agent) => freeOn && assistant.isAssistant(agent);
+  const patched = new Map(); // assistant agent → puts its own followup back
+  let lastEnd; // reason kind of the assistant chat's newest turn end
+  const patch = (agent) => {
+    if (patched.has(agent) || !assistant.isAssistant(agent) || typeof agent.followup !== 'function' || typeof agent.steer !== 'function') return;
+    const own = Object.hasOwn(agent, 'followup'); const original = agent.followup;
+    const followup = original.bind(agent); const steer = agent.steer.bind(agent);
+    agent.followup = (message) => (interjects(agent) && agent.status === 'running' && typedPrompt(message) ? steer(message) : followup(message));
+    patched.set(agent, () => { if (own) agent.followup = original; else delete agent.followup; });
+  };
+  const unpatch = (agent) => { patched.get(agent)?.(); patched.delete(agent); };
+  ctx.on('agent/created', ({ agent } = {}) => { patch(agent); });
+  ctx.on('agent/disposed', ({ agent } = {}) => { patched.delete(agent); });
+  ctx.on('session/event', (session, event) => {
+    if (event?.type === 'turn/end' && isText(session?.id) && session.id === assistant.id()) lastEnd = event.data?.reason?.kind;
+  });
+  ctx.on('agent/status', ({ agent, status } = {}) => {
+    if (status === 'running') { patch(agent); return; }
+    if (!patched.has(agent)) return;
+    // dsh checks its inbox for the last time before the agent is idle; a message that came in between waits with no turn.
+    // Wake the chat for it, unless you stopped the turn (then it waits, as in dsh).
+    queueMicrotask(() => {
+      if (agent.status !== 'idle' || !interjects(agent) || (lastEnd !== 'completed' && lastEnd !== 'max-tokens') || !agent.inbox?.nextStep?.some?.(typedPrompt)) return;
+      try { wakeWithContinue(agent, INTERJECT_SOURCE); } catch (error) { log(`a typed message waits for the next turn: ${error?.message ?? error}`); }
+    });
+  });
+  // The wake markers go; your messages come before the notices of the same step.
+  ctx.on('agent/pre-step', async (payload, next) => {
+    const decision = await next();
+    if (decision?.kind !== 'enter' || !Array.isArray(decision.messages)) return decision;
+    const messages = decision.messages.filter((m) => m?.source?.kind !== INTERJECT_SOURCE);
+    const ordered = interjects(payload?.agent) ? [...messages.filter(typedPrompt), ...messages.filter((m) => !typedPrompt(m))] : messages;
+    return ordered.every((m, i) => m === decision.messages[i]) && ordered.length === decision.messages.length ? decision : { ...decision, messages: ordered };
+  });
+  for (const agent of get('agents')?.list?.() ?? []) patch(agent);
+  ctx.effect?.(() => () => { for (const agent of [...patched.keys()]) unpatch(agent); }, 'dsh-composer-plus: assistant interjection');
+
   ctx.effect?.(() => () => { closed = true; freeOn = false; notifyOn = false; fiber?.dispose?.(); fiber = undefined; clearAll(); notes.clear(); }, 'dsh-composer-plus: assistant bot');
   return { ready: Promise.all([freeRead, notifyRead]), flush, pending: () => [...pending.values()], free: () => freeOn, notify: () => notifyOn };
 }
