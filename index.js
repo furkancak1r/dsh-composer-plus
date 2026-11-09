@@ -82,7 +82,7 @@ export const TURKISH_SKILL_PATH = '/api/composer-plus.turkish-skill';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
-export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'allowForChat', 'rejectNote', 'secretInput', 'quoteReply', 'previewQuote', 'sideChat', 'diffComments', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit', 'windowSize',
+export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'approveButton', 'allowForChat', 'rejectNote', 'secretInput', 'quoteReply', 'previewQuote', 'sideChat', 'diffComments', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit', 'windowSize',
   'queueReorder', 'mobileConnect', 'remoteComputers', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'featureFilter', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
   'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'assistant', 'assistantApart', 'assistantChatView', 'assistantFree', 'assistantNotify', 'assistantTodos', 'plannedSteps', 'turkishSkill', 'untangleCodebase', 'memoryHistory', 'memoryExport', 'memorySource', 'memoryCopy', 'memoryStale', 'memoryPerChat', 'memorySuggest', 'issueReport'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
@@ -2425,6 +2425,7 @@ export function apply(ctx) {
   installPlannedSteps(ctx, home);
   installTurkishSkill(ctx, home);
   installUntangle(ctx, home);
+  installApproveButton(ctx, home);
   const assistant = installAssistant(ctx, home);
   installAssistantBot(ctx, home, assistant);
   installAssistantTodos(ctx, home, assistant);
@@ -8836,6 +8837,46 @@ export function installUntangle(ctx, home, file = join(home, 'storages', 'dsh-co
     },
   });
   return { ready, provider };
+}
+
+/** Approve button (Host half): the prompt rule that makes the agent write an approval sentence in an `onay` block; the
+ * client shows the button. On by default (no port, no model call); the switch adds and removes the section in one fiber. */
+export const APPROVE_PATH = '/api/composer-plus.approve-button';
+export const APPROVE_SECTION = `# Approve button (Composer Plus)
+Auto review accepts an approval only from a user message. When you need a written approval sentence from the user, write the exact sentence in a fenced code block with the info string \`onay\`, for example:
+\`\`\`onay
+Onaylıyorum: feature/x dalını origin'e push et.
+\`\`\`
+A button under your answer sends the block's text as the user's message with one click. Write one \`onay\` block per answer: one sentence, in the user's language, that names everything that needs the approval, and nothing else in the block. Use an \`onay\` block only for an approval sentence. A sentence that names a live or public target (production, a live database, a deploy, a release, npm publish) gets no button: the user types it.`;
+export function installApproveButton(ctx, home, file = join(home, 'storages', 'dsh-composer-plus', 'approve-button.json')) {
+  const sw = mobileSwitch(file, true);
+  let on = false;
+  let fiber;
+  const apply = (next) => {
+    on = next;
+    if (on && fiber === undefined && typeof ctx.inject === 'function') {
+      fiber = ctx.inject(['systemPrompt'], (sub) => { sub.systemPrompt.section({ name: 'composer-plus:approve-button', order: 661, interpolate: false, text: () => APPROVE_SECTION }); });
+    } else if (!on) { fiber?.dispose?.(); fiber = undefined; }
+  };
+  const ready = sw.read().then(apply, () => apply(true));
+  ctx.effect?.(() => () => { on = false; fiber?.dispose?.(); fiber = undefined; }, 'dsh-composer-plus: approve button');
+  let switching = ready;
+  ctx.connection.fetch.register({
+    path: APPROVE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    fetch: async (request) => {
+      await ready;
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (!plainObject(body) || Object.keys(body).join() !== 'on' || typeof body.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        const change = switching.then(async () => { await sw.write(body.on); apply(body.on); });
+        switching = change.catch(() => {});
+        try { await change; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      return json({ on });
+    },
+  });
+  return { ready };
 }
 
 /* Assistant (after DS Bot's Main Bot, Fei2411/DS-Bot, Apache-2.0; no code of it is used): one lasting chat in ~/Assistant
