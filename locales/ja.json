@@ -2434,6 +2434,7 @@
     "assistantApart.done": "新しい返信",
     "feature.assistantChatView": "アシスタントはメッセージのみ",
     "feature.assistantChatView.description": "アシスタントのチャットでは、ツール呼び出し、推論、ステップのグループを非表示にし、ボットとのチャットのように表示します。表示されるのは、あなたのメッセージ、アシスタントの返信、エラー、承認カードです。ほかのチャットは変わりません。",
+    "assistantChatView.earlier": "以前のメッセージを表示（{count} ターン）",
     "feature.assistantFree": "常に手が空いたアシスタント",
     "feature.assistantFree.description": "アシスタントのチャットはすぐに答え、ふさがったままになりません。実行するのは自分の短いツール（チャット、リマインダー、メモリー、サブエージェント）だけです。ほかのステップ（Web 検索、ファイル、コマンド）はすべてバックグラウンドのサブエージェントに任せ、結果はチャットに届きます。サブエージェントは通常どおり動作します。",
     "assistantFree.down": "この設定を保存できませんでした：{error}",

@@ -9102,11 +9102,16 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   });
 
   /** False only when dsh's session store no longer has the chat: Delete chat moved its log away, and its agent can still be
-   * live, so `resolveAgent` alone would give the deleted chat back. A dsh without the store, or a failed read: true. */
+   * live, so `resolveAgent` alone would give the deleted chat back. A dsh without the store, or a failed read: true.
+   * `stat(id)` reads one chat's folder (about 5 ms); `list()` reads the header of every chat (about 150 ms with 1300 chats,
+   * and it waits behind dsh's other listings), so it is only the fallback for a store without `stat`. */
   const stored = async (id) => {
     const persistence = get('sessionPersistence');
-    if (typeof persistence?.list !== 'function') return true;
-    try { return (await persistence.list()).some((s) => s?.header?.id === id); } catch { return true; }
+    try {
+      if (typeof persistence?.stat === 'function') return (await persistence.stat(id)) !== undefined;
+      if (typeof persistence?.list !== 'function') return true;
+      return (await persistence.list()).some((s) => s?.header?.id === id);
+    } catch { return true; }
   };
   /** The assistant chat: the saved one (unarchived when needed), else a new chat in ~/Assistant with the narrowest preset.
    * One open at a time: a second call while one runs gets the same answer. */

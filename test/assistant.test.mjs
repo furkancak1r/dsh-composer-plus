@@ -55,6 +55,11 @@ const newAgent = (id, header = { cwd: '/demo' }) => {
 };
 for (const id of ['s-web', 's-cli', 's-run']) newAgent(id);
 agents.get('s-run').status = 'running';
+const storeCalls = { list: 0, stat: 0 };
+const persistence = {
+  list: async () => { storeCalls.list += 1; return [...agents.keys()].filter((id) => !gone.has(id)).map((id) => ({ header: { id } })); },
+  stat: async (id) => { storeCalls.stat += 1; return agents.has(id) && !gone.has(id) ? { header: { id } } : undefined; },
+};
 const emit = (name, payload) => { for (const fn of listeners.get(name) ?? []) fn(payload); };
 const ctx = {
   logger: { warn: () => {} },
@@ -64,7 +69,8 @@ const ctx = {
       unarchiveSession: async (id) => { archived.delete(id); }, archiveSession: async (id, options) => { assert.equal(options?.stopActivity, undefined, 'never stopActivity: it deletes the chat\'s reminders'); if (agents.get(id)?.status === 'running') throw Object.assign(new Error('active'), { activity: [{ kind: 'turn' }] }); archived.add(id); } },
     permissionPresets: { names: ['read-only', 'workspace-write', 'danger-full-access'], set: (session, name) => presets.push([session.id, name]) },
     // dsh's session store: every chat that has an agent, except the ones whose log Delete chat moved away.
-    sessionPersistence: { list: async () => [...agents.keys()].filter((id) => !gone.has(id)).map((id) => ({ header: { id } })) } })[name],
+    // `stat` reads one chat; `list` reads all of them (slow with many chats): the route uses `stat` when dsh has it.
+    sessionPersistence: persistence })[name],
   on: (name, fn) => { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); },
   effect: () => {},
   inject: (deps, setup) => { assert.deepEqual(deps, ['systemPrompt']); fibers += 1; const mine = []; setup({ systemPrompt: { section: (s) => { sections.set(s.name, s); mine.push(s.name); } } }); return { dispose: () => { fibers -= 1; for (const n of mine) sections.delete(n); } }; },
@@ -217,6 +223,8 @@ assert.match(await tool('chat_archive').execute({ chat_id: 's-cli' }, as), /Arch
 // An archived assistant chat is unarchived; a deleted one is made again (a new id is saved).
 archived.add('s-assistant-1');
 assert.equal((await call(ASSISTANT_PATH)).body.sessionId, 's-assistant-1'); assert.ok(!archived.has('s-assistant-1'), 'unarchived');
+// Open speed: the saved chat is checked with `stat` (one chat), never with `list` (every chat).
+assert.ok(storeCalls.stat > 0, 'stat checks the saved chat'); assert.equal(storeCalls.list, 0, 'no list of every chat');
 // Delete chat: the log is gone and the id stays archived, but the agent is still live → a new chat; the old one stays archived.
 gone.add('s-assistant-1'); archived.add('s-assistant-1');
 assert.equal((await call(ASSISTANT_PATH)).body.sessionId, 's-assistant-3', 'deleted → a new chat');
@@ -231,6 +239,12 @@ ctx.sessionController.resolveAgent = async () => ({ error: { code: 'session/agen
 assert.equal((await call(ASSISTANT_PATH)).status, 409);
 ctx.sessionController.resolveAgent = busy;
 assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { sessionId: 's-assistant-3' });
+// A dsh store without `stat` (older): `list` still finds the saved chat, and a deleted one is still made again.
+const statOf = persistence.stat; delete persistence.stat;
+const lists = storeCalls.list;
+assert.equal((await call(ASSISTANT_PATH)).body.sessionId, 's-assistant-3', 'list fallback: the saved chat');
+assert.equal(storeCalls.list, lists + 1, 'list is the fallback');
+persistence.stat = statOf;
 
 // Off: the route, the section and every tool and restriction go; on again: back once, without a second route.
 assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: false })).body, { on: false });

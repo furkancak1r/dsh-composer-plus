@@ -119,7 +119,7 @@ const css = out.c[0].c[0];
 assert.ok(!css.includes('body:has('), 'no style rule on the whole page');
 assert.ok(css.includes('[data-composer-plus-collapse-projects]:empty { display: none; }'), 'an empty host takes no room');
 assert.ok(css.includes('[class*="_headerActions"]:has(> [data-composer-plus-collapse-projects]):not([class*="_headerActionsHidden"]) { max-width: 92px; }'), 'room for a third button');
-assert.deepEqual(observed, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-expanded'] }, 'a project that opens or closes is seen');
+assert.ok(observed.childList && observed.subtree && observed.attributes && observed.attributeFilter.includes('aria-expanded'), 'a project that opens or closes is seen (the shared body observer)');
 assert.equal(out.c[1], null, 'no project rows yet (rail or loading): no button');
 // 5 projects, all closed: the host is there, the button is not.
 const rows = [project('a', false), project('b', false), project('c', false, project('c1', false)), project('d', false), project('e', false)];

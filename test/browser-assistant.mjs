@@ -24,6 +24,8 @@
 // 11. Assistant always free (on by default): the assistant's own bash call is refused with the subagent reason; off: it runs.
 // 12. Assistant news from chats (off by default): switched on, a long turn in another chat wakes the assistant chat with
 //    the hidden note (no user bubble) and its reply shows; switched off, nothing comes.
+// 13. Open speed and view cap: the Assistant row opens the known assistant chat at once; with more than 8 turns drawn,
+//    only the newest 8 show, and "Show earlier messages (N turns)" shows the rest.
 // 7. Switch off: the sidebar row, the route, the tools and the section go. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/assistant.webp (English UI, made-up projects).
@@ -525,6 +527,43 @@ try {
       }
       await settings(); await newsSw.click(); await until(async () => (await api('/api/composer-plus.assistant-notify')).body?.on === false, 'news off'); await back();
       note(`12: a ${Math.round(Number(process.env.NEWS_TURN_MS || 61000) / 1000)}s turn in weather-cli woke the assistant with a hidden note; its one-line reply showed`);
+
+      // 13. Assistant open speed and view cap: a click opens the known assistant chat at once (the Host's answer is not
+      // waited for), and a long assistant chat shows only its newest 8 turns until Show earlier messages.
+      await openChat(ids.weather);
+      const shown = await page.evaluate(async (id) => {
+        const start = performance.now();
+        document.querySelector('button[aria-label="Assistant"]').click();
+        for (;;) {
+          if (document.querySelector(`[data-conversation-session="${id}"]`) !== null) return { ms: performance.now() - start, early: true };
+          if (performance.now() - start > 10000) return { ms: -1, early: false };
+          await new Promise((r) => requestAnimationFrame(r));
+        }
+      }, nowId);
+      assert.ok(shown.early, 'the assistant chat opens');
+      // The rows as dsh's chat view finds them: the children of its conversation.chat.flow slot (else of the column).
+      const rowTurns = (shownOnly) => page.evaluate(([id, shownOnly]) => {
+        const column = document.querySelector(`[data-conversation-session="${id}"] [data-chat-flow]`);
+        const rows = [...((column?.querySelector(':scope > [data-slot="conversation.chat.flow"]') ?? column)?.children ?? [])].filter((el) => el.hasAttribute('data-chat-turn'));
+        return new Set(rows.filter((el) => !shownOnly || el.getClientRects().length > 0).map((el) => el.getAttribute('data-chat-turn'))).size;
+      }, [nowId, shownOnly]);
+      const turnsNow = () => rowTurns(true);
+      const drawnTurns = () => rowTurns(false);
+      while ((await drawnTurns()) <= 8) {
+        const before = await drawnTurns();
+        await send(`short note ${before}`); await until(async () => (await drawnTurns()) > before, 'a new assistant turn');
+      }
+      const earlier = page.locator('[data-composer-plus-assistant-earlier-button]');
+      await earlier.waitFor({ timeout: 10000 });
+      assert.equal(await turnsNow(), 8, 'only the newest 8 turns show');
+      assert.match(await earlier.innerText(), /^Show earlier messages \(hidden turns: \d+\)$/);
+      const hiddenCount = Number(await earlier.getAttribute('data-composer-plus-assistant-earlier-button'));
+      await earlier.click();
+      await until(async () => (await turnsNow()) === (await drawnTurns()), 'every drawn turn shows after the click').catch(async (error) => {
+        throw Error(`${error.message}: ${await turnsNow()} shown of ${await drawnTurns()} drawn, button said ${hiddenCount} hidden`);
+      });
+      assert.equal(await earlier.count(), 0, 'the button goes');
+      note(`13: the assistant chat opened ${Math.round(shown.ms)} ms after the click; 8 turns shown and ${hiddenCount} hidden until Show earlier messages`);
 
       // 7. Switch off.
       await settings(); await sw.click(); await until(async () => (await sw.getAttribute('aria-checked')) === 'false', 'switch off'); await back();

@@ -152,7 +152,7 @@ delete globalThis.document.createElement;
 
 // Assistant messages only: a rule inside the assistant chat only.
 const [viewOpts, View] = entry('shell.overlay', 'assistant-chat-view');
-const viewCss = View({ ...viewOpts.inject() }).c.join('');
+const viewCss = View({ ...viewOpts.inject(), t: (k) => k }).c[0].c.join(''); // <style> (the view cap's button needs a long chat: test/assistant-cap.test.mjs)
 assert.match(viewCss, /\[data-conversation-session="s-assistant"\] \[data-chat-flow-kind="tool-call"\]/);
 assert.match(viewCss, /\[data-conversation-session="s-assistant"\] \[data-chat-group-key\]/);
 assert.match(viewCss, /\[data-conversation-session="s-assistant"\] \[data-chat-flow-kind="turn-process"\]/);
