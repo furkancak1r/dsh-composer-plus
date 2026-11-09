@@ -22,12 +22,14 @@
 // 10. Assistant messages only (on by default): a turn with a tool call shows only the reply in the assistant chat; switched
 //    off, the tool row shows again. Other chats keep their tool rows.
 // 11. Assistant always free (on by default): the assistant's own bash call is refused with the subagent reason; off: it runs.
-// 12. Assistant news from chats (off by default): switched on, a long turn in another chat wakes the assistant chat with
+// 12. Assistant news from chats (off by default): switched on, its default scope is Automations only (an ordinary chat's
+//    long turn gives no news); Tell me about → All chats: a long turn in another chat wakes the assistant chat with
 //    the hidden note (no user bubble) and its reply shows; switched off, nothing comes.
 // 13. Open speed and view cap: the Assistant row opens the known assistant chat at once; with more than 8 turns drawn,
 //    only the newest 8 show, and "Show earlier messages (N turns)" shows the rest.
 // 7. Switch off: the sidebar row, the route, the tools and the section go. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant.mjs /path/to/dsh/lib/bin.js [...]
+// PORT=<port> uses another port than 3213 (for example while another check uses 3213).
 // SHOT=1 also writes assets/features/assistant.webp (English UI, made-up projects).
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -197,7 +199,7 @@ try {
     await mkdir(join(dshHome, 'storages'), { recursive: true });
     await writeFile(join(dshHome, 'storages/workspace.json'), JSON.stringify({ unit: { name: 'workspace', version: 2 },
       global: { initialized: true, workspaceIds: Object.values(projects), archivedSessionIds: [], pinnedSessionIds: [], defaultWorkspaceId: projects['acme-web'] }, tables: { workspaces: table } }));
-    const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3213', '--no-open'], { cwd: join(home, 'projects', 'acme-web'),
+    const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', process.env.PORT || '3213', '--no-open'], { cwd: join(home, 'projects', 'acme-web'),
       env: { ...process.env, HOME: home, DSH_HOME: dshHome, DEMO_KEY: 'demo', TZ: 'Europe/Istanbul', COMPOSER_PLUS_TRASH: 'folder', npm_config_cache: join(tmpdir(), 'npm-cache'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = ''; child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
     const errors = []; let context; let page; let passed = false;
@@ -510,6 +512,17 @@ try {
       const newsSw = page.getByRole('switch', { name: 'Assistant news from chats', exact: true });
       assert.equal(await newsSw.getAttribute('aria-checked'), 'false', 'off by default');
       await newsSw.click(); await until(async () => (await api('/api/composer-plus.assistant-notify')).body?.on === true, 'news on');
+      assert.equal((await api('/api/composer-plus.assistant-notify')).body?.scope, 'automations', 'only automations by default');
+      // Automations only: the same long turn of an ordinary chat gives no news (the automation side is test/assistant-bot.test.mjs).
+      calls.length = 0;
+      await back(); await openChat(ids.weather); await send(TASK.N);
+      await until(async () => calls.some((c) => c.task === 'N'), 'the quiet slow turn starts');
+      await pause(Number(process.env.NEWS_TURN_MS || 61000) + 25000);
+      assert.equal(calls.some((c) => c.task === 'news'), false, 'no news from an ordinary chat while only automations are told');
+      await settings();
+      await page.getByRole('button', { name: 'Assistant news from chats: Tell me about', exact: true }).click();
+      await page.getByRole('menuitem', { name: 'All chats' }).or(page.getByRole('menuitemradio', { name: 'All chats' })).first().click();
+      await until(async () => (await api('/api/composer-plus.assistant-notify')).body?.scope === 'all', 'scope all');
       await back();
       calls.length = 0;
       await openChat(ids.weather); await send(TASK.N);
@@ -526,6 +539,7 @@ try {
         execFileSync('cwebp', ['-quiet', '-q', '72', '-resize', '960', '0', png, '-o', join(repo, 'assets/features/assistantNotify.webp')]); note('SHOT: assets/features/assistantNotify.webp');
       }
       await settings(); await newsSw.click(); await until(async () => (await api('/api/composer-plus.assistant-notify')).body?.on === false, 'news off'); await back();
+      assert.equal((await api('/api/composer-plus.assistant-notify')).body?.scope, 'all', 'the switch keeps the scope');
       note(`12: a ${Math.round(Number(process.env.NEWS_TURN_MS || 61000) / 1000)}s turn in weather-cli woke the assistant with a hidden note; its one-line reply showed`);
 
       // 13. Assistant open speed and view cap: a click opens the known assistant chat at once (the Host's answer is not
