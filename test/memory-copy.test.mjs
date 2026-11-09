@@ -68,15 +68,17 @@ try {
   await store.add({ scope: store.GLOBAL, text: 'The user writes in Turkish', actor: 'agent' });
   assert.equal((await call(MEMORY_COPY_PATH, { copy: { from: 'global', notes: [{ text: 'The user writes in Turkish' }], to: 'w-blog' } })).status, 200);
   assert.deepEqual(JSON.parse(await readFile(join(store.project(blog).dir, 'project.json'), 'utf8')), { path: store.project(blog).path });
-  // All or none: the target's MEMORY.md is full, so the last note does not fit: nothing is copied, files and journal as they were.
-  for (let i = 0; ; i++) { try { await store.add({ scope: a, text: `Api fact ${i} ${'x'.repeat(200)}`, actor: 'agent' }); } catch { break; } }
+  // All or none: the last note is gone from the source after the first one was written: nothing is copied, files and
+  // journal as they were. (No size limit since 2026-11-09, so a long note now fits.)
   await store.add({ scope: w, topic: 'style', text: 'Prefer small functions', actor: 'agent' });
-  await store.add({ scope: w, text: `A long web note ${'y'.repeat(250)}`, actor: 'agent' });
+  await store.add({ scope: w, text: `A long web note ${'y'.repeat(2500)}`, actor: 'agent' });
   const files = async () => Promise.all([join(a.dir, 'MEMORY.md'), join(a.dir, 'style.md'), join(home, 'storages', 'dsh-composer-plus', 'memory', 'journal.jsonl')].map((f) => readFile(f, 'utf8').catch(() => null)));
   const was = await files();
-  const full = await call(MEMORY_COPY_PATH, { copy: { from: w.id, notes: [{ text: 'Prefer small functions', topic: 'style' }, { text: `A long web note ${'y'.repeat(250)}` }], to: 'w-api' } });
-  assert.equal(full.status, 409); assert.match(full.body.error, /^Nothing was copied: "A long web note .*would have \d+ of its 8000/);
+  const full = await call(MEMORY_COPY_PATH, { copy: { from: w.id, notes: [{ text: 'Prefer small functions', topic: 'style' }, { text: 'A web note that is gone' }], to: 'w-api' } });
+  assert.equal(full.status, 409); assert.match(full.body.error, /^Nothing was copied: "A web note that is gone" is not in this memory any more/);
   assert.deepEqual(await files(), was, 'the last note failed: no topic file, no change, no journal row');
+  const long = await call(MEMORY_COPY_PATH, { copy: { from: w.id, notes: [{ text: `A long web note ${'y'.repeat(2500)}` }], to: 'w-api' } });
+  assert.equal(long.status, 200); assert.equal(long.body.copied, 1, 'a long note is copied');
   // One memory action at a time.
   let release; const hold = new Promise((r) => { release = r; });
   const slow = { prepareCall: async (route) => ({ config: route, async *stream() { await hold; yield { type: 'text-delta', text: '{"changes":[]}' }; yield { type: 'finish', reason: { kind: 'stop' } }; } }) };

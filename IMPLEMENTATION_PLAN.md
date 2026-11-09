@@ -2954,3 +2954,33 @@ Son durum: `npm test` exit 0; gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PAS
 - 2026-11-09 16:55: commit `31ed98e`; `origin/main` (b1200c2: yapılacaklar ve Durum paneli, araya alma, onay kartı tam metin) birleştirildi, commit `9a7fee9`. Çakışmalar iki tarafı da tutarak çözüldü (FEATURES, ayarlar, Host kurulumu, test betiği, toggles sayıları 80/70, bu dosyanın sonu). `npm test` exit 0; gerçek dsh testi 3 sürümde PASS.
 - 2026-11-09 17:00: review-guard 2. tur, 1 bulgu, düzeltildi.
   - F-02 (P3, doğrulandı): AGENTS.md kural 4 13 README'de SSS ister; yalnız sınır maddesi yazılmıştı. Düzeltme: Seçenek düğmeleri SSS'sinin altına 13 dilde bir SSS; geliştirme bölümündeki gerçek dsh test listesine `test/browser-approve-button.mjs` (13 README'de aynı kod bloğu). `readme`, `readme-labels`, `feature-docs` testleri geçti.
+## Hafıza klasörü: notlar seçilen klasörde (Obsidian kasası), sınırsız not (2026-11-09, dal `feature/hafiza-obsidian`)
+Project memory notları kullanıcının seçtiği bir klasörde (ör. Obsidian kasası `~/Assistant/Hafıza`) okunur ve yazılır; tek kopya oradadır. Not, konu ve dosya boyu sınırları kalkar. Her isteme giren kısım bir bütçeyle sınırlıdır; sığmayan notlar sessizce düşmez.
+- Varsayılan klasör (ayar yok) bugünkü düzeni korur: `memory/global`, `memory/projects/<hash>`. Diğer kullanıcılar için değişiklik yok (yalnız sınırlar kalkar).
+- `journal.jsonl`, `reviewed.json` ve sürüm geçmişi her zaman `storages/dsh-composer-plus/memory/` altında kalır, kasaya gitmez.
+- Yazma atomik (tmp + rename), symlink izlenmez (`readOwn` O_NOFOLLOW). Store yalnız `<klasör>/Genel` ve `<klasör>/Projeler/*` içini okur ve yazar.
+- Proje kimliği (gerçek yolun sha256'sı) aynı kalır; geçmiş, kopyalama, eski not ve dışa aktarma rotaları değişmez.
+- `fix/asistan-kritik-hatalar` dalının düzeltmeleri kalır (İ/ı katlama, kart yanıtları, hata satırları, alt ajan bölümü).
+1. Ayar `memory-folder.json` `{folder}`; Host rotası `GET/POST /api/composer-plus.memory` `{folder}` alır. Ayar dsh yeniden başlayınca etkin olur.
+2. Kasa düzeni: `<klasör>/Genel/MEMORY.md` + konular, `<klasör>/Projeler/<proje adı>/MEMORY.md` + konular + `project.json` `{path}`. Aynı adlı iki proje: ikinciye hash'ten kısa ek.
+3. Not (300), MEMORY.md (8000), konu (16000) ve konu sayısı (40) sınırı yok. İstem bütçesi: her MEMORY.md'den en yeni notlar, en çok 8000 karakter; gizlenen not sayısı ve memory_recall yönergesi yazılır.
+4. İlk açılış: seçilen klasörde hiç not yoksa ve o klasör daha önce içe aktarılmadıysa varsayılan klasördeki tüm notlar tek seferde, ya hep ya hiç, kopyalanır. Varsayılan klasör silinmez. Aktarım başarısızsa hafıza o oturumda kapalı kalır (not kaybı yok) ve sonraki açılışta yeniden dener.
+5. Gizli bilgi süzgeci 11 haneli T.C. kimlik numarasını (sağlama haneleri doğru olanı) da reddeder.
+6. Ayarlar → Project memory altında **Memory folder** alanı (13 dil), README ve `docs/features.json` güncel; `npm test` geçer.
+1. index.js: store (iki düzen), sınırların kaldırılması, istem bütçesi, süzgeç, ayar + rota, içe aktarma. Testler.
+2. client.js + 11 dil dosyası + `npm run build:locales`; docs/features.json, README.md, README.tr.md (+ diğer README'lerde kısa cümle), `npm run build:readme`.
+3. review-guard → düzeltme turu → push-branch → merge-main → canlı kopya (yedekle).
+4. Canlı veri: eski hafıza klasörünün yedeği, ayar dosyası, içe aktarmanın aynı kodla geçici klasörde prova sayımı. Gerçek aktarım dsh yeniden başlayınca yeni eklentiyle olur (eski eklenti o ana dek eski klasöre yazar, not kaybolmaz).
+`index.js`, `client.js`, `locales/*.json`, `test/project-memory.test.mjs`, `test/memory-*.test.mjs`, `docs/features.json`, `README*.md`, `llms.txt`, `docs/ROUTES.md` (üretilen), `IMPLEMENTATION_PLAN.md`.
+- Global notlar `Genel/MEMORY.md` (tek dosya `Genel.md` değil): global konuların da bir klasöre ihtiyacı var; her kapsam aynı dosya düzenini kullanır.
+- Eşleme dosyası her proje klasörünün içindeki `project.json` (eski düzendeki gibi): kullanıcı klasörü Obsidian'da yeniden adlandırırsa eşleme klasörle birlikte taşınır.
+- İçe aktarma eklentinin kendisinde: canlı eski eklenti yeniden başlatmaya dek eski klasöre yazdığı için aktarımın yeni eklentinin ilk açılışında olması tek güvenli an.
+- Taşma konusu `more` (fix dalı) kaldırıldı: MEMORY.md artık dolmaz, kod ölü kalırdı.
+- Obsidian'da büyük harfli ya da boşluklu yeni not adı (`Sağlık.md`) konu sayılmaz; konu adları küçük harf ve tire ister.
+- `[[konu]]` bağlantıları kasada aynı adlı başka notlara gidebilir (Obsidian en kısa yolu seçer).
+- Not içeriği GitHub yedeğine gider; süzgeç yalnız bilinen biçimleri yakalar.
+- 2026-11-09 16:20: plan yazıldı, kod yok. Taban: `fix/asistan-kritik-hatalar` (f1bbb2d), main'de değil.
+- 2026-11-09 17:00: aşama 1-2 bitti, commit `f70f1ec`. `npm test` exit 0.
+- 2026-11-09 17:15: öz denetim turu 1 (`3da3814`): F-01 (P1) kasa düzeninde günlük klasörü yoksa yazma ve geri alma düşüyordu; F-02 (P2) büyük/küçük harf farklı iki aynı adlı proje macOS'ta tek klasöre düşüyordu; F-03 (P2) sınır kalkınca inceleme ve öneri istekleri sınırsız büyüyordu; F-04 (P3) 13 README ve rota belgesi eski sınırları anıyordu.
+- 2026-11-09 17:25: öz denetim turu 2: F-05 (P2) klasör değişince notlar varsayılan düzenden kopyalanıyordu, kullanımdaki kasadan değil; F-06 (P2) başarısız bir kaydın geri alması klasöre o arada konan kullanıcı dosyasını silebiliyordu (yalnız hafıza dosyaları silinir). Canlı verinin kopyasında prova: eski 50 kapsam / 115 dosya / 495 not / 65 konu = yeni 50 / 115 / 495 / 65, 50 kapsamın 50'sinde not metinleri aynı. `npm test` exit 0.
+- 2026-11-09 17:45: `fix/asistan-kritik-hatalar` main'e girdi; dal `origin/main` (7aeb89e) üstüne yeniden kuruldu. Çakışmalar: README'ler (main'in alt ajan ve kart yanıtı cümleleri tutuldu, "more" konusu cümlesi silindi, kod artık yok), package.json (iki test de var), plan. Öz denetim turu 3: F-07 (P3) reddedilen klasör yolu alanı boşaltıyordu; artık metin kalır. `npm test` exit 0 (116 denetim).
