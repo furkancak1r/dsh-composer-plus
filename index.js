@@ -9512,6 +9512,8 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   /** The status of the assistant chat `sessionId` (only it: another chat gets no tasks or projects). */
   const ended = new Map(); // child id → its ended task (ponytail: grows with the assistant's tasks of this dsh run)
   let projectsCache; // { at, value }: the chat list is read at most every STATUS_LIMITS.cacheMs, Refresh reads it now
+  // A root chat that starts or ends a turn changed the projects: the next read reads the chat list again.
+  ctx.on('session/event', (session, event) => { if ((event?.type === 'turn/start' || event?.type === 'turn/end') && isRootChat(session)) projectsCache = undefined; });
   const status = async (sessionId, signal, fresh) => {
     if (!on || !assistant.isAssistant(get('agents')?.get?.(sessionId))) return {};
     const agent = get('agents').get(sessionId);

@@ -96,7 +96,7 @@ try {
   // The route with a fake dsh and the real installAssistant.
   const home = join(root, 'home'); const dir = join(home, 'storages', 'dsh-composer-plus');
   await mkdir(dir, { recursive: true }); await writeFile(join(dir, 'assistant.json'), JSON.stringify({ sessionId: 's-a' }));
-  const agents = new Map(); const routes = new Map(); const sections = new Map(); let observed = 0; let listed = 0;
+  const agents = new Map(); const routes = new Map(); const sections = new Map(); let observed = 0; let listed = 0; const listeners = new Map();
   const newAgent = (id, header = { cwd: home }, log = []) => {
     const registered = new Map();
     const agent = { id, status: 'idle', session: { id, header, inheritedEventCount: 0, snapshotEvents: () => log },
@@ -110,7 +110,7 @@ try {
   const ctx = {
     logger: { warn: () => {} }, subprocess,
     get: (name) => ({ agents: { get: (id) => agents.get(id), list: () => [...agents.values()] }, workspaceRegistry: { list: () => wsReal, archivedSessionIds: ['s-arch'] }, sessionPersistence: { list: async () => [...agents.keys()].map((id) => ({ header: { id } })) } })[name],
-    on: () => {}, effect: () => {},
+    on: (name, fn) => { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); }, effect: () => {},
     inject: (deps, setup) => { setup({ systemPrompt: { section: (x) => { sections.set(x.name, x); }, context: () => {} } }); return { dispose: () => {} }; },
     connection: { fetch: { register: (route) => { routes.set(route.path, route); return () => routes.delete(route.path); } } },
     sessionQuery: { observeSession: async (id) => { if (id === 'c-done') observed += 1; if (children[id] === undefined || id === 'c-lost') throw new Error('unknown'); return { header: {}, events: children[id].log, inheritedEventCount: 0, [Symbol.dispose]() {} }; }, readTitle: async () => ({ title: 'x' }) },
@@ -132,6 +132,12 @@ try {
   r = await call('?sessionId=s-a'); assert.equal(r.body.tasks.find((t) => t.id === 'c-done').result, 'Flights found: 3 options');
   assert.equal(observed, o1, 'an ended task is not read again (a log that could not be read is tried again)'); assert.equal(listed, l1, 'the chat list is not read again within 30 s');
   r = await call('?sessionId=s-a&refresh=1'); assert.equal(listed, l1 + 1, 'Refresh reads the chat list again');
+  // A root chat's turn edge drops the cache (a new chat shows at once); a subagent's does not.
+  const onEvent = listeners.get('session/event');
+  for (const fn of onEvent) fn({ id: 'c-run', header: { origin: 'subagent' } }, { type: 'turn/end' });
+  await call('?sessionId=s-a'); assert.equal(listed, l1 + 1, 'a subagent turn does not drop the cache');
+  for (const fn of onEvent) fn({ id: 's-web', header: {} }, { type: 'turn/start' });
+  await call('?sessionId=s-a'); assert.equal(listed, l1 + 2, 'a root chat turn drops the cache');
   assert.deepEqual(r.body.projects.map((p) => p.id), ['w-web', 'w-cli']); assert.equal(r.body.summary, undefined);
   // Another chat: no status (its subagents are not the assistant's).
   r = await call('?sessionId=s-web'); assert.equal(r.body.tasks, undefined); assert.equal(r.body.projects, undefined);
