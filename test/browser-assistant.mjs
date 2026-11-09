@@ -20,7 +20,8 @@
 //    waiting dot at its right end (lined up with the project rows' status, not over the icon) while a card waits, and
 //    switched off the row is back.
 // 10. Assistant messages only (on by default): a turn with a tool call shows only the reply in the assistant chat; switched
-//    off, the tool row shows again. Other chats keep their tool rows.
+//    off, the tool row shows again. Other chats keep their tool rows. The finished notices of step 8 ("Subtask status
+//    updated") are drawn but hidden while it is on, and show again when it is off.
 // 11. Assistant always free (on by default): the assistant's own bash call is refused with the subagent reason; off: it runs.
 // 12. Assistant news from chats (off by default): switched on, a long turn in another chat wakes the assistant chat with
 //    the hidden note (no user bubble) and its reply shows; switched off, nothing comes.
@@ -410,7 +411,16 @@ try {
       assert.equal(await page.getByText('Topic P1 finished.').count(), 0, 'P1 still works after P2 ended');
       gates.P1 = true;
       await page.getByText('Topic P1 finished.').first().waitFor({ timeout: 30000 });
-      note(`8: two topics ran at the same time in background subagents; P2 ended first, then P1 (notice: ${JSON.stringify(calls.find((c) => c.notice)?.notice).slice(0, 200)})`);
+      // Assistant messages only: dsh drew each finished notice as a "Subtask status updated" row; the rows are hidden, and the
+      // assistant's own summary shows (one message per finished subagent).
+      const subChat = page.locator(`[data-conversation-session="${nextId}"]`);
+      // Shown: visible with a height (the hidden rows keep a 0-height, invisible box for dsh's turn navigator).
+      const triggers = (shown) => subChat.locator('[data-turn-trigger]').evaluateAll((els, only) => els.filter((el) => !only || (el.checkVisibility({ visibilityProperty: true }) && el.getBoundingClientRect().height > 0)).length, shown);
+      await until(async () => (await triggers(false)) >= 2, 'dsh drew the two finished notices');
+      assert.equal(await triggers(true), 0, 'no subagent row shows in the assistant chat');
+      assert.equal(await subChat.getByText(/Subtask status updated|Task message received/).evaluateAll((els) => els.filter((el) => el.checkVisibility({ visibilityProperty: true }) && el.getBoundingClientRect().height > 0).length), 0, 'no subagent row label shows');
+      for (const summary of ['Topic P2 finished.', 'Topic P1 finished.']) assert.ok(await subChat.getByText(summary).first().isVisible(), `the summary "${summary}" shows`);
+      note(`8: two topics ran at the same time in background subagents; P2 ended first, then P1; ${await triggers(false)} subagent rows drawn, 0 shown (notice: ${JSON.stringify(calls.find((c) => c.notice)?.notice).slice(0, 200)})`);
 
       // 9. Assistant apart from chats (on by default): no row for the assistant chat in the list, the "Assistant" project
       //    is hidden, search finds the chat; the Assistant row shows the orange dot while a card waits.
@@ -493,6 +503,7 @@ try {
       await until(async () => (await api('/api/composer-plus.assistant-free')).body?.on === false, 'free off');
       await back();
       await until(async () => (await visibleTools()) > 0, 'tool rows show again with Assistant messages only off');
+      assert.ok((await chat.locator('[data-turn-trigger]').evaluateAll((els) => els.filter((el) => el.checkVisibility({ visibilityProperty: true }) && el.getBoundingClientRect().height > 0).length)) > 0, 'the subagent rows show again with Assistant messages only off');
       if (process.env.SHOT) {
         // The refused bash row (its tool row shows now) and the reply that names it.
         const png = join(home, 'assistantFree.png'); await page.screenshot({ path: png });

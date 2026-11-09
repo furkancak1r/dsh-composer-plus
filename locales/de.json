@@ -2445,7 +2445,7 @@
     "assistantApart.waiting": "Wartet auf dich",
     "assistantApart.done": "Neue Antwort",
     "feature.assistantChatView": "Nur Nachrichten im Assistenten",
-    "feature.assistantChatView.description": "Im Assistenten-Chat sind Tool-Aufrufe, Denken und Schrittgruppen ausgeblendet, wie in einem Chat mit einem Bot: Du siehst deine Nachrichten, seine Antworten, Fehler und Genehmigungskarten. Andere Chats ändern sich nicht.",
+    "feature.assistantChatView.description": "Im Assistenten-Chat sind Tool-Aufrufe, Denken und Schrittgruppen ausgeblendet, wie in einem Chat mit einem Bot: Du siehst deine Nachrichten, seine Antworten, Fehler und Genehmigungskarten. Andere Chats ändern sich nicht. Die Zeilen eines Subagenten (\"Aufgabennachricht empfangen\", \"Status der Teilaufgabe aktualisiert\") sind auch ausgeblendet: Die Antwort des Assistenten nennt das Ergebnis einmal.",
     "assistantChatView.earlier": "Ältere Nachrichten anzeigen (ausgeblendete Runden: {count})",
     "feature.assistantFree": "Assistent immer frei",
     "feature.assistantFree.description": "Der Assistenten-Chat antwortet sofort und ist nie beschäftigt: Er führt nur seine eigenen kurzen Tools aus (Chats, Erinnerungen, Gedächtnis, Subagenten). Jeder andere Schritt (eine Websuche, eine Datei, ein Befehl) geht an einen Subagenten im Hintergrund, und das Ergebnis kommt in den Chat zurück. Seine Subagenten arbeiten wie gewohnt.",
