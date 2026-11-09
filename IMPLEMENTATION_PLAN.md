@@ -2838,3 +2838,149 @@ Doğrulandı 3, reddedildi 1.
 İncelenen kapsamda doğrulanmış bulgu yok. Reddedilen aday: dsh kapanırken biten dal sohbeti görevi "çalışıyor" görünür. Kanıt: main bu görevi bilerek tutar (`stoppedByDsh`: Resume after restart onu sürdürür), panel de aynı kaydı gösterir.
 Son durum: `npm test` exit 0; gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS (birleşmeden sonra); geçici test klasörleri silindi.
 
+## Asistan: araya alma (2026-11-09, dal `feature/asistan-araya-alma`)
+İstek (sahip, Türkçe): asistan sohbetinde kuyruk kalsın ama kullanıcının mesajı araya alınsın. Üç madde, öncelik sırasıyla: (1) tur çalışırken gelen mesaj bir sonraki adımda tura girer; (2) `send_message` ile sonucunu zaten gönderen alt ajanın "bitti" bildirimi ayrı tur başlatmaz; (3) soru kartı açıkken yazılan mesaj kartın cevabı olur.
+
+### Kanıt (DSH 0.2.2-rc.1, app.asar'dan; 0.2.0-rc.2 ve 0.2.1-rc.2 kopyaları)
+- Besteci "queue" gönderir; Host `agent.followup` çağırır (dsh-api-session-controller index.js:857-858) ve mesaj tur sonuna kadar `next-turn` kuyruğunda bekler. `agent.steer` mesajı `next-step` listesine koyar; çalışan tur onu bir sonraki adımda alır (dsh-agent-loop index.js:573, 670, 790-797). `send_message` da bunu kullanır (dsh-subagent manager.js:1180-1182).
+- Alt ajan bildirimi: ana ajan boştaysa `followup` (yeni tur), çalışıyorsa `steer` (manager.js:1081-1093). 0.2.2, mesaj gönderip biten alt ajanın bildirimine "It sent you a message just before finishing" yazar (continuation-messages.js:100-101); 0.2.0 ve 0.2.1 yazmaz.
+- Soru kartı `user-questions/request` waterfall'udur (dsh-user-questions index.js:709); kart `request.signal` iptal olunca istemcilerde kapanır (dsh-api-gateway index.js:1112-1135).
+- Yarış: dsh turu son kontrolünden sonra ve boşta duruma geçmeden önce gelen `steer`/`followup` mesajı uyandırmaz (agent-loop index.js:618-622, 651-663).
+
+### Hedef ve değişmezler
+- Yalnız asistan sohbeti ve yalnız "Assistant always free" açıkken. Öteki sohbetler dsh kuyruğunu kullanır. DSH çekirdeği değişmez.
+- Mesaj kaybolmaz: araya alınan mesaj dsh'nin kalıcı `next-step` listesine girer. Tur bitişiyle aynı anda gelen mesaj için ajan bir boş işaretle uyandırılır. Kullanıcı Durdur'a bastıysa uyandırılmaz (dsh davranışı).
+- Çalışan araç çağrısı kesilmez (iptal yok). Aynı adımda kullanıcı mesajı bildirimlerden önce gelir.
+- Mesaj göndermiş alt ajanın "bitti" bildirimi: boştaysa sessizce `next-step` bağlamına girer (tur yok); tur çalışıyorsa tur bitene kadar tutulur, sonra sessizce girer. Mesaj göndermeden biten alt ajan ve 0.2.2 öncesi dsh: dsh davranışı.
+- Soru kartı: onay ve plan incelemesi kartları (`intent`) değişmez. Mesaj kartın her sorusuna `custom` cevap olur; mesaj ayrıca sohbete girer (balon kalır, kayıt kalıcıdır).
+
+### Kabul ölçütleri
+1. Tur çalışırken gelen mesaj aynı turun sonraki adımında; ikinci tur yok; normal sohbette kuyruk değişmez; anahtar kapalıyken dsh davranışı.
+2. Tur bitişiyle aynı anda gelen mesaj bir turda modele gider. Durdurulmuş turdan sonra kendiliğinden tur başlamaz.
+3. İşaretli "bitti" bildirimi boşta tur başlatmaz, çalışırken adım eklemez; işaretsiz bildirim tur başlatır.
+4. Açık soru kartında yazılan mesaj cevap olur, kart sinyali iptal olur; onay kartı değişmez.
+5. `npm test` geçer.
+
+### Aşamalar
+1. Madde 1 + yarış testi (`test/assistant-interject.test.mjs`, dsh tur döngüsünün küçük modeli). Commit.
+2. Madde 2 + test. Commit.
+3. Madde 3 + test, belge (`docs/features.json` assistantFree `how` 13 dil, `llms`, README sınırı, `npm run build:readme`). Commit.
+4. review-guard denetimi, düzeltme, yeniden denetim.
+
+### İzinli yollar
+`index.js` (yalnız `installAssistantBot`), `test/assistant-interject.test.mjs`, `package.json` (test betiği), `docs/features.json`, `README.md`, üretilen README/llms bölümleri, `IMPLEMENTATION_PLAN.md`.
+
+### Kararlar
+- Ayrı anahtar yok: üç madde "Assistant always free" altında (ana ajan onayı).
+- Mesaj yönü Host'ta değişir (`followup` yerine `steer`); istemci değişmez, Tether de aynı Host yolunu kullanır.
+- Kart için ikinci istemci yok: aynı waterfall'a dıştan bağlanılır ve kartın sinyali iptal edilir.
+
+### Riskler
+- Ajan nesnesinin `followup`/`steer` yöntemleri asistan ajanında sarılır (dsh'nin herkese açık yöntemleri; kaldırınca geri konur).
+- Tutulan bildirim, tur sürerken dsh çökerse kaybolur; alt ajanın sonucu zaten mesajla gelmiştir.
+- Çevrilmiş README'lerin sınır paragrafı bu dalda güncellenmeyebilir.
+
+### Son kontrol noktası
+- 2026-11-09 15:10: plan yazıldı, kod yok. Dal `main` c285607 üstünde.
+- 2026-11-09 15:20: aşama 1 commit `5483397`, aşama 2 `618333e`, aşama 3 ve belge `0d857d8`. Her maddenin testi düzeltme geri alınınca kırmızı (mutasyon denetimi).
+- 2026-11-09 16:00: öz denetim (review-guard).
+  - F-01 (P2, doğrulandı): yardımcı tanımlar `ASSISTANT_FREE_SECTION` satırının hemen altındaydı; `feat/sohbet-ici-yapilacaklar` aynı satırı değiştiriyor, birleşmede çakışma çıkıyordu (`git merge-tree`). Düzeltme: tanımlar `installAssistantBot` üstüne taşındı; index.js çakışması kalktı.
+  - F-02 (P2, doğrulandı): yapılandırılmış sonuç ya da teşhis taşıyan "bitti" bildirimi de bellekte tutuluyordu; veri taşıyan bildirim çökmede kaybolabilirdi. Düzeltme: yalnız iki sabit satırlık bildirim sessizdir; öteki dsh turunu korur. Regresyon testi var.
+  - F-03 (P2, doğrulandı): 12 çeviri README'sinde sınır cümlesi yoktu (AGENTS.md kural 4). Düzeltme: her dilde etiketle eklendi.
+  - F-04 (P2, doğrulandı): asistan kimliği dosyadan okunmadan önce açık olan asistan ajanı sarılmıyordu (ilk tura kadar araya alma yok). Düzeltme: `assistant.ready` sonrası açık ajanlar sarılır. Regresyon testi var.
+  - F-05 (P2, doğrulandı): eklenti kapanırken tutulan bildirimler bellekte kalıp kayboluyordu. Düzeltme: kapanışta dsh'nin kalıcı gelen kutusuna (`inject`) girer. Regresyon testi var.
+  - F-06 (P3, doğrulandı): uyandırma yorumu yalnız Durdur'u anıyordu; hata ile biten turda da mesaj (dsh gibi) bekler. Yorum düzeltildi.
+  - 3. turda yeni doğrulanmış bulgu yok. `npm test` exit 0, `git diff --check` temiz.
+  - Açık iş: gerçek dsh tarayıcı testi (0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1) yapılmadı. Kart kapanışı kaynak kodundan doğrulandı (dsh-api-gateway index.js:1112-1135), canlı arayüzde doğrulanmadı. Ayarlar'daki `feature.assistantFree.description` metni değişmedi (hâlâ doğru, araya almayı anmıyor).
+  - Çakışma: `feat/sohbet-ici-yapilacaklar` ile `IMPLEMENTATION_PLAN.md`, 13 README, `llms.txt`, `package.json` (test betiği) çakışır; ikisini de tut, sonra `npm run build:readme`.
+
+## Onayla düğmesi (`approveButton`, 2026-11-09, dal `feature/onay-dugmesi`)
+İstek (sahip, Türkçe): "ok "Onayla" düğmesi kurulsun". Sahip her gün yaklaşık 10 onay cümlesini elle yazıyor ya da yapıştırıyor. Auto review (aiproxy-review) ajan mesajlarını görmez; yalnız kullanıcı mesajlarını ve araç çağrılarını görür. Bu yüzden onay cümlesi kullanıcı mesajı olarak gelmeli.
+
+### Hedef
+- İstem kuralı (Host, sistem istemi bölümü `composer-plus:approve-button`): ajan, kullanıcıdan yazılı onay cümlesi isteyince cümleyi bilgi dizesi `onay` olan çitli kod bloğuna yazar.
+- İstemci: sohbetin en yeni yanıtındaki her `onay` bloğu için yanıtın altında (dsh'nin `conversation.chat.turnTail` yuvası) bir "Onayla" düğmesi. Tek tık blok metnini dsh'nin normal gönderme yoluyla (`conversation.send`, kuyruk) kullanıcı mesajı olarak gönderir.
+- Canlı hedef koruması: cümle canlı ya da herkese açık bir hedef adı taşıyorsa düğme çıkmaz, blok düz kalır.
+
+### Değişmezler
+- Gönderilen metin bloğun metninin aynısıdır (baştaki ve sondaki boşluk dışında). Mesaj dsh'nin kendi `conversation.send` yolundan gider.
+- Bir yanıt için tek gönderim: Seçenek düğmeleriyle aynı depo (`createOptionPicks`): sohbet başına bir gönderim, gönderilen yanıtta düğmeler kapanır (çift tık iki mesaj göndermez, kural 7).
+- Düğme yalnız en yeni, geri alınmamış yanıtta (kural 9), çatalın kendi yanıtında (kural 10), sohbet boştayken çıkar. Kullanıcı mesajına ve eski yanıtlara düğme yok. Kayıtlı mesajlar değişmez.
+- Emin olunmayan durumda düğme yok: kapanmamış blok, boş blok, 500 karakterden uzun blok, liste içinde girintili blok, başka bir kod bloğunun içindeki blok.
+- Özellik kapanınca yuva gider; Host anahtarı kapanınca istem bölümü gider.
+
+### Kabul ölçütleri
+1. ```` ```onay ```` bloğu olan en yeni yanıtın altında "Onayla" düğmesi görünür; tık metni kullanıcı mesajı olarak bir kez gönderir.
+2. Canlı hedef listesi (Z aktarımı, Z-share, canlı, live, production, prod, 2.19, promes-219, port 5100, live database, canlı DB, npm publish, GitHub release, release, proso-deploy, deploy ve benzerleri) düğmeyi gizler; test ve özellik dalı cümleleri düğmeyi gösterir.
+3. İlk tıktan sonra düğme kapalıdır; ikinci tık mesaj göndermez. Gönderim hata verirse neden görünür ve düğme açılır.
+4. Kullanıcı mesajında, eski yanıtta, çalışan sohbette ve geri alınmış yanıtta düğme yok.
+5. Host anahtarı (`approve-button.json`, varsayılan açık) istem bölümünü ekler ve kaldırır.
+6. `npm test` geçer.
+
+### Aşamalar
+1. Plan (bu bölüm).
+2. Kod: `client.js` (ayrıştırıcı, koruma, düğme bileşeni, özellik anahtarı, en/zh metinleri), `index.js` (istem bölümü ve anahtar yolu), `locales/*.json` (11 dil), `npm run build:locales`.
+3. Testler: `test/approve-button.test.mjs` (ayrıştırma, koruma listesi, tek tık), Host anahtarı, `test/toggles.test.mjs` sayıları, `package.json` test betiği.
+4. Belgeler: `docs/features.json` (13 dilde `how`, `llms`, yol), `npm run build:readme`, 13 README'de sınır maddesi, `tether/FEATURES.md` satırı.
+5. Ekran görüntüsü ve gerçek dsh: `test/browser-approve-button.mjs` (headless, `chromiumSandbox: true`, sahte model), `SHOT=1` ile `assets/features/approveButton.webp`; 0.2.0-rc.2, 0.2.1-rc.2 ve 0.2.2-rc.1.
+6. review-guard, düzeltme, push, main'e birleştirme, canlı masaüstü kopyası.
+
+### İzinli yollar
+`client.js`, `index.js`, `locales/*.json`, `docs/features.json`, `docs/ROUTES.md`, `README*.md`, `llms.txt`, `package.json` (yalnız test betiği), `test/approve-button.test.mjs`, `test/browser-approve-button.mjs`, `test/toggles.test.mjs`, `assets/features/approveButton.webp`, `tether/FEATURES.md`, `IMPLEMENTATION_PLAN.md`.
+
+### Kararlar
+- Düğme yanıtın sonundaki turn-tail yuvasında durur (Seçenek düğmeleriyle aynı yol). dsh'nin kod bloğu başlığı bilinmeyen dil adı yerine "Code" yazar; DOM'da `onay` bloğunu ayırmak güvenilir değil. Metin dsh'nin sohbet görünümündeki ham yanıttan okunur.
+- Seçenek düğmeleriyle aynı depo: bir yanıt için tek yanıt (seçenek ya da onay), sohbet başına tek gönderim.
+- Yalnız en yeni yanıt: eski bir onay cümlesinin sonradan tıklanıp eski bir işi yeniden yetkilendirmesini önler.
+- Koruma listesi geniş tutulur (ör. `prod` öneki "product" kelimesini de gizler, `proso` her Proso adını gizler). Gizli düğme güvenlidir, yanlış düğme güvenli değildir.
+- Tether: bu sürümde yok (satır `no`, nedeniyle).
+
+### Riskler
+- Diğer dallar (`feat/sohbet-ici-yapilacaklar`, `fix/asistan-kritik-hatalar`, `feature/asistan-araya-alma`, `fix/asistan-acilis-hizi`) `client.js` FEATURES listesi, dil dosyaları, `docs/features.json`, `test/toggles.test.mjs` sayıları ve bu dosyanın sonu ile çakışabilir.
+- Model kuralı her zaman uygulamayabilir; o zaman düğme çıkmaz (eski yol: kopyala, yapıştır).
+
+### Son kontrol noktası
+- 2026-11-09 15:30: plan yazıldı, kod yok. Taban: `npm test` exit 0 (c285607).
+- 2026-11-09 16:40: aşama 2–5 bitti.
+  - Kod: `client.js` (`parseApprovals`, `APPROVAL_LIVE`, `APPROVAL_CHARS`, `ApproveButtons`, OptionPicks ile ortak `useAnswerOffer`, `approveButton` özelliği), `index.js` (`installApproveButton`, `APPROVE_SECTION`, `approve-button` yolu).
+  - Karar: koruma ayrıca bir izin listesi kullanır: yalnız Latin harfi, yazdırılabilir ASCII ve birkaç tipografi işareti. Kiril ya da Yunan benzer harf, görünmez karakter, birleşik işaret ve ASCII dışı rakam düğmeyi gizler.
+  - `test/approve-button.test.mjs`: 10 gerçek mutasyonun hepsinde kırmızı; kontrol mutasyonu yeşil.
+  - `test/browser-approve-button.mjs` (headless, `chromiumSandbox: true`, sahte model): 0.2.1-rc.2, 0.2.0-rc.2 ve 0.2.2-rc.1 üzerinde PASS. `SHOT=1` ile `assets/features/approveButton.webp` (9,8 kB, 0.2.1-rc.2, İngilizce arayüz, uydurma proje).
+  - `npm test` exit 0; `git diff --check` temiz.
+- 2026-11-09 16:45: review-guard 1. tur, 1 bulgu, düzeltildi.
+  - F-01 (P2, doğrulandı): canlı hedef koruması benzer yazımla aşılıyordu. `dep1oy`, `pr0d`, `depIoy`, `canIı`, `d-e-p-l-o-y`, `2.l9`, `51OO` ve Latin yazısındaki küçük büyük harfler (`ᴅᴇᴘʟᴏʏ`) düğme gösteriyordu (gerçek `parseApprovals` ile 15 örnek denendi). Kök neden: kelime listesi yalnız harfi harfine eşleşiyordu; karakter izin listesi bütün Latin yazısını kabul ediyordu.
+  - Düzeltme: `APPROVAL_CHARS` yalnız yazdırılabilir ASCII, Türkçe harfler ve birkaç tipografi işareti. `liveTarget` kelimeleri metnin okunuşunda arar (1 i | ! → l, 0 → o, 3 → e, 4 @ → a, 5 $ → s, 7 → t; diğer işaretler silinir; boşluklar teke iner). Yer kalıpları (Z:, 2.19, 219, 5100) l/i/|/! → 1, o → 0 okumasında aranır. Sınır (ponytail yorumu): boşlukla bölünen kelime ("de ploy") yakalanmaz; düğme onu iki kelime olarak gösterir.
+  - Regresyon: 15 örneğin hepsi eski korumada düğme gösterdi, yenisinde gizli. Güvenli cümleler ("sil ve", "feature/login-fix-1", "12 tests") yeşil. README sınır maddesi (13 dil) ve `llms` metni güncellendi.
+- 2026-11-09 16:55: commit `31ed98e`; `origin/main` (b1200c2: yapılacaklar ve Durum paneli, araya alma, onay kartı tam metin) birleştirildi, commit `9a7fee9`. Çakışmalar iki tarafı da tutarak çözüldü (FEATURES, ayarlar, Host kurulumu, test betiği, toggles sayıları 80/70, bu dosyanın sonu). `npm test` exit 0; gerçek dsh testi 3 sürümde PASS.
+- 2026-11-09 17:00: review-guard 2. tur, 1 bulgu, düzeltildi.
+  - F-02 (P3, doğrulandı): AGENTS.md kural 4 13 README'de SSS ister; yalnız sınır maddesi yazılmıştı. Düzeltme: Seçenek düğmeleri SSS'sinin altına 13 dilde bir SSS; geliştirme bölümündeki gerçek dsh test listesine `test/browser-approve-button.mjs` (13 README'de aynı kod bloğu). `readme`, `readme-labels`, `feature-docs` testleri geçti.
+## Hafıza klasörü: notlar seçilen klasörde (Obsidian kasası), sınırsız not (2026-11-09, dal `feature/hafiza-obsidian`)
+Project memory notları kullanıcının seçtiği bir klasörde (ör. Obsidian kasası `~/Assistant/Hafıza`) okunur ve yazılır; tek kopya oradadır. Not, konu ve dosya boyu sınırları kalkar. Her isteme giren kısım bir bütçeyle sınırlıdır; sığmayan notlar sessizce düşmez.
+- Varsayılan klasör (ayar yok) bugünkü düzeni korur: `memory/global`, `memory/projects/<hash>`. Diğer kullanıcılar için değişiklik yok (yalnız sınırlar kalkar).
+- `journal.jsonl`, `reviewed.json` ve sürüm geçmişi her zaman `storages/dsh-composer-plus/memory/` altında kalır, kasaya gitmez.
+- Yazma atomik (tmp + rename), symlink izlenmez (`readOwn` O_NOFOLLOW). Store yalnız `<klasör>/Genel` ve `<klasör>/Projeler/*` içini okur ve yazar.
+- Proje kimliği (gerçek yolun sha256'sı) aynı kalır; geçmiş, kopyalama, eski not ve dışa aktarma rotaları değişmez.
+- `fix/asistan-kritik-hatalar` dalının düzeltmeleri kalır (İ/ı katlama, kart yanıtları, hata satırları, alt ajan bölümü).
+1. Ayar `memory-folder.json` `{folder}`; Host rotası `GET/POST /api/composer-plus.memory` `{folder}` alır. Ayar dsh yeniden başlayınca etkin olur.
+2. Kasa düzeni: `<klasör>/Genel/MEMORY.md` + konular, `<klasör>/Projeler/<proje adı>/MEMORY.md` + konular + `project.json` `{path}`. Aynı adlı iki proje: ikinciye hash'ten kısa ek.
+3. Not (300), MEMORY.md (8000), konu (16000) ve konu sayısı (40) sınırı yok. İstem bütçesi: her MEMORY.md'den en yeni notlar, en çok 8000 karakter; gizlenen not sayısı ve memory_recall yönergesi yazılır.
+4. İlk açılış: seçilen klasörde hiç not yoksa ve o klasör daha önce içe aktarılmadıysa varsayılan klasördeki tüm notlar tek seferde, ya hep ya hiç, kopyalanır. Varsayılan klasör silinmez. Aktarım başarısızsa hafıza o oturumda kapalı kalır (not kaybı yok) ve sonraki açılışta yeniden dener.
+5. Gizli bilgi süzgeci 11 haneli T.C. kimlik numarasını (sağlama haneleri doğru olanı) da reddeder.
+6. Ayarlar → Project memory altında **Memory folder** alanı (13 dil), README ve `docs/features.json` güncel; `npm test` geçer.
+1. index.js: store (iki düzen), sınırların kaldırılması, istem bütçesi, süzgeç, ayar + rota, içe aktarma. Testler.
+2. client.js + 11 dil dosyası + `npm run build:locales`; docs/features.json, README.md, README.tr.md (+ diğer README'lerde kısa cümle), `npm run build:readme`.
+3. review-guard → düzeltme turu → push-branch → merge-main → canlı kopya (yedekle).
+4. Canlı veri: eski hafıza klasörünün yedeği, ayar dosyası, içe aktarmanın aynı kodla geçici klasörde prova sayımı. Gerçek aktarım dsh yeniden başlayınca yeni eklentiyle olur (eski eklenti o ana dek eski klasöre yazar, not kaybolmaz).
+`index.js`, `client.js`, `locales/*.json`, `test/project-memory.test.mjs`, `test/memory-*.test.mjs`, `docs/features.json`, `README*.md`, `llms.txt`, `docs/ROUTES.md` (üretilen), `IMPLEMENTATION_PLAN.md`.
+- Global notlar `Genel/MEMORY.md` (tek dosya `Genel.md` değil): global konuların da bir klasöre ihtiyacı var; her kapsam aynı dosya düzenini kullanır.
+- Eşleme dosyası her proje klasörünün içindeki `project.json` (eski düzendeki gibi): kullanıcı klasörü Obsidian'da yeniden adlandırırsa eşleme klasörle birlikte taşınır.
+- İçe aktarma eklentinin kendisinde: canlı eski eklenti yeniden başlatmaya dek eski klasöre yazdığı için aktarımın yeni eklentinin ilk açılışında olması tek güvenli an.
+- Taşma konusu `more` (fix dalı) kaldırıldı: MEMORY.md artık dolmaz, kod ölü kalırdı.
+- Obsidian'da büyük harfli ya da boşluklu yeni not adı (`Sağlık.md`) konu sayılmaz; konu adları küçük harf ve tire ister.
+- `[[konu]]` bağlantıları kasada aynı adlı başka notlara gidebilir (Obsidian en kısa yolu seçer).
+- Not içeriği GitHub yedeğine gider; süzgeç yalnız bilinen biçimleri yakalar.
+- 2026-11-09 16:20: plan yazıldı, kod yok. Taban: `fix/asistan-kritik-hatalar` (f1bbb2d), main'de değil.
+- 2026-11-09 17:00: aşama 1-2 bitti, commit `f70f1ec`. `npm test` exit 0.
+- 2026-11-09 17:15: öz denetim turu 1 (`3da3814`): F-01 (P1) kasa düzeninde günlük klasörü yoksa yazma ve geri alma düşüyordu; F-02 (P2) büyük/küçük harf farklı iki aynı adlı proje macOS'ta tek klasöre düşüyordu; F-03 (P2) sınır kalkınca inceleme ve öneri istekleri sınırsız büyüyordu; F-04 (P3) 13 README ve rota belgesi eski sınırları anıyordu.
+- 2026-11-09 17:25: öz denetim turu 2: F-05 (P2) klasör değişince notlar varsayılan düzenden kopyalanıyordu, kullanımdaki kasadan değil; F-06 (P2) başarısız bir kaydın geri alması klasöre o arada konan kullanıcı dosyasını silebiliyordu (yalnız hafıza dosyaları silinir). Canlı verinin kopyasında prova: eski 50 kapsam / 115 dosya / 495 not / 65 konu = yeni 50 / 115 / 495 / 65, 50 kapsamın 50'sinde not metinleri aynı. `npm test` exit 0.
+- 2026-11-09 17:45: `fix/asistan-kritik-hatalar` main'e girdi; dal `origin/main` (7aeb89e) üstüne yeniden kuruldu. Çakışmalar: README'ler (main'in alt ajan ve kart yanıtı cümleleri tutuldu, "more" konusu cümlesi silindi, kod artık yok), package.json (iki test de var), plan. Öz denetim turu 3: F-07 (P3) reddedilen klasör yolu alanı boşaltıyordu; artık metin kalır. `npm test` exit 0 (116 denetim).

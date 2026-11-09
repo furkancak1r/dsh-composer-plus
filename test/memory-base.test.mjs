@@ -48,8 +48,8 @@ try {
     assert.deepEqual(seen.map((s) => s.scope).sort(), [p.key, 'global'].sort(), 'once per scope');
     // A batch cannot change a scope that it did not name.
     await assert.rejects(store.batch([p], (now) => now.add({ scope: b, text: 'x', actor: 'editor' })), /not part of this change/);
-    // The last change fails (the global MEMORY.md is full): every file back, no journal row, the copies' undo runs.
-    for (let i = 0; ; i++) { try { await store.add({ scope: store.GLOBAL, text: `Global fact ${i} ${'x'.repeat(200)}`, actor: 'agent' }); } catch { break; } }
+    // The last change fails (the store refuses it: no global note matches): every file back, no journal row, the copies'
+    // undo runs.
     const journal = join(root, 'mem', 'journal.jsonl');
     const files = async () => Promise.all([join(p.dir, 'MEMORY.md'), join(p.dir, 'api.md'), join(p.dir, 'deploy.md'), join(store.GLOBAL.dir, 'MEMORY.md'), journal].map((f) => readFile(f, 'utf8').catch(() => null)));
     const was = await files();
@@ -57,8 +57,8 @@ try {
     await assert.rejects(store.batch([p, store.GLOBAL], async (now) => {
       await now.remove({ scope: p, topic: 'api', match: 'port 8080', actor: 'editor' });
       await now.add({ scope: p, topic: 'deploy', text: 'Deploys need a tag', actor: 'editor' });
-      await now.add({ scope: store.GLOBAL, text: `One more global fact ${'y'.repeat(250)}`, actor: 'editor' });
-    }), /would have \d+ of its 8000/);
+      await now.replace({ scope: store.GLOBAL, match: 'no such global note', text: 'x', actor: 'editor' });
+    }), /No entry in the global memory matches/);
     assert.deepEqual(await files(), was, 'the last change failed: every file as it was, no new topic, no journal row');
     assert.deepEqual(undone, [p.key], 'the copy of a failed save is undone (the global scope was refused before its first write: no copy)');
     // A copy that cannot be kept: nothing is saved.

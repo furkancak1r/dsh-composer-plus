@@ -1,0 +1,214 @@
+// Approve button: the real client.js parser, live-target guard and buttons, and the Host's prompt rule and switch.
+// - parseApprovals: only closed, top-level ```onay blocks; the exact sentence; nothing for anything unsure.
+// - The guard: a live or public target hides the button; test and feature-branch sentences show it.
+// - ApproveButtons (dsh's turn-tail slot): only under the newest answer, while the chat is idle and the composer is empty;
+//   one click sends the exact sentence once (a second click sends nothing, the button is off); a failed send shows the
+//   reason and keeps the button; a sent answer shows none; never for a user message.
+// - The feature through plugin.apply: on by default; switched off, its slot goes.
+// - Host: the prompt section with the `onay` rule, on by default; the switch route removes and adds it.
+import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises'; import { tmpdir } from 'node:os'; import { join } from 'node:path';
+import { APPROVE_PATH, APPROVE_SECTION, installApproveButton } from '../index.js';
+const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
+const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
+let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
+const ANCHOR = '/** Feature switches, in Settings order.';
+assert.ok(src.includes(ANCHOR));
+eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer };\n    ${ANCHOR}`));
+let cur;
+const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }),
+  useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
+  useRef: (v) => { const i = cur.ri++; return cur.refs[i] ??= { current: v }; },
+  useSyncExternalStore: (sub, get) => get(), useLayoutEffect: () => {},
+  useEffect: (f, deps) => {
+    const i = cur.ei++; const old = cur.deps[i];
+    if (old !== undefined && deps !== undefined && deps.length === old.length && deps.every((d, k) => Object.is(d, old[k]))) return;
+    cur.cleanups[i]?.(); cur.deps[i] = deps ?? []; cur.cleanups[i] = f();
+  } };
+const mount = (C, props) => {
+  const inst = { state: [], refs: [], cleanups: [], deps: [] };
+  return { render: () => { cur = inst; inst.si = 0; inst.ri = 0; inst.ei = 0; return C(props); }, unmount: () => { for (const c of inst.cleanups) c?.(); } };
+};
+const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host) => ({ portal: el, host }) } : {}));
+const { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer } = globalThis.__ap;
+
+// --- parseApprovals ---
+const sentences = (text) => parseApprovals(text).map((a) => a.message);
+const block = (body, info = 'onay') => `Ready.\n\n\`\`\`${info}\n${body}\n\`\`\`\n`;
+const PUSH = "Onaylıyorum: feature/x dalını origin'e push et.";
+assert.deepEqual(parseApprovals(block(PUSH)), [{ n: 1, label: PUSH, text: PUSH, message: PUSH }], 'one block: the exact sentence');
+assert.deepEqual(sentences(block(PUSH, 'ONAY ')), [PUSH], 'the info string: case and spaces do not matter');
+assert.deepEqual(sentences(`~~~onay\n${PUSH}\n~~~`), [PUSH], 'a tilde fence');
+assert.deepEqual(sentences(`\`\`\`\`onay\n${PUSH}\n\`\`\`\`\``), [PUSH], 'a longer closing fence');
+assert.deepEqual(sentences(`\`\`\`onay\r\n  ${PUSH}  \r\n\r\n\`\`\``), [PUSH], 'CRLF; spaces and blank lines around the sentence go');
+assert.deepEqual(sentences(`${block('Onaylıyorum: testleri çalıştır.')}\nAnd:\n${block('Onaylıyorum: feature/y dalını sil.')}`),
+  ['Onaylıyorum: testleri çalıştır.', 'Onaylıyorum: feature/y dalını sil.'], 'two blocks: two buttons, in order');
+assert.deepEqual(parseApprovals(`${block('A b c.')}${block('D e f.')}`).map((a) => a.n), [1, 2]);
+assert.deepEqual(sentences('Satır 1\nsatır 2'), [], 'no block: nothing');
+for (const [text, why] of [
+  [block(PUSH, ''), 'a block without an info string'],
+  [block(PUSH, 'text'), 'another info string'],
+  [block(PUSH, 'onay2'), 'a longer info string'],
+  [block(PUSH, 'onay x'), 'an info string with more words'],
+  [`\`\`\`onay\n${PUSH}\n`, 'an unclosed block'],
+  [`\`\`\`onay\n${PUSH}\n~~~\n`, 'closed with the other fence character'],
+  [`\`\`\`\`onay\n${PUSH}\n\`\`\`\n`, 'closed with a shorter fence'],
+  [`\`\`\`onay\n${PUSH}\n\`\`\` x\n`, 'a closing line with text is no close'],
+  [block('   '), 'an empty block'],
+  [`1. Step\n   \`\`\`onay\n   ${PUSH}\n   \`\`\``, 'an indented block (in a list)'],
+  [`\`\`\`md\n\`\`\`onay\n${PUSH}\n\`\`\`\n\`\`\``, 'a block inside another fence: the inner line is code'],
+  [block('a'.repeat(501)), 'longer than 500 characters'],
+  [block(`Onaylıyorum: feature/x\u202E dalını sil.`), 'a bidi control character'],
+  [block(`Onaylıyorum: feature/x\u200B dalını sil.`), 'a zero-width space'],
+  [block('Onaylıyorum: feature/x dalını push et.\u0007'), 'a control character'],
+  [block('Onaylıyorum: feature/x dalını push et\u0301.'), 'a combining mark (it could stack over a letter)'],
+  [block('Onaylıyorum: рrod dalını push et.'), 'a Cyrillic look-alike letter (р)'],
+  [block('Onaylıyorum: dεploy et.'), 'a Greek look-alike letter (ε)'],
+  [block('Onaylıyorum: 2٫19 sunucusuna kopyala.'), 'a separator that is not ASCII (Arabic decimal mark)'],
+  [block('Onaylıyorum: 2·19 sunucusuna kopyala.'), 'a middle dot between digits'],
+  [block('Onaylıyorum: ２.19 sunucusuna kopyala.'.replace('２', '٢')), 'a digit that is not 0–9'],
+  [block('Onaylıyorum: dosyayı sil.\uE000'), 'a private-use character'],
+  [block('Onaylıyorum: dalı sil ß.'), 'a letter outside the English and Turkish alphabets'],
+]) assert.deepEqual(sentences(text), [], `no button: ${why}`);
+assert.deepEqual(sentences(block('a'.repeat(500))), ['a'.repeat(500)], '500 characters is the limit');
+assert.equal(parseApprovals(block(`Onaylıyorum: ${'x '.repeat(80)}sil.`))[0].label.length, 120, 'a long sentence: the label is cut, the message is not');
+assert.deepEqual(sentences(block('Onaylıyorum:\nçok satırlı onay.')), ['Onaylıyorum:\nçok satırlı onay.'], 'a sentence over two lines is sent as it is');
+assert.deepEqual(sentences(`\`\`\`js\nx()\n\`\`\`\n${block(PUSH)}`), [PUSH], 'a code block before it is skipped');
+assert.deepEqual(parseOptions(block(PUSH)), [], 'an approval block is no option list');
+
+// --- The live-target guard ---
+const LIVE = [
+  'Onaylıyorum: 2.19 sunucusuna Z aktarımı yap.', 'Onaylıyorum: Z-share klasörüne kopyala.', 'Onaylıyorum: Z: sürücüsüne yaz.',
+  'Onaylıyorum: dosyaları paylaşıma kopyala.', 'Onaylıyorum: canlı sunucuyu yeniden başlat.', 'Onaylıyorum: CANLI ortama al.',
+  'Approve: restart the live server.', 'Onaylıyorum: production ayarını değiştir.', 'Onaylıyorum: prod ortamına geç.',
+  'Onaylıyorum: üretim veritabanına bağlan.', 'Onaylıyorum: 192.168.2.19 üzerinde servisi durdur.', 'Onaylıyorum: 2,19 sunucusunu güncelle.',
+  'Onaylıyorum: ssh promes-219 ile betiği çalıştır.', 'Onaylıyorum: promes 219 sunucusunu yeniden başlat.', 'Onaylıyorum: port 5100 servisini durdur.',
+  'Onaylıyorum: :5100 portunu aç.', 'Onaylıyorum: live database kaydını sil.', 'Onaylıyorum: canlı DB tablosunu güncelle.',
+  'Onaylıyorum: inkool_live tablosunu oku.', 'Onaylıyorum: PRS veritabanına yaz.', 'Onaylıyorum: npm publish çalıştır.',
+  'Onaylıyorum: GitHub release v1.26.0 oluştur.', 'Onaylıyorum: release notlarını yayımla.', 'Onaylıyorum: yeni sürümü yayınla.',
+  'Onaylıyorum: sürüm 1.26.0 etiketini at.', 'Onaylıyorum: ssh proso-deploy deploy abc çalıştır.', 'Onaylıyorum: deploy et.',
+  'Onaylıyorum: Proso sunucusuna dağıt.', 'Onaylıyorum: bu sayfayı herkese açık yap.', 'Onaylıyorum: repoyu public yap.',
+  'Onaylıyorum: dosyayı paylaş.', 'Onaylıyorum: DEPLOY et.', 'Onaylıyorum: deploy’u başlat.', 'Onaylıyorum: Ürün kodunu ürün ortamına al: prodüksiyon.',
+  // Look-alike spellings read as the word (review F-01).
+  'Approve: run dep1oy now.', 'Approve: switch to pr0d.', 'Approve: run depIoy now.', 'Approve: npm pub1ish.', 'Onaylıyorum: canIı sunucuyu yeniden başlat.',
+  'Approve: run d3ploy now.', 'Approve: re1ea5e it.', 'Approve: d-e-p-l-o-y it.', 'Approve: de_ploy it.', 'Approve: d.e.p.l.o.y it.', 'Onaylıyorum: herkese\naçık yap.',
+  'Onaylıyorum: 2.l9 sunucusuna kopyala.', 'Onaylıyorum: port 51OO servisini durdur.', 'Approve: run ᴅᴇᴘʟᴏʏ now.', 'Approve: switch to pʀoduction.', 'Approve: ｄｅｐｌｏｙ now.',
+];
+for (const s of LIVE) assert.deepEqual(sentences(block(s)), [], `live target hides the button: ${s}`);
+const SAFE = [
+  PUSH, 'Onaylıyorum: feature/onay-dugmesi dalını main ile birleştir.', 'Onaylıyorum: test veritabanında (inkool) sorguyu çalıştır.',
+  'Onaylıyorum: npm test çalıştır.', 'Onaylıyorum: .worktrees/feature-x klasörünü sil.', 'Onaylıyorum: test/fixtures dosyasını güncelle.',
+  'Approve: run the headless browser test on port 3198.', 'Onaylıyorum: fix/asistan-acilis-hizi dalını origin\'e push et.',
+  'Onaylıyorum: ~/Documents/testdeepseekharness/dsh-composer-history kopyasını güncelle.', 'Onaylıyorum: 12 dosyayı biçimlendir.',
+];
+SAFE.push('Onaylıyorum: “feature/x” dalını sil – sonra main → origin’e push et…', 'Onaylıyorum: ÇĞİÖŞÜ çğıöşü dalını sil.', 'Onaylıyorum: sil ve yeniden oluştur.',
+  'Approve: delete the files in test/fixtures and run the 12 tests.', 'Onaylıyorum: feature/login-fix-1 dalını sil.');
+{ const nfd = 'Onaylıyorum: üç şube dalını sil.'.normalize('NFD'); assert.notEqual(nfd, nfd.normalize('NFC'));
+  assert.deepEqual(sentences(block(nfd)), [nfd], 'decomposed Turkish letters: checked as NFC, sent as written'); }
+for (const s of SAFE) assert.deepEqual(sentences(block(s)), [s], `test or branch work shows the button: ${s}`);
+
+// --- ApproveButtons in dsh's turn-tail slot ---
+const flush = () => new Promise((r) => setTimeout(r, 0));
+const t = (k, p) => (p === undefined ? k : `${k}:${JSON.stringify(p)}`);
+const texts = (node) => (Array.isArray(node) ? node.flatMap(texts) : node === null || node === undefined || node === false ? [] : typeof node !== 'object' ? [String(node)] : (node.c ?? []).flatMap(texts));
+const buttonsOf = (view) => (view === null ? [] : view.c.flat().filter((c) => c?.t === 'button'));
+const tail = (turn, seq, text, status = 'settled') => ({ kind: 'turn-tail', anchorSeq: seq, data: { turn, seq: seq + 1, closing: { status, turn, blocks: [{ kind: 'text', text }], finalNode: { seq } } } });
+const user = (seq, text) => ({ kind: 'user', anchorSeq: seq, data: { seq, text } });
+const chat = (...nodes) => ({ nodes: new Map(nodes.map((n, i) => [`k${i}`, n])) });
+let session = { blank: false, running: false, subagent: null, removed: false };
+let input = { phase: 'plain', draft: '', attachmentIds: [] };
+const OLD = block('Onaylıyorum: feature/eski dalını sil.');
+const NEW = `Done.\n\n${block(PUSH)}`;
+let view = chat(tail(1, 10, OLD), user(15, block('Onaylıyorum: kullanıcı mesajı.')), tail(2, 20, NEW));
+const rbState = { spans: [], withdrawn: [], rewind: false, busy: false, error: null, redo: null, inherited: 0 };
+const rollback = { of: () => rbState, subscribe: () => () => {} };
+const check = createRollbackCheck(async () => true);
+const sent = []; let gate; let failNext = false;
+const picks = createOptionPicks(async (id, text) => { sent.push([id, text]); if (gate) await gate; if (failNext) { failNext = false; throw new Error('conversation.send failed: busy'); } });
+const hooks = { useSession: (sel) => sel(session), useInput: (sel) => sel(input), useChat: (sel) => sel(view) };
+const cell = (seq, C = ApproveButtons) => mount(C, { sessionId: 'A', turn: {}, seq, ...hooks, picks, check, rollback, t });
+const newest = cell(20); const older = cell(10);
+assert.equal(newest.render(), null, 'nothing before the Host answered (withdrawn answers)');
+await flush();
+let out = newest.render();
+assert.equal(out.p.role, 'group'); assert.equal(out.p['aria-label'], 'approve.group'); assert.equal(out.p['data-composer-plus-approve'], '20');
+let buttons = buttonsOf(out);
+assert.equal(buttons.length, 1); assert.deepEqual(texts(buttons[0]), ['approve.button', PUSH], 'the button: "Approve" and the sentence that it sends');
+assert.equal(buttons[0].p.title, PUSH); assert.equal(buttons[0].p.type, 'button');
+assert.equal(older.render(), null, 'an older answer shows no button');
+assert.equal(cell(15).render(), null, 'a user message shows no button');
+assert.equal(cell(20, OptionPicks).render(), null, 'an approval block gives no option buttons');
+// Composer text, a running chat: hidden.
+input = { ...input, draft: 'hm' }; assert.equal(newest.render(), null, 'a draft hides the button'); input = { ...input, draft: '' };
+session = { ...session, running: true }; assert.equal(newest.render(), null, 'not while the chat runs'); session = { ...session, running: false };
+// One click sends the exact sentence once; a second click sends nothing; the button is off meanwhile.
+let release; gate = new Promise((r) => { release = r; });
+buttons = buttonsOf(newest.render()); buttons[0].p.onClick(); buttons[0].p.onClick();
+assert.ok(buttonsOf(newest.render()).every((b) => b.p.disabled === true), 'off while the sentence is sent');
+assert.deepEqual(sent, [['A', PUSH]], 'one message: the exact sentence');
+release(); await flush(); gate = undefined;
+assert.equal(newest.render(), null, 'a sent answer shows no button');
+assert.equal(await picks.pick('A', chatOffer(view, [], 0, parseApprovals), 1), false, 'a direct second send of the same answer: refused');
+assert.equal(sent.length, 1, 'still one message');
+// A new answer with a new block: the button comes back for it; a failed send shows the reason and keeps the button.
+view = chat(...view.nodes.values(), user(22, PUSH), tail(3, 30, block('Onaylıyorum: feature/z dalını sil.')));
+const third = cell(30); third.render(); await flush();
+failNext = true; buttonsOf(third.render())[0].p.onClick(); await flush();
+out = third.render(); assert.equal(buttonsOf(out).length, 1, 'the button stays after a failed send');
+assert.equal(out.c.at(-1).p.role, 'alert'); assert.equal(texts(out.c.at(-1)).join(''), 'approve.failed:{"error":"conversation.send failed: busy"}');
+buttonsOf(third.render())[0].p.onClick(); await flush();
+assert.deepEqual(sent.at(-1), ['A', 'Onaylıyorum: feature/z dalını sil.'], 'the retry sends');
+// A live sentence in the newest answer: the plain block only (no group at all).
+view = chat(...view.nodes.values(), user(32, 'x'), tail(4, 40, block('Onaylıyorum: npm publish çalıştır.')));
+const live = cell(40); live.render(); await flush(); assert.equal(live.render(), null, 'a live sentence: no button');
+newest.unmount(); older.unmount(); third.unmount(); live.unmount();
+
+// --- The feature through plugin.apply ---
+{
+  const slots = new Map(); let setFeature;
+  plugin.apply({
+    slots: { inject: (n, f) => f(), register: (o, C) => { if (o.id === 'composer-plus') setFeature = o.inject().setFeature; const key = Symbol(o.id); slots.set(key, [o, C]); return () => slots.delete(key); } },
+    configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: () => (k) => k }, effect: (f) => f(),
+  });
+  const slot = () => [...slots.values()].find(([o]) => o.id === 'approve-button');
+  const found = slot(); assert.ok(found, 'on by default: the turn-tail slot');
+  assert.equal(found[0].name, 'conversation.chat.turnTail'); assert.equal(found[0].locale, 'dsh-composer-plus'); assert.equal(found[1], ApproveButtons);
+  const face = found[0].inject('A'); assert.equal(typeof face.picks.pick, 'function'); assert.equal(typeof face.check.ask, 'function');
+  const options = [...slots.values()].find(([o]) => o.id === 'option-picks');
+  assert.equal(options[0].inject('A').picks, face.picks, 'one store with Option picks: one send per answer');
+  setFeature('approveButton', false); assert.equal(slot(), undefined, 'off: no slot');
+  setFeature('approveButton', true); assert.ok(slot(), 'on again');
+}
+
+// --- Host: the prompt rule and its switch ---
+const root = await mkdtemp(join(tmpdir(), 'cp-approve-'));
+try {
+  const routes = new Map(); const effects = []; const sections = new Map(); let disposed = 0;
+  const ctx = {
+    connection: { fetch: { register: (r) => routes.set(r.path, r) } }, effect: (f) => effects.push(f()),
+    inject(names, setup) {
+      assert.deepEqual(names, ['systemPrompt']);
+      const offs = [];
+      setup({ systemPrompt: { section: (s) => { sections.set(s.name, s); offs.push(() => sections.delete(s.name)); } } });
+      return { dispose: () => { disposed++; offs.forEach((f) => f()); } };
+    },
+  };
+  const home = join(root, 'home');
+  const host = installApproveButton(ctx, home); await host.ready;
+  const req = async (body) => { const r = await routes.get(APPROVE_PATH).fetch(new Request(`http://h${APPROVE_PATH}`, body === undefined ? undefined : { method: 'POST', body: JSON.stringify(body) })); return { status: r.status, body: await r.json() }; };
+  assert.deepEqual((await req()).body, { on: true }, 'on by default');
+  const section = sections.get('composer-plus:approve-button');
+  assert.ok(section, 'the prompt section'); assert.equal(section.interpolate, false); assert.equal(section.text(), APPROVE_SECTION);
+  assert.match(APPROVE_SECTION, /info string `onay`/); assert.match(APPROVE_SECTION, /```onay\nOnaylıyorum: feature\/x dalını origin'e push et\.\n```/);
+  assert.deepEqual(sentences(APPROVE_SECTION), ["Onaylıyorum: feature/x dalını origin'e push et."], 'the example in the rule is a block that the client reads');
+  for (const bad of [{ on: 'yes' }, { on: true, x: 1 }, {}, []]) assert.equal((await req(bad)).status, 400, JSON.stringify(bad));
+  assert.deepEqual((await req({ on: false })).body, { on: false });
+  assert.equal(sections.size, 0, 'off: no section'); assert.ok(disposed >= 1);
+  await Promise.all([req({ on: true }), req({ on: false }), req({ on: true })]);
+  assert.deepEqual((await req()).body, { on: true }, 'the newest click wins'); assert.ok(sections.has('composer-plus:approve-button'));
+  await req({ on: false });
+  const again = installApproveButton({ ...ctx, connection: { fetch: { register: () => {} } } }, home); await again.ready;
+  assert.equal(sections.size, 0, 'a saved "off" stays off after a restart');
+  await req({ on: true }); const before = disposed; effects.forEach((f) => typeof f === 'function' && f()); assert.ok(disposed > before, 'unload disposes');
+} finally { await rm(root, { recursive: true, force: true }); }
+console.log('approve-button checks passed');
