@@ -332,9 +332,49 @@ assert.deepEqual(posts.at(-1), { url: '/__composer-plus/switch', body: { to: 'se
 assert.equal(renderPicker().c[0].p.open, false, 'no menu opened');
 view = { ...view, via: false }; await computers.refresh();
 
+// The computer slept when its page loaded: the relay showed its own error page in the view and said so (`failed`). The
+// next pick drops that page (its lease goes back) and loads a new ticket, so the computer that woke up shows its dsh. A
+// page that did not fail stays hidden (above, "no reload"); a hello after the failure (Try again worked) keeps it too.
+{
+  assert.equal(views.getSnapshot().current, 'self');
+  const opensBefore = opens; const relBefore = released.length; const leasesBefore = leases.length;
+  pushEvent({ failed: 'unreachable', from: 'c'.repeat(64) }); await tick(); // no such view: nothing to drop
+  await views.select(ID); await tick();
+  assert.equal(opens, opensBefore, 'a page that did not fail: no new ticket');
+  pushEvent({ failed: 'unreachable', from: ID }); await tick();
+  assert.equal(views.getSnapshot().current, ID, 'a failed page does not switch the window');
+  assert.equal(wv.isConnected, true, 'the failed page stays until the next pick');
+  await views.select('self');
+  await views.select(ID); await tick();
+  assert.equal(opens, opensBefore + 1, 'a new ticket');
+  assert.deepEqual(released.slice(relBefore), ['L1'], 'the failed page\'s lease went back');
+  assert.equal(wv.isConnected, false, 'the error page is gone');
+  assert.equal(leases.length, leasesBefore + 1, 'a new lease');
+  const fresh = root.querySelector(`[data-composer-plus-computer-view="${ID}"]`) ?? root.children.find((c) => c.getAttribute('data-composer-plus-computer-view') === ID);
+  assert.ok(fresh && fresh !== wv, 'a new view');
+  const urls = []; fresh.loadURL = async (u) => { urls.push(u); }; fresh.fire('dom-ready');
+  assert.deepEqual(urls, [`http://127.0.0.1:5555/?cp-ticket=t${opens}`], 'it loads the new ticket');
+  assert.equal(views.getSnapshot().current, ID); assert.equal(views.getSnapshot().noPicker, true, 'it must say hello again');
+  // Try again in the error page worked (a hello after the failure): the page stays at the next pick.
+  pushEvent({ failed: 'unreachable', from: ID }); await tick(); pushEvent({ hello: true, from: ID }); await tick();
+  await views.select('self'); await views.select(ID); await tick();
+  assert.equal(opens, opensBefore + 1, 'a page that said hello after its failure is kept'); assert.equal(fresh.isConnected, true);
+  // One switch at a time: while the failed page opens again, a second pick waits and drops nothing more.
+  pushEvent({ failed: 'unreachable', from: ID }); await tick();
+  await views.select('self');
+  const relMid = released.length;
+  gate = deferred();
+  const reopening = views.select(ID); await tick();
+  assert.equal(views.getSnapshot().busy, true);
+  assert.deepEqual(await views.select(ID), { skipped: true }, 'a second pick waits');
+  gate.resolve(); gate = null; await reopening; await tick();
+  assert.equal(opens, opensBefore + 2); assert.equal(released.length, relMid + 1, 'one lease went back, once');
+  await views.select('self');
+}
+
 // Switch off: every page and lease, the root, the timer and the loop go; nothing in the window.
 await views.select(ID);
-wv.fire('did-start-navigation', { isMainFrame: true, url: 'http://127.0.0.1:5555/' });
+root.children.find((c) => c.getAttribute('data-composer-plus-computer-view') === ID).fire('did-start-navigation', { isMainFrame: true, url: 'http://127.0.0.1:5555/' });
 assert.equal(timers.size, 1, 'a hello wait runs');
 // The float goes with the picker (React unmounts the slot).
 { const m = mount(); const f = m.out.host; assert.equal(f.hasAttribute('data-composer-plus-computer-float'), true); assert.equal(f.isConnected, true); m.cleanup(); assert.equal(f.isConnected, false, 'the float is gone'); }
@@ -342,7 +382,8 @@ await settings.setFeature('remoteComputers', false);
 await tick();
 assert.equal(overlay('computer-picker'), undefined); assert.equal(overlay('add-computer-dialog'), undefined);
 assert.equal(body.querySelector('[data-composer-plus-computer-views]'), null, 'the views root is gone');
-assert.deepEqual(released.sort(), ['L1', 'L2', 'L3'].filter((l) => leases.some((x) => x.lease === l)).sort(), 'every lease went back');
+assert.deepEqual([...new Set(released)].sort(), leases.map((x) => x.lease).sort(), 'every lease went back');
+assert.equal(released.length, leases.length, 'each lease went back once');
 assert.equal(views.getSnapshot().current, 'self');
 assert.equal(timers.size, 0, 'no timer left');
 assert.deepEqual(await views.select(ID), { skipped: true }, 'nothing opens while off');

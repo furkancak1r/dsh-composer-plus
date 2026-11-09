@@ -385,8 +385,12 @@ export function createRelay({ host, port, fp, token, ticketTtlMs = 60e3, onUnaut
     if (url.pathname.startsWith(RELAY_OWN)) return ownPath(req, res, url.pathname.slice(RELAY_OWN.length))
     let unpaired = false
     await pipeHttp(req, res, next(req), { onStatus: (code) => { const r = status(code); if (r === 'skip') unpaired = true; return r },
-      onError: (r) => (fail === 'pin' ? text(r, 502, 'This computer shows another certificate.', 'Pair it again in dsh.')
-        : text(r, 502, 'This computer does not answer over Tailscale.', 'Make sure that it is awake and that Tailscale is on.', true)) })
+      onError: (r) => {
+        // A page (not a fetch) got the relay's own page in place of dsh: this Mac loads the computer again at the next pick.
+        if (/text\/html/.test(req.headers.accept ?? '')) peer?.signal({ failed: fail ?? 'unreachable' })
+        return fail === 'pin' ? text(r, 502, 'This computer shows another certificate.', 'Pair it again in dsh.')
+          : text(r, 502, 'This computer does not answer over Tailscale.', 'Make sure that it is awake and that Tailscale is on.', true)
+      } })
     if (unpaired) text(res, 401, ...UNPAIRED)
   }
   /** The other Mac's page (in this Mac's window) reads this Mac's computers and switches the window: nothing else. */
