@@ -2647,3 +2647,61 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
 - 2026-11-09 14:10: düzeltmeler commit `127deeb`. 3. denetim turunda yeni doğrulanmış bulgu yok. `npm test` exit 0, `git diff --check` temiz. `main` (3885882) ile `git merge-tree` çakışmasız.
   - Arayüz doğrulanmadı: çalışan dsh canlı kopyayı yükler; etkinleştirme dsh'yi yeniden başlatmayı ister (bu görevde yasak). Gerçek dsh testi (0.2.0-rc.2, 0.2.1-rc.2) açık iş.
   - Çakışma: `fix/asistan-acilis-hizi` ile yalnız bu dosyanın sonu (iki yeni bölüm; ikisini de tut).
+
+## Onayla düğmesi (`approveButton`, 2026-11-09, dal `feature/onay-dugmesi`)
+İstek (sahip, Türkçe): "ok "Onayla" düğmesi kurulsun". Sahip her gün yaklaşık 10 onay cümlesini elle yazıyor ya da yapıştırıyor. Auto review (aiproxy-review) ajan mesajlarını görmez; yalnız kullanıcı mesajlarını ve araç çağrılarını görür. Bu yüzden onay cümlesi kullanıcı mesajı olarak gelmeli.
+
+### Hedef
+- İstem kuralı (Host, sistem istemi bölümü `composer-plus:approve-button`): ajan, kullanıcıdan yazılı onay cümlesi isteyince cümleyi bilgi dizesi `onay` olan çitli kod bloğuna yazar.
+- İstemci: sohbetin en yeni yanıtındaki her `onay` bloğu için yanıtın altında (dsh'nin `conversation.chat.turnTail` yuvası) bir "Onayla" düğmesi. Tek tık blok metnini dsh'nin normal gönderme yoluyla (`conversation.send`, kuyruk) kullanıcı mesajı olarak gönderir.
+- Canlı hedef koruması: cümle canlı ya da herkese açık bir hedef adı taşıyorsa düğme çıkmaz, blok düz kalır.
+
+### Değişmezler
+- Gönderilen metin bloğun metninin aynısıdır (baştaki ve sondaki boşluk dışında). Mesaj dsh'nin kendi `conversation.send` yolundan gider.
+- Bir yanıt için tek gönderim: Seçenek düğmeleriyle aynı depo (`createOptionPicks`): sohbet başına bir gönderim, gönderilen yanıtta düğmeler kapanır (çift tık iki mesaj göndermez, kural 7).
+- Düğme yalnız en yeni, geri alınmamış yanıtta (kural 9), çatalın kendi yanıtında (kural 10), sohbet boştayken çıkar. Kullanıcı mesajına ve eski yanıtlara düğme yok. Kayıtlı mesajlar değişmez.
+- Emin olunmayan durumda düğme yok: kapanmamış blok, boş blok, 500 karakterden uzun blok, liste içinde girintili blok, başka bir kod bloğunun içindeki blok.
+- Özellik kapanınca yuva gider; Host anahtarı kapanınca istem bölümü gider.
+
+### Kabul ölçütleri
+1. ```` ```onay ```` bloğu olan en yeni yanıtın altında "Onayla" düğmesi görünür; tık metni kullanıcı mesajı olarak bir kez gönderir.
+2. Canlı hedef listesi (Z aktarımı, Z-share, canlı, live, production, prod, 2.19, promes-219, port 5100, live database, canlı DB, npm publish, GitHub release, release, proso-deploy, deploy ve benzerleri) düğmeyi gizler; test ve özellik dalı cümleleri düğmeyi gösterir.
+3. İlk tıktan sonra düğme kapalıdır; ikinci tık mesaj göndermez. Gönderim hata verirse neden görünür ve düğme açılır.
+4. Kullanıcı mesajında, eski yanıtta, çalışan sohbette ve geri alınmış yanıtta düğme yok.
+5. Host anahtarı (`approve-button.json`, varsayılan açık) istem bölümünü ekler ve kaldırır.
+6. `npm test` geçer.
+
+### Aşamalar
+1. Plan (bu bölüm).
+2. Kod: `client.js` (ayrıştırıcı, koruma, düğme bileşeni, özellik anahtarı, en/zh metinleri), `index.js` (istem bölümü ve anahtar yolu), `locales/*.json` (11 dil), `npm run build:locales`.
+3. Testler: `test/approve-button.test.mjs` (ayrıştırma, koruma listesi, tek tık), Host anahtarı, `test/toggles.test.mjs` sayıları, `package.json` test betiği.
+4. Belgeler: `docs/features.json` (13 dilde `how`, `llms`, yol), `npm run build:readme`, 13 README'de sınır maddesi, `tether/FEATURES.md` satırı.
+5. Ekran görüntüsü ve gerçek dsh: `test/browser-approve-button.mjs` (headless, `chromiumSandbox: true`, sahte model), `SHOT=1` ile `assets/features/approveButton.webp`; 0.2.0-rc.2, 0.2.1-rc.2 ve 0.2.2-rc.1.
+6. review-guard, düzeltme, push, main'e birleştirme, canlı masaüstü kopyası.
+
+### İzinli yollar
+`client.js`, `index.js`, `locales/*.json`, `docs/features.json`, `docs/ROUTES.md`, `README*.md`, `llms.txt`, `package.json` (yalnız test betiği), `test/approve-button.test.mjs`, `test/browser-approve-button.mjs`, `test/toggles.test.mjs`, `assets/features/approveButton.webp`, `tether/FEATURES.md`, `IMPLEMENTATION_PLAN.md`.
+
+### Kararlar
+- Düğme yanıtın sonundaki turn-tail yuvasında durur (Seçenek düğmeleriyle aynı yol). dsh'nin kod bloğu başlığı bilinmeyen dil adı yerine "Code" yazar; DOM'da `onay` bloğunu ayırmak güvenilir değil. Metin dsh'nin sohbet görünümündeki ham yanıttan okunur.
+- Seçenek düğmeleriyle aynı depo: bir yanıt için tek yanıt (seçenek ya da onay), sohbet başına tek gönderim.
+- Yalnız en yeni yanıt: eski bir onay cümlesinin sonradan tıklanıp eski bir işi yeniden yetkilendirmesini önler.
+- Koruma listesi geniş tutulur (ör. `prod` öneki "product" kelimesini de gizler, `proso` her Proso adını gizler). Gizli düğme güvenlidir, yanlış düğme güvenli değildir.
+- Tether: bu sürümde yok (satır `no`, nedeniyle).
+
+### Riskler
+- Diğer dallar (`feat/sohbet-ici-yapilacaklar`, `fix/asistan-kritik-hatalar`, `feature/asistan-araya-alma`, `fix/asistan-acilis-hizi`) `client.js` FEATURES listesi, dil dosyaları, `docs/features.json`, `test/toggles.test.mjs` sayıları ve bu dosyanın sonu ile çakışabilir.
+- Model kuralı her zaman uygulamayabilir; o zaman düğme çıkmaz (eski yol: kopyala, yapıştır).
+
+### Son kontrol noktası
+- 2026-11-09 15:30: plan yazıldı, kod yok. Taban: `npm test` exit 0 (c285607).
+- 2026-11-09 16:40: aşama 2–5 bitti.
+  - Kod: `client.js` (`parseApprovals`, `APPROVAL_LIVE`, `APPROVAL_CHARS`, `ApproveButtons`, OptionPicks ile ortak `useAnswerOffer`, `approveButton` özelliği), `index.js` (`installApproveButton`, `APPROVE_SECTION`, `approve-button` yolu).
+  - Karar: koruma ayrıca bir izin listesi kullanır: yalnız Latin harfi, yazdırılabilir ASCII ve birkaç tipografi işareti. Kiril ya da Yunan benzer harf, görünmez karakter, birleşik işaret ve ASCII dışı rakam düğmeyi gizler.
+  - `test/approve-button.test.mjs`: 10 gerçek mutasyonun hepsinde kırmızı; kontrol mutasyonu yeşil.
+  - `test/browser-approve-button.mjs` (headless, `chromiumSandbox: true`, sahte model): 0.2.1-rc.2, 0.2.0-rc.2 ve 0.2.2-rc.1 üzerinde PASS. `SHOT=1` ile `assets/features/approveButton.webp` (9,8 kB, 0.2.1-rc.2, İngilizce arayüz, uydurma proje).
+  - `npm test` exit 0; `git diff --check` temiz.
+- 2026-11-09 16:45: review-guard 1. tur, 1 bulgu, düzeltildi.
+  - F-01 (P2, doğrulandı): canlı hedef koruması benzer yazımla aşılıyordu. `dep1oy`, `pr0d`, `depIoy`, `canIı`, `d-e-p-l-o-y`, `2.l9`, `51OO` ve Latin yazısındaki küçük büyük harfler (`ᴅᴇᴘʟᴏʏ`) düğme gösteriyordu (gerçek `parseApprovals` ile 15 örnek denendi). Kök neden: kelime listesi yalnız harfi harfine eşleşiyordu; karakter izin listesi bütün Latin yazısını kabul ediyordu.
+  - Düzeltme: `APPROVAL_CHARS` yalnız yazdırılabilir ASCII, Türkçe harfler ve birkaç tipografi işareti. `liveTarget` kelimeleri metnin okunuşunda arar (1 i | ! → l, 0 → o, 3 → e, 4 @ → a, 5 $ → s, 7 → t; diğer işaretler silinir; boşluklar teke iner). Yer kalıpları (Z:, 2.19, 219, 5100) l/i/|/! → 1, o → 0 okumasında aranır. Sınır (ponytail yorumu): boşlukla bölünen kelime ("de ploy") yakalanmaz; düğme onu iki kelime olarak gösterir.
+  - Regresyon: 15 örneğin hepsi eski korumada düğme gösterdi, yenisinde gizli. Güvenli cümleler ("sil ve", "feature/login-fix-1", "12 tests") yeşil. README sınır maddesi (13 dil) ve `llms` metni güncellendi.
