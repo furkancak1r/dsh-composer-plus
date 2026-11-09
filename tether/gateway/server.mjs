@@ -594,6 +594,7 @@ export function createGateway(opts = {}) {
   // A Remote computers front door has no phones.
   const apns = computer ? {} : opts.apns ? { push: apnsSender(opts.apns, { origin: opts.apns.origin }) } : loadApns(join(dir, 'apns.json'))
   const pushTo = () => apns.push ? devices.filter(d => d.push?.on === true && typeof d.push.token === 'string') : []
+  const pushFails = new Map() // device id → { reason, at } of its last failed push (memory only)
   /** One alert to each phone that wants this Mac's notifications now (switched on, inside its hours). The subtitle names
    * this Mac and the chat's project; the body is the chat's title, then `detail` (the reply, tool, question or error).
    * `opts.about(sessionId)` gives `{ chat, project }` (the Host half); without it the subtitle is the Mac name only. */
@@ -610,6 +611,8 @@ export function createGateway(opts = {}) {
     for (const d of to) {
       const token = d.push.token
       apns.push.send(token, d.push.sandbox === true, { aps: { alert: { title, subtitle, body }, sound: 'default' } }).then(r => {
+        // The Mac page shows why the last push to this phone failed (no secret in it: APNs' reason or the HTTP status).
+        if (r.status === 200) pushFails.delete(d.id); else pushFails.set(d.id, { reason: String(r.reason || (r.status ? 'HTTP ' + r.status : 'no answer')).slice(0, 100), at: new Date().toISOString() })
         // The app left the iPhone (or the token is not for this app): forget the token; the phone sends a new one.
         if ((r.status === 410 || r.reason === 'BadDeviceToken') && d.push?.token === token) { delete d.push.token; saveDevices() }
       }, () => {})
@@ -622,7 +625,9 @@ export function createGateway(opts = {}) {
     const mins = v => Number.isInteger(v) && v >= 0 && v < 1440
     const hours = b?.hours === null ? null : mins(b?.hours?.from) && mins(b.hours.to) && typeof b.hours.tz === 'string' && b.hours.tz.length <= 64 ? { from: b.hours.from, to: b.hours.to, tz: b.hours.tz } : undefined
     if (typeof b?.on !== 'boolean' || (b.on && (!/^[0-9a-f]{64,200}$/i.test(b.token ?? '') || typeof b.sandbox !== 'boolean' || hours === undefined))) return reply(res, 400, { error: 'bad request' })
-    dev.push = b.on ? { on: true, token: b.token.toLowerCase(), sandbox: b.sandbox, hours } : { on: false }
+    // Switched on but no device token: the phone says why (iOS's error), and the Mac page shows it.
+    const reason = !b.on && typeof b.reason === 'string' && b.reason.trim() !== '' ? b.reason.trim().slice(0, 200) : undefined
+    dev.push = b.on ? { on: true, token: b.token.toLowerCase(), sandbox: b.sandbox, hours } : { on: false, ...(reason ? { reason } : {}) }
     saveDevices()
     reply(res, 200, { push: b.on })
   }
@@ -1027,7 +1032,9 @@ export function createGateway(opts = {}) {
     pending: [...pending.values()].map(({ id, name, ip, at }) => ({ id, name, ip, at, expiresAt: new Date(at + approveTtl).toISOString() })),
     last: last && Date.now() - last.at < 60e3 ? { ...last, at: new Date(last.at).toISOString() } : null,
     // The APNs device token stays here: the Mac page shows only whether the phone gets pushes.
-    devices: devices.map(({ tokenHash, push, ...d }) => ({ ...d, push: push?.on === true && typeof push.token === 'string', connections: devSockets.get(d.id)?.size ?? 0 })),
+    // `pushKey`: this Mac has an APNs key (else no phone gets pushes). `pushFail`: why the last push to a phone failed.
+    devices: devices.map(({ tokenHash, push, ...d }) => ({ ...d, push: push?.on === true && typeof push.token === 'string', ...(pushFails.has(d.id) ? { pushFail: pushFails.get(d.id) } : {}), ...(push?.reason ? { pushReason: push.reason } : {}), connections: devSockets.get(d.id)?.size ?? 0 })),
+    pushKey: apns.push !== undefined,
     ...(apns.error ? { pushError: apns.error } : {}),
   })
 

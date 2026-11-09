@@ -6,11 +6,15 @@ import AVFoundation
 /// iOS gives the APNs device token only to an app delegate: it goes to the Client, which sends it to the Mac.
 final class AppDelegate: NSObject, UIApplicationDelegate {
     var onToken: ((String) -> Void)?
+    var onTokenError: ((String) -> Void)?
     func application(_ app: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken token: Data) {
         onToken?(token.map { String(format: "%02x", $0) }.joined())
     }
-    // ponytail: no token (no push entitlement, no network): Tether keeps its local notifications; the next start asks again.
-    func application(_ app: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {}
+    // No token (no push entitlement, no network): Tether keeps its local notifications, Settings shows why, and the next
+    // connection asks again.
+    func application(_ app: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        onTokenError?(error.localizedDescription)
+    }
 }
 
 @main struct DSHMobileApp: App {
@@ -21,7 +25,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     var body: some Scene {
         WindowGroup {
             Root().environmentObject(client).environmentObject(lock)
-                .onAppear { delegate.onToken = { [weak client] t in client?.pushToken(t) } }
+                .onAppear {
+                    delegate.onToken = { [weak client] t in client?.pushToken(t) }
+                    delegate.onTokenError = { [weak client] e in client?.pushFailed(e) }
+                }
                 .background(LockWindow(lock: lock))
                 .onChange(of: phase, initial: true) { _, p in
                     lock.phase(p == .active ? .active : p == .inactive ? .inactive : .background)
@@ -224,7 +231,8 @@ struct ConnBadge: View {
 }
 
 /// Top-left of every tab: the connection badge and the Mac on screen. Tap to switch to another paired Mac or add one;
-/// press and hold the name to rename the Mac on screen. Any number of Macs; only the one on screen is connected.
+/// with exactly two Macs, a tap switches to the other one at once (Add a Mac… is then in Settings › Macs). Press and hold
+/// the name to rename the Mac on screen. Any number of Macs; only the one on screen is connected.
 /// ponytail: a Menu takes the long press for itself (it opens the same menu), so a tap opens this menu by hand and
 /// the press and hold opens the rename box. Upgrade if SwiftUI gives Menu its own long-press action.
 struct MacPicker: View {
@@ -233,11 +241,16 @@ struct MacPicker: View {
     var body: some View {
         // The release after a press and hold can also fire this action, or not: the open rename box (which Save and
         // Cancel both clear) tells them apart, so no flag can stay set and eat the next tap.
-        Button { guard c.renamingMac == nil else { return }; menu = true } label: {
+        let other = otherMac(c.pairings, active: c.activeFp)
+        Button {
+            guard c.renamingMac == nil else { return }
+            if let other { UISelectionFeedbackGenerator().selectionChanged(); c.switchMac(other.fp) } else { menu = true }
+        } label: {
             HStack(spacing: 6) {
                 ConnBadge()
                 Text(c.pairing?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1).frame(maxWidth: 150, alignment: .leading)
-                Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                // Two Macs: the arrows say that a tap swaps them; more (or one): the menu.
+                Image(systemName: other == nil ? "chevron.down" : "arrow.left.arrow.right").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
             }
             .foregroundStyle(.primary)
         }
@@ -250,7 +263,7 @@ struct MacPicker: View {
         }
         .accessibilityLabel("Mac")
         .accessibilityValue(Text("\(c.pairing?.title ?? ""), \(String(localized: String.LocalizationValue(c.state.rawValue)))"))
-        .accessibilityHint("Switches to another Mac. Press and hold to rename it.")
+        .accessibilityHint(other.map { Text("Switches to \($0.title). Press and hold to rename this Mac.") } ?? Text("Switches to another Mac. Press and hold to rename it."))
         // VoiceOver has no press and hold here: the rename stays one action away.
         .accessibilityAction(named: Text("Rename")) { rename() }
     }
@@ -2221,7 +2234,7 @@ struct SessionsView: View {
                 .font(.caption).foregroundStyle(Color.secondary).lineLimit(1)
             }
             Spacer()
-            if let g = s.goal, !g.phase.hasPrefix("complete") { Image(systemName: "target").font(.caption).foregroundStyle(g.paused ? Color.secondary : Color.accentColor).accessibilityLabel("Goal: \(g.summary)") }
+            // No goal mark here (owner's choice): at this size it read as a blue unread dot. The chat's goal bar shows the goal.
             if waiting { Image(systemName: "hand.raised.fill").foregroundStyle(.orange).accessibilityLabel("Waiting for you") }
             // DSH desktop's marks: a turning ring while it runs (also while a subagent runs), green when it finished
             if running { RunningSpinner().accessibilityLabel("Running") }
@@ -2457,7 +2470,7 @@ struct SettingsView: View {
                         }
                     }
                     Button { c.addingMac = true } label: { Label("Add a Mac…", systemImage: "plus") }
-                } header: { Text("Macs") } footer: { Text("Pair as many Macs as you like. Only the Mac on screen is connected; switch with the name at the top left. To give a Mac your own name, tap the pencil, or press and hold the name at the top left.") }
+                } header: { Text("Macs") } footer: { Text("Pair as many Macs as you like. Only the Mac on screen is connected; switch with the name at the top left (with two Macs, one tap switches). To give a Mac your own name, tap the pencil, or press and hold the name at the top left.") }
                 Section("Connection") {
                     LabeledContent("Status") { HStack { ConnBadge(); Text(LocalizedStringKey(c.state.rawValue)) } }
                     LabeledContent("DSH on Mac", value: c.upstream.isEmpty ? "—" : c.upstreamText ?? String(localized: "Running"))
@@ -2512,6 +2525,10 @@ struct SettingsView: View {
                              : c.pushOn
                              ? "Tether tells you when a turn finished, when a chat waits for an approval or a question, and when a chat has an error. The Mac sends them through Apple's push service, so they come also while Tether is closed. The Mac must be awake with DSH open."
                              : "Tether tells you when a turn finished, when a chat waits for an approval or a question, and when another chat has an error. It can do this only while it keeps its connection: while it is open and for a short time after you leave it.")
+                        // The Mac can push, but this iPhone gets none: say why (no device token from iOS, or the Mac refused it).
+                        if c.notifyOn, c.macPush, !c.pushOn, let e = c.pushError {
+                            Text("Notifications while Tether is closed do not work on this iPhone: \(e)").foregroundStyle(.orange)
+                        }
                         if c.notifyOn, c.notifyHours {
                             Text("Outside these hours, Tether sends no notifications. When To is before From, the hours go past midnight (for example 22:00 to 07:00). The same time for both means all day.")
                         }

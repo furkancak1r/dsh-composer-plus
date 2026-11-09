@@ -248,6 +248,11 @@ func upserted(_ list: [Pairing], _ p: Pairing) -> [Pairing] {
     out[i] = n
     return out
 }
+/// The Mac that one tap on the Mac picker switches to: with exactly two paired Macs, the other one; else none (the menu).
+func otherMac(_ list: [Pairing], active: String?) -> Pairing? {
+    guard list.count == 2, let active, list.contains(where: { $0.fp == active }) else { return nil }
+    return list.first { $0.fp != active }
+}
 /// The Mac to show after `fp` is unpaired: the one that came after it in the list, else the one before it.
 func nextActive(_ list: [Pairing], removed fp: String) -> String? {
     guard let i = list.firstIndex(where: { $0.fp == fp }) else { return list.first?.fp }
@@ -1629,16 +1634,26 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     static let pushTokenKey = "apnsToken"
     private var pushTask: Task<Void, Never>?
     /// `POST /push` body: this Mac's switch and hours, the device token, and the phone's time zone for the hours.
-    static func pushBody(on: Bool, token: String?, sandbox: Bool, hours: Bool, from: Int, to: Int, tz: String) -> J {
-        guard on, let token else { return ["on": false] }
+    static func pushBody(on: Bool, token: String?, sandbox: Bool, hours: Bool, from: Int, to: Int, tz: String, reason: String? = nil) -> J {
+        guard on, let token else { return on ? ["on": false, "reason": String((reason ?? "no device token from iOS yet").prefix(200))] : ["on": false] }
         return ["on": true, "token": token, "sandbox": sandbox, "hours": hours ? ["from": from, "to": to, "tz": tz] as J : NSNull()]
     }
+    /// Why iOS gave no device token (AppDelegate). Settings › Notifications shows it, and it goes to the Mac (its pairing
+    /// page shows it), so a silent "only while Tether is open" does not hide the cause.
+    @Published private(set) var tokenError: String?
+    /// Why the Mac did not take the settings (`POST /push` failed).
+    @Published private(set) var syncError: String?
+    var pushError: String? { tokenError ?? syncError }
     /// Ask iOS for the device token; it comes to `pushToken(_:)` (AppDelegate). iOS gives one only with the push entitlement.
+    /// Each connection asks again (Tether's own rule since 2026-11-09): iOS answers at once with the same token, and a phone
+    /// whose first ask failed (no network, an install without the entitlement) gets the next chance without a new install.
     func registerPush() { if notifyOn, macPush { UIApplication.shared.registerForRemoteNotifications() } }
     func pushToken(_ hex: String) {
+        tokenError = nil
         UserDefaults.standard.set(hex, forKey: Client.pushTokenKey)
         syncPush()
     }
+    func pushFailed(_ why: String) { tokenError = why; syncPush() }
     /// Send the Mac on screen this Mac's notification settings (half a second after the last change: a time picker
     /// changes many times). A Mac without APNs gets nothing.
     func syncPush() {
@@ -1650,12 +1665,18 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         let sandbox = false
         #endif
         let body = Client.pushBody(on: notifyOn, token: UserDefaults.standard.string(forKey: Client.pushTokenKey), sandbox: sandbox,
-                                   hours: notifyHours, from: notifyFrom, to: notifyTo, tz: TimeZone.current.identifier)
+                                   hours: notifyHours, from: notifyFrom, to: notifyTo, tz: TimeZone.current.identifier, reason: tokenError)
         pushTask = Task {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, self.activeFp == mac else { return }
-            let r = try? await self.call("/push", body) as? J
-            if self.activeFp == mac { self.pushOn = r?["push"] as? Bool == true }
+            do {
+                let r = try await self.call("/push", body) as? J
+                if self.activeFp == mac { self.pushOn = r?["push"] as? Bool == true; if self.syncError != nil { self.syncError = nil } }
+            } catch is CancellationError {
+            } catch {
+                // The Mac did not take the settings: keep the last state, say why (the next connection sends them again).
+                if self.activeFp == mac { self.syncError = error.localizedDescription }
+            }
         }
     }
     /// Unpair: the Mac stops its pushes to this iPhone. Best effort, with that Mac's own pin and token: the pairing is gone after.
@@ -2431,7 +2452,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         outgoing = []; loadingChat = false; editingQueued = nil
         workspaces = []; pinned = []; archived = []; commands = []; catalog = []; presets = []; perms = []; skills = []
         usage = nil; model = nil; defaultModel = nil; inbox = [:]; liveTodos = nil; contextWindow = nil; turnStartedAt = nil; hasOlder = false
-        pushTask?.cancel(); macPush = false; pushOn = false // the next Mac's /me tells
+        pushTask?.cancel(); macPush = false; pushOn = false; syncError = nil // the next Mac's /me tells (a token error is the iPhone's, not the Mac's)
     }
 
     /// Rename a paired Mac on this iPhone only; a blank name goes back to the name the Mac reports. A saved name stays
@@ -2587,7 +2608,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let t = me["tailscale"] as? String, isTailnet(t), t != pairing?.ts { pairing?.ts = t } // learned without re-pairing
         if let m = (me["mac"] as? String).flatMap(macLabel), m != pairing?.mac { pairing?.mac = m } // a gateway that reports its name
         plus = Set(me["plus"] as? [String] ?? [])
-        if (me["push"] as? Bool == true) != macPush { macPush = me["push"] as? Bool == true; registerPush(); syncPush() }
+        // Each /me (each connection) asks iOS for the token again and sends this Mac the settings: a failed first try, or a
+        // Mac that lost the token (APNs said 410), heals on the next connection.
+        let push = me["push"] as? Bool == true
+        if push != macPush { macPush = push } // only a change is written: each write redraws the views
+        registerPush(); syncPush()
         if plus.contains("grants") { await loadGrants() }
     }
 

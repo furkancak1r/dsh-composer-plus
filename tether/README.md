@@ -102,14 +102,14 @@ Telefon istediğiniz kadar Mac'e eşleşebilir. Sınır yoktur.
 
 1. Her Mac'te dsh-composer-plus kurulu olsun ve **Mobile connect** açık olsun.
 2. Tether'de sol üstteki Mac adına dokunun, **Add a Mac…** seçin. O Mac'in QR kodunu tarayın, **Connect**'e dokunun ve Mac'te **Approve**'a basın.
-3. Sol üstteki Mac adından Mac'ler arasında geçin. Ayarlar → **Macs** bölümünde bir Mac'i yeniden adlandırabilir (yalnız bu iPhone'da) ya da eşleşmesini kaldırabilirsiniz.
+3. Sol üstteki Mac adından Mac'ler arasında geçin. Tam iki Mac eşliyse Mac adına bir dokunuş öteki Mac'e geçer (menü açılmaz, ok yerine ⇄ simgesi görünür); **Add a Mac…** o zaman Ayarlar → **Macs** bölümündedir. Ayarlar → **Macs** bölümünde bir Mac'i yeniden adlandırabilir (yalnız bu iPhone'da) ya da eşleşmesini kaldırabilirsiniz.
 
 ### Mac'e kendi adınızı verin (takma ad)
 
 Uygulama her yerde (sol üstteki Mac adı, Ayarlar, eşleşme ekranı) Mac'in bilgisayar adı yerine sizin verdiğiniz adı gösterir.
 
 1. Eşleşme bitince Tether **Name this Mac** kutusunu açar. Kutuda Mac'in kendi adı yazılıdır. İstediğiniz adı yazıp **Save**'e dokunun. Adı değiştirmek istemiyorsanız **Cancel**'a dokunun.
-2. Adı sonra değiştirmek için sol üstteki Mac adını basılı tutun, ya da Ayarlar → **Macs** → satırdaki kaleme dokunun. Mac adına kısa dokunmak, Mac'ler arasında geçiş menüsünü açar.
+2. Adı sonra değiştirmek için sol üstteki Mac adını basılı tutun, ya da Ayarlar → **Macs** → satırdaki kaleme dokunun. Mac adına kısa dokunmak, Mac'ler arasında geçiş menüsünü açar (tam iki Mac varsa doğrudan öteki Mac'e geçer).
 3. Kutuyu boş bırakıp kaydederseniz Mac'in kendi adı geri gelir.
 
 - Ad yalnız bu iPhone'da saklanır. Mac'e ve başka telefonlara gitmez.
@@ -170,7 +170,7 @@ Kurulum (bir kez, Mac'te):
 1. Apple Developer → Keys: APNs anahtarı oluşturun (Sandbox, topic `com.furkancakir.dshmobile`) ve `.p8` dosyasını indirin.
 2. `~/.dsh/storages/dsh-composer-plus/mobile/apns.json` dosyasını yazın (yalnız sahibi okuyabilsin: `chmod 600`):
    `{ "keyFile": "/…/AuthKey_XXXXXXXXXX.p8", "keyId": "XXXXXXXXXX", "teamId": "9LYL5R6LS4", "topic": "com.furkancakir.dshmobile" }`
-3. Mobile connect'i kapatıp açın (ya da dsh'yi yeniden başlatın). Mac sayfasındaki cihaz listesinde push'u açık telefonun `push` alanı `true` olur.
+3. Mobile connect'i kapatıp açın (ya da dsh'yi yeniden başlatın). Mac sayfasındaki cihaz listesinde her iPhone'un altında "Notifications while Tether is closed: on" yazar. "off" yazıyorsa nedeni de oradadır: iPhone'un gönderdiği iOS hatası ("The iPhone says: …") ya da Apple'ın reddettiği son push'un nedeni ("Last push failed: …").
 
 - Uygulama `aps-environment` yetkisiyle ve push açık bir App ID profiliyle imzalanmalıdır. Joker (`*`) App ID'li profil push vermez.
 - Telefon, ekrandaki Mac'in **Send notifications** anahtarını, **Only between these hours** aralığını, kendi saat dilimini ve cihaz token'ını `POST /push` ile o Mac'e gönderir. Ayar Mac'e göre ayrıdır. Saat aralığını Mac, telefonun saat diliminde uygular. Eşleşmeyi kaldırmak push'u kapatır.
@@ -178,6 +178,7 @@ Kurulum (bir kez, Mac'te):
 - Her bildirimin alt başlığı Mac'in adı ve sohbetin projesidir (`Studio Mac · recipe-box`; dal klasörü `.worktrees/<ad>` deponun adını verir). Gövdede önce sohbet başlığı, sonra ayrıntı vardır: Turn finished'da AI'ın son yanıtı, onayda araç adı, soruda soru, hatada hata metni. Push en çok 600 karakter taşır.
 - Bildirimde Mac adı, proje adı, sohbet başlığı ve AI yanıtının metni Apple'ın sunucusundan geçer ve kilit ekranında görünür. Gizlemek için iOS Ayarlar → Bildirimler → Tether → Önizlemeleri Göster → Kilit Açıkken.
 - Push varken Tether aynı bildirimi yerelde ikinci kez göstermez.
+- Tether her bağlantıda iOS'tan cihaz token'ını yeniden ister ve ayarları Mac'e yeniden gönderir. İlk deneme başarısız olduysa (ağ yok, push yetkisi olmayan bir kurulum) bir sonraki açılış yeniden dener. iOS token vermezse Tether Ayarlar → Notifications altında nedeni turuncu yazar ve nedeni Mac sayfasına da gönderir.
 
 ## Bilinen sınırlamalar
 

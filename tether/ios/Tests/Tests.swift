@@ -173,6 +173,12 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(nextActive(list, removed: "fp3"), "fp4")
         XCTAssertEqual(nextActive(list, removed: "fp11"), "fp10")
         XCTAssertNil(nextActive([p("only", nil)], removed: "only"))
+        // The Mac picker: two Macs → one tap goes to the other one; one Mac or three and more → the menu.
+        XCTAssertEqual(otherMac([p("a1", nil), p("b22", nil)], active: "a1")?.fp, "b22")
+        XCTAssertEqual(otherMac([p("a1", nil), p("b22", nil)], active: "b22")?.fp, "a1")
+        XCTAssertNil(otherMac([p("a1", nil)], active: "a1"), "one Mac: the menu (Add a Mac…)")
+        XCTAssertNil(otherMac(Array(list.prefix(3)), active: "fp0"), "three Macs: the menu")
+        XCTAssertNil(otherMac([p("a1", nil), p("b22", nil)], active: nil), "no Mac on screen: the menu")
         // Per-Mac keys: the first (migrated) Mac keeps the old key; others get their own; no Mac = old key.
         XCTAssertEqual(macKey("finished", "fp0", legacy: "fp0"), "finished")
         XCTAssertEqual(macKey("finished", nil, legacy: "fp0"), "finished")
@@ -865,7 +871,9 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(on["hours"] as? [String: AnyHashable], ["from": 22 * 60, "to": 7 * 60, "tz": "Europe/Istanbul"])
         XCTAssertTrue(Client.pushBody(on: true, token: "ab", sandbox: false, hours: false, from: 0, to: 0, tz: "UTC")["hours"] is NSNull, "hours off: every hour")
         XCTAssertEqual(Client.pushBody(on: false, token: "ab", sandbox: true, hours: true, from: 1, to: 2, tz: "UTC") as NSDictionary, ["on": false])
-        XCTAssertEqual(Client.pushBody(on: true, token: nil, sandbox: true, hours: false, from: 1, to: 2, tz: "UTC") as NSDictionary, ["on": false], "no token yet: no push")
+        XCTAssertEqual(Client.pushBody(on: true, token: nil, sandbox: true, hours: false, from: 1, to: 2, tz: "UTC") as NSDictionary, ["on": false, "reason": "no device token from iOS yet"], "no token yet: no push, and the Mac page says why")
+        XCTAssertEqual(Client.pushBody(on: true, token: nil, sandbox: true, hours: false, from: 1, to: 2, tz: "UTC", reason: "no valid aps-environment") as NSDictionary, ["on": false, "reason": "no valid aps-environment"], "iOS's reason goes to the Mac")
+        XCTAssertEqual(Client.pushBody(on: false, token: nil, sandbox: true, hours: false, from: 1, to: 2, tz: "UTC", reason: "x") as NSDictionary, ["on": false], "switched off: no reason")
         // A new Client (or a Mac switch) does not push until that Mac's /me says it can.
         XCTAssertFalse(Client().pushOn)
     }

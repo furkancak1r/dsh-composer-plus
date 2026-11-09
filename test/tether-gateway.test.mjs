@@ -871,7 +871,11 @@ test('push: a closed Tether gets approval, question, error and turn alerts throu
     t.gw.push('Turn finished', 'quiet')
     // Switched off: nothing, and the token leaves the Mac.
     await setPush({ on: false })
-    assert.equal(t.gw.state().devices[0].push, false)
+    assert.equal(t.gw.state().devices[0].push, false); assert.equal(t.gw.state().devices[0].pushReason, undefined)
+    // On in Tether, but iOS gave no token: the phone says why, the Mac page shows it (bounded).
+    await setPush({ on: false, reason: 'no valid aps-environment entitlement ' + 'x'.repeat(300) })
+    assert.match(t.gw.state().devices[0].pushReason, /^no valid aps-environment/); assert.equal(t.gw.state().devices[0].pushReason.length, 200)
+    await setPush({ on: false })
     t.gw.push('Turn finished', 'off')
     await sleep(200)
     assert.equal(got.length, 6, 'no push outside the hours or while switched off')
@@ -880,6 +884,14 @@ test('push: a closed Tether gets approval, question, error and turn alerts throu
     t.gw.push('Turn finished', 'gone')
     await waitFor(() => t.gw.state().devices[0].push === false)
     assert.equal(JSON.parse(readFileSync(join(t.dir, 'devices.json'), 'utf8'))[0].push.token, undefined, 'saved without the dead token')
+    // The Mac page says why the last push failed (APNs' reason, no token), and that this Mac has a key.
+    assert.equal(t.gw.state().pushKey, true)
+    assert.equal(t.gw.state().devices[0].pushFail?.reason, 'Unregistered', 'the Mac page shows the failure')
+    assert.equal(JSON.stringify(t.gw.state()).includes('dead'.repeat(16)), false, 'still no device token on the Mac page')
+    // A push that APNs takes clears it.
+    await setPush({ on: true, token: dev, sandbox: true, hours: null })
+    t.gw.push('Turn finished', 'back')
+    await waitFor(() => t.gw.state().devices[0].pushFail === undefined)
   } finally {
     await t.done(); apnsServer.close()
     if (prevTls === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; else process.env.NODE_TLS_REJECT_UNAUTHORIZED = prevTls
@@ -896,5 +908,6 @@ test('push: no APNs key means no push and asks go back to dsh at once, as before
     t.dsh.push({ type: 'waterfall', event: 'approval/request', eventId: 'n1', agentId: 'a', request: { toolName: 'bash' } })
     await waitFor(() => t.dsh.results.length === 1)
     assert.deepEqual(t.dsh.results[0].outcome, { kind: 'next' }, 'without a key nothing waits for a phone')
+    assert.equal(t.gw.state().pushKey, false, 'the Mac page knows that this Mac has no key')
   } finally { await t.done() }
 })

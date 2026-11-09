@@ -2486,3 +2486,43 @@ index.js, client.js (en/zh metni, dil paketleri build:locales), locales/*.json, 
   - Gerçek dsh `test/browser-assistant.mjs` (yeni adım 6b dahil) PASS: 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1. 6b: Delete chat sonrası açılış yeni sohbet verdi. 4b: 0.2.0/0.2.1'de `schedule_list` başka sohbetin görevini görmüyor; 0.2.2-rc.1'de görüyor ve `schedule_edit` ile duraklatıyor. schedule_create workspace-write ile onay kartı açmadan çalıştı; hatırlatma zamanı gelince asistan sohbeti yeniden çalıştı.
   - Simülatör (agent-device, iPhone 17 Pro, yalıtılmış dsh 0.2.1-rc.2 + /32 gateway 19400, `tether/build/sim-assistant.mjs`): Sessions'ta Assistant düğmesi; dokununca `~/Assistant` sohbeti açıldı; mesaj gitti, yanıt geldi; geri dönüp tekrar dokununca aynı sohbet (Mac'te tek sohbet, aynı kimlik). Düzenek durduruldu, geçici klasör silindi.
   - Aşama 4 (canlı kopya) beklemede: Auto review, sahibin soru kartındaki onayını kabul etmedi; sohbet mesajıyla açık onay gerekiyor.
+
+## Tether arka plan bildirimi, asistanda paralel konular, goal noktası, tek tıkla Mac geçişi (2026-11-09, dal `feat/background-notifications-parallel-chats`)
+İstek (sahip, Türkçe): (1) Tether'a uygulama kapalıyken bildirim gelmiyor; (2) asistanla bir arkadaşla konuşur gibi konuşmak: konu bölünmesin, yeni mesaj çalışan işi kesmesin, aynı anda birden fazla konu açılabilsin (DeepSeek superagent gibi, arka planda ayrı bir zaman çizgisi); (3) Tether sohbet listesinde goal olunca çıkan mavi nokta görünmesin; (4) iki Mac varken sol üstteki seçiciden tek tıkla öteki Mac'e geçmek (şu an liste açılıyor).
+
+### Teşhis (1), kanıt
+- Mac tarafı çalışıyor: `apns.json` geçerli, anahtar dosyası var; sahte token ile Apple sandbox `BadDeviceToken` döndü (kimlik doğrulama geçti), production `BadEnvironmentKeyInToken` (anahtar yalnız sandbox, beklenen). Canlı gateway çalışıyor, `/me` push: true veriyor.
+- Telefonun kaydı `devices.json`'da `push: {on: false}`, token yok; Mac sayfası `push: false`. Yani Mac hiç push göndermiyor, çünkü telefon token vermedi.
+- Son iPhone kurulumu 06.11 11:24 (push profili + `aps-environment` ile imzalı, push kodunu içeriyor). Telefon şu an CoreDevice'a bağlı değil (`unavailable`), bu yüzden telefondaki ayar ve iOS hatası okunamadı.
+- Kodda iki zayıflık: `didFailToRegisterForRemoteNotificationsWithError` boştu (hata sessizce yutuluyordu); `registerPush` yalnız `macPush` değişince çağrılıyordu, ilk deneme başarısızsa yeniden denenmiyordu. Mac sayfası push durumunu hiç göstermiyordu.
+- Çıkarım (doğrulanmadı): ya telefonda Ayarlar → Send notifications bu Mac için kapalı, ya da iOS token vermedi. Yeni derleme nedeni ekranda ve Mac sayfasında gösterecek.
+
+### Kararlar
+- (1) iOS: her `/me` (her bağlantı) iOS'tan token ister ve `POST /push` gönderir; token hatası `tokenError`, gönderim hatası `syncError` olarak tutulur ve Ayarlar → Notifications altında turuncu yazılır; token yoksa telefon nedeni `POST /push {on:false, reason}` ile Mac'e yollar. Gateway: `reason` (≤200) saklanır, son başarısız push'un nedeni bellekte (`pushFails`), `state()` → `pushKey`, cihaz başına `pushFail`, `pushReason`; Mac sayfası her iPhone'un altında durumu yazar. Token hiçbir zaman Mac sayfasına çıkmaz.
+- (2) Asistan sistem metni: kısa cevap dışındaki her iş dsh'nin `subagent` aracıyla arka planda (0.2.0'da `run_in_background: true`, 0.2.1+ zaten hemen döner), konu başına bir alt ajan, tek satır bilgi, tur hemen biter; yeni konu çalışanları durdurmaz; dsh'nin bitiş bildirimi yeni bir tur başlatır ve sonuç bildirilir; çalışan konuya mesaj `send_message`. Yeni kod yok, yalnız metin (dsh'nin kendi özelliği). Kanıt: dsh-tool-subagent README "Every call returns `started subagent <childId>` ... does not wait"; bildirim metni "Background subagent … finished … Its closing message: …".
+- (3) Tether `SessionsView.row`: goal simgesi (`target`, accentColor) kaldırıldı; sohbetin goal çubuğu kalır.
+- (4) Masaüstü `ComputerPicker`: gidilecek tek yer varsa (bu Mac + bir bilgisayar) sol tık doğrudan oraya geçer, başlık "Switch to {name} (right-click for all computers)"; sağ tık menüyü açar (Add a computer…). Tether `MacPicker`: tam iki Mac varsa dokunuş öteki Mac'e geçer (⇄ simgesi), aksi halde menü. Yeni metin: `computers.switchTo` (en, zh, 11 dil).
+
+### Kontroller
+- `test/computers-client.test.mjs` (tek tık, sağ tık menüsü, iki bilgisayarda menü); eski kural ile kırmızı ("one other computer: no menu").
+- `test/tether-gateway.test.mjs` 32/32 (pushKey, pushFail, temizlenme, reason sınırı, token sayfada yok).
+- `test/assistant.test.mjs` (metin kuralları).
+- iOS birim testleri 96/96 (`otherMac`, `pushBody` reason).
+- Gerçek dsh: `test/browser-assistant.mjs` yeni adım 8 (iki konu aynı anda iki arka plan alt ajanında, P2 önce biter, sonra P1, her sonuç ayrı turda) ve `test/browser-computers.mjs` (sol tık doğrudan Studio, sağ tık menü) 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1.
+
+### Yapılmadı (istenmedi)
+Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
+
+### Son kontrol noktası (2026-11-09 01:50)
+- Bitti, commit yok. `npm test` exit 0; `git diff --check` temiz; `npm pack --dry-run` 114 dosya (`tether/` yalnız `gateway/*`).
+- iOS 96/96. Gateway 32/32. `test/tether-notify-per-mac.test.mjs` yeni kurallara göre güncellendi (her bağlantıda yeniden kayıt, hata yutulmaz, Ayarlar nedeni yazar).
+- Gerçek dsh PASS: `test/browser-assistant.mjs` (adım 8 dahil) ve `test/browser-computers.mjs`, 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1. İlk çok sürümlü koşuda adım 8 ikinci sürümde düştü: test hatası (kapılar sürümler arasında sıfırlanmıyordu), düzeltildi.
+- Metinler: `computers.switchTo` en, zh, 11 dil; `how` 13 dil (10 dil iki alt ajanla), README sınırlar 13 dil, `build:readme`.
+- Açık: telefona yeni derleme kurulmadı (telefon CoreDevice'ta `unavailable`); bildirim kök nedeni kurulumdan sonra Tether Ayarlar'ında ya da Mac sayfasında okunacak.
+
+### iPhone kurulumu (2026-11-09 08:05)
+- Telefon kablosuz bağlı (CoreDevice `transportType: localNetwork`, tünel açık, Developer Mode açık, iOS 27.2).
+- Debug `-O` derleme, push profili + `aps-environment: development` ile imza (geçici anahtarlık silindi), `devicectl device install app` (veri korundu), açıldı.
+- Kök neden kanıtlandı: telefonun tercihlerinde bu Mac (fp 7c97…, adı "İş") için `notifications.<fp> = False`; cihaz token'ı vardı (64 hex). Yani "Send notifications" bu Mac için kapalıydı, telefon Mac'e `{on:false}` gönderiyordu. Neden kapalı kaldığı kanıtlanamadı (eski genel anahtar `notifications = True`).
+- Sahibin isteğiyle anahtar açıldı (agent-device). Tether "The Mac sends them through Apple's push service" yazdı; canlı gateway: iPhone `push: true`, `devices.json` on, token var, sandbox, saat yok.
+- Doğrulanmadı: kapalı uygulamaya gerçek bildirimin düşmesi (Tether'ı sonlandırmak Auto review onayı istedi, yapılmadı). Canlı gateway eski sürüm (1.24.1): yeni Mac sayfası satırları canlı kopya güncellenince görünür; yeni iOS'un `reason` alanı eski gateway'de yok sayılır.

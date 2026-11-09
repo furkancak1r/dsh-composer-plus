@@ -243,9 +243,16 @@ renderPicker().c[0].p.anchor.p.onClick(); await tick();
 assert.equal(views.getSnapshot().current, 'self', 'the click came back');
 assert.equal(renderPicker().c[0].p.open, false, 'no menu opened');
 btn = renderPicker().c[0].p.anchor;
-assert.equal(btn.c[1].c[0], 'computers.thisMacShort'); assert.equal(btn.p['aria-haspopup'], 'menu', 'on this Mac: the menu'); assert.notEqual(btn.c[2], null);
+// On this Mac with one other computer: the click goes to it at once (no menu, no arrow); a right-click opens the menu.
+assert.equal(btn.c[1].c[0], 'computers.thisMacShort'); assert.equal(btn.p['aria-haspopup'], undefined, 'one other computer: no menu'); assert.equal(btn.c[2], null, 'no arrow');
+assert.equal(btn.p.title, 'computers.switchTo:{"name":"Studio"}', 'the title names where the click goes'); assert.equal(btn.p['aria-label'], btn.p.title);
 assert.equal(root.style.visibility, 'hidden'); assert.equal(wv.style.visibility, 'hidden'); assert.equal(wv.isConnected, true); assert.deepEqual(released, []);
-await renderPicker().c[0].p.onSelect(ID);
+{ let prevented = 0; btn.p.onContextMenu({ preventDefault: () => { prevented += 1; } });
+  assert.equal(prevented, 1, 'no browser menu'); menu = renderPicker().c[0]; assert.equal(menu.p.open, true, 'the right-click opens the menu');
+  assert.deepEqual(menu.p.items.map((i) => i.id), ['self', ID, 'sep', 'add'], 'Add a computer… stays one right-click away'); menu.p.onClose(); }
+renderPicker().c[0].p.anchor.p.onClick(); await tick();
+assert.equal(views.getSnapshot().current, ID, 'one click: Studio');
+assert.equal(renderPicker().c[0].p.open, false, 'no menu opened');
 assert.equal(opens, 1, 'no new ticket'); assert.equal(loaded.length, 1, 'no reload'); assert.equal(root.style.visibility, 'visible');
 
 // The other Mac's page switches the window: only the page on screen may; "add" goes back to This Mac and opens the dialog.
@@ -274,6 +281,11 @@ btn = renderPicker().c[0].p.anchor;
 assert.equal(btn.c[1].c[0], 'computers.back'); assert.equal(btn.p['aria-haspopup'], 'menu', 'two computers: the menu');
 btn.p.onClick(); assert.equal(views.getSnapshot().current, ID2, 'the click did not switch');
 menu = renderPicker().c[0]; assert.equal(menu.p.open, true, 'the menu opened'); menu.p.onClose();
+// On this Mac with two computers: the click opens the menu (two places to go).
+await views.select('self');
+btn = renderPicker().c[0].p.anchor; assert.equal(btn.p['aria-haspopup'], 'menu', 'two other computers: the menu');
+btn.p.onClick(); assert.equal(views.getSnapshot().current, 'self'); menu = renderPicker().c[0]; assert.equal(menu.p.open, true); menu.p.onClose();
+await views.select(ID2);
 
 // A computer that is removed: its page closes, its lease goes back, the window shows This Mac.
 view = { ...view, computers: view.computers.filter((c) => c.id !== ID2) }; await computers.refresh();

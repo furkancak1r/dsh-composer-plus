@@ -2419,6 +2419,7 @@
     "computers.nameHelp": "Tên hiển thị trong bộ chọn máy tính. Tên này phải khác với tên của máy Mac này và các máy tính khác của bạn.",
     "computers.duplicateHint": "Máy Mac này hoặc một máy tính khác có cùng tên. Nhấp “Đổi tên” và đặt một tên khác.",
     "computers.back": "Quay lại máy Mac này",
+    "computers.switchTo": "Chuyển sang {name} (nhấp chuột phải để xem tất cả máy tính)",
     "computers.error.name-taken": "Máy Mac này hoặc một máy tính khác đã dùng tên này. Nhập tên khác.",
     "computers.error.name-missing": "Nhập tên cho máy tính này."
   },

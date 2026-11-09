@@ -2419,6 +2419,7 @@
     "computers.nameHelp": "Le nom dans le sélecteur d’ordinateur. Il doit être différent du nom de ce Mac et de vos autres ordinateurs.",
     "computers.duplicateHint": "Ce Mac ou un autre ordinateur a le même nom. Cliquez sur « Renommer » et donnez-lui un autre nom.",
     "computers.back": "Revenir à ce Mac",
+    "computers.switchTo": "Passer à {name} (clic droit pour voir tous les ordinateurs)",
     "computers.error.name-taken": "Ce Mac ou un autre ordinateur a déjà ce nom. Saisissez un autre nom.",
     "computers.error.name-missing": "Saisissez un nom pour cet ordinateur."
   },
