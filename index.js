@@ -7064,7 +7064,11 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
             if (entryProblem(entry) === undefined) await now.replace({ scope: where, topic: target.file.topic, match: target.text, text: entry, meta, actor: 'review' });
           } catch (error) {
             if (!Number.isInteger(error?.status)) throw error; // a write error: nothing of this review is saved
-            if (error?.code !== 'no-match') log(`a change was left out: ${error?.message ?? error}`);
+            if (error?.code === 'no-match') continue;
+            log(`a change was left out: ${error?.message ?? error}`);
+            // In the journal too: the warning goes only to dsh's in-memory log, and the cursor still moves past these lines.
+            await store.journal({ op: 'skip', actor: 'review-error', session: id, reason: clipEnd(String(error?.message ?? error), 500),
+              change: { op: c.op, entry: c.entry, text: c.text, topic: c.topic, global: c.global } });
           }
         }
       });
@@ -7080,7 +7084,14 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
     if (waiting.has(id)) return;
     waiting.add(id);
     reviews = reviews.then(() => { waiting.delete(id); return on ? review(id) : undefined; })
-      .catch((error) => log(`the review of ${id} failed: ${error?.message ?? error}`));
+      .catch((error) => {
+        const reason = clipEnd(String(error?.message ?? error), 500);
+        log(`the review of ${id} failed: ${reason}`);
+        // dsh's warning lives only in memory, so the failure also goes to journal.jsonl for a later audit. The chat's next
+        // finished turn reads the same lines again (the cursor did not move). An empty batch: the row waits for a running
+        // save of a tool, and never joins that save's rows.
+        return store.batch([], () => store.journal({ op: 'error', actor: 'review-error', session: id, reason })).catch(() => {});
+      });
   };
   const stopTimers = () => { for (const t of timers.values()) clearTimeout(t); timers.clear(); };
   ctx.on('agent/status', ({ agent, status }) => {

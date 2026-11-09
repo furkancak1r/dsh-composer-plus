@@ -192,6 +192,19 @@ try {
     assert.match(await tool('memory_remember').execute({ text: 'A detail for a new topic', topic: 'details' }, exec), /the new topic \[\[details\]\]/, 'a full MEMORY.md still takes a new topic, as its error text says');
     await writeFile(join(pDir, 'MEMORY.md'), before); }
 
+  // A failed review and a left-out change leave a journal row (dsh's warning is in memory only).
+  { const journalRows = async () => (await readFile(join(hostHome, 'storages', 'dsh-composer-plus', 'memory', 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+    sessionEvents = [...sessionEvents, user('Use bun for scripts')]; answer = 'not json';
+    const status = (s) => on['agent/status'].forEach((f) => f({ agent: { id: 'chat-1', session: { header: { cwd: project } } }, status: s }));
+    status('running'); status('idle');
+    await new Promise((r) => setTimeout(r, 2600));
+    const failed = (await journalRows()).filter((r) => r.actor === 'review-error' && r.op === 'error');
+    assert.equal(failed.length, 1, 'one error row'); assert.equal(failed[0].session, 'chat-1'); assert.match(failed[0].reason, /not a list of changes/);
+    answer = '{"changes":[{"op":"add","text":"The user runs scripts with bun","topic":"t-41"}]}';
+    for (let i = 0; i < 40; i++) await mem.store.add({ scope: mem.store.project(project), topic: `t-${i}`, text: `Topic fact ${i}`, actor: 'agent' }).catch(() => {});
+    await mem.review('chat-1');
+    const skipped = (await journalRows()).filter((r) => r.actor === 'review-error' && r.op === 'skip');
+    assert.equal(skipped.length, 1, 'a refused change leaves a skip row'); assert.match(skipped[0].reason, /already has 40 topics/); assert.equal(skipped[0].change.text, 'The user runs scripts with bun'); }
 
   // The status edge queues a review only for a root chat that ran (timer stops on switch-off).
   assert.equal(typeof on['agent/status']?.[0], 'function');
