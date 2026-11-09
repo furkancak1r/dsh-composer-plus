@@ -17,7 +17,8 @@
 //    subagent tool); the second starts while the first still works, and each result comes back on its own.
 // 9. Assistant apart from chats (on by default): the assistant chat has no row in the sidebar list (project and "In one
 //    list"), the "Assistant" project is hidden, the search still finds the chat; the Assistant row shows the orange
-//    waiting dot while a card waits, and switched off the row is back.
+//    waiting dot at its right end (lined up with the project rows' status, not over the icon) while a card waits, and
+//    switched off the row is back.
 // 10. Assistant messages only (on by default): a turn with a tool call shows only the reply in the assistant chat; switched
 //    off, the tool row shows again. Other chats keep their tool rows.
 // 11. Assistant always free (on by default): the assistant's own bash call is refused with the subagent reason; off: it runs.
@@ -420,6 +421,22 @@ try {
       await page.getByText(/Composer Plus → Assistant wants to send a message to/).first().waitFor({ timeout: 20000 });
       await until(async () => (await page.locator('[data-composer-plus-assistant-state="warning"]').count()) > 0, 'the waiting dot on the Assistant row');
       assert.equal(await assistantRow().getAttribute('aria-description'), 'Waiting for you');
+      // The dot is at the row's right end, where a project row shows its status (its status seat), not over the icon.
+      const place = await page.evaluate(() => {
+        const box = (el) => el?.getBoundingClientRect();
+        const row = document.querySelector('button[aria-label="Assistant"]');
+        const dot = row?.querySelector('[data-composer-plus-assistant-dot] > *');
+        const project = [...document.querySelectorAll('[data-composer-plus-project-status]')].find((el) => el.getClientRects().length > 0);
+        const [r, d, p] = [box(row), box(dot), box(project)];
+        return { row: r && { right: r.right, top: r.top, bottom: r.bottom }, dot: d && { left: d.left, right: d.right, top: d.top, bottom: d.bottom }, project: p && { right: p.right },
+          onIcon: row?.querySelector('[data-composer-plus-assistant-state] [style*="absolute"]') != null };
+      });
+      assert.ok(place.dot, `the dot is in its seat at the row end: ${JSON.stringify(place)}`);
+      assert.equal(place.onIcon, false, 'no dot over the icon');
+      assert.ok(place.row.right - place.dot.right <= 16, `at the right end of the row: ${JSON.stringify(place)}`);
+      assert.ok(Math.abs((place.dot.top + place.dot.bottom) / 2 - (place.row.top + place.row.bottom) / 2) <= 1.5, `centered on the row: ${JSON.stringify(place)}`);
+      if (place.project) assert.ok(Math.abs(place.dot.right - place.project.right) <= 2, `lined up with the project rows' status: ${JSON.stringify(place)}`);
+      note(`9: Assistant dot right edge ${place.dot.right.toFixed(1)}px, project status seat ${place.project?.right.toFixed(1) ?? '(none)'}px, row right ${place.row.right.toFixed(1)}px`);
       if (process.env.SHOT) {
         const png = join(home, 'assistantApart.png');
         const box = await page.locator('nav, [class*="_sidebar"]').first().boundingBox();
@@ -434,6 +451,7 @@ try {
       await apartSw.click(); await back();
       await until(async () => (await page.locator(`[data-row-key="session:${nowId}"]`).first().isVisible().catch(() => false)), 'the row is back');
       assert.equal(await page.locator('[data-composer-plus-assistant-state]').count(), 0, 'no dot when off');
+      assert.equal(await page.locator('[data-composer-plus-assistant-dot]').count(), 0, 'and no dot seat');
       await settings(); await apartSw.click(); await back();
       note('9: the assistant chat left the list (project hidden, search finds it); orange dot while a card waited; off brings the row back');
 
