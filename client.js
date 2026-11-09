@@ -4827,6 +4827,35 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * the rows. The hosts are removed on unmount. Shared by Project status and the branch badge.
      * shortcut: dsh has no always-visible row slot (its row action shows on hover only); if dsh changes this markup the
      * hosts are not made and nothing shows. */
+    /** One MutationObserver on the page body for every feature that watches sidebar or composer markup (row hosts, project
+     * and header buttons, option keys, Status order, Computers). It skips the changes inside dsh's chat rows
+     * (`[data-chat-flow]`: a streamed reply changes them many times a second, and no subscriber reads them) and runs the
+     * subscribers at most once per frame. `watchBody(fn, doc)` returns the unsubscriber; the last one stops the observer.
+     * Without requestAnimationFrame (unit tests) the subscribers run at once. */
+    const bodyWatchers = new WeakMap();
+    const BODY_WATCH_ATTRS = ['aria-expanded', 'aria-labelledby'];
+    const inChatFlow = (record) => { const el = record.target?.nodeType === 1 ? record.target : record.target?.parentElement; return el?.closest?.('[data-chat-flow]') != null; };
+    function watchBody(fn, doc = document) {
+      let w = bodyWatchers.get(doc);
+      if (w === undefined) {
+        const subs = new Set(); let queued = false;
+        const run = () => { queued = false; for (const sub of [...subs]) sub(); };
+        const observer = new MutationObserver((records) => {
+          if (Array.isArray(records) && records.length > 0 && records.every(inChatFlow)) return;
+          if (typeof requestAnimationFrame !== 'function') { run(); return; }
+          if (!queued) { queued = true; requestAnimationFrame(run); }
+        });
+        observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: BODY_WATCH_ATTRS });
+        w = { subs, observer };
+        bodyWatchers.set(doc, w);
+      }
+      const mine = w;
+      mine.subs.add(fn);
+      return () => {
+        mine.subs.delete(fn);
+        if (mine.subs.size === 0 && bodyWatchers.get(doc) === mine) { mine.observer.disconnect(); bodyWatchers.delete(doc); }
+      };
+    }
     function useRowHosts(prefix, attr, css) {
       const [hosts, setHosts] = React.useState(new Map());
       React.useLayoutEffect(() => {
@@ -4849,10 +4878,9 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           setHosts((prev) => (prev.size === next.size && [...next].every(([k, h]) => prev.get(k) === h) ? prev : next));
         };
         scan();
-        const observer = new MutationObserver(scan);
-        observer.observe(document.body, { childList: true, subtree: true });
+        const unwatch = watchBody(scan);
         return () => {
-          observer.disconnect();
+          unwatch();
           for (const host of document.querySelectorAll(`[${attr}]`)) host.remove();
         };
       }, []);
@@ -5223,10 +5251,9 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           setHost(next);
         };
         scan();
-        const observer = new MutationObserver(scan);
-        // A project opens or closes with dsh's `aria-expanded` on its row; an empty project adds no rows.
-        observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-expanded'] });
-        return () => { observer.disconnect(); document.querySelector(`[${COLLAPSE_HOST}]`)?.remove(); };
+        // A project opens or closes with dsh's `aria-expanded` on its row (watchBody watches it); an empty project adds no rows.
+        const unwatch = watchBody(scan);
+        return () => { unwatch(); document.querySelector(`[${COLLAPSE_HOST}]`)?.remove(); };
       }, []);
       const collapse = (event) => {
         const button = event.currentTarget;
@@ -5287,9 +5314,8 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
           setHost(next);
         };
         scan();
-        const observer = new MutationObserver(scan);
-        observer.observe(document.body, { childList: true, subtree: true });
-        return () => { observer.disconnect(); document.querySelector(`[${NEXT_WAITING_HOST}]`)?.remove(); };
+        const unwatch = watchBody(scan);
+        return () => { unwatch(); document.querySelector(`[${NEXT_WAITING_HOST}]`)?.remove(); };
       }, []);
       const label = t('nextWaiting.button', { count: String(waiting.length) });
       const click = () => {
@@ -5532,8 +5558,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
         for (const section of doc.querySelectorAll('[data-question-key] > section')) { const id = viewOf(section); live.add(id); if (!seen.has(id)) seen.set(id, now()); }
         for (const id of [...seen.keys()]) if (!live.has(id)) seen.delete(id);
       };
-      const observer = new MutationObserver(stamp);
-      observer.observe(doc.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-labelledby'] });
+      const unwatch = watchBody(stamp, doc); // the question's `aria-labelledby` changes when dsh moves to the next question
       stamp();
       const onKey = (event) => {
         if (!/^[1-9]$/.test(event.key) || event.repeat || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.isComposing || event.keyCode === 229 || event.defaultPrevented) return;
@@ -5550,7 +5575,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
         option.click();
       };
       view.addEventListener('keydown', onKey, true);
-      return () => { observer.disconnect(); view.removeEventListener('keydown', onKey, true); seen.clear(); };
+      return () => { unwatch(); view.removeEventListener('keydown', onKey, true); seen.clear(); };
     }
 
     /** Sidebar → view options → Order by → "By status": with "In one list", finished chats (unread completion, which also
@@ -5617,9 +5642,8 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
           setRows(document.querySelector(FLAT_LIST)?.children.length ?? 0);
         };
         scan();
-        const observer = new MutationObserver(scan);
-        observer.observe(document.body, { childList: true, subtree: true });
-        return () => { observer.disconnect(); document.querySelector(`[${STATUS_ORDER_HOST}]`)?.remove(); };
+        const unwatch = watchBody(scan);
+        return () => { unwatch(); document.querySelector(`[${STATUS_ORDER_HOST}]`)?.remove(); };
       }, []);
       const choose = (value) => {
         try { if (value) localStorage.setItem(STATUS_ORDER_KEY, '1'); else localStorage.removeItem(STATUS_ORDER_KEY); } catch { /* storage blocked: this page only */ }
@@ -8356,9 +8380,8 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           setHost((prev) => (prev === el ? prev : el));
         };
         scan();
-        const observer = new MutationObserver(scan);
-        observer.observe(document.body, { childList: true, subtree: true });
-        return () => { observer.disconnect(); for (const el of document.querySelectorAll(`[${COMPUTER_HOST}]`)) el.remove(); };
+        const unwatch = watchBody(scan);
+        return () => { unwatch(); for (const el of document.querySelectorAll(`[${COMPUTER_HOST}]`)) el.remove(); };
       }, []);
       return host;
     }
