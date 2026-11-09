@@ -6098,6 +6098,12 @@ function readOwn(path) {
     throw error;
   } finally { if (fd !== undefined) closeSync(fd); }
 }
+/** Appends rows to `<dir>/journal.jsonl` (owner-only). With a memory folder, nothing else writes into `dir`, so it can be
+ * missing. */
+async function appendJournal(dir, text) {
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await appendFile(join(dir, 'journal.jsonl'), text, { mode: 0o600 });
+}
 async function writeOwn(path, text) {
   await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.${process.pid}.tmp`;
@@ -6127,15 +6133,16 @@ export function memoryStore(dir, { today = () => new Date().toLocaleDateString('
    * path is not known), or undefined. Read each time, so a folder that the user renames in Obsidian keeps its notes. */
   const folderOfId = (id) => subdirs().map((name) => join(projectsDir, name))
     .find((at) => { const p = pathIn(at); return p === undefined ? basename(at) === id : idOf(p) === id; });
-  /** Folder layout: a new folder name from the project folder's name; a name in use gets the id's first 6 characters. */
-  const newFolder = (id, real) => {
+  /** Folder layout: a new folder name from the project folder's name; a name in use (in any case: macOS and Windows fold
+   * case) gets the id's first 6 characters. `also`: names that this batch already gave to other new projects. */
+  const newFolder = (id, real, also = []) => {
     const base = basename(real).replace(/[\\/:*?"<>|#^[\]\0-\x1f]/g, '-').replace(/^\.+/, '').trim().slice(0, 64) || 'proje';
-    const taken = new Set(subdirs().map((n) => n.toLowerCase()));
+    const taken = new Set([...subdirs(), ...also].map((n) => n.toLowerCase()));
     for (const name of [base, `${base}-${id.slice(0, 6)}`, `${base}-${id}`]) if (!taken.has(name.toLowerCase())) return join(projectsDir, name);
     return join(projectsDir, id);
   };
-  const projectScope = (id, path) => (folder === undefined ? scopeAt(id, path, join(dir, 'projects', id))
-    : scopeAt(id, path, folderOfId(id) ?? (path === undefined ? join(projectsDir, id) : newFolder(id, path))));
+  const projectScope = (id, path, also) => (folder === undefined ? scopeAt(id, path, join(dir, 'projects', id))
+    : scopeAt(id, path, folderOfId(id) ?? (path === undefined ? join(projectsDir, id) : newFolder(id, path, also))));
   const project = (cwd) => {
     let real;
     try { real = realpathSync(cwd); } catch { real = resolve(cwd); }
@@ -6186,7 +6193,7 @@ export function memoryStore(dir, { today = () => new Date().toLocaleDateString('
   const journal = (row) => {
     const line = `${JSON.stringify({ time: new Date().toISOString(), id: randomUUID(), ...row })}\n`;
     if (held !== null) { held.push(line); return Promise.resolve(); }
-    return appendFile(join(dir, 'journal.jsonl'), line, { mode: 0o600 });
+    return appendJournal(dir, line);
   };
   /** The memory files of one scope as the running batch found them. */
   const keptOf = (scope) => Object.fromEntries([...(saving?.kept ?? [])]
@@ -6271,7 +6278,9 @@ export function memoryStore(dir, { today = () => new Date().toLocaleDateString('
   const batch = (named, job) => queued(async () => {
     // Folder layout: each project's folder is found again here, in the queue, so a scope named earlier (before a review's
     // model call) cannot write into a folder that the user renamed or that another new project took in between.
-    const scopes = folder === undefined ? named : named.map((s) => (s?.kind === 'project' ? projectScope(s.id, s.path ?? pathIn(s.dir)) : s));
+    const scopes = [];
+    for (const s of named) scopes.push(folder === undefined || s?.kind !== 'project' ? s
+      : projectScope(s.id, s.path ?? pathIn(s.dir), scopes.filter((x) => x?.kind === 'project').map((x) => basename(x.dir))));
     const now = (scope) => scopes.find((s) => s.key === scope?.key);
     const kept = new Map(scopes.flatMap(filesOf).map((path) => [path, readOwn(path)]));
     held = [];
@@ -6291,7 +6300,7 @@ export function memoryStore(dir, { today = () => new Date().toLocaleDateString('
       const out = await job({ add: (a) => addNow({ ...a, scope: check(a?.scope) }), replace: (a) => replaceNow({ ...a, scope: check(a?.scope) }),
         remove: (a) => removeNow({ ...a, scope: check(a?.scope) }), write });
       const rows = held; held = null; saving = null;
-      if (rows.length > 0) await appendFile(join(dir, 'journal.jsonl'), rows.join(''), { mode: 0o600 });
+      if (rows.length > 0) await appendJournal(dir, rows.join(''));
       return out;
     } catch (error) {
       const rows = held ?? []; held = null;
@@ -6302,10 +6311,10 @@ export function memoryStore(dir, { today = () => new Date().toLocaleDateString('
         for (const [path, text] of [...kept].sort((a, b) => (basename(a[0]) === MEMORY_MAIN) - (basename(b[0]) === MEMORY_MAIN))) {
           if (!present.has(path) || readOwn(path) !== text) await writeOwn(path, text);
         }
-        for (const path of present) if (!kept.has(path)) await unlink(path);
+        for (const path of present) if (!kept.has(path)) await unlink(path).catch((e) => { if (e?.code !== 'ENOENT') throw e; });
       } catch (undo) {
         // The files stay changed: the journal keeps each change, so no note is lost. The kept copies stay too.
-        if (rows.length > 0) await appendFile(join(dir, 'journal.jsonl'), rows.join(''), { mode: 0o600 }).catch(() => {});
+        if (rows.length > 0) await appendJournal(dir, rows.join('')).catch(() => {});
         throw refused(`${error?.message ?? error} The memory could not be put back as it was (${undo?.message ?? undo}); journal.jsonl keeps each change.`, 500);
       }
       // ponytail: a copy whose removal fails stays in the history; it only shows the memory as it was before.
@@ -6371,7 +6380,7 @@ export async function importMemory(dir, folder) {
       throw error;
     }
   } finally { await rm(work, { recursive: true, force: true }).catch(() => {}); }
-  await appendFile(join(dir, 'journal.jsonl'), `${JSON.stringify({ time: new Date().toISOString(), id: randomUUID(), op: 'import', actor: 'import', to: folder, ...count })}\n`, { mode: 0o600 });
+  await appendJournal(dir, `${JSON.stringify({ time: new Date().toISOString(), id: randomUUID(), op: 'import', actor: 'import', to: folder, ...count })}\n`);
   return count;
 }
 
@@ -6496,13 +6505,20 @@ An entry is one short fact (one line, about 300 characters or less) that says wh
 const clipEnd = (text, max) => (text.length > max ? `${text.slice(0, max)} …(cut)` : text);
 // A long user message often ends with what the user wants, so both of its ends stay.
 const clipEnds = (text, max) => (text.length > max ? `${text.slice(0, Math.ceil(max * 2 / 3))} …(cut)… ${text.slice(-Math.floor(max / 3))}` : text);
-/** The review request: the numbered entries (both MEMORY.md files whole, then topic entries while they fit) and the new
- * lines (the user's kept longest; the oldest agent lines go first when the lines do not fit). */
+/** The newest entries of `files` (a file's last lines are its newest) whose text fits in `max` characters, in file order. */
+const newestFit = (entries, max) => {
+  let used = 0; let from = entries.length;
+  while (from > 0 && used + entries[from - 1].text.length <= max) used += entries[--from].text.length;
+  return entries.slice(from);
+};
+/** The review request: the numbered entries (the newest of both MEMORY.md files up to MEMORY_PROMPT_MAX each, then topic
+ * entries while they fit) and the new lines (the user's kept longest; the oldest agent lines go first when the lines do not
+ * fit). An older entry that is not shown cannot be edited by this review; it stays as it is. */
 export function memoryReviewRequest(store, scope, fresh) {
   const tag = (files, name) => store.entriesOf(files).map((e) => ({ ...e, scopeName: name }));
   const [pMain, ...pTopics] = store.load(scope);
   const [gMain, ...gTopics] = store.load(store.GLOBAL);
-  const numbered = [...tag([pMain], 'project'), ...tag([gMain], 'global')];
+  const numbered = [...newestFit(tag([pMain], 'project'), MEMORY_PROMPT_MAX), ...newestFit(tag([gMain], 'global'), MEMORY_PROMPT_MAX)];
   let used = numbered.reduce((n, e) => n + e.text.length, 0);
   for (const e of [...tag(pTopics, 'project'), ...tag(gTopics, 'global')]) if (used + e.text.length <= MEMORY_REVIEW_SHOWN) { numbered.push(e); used += e.text.length; }
   const lines = fresh.map((l) => ({ ...l, shown: l.who === 'user' ? `User: ${clipEnds(l.text, 3000)}` : `Agent: ${clipEnd(l.text, 800)}` }));
@@ -6876,10 +6892,12 @@ Each suggestion is {"text": "...", "why": "...", "line": 12} and can add "global
 - "text": one short fact (one line, about 300 characters or less) that says whom it is about, in the language that the user writes in: a lasting rule, decision, preference, constraint or lesson that the chat shows. Not a detail of this task only, not what the agent decided by itself, not what a saved note already says, never a key, password, token, ID or card number.
 - "why": one short sentence for the user: what in the chat shows it.
 - "line": the number [L<n>] of the chat line that shows it most clearly.`;
-/** The suggest request: the saved notes of the chat's project and the global ones, then the chat's own lines, numbered,
+/** The suggest request: the saved notes of the chat's project and the global ones (the newest that fit in MEMORY_REVIEW_SHOWN
+ * each; `parseMemorySuggest` still leaves out a suggestion that any saved note has), then the chat's own lines, numbered,
  * newest kept (the oldest agent lines go first, then the oldest user lines). */
 export function memorySuggestRequest(store, scope, lines) {
-  const notes = [...store.entriesOf(store.load(scope)).map((e) => `(project) ${e.text}`), ...store.entriesOf(store.load(store.GLOBAL)).map((e) => `(global) ${e.text}`)];
+  const notes = [...newestFit(store.entriesOf(store.load(scope)), MEMORY_REVIEW_SHOWN).map((e) => `(project) ${e.text}`),
+    ...newestFit(store.entriesOf(store.load(store.GLOBAL)), MEMORY_REVIEW_SHOWN).map((e) => `(global) ${e.text}`)];
   const shown = lines.map((l, i) => ({ ...l, n: i + 1, shown: `[L${i + 1}] ${l.who === 'user' ? 'User' : 'Agent'}: ${l.who === 'user' ? clipEnds(l.text, 3000) : clipEnd(l.text, 1200)}` }));
   let size = shown.reduce((n, l) => n + l.shown.length, 0);
   for (let i = 0; i < shown.length && size > MEMORY_SUGGEST_TEXT; i++) if (shown[i].who === 'agent') { size -= shown[i].shown.length; shown[i] = undefined; }

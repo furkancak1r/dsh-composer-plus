@@ -70,6 +70,9 @@ try {
   assert.equal(hidden + shownFacts, 60, 'every entry is shown or counted'); assert.ok(shownFacts > 20);
   assert.ok(bigSection.split('## Global memory')[0].split('\n').filter((l) => l.startsWith('- Fact')).join('\n').length <= MEMORY_PROMPT_MAX, 'the budget holds');
   assert.match(bigSection, /\[\[t-44\]\]/, 'every topic name is listed');
+  // The review request stays bounded too: the newest MEMORY.md entries, not all of them.
+  { const { text } = memoryReviewRequest(big, bigScope, [{ who: 'user', text: 'hi', seq: 1 }]);
+    assert.match(text, /Fact number 59 /); assert.doesNotMatch(text, /Fact number 0 /, 'the oldest is not sent'); assert.ok(text.length < 40000, `bounded: ${text.length}`); }
 
   // A symlink or a FIFO in place of MEMORY.md is not followed and does not block (rule 6).
   const outside = join(root, 'outside.md'); await writeFile(outside, '# Memory\n\n- SECRET outside entry\n');

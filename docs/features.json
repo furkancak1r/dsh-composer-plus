@@ -2055,7 +2055,7 @@
       "feature": "projectMemory",
       "request": {
         "GET": "Every saved note: `{projects: [{id, name, path, count, files}], global, busy}`; 409 while the switch is off.",
-        "POST": "`{preview: {project: <id> | 'global' | null, text}}`: the changes that dsh's default model proposes (nothing is written), or `{apply: <id>}`: writes all the changes of that preview or none, only while the notes are unchanged (409 when they changed or a change is refused, for example a full MEMORY.md; 500 on a write error; 410 when it is gone). One at a time (409 busy)."
+        "POST": "`{preview: {project: <id> | 'global' | null, text}}`: the changes that dsh's default model proposes (nothing is written), or `{apply: <id>}`: writes all the changes of that preview or none, only while the notes are unchanged (409 when they changed or a change is refused, for example its note is gone; 500 on a write error; 410 when it is gone). One at a time (409 busy)."
       }
     },
     {

@@ -80,6 +80,18 @@ try {
   await s.add({ scope: s.project(blog), text: 'The blog is new', actor: 'agent' });
   assert.deepEqual(JSON.parse(await readFile(join(vault, 'Projeler', 'blog', 'project.json'), 'utf8')), { path: s.project(blog).path });
 
+  // Two new projects whose names differ only in case, saved in one batch into an empty folder (no journal folder yet):
+  // two folders, each with its own note (macOS folds case, so "web" and "Web" would be one folder).
+  { const fresh = memoryStore(join(root, 'fresh-dsh'), { folder: join(root, 'fresh-vault') });
+    const low = join(root, 'case', 'a', 'shop'); const up = join(root, 'case', 'b', 'Shop');
+    await mkdir(low, { recursive: true }); await mkdir(up, { recursive: true });
+    const [sl, su] = [fresh.project(low), fresh.project(up)];
+    await fresh.batch([sl, su], async (now) => { await now.add({ scope: sl, text: 'Low note', actor: 'agent' }); await now.add({ scope: su, text: 'Up note', actor: 'agent' }); });
+    const folders = await readdir(join(root, 'fresh-vault', 'Projeler'));
+    assert.equal(folders.length, 2, `two folders: ${folders}`);
+    assert.deepEqual(memoryView(fresh).projects.map((p) => p.count), [1, 1]);
+    assert.match(await readFile(join(root, 'fresh-dsh', 'journal.jsonl'), 'utf8'), /Low note/, 'the journal folder is made'); }
+
   // installMemory: the setting file picks the folder at start; the route saves a new folder for the next start.
   const routes = new Map();
   const ctx = (home) => ({ on: () => {}, effect: () => {}, get: () => undefined, logger: { warn: () => {} },
