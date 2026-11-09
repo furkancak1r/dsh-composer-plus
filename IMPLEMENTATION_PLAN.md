@@ -2838,3 +2838,58 @@ Doğrulandı 3, reddedildi 1.
 İncelenen kapsamda doğrulanmış bulgu yok. Reddedilen aday: dsh kapanırken biten dal sohbeti görevi "çalışıyor" görünür. Kanıt: main bu görevi bilerek tutar (`stoppedByDsh`: Resume after restart onu sürdürür), panel de aynı kaydı gösterir.
 Son durum: `npm test` exit 0; gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS (birleşmeden sonra); geçici test klasörleri silindi.
 
+## Asistan: araya alma (2026-11-09, dal `feature/asistan-araya-alma`)
+İstek (sahip, Türkçe): asistan sohbetinde kuyruk kalsın ama kullanıcının mesajı araya alınsın. Üç madde, öncelik sırasıyla: (1) tur çalışırken gelen mesaj bir sonraki adımda tura girer; (2) `send_message` ile sonucunu zaten gönderen alt ajanın "bitti" bildirimi ayrı tur başlatmaz; (3) soru kartı açıkken yazılan mesaj kartın cevabı olur.
+
+### Kanıt (DSH 0.2.2-rc.1, app.asar'dan; 0.2.0-rc.2 ve 0.2.1-rc.2 kopyaları)
+- Besteci "queue" gönderir; Host `agent.followup` çağırır (dsh-api-session-controller index.js:857-858) ve mesaj tur sonuna kadar `next-turn` kuyruğunda bekler. `agent.steer` mesajı `next-step` listesine koyar; çalışan tur onu bir sonraki adımda alır (dsh-agent-loop index.js:573, 670, 790-797). `send_message` da bunu kullanır (dsh-subagent manager.js:1180-1182).
+- Alt ajan bildirimi: ana ajan boştaysa `followup` (yeni tur), çalışıyorsa `steer` (manager.js:1081-1093). 0.2.2, mesaj gönderip biten alt ajanın bildirimine "It sent you a message just before finishing" yazar (continuation-messages.js:100-101); 0.2.0 ve 0.2.1 yazmaz.
+- Soru kartı `user-questions/request` waterfall'udur (dsh-user-questions index.js:709); kart `request.signal` iptal olunca istemcilerde kapanır (dsh-api-gateway index.js:1112-1135).
+- Yarış: dsh turu son kontrolünden sonra ve boşta duruma geçmeden önce gelen `steer`/`followup` mesajı uyandırmaz (agent-loop index.js:618-622, 651-663).
+
+### Hedef ve değişmezler
+- Yalnız asistan sohbeti ve yalnız "Assistant always free" açıkken. Öteki sohbetler dsh kuyruğunu kullanır. DSH çekirdeği değişmez.
+- Mesaj kaybolmaz: araya alınan mesaj dsh'nin kalıcı `next-step` listesine girer. Tur bitişiyle aynı anda gelen mesaj için ajan bir boş işaretle uyandırılır. Kullanıcı Durdur'a bastıysa uyandırılmaz (dsh davranışı).
+- Çalışan araç çağrısı kesilmez (iptal yok). Aynı adımda kullanıcı mesajı bildirimlerden önce gelir.
+- Mesaj göndermiş alt ajanın "bitti" bildirimi: boştaysa sessizce `next-step` bağlamına girer (tur yok); tur çalışıyorsa tur bitene kadar tutulur, sonra sessizce girer. Mesaj göndermeden biten alt ajan ve 0.2.2 öncesi dsh: dsh davranışı.
+- Soru kartı: onay ve plan incelemesi kartları (`intent`) değişmez. Mesaj kartın her sorusuna `custom` cevap olur; mesaj ayrıca sohbete girer (balon kalır, kayıt kalıcıdır).
+
+### Kabul ölçütleri
+1. Tur çalışırken gelen mesaj aynı turun sonraki adımında; ikinci tur yok; normal sohbette kuyruk değişmez; anahtar kapalıyken dsh davranışı.
+2. Tur bitişiyle aynı anda gelen mesaj bir turda modele gider. Durdurulmuş turdan sonra kendiliğinden tur başlamaz.
+3. İşaretli "bitti" bildirimi boşta tur başlatmaz, çalışırken adım eklemez; işaretsiz bildirim tur başlatır.
+4. Açık soru kartında yazılan mesaj cevap olur, kart sinyali iptal olur; onay kartı değişmez.
+5. `npm test` geçer.
+
+### Aşamalar
+1. Madde 1 + yarış testi (`test/assistant-interject.test.mjs`, dsh tur döngüsünün küçük modeli). Commit.
+2. Madde 2 + test. Commit.
+3. Madde 3 + test, belge (`docs/features.json` assistantFree `how` 13 dil, `llms`, README sınırı, `npm run build:readme`). Commit.
+4. review-guard denetimi, düzeltme, yeniden denetim.
+
+### İzinli yollar
+`index.js` (yalnız `installAssistantBot`), `test/assistant-interject.test.mjs`, `package.json` (test betiği), `docs/features.json`, `README.md`, üretilen README/llms bölümleri, `IMPLEMENTATION_PLAN.md`.
+
+### Kararlar
+- Ayrı anahtar yok: üç madde "Assistant always free" altında (ana ajan onayı).
+- Mesaj yönü Host'ta değişir (`followup` yerine `steer`); istemci değişmez, Tether de aynı Host yolunu kullanır.
+- Kart için ikinci istemci yok: aynı waterfall'a dıştan bağlanılır ve kartın sinyali iptal edilir.
+
+### Riskler
+- Ajan nesnesinin `followup`/`steer` yöntemleri asistan ajanında sarılır (dsh'nin herkese açık yöntemleri; kaldırınca geri konur).
+- Tutulan bildirim, tur sürerken dsh çökerse kaybolur; alt ajanın sonucu zaten mesajla gelmiştir.
+- Çevrilmiş README'lerin sınır paragrafı bu dalda güncellenmeyebilir.
+
+### Son kontrol noktası
+- 2026-11-09 15:10: plan yazıldı, kod yok. Dal `main` c285607 üstünde.
+- 2026-11-09 15:20: aşama 1 commit `5483397`, aşama 2 `618333e`, aşama 3 ve belge `0d857d8`. Her maddenin testi düzeltme geri alınınca kırmızı (mutasyon denetimi).
+- 2026-11-09 16:00: öz denetim (review-guard).
+  - F-01 (P2, doğrulandı): yardımcı tanımlar `ASSISTANT_FREE_SECTION` satırının hemen altındaydı; `feat/sohbet-ici-yapilacaklar` aynı satırı değiştiriyor, birleşmede çakışma çıkıyordu (`git merge-tree`). Düzeltme: tanımlar `installAssistantBot` üstüne taşındı; index.js çakışması kalktı.
+  - F-02 (P2, doğrulandı): yapılandırılmış sonuç ya da teşhis taşıyan "bitti" bildirimi de bellekte tutuluyordu; veri taşıyan bildirim çökmede kaybolabilirdi. Düzeltme: yalnız iki sabit satırlık bildirim sessizdir; öteki dsh turunu korur. Regresyon testi var.
+  - F-03 (P2, doğrulandı): 12 çeviri README'sinde sınır cümlesi yoktu (AGENTS.md kural 4). Düzeltme: her dilde etiketle eklendi.
+  - F-04 (P2, doğrulandı): asistan kimliği dosyadan okunmadan önce açık olan asistan ajanı sarılmıyordu (ilk tura kadar araya alma yok). Düzeltme: `assistant.ready` sonrası açık ajanlar sarılır. Regresyon testi var.
+  - F-05 (P2, doğrulandı): eklenti kapanırken tutulan bildirimler bellekte kalıp kayboluyordu. Düzeltme: kapanışta dsh'nin kalıcı gelen kutusuna (`inject`) girer. Regresyon testi var.
+  - F-06 (P3, doğrulandı): uyandırma yorumu yalnız Durdur'u anıyordu; hata ile biten turda da mesaj (dsh gibi) bekler. Yorum düzeltildi.
+  - 3. turda yeni doğrulanmış bulgu yok. `npm test` exit 0, `git diff --check` temiz.
+  - Açık iş: gerçek dsh tarayıcı testi (0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1) yapılmadı. Kart kapanışı kaynak kodundan doğrulandı (dsh-api-gateway index.js:1112-1135), canlı arayüzde doğrulanmadı. Ayarlar'daki `feature.assistantFree.description` metni değişmedi (hâlâ doğru, araya almayı anmıyor).
+  - Çakışma: `feat/sohbet-ici-yapilacaklar` ile `IMPLEMENTATION_PLAN.md`, 13 README, `llms.txt`, `package.json` (test betiği) çakışır; ikisini de tut, sonra `npm run build:readme`.
