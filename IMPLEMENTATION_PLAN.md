@@ -2684,3 +2684,7 @@ Doğrulandı 3, reddedildi 1.
 - Reddedildi: "panel 30 tuşta çizilmiyor ama `useSessionStatus` her durum değişikliğinde çizer" — bu istenen davranış (görev değişince güncelle), okumalar birleştirilir.
 - 4. tur sonucu: F-08, F-09, F-10 düzeltildi; regresyon testleri düzeltmesiz kırmızı, düzeltmeyle yeşil (5 mutasyon kırmızı). Gerçek dsh 0.2.2-rc.1 PASS, `npm test` exit 0.
 - F-11 (P2, 4. turun düzeltmesinden doğan gerileme): 30 sn'lik proje önbelleği, az önce değişen sohbeti panelden gizledi (gerçek dsh 0.2.2-rc.1 adım 7 düştü; 4. tur commit'i bu sonuç okunmadan atıldı). Düzeltme: kök sohbetin `turn/start` ya da `turn/end` olayı önbelleği siler, alt ajanınki silmez. Regresyon: Host testi (alt ajan turu silmez, kök sohbet turu siler; düzeltmesiz kırmızı). Gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS, `npm test` exit 0.
+
+### Öz denetim 5. tur (kapsam `80f2c7e..ae66191`)
+İncelenen kapsamda doğrulanmış bulgu yok. Reddedilen aday: dsh'nin durum deposunda izlenmeyen alt ajan için `running` bilgisi eksik olabilir. Kanıt: gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1'de görev Yenile'ye basmadan "çalışıyor"dan "bitti"ye geçti; ayrıca görev çalışırken 5 sn'lik yoklama var. Denenen ek kod geri alındı (kanıtsız değişiklik).
+
