@@ -9122,7 +9122,7 @@ const foldName = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '')
 
 /** At most this many delegated chats are kept (the oldest go first). */
 export const ASSISTANT_TASKS_MAX = 50;
-/** The assistant's delegated chats (chat_new with branch): `{tasks: {<chat id>: {title?, project, branch, at}}}` in one
+/** The assistant's delegated chats (chat_new): `{tasks: {<chat id>: {title?, project, branch?, at}}}` in one
  * owner-only file. The map lives in memory; each change saves the whole map, in order, after the saved file was read.
  * ponytail: a delegated chat that is archived or deleted before its turn ends stays until ASSISTANT_TASKS_MAX pushes it out. */
 export function assistantTasks(file, now = Date.now) {
@@ -9157,7 +9157,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   let on = false;
   let assistantId; // the chat id in assistant.json
   let fiber; let unroute; let opening;
-  // chat_new with branch: the chats that the assistant gave work to; the bot tells it when one ends its turn.
+  // chat_new (with or without branch): the chats that the assistant gave work to; the bot tells it when one ends its turn.
   const tasks = assistantTasks(join(dir, 'assistant-tasks.json'));
   // Branch per chat (Worktree chats) keeps its switch in worktrees.json, on by default.
   const worktreesOn = () => mobileSwitch(join(dir, 'worktrees.json'), true).read();
@@ -9260,7 +9260,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     },
     {
       name: 'chat_new',
-      description: 'Start a new chat in one of the user\'s dsh projects and send its first message. With branch true, the chat works on a new git branch in its own worktree folder of the project (as dsh\'s "New branch"); the sidebar lists it as a project named after the branch (inside the project in the Workspace Tree view), and you get a note when its turn ends or it waits for the user. Asks the user first.',
+      description: 'Start a new chat in one of the user\'s dsh projects and send its first message. You get a note when its turn ends or it waits for the user. With branch true, the chat works on a new git branch in its own worktree folder of the project (as dsh\'s "New branch"); the sidebar lists it as a project named after the branch (inside the project in the Workspace Tree view). Asks the user first.',
       parameters: { type: 'object', properties: {
         project: { type: 'string', description: 'The project name (as chats_list shows it) or its folder path' },
         text: { type: 'string', description: `The first message, at most ${ASSISTANT_LIMITS.text} characters` },
@@ -9293,14 +9293,17 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         }
         const { sessionId } = await ctx.sessionController.create({ workspaceId: hits[0].id });
         if (title !== undefined) await Promise.resolve(ctx.sessionController.rename?.({ sessionId, title })).catch(() => {});
+        // A task too (kept before the message goes), so its result comes back to the assistant.
+        await tasks.add(sessionId, { ...(title === undefined ? {} : { title }), project: hits[0].title });
         try {
           await ctx.sessionController.prompt({ requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
         } catch (error) {
-          // All or none: a chat without its message is archived.
+          // All or none: a chat without its message is no task and is archived.
+          await tasks.drop(sessionId);
           const undone = await Promise.resolve(get('workspaceRegistry')?.archiveSession?.(sessionId)).then(() => true, () => false);
           throw new Error(`${error?.message ?? error}; ${undone ? 'the new chat was archived' : `the new chat ${sessionId} stays without a message`}`);
         }
-        return `Started a new chat (${sessionId}) in ${hits[0].title}.`;
+        return `Started a new chat (${sessionId}) in ${hits[0].title}. You get a note when its turn ends or it waits for the user.`;
       },
     },
     {

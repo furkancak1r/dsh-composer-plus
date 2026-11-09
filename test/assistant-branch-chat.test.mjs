@@ -160,7 +160,7 @@ try {
   // Without branch: a chat in the project folder, with the title.
   assert.match(await chatNew.execute({ project: 'acme-web', text: 'Only a question', title: 'Soru' }, as), /Started a new chat \(s-\d+\) in acme-web\./);
   assert.deepEqual(made.renames.at(-1), { sessionId: `s-${created}`, title: 'Soru' });
-  assert.equal(assistant.tasks.has(`s-${created}`), false, 'a chat without branch is no task');
+  assert.deepEqual(assistant.tasks.get(`s-${created}`), { title: 'Soru', project: 'acme-web', at: assistant.tasks.get(`s-${created}`)?.at }, 'a chat without branch is a task too');
 
   // The task chat ends its turn: one note (News is off; no 60 s rule), with its result; the task leaves the list.
   const task = agents.get(sid);

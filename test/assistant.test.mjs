@@ -212,6 +212,8 @@ assert.equal(prompts.length, 1);
 // chat_new: by project name (accents and case do not matter) or path; an unknown name lists the projects.
 assert.match(await tool('chat_new').execute({ project: 'ACME-WEB', text: 'start the report' }, as), /Started a new chat \(s-assistant-2\) in acme-web/);
 assert.equal(prompts.at(-1).sessionId, 's-assistant-2');
+// A chat without branch is a task too, so the bot reports its result to the assistant.
+assert.deepEqual(host.tasks.get('s-assistant-2'), { project: 'acme-web', at: host.tasks.get('s-assistant-2')?.at }, 'a chat without branch is a task');
 await assert.rejects(tool('chat_new').execute({ project: 'nothing', text: 'x' }, as), /No project has this name\. Projects: acme-web/);
 
 // chat_stop: only a running chat; chat_archive: no stopActivity, a running chat is refused with its reason.
@@ -245,6 +247,16 @@ const lists = storeCalls.list;
 assert.equal((await call(ASSISTANT_PATH)).body.sessionId, 's-assistant-3', 'list fallback: the saved chat');
 assert.equal(storeCalls.list, lists + 1, 'list is the fallback');
 persistence.stat = statOf;
+// chat_new without branch, all or none: a failed first message drops the task and archives the new chat.
+// (Here and not above: the new chat id must not move the ids that the lines above expect.)
+const sendOf = ctx.sessionController.prompt;
+let keptFirst;
+ctx.sessionController.prompt = async (r) => { keptFirst = host.tasks.has(r.sessionId); throw new Error('queue is full'); };
+const me3 = { agent: agents.get('s-assistant-3') };
+await assert.rejects(me3.agent.registered.get('chat_new').execute({ project: 'acme-web', text: 'x' }, me3), /queue is full; the new chat was archived/);
+ctx.sessionController.prompt = sendOf;
+assert.equal(keptFirst, true, 'the task is kept before the message goes');
+assert.equal(host.tasks.has(`s-assistant-${created}`), false, 'no task without its message'); assert.ok(archived.has(`s-assistant-${created}`), 'archived');
 
 // Off: the route, the section and every tool and restriction go; on again: back once, without a second route.
 assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: false })).body, { on: false });
