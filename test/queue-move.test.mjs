@@ -1,6 +1,7 @@
 // Queue drag-and-drop, Host half: `/api/composer-plus.queue-move` moves one queued message (with its images) in dsh's own
 // inbox with one splice, after it checks that the queue is still what the user saw. Only your own messages move.
 import assert from 'node:assert/strict';
+import './temp-home.mjs'; // before index.js: apply() must not get the real DSH_HOME
 import { apply, QUEUE_MOVE_PATH } from '../index.js';
 
 const routes = new Map();

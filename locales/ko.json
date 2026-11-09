@@ -2445,7 +2445,7 @@
     "assistantApart.waiting": "사용자를 기다리는 중",
     "assistantApart.done": "새 답변",
     "feature.assistantChatView": "어시스턴트는 메시지만",
-    "feature.assistantChatView.description": "어시스턴트 채팅에서는 도구 호출, 추론, 단계 그룹이 숨겨져 봇과 대화하는 것처럼 보입니다. 내 메시지, 어시스턴트의 답변, 오류, 승인 카드가 보입니다. 다른 채팅은 바뀌지 않습니다.",
+    "feature.assistantChatView.description": "어시스턴트 채팅에서는 도구 호출, 추론, 단계 그룹이 숨겨져 봇과 대화하는 것처럼 보입니다. 내 메시지, 어시스턴트의 답변, 오류, 승인 카드가 보입니다. 다른 채팅은 바뀌지 않습니다. 하위 에이전트 행(\"작업 메시지 수신됨\", \"하위 작업 상태 업데이트됨\")도 숨겨지며, 결과는 어시스턴트의 답변이 한 번만 알려 줍니다.",
     "assistantChatView.earlier": "이전 메시지 표시 ({count}턴)",
     "feature.assistantFree": "항상 여유 있는 어시스턴트",
     "feature.assistantFree.description": "어시스턴트 채팅은 바로 답하고 바쁜 상태로 남지 않습니다. 자기 짧은 도구(채팅, 미리 알림, 메모리, 하위 에이전트)만 실행합니다. 다른 모든 단계(웹 검색, 파일, 명령)는 백그라운드 하위 에이전트로 넘어가고, 결과는 채팅으로 돌아옵니다. 하위 에이전트는 평소처럼 작동합니다.",

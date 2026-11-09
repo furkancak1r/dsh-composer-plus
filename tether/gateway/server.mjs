@@ -37,9 +37,9 @@ export const RPC = new Set([
   'session/projections', 'session/modelCatalog',
   'workspace/archiveSession', 'workspace/unarchiveSession', 'workspace/pinSession', 'workspace/unpinSession',
   'goals/get', 'goals/create', 'goals/edit', 'goals/pause', 'goals/resume', 'goals/complete', 'goals/clear',
-  'subagents/prompt', 'subagents/interruptByParent', 'userQuestions/answer',
+  'userQuestions/answer',
   'agentPresets/list', 'agentPresets/select', 'permissionPresets/catalog', 'fileUploads/upload',
-  'skills/list', 'commands/list', 'commands/execute',
+  'commands/list', 'commands/execute',
 ])
 export const STREAMS = new Set(['session/follow', 'session/control', 'workspace/follow', 'userQuestions/attachWait'])
 /** dsh-composer-plus routes the phone may call, with their methods: `/plus/<name>` → dsh `/api/composer-plus.<name>`.
