@@ -4653,25 +4653,50 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       }, BOARD_KEY, 'Task board');
     }
 
-    /** Tether's green dots follow dsh's own (`completionUnread`, which lives only in this window's memory): each chat that
-     * dsh shows as read here is reported to the Host, which tells the phones. A chat is read when its dot goes away (opened
-     * here), when it finishes while it is open, and, once the chat list is ready, when the Host has it but dsh shows it
-     * without a dot (dsh starts with no dots). `call(init)` is a fetch of the Host route that answers JSON or undefined. */
+    /** Tether's green dots and dsh's own (`completionUnread`, which lives only in this window's memory) stay the same, both
+     * ways. The Host keeps Tether's list (index.js UNREAD_PATH) and tells the phones. Each chat that dsh shows as read here
+     * goes to the Host: when its dot goes away (opened here), when it finishes while it is open, and at each check when the
+     * Host has it but dsh shows it idle without a dot in two checks in a row (so a status that is still on its way is not
+     * a read). The first check (and the first after the Host kept no list) gives the Host each dsh dot that it does not
+     * have (`add`), e.g. dots from before Mobile connect was on. After that, a dsh dot that the Host does not have was read
+     * on a phone or in another window: the Host adds each finished turn before dsh's status tells this window, so it never
+     * lacks a dot that it did not lose. This window then clears it (`api`: markReadApi; undefined: dsh's dots stay). A
+     * check is dropped when dsh's status changed while it waited for the Host, or when the Host keeps no list (Mobile
+     * connect off). `call(init)` is a fetch of the Host route that answers JSON or undefined.
+     * ponytail: a chat that a phone reads in the moment before the first check gets its dot back (the first check cannot
+     * tell it from an old dsh dot); it is rare (a page load or Mobile connect switched on) and the next read clears it. */
     const UNREAD_ROUTE = '/api/composer-plus.unread';
-    function watchRead(status, sessionsList, call) {
+    const UNREAD_POLL_MS = 3000;
+    function watchRead(status, sessionsList, call, api) {
       let last = status.getSnapshot();
-      let synced = false;
-      const read = (ids) => {
-        if (ids.length > 0) call({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionIds: ids }) });
-      };
-      const sync = async () => {
-        if (synced || sessionsList.getSnapshot().phase !== 'ready') return;
-        synced = true;
-        const data = await call();
-        if (!synced || !Array.isArray(data?.unread)) return;
-        const now = status.getSnapshot();
-        const byId = sessionsList.getSnapshot().byId;
-        read(data.unread.filter((id) => byId[id] !== undefined && now.get(id)?.completionUnread !== true && now.get(id)?.running !== true));
+      let host; // the Host's list at the last check; undefined before the first one
+      let checking = false; let stopped = false;
+      const post = (body) => call({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+      const read = (ids) => { if (ids.length > 0) post({ sessionIds: ids }); };
+      const check = async () => {
+        if (checking || stopped || sessionsList.getSnapshot().phase !== 'ready') return;
+        checking = true;
+        try {
+          const before = status.getSnapshot();
+          const data = await call({ signal: AbortSignal.timeout(10000) });
+          if (stopped || !Array.isArray(data?.unread)) return;
+          if (data.on !== true) { host = undefined; return; } // no list kept now: the next one is compared with nothing
+          if (status.getSnapshot() !== before) return;
+          const now = new Set(data.unread);
+          const add = []; const clear = []; const seen = [];
+          for (const [id, row] of Object.entries(sessionsList.getSnapshot().byId)) {
+            if (row?.origin === 'subagent') continue; // dsh paints dots only on top-level chats
+            const current = before.get(id);
+            if (current?.completionUnread === true) { if (!now.has(id)) (host === undefined ? add : clear).push(id); }
+            else if (current?.running !== true && now.has(id) && host?.has(id)) seen.push(id);
+          }
+          if (clear.length > 0) api?.markRead(clear);
+          read(seen);
+          if (add.length === 0) { host = now; return; }
+          // The first check ends when the Host has the dots: a failed `add` leaves it first, so the next check sends it again.
+          const answer = await post({ add });
+          if (!stopped && Array.isArray(answer?.unread)) host = new Set(answer.unread);
+        } finally { checking = false; }
       };
       const onStatus = () => {
         const next = status.getSnapshot();
@@ -4687,9 +4712,10 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         read(ids);
       };
       const offStatus = status.subscribe(onStatus);
-      const offList = sessionsList.subscribe(() => { sync(); });
-      sync();
-      return () => { offStatus(); offList(); synced = false; };
+      const offList = sessionsList.subscribe(() => { if (host === undefined) check(); });
+      const timer = setInterval(check, UNREAD_POLL_MS);
+      check();
+      return () => { offStatus(); offList(); clearInterval(timer); stopped = true; };
     }
 
     /** Codex-style "Changes" page in the right sidebar: Uncommitted / Unstaged / Staged / Branch (vs upstream) with
@@ -11859,7 +11885,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           const call = async (init) => {
             try { const response = await fetch(UNREAD_ROUTE, init); return response.ok ? await response.json() : undefined; } catch { return undefined; }
           };
-          scope.effect(() => watchRead(scope.uiSession.sessionStatus, scope.sessions.list, call), 'dsh-composer-plus: Tether read state');
+          scope.effect(() => watchRead(scope.uiSession.sessionStatus, scope.sessions.list, call, markReadApi(scope.uiSession)), 'dsh-composer-plus: Tether read state');
         })]);
         // Next message prediction: the Host keeps the switch (it calls the model) and the model choice.
         const prediction = createMobile(PREDICT_ROUTE);
