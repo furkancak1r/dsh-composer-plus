@@ -87,10 +87,14 @@ function start(home) {
   h.status('a', 'idle'); h.status('b', 'running'); h.status('b', 'idle');
   assert.deepEqual(await h.unread(), ['a', 'b']);
   // A read from any device: the dot goes, the answer is the new list.
-  assert.deepEqual((await h.fetchRoute(UNREAD_PATH, { sessionIds: ['a', 'gone'] })).json, { unread: ['b'] });
+  assert.deepEqual((await h.fetchRoute(UNREAD_PATH, { sessionIds: ['a', 'gone'] })).json, { on: true, unread: ['b'] });
+  // dsh's own dots that the list does not have (`add`, from the desktop's first check) join it.
+  assert.deepEqual((await h.fetchRoute(UNREAD_PATH, { add: ['d', 'b'] })).json, { on: true, unread: ['b', 'd'] });
+  assert.deepEqual((await h.fetchRoute(UNREAD_PATH, { sessionIds: ['d'] })).json.unread, ['b']);
   // Bad bodies change nothing.
   for (const bad of ['{x', {}, { sessionIds: 'b' }, { sessionIds: [] }, { sessionIds: [1] }, { sessionIds: [''] }, { sessionIds: ['x'.repeat(129)] },
-    { sessionIds: Array.from({ length: UNREAD_MAX + 1 }, (_, i) => `s${i}`) }, { on: false }]) {
+    { sessionIds: Array.from({ length: UNREAD_MAX + 1 }, (_, i) => `s${i}`) }, { on: false },
+    { add: [] }, { add: 'c' }, { add: [2] }, { add: ['c'], sessionIds: 'b' }, { add: Array.from({ length: UNREAD_MAX + 1 }, (_, i) => `s${i}`) }]) {
     assert.equal((await h.fetchRoute(UNREAD_PATH, bad)).status, 400, JSON.stringify(bad).slice(0, 40));
   }
   assert.deepEqual(await h.unread(), ['b']);
@@ -103,6 +107,7 @@ function start(home) {
   assert.deepEqual(await again.unread(), []);
   again.status('c', 'running'); again.status('c', 'idle');
   assert.deepEqual(await again.unread(), [], 'off: no dots');
+  assert.deepEqual((await again.fetchRoute(UNREAD_PATH, { add: ['c'] })).json, { on: false, unread: [] }, 'off: `add` keeps nothing');
   again.unload(); h.unload();
 }
 

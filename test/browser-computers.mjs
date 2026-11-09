@@ -3,14 +3,14 @@
 // The front door of B listens on 127.0.0.1 here (DSH_COMPUTERS_TEST_LOOPBACK=1) in place of a Tailscale address.
 // 1. Off by default: no picker, no listener.
 // 2. B: Settings → Remote computers on, Let other computers open this Mac on, Create pairing link.
-// 3. A: switch on; the picker is in the left sidebar right of the brand, above New session, not in the chat header;
-//    Add a computer… asks for a name (This Mac's name is refused), paste, Connect; B shows the request, Approve.
-// 4. A: a long turn runs; one other computer: a left click on the picker opens Studio at once (a right-click shows the
-//    menu with Add a computer…): B's dsh fills A's window (no new window), with B's chat and the same
-//    picker (from A's relay) in the same place, as "Back to this Mac"; no banner. A's turn ends while B shows. One click
-//    on it (one computer: no menu): A comes back with the finished turn; Studio again: the same page (no reload).
-// 5. B removes A: A's next open shows the relay's text (no picker there): A's own "Back to this Mac" floats in the same
-//    place; then the page closes with "pair again". A switches off: nothing stays, the relay closes.
+// 3. A: switch on; the picker is in the left sidebar in its own row under the brand, above New session, not in the chat
+//    header; Add a computer… asks for a name (This Mac's name is refused), paste, Connect; B shows the request, Approve.
+// 4. A: a long turn runs; one other computer: the picker has two parts, "This Mac | Studio" (This Mac pressed); one click
+//    on Studio opens it (a right-click shows the menu with Add a computer…): B's dsh fills A's window (no new window),
+//    with B's chat and the same two parts (from A's relay) in the same place, Studio pressed; no banner. A's turn ends
+//    while B shows. One click on This Mac: A comes back with the finished turn; Studio again: the same page (no reload).
+// 5. B removes A: A's next open shows the relay's text (no picker there): A's own two parts float in the same place; then
+//    the page closes with "pair again". A switches off: nothing stays, the relay closes.
 // PLAYWRIGHT=/path/to/playwright node test/browser-computers.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/remoteComputers.webp (English UI, made-up names only).
 import assert from 'node:assert/strict';
@@ -29,6 +29,9 @@ const { chromium } = require(process.env.PLAYWRIGHT);
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const DOOR = Number(process.env.COMPUTERS_PORT ?? 19492);
+// The two parts of the picker (two places: This Mac and one computer): their labels and the one on screen.
+const partsOf = (picker) => picker.locator('[data-composer-plus-computer-part]').evaluateAll((all) => all.map((b) => `${b.textContent.trim()}${b.getAttribute('aria-pressed') === 'true' ? '*' : ''}`));
+const part = (picker, name) => picker.getByRole('button', { name, exact: true });
 const listening = (port) => new Promise((resolve) => { const s = createConnection({ host: '127.0.0.1', port }, () => { s.destroy(); resolve(true); }); s.on('error', () => resolve(false)); });
 const until = async (fn, ms = 15000, what = 'condition') => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(200); } };
 const openSettings = async (page) => {
@@ -159,7 +162,7 @@ try {
       await linkBox.waitFor();
       const link = await linkBox.inputValue();
       assert.match(link, /^dsh-computer:\/\/pair\?v=1&host=127\.0\.0\.1&port=\d+&fp=[0-9a-f]{64}&code=/);
-      // 3. A switches on; the picker is in the sidebar's brand row (right of the brand, above New session).
+      // 3. A switches on; the picker is in its own row under the sidebar's brand row, above New session.
       await switchOn(pa, 'Remote computers');
       await pa.keyboard.press('Escape');
       const picker = pa.locator('[data-composer-plus-computer-picker]');
@@ -167,15 +170,15 @@ try {
       assert.equal((await picker.innerText()).trim(), 'This Mac');
       const place = await pa.evaluate(() => {
         const host = document.querySelector('[data-composer-plus-computer-host]');
-        const row = host?.parentElement; const brand = host?.previousElementSibling;
+        const row = host?.previousElementSibling;
         const ns = document.querySelector('[class*="_newSession"]'); // on dsh web the brand is a "New session" button too
         const name = document.querySelector('[class*="_brandName"]').getBoundingClientRect();
         const p = document.querySelector('[data-composer-plus-computer-picker]').getBoundingClientRect();
-        const b = brand.getBoundingClientRect(); const n = ns.getBoundingClientRect();
-        return { inRow: /_logoRow/.test(row?.className ?? ''), afterBrand: /_brand/.test(brand?.className ?? ''), right: p.left >= b.right - 1, above: p.bottom <= n.top + 1, brandWhole: name.right <= b.right + 1,
-          inHeader: !!document.querySelector('[data-conversation-header-leading] [data-composer-plus-computer-picker]'), region: getComputedStyle(host).getPropertyValue('-webkit-app-region') };
+        const r = row.getBoundingClientRect(); const b = row.querySelector('[class*="_brand"]').getBoundingClientRect(); const n = ns.getBoundingClientRect();
+        return { afterRow: /_logoRow/.test(row?.className ?? ''), under: p.top >= r.bottom - 1, above: p.bottom <= n.top + 1, wide: Math.abs(p.left - n.left) <= 1 && Math.abs(p.right - n.right) <= 1, brandWhole: name.right <= b.right + 1,
+          inHeader: !!document.querySelector('[data-conversation-header-leading] [data-composer-plus-computer-picker]') };
       });
-      assert.deepEqual({ ...place, region: undefined }, { inRow: true, afterBrand: true, right: true, above: true, brandWhole: true, inHeader: false, region: undefined }, 'right of the brand, above New session, not in the chat header; the brand is not cut');
+      assert.deepEqual(place, { afterRow: true, under: true, above: true, wide: true, brandWhole: true, inHeader: false }, 'under the brand, above New session and as wide, not in the chat header; the brand is not cut');
       await picker.click();
       await pa.getByRole('menuitem', { name: 'Add a computer…' }).click();
       const dialog = pa.getByRole('dialog').filter({ hasText: 'Add a computer' });
@@ -199,9 +202,13 @@ try {
       const inputA = pa.locator('[data-composer-input]');
       await inputA.click(); await pa.keyboard.type('Write a long story'); await pa.keyboard.press('Enter');
       await pa.locator('[data-row-key^="session:"]').first().waitFor({ timeout: 20000 });
-      // One other computer: the picker names it and a click goes there at once; a right-click opens the whole menu.
-      assert.equal(await picker.getAttribute('aria-haspopup'), null, 'one other computer: a button, no menu');
-      assert.equal(await picker.getAttribute('title'), 'Switch to Studio (right-click for all computers)');
+      // One other computer: two parts that name This Mac (on screen) and Studio; a click on Studio goes there at once; a
+      // right-click opens the whole menu.
+      await until(async () => (await partsOf(picker)).join() === 'This Mac*,Studio', 10000, 'two parts: This Mac | Studio');
+      assert.equal(await picker.getAttribute('aria-haspopup'), null, 'no menu');
+      assert.equal(await part(picker, 'Studio').getAttribute('title'), 'Switch to Studio (right-click for all computers)');
+      const sameRow = await picker.locator('[data-composer-plus-computer-part]').evaluateAll((all) => all.map((b) => Math.round(b.getBoundingClientRect().top)));
+      assert.equal(new Set(sameRow).size, 1, 'both parts on one line');
       await picker.click({ button: 'right' });
       if (index === 0 && process.env.SHOT) {
         await pa.getByRole('menuitem', { name: 'Studio' }).waitFor();
@@ -215,7 +222,9 @@ try {
       await pa.getByRole('menuitem', { name: 'Add a computer…' }).waitFor({ timeout: 5000 });
       await pa.keyboard.press('Escape'); await pa.getByRole('menu').waitFor({ state: 'hidden', timeout: 5000 });
       const popup = ctxA.waitForEvent('page', { timeout: 4000 }).catch(() => null);
-      await picker.click();
+      await part(picker, 'This Mac').click();
+      assert.equal(await pa.locator('iframe[data-composer-plus-computer-view]').count(), 0, 'a click on the part on screen does nothing');
+      await part(picker, 'Studio').click();
       assert.equal(await pa.getByRole('menu').count(), 0, 'the left click opened no menu');
       const view = pa.locator('iframe[data-composer-plus-computer-view]');
       await view.waitFor({ timeout: 15000 });
@@ -225,71 +234,71 @@ try {
       const remote = pa.frameLocator('iframe[data-composer-plus-computer-view]');
       await remote.getByText('garden-notes', { exact: false }).first().waitFor({ timeout: 30000 });
       await remote.locator('[data-row-key^="session:"]').filter({ hasText: 'Garden watering' }).first().waitFor({ timeout: 15000 });
-      // B's page: the same picker (from A's relay) in the same place, as "Back to this Mac"; A's own picker does not float
-      // over it, and no banner shows.
+      // B's page: the same two parts (from A's relay) in the same place, Studio pressed; A's own picker does not float over
+      // it, and no banner shows.
       const remotePicker = remote.locator('[data-composer-plus-computer-picker]');
       await remotePicker.waitFor({ timeout: 15000 });
-      assert.equal((await remotePicker.innerText()).trim(), 'Back to this Mac');
-      assert.equal(await remotePicker.getAttribute('aria-haspopup'), null, 'one computer: a button, no menu');
+      await until(async () => (await partsOf(remotePicker)).join() === 'This Mac,Studio*', 10000, 'B: This Mac | Studio, Studio on screen');
       await until(async () => (await pa.locator('[data-composer-plus-computer-float]').count()) === 0, 10000, 'no float after B said hello');
-      const placeOf = async (frameOrPage) => frameOrPage.locator('[data-composer-plus-computer-host]').evaluate((h) => { const r = h.getBoundingClientRect(); return { right: Math.round(r.right), mid: Math.round(r.top + r.height / 2) }; });
+      const placeOf = async (frameOrPage) => frameOrPage.locator('[data-composer-plus-computer-picker]').evaluate((h) => { const r = h.getBoundingClientRect(); return { left: Math.round(r.left), top: Math.round(r.top), width: Math.round(r.width) }; });
       const aPlace = await placeOf(pa); const bPlace = await placeOf(remote);
-      assert.ok(Math.abs(aPlace.right - bPlace.right) <= 2 && Math.abs(aPlace.mid - (bPlace.mid + box.y)) <= 2, `B's picker is in the place of A's (${JSON.stringify([aPlace, bPlace, box.y])})`);
+      assert.ok(Math.abs(aPlace.left - bPlace.left) <= 2 && Math.abs(aPlace.width - bPlace.width) <= 2 && Math.abs(aPlace.top - (bPlace.top + box.y)) <= 2, `B's picker is in the place of A's (${JSON.stringify([aPlace, bPlace, box.y])})`);
       assert.equal(await pa.locator('[data-composer-plus-computer-back]').count(), 0, 'no banner');
       // A's turn ends while B shows.
       await pause(7000);
-      await remotePicker.click();
+      await part(remotePicker, 'This Mac').click();
       await view.waitFor({ state: 'hidden', timeout: 10000 });
-      assert.equal((await picker.innerText()).trim(), 'This Mac', 'back on A: the picker says This Mac');
+      assert.equal((await partsOf(picker)).join(), 'This Mac*,Studio', 'back on A: This Mac pressed');
       await pa.getByText('The story ends here.', { exact: false }).first().waitFor({ timeout: 5000 });
       // Studio again: the same page, no reload (the marker set in it stays).
       const frame = pa.frames().find((f) => /^http:\/\/127\.0\.0\.1:\d+\//.test(f.url()) && !f.url().startsWith(new URL(a.url).origin));
       await frame.evaluate(() => { window.__kept = 1; });
-      await picker.click();
+      await part(picker, 'Studio').click();
       await view.waitFor({ timeout: 10000 });
       assert.equal(await frame.evaluate(() => window.__kept), 1, 'the hidden page stayed (no reload)');
       const relayPort = Number(new URL(frame.url()).port);
       assert.ok(await listening(relayPort), 'the relay listens');
-      await remotePicker.click();
+      await part(remotePicker, 'This Mac').click();
       await view.waitFor({ state: 'hidden', timeout: 10000 });
       // B sleeps (its front door closes) at A's first pick after a start: A shows the relay's "does not answer" page. B
       // wakes up (the door opens again): the next pick loads B's dsh, not the kept error page.
       await accept.click();
       await until(async () => !(await listening(DOOR)), 10000, 'front door closed (B asleep)');
       await pa.reload(); await pa.locator('[data-composer-input]').waitFor();
-      await picker.click();
+      await part(picker, 'Studio').click();
       await view.waitFor({ timeout: 10000 });
       await remote.getByText('does not answer over Tailscale', { exact: false }).waitFor({ timeout: 15000 });
       const back = pa.locator('[data-composer-plus-computer-float] [data-composer-plus-computer-picker]');
       await back.waitFor({ timeout: 10000 });
       await pause(1500); // the relay's `failed` event reaches A through its event loop
-      await back.click();
+      await part(back, 'This Mac').click();
       await view.waitFor({ state: 'hidden', timeout: 10000 });
       await accept.click();
       await until(() => listening(DOOR), 15000, 'front door open again (B awake)');
-      await picker.click();
+      await part(picker, 'Studio').click();
       await view.waitFor({ timeout: 10000 });
       await remote.getByText('garden-notes', { exact: false }).first().waitFor({ timeout: 30000 });
       assert.equal(await remote.getByText('does not answer over Tailscale', { exact: false }).count(), 0, 'B\'s dsh, not the old error page');
       await remotePicker.waitFor({ timeout: 15000 });
-      await remotePicker.click();
+      await part(remotePicker, 'This Mac').click();
       await view.waitFor({ state: 'hidden', timeout: 10000 });
       // 5. B removes A; A's next open says that it must pair again. Then A switches off.
       await sb.locator('div').filter({ hasText: /^Office Mac/ }).getByRole('button', { name: 'Remove', exact: true }).last().click();
       await sb.getByText('None.', { exact: true }).waitFor({ timeout: 10000 });
       await pa.reload(); await pa.locator('[data-composer-input]').waitFor();
-      await picker.click();
-      // The relay answers its own text (no hello): A's picker floats over it in the same place as "Back to this Mac"; after
+      await part(picker, 'Studio').click();
+      // The relay answers its own text (no hello): A's two parts float over it in the same place, Studio pressed; after
       // some seconds the page closes and the picker says why.
       const floatPicker = pa.locator('[data-composer-plus-computer-float] [data-composer-plus-computer-picker]');
       await floatPicker.waitFor({ timeout: 10000 });
-      assert.equal((await floatPicker.innerText()).trim(), 'Back to this Mac');
-      { const f = await floatPicker.boundingBox(); assert.ok(Math.abs(f.x + f.width - aPlace.right) <= 2 && Math.abs(f.y + f.height / 2 - aPlace.mid) <= 2, `the float is in the picker's place (${JSON.stringify([f, aPlace])})`); }
+      assert.equal((await partsOf(floatPicker)).join(), 'This Mac,Studio*');
+      { const f = await floatPicker.boundingBox(); assert.ok(Math.abs(f.x - aPlace.left) <= 2 && Math.abs(f.width - aPlace.width) <= 2 && Math.abs(f.y - aPlace.top) <= 2, `the float is in the picker's place (${JSON.stringify([f, aPlace])})`); }
       assert.equal(await pa.locator('[data-composer-plus-computer-back]').count(), 0, 'no banner');
       await pa.getByText('That Mac removed this one', { exact: false }).first().waitFor({ timeout: 20000 });
       await until(async () => (await pa.locator('[data-composer-plus-computer-float]').count()) === 0, 5000, 'the float goes with the page');
       await view.waitFor({ state: 'detached', timeout: 10000 });
-      // Studio must pair again: no computer to go to, so the click opens the menu, which says so.
+      // Studio must pair again: no computer to go to, so the picker is one button again and its click opens the menu.
+      assert.equal((await picker.innerText()).trim(), 'This Mac');
       await picker.click();
       await pa.getByRole('menuitem', { name: /pair again/ }).waitFor({ timeout: 10000 });
       await pa.keyboard.press('Escape');
@@ -302,7 +311,7 @@ try {
       await until(async () => !(await listening(DOOR)), 10000, 'front door closed');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: off by default; picker right of the brand above New session; name asked (This Mac's refused); Approve on B; one left click on A's picker opens Studio (right-click: the menu), B fills A's window (no window), B's picker says Back to this Mac and switches back with one click (no banner), A's float over a page without a picker, A's turn finished meanwhile, no reload; B removes A → pair again; off leaves nothing`);
+      console.log(`PASS ${bin}: off by default; picker under the brand above New session; name asked (This Mac's refused); Approve on B; two parts This Mac | Studio, one click on Studio opens it (right-click: the menu), B fills A's window (no window), B shows the same two parts (Studio pressed) and This Mac switches back with one click (no banner), A's float over a page without a picker, A's turn finished meanwhile, no reload; B removes A → pair again; off leaves nothing`);
     } catch (error) {
       for (const [n, c] of [['a', ctxA], ['b', ctxB]]) { const p = c?.pages().at(-1); if (p) await p.screenshot({ path: join(n === 'a' ? a.home : b.home, 'failed.png') }).catch(() => {}); }
       console.error(`kept for inspection: ${a.home} ${b.home}; page errors: ${JSON.stringify(errors)}`);

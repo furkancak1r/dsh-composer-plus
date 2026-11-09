@@ -2527,6 +2527,31 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
 - Sahibin isteğiyle anahtar açıldı (agent-device). Tether "The Mac sends them through Apple's push service" yazdı; canlı gateway: iPhone `push: true`, `devices.json` on, token var, sandbox, saat yok.
 - Doğrulanmadı: kapalı uygulamaya gerçek bildirimin düşmesi (Tether'ı sonlandırmak Auto review onayı istedi, yapılmadı). Canlı gateway eski sürüm (1.24.1): yeni Mac sayfası satırları canlı kopya güncellenince görünür; yeni iOS'un `reason` alanı eski gateway'de yok sayılır.
 
+## Uzak bilgisayarlar: iki yer varken iki parçalı seçici (2026-11-09, dal `fix/match-switcher-ux`)
+İstek (sahip, Türkçe, "uygula"): iki Mac varken seçicide "Bu Mac" yazıyor ama tıklama öteki Mac'e geçiyor; ekstra tıklama olmadan anlaşılır olsun.
+
+### Kararlar
+- Gidilecek iki yer varken (bu Mac + tek bir bilgisayar, ya da ekrandaki bilgisayar) seçici iki parçalı bir düğme grubu olur: "Bu Mac | Studio". Ekrandaki parça vurgulu (`aria-pressed`), ötekine tek tık geçer. Sağ tık tüm menüyü açar (Bilgisayar ekle…). Diğer Mac'in sayfasında (`via`) aynı grup.
+- Başka durumlarda (hiç bilgisayar yok, ya da iki ve daha fazla bilgisayar) bugünkü menü düğmesi kalır ("Bu Mac" / "Bu Mac'e dön", ok simgesi).
+- Seçici marka satırına sığmaz (marka ~168 pt, iki ad ~130 pt). Host artık `_logoRow`'un altında, **Yeni oturum**'un üstünde kendi satırında, tam genişlikte (her iki modda). Simge sütununda (marka yok) seçici yok.
+- Float (sayfanın kendi seçicisi yok): host'un sol, üst ve genişliğinde.
+- Yeni metin yok: `computers.thisMacShort`, `computers.switchTo`, `computers.picker`, grup adı `feature.remoteComputers`.
+- dsh'nin `SegmentedControl`'u kullanılmaz: `tablist` rolü, var olmayan panellere `aria-controls`, uzun adlarda "…" yok.
+- Tether değişmez: `MacPicker` iki Mac'te ⇄ simgesiyle zaten "değiştir" der; telefon başlığında iki ad sığmaz.
+
+### Kontroller
+- `test/computers-client.test.mjs`: iki yer → grup (bu Mac seçili, Studio'ya tık geçer, sağ tık menü), uzakta grup, `via` grubu, üç yer → menü; host `_logoRow`'dan sonra.
+- `test/browser-computers.mjs` 0.2.0-rc.2 ve 0.2.1-rc.2 (gerçek dsh), `SHOT=1` yeni ekran görüntüsü.
+- `how` 13 dil, README sınırlar + SSS 13 dil, `build:readme`, `npm test`.
+
+### Son kontrol noktası
+- 2026-11-09 13:15: plan yazıldı, kod yok.
+- 2026-11-09 13:40: kod, birim testi ve gerçek dsh testi bitti; 10 dilin çevirisi alt ajanda.
+  - `test/computers-client.test.mjs` geçer; 10 mutasyonun hepsi kırmızı (iki parça yok, basılı ters, ekrandaki hep bu Mac, ekrandaki parça geçiş yapar (yerel ve `via`), host marka satırında, yeni satırdan sonra taşınmaz, `floating` yok, grupta sağ tık yok).
+  - `test/browser-computers.mjs` PASS: 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1. İlk 0.2.2-rc.1 koşusu kırmızıydı: orada **Yeni oturum**'un yan boşluğu `--dsh-sidebar-paint-inset` + 1 px (3+1), daha eskilerde 2 px. Düzeltme: aynı değişken (`COMPUTER_SIDE`, varsayılan 1 px + 1 px); float da aynı değeri okur.
+  - `SHOT=1` (0.2.1-rc.2): yeni `remoteComputers.webp` (iki parça + sağ tık menüsü), 6.5 kB.
+  - en, tr, zh: `how`, `llms`, README sınır + SSS elle.
+
 ## Asistanı bota çevirme: ayrı görünüm ve bot gibi çalışma (2026-11-09, dal `feat/assistant-bot-ui-separation`)
 İstek (sahip, Türkçe): asistan arayüzde ve işlevde normal proje sohbetlerinden ayrılsın, bir bot gibi çalışsın. Sahibin seçimi (soru kartı): mesajlaşma uygulaması gibi görünsün, kendiliğinden haber versin, hiç meşgul olmasın. Dışarıdan erişim (Telegram) istenmedi.
 
@@ -2568,6 +2593,126 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
   - `npm pack --dry-run`: 118 dosya, `tether/` yalnız `gateway/*`. `git diff --check` temiz.
   - Açık risk: yeni Tether metinleri yalnız İngilizce (uygulamada yalnız `en.lproj` var).
 
+## Asistan: görünür dal sohbetleri (2026-11-09, dal `feature/gorunur-dal-sohbetleri`)
+İstek (sahip, Türkçe): asistan bir işi yapay zekâya verdiğinde iş gizli alt ajanda değil, DSH'de görünür bir sohbette çalışsın. Sohbet, DSH'nin "Yeni dal" seçeneği gibi ilgili projenin altında bir dal (worktree) olarak görünsün; kullanıcı ilerlemeyi canlı izlesin. Asistan hep boşta kalsın ve iş bitince sonucu alsın.
+
+### Hedef
+- `chat_new` aracına `branch` (boolean) ve `title` (metin) seçenekleri. `branch: true`, Worktree chats özelliğinin `startOnBranch` yolunu kullanır: `<repo>/.worktrees/<ad>` worktree, yeni dal, dsh projesi, sohbet, ilk mesaj. Kaynak sohbet yerine proje klasörü verilir; dsh'nin varsayılan modu ve modeli kullanılır.
+- Asistanın başlattığı her sohbet bir "görev" olarak kaydedilir (`assistant-tasks.json`). Görevin ilk turu bitince ya da hata verince asistan sohbetine gizli bir not gelir (Assistant news yolu). Bu not Assistant news anahtarı kapalıyken de gelir, 60 sn eşiği ve 2 dk aralık beklemez. Görev sohbeti onay ya da cevap beklerse de not gelir.
+- Asistan istemi: proje işi (depoda kod ya da ayar değişikliği) `chat_new` + `branch: true` ile görünür dal sohbetinde yapılır; araştırma ve kısa işler gizli alt ajanda kalır.
+
+### Değişmezler
+- Görev başına tek onay: `chat_new` onay kartı kalır (istem enjeksiyonuna karşı koruma). Kart dal ve başlığı gösterir.
+- Ana klasörde `checkout`/`switch` yok; yalnız `git worktree add -b` (DSH arayüzündeki "Yeni dal" ile aynı).
+- Branch per chat (`worktrees.json`) kapalıysa `branch: true` reddedilir.
+- Asistan araç izin listesi (Assistant always free) değişmez.
+- Yeni kenar çubuğu arayüzü yok: dsh ve Branches in the workspace tree, worktree projesini projenin altında gösterir.
+
+### Kabul ölçütleri
+1. `branch: true` bir git deposunda `.worktrees/<ad>` worktree, yeni dal, dsh projesi ve sohbet açar; ilk mesaj gider; `title` sohbet adı olur.
+2. Depo olmayan proje, kapalı Branch per chat ve geçersiz başlık reddedilir; sohbet açılmaz.
+3. Görev turunun sonu (completed, max-tokens, error) Assistant news kapalıyken de asistanı bir notla uyandırır; not sonucu içerir; görev listeden çıkar.
+4. Kullanıcı durdurursa görev not vermeden listeden çıkar; dsh'nin kapanışı (interrupted, disposed) görevi listede tutar.
+5. Görev listesi yeniden başlatmadan sonra dosyadan okunur.
+6. Var olan testler geçer.
+
+### Aşamalar
+1. Host: `startOnBranch` proje klasörü kabul eder; `chat_new` seçenekleri; görev deposu; haber yolu. Test: `test/assistant-branch-chat.test.mjs` (gerçek git, sahte dsh).
+2. İstem metni (ASSISTANT_SECTION, ASSISTANT_FREE_SECTION), `docs/features.json` (en `how`, `llms`), `npm run build:readme`.
+3. `npm test`, öz denetim (review-guard), düzeltmeler, tekrar denetim.
+
+### İzinli yollar
+`index.js`, `test/assistant-branch-chat.test.mjs`, `package.json` (test betiği), `docs/features.json`, `README.md` ve `llms.txt` (üretilen bölüm), `IMPLEMENTATION_PLAN.md`.
+
+### Kararlar
+- Yeni araç yerine `chat_new` seçeneği: araç adı izin listesinde zaten var, yapılacaklar dalıyla çakışma en az olur.
+- Ayrı bir özellik anahtarı yok: bu, `assistant` özelliğinin `chat_new` aracının bir seçeneğidir.
+- Sonuç bildirimi model turu başlatır, ama kullanıcı görevi onay kartıyla başlattı; bu yüzden ayrı bir "kapalı" varsayılan yok.
+
+### Riskler
+- `IMPLEMENTATION_PLAN.md` ve asistan istem metni yapılacaklar dalıyla birleşmede çakışabilir.
+- Görev listesinden yalnız ilk tur sonucu gelir; kullanıcı görev sohbetinde devam ederse sonraki turlar haber vermez (Assistant news açıksa uzun turlar gelir).
+- 11 dilde açıklama ve README çevirileri bu dalda güncellenmedi.
+
+### Son kontrol noktası
+- 2026-11-09 13:15: plan yazıldı, kod yok.
+- 2026-11-09 13:40: aşama 1 ve 2 bitti, commit `bba465c`. `npm test` exit 0. Yeni test 9 mutasyonun hepsinde kırmızı.
+- 2026-11-09 14:00: öz denetim (review-guard) ve düzeltme turu.
+  - F-01 (P2, doğrulandı): metinler dal sohbetinin kenar çubuğunda "projenin altında" göründüğünü söylüyordu. dsh bunu yalnız **Görünüm seçenekleri → Çalışma alanı ağacı** görünümünde iç içe gösterir (`dsh-client-ui-workspace` `owningParentFolder`, varsayılan `groupBy: "workspace"`). Düzeltme: araç yanıtı, araç açıklaması, istem ve 13 dilde `how` metni dal adlı proje ve ağaç görünümünü anlatır.
+  - F-02 (P2, doğrulandı): Assistant news kapatılınca `starts` artık temizlenmiyordu; kapatmadan önce başlayan bir tur, yeniden açılınca uzun tur haberi veriyordu. Düzeltme: kapatınca `starts` ve görev dışı bekleme sayaçları silinir, görev haberleri kalır.
+  - F-03 (P2, doğrulandı): görev sohbetinin her bekleme haberi 2 dk aralığını atlıyordu; sık onay isteyen bir sohbet her seferinde asistan turu (token) başlatırdı. Düzeltme: aralığı yalnız bitti/hata haberi atlar.
+  - F-04 (P3, doğrulandı): kullanılmayan `assistantTasks().list()` silindi.
+  - F-05 (P2, doğrulandı): görev notu asistana "yapılacaklar listeni güncelle" diyordu; Assistant always free `todo_write` çağrısını reddeder. Düzeltme: not yalnız `chat_read` adını verir.
+  - Her bulgu için `test/assistant-branch-chat.test.mjs` içinde regresyon denetimi var; her biri düzeltme geri alınınca kırmızı.
+- 2026-11-09 14:10: düzeltmeler commit `127deeb`. 3. denetim turunda yeni doğrulanmış bulgu yok. `npm test` exit 0, `git diff --check` temiz. `main` (3885882) ile `git merge-tree` çakışmasız.
+  - Arayüz doğrulanmadı: çalışan dsh canlı kopyayı yükler; etkinleştirme dsh'yi yeniden başlatmayı ister (bu görevde yasak). Gerçek dsh testi (0.2.0-rc.2, 0.2.1-rc.2) açık iş.
+  - Çakışma: `fix/asistan-acilis-hizi` ile yalnız bu dosyanın sonu (iki yeni bölüm; ikisini de tut).
+
+## Asistan açılış hızı ve uzun sohbette takılma (2026-11-09, dal `fix/asistan-acilis-hizi`)
+
+### Amaç
+Assistant satırına tıklayınca asistan sohbeti normal bir sohbet kadar hızlı açılır. Uzun, çok alt ajanlı sohbette yazarken ve akış sürerken takılma azalır (üst ajanın kapsam genişletmesi, madde 1-5).
+
+### Ölçüm (temel değer)
+- Yalıtılmış headless dsh 0.2.2-rc.1, `~/.dsh/sessions` yerel kopyası (1309 sohbet), sahte model: `GET /api/composer-plus.assistant` tıklama başına 466, 350, 228, 313, 269 ms. İstemci `openSession`'ı bu yanıttan sonra çağırır; normal satır hemen çağırır.
+- Kod düzeyi (tarayıcısız, aynı kopya): `sessionPersistence.list()` 139-223 ms, `stat(id)` 5-7 ms. Rota her tıklamada `list()` çağırır (`index.js` `stored`), sonra `resolveAgent(id)` bekler (canlı değilse tüm ajan diskten açılır).
+- Kullanıcının GUI'si ölçülemedi: Chrome oturumu 401 verdi (masaüstü uygulaması), token alınmadı.
+
+### Değişmezler
+- Silinen sohbet yine yeniden yaratılır; arşivlenen sohbet yine arşivden çıkar; iki tıklama tek sohbet yapar.
+- Asistan kapalıyken rota 409 döner; istemci sohbet açmaz.
+- Rollback ile geri alınan satırlar, mesaj bağlantısı ve geri alma düğmeleri aynı davranır.
+
+### Kabul ölçütü
+- Bilinen asistan sohbeti: istemci `openSession`'ı Host yanıtını beklemeden çağırır (hedef: tıklamadan `openSession`'a < 50 ms; birim testinde fetch hiç dönmezken de açılır).
+- Rota: bilinen ve canlı/kayıtlı sohbet için `persistence.list()` çağrılmaz, `resolveAgent` beklenmez (birim testi).
+- Madde 1-5: her biri ayrı commit ve bir test ya da ölçülebilir kontrol.
+
+### Aşamalar
+1. A: açılış hızı (istemci + Host), test.
+2. B (1): tek paylaşılan body MutationObserver, `[data-chat-flow]` içi değişiklikleri yok sayar, toplu çalışır.
+3. C (2): sohbet satırı taramaları yalnız yeni satırları işler veya tur sürerken seyrekleşir.
+4. D (3): StatusOrder ve assistantApart `:has()` kuralları.
+5. E (4): dar seçiciler.
+6. F (5): asistan görünümünde son N tur, "Öncekileri göster".
+
+### İzinli yollar
+`client.js`, `index.js`, `test/*`, `package.json` (test betiği), dil dosyaları yalnız yeni metin gerekirse, bu bölüm.
+
+### Kontroller
+`npm test`; ilgili `test/*.test.mjs`; mümkünse `test/browser-assistant.mjs` (headless, sahte model).
+
+### Kararlar
+- Canlı veride ikinci headless ölçüm Auto review tarafından reddedildi; tekrar denenmedi. Sonrası "canlı ölçülmedi"; birim testi ve kod düzeyi ölçüm verilir.
+
+### Riskler
+- Bilinen kimlik silinmiş bir sohbete aitse istemci önce boş/eksik bir görünüm açabilir; Host yanıtı yeni kimlik verince yeni sohbete geçer.
+- `fix/asistan-durum-gostergesi` main'e girdi (afd332d); bu dal onun üstünde başlar. `AssistantApartIcon` ve `assistantApartCss` yakınında fark en küçük tutulur.
+
+### Son kontrol noktası
+- 2026-11-09 13:50: plan yazıldı, kod yok.
+- 2026-11-09 15:25: tüm aşamalar bitti, main 0dd0913 üstüne rebase edildi. `npm test` exit 0. Gerçek dsh (headless, sahte model) `test/browser-assistant.mjs` 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS; adım 13: tıklamadan sohbete 18-47 ms, son 8 tur görünür.
+  - İnceleme kapısı: 3 tur. Bulunan ve düzeltilen: sınır sohbet sütunu içindeki yeni turu görmüyordu; sohbet yeniden açılınca sınır geri gelmiyordu; düğme metni 1 tur için yanlış çoğuldu; StatusOrder'da yalnız test için kalan yedek. Son tur temiz.
+  - Canlı veri kopyası (/tmp/cp-asistan-bench) silindi. Canlı GUI ölçülmedi (Chrome oturumu 401).
+
+## Asistan onay kartı tam metin (2026-11-09, dal `fix/onay-karti-tam-metin`)
+
+### Amaç
+`chat_send` ve `chat_new` onay kartı mesajın tamamını gösterir; kullanıcı onaylamadan önce gönderilecek metni okuyabilir.
+
+### Neden (doğrulandı)
+Kırpma Composer Plus'ta: `index.js` `tools/pre-execute` işleyicisi metni `cutEnd(a.text.trim(), 300)` ile 300 karakterde kesiyordu. dsh çekirdeği kesmiyor: `dsh-client-ui-approval` kartı nedeni `ImxglW_headline` içinde düz metin olarak çizer, gövde (`ImxglW_body`) `max-height: var(--dsh-composer-text-max-height); overflow-y: auto` ile kayar.
+
+### Değişiklik
+Sınır `ASSISTANT_LIMITS.text` (8000; araçlar daha uzun metni zaten reddeder). Metin düz metin kalır (HTML yok); enjeksiyon koruması değişmez.
+
+### Kontroller
+- `test/assistant.test.mjs`: chat_send ve chat_new kartı tam metni (1400+ karakter, `<b>` dahil) taşır; main'de kırmızı.
+- `test/browser-assistant.mjs` adım 5: 703 karakterlik enjekte metnin son sözcükleri kartta, `<b>` öğe değil metin, kart gövdesi `overflow-y: auto`. 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS.
+- `npm test` exit 0.
+
+### Son kontrol noktası
+- 2026-11-09 15:20: kod, testler ve gerçek dsh denemesi bitti; inceleme kapısı sırada.
 ## Asistan sohbetinde yapılacaklar listesi (2026-11-09, dal `feat/sohbet-ici-yapilacaklar`)
 İstek (sahip, Türkçe): kullanıcı aklındaki işleri asistana söyler ve bunları kendisi yapar. "Sen yap" derse asistan yapar. Liste asistan sohbetinin içinde, konuşmanın sağında görünür (dsh'nin sağ kenar paneli değil). Bir tıkla iş asistana devredilir, bir tıkla listeden silinir. Asistan maddeleri kendiliğinden denetler ve biten maddeyi kendisi siler. İş ayrı dalda yapılır, main'e birleştirme ve push yok.
 Kapsam eki (aynı dal, ayrı commit): sağdaki liste "Durum" paneline döner (Yapılacaklar + asistanın verdiği görevler + proje grupları + sabah özeti). Önce yapılacaklar listesi biter ve commit edilir.

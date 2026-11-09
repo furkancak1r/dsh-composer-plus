@@ -17,8 +17,8 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.grants` | POST | `{action: "grant", sessionId, tool}` or `{action: "revoke", sessionId}`, or `{ttlMs}` (Settings only: 15 min, 1 h, 4 h, 8 h or `null` = until revoked). `?detail=1` answers the detailed form. | allowForChat | yes |
 | `/api/composer-plus.mobile` | GET | The switch and the gateway state. | mobileConnect | no |
 | `/api/composer-plus.mobile` | POST | `{on}`: switch the gateway on or off (a switch route). | mobileConnect | no |
-| `/api/composer-plus.unread` | GET | `{unread: [sessionId]}`: Tether's green dots, the chats that finished and that no device opened yet (empty while Mobile connect is off). | mobileConnect | yes |
-| `/api/composer-plus.unread` | POST | `{sessionIds}` (1–1000 ids): these chats are read; answers the new `{unread}` and tells the phones. | mobileConnect | yes |
+| `/api/composer-plus.unread` | GET | `{on, unread: [sessionId]}`: Tether's green dots, the chats that finished and that no device opened yet (`on: false` and empty while Mobile connect is off). | mobileConnect | yes |
+| `/api/composer-plus.unread` | POST | `{sessionIds?, add?}` (each up to 1000 ids, at least one id): `sessionIds` are read, `add` are dsh's own unread chats that the list does not have (kept only while Mobile connect is on); answers the new `{on, unread}` and tells the phones. | mobileConnect | yes |
 | `/api/composer-plus.queue-move` | POST | `{sessionId, itemId, to, before}`: move one queued message in dsh's queue. | queueReorder | yes |
 | `/api/composer-plus.queue-edit` | POST | `{sessionId, itemId, content, seen?}`: give one of your own queued messages new text, images and files (kept attachments by `attachmentId`, a new image as bytes, a new file by its upload `receiptId`); the message keeps its id and its place. | queueEdit | yes |
 | `/api/composer-plus.send-first` | GET | The switch `{on}`. | stopSendFirst | no |
