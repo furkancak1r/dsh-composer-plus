@@ -222,10 +222,38 @@ test('relay: a certificate that is not the pinned one gets no byte', async () =>
     const r = await browserGet(relay.port, '/', { cookie })
     assert.equal(r.status, 502)
     assert.match(String(r.body), /another certificate/)
+    assert.match(r.headers['content-type'], /^text\/plain/, 'a fetch gets plain text')
     await sleep(50)
     assert.equal(bytes, 0, 'not one byte after the handshake: no token, no request')
     assert.equal(relay.fail, 'pin')
   } finally { await relay.close(); fake.close(); await other.close(); await gw.close(); dsh.close() }
+})
+
+test('relay: a computer that does not answer → a page in the middle of the window for the browser, plain text for a fetch', async () => {
+  const dead = createServer(); await new Promise((r) => dead.listen(0, '127.0.0.1', r))
+  const port = dead.address().port; await new Promise((r) => dead.close(r)) // a port with nobody on it
+  const relay = createRelay({ host: '127.0.0.1', port, fp: 'ab'.repeat(32), token: 'x'.repeat(43), frameAncestors: ['http://127.0.0.1:1'] })
+  await relay.start()
+  try {
+    const cookie = await openRelay(relay)
+    const page = await browserGet(relay.port, '/', { cookie, headers: { accept: 'text/html,application/xhtml+xml,*/*;q=0.8' } })
+    assert.equal(page.status, 502)
+    assert.match(page.headers['content-type'], /^text\/html/)
+    const csp = [page.headers['content-security-policy']].flat().join(', ')
+    assert.match(csp, /default-src 'none'/, 'no script, no outside resource')
+    assert.match(csp, /frame-ancestors 'self' http:\/\/127\.0\.0\.1:1/, 'only dsh may frame it')
+    const html = String(page.body)
+    assert.match(html, /<h1>This computer does not answer over Tailscale\.<\/h1>/)
+    assert.match(html, /<p>Make sure that it is awake and that Tailscale is on\.<\/p>/)
+    assert.match(html, /place-items:center/, 'in the middle of the window')
+    assert.match(html, /<a href="">Try again<\/a>/)
+    assert.doesNotMatch(html, /<script/i)
+    assert.equal(relay.fail, 'unreachable')
+    const api = await browserGet(relay.port, '/api/x', { cookie, headers: { accept: '*/*' } })
+    assert.equal(api.status, 502)
+    assert.match(api.headers['content-type'], /^text\/plain/)
+    assert.equal(String(api.body), 'This computer does not answer over Tailscale. Make sure that it is awake and that Tailscale is on.')
+  } finally { await relay.close() }
 })
 
 test('front door: a phone token or no token is refused, and a removed computer stops at once', async () => {
