@@ -216,6 +216,11 @@ await until(() => a.gates.length === 1, 'the notice turn'); await a.answer('done
 a.followup({ ...finished('s-c4', true), content: [{ type: 'text', text: 'Background subagent s-c4 failed before it finished.' }, { type: 'text', text: SENT }] });
 await until(() => a.gates.length === 1, 'the failure turn'); await a.answer('done'); await idle(a);
 assert.equal(a.turns, 2);
+// A notice that carries a structured result keeps dsh's turn: a held notice lives in memory only, so it must carry no data.
+a.turns = 0;
+a.followup({ ...finished('s-c7', true), content: [...finished('s-c7', true).content, { type: 'text', text: 'Structured result: {"price":120}' }] });
+await until(() => a.gates.length === 1, 'the structured notice turn'); await a.answer('done'); await idle(a);
+assert.equal(a.turns, 1);
 // 2d. Another chat and the switch off: dsh's notice as before.
 other.requests = []; other.turns = 0;
 other.followup(finished('s-c5', true));
