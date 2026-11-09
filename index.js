@@ -9428,12 +9428,25 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
     pending.set(session.id, { id: session.id, title: title ?? '(untitled)', project: project ?? '(no project)', at: now(), ...item });
     schedule(timing.batch);
   };
+  const logged = new WeakSet(); // items whose failed delivery is logged: one line each, not one per retry
+  /** Keep the delegated task items for a retry after the gap (a newer item of the same chat wins); log a new failure once. */
+  const hold = (items, why) => {
+    for (const n of items) if (n.task && !pending.has(n.id)) pending.set(n.id, n);
+    if (items.some((n) => !logged.has(n))) log(`news not delivered: ${why}${items.some((n) => n.task) ? ' (a delegated task is tried again after each gap)' : ''}`);
+    for (const n of items) logged.add(n);
+    if (pending.size > 0) schedule(timing.gap);
+  };
   async function flush() {
     flushTimer = undefined;
     if (!notifyOn) for (const [key, n] of pending) if (!n.task) pending.delete(key);
+    // A held wait (the gap, an archived assistant chat, a failed delivery) that the user answered meanwhile is no news.
+    for (const [key, n] of pending) if (n.kind === 'waiting' && !waitingOf(eventsOf(live(key)))) pending.delete(key);
     if (closed || pending.size === 0) return;
     const id = assistant.id();
-    if (!assistant.isOn() || !isText(id) || archived(id)) { pending.clear(); return; }
+    if (!assistant.isOn() || !isText(id)) { pending.clear(); return; }
+    // ponytail: a delegated task's result waits while the assistant chat is archived or does not take the note, and is tried
+    // again after each gap. A dsh quit before it is told still loses it (its task left assistant-tasks.json at the turn end).
+    if (archived(id)) { const items = [...pending.values()].filter((n) => n.task); pending.clear(); hold(items, 'the assistant chat is archived'); return; }
     // The result of a delegated task does not wait for the gap (the user started that task); its waits do.
     if (![...pending.values()].some((n) => n.task && n.kind !== 'waiting') && now() - lastWake < timing.gap) { schedule(lastWake + timing.gap - now()); return; }
     let agent = live(id);
@@ -9449,7 +9462,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
       lastWake = now();
       notes.set(agent.id, assistantNewsNote(items, timing.max));
       wakeWithContinue(agent, NEWS_SOURCE);
-    } catch (error) { notes.delete(agent?.id); log(`news not delivered: ${error?.message ?? error}`); }
+    } catch (error) { notes.delete(agent?.id); hold(items, error?.message ?? error); }
   }
   ctx.on('agent/pre-step', async (payload, next) => {
     const decision = await next();
