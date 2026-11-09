@@ -8923,6 +8923,7 @@ export function assistantTasks(file, now = Date.now) {
     ready,
     has: (id) => map.has(id),
     get: (id) => map.get(id),
+    list: () => [...map],
     add(id, info) {
       map.delete(id); map.set(id, { ...info, at: now() });
       while (map.size > ASSISTANT_TASKS_MAX) map.delete(map.keys().next().value);
@@ -9675,6 +9676,14 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       projectsCache = { at: now(), sessionId, value: statusProjects(items, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived }) };
     }
     const projects = projectsCache.value;
+    // Delegated chats (chat_new with branch) are tasks too, while their turn runs (main's store drops them at the end).
+    // ponytail: an ended delegated chat shows under Projects, not under Tasks; upgrade: keep it in the store until the day ends.
+    for (const [id, task] of assistant.tasks?.list?.() ?? []) {
+      const live = get('agents')?.get?.(id);
+      let log = []; try { log = live?.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
+      tasks.unshift({ id, title: cutEnd(String(task?.title ?? task?.project ?? id), 120), state: waitingOf(log) ? 'waiting' : 'running',
+        started: Number.isFinite(task?.at) ? task.at : now(), chat: true, ...(isText(task?.branch, 200) ? { result: `${task.project ?? ''} · ${task.branch}`.replace(/^ · /, '') } : {}) });
+    }
     const summary = summaries.of(sessionId);
     return { tasks, projects, ...(summary === undefined ? {} : { summary }), at: now() };
   };

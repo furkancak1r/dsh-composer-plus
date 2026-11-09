@@ -2832,4 +2832,4 @@ Doğrulandı 3, reddedildi 1.
 
 ### Öz denetim 5. tur (kapsam `80f2c7e..ae66191`)
 İncelenen kapsamda doğrulanmış bulgu yok. Reddedilen aday: dsh'nin durum deposunda izlenmeyen alt ajan için `running` bilgisi eksik olabilir. Kanıt: gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1'de görev Yenile'ye basmadan "çalışıyor"dan "bitti"ye geçti; ayrıca görev çalışırken 5 sn'lik yoklama var. Denenen ek kod geri alındı (kanıtsız değişiklik).
-
+- 2026-11-09 16:05: `main` (ce8e708) dala birleştirildi; çakışmalar iki tarafı da korur. main'in yeni `assistant.tasks` deposu (chat_new branch ile verilen görünür dal sohbetleri) Görevler'e eklendi (çalışırken). `npm test` exit 0, gerçek dsh üç sürüm PASS.

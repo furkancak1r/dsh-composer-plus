@@ -117,6 +117,9 @@ try {
     sessionController: { list: async () => { listed += 1; return { items }; }, resolveAgent: async (id) => ({ agent: agents.get(id) }), prompt: async () => {} },
   };
   const assistant = installAssistant(ctx, home, { folder: join(home, 'Assistant'), zone: 'UTC' }); await assistant.ready;
+  // A delegated chat (chat_new with branch) that runs: a task too.
+  await assistant.tasks.add('s-deleg', { title: 'Fix the login form', project: 'acme-web', branch: 'assistant/fix-login' });
+  newAgent('s-deleg', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {}), ev(1, 'approval/asked', { id: 'q' })]).status = 'running';
   let clock = NOW;
   const todos = installAssistantTodos(ctx, home, assistant, { now: () => clock }); await todos.ready;
   const call = async (query) => { const res = await routes.get(ASSISTANT_TODOS_PATH).fetch(new Request(`http://x${ASSISTANT_TODOS_PATH}${query}`)); return { status: res.status, body: await res.json() }; };
@@ -125,7 +128,8 @@ try {
   // GET: the status of the assistant chat.
   let r = await call('?sessionId=s-a');
   assert.equal(r.status, 200); assert.deepEqual(r.body.items, []); assert.equal(r.body.at, NOW);
-  assert.deepEqual(r.body.tasks.map((t) => t.id).sort(), ['c-done', 'c-fail', 'c-lost', 'c-run', 'c-stop', 'c-wait']);
+  assert.deepEqual(r.body.tasks.map((t) => t.id).sort(), ['c-done', 'c-fail', 'c-lost', 'c-run', 'c-stop', 'c-wait', 's-deleg']);
+  assert.deepEqual(r.body.tasks[0], { id: 's-deleg', title: 'Fix the login form', state: 'waiting', started: r.body.tasks[0].started, chat: true, result: 'acme-web · assistant/fix-login' }, 'a delegated chat is a task, first');
   assert.equal(r.body.tasks.find((t) => t.id === 'c-done').result, 'Flights found: 3 options', 'a disposed child: its saved log');
   // F-08: the next read does not read the ended child's log or all chats again; Refresh (`&refresh=1`) does.
   const [o1, l1] = [observed, listed];
