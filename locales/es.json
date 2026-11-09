@@ -2445,7 +2445,7 @@
     "assistantApart.waiting": "Esperándote",
     "assistantApart.done": "Nueva respuesta",
     "feature.assistantChatView": "Solo mensajes en el Asistente",
-    "feature.assistantChatView.description": "En el chat del asistente se ocultan las llamadas a herramientas, el pensamiento y los grupos de pasos, como en un chat con un bot: ves tus mensajes, sus respuestas, los errores y las tarjetas de aprobación. Los demás chats no cambian.",
+    "feature.assistantChatView.description": "En el chat del asistente se ocultan las llamadas a herramientas, el pensamiento y los grupos de pasos, como en un chat con un bot: ves tus mensajes, sus respuestas, los errores y las tarjetas de aprobación. Los demás chats no cambian. También se ocultan las filas de un subagente (\"Mensaje de tarea recibido\", \"Estado de subtarea actualizado\"): la respuesta del asistente da el resultado una vez.",
     "assistantChatView.earlier": "Mostrar mensajes anteriores (turnos ocultos: {count})",
     "feature.assistantFree": "Asistente siempre libre",
     "feature.assistantFree.description": "El chat del asistente responde al instante y nunca se queda ocupado: solo ejecuta sus propias herramientas cortas (chats, recordatorios, memoria, subagentes). Cualquier otro paso (una búsqueda web, un archivo, un comando) va a un subagente en segundo plano, y el resultado vuelve al chat. Sus subagentes trabajan como siempre.",
