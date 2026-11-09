@@ -5,7 +5,7 @@
 // message, a failed send puts the owner back, bad requests), the Assistant always free allowlist and the switch (off: no
 // tools, no section, no context, no item actions; an explicit off stays off).
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ASSISTANT_FREE_SECTION, ASSISTANT_TODOS_PATH, ASSISTANT_TOOLS, STATUS_SECTION, TODO_LIMITS, TODO_SECTION, TODO_TOOLS, assistantFreeTool, installAssistant, installAssistantTodos, todoContext, todoList, todoStore } from '../index.js';
@@ -197,4 +197,5 @@ await later.ready; assert.equal(later.isOn(), false, 'an explicit off stays off'
 assert.deepEqual((await call('POST', { on: true })).body, { on: true });
 assert.deepEqual([...assistantAgent.registered.keys()].sort(), [...ASSISTANT_TOOLS, ...TODO_TOOLS].sort());
 assert.equal((await call('GET', undefined, '?sessionId=s-a')).body.items.length, 1, 'the list is back');
+await rm(home, { recursive: true, force: true }); await rm(brokenDir, { recursive: true, force: true });
 console.log('assistant-todos: ok');
