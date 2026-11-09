@@ -103,7 +103,9 @@ window.__ModuleLoader__.load({
      * folder path is its tooltip. A click shows the chat in the sidebar (see `locateChat`). */
     function ProjectNamePill({ sessionId, useWorkspaces, useSessions, t }) {
       const workspaces = useWorkspaces((state) => state);
-      const sessions = useSessions((state) => state);
+      // Only this chat's folder: the whole list changes with each status change of every chat and its subagents.
+      const cwd = useSessions((state) => state?.byId?.[sessionId]?.cwd);
+      const sessions = cwd === undefined ? undefined : { byId: { [sessionId]: { cwd } } };
       const located = React.useRef(() => {});
       React.useEffect(() => () => located.current(), []); // switched off or unmounted: its own blinking row stops
       const name = projectNameOf(sessionId, workspaces, sessions);
@@ -4914,21 +4916,24 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       }
       return undefined;
     };
+    /** Narrow store selectors: one text per derived value, so React renders again only when that value changes. */
+    const runningIdsKey = (statuses) => (statuses instanceof Map ? [...statuses].filter(([, s]) => s?.running === true || s?.state === 'running' || s?.state === 'ongoing').map(([id]) => id).sort().join('\n') : '');
+    const unreadIdsKey = (statuses) => (statuses instanceof Map ? [...statuses].filter(([, s]) => s?.completionUnread === true).map(([id]) => id).sort().join('\n') : '');
     function SessionBranchBadges({ branchSwitch, useSessionStatus, t }) {
       const state = React.useSyncExternalStore(branchSwitch.subscribe, branchSwitch.getSnapshot);
       const map = state.on === true && state.branches !== null && typeof state.branches === 'object' ? state.branches : {};
-      const statuses = useSessionStatus?.((s) => s);
+      // Only the running chats (as one text, so an unrelated status change renders nothing).
+      const runningKey = useSessionStatus?.(runningIdsKey) ?? '';
       const running = React.useRef(new Set());
       // A chat that stops running ended a turn: the Host has just recorded its branch (read once more after 500 ms).
       React.useEffect(() => {
-        const now = new Set();
-        for (const [id, s] of statuses instanceof Map ? statuses : []) if (s?.running === true || s?.state === 'running' || s?.state === 'ongoing') now.add(id);
+        const now = new Set(runningKey === '' ? [] : runningKey.split('\n'));
         const stopped = [...running.current].some((id) => !now.has(id));
         running.current = now;
         if (!stopped) return undefined;
         const timer = setTimeout(() => branchSwitch.refresh(), 500);
         return () => clearTimeout(timer);
-      }, [statuses]);
+      }, [runningKey]);
       const hosts = useRowHosts('session:', SESSION_BRANCH, 'display:inline-flex;align-items:center;flex:none;min-width:0;max-width:96px;margin-left:4px');
       if (createPortal === undefined) return null;
       const portals = [];
@@ -5165,7 +5170,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     const MARK_READ_HOST = 'data-composer-plus-mark-read';
     function MarkProjectRead({ useWorkspaces, useSessionStatus, api, t }) {
       const items = useWorkspaces((state) => state?.items);
-      useSessionStatus((state) => state); // a dot that comes or goes changes the item's state
+      useSessionStatus(unreadIdsKey); // a dot that comes or goes changes the item's state; other status changes do not
       const [target, setTarget] = React.useState(null); // { workspaceId, host }
       React.useEffect(() => {
         let pending = null; // { workspaceId, until }
