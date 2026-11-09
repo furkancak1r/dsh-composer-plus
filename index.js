@@ -9474,7 +9474,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
     if (status === 'running') { patch(agent); return; }
     if (!patched.has(agent)) return;
     // dsh checks its inbox for the last time before the agent is idle; a message that came in between waits with no turn.
-    // Wake the chat for it, unless you stopped the turn (then it waits, as in dsh).
+    // Wake the chat for it when the turn completed. After your Stop or an error it waits for your next message, as in dsh.
     queueMicrotask(() => {
       if (agent.status !== 'idle') return;
       // The held notices go in now, without a turn (also when the switch went off meanwhile: they are never dropped).

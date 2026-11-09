@@ -2692,3 +2692,14 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
 
 ### Son kontrol noktası
 - 2026-11-09 15:10: plan yazıldı, kod yok. Dal `main` c285607 üstünde.
+- 2026-11-09 15:20: aşama 1 commit `5483397`, aşama 2 `618333e`, aşama 3 ve belge `0d857d8`. Her maddenin testi düzeltme geri alınınca kırmızı (mutasyon denetimi).
+- 2026-11-09 16:00: öz denetim (review-guard).
+  - F-01 (P2, doğrulandı): yardımcı tanımlar `ASSISTANT_FREE_SECTION` satırının hemen altındaydı; `feat/sohbet-ici-yapilacaklar` aynı satırı değiştiriyor, birleşmede çakışma çıkıyordu (`git merge-tree`). Düzeltme: tanımlar `installAssistantBot` üstüne taşındı; index.js çakışması kalktı.
+  - F-02 (P2, doğrulandı): yapılandırılmış sonuç ya da teşhis taşıyan "bitti" bildirimi de bellekte tutuluyordu; veri taşıyan bildirim çökmede kaybolabilirdi. Düzeltme: yalnız iki sabit satırlık bildirim sessizdir; öteki dsh turunu korur. Regresyon testi var.
+  - F-03 (P2, doğrulandı): 12 çeviri README'sinde sınır cümlesi yoktu (AGENTS.md kural 4). Düzeltme: her dilde etiketle eklendi.
+  - F-04 (P2, doğrulandı): asistan kimliği dosyadan okunmadan önce açık olan asistan ajanı sarılmıyordu (ilk tura kadar araya alma yok). Düzeltme: `assistant.ready` sonrası açık ajanlar sarılır. Regresyon testi var.
+  - F-05 (P2, doğrulandı): eklenti kapanırken tutulan bildirimler bellekte kalıp kayboluyordu. Düzeltme: kapanışta dsh'nin kalıcı gelen kutusuna (`inject`) girer. Regresyon testi var.
+  - F-06 (P3, doğrulandı): uyandırma yorumu yalnız Durdur'u anıyordu; hata ile biten turda da mesaj (dsh gibi) bekler. Yorum düzeltildi.
+  - 3. turda yeni doğrulanmış bulgu yok. `npm test` exit 0, `git diff --check` temiz.
+  - Açık iş: gerçek dsh tarayıcı testi (0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1) yapılmadı. Kart kapanışı kaynak kodundan doğrulandı (dsh-api-gateway index.js:1112-1135), canlı arayüzde doğrulanmadı. Ayarlar'daki `feature.assistantFree.description` metni değişmedi (hâlâ doğru, araya almayı anmıyor).
+  - Çakışma: `feat/sohbet-ici-yapilacaklar` ile `IMPLEMENTATION_PLAN.md`, 13 README, `llms.txt`, `package.json` (test betiği) çakışır; ikisini de tut, sonra `npm run build:readme`.
