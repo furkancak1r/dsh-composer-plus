@@ -9428,12 +9428,12 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
     pending.set(session.id, { id: session.id, title: title ?? '(untitled)', project: project ?? '(no project)', at: now(), ...item });
     schedule(timing.batch);
   };
-  const held = new WeakSet(); // items whose failed delivery is logged: one line each, not one per retry
+  const logged = new WeakSet(); // items whose failed delivery is logged: one line each, not one per retry
   /** Keep the delegated task items for a retry after the gap (a newer item of the same chat wins); log a new failure once. */
   const hold = (items, why) => {
     for (const n of items) if (n.task && !pending.has(n.id)) pending.set(n.id, n);
-    if (items.some((n) => !held.has(n))) log(`news not delivered: ${why}${items.some((n) => n.task) ? ' (a delegated task is tried again after each gap)' : ''}`);
-    for (const n of items) held.add(n);
+    if (items.some((n) => !logged.has(n))) log(`news not delivered: ${why}${items.some((n) => n.task) ? ' (a delegated task is tried again after each gap)' : ''}`);
+    for (const n of items) logged.add(n);
     if (pending.size > 0) schedule(timing.gap);
   };
   async function flush() {
