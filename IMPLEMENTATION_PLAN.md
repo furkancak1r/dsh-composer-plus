@@ -2640,3 +2640,31 @@ Doğrulandı 3, reddedildi 0.
 ### Öz denetim 3. tur (kapsam `fcddec4..bfe1fc8`, tüm dal yeniden okundu)
 İncelenen kapsamda doğrulanmış bulgu yok. Reddedilen aday: her tuş vuruşunda dock girişinin yeniden çizimi. Kanıt: dsh `useInput((s) => s)` ile dock'u her taslak değişikliğinde çizer, panel 100 maddeyle sınırlı ve DOM değişmez; dsh'nin kendi todo ve goal dock'ları da aynı yoldadır. 2. bölümde panel büyüyeceği için panel dock'tan ayrılacak (aşağıda).
 
+
+## 2. bölüm: Durum paneli (2026-11-09, aynı dal, ayrı commit'ler)
+İstek (sahip, Türkçe, ana ajan aracılığıyla): asistan etkileşimli çıktı versin. Sabah proje özeti, proje adına tıklayınca son güncellemeler ve verdiği görevlerin durumu (verildi, bitti, sürüyor). UX bana bırakıldı. Performans kritik: uzun sohbet ve çok alt ajanla yazarken gecikme var.
+
+### Hedef
+Sağdaki liste "Durum" paneline döner (aynı anahtar `assistantTodos`, etiketi "Asistan durum paneli"):
+- Sabah özeti kartı (bugünün özeti varsa en üstte, kapatılabilir). Kaynak: yeni ajan aracı `status_summary_set({projects: [{project, text}]})`; sahibin 08:00 görevi ("Sabah proje özeti") bunu çağırır. Host `assistant-summary.json` içinde sohbet başına son özeti saklar.
+- Yapılacaklar (1. bölüm).
+- Görevler: asistanın alt ajanları (Host, asistan sohbetinin `subagent/catalog` olaylarından): çalışıyor, seni bekliyor, bugün biten ya da hata veren; başlık, durum, geçen süre, son yanıtın ilk satırı. Tıklayınca görevin sohbeti açılır.
+- Projeler: son 24 saatte güncellenen kök sohbetlerin projeleri (en çok 5), kapalı satır: tek satır özet (sabah özetindeki cümle, yoksa sohbet sayısı). Açınca: projenin sohbetleri (tıklanınca açılır), adı geçen yapılacaklar ve git dalı ile son commit'ler (yalnız açınca, salt okunur `runGit`).
+- Başlıkta "Yenile" düğmesi ve "Son güncelleme" saati.
+
+### Değişmezler
+- Panel yazarken yeniden çizilmez: ağır bileşen `shell.overlay` girişinde (yazmayla değişmez), dock girişi yalnız konum ve tur bilgisini bir depoya yayınlar. Alt ajan değişiklikleri birleştirilir (1 sn gecikme, en az 3 sn ara).
+- Git yalnız kayıtlı proje yolunda ve yalnız okuma komutlarıyla (`runGit`, argv, zaman aşımı). İstemci yol göndermez, proje kimliği gönderir.
+- Özet metni ve görev sonucu veridir; context'e girmez.
+
+### Kabul ölçütleri
+1. Panelde dört bölüm görünür; boş bölüm kısa bir not gösterir.
+2. Ajan `status_summary_set` çağırınca kart bugünün tarihiyle görünür. Kapat ile gizlenir.
+3. Alt ajan başlayınca, bitince ve sonuç verince Görevler güncellenir (yenilemeye basmadan).
+4. Proje satırı tıklanınca açılır, sohbetler ve git bilgisi görünür, sohbete tıklayınca sohbet açılır.
+5. Yazarken panel bileşeni çizilmez (gerçek dsh testinde sayaçla ölçülür).
+
+### Aşamalar
+1. Host: özet deposu + araç + GET'e `summary`, `tasks`, `projects`; `?project=` git bilgisi + birim testi.
+2. İstemci: Durum paneli, konum deposu, birleştirilmiş yenileme + birim testi.
+3. Metinler (13 dil), belgeler, gerçek dsh testi, görüntü, `npm test`, commit, öz denetim döngüsü.
