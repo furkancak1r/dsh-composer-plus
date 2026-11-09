@@ -7724,11 +7724,13 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             : React.createElement('div', { style: { display: 'flex', gap: 6, flex: 'none' } },
               React.createElement(primitives.Button, { variant: 'outline', size: 'small', disabled: busy, 'data-composer-plus-memory-suggestion-reject': String(i), onClick: () => suggest.reject(i) }, t('memorySuggest.reject')),
               React.createElement(primitives.Button, { variant: 'primary', size: 'small', disabled: busy, 'aria-busy': x.state === 'saving', 'data-composer-plus-memory-suggestion-accept': String(i), onClick: () => { suggest.accept(i); } }, t('memorySuggest.accept'))));
+      // dsh's Modal is 380 px wide: too narrow for a note next to its two buttons.
       return React.createElement(primitives.Modal, {
-        open: true, onClose: suggest.close, closeLabel: t('memoryEditor.close'),
+        open: true, onClose: suggest.close, closeLabel: t('memoryEditor.close'), className: 'cp-mem-suggest-dialog',
         title: t('memorySuggest.title'), description: t('memorySuggest.description', { title: state.request.title }),
         footer: React.createElement(primitives.Button, { variant: 'outline', 'data-composer-plus-memory-suggest-close': '', onClick: suggest.close }, t('memoryEditor.close')),
-      }, React.createElement('div', { 'data-composer-plus-memory-suggest-dialog': '', style: { maxHeight: '55vh', overflowY: 'auto' } },
+      }, React.createElement('style', null, '[role=dialog].cp-mem-suggest-dialog{width:min(760px,calc(100vw - 48px));max-width:none}'),
+      React.createElement('div', { 'data-composer-plus-memory-suggest-dialog': '', style: { maxHeight: '60vh', overflowY: 'auto' } },
         state.busy === 'ask' ? React.createElement('div', { role: 'status', 'aria-live': 'polite', style: { fontSize: 13, padding: '12px 0' } }, t('memorySuggest.thinking')) : null,
         state.busy !== 'ask' && state.error === null && state.items.length === 0 ? React.createElement('div', { role: 'status', style: { fontSize: 13, padding: '12px 0' } }, t('memorySuggest.none')) : null,
         state.items.length > 0 ? React.createElement('ul', { style: { margin: 0, padding: 0, listStyle: 'none' } }, state.items.map(row)) : null,
