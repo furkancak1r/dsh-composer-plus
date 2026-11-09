@@ -2647,3 +2647,48 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
 - 2026-11-09 14:10: düzeltmeler commit `127deeb`. 3. denetim turunda yeni doğrulanmış bulgu yok. `npm test` exit 0, `git diff --check` temiz. `main` (3885882) ile `git merge-tree` çakışmasız.
   - Arayüz doğrulanmadı: çalışan dsh canlı kopyayı yükler; etkinleştirme dsh'yi yeniden başlatmayı ister (bu görevde yasak). Gerçek dsh testi (0.2.0-rc.2, 0.2.1-rc.2) açık iş.
   - Çakışma: `fix/asistan-acilis-hizi` ile yalnız bu dosyanın sonu (iki yeni bölüm; ikisini de tut).
+
+## Asistan: araya alma (2026-11-09, dal `feature/asistan-araya-alma`)
+İstek (sahip, Türkçe): asistan sohbetinde kuyruk kalsın ama kullanıcının mesajı araya alınsın. Üç madde, öncelik sırasıyla: (1) tur çalışırken gelen mesaj bir sonraki adımda tura girer; (2) `send_message` ile sonucunu zaten gönderen alt ajanın "bitti" bildirimi ayrı tur başlatmaz; (3) soru kartı açıkken yazılan mesaj kartın cevabı olur.
+
+### Kanıt (DSH 0.2.2-rc.1, app.asar'dan; 0.2.0-rc.2 ve 0.2.1-rc.2 kopyaları)
+- Besteci "queue" gönderir; Host `agent.followup` çağırır (dsh-api-session-controller index.js:857-858) ve mesaj tur sonuna kadar `next-turn` kuyruğunda bekler. `agent.steer` mesajı `next-step` listesine koyar; çalışan tur onu bir sonraki adımda alır (dsh-agent-loop index.js:573, 670, 790-797). `send_message` da bunu kullanır (dsh-subagent manager.js:1180-1182).
+- Alt ajan bildirimi: ana ajan boştaysa `followup` (yeni tur), çalışıyorsa `steer` (manager.js:1081-1093). 0.2.2, mesaj gönderip biten alt ajanın bildirimine "It sent you a message just before finishing" yazar (continuation-messages.js:100-101); 0.2.0 ve 0.2.1 yazmaz.
+- Soru kartı `user-questions/request` waterfall'udur (dsh-user-questions index.js:709); kart `request.signal` iptal olunca istemcilerde kapanır (dsh-api-gateway index.js:1112-1135).
+- Yarış: dsh turu son kontrolünden sonra ve boşta duruma geçmeden önce gelen `steer`/`followup` mesajı uyandırmaz (agent-loop index.js:618-622, 651-663).
+
+### Hedef ve değişmezler
+- Yalnız asistan sohbeti ve yalnız "Assistant always free" açıkken. Öteki sohbetler dsh kuyruğunu kullanır. DSH çekirdeği değişmez.
+- Mesaj kaybolmaz: araya alınan mesaj dsh'nin kalıcı `next-step` listesine girer. Tur bitişiyle aynı anda gelen mesaj için ajan bir boş işaretle uyandırılır. Kullanıcı Durdur'a bastıysa uyandırılmaz (dsh davranışı).
+- Çalışan araç çağrısı kesilmez (iptal yok). Aynı adımda kullanıcı mesajı bildirimlerden önce gelir.
+- Mesaj göndermiş alt ajanın "bitti" bildirimi: boştaysa sessizce `next-step` bağlamına girer (tur yok); tur çalışıyorsa tur bitene kadar tutulur, sonra sessizce girer. Mesaj göndermeden biten alt ajan ve 0.2.2 öncesi dsh: dsh davranışı.
+- Soru kartı: onay ve plan incelemesi kartları (`intent`) değişmez. Mesaj kartın her sorusuna `custom` cevap olur; mesaj ayrıca sohbete girer (balon kalır, kayıt kalıcıdır).
+
+### Kabul ölçütleri
+1. Tur çalışırken gelen mesaj aynı turun sonraki adımında; ikinci tur yok; normal sohbette kuyruk değişmez; anahtar kapalıyken dsh davranışı.
+2. Tur bitişiyle aynı anda gelen mesaj bir turda modele gider. Durdurulmuş turdan sonra kendiliğinden tur başlamaz.
+3. İşaretli "bitti" bildirimi boşta tur başlatmaz, çalışırken adım eklemez; işaretsiz bildirim tur başlatır.
+4. Açık soru kartında yazılan mesaj cevap olur, kart sinyali iptal olur; onay kartı değişmez.
+5. `npm test` geçer.
+
+### Aşamalar
+1. Madde 1 + yarış testi (`test/assistant-interject.test.mjs`, dsh tur döngüsünün küçük modeli). Commit.
+2. Madde 2 + test. Commit.
+3. Madde 3 + test, belge (`docs/features.json` assistantFree `how` 13 dil, `llms`, README sınırı, `npm run build:readme`). Commit.
+4. review-guard denetimi, düzeltme, yeniden denetim.
+
+### İzinli yollar
+`index.js` (yalnız `installAssistantBot`), `test/assistant-interject.test.mjs`, `package.json` (test betiği), `docs/features.json`, `README.md`, üretilen README/llms bölümleri, `IMPLEMENTATION_PLAN.md`.
+
+### Kararlar
+- Ayrı anahtar yok: üç madde "Assistant always free" altında (ana ajan onayı).
+- Mesaj yönü Host'ta değişir (`followup` yerine `steer`); istemci değişmez, Tether de aynı Host yolunu kullanır.
+- Kart için ikinci istemci yok: aynı waterfall'a dıştan bağlanılır ve kartın sinyali iptal edilir.
+
+### Riskler
+- Ajan nesnesinin `followup`/`steer` yöntemleri asistan ajanında sarılır (dsh'nin herkese açık yöntemleri; kaldırınca geri konur).
+- Tutulan bildirim, tur sürerken dsh çökerse kaybolur; alt ajanın sonucu zaten mesajla gelmiştir.
+- Çevrilmiş README'lerin sınır paragrafı bu dalda güncellenmeyebilir.
+
+### Son kontrol noktası
+- 2026-11-09 15:10: plan yazıldı, kod yok. Dal `main` c285607 üstünde.
