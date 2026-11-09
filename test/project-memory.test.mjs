@@ -150,7 +150,15 @@ try {
   { const sub = sectionOf({ id: 's', session: { header: { cwd: project, origin: 'subagent', parentSession: 'chat-1' } } });
     assert.match(sub, /A fact saved later/, 'a subagent gets the notes of its folder');
     assert.match(sub, /You are a subagent: no memory review reads this chat/); assert.doesNotMatch(sub, /After each of your turns/);
-    assert.doesNotMatch(frozen, /You are a subagent/, 'a root chat keeps the review line'); }
+    assert.doesNotMatch(frozen, /You are a subagent/, 'a root chat keeps the review line');
+    // A disposed subagent frees its frozen section; a root chat keeps its own.
+    const subAgent = { id: 's', session: { header: { cwd: project, origin: 'subagent', parentSession: 'chat-1' } } };
+    await tool('memory_remember').execute({ text: 'Saved while the subagent ran' }, exec);
+    assert.doesNotMatch(sectionOf(subAgent), /Saved while the subagent ran/, 'frozen while it lives');
+    on['agent/disposed'].forEach((f) => f({ agent: subAgent })); on['agent/disposed'].forEach((f) => f({ agent }));
+    assert.match(sectionOf(subAgent), /Saved while the subagent ran/, 'a new subagent with that id reads the new note');
+    assert.equal(sectionOf(agent), frozen, 'a root chat stays frozen');
+    await tool('memory_forget').execute({ entry: 'Saved while the subagent ran' }, exec); }
   assert.match(await tool('memory_forget').execute({ entry: 'saved later' }, exec), /^Removed/);
   assert.match(await tool('memory_recall').execute({}, { agent: { id: 'x', session: { header: {} } } }), /global memory/, 'no folder: global only');
 

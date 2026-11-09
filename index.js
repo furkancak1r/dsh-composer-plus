@@ -7129,7 +7129,8 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
     for (const id of offChats.keys()) restrictOne(get('agents')?.get?.(id));
   };
   ctx.on('agent/created', ({ agent } = {}) => { restrictOne(agent); });
-  ctx.on('agent/disposed', ({ agent } = {}) => { if (isText(agent?.id)) restricted.delete(agent.id); });
+  // A gone subagent frees its frozen section, so many subagents do not push the root chats' sections out of `frozen`.
+  ctx.on('agent/disposed', ({ agent } = {}) => { if (!isText(agent?.id)) return; restricted.delete(agent.id); if (agent.session?.header?.origin === 'subagent') frozen.delete(agent.id); });
   const apply = (next) => {
     on = next;
     if (on && fiber === undefined && typeof ctx.inject === 'function') {
