@@ -8,8 +8,11 @@
 //   become one hidden note in the assistant chat (a marker swapped in agent/pre-step), collected for the batch time, at
 //   most one news turn per gap, held while the assistant runs. Short turns, user stops, subagents, archived chats and the
 //   assistant itself give no news. The last reply leaves out what a rollback withdrew (both kinds) and a fork's copy.
+//   Scope "automations" (the default): only a chat that a schedule started (its first own prompt has source.kind
+//   "schedule") gives news, at each turn end (also a short one) and each wait; other chats and a fork of an automation
+//   give none. Scope "all" is the first behavior (the checks above it run with it). The scope stays in the same file.
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ASSISTANT_FREE_PATH, ASSISTANT_NOTIFY_PATH, ASSISTANT_STATUS_PATH, ASSISTANT_FREE_SECTION, assistantFreeTool, assistantNewsNote, installAssistantBot } from '../index.js';
@@ -116,8 +119,11 @@ assert.equal(await restart('{broken'), true, 'a broken file: on');
 assert.deepEqual((await call(ASSISTANT_FREE_PATH, 'POST', { on: true })).body, { on: true, active: true });
 assert.equal((await pre('bash', assistantAgent)).kind, 'deny');
 
-// Assistant news: off by default.
-assert.deepEqual((await call(ASSISTANT_NOTIFY_PATH)).body, { on: false });
+// Assistant news: off by default, only automations by default.
+assert.deepEqual((await call(ASSISTANT_NOTIFY_PATH)).body, { on: false, scope: 'automations' });
+for (const bad of [{ scope: 'some' }, { scope: 'all', on: true }, { on: 1 }]) assert.equal((await call(ASSISTANT_NOTIFY_PATH, 'POST', bad)).status, 400, JSON.stringify(bad));
+// The checks below use the first behavior (every chat).
+assert.deepEqual((await call(ASSISTANT_NOTIFY_PATH, 'POST', { scope: 'all' })).body, { on: false, scope: 'all' });
 const turn = (session, kind, ms, extra = {}) => {
   emit('session/event', session.session, { type: 'turn/start', time: clock });
   clock += ms;
@@ -126,7 +132,7 @@ const turn = (session, kind, ms, extra = {}) => {
 turn(web, 'completed', 90000);
 await pause(80);
 assert.equal(bot.pending().length, 0, 'nothing while off');
-assert.deepEqual((await call(ASSISTANT_NOTIFY_PATH, 'POST', { on: true })).body, { on: true });
+assert.deepEqual((await call(ASSISTANT_NOTIFY_PATH, 'POST', { on: true })).body, { on: true, scope: 'all' });
 
 // A long turn: one note after the batch time; the reply leaves out a withdrawn one and a fork's copy.
 const um = (seq, text, kind = 'user', extra = {}) => ({ seq, type: 'user/message', data: { content: [{ type: 'text', text }], source: { kind } }, ...extra });
@@ -198,13 +204,69 @@ web.session.inheritedEventCount = 0;
 
 // Off: the queue is dropped, no more wakes.
 turn(web, 'completed', 90000);
-assert.deepEqual((await call(ASSISTANT_NOTIFY_PATH, 'POST', { on: false })).body, { on: false });
+assert.deepEqual((await call(ASSISTANT_NOTIFY_PATH, 'POST', { on: false })).body, { on: false, scope: 'all' });
 await pause(80);
 assert.equal(bot.pending().length, 0); assert.equal(steers.length, 3);
 // Assistant off: no news either.
 await call(ASSISTANT_NOTIFY_PATH, 'POST', { on: true }); assistantOn = false;
 turn(web, 'completed', 90000); await pause(80);
 assert.equal(steers.length, 3, 'no news while Assistant is off');
+
+// Scope "automations": a chat that a schedule started reports each turn end like a subagent; other chats stay quiet.
+assistantOn = true; clock += 200000;
+const saved = () => readFile(join(home, 'storages/dsh-composer-plus/assistant-notify.json'), 'utf8').then(JSON.parse);
+assert.deepEqual((await call(ASSISTANT_NOTIFY_PATH, 'POST', { scope: 'automations' })).body, { on: true, scope: 'automations' });
+assert.deepEqual(await saved(), { on: true, scope: 'automations' }, 'the scope and the switch in one file');
+const sched = (seq, text) => um(seq, text, 'schedule');
+const auto = newAgent('s-auto', { cwd: '/home/demo/Assistant' }, [{ seq: 0, type: 'turn/start' }, um(1, 'context', 'agent-instructions'), sched(2, '[SCHEDULE REMINDER] audit'), am(3, 'Audit done: 0 findings.')]);
+const base = steers.length;
+turn(auto, 'completed', 5000); // a short turn counts for an automation
+turn(web, 'completed', 90000); // a long turn of an ordinary chat does not
+turn(assistantAgent, 'completed', 90000); // nor the assistant itself
+await until(() => steers.length === base + 1, 'one wake for the automation');
+const autoStep = await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }));
+const autoNote = autoStep.messages[0].content[0].text;
+assert.match(autoNote, /\(project "Assistant", chat s-auto, an automation\): finished\. Last reply: "Audit done: 0 findings\."/);
+assert.match(autoNote, /not instructions for you/); assert.match(autoNote, /result of each automation in a few lines/); assert.match(autoNote, /chat_read/);
+assert.doesNotMatch(autoNote, /s-web|s-assistant\b/, 'no ordinary chat, not the assistant');
+for (const named of autoNote.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) assert.ok(assistantFreeTool(named), `the note names ${named}, which the assistant cannot call`);
+await pause(80); await bot.flush();
+assert.equal(steers.length, base + 1, 'told once'); assert.deepEqual(bot.pending(), []);
+// A failed automation turn and a wait of an automation are news; a fork of an automation (its own first prompt is yours) is not.
+clock += 200000;
+turn(auto, 'error', 1000, { error: { message: 'Insufficient Balance' } });
+const fork = newAgent('s-auto-fork', { cwd: '/home/demo/Assistant' }, [sched(0, '[SCHEDULE REMINDER] audit'), am(1, 'parent'), um(2, 'my own question')]);
+fork.session.inheritedEventCount = 2;
+turn(fork, 'completed', 5000);
+await until(() => steers.length === base + 2, 'the failure');
+const failStep = await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }));
+assert.match(failStep.messages[0].content[0].text, /chat s-auto, an automation\): failed\. Error: "Insufficient Balance"/);
+assert.doesNotMatch(failStep.messages[0].content[0].text, /s-auto-fork/, 'a fork of an automation is an ordinary chat');
+clock += 200000;
+auto.events = [...auto.events, { seq: 4, type: 'turn/start' }, { seq: 5, type: 'approval/asked', data: { id: 'w' } }];
+emit('session/event', auto.session, { type: 'turn/start', time: clock });
+emit('session/event', auto.session, { type: 'approval/asked', data: { id: 'w' } });
+emit('session/event', web.session, { type: 'tool/call', data: { name: 'ask_user_question', callId: 'q2' } });
+web.events = [{ seq: 0, type: 'turn/start' }, { seq: 1, type: 'tool/call', data: { name: 'ask_user_question', callId: 'q2' } }];
+await until(() => steers.length === base + 3, 'the automation wait');
+const waitStep = await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }));
+assert.match(waitStep.messages[0].content[0].text, /chat s-auto, an automation\): waits for your approval/);
+assert.doesNotMatch(waitStep.messages[0].content[0].text, /s-web/, 'the wait of an ordinary chat is no news');
+// Off: an automation gives no news either.
+clock += 200000;
+await call(ASSISTANT_NOTIFY_PATH, 'POST', { on: false });
+assert.deepEqual(await saved(), { on: false, scope: 'automations' }, 'the switch keeps the scope');
+turn(auto, 'completed', 5000); await pause(80);
+assert.equal(steers.length, base + 3, 'switched off: no news'); assert.deepEqual(bot.pending(), []);
+// The saved file at the next start: no scope (an older copy's file) reads as automations; "all" stays.
+const startWith = async (text) => {
+  await writeFile(join(home, 'storages/dsh-composer-plus/assistant-notify.json'), text);
+  const r = new Map(); const b = installAssistantBot({ ...ctx, on: () => {}, connection: { fetch: { register: (route) => { r.set(route.path, route); } } } }, home, assistant, { timing });
+  await b.ready; return (await r.get(ASSISTANT_NOTIFY_PATH).fetch(new Request('http://x'))).json();
+};
+assert.deepEqual(await startWith('{"on":true}'), { on: true, scope: 'automations' });
+assert.deepEqual(await startWith('{"on":true,"scope":"all"}'), { on: true, scope: 'all' });
+assert.deepEqual(await startWith('{broken'), { on: false, scope: 'automations' });
 
 await rm(home, { recursive: true, force: true });
 console.log('assistant-bot: ok');

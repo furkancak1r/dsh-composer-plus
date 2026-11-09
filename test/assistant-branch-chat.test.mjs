@@ -207,6 +207,8 @@ try {
   // while news was on and ends after news is on again (its start unseen) is no news.
   clock += timing.gap;
   const off = (v) => routes.get('/api/composer-plus.assistant-notify').fetch(new Request('http://x', { method: 'POST', body: JSON.stringify({ on: v }) }));
+  // These checks use the first behavior: news of every chat (scope "all"), not only of automations.
+  await routes.get('/api/composer-plus.assistant-notify').fetch(new Request('http://x', { method: 'POST', body: JSON.stringify({ scope: 'all' }) }));
   const early = newAgent('early', { cwd: P });
   await off(true);
   emit('session/event', early.session, { type: 'turn/start', time: clock });
@@ -238,7 +240,7 @@ try {
   await until(() => throws === 1, 'the failed delivery');
   assert.equal(steers.length, 3);
   assert.deepEqual(bot.pending().map(({ id, kind, task }) => ({ id, kind, task })), [{ id: 't-lost', kind: 'finished', task: true }], 'the task result stays');
-  assert.equal(news(), 1); assert.match(warns.at(-1), /steer failed \(a delegated task is tried again after each gap\)/);
+  assert.equal(news(), 1); assert.match(warns.at(-1), /steer failed \(a delegated task or automation is tried again after each gap\)/);
   clock += timing.gap; await bot.flush();
   assert.equal(throws, 0); assert.equal(steers.length, 3); assert.equal(news(), 1, 'a retry that fails again logs nothing new');
   clock += timing.gap; await bot.flush();
