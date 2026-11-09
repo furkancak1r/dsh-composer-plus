@@ -423,6 +423,8 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 **能一键回答智能体给出的选项吗？** 可以，使用 **选项按钮**（默认开启）：当回答以“选项”列表结尾时，点击回答下方的按钮。它会把“Option N: …”作为你的消息发送。在智能体的提问卡片上，按 1–9 键。
 
+**能不打字就发送智能体给出的批准语吗？** 可以，使用 **批准按钮**（默认开启）：当智能体需要书面批准时，它会把这句话写在 `onay` 代码块中。点击回答下方的 **批准**：这句原话会作为你的消息发送，因此自动审查会把它视为你的消息。提到线上或公开目标的句子没有按钮：请自己输入。
+
 **如何把 DeepSeek Harness 界面切换为土耳其语、西班牙语、日语……？** 设置 → Composer Plus → **应用语言**。
 
 **如何在 iPhone 上使用 dsh？** 用 Xcode 从 `tether/ios` 构建 Tether 应用，开启 **设置 → Composer Plus → 手机连接（iPhone）**，点击左下角的 **手机连接**，扫描二维码（用 iPhone 相机或 Tether 中的 **Scan code**），轻点 **Connect**，然后点击 **Approve**。不在家时，请在两台设备上都使用 Tailscale。
@@ -460,6 +462,8 @@ PLAYWRIGHT=/path/to/playwright node test/browser-recent-tree.mjs /path/to/dsh/li
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-status-order.mjs /path/to/dsh/lib/bin.js
 # Next waiting chat and Option buttons (fake model): the sidebar button and Cmd+Shift+E open the waiting chats in order, the Keyboard shortcuts row, the option buttons and the question card keys, switch off + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-agentbox-ideas.mjs /path/to/dsh/lib/bin.js
+# Approve button (fake model): the prompt rule in the request, one Approve button under an onay block, a double click sends the exact sentence once, no button for a live sentence or an older answer, switch off + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-approve-button.mjs /path/to/dsh/lib/bin.js
 # Reject with note, Secret input, Quote in reply, Side chat and Diff notes (fake model + a test-only approval gate): the button on dsh's card, the note after the rejection in the next request, Esc; the secret card, Save, the value in no request, file or page, Decline, Stop; a selected part of an answer → Quote → the sent message; a side question while the chat waits on a card (read-only, no queued message in it), Bring back; notes on a diff line and range → Send to composer → the sent message; switch off + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-t3code-ideas.mjs /path/to/dsh/lib/bin.js
 # Quote from file preview (fake model): lines of a code, text, Markdown and PDF file in the right sidebar → Quote → the path, the line numbers and the lines in the sent message; no button for the path header; switch off + its thumbnail

@@ -423,6 +423,8 @@ dsh `0.2.0-rc.2`(데스크톱과 웹)와 `0.2.1-rc.2`(웹)에서 테스트했습
 
 **에이전트의 선택지에 클릭 한 번으로 답할 수 있나요?** 네, **선택지 버튼**(기본값 켜짐)을 사용하세요. 답변이 "선택지" 목록으로 끝나면 그 아래의 버튼을 클릭하세요. 버튼은 "Option N: …"을 내 메시지로 보냅니다. 에이전트의 질문 카드에서는 1–9 키를 누르세요.
 
+**에이전트의 승인 문장을 입력하지 않고 보낼 수 있나요?** 네, **승인 버튼**(기본값 켜짐)을 사용하세요. 에이전트가 서면 승인이 필요하면 문장을 `onay` 블록에 씁니다. 답변 아래의 **승인** 을 클릭하면 그 문장이 그대로 내 메시지로 전송되어 자동 검토가 내 메시지로 봅니다. 운영 또는 공개 대상을 언급하는 문장에는 버튼이 없습니다. 직접 입력하세요.
+
 **DeepSeek Harness 인터페이스를 터키어, 스페인어, 일본어 등으로 바꾸려면 어떻게 하나요?** 설정 → Composer Plus → **애플리케이션 언어**.
 
 **iPhone에서 dsh를 쓰려면 어떻게 하나요?** `tether/ios`에서 Tether 앱을 빌드하세요(Xcode). **설정 → Composer Plus → 모바일 연결(iPhone)**을 켜고, 왼쪽 아래의 **모바일 연결**을 클릭하세요. QR 코드를 스캔하고(iPhone 카메라 또는 Tether의 **Scan code**), **Connect**를 탭한 뒤 **Approve**를 클릭하세요. 집 밖에서는 두 기기 모두에서 Tailscale을 쓰세요.
@@ -460,6 +462,8 @@ PLAYWRIGHT=/path/to/playwright node test/browser-recent-tree.mjs /path/to/dsh/li
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-status-order.mjs /path/to/dsh/lib/bin.js
 # Next waiting chat and Option buttons (fake model): the sidebar button and Cmd+Shift+E open the waiting chats in order, the Keyboard shortcuts row, the option buttons and the question card keys, switch off + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-agentbox-ideas.mjs /path/to/dsh/lib/bin.js
+# Approve button (fake model): the prompt rule in the request, one Approve button under an onay block, a double click sends the exact sentence once, no button for a live sentence or an older answer, switch off + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-approve-button.mjs /path/to/dsh/lib/bin.js
 # Reject with note, Secret input, Quote in reply, Side chat and Diff notes (fake model + a test-only approval gate): the button on dsh's card, the note after the rejection in the next request, Esc; the secret card, Save, the value in no request, file or page, Decline, Stop; a selected part of an answer → Quote → the sent message; a side question while the chat waits on a card (read-only, no queued message in it), Bring back; notes on a diff line and range → Send to composer → the sent message; switch off + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-t3code-ideas.mjs /path/to/dsh/lib/bin.js
 # Quote from file preview (fake model): lines of a code, text, Markdown and PDF file in the right sidebar → Quote → the path, the line numbers and the lines in the sent message; no button for the path header; switch off + its thumbnail

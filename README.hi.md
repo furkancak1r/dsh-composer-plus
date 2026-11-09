@@ -423,6 +423,8 @@ dsh `0.2.0-rc.2` (डेस्कटॉप और वेब) और `0.2.1-rc.2`
 
 **क्या मैं एजेंट के विकल्पों का जवाब एक क्लिक से दे सकता हूं?** हां, **विकल्प बटन** से (डिफ़ॉल्ट रूप से चालू): जब कोई जवाब "विकल्प" सूची पर खत्म हो, तो उसके नीचे किसी बटन पर क्लिक करें। यह "Option N: …" आपके संदेश के रूप में भेजता है। एजेंट के प्रश्न कार्ड पर 1–9 दबाएं।
 
+**क्या मैं एजेंट का स्वीकृति वाक्य बिना टाइप किए भेज सकता हूं?** हां, **स्वीकृति बटन** से (डिफ़ॉल्ट रूप से चालू): जब एजेंट को लिखित स्वीकृति चाहिए, तो वह वाक्य को `onay` ब्लॉक में लिखता है। जवाब के नीचे **स्वीकृत करें** पर क्लिक करें: वही वाक्य आपके संदेश के रूप में जाता है, ताकि ऑटो रिव्यू उसे आपकी ओर से देखे। लाइव या सार्वजनिक लक्ष्य बताने वाले वाक्य पर बटन नहीं होता: उसे ख़ुद टाइप करें।
+
 **DeepSeek Harness का इंटरफ़ेस तुर्की, स्पेनिश, जापानी… में कैसे बदलें?** सेटिंग → Composer Plus → **ऐप्लिकेशन की भाषा**।
 
 **अपने iPhone से dsh कैसे इस्तेमाल करें?** `tether/ios` से Tether ऐप बनाएं (Xcode), **सेटिंग → Composer Plus → मोबाइल कनेक्ट (iPhone)** चालू करें, नीचे बाईं ओर **मोबाइल कनेक्ट** पर क्लिक करें, QR कोड स्कैन करें (iPhone के कैमरा से या Tether में **Scan code** से), **Connect** पर टैप करें और **Approve** पर क्लिक करें। घर से दूर होने पर दोनों डिवाइस पर Tailscale इस्तेमाल करें।
@@ -460,6 +462,8 @@ PLAYWRIGHT=/path/to/playwright node test/browser-recent-tree.mjs /path/to/dsh/li
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-status-order.mjs /path/to/dsh/lib/bin.js
 # Next waiting chat and Option buttons (fake model): the sidebar button and Cmd+Shift+E open the waiting chats in order, the Keyboard shortcuts row, the option buttons and the question card keys, switch off + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-agentbox-ideas.mjs /path/to/dsh/lib/bin.js
+# Approve button (fake model): the prompt rule in the request, one Approve button under an onay block, a double click sends the exact sentence once, no button for a live sentence or an older answer, switch off + its thumbnail
+SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-approve-button.mjs /path/to/dsh/lib/bin.js
 # Reject with note, Secret input, Quote in reply, Side chat and Diff notes (fake model + a test-only approval gate): the button on dsh's card, the note after the rejection in the next request, Esc; the secret card, Save, the value in no request, file or page, Decline, Stop; a selected part of an answer → Quote → the sent message; a side question while the chat waits on a card (read-only, no queued message in it), Bring back; notes on a diff line and range → Send to composer → the sent message; switch off + their thumbnails
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-t3code-ideas.mjs /path/to/dsh/lib/bin.js
 # Quote from file preview (fake model): lines of a code, text, Markdown and PDF file in the right sidebar → Quote → the path, the line numbers and the lines in the sent message; no button for the path header; switch off + its thumbnail
