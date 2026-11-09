@@ -9414,25 +9414,57 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   const patched = new Map(); // assistant agent → puts its own followup and steer back
   const held = new Map(); // assistant agent → quiet notices that came while its turn ran
   let lastEnd; // reason kind of the assistant chat's newest turn end
+  // A message that you type while a question card of the assistant is open answers the card (each question gets your text
+  // as its own answer) and closes it on every screen; the message also stays in the chat, so nothing is lost.
+  const cards = new Map(); // assistant agent → its open question cards, oldest first
   const patch = (agent) => {
     if (patched.has(agent) || !assistant.isAssistant(agent) || typeof agent.followup !== 'function' || typeof agent.steer !== 'function' || typeof agent.inject !== 'function') return;
-    const restore = ['followup', 'steer'].map((name) => {
-      const own = Object.hasOwn(agent, name); const original = agent[name]; const call = original.bind(agent);
-      agent[name] = (message) => {
-        if (interjects(agent) && quietNotice(message)) {
-          if (agent.status === 'running') held.set(agent, [...(held.get(agent) ?? []), message]);
-          else agent.inject(message);
-          return undefined;
-        }
-        return name === 'followup' && interjects(agent) && agent.status === 'running' && typedPrompt(message) ? agent.steer(message) : call(message);
-      };
-      return () => { if (own) agent[name] = original; else delete agent[name]; };
-    });
-    patched.set(agent, () => { for (const undo of restore) undo(); });
+    const original = { followup: agent.followup, steer: agent.steer };
+    const own = { followup: Object.hasOwn(agent, 'followup'), steer: Object.hasOwn(agent, 'steer') };
+    const deliver = (name, message) => {
+      if (interjects(agent) && quietNotice(message)) {
+        if (agent.status === 'running') held.set(agent, [...(held.get(agent) ?? []), message]);
+        else agent.inject(message);
+        return undefined;
+      }
+      if (interjects(agent) && agent.status === 'running' && typedPrompt(message)) {
+        const result = original.steer.call(agent, message); // first: if dsh refuses it, no card is answered
+        cards.get(agent)?.[0]?.answer(textBlocks(message.content).trim());
+        return result;
+      }
+      return original[name].call(agent, message);
+    };
+    agent.followup = (message) => deliver('followup', message);
+    agent.steer = (message) => deliver('steer', message);
+    patched.set(agent, () => { for (const name of ['followup', 'steer']) { if (own[name]) agent[name] = original[name]; else delete agent[name]; } });
   };
+  // Outermost answerer of dsh's question waterfall: the card shows as usual (next), and a typed message can answer it first.
+  // ponytail: the card closes through the request's own signal (dsh's gateway cancels a forwarded card when it aborts), so
+  // the signal is joined with this one before the card goes out. Approval and plan-review cards (with an intent) are not
+  // touched. Upgrade when dsh lets a plugin close a card it did not open.
+  ctx.on('user-questions/request', async (request, next) => {
+    const agent = request?.agent;
+    if (!interjects(agent) || !Array.isArray(request.questions) || request.questions.some((q) => q?.intent !== undefined)) return next();
+    const stop = new AbortController(); const typed = Promise.withResolvers();
+    const card = { answer: (text) => {
+      if (text === '' || stop.signal.aborted) return;
+      typed.resolve({ answers: request.questions.map((q) => ({ id: q.id, selected: [], custom: text })) });
+      stop.abort(new Error('Composer Plus → Assistant: answered with a chat message'));
+    } };
+    request.signal = request.signal instanceof AbortSignal ? AbortSignal.any([request.signal, stop.signal]) : stop.signal;
+    cards.set(agent, [...(cards.get(agent) ?? []), card]);
+    try {
+      const shown = Promise.resolve().then(next);
+      shown.catch(() => {}); // after a typed answer, the closed card rejects; that is expected
+      return await Promise.race([shown, typed.promise]);
+    } finally {
+      const left = (cards.get(agent) ?? []).filter((c) => c !== card);
+      if (left.length > 0) cards.set(agent, left); else cards.delete(agent);
+    }
+  }, true);
   const unpatch = (agent) => { patched.get(agent)?.(); patched.delete(agent); };
   ctx.on('agent/created', ({ agent } = {}) => { patch(agent); });
-  ctx.on('agent/disposed', ({ agent } = {}) => { patched.delete(agent); held.delete(agent); });
+  ctx.on('agent/disposed', ({ agent } = {}) => { patched.delete(agent); held.delete(agent); cards.delete(agent); });
   ctx.on('session/event', (session, event) => {
     if (event?.type === 'turn/end' && isText(session?.id) && session.id === assistant.id()) lastEnd = event.data?.reason?.kind;
   });

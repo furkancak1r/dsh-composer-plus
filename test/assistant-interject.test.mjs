@@ -5,6 +5,8 @@
 //    A message that comes while the turn ends (after dsh's last inbox check) still runs; after your Stop it waits, as in dsh.
 // 2. dsh's "finished" notice of a subagent that sent its result first (dsh 0.2.2 marks it) starts no turn and adds no step:
 //    it goes to the model with the next turn. Other notices, other chats and the switch off: dsh's behavior.
+// 3. A message typed while a question card of the assistant is open answers the card (custom text) and closes it; the
+//    message stays in the turn. Approval cards, other chats and the switch off: the card stays open.
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -225,6 +227,53 @@ a.followup(finished('s-c6', true));
 await until(() => a.gates.length === 1, 'notice turn while off'); await a.answer('done'); await idle(a);
 assert.equal(a.turns, 1);
 await setFree(true);
+
+// 3. An open question card of the assistant: a typed message answers it (custom text for each question) and closes the
+//    card through its signal; the message also goes into the turn. dsh's card answerer (api-remotes, the next listener)
+//    settles only when a screen answers or the signal aborts.
+on('user-questions/request', (request, next) => new Promise((resolve, reject) => {
+  shownCards.push({ request, resolve });
+  request.signal?.addEventListener('abort', () => reject(request.signal.reason), { once: true });
+}));
+const shownCards = [];
+const ask = (agent, questions) => { const signal = new AbortController().signal; return waterfall('user-questions/request', { agent, questions, signal, given: signal }, () => Promise.reject(Error('NO_PROVIDER'))); };
+const q = [{ id: 'city', question: 'Which city?', options: [{ label: 'Rome' }] }, { id: 'when', question: 'When?' }];
+// 3a. Typed while the card is open.
+a.requests = []; a.turns = 0;
+a.followup(typed('plan a trip'));
+await until(() => a.gates.length === 1, 'step');
+const asked = ask(a, q);
+await until(() => shownCards.length === 1, 'the card shows');
+a.followup(typed('Paris, next week'));
+assert.deepEqual(await asked, { answers: [{ id: 'city', selected: [], custom: 'Paris, next week' }, { id: 'when', selected: [], custom: 'Paris, next week' }] });
+assert.equal(shownCards[0].request.signal.aborted, true, 'the card closes');
+assert.deepEqual(texts(a.inbox.nextStep), ['Paris, next week'], 'the message stays for the turn');
+await a.answer('tool'); await a.answer('done'); await idle(a);
+assert.equal(a.turns, 1);
+// 3b. A card answered on the card itself: a later message is an ordinary interjection.
+const asked2 = ask(a, q);
+await until(() => shownCards.length === 2, 'card 2');
+shownCards[1].resolve({ answers: [{ id: 'city', selected: ['Rome'] }, { id: 'when', selected: [], custom: 'May' }] });
+assert.deepEqual((await asked2).answers[0].selected, ['Rome']);
+assert.equal(shownCards[1].request.signal.aborted, false);
+// 3c. An approval card (intent), another chat's card and the switch off: a message does not answer them.
+for (const [agent, questions, off] of [[a, [{ ...q[0], intent: { kind: 'approval', approve: 'Rome', reject: 'No' }, detail: 'x' }]], [other, q], [a, q, true]]) {
+  if (off) await setFree(false);
+  agent.requests = [];
+  agent.followup(typed('go'));
+  await until(() => agent.gates.length === 1, 'step');
+  const pending = ask(agent, questions); let settled = false; pending.then(() => { settled = true; }, () => { settled = true; });
+  await until(() => shownCards.length > 0 && shownCards.at(-1).request.agent === agent && !shownCards.at(-1).done, 'card');
+  const card = shownCards.at(-1); card.done = true;
+  agent.followup(typed('my words'));
+  await pause(5);
+  assert.equal(settled, false, 'the card stays open');
+  assert.equal(card.request.signal, card.request.given, 'the card is not touched');
+  card.resolve({ answers: [] }); await pending;
+  await agent.answer('done'); await agent.answer('done'); // two steps (interjected) or two turns (queued)
+  await idle(agent);
+  if (off) await setFree(true);
+}
 
 await rm(home, { recursive: true, force: true });
 console.log('assistant-interject ok');
