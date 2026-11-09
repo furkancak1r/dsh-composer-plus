@@ -142,7 +142,7 @@ try {
     assert.deepEqual(store.getSnapshot(), { on: true, branches: { s1: 'main' } }, 'an older read never replaces the switch\'s newer answer');
     assert.deepEqual(sent.map((x) => x[0]), [BRANCH_ROUTE, BRANCH_ROUTE]);
     answers = []; sent.length = 0;
-    const draw = () => { at = 0; effects = []; portals.length = 0; SessionBranchBadges({ branchSwitch: store, useSessionStatus: () => new Map(), t: (k, v) => `${k}:${v.branch}` }); };
+    const draw = () => { at = 0; effects = []; portals.length = 0; SessionBranchBadges({ branchSwitch: store, useSessionStatus: (f) => f(new Map()), t: (k, v) => `${k}:${v.branch}` }); };
     const off = store.refresh(); answers[0](ok({ on: false, branches: { s1: 'x' } })); await off;
     draw(); effects.map((f) => f()); draw();
     assert.equal(portals.length, 0, 'switched off on the Host: no pills');
@@ -152,7 +152,7 @@ try {
     {
       slots = []; at = 0; effects = []; portals.length = 0;
       sent.length = 0;
-      SessionBranchBadges({ branchSwitch: store, useSessionStatus: () => new Map(), t: (k, v) => `${k}:${v.branch}` });
+      SessionBranchBadges({ branchSwitch: store, useSessionStatus: (f) => f(new Map()), t: (k, v) => `${k}:${v.branch}` });
       const cleanups = effects.map((f) => f());
       assert.equal(sent.length, 0, 'mounting reads nothing (the switch store has the list)');
       draw();

@@ -2648,6 +2648,252 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
   - Arayüz doğrulanmadı: çalışan dsh canlı kopyayı yükler; etkinleştirme dsh'yi yeniden başlatmayı ister (bu görevde yasak). Gerçek dsh testi (0.2.0-rc.2, 0.2.1-rc.2) açık iş.
   - Çakışma: `fix/asistan-acilis-hizi` ile yalnız bu dosyanın sonu (iki yeni bölüm; ikisini de tut).
 
+## Asistan açılış hızı ve uzun sohbette takılma (2026-11-09, dal `fix/asistan-acilis-hizi`)
+
+### Amaç
+Assistant satırına tıklayınca asistan sohbeti normal bir sohbet kadar hızlı açılır. Uzun, çok alt ajanlı sohbette yazarken ve akış sürerken takılma azalır (üst ajanın kapsam genişletmesi, madde 1-5).
+
+### Ölçüm (temel değer)
+- Yalıtılmış headless dsh 0.2.2-rc.1, `~/.dsh/sessions` yerel kopyası (1309 sohbet), sahte model: `GET /api/composer-plus.assistant` tıklama başına 466, 350, 228, 313, 269 ms. İstemci `openSession`'ı bu yanıttan sonra çağırır; normal satır hemen çağırır.
+- Kod düzeyi (tarayıcısız, aynı kopya): `sessionPersistence.list()` 139-223 ms, `stat(id)` 5-7 ms. Rota her tıklamada `list()` çağırır (`index.js` `stored`), sonra `resolveAgent(id)` bekler (canlı değilse tüm ajan diskten açılır).
+- Kullanıcının GUI'si ölçülemedi: Chrome oturumu 401 verdi (masaüstü uygulaması), token alınmadı.
+
+### Değişmezler
+- Silinen sohbet yine yeniden yaratılır; arşivlenen sohbet yine arşivden çıkar; iki tıklama tek sohbet yapar.
+- Asistan kapalıyken rota 409 döner; istemci sohbet açmaz.
+- Rollback ile geri alınan satırlar, mesaj bağlantısı ve geri alma düğmeleri aynı davranır.
+
+### Kabul ölçütü
+- Bilinen asistan sohbeti: istemci `openSession`'ı Host yanıtını beklemeden çağırır (hedef: tıklamadan `openSession`'a < 50 ms; birim testinde fetch hiç dönmezken de açılır).
+- Rota: bilinen ve canlı/kayıtlı sohbet için `persistence.list()` çağrılmaz, `resolveAgent` beklenmez (birim testi).
+- Madde 1-5: her biri ayrı commit ve bir test ya da ölçülebilir kontrol.
+
+### Aşamalar
+1. A: açılış hızı (istemci + Host), test.
+2. B (1): tek paylaşılan body MutationObserver, `[data-chat-flow]` içi değişiklikleri yok sayar, toplu çalışır.
+3. C (2): sohbet satırı taramaları yalnız yeni satırları işler veya tur sürerken seyrekleşir.
+4. D (3): StatusOrder ve assistantApart `:has()` kuralları.
+5. E (4): dar seçiciler.
+6. F (5): asistan görünümünde son N tur, "Öncekileri göster".
+
+### İzinli yollar
+`client.js`, `index.js`, `test/*`, `package.json` (test betiği), dil dosyaları yalnız yeni metin gerekirse, bu bölüm.
+
+### Kontroller
+`npm test`; ilgili `test/*.test.mjs`; mümkünse `test/browser-assistant.mjs` (headless, sahte model).
+
+### Kararlar
+- Canlı veride ikinci headless ölçüm Auto review tarafından reddedildi; tekrar denenmedi. Sonrası "canlı ölçülmedi"; birim testi ve kod düzeyi ölçüm verilir.
+
+### Riskler
+- Bilinen kimlik silinmiş bir sohbete aitse istemci önce boş/eksik bir görünüm açabilir; Host yanıtı yeni kimlik verince yeni sohbete geçer.
+- `fix/asistan-durum-gostergesi` main'e girdi (afd332d); bu dal onun üstünde başlar. `AssistantApartIcon` ve `assistantApartCss` yakınında fark en küçük tutulur.
+
+### Son kontrol noktası
+- 2026-11-09 13:50: plan yazıldı, kod yok.
+- 2026-11-09 15:25: tüm aşamalar bitti, main 0dd0913 üstüne rebase edildi. `npm test` exit 0. Gerçek dsh (headless, sahte model) `test/browser-assistant.mjs` 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS; adım 13: tıklamadan sohbete 18-47 ms, son 8 tur görünür.
+  - İnceleme kapısı: 3 tur. Bulunan ve düzeltilen: sınır sohbet sütunu içindeki yeni turu görmüyordu; sohbet yeniden açılınca sınır geri gelmiyordu; düğme metni 1 tur için yanlış çoğuldu; StatusOrder'da yalnız test için kalan yedek. Son tur temiz.
+  - Canlı veri kopyası (/tmp/cp-asistan-bench) silindi. Canlı GUI ölçülmedi (Chrome oturumu 401).
+
+## Asistan onay kartı tam metin (2026-11-09, dal `fix/onay-karti-tam-metin`)
+
+### Amaç
+`chat_send` ve `chat_new` onay kartı mesajın tamamını gösterir; kullanıcı onaylamadan önce gönderilecek metni okuyabilir.
+
+### Neden (doğrulandı)
+Kırpma Composer Plus'ta: `index.js` `tools/pre-execute` işleyicisi metni `cutEnd(a.text.trim(), 300)` ile 300 karakterde kesiyordu. dsh çekirdeği kesmiyor: `dsh-client-ui-approval` kartı nedeni `ImxglW_headline` içinde düz metin olarak çizer, gövde (`ImxglW_body`) `max-height: var(--dsh-composer-text-max-height); overflow-y: auto` ile kayar.
+
+### Değişiklik
+Sınır `ASSISTANT_LIMITS.text` (8000; araçlar daha uzun metni zaten reddeder). Metin düz metin kalır (HTML yok); enjeksiyon koruması değişmez.
+
+### Kontroller
+- `test/assistant.test.mjs`: chat_send ve chat_new kartı tam metni (1400+ karakter, `<b>` dahil) taşır; main'de kırmızı.
+- `test/browser-assistant.mjs` adım 5: 703 karakterlik enjekte metnin son sözcükleri kartta, `<b>` öğe değil metin, kart gövdesi `overflow-y: auto`. 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS.
+- `npm test` exit 0.
+
+### Son kontrol noktası
+- 2026-11-09 15:20: kod, testler ve gerçek dsh denemesi bitti; inceleme kapısı sırada.
+## Asistan sohbetinde yapılacaklar listesi (2026-11-09, dal `feat/sohbet-ici-yapilacaklar`)
+İstek (sahip, Türkçe): kullanıcı aklındaki işleri asistana söyler ve bunları kendisi yapar. "Sen yap" derse asistan yapar. Liste asistan sohbetinin içinde, konuşmanın sağında görünür (dsh'nin sağ kenar paneli değil). Bir tıkla iş asistana devredilir, bir tıkla listeden silinir. Asistan maddeleri kendiliğinden denetler ve biten maddeyi kendisi siler. İş ayrı dalda yapılır, main'e birleştirme ve push yok.
+Kapsam eki (aynı dal, ayrı commit): sağdaki liste "Durum" paneline döner (Yapılacaklar + asistanın verdiği görevler + proje grupları + sabah özeti). Önce yapılacaklar listesi biter ve commit edilir.
+
+### Hedef
+- `assistantTodos` (Host anahtarı, varsayılan açık): asistan sohbetinin listesi `storages/dsh-composer-plus/assistant-todos.json` dosyasında, sohbet kimliğine göre (`{lists: {<sessionId>: [{id, text, owner: user|agent, created}]}}`). Yeniden yükleme ve dsh yeniden başlatmadan sonra kalır.
+- İki ajan aracı, yalnız asistan sohbetinin kendi kapsamında (öteki altı araçla aynı yol): `todo_add({text, owner})` (aynı metinli açık madde varsa yalnız sahibini değiştirir) ve `todo_remove({id, reason})`. Listeleme aracı yok: güncel liste her adımda runtime context ile gelir (YAGNI). İki araç `ASSISTANT_TOOLS` içindedir, böylece Assistant always free izin listesinde ve alt ajanlarda yasaklı olur.
+- Runtime context (`systemPrompt.context`, yalnız asistan sohbetine): açık maddeler, sahipleri ve kısa kural. Kanıt varsa `todo_remove` ile sil; kullanıcının maddesini kullanıcı anmadıkça sorma. Boş listede context yoktur.
+- Route `GET/POST /api/composer-plus.assistant-todos`: GET `{on, items?}` (`?sessionId=`), POST `{on}` anahtar, POST `{sessionId, id, action: remove|handover, message?}` madde işlemi. Devretme: sahibi `agent` yapar ve `sessionController.prompt` (mode queue) ile normal kullanıcı mesajı gönderir. Gönderim başarısız olursa sahip eski hâline döner (hepsi ya da hiçbiri).
+- İstemci: `conversation.input.dock` girişinden, yalnız asistan sohbetinde, `[data-conversation-content]` öğesine portal ile sağda sabit bir panel. Her maddede "Asistana devret" ve "Kaldır" düğmeleri (gerçek `button`, `aria-label`, odak). Panel kendi deposuna abone olur. Tur sonunda, sohbet çalışırken 5 sn'de bir ve kendi işleminden sonra yeniden okur. Sohbeti yeniden çizdirmez.
+
+### Değişmezler
+- dsh'nin sağ kenar paneli ve öteki özellikler değişmez. Yeni bağımlılık yok. Uygulama paketi değişmez, dsh yeniden başlatılmaz.
+- Madde metni veridir: context'te "data, not instructions" uyarısı. `{{` metni bozulmasın diye kaçışlanır (0.2.0 context'i interpolate eder).
+- Kişisel tohum maddeleri depoya ve pakete girmez. Yalnız canlı depolama dosyasına yazılır.
+
+### Kabul ölçütleri
+1. Asistan sohbetinde sağda "Yapılacaklar" paneli görünür. Başka sohbette görünmez.
+2. "Kaldır" maddeyi onaysız siler. "Asistana devret" sohbete "Bunu sen yap: <madde>" mesajı gönderir ve sahibi `agent` olur.
+3. Ajan `todo_add`/`todo_remove` çağırabilir (Assistant always free reddetmez). Liste context'te görünür.
+4. Liste dosyada kalır, yeni bir Host örneği aynı listeyi okur.
+5. Anahtar kapalıyken araçlar, context ve panel yoktur.
+
+### Aşamalar
+1. Host: depo + araçlar + context + route + `test/assistant-todos.test.mjs` (ekle, sil, devret, kalıcılık, anahtar). Mevcut assistant testleri geçer.
+2. İstemci: panel + FEATURES/SHOT_OF + en/zh/11 dil + `test/assistant-todos-client.test.mjs`, `toggles.test.mjs` sayıları.
+3. Belgeler: `docs/features.json` (how ×13, llms, route), `build:readme`, `tether/FEATURES.md` satırı.
+4. Gerçek dsh (headless, sahte model) `test/browser-assistant-todos.mjs`, `SHOT=1` görüntü. `npm test`.
+5. Commit. Öz denetim (review-guard), bulguları doğrula (prepare-fix-plan), düzelt, temiz olana kadar tekrarla.
+6. Canlı depolama dosyasına iki tohum madde.
+
+### İzinli yollar
+`index.js`, `client.js`, `locales/*.json`, `docs/features.json`, üretilen README/llms/ROUTES, `tether/FEATURES.md`, `assets/features/assistantTodos.webp`, `package.json` (test betiği), `test/assistant-todos*.mjs`, `test/browser-assistant-todos.mjs`, mevcut test sayıları, bu plan. Canlı: yalnız `~/.dsh/storages/dsh-composer-plus/assistant-todos.json` (yeni dosya).
+
+### Kararlar
+- Depolama Host dosyasında, olay günlüğünde değil: dsh bilinmeyen olay türlerini kalıcı katmanda reddedebilir.
+- Context, bölüm (section) değil: bölüm sabit kalır ve sağlayıcı önbelleği bozulmaz.
+- Devretme mesajını istemci dilinde istemci yazar, Host gönderir: tek istek, geri alma Host'ta.
+
+### Riskler
+- Panel konumu dsh'nin `data-conversation-content` işaretine bağlıdır. dsh bunu değiştirirse panel görünmez (ponytail notu).
+- Dar pencerede panel sohbet içeriğinin üstüne gelebilir. Panel daraltılabilir.
+
+### Son kontrol noktası
+- 2026-11-09 14:00: plan yazıldı, kod yok.
+- 2026-11-09 14:45: aşama 1-4 bitti, ilk commit.
+  - Sapma: araç adları `todo_list_add` / `todo_list_remove` (dsh'nin `todo_write` aracıyla karışmasın). Listeleme aracı yok, liste context'te.
+  - `test/assistant-todos.test.mjs` ve `test/assistant-todos-client.test.mjs` geçer; 13 mutasyonun hepsi kırmızı (bir boşluk bulundu ve testi eklendi: başka sohbetin context'i).
+  - Gerçek dsh (headless, sahte model) `test/browser-assistant-todos.mjs`: 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS (6 adım). `SHOT=1` görüntüsü 14 kB.
+  - Görüntüde panel ilk sürümde mesajların üstüne geliyordu. Düzeltme: 1000 px ve üstünde sohbet sağdan 292 px boşluk alır; test, mesaj balonunun panelin solunda bittiğini ölçer.
+  - `npm test` exit 0, `npm pack --dry-run` 119 dosya, `git diff --check` temiz.
+
+### Öz denetim 1. tur (review-guard, kapsam `main...887c4e5`)
+Doğrulandı 4, ek kanıt gerekli 1, reddedildi 0.
+- F-01 (P3, erişilebilirlik): `client.js` `TodosPanel`: `<h2>` bir `<button>` içinde (HTML içerik modeli: düğme yalnız phrasing content alır; başlık rolü kaybolur) ve sayaç `<span>` üzerinde `aria-label` (generic rol ad almaz). Düzeltme: başlık düğmeyi sarar (`h2 > button[aria-expanded]`), sayaç görünür metin olarak düğme adına katılır. Regresyon: istemci testi `h2 > button` yapısını ve sayaçta `aria-label` olmadığını denetler.
+- F-02 (P3, erişilebilirlik): klavyeyle Kaldır/Devret sonrası odak `body`ye düşer: `disabled` odaklı düğmeyi bulanıklaştırır, sonra düğme DOM'dan çıkar. Düzeltme: `disabled` yerine `aria-disabled` (koruma depoda zaten var), işlem bitince odak `body`deyse başlık düğmesine döner. Regresyon: gerçek dsh testinde Enter ile kaldırma sonrası `document.activeElement` panelin içinde.
+- F-03 (P3, mantık): `todo_list_add` `owner` verilmeden çağrılınca var olan "agent" maddesi "user" olur (araç `args?.owner ?? 'user'`). Tetik: devretme sonrası model aynı metni sahip vermeden ekler; düğme geri gelir, context "kullanıcı yapar" der. Düzeltme: `owner` yoksa var olan madde sahibini korur, yeni madde "user" olur. Regresyon: birim testi.
+- F-04 (P3, gereksiz karmaşıklık): `createTodos(request = …)` parametresini hiçbir çağıran kullanmıyor. Düzeltme: parametreyi sil, `fetch` doğrudan.
+- Ek kanıt gerekli: her tuş vuruşunda dock girişinin yeniden çizimi ve `:has()` boşluk kuralı. 2. bölümde panel değişince ölçülecek (React.memo ve `:has()` olmadan sınıf işareti).
+Kontroller: `node test/assistant-todos.test.mjs`, `node test/assistant-todos-client.test.mjs`, gerçek dsh `test/browser-assistant-todos.mjs` (0.2.2-rc.1), `npm test`.
+- 1. tur sonucu: F-01..F-04 düzeltildi. Her regresyon testi düzeltmesiz kırmızı, düzeltmeyle yeşil (F-02 gerçek dsh 0.2.2-rc.1'de). `npm test` exit 0.
+
+### Öz denetim 2. tur (kapsam `main...fcddec4`)
+Doğrulandı 3, reddedildi 0.
+- F-05 (P2, AGENTS.md kural 7): `client.js` `createTodos.load`: bir işlem (`act`) sürerken başlayan okuma, işlemden önceki listeyi alıp işlemin yanıtından sonra gelirse yeni listeyi ezer (Host GET kuyruğu beklemez). Kaldırılan madde bir sonraki okumaya kadar geri görünür. Düzeltme: işlem bitince de sayaç artar; işlem sürerken başlayan okuma düşer. Regresyon: istemci testi (işlem sürerken başlayan, sonra dönen okuma).
+- F-06 (P2, çift gönderim): masaüstü uygulama ve Web GUI aynı listeyi gösterir. Bir pencerede devredilen madde öteki pencerede bir sonraki okumaya kadar → düğmesiyle kalır; ikinci tık ikinci "Bunu sen yap" mesajını gönderir. Host sahibi zaten "agent" olan maddeyi yine devrediyor. Düzeltme: Host böyle bir devri 409 ile reddeder ve güncel listeyi verir, mesaj gönderilmez. Regresyon: Host testi.
+- F-07 (P3, belge, AGENTS.md kural 4): README "Limits" bölümünde panelin dsh işaretine bağlılığı ve 1000 px altı davranışı yok; Development bölümünde yeni gerçek dsh testi yok. Düzeltme: 13 README'de bir sınır satırı ve kod bloğuna test satırı.
+- 2. tur sonucu: F-05, F-06 düzeltildi (regresyon testleri düzeltmesiz kırmızı, düzeltmeyle yeşil); F-07 13 README'de sınır satırı ve test komutu. Gerçek dsh 0.2.2-rc.1 PASS, `npm test` exit 0.
+
+### Öz denetim 3. tur (kapsam `fcddec4..bfe1fc8`, tüm dal yeniden okundu)
+İncelenen kapsamda doğrulanmış bulgu yok. Reddedilen aday: her tuş vuruşunda dock girişinin yeniden çizimi. Kanıt: dsh `useInput((s) => s)` ile dock'u her taslak değişikliğinde çizer, panel 100 maddeyle sınırlı ve DOM değişmez; dsh'nin kendi todo ve goal dock'ları da aynı yoldadır. 2. bölümde panel büyüyeceği için panel dock'tan ayrılacak (aşağıda).
+
+
+## 2. bölüm: Durum paneli (2026-11-09, aynı dal, ayrı commit'ler)
+İstek (sahip, Türkçe, ana ajan aracılığıyla): asistan etkileşimli çıktı versin. Sabah proje özeti, proje adına tıklayınca son güncellemeler ve verdiği görevlerin durumu (verildi, bitti, sürüyor). UX bana bırakıldı. Performans kritik: uzun sohbet ve çok alt ajanla yazarken gecikme var.
+
+### Hedef
+Sağdaki liste "Durum" paneline döner (aynı anahtar `assistantTodos`, etiketi "Asistan durum paneli"):
+- Sabah özeti kartı (bugünün özeti varsa en üstte, kapatılabilir). Kaynak: yeni ajan aracı `status_summary_set({projects: [{project, text}]})`; sahibin 08:00 görevi ("Sabah proje özeti") bunu çağırır. Host `assistant-summary.json` içinde sohbet başına son özeti saklar.
+- Yapılacaklar (1. bölüm).
+- Görevler: asistanın alt ajanları (Host, asistan sohbetinin `subagent/catalog` olaylarından): çalışıyor, seni bekliyor, bugün biten ya da hata veren; başlık, durum, geçen süre, son yanıtın ilk satırı. Tıklayınca görevin sohbeti açılır.
+- Projeler: son 24 saatte güncellenen kök sohbetlerin projeleri (en çok 5), kapalı satır: tek satır özet (sabah özetindeki cümle, yoksa sohbet sayısı). Açınca: projenin sohbetleri (tıklanınca açılır), adı geçen yapılacaklar ve git dalı ile son commit'ler (yalnız açınca, salt okunur `runGit`).
+- Başlıkta "Yenile" düğmesi ve "Son güncelleme" saati.
+
+### Değişmezler
+- Panel yazarken yeniden çizilmez: ağır bileşen `shell.overlay` girişinde (yazmayla değişmez), dock girişi yalnız konum ve tur bilgisini bir depoya yayınlar. Alt ajan değişiklikleri birleştirilir (1 sn gecikme, en az 3 sn ara).
+- Git yalnız kayıtlı proje yolunda ve yalnız okuma komutlarıyla (`runGit`, argv, zaman aşımı). İstemci yol göndermez, proje kimliği gönderir.
+- Özet metni ve görev sonucu veridir; context'e girmez.
+
+### Kabul ölçütleri
+1. Panelde dört bölüm görünür; boş bölüm kısa bir not gösterir.
+2. Ajan `status_summary_set` çağırınca kart bugünün tarihiyle görünür. Kapat ile gizlenir.
+3. Alt ajan başlayınca, bitince ve sonuç verince Görevler güncellenir (yenilemeye basmadan).
+4. Proje satırı tıklanınca açılır, sohbetler ve git bilgisi görünür, sohbete tıklayınca sohbet açılır.
+5. Yazarken panel bileşeni çizilmez (gerçek dsh testinde sayaçla ölçülür).
+
+### Aşamalar
+1. Host: özet deposu + araç + GET'e `summary`, `tasks`, `projects`; `?project=` git bilgisi + birim testi.
+2. İstemci: Durum paneli, konum deposu, birleştirilmiş yenileme + birim testi.
+3. Metinler (13 dil), belgeler, gerçek dsh testi, görüntü, `npm test`, commit, öz denetim döngüsü.
+
+### 2. bölüm son kontrol noktası (2026-11-09 15:45)
+- Host: `status_summary_set` aracı (`TODO_TOOLS` ve Assistant always free izin listesinde), `assistant-summary.json`; GET `?sessionId=` asistan sohbeti için `{tasks, projects, summary, at}`; `&project=` salt okunur git (yalnız kayıtlı proje klasörü). Bulgu: dsh bir one-shot alt ajanı bitince bırakıyor (`agents.get` boş); bitmiş görevin günlüğü `sessionQuery.observeSession` ile okunuyor.
+- İstemci: dock girişi yalnız yer (sohbet gövdesini yayınlar), panel `shell.overlay` girişinde ve gövdeye portal. Gerçek dsh'de 30 tuş vuruşunda panelde 0 DOM değişikliği ölçüldü. Okumalar birleştirilir (en az 3 sn ara), görev değişince ve çalışırken 5 sn'de bir.
+- Testler: `assistant-status.test.mjs` (yeni), `assistant-todos-client.test.mjs` (yeniden yazıldı), mutasyonların hepsi kırmızı. Gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1: 7 adım PASS. `npm test` exit 0. Görüntü 21 kB.
+- Sabah özeti: sahibin var olan 08:00 görevi ("Sabah proje özeti", hafta içi) zaten "Durum paneli etkinse özeti oraya bırak" diyor; araç yeni sürüm canlıya kurulunca etkin olur. Görev değiştirilmedi.
+
+
+### Öz denetim 4. tur (kapsam `80f2c7e..9f0f941`)
+Doğrulandı 3, reddedildi 1.
+- F-08 (P2, performans): her durum okuması (görev çalışırken 5 sn'de bir, her pencerede) `sessionController.list` ile bütün sohbetleri (bu Mac'te 1330) ve bitmiş her alt ajanın kayıtlı günlüğünü (`observeSession`, en çok 40) yeniden okuyor. Uzun asistan sohbetinde Host'a gereksiz yük. Düzeltme: bitmiş görevin sonucu değişmez, Host önbelleğe alır (çocuk kimliğine göre); proje listesi 30 sn önbellekte, Yenile önbelleği atlar. Regresyon: Host testinde ikinci okuma `observeSession` ve `list` çağırmaz; `?refresh=1` çağırır.
+- F-09 (P3, doğruluk): `statusProjects` proje eşleşmesini `x.path === s.cwd` ile yapıyor; dal klasörü (`<repo>/.worktrees/<ad>`) sohbetleri projede sayılmaz. AGENTS.md'deki Task board kuralı dal klasörünü projesine sayar. Düzeltme: `cwd` proje yolunun altındaysa (`<path>/`) o projeye say, en uzun yol kazanır. Regresyon: `.worktrees` altındaki sohbet testi.
+- F-10 (P3, erişilebilirlik): proje satırı `▾/▸` karakterini düğme adına katıyor (ekran okuyucu "siyah sağı gösteren üçgen" der). Düzeltme: işaret `aria-hidden` span; durum zaten `aria-expanded` ile. Regresyon: istemci testi düğme metninde işaret olmadığını denetler.
+- Reddedildi: "panel 30 tuşta çizilmiyor ama `useSessionStatus` her durum değişikliğinde çizer" — bu istenen davranış (görev değişince güncelle), okumalar birleştirilir.
+- 4. tur sonucu: F-08, F-09, F-10 düzeltildi; regresyon testleri düzeltmesiz kırmızı, düzeltmeyle yeşil (5 mutasyon kırmızı). Gerçek dsh 0.2.2-rc.1 PASS, `npm test` exit 0.
+- F-11 (P2, 4. turun düzeltmesinden doğan gerileme): 30 sn'lik proje önbelleği, az önce değişen sohbeti panelden gizledi (gerçek dsh 0.2.2-rc.1 adım 7 düştü; 4. tur commit'i bu sonuç okunmadan atıldı). Düzeltme: kök sohbetin `turn/start` ya da `turn/end` olayı önbelleği siler, alt ajanınki silmez. Regresyon: Host testi (alt ajan turu silmez, kök sohbet turu siler; düzeltmesiz kırmızı). Gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS, `npm test` exit 0.
+
+### Öz denetim 5. tur (kapsam `80f2c7e..ae66191`)
+İncelenen kapsamda doğrulanmış bulgu yok. Reddedilen aday: dsh'nin durum deposunda izlenmeyen alt ajan için `running` bilgisi eksik olabilir. Kanıt: gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1'de görev Yenile'ye basmadan "çalışıyor"dan "bitti"ye geçti; ayrıca görev çalışırken 5 sn'lik yoklama var. Denenen ek kod geri alındı (kanıtsız değişiklik).
+- 2026-11-09 16:05: `main` (ce8e708) dala birleştirildi; çakışmalar iki tarafı da korur. main'in yeni `assistant.tasks` deposu (chat_new branch ile verilen görünür dal sohbetleri) Görevler'e eklendi (çalışırken). `npm test` exit 0, gerçek dsh üç sürüm PASS.
+
+### Öz denetim 6. tur (kapsam `1c4b6a2..22e1722`: temizlik, main birleşmesi, dal sohbeti görevleri)
+İncelenen kapsamda doğrulanmış bulgu yok. Reddedilen aday: dsh kapanırken biten dal sohbeti görevi "çalışıyor" görünür. Kanıt: main bu görevi bilerek tutar (`stoppedByDsh`: Resume after restart onu sürdürür), panel de aynı kaydı gösterir.
+Son durum: `npm test` exit 0; gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS (birleşmeden sonra); geçici test klasörleri silindi.
+
+## Asistan: araya alma (2026-11-09, dal `feature/asistan-araya-alma`)
+İstek (sahip, Türkçe): asistan sohbetinde kuyruk kalsın ama kullanıcının mesajı araya alınsın. Üç madde, öncelik sırasıyla: (1) tur çalışırken gelen mesaj bir sonraki adımda tura girer; (2) `send_message` ile sonucunu zaten gönderen alt ajanın "bitti" bildirimi ayrı tur başlatmaz; (3) soru kartı açıkken yazılan mesaj kartın cevabı olur.
+
+### Kanıt (DSH 0.2.2-rc.1, app.asar'dan; 0.2.0-rc.2 ve 0.2.1-rc.2 kopyaları)
+- Besteci "queue" gönderir; Host `agent.followup` çağırır (dsh-api-session-controller index.js:857-858) ve mesaj tur sonuna kadar `next-turn` kuyruğunda bekler. `agent.steer` mesajı `next-step` listesine koyar; çalışan tur onu bir sonraki adımda alır (dsh-agent-loop index.js:573, 670, 790-797). `send_message` da bunu kullanır (dsh-subagent manager.js:1180-1182).
+- Alt ajan bildirimi: ana ajan boştaysa `followup` (yeni tur), çalışıyorsa `steer` (manager.js:1081-1093). 0.2.2, mesaj gönderip biten alt ajanın bildirimine "It sent you a message just before finishing" yazar (continuation-messages.js:100-101); 0.2.0 ve 0.2.1 yazmaz.
+- Soru kartı `user-questions/request` waterfall'udur (dsh-user-questions index.js:709); kart `request.signal` iptal olunca istemcilerde kapanır (dsh-api-gateway index.js:1112-1135).
+- Yarış: dsh turu son kontrolünden sonra ve boşta duruma geçmeden önce gelen `steer`/`followup` mesajı uyandırmaz (agent-loop index.js:618-622, 651-663).
+
+### Hedef ve değişmezler
+- Yalnız asistan sohbeti ve yalnız "Assistant always free" açıkken. Öteki sohbetler dsh kuyruğunu kullanır. DSH çekirdeği değişmez.
+- Mesaj kaybolmaz: araya alınan mesaj dsh'nin kalıcı `next-step` listesine girer. Tur bitişiyle aynı anda gelen mesaj için ajan bir boş işaretle uyandırılır. Kullanıcı Durdur'a bastıysa uyandırılmaz (dsh davranışı).
+- Çalışan araç çağrısı kesilmez (iptal yok). Aynı adımda kullanıcı mesajı bildirimlerden önce gelir.
+- Mesaj göndermiş alt ajanın "bitti" bildirimi: boştaysa sessizce `next-step` bağlamına girer (tur yok); tur çalışıyorsa tur bitene kadar tutulur, sonra sessizce girer. Mesaj göndermeden biten alt ajan ve 0.2.2 öncesi dsh: dsh davranışı.
+- Soru kartı: onay ve plan incelemesi kartları (`intent`) değişmez. Mesaj kartın her sorusuna `custom` cevap olur; mesaj ayrıca sohbete girer (balon kalır, kayıt kalıcıdır).
+
+### Kabul ölçütleri
+1. Tur çalışırken gelen mesaj aynı turun sonraki adımında; ikinci tur yok; normal sohbette kuyruk değişmez; anahtar kapalıyken dsh davranışı.
+2. Tur bitişiyle aynı anda gelen mesaj bir turda modele gider. Durdurulmuş turdan sonra kendiliğinden tur başlamaz.
+3. İşaretli "bitti" bildirimi boşta tur başlatmaz, çalışırken adım eklemez; işaretsiz bildirim tur başlatır.
+4. Açık soru kartında yazılan mesaj cevap olur, kart sinyali iptal olur; onay kartı değişmez.
+5. `npm test` geçer.
+
+### Aşamalar
+1. Madde 1 + yarış testi (`test/assistant-interject.test.mjs`, dsh tur döngüsünün küçük modeli). Commit.
+2. Madde 2 + test. Commit.
+3. Madde 3 + test, belge (`docs/features.json` assistantFree `how` 13 dil, `llms`, README sınırı, `npm run build:readme`). Commit.
+4. review-guard denetimi, düzeltme, yeniden denetim.
+
+### İzinli yollar
+`index.js` (yalnız `installAssistantBot`), `test/assistant-interject.test.mjs`, `package.json` (test betiği), `docs/features.json`, `README.md`, üretilen README/llms bölümleri, `IMPLEMENTATION_PLAN.md`.
+
+### Kararlar
+- Ayrı anahtar yok: üç madde "Assistant always free" altında (ana ajan onayı).
+- Mesaj yönü Host'ta değişir (`followup` yerine `steer`); istemci değişmez, Tether de aynı Host yolunu kullanır.
+- Kart için ikinci istemci yok: aynı waterfall'a dıştan bağlanılır ve kartın sinyali iptal edilir.
+
+### Riskler
+- Ajan nesnesinin `followup`/`steer` yöntemleri asistan ajanında sarılır (dsh'nin herkese açık yöntemleri; kaldırınca geri konur).
+- Tutulan bildirim, tur sürerken dsh çökerse kaybolur; alt ajanın sonucu zaten mesajla gelmiştir.
+- Çevrilmiş README'lerin sınır paragrafı bu dalda güncellenmeyebilir.
+
+### Son kontrol noktası
+- 2026-11-09 15:10: plan yazıldı, kod yok. Dal `main` c285607 üstünde.
+- 2026-11-09 15:20: aşama 1 commit `5483397`, aşama 2 `618333e`, aşama 3 ve belge `0d857d8`. Her maddenin testi düzeltme geri alınınca kırmızı (mutasyon denetimi).
+- 2026-11-09 16:00: öz denetim (review-guard).
+  - F-01 (P2, doğrulandı): yardımcı tanımlar `ASSISTANT_FREE_SECTION` satırının hemen altındaydı; `feat/sohbet-ici-yapilacaklar` aynı satırı değiştiriyor, birleşmede çakışma çıkıyordu (`git merge-tree`). Düzeltme: tanımlar `installAssistantBot` üstüne taşındı; index.js çakışması kalktı.
+  - F-02 (P2, doğrulandı): yapılandırılmış sonuç ya da teşhis taşıyan "bitti" bildirimi de bellekte tutuluyordu; veri taşıyan bildirim çökmede kaybolabilirdi. Düzeltme: yalnız iki sabit satırlık bildirim sessizdir; öteki dsh turunu korur. Regresyon testi var.
+  - F-03 (P2, doğrulandı): 12 çeviri README'sinde sınır cümlesi yoktu (AGENTS.md kural 4). Düzeltme: her dilde etiketle eklendi.
+  - F-04 (P2, doğrulandı): asistan kimliği dosyadan okunmadan önce açık olan asistan ajanı sarılmıyordu (ilk tura kadar araya alma yok). Düzeltme: `assistant.ready` sonrası açık ajanlar sarılır. Regresyon testi var.
+  - F-05 (P2, doğrulandı): eklenti kapanırken tutulan bildirimler bellekte kalıp kayboluyordu. Düzeltme: kapanışta dsh'nin kalıcı gelen kutusuna (`inject`) girer. Regresyon testi var.
+  - F-06 (P3, doğrulandı): uyandırma yorumu yalnız Durdur'u anıyordu; hata ile biten turda da mesaj (dsh gibi) bekler. Yorum düzeltildi.
+  - 3. turda yeni doğrulanmış bulgu yok. `npm test` exit 0, `git diff --check` temiz.
+  - Açık iş: gerçek dsh tarayıcı testi (0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1) yapılmadı. Kart kapanışı kaynak kodundan doğrulandı (dsh-api-gateway index.js:1112-1135), canlı arayüzde doğrulanmadı. Ayarlar'daki `feature.assistantFree.description` metni değişmedi (hâlâ doğru, araya almayı anmıyor).
+  - Çakışma: `feat/sohbet-ici-yapilacaklar` ile `IMPLEMENTATION_PLAN.md`, 13 README, `llms.txt`, `package.json` (test betiği) çakışır; ikisini de tut, sonra `npm run build:readme`.
+
 ## Onayla düğmesi (`approveButton`, 2026-11-09, dal `feature/onay-dugmesi`)
 İstek (sahip, Türkçe): "ok "Onayla" düğmesi kurulsun". Sahip her gün yaklaşık 10 onay cümlesini elle yazıyor ya da yapıştırıyor. Auto review (aiproxy-review) ajan mesajlarını görmez; yalnız kullanıcı mesajlarını ve araç çağrılarını görür. Bu yüzden onay cümlesi kullanıcı mesajı olarak gelmeli.
 

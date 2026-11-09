@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   MEMORY_PATH, MEMORY_TOOLS, installMemory, memoryStore, memorySection, memoryReviewRequest, memoryLines, parseMemoryReview, parseMemory, looksSecret,
-  entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE,
+  entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE, MEMORY_OVERFLOW_TOPIC, squash,
 } from '../index.js';
 
 let seq = 0;
@@ -139,7 +139,27 @@ try {
   assert.match(sectionOf({ id: 'chat-2', session: { header: { cwd: project } } }), /A fact saved later/, 'a new chat reads the new entry');
   assert.match(await tool('memory_recall').execute({ query: 'later' }, exec), /A fact saved later/, 'recall finds it at once');
   assert.match(await tool('memory_recall').execute({}, exec), /project memory: 2 entries/);
-  assert.equal(sectionOf({ id: 's', session: { header: { cwd: project, origin: 'subagent' } } }), '', 'no section in a subagent chat');
+  // Turkish İ/I/ı/i fold for search and the same-entry check; the stored text keeps its letters.
+  assert.equal(squash('İstanbul IŞIK'), squash('istanbul ışık')); assert.notEqual(squash('İstanbul'), 'i̇stanbul');
+  await tool('memory_remember').execute({ text: 'Ofis İstanbul\'da, IŞIK sokakta' }, exec);
+  assert.match(await tool('memory_recall').execute({ query: 'istanbul' }, exec), /Ofis İstanbul'da, IŞIK sokakta/, 'istanbul finds İstanbul');
+  assert.match(await tool('memory_recall').execute({ query: 'ışık' }, exec), /IŞIK sokakta/, 'ışık finds IŞIK');
+  assert.match(await tool('memory_remember').execute({ text: 'ofis istanbul\'da, ışık sokakta' }, exec), /Already in/, 'the folded text is the same entry');
+  assert.match(await tool('memory_forget').execute({ entry: 'istanbul\'da' }, exec), /^Removed .*Ofis İstanbul'da, IŞIK sokakta/, 'forget finds it; the stored text kept its letters');
+  // A subagent (subagent, subagent_fork, workflow agent) reads its folder's notes as context; it is told that no review reads it.
+  { const sub = sectionOf({ id: 's', session: { header: { cwd: project, origin: 'subagent', parentSession: 'chat-1' } } });
+    assert.match(sub, /A fact saved later/, 'a subagent gets the notes of its folder');
+    assert.match(sub, /You are a subagent: no memory review reads this chat/); assert.doesNotMatch(sub, /After each of your turns/);
+    assert.match(sub, /Never put a personal fact from them into a web search/, 'the notes can hold personal facts (the Assistant\'s profile)');
+    assert.doesNotMatch(frozen, /You are a subagent/, 'a root chat keeps the review line');
+    // A disposed subagent frees its frozen section; a root chat keeps its own.
+    const subAgent = { id: 's', session: { header: { cwd: project, origin: 'subagent', parentSession: 'chat-1' } } };
+    await tool('memory_remember').execute({ text: 'Saved while the subagent ran' }, exec);
+    assert.doesNotMatch(sectionOf(subAgent), /Saved while the subagent ran/, 'frozen while it lives');
+    on['agent/disposed'].forEach((f) => f({ agent: subAgent })); on['agent/disposed'].forEach((f) => f({ agent }));
+    assert.match(sectionOf(subAgent), /Saved while the subagent ran/, 'a new subagent with that id reads the new note');
+    assert.equal(sectionOf(agent), frozen, 'a root chat stays frozen');
+    await tool('memory_forget').execute({ entry: 'Saved while the subagent ran' }, exec); }
   assert.match(await tool('memory_forget').execute({ entry: 'saved later' }, exec), /^Removed/);
   assert.match(await tool('memory_recall').execute({}, { agent: { id: 'x', session: { header: {} } } }), /global memory/, 'no folder: global only');
 
@@ -165,6 +185,47 @@ try {
   await assert.rejects(mem.review('chat-1'), /not a list/);
   answer = '{"changes":[]}'; await mem.review('chat-1');
   assert.match(llmCalls.at(-1).messages[0].content[0].text, /Use pnpm here/, 'the failed lines are read again');
+
+  // A question-card answer is the user's words: it reaches the review (the Assistant asks on cards); a skipped card does not.
+  { const calls0 = llmCalls.length;
+    const ask = (callId, questions) => ev('tool/call', { name: 'ask_user_question', callId, arguments: JSON.stringify({ questions }) });
+    const answerOf = (callId, answers, isError = false) => ev('tool/result', { message: { role: 'tool', source: { kind: 'tool', callId }, content: [{ type: 'text', text: JSON.stringify({ answers }) }], isError } });
+    sessionEvents = [...sessionEvents, ask('q1', [{ id: 'scope', question: 'Remove it from the server too?' }]), answerOf('q1', [{ id: 'scope', selected: ['Yes, from the server'], custom: 'and the phone' }])];
+    await mem.review('chat-1');
+    assert.equal(llmCalls.length, calls0 + 1, 'a card answer alone starts a review');
+    assert.match(llmCalls.at(-1).messages[0].content[0].text, /User: \(answer on a question card\) "Remove it from the server too\?" → Yes, from the server; and the phone/);
+    sessionEvents = [...sessionEvents, ask('q2', [{ id: 'x', question: 'Skip me?' }]), answerOf('q2', [{ id: 'x', selected: [] }])];
+    await mem.review('chat-1');
+    assert.equal(llmCalls.length, calls0 + 1, 'a skipped card is no user line: no call');
+    assert.equal(memoryLines(sessionEvents, inheritedEventCount).some((l) => /question card/.test(l.text)), false, 'only the review reads card answers'); }
+
+  // A full MEMORY.md: the review's new note goes to the topic "more", not lost (the agent's tool still gets the reason).
+  { const pDir = mem.store.project(project).dir;
+    const before = await readFile(join(pDir, 'MEMORY.md'), 'utf8');
+    await writeFile(join(pDir, 'MEMORY.md'), before.replace('## Index', `- ${'Filler fact. '.repeat(610)}\n\n## Index`));
+    sessionEvents = [...sessionEvents, user('I always deploy on Fridays')];
+    answer = '{"changes":[{"op":"add","text":"The user deploys on Fridays"}]}';
+    await mem.review('chat-1');
+    assert.match(await readFile(join(pDir, `${MEMORY_OVERFLOW_TOPIC}.md`), 'utf8'), /The user deploys on Fridays/, 'the note is in the topic');
+    assert.match(await readFile(join(pDir, 'MEMORY.md'), 'utf8'), new RegExp(`\\[\\[${MEMORY_OVERFLOW_TOPIC}\\]\\]`), 'MEMORY.md links the topic');
+    await assert.rejects(tool('memory_remember').execute({ text: 'Another main fact' }, exec), /would have \d+ of its 8000/, 'the agent still gets the reason');
+    assert.match(await tool('memory_remember').execute({ text: 'A detail for a new topic', topic: 'details' }, exec), /the new topic \[\[details\]\]/, 'a full MEMORY.md still takes a new topic, as its error text says');
+    await writeFile(join(pDir, 'MEMORY.md'), before); }
+
+  // A failed review and a left-out change leave a journal row (dsh's warning is in memory only).
+  { const journalRows = async () => (await readFile(join(hostHome, 'storages', 'dsh-composer-plus', 'memory', 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+    sessionEvents = [...sessionEvents, user('Use bun for scripts')]; answer = 'not json';
+    const status = (s) => on['agent/status'].forEach((f) => f({ agent: { id: 'chat-1', session: { header: { cwd: project } } }, status: s }));
+    status('running'); status('idle');
+    const errorRows = async () => (await journalRows()).filter((r) => r.actor === 'review-error' && r.op === 'error');
+    for (const end = Date.now() + 10000; (await errorRows()).length === 0 && Date.now() < end;) await new Promise((r) => setTimeout(r, 50)); // the 2 s review timer
+    const failed = await errorRows();
+    assert.equal(failed.length, 1, 'one error row'); assert.equal(failed[0].session, 'chat-1'); assert.match(failed[0].reason, /not a list of changes/);
+    answer = '{"changes":[{"op":"add","text":"The user runs scripts with bun","topic":"t-41"}]}';
+    for (let i = 0; i < 40; i++) await mem.store.add({ scope: mem.store.project(project), topic: `t-${i}`, text: `Topic fact ${i}`, actor: 'agent' }).catch(() => {});
+    await mem.review('chat-1');
+    const skipped = (await journalRows()).filter((r) => r.actor === 'review-error' && r.op === 'skip');
+    assert.equal(skipped.length, 1, 'a refused change leaves a skip row'); assert.match(skipped[0].reason, /already has 40 topics/); assert.equal(skipped[0].change.text, 'The user runs scripts with bun'); }
 
   // The status edge queues a review only for a root chat that ran (timer stops on switch-off).
   assert.equal(typeof on['agent/status']?.[0], 'function');

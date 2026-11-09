@@ -1,6 +1,8 @@
 // Real-app check of six features on each dsh given (fake model, throwaway DSH_HOME, made-up git projects; headless):
 // 1. Mark all as read: two projects with a finished, unread chat each; the "…" menu of one project → Mark all as read:
 //    only that project's dot goes; the item is disabled after.
+// 7. Tether read sync: with Mobile connect on, a chat that a phone reads (POST to the Host's unread list) loses dsh's own
+//    dot too, so dsh and Tether count the same.
 // 2. Copy message link: the 🔗 button on a message copies `dsh-session:…#<seq>`; on dsh 0.2.1+ the link sent in another
 //    chat is a chip that opens the first chat with that message in view and blinking.
 // 3. Edit queued message in place: three queued messages; a double-click on the second opens dsh's editor; typed text +
@@ -66,7 +68,7 @@ const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSY
 const git = (cwd, ...args) => execFileSync('git', ['-c', 'maintenance.auto=false', ...args], { cwd, env: gitEnv, encoding: 'utf8' });
 const webp = (png, name) => execFileSync('cwebp', ['-q', '80', png, '-o', join(repo, 'assets/features', `${name}.webp`)], { stdio: 'ignore' });
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', chromiumSandbox: true });
 const results = [];
 try {
   for (const bin of process.argv.slice(2)) {
@@ -108,7 +110,8 @@ try {
     await writeFile(join(home, 'storages/workspace.json'), JSON.stringify({ unit: { name: 'workspace', version: 2 },
       global: { initialized: true, workspaceIds: [ids.web, ids.cli], archivedSessionIds: [], pinnedSessionIds: [], defaultWorkspaceId: ids.web },
       tables: { workspaces: { [ids.web]: { path: projects.web, title: 'acme-web', sessionIds: [], createdAt: now, updatedAt: now }, [ids.cli]: { path: projects.cli, title: 'weather-cli', sessionIds: [], createdAt: now, updatedAt: now } } } }));
-    const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3201', '--no-open'], { cwd: projects.web, env: { ...process.env, DSH_HOME: home, DEMO_KEY: 'demo', COMPOSER_PLUS_TRASH: 'folder', npm_config_cache: join(tmpdir(), 'npm-cache') }, stdio: ['ignore', 'pipe', 'pipe'] });
+    // Mobile connect (step 7) never opens a port here: no interface named cp-test-none, a pairing page on any free port.
+    const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3201', '--no-open'], { cwd: projects.web, env: { ...process.env, DSH_HOME: home, DEMO_KEY: 'demo', COMPOSER_PLUS_TRASH: 'folder', npm_config_cache: join(tmpdir(), 'npm-cache'), DSH_MOBILE_IFACE: 'cp-test-none', DSH_MOBILE_ADMIN_PORT: '0', DSH_MOBILE_DIR: join(home, 'mobile') }, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = ''; child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
     const errors = []; const steps = []; let context;
     const step = (name) => { steps.push(name); console.log(`  ${name}`); };
@@ -123,6 +126,9 @@ try {
       await page.goto(url);
       for (const name of [/^Continue$/, /^Configure later$/]) { const b = page.getByRole('button', { name }); if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) { await b.click(); await b.waitFor({ state: 'hidden' }); } }
       const input = page.locator('[data-composer-input]'); await input.waitFor({ timeout: 20000 });
+      // Mobile connect on for step 7 (dsh keeps its dots only in the page's memory, so step 7 cannot reload the page).
+      assert.equal(await page.evaluate(async () => (await fetch('/api/composer-plus.mobile', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"on":true}' })).status), 200);
+      await page.reload(); await input.waitFor({ timeout: 20000 });
       const send = async (text, answer) => {
         await input.click(); await page.keyboard.type(text); await page.keyboard.press('Enter');
         if (answer) await page.getByText(answer).first().waitFor({ timeout: 30000 });
@@ -156,6 +162,10 @@ try {
       await page.reload(); await input.waitFor({ timeout: 20000 });
       await page.getByText('Wrote the config.').first().waitFor({ timeout: 20000 });
       if (!(await panel.isVisible().catch(() => false))) { await page.getByRole('button', { name: 'Open right sidebar' }).click().catch(() => {}); await page.getByText('Changes', { exact: true }).first().click().catch(() => {}); }
+      // The Changes tab opens again in its first mode (Tree), which has no file list: pick This chat again.
+      if (!(await panel.locator('[data-composer-plus-ws]').waitFor({ timeout: 3000 }).then(() => true, () => false))) {
+        await panel.locator('button[aria-haspopup="menu"]').first().click(); await page.getByRole('menuitem', { name: 'This chat' }).click();
+      }
       await panel.locator('[data-composer-plus-ws]').waitFor({ timeout: 8000 });
       assert.equal(await panel.locator('[data-composer-plus-ws]').getAttribute('aria-pressed'), 'true', 'the switch is kept after a reload');
       await panel.locator('[data-composer-plus-ws]').click(); // off again for the other steps
@@ -276,6 +286,24 @@ try {
       assert.equal(await item.getAttribute('data-composer-plus-mark-read-item'), '1', 'acme-web keeps its own unread chat');
       await page.keyboard.press('Escape');
       step('Mark all as read');
+
+      // 7. Tether read sync (Mobile connect on): the acme-web chat that a phone reads loses dsh's own dot within 6 s, and
+      // a chat that dsh shows as read is not in the Host's list. The phone is the Host route itself (what the gateway
+      // forwards); the gateway does not start (DSH_MOBILE_IFACE names no interface), the list does.
+      const unreadRoute = (init) => page.evaluate(async (init) => (await fetch('/api/composer-plus.unread', init ?? undefined)).json(), init);
+      const dotsIn = async (row) => { await row.hover(); await row.getByRole('button', { name: /Workspace actions|actions/i }).first().click(); await item.waitFor({ timeout: 5000 }); const n = Number(await item.getAttribute('data-composer-plus-mark-read-item')); await page.keyboard.press('Escape'); return n; };
+      // The Host's list becomes dsh's dots: the chats read here (opened, Mark all as read) leave it within two checks.
+      let host;
+      for (let i = 0; i < 60 && (host = await unreadRoute())?.unread?.length !== 1; i++) await pause(250);
+      assert.equal(host.on, true);
+      assert.equal(host.unread.length, 1, `dsh and Tether count the same (1): ${JSON.stringify(host.unread)}`);
+      assert.equal(await dotsIn(web), 1, 'acme-web has its dot');
+      await unreadRoute({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionIds: host.unread }) });
+      let left = 1;
+      for (let i = 0; i < 24 && left > 0; i++) { await pause(250); left = await dotsIn(web); }
+      assert.equal(left, 0, 'read on the phone: dsh\'s dot goes too');
+      assert.deepEqual((await unreadRoute()).unread, [], 'dsh and Tether count the same (0)');
+      step('Tether read sync');
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       void chatA;

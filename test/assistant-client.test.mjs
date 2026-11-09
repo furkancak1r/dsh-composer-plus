@@ -9,13 +9,14 @@ globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), se
 globalThis.document = { visibilityState: 'visible', querySelector: () => null, addEventListener() {}, removeEventListener() {} };
 const tick = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
 
-let switchOn = false; const asks = []; let answer = () => Response.json({ sessionId: 's-assistant' }); let gate = null;
+let switchOn = false; let known = null; const asks = []; let answer = () => Response.json({ sessionId: 's-assistant' }); let gate = null;
 globalThis.fetch = async (url, init) => {
   if (String(url) === '/api/composer-plus.assistant-switch') {
     if (init?.method === 'POST') switchOn = JSON.parse(init.body).on;
     return Response.json({ on: switchOn });
   }
   if (String(url) === '/api/composer-plus.assistant') { asks.push(url); if (gate) await gate.promise; return answer(); }
+  if (String(url) === '/api/composer-plus.assistant-status') return Response.json({ sessionId: switchOn ? known : null });
   return new Response('{}', { status: 404 });
 };
 
@@ -60,8 +61,24 @@ React.useEffect = () => {}; // later renders: the panel is already open (its eff
 props.assistant.open(props.openSession); props.assistant.open(props.openSession);
 assert.equal(asks.length, 1, 'one open at a time');
 assert.equal(props.assistant.getSnapshot().status, 'opening');
+assert.deepEqual(opened, [], 'no chat is known yet: it waits for the Host');
 gate.open(); gate = null; await tick();
 assert.deepEqual(opened, ['s-assistant'], 'the chat opens'); assert.equal(props.assistant.getSnapshot().status, 'idle');
+
+// Open speed: a known chat opens at once, as a sidebar row does; the Host's answer (it can take 0.5 s: it checks the chat's
+// log and resumes its agent) does not hold it. The answer opens nothing more when it names the same chat.
+gate = (() => { let open; const promise = new Promise((r) => { open = r; }); return { promise, open }; })();
+props.assistant.open(props.openSession);
+assert.deepEqual(opened, ['s-assistant', 's-assistant'], 'the known chat opens before the Host answers');
+gate.open(); gate = null; await tick();
+assert.deepEqual(opened, ['s-assistant', 's-assistant'], 'the same answer opens nothing more');
+// The known chat was deleted: the Host makes a new one, and its answer opens it.
+answer = () => Response.json({ sessionId: 's-assistant-new' });
+await props.assistant.open(props.openSession);
+assert.deepEqual(opened.slice(-2), ['s-assistant', 's-assistant-new'], 'a new chat from the Host opens after the known one');
+answer = () => Response.json({ sessionId: 's-assistant' });
+await props.assistant.open(props.openSession);
+opened.length = 0;
 
 // A failure shows the Host's reason and Try again; Try again asks again.
 answer = () => Response.json({ error: 'This dsh has no projects' }, { status: 409 });
@@ -72,12 +89,25 @@ assert.match(text(view), /assistant\.failed\(This dsh has no projects\)/);
 const retry = view.c.find((c) => c?.t === 'Button');
 assert.ok(retry, 'Try again'); answer = () => Response.json({ sessionId: 's-assistant' });
 retry.p.onClick(); await tick();
-assert.deepEqual(opened, ['s-assistant', 's-assistant']);
+assert.deepEqual(opened, ['s-assistant', 's-assistant'], 'the known chat opens at each click; the failed answer opens nothing');
 // An older Host half: restart text, no Try again.
 answer = () => new Response('not found', { status: 404 });
 await props.assistant.open(props.openSession);
 view = Page({ ...props, t });
 assert.match(text(view), /assistant\.restart/); assert.equal(view.c.find((c) => c?.t === 'Button'), undefined, 'no Try again');
+
+// After a reload the store knows no chat yet: the Host's assistant-status (Assistant apart from chats) gives it.
+known = 's-status';
+await settings.inject().setFeature('assistant', false); await tick();
+await settings.inject().setFeature('assistant', true); await tick();
+const [page2] = pages().find(([o]) => o.key === 'composer-plus-assistant');
+const props2 = page2.inject(); opened.length = 0;
+gate = (() => { let open; const promise = new Promise((r) => { open = r; }); return { promise, open }; })();
+props2.assistant.open(props2.openSession);
+assert.deepEqual(opened, ['s-status'], 'the chat from assistant-status opens before the Host answers');
+answer = () => Response.json({ sessionId: 's-status' });
+gate.open(); gate = null; await tick();
+assert.deepEqual(opened, ['s-status']);
 
 // Off: the row and the panel go.
 await settings.inject().setFeature('assistant', false); await tick();
