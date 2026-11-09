@@ -57,7 +57,7 @@ try {
   const dir = join(home, 'storages', 'dsh-composer-plus');
 
   const workspaces = [{ id: 'w-web', title: 'acme-web', path: P, sessionIds: [] }, { id: 'w-notes', title: 'notes', path: N, sessionIds: [] }];
-  const agents = new Map(); const listeners = new Map(); const routes = new Map(); const steers = [];
+  const agents = new Map(); const listeners = new Map(); const routes = new Map(); const steers = []; const archivedIds = new Set();
   const made = { sessions: [], renames: [], prompts: [], models: [] };
   let created = 0; let promptFails = false;
   const newAgent = (id, header = {}, events = []) => {
@@ -74,7 +74,7 @@ try {
     logger: { warn: () => {} },
     subprocess,
     get: (name) => ({ agents: { get: (id) => agents.get(id), list: () => [...agents.values()] },
-      workspaceRegistry: { list: () => workspaces, archivedSessionIds: [],
+      workspaceRegistry: { list: () => workspaces, get archivedSessionIds() { return [...archivedIds]; },
         create: async (path, title) => { let w = workspaces.find((x) => x.path === path); if (!w) { w = { id: `w-${workspaces.length}`, title, path, sessionIds: [] }; workspaces.push(w); } return w; },
         archiveSession: async () => {} },
       permissionPresets: { names: [], set: () => {} },
@@ -225,6 +225,37 @@ try {
   await pause(60);
   assert.equal(steers.length, 3, 'news off: an ordinary chat gives nothing');
   assert.deepEqual(bot.pending(), []);
+
+  // A task result that the assistant chat does not get (its steer throws) stays and goes once, after the gap.
+  const told = async (i) => (await listeners.get('agent/pre-step')[0]({ agent: me }, async () => ({ kind: 'enter', messages: [me.queued, steers[i][1]] }))).messages[0].content[0].text;
+  const steer = me.steer; let throws = 1;
+  me.steer = (m) => { if (throws > 0) { throws -= 1; throw new Error('steer failed'); } steer(m); };
+  const lost = newAgent('t-lost', { cwd: P }); await assistant.tasks.add('t-lost', { project: 'acme-web', branch: 'feat/e' });
+  lost.events = [{ seq: 0, type: 'turn/start' }, am(1, 'Rapor hazır.')];
+  emit('session/event', lost.session, { type: 'turn/end', data: { reason: { kind: 'completed' } } });
+  await until(() => throws === 0, 'the failed delivery');
+  assert.equal(steers.length, 3);
+  assert.deepEqual(bot.pending().map(({ id, kind, task }) => ({ id, kind, task })), [{ id: 't-lost', kind: 'finished', task: true }], 'the task result stays');
+  clock += timing.gap; await bot.flush();
+  assert.equal(steers.length, 4, 'one retry'); assert.equal(steers[3][0], assistantId);
+  assert.match(await told(3), /chat t-lost, your delegated task on branch "feat\/e"\): finished\. Last reply: "Rapor hazır\."/);
+  await bot.flush(); assert.equal(steers.length, 4, 'told once'); assert.deepEqual(bot.pending(), []);
+  // The assistant chat is archived: the task result stays (other news goes) and goes when the chat is back.
+  archivedIds.add(assistantId); await off(true); timing.batch = 60000; // flushed by hand
+  const late = newAgent('t-late', { cwd: P }); await assistant.tasks.add('t-late', { project: 'acme-web', branch: 'feat/f' });
+  late.events = [{ seq: 0, type: 'turn/start' }, am(1, 'Bitti.')];
+  emit('session/event', other.session, { type: 'turn/start', time: clock });
+  emit('session/event', other.session, { type: 'turn/end', time: clock + 100000, data: { reason: { kind: 'completed' } } });
+  emit('session/event', late.session, { type: 'turn/end', data: { reason: { kind: 'completed' } } });
+  await until(() => bot.pending().length === 2, 'two items');
+  await bot.flush(); timing.batch = 20;
+  assert.deepEqual(bot.pending().map(({ id, task }) => ({ id, task })), [{ id: 't-late', task: true }], 'only the task result stays');
+  assert.equal(steers.length, 4);
+  archivedIds.delete(assistantId); await off(false);
+  clock += timing.gap; await bot.flush();
+  assert.equal(steers.length, 5, 'told after the chat is back');
+  assert.match(await told(4), /chat t-late, your delegated task on branch "feat\/f"\): finished\. Last reply: "Bitti\."/);
+  me.steer = steer;
 
   // The plain news note (no task) still says not to call a tool.
   assert.match(assistantNewsNote([{ id: 'a', title: 'A', project: 'p', at: 1, kind: 'finished', reply: '' }]), /Do not call a tool/);

@@ -9367,7 +9367,10 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
     if (!notifyOn) for (const [key, n] of pending) if (!n.task) pending.delete(key);
     if (closed || pending.size === 0) return;
     const id = assistant.id();
-    if (!assistant.isOn() || !isText(id) || archived(id)) { pending.clear(); return; }
+    if (!assistant.isOn() || !isText(id)) { pending.clear(); return; }
+    // ponytail: a delegated task's result waits while the assistant chat is archived or does not take the note, and is tried
+    // again after each gap. A dsh quit before it is told still loses it (its task left assistant-tasks.json at the turn end).
+    if (archived(id)) { for (const [key, n] of pending) if (!n.task) pending.delete(key); if (pending.size > 0) schedule(timing.gap); return; }
     // The result of a delegated task does not wait for the gap (the user started that task); its waits do.
     if (![...pending.values()].some((n) => n.task && n.kind !== 'waiting') && now() - lastWake < timing.gap) { schedule(lastWake + timing.gap - now()); return; }
     let agent = live(id);
@@ -9383,7 +9386,11 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
       lastWake = now();
       notes.set(agent.id, assistantNewsNote(items, timing.max));
       wakeWithContinue(agent, NEWS_SOURCE);
-    } catch (error) { notes.delete(agent?.id); log(`news not delivered: ${error?.message ?? error}`); }
+    } catch (error) {
+      notes.delete(agent?.id); log(`news not delivered: ${error?.message ?? error}`);
+      for (const n of items) if (n.task && !pending.has(n.id)) pending.set(n.id, n);
+      if (pending.size > 0) schedule(timing.gap);
+    }
   }
   ctx.on('agent/pre-step', async (payload, next) => {
     const decision = await next();
