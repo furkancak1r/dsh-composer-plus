@@ -9996,6 +9996,8 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   let projectsCache; // { at, value }: the chat list is read at most every STATUS_LIMITS.cacheMs, Refresh reads it now
   // A root chat that starts or ends a turn changed the projects: the next read reads the chat list again.
   ctx.on('session/event', (session, event) => { if ((event?.type === 'turn/start' || event?.type === 'turn/end') && isRootChat(session)) projectsCache = undefined; });
+  // dsh can resume a disposed continuable child (same id) and dispose it again between two reads: it changed, read it again.
+  ctx.on('session/event', (session, event) => { if (event?.type === 'turn/start') ended.delete(session?.id); });
   const status = async (sessionId, signal, fresh) => {
     if (!on || !assistant.isAssistant(get('agents')?.get?.(sessionId))) return {};
     const agent = get('agents').get(sessionId);

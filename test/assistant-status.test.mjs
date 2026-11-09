@@ -155,6 +155,11 @@ try {
   await call('?sessionId=s-a'); assert.equal(listed, l1 + 1, 'a subagent turn does not drop the cache');
   for (const fn of onEvent) fn({ id: 's-web', header: {} }, { type: 'turn/start' });
   await call('?sessionId=s-a'); assert.equal(listed, l1 + 2, 'a root chat turn drops the cache');
+  // dsh resumes a disposed continuable child and disposes it again between two reads (no read saw it live, for example
+  // while the panel was closed): its new events drop the kept task, so its new saved log is read.
+  children['c-done'].log = [...children['c-done'].log, ev(3, 'turn/start', {}), reply(4, 'Flights booked'), ev(5, 'turn/end', { reason: { kind: 'completed' } }, NOW - 100)];
+  for (const fn of onEvent) for (const type of ['turn/start', 'turn/end']) fn({ id: 'c-done', header: { origin: 'subagent' } }, { type });
+  assert.equal((await call('?sessionId=s-a')).body.tasks.find((t) => t.id === 'c-done').result, 'Flights booked', 'a child that ran again unseen shows its new result');
   assert.deepEqual(r.body.projects.map((p) => p.id), ['w-web', 'w-cli']); assert.equal(r.body.summary, undefined);
   // Another chat: no status (its subagents are not the assistant's).
   r = await call('?sessionId=s-web'); assert.equal(r.body.tasks, undefined); assert.equal(r.body.projects, undefined);
