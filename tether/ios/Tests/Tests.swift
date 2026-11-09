@@ -454,6 +454,36 @@ final class CoreTests: XCTestCase {
 
     /// Assistant: the Mac without the route (404) or with the feature off (409) says where to switch it on; any other
     /// failure keeps the Mac's reason.
+    /// Assistant apart from chats: the Mac's assistant-status id (null or empty: none) and the button's mark of that chat.
+    @MainActor func testAssistantStatusAndMark() {
+        XCTAssertEqual(Client.assistantStatusId(["sessionId": "s-a"]), "s-a")
+        XCTAssertNil(Client.assistantStatusId(["sessionId": NSNull()]), "Assistant off on the Mac")
+        XCTAssertNil(Client.assistantStatusId(["sessionId": ""]))
+        let a = Sess(["sessionId": "s-a", "updatedAt": 1])!, b = Sess(["sessionId": "s-b", "updatedAt": 2])!
+        XCTAssertEqual(assistantMark("s-a", sessions: [a, b], busy: ["s-a"], waiting: [], finished: []), .running(1))
+        XCTAssertEqual(assistantMark("s-a", sessions: [a, b], busy: ["s-a"], waiting: ["s-a"], finished: []), .waiting, "waiting wins")
+        XCTAssertEqual(assistantMark("s-a", sessions: [a, b], busy: [], waiting: [], finished: ["s-a"]), .done)
+        XCTAssertNil(assistantMark("s-a", sessions: [a, b], busy: ["s-b"], waiting: ["s-b"], finished: []), "another chat's state does not count")
+        XCTAssertNil(assistantMark(nil, sessions: [a], busy: ["s-a"], waiting: [], finished: []))
+    }
+    /// Assistant messages only: your messages, its replies and errors stay; thinking, tools, results and turn rows go.
+    func testBotLines() {
+        let t = [Line(kind: .user, text: "hi"), Line(kind: .reasoning, text: "hmm"), Line(kind: .tool, text: "bash"), Line(kind: .result, text: "ok"),
+                 Line(kind: .assistant, text: "hello"), Line(kind: .error, text: "HTTP 500"), Line(kind: .turn, text: "Completed")]
+        XCTAssertEqual(botLines(t).map(\.kind), [.user, .assistant, .error])
+    }
+    /// Assistant apart from chats: the list leaves the assistant chat out while the switch is on (its project then has no rows).
+    @MainActor func testAssistantApartList() {
+        let c = Client()
+        let keep = c.assistantApart
+        defer { c.assistantApart = keep }
+        c.sessions = [Sess(["sessionId": "s-a", "updatedAt": 2])!, Sess(["sessionId": "s-b", "updatedAt": 1])!]
+        c.setAssistantIdForTest("s-a")
+        c.assistantApart = true
+        XCTAssertEqual(c.sessionGroups().flatMap(\.items).map(\.id), ["s-b"])
+        c.assistantApart = false
+        XCTAssertEqual(Set(c.sessionGroups().flatMap(\.items).map(\.id)), ["s-a", "s-b"])
+    }
     @MainActor func testAssistantError() {
         let off = Client.assistantError(Fail("Assistant is off", status: 409))
         XCTAssertTrue(off.contains("Composer Plus"))

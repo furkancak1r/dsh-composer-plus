@@ -67,6 +67,11 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.assistant-switch` | GET | The switch `{on}` (on by default). | assistant | no |
 | `/api/composer-plus.assistant-switch` | POST | `{on}`: the switch (a switch route). Off removes the `assistant` route, the prompt section and the six tools. | assistant | no |
 | `/api/composer-plus.assistant` | GET | Only while the switch is on (409 while it is off, and the route is gone after a restart with it off). `{sessionId}` of the assistant chat: the saved one (`assistant.json`, unarchived when it is archived); when there is none or dsh does not have it any more, makes `~/Assistant`, adds it as the project "Assistant" and starts a new chat with the workspace-write preset and dsh's default model. One start at a time; 409 when dsh says the chat is busy. | assistant | yes |
+| `/api/composer-plus.assistant-status` | GET | `{sessionId}` of the assistant chat, or `null` while Assistant is off or before the first chat. It never makes a chat. The sidebar and Tether hide that chat's row and show its state on the Assistant row. | assistantApart | yes |
+| `/api/composer-plus.assistant-free` | GET | `{on, active}`: the switch (on by default) and whether the rule works now (`active: false` when the assistant chat's newest request has no subagent tool). | assistantFree | no |
+| `/api/composer-plus.assistant-free` | POST | `{on}`: the switch (a switch route). Off removes the rule and its prompt section. | assistantFree | no |
+| `/api/composer-plus.assistant-notify` | GET | `{on}` (off by default). | assistantNotify | no |
+| `/api/composer-plus.assistant-notify` | POST | `{on}`: the switch (a switch route). Off drops the news that waits. | assistantNotify | no |
 | `/api/composer-plus.secrets` | GET | The switch `{on}`. | secretInput | no |
 | `/api/composer-plus.secrets` | POST | `{on}`: the switch (a switch route). Off removes the tool and declines the open requests. | secretInput | no |
 | `/api/composer-plus.secret-answer` | GET | `?sessionId=`: `{on, asks: [{askId, callId, label, purpose}]}`, the open `request_secret` requests of that chat; never a value. | secretInput | yes |

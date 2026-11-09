@@ -1248,6 +1248,13 @@ func projectMark(_ chats: [Sess], busy: Set<String>, waiting: Set<String>, finis
     let n = mine.filter { busy.contains($0.id) }.count
     return n > 0 ? .running(n) : nil
 }
+/// Assistant apart from chats: the assistant chat's state for the Assistant button (the same rule as a project row).
+func assistantMark(_ id: String?, sessions: [Sess], busy: Set<String>, waiting: Set<String>, finished: Set<String>) -> ProjectMark? {
+    guard let id, let s = sessions.first(where: { $0.id == id }) else { return nil }
+    return projectMark([s], busy: busy, waiting: waiting, finished: finished)
+}
+/// Assistant messages only: the assistant chat shows your messages, its replies and errors (no thinking, tool or turn rows).
+func botLines(_ t: [Line]) -> [Line] { t.filter { $0.kind == .user || $0.kind == .assistant || $0.kind == .error } }
 /// Order by status (view only): finished and not opened, then running or waiting, then the rest; else dsh's order.
 func statusRank(_ s: Sess, busy: Set<String>, waiting: Set<String>, finished: Set<String>) -> Int {
     finished.contains(s.id) ? 0 : busy.contains(s.id) || waiting.contains(s.id) ? 1 : 2
@@ -1765,7 +1772,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         // Sets, not arrays: this runs on each render of Sessions (sets keep it linear in the number of chats).
         let only = workspaces.first { $0.id == project }.map { Set($0.sessions) }
         let wait = waitingChats, busy = runningIds(sessions), pins = Set(pinned), arch = Set(archived)
-        var roots = sessions.filter { $0.parent == nil && (only?.contains($0.id) ?? true) }.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
+        // Assistant apart from chats: the assistant chat is not in the list (the Assistant button opens it; search finds it).
+        let apart = assistantApart ? assistantId : nil
+        var roots = sessions.filter { $0.parent == nil && $0.id != apart && (only?.contains($0.id) ?? true) }.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
         // view only, as on the desktop: a stable sort keeps the newest first inside each rank
         if byStatus { roots = roots.enumerated().sorted { a, b in
             let (x, y) = (statusRank(a.element, busy: busy, waiting: wait, finished: finished), statusRank(b.element, busy: busy, waiting: wait, finished: finished))
@@ -2950,6 +2959,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     // MARK: Actions (wire shapes from the DSH host types)
 
     func loadSessions() async throws {
+        // Asked next to the list, not before it (one more round trip on a slow tunnel). Awaited before the list is set, so
+        // the list filter never shows the Assistant chat for one frame. A throw below cancels it (async let scope).
+        async let assistantStatus: Void = loadAssistantStatus()
         // Remote session/list returns every visible session with no cursor (e2e asserts this).
         // A reply that arrives after a Mac switch throws CancellationError in call(): it never reaches this list.
         let v = try await rpc("session/list", ["_request": J()]) as? J
@@ -2983,6 +2995,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             do { if let o = try await branchReply { let b = sessionBranches(o); if b != branches { branches = b } } }
             catch is CancellationError { throw CancellationError() } catch {}
         } else if !branches.isEmpty { branches = [:] }
+        await assistantStatus
         sessions = fresh
         if !sessionsLoaded { sessionsLoaded = true }
         boardSent()
@@ -3078,8 +3091,24 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         let o: J
         do { o = try await plusCall("assistant") } catch let f as Fail { throw Fail(Self.assistantError(f)) }
         guard let id = o["sessionId"] as? String, !id.isEmpty else { throw Fail(String(localized: "The assistant chat did not open.")) }
+        if plus.contains("assistant-status") { assistantId = id }
         if !sessions.contains(where: { $0.id == id }) { try? await loadSessions() }
         open(id)
+    }
+    /// Assistant apart from chats / Assistant messages only: the Mac's assistant chat (`GET /plus/assistant-status`; nil
+    /// while Assistant is off on the Mac or the Mac is older). The two switches are this iPhone's own (on by default).
+    @Published private(set) var assistantId: String?
+    @Published var assistantApart = UserDefaults.standard.object(forKey: "assistantApart") as? Bool ?? true { didSet { UserDefaults.standard.set(assistantApart, forKey: "assistantApart") } }
+    @Published var assistantMessagesOnly = UserDefaults.standard.object(forKey: "assistantMessagesOnly") as? Bool ?? true { didSet { UserDefaults.standard.set(assistantMessagesOnly, forKey: "assistantMessagesOnly") } }
+    func setAssistantIdForTest(_ id: String?) { assistantId = id }
+    func loadAssistantStatus() async {
+        guard plus.contains("assistant-status") else { assistantId = nil; return }
+        if let o = try? await plusCall("assistant-status") { assistantId = Self.assistantStatusId(o) }
+    }
+    /// The chat id of a Mac answer to `/plus/assistant-status`; nil for null, empty or anything else.
+    static func assistantStatusId(_ o: J) -> String? {
+        guard let id = o["sessionId"] as? String, !id.isEmpty else { return nil }
+        return id
     }
     /// The words for a failed Assistant tap: the Mac has the feature off (no route: 404; off: 409), else the Mac's reason.
     static func assistantError(_ f: Fail) -> String {

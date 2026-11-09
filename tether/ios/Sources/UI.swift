@@ -739,7 +739,9 @@ struct ConversationView: View {
     var transcript: some View {
         ScrollViewReader { proxy in
                 // One row list and one search per render: the find tint of each row reads `findIndex`.
-                let rows = chatRows(c.transcript, open: openTurns, running: c.running)
+                // Assistant messages only: the assistant chat shows no thinking, tool or turn rows.
+                let bot = c.assistantMessagesOnly && c.current != nil && c.current == c.assistantId
+                let rows = chatRows(bot ? botLines(c.transcript) : c.transcript, open: openTurns, running: c.running)
                 let hits = finding.map { findRows(rows, query: $0) } ?? []
                 let findIndex = Dictionary(hits.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
                 ScrollView {
@@ -2158,9 +2160,16 @@ struct SessionsView: View {
                 // Assistant (Composer Plus): only when the Mac's gateway has its route.
                 if c.state == .connected && c.plus.contains("assistant") {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button { c.run { try await c.openAssistant() } } label: { Image(systemName: "sparkles") }
+                        // Assistant apart from chats: the assistant's state on its button (its chat is not in the list).
+                        let mark = c.assistantApart ? assistantMark(c.assistantId, sessions: c.sessions, busy: busy, waiting: waiting, finished: c.finished) : nil
+                        Button { c.run { try await c.openAssistant() } } label: {
+                            Image(systemName: "sparkles").overlay(alignment: .topTrailing) {
+                                if let mark { ProjectMarkView(mark: mark).scaleEffect(0.8).offset(x: 6, y: -6).accessibilityHidden(true) }
+                            }
+                        }
                             .disabled(c.assistantOpening)
                             .accessibilityLabel("Assistant")
+                            .accessibilityValue(Text(mark == .waiting ? String(localized: "Waiting for you") : mark == .done ? String(localized: "New reply") : mark == nil ? "" : String(localized: "Working")))
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
@@ -2544,6 +2553,12 @@ struct SettingsView: View {
                     Text(AppLock.available || lock.on
                          ? "Tether asks for \(lockName) when it opens and when you come back to it. Notification previews still show on the Lock Screen: turn them off in iOS Settings › Notifications › Tether."
                          : "Set a passcode on this iPhone to use the app lock.")
+                }
+                if c.plus.contains("assistant-status") {
+                    Section {
+                        Toggle("Assistant apart from chats", isOn: $c.assistantApart)
+                        Toggle("Assistant messages only", isOn: $c.assistantMessagesOnly)
+                    } header: { Text("Assistant") } footer: { Text("Apart from chats: the assistant chat is not in the Sessions list (search still finds it); the Assistant button opens it and shows its state. Messages only: in the assistant chat you see your messages, its replies and errors, without thinking and tool rows. These switches are for this iPhone.") }
                 }
                 if c.plus.contains("issue-report") {
                     Section {
