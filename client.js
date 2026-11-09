@@ -7979,7 +7979,10 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         r.appendChild(el);
         return v;
       }
-      const dropView = (id) => { const v = views.get(id); if (v === undefined) return; views.delete(id); v.el.remove(); v.release(); };
+      // The relay showed its own error page in a view (the computer slept, Tailscale was off). That page is not kept: the
+      // next pick asks for a new ticket and loads it again, so a computer that is back shows its dsh.
+      const failedIds = new Set();
+      const dropView = (id) => { failedIds.delete(id); const v = views.get(id); if (v === undefined) return; views.delete(id); v.el.remove(); v.release(); };
       // `after` undefined: the Host answers where its events are now, so an old switch never runs. A Host that started
       // again answers a smaller `seq`, and the loop goes on from there.
       async function loop(signal, after) {
@@ -8003,9 +8006,10 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       function handle(e) {
         if (e.hello === true) {
           const v = views.get(e.from);
-          if (v !== undefined) { v.helloAt = now(); if (state.current === e.from) armHello(e.from); }
+          if (v !== undefined) { failedIds.delete(e.from); v.helloAt = now(); if (state.current === e.from) armHello(e.from); }
           return;
         }
+        if (e.failed !== undefined) { if (views.has(e.from)) failedIds.add(e.from); return; }
         // Only the page on screen switches the window: a hidden page cannot take it.
         if (e.switch === undefined || e.from !== state.current) return;
         if (e.switch === 'add') { api.select('self').then(() => openAdd()); return; }
@@ -8020,6 +8024,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           if (id === 'self') { timers.clearTimeout(helloTimer); show('self'); set({ current: 'self', error: undefined, noPicker: false }); return { shown: 'self' }; }
           const c = (computers.getSnapshot().computers ?? []).find((x) => x.id === id);
           if (c === undefined) return { skipped: true };
+          if (failedIds.has(id)) dropView(id); // its error page goes; a new ticket loads the computer again below
           if (views.has(id)) { show(id); set({ current: id, error: undefined, noPicker: views.get(id).helloAt === undefined }); armHello(id); return { shown: id }; }
           set({ busy: true, error: undefined });
           try {

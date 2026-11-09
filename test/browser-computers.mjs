@@ -252,6 +252,28 @@ try {
       assert.ok(await listening(relayPort), 'the relay listens');
       await remotePicker.click();
       await view.waitFor({ state: 'hidden', timeout: 10000 });
+      // B sleeps (its front door closes) at A's first pick after a start: A shows the relay's "does not answer" page. B
+      // wakes up (the door opens again): the next pick loads B's dsh, not the kept error page.
+      await accept.click();
+      await until(async () => !(await listening(DOOR)), 10000, 'front door closed (B asleep)');
+      await pa.reload(); await pa.locator('[data-composer-input]').waitFor();
+      await picker.click();
+      await view.waitFor({ timeout: 10000 });
+      await remote.getByText('does not answer over Tailscale', { exact: false }).waitFor({ timeout: 15000 });
+      const back = pa.locator('[data-composer-plus-computer-float] [data-composer-plus-computer-picker]');
+      await back.waitFor({ timeout: 10000 });
+      await pause(1500); // the relay's `failed` event reaches A through its event loop
+      await back.click();
+      await view.waitFor({ state: 'hidden', timeout: 10000 });
+      await accept.click();
+      await until(() => listening(DOOR), 15000, 'front door open again (B awake)');
+      await picker.click();
+      await view.waitFor({ timeout: 10000 });
+      await remote.getByText('garden-notes', { exact: false }).first().waitFor({ timeout: 30000 });
+      assert.equal(await remote.getByText('does not answer over Tailscale', { exact: false }).count(), 0, 'B\'s dsh, not the old error page');
+      await remotePicker.waitFor({ timeout: 15000 });
+      await remotePicker.click();
+      await view.waitFor({ state: 'hidden', timeout: 10000 });
       // 5. B removes A; A's next open says that it must pair again. Then A switches off.
       await sb.locator('div').filter({ hasText: /^Office Mac/ }).getByRole('button', { name: 'Remove', exact: true }).last().click();
       await sb.getByText('None.', { exact: true }).waitFor({ timeout: 10000 });

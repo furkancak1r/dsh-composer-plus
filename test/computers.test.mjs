@@ -215,7 +215,8 @@ test('relay: a certificate that is not the pinned one gets no byte', async () =>
   let bytes = 0
   const fake = createTls({ key: readFileSync(join(otherDir, 'key.pem')), cert: readFileSync(join(otherDir, 'cert.pem')) }, (s) => { s.on('data', (d) => { bytes += d.length }) })
   await new Promise((r) => fake.listen(0, '127.0.0.1', r))
-  const relay = createRelay({ host: '127.0.0.1', port: fake.address().port, fp: p.fp, token: p.token })
+  const signals = []
+  const relay = createRelay({ host: '127.0.0.1', port: fake.address().port, fp: p.fp, token: p.token, peer: { opener: () => ({}), signal: (e) => signals.push(e) } })
   await relay.start()
   try {
     const cookie = await openRelay(relay)
@@ -223,6 +224,10 @@ test('relay: a certificate that is not the pinned one gets no byte', async () =>
     assert.equal(r.status, 502)
     assert.match(String(r.body), /another certificate/)
     assert.match(r.headers['content-type'], /^text\/plain/, 'a fetch gets plain text')
+    assert.deepEqual(signals, [], 'a fetch does not report a failed page')
+    const page = await browserGet(relay.port, '/', { cookie, headers: { accept: 'text/html' } })
+    assert.match(String(page.body), /another certificate/)
+    assert.deepEqual(signals, [{ failed: 'pin' }], 'a page that got the relay\'s own page reports it')
     await sleep(50)
     assert.equal(bytes, 0, 'not one byte after the handshake: no token, no request')
     assert.equal(relay.fail, 'pin')
@@ -232,11 +237,14 @@ test('relay: a certificate that is not the pinned one gets no byte', async () =>
 test('relay: a computer that does not answer → a page in the middle of the window for the browser, plain text for a fetch', async () => {
   const dead = createServer(); await new Promise((r) => dead.listen(0, '127.0.0.1', r))
   const port = dead.address().port; await new Promise((r) => dead.close(r)) // a port with nobody on it
-  const relay = createRelay({ host: '127.0.0.1', port, fp: 'ab'.repeat(32), token: 'x'.repeat(43), frameAncestors: ['http://127.0.0.1:1'] })
+  // This Mac learns that the page in its window is the relay's own page, so the next pick loads the computer again.
+  const signals = []
+  const relay = createRelay({ host: '127.0.0.1', port, fp: 'ab'.repeat(32), token: 'x'.repeat(43), frameAncestors: ['http://127.0.0.1:1'], peer: { opener: () => ({}), signal: (e) => signals.push(e) } })
   await relay.start()
   try {
     const cookie = await openRelay(relay)
     const page = await browserGet(relay.port, '/', { cookie, headers: { accept: 'text/html,application/xhtml+xml,*/*;q=0.8' } })
+    assert.deepEqual(signals, [{ failed: 'unreachable' }], 'the failed page is reported once')
     assert.equal(page.status, 502)
     assert.match(page.headers['content-type'], /^text\/html/)
     const csp = [page.headers['content-security-policy']].flat().join(', ')
@@ -253,6 +261,7 @@ test('relay: a computer that does not answer → a page in the middle of the win
     assert.equal(api.status, 502)
     assert.match(api.headers['content-type'], /^text\/plain/)
     assert.equal(String(api.body), 'This computer does not answer over Tailscale. Make sure that it is awake and that Tailscale is on.')
+    assert.equal(signals.length, 1, 'a fetch of the page does not report a failed page')
   } finally { await relay.close() }
 })
 
