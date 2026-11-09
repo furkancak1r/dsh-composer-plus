@@ -219,7 +219,7 @@ try {
   assert.equal(board.store.rev(), revHidden, 'a chat that was not hidden runs: nothing is written');
   onStatus({ agent: { id: 'd3', session: { header: { origin: 'subagent' } } }, status: 'running' }); await pause(10);
   assert.ok(board.store.hidden().d3, 'a subagent with the same id does not count');
-  onStatus({ agent: chats.get('d2').agent, status: 'running' }); await pause(10);
+  onStatus({ agent: chats.get('d2').agent, status: 'running' }); await waitFor(() => !board.store.hidden().d2);
   assert.deepEqual(Object.keys(board.store.hidden()).sort(), ['d1', 'd3', 'gone-from-dsh'], 'a hidden chat that runs again comes back');
   // Undo and Put back: {unhide}; an id that is not on the list changes nothing (no write); a hide and an unhide at the same
   // time are merged one after the other.
