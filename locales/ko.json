@@ -2419,6 +2419,7 @@
     "computers.nameHelp": "컴퓨터 선택기에 표시되는 이름입니다. 이 Mac 및 다른 컴퓨터의 이름과 달라야 합니다.",
     "computers.duplicateHint": "이 Mac 또는 다른 컴퓨터에 같은 이름이 있습니다. ‘이름 변경’을 클릭하고 다른 이름을 지정하세요.",
     "computers.back": "이 Mac으로 돌아가기",
+    "computers.switchTo": "{name}(으)로 전환 (모든 컴퓨터는 오른쪽 클릭)",
     "computers.error.name-taken": "이 Mac 또는 다른 컴퓨터가 이미 이 이름을 사용하고 있습니다. 다른 이름을 입력하세요.",
     "computers.error.name-missing": "이 컴퓨터의 이름을 입력하세요."
   },

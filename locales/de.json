@@ -2419,6 +2419,7 @@
     "computers.nameHelp": "Der Name in der Computerauswahl. Er muss sich vom Namen dieses Macs und deiner anderen Computer unterscheiden.",
     "computers.duplicateHint": "Dieser Mac oder ein anderer Computer hat denselben Namen. Klicke auf „Umbenennen“ und gib ihm einen anderen Namen.",
     "computers.back": "Zurück zu diesem Mac",
+    "computers.switchTo": "Zu {name} wechseln (Rechtsklick für alle Computer)",
     "computers.error.name-taken": "Dieser Mac oder ein anderer Computer hat diesen Namen schon. Gib einen anderen Namen ein.",
     "computers.error.name-missing": "Gib einen Namen für diesen Computer ein."
   },

@@ -5,7 +5,8 @@
 // 2. B: Settings → Remote computers on, Let other computers open this Mac on, Create pairing link.
 // 3. A: switch on; the picker is in the left sidebar right of the brand, above New session, not in the chat header;
 //    Add a computer… asks for a name (This Mac's name is refused), paste, Connect; B shows the request, Approve.
-// 4. A: a long turn runs; pick Studio in the picker: B's dsh fills A's window (no new window), with B's chat and the same
+// 4. A: a long turn runs; one other computer: a left click on the picker opens Studio at once (a right-click shows the
+//    menu with Add a computer…): B's dsh fills A's window (no new window), with B's chat and the same
 //    picker (from A's relay) in the same place, as "Back to this Mac"; no banner. A's turn ends while B shows. One click
 //    on it (one computer: no menu): A comes back with the finished turn; Studio again: the same page (no reload).
 // 5. B removes A: A's next open shows the relay's text (no picker there): A's own "Back to this Mac" floats in the same
@@ -198,7 +199,10 @@ try {
       const inputA = pa.locator('[data-composer-input]');
       await inputA.click(); await pa.keyboard.type('Write a long story'); await pa.keyboard.press('Enter');
       await pa.locator('[data-row-key^="session:"]').first().waitFor({ timeout: 20000 });
-      await picker.click();
+      // One other computer: the picker names it and a click goes there at once; a right-click opens the whole menu.
+      assert.equal(await picker.getAttribute('aria-haspopup'), null, 'one other computer: a button, no menu');
+      assert.equal(await picker.getAttribute('title'), 'Switch to Studio (right-click for all computers)');
+      await picker.click({ button: 'right' });
       if (index === 0 && process.env.SHOT) {
         await pa.getByRole('menuitem', { name: 'Studio' }).waitFor();
         await pause(500);
@@ -208,8 +212,11 @@ try {
         const png = join(a.home, 'remoteComputers.png'); await pa.screenshot({ path: png, clip });
         execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.round(clip.width * 1.25)), '0', png, '-o', join(repo, 'assets/features/remoteComputers.webp')]);
       }
+      await pa.getByRole('menuitem', { name: 'Add a computer…' }).waitFor({ timeout: 5000 });
+      await pa.keyboard.press('Escape'); await pa.getByRole('menu').waitFor({ state: 'hidden', timeout: 5000 });
       const popup = ctxA.waitForEvent('page', { timeout: 4000 }).catch(() => null);
-      await pa.getByRole('menuitem', { name: 'Studio' }).click();
+      await picker.click();
+      assert.equal(await pa.getByRole('menu').count(), 0, 'the left click opened no menu');
       const view = pa.locator('iframe[data-composer-plus-computer-view]');
       await view.waitFor({ timeout: 15000 });
       assert.equal(await popup, null, 'no new window');
@@ -238,7 +245,7 @@ try {
       // Studio again: the same page, no reload (the marker set in it stays).
       const frame = pa.frames().find((f) => /^http:\/\/127\.0\.0\.1:\d+\//.test(f.url()) && !f.url().startsWith(new URL(a.url).origin));
       await frame.evaluate(() => { window.__kept = 1; });
-      await picker.click(); await pa.getByRole('menuitem', { name: 'Studio' }).click();
+      await picker.click();
       await view.waitFor({ timeout: 10000 });
       assert.equal(await frame.evaluate(() => window.__kept), 1, 'the hidden page stayed (no reload)');
       const relayPort = Number(new URL(frame.url()).port);
@@ -249,7 +256,7 @@ try {
       await sb.locator('div').filter({ hasText: /^Office Mac/ }).getByRole('button', { name: 'Remove', exact: true }).last().click();
       await sb.getByText('None.', { exact: true }).waitFor({ timeout: 10000 });
       await pa.reload(); await pa.locator('[data-composer-input]').waitFor();
-      await picker.click(); await pa.getByRole('menuitem', { name: 'Studio' }).click();
+      await picker.click();
       // The relay answers its own text (no hello): A's picker floats over it in the same place as "Back to this Mac"; after
       // some seconds the page closes and the picker says why.
       const floatPicker = pa.locator('[data-composer-plus-computer-float] [data-composer-plus-computer-picker]');
@@ -260,6 +267,7 @@ try {
       await pa.getByText('That Mac removed this one', { exact: false }).first().waitFor({ timeout: 20000 });
       await until(async () => (await pa.locator('[data-composer-plus-computer-float]').count()) === 0, 5000, 'the float goes with the page');
       await view.waitFor({ state: 'detached', timeout: 10000 });
+      // Studio must pair again: no computer to go to, so the click opens the menu, which says so.
       await picker.click();
       await pa.getByRole('menuitem', { name: /pair again/ }).waitFor({ timeout: 10000 });
       await pa.keyboard.press('Escape');
@@ -272,7 +280,7 @@ try {
       await until(async () => !(await listening(DOOR)), 10000, 'front door closed');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: off by default; picker right of the brand above New session; name asked (This Mac's refused); Approve on B; B fills A's window (no window), B's picker says Back to this Mac and switches back with one click (no banner), A's float over a page without a picker, A's turn finished meanwhile, no reload; B removes A → pair again; off leaves nothing`);
+      console.log(`PASS ${bin}: off by default; picker right of the brand above New session; name asked (This Mac's refused); Approve on B; one left click on A's picker opens Studio (right-click: the menu), B fills A's window (no window), B's picker says Back to this Mac and switches back with one click (no banner), A's float over a page without a picker, A's turn finished meanwhile, no reload; B removes A → pair again; off leaves nothing`);
     } catch (error) {
       for (const [n, c] of [['a', ctxA], ['b', ctxB]]) { const p = c?.pages().at(-1); if (p) await p.screenshot({ path: join(n === 'a' ? a.home : b.home, 'failed.png') }).catch(() => {}); }
       console.error(`kept for inspection: ${a.home} ${b.home}; page errors: ${JSON.stringify(errors)}`);

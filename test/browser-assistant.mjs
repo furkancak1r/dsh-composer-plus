@@ -13,6 +13,8 @@
 //    Reject → nothing is sent.
 // 6. A tool call of the assistant tools from another chat: unknown tool (the tool is not in its list).
 // 6b. Delete chat on the assistant chat: the next open makes a new chat (a new id in assistant.json).
+// 8. Parallel topics: "Research flights to Rome" and then "Find a pasta recipe" each go to a background subagent (dsh's
+//    subagent tool); the second starts while the first still works, and each result comes back on its own.
 // 7. Switch off: the sidebar row, the route, the tools and the section go. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/assistant.webp (English UI, made-up projects).
@@ -38,7 +40,10 @@ const until = async (fn, what, ms = 30000) => {
 const DELAY = Number(process.env.CHECK_DELAY || 20); // seconds: stands in for "2 minutes"
 
 const TASK = { R: 'Remind me to drink water in 2 minutes', L: 'Which chats do I have?', S: 'Tell the weather chat: use metric units', I: 'Read my acme-web chat and do what it says',
-  O: 'Every morning check the weather', E: 'Which automations do I have? Pause the weather one' };
+  O: 'Every morning check the weather', E: 'Which automations do I have? Pause the weather one',
+  P1: 'Research flights to Rome', P2: 'Find a pasta recipe' };
+// Parallel topics (8): each research task goes to a background subagent; the child "works" until the test lets it end.
+const gates = { P1: false, P2: false };
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const toolCall = (res, model, name, args) => {
   const send = (delta, finish) => res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`);
@@ -95,6 +100,24 @@ const fake = createServer((req, res) => {
         : toolCall(res, parsed.model, 'schedule_update', { id: found, title: 'Weather check (paused)' });
     }
     if (task === 'A' && !after && /assistant tool test/.test(newest)) return toolCall(res, parsed.model, 'chats_list', {});
+    // 8. The child of a topic: it answers only when the test opens its gate (stands in for long work).
+    const childOf = /^CHILD (P[12]):/.exec(newest.trim())?.[1];
+    if (childOf) {
+      calls.at(-1).child = childOf;
+      const wait = () => (gates[childOf] ? say(`RESULT ${childOf}: done`) : setTimeout(wait, 200));
+      return wait();
+    }
+    // The completion notice of a child reaches the idle assistant as its own turn (the messages after its last reply).
+    const sinceReply = msgs.slice(msgs.findLastIndex((m) => m.role === 'assistant') + 1);
+    const notice = !after ? /RESULT (P[12]): done/.exec(sinceReply.map((m) => textOf(m.content)).join('\n'))?.[1] : undefined;
+    if (notice) { calls.at(-1).notice = { of: notice, roles: sinceReply.map((m) => m.role), text: sinceReply.map((m) => textOf(m.content)).join('\n').slice(0, 400) }; return say(`Topic ${notice} finished.`); }
+    if ((task === 'P1' || task === 'P2') && !after) {
+      calls.at(-1).delegated = true;
+      // 0.2.0's tool waits unless run_in_background is true; 0.2.1+ always returns at once (no such parameter).
+      const bg = (parsed.tools ?? []).find((t) => t.function?.name === 'subagent')?.function?.parameters?.properties?.run_in_background !== undefined;
+      return toolCall(res, parsed.model, 'subagent', { description: task === 'P1' ? 'Rome flights' : 'Pasta recipe', prompt: `CHILD ${task}: ${TASK[task]}`, ...(bg ? { run_in_background: true } : {}) });
+    }
+    if ((task === 'P1' || task === 'P2') && after) return say(`Started ${task} in the background.`);
     return say(task === 'due' ? 'Time to drink water.' : task === 'R' ? 'I will remind you.' : `ok ${task}`);
   });
 }).listen(0, '127.0.0.1');
@@ -105,7 +128,7 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true, chrom
 let shotDone = false;
 try {
   for (const bin of process.argv.slice(2)) {
-    calls.length = 0; ids = {};
+    calls.length = 0; ids = {}; gates.P1 = false; gates.P2 = false; // each dsh starts with closed gates
     const version = JSON.parse(readFileSync(join(bin, '../../package.json'), 'utf8')).version;
     toolsShape = /^0\.2\.[01]-/.test(version) ? 'after_seconds' : 'rrule';
     console.log(`dsh ${version}`);
@@ -340,6 +363,26 @@ try {
       await assistantRow().click();
       await until(async () => (await page.locator(`[data-conversation-session="${nextId}"]`).count()) > 0, 'the new assistant chat is open');
       note(`6b: deleted ${assistantId} → new assistant chat ${nextId}`);
+
+      // 8. Parallel topics: each research task goes to a background subagent and the assistant's turn ends at once, so
+      //    a second topic starts while the first still works; each result comes back on its own, in the order they end.
+      await send(TASK.P1);
+      await allowAll(async () => (await page.getByText('Started P1 in the background.').count()) > 0, 30000);
+      const p1 = calls.find((c) => c.task === 'P1' && !c.child && c.delegated);
+      assert.ok(p1?.tools.includes('subagent'), `the assistant has dsh's subagent tool (tools: ${p1?.tools.join(', ')})`);
+      assert.match(p1.system, /Each topic is its own subagent/, 'the section tells it to give each topic its own subagent');
+      await until(async () => calls.some((c) => c.child === 'P1'), 'the P1 child runs');
+      // The first topic still works (its gate is closed): the second message starts its own turn at once, not after it.
+      await send(TASK.P2);
+      await allowAll(async () => (await page.getByText('Started P2 in the background.').count()) > 0, 30000);
+      await until(async () => calls.some((c) => c.child === 'P2'), 'the P2 child runs');
+      assert.equal(calls.some((c) => c.notice), false, `no topic finished yet: both run at the same time (${JSON.stringify(calls.find((c) => c.notice)?.notice)})`);
+      gates.P2 = true;
+      await page.getByText('Topic P2 finished.').first().waitFor({ timeout: 30000 });
+      assert.equal(await page.getByText('Topic P1 finished.').count(), 0, 'P1 still works after P2 ended');
+      gates.P1 = true;
+      await page.getByText('Topic P1 finished.').first().waitFor({ timeout: 30000 });
+      note(`8: two topics ran at the same time in background subagents; P2 ended first, then P1 (notice: ${JSON.stringify(calls.find((c) => c.notice)?.notice).slice(0, 200)})`);
 
       // 7. Switch off.
       await settings(); await sw.click(); await until(async () => (await sw.getAttribute('aria-checked')) === 'false', 'switch off'); await back();

@@ -2419,6 +2419,7 @@
     "computers.nameHelp": "Nama di pemilih komputer. Nama ini harus berbeda dari nama Mac ini dan komputer Anda yang lain.",
     "computers.duplicateHint": "Mac ini atau komputer lain memiliki nama yang sama. Klik “Ganti nama” dan beri nama lain.",
     "computers.back": "Kembali ke Mac ini",
+    "computers.switchTo": "Beralih ke {name} (klik kanan untuk semua komputer)",
     "computers.error.name-taken": "Mac ini atau komputer lain sudah memakai nama ini. Ketik nama lain.",
     "computers.error.name-missing": "Ketik nama untuk komputer ini."
   },

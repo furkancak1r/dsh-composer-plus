@@ -2419,6 +2419,7 @@
     "computers.nameHelp": "O nome no seletor de computadores. Ele precisa ser diferente do nome deste Mac e dos seus outros computadores.",
     "computers.duplicateHint": "Este Mac ou outro computador tem o mesmo nome. Clique em “Renomear” e dê outro nome a ele.",
     "computers.back": "Voltar para este Mac",
+    "computers.switchTo": "Mudar para {name} (clique com o botão direito para ver todos os computadores)",
     "computers.error.name-taken": "Este Mac ou outro computador já tem este nome. Digite outro nome.",
     "computers.error.name-missing": "Digite um nome para este computador."
   },

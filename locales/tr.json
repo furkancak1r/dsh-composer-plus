@@ -3879,6 +3879,7 @@
     "computers.nameHelp": "Bilgisayar menüsünde görünen ad. Bu Mac’in ve diğer bilgisayarlarınızın adından farklı olmalıdır.",
     "computers.duplicateHint": "Bu Mac ya da başka bir bilgisayar aynı adı kullanıyor. “Yeniden adlandır” düğmesine tıklayın ve ona başka bir ad verin.",
     "computers.back": "Bu Mac’e dön",
+    "computers.switchTo": "{name} cihazına geç (tüm bilgisayarlar için sağ tıklayın)",
     "computers.error.name-taken": "Bu Mac ya da başka bir bilgisayar bu adı zaten kullanıyor. Başka bir ad yazın.",
     "computers.error.name-missing": "Bu bilgisayar için bir ad yazın."
   },

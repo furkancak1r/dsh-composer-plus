@@ -51,10 +51,12 @@ assert.match(read('tether/FEATURES.md'), /^\| notifications \| yes \| .*each pai
 // The cause of "Tether shows no notifications": Tether made them itself, only while iOS kept its socket (seconds after it
 // left the screen), so a closed Tether got none. Now the Mac sends them through APNs. The phone gives each Mac that Mac's
 // own switch and hours (the per-Mac setting decides, not a shared one) with the device token, on each change.
-assert.match(body('func syncPush('), /pushBody\(on: notifyOn, token: [\s\S]*hours: notifyHours, from: notifyFrom, to: notifyTo, tz: TimeZone\.current\.identifier\)[\s\S]*call\("\/push"/, 'syncPush sends this Mac\'s settings to its gateway');
+assert.match(body('func syncPush('), /pushBody\(on: notifyOn, token: [\s\S]*hours: notifyHours, from: notifyFrom, to: notifyTo, tz: TimeZone\.current\.identifier, reason: tokenError\)[\s\S]*call\("\/push"/, 'syncPush sends this Mac\'s settings (and why there is no token) to its gateway');
 assert.match(body('private func saveNotify('), /syncPush\(\)/, 'a change of the hours goes to the Mac');
 assert.match(body('@discardableResult func setNotify('), /registerPush\(\)[\s\S]*syncPush\(\)/, 'the switch asks iOS for a device token and tells the Mac');
-assert.match(core, /me\["push"\] as\? Bool == true\) != macPush \{[^\n]*registerPush\(\); syncPush\(\)/, 'a Mac that can push gets the settings when it connects');
+assert.match(body('func refreshMe('), /let push = me\["push"\] as\? Bool == true\n\s*if push != macPush \{ macPush = push \}[^\n]*\n\s*registerPush\(\); syncPush\(\)/, 'each connection asks iOS for the token again and sends the Mac the settings (a failed first try heals)');
+assert.match(ui, /didFailToRegisterForRemoteNotificationsWithError[\s\S]*onTokenError\?\(error\.localizedDescription\)/, 'iOS\'s token error is not swallowed');
+assert.match(ui, /if c\.notifyOn, c\.macPush, !c\.pushOn, let e = c\.pushError \{/, 'Settings says why notifications while Tether is closed do not work');
 assert.match(body('private func notify('), /guard shouldNotify\(\), !pushOn,/, 'no local notification while the Mac pushes the same one');
 assert.match(body('func forget('), /unpush\(p\)/, 'unpairing stops the Mac\'s pushes');
 assert.match(ui, /@UIApplicationDelegateAdaptor\(AppDelegate\.self\)/, 'iOS gives the device token to an app delegate');

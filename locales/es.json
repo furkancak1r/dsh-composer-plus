@@ -2419,6 +2419,7 @@
     "computers.nameHelp": "El nombre en el selector de equipos. Debe ser distinto del nombre de este Mac y de tus otros equipos.",
     "computers.duplicateHint": "Este Mac u otro equipo tiene el mismo nombre. Haz clic en «Cambiar nombre» y ponle otro nombre.",
     "computers.back": "Volver a este Mac",
+    "computers.switchTo": "Cambiar a {name} (clic derecho para ver todos los equipos)",
     "computers.error.name-taken": "Este Mac u otro equipo ya tiene este nombre. Escribe otro nombre.",
     "computers.error.name-missing": "Escribe un nombre para este equipo."
   },

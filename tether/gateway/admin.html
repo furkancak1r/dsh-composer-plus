@@ -193,6 +193,11 @@ function render(s) {
   put('devices', s.devices.map(d => '<tr><td><span class="dot ' + (d.connections ? 'ok' : '') + '"></span>' + esc(d.name) +
     ' <span class="mute">' + (d.connections ? 'online' : d.lastSeenAt ? 'last seen ' + esc(when(d.lastSeenAt)) : 'never connected') + '</span>' +
     (d.createdAt ? '<br><span class="sub">Paired ' + esc(new Date(d.createdAt).toLocaleDateString()) + '</span>' : '') +
+    // Notifications while Tether is closed: on, off (the phone sent no device token), or why the last push failed.
+    (s.pushKey ? '<br><span class="sub">' + (d.pushFail ? 'Last push failed: ' + esc(d.pushFail.reason) + ' (' + esc(when(d.pushFail.at)) + ')'
+      : d.push ? 'Notifications while Tether is closed: on'
+      : d.pushReason ? 'Notifications while Tether is closed: off. The iPhone says: ' + esc(d.pushReason)
+      : 'Notifications while Tether is closed: off. In Tether, turn on Settings › Send notifications.') + '</span>' : '') +
     '</td><td><button class="link" data-revoke="' + esc(d.id) + '" data-name="' + esc(d.name) + '" aria-label="Remove ' + esc(d.name) + '">Remove</button></td></tr>').join('')
     || '<tr><td class="mute">No iPhone yet.</td></tr>')
   // An older gateway (before a dsh restart) has no Tailscale only setting and no log: hide them.
