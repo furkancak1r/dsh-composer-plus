@@ -139,7 +139,11 @@ try {
   assert.match(sectionOf({ id: 'chat-2', session: { header: { cwd: project } } }), /A fact saved later/, 'a new chat reads the new entry');
   assert.match(await tool('memory_recall').execute({ query: 'later' }, exec), /A fact saved later/, 'recall finds it at once');
   assert.match(await tool('memory_recall').execute({}, exec), /project memory: 2 entries/);
-  assert.equal(sectionOf({ id: 's', session: { header: { cwd: project, origin: 'subagent' } } }), '', 'no section in a subagent chat');
+  // A subagent (subagent, subagent_fork, workflow agent) reads its folder's notes as context; it is told that no review reads it.
+  { const sub = sectionOf({ id: 's', session: { header: { cwd: project, origin: 'subagent', parentSession: 'chat-1' } } });
+    assert.match(sub, /A fact saved later/, 'a subagent gets the notes of its folder');
+    assert.match(sub, /You are a subagent: no memory review reads this chat/); assert.doesNotMatch(sub, /After each of your turns/);
+    assert.doesNotMatch(frozen, /You are a subagent/, 'a root chat keeps the review line'); }
   assert.match(await tool('memory_forget').execute({ entry: 'saved later' }, exec), /^Removed/);
   assert.match(await tool('memory_recall').execute({}, { agent: { id: 'x', session: { header: {} } } }), /global memory/, 'no folder: global only');
 
