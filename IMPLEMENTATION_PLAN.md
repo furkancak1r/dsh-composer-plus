@@ -2592,3 +2592,58 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
   - Simülatör (agent-device, iPhone 17 Pro, `tether/build/sim-assistant-bot.mjs`: sahte dsh + gerçek gateway, 192.168.2.63/32): liste asistan sohbetini ve "Assistant" projesini göstermez, arama bulur; Assistant düğmesi değeri "Working" ve "New reply" (yeşil nokta); sohbette düşünme/araç satırı yok, anahtar kapalıyken "Completed in 5s" satırı ve proje geri gelir. Düzenek durduruldu, geçici klasör silindi.
   - `npm pack --dry-run`: 118 dosya, `tether/` yalnız `gateway/*`. `git diff --check` temiz.
   - Açık risk: yeni Tether metinleri yalnız İngilizce (uygulamada yalnız `en.lproj` var).
+
+## Asistan: görünür dal sohbetleri (2026-11-09, dal `feature/gorunur-dal-sohbetleri`)
+İstek (sahip, Türkçe): asistan bir işi yapay zekâya verdiğinde iş gizli alt ajanda değil, DSH'de görünür bir sohbette çalışsın. Sohbet, DSH'nin "Yeni dal" seçeneği gibi ilgili projenin altında bir dal (worktree) olarak görünsün; kullanıcı ilerlemeyi canlı izlesin. Asistan hep boşta kalsın ve iş bitince sonucu alsın.
+
+### Hedef
+- `chat_new` aracına `branch` (boolean) ve `title` (metin) seçenekleri. `branch: true`, Worktree chats özelliğinin `startOnBranch` yolunu kullanır: `<repo>/.worktrees/<ad>` worktree, yeni dal, dsh projesi, sohbet, ilk mesaj. Kaynak sohbet yerine proje klasörü verilir; dsh'nin varsayılan modu ve modeli kullanılır.
+- Asistanın başlattığı her sohbet bir "görev" olarak kaydedilir (`assistant-tasks.json`). Görevin ilk turu bitince ya da hata verince asistan sohbetine gizli bir not gelir (Assistant news yolu). Bu not Assistant news anahtarı kapalıyken de gelir, 60 sn eşiği ve 2 dk aralık beklemez. Görev sohbeti onay ya da cevap beklerse de not gelir.
+- Asistan istemi: proje işi (depoda kod ya da ayar değişikliği) `chat_new` + `branch: true` ile görünür dal sohbetinde yapılır; araştırma ve kısa işler gizli alt ajanda kalır.
+
+### Değişmezler
+- Görev başına tek onay: `chat_new` onay kartı kalır (istem enjeksiyonuna karşı koruma). Kart dal ve başlığı gösterir.
+- Ana klasörde `checkout`/`switch` yok; yalnız `git worktree add -b` (DSH arayüzündeki "Yeni dal" ile aynı).
+- Branch per chat (`worktrees.json`) kapalıysa `branch: true` reddedilir.
+- Asistan araç izin listesi (Assistant always free) değişmez.
+- Yeni kenar çubuğu arayüzü yok: dsh ve Branches in the workspace tree, worktree projesini projenin altında gösterir.
+
+### Kabul ölçütleri
+1. `branch: true` bir git deposunda `.worktrees/<ad>` worktree, yeni dal, dsh projesi ve sohbet açar; ilk mesaj gider; `title` sohbet adı olur.
+2. Depo olmayan proje, kapalı Branch per chat ve geçersiz başlık reddedilir; sohbet açılmaz.
+3. Görev turunun sonu (completed, max-tokens, error) Assistant news kapalıyken de asistanı bir notla uyandırır; not sonucu içerir; görev listeden çıkar.
+4. Kullanıcı durdurursa görev not vermeden listeden çıkar; dsh'nin kapanışı (interrupted, disposed) görevi listede tutar.
+5. Görev listesi yeniden başlatmadan sonra dosyadan okunur.
+6. Var olan testler geçer.
+
+### Aşamalar
+1. Host: `startOnBranch` proje klasörü kabul eder; `chat_new` seçenekleri; görev deposu; haber yolu. Test: `test/assistant-branch-chat.test.mjs` (gerçek git, sahte dsh).
+2. İstem metni (ASSISTANT_SECTION, ASSISTANT_FREE_SECTION), `docs/features.json` (en `how`, `llms`), `npm run build:readme`.
+3. `npm test`, öz denetim (review-guard), düzeltmeler, tekrar denetim.
+
+### İzinli yollar
+`index.js`, `test/assistant-branch-chat.test.mjs`, `package.json` (test betiği), `docs/features.json`, `README.md` ve `llms.txt` (üretilen bölüm), `IMPLEMENTATION_PLAN.md`.
+
+### Kararlar
+- Yeni araç yerine `chat_new` seçeneği: araç adı izin listesinde zaten var, yapılacaklar dalıyla çakışma en az olur.
+- Ayrı bir özellik anahtarı yok: bu, `assistant` özelliğinin `chat_new` aracının bir seçeneğidir.
+- Sonuç bildirimi model turu başlatır, ama kullanıcı görevi onay kartıyla başlattı; bu yüzden ayrı bir "kapalı" varsayılan yok.
+
+### Riskler
+- `IMPLEMENTATION_PLAN.md` ve asistan istem metni yapılacaklar dalıyla birleşmede çakışabilir.
+- Görev listesinden yalnız ilk tur sonucu gelir; kullanıcı görev sohbetinde devam ederse sonraki turlar haber vermez (Assistant news açıksa uzun turlar gelir).
+- 11 dilde açıklama ve README çevirileri bu dalda güncellenmedi.
+
+### Son kontrol noktası
+- 2026-11-09 13:15: plan yazıldı, kod yok.
+- 2026-11-09 13:40: aşama 1 ve 2 bitti, commit `bba465c`. `npm test` exit 0. Yeni test 9 mutasyonun hepsinde kırmızı.
+- 2026-11-09 14:00: öz denetim (review-guard) ve düzeltme turu.
+  - F-01 (P2, doğrulandı): metinler dal sohbetinin kenar çubuğunda "projenin altında" göründüğünü söylüyordu. dsh bunu yalnız **Görünüm seçenekleri → Çalışma alanı ağacı** görünümünde iç içe gösterir (`dsh-client-ui-workspace` `owningParentFolder`, varsayılan `groupBy: "workspace"`). Düzeltme: araç yanıtı, araç açıklaması, istem ve 13 dilde `how` metni dal adlı proje ve ağaç görünümünü anlatır.
+  - F-02 (P2, doğrulandı): Assistant news kapatılınca `starts` artık temizlenmiyordu; kapatmadan önce başlayan bir tur, yeniden açılınca uzun tur haberi veriyordu. Düzeltme: kapatınca `starts` ve görev dışı bekleme sayaçları silinir, görev haberleri kalır.
+  - F-03 (P2, doğrulandı): görev sohbetinin her bekleme haberi 2 dk aralığını atlıyordu; sık onay isteyen bir sohbet her seferinde asistan turu (token) başlatırdı. Düzeltme: aralığı yalnız bitti/hata haberi atlar.
+  - F-04 (P3, doğrulandı): kullanılmayan `assistantTasks().list()` silindi.
+  - F-05 (P2, doğrulandı): görev notu asistana "yapılacaklar listeni güncelle" diyordu; Assistant always free `todo_write` çağrısını reddeder. Düzeltme: not yalnız `chat_read` adını verir.
+  - Her bulgu için `test/assistant-branch-chat.test.mjs` içinde regresyon denetimi var; her biri düzeltme geri alınınca kırmızı.
+- 2026-11-09 14:10: düzeltmeler commit `127deeb`. 3. denetim turunda yeni doğrulanmış bulgu yok. `npm test` exit 0, `git diff --check` temiz. `main` (3885882) ile `git merge-tree` çakışmasız.
+  - Arayüz doğrulanmadı: çalışan dsh canlı kopyayı yükler; etkinleştirme dsh'yi yeniden başlatmayı ister (bu görevde yasak). Gerçek dsh testi (0.2.0-rc.2, 0.2.1-rc.2) açık iş.
+  - Çakışma: `fix/asistan-acilis-hizi` ile yalnız bu dosyanın sonu (iki yeni bölüm; ikisini de tut).
