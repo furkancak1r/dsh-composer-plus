@@ -2373,6 +2373,14 @@ struct AssistantTab: View {
         }
         // Each time the tab shows, and when the Mac connects while it shows.
         .task(id: ready && c.plus.contains("assistant")) { open() }
+        // Connected, but the Mac's /me did not answer: ask again, else one failed /me keeps the spinner until the next connection.
+        .task(id: c.state == .connected && !c.plusKnown) {
+            while c.state == .connected, !c.plusKnown {
+                try? await Task.sleep(for: .seconds(5))
+                guard !Task.isCancelled, c.state == .connected, !c.plusKnown else { return }
+                await c.refreshMe()
+            }
+        }
     }
     private func open() {
         guard c.tab == .assistant, c.state == .connected, c.plus.contains("assistant") else { return }

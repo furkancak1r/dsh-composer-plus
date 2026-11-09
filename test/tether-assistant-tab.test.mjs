@@ -27,6 +27,7 @@ const tab = ui.slice(at, ui.indexOf('\n}\n', at));
 assert.match(tab, /\.task\(id: ready && c\.plus\.contains\("assistant"\)\)/);
 assert.match(tab, /guard c\.tab == \.assistant, c\.state == \.connected, c\.plus\.contains\("assistant"\) else \{ return \}/);
 assert.match(tab, /try await c\.openAssistant\(\)/);
+assert.match(tab, /\.task\(id: c\.state == \.connected && !c\.plusKnown\) \{[\s\S]*await c\.refreshMe\(\)/, 'a failed /me is asked again, not an endless spinner');
 assert.match(body(core, 'func openAssistant()'), /plusCall\("assistant"\)/);
 assert.deepEqual(PLUS.get('assistant'), ['GET']);
 // The Sessions toolbar has no Assistant button now: the tab is the way in.
