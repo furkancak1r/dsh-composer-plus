@@ -162,6 +162,13 @@ for (const name of ASSISTANT_ASK) {
   assert.equal(d.kind, 'ask', `${name} asks`); assert.match(d.reason, /^Composer Plus → Assistant wants to /);
 }
 assert.match((await pre({ name: 'chat_send', agent: assistant, arguments: { chat_id: 's-web', text: 'hello' } }, async () => ({ kind: 'allow' }))).reason, /send a message to "Login page": "hello"/);
+// The card shows the whole message: the user approves what is sent (the tools refuse more than 8000 characters).
+const long = `${'Line one of the report. '.repeat(60)}\nLast line: (SapDiApi) <b>not HTML</b> END`;
+const fullCard = (await pre({ name: 'chat_send', agent: assistant, arguments: { chat_id: 's-web', text: long } }, async () => ({ kind: 'allow' }))).reason;
+assert.ok(fullCard.endsWith(`: "${long}"`), 'chat_send: the full text, not cut at 300 characters');
+assert.ok(fullCard.includes('<b>not HTML</b> END'), 'plain text: kept as written (dsh draws the reason as text, not HTML)');
+const newCard = (await pre({ name: 'chat_new', agent: assistant, arguments: { project: 'acme-web', text: long } }, async () => ({ kind: 'allow' }))).reason;
+assert.ok(newCard.endsWith(`: "${long}"`), 'chat_new: the full first message');
 assert.equal((await pre({ name: 'chats_list', agent: assistant, arguments: '{}' }, async () => ({ kind: 'allow' }))).kind, 'allow', 'read tools do not ask');
 assert.equal((await pre({ name: 'chat_read', agent: assistant, arguments: '{}' }, async () => ({ kind: 'allow' }))).kind, 'allow');
 assert.equal((await pre({ name: 'chat_send', agent: assistant, arguments: '{}' }, async () => ({ kind: 'deny', reason: 'no' }))).kind, 'deny', 'a denial stays');

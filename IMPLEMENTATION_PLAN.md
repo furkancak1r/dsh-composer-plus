@@ -2647,3 +2647,22 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
 - 2026-11-09 14:10: düzeltmeler commit `127deeb`. 3. denetim turunda yeni doğrulanmış bulgu yok. `npm test` exit 0, `git diff --check` temiz. `main` (3885882) ile `git merge-tree` çakışmasız.
   - Arayüz doğrulanmadı: çalışan dsh canlı kopyayı yükler; etkinleştirme dsh'yi yeniden başlatmayı ister (bu görevde yasak). Gerçek dsh testi (0.2.0-rc.2, 0.2.1-rc.2) açık iş.
   - Çakışma: `fix/asistan-acilis-hizi` ile yalnız bu dosyanın sonu (iki yeni bölüm; ikisini de tut).
+
+## Asistan onay kartı tam metin (2026-11-09, dal `fix/onay-karti-tam-metin`)
+
+### Amaç
+`chat_send` ve `chat_new` onay kartı mesajın tamamını gösterir; kullanıcı onaylamadan önce gönderilecek metni okuyabilir.
+
+### Neden (doğrulandı)
+Kırpma Composer Plus'ta: `index.js` `tools/pre-execute` işleyicisi metni `cutEnd(a.text.trim(), 300)` ile 300 karakterde kesiyordu. dsh çekirdeği kesmiyor: `dsh-client-ui-approval` kartı nedeni `ImxglW_headline` içinde düz metin olarak çizer, gövde (`ImxglW_body`) `max-height: var(--dsh-composer-text-max-height); overflow-y: auto` ile kayar.
+
+### Değişiklik
+Sınır `ASSISTANT_LIMITS.text` (8000; araçlar daha uzun metni zaten reddeder). Metin düz metin kalır (HTML yok); enjeksiyon koruması değişmez.
+
+### Kontroller
+- `test/assistant.test.mjs`: chat_send ve chat_new kartı tam metni (1400+ karakter, `<b>` dahil) taşır; main'de kırmızı.
+- `test/browser-assistant.mjs` adım 5: 703 karakterlik enjekte metnin son sözcükleri kartta, `<b>` öğe değil metin, kart gövdesi `overflow-y: auto`. 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS.
+- `npm test` exit 0.
+
+### Son kontrol noktası
+- 2026-11-09 15:20: kod, testler ve gerçek dsh denemesi bitti; inceleme kapısı sırada.
