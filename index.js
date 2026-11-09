@@ -2358,7 +2358,8 @@ export function apply(ctx) {
   });
   // Tether's green dots, kept here while Mobile connect is on: a root chat whose turn ends gets one, a new turn or a read
   // on any device takes it away. dsh's own dot lives only in the desktop client's memory, so that client reports its
-  // reads here (client.js watchRead). Each change goes to the connected phones at once.
+  // reads here and its dots that this list does not have (`add`), and clears its dots of the chats that a phone read
+  // (client.js watchRead). Each change goes to the connected phones at once.
   const unread = unreadStore(join(home, 'storages', 'dsh-composer-plus', 'unread.json'));
   const busy = new Set(); // root chats that run now: only their running → idle edge is a finished turn
   function changeUnread(add, remove) {
@@ -2383,11 +2384,14 @@ export function apply(ctx) {
       if (request.method === 'POST') {
         let body;
         try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
-        const ids = body?.sessionIds;
-        if (!Array.isArray(ids) || ids.length === 0 || ids.length > UNREAD_MAX || !ids.every((id) => isText(id, 128))) return json({ error: 'bad request' }, 400);
-        changeUnread([], ids);
+        // `sessionIds`: chats that are read now; `add`: chats with a dot in dsh that this list does not have yet.
+        const ids = (v) => v === undefined || (Array.isArray(v) && v.length <= UNREAD_MAX && v.every((id) => isText(id, 128)));
+        const { sessionIds: read = [], add = [] } = body ?? {};
+        if (!ids(body?.sessionIds) || !ids(body?.add) || read.length + add.length === 0) return json({ error: 'bad request' }, 400);
+        changeUnread(mobileOn === true ? add : [], read); // off: nothing is kept
       }
-      return json({ unread: mobileOn === true ? unread.list() : [] });
+      // `on`: the list is kept (Mobile connect is on); while off it is empty and says nothing about what was read.
+      return json({ on: mobileOn === true, unread: mobileOn === true ? unread.list() : [] });
     },
   });
   installResume(ctx, home);

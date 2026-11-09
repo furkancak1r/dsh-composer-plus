@@ -356,6 +356,8 @@ test('composer-plus routes: allowlisted methods pass with the query or body; swi
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.unread', body: '', type: null })
     await call(t.gw, 'POST', '/plus/unread', { sessionIds: ['s'] }, auth)
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'POST', url: '/api/composer-plus.unread', body: JSON.stringify({ sessionIds: ['s'] }), type: 'application/json' })
+    await call(t.gw, 'POST', '/plus/unread', { add: ['s'] }, auth)
+    assert.deepEqual(t.dsh.plus.at(-1), { method: 'POST', url: '/api/composer-plus.unread', body: JSON.stringify({ add: ['s'] }), type: 'application/json' }, 'the body goes as it is')
     // Changes panel branch tree: the phone reads the tree and one commit's files (the query goes to dsh as it is).
     await call(t.gw, 'GET', '/plus/graph?sessionId=s', undefined, auth)
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.graph?sessionId=s', body: '', type: null })

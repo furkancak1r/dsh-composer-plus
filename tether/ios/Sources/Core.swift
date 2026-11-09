@@ -1265,11 +1265,20 @@ func recentChat(_ s: Sess, busy: Set<String>, now: Date, open: String?, waiting:
 }
 
 /// Green dots from the Mac (Composer Plus keeps them): the chats that finished and that no device opened yet. Only root
-/// chats that are idle now, and never the chat on screen (it is read while you look at it).
-func shownUnread(host: [String], sessions: [Sess], open: String?) -> Set<String> {
+/// chats that are idle now and not archived (DSH hides an archived chat's dot), and never the chat on screen (it is read
+/// while you look at it).
+func shownUnread(host: [String], sessions: [Sess], archived: Set<String> = [], open: String?) -> Set<String> {
     let busy = runningIds(sessions)
-    let idle = Set(sessions.filter { $0.parent == nil && !busy.contains($0.id) }.map(\.id))
+    let idle = Set(sessions.filter { $0.parent == nil && !busy.contains($0.id) && !archived.contains($0.id) }.map(\.id))
     return Set(host).intersection(idle).subtracting(open.map { [$0] } ?? [])
+}
+/// The green dots after a list load. The Mac's list is the only source, so the count is the Mac's count. `route`: the
+/// Mac's gateway has the `unread` route (nil: not known yet, before `/me`). A Mac without it cannot tell which chats were
+/// read on the Mac, so no dot shows (a guess would keep dots of chats read there). `host`: the Mac's list, or nil when it
+/// could not answer: then the last list (`kept`) stays.
+func listDots(host: [String]?, route: Bool?, kept: Set<String>, sessions: [Sess], archived: Set<String>, open: String?) -> Set<String> {
+    if route == false { return [] }
+    return shownUnread(host: host ?? Array(kept), sessions: sessions, archived: archived, open: open)
 }
 
 /// A chat shows "Running" while its own turn or one of its subagents runs, as in the DSH desktop sidebar.
@@ -1473,7 +1482,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// Every paired Mac, in the picker's order; no limit. Saved in the Keychain as one item.
     @Published var pairings: [Pairing] { didSet { Keychain.save(pairings) } }
     /// The Mac on screen. Every request, socket and list uses only this Mac's address, pin and token.
-    @Published var activeFp: String? { didSet { UserDefaults.standard.set(activeFp, forKey: "activeMac") } }
+    @Published var activeFp: String? { didSet { UserDefaults.standard.set(activeFp, forKey: "activeMac"); if activeFp != oldValue { plusKnown = false } } }
     /// The Mac paired by the one-Mac build: it keeps the old bare UserDefaults keys (see macKey).
     private let legacyFp: String?
     /// The active Mac's pairing. Writes go into `pairings` (address learned from Bonjour, Tailscale, renewed token).
@@ -1567,6 +1576,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private var predicted: String? // "sid:seq" asked already: one model call per finished turn
     /// Composer Plus routes on this Mac (`/me` → plus). An older gateway or plugin has none: those features hide.
     @Published var plus: Set<String> = []
+    /// `plus` is the answer of the Mac on screen (its `/me` came): only then does a missing route mean "no route".
+    private var plusKnown = false
     /// Turn rollback: dsh-rewind-plugin owns rollback, or the switch is off on the Mac (then no ↶).
     @Published var rollbackOn = false
     /// Allow for this chat: chat id → tools allowed without asking.
@@ -1602,6 +1613,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// The settings that each Mac has (see macKey). Older builds kept one set for every Mac under these bare keys.
     static let notifyKeys = [notifyKey, hoursKey, fromKey, toKey]
     /// Every UserDefaults key that belongs to one Mac: unpairing (and a new certificate for the same Mac) removes them.
+    /// `seenSessions` is no longer written (older builds guessed dots from it); it stays here so that unpairing removes it.
     static let perMacKeys = ["seenSessions", "finished", "drafts"] + notifyKeys
     /// The values of the Mac on screen; `loadNotify` reads them when the Mac changes.
     @Published private(set) var notifyOn = false
@@ -2616,7 +2628,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let e = me["expiresAt"] as? String { pairing?.expiresAt = e }
         if let t = me["tailscale"] as? String, isTailnet(t), t != pairing?.ts { pairing?.ts = t } // learned without re-pairing
         if let m = (me["mac"] as? String).flatMap(macLabel), m != pairing?.mac { pairing?.mac = m } // a gateway that reports its name
-        plus = Set(me["plus"] as? [String] ?? [])
+        plus = Set(me["plus"] as? [String] ?? []); plusKnown = true
         // Each /me (each connection) asks iOS for the token again and sends this Mac the settings: a failed first try, or a
         // Mac that lost the token (APNs said 410), heals on the next connection.
         let push = me["push"] as? Bool == true
@@ -2698,7 +2710,10 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             workspaces.sort { (ids.firstIndex(of: $0.id) ?? .max) < (ids.firstIndex(of: $1.id) ?? .max) }
         default: break
         }
-        if let a = f["archivedSessionIds"] as? [String] { archived = a }
+        if let a = f["archivedSessionIds"] as? [String] {
+            archived = a
+            if !finished.isDisjoint(with: a) { finished.subtract(a) } // DSH shows no dot on an archived chat
+        }
         if let p = f["pinnedSessionIds"] as? [String] { pinned = p }
     }
 
@@ -2721,7 +2736,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     private var onScreen: String? { path.isEmpty ? nil : current }
     /// The Mac's dots replace this iPhone's. The chat on screen is read: the Mac hears it at once.
     private func applyUnread(_ host: [String]) {
-        let dots = shownUnread(host: host, sessions: sessions, open: onScreen)
+        let dots = shownUnread(host: host, sessions: sessions, archived: Set(archived), open: onScreen)
         if dots != finished { finished = dots }
         if let s = onScreen, host.contains(s) { markRead(s) }
     }
@@ -2969,27 +2984,17 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         // Branch badges: best-effort (an older Mac has no route; then no badges). Asked now, read after the dots.
         let wantBranches = plus.contains("branches")
         async let branchReply: J? = wantBranches ? plusCall("branches") : nil
-        // Green dots: the Mac keeps them (a chat read on the Mac or another phone loses its dot here too).
+        // Green dots: only the Mac's list (a chat read on the Mac or another phone loses its dot here too), so the Sessions
+        // count is the Mac's count. No route on the Mac: no dots (listDots).
         var host: [String]?
         if plus.contains("unread") {
             do { host = try await plusCall("unread")["unread"] as? [String] }
             catch is CancellationError { throw CancellationError() } // another Mac is on screen now
-            catch {} // the Mac could not answer: the local rule below
+            catch {} // the Mac could not answer: the last list stays
         }
-        if let host {
-            let dots = shownUnread(host: host, sessions: fresh, open: onScreen)
-            if dots != finished { finished = dots }
-            if let s = onScreen, host.contains(s) { markRead(s) }
-        } else {
-            // An older Mac: guess from two lists. Cold start: compare against the last list seen before the app was
-            // closed, so turns that finished meanwhile still get a dot.
-            let old = sessions.isEmpty ? (UserDefaults.standard.array(forKey: key("seenSessions")) as? [J] ?? []).compactMap(Sess.init) : sessions
-            // Drop dots for sessions that vanished (archived elsewhere) so the badge can't stick, and for sessions that run
-            // again: a running chat shows the spinner, not "Finished".
-            let busy = runningIds(fresh)
-            let dots = finished.intersection(fresh.filter { !busy.contains($0.id) }.map(\.id)).union(Self.justFinished(old: old, new: fresh, current: current))
-            if dots != finished { finished = dots }
-        }
+        let dots = listDots(host: host, route: plusKnown ? plus.contains("unread") : nil, kept: finished, sessions: fresh, archived: Set(archived), open: onScreen)
+        if dots != finished { finished = dots }
+        if let host, let s = onScreen, host.contains(s) { markRead(s) }
         // Only a change is written (each write redraws every view of Client); the list itself is new each time.
         if wantBranches {
             do { if let o = try await branchReply { let b = sessionBranches(o); if b != branches { branches = b } } }
@@ -3003,29 +3008,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         let asks = prompts.filter { $0.event != "userQuestions/answer" }, waiting = Set(asks.compactMap(\.agentId))
         let next = asks + fresh.flatMap(\.questions).filter { !waiting.contains($0.agentId ?? "") }
         if next.map(\.id) != prompts.map(\.id) { prompts = next }
-        UserDefaults.standard.set(Self.snapshot(fresh), forKey: key("seenSessions"))
         if let s = currentSess, s.running != running, !answering { running = s.running }
-    }
-
-    /// Just the fields justFinished compares, in the wire shape Sess.init reads back.
-    static func snapshot(_ s: [Sess]) -> [J] {
-        s.map { s in
-            var j: J = ["sessionId": s.id, "running": s.running, "projections": ["values": ["title": s.title]]]
-            if let u = s.updated { j["updatedAt"] = u.timeIntervalSince1970 * 1000 }
-            if let p = s.parent { j["parentSessionId"] = p; j["origin"] = "subagent" } // a chat counts as running while its subagent runs
-            return j
-        }
-    }
-
-    /// Not the open chat, idle now (its subagents too), and either was running last list or got a newer updatedAt (a whole turn between two refreshes) without a rename.
-    static func justFinished(old: [Sess], new: [Sess], current: String?) -> Set<String> {
-        let prev = Dictionary(old.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-        return Set(new.filter { n in
-            guard !isRunning(n, new), n.id != current, let o = prev[n.id] else { return false }
-            if isRunning(o, old) { return true }
-            guard let a = o.updated, let b = n.updated else { return false }
-            return b > a && o.title == n.title
-        }.map(\.id))
     }
 
     /// DSH refuses a session/create with both: a workspace gives its own folder (and adds the chat to that project).
