@@ -3,6 +3,8 @@
 // 1. A message that you type while the assistant's turn runs goes into that turn at its next step (no second turn, nothing
 //    cancelled); your message comes before the notices of the same step. Other chats and the switch off keep dsh's queue.
 //    A message that comes while the turn ends (after dsh's last inbox check) still runs; after your Stop it waits, as in dsh.
+// 2. dsh's "finished" notice of a subagent that sent its result first (dsh 0.2.2 marks it) starts no turn and adds no step:
+//    it goes to the model with the next turn. Other notices, other chats and the switch off: dsh's behavior.
 import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -174,6 +176,55 @@ a.followup(typed('go on'));
 await until(() => a.gates.length === 1, 'next turn');
 await a.answer('done'); await idle(a);
 assert.deepEqual(a.requests.map((r) => texts(r.messages)), [['long job'], ['wait, one more thing', 'go on']]);
+
+// 2. A subagent that sent you its result with send_message and then finished: dsh's "finished" notice starts no turn.
+const SENT = 'It sent you a message just before finishing, so its closing message is omitted.';
+const finished = (child, sent) => ({ id: randomUUID(), role: 'user', source: { kind: 'subagent-settled', form: 'notice', senderSessionId: child },
+  content: [{ type: 'text', text: `Background subagent ${child} finished and will do no further work unless you send it more.` }, { type: 'text', text: sent ? SENT : 'Its closing message:' }, ...(sent ? [] : [{ type: 'text', text: 'Rome: 3 flights.' }])] });
+const relay = (child, text) => ({ id: randomUUID(), role: 'user', content: [{ type: 'text', text: `Agent ${child} sent a message: ` }, { type: 'text', text }], source: { kind: 'agent-message', form: 'relay', senderSessionId: child } });
+a.requests = []; a.turns = 0;
+// 2a. Idle: the message starts one turn; the notice that follows (dsh: followup, the parent is idle) starts none and goes
+//     to the model with your next message, after it.
+a.steer(relay('s-c1', 'Rome: 3 flights.'));
+await until(() => a.gates.length === 1, 'the message turn');
+await a.answer('done'); await idle(a);
+a.followup(finished('s-c1', true));
+await pause(5);
+assert.equal(a.turns, 1, 'no turn for the notice');
+assert.equal(a.inbox.nextStep.length, 1, 'kept as context');
+a.followup(typed('thanks, book the first'));
+await until(() => a.gates.length === 1, 'your turn'); await a.answer('done'); await idle(a);
+assert.deepEqual(a.requests.map((r) => [r.turn, texts(r.messages).map((t) => t.slice(0, 30))]), [[1, ['Agent s-c1 sent a message: Rom']], [2, ['thanks, book the first', 'Background subagent s-c1 finis']]]);
+// 2b. Running: the notice (dsh: steer) adds no step to the turn; it waits and goes in, without a turn, when the turn ends.
+a.requests = []; a.turns = 0;
+a.followup(typed('plan a trip'));
+await until(() => a.gates.length === 1, 'step');
+a.steer(finished('s-c2', true));
+await a.answer('done'); await idle(a); await pause(5);
+assert.equal(a.requests.length, 1, 'no extra step');
+assert.equal(a.turns, 1, 'no extra turn');
+assert.deepEqual(texts(a.inbox.nextStep).map((t) => t.slice(0, 30)), ['Background subagent s-c2 finis'], 'held, then kept as context');
+a.followup(typed('ok'));
+await until(() => a.gates.length === 1, 'turn'); await a.answer('done'); await idle(a);
+assert.deepEqual(a.inbox.nextStep, []);
+// 2c. A subagent that finished without a message, or failed: dsh's notice starts a turn as before.
+a.requests = []; a.turns = 0;
+a.followup(finished('s-c3', false));
+await until(() => a.gates.length === 1, 'the notice turn'); await a.answer('done'); await idle(a);
+a.followup({ ...finished('s-c4', true), content: [{ type: 'text', text: 'Background subagent s-c4 failed before it finished.' }, { type: 'text', text: SENT }] });
+await until(() => a.gates.length === 1, 'the failure turn'); await a.answer('done'); await idle(a);
+assert.equal(a.turns, 2);
+// 2d. Another chat and the switch off: dsh's notice as before.
+other.requests = []; other.turns = 0;
+other.followup(finished('s-c5', true));
+await until(() => other.gates.length === 1, 'other notice turn'); await other.answer('done'); await idle(other);
+assert.equal(other.turns, 1);
+await setFree(false);
+a.turns = 0;
+a.followup(finished('s-c6', true));
+await until(() => a.gates.length === 1, 'notice turn while off'); await a.answer('done'); await idle(a);
+assert.equal(a.turns, 1);
+await setFree(true);
 
 await rm(home, { recursive: true, force: true });
 console.log('assistant-interject ok');

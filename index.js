@@ -9191,6 +9191,11 @@ In this chat you call only these tools yourself: chats_list, chat_read, chat_sen
 const INTERJECT_SOURCE = 'composer-plus-assistant-interject';
 /** A prompt that you sent (dsh's composer or Tether): dsh's prompt route marks it with its request id. */
 const typedPrompt = (m) => m?.source?.kind === 'user' && typeof m.source.rpcId === 'string';
+/** dsh's "finished" notice of a subagent whose last act was a message to you (dsh 0.2.2+ writes this line; older dsh does
+ * not, so its notices stay as they are). A failed or stopped subagent's notice never counts. */
+const SENT_FIRST = 'It sent you a message just before finishing, so its closing message is omitted.';
+const quietNotice = (m) => m?.source?.kind === 'subagent-settled' && Array.isArray(m.content)
+  && / finished and will do no further work/.test(m.content[0]?.text ?? '') && m.content.some((b) => b?.text === SENT_FIRST);
 const FREE_REASON = (name) => `Composer Plus → Assistant always free: this chat stays free for the user's next message, so it does not run ${name} itself. Start this work with the subagent tool in the background (a code or configuration change in a project: chat_new with branch true), say in one line what you started, and end your turn.`;
 /** Assistant news: a finished turn counts when it ran this long; a wait counts when it lasts this long; news is collected
  * this long before it goes; two news turns are at least `gap` apart; one note names at most `max` chats. */
@@ -9403,19 +9408,31 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   // turn at its next step (dsh's steer, as send_message does), not to the queue behind the turn's end. Nothing is cancelled.
   // ponytail: dsh has no per-chat delivery mode, so the assistant agent's own followup is wrapped (dsh's composer and
   // Tether send with followup). Upgrade when dsh lets a plugin choose the delivery of a prompt.
+  // A subagent that sent its result with send_message and then finished: dsh's "finished" notice starts no turn of its own.
+  // It waits silently and goes to the model with the next turn (held while a turn runs, so it adds no step either).
   const interjects = (agent) => freeOn && assistant.isAssistant(agent);
-  const patched = new Map(); // assistant agent → puts its own followup back
+  const patched = new Map(); // assistant agent → puts its own followup and steer back
+  const held = new Map(); // assistant agent → quiet notices that came while its turn ran
   let lastEnd; // reason kind of the assistant chat's newest turn end
   const patch = (agent) => {
-    if (patched.has(agent) || !assistant.isAssistant(agent) || typeof agent.followup !== 'function' || typeof agent.steer !== 'function') return;
-    const own = Object.hasOwn(agent, 'followup'); const original = agent.followup;
-    const followup = original.bind(agent); const steer = agent.steer.bind(agent);
-    agent.followup = (message) => (interjects(agent) && agent.status === 'running' && typedPrompt(message) ? steer(message) : followup(message));
-    patched.set(agent, () => { if (own) agent.followup = original; else delete agent.followup; });
+    if (patched.has(agent) || !assistant.isAssistant(agent) || typeof agent.followup !== 'function' || typeof agent.steer !== 'function' || typeof agent.inject !== 'function') return;
+    const restore = ['followup', 'steer'].map((name) => {
+      const own = Object.hasOwn(agent, name); const original = agent[name]; const call = original.bind(agent);
+      agent[name] = (message) => {
+        if (interjects(agent) && quietNotice(message)) {
+          if (agent.status === 'running') held.set(agent, [...(held.get(agent) ?? []), message]);
+          else agent.inject(message);
+          return undefined;
+        }
+        return name === 'followup' && interjects(agent) && agent.status === 'running' && typedPrompt(message) ? agent.steer(message) : call(message);
+      };
+      return () => { if (own) agent[name] = original; else delete agent[name]; };
+    });
+    patched.set(agent, () => { for (const undo of restore) undo(); });
   };
   const unpatch = (agent) => { patched.get(agent)?.(); patched.delete(agent); };
   ctx.on('agent/created', ({ agent } = {}) => { patch(agent); });
-  ctx.on('agent/disposed', ({ agent } = {}) => { patched.delete(agent); });
+  ctx.on('agent/disposed', ({ agent } = {}) => { patched.delete(agent); held.delete(agent); });
   ctx.on('session/event', (session, event) => {
     if (event?.type === 'turn/end' && isText(session?.id) && session.id === assistant.id()) lastEnd = event.data?.reason?.kind;
   });
@@ -9425,7 +9442,13 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
     // dsh checks its inbox for the last time before the agent is idle; a message that came in between waits with no turn.
     // Wake the chat for it, unless you stopped the turn (then it waits, as in dsh).
     queueMicrotask(() => {
-      if (agent.status !== 'idle' || !interjects(agent) || (lastEnd !== 'completed' && lastEnd !== 'max-tokens') || !agent.inbox?.nextStep?.some?.(typedPrompt)) return;
+      if (agent.status !== 'idle') return;
+      // The held notices go in now, without a turn (also when the switch went off meanwhile: they are never dropped).
+      const quiet = held.get(agent) ?? []; held.delete(agent);
+      for (const [i, message] of quiet.entries()) {
+        try { agent.inject(message); } catch (error) { held.set(agent, quiet.slice(i)); log(`a finished notice waits: ${error?.message ?? error}`); break; }
+      }
+      if (!interjects(agent) || (lastEnd !== 'completed' && lastEnd !== 'max-tokens') || !agent.inbox?.nextStep?.some?.(typedPrompt)) return;
       try { wakeWithContinue(agent, INTERJECT_SOURCE); } catch (error) { log(`a typed message waits for the next turn: ${error?.message ?? error}`); }
     });
   });
