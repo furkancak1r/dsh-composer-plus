@@ -9649,7 +9649,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   ctx.on('agent/status', ({ agent, status } = {}) => {
     if (afterIdle && agent?.id === assistant.id() && status !== 'running') { afterIdle = false; schedule(timing.batch); }
   });
-  /** A chat that the assistant gave work to (chat_new with branch): its turn end and its waits are news while Assistant news
+  /** A chat that the assistant gave work to (chat_new, with or without branch): its turn end and its waits are news while Assistant news
    * is off too. */
   const taskOf = (session) => (assistant.isOn() && isText(session?.id) && session.id !== assistant.id() ? assistant.tasks?.get?.(session.id) : undefined);
   // The note names the project that the task was given in (the branch's own project has the branch name).
@@ -10012,7 +10012,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       projectsCache = { at: now(), sessionId, value: statusProjects(items, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived }) };
     }
     const projects = projectsCache.value;
-    // Delegated chats (chat_new with branch) are tasks too, while their turn runs (main's store drops them at the end).
+    // Delegated chats (chat_new, with or without branch) are tasks too, while their turn runs (main's store drops them at the end).
     // ponytail: an ended delegated chat shows under Projects, not under Tasks; upgrade: keep it in the store until the day ends.
     for (const [id, task] of assistant.tasks?.list?.() ?? []) {
       const live = get('agents')?.get?.(id);
