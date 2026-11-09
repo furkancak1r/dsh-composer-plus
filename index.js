@@ -9094,7 +9094,9 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     const a = argsOf(exec.arguments) ?? {};
     const name = isText(a.chat_id, 128) ? `"${cutEnd(String(await titleOf(a.chat_id) ?? a.chat_id), 80)}"` : '';
     const words = { chat_send: `send a message to ${name}`, chat_new: `start a new chat${a.branch === true ? ' on a new branch' : ''} in "${cutEnd(String(a.project ?? ''), 80)}"${typeof a.title === 'string' && a.title.trim() !== '' ? ` named "${cutEnd(a.title.trim(), 80)}"` : ''}`, chat_stop: `stop ${name}`, chat_archive: `archive ${name}` }[exec.name];
-    const quote = typeof a.text === 'string' ? `: "${cutEnd(a.text.trim(), 300)}"` : '';
+    // The whole message (the tools refuse more than ASSISTANT_LIMITS.text): the user approves what is sent, so the card
+    // must not cut it. dsh's card draws the reason as plain text (no HTML) in its scrolling body.
+    const quote = typeof a.text === 'string' ? `: "${cutEnd(a.text.trim(), ASSISTANT_LIMITS.text)}"` : '';
     const own = `Composer Plus → Assistant wants to ${words}${quote}`;
     return { kind: 'ask', reason: decision.kind === 'ask' && typeof decision.reason === 'string' && decision.reason !== '' ? `${own} ${decision.reason}` : own };
   });
