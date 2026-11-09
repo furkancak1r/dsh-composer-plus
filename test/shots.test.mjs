@@ -1,5 +1,6 @@
 // Feature screenshots: Host serves only whitelisted, shipped files; the Settings thumbnail previews on hover and opens a lightbox.
 import assert from 'node:assert/strict'; import { readFileSync, readdirSync } from 'node:fs';
+import './temp-home.mjs'; // before index.js: apply() must not get the real DSH_HOME
 import { apply, SHOT_PATH, SHOTS } from '../index.js';
 const files = readdirSync(new URL('../assets/features/', import.meta.url)).filter((f) => f.endsWith('.webp')).map((f) => f.slice(0, -5)).sort();
 assert.deepEqual([...SHOTS].sort(), files, 'every listed shot ships, every shipped shot is listed');

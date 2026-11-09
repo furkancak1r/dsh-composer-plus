@@ -24,7 +24,7 @@
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { appendFile, chmod, copyFile, cp, lstat, mkdir, mkdtemp, open, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { homedir, platform as osPlatform, release as osRelease } from 'node:os';
+import { homedir, platform as osPlatform, release as osRelease, userInfo } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { createGateway, createRelay, macName, normFp, parseComputerLink } from './tether/gateway/server.mjs';
 import { request as httpsRequest } from 'node:https';
@@ -2083,8 +2083,23 @@ export async function moveToTrash(folders, { home, subprocess, platform = proces
   return { to: 'folder', moved };
 }
 
+/** A test of this package must never use the user's real dsh home: dsh exports DSH_HOME=~/.dsh to its shells, so a test
+ * that calls apply() without its own DSH_HOME changed the real settings and memory. When the main script is in this
+ * package's test/ folder and `home` is the real ~/.dsh (from the user database, not HOME), stop before any feature reads
+ * or writes it. dsh never runs a script from test/, so this does nothing in dsh. */
+export function refuseRealHome(home, main = process.argv[1]) {
+  let real;
+  try {
+    if (!realpathSync(main).startsWith(fileURLToPath(new URL('./test/', import.meta.url)))) return;
+    real = join(userInfo().homedir, '.dsh');
+  } catch { return; } // no main script, a path that is not a file, or no user record: not a test of this package
+  const at = resolve(home);
+  if (at === real || at.startsWith(real + sep)) throw new Error(`a test must not use the real dsh home ${real}: set DSH_HOME to a temporary folder`);
+}
+
 export function apply(ctx) {
   const home = process.env.DSH_HOME || join(homedir(), '.dsh');
+  refuseRealHome(home);
   // The empty wake marker opens the step; it is then replaced by a fresh context message. Only messages
   // claimed from the inbox render as a chat bubble, so the replacement stays out of Chat, but it gives the
   // model a final user turn: providers such as Claude reject a request that ends on an assistant message.

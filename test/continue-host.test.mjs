@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import './temp-home.mjs'; // before index.js: apply() must not get the real DSH_HOME
 import { apply, CONTINUE_PATH } from '../index.js';
 const routes = new Map(), hooks = new Map(), agents = new Map();
 let released = 0;
