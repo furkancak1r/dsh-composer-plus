@@ -11,7 +11,7 @@ globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), se
 globalThis.document = { visibilityState: 'visible', querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {} };
 const tick = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
 
-let assistantOn = true; let statusId = 's-assistant'; const switches = { free: { on: true, active: true }, notify: { on: false } }; const posts = [];
+let assistantOn = true; let statusId = 's-assistant'; const switches = { free: { on: true, active: true }, notify: { on: false, scope: 'automations' } }; const posts = [];
 globalThis.fetch = async (url, init) => {
   const u = String(url);
   if (u === '/api/composer-plus.assistant-switch') { if (init?.method === 'POST') assistantOn = JSON.parse(init.body).on; return Response.json({ on: assistantOn }); }
@@ -164,6 +164,28 @@ const toggles = settings.inject().hooks.composerPlusToggles;
 assert.equal(toggles.getSnapshot().assistantFree, true); assert.equal(toggles.getSnapshot().assistantNotify, false, 'news: off by default');
 await settings.inject().setFeature('assistantNotify', true); await tick();
 assert.deepEqual(posts.at(-1), ['notify', { on: true }]); assert.equal(toggles.getSnapshot().assistantNotify, true);
+// Tell me about: the menu under the switch while on; a pick posts {scope} once and shows at once.
+{
+  const [, Settings] = [...live.values()].find(([o]) => o.name === 'settings.section');
+  const tree = () => Settings({ ...settings.inject(), useComposerPlusToggles: (f) => f(toggles.getSnapshot()), t });
+  const scopeEl = () => find(tree(), (n) => typeof n.t === 'function' && n.t.name === 'AssistantNotifyScope');
+  const el = scopeEl(); assert.ok(el, 'the scope menu while news is on');
+  let menu = find(el.t(el.p), (n) => n.t === 'Menu');
+  assert.equal(menu.p.selectedId, 'automations'); assert.deepEqual(menu.p.items.map((i) => i.id), ['automations', 'all']);
+  assert.equal(text(menu.p.anchor), 'assistantNotify.scope.automations');
+  menu.p.onSelect('all'); await tick();
+  assert.deepEqual(posts.at(-1), ['notify', { scope: 'all' }]); assert.equal(switches.notify.scope, 'all');
+  const count = posts.length; menu = find(el.t(el.p), (n) => n.t === 'Menu'); menu.p.onSelect('all'); await tick();
+  assert.equal(posts.length, count, 'the same choice posts nothing');
+  assert.equal(find(el.t(el.p), (n) => n.t === 'Menu').p.selectedId, 'all');
+  menu.p.onSelect('automations'); await tick();
+  // An older Host half (no scope in its answer): no menu.
+  const old = { ...el.p, store: { subscribe: () => () => {}, getSnapshot: () => ({ on: true }) } };
+  assert.equal(el.t(old), null, 'no scope from the Host: no menu');
+  await settings.inject().setFeature('assistantNotify', false); await tick();
+  assert.equal(scopeEl(), undefined, 'no menu while news is off');
+  await settings.inject().setFeature('assistantNotify', true); await tick();
+}
 await settings.inject().setFeature('assistantFree', false); await tick();
 assert.deepEqual(posts.at(-1), ['free', { on: false }]);
 await settings.inject().setFeature('assistantFree', true); await tick();
