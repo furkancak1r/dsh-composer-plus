@@ -98,6 +98,11 @@ assert.ok(css().includes('[data-chat-turn="33"]') && !css().includes('[data-chat
 button().c[0].p.onClick(); out = view.render();
 assert.ok(!css().includes('data-chat-turn'), 'every turn shows'); assert.ok(!css().includes('_older'), 'Load earlier is back');
 assert.equal(out.c[1], null, 'no button'); assert.ok(!flow.children.includes(seat), 'the seat goes');
+// The chat opens again (dsh draws a new column): the cap holds again.
+const flowAgain = new El({ 'data-chat-flow': '' }, [new El({ 'data-slot': 'conversation.chat.flow' }, rowsOf([30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41]))]);
+body.children[0].children = [flowAgain]; flowAgain.parentElement = body.children[0];
+observers.get(body)?.fn([{ target: body }]); out = view.render();
+assert.ok(css().includes('[data-chat-turn="30"]'), 'opened again: capped again'); assert.ok(out.c[1] !== null, 'the button is back');
 // Another chat id (the assistant chat was made again): the cap holds again for it.
 const flow2 = new El({ 'data-chat-flow': '' }, [new El({ 'data-slot': 'conversation.chat.flow' }, rowsOf([1, 2, 3, 4, 5, 6, 7, 8, 9]))]);
 body.append(new El({ 'data-conversation-session': 's-assistant-2' }, [flow2])); id = 's-assistant-2'; out = view.render();

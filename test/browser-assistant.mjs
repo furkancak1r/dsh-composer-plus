@@ -545,7 +545,7 @@ try {
       const earlier = page.locator('[data-composer-plus-assistant-earlier-button]');
       await earlier.waitFor({ timeout: 10000 });
       assert.equal(await turnsNow(), 8, 'only the newest 8 turns show');
-      assert.match(await earlier.innerText(), /^Show earlier messages \(\d+ turns\)$/);
+      assert.match(await earlier.innerText(), /^Show earlier messages \(hidden turns: \d+\)$/);
       const hiddenCount = Number(await earlier.getAttribute('data-composer-plus-assistant-earlier-button'));
       await earlier.click();
       await until(async () => (await turnsNow()) === (await drawnTurns()), 'every drawn turn shows after the click').catch(async (error) => {

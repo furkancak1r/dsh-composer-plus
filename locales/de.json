@@ -2434,7 +2434,7 @@
     "assistantApart.done": "Neue Antwort",
     "feature.assistantChatView": "Nur Nachrichten im Assistenten",
     "feature.assistantChatView.description": "Im Assistenten-Chat sind Tool-Aufrufe, Denken und Schrittgruppen ausgeblendet, wie in einem Chat mit einem Bot: Du siehst deine Nachrichten, seine Antworten, Fehler und Genehmigungskarten. Andere Chats ändern sich nicht.",
-    "assistantChatView.earlier": "Ältere Nachrichten anzeigen ({count} Runden)",
+    "assistantChatView.earlier": "Ältere Nachrichten anzeigen (ausgeblendete Runden: {count})",
     "feature.assistantFree": "Assistent immer frei",
     "feature.assistantFree.description": "Der Assistenten-Chat antwortet sofort und ist nie beschäftigt: Er führt nur seine eigenen kurzen Tools aus (Chats, Erinnerungen, Gedächtnis, Subagenten). Jeder andere Schritt (eine Websuche, eine Datei, ein Befehl) geht an einen Subagenten im Hintergrund, und das Ergebnis kommt in den Chat zurück. Seine Subagenten arbeiten wie gewohnt.",
     "assistantFree.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
