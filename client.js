@@ -2446,7 +2446,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     const ASSISTANT_ROUTE = '/api/composer-plus.assistant';
     const ASSISTANT_SWITCH_ROUTE = '/api/composer-plus.assistant-switch';
     const ASSISTANT_PANEL_ID = 'composer-plus-assistant';
-    function createAssistant(onOpen) {
+    function createAssistant(onOpen, known = () => null) {
       let state = { status: 'idle' };
       const listeners = new Set();
       const set = (next) => { state = next; for (const fn of [...listeners]) fn(); };
@@ -2454,8 +2454,12 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         getSnapshot: () => state,
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
         /** Asks the Host for the chat (it makes one when there is none) and opens it with `openSession(id)`. The state keeps
-         * the id of the chat that it opened last (`sessionId`: the welcome card shows only in that chat). */
+         * the id of the chat that it opened last (`sessionId`: the welcome card shows only in that chat). A chat that the
+         * client already knows (`known()`: the Host's assistant-status, or the last open) opens at once, as a sidebar row
+         * does; the Host's answer then only opens another chat when it made a new one (the known one was deleted). */
         async open(openSession) {
+          const now = typeof state.sessionId === 'string' ? state.sessionId : known();
+          if (typeof now === 'string') openSession(now);
           if (state.status === 'opening') return;
           const { sessionId } = state;
           set({ status: 'opening', sessionId });
@@ -2466,7 +2470,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
             if (!response.ok || typeof data?.sessionId !== 'string') throw new Error(data?.error ?? `HTTP ${response.status}`);
             set({ status: 'idle', sessionId: data.sessionId });
             onOpen?.(data.sessionId);
-            openSession(data.sessionId);
+            if (data.sessionId !== now) openSession(data.sessionId);
           } catch (error) { set({ status: 'error', error: String(error?.message ?? error), sessionId }); }
         },
         reset: () => set({ status: 'idle' }),
@@ -12003,7 +12007,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         const assistantStatus = createAssistantStatus();
         // Assistant apart from chats puts its state dot on the Assistant row (the row belongs to Assistant).
         const apartFlag = createFlag();
-        const assistant = createAssistant((id) => assistantStatus.set(id));
+        const assistant = createAssistant((id) => assistantStatus.set(id), () => assistantStatus.getSnapshot());
         const assistantFreeSwitch = createMobile(ASSISTANT_FREE_ROUTE);
         const assistantNotifySwitch = createMobile(ASSISTANT_NOTIFY_ROUTE);
         if (typeof fetch === 'function') { assistantFreeSwitch.refresh(); assistantNotifySwitch.refresh(); }
