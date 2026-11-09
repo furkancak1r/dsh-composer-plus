@@ -8062,8 +8062,9 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         for (const [vid, v] of views) v.el.style.visibility = vid === id ? 'visible' : 'hidden';
         if (root) root.style.visibility = id === 'self' ? 'hidden' : 'visible';
         if (id !== 'self') views.get(id)?.el.focus?.();
-        // Back on this Mac: the picker gets the focus after React put it back into the sidebar (out of the float).
-        else if (views.size > 0) timers.setTimeout(() => doc().querySelector?.('[data-composer-plus-computer-picker]')?.focus?.(), 0);
+        // Back on this Mac: the picker (with two places, its pressed part) gets the focus after React put it back into the
+        // sidebar (out of the float).
+        else if (views.size > 0) timers.setTimeout(() => { const p = doc().querySelector?.('[data-composer-plus-computer-picker]'); (p?.querySelector?.('[aria-pressed="true"]') ?? p)?.focus?.(); }, 0);
       };
       const armHello = (id) => {
         timers.clearTimeout(helloTimer);
@@ -8221,11 +8222,15 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         switchTo: (to) => fetchJson(`${RELAY_OWN_PATH}switch`, { to }).catch(() => {}),
       };
     }
-    /** The computer picker in dsh's left sidebar, right of the brand and above New session. On this Mac it switches the
-     * window (`views`); on another Mac's page in this window (`opener`) it asks this Mac to switch. One menu: This Mac, the
-     * computers, Add a computer…. While a computer fills the window, the picker says "Back to this Mac": with no other
-     * computer to pick, a click comes back at once; with more, it opens the menu. */
-    function ComputerPicker({ computers, views, opener, t }) {
+    /** The computer picker in dsh's left sidebar, in its own row under the brand and above New session. On this Mac it
+     * switches the window (`views`); on another Mac's page in this window (`opener`) it asks this Mac to switch.
+     * - Two places (This Mac and one computer): two parts, "This Mac | Studio". The part on screen is pressed; one click on
+     *   the other part goes there. The label always names a place, so the click never goes where the label does not say.
+     * - Else (no computer yet, or more computers): one button that opens the menu: This Mac, the computers, Add a
+     *   computer…. While a computer fills the window, it says "Back to this Mac".
+     * A right-click (or the menu key) opens the whole menu in both forms. `floating`: over the other Mac's page. */
+    const COMPUTER_SIDE = 'calc(var(--dsh-sidebar-paint-inset, 1px) + 1px)';
+    function ComputerPicker({ computers, views, opener, t, floating = false }) {
       const state = React.useSyncExternalStore(computers.subscribe, computers.getSnapshot);
       const viewState = React.useSyncExternalStore(views.subscribe, views.getSnapshot);
       const openerState = React.useSyncExternalStore(opener.subscribe, opener.getSnapshot);
@@ -8253,34 +8258,54 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         views.select(id);
       };
       const away = remote || viewState.current !== 'self';
-      // One place to go (This Mac and one other computer): a click goes there at once; a right-click opens the menu.
       const targets = [...(away ? ['self'] : []), ...list.filter((c) => c.id !== currentId && c.state === 'ok').map((c) => c.id)];
-      const direct = targets.length === 1 ? targets[0] : undefined; // a click while a computer opens is skipped by views.select
-      const label = away ? t('computers.back') : t('computers.thisMacShort');
-      const directName = direct === undefined || direct === 'self' ? undefined : list.find((c) => c.id === direct)?.name;
+      // Two places: This Mac and the one computer (the one on screen, or the only one to go to).
+      const other = targets.length === 1 ? list.find((c) => c.id === (away ? currentId : targets[0])) : undefined;
       const openMenu = () => { if (remote) opener.refresh(); else computers.refresh(); setOpen(true); }; // fresh states at each open
+      // The whole menu (Add a computer…, a computer to pair again) stays one right-click (or the menu key) away.
+      const onContextMenu = (e) => { e.preventDefault(); openMenu(); };
       const problem = !remote && viewState.error !== undefined ? computerError(t, viewState.error) : null;
-      return React.createElement('div', { 'data-composer-plus-computers': '', style: { display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0, maxWidth: '100%', WebkitAppRegion: 'no-drag' } },
-        React.createElement(primitives.Menu, { open, onClose: () => setOpen(false), items, selectedId: current?.id ?? 'self', onSelect: (id) => choose(id), portal: true, dense: true,
-          // Away, the visible label is the button's name; the title names the computer on screen.
-          anchor: React.createElement('button', { type: 'button', 'aria-label': directName !== undefined ? t('computers.switchTo', { name: directName }) : away ? undefined : t('computers.picker', { name: label }), 'aria-haspopup': direct ? undefined : 'menu', 'aria-expanded': direct ? undefined : open, 'aria-busy': busy || undefined,
-            'data-composer-plus-computer-picker': '', title: directName !== undefined ? t('computers.switchTo', { name: directName }) : away ? t('computers.picker', { name: current?.name ?? '' }) : label,
-            onClick: () => {
-              if (direct !== undefined) { setOpen(false); choose(direct); return; }
-              if (open) setOpen(false); else openMenu();
-            },
-            // The whole menu (Add a computer…, a computer to pair again) stays one right-click (or the menu key) away.
-            onContextMenu: (e) => { e.preventDefault(); openMenu(); },
-            style: { display: 'inline-flex', alignItems: 'center', gap: 6, height: 28, maxWidth: 'min(160px, 100%)', minWidth: 0, padding: '0 8px', borderRadius: 'var(--dsw-radius-md, 8px)', WebkitAppRegion: 'no-drag',
-              background: 'var(--dsw-alias-button-elevated-fill, rgba(127,127,127,.12))', border: '.5px solid var(--dsw-alias-border-l3, transparent)', color: 'var(--dsw-alias-label-primary, inherit)', fontFamily: 'inherit', fontSize: 12, fontWeight: 500, cursor: 'pointer' } },
-            React.createElement('span', { style: { display: 'inline-flex', flex: 'none' } }, React.createElement(ComputerIcon, {})),
-            React.createElement('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 } }, label),
-            direct || primitives.IconChevronDownOutlineRegular === undefined ? null : React.createElement('span', { style: { display: 'inline-flex', flex: 'none' } }, React.createElement(primitives.IconChevronDownOutlineRegular, { size: 12, 'aria-hidden': true }))) }),
-        problem === null ? null : React.createElement('span', { role: 'alert', title: problem, style: { fontSize: 11, color: 'var(--dsw-alias-state-warn-label, #b25000)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 } }, problem));
+      const text = (label, grow = false) => React.createElement('span', { style: { flex: grow ? 1 : undefined, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 } }, label);
+      const icon = React.createElement('span', { style: { display: 'inline-flex', flex: 'none' } }, React.createElement(ComputerIcon, {}));
+      const font = { fontFamily: 'inherit', fontSize: 12, fontWeight: 500 };
+      let anchor;
+      if (other !== undefined) {
+        const onScreen = away ? other.id : 'self';
+        // A click on the part on screen, or while a computer opens, is skipped by `choose` and views.select.
+        const part = (id, name) => {
+          const pressed = id === onScreen;
+          return React.createElement('button', { type: 'button', key: id, 'aria-pressed': pressed, 'data-composer-plus-computer-part': id,
+            title: pressed ? t('computers.picker', { name }) : t('computers.switchTo', { name }),
+            onClick: () => choose(id),
+            style: { ...font, flex: '1 1 0', minWidth: 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6, height: 24, padding: '0 8px', border: 0, borderRadius: 'var(--dsw-radius-sm, 6px)',
+              background: pressed ? 'var(--dsw-alias-bg-layer-1, #fff)' : 'transparent', boxShadow: pressed ? 'var(--dsw-elevation-soft, 0 1px 2px rgba(0,0,0,.12))' : 'none',
+              color: pressed ? 'var(--dsw-alias-label-primary, inherit)' : 'var(--dsw-alias-label-secondary, inherit)', cursor: pressed ? 'default' : 'pointer', WebkitAppRegion: 'no-drag' } },
+            icon, text(name));
+        };
+        anchor = React.createElement('div', { role: 'group', 'aria-label': t('feature.remoteComputers'), 'aria-busy': busy || undefined, 'data-composer-plus-computer-picker': '', onContextMenu,
+          style: { display: 'flex', flex: 1, minWidth: 0, gap: 2, padding: 2, borderRadius: 'var(--dsw-radius-md, 8px)', background: 'var(--dsw-alias-interactive-bg-hover, rgba(127,127,127,.12))', WebkitAppRegion: 'no-drag' } },
+          part('self', t('computers.thisMacShort')), part(other.id, other.name));
+      } else {
+        const label = away ? t('computers.back') : t('computers.thisMacShort');
+        // Away, the visible label is the button's name; the title names the computer on screen.
+        anchor = React.createElement('button', { type: 'button', 'aria-label': away ? undefined : t('computers.picker', { name: label }), 'aria-haspopup': 'menu', 'aria-expanded': open, 'aria-busy': busy || undefined,
+          'data-composer-plus-computer-picker': '', title: away ? t('computers.picker', { name: current?.name ?? '' }) : label,
+          onClick: () => { if (open) setOpen(false); else openMenu(); }, onContextMenu,
+          style: { ...font, display: 'flex', flex: 1, alignItems: 'center', gap: 6, height: 28, minWidth: 0, padding: '0 8px', borderRadius: 'var(--dsw-radius-md, 8px)', WebkitAppRegion: 'no-drag',
+            background: 'var(--dsw-alias-button-elevated-fill, rgba(127,127,127,.12))', border: '.5px solid var(--dsw-alias-border-l3, transparent)', color: 'var(--dsw-alias-label-primary, inherit)', cursor: 'pointer', textAlign: 'left' } },
+          icon, text(label, true),
+          primitives.IconChevronDownOutlineRegular === undefined ? null : React.createElement('span', { style: { display: 'inline-flex', flex: 'none' } }, React.createElement(primitives.IconChevronDownOutlineRegular, { size: 12, 'aria-hidden': true })));
+      }
+      // In the sidebar: New session's side margins (dsh 0.2.2-rc.1: `--dsh-sidebar-paint-inset` + 1 px; before: 2 px) and a
+      // gap above it (an empty host has no height).
+      return React.createElement('div', { 'data-composer-plus-computers': '', style: { display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 4, minWidth: 0, margin: floating ? 0 : `0 ${COMPUTER_SIDE} 10px`, WebkitAppRegion: 'no-drag' } },
+        React.createElement(primitives.Menu, { open, onClose: () => setOpen(false), items, selectedId: current?.id ?? 'self', onSelect: (id) => choose(id), portal: true, dense: true, anchor }),
+        problem === null ? null : React.createElement('span', { role: 'alert', title: problem, style: { fontSize: 11, color: 'var(--dsw-alias-state-warn-label, #b25000)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, problem));
     }
-    /** The sidebar host of the picker: one element in dsh's brand row, after the brand (dsh 0.2.0-rc.2 – 0.2.2-rc.1 draw the
-     * row with the CSS-module class `_logoRow`, the brand first). The rail (collapsed sidebar) has no brand: no picker.
-     * ponytail: dsh has no slot in this row; when its markup changes, the host is not made and the picker does not show. */
+    /** The sidebar host of the picker: its own row right after dsh's brand row, above New session (dsh 0.2.0-rc.2 –
+     * 0.2.2-rc.1 draw that row with the CSS-module class `_logoRow`, the brand first). Two names side by side do not fit
+     * next to the brand. The rail (collapsed sidebar) has no brand: no picker.
+     * ponytail: dsh has no slot here; when its markup changes, the host is not made and the picker does not show. */
     const COMPUTER_HOST = 'data-composer-plus-computer-host';
     function useBrandRowHost() {
       const [host, setHost] = React.useState(null);
@@ -8291,13 +8316,12 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           const brand = row?.querySelector(':scope > [class*="_brand"]') ?? null;
           let el = document.querySelector(`[${COMPUTER_HOST}]`);
           if (brand === null) { el?.remove(); setHost(null); return; }
-          if (el === null || el.parentElement !== row || el.previousElementSibling !== brand) {
+          if (el === null || el.previousElementSibling !== row) {
             el ??= document.createElement('div');
             el.setAttribute(COMPUTER_HOST, '');
             el.setAttribute('data-window-drag-recall', '');
-            // It gives way before dsh's brand (its label ends in "…"), down to the icon and the arrow.
-            el.style.cssText = 'flex:0 1000 auto;display:flex;align-items:center;min-width:58px;-webkit-app-region:no-drag';
-            brand.after(el);
+            el.style.cssText = 'flex:none;display:flex;flex-direction:column;min-width:0;-webkit-app-region:no-drag';
+            row.after(el);
           }
           setHost((prev) => (prev === el ? prev : el));
         };
@@ -8309,8 +8333,8 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       return host;
     }
     /** While a computer fills the window and its page has no picker of its own (`noPicker`), this Mac's picker floats over
-     * it in the same place: the brand row's height and the right edge of the host (both keep their place under the page;
-     * an empty host has no height), or the top left when the sidebar is closed. */
+     * it in the same place: the top, left and width of the host (it keeps its place under the page; an empty host has no
+     * height), or the top left when the sidebar is closed. */
     const COMPUTER_FLOAT = 'data-composer-plus-computer-float';
     function useComputerFloat(on, host) {
       const [float, setFloat] = React.useState(null);
@@ -8319,11 +8343,12 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         const el = document.createElement('div');
         el.setAttribute(COMPUTER_FLOAT, '');
         const place = () => {
-          const row = host?.parentElement?.getBoundingClientRect?.();
           const h = host?.getBoundingClientRect?.();
-          const where = row !== undefined && h !== undefined && h.right > 0 && row.height > 0 ? `top:${row.top + row.height / 2}px;right:${window.innerWidth - h.right}px;transform:translateY(-50%)` : 'top:calc(var(--dsh-frame-top-clearance,0px) + 8px);left:8px';
+          // The picker's side margins in the sidebar (`COMPUTER_SIDE`, from the sidebar's variable) stay.
+          const side = (parseFloat(globalThis.getComputedStyle?.(host)?.getPropertyValue('--dsh-sidebar-paint-inset')) || 1) + 1;
+          const where = h !== undefined && h.width > 0 ? `top:${h.top}px;left:${h.left + side}px;width:${h.width - 2 * side}px` : 'top:calc(var(--dsh-frame-top-clearance,0px) + 8px);left:8px;max-width:240px';
           // Over the views (z-index 40), under dsh's menus (70); a solid back so the label reads over the other page.
-          el.style.cssText = `position:fixed;${where};z-index:41;display:flex;max-width:200px;border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-base,#fff);-webkit-app-region:no-drag`;
+          el.style.cssText = `position:fixed;${where};z-index:41;display:flex;flex-direction:column;border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-base,#fff);-webkit-app-region:no-drag`;
         };
         place();
         document.body.appendChild(el);
@@ -8339,8 +8364,9 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       const state = React.useSyncExternalStore(props.computers.subscribe, props.computers.getSnapshot);
       // A computer that is removed or no longer paired: its page closes.
       React.useEffect(() => { props.views.sync(); }, [state]);
-      const target = useComputerFloat(v.current !== 'self' && v.noPicker, host) ?? host;
-      return target === null ? null : createPortal(React.createElement(ComputerPicker, props), target);
+      const float = useComputerFloat(v.current !== 'self' && v.noPicker, host);
+      const target = float ?? host;
+      return target === null ? null : createPortal(React.createElement(ComputerPicker, { ...props, floating: float !== null }), target);
     }
     /** Add a computer: paste the other Mac's link and give it a name; the dialog waits until someone clicks Approve there. */
     function createAddComputer() {
