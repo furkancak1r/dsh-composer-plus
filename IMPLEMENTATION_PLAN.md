@@ -2619,3 +2619,13 @@ Kapsam eki (aynı dal, ayrı commit): sağdaki liste "Durum" paneline döner (Ya
   - Gerçek dsh (headless, sahte model) `test/browser-assistant-todos.mjs`: 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS (6 adım). `SHOT=1` görüntüsü 14 kB.
   - Görüntüde panel ilk sürümde mesajların üstüne geliyordu. Düzeltme: 1000 px ve üstünde sohbet sağdan 292 px boşluk alır; test, mesaj balonunun panelin solunda bittiğini ölçer.
   - `npm test` exit 0, `npm pack --dry-run` 119 dosya, `git diff --check` temiz.
+
+### Öz denetim 1. tur (review-guard, kapsam `main...887c4e5`)
+Doğrulandı 4, ek kanıt gerekli 1, reddedildi 0.
+- F-01 (P3, erişilebilirlik): `client.js` `TodosPanel`: `<h2>` bir `<button>` içinde (HTML içerik modeli: düğme yalnız phrasing content alır; başlık rolü kaybolur) ve sayaç `<span>` üzerinde `aria-label` (generic rol ad almaz). Düzeltme: başlık düğmeyi sarar (`h2 > button[aria-expanded]`), sayaç görünür metin olarak düğme adına katılır. Regresyon: istemci testi `h2 > button` yapısını ve sayaçta `aria-label` olmadığını denetler.
+- F-02 (P3, erişilebilirlik): klavyeyle Kaldır/Devret sonrası odak `body`ye düşer: `disabled` odaklı düğmeyi bulanıklaştırır, sonra düğme DOM'dan çıkar. Düzeltme: `disabled` yerine `aria-disabled` (koruma depoda zaten var), işlem bitince odak `body`deyse başlık düğmesine döner. Regresyon: gerçek dsh testinde Enter ile kaldırma sonrası `document.activeElement` panelin içinde.
+- F-03 (P3, mantık): `todo_list_add` `owner` verilmeden çağrılınca var olan "agent" maddesi "user" olur (araç `args?.owner ?? 'user'`). Tetik: devretme sonrası model aynı metni sahip vermeden ekler; düğme geri gelir, context "kullanıcı yapar" der. Düzeltme: `owner` yoksa var olan madde sahibini korur, yeni madde "user" olur. Regresyon: birim testi.
+- F-04 (P3, gereksiz karmaşıklık): `createTodos(request = …)` parametresini hiçbir çağıran kullanmıyor. Düzeltme: parametreyi sil, `fetch` doğrudan.
+- Ek kanıt gerekli: her tuş vuruşunda dock girişinin yeniden çizimi ve `:has()` boşluk kuralı. 2. bölümde panel değişince ölçülecek (React.memo ve `:has()` olmadan sınıf işareti).
+Kontroller: `node test/assistant-todos.test.mjs`, `node test/assistant-todos-client.test.mjs`, gerçek dsh `test/browser-assistant-todos.mjs` (0.2.2-rc.1), `npm test`.
+- 1. tur sonucu: F-01..F-04 düzeltildi. Her regresyon testi düzeltmesiz kırmızı, düzeltmeyle yeşil (F-02 gerçek dsh 0.2.2-rc.1'de). `npm test` exit 0.

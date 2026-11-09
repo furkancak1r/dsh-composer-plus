@@ -211,6 +211,7 @@ try {
       await page.keyboard.press('Enter');
       await until(async () => (await item('Buy milk').count()) === 0, 'removed');
       assert.equal(await page.getByRole('dialog').count(), 0, 'no confirmation dialog');
+      assert.equal(await page.evaluate(() => document.activeElement?.closest('[data-composer-plus-todos]') !== null), true, 'F-02: the focus stays in the panel');
       note('4: × removes at once (keyboard Enter), no dialog');
 
       // 5. Reload: the list stays. Another chat: no panel, no tools.

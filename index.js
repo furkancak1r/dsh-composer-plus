@@ -9349,16 +9349,18 @@ const todoItem = (v) => (plainObject(v) && TODO_ID.test(v.id) && isText(v.text, 
 
 /** The list logic (pure; each answers a new list and never changes the given one). */
 export const todoList = {
-  /** Adds `text` with `owner`. The same text (case and accents left out) already on the list: only its owner changes. */
-  add(list, { text: raw, owner = 'user' }, { id = randomBytes(4).toString('hex'), now = Date.now() } = {}) {
+  /** Adds `text` with `owner` ("user" when not given). The same text (case and accents left out) already on the list:
+   * only its owner changes, and only when `owner` is given. */
+  add(list, { text: raw, owner }, { id = randomBytes(4).toString('hex'), now = Date.now() } = {}) {
     const text = todoText(raw);
     if (!isText(text, TODO_LIMITS.text)) throw refused(`text is 1 to ${TODO_LIMITS.text} characters.`, 400);
-    if (owner !== 'user' && owner !== 'agent') throw refused('owner is "user" or "agent".', 400);
+    if (owner !== undefined && owner !== 'user' && owner !== 'agent') throw refused('owner is "user" or "agent".', 400);
     const same = list.find((i) => todoKey(i.text) === todoKey(text));
     if (same !== undefined) {
-      const item = { ...same, owner };
+      const item = { ...same, owner: owner ?? same.owner };
       return { list: list.map((i) => (i === same ? item : i)), item, added: false };
     }
+    owner ??= 'user';
     if (list.length >= TODO_LIMITS.items) throw refused(`The list has ${TODO_LIMITS.items} items. Remove one first.`);
     while (list.some((i) => i.id === id)) id = randomBytes(4).toString('hex');
     const item = { id, text, owner, created: now };
@@ -9433,13 +9435,13 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       description: 'Add a task to the user\'s to-do list in this chat, or change the owner of the item that has the same text. Owner "user": the user does it. Owner "agent": you do it.',
       parameters: { type: 'object', properties: {
         text: { type: 'string', description: `The task in the user's words, at most ${TODO_LIMITS.text} characters` },
-        owner: { type: 'string', enum: ['user', 'agent'], description: 'Who does the task (default "user")' },
+        owner: { type: 'string', enum: ['user', 'agent'], description: 'Who does the task (a new item: default "user"; an item on the list keeps its owner when you leave this out)' },
       }, required: ['text'] },
       output: textOutput,
       async execute(args, exec) {
         const id = mine(exec);
         if (id === undefined) throw refused('This tool works only in the Composer Plus assistant chat.', 403);
-        const { item, added } = await store.change(id, (list) => todoList.add(list, { text: args?.text, owner: args?.owner ?? 'user' }));
+        const { item, added } = await store.change(id, (list) => todoList.add(list, { text: args?.text, owner: args?.owner ?? undefined }));
         return `${added ? 'Added' : 'Already on the list:'} ${item.id} (owner ${item.owner}): ${JSON.stringify(item.text)}`;
       },
     },

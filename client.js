@@ -2633,7 +2633,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       // The chat moves left to make room: the panel never covers a message. ponytail: below 1000px the panel covers the
       // right edge of the chat (fold it with its title); upgrade when dsh has a chat side slot.
       + `@media (min-width:1000px){[data-conversation-content]:has(> [${TODOS_ATTR}]) > [data-conversation-scroll]{padding-right:292px}}`
-      + `[${TODOS_ATTR}] h2{margin:0;font-size:13px;font-weight:600;line-height:18px}`
+      + `[${TODOS_ATTR}] h2{margin:0;font-size:13px;line-height:18px}[${TODOS_ATTR}] .cp-td-name{font-weight:600}`
       + `[${TODOS_ATTR}] .cp-td-head{display:flex;align-items:center;gap:6px;width:100%;padding:8px 10px;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;border-radius:var(--dsw-radius-lg,12px)}`
       + `[${TODOS_ATTR}] .cp-td-count{margin-left:auto;color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}`
       + `[${TODOS_ATTR}] ul{margin:0;padding:0 6px 6px;list-style:none;overflow-y:auto}`
@@ -2642,11 +2642,11 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       + `[${TODOS_ATTR}] .cp-td-owner{display:block;margin-top:2px;font-size:11px;line-height:14px;color:var(--dsw-alias-label-tertiary)}`
       + `[${TODOS_ATTR}] li[data-owner="agent"] .cp-td-owner{color:var(--dsw-alias-state-business-primary)}`
       + `[${TODOS_ATTR}] .cp-td-btn{flex:none;display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:999px;background:none;color:var(--dsw-alias-label-tertiary);font:inherit;cursor:pointer}`
-      + `[${TODOS_ATTR}] .cp-td-btn:disabled{opacity:.45;cursor:default}`
-      + `@media (hover:hover){[${TODOS_ATTR}] .cp-td-btn:hover:not(:disabled),[${TODOS_ATTR}] .cp-td-head:hover{background:var(--dsw-alias-interactive-bg-hover)}}`
+      + `[${TODOS_ATTR}] .cp-td-btn[aria-disabled="true"]{opacity:.45;cursor:default}`
+      + `@media (hover:hover){[${TODOS_ATTR}] .cp-td-btn:hover:not([aria-disabled="true"]),[${TODOS_ATTR}] .cp-td-head:hover{background:var(--dsw-alias-interactive-bg-hover)}}`
       + `[${TODOS_ATTR}] button:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}`
       + `[${TODOS_ATTR}] .cp-td-empty,[${TODOS_ATTR}] .cp-td-err{margin:0;padding:4px 10px 10px;color:var(--dsw-alias-label-tertiary)}[${TODOS_ATTR}] .cp-td-err{color:var(--dsw-alias-state-warn-label,#b25000)}`;
-    function createTodos(request = (init, query) => fetch(`${TODOS_ROUTE}${query ?? ''}`, init)) {
+    function createTodos() {
       const chats = new Map(); // chat id → frozen { items, busy, error }
       const seqs = new Map(); // chat id → number of the newest read
       const listeners = new Set();
@@ -2661,7 +2661,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         async load(id) {
           const mine = (seqs.get(id) ?? 0) + 1; seqs.set(id, mine);
           try {
-            const response = await request(undefined, `?sessionId=${encodeURIComponent(id)}`);
+            const response = await fetch(`${TODOS_ROUTE}?sessionId=${encodeURIComponent(id)}`);
             const data = await response.json().catch(() => ({}));
             if (seqs.get(id) !== mine) return;
             if (!response.ok) { patch(id, { error: data?.error ?? `HTTP ${response.status}` }); return; }
@@ -2674,7 +2674,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           seqs.set(id, (seqs.get(id) ?? 0) + 1); // a read that started before this action is old now
           patch(id, { busy: true, error: null });
           try {
-            const response = await request({ method: 'POST', headers: { 'content-type': 'application/json' },
+            const response = await fetch(TODOS_ROUTE, { method: 'POST', headers: { 'content-type': 'application/json' },
               body: JSON.stringify({ sessionId: id, id: itemId, action, ...(action === 'handover' ? { prefix } : {}) }) });
             const data = await response.json().catch(() => ({}));
             const list = items(data);
@@ -2703,22 +2703,27 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const mark = React.createElement('span', { ref: anchor, hidden: true });
       if (host === null || createPortal === undefined || (state.items === null && state.error === null)) return mark;
       const headId = `cp-td-${sessionId}`;
+      // After a click (or Enter) on an item's button, the item can leave the list: the focus goes back to the title.
+      const act = (itemId, action, prefix) => store.act(sessionId, itemId, action, prefix).finally(() => {
+        const doc = globalThis.document;
+        if (doc !== undefined && (doc.activeElement === null || doc.activeElement === doc.body)) doc.getElementById?.(headId)?.focus();
+      });
       const panel = React.createElement('section', { [TODOS_ATTR]: '', 'data-open': String(open), 'aria-labelledby': headId },
         React.createElement('style', null, TODOS_CSS),
-        React.createElement('button', { type: 'button', className: 'cp-td-head', 'aria-expanded': open, onClick: () => setOpen((v) => !v) },
-          React.createElement('h2', { id: headId }, t('todos.title')),
-          React.createElement('span', { className: 'cp-td-count', 'aria-label': t('todos.count', { count: list.length }) }, String(list.length)),
-          React.createElement(TodoIcon, open ? { name: 'IconChevronDownOutlineRegular', glyph: '▾' } : { name: 'IconChevronUpOutlineRegular', glyph: '▴' })),
+        React.createElement('h2', null, React.createElement('button', { id: headId, type: 'button', className: 'cp-td-head', 'aria-expanded': open, onClick: () => setOpen((v) => !v) },
+          React.createElement('span', { className: 'cp-td-name' }, t('todos.title')),
+          React.createElement('span', { className: 'cp-td-count', title: t('todos.count', { count: list.length }) }, String(list.length)),
+          React.createElement(TodoIcon, open ? { name: 'IconChevronDownOutlineRegular', glyph: '▾' } : { name: 'IconChevronUpOutlineRegular', glyph: '▴' }))),
         !open ? null : list.length === 0 ? React.createElement('p', { className: 'cp-td-empty' }, t('todos.empty'))
           : React.createElement('ul', null, list.map((item) => React.createElement('li', { key: item.id, 'data-owner': item.owner },
             React.createElement('span', { className: 'cp-td-text' }, item.text,
               React.createElement('span', { className: 'cp-td-owner' }, t(item.owner === 'agent' ? 'todos.ownerAgent' : 'todos.ownerUser'))),
-            item.owner === 'agent' ? null : React.createElement('button', { type: 'button', className: 'cp-td-btn', disabled: state.busy,
+            item.owner === 'agent' ? null : React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-disabled': state.busy,
               'aria-label': t('todos.handover', { item: item.text }), title: t('todos.handoverShort'),
-              onClick: () => { store.act(sessionId, item.id, 'handover', t('todos.handoverMessage')); } }, React.createElement(TodoIcon, { name: 'IconArrowRightOutlineRegular', glyph: '→' })),
-            React.createElement('button', { type: 'button', className: 'cp-td-btn', disabled: state.busy,
+              onClick: () => { act(item.id, 'handover', t('todos.handoverMessage')); } }, React.createElement(TodoIcon, { name: 'IconArrowRightOutlineRegular', glyph: '→' })),
+            React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-disabled': state.busy,
               'aria-label': t('todos.remove', { item: item.text }), title: t('todos.removeShort'),
-              onClick: () => { store.act(sessionId, item.id, 'remove'); } }, React.createElement(TodoIcon, { name: 'IconCloseOutlineRegular', glyph: '×' }))))),
+              onClick: () => { act(item.id, 'remove'); } }, React.createElement(TodoIcon, { name: 'IconCloseOutlineRegular', glyph: '×' }))))),
         state.error === null ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert' }, t('todos.failed', { error: state.error })));
       return React.createElement(React.Fragment, null, mark, createPortal(panel, host));
     }

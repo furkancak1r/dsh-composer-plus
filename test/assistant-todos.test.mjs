@@ -20,6 +20,8 @@ const two = r.list;
 assert.equal(two.length, 2); assert.equal(one.length, 1, 'the given list does not change');
 r = todoList.add(two, { text: 'PROSOLOCAL\'İ internete açmak', owner: 'agent' }, { id: 'cccccccc' });
 assert.equal(r.added, false, 'the same text (case and accents left out) is not added again'); assert.equal(r.list.length, 2);
+assert.equal(todoList.add(r.list, { text: 'prosolocal\'i internete açmak' }).item.owner, 'agent', 'F-03: the same text without an owner keeps it');
+assert.equal(todoList.add([], { text: 'new' }).item.owner, 'user', 'a new item without an owner is the user\'s');
 assert.equal(r.item.id, 'aaaaaaaa'); assert.equal(r.item.owner, 'agent', 'only its owner changes');
 r = todoList.add(two, { text: 'x' }, { id: 'aaaaaaaa' });
 assert.notEqual(r.item.id, 'aaaaaaaa', 'a used id is never given again');
@@ -135,6 +137,7 @@ await assert.rejects(tool('todo_list_add').execute({ text: 'x' }, { agent: sub }
 assert.match(await tool('todo_list_add').execute({ text: 'Prosolocal\'i internete açmak' }, { agent: assistantAgent }), /^Added [0-9a-f]{8} \(owner user\)/);
 assert.match(await tool('todo_list_add').execute({ text: 'Ece Hanım ile Excel doldurmak', owner: 'user' }, { agent: assistantAgent }), /^Added/);
 assert.match(await tool('todo_list_add').execute({ text: 'Rapor yaz', owner: 'agent' }, { agent: assistantAgent }), /owner agent/);
+assert.match(await tool('todo_list_add').execute({ text: 'rapor YAZ' }, { agent: assistantAgent }), /^Already on the list: .*owner agent/, 'F-03: no owner keeps the owner');
 assert.match(await tool('todo_list_add').execute({ text: 'rapor YAZ', owner: 'user' }, { agent: assistantAgent }), /^Already on the list: .*owner user/);
 let items = (await call('GET', undefined, '?sessionId=s-a')).body.items;
 assert.deepEqual(items.map((i) => [i.text, i.owner]), [['Prosolocal\'i internete açmak', 'user'], ['Ece Hanım ile Excel doldurmak', 'user'], ['Rapor yaz', 'user']]);

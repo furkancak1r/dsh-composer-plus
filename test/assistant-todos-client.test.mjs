@@ -73,6 +73,11 @@ let tree = render('s-assistant');
 const panel = find(tree, (n) => n.p?.['data-composer-plus-todos'] === '')[0];
 assert.ok(panel, 'the panel shows'); assert.equal(portals.at(-1), body, 'portaled to dsh\'s chat body, not to the right sidebar');
 assert.equal(panel.t, 'section'); assert.match(panel.p['aria-labelledby'], /^cp-td-/);
+// F-01: the heading holds the toggle button (a heading inside a button loses its role); the count is visible text.
+const heading = find(panel, (n) => n.t === 'h2')[0]; assert.ok(heading, 'a heading');
+assert.equal(find(heading, (n) => n.t === 'button' && n.p['aria-expanded'] !== undefined).length, 1, 'h2 > button[aria-expanded]');
+assert.equal(find(panel, (n) => n.t === 'button' && find(n, (m) => m.t === 'h2').length > 0).length, 0, 'no heading inside a button');
+assert.equal(find(panel, (n) => n.t === 'span' && n.p['aria-label'] !== undefined).length, 0, 'no aria-label on a span');
 const style = find(panel, (n) => n.t === 'style')[0]; assert.match(style.c[0], /position:absolute;top:12px;right:20px/, 'at the right side of the chat');
 assert.match(text(panel), /todos\.title/); assert.match(text(panel), /Prosolocal'i internete açmak/); assert.match(text(panel), /todos\.ownerUser/); assert.match(text(panel), /todos\.ownerAgent/);
 const buttons = find(panel, (n) => n.t === 'button');
@@ -97,7 +102,10 @@ let open; gate = new Promise((r) => { open = r; });
 const first = props.store.act('s-assistant', 'aaaaaaaa', 'remove');
 assert.equal(props.store.of('s-assistant').busy, true);
 assert.equal(await props.store.act('s-assistant', 'aaaaaaaa', 'remove'), false, 'a second action waits');
-tree = render('s-assistant'); assert.ok(find(tree, (n) => n.t === 'button' && n.p.disabled === true).length > 0, 'the buttons are disabled while it runs');
+tree = render('s-assistant');
+// F-02: aria-disabled, not disabled (disabled drops the keyboard focus), while an action runs.
+assert.ok(find(tree, (n) => n.t === 'button' && n.p['aria-disabled'] === true).length > 0, 'the buttons say they wait');
+assert.equal(find(tree, (n) => n.t === 'button' && n.p.disabled === true).length, 0, 'no disabled button: the focus stays');
 open(); gate = null; assert.equal(await first, true); assert.equal(posts.length, before + 1);
 assert.deepEqual(props.store.of('s-assistant').items, [], 'the action\'s answer');
 // A load that started before an action ends after it: dropped.
