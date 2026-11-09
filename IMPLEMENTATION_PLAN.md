@@ -2527,6 +2527,31 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
 - Sahibin isteğiyle anahtar açıldı (agent-device). Tether "The Mac sends them through Apple's push service" yazdı; canlı gateway: iPhone `push: true`, `devices.json` on, token var, sandbox, saat yok.
 - Doğrulanmadı: kapalı uygulamaya gerçek bildirimin düşmesi (Tether'ı sonlandırmak Auto review onayı istedi, yapılmadı). Canlı gateway eski sürüm (1.24.1): yeni Mac sayfası satırları canlı kopya güncellenince görünür; yeni iOS'un `reason` alanı eski gateway'de yok sayılır.
 
+## Uzak bilgisayarlar: iki yer varken iki parçalı seçici (2026-11-09, dal `fix/match-switcher-ux`)
+İstek (sahip, Türkçe, "uygula"): iki Mac varken seçicide "Bu Mac" yazıyor ama tıklama öteki Mac'e geçiyor; ekstra tıklama olmadan anlaşılır olsun.
+
+### Kararlar
+- Gidilecek iki yer varken (bu Mac + tek bir bilgisayar, ya da ekrandaki bilgisayar) seçici iki parçalı bir düğme grubu olur: "Bu Mac | Studio". Ekrandaki parça vurgulu (`aria-pressed`), ötekine tek tık geçer. Sağ tık tüm menüyü açar (Bilgisayar ekle…). Diğer Mac'in sayfasında (`via`) aynı grup.
+- Başka durumlarda (hiç bilgisayar yok, ya da iki ve daha fazla bilgisayar) bugünkü menü düğmesi kalır ("Bu Mac" / "Bu Mac'e dön", ok simgesi).
+- Seçici marka satırına sığmaz (marka ~168 pt, iki ad ~130 pt). Host artık `_logoRow`'un altında, **Yeni oturum**'un üstünde kendi satırında, tam genişlikte (her iki modda). Simge sütununda (marka yok) seçici yok.
+- Float (sayfanın kendi seçicisi yok): host'un sol, üst ve genişliğinde.
+- Yeni metin yok: `computers.thisMacShort`, `computers.switchTo`, `computers.picker`, grup adı `feature.remoteComputers`.
+- dsh'nin `SegmentedControl`'u kullanılmaz: `tablist` rolü, var olmayan panellere `aria-controls`, uzun adlarda "…" yok.
+- Tether değişmez: `MacPicker` iki Mac'te ⇄ simgesiyle zaten "değiştir" der; telefon başlığında iki ad sığmaz.
+
+### Kontroller
+- `test/computers-client.test.mjs`: iki yer → grup (bu Mac seçili, Studio'ya tık geçer, sağ tık menü), uzakta grup, `via` grubu, üç yer → menü; host `_logoRow`'dan sonra.
+- `test/browser-computers.mjs` 0.2.0-rc.2 ve 0.2.1-rc.2 (gerçek dsh), `SHOT=1` yeni ekran görüntüsü.
+- `how` 13 dil, README sınırlar + SSS 13 dil, `build:readme`, `npm test`.
+
+### Son kontrol noktası
+- 2026-11-09 13:15: plan yazıldı, kod yok.
+- 2026-11-09 13:40: kod, birim testi ve gerçek dsh testi bitti; 10 dilin çevirisi alt ajanda.
+  - `test/computers-client.test.mjs` geçer; 10 mutasyonun hepsi kırmızı (iki parça yok, basılı ters, ekrandaki hep bu Mac, ekrandaki parça geçiş yapar (yerel ve `via`), host marka satırında, yeni satırdan sonra taşınmaz, `floating` yok, grupta sağ tık yok).
+  - `test/browser-computers.mjs` PASS: 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1. İlk 0.2.2-rc.1 koşusu kırmızıydı: orada **Yeni oturum**'un yan boşluğu `--dsh-sidebar-paint-inset` + 1 px (3+1), daha eskilerde 2 px. Düzeltme: aynı değişken (`COMPUTER_SIDE`, varsayılan 1 px + 1 px); float da aynı değeri okur.
+  - `SHOT=1` (0.2.1-rc.2): yeni `remoteComputers.webp` (iki parça + sağ tık menüsü), 6.5 kB.
+  - en, tr, zh: `how`, `llms`, README sınır + SSS elle.
+
 ## Asistanı bota çevirme: ayrı görünüm ve bot gibi çalışma (2026-11-09, dal `feat/assistant-bot-ui-separation`)
 İstek (sahip, Türkçe): asistan arayüzde ve işlevde normal proje sohbetlerinden ayrılsın, bir bot gibi çalışsın. Sahibin seçimi (soru kartı): mesajlaşma uygulaması gibi görünsün, kendiliğinden haber versin, hiç meşgul olmasın. Dışarıdan erişim (Telegram) istenmedi.
 

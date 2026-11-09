@@ -133,24 +133,26 @@ assert.equal([...live.values()].some(([o]) => o.name === 'conversation.header.le
 const { computers, views, opener: openerStore } = pickerEntry[0].inject();
 assert.equal(computers, settings.computers, 'one store for the picker and Settings');
 
-// The host: right after the brand, before the toggle; not a drag area. The rail (no brand) has none.
+// The host: its own row right after the brand row (above New session), so two names fit; the brand row keeps only dsh's
+// brand and toggle. Not a drag area. The rail (no brand) has none.
 const mount = () => { hi = 0; layouts = []; const out = pickerEntry[1]({ ...pickerEntry[0].inject(), t }); const fx = layouts.map((f) => f()); hi = 0; layouts = []; return { out: pickerEntry[1]({ ...pickerEntry[0].inject(), t }), cleanup: () => fx.forEach((f) => f?.()) }; };
+const afterRow = (r) => body.children[body.children.indexOf(r) + 1];
 let { out, cleanup } = mount();
-const host = row.children[1];
-assert.equal(host.hasAttribute('data-composer-plus-computer-host'), true, 'the host follows the brand');
-assert.equal(row.children[2], toggle, 'the toggle stays after it');
+const host = afterRow(row);
+assert.equal(host.hasAttribute('data-composer-plus-computer-host'), true, 'the host follows the brand row');
+assert.deepEqual(row.children, [brand, toggle], 'nothing of ours in the brand row');
 assert.match(host.style.cssText, /-webkit-app-region:no-drag/); assert.equal(host.hasAttribute('data-window-drag-recall'), true);
 assert.equal(out.host, host, 'the picker is portaled into the host');
-// dsh redraws the row (a new brand): the observer moves the host after it, and keeps one host.
-const brand2 = new El('span', { class: 'hHd-Xa_brand' }); row.children.unshift(brand2); brand2.parentElement = row; brand.remove();
+// dsh draws a new brand row: the observer moves the host after it, and keeps one host.
+const row2 = new El('div', { class: 'hHd-Xa_logoRow' }); row2.appendChild(brand); row.remove(); body.appendChild(row2);
 observerFns.forEach((f) => f());
-assert.equal(row.children[1].hasAttribute('data-composer-plus-computer-host'), true);
+assert.equal(afterRow(row2)?.hasAttribute('data-composer-plus-computer-host'), true, 'after the new row');
 assert.equal(body.querySelectorAll('[data-composer-plus-computer-host]').length, 1);
 // The rail: no brand → no host.
-brand2.remove(); observerFns.forEach((f) => f());
+brand.remove(); observerFns.forEach((f) => f());
 assert.equal(body.querySelectorAll('[data-composer-plus-computer-host]').length, 0, 'no picker in the rail');
-row.children.unshift(brand); brand.parentElement = row; observerFns.forEach((f) => f());
-assert.equal(row.children[1].hasAttribute('data-composer-plus-computer-host'), true);
+row2.remove(); body.children.unshift(row); row.parentElement = body; row.children.unshift(brand); brand.parentElement = row; observerFns.forEach((f) => f());
+assert.equal(afterRow(row).hasAttribute('data-composer-plus-computer-host'), true);
 cleanup();
 assert.equal(body.querySelectorAll('[data-composer-plus-computer-host]').length, 0, 'unmount removes the host');
 assert.equal(observerFns.length, 0, 'and the observer');
@@ -218,13 +220,19 @@ assert.deepEqual(loaded, ['http://127.0.0.1:5555/?cp-ticket=t1']);
 assert.equal(wv.style.visibility, 'visible'); assert.equal(wv.focused, 1, 'the page gets the focus');
 assert.equal(views.getSnapshot().current, ID);
 // Studio's page did not say hello yet (it has no picker of its own): this Mac's picker floats over it, in the same place.
-// It says "Back to this Mac" (the title names Studio); with no other computer to pick, a click comes back at once.
+// Two places (This Mac and Studio): two parts that name them, Studio (on screen) pressed; no menu, no arrow.
 const floating = () => mount().out?.host?.hasAttribute('data-composer-plus-computer-float') === true;
 assert.equal(views.getSnapshot().noPicker, true); assert.equal(floating(), true, 'the picker floats over the page');
+assert.equal(mount().out.portal.p.floating, true, 'it knows that it floats (no sidebar margins)');
+const partsOf = (a) => a.c.map((p) => ({ id: p.p['data-composer-plus-computer-part'], label: p.c[1].c[0], pressed: p.p['aria-pressed'] }));
 let btn = renderPicker().c[0].p.anchor;
-assert.equal(btn.c[1].c[0], 'computers.back', 'away: the button says Back to this Mac');
-assert.match(btn.p.title, /Studio/, 'the title names the computer on screen');
-assert.equal(btn.p['aria-haspopup'], undefined, 'one computer: no menu'); assert.equal(btn.c[2], null, 'no arrow');
+assert.equal(btn.p.role, 'group', 'two places: two parts'); assert.equal(btn.p['aria-haspopup'], undefined, 'no menu');
+assert.equal(btn.p['data-composer-plus-computer-picker'], '');
+assert.deepEqual(partsOf(btn), [{ id: 'self', label: 'computers.thisMacShort', pressed: false }, { id: ID, label: 'Studio', pressed: true }], 'This Mac | Studio, Studio on screen');
+assert.equal(btn.c[1].p.title, 'computers.picker:{"name":"Studio"}', 'the pressed part names the computer on screen');
+assert.equal(btn.c[0].p.title, 'computers.switchTo:{"name":"computers.thisMacShort"}', 'the other part says where its click goes');
+btn.c[1].p.onClick(); await tick();
+assert.equal(views.getSnapshot().current, ID, 'a click on the part on screen does nothing');
 assert.equal(body.querySelector('[data-composer-plus-computer-back]'), null, 'no banner');
 // The other Mac's page says hello (it shows the same picker itself): the float goes. A new document must say hello again.
 await tick();
@@ -238,19 +246,19 @@ assert.equal(views.getSnapshot().noPicker, true, 'no hello in time: it stays');
 pushEvent({ hello: true, from: ID }); await tick();
 assert.equal(views.getSnapshot().noPicker, false, 'a late hello hides it');
 
-// This Mac, with one click (no menu): the page hides and stays (no reload, lease kept); Studio again shows it at once.
-renderPicker().c[0].p.anchor.p.onClick(); await tick();
+// This Mac, with one click on its part (no menu): the page hides and stays (no reload, lease kept); Studio again shows it.
+renderPicker().c[0].p.anchor.c[0].p.onClick(); await tick();
 assert.equal(views.getSnapshot().current, 'self', 'the click came back');
 assert.equal(renderPicker().c[0].p.open, false, 'no menu opened');
 btn = renderPicker().c[0].p.anchor;
-// On this Mac with one other computer: the click goes to it at once (no menu, no arrow); a right-click opens the menu.
-assert.equal(btn.c[1].c[0], 'computers.thisMacShort'); assert.equal(btn.p['aria-haspopup'], undefined, 'one other computer: no menu'); assert.equal(btn.c[2], null, 'no arrow');
-assert.equal(btn.p.title, 'computers.switchTo:{"name":"Studio"}', 'the title names where the click goes'); assert.equal(btn.p['aria-label'], btn.p.title);
+// On this Mac with one other computer: the same two parts, This Mac pressed; a right-click opens the whole menu.
+assert.deepEqual(partsOf(btn), [{ id: 'self', label: 'computers.thisMacShort', pressed: true }, { id: ID, label: 'Studio', pressed: false }], 'This Mac on screen');
+assert.equal(btn.c[1].p.title, 'computers.switchTo:{"name":"Studio"}', 'the title names where the click goes');
 assert.equal(root.style.visibility, 'hidden'); assert.equal(wv.style.visibility, 'hidden'); assert.equal(wv.isConnected, true); assert.deepEqual(released, []);
 { let prevented = 0; btn.p.onContextMenu({ preventDefault: () => { prevented += 1; } });
   assert.equal(prevented, 1, 'no browser menu'); menu = renderPicker().c[0]; assert.equal(menu.p.open, true, 'the right-click opens the menu');
   assert.deepEqual(menu.p.items.map((i) => i.id), ['self', ID, 'sep', 'add'], 'Add a computer… stays one right-click away'); menu.p.onClose(); }
-renderPicker().c[0].p.anchor.p.onClick(); await tick();
+renderPicker().c[0].p.anchor.c[1].p.onClick(); await tick();
 assert.equal(views.getSnapshot().current, ID, 'one click: Studio');
 assert.equal(renderPicker().c[0].p.open, false, 'no menu opened');
 assert.equal(opens, 1, 'no new ticket'); assert.equal(loaded.length, 1, 'no reload'); assert.equal(root.style.visibility, 'visible');
@@ -327,7 +335,10 @@ btn = menu.p.anchor; assert.equal(btn.c[1].c[0], 'computers.back', 'the other Ma
 opener = { status: 200, body: { self: { name: 'Office Mac' }, current: ID, computers: [{ id: ID, name: 'Studio', state: 'ok' }] } };
 await openerStore.refresh();
 btn = renderPicker().c[0].p.anchor; assert.equal(btn.p['aria-haspopup'], undefined);
-btn.p.onClick(); await tick();
+assert.deepEqual(partsOf(btn), [{ id: 'self', label: 'computers.thisMacShort', pressed: false }, { id: ID, label: 'Studio', pressed: true }], 'the same two parts on the other Mac\'s page');
+before = posts.length; btn.c[1].p.onClick(); await tick();
+assert.equal(posts.length, before, 'the page on screen does not switch to itself');
+btn.c[0].p.onClick(); await tick();
 assert.deepEqual(posts.at(-1), { url: '/__composer-plus/switch', body: { to: 'self' } });
 assert.equal(renderPicker().c[0].p.open, false, 'no menu opened');
 view = { ...view, via: false }; await computers.refresh();
