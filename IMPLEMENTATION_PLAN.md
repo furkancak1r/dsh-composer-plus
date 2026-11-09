@@ -2636,3 +2636,7 @@ Doğrulandı 3, reddedildi 0.
 - F-06 (P2, çift gönderim): masaüstü uygulama ve Web GUI aynı listeyi gösterir. Bir pencerede devredilen madde öteki pencerede bir sonraki okumaya kadar → düğmesiyle kalır; ikinci tık ikinci "Bunu sen yap" mesajını gönderir. Host sahibi zaten "agent" olan maddeyi yine devrediyor. Düzeltme: Host böyle bir devri 409 ile reddeder ve güncel listeyi verir, mesaj gönderilmez. Regresyon: Host testi.
 - F-07 (P3, belge, AGENTS.md kural 4): README "Limits" bölümünde panelin dsh işaretine bağlılığı ve 1000 px altı davranışı yok; Development bölümünde yeni gerçek dsh testi yok. Düzeltme: 13 README'de bir sınır satırı ve kod bloğuna test satırı.
 - 2. tur sonucu: F-05, F-06 düzeltildi (regresyon testleri düzeltmesiz kırmızı, düzeltmeyle yeşil); F-07 13 README'de sınır satırı ve test komutu. Gerçek dsh 0.2.2-rc.1 PASS, `npm test` exit 0.
+
+### Öz denetim 3. tur (kapsam `fcddec4..bfe1fc8`, tüm dal yeniden okundu)
+İncelenen kapsamda doğrulanmış bulgu yok. Reddedilen aday: her tuş vuruşunda dock girişinin yeniden çizimi. Kanıt: dsh `useInput((s) => s)` ile dock'u her taslak değişikliğinde çizer, panel 100 maddeyle sınırlı ve DOM değişmez; dsh'nin kendi todo ve goal dock'ları da aynı yoldadır. 2. bölümde panel büyüyeceği için panel dock'tan ayrılacak (aşağıda).
+
