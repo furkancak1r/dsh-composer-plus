@@ -2647,3 +2647,47 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
 - 2026-11-09 14:10: düzeltmeler commit `127deeb`. 3. denetim turunda yeni doğrulanmış bulgu yok. `npm test` exit 0, `git diff --check` temiz. `main` (3885882) ile `git merge-tree` çakışmasız.
   - Arayüz doğrulanmadı: çalışan dsh canlı kopyayı yükler; etkinleştirme dsh'yi yeniden başlatmayı ister (bu görevde yasak). Gerçek dsh testi (0.2.0-rc.2, 0.2.1-rc.2) açık iş.
   - Çakışma: `fix/asistan-acilis-hizi` ile yalnız bu dosyanın sonu (iki yeni bölüm; ikisini de tut).
+
+## Asistan açılış hızı ve uzun sohbette takılma (2026-11-09, dal `fix/asistan-acilis-hizi`)
+
+### Amaç
+Assistant satırına tıklayınca asistan sohbeti normal bir sohbet kadar hızlı açılır. Uzun, çok alt ajanlı sohbette yazarken ve akış sürerken takılma azalır (üst ajanın kapsam genişletmesi, madde 1-5).
+
+### Ölçüm (temel değer)
+- Yalıtılmış headless dsh 0.2.2-rc.1, `~/.dsh/sessions` yerel kopyası (1309 sohbet), sahte model: `GET /api/composer-plus.assistant` tıklama başına 466, 350, 228, 313, 269 ms. İstemci `openSession`'ı bu yanıttan sonra çağırır; normal satır hemen çağırır.
+- Kod düzeyi (tarayıcısız, aynı kopya): `sessionPersistence.list()` 139-223 ms, `stat(id)` 5-7 ms. Rota her tıklamada `list()` çağırır (`index.js` `stored`), sonra `resolveAgent(id)` bekler (canlı değilse tüm ajan diskten açılır).
+- Kullanıcının GUI'si ölçülemedi: Chrome oturumu 401 verdi (masaüstü uygulaması), token alınmadı.
+
+### Değişmezler
+- Silinen sohbet yine yeniden yaratılır; arşivlenen sohbet yine arşivden çıkar; iki tıklama tek sohbet yapar.
+- Asistan kapalıyken rota 409 döner; istemci sohbet açmaz.
+- Rollback ile geri alınan satırlar, mesaj bağlantısı ve geri alma düğmeleri aynı davranır.
+
+### Kabul ölçütü
+- Bilinen asistan sohbeti: istemci `openSession`'ı Host yanıtını beklemeden çağırır (hedef: tıklamadan `openSession`'a < 50 ms; birim testinde fetch hiç dönmezken de açılır).
+- Rota: bilinen ve canlı/kayıtlı sohbet için `persistence.list()` çağrılmaz, `resolveAgent` beklenmez (birim testi).
+- Madde 1-5: her biri ayrı commit ve bir test ya da ölçülebilir kontrol.
+
+### Aşamalar
+1. A: açılış hızı (istemci + Host), test.
+2. B (1): tek paylaşılan body MutationObserver, `[data-chat-flow]` içi değişiklikleri yok sayar, toplu çalışır.
+3. C (2): sohbet satırı taramaları yalnız yeni satırları işler veya tur sürerken seyrekleşir.
+4. D (3): StatusOrder ve assistantApart `:has()` kuralları.
+5. E (4): dar seçiciler.
+6. F (5): asistan görünümünde son N tur, "Öncekileri göster".
+
+### İzinli yollar
+`client.js`, `index.js`, `test/*`, `package.json` (test betiği), dil dosyaları yalnız yeni metin gerekirse, bu bölüm.
+
+### Kontroller
+`npm test`; ilgili `test/*.test.mjs`; mümkünse `test/browser-assistant.mjs` (headless, sahte model).
+
+### Kararlar
+- Canlı veride ikinci headless ölçüm Auto review tarafından reddedildi; tekrar denenmedi. Sonrası "canlı ölçülmedi"; birim testi ve kod düzeyi ölçüm verilir.
+
+### Riskler
+- Bilinen kimlik silinmiş bir sohbete aitse istemci önce boş/eksik bir görünüm açabilir; Host yanıtı yeni kimlik verince yeni sohbete geçer.
+- `fix/asistan-durum-gostergesi` main'e girdi (afd332d); bu dal onun üstünde başlar. `AssistantApartIcon` ve `assistantApartCss` yakınında fark en küçük tutulur.
+
+### Son kontrol noktası
+- 2026-11-09 13:50: plan yazıldı, kod yok.
