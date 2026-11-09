@@ -208,8 +208,9 @@ try {
     sessionEvents = [...sessionEvents, user('Use bun for scripts')]; answer = 'not json';
     const status = (s) => on['agent/status'].forEach((f) => f({ agent: { id: 'chat-1', session: { header: { cwd: project } } }, status: s }));
     status('running'); status('idle');
-    await new Promise((r) => setTimeout(r, 2600));
-    const failed = (await journalRows()).filter((r) => r.actor === 'review-error' && r.op === 'error');
+    const errorRows = async () => (await journalRows()).filter((r) => r.actor === 'review-error' && r.op === 'error');
+    for (const end = Date.now() + 10000; (await errorRows()).length === 0 && Date.now() < end;) await new Promise((r) => setTimeout(r, 50)); // the 2 s review timer
+    const failed = await errorRows();
     assert.equal(failed.length, 1, 'one error row'); assert.equal(failed[0].session, 'chat-1'); assert.match(failed[0].reason, /not a list of changes/);
     answer = '{"changes":[{"op":"add","text":"The user runs scripts with bun","topic":"t-41"}]}';
     for (let i = 0; i < 40; i++) await mem.store.add({ scope: mem.store.project(project), topic: `t-${i}`, text: `Topic fact ${i}`, actor: 'agent' }).catch(() => {});
