@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   MEMORY_PATH, MEMORY_TOOLS, installMemory, memoryStore, memorySection, memoryReviewRequest, memoryLines, parseMemoryReview, parseMemory, looksSecret,
-  entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE,
+  entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE, MEMORY_OVERFLOW_TOPIC,
 } from '../index.js';
 
 let seq = 0;
@@ -165,6 +165,20 @@ try {
   await assert.rejects(mem.review('chat-1'), /not a list/);
   answer = '{"changes":[]}'; await mem.review('chat-1');
   assert.match(llmCalls.at(-1).messages[0].content[0].text, /Use pnpm here/, 'the failed lines are read again');
+
+  // A full MEMORY.md: the review's new note goes to the topic "more", not lost (the agent's tool still gets the reason).
+  { const pDir = mem.store.project(project).dir;
+    const before = await readFile(join(pDir, 'MEMORY.md'), 'utf8');
+    await writeFile(join(pDir, 'MEMORY.md'), before.replace('## Index', `- ${'Filler fact. '.repeat(610)}\n\n## Index`));
+    sessionEvents = [...sessionEvents, user('I always deploy on Fridays')];
+    answer = '{"changes":[{"op":"add","text":"The user deploys on Fridays"}]}';
+    await mem.review('chat-1');
+    assert.match(await readFile(join(pDir, `${MEMORY_OVERFLOW_TOPIC}.md`), 'utf8'), /The user deploys on Fridays/, 'the note is in the topic');
+    assert.match(await readFile(join(pDir, 'MEMORY.md'), 'utf8'), new RegExp(`\\[\\[${MEMORY_OVERFLOW_TOPIC}\\]\\]`), 'MEMORY.md links the topic');
+    await assert.rejects(tool('memory_remember').execute({ text: 'Another main fact' }, exec), /would have \d+ of its 8000/, 'the agent still gets the reason');
+    assert.match(await tool('memory_remember').execute({ text: 'A detail for a new topic', topic: 'details' }, exec), /the new topic \[\[details\]\]/, 'a full MEMORY.md still takes a new topic, as its error text says');
+    await writeFile(join(pDir, 'MEMORY.md'), before); }
+
 
   // The status edge queues a review only for a root chat that ran (timer stops on switch-off).
   assert.equal(typeof on['agent/status']?.[0], 'function');

@@ -5969,6 +5969,8 @@ const MEMORY_REVIEW_MAX_TOKENS = 8000; // room for a reasoning model's thinking;
 const MEMORY_REVIEW_CHANGES = 8;
 const MEMORY_REVIEW_TEXT = 16000; // characters of new chat lines in one review
 const MEMORY_REVIEW_SHOWN = 16000; // characters of saved entries in one review
+/** The review's topic for a new note when MEMORY.md is full. */
+export const MEMORY_OVERFLOW_TOPIC = 'more';
 const MEMORY_FROZEN_MAX = 500;
 const MEMORY_CURSORS_MAX = 2000;
 const squash = (text) => String(text ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
@@ -6130,9 +6132,9 @@ export function memoryStore(dir, { today = () => new Date().toLocaleDateString('
   const checkSize = (f, next, scope) => {
     // A file already past its size (edited by hand) may still shrink.
     if (next.length <= limitOf(f) || next.length <= f.content.length) return;
-    throw refused(f.topic === undefined
+    throw Object.assign(refused(f.topic === undefined
       ? `MEMORY.md of ${scope.label} would have ${next.length} of its ${MEMORY_LIMITS.main} characters. Move details into a topic, merge entries with replace, or forget old ones.`
-      : `The topic [[${f.topic}]] would have ${next.length} of its ${MEMORY_LIMITS.topic} characters. Use another topic, or forget old entries.`);
+      : `The topic [[${f.topic}]] would have ${next.length} of its ${MEMORY_LIMITS.topic} characters. Use another topic, or forget old entries.`), { code: f.topic === undefined ? 'main-full' : 'topic-full' });
   };
   let chain = Promise.resolve();
   const queued = (job) => { const run = chain.then(job); chain = run.catch(() => {}); return run; };
@@ -6188,12 +6190,9 @@ export function memoryStore(dir, { today = () => new Date().toLocaleDateString('
     const next = joinLines(insertEntry(base, line));
     checkSize(target, next, scope);
     const writes = [[target.path, next]];
-    // The topic file is written before the link to it.
-    if (topic !== undefined && !main.links.includes(topic)) {
-      const index = joinLines(addLink(main.lines.length > 0 ? main.lines : parseMemory(MEMORY_EMPTY).lines, topic));
-      checkSize(main, index, scope);
-      writes.push([main.path, index]);
-    }
+    // The topic file is written before the link to it. The link is not size-checked: the prompt shows MEMORY.md's entries
+    // and the topic names, not the Index, and a full MEMORY.md must still take a new topic ("move details into a topic").
+    if (topic !== undefined && !main.links.includes(topic)) writes.push([main.path, joinLines(addLink(main.lines.length > 0 ? main.lines : parseMemory(MEMORY_EMPTY).lines, topic))]);
     await writeAll(scope, writes, actor);
     await journal({ op: 'add', scope: scope.key, file: target.file, actor, after: line });
     return { changed: true, message: `Saved to ${scope.label}, in ${topic === undefined ? MEMORY_MAIN : fresh ? `the new topic [[${topic}]]` : `topic [[${topic}]]`} (${next.length} of ${limitOf(target)} characters).` };
@@ -7025,7 +7024,13 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
               const entry = cleanEntry(c.text);
               const topic = c.topic === undefined || c.topic.trim() === '' ? undefined : cleanTopic(c.topic);
               if (entryProblem(entry) !== undefined || (c.topic !== undefined && c.topic.trim() !== '' && topic === undefined)) continue;
-              await now.add({ scope: c.global === true ? store.GLOBAL : scope, topic, text: entry, meta, actor: 'review' });
+              const add = { scope: c.global === true ? store.GLOBAL : scope, topic, text: entry, meta, actor: 'review' };
+              try { await now.add(add); } catch (error) {
+                // A full MEMORY.md: the note goes to a topic instead of being lost (the agent's memory_remember gets the
+                // reason and can choose; the review cannot).
+                if (error?.code !== 'main-full') throw error;
+                await now.add({ ...add, topic: MEMORY_OVERFLOW_TOPIC });
+              }
               continue;
             }
             const target = numbered[c.entry - 1];
