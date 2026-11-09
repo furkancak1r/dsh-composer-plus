@@ -461,6 +461,18 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(Client.assistantError(Fail("the assistant chat is busy", status: 500)), "the assistant chat is busy")
     }
 
+    /// Assistant onboarding: the empty screen of the chat that the Assistant button opened shows the assistant's welcome;
+    /// another chat, no opened assistant chat, or a Mac without the Assistant route shows the usual starters.
+    @MainActor func testAssistantWelcome() {
+        XCTAssertTrue(Client.assistantWelcome(current: "a", assistant: "a", plus: ["assistant"]))
+        XCTAssertFalse(Client.assistantWelcome(current: "b", assistant: "a", plus: ["assistant"]), "another chat")
+        XCTAssertFalse(Client.assistantWelcome(current: "a", assistant: nil, plus: ["assistant"]), "the button did not open it")
+        XCTAssertFalse(Client.assistantWelcome(current: nil, assistant: nil, plus: ["assistant"]), "no chat")
+        XCTAssertFalse(Client.assistantWelcome(current: "a", assistant: "a", plus: []), "the Mac switched the Assistant off")
+        let c = Client()
+        XCTAssertNil(c.assistantId); XCTAssertFalse(c.showsAssistantWelcome)
+    }
+
     @MainActor func testReasoningSessionModelAndGroups() {
         let md = transcriptMarkdown([Line(kind: .user, text: "hi"), Line(kind: .tool, text: "ls"), Line(kind: .assistant, text: "hello")], title: "T")
         XCTAssertEqual(md, "# T\n\n## You\n\nhi\n\n## Assistant\n\nhello\n")

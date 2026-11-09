@@ -944,7 +944,31 @@ struct ConversationView: View {
         .padding(.horizontal, 10).padding(.top, 6)
     }
 
-    var emptyState: some View {
+    @ViewBuilder var emptyState: some View {
+        if c.showsAssistantWelcome { assistantWelcome } else { chatStarters }
+    }
+
+    /// The first open of the assistant chat: what it does, and example requests that fill the composer (not send).
+    var assistantWelcome: some View {
+        VStack(spacing: 8) {
+            Group {
+                Image(systemName: "sparkles").font(.largeTitle).foregroundStyle(.secondary)
+                Text("Your personal assistant").font(.headline)
+                Text("One lasting chat for small tasks. Write to it as you write to a person. A longer task runs in the background, so you can write the next message at once.")
+                    .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                Text("Before it sends a message to a chat, or starts, stops or archives one, it asks you.")
+                    .font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.center)
+            }.allowsHitTesting(false)
+            VStack(spacing: 6) {
+                ForEach([String(localized: "Remind me to drink water in 2 minutes"), String(localized: "Find flights to Rome for next week"), String(localized: "Which chats wait for me?")], id: \.self) { s in
+                    Button { text = s; focused = true } label: { Text(s).font(.footnote) }
+                        .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
+                }
+            }.padding(.top, 8)
+        }.padding(.horizontal, 24).padding(.vertical)
+    }
+
+    var chatStarters: some View {
         VStack(spacing: 8) {
             Group {
                 Image(systemName: "sparkles").font(.largeTitle).foregroundStyle(.secondary)
