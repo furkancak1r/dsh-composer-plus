@@ -5607,7 +5607,9 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
         || children.some((child) => (statuses.get(child.id)?.running ?? list.byId[child.id]?.running) === true)) return 1;
       return automated.has(id) ? 2 : 3;
     }
-    /** Adds "By status" under dsh's "Order by" items and orders the flat list with CSS `order` on its row wrappers.
+    /** Adds "By status" under dsh's "Order by" items and orders the flat list with an inline CSS `order` on its row wrappers
+     * (set only where it changes, on each sidebar change; one `:has()` rule per chat made each status change restyle the
+     * whole page).
      * ponytail: dsh has no slot in that menu or list. The item goes after dsh's "Last updated" row (the fifth item row)
      * and rows are found by `data-row-key="session:<id>"`. If dsh changes this, the option is not
      * shown and the list keeps dsh's order. While it is selected, dsh's own check stays on Manual/Last updated; a drag in
@@ -5619,8 +5621,22 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       const workspaces = useWorkspaces((state) => state);
       const [on, setOn] = React.useState(() => { try { return localStorage.getItem(STATUS_ORDER_KEY) === '1'; } catch { return false; } });
       const [host, setHost] = React.useState(null);
-      const [rows, setRows] = React.useState(0); // flat-list row count: a new row needs the rule again
       const [automated, setAutomated] = React.useState(() => new Set());
+      // id → CSS order of the ranked chats (null: dsh's order); the rows that got an order from us.
+      // `applyOrder` reads both refs, so the copy that the body watcher keeps from the first render stays right.
+      const ranks = React.useRef(null); const ordered = React.useRef(new Set());
+      const applyOrder = () => {
+        const want = ranks.current; const seen = new Set();
+        for (const wrap of want === null ? [] : document.querySelector(FLAT_LIST)?.children ?? []) {
+          const id = wrap.querySelector(':scope > [data-row-key^="session:"]')?.getAttribute('data-row-key')?.slice(8);
+          const order = id === undefined ? undefined : want.get(id);
+          if (order === undefined) continue;
+          seen.add(wrap);
+          if (wrap.style.order !== String(order)) wrap.style.order = String(order);
+        }
+        for (const wrap of ordered.current) if (!seen.has(wrap)) wrap.style.order = '';
+        ordered.current = seen;
+      };
       React.useEffect(() => {
         if (!on || schedule?.catalog === undefined) { setAutomated(new Set()); return undefined; }
         let live = true;
@@ -5648,11 +5664,11 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
             }
           }
           setHost(next);
-          setRows(document.querySelector(FLAT_LIST)?.children.length ?? 0);
+          applyOrder(); // dsh drew rows again: a new row wrapper has no order yet
         };
         scan();
         const unwatch = watchBody(scan);
-        return () => { unwatch(); document.querySelector(`[${STATUS_ORDER_HOST}]`)?.remove(); };
+        return () => { unwatch(); document.querySelector(`[${STATUS_ORDER_HOST}]`)?.remove(); ranks.current = null; applyOrder(); };
       }, []);
       const choose = (value) => {
         try { if (value) localStorage.setItem(STATUS_ORDER_KEY, '1'); else localStorage.removeItem(STATUS_ORDER_KEY); } catch { /* storage blocked: this page only */ }
@@ -5669,14 +5685,15 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
         return () => items.removeEventListener('click', onClick, true);
       }, [host, on]);
       let rule = '';
+      let next = null;
       if (on && list?.byId !== undefined && statuses !== undefined) {
-        const groups = [[], [], []];
+        next = new Map();
         const skip = new Set([...(workspaces?.pinnedSessionIds ?? []), ...(workspaces?.archivedSessionIds ?? [])]);
-        for (const id of list.ids ?? []) { const rank = statusRank(id, list, statuses, automated, skip); if (rank < 3) groups[rank].push(id); }
-        rule = groups.map((ids, rank) => ids.map((id) => `${FLAT_LIST} > :has(> [data-row-key=${JSON.stringify(`session:${id}`)}])`).join(',\n')
-          + (ids.length > 0 ? ` { order: ${rank - 3}; }` : '')).filter((part) => part.length > 0).join('\n');
-        rule = `${FLAT_LIST} { display: flex; flex-direction: column; }\n${rule}`;
+        for (const id of list.ids ?? []) { const rank = statusRank(id, list, statuses, automated, skip); if (rank < 3) next.set(id, rank - 3); }
+        rule = `${FLAT_LIST} { display: flex; flex-direction: column; }`;
       }
+      const key = next === null ? '' : [...next].join(',');
+      (React.useLayoutEffect ?? React.useEffect)(() => { ranks.current = next; applyOrder(); }, [key]);
       // One checked row in "Order by": while this is on, hide dsh's own check on Manual / Last updated (marked by the scan).
       if (on) rule += `\n[${STATUS_ORDER_DSH}] > [role="menuitem"] > svg:last-child { visibility: hidden; }`;
       const { MenuItemButton, IconCheckOutlineRegular: Check } = primitives;
@@ -5690,7 +5707,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
             Check === undefined ? '✓' : React.createElement(Check, { size: 14 })) : null,
           on ? React.createElement('span', { style: { position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' } }, t('statusOrder.selected')) : null)),
       host);
-      return React.createElement(React.Fragment, null, rule === '' ? null : React.createElement('style', { 'data-rows': rows }, rule), option);
+      return React.createElement(React.Fragment, null, rule === '' ? null : React.createElement('style', null, rule), option);
     }
 
     /** New chat → project menu (the folder button above the composer): a search box on top, and the projects in A–Z order.

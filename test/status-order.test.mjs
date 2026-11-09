@@ -1,6 +1,7 @@
 // Runs the real client.js "By status" order with fake React and a mini DOM: the item goes after dsh's "Last updated"
 // in the open view options menu; selecting it orders the flat list finished → running/waiting → automated → rest with
-// CSS `order` (pinned, archived, blank and subagent chats keep dsh's place); dsh's Manual / Last updated turn it off;
+// an inline CSS `order` on the flat list's row wrappers (no `:has()` rule per chat; pinned, archived, blank and subagent
+// chats keep dsh's place); dsh's Manual / Last updated turn it off;
 // a Schedule change refreshes the automated chats; the choice survives a reload; unmount cleans up.
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 const mem = new Map();
@@ -16,7 +17,7 @@ const matcher = (compound) => {
 const descendants = (e) => e.children.flatMap((c) => [c, ...descendants(c)]);
 const listeners = new Map();
 class El {
-  constructor(attrs = {}, children = []) { this.attrs = { ...attrs }; this.children = []; this.parentElement = null; for (const c of children) this.append(c); }
+  constructor(attrs = {}, children = []) { this.attrs = { ...attrs }; this.children = []; this.parentElement = null; this.style = { order: '' }; for (const c of children) this.append(c); }
   getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; }
   setAttribute(k, v) { this.attrs[k] = String(v); }
   append(c) { c.remove(); c.parentElement = this; this.children.push(c); }
@@ -43,6 +44,7 @@ globalThis.MutationObserver = class { constructor(fn) { this.fn = fn; } observe(
 let cur;
 const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }),
   useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = typeof v === 'function' ? v() : v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
+  useRef: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = { current: v }; return s[i]; },
   useEffect: (f, deps) => { cur.effects.push([f, deps]); } };
 const mount = (C, props) => {
   const inst = { state: [], deps: [], cleanups: [] };
@@ -75,8 +77,10 @@ let changed = null; let reads = 0;
 let schedule = { catalog: async () => { reads += 1; return { ok: true, value: tasks }; }, onChange: (fn) => { changed = fn; return () => { changed = null; }; } };
 const props = () => ({ useSessions: (f) => f(list), useSessionStatus: (f) => f(statuses), useWorkspaces: (f) => f(workspaces), useSchedule: (f) => f(schedule), t: (k) => k });
 const css = (out) => out.c[0]?.c[0] ?? '';
-// One rule per rank: its selector list spans several lines, so read each block up to its "{ order: n; }".
-const orders = (out) => Object.fromEntries([...css(out).matchAll(/([^{}]+)\{ order: (-?\d+); \}/g)].flatMap(([, sel, n]) => [...sel.matchAll(/"session:(\w+)"/g)].map((m) => [m[1], Number(n)])));
+// dsh's flat list ("In one list"): one wrapper per chat row. The order is the wrappers' inline `order`.
+const wrappers = list.ids.map((id) => new El({ class: 'x_rowWrap' }, [new El({ 'data-row-key': `session:${id}` })]));
+const flat = new El({ role: 'tree', class: 'x_flatList' }, wrappers); body.append(flat);
+const orders = () => Object.fromEntries(flat.children.filter((w) => w.style.order !== '').map((w) => [w.children[0].getAttribute('data-row-key').slice(8), Number(w.style.order)]));
 
 const so = mount(StatusOrder, props);
 let out = await so.settle();
@@ -96,26 +100,30 @@ assert.equal(button().t, 'MenuItemButton'); assert.equal(button().c[0].c[0].c[0]
 // Select: finished → running/waiting → automated; pinned, archived, blank and subagent chats keep dsh's place.
 button().p.onSelect(); out = await so.settle();
 assert.equal(mem.get('dsh-composer-plus.statusOrder'), '1'); assert.ok(reads > 0, 'reads the Schedule catalog');
-assert.deepEqual(orders(out), { f: -3, w: -2, r: -2, k: -2, a: -1 });
+assert.deepEqual(orders(), { f: -3, w: -2, r: -2, k: -2, a: -1 });
 assert.ok(css(out).startsWith('[role="tree"][class*="_flatList"] { display: flex; flex-direction: column; }'), 'flat list only');
-assert.match(css(out), /\[role="tree"\]\[class\*="_flatList"\] > :has\(> \[data-row-key="session:f"\]\) \{ order: -3; \}/);
+assert.doesNotMatch(css(out), /:has\(/, 'no :has() rule per chat');
+// dsh draws the list again (a new wrapper for a chat): the body watcher gives it its order.
+const fresh = new El({ class: 'x_rowWrap' }, [new El({ 'data-row-key': 'session:f' })]); flat.children.splice(3, 1, fresh); fresh.parentElement = flat;
+observer.fn(); out = await so.settle();
+assert.equal(fresh.style.order, '-3', 'a redrawn row gets its order');
 assert.equal(button().c[0].c[1].c[0].t, 'Check', 'check mark'); assert.equal(button().c[0].c[2].c[0], 'statusOrder.selected', 'state for screen readers');
 assert.deepEqual(rows.children.filter((c) => c.getAttribute('data-composer-plus-dsh-order') !== null).map((c) => c.getAttribute('data-label')), ['Manual', 'Last updated'], 'dsh order rows marked');
 assert.match(css(out), /\[data-composer-plus-dsh-order\] > \[role="menuitem"\] > svg:last-child \{ visibility: hidden; \}/, 'one check in Order by');
 
 // Changes: opening the finished chat clears dsh's done dot; a new automation; the subagent stops.
 statuses.delete('f'); tasks = [...tasks, { sessionId: 'o', status: 'active' }]; list.byId.s.running = false; changed(); out = await so.settle();
-assert.deepEqual(orders(out), { w: -2, r: -2, a: -1, o: -1 });
+assert.deepEqual(orders(), { w: -2, r: -2, a: -1, o: -1 }, 'a chat that leaves its rank gets dsh\'s place back');
 
 // dsh's own Manual / Last updated turn it off; group rows do not.
 const click = (row) => listeners.get(rows)({ target: row.children[0] });
 click(rows.children[3]); out = await so.settle(); assert.equal(mem.get('dsh-composer-plus.statusOrder'), '1', '"In one list" keeps it');
 click(rows.children[6]); out = await so.settle();
-assert.equal(out.c[0], null, 'Manual: dsh order again'); assert.equal(mem.has('dsh-composer-plus.statusOrder'), false); assert.equal(changed, null, 'stops listening to Schedule');
+assert.equal(out.c[0], null, 'Manual: dsh order again'); assert.deepEqual(orders(), {}, 'every inline order removed'); assert.equal(mem.has('dsh-composer-plus.statusOrder'), false); assert.equal(changed, null, 'stops listening to Schedule');
 
 // Reload with the stored choice; no Schedule service: automated chats are simply not ranked.
 mem.set('dsh-composer-plus.statusOrder', '1'); schedule = undefined; so.unmount();
 assert.equal(observer, null, 'unmount stops watching'); assert.ok(!rows.children.some((c) => c.getAttribute('data-composer-plus-status-order') !== null), 'unmount removes the item host');
 out = await mount(StatusOrder, props).settle();
-assert.deepEqual(orders(out), { w: -2, r: -2 }, 'stored choice applies after a reload; no Schedule, no automated rank');
+assert.deepEqual(orders(), { w: -2, r: -2 }, 'stored choice applies after a reload; no Schedule, no automated rank');
 console.log('status-order checks passed');
