@@ -2523,8 +2523,11 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       }
       return `${rules.join(',\n')} { display: none !important; }`;
     }
-    /** The Assistant row's glyph with Assistant apart from chats: dsh's own state dot over the icon (running, waiting for
-     * you in orange, a new reply in green) and the state as the row's description for screen readers. */
+    /** The Assistant row's glyph with Assistant apart from chats: dsh's own state dot (running, waiting for you in orange,
+     * a new reply in green) at the row's right end, where a project row shows its status, and the state as the row's
+     * description for screen readers. In the collapsed rail (dsh gives size 18) the row has no end: the dot sits on the icon.
+     * shortcut: dsh's panel row has no trailing slot, so the dot goes into a seat that this glyph adds at the end of its
+     * row button (as the project rows' status does); without that button the dot stays on the icon. */
     function AssistantApartIcon({ size = 16, active, status, useSessions, useSessionStatus, useWorkspaces, usePanelInfo, t }) {
       const id = React.useSyncExternalStore(status.subscribe, status.getSnapshot);
       const list = useSessions?.((s) => s);
@@ -2546,11 +2549,25 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           if (open) { button.removeAttribute('aria-current'); button.style.backgroundColor = ''; button.style.color = ''; }
         };
       }, [label, open]);
+      const rail = size === 18;
+      const [seat, setSeat] = React.useState(null);
+      React.useLayoutEffect(() => {
+        const button = ref.current?.closest('button');
+        if (button == null || rail || createPortal === undefined) return undefined;
+        const next = document.createElement('span');
+        next.setAttribute('data-composer-plus-assistant-dot', '');
+        next.setAttribute('aria-hidden', 'true');
+        // order: last even when dsh adds the label after it (collapse and expand); margin: the row's right end.
+        next.style.cssText = 'display:inline-flex;align-items:center;flex:none;margin-left:auto;order:1';
+        button.append(next); setSeat(next);
+        return () => { next.remove(); setSeat(null); };
+      }, [rail]);
+      const dot = state === null || primitives.StateDot === undefined ? null : React.createElement(primitives.StateDot, { state: state.state });
       return React.createElement('span', { ref, 'data-composer-plus-assistant-state': state?.state ?? 'idle', 'data-open': open ? 'true' : undefined, title: label || undefined,
         style: { position: 'relative', display: 'inline-flex' } },
         React.createElement(AssistantIcon, { size }),
-        state === null || primitives.StateDot === undefined ? null : React.createElement('span', { 'aria-hidden': true, style: { position: 'absolute', right: -4, top: -4, display: 'inline-flex' } },
-          React.createElement(primitives.StateDot, { state: state.state })));
+        dot === null ? null : seat !== null ? createPortal(React.createElement('span', { title: label, style: { display: 'inline-flex' } }, dot), seat)
+          : React.createElement('span', { 'aria-hidden': true, style: { position: 'absolute', right: -4, top: -4, display: 'inline-flex' } }, dot));
     }
     /** A boolean store; `on()` sets it and returns the disposer that clears it. */
     function createFlag() {

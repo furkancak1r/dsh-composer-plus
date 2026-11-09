@@ -27,7 +27,8 @@ let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, 
 eval(readFileSync(new URL('../client.js', import.meta.url), 'utf8'));
 const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment: 'F', useState: (v) => [typeof v === 'function' ? v() : v, () => {}], useRef: (v) => ({ current: v }),
   useEffect: (f) => { f(); }, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: (f) => { f(); } };
-const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Menu: 'Menu', Button: 'Button', StateDot: 'StateDot' } : {}));
+const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Menu: 'Menu', Button: 'Button', StateDot: 'StateDot' }
+  : n === 'react-dom' ? { createPortal: (el, host) => ({ t: 'Portal', p: { host }, c: [el] }) } : {}));
 const live = new Map(); let next = 0; let settings;
 plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, get: () => undefined, locale: { register: () => () => {}, bind: (ns) => (k) => `${ns}:${k}`, resolveText: (x) => x },
   slots: { inject: (n, f) => { const off = f(); return () => off(); }, register: (o, C) => { const key = next++; live.set(key, [o, C]); if (o.name === 'settings.section') settings = o; return () => live.delete(key); } } });
@@ -80,7 +81,10 @@ statuses = new Map([['s-sub', { running: true }]]); list.projectionsBySession['s
 out = render(); assert.equal(out.p['data-composer-plus-assistant-state'], 'ongoing', 'a background topic counts');
 statuses = new Map(); delete list.projectionsBySession['s-assistant'];
 // The row description for screen readers (aria-description) and the open state: the layout effect writes them on the
-// row's button (useRef gives the button here, as React's ref would after mount).
+// row's button (useRef gives the button here, as React's ref would after mount). The row's end seat (below) needs
+// document.createElement and button.append.
+globalThis.document.createElement = (tag) => ({ tag, attrs: new Map(), style: {}, removed: false, setAttribute(k, v) { this.attrs.set(k, v); }, remove() { this.removed = true; } });
+button.appended = []; button.append = (el) => { button.appended.push(el); };
 const realRef = React.useRef;
 React.useRef = () => ({ current: { closest: () => button } });
 statuses = new Map([['s-assistant', { pendingInteraction: { kind: 'question' } }]]);
@@ -94,6 +98,57 @@ list.byId['s-assistant'].retainedBy = { mainView: 1 };
 out = render(); assert.equal(out.p['data-open'], 'true', 'the open assistant chat marks the row');
 assert.equal(render({ active: true }).p['data-open'], undefined, 'not while a panel is selected');
 delete list.byId['s-assistant'].retainedBy;
+// The dot sits at the row's right end (a seat at the end of the row button, like a project row's status), not on the
+// icon. In the collapsed rail (size 18) the row has no end: the dot stays on the icon. The seat goes when the row goes.
+// A small hook runtime: state that persists between draws, and layout effects that rerun only when their deps change.
+{
+  const real = [React.useState, React.useLayoutEffect];
+  let hook = 0; const cells = []; const effects = [];
+  React.useRef = () => ({ current: { closest: () => button } });
+  React.useState = (v) => { const i = hook++; if (!(i in cells)) cells[i] = v; return [cells[i], (x) => { cells[i] = x; }]; };
+  React.useLayoutEffect = (fn, deps) => {
+    const i = hook++; const prev = effects[i];
+    if (prev !== undefined && deps.length === prev.deps.length && deps.every((d, k) => Object.is(d, prev.deps[k]))) return;
+    prev?.off?.(); const off = fn(); effects[i] = { deps, off: typeof off === 'function' ? off : undefined };
+  };
+  const draw = (size) => { hook = 0; return render({ size }); };
+  const unmount = () => { for (const e of effects.splice(0)) e?.off?.(); cells.length = 0; };
+  const portalOf = (n) => find(n, (x) => x.t === 'Portal');
+  button.appended.length = 0;
+  statuses = new Map([['s-assistant', { running: true }]]);
+  draw(16); out = draw(16); // the first draw adds the seat, the next one fills it
+  const seat = button.appended[0];
+  assert.equal(button.appended.length, 1, 'one seat at the end of the row button');
+  assert.ok(seat.attrs.has('data-composer-plus-assistant-dot') && seat.attrs.get('aria-hidden') === 'true', 'the seat: its attribute, hidden from screen readers');
+  assert.match(seat.style.cssText, /margin-left:auto/, 'pushed to the right end of the row');
+  assert.match(seat.style.cssText, /order:1/, 'after the label even when dsh adds the label later');
+  assert.equal(portalOf(out)?.p.host, seat, 'the dot goes into the seat');
+  assert.equal(find(portalOf(out), (n) => n.t === 'StateDot').p.state, 'ongoing', "dsh's own state dot");
+  assert.equal(portalOf(out).c[0].p.title, 'assistantApart.running', 'the dot has the state as its tooltip');
+  assert.equal(find(out, (n) => n.p?.style?.position === 'absolute'), undefined, 'no dot over the icon');
+  // A new state redraws the same seat (no second seat).
+  statuses = new Map([['s-assistant', { pendingInteraction: { kind: 'approval' } }]]);
+  out = draw(16);
+  assert.equal(button.appended.length, 1, 'still one seat');
+  assert.equal(find(portalOf(out), (n) => n.t === 'StateDot').p.state, 'warning');
+  // Idle: no dot, the empty seat stays (it takes no space).
+  statuses = new Map(); out = draw(16);
+  assert.equal(portalOf(out), undefined); assert.equal(find(out, (n) => n.t === 'StateDot'), undefined, 'idle: no dot');
+  unmount();
+  assert.ok(seat.removed, 'the seat goes with the row');
+  // The collapsed rail: no seat, the dot stays on the icon.
+  button.appended.length = 0; statuses = new Map([['s-assistant', { running: true }]]);
+  draw(18); out = draw(18);
+  assert.equal(button.appended.length, 0, 'the collapsed rail adds no seat');
+  assert.equal(portalOf(out), undefined);
+  assert.ok(find(out, (n) => n.p?.style?.position === 'absolute' && find(n, (x) => x.t === 'StateDot') !== undefined), 'in the rail the dot stays on the icon');
+  // Expanding the rail again moves the dot to a new seat at the row's end.
+  draw(16); out = draw(16);
+  assert.equal(button.appended.length, 1); assert.equal(portalOf(out)?.p.host, button.appended[0], 'expanded again: the dot is at the end');
+  unmount();
+  [React.useState, React.useLayoutEffect] = real; React.useRef = realRef; statuses = new Map();
+}
+delete globalThis.document.createElement;
 
 // Assistant messages only: a rule inside the assistant chat only.
 const [viewOpts, View] = entry('shell.overlay', 'assistant-chat-view');
