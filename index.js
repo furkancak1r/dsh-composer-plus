@@ -9494,8 +9494,14 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
     const ordered = interjects(payload?.agent) ? [...messages.filter(typedPrompt), ...messages.filter((m) => !typedPrompt(m))] : messages;
     return ordered.every((m, i) => m === decision.messages[i]) && ordered.length === decision.messages.length ? decision : { ...decision, messages: ordered };
   });
-  for (const agent of get('agents')?.list?.() ?? []) patch(agent);
-  ctx.effect?.(() => () => { for (const agent of [...patched.keys()]) unpatch(agent); }, 'dsh-composer-plus: assistant interjection');
+  // The assistant chat's id is read from a file: an agent that was live before that read is wrapped when it is known.
+  Promise.resolve(assistant.ready).catch(() => {}).then(() => { if (!closed) for (const agent of get('agents')?.list?.() ?? []) patch(agent); });
+  ctx.effect?.(() => () => {
+    for (const agent of [...patched.keys()]) unpatch(agent);
+    // Held notices go into dsh's own (saved) inbox, so an unload never drops one.
+    for (const [agent, quiet] of held) for (const message of quiet) { try { agent.inject(message); } catch { /* the chat closed meanwhile */ } }
+    held.clear();
+  }, 'dsh-composer-plus: assistant interjection');
 
   ctx.effect?.(() => () => { closed = true; freeOn = false; notifyOn = false; fiber?.dispose?.(); fiber = undefined; clearAll(); notes.clear(); }, 'dsh-composer-plus: assistant bot');
   return { ready: Promise.all([freeRead, notifyRead]), flush, pending: () => [...pending.values()], free: () => freeOn, notify: () => notifyOn };

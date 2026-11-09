@@ -280,5 +280,31 @@ for (const [agent, questions, off] of [[a, [{ ...q[0], intent: { kind: 'approval
   if (off) await setFree(true);
 }
 
+// Review fixes, with a second fake dsh whose plugin can unload:
+// - the assistant chat id is read from a file after the plugin starts: an agent that was live before is still wrapped;
+// - a notice held while the turn runs goes into dsh's inbox when the plugin unloads (it is never dropped).
+{
+  const own = new Map(); const disposers = []; let known = false; const ready = Promise.withResolvers();
+  const calls = [];
+  const live = { id: 's-live', status: 'running', inbox: { nextTurn: [], nextStep: [] },
+    followup: (m) => calls.push(['followup', m]), steer: (m) => calls.push(['steer', m]), inject: (m) => calls.push(['inject', m]) };
+  const late = { ready: ready.promise, isOn: () => true, id: () => (known ? 's-live' : undefined), isAssistant: (x) => known && x?.id === 's-live' };
+  const ctx2 = { ...ctx, on: (name, fn) => { own.set(name, [...(own.get(name) ?? []), fn]); return () => {}; }, effect: (fn) => { disposers.push(fn()); },
+    get: (name) => ({ agents: { get: (id) => (id === 's-live' ? live : undefined), list: () => [live] } })[name] };
+  const home2 = await mkdtemp(join(tmpdir(), 'cp-assistant-interject-2-'));
+  const bot2 = installAssistantBot(ctx2, home2, late);
+  await bot2.ready;
+  known = true; ready.resolve(); await pause(5);
+  live.followup(typed('typed early'));
+  assert.deepEqual(calls.map(([name]) => name), ['steer'], 'wrapped after the id is known');
+  calls.length = 0;
+  live.steer(finished('s-c8', true));
+  assert.deepEqual(calls, [], 'held while the turn runs');
+  for (const dispose of disposers) dispose?.();
+  assert.deepEqual(calls.map(([name, m]) => [name, m.source.senderSessionId]), [['inject', 's-c8']], 'injected at unload');
+  assert.equal(Object.hasOwn(live, 'followup') && live.followup.name === 'followup', true, 'own methods back');
+  await rm(home2, { recursive: true, force: true });
+}
+
 await rm(home, { recursive: true, force: true });
 console.log('assistant-interject ok');
