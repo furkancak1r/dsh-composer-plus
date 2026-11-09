@@ -8182,6 +8182,11 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
      * `noPicker`: the page on screen did not say hello (it loads, an older Composer Plus there, or the relay's own text), so
      * it has no picker of its own: this Mac's picker shows over it (`SidebarComputerPicker`). */
     const COMPUTER_HELLO_MS = 6000; // a page that does not say hello by then: read the states again (`sync`)
+    /** Runs in the other Mac's page in a macOS webview: `data-platform=darwin` once dsh's page has mounted (its sidebar brand
+     * row is there), at most 30 s. Not before: at start dsh's shortcuts read the mark as "desktop" and ask for the desktop
+     * keyboard bridge, which a webview page does not have, and the page does not start. The layout reads the mark live.
+     * ponytail: only `data-platform`; a full-screen window keeps the page's traffic-light space (no `data-fullscreen`). */
+    const COMPUTER_PAGE_MARK = "(() => { const t0 = Date.now(); const t = setInterval(() => { if (document.querySelector('[class*=\"_logoRow\"]')) { clearInterval(t); document.documentElement.dataset.platform = 'darwin'; } else if (Date.now() - t0 > 30000) clearInterval(t); }, 100); })()";
     function createComputerViews({ computers, desktop = () => globalThis.dshDesktop?.browser, doc = () => globalThis.document, openAdd = () => {}, now = () => Date.now(), timers = globalThis }) {
       let state = { current: 'self', busy: false, error: undefined, noPicker: false };
       const listeners = new Set();
@@ -8191,6 +8196,9 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       let helloTimer = null;
       let stopped = false;
       const set = (patch) => { state = { ...state, ...patch }; for (const fn of [...listeners]) fn(); };
+      // dsh's macOS desktop window (its preload marks only its own page). The other Mac's page in a webview is a plain web
+      // page: it gets the same mark at each load, fills the window and draws dsh's own title bar row, as this Mac's page.
+      const darwinDesktop = () => desktop()?.acquire !== undefined && doc().documentElement?.dataset?.platform === 'darwin';
       const ensureRoot = () => {
         if (root?.isConnected) return root;
         const d = doc();
@@ -8199,10 +8207,12 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         // Under dsh's own menus and dialogs (they are portaled to <body> after #root), over its page.
         // Hidden with `visibility`, not `display: none`: a desktop webview keeps its page and its size while it is hidden.
         root.style.cssText = 'position:fixed;inset:0;z-index:40;visibility:hidden;background:var(--dsw-alias-bg-base,#fff)';
-        // The strip over the page keeps the window's traffic lights free and moves the window (macOS desktop).
+        // The strip moves the window: a drag area in the page of a webview does not move it. On macOS only the corner of
+        // the traffic lights (88 px: dsh keeps that place free in its page, `leadingSeat`), so it covers no control of the
+        // page; elsewhere over the whole width above the page.
         const strip = d.createElement('div');
         strip.setAttribute('data-window-drag', '');
-        strip.style.cssText = 'position:absolute;left:0;right:0;top:0;height:var(--dsh-frame-top-clearance,0px);-webkit-app-region:drag';
+        strip.style.cssText = `position:absolute;left:0;top:0;${darwinDesktop() ? 'width:88px' : 'right:0'};height:var(--dsh-frame-top-clearance,0px);-webkit-app-region:drag`;
         root.appendChild(strip);
         d.body.appendChild(root);
         return root;
@@ -8232,7 +8242,9 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         const r = ensureRoot();
         const d = doc();
         const bridge = desktop();
-        const frameStyle = 'position:absolute;left:0;right:0;bottom:0;width:100%;border:0;background:transparent;visibility:hidden;top:var(--dsh-frame-top-clearance,0px);height:calc(100% - var(--dsh-frame-top-clearance,0px))';
+        const darwin = darwinDesktop();
+        const top = darwin ? 'top:0;height:100%' : 'top:var(--dsh-frame-top-clearance,0px);height:calc(100% - var(--dsh-frame-top-clearance,0px))';
+        const frameStyle = `position:absolute;left:0;right:0;bottom:0;width:100%;border:0;background:transparent;visibility:hidden;${top}`;
         if (bridge?.acquire !== undefined) {
           const { lease, partition } = await bridge.acquire(`composer-plus-computer:${id}`);
           const el = d.createElement('webview');
@@ -8247,8 +8259,12 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           const v = { el, lease, release: () => { unlink?.(); return bridge.release(lease).catch(() => {}); }, helloAt: undefined };
           views.set(id, v);
           el.addEventListener('did-start-navigation', (e) => { if (e.isMainFrame !== false && !e.isInPlace && !String(e.url ?? '').startsWith('about:')) loading(id); });
-          // The desktop app lets the guest load only after its lease is attached (dom-ready of `about:blank#<lease>`).
-          el.addEventListener('dom-ready', () => { if (!v.loaded) { v.loaded = true; el.loadURL(url).catch(() => {}); } });
+          // The desktop app lets the guest load only after its lease is attached (dom-ready of `about:blank#<lease>`). Each
+          // later document (the page, a reload, the relay's own text) gets this window's platform mark.
+          el.addEventListener('dom-ready', () => {
+            if (!v.loaded) { v.loaded = true; el.loadURL(url).catch(() => {}); return; }
+            if (darwin) el.executeJavaScript?.(COMPUTER_PAGE_MARK)?.catch?.(() => {});
+          });
           r.appendChild(el);
           return v;
         }
