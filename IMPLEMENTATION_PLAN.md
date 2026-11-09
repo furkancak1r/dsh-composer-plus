@@ -2619,3 +2619,6 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
   - F-04 (P3, doğrulandı): kullanılmayan `assistantTasks().list()` silindi.
   - F-05 (P2, doğrulandı): görev notu asistana "yapılacaklar listeni güncelle" diyordu; Assistant always free `todo_write` çağrısını reddeder. Düzeltme: not yalnız `chat_read` adını verir.
   - Her bulgu için `test/assistant-branch-chat.test.mjs` içinde regresyon denetimi var; her biri düzeltme geri alınınca kırmızı.
+- 2026-11-09 14:10: düzeltmeler commit `127deeb`. 3. denetim turunda yeni doğrulanmış bulgu yok. `npm test` exit 0, `git diff --check` temiz. `main` (3885882) ile `git merge-tree` çakışmasız.
+  - Arayüz doğrulanmadı: çalışan dsh canlı kopyayı yükler; etkinleştirme dsh'yi yeniden başlatmayı ister (bu görevde yasak). Gerçek dsh testi (0.2.0-rc.2, 0.2.1-rc.2) açık iş.
+  - Çakışma: `fix/asistan-acilis-hizi` ile yalnız bu dosyanın sonu (iki yeni bölüm; ikisini de tut).
