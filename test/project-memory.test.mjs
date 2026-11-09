@@ -150,6 +150,7 @@ try {
   { const sub = sectionOf({ id: 's', session: { header: { cwd: project, origin: 'subagent', parentSession: 'chat-1' } } });
     assert.match(sub, /A fact saved later/, 'a subagent gets the notes of its folder');
     assert.match(sub, /You are a subagent: no memory review reads this chat/); assert.doesNotMatch(sub, /After each of your turns/);
+    assert.match(sub, /Never put a personal fact from them into a web search/, 'the notes can hold personal facts (the Assistant\'s profile)');
     assert.doesNotMatch(frozen, /You are a subagent/, 'a root chat keeps the review line');
     // A disposed subagent frees its frozen section; a root chat keeps its own.
     const subAgent = { id: 's', session: { header: { cwd: project, origin: 'subagent', parentSession: 'chat-1' } } };
