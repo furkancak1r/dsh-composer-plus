@@ -2434,6 +2434,7 @@
     "assistantApart.done": "Nueva respuesta",
     "feature.assistantChatView": "Solo mensajes en el Asistente",
     "feature.assistantChatView.description": "En el chat del asistente se ocultan las llamadas a herramientas, el pensamiento y los grupos de pasos, como en un chat con un bot: ves tus mensajes, sus respuestas, los errores y las tarjetas de aprobación. Los demás chats no cambian.",
+    "assistantChatView.earlier": "Mostrar mensajes anteriores ({count} turnos)",
     "feature.assistantFree": "Asistente siempre libre",
     "feature.assistantFree.description": "El chat del asistente responde al instante y nunca se queda ocupado: solo ejecuta sus propias herramientas cortas (chats, recordatorios, memoria, subagentes). Cualquier otro paso (una búsqueda web, un archivo, un comando) va a un subagente en segundo plano, y el resultado vuelve al chat. Sus subagentes trabajan como siempre.",
     "assistantFree.down": "No se pudo guardar este ajuste: {error}",

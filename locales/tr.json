@@ -3894,6 +3894,7 @@
     "assistantApart.done": "Yeni yanıt",
     "feature.assistantChatView": "Asistanda yalnız mesajlar",
     "feature.assistantChatView.description": "Asistan sohbetinde araç çağrıları, düşünme satırları ve adım grupları gizlenir, bir botla yazışır gibi olursunuz: kendi mesajlarınızı, yanıtlarını, hataları ve onay kartlarını görürsünüz. Öteki sohbetler değişmez.",
+    "assistantChatView.earlier": "Öncekileri göster ({count} tur)",
     "feature.assistantFree": "Asistan hep boşta",
     "feature.assistantFree.description": "Asistan sohbeti hemen yanıt verir ve hiç meşgul kalmaz: yalnız kendi kısa araçlarını (sohbetler, hatırlatmalar, hafıza, alt ajanlar) çalıştırır. Her başka adım (web araması, dosya, komut) arka plandaki bir alt ajana gider ve sonuç sohbete gelir. Alt ajanları her zamanki gibi çalışır.",
     "assistantFree.down": "Bu ayar kaydedilemedi: {error}",
