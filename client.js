@@ -2520,6 +2520,13 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       if (typeof id !== 'string' || list === undefined || statuses === undefined) return null;
       return projectStatus([id], { ...list, byId: { ...list.byId, [id]: list.byId?.[id] ?? { blank: false } } }, statuses, archived ?? new Set());
     }
+    /** Narrow store selectors of the Assistant row and Assistant apart (see runningIdsKey): one text with only the chats and
+     * the fields that they read, so a status change of another chat renders nothing. JSON's key list drops the other fields. */
+    const assistantIdsOf = (list, id) => (typeof id === 'string' ? [id, ...(list?.projectionsBySession?.[id]?.values?.subagentCatalog ?? []).map((c) => c.id)] : []);
+    const assistantListKey = (list, ids, fields) => (list === undefined ? '' : JSON.stringify(ids.map((k) => [k, list.byId?.[k] ?? null]), fields));
+    const assistantStatusKey = (statuses, ids) => (statuses === undefined ? '' : JSON.stringify(ids.map((k) => [k, statuses.get(k) ?? null]), ['running', 'completionUnread', 'pendingInteraction', 'kind']));
+    const assistantWorkspacesKey = (ws, id) => JSON.stringify({ items: (ws?.items ?? []).filter((item) => item.sessionIds?.includes(id)), archivedSessionIds: ws?.archivedSessionIds ?? [] }, ['items', 'workspaceId', 'sessionIds', 'archivedSessionIds']);
+    const byIdOfKey = (key) => Object.fromEntries(JSON.parse(key).filter(([, v]) => v !== null));
     /** The sidebar rule: dsh's rows of the assistant chat, and the section of a project that holds no other shown chat, are
      * hidden. Search results stay (dsh's search list has no `--dsh-workspace-indent` section and no `_flatList` class).
      * ponytail: dsh has no hidden-chat flag; the rows are found by dsh's `data-row-key` and the sections by its
@@ -2545,11 +2552,14 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * row button (as the project rows' status does); without that button the dot stays on the icon. */
     function AssistantApartIcon({ size = 16, active, status, useSessions, useSessionStatus, useWorkspaces, usePanelInfo, t }) {
       const id = React.useSyncExternalStore(status.subscribe, status.getSnapshot);
-      const list = useSessions?.((s) => s);
-      const statuses = useSessionStatus?.((s) => s);
+      // Only the assistant chat and its subagents (the row is always drawn; the whole lists change with every chat's status).
+      const listKey = useSessions?.((s) => assistantListKey(s, assistantIdsOf(s, id), ['blank', 'origin', 'running', 'retainedBy', 'mainView'])) ?? '';
+      const ids = React.useMemo(() => (listKey === '' ? [] : JSON.parse(listKey).map(([k]) => k)), [listKey]);
+      const statusKey = useSessionStatus?.((s) => assistantStatusKey(s, ids)) ?? '';
       const archived = useWorkspaces?.((s) => s?.archivedSessionIds);
       const conversation = usePanelInfo?.((info) => info.activePanelId == null) ?? false;
-      const state = assistantState(id, list, statuses, new Set(archived ?? []));
+      const list = React.useMemo(() => (listKey === '' ? undefined : { byId: byIdOfKey(listKey), projectionsBySession: { [id]: { values: { subagentCatalog: ids.slice(1).map((k) => ({ id: k })) } } } }), [id, listKey]);
+      const state = assistantState(id, list, statusKey === '' ? undefined : new Map(JSON.parse(statusKey)), new Set(archived ?? []));
       // The assistant chat is the open chat: its row has no list row any more, so the Assistant row shows it as open.
       const open = !active && conversation && typeof id === 'string' && (list?.byId?.[id]?.retainedBy?.mainView ?? 0) > 0;
       const label = state === null ? '' : t(state.state === 'warning' ? 'assistantApart.waiting' : state.state === 'done' ? 'assistantApart.done' : 'assistantApart.running');
@@ -2598,9 +2608,11 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     /** Hides the assistant chat's rows (see assistantApartCss) while the feature is on. */
     function AssistantApart({ status, useSessions, useWorkspaces }) {
       const id = React.useSyncExternalStore(status.subscribe, status.getSnapshot);
-      const list = useSessions((s) => s);
-      const workspaces = useWorkspaces((s) => s);
-      const css = assistantApartCss(id, workspaces, list, new Set(workspaces?.archivedSessionIds ?? []));
+      // Only the projects that hold the assistant chat, and blank/origin of their chats.
+      const wsKey = useWorkspaces((s) => assistantWorkspacesKey(s, id));
+      const workspaces = React.useMemo(() => JSON.parse(wsKey), [wsKey]);
+      const listKey = useSessions((s) => assistantListKey(s, workspaces.items.flatMap((item) => item.sessionIds), ['blank', 'origin']));
+      const css = assistantApartCss(id, workspaces, listKey === '' ? undefined : { byId: byIdOfKey(listKey) }, new Set(workspaces.archivedSessionIds));
       return css === '' ? null : React.createElement('style', { 'data-composer-plus-assistant-apart': '' }, css);
     }
     /** Assistant messages only: in the assistant chat, dsh's process rows (tool calls, thinking, step groups, the
