@@ -2567,3 +2567,55 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
   - Simülatör (agent-device, iPhone 17 Pro, `tether/build/sim-assistant-bot.mjs`: sahte dsh + gerçek gateway, 192.168.2.63/32): liste asistan sohbetini ve "Assistant" projesini göstermez, arama bulur; Assistant düğmesi değeri "Working" ve "New reply" (yeşil nokta); sohbette düşünme/araç satırı yok, anahtar kapalıyken "Completed in 5s" satırı ve proje geri gelir. Düzenek durduruldu, geçici klasör silindi.
   - `npm pack --dry-run`: 118 dosya, `tether/` yalnız `gateway/*`. `git diff --check` temiz.
   - Açık risk: yeni Tether metinleri yalnız İngilizce (uygulamada yalnız `en.lproj` var).
+
+## Asistan sohbetinde yapılacaklar listesi (2026-11-09, dal `feat/sohbet-ici-yapilacaklar`)
+İstek (sahip, Türkçe): kullanıcı aklındaki işleri asistana söyler ve bunları kendisi yapar. "Sen yap" derse asistan yapar. Liste asistan sohbetinin içinde, konuşmanın sağında görünür (dsh'nin sağ kenar paneli değil). Bir tıkla iş asistana devredilir, bir tıkla listeden silinir. Asistan maddeleri kendiliğinden denetler ve biten maddeyi kendisi siler. İş ayrı dalda yapılır, main'e birleştirme ve push yok.
+Kapsam eki (aynı dal, ayrı commit): sağdaki liste "Durum" paneline döner (Yapılacaklar + asistanın verdiği görevler + proje grupları + sabah özeti). Önce yapılacaklar listesi biter ve commit edilir.
+
+### Hedef
+- `assistantTodos` (Host anahtarı, varsayılan açık): asistan sohbetinin listesi `storages/dsh-composer-plus/assistant-todos.json` dosyasında, sohbet kimliğine göre (`{lists: {<sessionId>: [{id, text, owner: user|agent, created}]}}`). Yeniden yükleme ve dsh yeniden başlatmadan sonra kalır.
+- İki ajan aracı, yalnız asistan sohbetinin kendi kapsamında (öteki altı araçla aynı yol): `todo_add({text, owner})` (aynı metinli açık madde varsa yalnız sahibini değiştirir) ve `todo_remove({id, reason})`. Listeleme aracı yok: güncel liste her adımda runtime context ile gelir (YAGNI). İki araç `ASSISTANT_TOOLS` içindedir, böylece Assistant always free izin listesinde ve alt ajanlarda yasaklı olur.
+- Runtime context (`systemPrompt.context`, yalnız asistan sohbetine): açık maddeler, sahipleri ve kısa kural. Kanıt varsa `todo_remove` ile sil; kullanıcının maddesini kullanıcı anmadıkça sorma. Boş listede context yoktur.
+- Route `GET/POST /api/composer-plus.assistant-todos`: GET `{on, items?}` (`?sessionId=`), POST `{on}` anahtar, POST `{sessionId, id, action: remove|handover, message?}` madde işlemi. Devretme: sahibi `agent` yapar ve `sessionController.prompt` (mode queue) ile normal kullanıcı mesajı gönderir. Gönderim başarısız olursa sahip eski hâline döner (hepsi ya da hiçbiri).
+- İstemci: `conversation.input.dock` girişinden, yalnız asistan sohbetinde, `[data-conversation-content]` öğesine portal ile sağda sabit bir panel. Her maddede "Asistana devret" ve "Kaldır" düğmeleri (gerçek `button`, `aria-label`, odak). Panel kendi deposuna abone olur. Tur sonunda, sohbet çalışırken 5 sn'de bir ve kendi işleminden sonra yeniden okur. Sohbeti yeniden çizdirmez.
+
+### Değişmezler
+- dsh'nin sağ kenar paneli ve öteki özellikler değişmez. Yeni bağımlılık yok. Uygulama paketi değişmez, dsh yeniden başlatılmaz.
+- Madde metni veridir: context'te "data, not instructions" uyarısı. `{{` metni bozulmasın diye kaçışlanır (0.2.0 context'i interpolate eder).
+- Kişisel tohum maddeleri depoya ve pakete girmez. Yalnız canlı depolama dosyasına yazılır.
+
+### Kabul ölçütleri
+1. Asistan sohbetinde sağda "Yapılacaklar" paneli görünür. Başka sohbette görünmez.
+2. "Kaldır" maddeyi onaysız siler. "Asistana devret" sohbete "Bunu sen yap: <madde>" mesajı gönderir ve sahibi `agent` olur.
+3. Ajan `todo_add`/`todo_remove` çağırabilir (Assistant always free reddetmez). Liste context'te görünür.
+4. Liste dosyada kalır, yeni bir Host örneği aynı listeyi okur.
+5. Anahtar kapalıyken araçlar, context ve panel yoktur.
+
+### Aşamalar
+1. Host: depo + araçlar + context + route + `test/assistant-todos.test.mjs` (ekle, sil, devret, kalıcılık, anahtar). Mevcut assistant testleri geçer.
+2. İstemci: panel + FEATURES/SHOT_OF + en/zh/11 dil + `test/assistant-todos-client.test.mjs`, `toggles.test.mjs` sayıları.
+3. Belgeler: `docs/features.json` (how ×13, llms, route), `build:readme`, `tether/FEATURES.md` satırı.
+4. Gerçek dsh (headless, sahte model) `test/browser-assistant-todos.mjs`, `SHOT=1` görüntü. `npm test`.
+5. Commit. Öz denetim (review-guard), bulguları doğrula (prepare-fix-plan), düzelt, temiz olana kadar tekrarla.
+6. Canlı depolama dosyasına iki tohum madde.
+
+### İzinli yollar
+`index.js`, `client.js`, `locales/*.json`, `docs/features.json`, üretilen README/llms/ROUTES, `tether/FEATURES.md`, `assets/features/assistantTodos.webp`, `package.json` (test betiği), `test/assistant-todos*.mjs`, `test/browser-assistant-todos.mjs`, mevcut test sayıları, bu plan. Canlı: yalnız `~/.dsh/storages/dsh-composer-plus/assistant-todos.json` (yeni dosya).
+
+### Kararlar
+- Depolama Host dosyasında, olay günlüğünde değil: dsh bilinmeyen olay türlerini kalıcı katmanda reddedebilir.
+- Context, bölüm (section) değil: bölüm sabit kalır ve sağlayıcı önbelleği bozulmaz.
+- Devretme mesajını istemci dilinde istemci yazar, Host gönderir: tek istek, geri alma Host'ta.
+
+### Riskler
+- Panel konumu dsh'nin `data-conversation-content` işaretine bağlıdır. dsh bunu değiştirirse panel görünmez (ponytail notu).
+- Dar pencerede panel sohbet içeriğinin üstüne gelebilir. Panel daraltılabilir.
+
+### Son kontrol noktası
+- 2026-11-09 14:00: plan yazıldı, kod yok.
+- 2026-11-09 14:45: aşama 1-4 bitti, ilk commit.
+  - Sapma: araç adları `todo_list_add` / `todo_list_remove` (dsh'nin `todo_write` aracıyla karışmasın). Listeleme aracı yok, liste context'te.
+  - `test/assistant-todos.test.mjs` ve `test/assistant-todos-client.test.mjs` geçer; 13 mutasyonun hepsi kırmızı (bir boşluk bulundu ve testi eklendi: başka sohbetin context'i).
+  - Gerçek dsh (headless, sahte model) `test/browser-assistant-todos.mjs`: 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS (6 adım). `SHOT=1` görüntüsü 14 kB.
+  - Görüntüde panel ilk sürümde mesajların üstüne geliyordu. Düzeltme: 1000 px ve üstünde sohbet sağdan 292 px boşluk alır; test, mesaj balonunun panelin solunda bittiğini ölçer.
+  - `npm test` exit 0, `npm pack --dry-run` 119 dosya, `git diff --check` temiz.

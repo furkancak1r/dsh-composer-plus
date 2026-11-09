@@ -2442,7 +2442,22 @@
     "feature.assistantNotify": "Nouvelles des discussions dans l’Assistant",
     "feature.assistantNotify.description": "L’assistant vous prévient dans sa discussion quand une autre discussion termine un long tour (1 minute ou plus), échoue ou vous attend pendant 30 secondes. Les nouvelles sont regroupées pendant 15 secondes et arrivent au plus toutes les 2 minutes. Chaque nouvelle est un tour du modèle dans la discussion de l’assistant, donc elle consomme des tokens.",
     "assistantNotify.down": "Impossible d’enregistrer ce réglage : {error}",
-    "assistantNotify.restart": "Redémarrez dsh pour utiliser Nouvelles des discussions dans l’Assistant."
+    "assistantNotify.restart": "Redémarrez dsh pour utiliser Nouvelles des discussions dans l’Assistant.",
+    "feature.assistantTodos": "Liste de tâches de l’Assistant",
+    "feature.assistantTodos.description": "Dans la discussion de l’assistant, une liste de tâches à droite de la discussion. Dites à l’assistant les tâches que vous avez en tête : il les ajoute, vous les faites. Cliquez sur → pour confier une tâche à l’assistant (il reçoit votre message « Fais-le toi : … ») et sur × pour la retirer. L’assistant vérifie la liste et retire un élément quand il a la preuve qu’il est fait. Une liste par discussion, enregistrée sur ce Mac.",
+    "todos.title": "À faire",
+    "todos.count": "{count} éléments",
+    "todos.empty": "Aucun élément. Dites à l’assistant une tâche que vous avez en tête.",
+    "todos.ownerUser": "Vous le faites",
+    "todos.ownerAgent": "L’assistant le fait",
+    "todos.handover": "Confier à l’assistant : {item}",
+    "todos.handoverShort": "Confier à l’assistant",
+    "todos.handoverMessage": "Fais-le toi :",
+    "todos.remove": "Retirer : {item}",
+    "todos.removeShort": "Retirer",
+    "todos.failed": "Impossible de modifier la liste : {error}",
+    "todos.down": "Impossible d’enregistrer ce réglage : {error}",
+    "todos.restart": "Redémarrez dsh pour utiliser Liste de tâches de l’Assistant."
   },
   "common": {
     "ok": "OK",

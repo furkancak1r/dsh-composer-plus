@@ -3902,7 +3902,22 @@
     "feature.assistantNotify": "Asistan sohbet haberleri",
     "feature.assistantNotify.description": "Başka bir sohbet uzun bir turu (1 dakika ya da daha uzun) bitirdiğinde, hata verdiğinde ya da 30 saniye sizi beklediğinde asistan bunu kendi sohbetinde söyler. Haberler 15 saniye toplanır ve en fazla 2 dakikada bir gelir. Her haber asistan sohbetinin bir model turudur, bu yüzden token harcar.",
     "assistantNotify.down": "Bu ayar kaydedilemedi: {error}",
-    "assistantNotify.restart": "Asistan sohbet haberleri özelliğini kullanmak için dsh’yi yeniden başlatın."
+    "assistantNotify.restart": "Asistan sohbet haberleri özelliğini kullanmak için dsh’yi yeniden başlatın.",
+    "feature.assistantTodos": "Asistan yapılacaklar listesi",
+    "feature.assistantTodos.description": "Asistan sohbetinde, sohbetin sağında bir yapılacaklar listesi. Aklınızdaki işleri asistana söyleyin: asistan listeye ekler, işi siz yaparsınız. Bir işi asistana vermek için → düğmesine tıklayın (asistan \"Bunu sen yap: …\" mesajınızı alır), silmek için × düğmesine tıklayın. Asistan listeyi denetler ve bir işin bittiğine dair kanıt bulunca o maddeyi kendisi siler. Her sohbetin kendi listesi vardır, liste bu Mac'te saklanır.",
+    "todos.title": "Yapılacaklar",
+    "todos.count": "{count} madde",
+    "todos.empty": "Madde yok. Aklınızdaki bir işi asistana söyleyin.",
+    "todos.ownerUser": "Siz yapacaksınız",
+    "todos.ownerAgent": "Asistan yapacak",
+    "todos.handover": "Asistana devret: {item}",
+    "todos.handoverShort": "Asistana devret",
+    "todos.handoverMessage": "Bunu sen yap:",
+    "todos.remove": "Kaldır: {item}",
+    "todos.removeShort": "Kaldır",
+    "todos.failed": "Liste değiştirilemedi: {error}",
+    "todos.down": "Bu ayar kaydedilemedi: {error}",
+    "todos.restart": "Asistan yapılacaklar listesi özelliğini kullanmak için dsh’yi yeniden başlatın."
   },
   "directory-browser": {
     "browser.title": "Çalışma alanı klasörünü seçin",

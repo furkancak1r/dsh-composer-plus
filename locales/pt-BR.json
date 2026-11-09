@@ -2442,7 +2442,22 @@
     "feature.assistantNotify": "Avisos de chats no Assistente",
     "feature.assistantNotify.description": "O assistente avisa você no chat dele quando outro chat termina um turno longo (1 minuto ou mais), falha ou espera por você durante 30 segundos. Os avisos são reunidos durante 15 segundos e chegam no máximo a cada 2 minutos. Cada aviso é um turno do modelo no chat do assistente, então usa tokens.",
     "assistantNotify.down": "Não foi possível salvar esta configuração: {error}",
-    "assistantNotify.restart": "Reinicie o dsh para usar Avisos de chats no Assistente."
+    "assistantNotify.restart": "Reinicie o dsh para usar Avisos de chats no Assistente.",
+    "feature.assistantTodos": "Lista de tarefas do Assistente",
+    "feature.assistantTodos.description": "No chat do assistente, uma lista de tarefas à direita do chat. Diga ao assistente as tarefas que você tem em mente: ele as adiciona e você as faz. Clique em → para dar uma tarefa ao assistente (ele recebe sua mensagem \"Faça isso você: …\") e em × para removê-la. O assistente verifica a lista e remove um item quando tem provas de que ele está feito. Uma lista por chat, salva neste Mac.",
+    "todos.title": "Tarefas",
+    "todos.count": "{count} itens",
+    "todos.empty": "Nenhum item. Diga ao assistente uma tarefa que você tem em mente.",
+    "todos.ownerUser": "Você faz",
+    "todos.ownerAgent": "O assistente faz",
+    "todos.handover": "Dar ao assistente: {item}",
+    "todos.handoverShort": "Dar ao assistente",
+    "todos.handoverMessage": "Faça isso você:",
+    "todos.remove": "Remover: {item}",
+    "todos.removeShort": "Remover",
+    "todos.failed": "Não foi possível alterar a lista: {error}",
+    "todos.down": "Não foi possível salvar esta configuração: {error}",
+    "todos.restart": "Reinicie o dsh para usar Lista de tarefas do Assistente."
   },
   "common": {
     "ok": "OK",

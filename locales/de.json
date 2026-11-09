@@ -2442,7 +2442,22 @@
     "feature.assistantNotify": "Chat-Neuigkeiten im Assistenten",
     "feature.assistantNotify.description": "Der Assistent sagt dir in seinem Chat Bescheid, wenn ein anderer Chat eine lange Runde (1 Minute oder länger) beendet, fehlschlägt oder 30 Sekunden auf dich wartet. Neuigkeiten werden 15 Sekunden lang gesammelt und kommen höchstens alle 2 Minuten. Jede Neuigkeit ist eine Modellrunde des Assistenten-Chats und verbraucht daher Tokens.",
     "assistantNotify.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
-    "assistantNotify.restart": "Starte dsh neu, um Chat-Neuigkeiten im Assistenten zu nutzen."
+    "assistantNotify.restart": "Starte dsh neu, um Chat-Neuigkeiten im Assistenten zu nutzen.",
+    "feature.assistantTodos": "Aufgabenliste des Assistenten",
+    "feature.assistantTodos.description": "Im Assistenten-Chat eine Aufgabenliste rechts neben dem Chat. Sag dem Assistenten die Aufgaben, die du im Kopf hast: Er fügt sie hinzu, du erledigst sie. Klicke auf →, um eine Aufgabe an den Assistenten abzugeben (er bekommt deine Nachricht „Mach du das: …“), und auf ×, um sie zu entfernen. Der Assistent prüft die Liste und entfernt einen Eintrag, wenn er einen Beleg hat, dass er erledigt ist. Eine Liste pro Chat, auf diesem Mac gespeichert.",
+    "todos.title": "Zu erledigen",
+    "todos.count": "{count} Einträge",
+    "todos.empty": "Keine Einträge. Sag dem Assistenten eine Aufgabe, die du im Kopf hast.",
+    "todos.ownerUser": "Du erledigst es",
+    "todos.ownerAgent": "Der Assistent erledigt es",
+    "todos.handover": "An den Assistenten abgeben: {item}",
+    "todos.handoverShort": "An den Assistenten abgeben",
+    "todos.handoverMessage": "Mach du das:",
+    "todos.remove": "Entfernen: {item}",
+    "todos.removeShort": "Entfernen",
+    "todos.failed": "Die Liste konnte nicht geändert werden: {error}",
+    "todos.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
+    "todos.restart": "Starte dsh neu, um die Aufgabenliste des Assistenten zu nutzen."
   },
   "common": {
     "ok": "OK",

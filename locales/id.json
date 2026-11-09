@@ -2442,7 +2442,22 @@
     "feature.assistantNotify": "Kabar obrolan dari Asisten",
     "feature.assistantNotify.description": "Asisten memberi tahu Anda di obrolannya sendiri saat obrolan lain menyelesaikan giliran panjang (1 menit atau lebih), gagal, atau menunggu Anda selama 30 detik. Kabar dikumpulkan selama 15 detik dan datang paling sering setiap 2 menit. Setiap baris kabar adalah giliran model di obrolan asisten, jadi memakai token.",
     "assistantNotify.down": "Tidak dapat menyimpan pengaturan ini: {error}",
-    "assistantNotify.restart": "Mulai ulang dsh untuk menggunakan Kabar obrolan dari Asisten."
+    "assistantNotify.restart": "Mulai ulang dsh untuk menggunakan Kabar obrolan dari Asisten.",
+    "feature.assistantTodos": "Daftar tugas Asisten",
+    "feature.assistantTodos.description": "Di obrolan asisten, daftar tugas di sisi kanan obrolan. Beri tahu asisten tugas yang ada di pikiran Anda: asisten menambahkannya, Anda yang mengerjakannya. Klik → untuk memberikan tugas kepada asisten (asisten menerima pesan Anda \"Kamu yang kerjakan: …\") dan × untuk menghapusnya. Asisten memeriksa daftar dan menghapus item saat ada bukti bahwa item itu selesai. Satu daftar per obrolan, disimpan di Mac ini.",
+    "todos.title": "Tugas",
+    "todos.count": "{count} item",
+    "todos.empty": "Tidak ada item. Beri tahu asisten tugas yang ada di pikiran Anda.",
+    "todos.ownerUser": "Anda yang mengerjakan",
+    "todos.ownerAgent": "Asisten yang mengerjakan",
+    "todos.handover": "Berikan ke asisten: {item}",
+    "todos.handoverShort": "Berikan ke asisten",
+    "todos.handoverMessage": "Kamu yang kerjakan:",
+    "todos.remove": "Hapus: {item}",
+    "todos.removeShort": "Hapus",
+    "todos.failed": "Tidak dapat mengubah daftar: {error}",
+    "todos.down": "Tidak dapat menyimpan pengaturan ini: {error}",
+    "todos.restart": "Mulai ulang dsh untuk menggunakan Daftar tugas Asisten."
   },
   "common": {
     "ok": "OK",

@@ -2442,7 +2442,22 @@
     "feature.assistantNotify": "アシスタントからチャットのお知らせ",
     "feature.assistantNotify.description": "ほかのチャットが長いターン（1 分以上）を終えたとき、失敗したとき、または 30 秒間あなたを待っているとき、アシスタントが自分のチャットで知らせます。お知らせは 15 秒間まとめられ、届くのは最大で 2 分に 1 回です。お知らせはそれぞれアシスタントのチャットのモデルのターンなので、トークンを使います。",
     "assistantNotify.down": "この設定を保存できませんでした：{error}",
-    "assistantNotify.restart": "アシスタントからチャットのお知らせを使うには dsh を再起動してください。"
+    "assistantNotify.restart": "アシスタントからチャットのお知らせを使うには dsh を再起動してください。",
+    "feature.assistantTodos": "アシスタントのやることリスト",
+    "feature.assistantTodos.description": "アシスタントのチャットで、チャットの右側にやることリストを表示します。考えているタスクをアシスタントに伝えると、アシスタントがリストに追加し、あなたが実行します。→ をクリックするとタスクをアシスタントに任せます（アシスタントは「これをやって：…」というあなたのメッセージを受け取ります）。× をクリックすると削除します。アシスタントはリストを確認し、完了の根拠がある項目を自分で削除します。リストはチャットごとに 1 つで、この Mac に保存されます。",
+    "todos.title": "やること",
+    "todos.count": "{count} 件",
+    "todos.empty": "項目はありません。考えているタスクをアシスタントに伝えてください。",
+    "todos.ownerUser": "あなたが行う",
+    "todos.ownerAgent": "アシスタントが行う",
+    "todos.handover": "アシスタントに任せる：{item}",
+    "todos.handoverShort": "アシスタントに任せる",
+    "todos.handoverMessage": "これをやって：",
+    "todos.remove": "削除：{item}",
+    "todos.removeShort": "削除",
+    "todos.failed": "リストを変更できませんでした：{error}",
+    "todos.down": "この設定を保存できませんでした：{error}",
+    "todos.restart": "アシスタントのやることリストを使うには dsh を再起動してください。"
   },
   "common": {
     "ok": "OK",

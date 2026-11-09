@@ -2442,7 +2442,22 @@
     "feature.assistantNotify": "Trợ lý báo tin từ các cuộc trò chuyện",
     "feature.assistantNotify.description": "Trợ lý báo cho bạn trong cuộc trò chuyện của nó khi một cuộc trò chuyện khác kết thúc một lượt dài (1 phút trở lên), gặp lỗi hoặc chờ bạn trong 30 giây. Tin được gom trong 15 giây và đến nhiều nhất 2 phút một lần. Mỗi dòng tin là một lượt mô hình của cuộc trò chuyện trợ lý, nên sẽ tốn token.",
     "assistantNotify.down": "Không thể lưu cài đặt này: {error}",
-    "assistantNotify.restart": "Khởi động lại dsh để dùng Trợ lý báo tin từ các cuộc trò chuyện."
+    "assistantNotify.restart": "Khởi động lại dsh để dùng Trợ lý báo tin từ các cuộc trò chuyện.",
+    "feature.assistantTodos": "Danh sách việc cần làm của Trợ lý",
+    "feature.assistantTodos.description": "Trong cuộc trò chuyện với trợ lý, một danh sách việc cần làm ở bên phải cuộc trò chuyện. Hãy nói với trợ lý những việc bạn đang nghĩ đến: trợ lý thêm vào danh sách, bạn tự làm. Nhấn → để giao việc cho trợ lý (trợ lý nhận tin nhắn \"Bạn làm việc này: …\" của bạn) và × để xóa. Trợ lý kiểm tra danh sách và tự xóa một mục khi có bằng chứng là mục đó đã xong. Mỗi cuộc trò chuyện có một danh sách, lưu trên máy Mac này.",
+    "todos.title": "Việc cần làm",
+    "todos.count": "{count} mục",
+    "todos.empty": "Chưa có mục nào. Hãy nói với trợ lý một việc bạn đang nghĩ đến.",
+    "todos.ownerUser": "Bạn làm",
+    "todos.ownerAgent": "Trợ lý làm",
+    "todos.handover": "Giao cho trợ lý: {item}",
+    "todos.handoverShort": "Giao cho trợ lý",
+    "todos.handoverMessage": "Bạn làm việc này:",
+    "todos.remove": "Xóa: {item}",
+    "todos.removeShort": "Xóa",
+    "todos.failed": "Không thể thay đổi danh sách: {error}",
+    "todos.down": "Không thể lưu cài đặt này: {error}",
+    "todos.restart": "Khởi động lại dsh để dùng Danh sách việc cần làm của Trợ lý."
   },
   "common": {
     "ok": "OK",
