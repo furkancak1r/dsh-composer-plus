@@ -8,6 +8,7 @@
 // place); the chat's queue lock stops a drag or a grip move while the editor is open or saves, and a second editor.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import './temp-home.mjs'; // before index.js: apply() must not get the real DSH_HOME
 import { apply, QUEUE_EDIT_PATH, QUEUE_MOVE_PATH, seenOf } from '../index.js';
 
 // ---------- Host half ----------
