@@ -18,7 +18,7 @@ Mac tarayıcısı ──▶ http://127.0.0.1:19391/  (admin: QR, eşleme onayı,
 
 - **dsh-composer-plus (`../index.js`)**: Mobile connect açıkken gateway'i DSH'nin kendi sürecinde çalıştırır. DSH'nin kimlik doğrulamalı loopback URL'sini gateway'e bellekten verir (diske token yazılmaz). Anahtar kapanınca, eklenti kaldırılınca veya DSH kapanınca gateway durur.
 - **server.mjs**: telefonlara tek kapı. `POST /pair`, `GET /me`, `POST /api/<method>` (allowlist), WSS `/api/remote.mux` (allowlist'li stream'ler) ve DSH `$events` akışını (onay / soru istekleri) telefonlara dağıtır. Bonjour `_dshmobile._tcp` (TXT `fp=`).
-- **ios/**: Sohbet, Oturumlar, Ajanlar, Ayarlar sekmeleri; QR / yapıştır / Bonjour ile eşleme; otomatik yeniden bağlanma; sınırsız sayıda Mac.
+- **ios/**: Oturumlar, Asistan ve Ayarlar sekmeleri (sohbet, Oturumlar yığınında açılır); QR / yapıştır / Bonjour ile eşleme; otomatik yeniden bağlanma; sınırsız sayıda Mac.
 
 ## Composer Plus özellikleri
 
@@ -26,6 +26,7 @@ Composer Plus'ın her özelliğinin Tether'deki yeri [FEATURES.md](FEATURES.md) 
 
 Son eklenenler:
 
+- **Assistant sekmesi**: Asistan, eski **Agents** sekmesinin yerindedir (ikinci sekme). Tether her açılışta ve her eşleşmeden sonra bu sekmeyle açılır. Sekme Mac'teki tek asistan sohbetini açar; Mac'te sohbet yoksa Mac onu oluşturur. **Geri** ile Oturumlar listesine dönersiniz. Asistan sizi bekliyorsa ya da yeni bir yanıt varsa sekmede bir işaret görünür. Mac'te Asistan kapalıysa sekme bunu söyler ve **Try again** düğmesini gösterir. **Agents** sekmesi kaldırıldı. Model ve izin düğmeleri yazı alanının altındadır. Ajan ön ayarı düğmesi orada yalnız sohbet varsayılan dışı bir ön ayarla çalışırken görünür. Hedef, sohbet başlığı menüsündedir. Alt ajan listesi, alt ajana mesaj ve alt ajanı durdurma telefonda artık yoktur; bunları Mac'te yapın. Bu değişikliği görmek için iPhone'a yeni derleme kurulmalıdır.
 - **Next waiting chat**: başka bir sohbet sizi beklerken Oturumlar'ın sağ üstünde bir nokta ve bir sayı görünür. Sayı, bekleyen sohbetlerin sayısıdır. Nokta sıradaki sohbetin rengindedir: soru, onay ya da plan bekliyorsa turuncu, bitmiş ama açılmamışsa yeşil. Dokununca o sohbet açılır. Turuncu sohbetler önce gelir. Her grupta en uzun bekleyen önce gelir. Aynı öğe sohbet başlığı menüsünde de vardır.
 - **Seçenek düğmeleri**: boşta olan bir sohbetin son cevabı bir seçenek listesiyle bitiyorsa ("Options" başlığı altında 1'den başlayan bir liste), cevabın altında her seçenek için bir düğme çıkar. "(recommended)" yazan seçenek işaretlidir. Dokununca "Option N: …" sizin mesajınız olarak gider. Düğmeler yalnız yazı alanı boşken görünür. Geri alınan bir cevapta ve kopya sohbetin (fork) ana sohbetten gelen cevabında düğme çıkmaz.
 - **Mark all as read**: Oturumlar'da proje başlığının yanındaki **…** düğmesine dokunun. Projenin bütün yeşil noktaları telefonda ve Mac'in okunmamış listesinde gider. Aynı menüde **Copy path** da vardır.
@@ -54,7 +55,7 @@ Yazı alanının solundaki **+** düğmesine dokunun:
 - **Paste image**: panodaki görseli ekler (panoda görsel varsa görünür).
 - **Files**: başka türde bir dosya ekler.
 
-Görseller gönderilmeden önce yazı alanının üstünde küçük resim olarak görünür. Küçük resme dokunmak onu büyütür, ✕ onu kaldırır. Tether görseli en uzun kenarı 1600 piksel olan bir JPEG'e küçültür ve mesajla birlikte Mac'teki sohbete gönderir. Model görseli mesajın eki olarak görür. Alt ajan yanıt kutusu yalnız metin gönderir.
+Görseller gönderilmeden önce yazı alanının üstünde küçük resim olarak görünür. Küçük resme dokunmak onu büyütür, ✕ onu kaldırır. Tether görseli en uzun kenarı 1600 piksel olan bir JPEG'e küçültür ve mesajla birlikte Mac'teki sohbete gönderir. Model görseli mesajın eki olarak görür.
 
 ## Sohbet ekranı: düşünme ve araç adımları
 

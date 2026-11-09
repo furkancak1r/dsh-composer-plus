@@ -96,10 +96,12 @@ struct Root: View {
     var body: some View {
         Group {
             if c.pairing == nil { PairView() } else {
+                // Assistant apart from chats: the assistant chat's row is not in Sessions, so its tab says when it waits for you or has a new reply.
+                let bot = c.assistantApart ? assistantMark(c.botId, sessions: c.sessions, busy: [], waiting: c.waitingChats, finished: c.finished) : nil
                 TabView(selection: $c.tab) {
-                    SessionsView().tabItem { Label("Sessions", systemImage: "bubble.left.and.bubble.right") }.badge(c.finished.count).tag(0)
-                    AgentsView().tabItem { Label("Agents", systemImage: "person.2") }.tag(1)
-                    SettingsView().tabItem { Label("Settings", systemImage: "gear") }.tag(2)
+                    SessionsView().tabItem { Label("Sessions", systemImage: "bubble.left.and.bubble.right") }.badge(c.finished.count).tag(Client.Tab.sessions)
+                    AssistantTab().tabItem { Label("Assistant", systemImage: "sparkles") }.badge(bot == nil ? 0 : 1).tag(Client.Tab.assistant)
+                    SettingsView().tabItem { Label("Settings", systemImage: "gear") }.tag(Client.Tab.settings)
                 }
                 // a new view tree per Mac: no scroll position, search text or sheet of one Mac stays on screen for another
                 .id(c.activeFp)
@@ -1999,7 +2001,7 @@ struct PermMenu: View {
         .confirmationDialog(Text("Give the agent \(risky?.name ?? "")?"), isPresented: Binding(get: { risky != nil }, set: { if !$0 { risky = nil } }), titleVisibility: .visible, presenting: risky) { p in
             Button("Allow", role: .destructive) { c.run { try await c.selectPermission(p.id) } }
         } message: { p in Text(p.id == "auto" ? "Actions run after an automatic safety review instead of asking you. Experimental." : "It can change files and run commands anywhere on your Mac without asking.") }
-        .onAppear { if c.perms.isEmpty { Task { await c.loadAgents() } } }
+        .onAppear { if c.perms.isEmpty { Task { await c.loadPresets() } } }
     }
 }
 
@@ -2181,21 +2183,6 @@ struct SessionsView: View {
                         .accessibilityValue(Text(active?.title ?? String(localized: "All projects")))
                     }
                 }
-                // Assistant (Composer Plus): only when the Mac's gateway has its route.
-                if c.state == .connected && c.plus.contains("assistant") {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        // Assistant apart from chats: the assistant's state on its button (its chat is not in the list).
-                        let mark = c.assistantApart ? assistantMark(c.botId, sessions: c.sessions, busy: busy, waiting: waiting, finished: c.finished) : nil
-                        Button { c.run { try await c.openAssistant() } } label: {
-                            Image(systemName: "sparkles").overlay(alignment: .topTrailing) {
-                                if let mark { ProjectMarkView(mark: mark).scaleEffect(0.8).offset(x: 6, y: -6).accessibilityHidden(true) }
-                            }
-                        }
-                            .disabled(c.assistantOpening)
-                            .accessibilityLabel("Assistant")
-                            .accessibilityValue(Text(mark == .waiting ? String(localized: "Waiting for you") : mark == .done ? String(localized: "New reply") : mark == nil ? "" : String(localized: "Working")))
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
             }
             .sheet(isPresented: $creating) { NewSessionSheet() }
@@ -2353,101 +2340,47 @@ struct NewSessionSheet: View {
     }
 }
 
-// MARK: - Agents
+// MARK: - Assistant
 
-struct AgentsView: View {
+/// The Assistant tab, in the slot of the old Agents tab; Tether opens on it. It asks the Mac for its one assistant chat
+/// (`openAssistant`: `GET /plus/assistant`, the route of the desktop's Assistant row, which makes the chat when there is
+/// none) and opens it on the Sessions stack, so one chat view serves every chat. Back leads to Sessions; this tab opens
+/// the assistant again. It says why when the Mac is not connected or its Assistant is off.
+struct AssistantTab: View {
     @EnvironmentObject var c: Client
-    @State private var objective = ""
-    @State private var confirmClear = false
-    @State private var risky: Preset? // desktop confirms before full access / auto
-    @State private var messaging: Sess?
-    @State private var subText = ""
+    /// Why the last open failed (for example, the Assistant is off on the Mac); Try again asks again.
+    @State private var failed: String?
     var body: some View {
+        // `plusKnown`: the Mac on screen gave its routes (until then, a missing route does not mean "no Assistant").
+        let ready = c.state == .connected && c.plusKnown
         NavigationStack {
-            List {
-                if let s = c.currentSess {
-                    Section("Agent preset") {
-                        ForEach(c.presets) { p in
-                            Button { c.run { try await c.selectPreset(p.id) } } label: {
-                                HStack {
-                                    VStack(alignment: .leading) { Text(p.name); if let d = p.desc ?? (p.isDefault ? "Default" : nil) { Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
-                                    Spacer(); if s.preset == p.id || (s.preset == nil && p.isDefault) { Image(systemName: "checkmark") }
-                                }
-                            }.disabled(p.broken)
-                        }
+            Group {
+                if c.state == .off || c.state == .reconnecting { OfflineView() }
+                else if !ready || (failed == nil && c.plus.contains("assistant")) { ProgressView(ready ? "Opening the assistant…" : "Connecting to your Mac…") }
+                else {
+                    ContentUnavailableView {
+                        Label("Assistant", systemImage: "sparkles")
+                    } description: {
+                        // No route: an older Composer Plus on the Mac.
+                        Text(failed ?? String(localized: "Update Composer Plus on your Mac and switch on Assistant in Settings → Composer Plus."))
+                    } actions: {
+                        if c.plus.contains("assistant") { Button("Try again") { open() }.buttonStyle(.borderedProminent) }
                     }
-                    if !c.perms.isEmpty {
-                        Section {
-                            ForEach(c.perms) { p in
-                                Button { if ["danger-full-access", "auto"].contains(p.id) { risky = p } else { c.run { try await c.selectPermission(p.id) } } } label: {
-                                    HStack {
-                                        VStack(alignment: .leading) { Text(p.name); if let d = p.desc { Text(d).font(.caption).foregroundStyle(.secondary).lineLimit(2) } }
-                                        Spacer(); if s.permission == p.id { Image(systemName: "checkmark") }
-                                    }
-                                }
-                            }
-                        } header: { Text("Permissions") } footer: { Text("What the agent may do on your Mac without asking.") }
-                    }
-                    Section("Goal") {
-                        if let g = c.goal {
-                            Text(g.objective)
-                            LabeledContent("Status", value: g.phase)
-                            LabeledContent("Rounds", value: g.max > 0 ? "\(g.rounds)/\(g.max)" : "\(g.rounds)")
-                            if let b = g.blocked { Text(b).font(.caption).foregroundStyle(.orange) }
-                            HStack {
-                                if g.paused { Button("Resume") { act("resume") } } else { Button("Pause") { act("pause") } }
-                                Button("Complete") { act("complete") }; Button("Clear", role: .destructive) { confirmClear = true }
-                            }.buttonStyle(.bordered).font(.caption)
-                        } else {
-                            TextField("Objective", text: $objective, axis: .vertical)
-                            Button("Start goal") { let o = objective; objective = ""; c.run { try await c.createGoal(o) } }.disabled(objective.isEmpty)
-                        }
-                    }
-                    Section("Subagents") {
-                        let kids = c.sessions.filter { $0.parent == s.id }
-                        if kids.isEmpty { Text("None").foregroundStyle(.secondary) }
-                        ForEach(kids) { k in
-                            HStack {
-                                // tap the title to read the subagent's own transcript
-                                Button { c.open(k.id) } label: { Text(k.title).lineLimit(1).frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) }
-                                    .buttonStyle(.borderless).foregroundStyle(.primary).accessibilityHint("Opens its conversation")
-                                if k.running {
-                                    RunningSpinner().accessibilityLabel("Running")
-                                    Button { c.run { try await c.interrupt(k) } } label: { Image(systemName: "stop.circle") }.accessibilityLabel("Interrupt").buttonStyle(.borderless)
-                                }
-                                Button { subText = ""; messaging = k } label: { Image(systemName: "bubble.left") }.accessibilityLabel("Message subagent").buttonStyle(.borderless)
-                            }
-                        }
-                    }
-                    if !c.skills.isEmpty {
-                        Section("Skills") {
-                            ForEach(c.skills) { k in
-                                VStack(alignment: .leading, spacing: 2) { Text(k.name).font(.body.monospaced()); if !k.desc.isEmpty { Text(k.desc).font(.caption).foregroundStyle(.secondary).lineLimit(3) } }
-                            }
-                        }
-                    }
-                } else {
-                    ContentUnavailableView("No session", systemImage: "person.2", description: Text("Open a session to manage its agents."))
                 }
             }
-            .navigationTitle("Agents")
-            .alert(Text("Message \(messaging?.title ?? "")"), isPresented: Binding(get: { messaging != nil }, set: { if !$0 { messaging = nil } }), presenting: messaging) { k in
-                TextField("Message", text: $subText, axis: .vertical)
-                Button("Send") { let t = subText; c.run { try await c.promptSubagent(k, t) } }
-                Button("Cancel", role: .cancel) {}
-            } message: { k in Text(k.running ? "Steers its running turn." : "Queued as its next turn.") }
-            .confirmationDialog(Text("Give the agent \(risky?.name ?? "")?"), isPresented: Binding(get: { risky != nil }, set: { if !$0 { risky = nil } }), titleVisibility: .visible, presenting: risky) { p in
-                Button("Allow", role: .destructive) { c.run { try await c.selectPermission(p.id) } }
-            } message: { p in Text(p.id == "auto" ? "Actions run after an automatic safety review instead of asking you. Experimental." : "It can change files and run commands anywhere on your Mac without asking.") }
-            .confirmationDialog("Clear this goal?", isPresented: $confirmClear, titleVisibility: .visible) {
-                Button("Clear goal", role: .destructive) { act("clear") }
-            } message: { Text("The agent stops working toward it. This can't be undone.") }
+            .navigationTitle("Assistant")
             .toolbar { ToolbarItem(placement: .topBarLeading) { MacPicker() } }
-            .refreshable { await c.loadAgents() }
-            .task(id: c.current) { await c.loadAgents() }
+        }
+        // Each time the tab shows, and when the Mac connects while it shows.
+        .task(id: ready && c.plus.contains("assistant")) { open() }
+    }
+    private func open() {
+        guard c.tab == .assistant, c.state == .connected, c.plus.contains("assistant") else { return }
+        failed = nil
+        c.run {
+            do { try await c.openAssistant() } catch is CancellationError {} catch { failed = userText(error) }
         }
     }
-    func act(_ v: String) { c.run { try await c.goalAction(v) } }
 }
 
 // MARK: - Settings
@@ -2582,7 +2515,7 @@ struct SettingsView: View {
                     Section {
                         Toggle("Assistant apart from chats", isOn: $c.assistantApart)
                         Toggle("Assistant messages only", isOn: $c.assistantMessagesOnly)
-                    } header: { Text("Assistant") } footer: { Text("Apart from chats: the assistant chat is not in the Sessions list (search still finds it); the Assistant button opens it and shows its state. Messages only: in the assistant chat you see your messages, its replies and errors, without thinking and tool rows. These switches are for this iPhone.") }
+                    } header: { Text("Assistant") } footer: { Text("Apart from chats: the assistant chat is not in the Sessions list (search still finds it); the Assistant tab opens it and shows a badge while it waits for you or has a new reply. Messages only: in the assistant chat you see your messages, its replies and errors, without thinking and tool rows. These switches are for this iPhone.") }
                 }
                 if c.plus.contains("issue-report") {
                     Section {

@@ -1248,7 +1248,7 @@ func projectMark(_ chats: [Sess], busy: Set<String>, waiting: Set<String>, finis
     let n = mine.filter { busy.contains($0.id) }.count
     return n > 0 ? .running(n) : nil
 }
-/// Assistant apart from chats: the assistant chat's state for the Assistant button (the same rule as a project row).
+/// Assistant apart from chats: the assistant chat's state for the badge of the Assistant tab (the same rule as a project row).
 func assistantMark(_ id: String?, sessions: [Sess], busy: Set<String>, waiting: Set<String>, finished: Set<String>) -> ProjectMark? {
     guard let id, let s = sessions.first(where: { $0.id == id }) else { return nil }
     return projectMark([s], busy: busy, waiting: waiting, finished: finished)
@@ -1369,7 +1369,7 @@ struct Question: Identifiable {
 
 struct ModelGroup: Identifiable { let id: String, name: String; let models: [Model] }
 struct Model: Identifiable { let id: String, name: String; let efforts: [String] }
-struct Preset: Identifiable { let id: String, name: String; let desc: String?; let broken: Bool; var isDefault = false }
+struct Preset: Identifiable { let id: String, name: String; let broken: Bool; var isDefault = false }
 /// DSH presets often ship only an id ("ptc", "standard"); show "PTC" / "Standard" instead of raw ids.
 func presetLabel(_ id: String) -> String { id.count <= 3 ? id.uppercased() : id.prefix(1).uppercased() + id.dropFirst() }
 // The catalog sends raw ids as names; DSH desktop labels them itself, so mirror its labels.
@@ -1524,7 +1524,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// The "Add a Mac" pair sheet is open (from the Mac picker or Settings).
     @Published var addingMac = false
     @Published var path: [String] = [] // Sessions navigation stack; non-empty = conversation on screen
-    @Published var tab = 0 // 0 Sessions, 1 Agents, 2 Settings
+    /// The tab bar, in its order. The Assistant has the slot of the old Agents tab.
+    enum Tab: CaseIterable { case sessions, assistant, settings }
+    /// Tether opens on the Assistant (at each start and after each pairing). The tab is not saved, so no saved value can
+    /// open a removed screen.
+    @Published var tab = Tab.assistant
     @Published var sessions: [Sess] = []
     @Published var sessionsLoaded = false // a session/list reply arrived for this pairing
     /// Sessions whose turn ended while you were elsewhere; cleared when opened (desktop's unread dot).
@@ -1560,7 +1564,6 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var commands: [Cmd] = []
     @Published var presets: [Preset] = []
     @Published var perms: [Preset] = [] // permissionPresets/catalog options (id = value)
-    @Published var skills: [Cmd] = []
     @Published var liveTodos: [Todo]? // latest todo/write in the follow stream; nil = not seen yet
     var shownTodos: [Todo] { liveTodos ?? currentSess?.todos ?? [] }
     @Published var goal: Goal?
@@ -1577,7 +1580,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// Composer Plus routes on this Mac (`/me` → plus). An older gateway or plugin has none: those features hide.
     @Published var plus: Set<String> = []
     /// `plus` is the answer of the Mac on screen (its `/me` came): only then does a missing route mean "no route".
-    private var plusKnown = false
+    @Published private(set) var plusKnown = false
     /// Turn rollback: dsh-rewind-plugin owns rollback, or the switch is off on the Mac (then no ↶).
     @Published var rollbackOn = false
     /// Allow for this chat: chat id → tools allowed without asking.
@@ -1784,7 +1787,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         // Sets, not arrays: this runs on each render of Sessions (sets keep it linear in the number of chats).
         let only = workspaces.first { $0.id == project }.map { Set($0.sessions) }
         let wait = waitingChats, busy = runningIds(sessions), pins = Set(pinned), arch = Set(archived)
-        // Assistant apart from chats: the assistant chat is not in the list (the Assistant button opens it; search finds it).
+        // Assistant apart from chats: the assistant chat is not in the list (the Assistant tab opens it; search finds it).
         let apart = assistantApart ? botId : nil
         var roots = sessions.filter { $0.parent == nil && $0.id != apart && (only?.contains($0.id) ?? true) }.sorted { ($0.updated ?? .distantPast) > ($1.updated ?? .distantPast) }
         // view only, as on the desktop: a stable sort keeps the newest first inside each rank
@@ -2451,6 +2454,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let label, let i = pairings.firstIndex(where: { $0.fp == p.fp }), pairings[i].label == nil { pairings[i].label = label }
         switchMac(p.fp, force: true)
         addingMac = false
+        tab = .assistant // after a pairing, Tether opens on the Assistant as at a start
     }
 
     /// Show another paired Mac: close this Mac's socket, clear everything on screen, load that Mac's own unread dots, and
@@ -2471,7 +2475,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         sessions = []; sessionsLoaded = false; transcript = []; clearLive(); running = false; prompts = []; branches = [:]; boardTask = nil; boardBack = false
         current = nil; path = []; goal = nil; state = .off; upstream = ""; route = nil; lastFail = nil; attempt = 0; probing = false
         outgoing = []; loadingChat = false; editingQueued = nil
-        workspaces = []; pinned = []; archived = []; commands = []; catalog = []; presets = []; perms = []; skills = []
+        workspaces = []; pinned = []; archived = []; commands = []; catalog = []; presets = []; perms = []
         usage = nil; model = nil; defaultModel = nil; inbox = [:]; liveTodos = nil; contextWindow = nil; turnStartedAt = nil; hasOlder = false
         pushTask?.cancel(); macPush = false; pushOn = false; syncError = nil // the next Mac's /me tells (a token error is the iPhone's, not the Mac's)
     }
@@ -2680,7 +2684,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             if v["event"] as? String == "goal/activation-changed" { Task { await loadGoal() } }
             // Desktop edited slash commands / permission presets: refresh so the phone's pickers don't go stale.
             if v["event"] as? String == "commands/change" { Task { await loadCommands() } }
-            if v["event"] as? String == "permission-presets/catalog-changed" { Task { await loadAgents() } }
+            if v["event"] as? String == "permission-presets/catalog-changed" { Task { await loadPresets() } }
         default: break
         }
     }
@@ -2719,9 +2723,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     // MARK: Conversation stream
 
-    /// Show a session's conversation from any tab (e.g. a subagent row in Agents).
+    /// Show a session's conversation from any tab, on the Sessions stack (a notification, a link, an approval).
     func open(_ sid: String) {
-        finished.remove(sid); markRead(sid); follow(sid); path = [sid]; tab = 0
+        finished.remove(sid); markRead(sid); follow(sid); path = [sid]; tab = .sessions
         // The Mac ends a grant after its time limit: read them again, so an ended grant leaves the Revoke row.
         if plus.contains("grants") { Task { await loadGrants() } }
     }
@@ -3066,7 +3070,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     /// One open at a time (a second tap while one opens does nothing).
     @Published private(set) var assistantOpening = false
-    /// The assistant chat: the one that the Assistant button opened last (its empty chat screen says what the assistant
+    /// The assistant chat: the one that the Assistant tab opened last (its empty chat screen says what the assistant
     /// does), and, when the Mac has `assistant-status`, the Mac's answer read with each list (nil while Assistant is off
     /// there). Assistant apart from chats and Assistant messages only use it.
     @Published private(set) var assistantId: String?
@@ -3080,6 +3084,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         guard let id = o["sessionId"] as? String, !id.isEmpty else { throw Fail(String(localized: "The assistant chat did not open.")) }
         if !sessions.contains(where: { $0.id == id }) { try? await loadSessions() }
         assistantId = id
+        // The user went to another tab while the Mac answered: the chat does not open over that tab.
+        guard tab == .assistant else { return }
         open(id)
     }
     /// True for the empty screen of the assistant chat (its first open): it shows the assistant's welcome, not the
@@ -3094,7 +3100,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var assistantApart = UserDefaults.standard.object(forKey: "assistantApart") as? Bool ?? true { didSet { UserDefaults.standard.set(assistantApart, forKey: "assistantApart") } }
     @Published var assistantMessagesOnly = UserDefaults.standard.object(forKey: "assistantMessagesOnly") as? Bool ?? true { didSet { UserDefaults.standard.set(assistantMessagesOnly, forKey: "assistantMessagesOnly") } }
     func setAssistantIdForTest(_ id: String?) { assistantId = id }
-    /// An older Mac (no `assistant-status`) keeps the id that the Assistant button set (its welcome screen needs it).
+    /// An older Mac (no `assistant-status`) keeps the id that the Assistant tab set (its welcome screen needs it).
     func loadAssistantStatus() async {
         guard plus.contains("assistant-status") else { return }
         if let o = try? await plusCall("assistant-status") { assistantId = Self.assistantStatusId(o) }
@@ -3255,22 +3261,18 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         model = modelLabel(v?["selected"] as? J) ?? modelLabel(r)
     }
 
-    func loadAgents() async {
+    /// The agent presets and the permission levels of the composer's chips.
+    func loadPresets() async {
         if let v = try? await rpc("agentPresets/list") as? J {
             presets = (v["presets"] as? [J] ?? []).compactMap { p in
-                (p["id"] as? String).map { Preset(id: $0, name: p["name"] as? String ?? presetLabel($0), desc: p["description"] as? String, broken: p["broken"] as? Bool ?? false, isDefault: p["isDefault"] as? Bool ?? false) }
+                (p["id"] as? String).map { Preset(id: $0, name: p["name"] as? String ?? presetLabel($0), broken: p["broken"] as? Bool ?? false, isDefault: p["isDefault"] as? Bool ?? false) }
             }
         }
         if let v = try? await rpc("permissionPresets/catalog") as? J {
             perms = (v["options"] as? [J] ?? []).compactMap { o in
-                (o["value"] as? String).map { Preset(id: $0, name: permLabel($0, o["name"] as? String), desc: o["description"] as? String, broken: false) }
+                (o["value"] as? String).map { Preset(id: $0, name: permLabel($0, o["name"] as? String), broken: false) }
             }
         }
-        skills = []
-        if let sid = current, let v = try? await rpc("skills/list", ["request": ["sessionId": sid]]) as? J {
-            skills = (v["skills"] as? [J] ?? []).compactMap { s in (s["name"] as? String).map { Cmd(name: $0, desc: s["description"] as? String ?? "", hint: nil) } }
-        }
-        await loadGoal()
     }
 
     /// Same path as desktop's /permission popup; refresh so Sess.permission picks up the new currentValue.
@@ -3303,25 +3305,6 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     func goalAction(_ verb: String) async throws {
         guard let sid = current, let g = goal else { return }
         _ = try await rpc("goals/" + verb, ["agentId": sid, "ref": g.ref]); await loadGoal()
-    }
-
-    func interrupt(_ child: Sess) async throws {
-        guard let parent = child.parent else { return }
-        _ = try await rpc("subagents/interruptByParent", ["childSessionId": child.id, "parentSessionId": parent, "mode": "continuable"])
-    }
-
-    /// Desktop's "message subagent": queue (or steer into a running turn) a prompt on a child session.
-    func promptSubagent(_ child: Sess, _ text: String) async throws {
-        guard let r = Self.subagentRequest(child, text) else { return }
-        _ = try await rpc("subagents/prompt", ["request": r])
-    }
-
-    static func subagentRequest(_ child: Sess, _ text: String) -> J? {
-        let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let parent = child.parent, !t.isEmpty else { return nil }
-        return ["requestId": UUID().uuidString, "parentSessionId": parent, "childSessionId": child.id, "mode": "continuable",
-                "delivery": child.running ? "steer" : "queue", "content": promptContent(t, images: [], receipts: []),
-                "clientTimeZone": TimeZone.current.identifier]
     }
 
     /// value nil = "let the Mac decide" (next handler, i.e. the desktop prompt).
