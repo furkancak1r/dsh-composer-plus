@@ -2526,3 +2526,44 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
 - Kök neden kanıtlandı: telefonun tercihlerinde bu Mac (fp 7c97…, adı "İş") için `notifications.<fp> = False`; cihaz token'ı vardı (64 hex). Yani "Send notifications" bu Mac için kapalıydı, telefon Mac'e `{on:false}` gönderiyordu. Neden kapalı kaldığı kanıtlanamadı (eski genel anahtar `notifications = True`).
 - Sahibin isteğiyle anahtar açıldı (agent-device). Tether "The Mac sends them through Apple's push service" yazdı; canlı gateway: iPhone `push: true`, `devices.json` on, token var, sandbox, saat yok.
 - Doğrulanmadı: kapalı uygulamaya gerçek bildirimin düşmesi (Tether'ı sonlandırmak Auto review onayı istedi, yapılmadı). Canlı gateway eski sürüm (1.24.1): yeni Mac sayfası satırları canlı kopya güncellenince görünür; yeni iOS'un `reason` alanı eski gateway'de yok sayılır.
+
+## Asistanı bota çevirme: ayrı görünüm ve bot gibi çalışma (2026-11-09, dal `feat/assistant-bot-ui-separation`)
+İstek (sahip, Türkçe): asistan arayüzde ve işlevde normal proje sohbetlerinden ayrılsın, bir bot gibi çalışsın. Sahibin seçimi (soru kartı): mesajlaşma uygulaması gibi görünsün, kendiliğinden haber versin, hiç meşgul olmasın. Dışarıdan erişim (Telegram) istenmedi.
+
+### Hedef: dört özellik, her biri kendi anahtarıyla
+- `assistantApart` (istemci, varsayılan açık): asistan sohbeti ve yalnız onu tutan "Assistant" projesi kenar çubuğunda görünmez (arama sonuçlarında görünür). "Assistant" satırının simgesinde durum noktası: çalışıyor (alt ajan konuları dahil), bekliyor (turuncu), yeni yanıt (yeşil); sohbet açıkken satır seçili görünür. Host rotası `GET /api/composer-plus.assistant-status` → `{sessionId|null}` (sohbet oluşturmaz). Tether: liste süzgeci + sparkles düğmesinde nokta.
+- `assistantChatView` (istemci, varsayılan açık): asistan sohbetinde araç, düşünme ve süreç satırları gizlenir; kullanıcı mesajı, yanıt, hata ve onay kartı kalır. Tether: aynı süzgeç.
+- `assistantNotify` (Host, OFF_BY_DEFAULT: model turu başlatır): başka bir kök sohbet bitince (≥ 60 sn süren tur), hata verince ya da 30 sn'den uzun seni bekleyince asistan sohbetine gizli bir not düşer ve asistan tek satırla haber verir. 15 sn toplama, iki haber turu arası en az 2 dk, notta en çok 10 sohbet. Rota `GET/POST /api/composer-plus.assistant-notify {on}`.
+- `assistantFree` (Host, varsayılan açık): asistanın kendisi yalnız kısa araçları çağırır (kendi 6 aracı, schedule_*, subagent*, send_message, list_agents, interrupt_agent, list_subagent_models, job_*, memory_*, ask_user_question, run_code); öteki çağrılar `tools/pre-execute` ile reddedilir ve model işi arka plandaki bir alt ajana verir. Alt ajanları etkilenmez. Asistanın son isteğinde `subagent` aracı yoksa kural çalışmaz, Ayarlar nedeni yazar. Rota `GET/POST /api/composer-plus.assistant-free {on}`.
+
+### Kararlar
+- Gizleme `data-row-key` + `--dsh-workspace-indent` / `_flatList` seçicileriyle tek bir stil kuralı (Recent projects süzgecinin tekniği); dsh'de gizli sohbet bayrağı yok, arşivlenmiş sohbet açılmıyor.
+- Durum noktası `sidebar.panellist` simgesinde (standart `useSessionStatus`/`useSessions`/`useWorkspaces`/`usePanelInfo` kancaları 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 kataloğunda var); `projectStatus()` yeniden kullanılır. Etiket sabit kalır (kaydı yenilemek satırı yeniden kurar); durum `aria-description` ile duyurulur.
+- Haber notu One-click Continue'nun yolunu kullanır: boş işaret `steer`, `agent/pre-step` içinde nota çevrilir; sohbette kullanıcı balonu çıkmaz. Not veridir uyarısı taşır, son yanıt `lastReply` ile (geri alma iki işaret türü), çatalda yalnız kendi olayları.
+- Sapma (plana göre): bekleme eşiği 2 sn yerine 30 sn, bitiş için ≥ 60 sn tur şartı. Neden: kullanıcı başka bir sohbette etkileşimli çalışırken her kısa yanıt bir haber turu (token) olurdu.
+- `tools.restrict` kullanılmaz: kısıtlama alt ajanlara geçer ve onların bash/web aracını da keserdi.
+
+### Aşamalar ve kontroller
+1. Host (index.js) + `test/assistant-bot.test.mjs` (mutasyonlarla).
+2. İstemci (client.js) + `test/assistant-bot-client.test.mjs`, `toggles.test.mjs`.
+3. 11 dil, features.json (how ×13, llms, routes), 13 README sınırlar/SSS, `build:locales`, `build:readme`.
+4. Tether: PLUS `assistant-status`, Core/UI, Tests.swift, FEATURES.md; iOS testleri.
+5. Gerçek dsh `test/browser-assistant.mjs` yeni adımlar (0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1), `SHOT=1` dört görüntü, simülatör, `npm test`, `npm pack --dry-run`.
+
+### Yapılmayacak
+Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
+
+### Son kontrol noktası
+- 2026-11-09 09:40: plan yazıldı, kod yok.
+- 2026-11-09 10:45: aşama 1, 2 ve 4 bitti; aşama 3 çevirilerde (tr, en, zh hazır; 10 dil alt ajanlarda); aşama 5 kısmen.
+  - `test/assistant-bot.test.mjs` geçer, 18 mutasyonun hepsi kırmızı. `test/assistant-bot-client.test.mjs` geçer, 15 mutasyonun hepsi kırmızı. `toggles.test.mjs` 78 satır, 68 açık.
+  - iOS: 99 test, 0 hata (iPhone 17 Pro simülatörü). `loadSessions()` asistan durumunu listeyle birlikte ister ve listeyi yazmadan önce bekler.
+  - Gerçek dsh (headless, sahte model): `test/browser-assistant.mjs` 0.2.0-rc.2, 0.2.1-rc.2 ve 0.2.2-rc.1'de PASS (adım 9-12 dahil; haber notu 61 sn'lik turdan sonra geldi, sohbette balon yok).
+- 2026-11-09 11:05: tüm aşamalar bitti, commit yok.
+  - Aşama 3: 10 dil alt ajanlarla (16 anahtar, `how` ×4, README gizlilik/sınır/SSS). `build:locales`, `build:readme` çalıştı; readme, readme-labels, feature-docs, routes, shots testleri geçer.
+  - Bulunan hata: `watchAssistantStatus` Assistant anahtar deposunun her yanıtında durumu yeniden istiyordu (`complete-client.test.mjs` son isteği okuyamadı). Düzeltme: yalnız `on` değişince ister; Ayarlar'daki Assistant tıklaması Host kaydettikten sonra bir kez daha ister. Sonra `npm test` exit 0 ve `browser-assistant.mjs` 0.2.0-rc.2 + 0.2.1-rc.2 yine PASS.
+  - `SHOT=1` (0.2.2-rc.1): `assistantApart` (kenar çubuğu, turuncu nokta), `assistantChatView`, `assistantFree` (reddedilen bash), `assistantNotify` (haber yanıtı) webp, her biri 14-16 kB. Ayar satırı görüntüsü cwebp boyut hatası verdi, bu yüzden sohbet ekranı alındı.
+  - `browser-settings-shots.mjs` 0.2.0-rc.2 ve 0.2.2-rc.1: 78 satır PASS.
+  - Simülatör (agent-device, iPhone 17 Pro, `tether/build/sim-assistant-bot.mjs`: sahte dsh + gerçek gateway, 192.168.2.63/32): liste asistan sohbetini ve "Assistant" projesini göstermez, arama bulur; Assistant düğmesi değeri "Working" ve "New reply" (yeşil nokta); sohbette düşünme/araç satırı yok, anahtar kapalıyken "Completed in 5s" satırı ve proje geri gelir. Düzenek durduruldu, geçici klasör silindi.
+  - `npm pack --dry-run`: 118 dosya, `tether/` yalnız `gateway/*`. `git diff --check` temiz.
+  - Açık risk: yeni Tether metinleri yalnız İngilizce (uygulamada yalnız `en.lproj` var).
