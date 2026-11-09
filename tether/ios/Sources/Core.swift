@@ -3070,6 +3070,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
 
     /// One open at a time (a second tap while one opens does nothing).
     @Published private(set) var assistantOpening = false
+    /// The assistant chat that the Assistant button opened last: its empty chat screen says what the assistant does.
+    @Published private(set) var assistantId: String?
     /// Assistant: the Mac's one assistant chat (`GET /plus/assistant`; the Mac makes it when it has none), opened here.
     func openAssistant() async throws {
         guard !assistantOpening else { return }
@@ -3079,7 +3081,14 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         do { o = try await plusCall("assistant") } catch let f as Fail { throw Fail(Self.assistantError(f)) }
         guard let id = o["sessionId"] as? String, !id.isEmpty else { throw Fail(String(localized: "The assistant chat did not open.")) }
         if !sessions.contains(where: { $0.id == id }) { try? await loadSessions() }
+        assistantId = id
         open(id)
+    }
+    /// True for the empty screen of the assistant chat (its first open): it shows the assistant's welcome, not the
+    /// coding starters. The phone's own Mac must still have the Assistant (an off switch removes its route).
+    var showsAssistantWelcome: Bool { Self.assistantWelcome(current: current, assistant: assistantId, plus: plus) }
+    static func assistantWelcome(current: String?, assistant: String?, plus: Set<String>) -> Bool {
+        current != nil && current == assistant && plus.contains("assistant")
     }
     /// The words for a failed Assistant tap: the Mac has the feature off (no route: 404; off: 409), else the Mac's reason.
     static func assistantError(_ f: Fail) -> String {
