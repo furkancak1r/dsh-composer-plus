@@ -782,18 +782,27 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     /** Watch the open chat's rows: `onRows(chat)` runs on mount, after each change of dsh's chat flow (at most once per
      * frame: a streamed reply changes the page many times a second) and when `poke` is called; `chat` is the chat view's
      * own snapshot (node key → node with `anchorSeq`), or undefined while it loads. Returns `poke`. The cleanup of
-     * `onRows`'s caller runs through the returned effect. Shared by Turn rollback and Copy message link. */
+     * `onRows`'s caller runs through the returned effect. Shared by Turn rollback and Copy message link.
+     * A change that adds or removes only text (a streamed reply) runs nothing: the rows and their buttons are elements.
+     * Element changes run `onRows` on the next frame, then at most once per CHAT_ROWS_MS: each run reads every row of the
+     * window, and a long chat with many subagents changes its rows many times a second. */
+    const CHAT_ROWS_MS = 250;
+    const changesElements = (record) => [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])].some((node) => node.nodeType === 1);
     function useChatRows(sessionId, chatOf, onRows, cleanup = () => {}) {
       const live = React.useRef(onRows); live.current = onRows;
       const poke = React.useRef(() => {});
       React.useEffect(() => {
         if (createPortal === undefined) return undefined;
-        let queued = false;
-        const refresh = () => { queued = false; live.current(chatOf(sessionId)); };
-        const queue = () => { if (!queued) { queued = true; requestAnimationFrame(refresh); } };
+        let timer = 0; let frame = 0; let last = -Infinity;
+        const refresh = () => { timer = 0; frame = 0; last = Date.now(); live.current(chatOf(sessionId)); };
+        const queue = () => {
+          if (timer !== 0 || frame !== 0) return;
+          const wait = last + CHAT_ROWS_MS - Date.now();
+          if (wait > 0) timer = setTimeout(refresh, wait); else frame = requestAnimationFrame(refresh);
+        };
         poke.current = queue;
         refresh();
-        const observer = new MutationObserver(queue);
+        const observer = new MutationObserver((records) => { if (!Array.isArray(records) || records.some(changesElements)) queue(); });
         // dsh's chat flow container (`data-chat-flow`) holds every row; before it exists, the body (the chat is still loading).
         let watched = null;
         const watch = () => {
@@ -802,7 +811,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         };
         watch();
         const reattach = setInterval(watch, 2000); // the flow is replaced when the chat view mounts again
-        return () => { observer.disconnect(); clearInterval(reattach); poke.current = () => {}; cleanup(); };
+        return () => { observer.disconnect(); clearInterval(reattach); clearTimeout(timer); if (frame !== 0) cancelAnimationFrame(frame); poke.current = () => {}; cleanup(); };
       }, [sessionId]);
       return () => poke.current();
     }
