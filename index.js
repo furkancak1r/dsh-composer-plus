@@ -6307,9 +6307,10 @@ export function memorySection(store, scope) {
 /** The chat lines that the review reads: the user's own messages and the agent's text replies, with their seq. Only the chat's
  * own events (a fork's copy of its parent comes first: `inherited` of them); messages that Turn rollback or dsh-rewind-plugin
  * withdrew are left out (dsh's /compact marker is not a withdraw). */
-export function memoryLines(events, inherited = 0) {
+export function memoryLines(events, inherited = 0, { cards = false } = {}) {
   const hidden = withdrawn(events);
   const out = [];
+  const asked = new Map(); // call id → the questions of an ask_user_question call
   for (const e of events.slice(Math.max(0, inherited))) {
     if (hidden(e.seq)) continue;
     if (e.type === 'user/message' && e.data?.source?.kind === 'user') {
@@ -6318,9 +6319,30 @@ export function memoryLines(events, inherited = 0) {
     } else if (e.type === 'assistant/message') {
       const text = textBlocks(e.data?.message?.content).trim();
       if (text !== '') out.push({ who: 'agent', text, seq: e.seq });
+    } else if (cards && e.type === 'tool/call' && e.data?.name === 'ask_user_question') {
+      asked.set(e.data.callId, argsOf(e.data.arguments)?.questions);
+    } else if (cards && e.type === 'tool/result' && asked.has(e.data?.message?.source?.callId)) {
+      const text = cardAnswers(asked.get(e.data.message.source.callId), e.data.message);
+      if (text !== '') out.push({ who: 'user', text, seq: e.seq });
     }
   }
   return out;
+}
+/** The user's answers on a question card (dsh's ask_user_question result `{answers: [{id, selected, custom}]}`), each after
+ * its question, as one line; '' for a skipped card, an error or a result that is not this shape. */
+function cardAnswers(questions, message) {
+  if (message?.isError === true) return '';
+  let answers;
+  try { answers = JSON.parse(textBlocks(message?.content)).answers; } catch { return ''; }
+  if (!Array.isArray(answers)) return '';
+  const parts = answers.flatMap((a) => {
+    const picks = [...(Array.isArray(a?.selected) ? a.selected.filter((s) => typeof s === 'string' && s.trim() !== '') : []),
+      ...(typeof a?.custom === 'string' && a.custom.trim() !== '' ? [a.custom.trim()] : [])];
+    if (picks.length === 0) return [];
+    const q = Array.isArray(questions) ? questions.find((x) => x?.id === a.id)?.question : undefined;
+    return [`${typeof q === 'string' && q.trim() !== '' ? `${JSON.stringify(clipEnd(q.trim(), 300))} → ` : ''}${picks.join('; ')}`];
+  });
+  return parts.length === 0 ? '' : `(answer on a question card) ${parts.join(' | ')}`;
 }
 /** The JSON object in a model's answer (a code fence or a <think> block around it is fine), or undefined. */
 function answerObject(text) {
@@ -6997,7 +7019,8 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
     if (!on || cwd === undefined || through === undefined) return;
     const since = (await cursors.read())[id];
     if (Number.isSafeInteger(since) && through <= since) return;
-    const lines = memoryLines(events, inherited);
+    // The user's answers on question cards count as the user's words: the user often gives a decision there.
+    const lines = memoryLines(events, inherited, { cards: true });
     const lastUser = lines.findLastIndex((l) => l.who === 'user');
     // A first review (switched on in a running chat) reads the last few lines, and at least back to the user's latest one.
     const fresh = Number.isSafeInteger(since) ? lines.filter((l) => l.seq > since) : lastUser < 0 ? [] : lines.slice(Math.min(lastUser, Math.max(0, lines.length - 6)));

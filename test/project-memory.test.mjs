@@ -166,6 +166,19 @@ try {
   answer = '{"changes":[]}'; await mem.review('chat-1');
   assert.match(llmCalls.at(-1).messages[0].content[0].text, /Use pnpm here/, 'the failed lines are read again');
 
+  // A question-card answer is the user's words: it reaches the review (the Assistant asks on cards); a skipped card does not.
+  { const calls0 = llmCalls.length;
+    const ask = (callId, questions) => ev('tool/call', { name: 'ask_user_question', callId, arguments: JSON.stringify({ questions }) });
+    const answerOf = (callId, answers, isError = false) => ev('tool/result', { message: { role: 'tool', source: { kind: 'tool', callId }, content: [{ type: 'text', text: JSON.stringify({ answers }) }], isError } });
+    sessionEvents = [...sessionEvents, ask('q1', [{ id: 'scope', question: 'Remove it from the server too?' }]), answerOf('q1', [{ id: 'scope', selected: ['Yes, from the server'], custom: 'and the phone' }])];
+    await mem.review('chat-1');
+    assert.equal(llmCalls.length, calls0 + 1, 'a card answer alone starts a review');
+    assert.match(llmCalls.at(-1).messages[0].content[0].text, /User: \(answer on a question card\) "Remove it from the server too\?" → Yes, from the server; and the phone/);
+    sessionEvents = [...sessionEvents, ask('q2', [{ id: 'x', question: 'Skip me?' }]), answerOf('q2', [{ id: 'x', selected: [] }])];
+    await mem.review('chat-1');
+    assert.equal(llmCalls.length, calls0 + 1, 'a skipped card is no user line: no call');
+    assert.equal(memoryLines(sessionEvents, inheritedEventCount).some((l) => /question card/.test(l.text)), false, 'only the review reads card answers'); }
+
   // A full MEMORY.md: the review's new note goes to the topic "more", not lost (the agent's tool still gets the reason).
   { const pDir = mem.store.project(project).dir;
     const before = await readFile(join(pDir, 'MEMORY.md'), 'utf8');
