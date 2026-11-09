@@ -5762,7 +5762,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
         rule = `${FLAT_LIST} { display: flex; flex-direction: column; }`;
       }
       const key = next === null ? '' : [...next].join(',');
-      (React.useLayoutEffect ?? React.useEffect)(() => { ranks.current = next; applyOrder(); }, [key]);
+      React.useLayoutEffect(() => { ranks.current = next; applyOrder(); }, [key]);
       // One checked row in "Order by": while this is on, hide dsh's own check on Manual / Last updated (marked by the scan).
       if (on) rule += `\n[${STATUS_ORDER_DSH}] > [role="menuitem"] > svg:last-child { visibility: hidden; }`;
       const { MenuItemButton, IconCheckOutlineRegular: Check } = primitives;
