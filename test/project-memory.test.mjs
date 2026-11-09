@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   MEMORY_PATH, MEMORY_TOOLS, installMemory, memoryStore, memorySection, memoryReviewRequest, memoryLines, parseMemoryReview, parseMemory, looksSecret,
-  entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE, MEMORY_OVERFLOW_TOPIC,
+  entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE, MEMORY_OVERFLOW_TOPIC, squash,
 } from '../index.js';
 
 let seq = 0;
@@ -139,6 +139,13 @@ try {
   assert.match(sectionOf({ id: 'chat-2', session: { header: { cwd: project } } }), /A fact saved later/, 'a new chat reads the new entry');
   assert.match(await tool('memory_recall').execute({ query: 'later' }, exec), /A fact saved later/, 'recall finds it at once');
   assert.match(await tool('memory_recall').execute({}, exec), /project memory: 2 entries/);
+  // Turkish İ/I/ı/i fold for search and the same-entry check; the stored text keeps its letters.
+  assert.equal(squash('İstanbul IŞIK'), squash('istanbul ışık')); assert.notEqual(squash('İstanbul'), 'i̇stanbul');
+  await tool('memory_remember').execute({ text: 'Ofis İstanbul\'da, IŞIK sokakta' }, exec);
+  assert.match(await tool('memory_recall').execute({ query: 'istanbul' }, exec), /Ofis İstanbul'da, IŞIK sokakta/, 'istanbul finds İstanbul');
+  assert.match(await tool('memory_recall').execute({ query: 'ışık' }, exec), /IŞIK sokakta/, 'ışık finds IŞIK');
+  assert.match(await tool('memory_remember').execute({ text: 'ofis istanbul\'da, ışık sokakta' }, exec), /Already in/, 'the folded text is the same entry');
+  assert.match(await tool('memory_forget').execute({ entry: 'istanbul\'da' }, exec), /^Removed .*Ofis İstanbul'da, IŞIK sokakta/, 'forget finds it; the stored text kept its letters');
   // A subagent (subagent, subagent_fork, workflow agent) reads its folder's notes as context; it is told that no review reads it.
   { const sub = sectionOf({ id: 's', session: { header: { cwd: project, origin: 'subagent', parentSession: 'chat-1' } } });
     assert.match(sub, /A fact saved later/, 'a subagent gets the notes of its folder');

@@ -5973,7 +5973,9 @@ const MEMORY_REVIEW_SHOWN = 16000; // characters of saved entries in one review
 export const MEMORY_OVERFLOW_TOPIC = 'more';
 const MEMORY_FROZEN_MAX = 500;
 const MEMORY_CURSORS_MAX = 2000;
-const squash = (text) => String(text ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
+// For comparison only (search, same-entry checks), never for stored text. İ, I, ı and i are one letter here: "İ".toLowerCase()
+// is "i" plus a combining dot, so "İstanbul" did not match "istanbul" and "IŞIK" did not match "ışık".
+export const squash = (text) => String(text ?? '').replace(/\s+/g, ' ').trim().replace(/[İIı]/g, 'i').toLowerCase();
 
 /** `{text, meta}` of one entry line body: the trailing `[key: value; …]` is its metadata. */
 function splitMeta(body) {
