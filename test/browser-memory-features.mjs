@@ -366,6 +366,8 @@ try {
         const src = new RegExp(`The user wants pnpm in acme-web, never npm \\[source: ${sid} #(\\d+);`).exec(main);
         assert.ok(src, `the note keeps its source: ${main}`);
         const modal = page.getByRole('dialog').filter({ has: list });
+        const wide = (await modal.boundingBox()).width;
+        assert.ok(wide >= 700, `the dialog is wide enough for a note and its buttons (${wide} px)`);
         await shot(modal, 'memorySuggest');
         // The background review of a finished turn can run at any time; Accept and Reject must add no suggest or edit call.
         const asks = () => seen.filter((x) => x.kind === 'suggest' || x.kind === 'edit').length;
