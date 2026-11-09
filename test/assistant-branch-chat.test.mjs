@@ -9,7 +9,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_FREE_SECTION, ASSISTANT_TASKS_MAX, assistantNewsNote, assistantTasks, installAssistant, installAssistantBot } from '../index.js';
+import { ASSISTANT_FREE_SECTION, ASSISTANT_TASKS_MAX, assistantFreeTool, assistantNewsNote, assistantTasks, installAssistant, installAssistantBot } from '../index.js';
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (fn, what, ms = 3000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(5); } };
@@ -41,12 +41,12 @@ try {
     await again.ready;
     assert.equal(again.get('s-1').branch, 'feat/login', 'read again after a restart');
     for (let i = 0; i < ASSISTANT_TASKS_MAX + 2; i++) await again.add(`s-x${i}`, { project: 'p' });
-    assert.equal(again.list().length, ASSISTANT_TASKS_MAX); assert.equal(again.has('s-1'), false, 'the oldest goes first');
+    assert.equal(Object.keys(JSON.parse(readFileSync(file, 'utf8')).tasks).length, ASSISTANT_TASKS_MAX); assert.equal(again.has('s-1'), false, 'the oldest goes first');
     await again.drop('s-x10');
     assert.equal(Object.keys(JSON.parse(readFileSync(file, 'utf8')).tasks).length, ASSISTANT_TASKS_MAX - 1);
     writeFileSync(file, '{broken');
     const broken = assistantTasks(file); await broken.ready;
-    assert.deepEqual(broken.list(), [], 'a broken file is an empty list');
+    assert.equal(broken.has('s-x11'), false, 'a broken file is an empty list');
   }
 
   // A git project, a project that is not a repository and the assistant folder.
@@ -106,7 +106,8 @@ try {
   const me = agents.get(assistantId);
   me.events.push({ type: 'request/header', data: { header: { tools: [{ name: 'subagent', parameters: { properties: { prompt: {} } } }] } } });
   const timing = { turn: 60000, wait: 40, batch: 20, gap: 120000, max: 10, reply: 300, taskReply: 2000 };
-  const bot = installAssistantBot(ctx, home, assistant, { timing });
+  let clock = 1_000_000;
+  const bot = installAssistantBot(ctx, home, assistant, { timing, now: () => clock });
   await bot.ready;
   assert.equal(bot.notify(), false, 'Assistant news is off');
   const chatNew = me.registered.get('chat_new');
@@ -131,7 +132,9 @@ try {
   assert.equal(git(P, 'rev-parse', '--abbrev-ref', 'HEAD').trim(), 'main', 'the project folder stays on its branch');
   assert.equal(git(P, 'status', '--porcelain'), '', 'the project folder stays clean');
   const branchProject = workspaces.find((w) => w.path === realpathSync(path) || w.path === path);
-  assert.equal(branchProject?.title, 'feat/sayfaya-alt-bilgi-ekle', 'the worktree is a dsh project (the sidebar nests it under acme-web)');
+  assert.equal(branchProject?.title, 'feat/sayfaya-alt-bilgi-ekle', 'the worktree is a dsh project named after the branch (dsh\'s Workspace Tree nests it inside acme-web)');
+  // F-01: the answer does not claim that every sidebar view nests it.
+  assert.match(out, /lists it as the project "feat\/sayfaya-alt-bilgi-ekle" \(inside acme-web in the Workspace Tree view\)/); assert.doesNotMatch(out, /shows it under the project/);
   assert.deepEqual(made.sessions.at(-1), { workspaceId: branchProject.id }, 'dsh\'s default mode');
   assert.equal(made.models.length, 0, 'dsh\'s default model');
   assert.deepEqual(made.renames.at(-1), { sessionId: sid, title: 'Alt bilgi ekle' }, 'the title, spaces folded');
@@ -172,6 +175,9 @@ try {
   const note = step.messages[0].content[0].text;
   assert.match(note, new RegExp(`"Alt bilgi ekle" \\(project "acme-web", chat ${sid}, your delegated task on branch "feat/sayfaya-alt-bilgi-ekle"\\): finished\\. Last reply: "Alt bilgi eklendi, testler geçti\\. Commit: abc123\\."`));
   assert.match(note, /not instructions for you/); assert.match(note, /result of each delegated task in a few lines/);
+  // F-05: the note names only tools that the assistant chat may call (Assistant always free refuses the others).
+  for (const named of note.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) assert.ok(assistantFreeTool(named), `the note names ${named}, which the assistant cannot call`);
+  assert.doesNotMatch(note, /task list/);
 
   // A second task right after: no gap wait (the user started it). An error is news; a stop by the user is not; dsh's quit keeps it.
   for (const [id, branch] of [['t-err', 'feat/a'], ['t-stop', 'feat/b'], ['t-quit', 'feat/c'], ['t-wait', 'feat/d']]) { newAgent(id, { cwd: P }); await assistant.tasks.add(id, { project: 'acme-web', branch }); }
@@ -184,14 +190,34 @@ try {
   assert.doesNotMatch(step2.messages[0].content[0].text, /t-stop|t-quit/);
   assert.equal(assistant.tasks.has('t-stop'), false, 'a stopped task leaves the list');
   assert.equal(assistant.tasks.has('t-quit'), true, 'dsh\'s quit keeps the task');
-  // A wait for the user (approval) is news; the task stays until its turn ends.
+  // A wait for the user (approval) is news; the task stays until its turn ends. F-03: a wait keeps the 2-minute gap
+  // (only a finished or failed task skips it), so a task chat that asks often does not start a model turn each time.
   const waiting = agents.get('t-wait');
   waiting.events = [{ seq: 0, type: 'turn/start' }, { seq: 1, type: 'approval/asked', data: { id: 'x' } }];
   emit('session/event', waiting.session, { type: 'approval/asked', data: { id: 'x' } });
-  await until(() => steers.length === 3, 'the wait note');
+  await until(() => bot.pending()[0]?.kind === 'waiting', 'the wait is news');
+  await pause(60);
+  assert.equal(steers.length, 2, 'a wait waits for the gap');
+  clock += timing.gap; await bot.flush();
+  await until(() => steers.length === 3, 'the wait note after the gap');
   const step3 = await listeners.get('agent/pre-step')[0]({ agent: me }, async () => ({ kind: 'enter', messages: [me.queued, steers[2][1]] }));
   assert.match(step3.messages[0].content[0].text, /chat t-wait, your delegated task on branch "feat\/d"\): waits for your approval/);
   assert.equal(assistant.tasks.has('t-wait'), true);
+  // F-02: switching Assistant news off forgets the turns that it saw start, as before this feature: a turn that started
+  // while news was on and ends after news is on again (its start unseen) is no news.
+  clock += timing.gap;
+  const off = (v) => routes.get('/api/composer-plus.assistant-notify').fetch(new Request('http://x', { method: 'POST', body: JSON.stringify({ on: v }) }));
+  const early = newAgent('early', { cwd: P });
+  await off(true);
+  emit('session/event', early.session, { type: 'turn/start', time: clock });
+  await off(false);
+  emit('session/event', early.session, { type: 'turn/end', time: clock + 1000, data: { reason: { kind: 'completed' } } });
+  emit('session/event', early.session, { type: 'turn/start', time: clock + 2000 });
+  await off(true);
+  emit('session/event', early.session, { type: 'turn/end', time: clock + 100000, data: { reason: { kind: 'completed' } } });
+  await pause(60);
+  assert.equal(steers.length, 3, 'no news from a turn start seen before the switch went off');
+  await off(false);
   // An ordinary chat is no news while Assistant news is off.
   const other = newAgent('plain', { cwd: P });
   emit('session/event', other.session, { type: 'turn/start', time: 0 });

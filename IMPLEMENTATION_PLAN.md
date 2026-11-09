@@ -2611,3 +2611,11 @@ Sürüm, yayın, canlı masaüstü kopyası, iPhone kurulumu.
 
 ### Son kontrol noktası
 - 2026-11-09 13:15: plan yazıldı, kod yok.
+- 2026-11-09 13:40: aşama 1 ve 2 bitti, commit `bba465c`. `npm test` exit 0. Yeni test 9 mutasyonun hepsinde kırmızı.
+- 2026-11-09 14:00: öz denetim (review-guard) ve düzeltme turu.
+  - F-01 (P2, doğrulandı): metinler dal sohbetinin kenar çubuğunda "projenin altında" göründüğünü söylüyordu. dsh bunu yalnız **Görünüm seçenekleri → Çalışma alanı ağacı** görünümünde iç içe gösterir (`dsh-client-ui-workspace` `owningParentFolder`, varsayılan `groupBy: "workspace"`). Düzeltme: araç yanıtı, araç açıklaması, istem ve 13 dilde `how` metni dal adlı proje ve ağaç görünümünü anlatır.
+  - F-02 (P2, doğrulandı): Assistant news kapatılınca `starts` artık temizlenmiyordu; kapatmadan önce başlayan bir tur, yeniden açılınca uzun tur haberi veriyordu. Düzeltme: kapatınca `starts` ve görev dışı bekleme sayaçları silinir, görev haberleri kalır.
+  - F-03 (P2, doğrulandı): görev sohbetinin her bekleme haberi 2 dk aralığını atlıyordu; sık onay isteyen bir sohbet her seferinde asistan turu (token) başlatırdı. Düzeltme: aralığı yalnız bitti/hata haberi atlar.
+  - F-04 (P3, doğrulandı): kullanılmayan `assistantTasks().list()` silindi.
+  - F-05 (P2, doğrulandı): görev notu asistana "yapılacaklar listeni güncelle" diyordu; Assistant always free `todo_write` çağrısını reddeder. Düzeltme: not yalnız `chat_read` adını verir.
+  - Her bulgu için `test/assistant-branch-chat.test.mjs` içinde regresyon denetimi var; her biri düzeltme geri alınınca kırmızı.
