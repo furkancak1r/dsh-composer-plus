@@ -125,6 +125,26 @@ function reply(res, status, obj) {
   res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
   res.end(JSON.stringify(obj))
 }
+const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+/** A message of the relay as a page: in the middle of the window, in dsh's light or dark colors, with no script.
+ * `retry`: a link that loads the same address again (for a computer that was asleep). */
+function messagePage(title, hint, retry) {
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(title)}</title><style>
+:root{color-scheme:light dark;--bg:#fff;--fg:#0f1115;--sub:#61666b;--line:rgba(0,0,0,.12)}
+@media (prefers-color-scheme:dark){:root{--bg:#151517;--fg:#f9fafb;--sub:#cfd3d6;--line:rgba(255,255,255,.16)}}
+html,body{height:100%;margin:0}
+body{display:grid;place-items:center;padding:24px;box-sizing:border-box;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+main{max-width:420px;text-align:center}
+svg{color:var(--sub)}
+h1{font-size:17px;font-weight:600;line-height:1.35;margin:12px 0 6px}
+p{margin:0;color:var(--sub)}
+a{display:inline-block;margin-top:20px;padding:6px 16px;border:.5px solid var(--line);border-radius:8px;background:rgba(127,127,127,.12);color:var(--fg);font-size:13px;font-weight:500;text-decoration:none}
+a:hover{background:rgba(127,127,127,.2)}
+</style></head><body><main>
+<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.5 20h7M12 16.5V20"/></svg>
+<h1>${escHtml(title)}</h1>${hint ? `<p>${escHtml(hint)}</p>` : ''}${retry ? '<a href="">Try again</a>' : ''}
+</main></body></html>`
+}
 function readBody(req, max) {
   return new Promise((ok, bad) => {
     const parts = []; let n = 0
@@ -337,11 +357,16 @@ export function createRelay({ host, port, fp, token, ticketTtlMs = 60e3, onUnaut
     return site === undefined || site === 'same-origin' || site === 'none'
   }
   const ancestors = ["'self'", ...frameAncestors].join(' ')
-  const text = (res, status, body) => { if (!res.headersSent) res.writeHead(status, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' }); res.end(body) }
+  // The relay's own message: a page for a browser that asks for HTML (the window, dsh's Browser tab), else plain text.
+  const text = (res, status, title, hint = '', retry = false) => {
+    const html = /text\/html/.test(res.req?.headers?.accept ?? '')
+    if (!res.headersSent) res.writeHead(status, html ? { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': `default-src 'none'; style-src 'unsafe-inline'; frame-ancestors ${ancestors}` } : { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+    res.end(html ? messagePage(title, hint, retry) : hint ? `${title} ${hint}` : title)
+  }
   const next = (req) => ({ agent, headers: hopHeaders(req.headers, { host: `${host}:${port}`, authorization: `Bearer ${token}`, ...(req.headers.origin !== undefined ? { origin: `https://${host}:${port}` } : {}) }) })
   // The computer no longer knows this Mac (it removed it, or the token is too old): say so, and drop the computer's answer.
   const status = (code) => { if (code === 401) { onUnauthorized?.(); return 'skip' } }
-  const UNPAIRED = 'That Mac removed this one, or the pairing is too old. Remove it in Settings → Composer Plus → Remote computers and pair again.'
+  const UNPAIRED = ['That Mac removed this one, or the pairing is too old.', 'Remove it in Settings → Composer Plus → Remote computers and pair again.']
   async function onRequest(req, res) {
     if (!trusted(req)) return text(res, 403, 'Forbidden')
     const url = new URL(req.url, 'http://x')
@@ -349,7 +374,7 @@ export function createRelay({ host, port, fp, token, ticketTtlMs = 60e3, onUnaut
     if (ticket !== null) {
       const exp = tickets.get(ticket)
       tickets.delete(ticket) // one use, also when it is too old
-      if (req.method !== 'GET' || url.pathname !== '/' || exp === undefined || exp < Date.now()) return text(res, 403, 'This link was already used or is too old. Pick the computer again.')
+      if (req.method !== 'GET' || url.pathname !== '/' || exp === undefined || exp < Date.now()) return text(res, 403, 'This link was already used or is too old.', 'Pick the computer again.')
       res.writeHead(303, { location: './', 'cache-control': 'no-store', 'referrer-policy': 'no-referrer', 'content-security-policy': `frame-ancestors ${ancestors}`, 'set-cookie': `${cookieName()}=${cookieValue}; Path=/; HttpOnly; SameSite=Strict` })
       return res.end()
     }
@@ -360,8 +385,9 @@ export function createRelay({ host, port, fp, token, ticketTtlMs = 60e3, onUnaut
     if (url.pathname.startsWith(RELAY_OWN)) return ownPath(req, res, url.pathname.slice(RELAY_OWN.length))
     let unpaired = false
     await pipeHttp(req, res, next(req), { onStatus: (code) => { const r = status(code); if (r === 'skip') unpaired = true; return r },
-      onError: (r) => text(r, 502, fail === 'pin' ? 'This computer shows another certificate. Pair it again in dsh.' : 'This computer does not answer over Tailscale. Make sure that it is awake and that Tailscale is on.') })
-    if (unpaired) text(res, 401, UNPAIRED)
+      onError: (r) => (fail === 'pin' ? text(r, 502, 'This computer shows another certificate.', 'Pair it again in dsh.')
+        : text(r, 502, 'This computer does not answer over Tailscale.', 'Make sure that it is awake and that Tailscale is on.', true)) })
+    if (unpaired) text(res, 401, ...UNPAIRED)
   }
   /** The other Mac's page (in this Mac's window) reads this Mac's computers and switches the window: nothing else. */
   async function ownPath(req, res, name) {
