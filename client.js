@@ -8393,7 +8393,8 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       if (typeof state.folder !== 'string') return null;
       const value = draft ?? state.folder;
       const busy = state.busy === true;
-      const save = () => { if (busy || value.trim() === state.folder) return; store.post({ folder: value.trim() }, { busy: true }).then(() => setDraft(null)); };
+      // A refused path keeps the text, so the user can correct it (the reason shows under the switch).
+      const save = () => { if (busy || value.trim() === state.folder) return; store.post({ folder: value.trim() }, { busy: true }).then((s) => { if (s?.error === undefined) setDraft(null); }); };
       const note = state.folderProblem !== undefined ? t('memoryFolder.problem', { error: state.folderProblem })
         : state.folder !== state.folderActive ? t('memoryFolder.restart') : null;
       return React.createElement('div', { 'data-composer-plus-memory-folder': '', style: { display: 'flex', alignItems: 'center', gap: 6, marginTop: 8, flexWrap: 'wrap' } },
