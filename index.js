@@ -9122,7 +9122,7 @@ const foldName = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '')
 
 /** At most this many delegated chats are kept (the oldest go first). */
 export const ASSISTANT_TASKS_MAX = 50;
-/** The assistant's delegated chats (chat_new with branch): `{tasks: {<chat id>: {title?, project, branch, at}}}` in one
+/** The assistant's delegated chats (chat_new): `{tasks: {<chat id>: {title?, project, branch?, at}}}` in one
  * owner-only file. The map lives in memory; each change saves the whole map, in order, after the saved file was read.
  * ponytail: a delegated chat that is archived or deleted before its turn ends stays until ASSISTANT_TASKS_MAX pushes it out. */
 export function assistantTasks(file, now = Date.now) {
@@ -9157,7 +9157,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   let on = false;
   let assistantId; // the chat id in assistant.json
   let fiber; let unroute; let opening;
-  // chat_new with branch: the chats that the assistant gave work to; the bot tells it when one ends its turn.
+  // chat_new (with or without branch): the chats that the assistant gave work to; the bot tells it when one ends its turn.
   const tasks = assistantTasks(join(dir, 'assistant-tasks.json'));
   // Branch per chat (Worktree chats) keeps its switch in worktrees.json, on by default.
   const worktreesOn = () => mobileSwitch(join(dir, 'worktrees.json'), true).read();
@@ -9260,7 +9260,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     },
     {
       name: 'chat_new',
-      description: 'Start a new chat in one of the user\'s dsh projects and send its first message. With branch true, the chat works on a new git branch in its own worktree folder of the project (as dsh\'s "New branch"); the sidebar lists it as a project named after the branch (inside the project in the Workspace Tree view), and you get a note when its turn ends or it waits for the user. Asks the user first.',
+      description: 'Start a new chat in one of the user\'s dsh projects and send its first message. You get a note when its turn ends or it waits for the user. With branch true, the chat works on a new git branch in its own worktree folder of the project (as dsh\'s "New branch"); the sidebar lists it as a project named after the branch (inside the project in the Workspace Tree view). Asks the user first.',
       parameters: { type: 'object', properties: {
         project: { type: 'string', description: 'The project name (as chats_list shows it) or its folder path' },
         text: { type: 'string', description: `The first message, at most ${ASSISTANT_LIMITS.text} characters` },
@@ -9293,14 +9293,17 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         }
         const { sessionId } = await ctx.sessionController.create({ workspaceId: hits[0].id });
         if (title !== undefined) await Promise.resolve(ctx.sessionController.rename?.({ sessionId, title })).catch(() => {});
+        // A task too (kept before the message goes), so its result comes back to the assistant.
+        await tasks.add(sessionId, { ...(title === undefined ? {} : { title }), project: hits[0].title });
         try {
           await ctx.sessionController.prompt({ requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
         } catch (error) {
-          // All or none: a chat without its message is archived.
+          // All or none: a chat without its message is no task and is archived.
+          await tasks.drop(sessionId);
           const undone = await Promise.resolve(get('workspaceRegistry')?.archiveSession?.(sessionId)).then(() => true, () => false);
           throw new Error(`${error?.message ?? error}; ${undone ? 'the new chat was archived' : `the new chat ${sessionId} stays without a message`}`);
         }
-        return `Started a new chat (${sessionId}) in ${hits[0].title}.`;
+        return `Started a new chat (${sessionId}) in ${hits[0].title}. You get a note when its turn ends or it waits for the user.`;
       },
     },
     {
@@ -9670,7 +9673,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   ctx.on('agent/status', ({ agent, status } = {}) => {
     if (afterIdle && agent?.id === assistant.id() && status !== 'running') { afterIdle = false; schedule(timing.batch); }
   });
-  /** A chat that the assistant gave work to (chat_new with branch): its turn end and its waits are news while Assistant news
+  /** A chat that the assistant gave work to (chat_new, with or without branch): its turn end and its waits are news while Assistant news
    * is off too. */
   const taskOf = (session) => (assistant.isOn() && isText(session?.id) && session.id !== assistant.id() ? assistant.tasks?.get?.(session.id) : undefined);
   // The note names the project that the task was given in (the branch's own project has the branch name).
@@ -10033,6 +10036,8 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   let projectsCache; // { at, value }: the chat list is read at most every STATUS_LIMITS.cacheMs, Refresh reads it now
   // A root chat that starts or ends a turn changed the projects: the next read reads the chat list again.
   ctx.on('session/event', (session, event) => { if ((event?.type === 'turn/start' || event?.type === 'turn/end') && isRootChat(session)) projectsCache = undefined; });
+  // dsh can resume a disposed continuable child (same id) and dispose it again between two reads: it changed, read it again.
+  ctx.on('session/event', (session, event) => { if (event?.type === 'turn/start') ended.delete(session?.id); });
   const status = async (sessionId, signal, fresh) => {
     if (!on || !assistant.isAssistant(get('agents')?.get?.(sessionId))) return {};
     const agent = get('agents').get(sessionId);
@@ -10046,7 +10051,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       projectsCache = { at: now(), sessionId, value: statusProjects(items, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived }) };
     }
     const projects = projectsCache.value;
-    // Delegated chats (chat_new with branch) are tasks too, while their turn runs (main's store drops them at the end).
+    // Delegated chats (chat_new, with or without branch) are tasks too, while their turn runs (main's store drops them at the end).
     // ponytail: an ended delegated chat shows under Projects, not under Tasks; upgrade: keep it in the store until the day ends.
     for (const [id, task] of assistant.tasks?.list?.() ?? []) {
       const live = get('agents')?.get?.(id);
@@ -10136,9 +10141,11 @@ export async function statusTasks(events, inherited, agentOf, { logOf = async ()
   const tasks = [];
   for (const e of found.slice(-max * 2)) {
     const d = e.data;
-    // An ended task does not change: `done` (child id → task) keeps it, so its log is read once.
-    if (done.has(d.childId)) { const kept = done.get(d.childId); if ((kept.ended ?? kept.started) >= since) tasks.push(kept); continue; }
     const child = agentOf(d.childId);
+    // An ended task does not change: `done` (child id → task) keeps it, so its log is read once (also when it ended
+    // before `since`). A live child (dsh resumed a continuable one) is read again.
+    if (child !== undefined) done.delete(d.childId);
+    else if (done.has(d.childId)) { const kept = done.get(d.childId); if ((kept.ended ?? kept.started) >= since) tasks.push(kept); continue; }
     let log = [];
     try { log = child === undefined ? await logOf(d.childId) : child.session?.snapshotEvents?.() ?? []; } catch { log = []; }
     const end = log.findLast((x) => x.type === 'turn/end');
@@ -10151,10 +10158,10 @@ export async function statusTasks(events, inherited, agentOf, { logOf = async ()
       : end === undefined ? (child === undefined ? 'stopped' : 'running') : 'done';
     const started = Number.isFinite(d.childCreatedAt) ? d.childCreatedAt : Number.isFinite(e.time) ? e.time : now;
     const ended = state === 'running' || state === 'waiting' ? undefined : Number.isFinite(end?.time) ? end.time : undefined;
-    if ((ended ?? (state === 'running' || state === 'waiting' ? now : started)) < since) continue;
     const result = state === 'failed' ? headLine(end?.data?.reason?.error?.message, STATUS_LIMITS.result) : headLine(lastReply(log), STATUS_LIMITS.result);
     const task = { id: d.childId, title: cutEnd(String(d.label ?? '').trim() || d.childId, 120), state, started, ...(ended === undefined ? {} : { ended }), ...(result === '' ? {} : { result }) };
     if (child === undefined && state !== 'running' && state !== 'waiting' && log.length > 0) done.set(d.childId, task);
+    if ((ended ?? (state === 'running' || state === 'waiting' ? now : started)) < since) continue;
     tasks.push(task);
   }
   // Open tasks first (newest first), then the ended ones (newest end first; a gone task without an end time: its start).
