@@ -163,17 +163,14 @@ try {
     assert.match(denied.body.error, /^Nothing was saved: add "The blog deploys with git push on the main branch" in global: .*EACCES/);
     assert.deepEqual(await files(), was, 'a write error: every file as it was, no journal row');
   }
-  // The global MEMORY.md is full: the global add (the last change) is refused, so nothing is saved (409).
-  for (const size of [200, 20]) for (let i = 0; ; i++) { try { await store.add({ scope: store.GLOBAL, text: `Global fact ${size} ${i} ${'x'.repeat(size)}`, actor: 'agent' }); } catch { break; } }
-  const full = await files();
+  // No size limit (2026-11-09): a big global MEMORY.md still takes the global add; the whole preview applies.
+  for (let i = 0; i < 60; i++) await store.add({ scope: store.GLOBAL, text: `Global fact ${i} ${'x'.repeat(200)}`, actor: 'agent' });
   const move2 = await call(MEMORY_EDIT_PATH, { preview: { project: b.id, text: 'move the deploy rule to global' } });
-  const refusedApply = await call(MEMORY_EDIT_PATH, { apply: move2.body.id });
-  assert.equal(refusedApply.status, 409);
-  assert.match(refusedApply.body.error, /^Nothing was saved: add "The blog deploys with git push on the main branch" in global: MEMORY\.md of the global memory would have \d+ of its 8000 characters/);
-  assert.deepEqual(await files(), full, 'the limit: every file as it was, no journal row');
-  assert.equal(full[0], was[0]); assert.equal(full[1], was[1]); assert.equal(full[2], null, 'no new topic file');
+  const applied2 = await call(MEMORY_EDIT_PATH, { apply: move2.body.id });
+  assert.equal(applied2.status, 200); assert.equal(applied2.body.applied, 4);
+  assert.match(await readFile(join(store.GLOBAL.dir, 'MEMORY.md'), 'utf8'), /The blog deploys with git push on the main branch/);
   // The count: a note that is already saved changes nothing, so it is not counted.
-  answer = '{"changes":[{"op":"add","text":"The blog uses Hugo"},{"op":"add","text":"The blog has a dark theme"}]}';
+  answer = '{"changes":[{"op":"add","text":"The blog uses Hugo 0.140"},{"op":"add","text":"The blog has a dark theme"}]}';
   const again = await call(MEMORY_EDIT_PATH, { apply: (await call(MEMORY_EDIT_PATH, { preview: { project: b.id, text: 'the blog has a dark theme' } })).body.id });
   assert.equal(again.status, 200); assert.equal(again.body.applied, 1, 'only the changes that changed a note');
   // Off again: the editor answers 409.
