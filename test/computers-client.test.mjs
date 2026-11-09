@@ -202,6 +202,8 @@ assert.equal(addComputer.getSnapshot().error, 'name-taken');
 addComputer.close(computers);
 
 // Pick Studio: a desktop webview with its own lease fills the window; no browser window; this Mac's page stays.
+// dsh's macOS desktop app marks only its own page (`data-platform`, its preload); the webview gets the mark below.
+globalThis.document.documentElement = { dataset: { platform: 'darwin' } };
 tree = renderPicker(); menu = tree.c[0];
 assert.deepEqual(menu.p.items.map((i) => i.id), ['self', ID, 'sep', 'add']);
 await menu.p.onSelect(ID); await tick();
@@ -213,10 +215,24 @@ const wv = root.querySelector(`[data-composer-plus-computer-view]`);
 assert.equal(wv.tag, 'webview'); assert.equal(wv.getAttribute('partition'), `p-composer-plus-computer:${ID}`); assert.equal(wv.getAttribute('src'), 'about:blank#L1');
 assert.equal(wv.hasAttribute('allowpopups'), true, 'a link of the page that opens a window goes to the system browser');
 assert.equal(root.querySelector('[data-window-drag]') !== null, true, 'a drag strip over the page');
-// The relay URL loads only after the lease is attached (dom-ready), once.
+// macOS desktop: the other Mac's page fills the whole window (no empty title bar band above it) and draws dsh's own title
+// bar row; the drag strip keeps only the traffic-light corner, so it covers no control of that page.
+assert.match(wv.style.cssText, /top:0;height:100%/, 'the page starts at the top of the window');
+assert.doesNotMatch(wv.style.cssText, /frame-top-clearance/);
+assert.match(root.querySelector('[data-window-drag]').style.cssText, /left:0;top:0;width:88px;height:var\(--dsh-frame-top-clearance/);
+// The relay URL loads only after the lease is attached (dom-ready), once; each later document gets the platform mark.
 const loaded = []; wv.loadURL = async (u) => { loaded.push(u); };
-wv.fire('dom-ready'); wv.fire('dom-ready');
+const marks = []; wv.executeJavaScript = async (code) => { marks.push(code); };
+wv.fire('dom-ready'); assert.deepEqual(marks, [], 'not in about:blank');
+wv.fire('dom-ready');
 assert.deepEqual(loaded, ['http://127.0.0.1:5555/?cp-ticket=t1']);
+assert.equal(marks.length, 1, 'the page gets the mark once per document');
+// The mark comes after dsh's page mounted (its brand row), never at start: dsh's shortcuts would ask for a desktop bridge.
+{ const page = { el: null }; const docEl = { dataset: {} }; let poll;
+  const fakeDoc = { documentElement: docEl, querySelector: (s) => (s === '[class*="_logoRow"]' ? page.el : null) };
+  new Function('document', 'setInterval', 'clearInterval', 'Date', marks[0])(fakeDoc, (f) => { poll = f; return 1; }, () => { poll = null; }, Date);
+  poll(); assert.equal(docEl.dataset.platform, undefined, 'not before dsh\'s page mounted');
+  page.el = {}; poll(); assert.equal(docEl.dataset.platform, 'darwin', 'then marked as dsh\'s macOS window'); assert.equal(poll, null, 'and the poll stops'); }
 assert.equal(wv.style.visibility, 'visible'); assert.equal(wv.focused, 1, 'the page gets the focus');
 assert.equal(views.getSnapshot().current, ID);
 // Studio's page did not say hello yet (it has no picker of its own): this Mac's picker floats over it, in the same place.
@@ -310,6 +326,7 @@ const bridge = globalThis.dshDesktop; globalThis.dshDesktop = undefined;
 await views.select(ID2);
 const frame = root.children.find((c) => c.tag === 'iframe');
 assert.ok(frame, 'an iframe'); assert.match(frame.src, /cp-ticket=/);
+assert.match(frame.style.cssText, /top:var\(--dsh-frame-top-clearance/, 'dsh web: under the title bar space, as before');
 globalThis.dshDesktop = bridge;
 // That Mac removed this one: the page closes and the window shows This Mac with the reason.
 view = { ...view, computers: view.computers.map((c) => (c.id === ID2 ? { ...c, state: 'unpaired' } : c)) }; await computers.refresh();

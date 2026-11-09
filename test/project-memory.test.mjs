@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   MEMORY_PATH, MEMORY_TOOLS, installMemory, memoryStore, memorySection, memoryReviewRequest, memoryLines, parseMemoryReview, parseMemory, looksSecret,
-  entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE, MEMORY_OVERFLOW_TOPIC, squash,
+  entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE, MEMORY_PROMPT_MAX, squash,
 } from '../index.js';
 
 let seq = 0;
@@ -28,9 +28,9 @@ try {
 
   // Pure parts.
   assert.equal(cleanTopic(' Deploy Notes.md '), 'deploy-notes'); assert.equal(cleanTopic('../x'), undefined); assert.equal(cleanTopic('memory'), undefined);
-  for (const s of ['the key is sk-abcdefghijklmnop1234', 'ghp_abcdefghijklmnopqrstuvwxyz12', 'şifre: hunter22', 'password is hunter2', 'card 4111 1111 1111 1111', 'aB3dE5gH7jK9mN1pQ3sT5vX7zA9cE1gI3kM']) assert.ok(looksSecret(s), s);
-  for (const s of ['The user writes in Turkish', 'Deploy runs on 2026-10-28 at 10:00', 'Docs at https://example.com/aB3dE5gH7jK9mN1pQ3sT5vX7zA9cE1gI3kM', 'Use the password manager for staging']) assert.ok(!looksSecret(s), s);
-  assert.match(entryProblem('x'.repeat(301)), /at most 300/); assert.equal(entryProblem('ok'), undefined);
+  for (const s of ['the key is sk-abcdefghijklmnop1234', 'ghp_abcdefghijklmnopqrstuvwxyz12', 'şifre: hunter22', 'password is hunter2', 'card 4111 1111 1111 1111', 'aB3dE5gH7jK9mN1pQ3sT5vX7zA9cE1gI3kM', 'TC kimlik 10000000146', 'kimlik: 100 000 001 46']) assert.ok(looksSecret(s), s);
+  for (const s of ['The user writes in Turkish', 'Deploy runs on 2026-10-28 at 10:00', 'Docs at https://example.com/aB3dE5gH7jK9mN1pQ3sT5vX7zA9cE1gI3kM', 'Use the password manager for staging', 'Order 10000000147 shipped', 'Call 05321234567', 'Invoice 01234567890']) assert.ok(!looksSecret(s), s);
+  assert.equal(entryProblem('x'.repeat(5000)), undefined, 'no length limit'); assert.equal(entryProblem('ok'), undefined); assert.match(entryProblem(''), /Write the entry/);
   assert.deepEqual(parseMemoryReview('```json\n{"changes":[{"op":"add","text":"a","global":true},{"op":"edit","entry":2,"text":"b"},{"op":"remove","entry":1}]}\n```').length, 3);
   for (const bad of ['no json', '{"changes":[{"op":"edit","text":"x"}]}', '{"changes":[{"op":"add","text":""}]}', '{"changes":[{"op":"drop","entry":1}]}', '{"x":1}']) assert.equal(parseMemoryReview(bad), undefined, bad);
 
@@ -55,10 +55,24 @@ try {
   const rows = (await readFile(join(dir, 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(rows.map((r) => r.op), ['add', 'add', 'replace', 'remove']);
   assert.match(rows[2].before, /Turkish/); assert.match(rows[2].after, /English/);
-  // Size limit: MEMORY.md cannot pass 8,000 characters (4,000 until 1.21.1).
+  // No size limit (2026-11-09): MEMORY.md grows past 8,000 characters and a scope takes more than 40 topics; the prompt
+  // shows the newest entries of MEMORY.md within MEMORY_PROMPT_MAX and says how many older ones it left out.
   const big = memoryStore(join(root, 'big'));
   const bigScope = big.project(project);
-  await assert.rejects((async () => { for (let i = 0; i < 60; i++) await big.add({ scope: bigScope, text: `Fact number ${i} ${'x'.repeat(200)}`, actor: 'agent' }); })(), /would have \d+ of its 8000/);
+  for (let i = 0; i < 60; i++) await big.add({ scope: bigScope, text: `Fact number ${i} ${'x'.repeat(200)}`, actor: 'agent' });
+  for (let i = 0; i < 45; i++) await big.add({ scope: bigScope, topic: `t-${i}`, text: `Topic fact ${i}`, actor: 'agent' });
+  assert.ok((await readFile(join(bigScope.dir, 'MEMORY.md'), 'utf8')).length > 12000, 'MEMORY.md has no size limit');
+  assert.equal(big.load(bigScope).length, 46, '45 topics and MEMORY.md');
+  const bigSection = memorySection(big, bigScope);
+  assert.match(bigSection, /Fact number 59 /, 'the newest entry is in the prompt'); assert.doesNotMatch(bigSection, /Fact number 0 /, 'the oldest is not');
+  const hidden = Number(/\((\d+) older entries of this MEMORY\.md are not shown here: find them with memory_recall\.\)/.exec(bigSection)?.[1]);
+  const shownFacts = bigSection.match(/Fact number \d+ /g).length;
+  assert.equal(hidden + shownFacts, 60, 'every entry is shown or counted'); assert.ok(shownFacts > 20);
+  assert.ok(bigSection.split('## Global memory')[0].split('\n').filter((l) => l.startsWith('- Fact')).join('\n').length <= MEMORY_PROMPT_MAX, 'the budget holds');
+  assert.match(bigSection, /\[\[t-44\]\]/, 'every topic name is listed');
+  // The review request stays bounded too: the newest MEMORY.md entries, not all of them.
+  { const { text } = memoryReviewRequest(big, bigScope, [{ who: 'user', text: 'hi', seq: 1 }]);
+    assert.match(text, /Fact number 59 /); assert.doesNotMatch(text, /Fact number 0 /, 'the oldest is not sent'); assert.ok(text.length < 40000, `bounded: ${text.length}`); }
 
   // A symlink or a FIFO in place of MEMORY.md is not followed and does not block (rule 6).
   const outside = join(root, 'outside.md'); await writeFile(outside, '# Memory\n\n- SECRET outside entry\n');
@@ -118,10 +132,10 @@ try {
   const mem = installMemory(ctx, hostHome);
   await mem.ready;
   const call = async (body) => { const r = await routes.get(MEMORY_PATH).fetch(new Request(`http://h${MEMORY_PATH}`, body === undefined ? undefined : { method: 'POST', body: JSON.stringify(body) })); return { status: r.status, body: await r.json() }; };
-  assert.deepEqual((await call()).body, { on: false }, 'off by default');
+  assert.deepEqual((await call()).body, { on: false, folder: '', folderActive: '' }, 'off by default, the default folder');
   assert.equal(registered.tools.size, 0, 'off: no tools');
   for (const bad of [{ on: 'yes' }, { on: true, x: 1 }, {}]) assert.equal((await call(bad)).status, 400);
-  assert.deepEqual((await call({ on: true })).body, { on: true });
+  assert.equal((await call({ on: true })).body.on, true);
   assert.deepEqual(JSON.parse(await readFile(join(hostHome, 'storages', 'dsh-composer-plus', 'memory.json'), 'utf8')), { on: true });
   assert.deepEqual([...registered.tools.keys()].sort(), [...MEMORY_TOOLS].sort()); assert.ok(registered.sections.has('composer-plus:memory'));
   const sectionOf = (agent) => registered.sections.get('composer-plus:memory').text({ agent });
@@ -199,17 +213,15 @@ try {
     assert.equal(llmCalls.length, calls0 + 1, 'a skipped card is no user line: no call');
     assert.equal(memoryLines(sessionEvents, inheritedEventCount).some((l) => /question card/.test(l.text)), false, 'only the review reads card answers'); }
 
-  // A full MEMORY.md: the review's new note goes to the topic "more", not lost (the agent's tool still gets the reason).
+  // A big MEMORY.md (no limit now): the review's new note and the agent's note are both saved there.
   { const pDir = mem.store.project(project).dir;
     const before = await readFile(join(pDir, 'MEMORY.md'), 'utf8');
     await writeFile(join(pDir, 'MEMORY.md'), before.replace('## Index', `- ${'Filler fact. '.repeat(610)}\n\n## Index`));
     sessionEvents = [...sessionEvents, user('I always deploy on Fridays')];
     answer = '{"changes":[{"op":"add","text":"The user deploys on Fridays"}]}';
     await mem.review('chat-1');
-    assert.match(await readFile(join(pDir, `${MEMORY_OVERFLOW_TOPIC}.md`), 'utf8'), /The user deploys on Fridays/, 'the note is in the topic');
-    assert.match(await readFile(join(pDir, 'MEMORY.md'), 'utf8'), new RegExp(`\\[\\[${MEMORY_OVERFLOW_TOPIC}\\]\\]`), 'MEMORY.md links the topic');
-    await assert.rejects(tool('memory_remember').execute({ text: 'Another main fact' }, exec), /would have \d+ of its 8000/, 'the agent still gets the reason');
-    assert.match(await tool('memory_remember').execute({ text: 'A detail for a new topic', topic: 'details' }, exec), /the new topic \[\[details\]\]/, 'a full MEMORY.md still takes a new topic, as its error text says');
+    assert.match(await readFile(join(pDir, 'MEMORY.md'), 'utf8'), /The user deploys on Fridays/, 'the review note is in MEMORY.md');
+    assert.match(await tool('memory_remember').execute({ text: 'Another main fact' }, exec), /^Saved to the project memory, in MEMORY\.md/);
     await writeFile(join(pDir, 'MEMORY.md'), before); }
 
   // A failed review and a left-out change leave a journal row (dsh's warning is in memory only).
@@ -221,11 +233,14 @@ try {
     for (const end = Date.now() + 10000; (await errorRows()).length === 0 && Date.now() < end;) await new Promise((r) => setTimeout(r, 50)); // the 2 s review timer
     const failed = await errorRows();
     assert.equal(failed.length, 1, 'one error row'); assert.equal(failed[0].session, 'chat-1'); assert.match(failed[0].reason, /not a list of changes/);
-    answer = '{"changes":[{"op":"add","text":"The user runs scripts with bun","topic":"t-41"}]}';
-    for (let i = 0; i < 40; i++) await mem.store.add({ scope: mem.store.project(project), topic: `t-${i}`, text: `Topic fact ${i}`, actor: 'agent' }).catch(() => {});
+    // No topic limit now: the 42nd topic is saved; a topic name that cannot be a file name puts the note in MEMORY.md.
+    answer = '{"changes":[{"op":"add","text":"The user runs scripts with bun","topic":"t-41"},{"op":"add","text":"The user lints with biome","topic":"../bad"}]}';
+    for (let i = 0; i < 41; i++) await mem.store.add({ scope: mem.store.project(project), topic: `t-${i}`, text: `Topic fact ${i}`, actor: 'agent' });
     await mem.review('chat-1');
-    const skipped = (await journalRows()).filter((r) => r.actor === 'review-error' && r.op === 'skip');
-    assert.equal(skipped.length, 1, 'a refused change leaves a skip row'); assert.match(skipped[0].reason, /already has 40 topics/); assert.equal(skipped[0].change.text, 'The user runs scripts with bun'); }
+    const pFiles = mem.store.load(mem.store.project(project));
+    assert.match(pFiles.find((f) => f.topic === 't-41').content, /runs scripts with bun/, 'the review note is in its topic');
+    assert.match(pFiles[0].content, /lints with biome/, 'a bad topic name: the note is in MEMORY.md, not lost');
+    assert.equal((await journalRows()).filter((r) => r.actor === 'review-error' && r.op === 'skip').length, 0, 'nothing was left out'); }
 
   // The status edge queues a review only for a root chat that ran (timer stops on switch-off).
   assert.equal(typeof on['agent/status']?.[0], 'function');
@@ -235,7 +250,7 @@ try {
   await call({ on: true }); assert.equal(registered.tools.size, 3, 'on again: tools back');
   // Two clicks at the same time: the file and the live state end on the newest one.
   await Promise.all([call({ on: false }), call({ on: true })]);
-  assert.deepEqual((await call()).body, { on: true }); assert.equal(registered.tools.size, 3);
+  assert.equal((await call()).body.on, true); assert.equal(registered.tools.size, 3);
   assert.deepEqual(JSON.parse(await readFile(join(hostHome, 'storages', 'dsh-composer-plus', 'memory.json'), 'utf8')), { on: true });
   effects.forEach((f) => f?.()); assert.equal(registered.tools.size, 0, 'unload removes everything');
   assert.ok((await stat(join(hostHome, 'storages', 'dsh-composer-plus', 'memory', 'reviewed.json'))).isFile());
@@ -248,7 +263,7 @@ try {
     let hostState = { on: false }; const posts = [];
     globalThis.fetch = async (url, init) => {
       if (url !== MEMORY_PATH) return new Response('{}', { status: 404 });
-      if (init?.method === 'POST') { posts.push(JSON.parse(init.body)); if (hostState !== 404) hostState = { on: JSON.parse(init.body).on }; }
+      if (init?.method === 'POST') { const body = JSON.parse(init.body); posts.push(body); if (hostState !== 404 && 'on' in body) hostState = { on: body.on }; }
       return hostState === 404 ? new Response('', { status: 404 }) : new Response(JSON.stringify(hostState), { status: 200 });
     };
     let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
@@ -273,6 +288,18 @@ try {
     assert.equal(row().c[2].p.checked, true);
     const status = row().c[1].c.find((c) => c?.p?.prefix === 'memory');
     assert.equal(status.t.name, 'MobileStatus');
+    // Memory folder: a field under the switch while it is on; Save posts {folder}; a saved folder that this run does not
+    // use yet says "restart".
+    hostState = { on: true, folder: '', folderActive: '' }; await section.memory.refresh();
+    const folderRow = () => row().c[1].c.find((c) => c?.t?.name === 'MemoryFolder');
+    assert.ok(folderRow(), 'the folder field shows while the memory is on');
+    const field = folderRow().t(folderRow().p);
+    assert.equal(field.c[1].p.value, ''); assert.equal(field.c[2].p.disabled, true, 'Save waits for a change');
+    hostState = { on: true, folder: '/Users/u/Vault/Hafıza', folderActive: '' };
+    await section.memory.post({ folder: '/Users/u/Vault/Hafıza' }, { busy: true });
+    assert.deepEqual(posts.at(-1), { folder: '/Users/u/Vault/Hafıza' });
+    const after = folderRow().t(folderRow().p);
+    assert.equal(after.c[1].p.value, '/Users/u/Vault/Hafıza'); assert.equal(after.c[3].c[0], 'memoryFolder.restart');
     hostState = 404;
     await section.setFeature('projectMemory', false);
     assert.equal(section.memory.getSnapshot().restart, true); assert.equal(section.memory.getSnapshot().on, true, 'the switch goes back');
