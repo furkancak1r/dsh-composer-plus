@@ -2434,6 +2434,7 @@
     "assistantApart.done": "Balasan baru",
     "feature.assistantChatView": "Hanya pesan di Asisten",
     "feature.assistantChatView.description": "Di obrolan asisten, panggilan alat, penalaran, dan kelompok langkah disembunyikan, seperti obrolan dengan bot: Anda melihat pesan Anda, balasannya, kesalahan, dan kartu persetujuan. Obrolan lain tidak berubah.",
+    "assistantChatView.earlier": "Tampilkan pesan sebelumnya ({count} giliran)",
     "feature.assistantFree": "Asisten selalu bebas",
     "feature.assistantFree.description": "Obrolan asisten langsung menjawab dan tidak pernah tetap sibuk: obrolan ini hanya menjalankan alat singkatnya sendiri (obrolan, pengingat, memori, subagen). Setiap langkah lain (pencarian web, file, perintah) diserahkan ke subagen latar belakang, dan hasilnya kembali ke obrolan. Subagennya bekerja seperti biasa.",
     "assistantFree.down": "Tidak dapat menyimpan pengaturan ini: {error}",

@@ -2434,6 +2434,7 @@
     "assistantApart.done": "Câu trả lời mới",
     "feature.assistantChatView": "Trợ lý chỉ hiện tin nhắn",
     "feature.assistantChatView.description": "Trong cuộc trò chuyện trợ lý, lệnh gọi công cụ, suy luận và nhóm bước được ẩn, giống trò chuyện với bot: bạn thấy tin nhắn của bạn, câu trả lời của trợ lý, lỗi và thẻ phê duyệt. Các cuộc trò chuyện khác không thay đổi.",
+    "assistantChatView.earlier": "Hiện tin nhắn trước ({count} lượt)",
     "feature.assistantFree": "Trợ lý luôn rảnh",
     "feature.assistantFree.description": "Cuộc trò chuyện trợ lý trả lời ngay và không bao giờ bị bận: trợ lý chỉ chạy các công cụ ngắn của riêng nó (cuộc trò chuyện, lời nhắc, bộ nhớ, subagent). Mọi bước khác (tìm kiếm web, tệp, lệnh) được giao cho một subagent chạy nền, và kết quả quay lại cuộc trò chuyện. Các subagent của trợ lý vẫn làm việc như thường.",
     "assistantFree.down": "Không thể lưu cài đặt này: {error}",

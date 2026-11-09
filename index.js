@@ -2358,7 +2358,8 @@ export function apply(ctx) {
   });
   // Tether's green dots, kept here while Mobile connect is on: a root chat whose turn ends gets one, a new turn or a read
   // on any device takes it away. dsh's own dot lives only in the desktop client's memory, so that client reports its
-  // reads here (client.js watchRead). Each change goes to the connected phones at once.
+  // reads here and its dots that this list does not have (`add`), and clears its dots of the chats that a phone read
+  // (client.js watchRead). Each change goes to the connected phones at once.
   const unread = unreadStore(join(home, 'storages', 'dsh-composer-plus', 'unread.json'));
   const busy = new Set(); // root chats that run now: only their running → idle edge is a finished turn
   function changeUnread(add, remove) {
@@ -2383,11 +2384,14 @@ export function apply(ctx) {
       if (request.method === 'POST') {
         let body;
         try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
-        const ids = body?.sessionIds;
-        if (!Array.isArray(ids) || ids.length === 0 || ids.length > UNREAD_MAX || !ids.every((id) => isText(id, 128))) return json({ error: 'bad request' }, 400);
-        changeUnread([], ids);
+        // `sessionIds`: chats that are read now; `add`: chats with a dot in dsh that this list does not have yet.
+        const ids = (v) => v === undefined || (Array.isArray(v) && v.length <= UNREAD_MAX && v.every((id) => isText(id, 128)));
+        const { sessionIds: read = [], add = [] } = body ?? {};
+        if (!ids(body?.sessionIds) || !ids(body?.add) || read.length + add.length === 0) return json({ error: 'bad request' }, 400);
+        changeUnread(mobileOn === true ? add : [], read); // off: nothing is kept
       }
-      return json({ unread: mobileOn === true ? unread.list() : [] });
+      // `on`: the list is kept (Mobile connect is on); while off it is empty and says nothing about what was read.
+      return json({ on: mobileOn === true, unread: mobileOn === true ? unread.list() : [] });
     },
   });
   installResume(ctx, home);
@@ -9138,17 +9142,24 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     const a = argsOf(exec.arguments) ?? {};
     const name = isText(a.chat_id, 128) ? `"${cutEnd(String(await titleOf(a.chat_id) ?? a.chat_id), 80)}"` : '';
     const words = { chat_send: `send a message to ${name}`, chat_new: `start a new chat${a.branch === true ? ' on a new branch' : ''} in "${cutEnd(String(a.project ?? ''), 80)}"${typeof a.title === 'string' && a.title.trim() !== '' ? ` named "${cutEnd(a.title.trim(), 80)}"` : ''}`, chat_stop: `stop ${name}`, chat_archive: `archive ${name}` }[exec.name];
-    const quote = typeof a.text === 'string' ? `: "${cutEnd(a.text.trim(), 300)}"` : '';
+    // The whole message (the tools refuse more than ASSISTANT_LIMITS.text): the user approves what is sent, so the card
+    // must not cut it. dsh's card draws the reason as plain text (no HTML) in its scrolling body.
+    const quote = typeof a.text === 'string' ? `: "${cutEnd(a.text.trim(), ASSISTANT_LIMITS.text)}"` : '';
     const own = `Composer Plus → Assistant wants to ${words}${quote}`;
     return { kind: 'ask', reason: decision.kind === 'ask' && typeof decision.reason === 'string' && decision.reason !== '' ? `${own} ${decision.reason}` : own };
   });
 
   /** False only when dsh's session store no longer has the chat: Delete chat moved its log away, and its agent can still be
-   * live, so `resolveAgent` alone would give the deleted chat back. A dsh without the store, or a failed read: true. */
+   * live, so `resolveAgent` alone would give the deleted chat back. A dsh without the store, or a failed read: true.
+   * `stat(id)` reads one chat's folder (about 5 ms); `list()` reads the header of every chat (about 150 ms with 1300 chats,
+   * and it waits behind dsh's other listings), so it is only the fallback for a store without `stat`. */
   const stored = async (id) => {
     const persistence = get('sessionPersistence');
-    if (typeof persistence?.list !== 'function') return true;
-    try { return (await persistence.list()).some((s) => s?.header?.id === id); } catch { return true; }
+    try {
+      if (typeof persistence?.stat === 'function') return (await persistence.stat(id)) !== undefined;
+      if (typeof persistence?.list !== 'function') return true;
+      return (await persistence.list()).some((s) => s?.header?.id === id);
+    } catch { return true; }
   };
   /** The assistant chat: the saved one (unarchived when needed), else a new chat in ~/Assistant with the narrowest preset.
    * One open at a time: a second call while one runs gets the same answer. */

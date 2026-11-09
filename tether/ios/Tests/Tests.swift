@@ -429,8 +429,6 @@ final class CoreTests: XCTestCase {
         let kid = Sess(["sessionId": "k", "parentSessionId": "p", "origin": "subagent"])!
         XCTAssertEqual(kid.parent, "p")
         XCTAssertEqual(Sess(["sessionId": "k2", "projections": ["values": ["subagent": ["parentSessionId": "p"]]]])!.parent, "p")
-        let back = (Client.snapshot([fork, kid]) as [J]).compactMap(Sess.init)
-        XCTAssertEqual(back.map(\.parent), [nil, "p"], "the saved list keeps which chat is a subagent")
         XCTAssertEqual(shownUnread(host: ["f", "k"], sessions: [fork, kid], open: nil), ["f"], "a fork gets its green dot")
     }
 
@@ -1058,6 +1056,20 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(shownUnread(host: [], sessions: all, open: nil), [], "read on the Mac: the dot goes")
         let idle = [s("a", false, nil), s("k", false, "a")]
         XCTAssertEqual(shownUnread(host: ["a", "k"], sessions: idle, open: nil), ["a"], "a subagent never gets a dot")
+        XCTAssertEqual(shownUnread(host: ["d"], sessions: all, archived: ["d"], open: nil), [], "DSH shows no dot on an archived chat")
+    }
+
+    /// The Sessions count is the Mac's count: only the Mac's list gives dots (the bug: a Mac without the `unread` route
+    /// made the phone guess, and 8 chats read on the Mac kept their dots here while DSH showed none).
+    func testListDots() {
+        let all = ["a", "b", "c", "d", "e", "f", "g", "h"].map { Sess(["sessionId": $0, "running": false])! }
+        let kept = Set(all.map(\.id))
+        XCTAssertEqual(listDots(host: nil, route: false, kept: kept, sessions: all, archived: [], open: nil), [], "no route: no guess, no dot")
+        XCTAssertEqual(listDots(host: [], route: true, kept: kept, sessions: all, archived: [], open: nil), [], "read on the Mac: 0, as in DSH")
+        XCTAssertEqual(listDots(host: ["b"], route: true, kept: kept, sessions: all, archived: ["a"], open: nil), ["b"])
+        XCTAssertEqual(listDots(host: nil, route: true, kept: ["a", "b", "gone"], sessions: all, archived: ["a"], open: "b"), [],
+                       "the Mac did not answer: the last list stays, filtered")
+        XCTAssertEqual(listDots(host: nil, route: nil, kept: ["c"], sessions: all, archived: [], open: nil), ["c"], "before /me: the last list stays")
     }
 
     /// Queue edit: the content that a save sends. Kept attachments stay as they are and in order, the text keeps its place.
@@ -1302,7 +1314,7 @@ final class CoreTests: XCTestCase {
         wait(for: [done], timeout: 3)
     }
 
-    @MainActor func testJustFinished() {
+    @MainActor func testSessionsPlaceholderAndRunning() {
         XCTAssertEqual(sessionsPlaceholder(loaded: false, count: 0, state: .connecting), .loading)
         // no cached sessions without a live link, even when a list was loaded before
         XCTAssertEqual(sessionsPlaceholder(loaded: false, count: 0, state: .off), .offline)
@@ -1311,25 +1323,12 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(sessionsPlaceholder(loaded: true, count: 0, state: .connected), .empty)
         XCTAssertEqual(sessionsPlaceholder(loaded: false, count: 0, state: .connected), .loading)
         XCTAssertEqual(sessionsPlaceholder(loaded: true, count: 3, state: .connected), SessionsPlaceholder.none)
+        // As in DSH desktop: a chat runs while its subagent runs.
         let s = { (id: String, run: Bool) in Sess(["sessionId": id, "running": run])! }
-        let old = [s("a", true), s("b", true), s("c", false), s("d", true)]
-        let new = [s("a", false), s("b", true), s("c", false), s("d", false)]
-        XCTAssertEqual(Client.justFinished(old: old, new: new, current: "d"), ["a"])
-        // A whole turn between refreshes: idle both times but updatedAt moved; a rename alone doesn't count.
-        let t = { (id: String, at: Int, title: String) in Sess(["sessionId": id, "updatedAt": at, "projections": ["values": ["title": title]]])! }
-        XCTAssertEqual(Client.justFinished(old: [t("e", 1, "x"), t("f", 1, "x"), t("g", 1, "x")], new: [t("e", 2, "x"), t("f", 2, "y"), t("g", 1, "x")], current: nil), ["e"])
-        // Cold start: the persisted snapshot round-trips through UserDefaults and Sess.init.
-        let saved = UserDefaults(suiteName: "test")!
-        saved.set(Client.snapshot([s("h", true), t("i", 1, "x")]), forKey: "seen")
-        let back = (saved.array(forKey: "seen") as? [J] ?? []).compactMap(Sess.init)
-        XCTAssertEqual(Client.justFinished(old: back, new: [s("h", false), t("i", 2, "x")], current: nil), ["h", "i"])
-        // As in DSH desktop: a chat runs while its subagent runs, and it finishes when the subagent stops.
         let k = { (id: String, parent: String, run: Bool) in Sess(["sessionId": id, "parentSessionId": parent, "origin": "subagent", "running": run])! }
         let busy = [s("p", false), k("p1", "p", true)]
         XCTAssertTrue(isRunning(busy[0], busy)); XCTAssertFalse(isRunning(s("q", false), busy))
-        XCTAssertEqual(Client.justFinished(old: busy, new: busy, current: nil), [], "still running: no Finished mark")
-        let cold = (Client.snapshot(busy) as [J]).compactMap(Sess.init)
-        XCTAssertEqual(Client.justFinished(old: cold, new: [s("p", false), k("p1", "p", false)], current: nil), ["p", "p1"])
+        XCTAssertEqual(shownUnread(host: ["p"], sessions: busy, open: nil), [], "a chat whose subagent runs shows the spinner, not a dot")
     }
 }
 
