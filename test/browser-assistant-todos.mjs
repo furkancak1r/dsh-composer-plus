@@ -9,6 +9,9 @@
 // 4. Remove (×): one click, no dialog, the item is gone. Keyboard: Tab reaches the buttons.
 // 5. Reload: the list is still there (Host file). Another chat has no panel and no to-do tools.
 // 6. Switch off in Settings: no panel, no tools, no context; on again: the panel is back. No page errors.
+// 7. Status: "Morning summary please" → status_summary_set; the card shows today's summary, a project name opens its row
+//    (chats, git branch and commits of the made-up repository). "Research Rome" → a background subagent: Tasks shows it
+//    working, then done with its result, without Refresh. Refresh updates the time. Typing 30 keys does not draw the panel.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-todos.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/assistantTodos.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -32,6 +35,7 @@ const until = async (fn, what, ms = 30000) => {
 };
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const calls = [];
+const gate = { open: false };
 const fake = createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
@@ -61,6 +65,12 @@ const fake = createServer((req, res) => {
       const id = /- ([0-9a-f]{8}) \(owner \w+\): "Buy milk"/.exec(context)?.[1] ?? 'ffffffff';
       return tool('todo_list_remove', { id, reason: 'completed' });
     }
+    if (/Morning summary please/.test(newest) && !after) return tool('status_summary_set', { projects: [{ project: 'acme-web', text: 'Login page is done; tests pass.' }] });
+    if (/Research Rome/.test(newest) && !after) {
+      const bg = (parsed.tools ?? []).find((t) => t.function?.name === 'subagent')?.function?.parameters?.properties?.run_in_background !== undefined;
+      return tool('subagent', { description: 'Rome flights', prompt: 'CHILD: find flights to Rome', ...(bg ? { run_in_background: true } : {}) });
+    }
+    if (/^CHILD: find flights/.test(newest.trim())) { const wait = () => (gate.open ? say('Flights found: 3 options\nDetails follow') : setTimeout(wait, 200)); return wait(); }
     if (after) return say(`Tool said: ${result.slice(0, 80)}`);
     return say('ok');
   });
@@ -102,6 +112,9 @@ try {
   config: { provider: demo, model: demo }
 `);
     const dir = join(home, 'projects', 'acme-web'); await mkdir(dir, { recursive: true }); await writeFile(join(dir, 'README.md'), '# acme-web\n');
+    const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'demo', GIT_AUTHOR_EMAIL: 'demo@example.com', GIT_COMMITTER_NAME: 'demo', GIT_COMMITTER_EMAIL: 'demo@example.com' };
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: dir, env: gitEnv }); execFileSync('git', ['add', '.'], { cwd: dir, env: gitEnv });
+    execFileSync('git', ['commit', '-q', '-m', 'Add the login page'], { cwd: dir, env: gitEnv }); execFileSync('git', ['switch', '-q', '-c', 'feature/login'], { cwd: dir, env: gitEnv });
     const wid = randomUUID(); const now = new Date().toISOString();
     await mkdir(join(dshHome, 'storages'), { recursive: true });
     await writeFile(join(dshHome, 'storages/workspace.json'), JSON.stringify({ unit: { name: 'workspace', version: 2 },
@@ -148,7 +161,7 @@ try {
       await settings();
       const predict = page.getByRole('switch', { name: 'Next message prediction' });
       if (await predict.getAttribute('aria-checked') === 'true') await predict.click();
-      const sw = page.getByRole('switch', { name: 'Assistant to-do list', exact: true });
+      const sw = page.getByRole('switch', { name: 'Assistant status panel', exact: true });
       await sw.waitFor({ timeout: 10000 });
       assert.equal(await sw.getAttribute('aria-checked'), 'true', 'on by default');
       assert.equal(await sw.locator('xpath=..').locator('[data-composer-plus-shot="assistantTodos"]').count(), 1, 'the row has its screenshot');
@@ -190,13 +203,6 @@ try {
       await page.getByText('Do this for me: Call the bank').first().waitFor({ timeout: 10000 });
       assert.equal(await page.getByRole('button', { name: 'Give to the assistant: Call the bank' }).count(), 0, 'no hand over for an item of the assistant');
       note('2: → sends "Do this for me: …" as a user message and the owner becomes the assistant');
-
-      if (process.env.SHOT && !shotDone) {
-        const png = join(home, 'todos.png');
-        await page.screenshot({ path: png });
-        execFileSync('cwebp', ['-quiet', '-q', '72', '-resize', '960', '0', png, '-o', join(repo, 'assets/features/assistantTodos.webp')]);
-        shotDone = true; note('SHOT: assets/features/assistantTodos.webp');
-      }
 
       // 3. The agent removes a done item.
       await send('Is the milk done?');
@@ -242,6 +248,48 @@ try {
       await assistantRow().click();
       await item('Call the bank').waitFor({ timeout: 20000 });
       note('6: off removes the panel, the tools, the section and the context; on brings the list back');
+
+      // 7. Status.
+      gate.open = false;
+      await send('Morning summary please');
+      const card = panel.locator('.cp-st-summary');
+      await card.waitFor({ timeout: 30000 });
+      assert.match(await card.innerText(), /Login page is done; tests pass\./);
+      assert.match((await until(() => calls.find((c) => /Morning summary please/.test(c.newest) && c.after), 'summary result')).result, /summary of 1 projects/);
+      // The other chat of acme-web (step 5) changed today: its project row; the summary's link opens it.
+      await card.getByRole('button', { name: 'acme-web', exact: true }).click();
+      const row = panel.getByRole('button', { name: /acme-web/ }).and(panel.locator('[aria-expanded]'));
+      await until(async () => (await row.getAttribute('aria-expanded')) === 'true', 'the project row opens');
+      const detail = panel.locator('.cp-st-detail');
+      await detail.getByText('feature/login').first().waitFor({ timeout: 15000 });
+      assert.match(await detail.innerText(), /Add the login page/);
+      assert.ok(await detail.getByRole('button').count() >= 1, 'its chats are buttons');
+      // A background subagent task: working, then done with its result (no Refresh).
+      await send('Research Rome');
+      const task = panel.locator('li').filter({ hasText: 'Rome flights' });
+      await task.waitFor({ timeout: 30000 });
+      await until(async () => /Working/.test(await task.innerText()), 'the task shows as working', 20000);
+      gate.open = true;
+      await until(async () => /Done/.test(await task.innerText()) && /Flights found: 3 options/.test(await task.innerText()), 'the task shows done with its result', 30000);
+      // Refresh updates the time; the button has its name.
+      await panel.getByRole('button', { name: 'Refresh', exact: true }).click();
+      assert.match(await panel.locator('h2').innerText(), /Updated/);
+      // Refresh reads the open project's git details again: wait until they are back before the typing check.
+      await detail.getByText('feature/login').first().waitFor({ timeout: 15000 }); await pause(1500);
+      // Typing does not draw the panel: count DOM changes in the panel while 30 keys go into the composer.
+      await page.evaluate(() => { window.__cpMut = 0; const el = document.querySelector('[data-composer-plus-todos]'); window.__cpObs = new MutationObserver((m) => { window.__cpMut += m.length; }); window.__cpObs.observe(el, { subtree: true, childList: true, characterData: true, attributes: true }); });
+      await clear(); await page.keyboard.type('typing does not draw the panel', { delay: 10 });
+      const mutations = await page.evaluate(() => { window.__cpObs.disconnect(); return window.__cpMut; });
+      assert.equal(mutations, 0, `the panel changed ${mutations} times while typing`);
+      await clear();
+      note('7: summary card and project link (chats, git), a subagent task working then done, Refresh, no panel change while typing');
+
+      if (process.env.SHOT && !shotDone) {
+        const png = join(home, 'todos.png');
+        await page.screenshot({ path: png });
+        execFileSync('cwebp', ['-quiet', '-q', '72', '-resize', '960', '0', png, '-o', join(repo, 'assets/features/assistantTodos.webp')]);
+        shotDone = true; note('SHOT: assets/features/assistantTodos.webp');
+      }
       assert.deepEqual(errors, [], 'no page errors');
       passed = true;
       console.log(`PASS dsh ${version}`);

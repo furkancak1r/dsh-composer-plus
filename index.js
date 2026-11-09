@@ -8795,7 +8795,7 @@ export const ASSISTANT_FREE_PATH = '/api/composer-plus.assistant-free';
 export const ASSISTANT_NOTIFY_PATH = '/api/composer-plus.assistant-notify';
 export const ASSISTANT_TOOLS = ['chats_list', 'chat_read', 'chat_send', 'chat_new', 'chat_stop', 'chat_archive'];
 /** The tools of Assistant to-do list (installAssistantTodos): also only in the assistant chat. */
-export const TODO_TOOLS = ['todo_list_add', 'todo_list_remove'];
+export const TODO_TOOLS = ['todo_list_add', 'todo_list_remove', 'status_summary_set'];
 /** The tools that change a chat: each call asks the user first. */
 export const ASSISTANT_ASK = ['chat_send', 'chat_new', 'chat_stop', 'chat_archive'];
 /** The narrowest permission preset that does the work: files only inside ~/Assistant, approval asks. */
@@ -9143,7 +9143,7 @@ export const ASSISTANT_FREE_TOOLS = [...ASSISTANT_TOOLS, ...TODO_TOOLS, 'subagen
  * by its own name. */
 export const assistantFreeTool = (name) => ASSISTANT_FREE_TOOLS.includes(name) || /^(schedule|job|memory)_/.test(String(name));
 export const ASSISTANT_FREE_SECTION = `# Assistant always free (Composer Plus)
-In this chat you call only these tools yourself: chats_list, chat_read, chat_send, chat_new, chat_stop, chat_archive, todo_list_add, todo_list_remove, the schedule_*, job_* and memory_* tools, subagent, subagent_fork, send_message, list_agents, interrupt_agent, list_subagent_models and ask_user_question. Any other call is refused. This rule comes before the lines above: for every other step (a web search, a web page, a file, a command), start a subagent in the background, say in one line what you started and end your turn.`;
+In this chat you call only these tools yourself: chats_list, chat_read, chat_send, chat_new, chat_stop, chat_archive, todo_list_add, todo_list_remove, status_summary_set, the schedule_*, job_* and memory_* tools, subagent, subagent_fork, send_message, list_agents, interrupt_agent, list_subagent_models and ask_user_question. Any other call is refused. This rule comes before the lines above: for every other step (a web search, a web page, a file, a command), start a subagent in the background, say in one line what you started and end your turn.`;
 const FREE_REASON = (name) => `Composer Plus → Assistant always free: this chat stays free for the user's next message, so it does not run ${name} itself. Start this work with the subagent tool in the background, say in one line what you started, and end your turn.`;
 /** Assistant news: a finished turn counts when it ran this long; a wait counts when it lasts this long; news is collected
  * this long before it goes; two news turns are at least `gap` apart; one note names at most `max` chats. */
@@ -9427,9 +9427,11 @@ export function todoStore(file) {
 }
 
 /** Assistant to-do list (Host half). `assistant` is the handle of installAssistant. */
-export function installAssistantTodos(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus') } = {}) {
+export function installAssistantTodos(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), now = Date.now } = {}) {
   const sw = mobileSwitch(join(dir, 'assistant-todos-switch.json'), true);
   const store = todoStore(join(dir, 'assistant-todos.json'));
+  const summaries = summaryStore(join(dir, 'assistant-summary.json'));
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   let on = false; let fiber;
   const mine = (exec) => (assistant.isAssistant(exec?.agent) ? exec.agent.id : undefined);
   const tools = [
@@ -9466,6 +9468,28 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         return `Removed ${item.id} (${reason}): ${JSON.stringify(item.text)}`;
       },
     },
+    {
+      name: 'status_summary_set',
+      description: `Show a short summary per project at the top of the status panel in this chat (for example the morning summary). It replaces the previous summary. 1 to ${STATUS_LIMITS.projects} projects, each text 1 or 2 sentences.`,
+      parameters: { type: 'object', properties: {
+        projects: { type: 'array', description: `1 to ${STATUS_LIMITS.projects} items`, items: { type: 'object', properties: {
+          project: { type: 'string', description: `The project name, as chats_list shows it (at most ${STATUS_LIMITS.project} characters)` },
+          text: { type: 'string', description: `What changed and what is next, 1 or 2 sentences (at most ${STATUS_LIMITS.text} characters)` },
+        }, required: ['project', 'text'] } },
+      }, required: ['projects'] },
+      output: textOutput,
+      async execute(args, exec) {
+        const id = mine(exec);
+        if (id === undefined) throw refused('This tool works only in the Composer Plus assistant chat.', 403);
+        const raw = Array.isArray(args?.projects) ? args.projects : [];
+        const projects = raw.map((p) => ({ project: todoText(p?.project), text: todoText(p?.text) }));
+        if (projects.length === 0 || projects.length > STATUS_LIMITS.projects || !projects.every((p) => isText(p.project, STATUS_LIMITS.project) && isText(p.text, STATUS_LIMITS.text))) {
+          throw refused(`projects is 1 to ${STATUS_LIMITS.projects} items, each with project (1 to ${STATUS_LIMITS.project} characters) and text (1 to ${STATUS_LIMITS.text} characters).`, 400);
+        }
+        await summaries.set(id, { at: now(), projects });
+        return `The status panel shows the summary of ${projects.length} projects. Write one sentence in the chat.`;
+      },
+    },
   ];
   const mount = assistant.addTools(() => (on ? tools : []));
   const apply = (next) => {
@@ -9473,25 +9497,52 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     if (on && fiber === undefined && typeof ctx.inject === 'function') {
       fiber = ctx.inject(['systemPrompt'], (sub) => {
         sub.systemPrompt.section({ name: 'composer-plus:assistant-todos', order: 672, interpolate: false,
-          text: (context) => (on && assistant.isAssistant(context?.agent) ? TODO_SECTION : '') });
+          text: (context) => (on && assistant.isAssistant(context?.agent) ? `${TODO_SECTION}\n\n${STATUS_SECTION}` : '') });
         sub.systemPrompt.context?.({ name: 'composer-plus:assistant-todos', order: 650, interpolate: false,
           text: (context) => (on && assistant.isAssistant(context?.agent) ? todoContext(store.of(context.agent.id)) : '') });
       });
     } else if (!on) { fiber?.dispose?.(); fiber = undefined; }
     mount.remount();
   };
-  const ready = Promise.all([store.ready, sw.read()]).then(([, value]) => apply(value), () => apply(true));
+  const ready = Promise.all([store.ready, summaries.ready, sw.read()]).then(([, , value]) => apply(value), () => apply(true));
   ctx.effect?.(() => () => { on = false; fiber?.dispose?.(); fiber = undefined; mount.off(); }, 'dsh-composer-plus: assistant to-do list');
   let switching = ready;
   const view = (sessionId) => ({ on, ...(sessionId === undefined ? {} : { items: on ? store.of(sessionId) : [] }) });
+  const workspaces = () => { try { return get('workspaceRegistry')?.list?.() ?? []; } catch { return []; } };
+  /** The status of the assistant chat `sessionId` (only it: another chat gets no tasks or projects). */
+  const status = async (sessionId, signal) => {
+    if (!on || !assistant.isAssistant(get('agents')?.get?.(sessionId))) return {};
+    const agent = get('agents').get(sessionId);
+    const today = new Date(now()); today.setHours(0, 0, 0, 0);
+    let events = []; try { events = agent.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
+    const tasks = await statusTasks(events, agent.session?.inheritedEventCount, (id) => get('agents')?.get?.(id),
+      { logOf: (id) => savedEvents(ctx.sessionQuery, id, signal).catch(() => []), since: today.getTime(), now: now() });
+    let items = []; try { items = (await ctx.sessionController.list({}, signal)).items ?? []; } catch { /* no list */ }
+    let archived = new Set(); try { archived = new Set(get('workspaceRegistry')?.archivedSessionIds ?? []); } catch { /* none */ }
+    const projects = statusProjects(items, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived });
+    const summary = summaries.of(sessionId);
+    return { tasks, projects, ...(summary === undefined ? {} : { summary }), at: now() };
+  };
   ctx.connection.fetch.register({
     path: ASSISTANT_TODOS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     /** GET: `{on}`, with `?sessionId=` also `{items}`. POST `{on}`: the switch. POST `{sessionId, id, action}`: `remove`, or
      * `handover` with `prefix` (the message is `<prefix> <item text>`, sent as the user's message). */
     fetch: async (request) => {
       await ready;
-      const asked = new URL(request.url).searchParams.get('sessionId');
-      if (request.method === 'GET') return json(view(asked === null ? undefined : isText(asked, 128) ? asked : ''));
+      const query = new URL(request.url).searchParams;
+      const asked = query.get('sessionId');
+      if (request.method === 'GET') {
+        if (asked === null) return json(view());
+        if (!isText(asked, 128)) return json({ error: 'bad request' }, 400);
+        const project = query.get('project');
+        if (project !== null) {
+          // One project's git details: only a registered project, only for the assistant chat, read-only git.
+          const w = workspaces().find((x) => x.id === project);
+          if (!on || w === undefined || !assistant.isAssistant(get('agents')?.get?.(asked))) return json({ error: 'not found' }, 404);
+          return json({ project: w.id, ...(await statusGit(ctx.subprocess, w.path, request.signal)) });
+        }
+        return json({ ...view(asked), ...(await status(asked, request.signal)) });
+      }
       let body;
       try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
       if (plainObject(body) && Object.keys(body).join() === 'on' && typeof body.on === 'boolean') {
@@ -9524,4 +9575,112 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     },
   });
   return { ready, store, tools, isOn: () => on };
+}
+
+/* Assistant status panel (part of Assistant to-do list): next to the to-do list, the panel shows the morning summary
+ * that the assistant wrote (status_summary_set), the tasks that it gave to subagents and the projects that changed in
+ * the last 24 hours. The Host answers them with the list (GET ?sessionId=…) and the git details of one project on a
+ * click (GET ?sessionId=…&project=<workspace id>: read-only git, only in a registered project folder). */
+export const STATUS_LIMITS = { projects: 8, text: 600, project: 120, tasks: 20, result: 160, chats: 5, commits: 5, recentMs: 24 * 3600 * 1000, shown: 5 };
+export const STATUS_SECTION = `# Assistant status panel (Composer Plus)
+The status panel at the right side of this chat shows the user's to-do list, the tasks that you gave to subagents and the projects that changed today. When you write a summary of the projects (for example the morning summary), call status_summary_set with one short text per project (1 or 2 sentences each, at most ${STATUS_LIMITS.projects} projects): the panel shows it at the top. Then write only one sentence in the chat.`;
+const headLine = (text, max) => cutEnd(String(text ?? '').trim().split('\n').find((l) => l.trim() !== '')?.trim() ?? '', max);
+
+/** The tasks of the assistant chat: its direct subagents from the `subagent/catalog` events of its own log, newest first.
+ * `state`: running, waiting (an open approval, question or plan review), failed, done (also max-tokens) or stopped. A task
+ * that ended before `since` is left out. `result` is the first line of its last reply (or of its error). `agentOf(id)`
+ * gives a live child agent; `logOf(id)` reads the saved log of a child without one (dsh disposes a one-shot child when
+ * it ends). Only the newest `max` children are read. */
+export async function statusTasks(events, inherited, agentOf, { logOf = async () => [], since = 0, now = Date.now(), max = STATUS_LIMITS.tasks } = {}) {
+  const from = Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0;
+  const seen = new Set(); const found = [];
+  for (const e of events.slice(from)) {
+    const d = e?.type === 'subagent/catalog' ? e.data : undefined;
+    if (!isText(d?.childId, 128) || seen.has(d.childId) || d.mode === 'external') continue;
+    seen.add(d.childId); found.push(e);
+  }
+  const tasks = [];
+  for (const e of found.slice(-max * 2)) {
+    const d = e.data;
+    const child = agentOf(d.childId);
+    let log = [];
+    try { log = child === undefined ? await logOf(d.childId) : child.session?.snapshotEvents?.() ?? []; } catch { log = []; }
+    const end = log.findLast((x) => x.type === 'turn/end');
+    const start = log.findLast((x) => x.type === 'turn/start');
+    const open = start !== undefined && (end === undefined || end.seq < start.seq);
+    const running = child?.status === 'running' || open;
+    const reason = end?.data?.reason?.kind;
+    // No live agent and no saved end: the child is gone (its log could not be read); it does not run.
+    const state = running ? (waitingOf(log) ? 'waiting' : 'running') : reason === 'error' ? 'failed' : reason === 'aborted' ? 'stopped'
+      : end === undefined ? (child === undefined ? 'stopped' : 'running') : 'done';
+    const started = Number.isFinite(d.childCreatedAt) ? d.childCreatedAt : Number.isFinite(e.time) ? e.time : now;
+    const ended = state === 'running' || state === 'waiting' ? undefined : Number.isFinite(end?.time) ? end.time : undefined;
+    if ((ended ?? (state === 'running' || state === 'waiting' ? now : started)) < since) continue;
+    const result = state === 'failed' ? headLine(end?.data?.reason?.error?.message, STATUS_LIMITS.result) : headLine(lastReply(log), STATUS_LIMITS.result);
+    tasks.push({ id: d.childId, title: cutEnd(String(d.label ?? '').trim() || d.childId, 120), state, started, ...(ended === undefined ? {} : { ended }), ...(result === '' ? {} : { result }) });
+  }
+  // Open tasks first (newest first), then the ended ones (newest end first; a gone task without an end time: its start).
+  const open = (t) => t.state === 'running' || t.state === 'waiting';
+  return tasks.sort((a, b) => Number(open(b)) - Number(open(a)) || (b.ended ?? b.started) - (a.ended ?? a.started)).slice(0, max);
+}
+/** The saved events of a chat (a fork's copy of its parent left out), or [] when dsh does not have it. */
+async function savedEvents(sessionQuery, id, signal) {
+  const observation = await sessionQuery.observeSession(id, { signal, projectionMode: 'none' });
+  try { const from = Number.isSafeInteger(observation.inheritedEventCount) ? observation.inheritedEventCount : 0; return (observation.events ?? []).slice(from); } finally { observation[Symbol.dispose]?.(); }
+}
+
+/** The projects with root chats that changed since `since`: `[{id, title, chats: [{id, title, updated, running}], updated}]`,
+ * newest first. The assistant chat itself, archived, blank and subagent chats are left out. */
+export function statusProjects(items, workspaces, { since, skip = new Set(), archived = new Set(), max = STATUS_LIMITS.shown } = {}) {
+  const byProject = new Map();
+  for (const s of items) {
+    if (s.origin === 'subagent' || s.blank === true || skip.has(s.sessionId) || archived.has(s.sessionId) || !(s.updatedAt >= since)) continue;
+    const w = workspaces.find((x) => Array.isArray(x.sessionIds) && x.sessionIds.includes(s.sessionId)) ?? workspaces.find((x) => x.path === s.cwd);
+    if (w === undefined) continue;
+    const p = byProject.get(w.id) ?? { id: w.id, title: String(w.title ?? basename(w.path ?? '')), chats: [], updated: 0 };
+    p.chats.push({ id: s.sessionId, title: cutEnd(String(s.projections?.values?.title ?? '').trim() || '(untitled)', 120), updated: s.updatedAt, running: s.running === true });
+    p.updated = Math.max(p.updated, s.updatedAt);
+    byProject.set(w.id, p);
+  }
+  return [...byProject.values()].sort((a, b) => b.updated - a.updated).slice(0, max)
+    .map((p) => ({ ...p, count: p.chats.length, chats: p.chats.sort((a, b) => b.updated - a.updated).slice(0, STATUS_LIMITS.chats) }));
+}
+
+/** One project's git details for the panel: the current branch and its newest commits (read-only git). `{}` outside a git
+ * repository or when git is missing. */
+export async function statusGit(subprocess, cwd, signal) {
+  // A project folder that is gone (moved or deleted): no git call.
+  if (!(await stat(cwd).then((st) => st.isDirectory(), () => false))) return {};
+  const run = async (args) => { try { const r = await runGit(subprocess, cwd, args, signal); return r.code === 0 ? r.stdout : undefined; } catch { return undefined; } };
+  const branch = (await run(['branch', '--show-current']))?.trim();
+  if (branch === undefined) return {};
+  const log = await run(['log', `-${STATUS_LIMITS.commits}`, '--no-show-signature', '--format=%h%x09%ct%x09%s']);
+  const commits = (log ?? '').split('\n').filter(Boolean).map((line) => { const [hash, at, ...rest] = line.split('\t'); return { hash, at: Number(at) * 1000, subject: cutEnd(rest.join('\t'), 160) }; });
+  return { branch: branch || '(detached)', commits };
+}
+
+/** Summary store: one summary per chat in `assistant-summary.json` (`{chats: {<id>: {at, projects: [{project, text}]}}}`),
+ * owner-only, written atomically, one change at a time. */
+function summaryStore(file) {
+  let chats = new Map();
+  const ok = (v) => plainObject(v) && Number.isSafeInteger(v.at) && Array.isArray(v.projects) && v.projects.every((p) => isText(p?.project, STATUS_LIMITS.project) && isText(p?.text, STATUS_LIMITS.text));
+  const ready = readFile(file, 'utf8').then((text) => {
+    const saved = JSON.parse(text)?.chats;
+    if (plainObject(saved)) for (const [id, v] of Object.entries(saved)) if (isText(id, 128) && ok(v) && !chats.has(id)) chats.set(id, { at: v.at, projects: v.projects.slice(0, STATUS_LIMITS.projects) });
+  }).catch(() => {});
+  let queue = ready;
+  const set = (id, value) => {
+    const done = queue.then(async () => {
+      const next = new Map(chats);
+      if (value === undefined) next.delete(id); else next.set(id, value);
+      await mkdir(dirname(file), { recursive: true });
+      const tmp = `${file}.${process.pid}.tmp`;
+      await writeFile(tmp, JSON.stringify({ chats: Object.fromEntries(next) }), { mode: 0o600 });
+      await rename(tmp, file);
+      chats = next;
+    });
+    queue = done.catch(() => {});
+    return done;
+  };
+  return { ready, set, of: (id) => chats.get(id) };
 }

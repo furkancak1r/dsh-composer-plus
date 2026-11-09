@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_FREE_SECTION, ASSISTANT_TODOS_PATH, ASSISTANT_TOOLS, TODO_LIMITS, TODO_SECTION, TODO_TOOLS, assistantFreeTool, installAssistant, installAssistantTodos, todoContext, todoList, todoStore } from '../index.js';
+import { ASSISTANT_FREE_SECTION, ASSISTANT_TODOS_PATH, ASSISTANT_TOOLS, STATUS_SECTION, TODO_LIMITS, TODO_SECTION, TODO_TOOLS, assistantFreeTool, installAssistant, installAssistantTodos, todoContext, todoList, todoStore } from '../index.js';
 
 // The list logic.
 let r = todoList.add([], { text: '  Prosolocal\'i   internete açmak ' }, { id: 'aaaaaaaa', now: 5 });
@@ -124,7 +124,8 @@ for (const name of TODO_TOOLS) { assert.equal(assistantFreeTool(name), true, nam
 
 // The section and the context: only in the assistant chat; the context is the chat's own list.
 const section = sections.get('composer-plus:assistant-todos');
-assert.equal(section.text({ agent: assistantAgent }), TODO_SECTION); assert.equal(section.text({ agent: otherAgent }), '');
+assert.equal(section.text({ agent: assistantAgent }), `${TODO_SECTION}\n\n${STATUS_SECTION}`); assert.equal(section.text({ agent: otherAgent }), '');
+assert.match(STATUS_SECTION, /status_summary_set/);
 assert.match(TODO_SECTION, /evidence that an item is done, remove it with todo_list_remove/);
 assert.match(TODO_SECTION, /do not ask about it, unless the user mentions it/);
 const ctxEntry = contexts.get('composer-plus:assistant-todos');

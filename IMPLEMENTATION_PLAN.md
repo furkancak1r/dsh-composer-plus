@@ -2668,3 +2668,10 @@ Sağdaki liste "Durum" paneline döner (aynı anahtar `assistantTodos`, etiketi 
 1. Host: özet deposu + araç + GET'e `summary`, `tasks`, `projects`; `?project=` git bilgisi + birim testi.
 2. İstemci: Durum paneli, konum deposu, birleştirilmiş yenileme + birim testi.
 3. Metinler (13 dil), belgeler, gerçek dsh testi, görüntü, `npm test`, commit, öz denetim döngüsü.
+
+### 2. bölüm son kontrol noktası (2026-11-09 15:45)
+- Host: `status_summary_set` aracı (`TODO_TOOLS` ve Assistant always free izin listesinde), `assistant-summary.json`; GET `?sessionId=` asistan sohbeti için `{tasks, projects, summary, at}`; `&project=` salt okunur git (yalnız kayıtlı proje klasörü). Bulgu: dsh bir one-shot alt ajanı bitince bırakıyor (`agents.get` boş); bitmiş görevin günlüğü `sessionQuery.observeSession` ile okunuyor.
+- İstemci: dock girişi yalnız yer (sohbet gövdesini yayınlar), panel `shell.overlay` girişinde ve gövdeye portal. Gerçek dsh'de 30 tuş vuruşunda panelde 0 DOM değişikliği ölçüldü. Okumalar birleştirilir (en az 3 sn ara), görev değişince ve çalışırken 5 sn'de bir.
+- Testler: `assistant-status.test.mjs` (yeni), `assistant-todos-client.test.mjs` (yeniden yazıldı), mutasyonların hepsi kırmızı. Gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1: 7 adım PASS. `npm test` exit 0. Görüntü 21 kB.
+- Sabah özeti: sahibin var olan 08:00 görevi ("Sabah proje özeti", hafta içi) zaten "Durum paneli etkinse özeti oraya bırak" diyor; araç yeni sürüm canlıya kurulunca etkin olur. Görev değiştirilmedi.
+
