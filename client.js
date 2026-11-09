@@ -2679,11 +2679,11 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         detailsOf: (id, project) => details.get(`${id}|${project}`),
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
         /** Reads the chat's status; an answer older than a newer read or than an action is dropped. */
-        async load(id) {
+        async load(id, fresh = false) {
           clearTimeout(timers.get(id)); timers.delete(id); lastRead.set(id, Date.now());
           const mine = (seqs.get(id) ?? 0) + 1; seqs.set(id, mine);
           try {
-            const response = await fetch(`${TODOS_ROUTE}?sessionId=${encodeURIComponent(id)}`);
+            const response = await fetch(`${TODOS_ROUTE}?sessionId=${encodeURIComponent(id)}${fresh ? '&refresh=1' : ''}`);
             const data = await response.json().catch(() => ({}));
             if (seqs.get(id) !== mine) return;
             if (!response.ok) { patch(id, { error: data?.error ?? `HTTP ${response.status}` }); return; }
@@ -2699,7 +2699,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           timers.set(id, setTimeout(() => { timers.delete(id); store.load(id); }, wait));
         },
         /** Refresh: the status and the git details of the open projects again. */
-        refresh(id) { for (const key of [...details.keys()]) if (key.startsWith(`${id}|`)) details.delete(key); return store.load(id); },
+        refresh(id) { for (const key of [...details.keys()]) if (key.startsWith(`${id}|`)) details.delete(key); return store.load(id, true); },
         /** One project's git details (on its first open). */
         async loadProject(id, project) {
           const key = `${id}|${project}`;
@@ -2850,7 +2850,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
             const line = lineOf(p) ?? t('status.projectChats', { count: p.count });
             return React.createElement('li', { key: p.id, style: { display: 'block' } },
               React.createElement('button', { id: rowId(p), type: 'button', className: 'cp-st-row', 'aria-expanded': isOpen, onClick: () => toggle(p.id) },
-                React.createElement('span', { className: 'cp-st-name' }, `${isOpen ? '▾' : '▸'} ${p.title}`),
+                React.createElement('span', { 'aria-hidden': true }, isOpen ? '▾ ' : '▸ '), React.createElement('span', { className: 'cp-st-name' }, p.title),
                 React.createElement('span', { className: 'cp-st-sub' }, line)),
               isOpen ? React.createElement(ProjectDetail, { sessionId, project: p, store, todos: list.filter((i) => foldText(i.text).includes(foldText(p.title))), openSession, lang, t }) : null);
           }))),

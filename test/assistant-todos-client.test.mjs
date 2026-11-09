@@ -136,6 +136,9 @@ taskRows[0].p.onClick(); assert.deepEqual(opened, ['c-run'], 'a click opens the 
 let rows = find(root, (n) => n.t === 'button' && n.p.className === 'cp-st-row' && n.p['aria-expanded'] !== undefined);
 assert.deepEqual(rows.map((r) => r.p['aria-expanded']), [false, false], 'closed by default');
 assert.match(text(rows[0]), /Login page done\./); assert.match(text(rows[1]), /status\.projectChats:\{"count":1\}/);
+const nameOf = (b) => text(find(b, (n) => n.p?.className === 'cp-st-name')[0]);
+assert.doesNotMatch(nameOf(rows[0]).replace(/\s/g, ''), /[▸▾]/, 'F-10: the arrow is not in the name text');
+assert.ok(find(rows[0], (n) => n.p?.['aria-hidden'] === true && /[▸▾]/.test(text(n))).length === 1, 'F-10: the arrow is aria-hidden');
 const before = gets.length;
 rows[0].p.onClick(); tree = panel();
 rows = find(tree, (n) => n.t === 'button' && n.p.className === 'cp-st-row' && n.p['aria-expanded'] !== undefined);
@@ -202,6 +205,7 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
 // Refresh reads the status and the git details again.
 const r0 = gets.length; tree = panel(); find(tree, (n) => n.t === 'button' && n.p['aria-label'] === 'status.refresh')[0].p.onClick(); await tick();
 assert.equal(gets.length - r0, 1); assert.equal(store.detailsOf('s-assistant', 'w-web'), undefined, 'git details are read again on the next open');
+assert.match(gets.at(-1), /refresh=1/, 'F-08: Refresh asks the Host to read again');
 // Collapse: the chat gives its room back.
 tree = panel(); find(tree, (n) => n.t === 'button' && n.p['aria-expanded'] === true && n.p.className === 'cp-td-head')[0].p.onClick();
 tree = panel(); assert.equal(attrs.get('data-composer-plus-status-seat'), 'closed'); assert.equal(find(tree, (n) => n.p?.className === 'cp-st-body').length, 0);

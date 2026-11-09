@@ -9510,16 +9510,21 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   const view = (sessionId) => ({ on, ...(sessionId === undefined ? {} : { items: on ? store.of(sessionId) : [] }) });
   const workspaces = () => { try { return get('workspaceRegistry')?.list?.() ?? []; } catch { return []; } };
   /** The status of the assistant chat `sessionId` (only it: another chat gets no tasks or projects). */
-  const status = async (sessionId, signal) => {
+  const ended = new Map(); // child id → its ended task (ponytail: grows with the assistant's tasks of this dsh run)
+  let projectsCache; // { at, value }: the chat list is read at most every STATUS_LIMITS.cacheMs, Refresh reads it now
+  const status = async (sessionId, signal, fresh) => {
     if (!on || !assistant.isAssistant(get('agents')?.get?.(sessionId))) return {};
     const agent = get('agents').get(sessionId);
     const today = new Date(now()); today.setHours(0, 0, 0, 0);
     let events = []; try { events = agent.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
     const tasks = await statusTasks(events, agent.session?.inheritedEventCount, (id) => get('agents')?.get?.(id),
-      { logOf: (id) => savedEvents(ctx.sessionQuery, id, signal).catch(() => []), since: today.getTime(), now: now() });
-    let items = []; try { items = (await ctx.sessionController.list({}, signal)).items ?? []; } catch { /* no list */ }
-    let archived = new Set(); try { archived = new Set(get('workspaceRegistry')?.archivedSessionIds ?? []); } catch { /* none */ }
-    const projects = statusProjects(items, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived });
+      { logOf: (id) => savedEvents(ctx.sessionQuery, id, signal).catch(() => []), since: today.getTime(), now: now(), ended });
+    if (fresh || projectsCache === undefined || now() - projectsCache.at >= STATUS_LIMITS.cacheMs || projectsCache.sessionId !== sessionId) {
+      let items = []; try { items = (await ctx.sessionController.list({}, signal)).items ?? []; } catch { /* no list */ }
+      let archived = new Set(); try { archived = new Set(get('workspaceRegistry')?.archivedSessionIds ?? []); } catch { /* none */ }
+      projectsCache = { at: now(), sessionId, value: statusProjects(items, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived }) };
+    }
+    const projects = projectsCache.value;
     const summary = summaries.of(sessionId);
     return { tasks, projects, ...(summary === undefined ? {} : { summary }), at: now() };
   };
@@ -9541,7 +9546,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
           if (!on || w === undefined || !assistant.isAssistant(get('agents')?.get?.(asked))) return json({ error: 'not found' }, 404);
           return json({ project: w.id, ...(await statusGit(ctx.subprocess, w.path, request.signal)) });
         }
-        return json({ ...view(asked), ...(await status(asked, request.signal)) });
+        return json({ ...view(asked), ...(await status(asked, request.signal, query.get('refresh') === '1')) });
       }
       let body;
       try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
@@ -9581,7 +9586,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
  * that the assistant wrote (status_summary_set), the tasks that it gave to subagents and the projects that changed in
  * the last 24 hours. The Host answers them with the list (GET ?sessionId=…) and the git details of one project on a
  * click (GET ?sessionId=…&project=<workspace id>: read-only git, only in a registered project folder). */
-export const STATUS_LIMITS = { projects: 8, text: 600, project: 120, tasks: 20, result: 160, chats: 5, commits: 5, recentMs: 24 * 3600 * 1000, shown: 5 };
+export const STATUS_LIMITS = { projects: 8, text: 600, project: 120, tasks: 20, result: 160, chats: 5, commits: 5, recentMs: 24 * 3600 * 1000, shown: 5, cacheMs: 30000 };
 export const STATUS_SECTION = `# Assistant status panel (Composer Plus)
 The status panel at the right side of this chat shows the user's to-do list, the tasks that you gave to subagents and the projects that changed today. When you write a summary of the projects (for example the morning summary), call status_summary_set with one short text per project (1 or 2 sentences each, at most ${STATUS_LIMITS.projects} projects): the panel shows it at the top. Then write only one sentence in the chat.`;
 const headLine = (text, max) => cutEnd(String(text ?? '').trim().split('\n').find((l) => l.trim() !== '')?.trim() ?? '', max);
@@ -9591,7 +9596,7 @@ const headLine = (text, max) => cutEnd(String(text ?? '').trim().split('\n').fin
  * that ended before `since` is left out. `result` is the first line of its last reply (or of its error). `agentOf(id)`
  * gives a live child agent; `logOf(id)` reads the saved log of a child without one (dsh disposes a one-shot child when
  * it ends). Only the newest `max` children are read. */
-export async function statusTasks(events, inherited, agentOf, { logOf = async () => [], since = 0, now = Date.now(), max = STATUS_LIMITS.tasks } = {}) {
+export async function statusTasks(events, inherited, agentOf, { logOf = async () => [], since = 0, now = Date.now(), max = STATUS_LIMITS.tasks, ended: done = new Map() } = {}) {
   const from = Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0;
   const seen = new Set(); const found = [];
   for (const e of events.slice(from)) {
@@ -9602,6 +9607,8 @@ export async function statusTasks(events, inherited, agentOf, { logOf = async ()
   const tasks = [];
   for (const e of found.slice(-max * 2)) {
     const d = e.data;
+    // An ended task does not change: `done` (child id → task) keeps it, so its log is read once.
+    if (done.has(d.childId)) { const kept = done.get(d.childId); if ((kept.ended ?? kept.started) >= since) tasks.push(kept); continue; }
     const child = agentOf(d.childId);
     let log = [];
     try { log = child === undefined ? await logOf(d.childId) : child.session?.snapshotEvents?.() ?? []; } catch { log = []; }
@@ -9617,7 +9624,9 @@ export async function statusTasks(events, inherited, agentOf, { logOf = async ()
     const ended = state === 'running' || state === 'waiting' ? undefined : Number.isFinite(end?.time) ? end.time : undefined;
     if ((ended ?? (state === 'running' || state === 'waiting' ? now : started)) < since) continue;
     const result = state === 'failed' ? headLine(end?.data?.reason?.error?.message, STATUS_LIMITS.result) : headLine(lastReply(log), STATUS_LIMITS.result);
-    tasks.push({ id: d.childId, title: cutEnd(String(d.label ?? '').trim() || d.childId, 120), state, started, ...(ended === undefined ? {} : { ended }), ...(result === '' ? {} : { result }) });
+    const task = { id: d.childId, title: cutEnd(String(d.label ?? '').trim() || d.childId, 120), state, started, ...(ended === undefined ? {} : { ended }), ...(result === '' ? {} : { result }) };
+    if (child === undefined && state !== 'running' && state !== 'waiting' && log.length > 0) done.set(d.childId, task);
+    tasks.push(task);
   }
   // Open tasks first (newest first), then the ended ones (newest end first; a gone task without an end time: its start).
   const open = (t) => t.state === 'running' || t.state === 'waiting';
@@ -9635,7 +9644,9 @@ export function statusProjects(items, workspaces, { since, skip = new Set(), arc
   const byProject = new Map();
   for (const s of items) {
     if (s.origin === 'subagent' || s.blank === true || skip.has(s.sessionId) || archived.has(s.sessionId) || !(s.updatedAt >= since)) continue;
-    const w = workspaces.find((x) => Array.isArray(x.sessionIds) && x.sessionIds.includes(s.sessionId)) ?? workspaces.find((x) => x.path === s.cwd);
+    // A chat in a branch folder (`<project>/.worktrees/<name>`) or another folder below a project counts for it.
+    const w = workspaces.find((x) => Array.isArray(x.sessionIds) && x.sessionIds.includes(s.sessionId))
+      ?? workspaces.filter((x) => isText(x.path, 4096) && (s.cwd === x.path || String(s.cwd ?? '').startsWith(`${x.path}/`))).sort((a, b) => b.path.length - a.path.length)[0];
     if (w === undefined) continue;
     const p = byProject.get(w.id) ?? { id: w.id, title: String(w.title ?? basename(w.path ?? '')), chats: [], updated: 0 };
     p.chats.push({ id: s.sessionId, title: cutEnd(String(s.projections?.values?.title ?? '').trim() || '(untitled)', 120), updated: s.updatedAt, running: s.running === true });

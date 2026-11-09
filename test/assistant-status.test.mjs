@@ -60,11 +60,12 @@ const items = [
   { sessionId: 's-arch', updatedAt: NOW - 100, cwd: '/demo/weather-cli' },
   { sessionId: 's-sub', updatedAt: NOW - 100, cwd: '/demo/weather-cli', origin: 'subagent' },
   { sessionId: 's-blank', updatedAt: NOW - 100, cwd: '/demo/weather-cli', blank: true },
+  { sessionId: 's-branch', updatedAt: NOW - 1500, cwd: '/demo/acme-web/.worktrees/fix-login', projections: { values: { title: 'Fix login' } } },
 ];
 const projects = statusProjects(items, ws, { since: NOW - STATUS_LIMITS.recentMs, skip: new Set(['s-a']), archived: new Set(['s-arch']) });
 assert.deepEqual(projects.map((p) => p.title), ['acme-web', 'weather-cli'], 'newest first; the assistant\'s own project is left out');
-assert.deepEqual(projects[0].chats.map((c) => [c.title, c.running]), [['Login page', true], ['(untitled)', false]], 'no chat older than 24 hours');
-assert.equal(projects[0].count, 2); assert.deepEqual(projects[1].chats.map((c) => c.id), ['s-cli'], 'archived, subagent and blank chats are left out');
+assert.deepEqual(projects[0].chats.map((c) => [c.title, c.running]), [['Login page', true], ['Fix login', false], ['(untitled)', false]], 'no chat older than 24 hours; F-09: a branch folder chat counts for its project');
+assert.equal(projects[0].count, 3); assert.deepEqual(projects[1].chats.map((c) => c.id), ['s-cli'], 'archived, subagent and blank chats are left out');
 
 // Git details of one project (a real temporary repository; read-only commands).
 const subprocess = {
@@ -95,7 +96,7 @@ try {
   // The route with a fake dsh and the real installAssistant.
   const home = join(root, 'home'); const dir = join(home, 'storages', 'dsh-composer-plus');
   await mkdir(dir, { recursive: true }); await writeFile(join(dir, 'assistant.json'), JSON.stringify({ sessionId: 's-a' }));
-  const agents = new Map(); const routes = new Map(); const sections = new Map();
+  const agents = new Map(); const routes = new Map(); const sections = new Map(); let observed = 0; let listed = 0;
   const newAgent = (id, header = { cwd: home }, log = []) => {
     const registered = new Map();
     const agent = { id, status: 'idle', session: { id, header, inheritedEventCount: 0, snapshotEvents: () => log },
@@ -112,8 +113,8 @@ try {
     on: () => {}, effect: () => {},
     inject: (deps, setup) => { setup({ systemPrompt: { section: (x) => { sections.set(x.name, x); }, context: () => {} } }); return { dispose: () => {} }; },
     connection: { fetch: { register: (route) => { routes.set(route.path, route); return () => routes.delete(route.path); } } },
-    sessionQuery: { observeSession: async (id) => { if (children[id] === undefined || id === 'c-lost') throw new Error('unknown'); return { header: {}, events: children[id].log, inheritedEventCount: 0, [Symbol.dispose]() {} }; }, readTitle: async () => ({ title: 'x' }) },
-    sessionController: { list: async () => ({ items }), resolveAgent: async (id) => ({ agent: agents.get(id) }), prompt: async () => {} },
+    sessionQuery: { observeSession: async (id) => { if (id === 'c-done') observed += 1; if (children[id] === undefined || id === 'c-lost') throw new Error('unknown'); return { header: {}, events: children[id].log, inheritedEventCount: 0, [Symbol.dispose]() {} }; }, readTitle: async () => ({ title: 'x' }) },
+    sessionController: { list: async () => { listed += 1; return { items }; }, resolveAgent: async (id) => ({ agent: agents.get(id) }), prompt: async () => {} },
   };
   const assistant = installAssistant(ctx, home, { folder: join(home, 'Assistant'), zone: 'UTC' }); await assistant.ready;
   let clock = NOW;
@@ -126,6 +127,11 @@ try {
   assert.equal(r.status, 200); assert.deepEqual(r.body.items, []); assert.equal(r.body.at, NOW);
   assert.deepEqual(r.body.tasks.map((t) => t.id).sort(), ['c-done', 'c-fail', 'c-lost', 'c-run', 'c-stop', 'c-wait']);
   assert.equal(r.body.tasks.find((t) => t.id === 'c-done').result, 'Flights found: 3 options', 'a disposed child: its saved log');
+  // F-08: the next read does not read the ended child's log or all chats again; Refresh (`&refresh=1`) does.
+  const [o1, l1] = [observed, listed];
+  r = await call('?sessionId=s-a'); assert.equal(r.body.tasks.find((t) => t.id === 'c-done').result, 'Flights found: 3 options');
+  assert.equal(observed, o1, 'an ended task is not read again (a log that could not be read is tried again)'); assert.equal(listed, l1, 'the chat list is not read again within 30 s');
+  r = await call('?sessionId=s-a&refresh=1'); assert.equal(listed, l1 + 1, 'Refresh reads the chat list again');
   assert.deepEqual(r.body.projects.map((p) => p.id), ['w-web', 'w-cli']); assert.equal(r.body.summary, undefined);
   // Another chat: no status (its subagents are not the assistant's).
   r = await call('?sessionId=s-web'); assert.equal(r.body.tasks, undefined); assert.equal(r.body.projects, undefined);

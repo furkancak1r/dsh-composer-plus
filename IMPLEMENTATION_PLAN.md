@@ -2675,3 +2675,11 @@ Sağdaki liste "Durum" paneline döner (aynı anahtar `assistantTodos`, etiketi 
 - Testler: `assistant-status.test.mjs` (yeni), `assistant-todos-client.test.mjs` (yeniden yazıldı), mutasyonların hepsi kırmızı. Gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1: 7 adım PASS. `npm test` exit 0. Görüntü 21 kB.
 - Sabah özeti: sahibin var olan 08:00 görevi ("Sabah proje özeti", hafta içi) zaten "Durum paneli etkinse özeti oraya bırak" diyor; araç yeni sürüm canlıya kurulunca etkin olur. Görev değiştirilmedi.
 
+
+### Öz denetim 4. tur (kapsam `80f2c7e..9f0f941`)
+Doğrulandı 3, reddedildi 1.
+- F-08 (P2, performans): her durum okuması (görev çalışırken 5 sn'de bir, her pencerede) `sessionController.list` ile bütün sohbetleri (bu Mac'te 1330) ve bitmiş her alt ajanın kayıtlı günlüğünü (`observeSession`, en çok 40) yeniden okuyor. Uzun asistan sohbetinde Host'a gereksiz yük. Düzeltme: bitmiş görevin sonucu değişmez, Host önbelleğe alır (çocuk kimliğine göre); proje listesi 30 sn önbellekte, Yenile önbelleği atlar. Regresyon: Host testinde ikinci okuma `observeSession` ve `list` çağırmaz; `?refresh=1` çağırır.
+- F-09 (P3, doğruluk): `statusProjects` proje eşleşmesini `x.path === s.cwd` ile yapıyor; dal klasörü (`<repo>/.worktrees/<ad>`) sohbetleri projede sayılmaz. AGENTS.md'deki Task board kuralı dal klasörünü projesine sayar. Düzeltme: `cwd` proje yolunun altındaysa (`<path>/`) o projeye say, en uzun yol kazanır. Regresyon: `.worktrees` altındaki sohbet testi.
+- F-10 (P3, erişilebilirlik): proje satırı `▾/▸` karakterini düğme adına katıyor (ekran okuyucu "siyah sağı gösteren üçgen" der). Düzeltme: işaret `aria-hidden` span; durum zaten `aria-expanded` ile. Regresyon: istemci testi düğme metninde işaret olmadığını denetler.
+- Reddedildi: "panel 30 tuşta çizilmiyor ama `useSessionStatus` her durum değişikliğinde çizer" — bu istenen davranış (görev değişince güncelle), okumalar birleştirilir.
+- 4. tur sonucu: F-08, F-09, F-10 düzeltildi; regresyon testleri düzeltmesiz kırmızı, düzeltmeyle yeşil (5 mutasyon kırmızı). Gerçek dsh 0.2.2-rc.1 PASS, `npm test` exit 0.
