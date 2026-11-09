@@ -27,8 +27,10 @@ class El {
 }
 const body = new El();
 globalThis.document = { body, createElement: () => new El(), querySelector: (s) => body.querySelector(s), querySelectorAll: (s) => body.querySelectorAll(s) };
-let watcher = null;
-globalThis.MutationObserver = class { constructor(fn) { this.fn = fn; } observe() { watcher = this; } disconnect() { watcher = null; } };
+// Observers by target: the shared body watcher (body) and the chat column's own row watcher (the [data-chat-flow] element).
+const observers = new Map();
+globalThis.MutationObserver = class { constructor(fn) { this.fn = fn; } observe(target) { this.target = target; observers.set(target, this); } disconnect() { if (observers.get(this.target) === this) observers.delete(this.target); } };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
 eval(src.replace('    function AssistantPage({', '    globalThis.__cap = { AssistantChatView, ASSISTANT_TURNS };\n    function AssistantPage({'));
@@ -82,8 +84,15 @@ assert.match(css(), /\[data-chat-flow-kind="tool-call"\]/, 'the process rows sta
 const seat = flow.children[flow.children.indexOf(slot) - 1];
 assert.equal(seat.getAttribute('data-composer-plus-assistant-earlier'), '', 'a seat right before the rows');
 assert.equal(button().host, seat); assert.equal(button().c[0].c[0], 'assistantChatView.earlier:4');
-// A new turn comes (the shared body watcher sees the new row): still the newest 8.
-slot.append(...rowsOf([41])); watcher.fn([{ target: body }]); out = view.render();
+// A new turn comes inside the chat column (the shared body watcher skips changes there): the column's own watcher sees
+// the new row element and the cap moves after CHAT_ROWS_MS; a text-only change (a streamed reply) rescans nothing.
+assert.ok(observers.has(flow), 'the chat column has its own row watcher');
+observers.get(flow).fn([{ addedNodes: [{ nodeType: 3 }], removedNodes: [] }]); await sleep(300); out = view.render();
+assert.ok(!css().includes('[data-chat-turn="33"]'), 'text-only change: the cap stays');
+const added = rowsOf([41]); slot.append(...added); for (const r of added) r.nodeType = 1;
+observers.get(flow).fn([{ addedNodes: added, removedNodes: [] }]);
+out = view.render(); assert.ok(!css().includes('[data-chat-turn="33"]'), 'not at once: one rescan per CHAT_ROWS_MS');
+await sleep(300); out = view.render();
 assert.ok(css().includes('[data-chat-turn="33"]') && !css().includes('[data-chat-turn="34"]'), 'the cap moves with a new turn');
 // Show earlier: every drawn row shows, the seat goes, dsh's Load earlier is back.
 button().c[0].p.onClick(); out = view.render();
@@ -99,5 +108,5 @@ body.append(new El({ 'data-conversation-session': 's-short' }, [new El({ 'data-c
 out = view.render();
 assert.ok(!css().includes('data-chat-turn'), 'short chat: nothing hidden'); assert.equal(out.c[1], null);
 // Unmount: the watcher stops.
-view.unmount(); assert.equal(watcher, null, 'unmount stops watching');
+view.unmount(); assert.equal(observers.size, 0, 'unmount stops both watchers');
 console.log('assistant-cap: ok');

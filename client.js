@@ -2651,8 +2651,17 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           setTurns((prev) => (prev.length === drawn.length && prev.every((x, i) => x === drawn[i]) ? prev : drawn));
         };
         scan();
-        return watchBody(scan); // rows come and go as elements; the shared watcher skips text changes in the chat rows
+        return watchBody(scan); // a new or replaced chat column (the shared watcher skips the changes inside it)
       }, [id]);
+      // Rows inside the column: a new turn or older rows. Only element changes count (a streamed reply changes text).
+      React.useEffect(() => {
+        if (flow === null || typeof MutationObserver === 'undefined') return undefined;
+        let timer = 0;
+        const rescan = () => { timer = 0; const drawn = drawnTurns(flow); setTurns((prev) => (prev.length === drawn.length && prev.every((x, i) => x === drawn[i]) ? prev : drawn)); };
+        const observer = new MutationObserver((records) => { if (timer === 0 && records.some(changesElements)) timer = setTimeout(rescan, CHAT_ROWS_MS); });
+        observer.observe(flow, { childList: true, subtree: true });
+        return () => { observer.disconnect(); clearTimeout(timer); };
+      }, [flow]);
       const capped = all !== id && turns.length > ASSISTANT_TURNS;
       // The button's seat: in dsh's row column right before its rows, so it sits above the shown rows.
       const [seat, setSeat] = React.useState(null);
