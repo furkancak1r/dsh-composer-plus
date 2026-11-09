@@ -2691,3 +2691,6 @@ Assistant satırına tıklayınca asistan sohbeti normal bir sohbet kadar hızl�
 
 ### Son kontrol noktası
 - 2026-11-09 13:50: plan yazıldı, kod yok.
+- 2026-11-09 15:25: tüm aşamalar bitti, main 0dd0913 üstüne rebase edildi. `npm test` exit 0. Gerçek dsh (headless, sahte model) `test/browser-assistant.mjs` 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1 PASS; adım 13: tıklamadan sohbete 18-47 ms, son 8 tur görünür.
+  - İnceleme kapısı: 3 tur. Bulunan ve düzeltilen: sınır sohbet sütunu içindeki yeni turu görmüyordu; sohbet yeniden açılınca sınır geri gelmiyordu; düğme metni 1 tur için yanlış çoğuldu; StatusOrder'da yalnız test için kalan yedek. Son tur temiz.
+  - Canlı veri kopyası (/tmp/cp-asistan-bench) silindi. Canlı GUI ölçülmedi (Chrome oturumu 401).
