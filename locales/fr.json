@@ -2466,6 +2466,8 @@
     "todos.empty": "Aucun élément. Dites à l’assistant une tâche que vous avez en tête.",
     "todos.ownerUser": "Vous le faites",
     "todos.ownerAgent": "L’assistant le fait",
+    "todos.groupUser": "À faire par vous",
+    "todos.groupAgent": "À faire par {name}",
     "todos.handover": "Confier à l’assistant : {item}",
     "todos.handoverShort": "Confier à l’assistant",
     "todos.handoverMessage": "Fais-le toi :",

@@ -2466,6 +2466,8 @@
     "todos.empty": "Tidak ada item. Beri tahu asisten tugas yang ada di pikiran Anda.",
     "todos.ownerUser": "Anda yang mengerjakan",
     "todos.ownerAgent": "Asisten yang mengerjakan",
+    "todos.groupUser": "Dikerjakan Anda",
+    "todos.groupAgent": "Dikerjakan {name}",
     "todos.handover": "Berikan ke asisten: {item}",
     "todos.handoverShort": "Berikan ke asisten",
     "todos.handoverMessage": "Kamu yang kerjakan:",

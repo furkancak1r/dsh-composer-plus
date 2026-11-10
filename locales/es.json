@@ -2466,6 +2466,8 @@
     "todos.empty": "No hay tareas. Dile al asistente una tarea que tengas en mente.",
     "todos.ownerUser": "La haces tú",
     "todos.ownerAgent": "La hace el asistente",
+    "todos.groupUser": "Lo harás tú",
+    "todos.groupAgent": "Lo hará {name}",
     "todos.handover": "Dar al asistente: {item}",
     "todos.handoverShort": "Dar al asistente",
     "todos.handoverMessage": "Hazlo tú:",

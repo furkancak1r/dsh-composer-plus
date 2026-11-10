@@ -2466,6 +2466,8 @@
     "todos.empty": "Keine Einträge. Sag dem Assistenten eine Aufgabe, die du im Kopf hast.",
     "todos.ownerUser": "Du erledigst es",
     "todos.ownerAgent": "Der Assistent erledigt es",
+    "todos.groupUser": "Du erledigst",
+    "todos.groupAgent": "{name} erledigt",
     "todos.handover": "An den Assistenten abgeben: {item}",
     "todos.handoverShort": "An den Assistenten abgeben",
     "todos.handoverMessage": "Mach du das:",

@@ -2466,6 +2466,8 @@
     "todos.empty": "Chưa có mục nào. Hãy nói với trợ lý một việc bạn đang nghĩ đến.",
     "todos.ownerUser": "Bạn làm",
     "todos.ownerAgent": "Trợ lý làm",
+    "todos.groupUser": "Bạn làm",
+    "todos.groupAgent": "{name} làm",
     "todos.handover": "Giao cho trợ lý: {item}",
     "todos.handoverShort": "Giao cho trợ lý",
     "todos.handoverMessage": "Bạn làm việc này:",
