@@ -2839,7 +2839,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       + `@media (hover:hover){[${TODOS_ATTR}] .cp-td-btn:hover:not([aria-disabled="true"]),[${TODOS_ATTR}] .cp-td-head:hover,[${TODOS_ATTR}] .cp-td-group:hover,[${TODOS_ATTR}] .cp-st-row:hover{background:var(--dsw-alias-interactive-bg-hover)}}`
       + `[${TODOS_ATTR}] button:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}`
       + `[${TODOS_ATTR}] .cp-td-empty,[${TODOS_ATTR}] .cp-td-err{margin:0;padding:2px 4px 6px;color:var(--dsw-alias-label-tertiary)}[${TODOS_ATTR}] .cp-td-err{color:var(--dsw-alias-state-warn-label,#b25000)}`;
-    function createTodos() {
+    /** `lang()`: dsh's UI language; the Host gives the tasks' result lines in it (see installAssistantTodos). */
+    function createTodos(lang = () => undefined) {
       const chats = new Map(); // chat id → frozen { items, tasks, projects, summary, at, busy, error }
       const seqs = new Map(); // chat id → number of the newest read
       const timers = new Map(); const lastRead = new Map();
@@ -2859,13 +2860,15 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           clearTimeout(timers.get(id)); timers.delete(id); lastRead.set(id, Date.now());
           const mine = (seqs.get(id) ?? 0) + 1; seqs.set(id, mine);
           try {
-            const response = await fetch(`${TODOS_ROUTE}?sessionId=${encodeURIComponent(id)}${fresh ? '&refresh=1' : ''}`);
+            const ui = lang();
+            const response = await fetch(`${TODOS_ROUTE}?sessionId=${encodeURIComponent(id)}${fresh ? '&refresh=1' : ''}${typeof ui === 'string' && ui !== '' ? `&lang=${encodeURIComponent(ui)}` : ''}`);
             const data = await response.json().catch(() => ({}));
             if (seqs.get(id) !== mine) return;
             if (!response.ok) { patch(id, { error: data?.error ?? `HTTP ${response.status}` }); return; }
             const off = data.on === false;
             patch(id, { items: off ? [] : items(data) ?? [], tasks: off || !Array.isArray(data.tasks) ? [] : data.tasks, projects: off || !Array.isArray(data.projects) ? [] : data.projects,
               summary: off || !Number.isFinite(data.summary?.at) || !Array.isArray(data.summary?.projects) ? null : data.summary, at: Number.isFinite(data.at) ? data.at : Date.now(), error: null });
+            if (data.translating === true) store.schedule(id); // the Host translates the result lines: read them soon
           } catch (error) { if (seqs.get(id) === mine) patch(id, { error: String(error?.message ?? error) }); }
         },
         /** A read soon: merged with the other calls of a burst, at most one read per STATUS_GAP_MS. */
@@ -12790,7 +12793,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         // Assistant to-do list: a Host switch (the Host keeps the lists and adds the agent tools); the panel is in the chat.
         const assistantTodosSwitch = createMobile(TODOS_ROUTE);
         if (typeof fetch === 'function') assistantTodosSwitch.refresh();
-        const todos = createTodos();
+        const todos = createTodos(() => ctx.locale?.getSnapshot?.().active);
         const statusSeats = createSeats();
         // Untangle codebase: a Host switch (the Host adds the skill provider); no DOM, listener or style in the client.
         const untangleSwitch = createMobile(UNTANGLE_ROUTE);
