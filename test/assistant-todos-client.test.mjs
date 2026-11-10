@@ -158,6 +158,15 @@ find(dTree, (n) => n.t === 'button' && n.p.className === 'cp-st-link')[0].p.onCl
 // The summary link opens and focuses the project row.
 link[0].p.onClick(); await new Promise((r) => setTimeout(r, 5));
 assert.deepEqual(focused.at(-1), 'cp-st-s-assistant-w-web'); assert.deepEqual(scrolled.at(-1), 'cp-st-s-assistant-w-web');
+// The card title does not say "morning": the assistant can set a summary at any time (here 09:56 today), so the title
+// is the neutral "Summary · <time>".
+{
+  const saved = summary; const at = new Date(NOW); at.setHours(9, 56, 0, 0);
+  summary = { at: at.getTime(), projects: saved.projects }; await panelProps.store.load('s-assistant'); rt.clear();
+  const title = text(find(find(panel(), (n) => n.p?.className === 'cp-st-summary')[0], (n) => n.t === 'h3')[0]).trim();
+  assert.match(title, /^status\.summary · \d{2}[.:]56/, `a neutral title with the time: ${title}`); assert.doesNotMatch(title, /morning/);
+  summary = saved; await panelProps.store.load('s-assistant'); rt.clear();
+}
 // Hide the summary: kept hidden (this browser) until a new one comes.
 tree = panel();
 find(tree, (n) => n.t === 'button' && n.p['aria-label'] === 'status.hideSummary')[0].p.onClick();

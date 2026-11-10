@@ -14,6 +14,7 @@
 //    working, then done with its result, without Refresh. Refresh updates the time. Typing 30 keys does not draw the panel.
 // 8. Owner groups: 2 items of the user and 3 of the assistant show in two folding groups ("You will do 2" first, then
 //    "Assistant will do 3"), with no owner line in a row; Enter on a header folds it, and it stays folded after a reload.
+//    The turn after "Research Rome" (a subagent and no to-do change) has the to-do nudge in its runtime context.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-todos.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/assistantTodos.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -261,6 +262,7 @@ try {
       const card = panel.locator('.cp-st-summary');
       await card.waitFor({ timeout: 30000 });
       assert.match(await card.innerText(), /Login page is done; tests pass\./);
+      assert.match(await card.locator('h3').innerText(), /^Summary · \d/, 'a neutral title at any hour, not "Morning summary"');
       assert.match((await until(() => calls.find((c) => /Morning summary please/.test(c.newest) && c.after), 'summary result')).result, /summary of 1 projects/);
       // The other chat of acme-web (step 5) changed today: its project row; the summary's link opens it.
       await card.getByRole('button', { name: 'acme-web', exact: true }).click();
@@ -291,7 +293,13 @@ try {
       note('7: summary card and project link (chats, git), a subagent task working then done, Refresh, no panel change while typing');
 
       // 8. Owner groups: 2 items of the user and 3 of the assistant ("Call the bank" from step 2 and two new ones).
+      const nudgeMark = calls.length;
       await send('Fill the list');
+      // The "Research Rome" turn started a subagent and did not change the list: the next turn gets the to-do nudge.
+      await until(() => calls.length > nudgeMark, 'a call after the subagent turn');
+      assert.ok(calls.slice(calls.findIndex((c) => /Research Rome/.test(c.newest))).some((c) => /To-do list: in your last turn you started work/.test(c.context)),
+        'the to-do nudge after a turn that started a subagent without a to-do item');
+      assert.ok(!calls.slice(0, calls.findIndex((c) => /Research Rome/.test(c.newest))).some((c) => /To-do list: in your last turn/.test(c.context)), 'no nudge before it');
       await until(async () => (await group('user').count()) === 2 && (await group('agent').count()) === 3, 'two groups with 2 and 3 items');
       const heads = panel.locator('.cp-td-group');
       assert.deepEqual(await heads.evaluateAll((els) => els.map((b) => [b.dataset.owner, b.getAttribute('aria-expanded'), b.innerText.replace(/\s+/g, ' ').trim()])),
