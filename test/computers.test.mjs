@@ -262,8 +262,17 @@ test('relay: a computer that does not answer → a page in the middle of the win
     assert.match(api.headers['content-type'], /^text\/plain/)
     assert.equal(String(api.body), 'This computer does not answer over Tailscale. Make sure that it is awake and that Tailscale is on.')
     assert.equal(signals.length, 1, 'a fetch of the page does not report a failed page')
+    // dsh's UI language (the texts that the client sends with the open): the page uses them, escaped; a missing one stays
+    // English.
+    relay.setTexts({ unreachable: 'Bu bilgisayar Tailscale üzerinden yanıt vermiyor.', retry: '<b>Tekrar</b> dene' })
+    const tr = String((await browserGet(relay.port, '/', { cookie, headers: { accept: 'text/html' } })).body)
+    assert.match(tr, /<h1>Bu bilgisayar Tailscale üzerinden yanıt vermiyor\.<\/h1>/)
+    assert.match(tr, /<p>Make sure that it is awake and that Tailscale is on\.<\/p>/, 'a missing text stays English')
+    assert.match(tr, /<a href="">&#60;b&#62;Tekrar&#60;\/b&#62; dene<\/a>/, 'the texts are escaped')
+    assert.doesNotMatch(tr, /<b>/)
   } finally { await relay.close() }
 })
+
 
 test('front door: a phone token or no token is refused, and a removed computer stops at once', async () => {
   const dsh = await mockDsh(); const gw = await frontDoor(dsh)

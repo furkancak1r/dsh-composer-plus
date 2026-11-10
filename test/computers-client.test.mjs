@@ -96,7 +96,7 @@ let hookState = []; let hi = 0; let layouts = [];
 const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment: 'F',
   useState: (v) => { const i = hi++; if (!(i in hookState)) hookState[i] = typeof v === 'function' ? v() : v; return [hookState[i], (x) => { hookState[i] = typeof x === 'function' ? x(hookState[i]) : x; }]; },
   useRef: (v) => ({ current: v }), useEffect: () => {}, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f, useLayoutEffect: (f) => { layouts.push(f); } };
-const primitives = { Switch: 'Switch', Menu: 'Menu', Input: 'Input', Modal: 'Modal', Button: 'Button', IconChevronDownOutlineRegular: 'Chevron' };
+const primitives = { Switch: 'Switch', Menu: 'Menu', Input: 'Input', Modal: 'Modal', Button: 'Button', IconChevronDownOutlineRegular: 'Chevron', StateDot: 'StateDot' };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host) => ({ portal: el, host }) } : n === '@deepseek-ai/dsh-client-ui-primitives' ? primitives : {}));
 const live = new Map(); let next = 0;
 plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: (ns) => (k) => k, resolveText: (x) => x },
@@ -215,6 +215,18 @@ const wv = root.querySelector(`[data-composer-plus-computer-view]`);
 assert.equal(wv.tag, 'webview'); assert.equal(wv.getAttribute('partition'), `p-composer-plus-computer:${ID}`); assert.equal(wv.getAttribute('src'), 'about:blank#L1');
 assert.equal(wv.hasAttribute('allowpopups'), true, 'a link of the page that opens a window goes to the system browser');
 assert.equal(root.querySelector('[data-window-drag]') !== null, true, 'a drag strip over the page');
+// The relay's "does not answer" page gets dsh's UI language with the open (the texts of the locale pack).
+assert.deepEqual(posts.find((p) => p.action === 'open').texts, { unreachable: 'computers.relay.unreachable', unreachableHint: 'computers.relay.unreachableHint', retry: 'computers.relay.retry' });
+// While the page loads, a spinner with "Connecting to Studio…" fills the window (no empty page); it goes when the
+// document is ready, and comes again when a new document starts (Try again on the relay's page).
+const loadingOverlay = overlay('computer-loading');
+const spinnerOf = () => { const [o, C] = loadingOverlay; const el = C({ ...o.inject(), t }); return el === null ? null : el.portal; };
+{ assert.equal(views.getSnapshot().loading, true, 'the page loads');
+  const s = spinnerOf(); assert.ok(s, 'the spinner shows');
+  assert.equal(s.p.role, 'status'); assert.equal(s.c[1].c[0], 'computers.connecting:{"name":"Studio"}');
+  assert.deepEqual(s.c[0].p, { state: 'ongoing', size: 28 }, 'dsh\'s own spinner');
+  const cover = root.querySelector('[data-composer-plus-computer-cover]'); assert.ok(cover, 'its host in the root');
+  assert.match(cover.style.cssText, /pointer-events:none/, 'the picker float and the window drag stay usable'); }
 // macOS desktop: the other Mac's page fills the whole window (no empty title bar band above it) and draws dsh's own title
 // bar row; the drag strip keeps only the traffic-light corner, so it covers no control of that page.
 assert.match(wv.style.cssText, /top:0;height:100%/, 'the page starts at the top of the window');
@@ -224,9 +236,17 @@ assert.match(root.querySelector('[data-window-drag]').style.cssText, /left:0;top
 const loaded = []; wv.loadURL = async (u) => { loaded.push(u); };
 const marks = []; wv.executeJavaScript = async (code) => { marks.push(code); };
 wv.fire('dom-ready'); assert.deepEqual(marks, [], 'not in about:blank');
+wv.fire('did-stop-loading');
+assert.equal(views.getSnapshot().loading, true, 'about:blank is not the page: the spinner stays');
 wv.fire('dom-ready');
 assert.deepEqual(loaded, ['http://127.0.0.1:5555/?cp-ticket=t1']);
 assert.equal(marks.length, 1, 'the page gets the mark once per document');
+assert.equal(views.getSnapshot().loading, false, 'the document is ready: the spinner goes');
+wv.fire('did-start-navigation', { isMainFrame: true, url: 'http://127.0.0.1:5555/' });
+assert.equal(views.getSnapshot().loading, true, 'Try again (a new document): the spinner again');
+wv.fire('did-stop-loading'); assert.equal(views.getSnapshot().loading, false, 'a navigation that failed or was cancelled (a download link) ends it');
+wv.fire('did-start-navigation', { isMainFrame: true, url: 'http://127.0.0.1:5555/' }); wv.fire('dom-ready');
+assert.equal(views.getSnapshot().loading, false); marks.length = 1;
 // The mark comes after dsh's page mounted (its brand row), never at start: dsh's shortcuts would ask for a desktop bridge.
 { const page = { el: null }; const docEl = { dataset: {} }; let poll;
   const fakeDoc = { documentElement: docEl, querySelector: (s) => (s === '[class*="_logoRow"]' ? page.el : null) };

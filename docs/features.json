@@ -2170,7 +2170,7 @@
       "feature": "remoteComputers",
       "request": {
         "GET": "The switch, the computers that this Mac opens (no tokens), a pairing that waits, and the \"Let other computers open this Mac\" state: its address, pairing link, requests and paired computers. `via: true` when another Mac opened this page.",
-        "POST": "`{on}` (a switch route); `{accept}`; `{action: \"code\"}`, `{action: \"approve\"|\"deny\", id}`, `{action: \"revoke\", id}` (this Mac’s front door); `{action: \"add\", link, name}` (the name must differ from This Mac and the other computers; waits until the other Mac approves), `{action: \"cancel-add\"}`, `{action: \"open\", id}` (a one-time relay URL), `{action: \"rename\", id, name}`, `{action: \"remove\", id}`, `{action: \"events\", after?}` (a long poll of up to 20 s: the hello and switch requests of the other Mac’s page in this window; without `after`, the current position). Refused (403) from a page that another Mac opened."
+        "POST": "`{on}` (a switch route); `{accept}`; `{action: \"code\"}`, `{action: \"approve\"|\"deny\", id}`, `{action: \"revoke\", id}` (this Mac’s front door); `{action: \"add\", link, name}` (the name must differ from This Mac and the other computers; waits until the other Mac approves), `{action: \"cancel-add\"}`, `{action: \"open\", id, texts?}` (a one-time relay URL; `texts`: `{unreachable, unreachableHint, retry}`, the relay’s \"does not answer\" page in the UI language), `{action: \"rename\", id, name}`, `{action: \"remove\", id}`, `{action: \"events\", after?}` (a long poll of up to 20 s: the hello and switch requests of the other Mac’s page in this window; without `after`, the current position). Refused (403) from a page that another Mac opened."
       }
     }
   ]

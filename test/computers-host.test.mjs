@@ -334,3 +334,18 @@ test('events: the other Mac\'s page says hello and switches this window, through
     assert.ok(Date.now() - t1 < 5000, 'the poll ended with the unload')
   } finally { await a.s.close(); await b.s.close(); dsh.close() }
 })
+
+test('Host: the open passes the page texts of dsh\'s UI language to the relay; only short plain texts', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'cp-texts-'))
+  const fp = 'ab'.repeat(32)
+  writeFileSync(join(home, 'computers.json'), JSON.stringify({ on: true, accept: false, list: [{ fp, host: '127.0.0.1', port: 9, token: 'x'.repeat(43), deviceId: 'd', label: 'Studio' }] }))
+  const got = []
+  const s = computersService({ file: join(home, 'computers.json'), dir: join(home, 'door'), upstreamUrl: () => undefined, macName: 'Office Mac',
+    relay: () => ({ start: async () => 1, ticketUrl: () => 'http://127.0.0.1:1/?cp-ticket=t', setTexts: (t) => got.push(t), close: async () => {} }) })
+  try {
+    assert.equal((await s.handle({ action: 'open', id: fp, texts: { unreachable: 'Yanıt yok.', unreachableHint: 'a\nb', retry: 'x'.repeat(301), other: 'no' } })).status, 200)
+    assert.deepEqual(got, [{ unreachable: 'Yanıt yok.', unreachableHint: 'a b' }], 'control characters become spaces; a long text and other keys are dropped')
+    assert.equal((await s.handle({ action: 'open', id: fp })).status, 200)
+    assert.equal(got.length, 1, 'no texts: the relay keeps what it has')
+  } finally { await s.close(); rmSync(home, { recursive: true, force: true }) }
+})

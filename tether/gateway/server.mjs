@@ -127,7 +127,7 @@ function reply(res, status, obj) {
 }
 const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 /** A message of the relay as a page: in the middle of the window, in dsh's light or dark colors, with no script.
- * `retry`: a link that loads the same address again (for a computer that was asleep). */
+ * `retry`: the label of a link that loads the same address again (for a computer that was asleep). */
 function messagePage(title, hint, retry) {
   return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escHtml(title)}</title><style>
 :root{color-scheme:light dark;--bg:#fff;--fg:#0f1115;--sub:#61666b;--line:rgba(0,0,0,.12)}
@@ -142,7 +142,7 @@ a{display:inline-block;margin-top:20px;padding:6px 16px;border:.5px solid var(--
 a:hover{background:rgba(127,127,127,.2)}
 </style></head><body><main>
 <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="12" rx="2"/><path d="M8.5 20h7M12 16.5V20"/></svg>
-<h1>${escHtml(title)}</h1>${hint ? `<p>${escHtml(hint)}</p>` : ''}${retry ? '<a href="">Try again</a>' : ''}
+<h1>${escHtml(title)}</h1>${hint ? `<p>${escHtml(hint)}</p>` : ''}${retry ? `<a href="">${escHtml(retry)}</a>` : ''}
 </main></body></html>`
 }
 function readBody(req, max) {
@@ -325,6 +325,9 @@ export function createRelay({ host, port, fp, token, ticketTtlMs = 60e3, onUnaut
   const cookieValue = randomBytes(32).toString('base64url')
   let server, own
   let fail = null // the last reason that the computer did not answer (shown on the page)
+  // The "does not answer" page in dsh's UI language (`setTexts`, from the client at each open); English until then.
+  const UNREACHABLE = { unreachable: 'This computer does not answer over Tailscale.', unreachableHint: 'Make sure that it is awake and that Tailscale is on.', retry: 'Try again' }
+  let texts = UNREACHABLE
   // A pinned TLS socket to the computer. Kept alive between requests, one pool per relay.
   const connectPinned = (_o, callback) => {
     let called = false // one answer per socket: a time-out, a pin check or an error, whichever comes first
@@ -389,7 +392,7 @@ export function createRelay({ host, port, fp, token, ticketTtlMs = 60e3, onUnaut
         // A page (not a fetch) got the relay's own page in place of dsh: this Mac loads the computer again at the next pick.
         if (/text\/html/.test(req.headers.accept ?? '')) peer?.signal({ failed: fail ?? 'unreachable' })
         return fail === 'pin' ? text(r, 502, 'This computer shows another certificate.', 'Pair it again in dsh.')
-          : text(r, 502, 'This computer does not answer over Tailscale.', 'Make sure that it is awake and that Tailscale is on.', true)
+          : text(r, 502, texts.unreachable, texts.unreachableHint, texts.retry)
       } })
     if (unpaired) text(res, 401, ...UNPAIRED)
   }
@@ -429,6 +432,8 @@ export function createRelay({ host, port, fp, token, ticketTtlMs = 60e3, onUnaut
     },
     get port() { return own },
     get fail() { return fail },
+    /** The texts of the "does not answer" page (`{unreachable, unreachableHint, retry}`); a missing one stays English. */
+    setTexts(next) { texts = { ...UNREACHABLE, ...next } },
     async close() {
       agent.destroy()
       if (!server) return

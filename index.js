@@ -1108,7 +1108,13 @@ export function computersService({ file, dir, upstreamUrl, macName: ownName, mak
       const c = isText(body.id, 64) ? find(body.id) : undefined;
       if (c === undefined) return { status: 404, body: { error: 'unknown computer' } };
       if (failures.get(c.fp) === 'unpaired') return { status: 409, body: { error: 'unpaired' } };
-      try { return { status: 200, body: { url: await openRelay(c) } }; } catch (e) { return { status: 500, body: { error: String(e?.message ?? e) } }; }
+      try {
+        const url = await openRelay(c);
+        // The relay's "does not answer" page in dsh's UI language: short plain texts only (the page escapes them).
+        const t = body.texts;
+        if (t !== null && typeof t === 'object') relays.get(c.fp)?.setTexts?.(Object.fromEntries(['unreachable', 'unreachableHint', 'retry'].filter((k) => isText(t[k], 300)).map((k) => [k, t[k].replace(/[\u0000-\u001f\u007f]/g, ' ')])));
+        return { status: 200, body: { url } };
+      } catch (e) { return { status: 500, body: { error: String(e?.message ?? e) } }; }
     }
     if (action === 'rename' || action === 'remove') {
       const c = isText(body.id, 64) ? find(body.id) : undefined;
