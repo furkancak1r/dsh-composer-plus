@@ -2248,6 +2248,7 @@
     "assistant.retry": "다시 시도",
     "assistant.restart": "어시스턴트를 사용하려면 dsh를 다시 시작하세요.",
     "assistant.down": "이 설정을 저장하지 못했습니다: {error}",
+    "assistantName.label": "어시스턴트 이름",
     "assistant.welcome.title": "나만의 개인 어시스턴트",
     "assistant.welcome.intro": "작은 일을 맡기는, 오래 유지되는 채팅 하나입니다. 사람에게 말하듯 써 보세요. 예:",
     "assistant.welcome.remind": "\"2분 뒤에 물 마시라고 알려 줘.\" dsh의 예약 작업으로 미리 알림과 자동화를 설정합니다.",
