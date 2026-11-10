@@ -3,8 +3,8 @@
 // 1. The assistant chat: "Remember: buy milk" → the fake model calls todo_list_add (the assistant has the two tools and
 //    Assistant always free lets them run); the request carries the list as runtime context and the section. The panel
 //    shows at the right side of the chat (inside dsh's chat body, right of the messages, not in dsh's right sidebar).
-// 2. Hand over (→): a normal user message "Do this for me: <item>" goes to the chat, the item shows "The assistant
-//    does it", the agent's next request has the item with owner agent.
+// 2. Hand over (→): a normal user message "Do this for me: <item>" goes to the chat, the item moves to the group
+//    "Assistant will do", the agent's next request has the item with owner agent.
 // 3. "Is it done?" → the fake model calls todo_list_remove (reason completed): the item leaves the panel.
 // 4. Remove (×): one click, no dialog, the item is gone. Keyboard: Tab reaches the buttons.
 // 5. Reload: the list is still there (Host file). Another chat has no panel and no to-do tools.
@@ -12,6 +12,9 @@
 // 7. Status: "Morning summary please" → status_summary_set; the card shows today's summary, a project name opens its row
 //    (chats, git branch and commits of the made-up repository). "Research Rome" → a background subagent: Tasks shows it
 //    working, then done with its result, without Refresh. Refresh updates the time. Typing 30 keys does not draw the panel.
+// 8. Owner groups: 2 items of the user and 3 of the assistant show in two folding groups ("You will do 2" first, then
+//    "Assistant will do 3"), with no owner line in a row; Enter on a header folds it, and it stays folded after a reload.
+//    The turn after "Research Rome" (a subagent and no to-do change) has the to-do nudge in its runtime context.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-todos.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/assistantTodos.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -71,6 +74,8 @@ const fake = createServer((req, res) => {
       return tool('subagent', { description: 'Rome flights', prompt: 'CHILD: find flights to Rome', ...(bg ? { run_in_background: true } : {}) });
     }
     if (/^CHILD: find flights/.test(newest.trim())) { const wait = () => (gate.open ? say('Flights found: 3 options\nDetails follow') : setTimeout(wait, 200)); return wait(); }
+    const fill = [{ text: 'Pay rent', owner: 'user' }, { text: 'Book flights', owner: 'agent' }, { text: 'Call mom', owner: 'user' }, { text: 'Draft the report', owner: 'agent' }];
+    if (/^Fill the list$/.test(newest.trim()) && toolMsgs.length < fill.length) return tool('todo_list_add', fill[toolMsgs.length]);
     if (after) return say(`Tool said: ${result.slice(0, 80)}`);
     return say('ok');
   });
@@ -155,6 +160,8 @@ try {
       const send = async (text) => { await clear(); await page.keyboard.type(text, { delay: 5 }); await page.keyboard.press('Escape'); await page.keyboard.press('Enter'); };
       const panel = page.locator('[data-composer-plus-todos]');
       const item = (text) => panel.locator('li').filter({ hasText: text });
+      const group = (owner) => panel.locator(`ul[id$="-${owner}"] > li`);
+      const groupHead = (owner) => panel.locator(`.cp-td-group[data-owner="${owner}"]`);
       const assistantRow = () => page.locator('button[aria-label="Assistant"]');
 
       // Settings: the row has its screenshot and is on by default.
@@ -184,7 +191,7 @@ try {
       assert.equal(await panel.evaluate((el) => el.parentElement?.hasAttribute('data-conversation-content')), true, 'in the chat body');
       const box = await panel.boundingBox(); const bodyBox = await page.locator(`[data-conversation-content][data-conversation-session="${sessionId}"]`).boundingBox();
       assert.ok(box.x + box.width <= bodyBox.x + bodyBox.width + 1 && box.x > bodyBox.x + bodyBox.width / 2, `at the right side of the chat (${JSON.stringify(box)} in ${JSON.stringify(bodyBox)})`);
-      assert.match(await item('Buy milk').innerText(), /You do it/);
+      assert.equal(await group('user').filter({ hasText: 'Buy milk' }).count(), 1, 'in the group "You will do"');
       // The panel covers no message: each user bubble ends left of it.
       for (const bubble of await page.getByText('Remember: buy milk', { exact: true }).all()) {
         const b = await bubble.boundingBox(); assert.ok(b === null || b.x + b.width <= box.x, `a message under the panel: ${JSON.stringify(b)} / ${JSON.stringify(box)}`);
@@ -196,7 +203,7 @@ try {
       await until(async () => !(await page.evaluate(() => document.querySelector('[data-composer-input]') === null)), 'idle');
       const before = calls.length;
       await page.getByRole('button', { name: 'Give to the assistant: Call the bank', exact: true }).click();
-      await until(async () => /The assistant does it/.test(await item('Call the bank').innerText()), 'owner agent');
+      await until(async () => (await group('agent').filter({ hasText: 'Call the bank' }).count()) === 1, 'owner agent: in the assistant\'s group');
       await until(async () => calls.slice(before).some((c) => /^Do this for me: Call the bank$/.test(c.newest.trim())), 'the hand-over message reached the agent');
       const handed = calls.slice(before).find((c) => /^Do this for me: Call the bank$/.test(c.newest.trim()));
       assert.match(handed.context, /\(owner agent\): "Call the bank"/, 'the agent sees the new owner');
@@ -255,6 +262,7 @@ try {
       const card = panel.locator('.cp-st-summary');
       await card.waitFor({ timeout: 30000 });
       assert.match(await card.innerText(), /Login page is done; tests pass\./);
+      assert.match(await card.locator('h3').innerText(), /^Summary · \d/, 'a neutral title at any hour, not "Morning summary"');
       assert.match((await until(() => calls.find((c) => /Morning summary please/.test(c.newest) && c.after), 'summary result')).result, /summary of 1 projects/);
       // The other chat of acme-web (step 5) changed today: its project row; the summary's link opens it.
       await card.getByRole('button', { name: 'acme-web', exact: true }).click();
@@ -283,6 +291,33 @@ try {
       assert.equal(mutations, 0, `the panel changed ${mutations} times while typing`);
       await clear();
       note('7: summary card and project link (chats, git), a subagent task working then done, Refresh, no panel change while typing');
+
+      // 8. Owner groups: 2 items of the user and 3 of the assistant ("Call the bank" from step 2 and two new ones).
+      const nudgeMark = calls.length;
+      await send('Fill the list');
+      // The "Research Rome" turn started a subagent and did not change the list: the next turn gets the to-do nudge.
+      await until(() => calls.length > nudgeMark, 'a call after the subagent turn');
+      assert.ok(calls.slice(calls.findIndex((c) => /Research Rome/.test(c.newest))).some((c) => /To-do list: in your last turn you started work/.test(c.context)),
+        'the to-do nudge after a turn that started a subagent without a to-do item');
+      assert.ok(!calls.slice(0, calls.findIndex((c) => /Research Rome/.test(c.newest))).some((c) => /To-do list: in your last turn/.test(c.context)), 'no nudge before it');
+      await until(async () => (await group('user').count()) === 2 && (await group('agent').count()) === 3, 'two groups with 2 and 3 items');
+      const heads = panel.locator('.cp-td-group');
+      assert.deepEqual(await heads.evaluateAll((els) => els.map((b) => [b.dataset.owner, b.getAttribute('aria-expanded'), b.innerText.replace(/\s+/g, ' ').trim()])),
+        [['user', 'true', '▾ You will do 2'], ['agent', 'true', '▾ Assistant will do 3']], 'the user\'s group first, both open, with counts');
+      assert.deepEqual(await group('user').locator('.cp-td-text').allInnerTexts(), ['Pay rent', 'Call mom']);
+      assert.deepEqual(await group('agent').locator('.cp-td-text').allInnerTexts(), ['Call the bank', 'Book flights', 'Draft the report']);
+      assert.doesNotMatch(await panel.locator('section[aria-labelledby$="-todos"]').innerText(), /You do it|The assistant does it/, 'no owner line in a row');
+      assert.equal(await group('agent').getByRole('button', { name: /^Give to the assistant/ }).count(), 0, '→ only on the user\'s items');
+      // Keyboard: Enter on a header folds its group; the fold stays after a reload.
+      await groupHead('agent').focus(); await page.keyboard.press('Enter');
+      await until(async () => (await groupHead('agent').getAttribute('aria-expanded')) === 'false', 'folded');
+      assert.equal(await group('agent').first().isVisible(), false, 'the folded list is hidden'); assert.equal(await group('user').first().isVisible(), true);
+      await page.reload(); await input.waitFor({ timeout: 20000 }); await assistantRow().click();
+      await groupHead('agent').waitFor({ timeout: 20000 });
+      assert.equal(await groupHead('agent').getAttribute('aria-expanded'), 'false', 'still folded after a reload');
+      await groupHead('agent').click(); await until(async () => (await group('agent').first().isVisible()), 'open again');
+      await page.mouse.move(640, 790); // no hover color in the screenshot
+      note('8: "You will do" (2) above "Assistant will do" (3), no owner line, Enter folds a group and it stays folded after a reload');
 
       if (process.env.SHOT && !shotDone) {
         const png = join(home, 'todos.png');

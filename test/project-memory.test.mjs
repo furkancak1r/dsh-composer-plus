@@ -116,7 +116,8 @@ try {
   const ctx = {
     on: (name, fn) => { (on[name] ??= []).push(fn); },
     effect: (fn) => effects.push(fn()),
-    get: (name) => (name === 'llm' ? llm : undefined),
+    // dsh's workingDirectory service: the folder after `working-directory/change`, else the header folder.
+    get: (name) => (name === 'llm' ? llm : name === 'workingDirectory' ? { get: (session) => session?.workingDirectory ?? session?.header?.cwd } : undefined),
     logger: { warn: () => {} },
     connection: { fetch: { register: (r) => routes.set(r.path, r) } },
     sessionQuery: { observeSession: async () => ({ events: sessionEvents, header: sessionHeader, inheritedEventCount }) },
@@ -176,6 +177,20 @@ try {
     await tool('memory_forget').execute({ entry: 'Saved while the subagent ran' }, exec); }
   assert.match(await tool('memory_forget').execute({ entry: 'saved later' }, exec), /^Removed/);
   assert.match(await tool('memory_recall').execute({}, { agent: { id: 'x', session: { header: {} } } }), /global memory/, 'no folder: global only');
+  // A subagent started in another folder: dsh copies the parent's folder into its header, then changes its working
+  // directory. Its tools and its section use the working directory; a root chat keeps its header folder.
+  { const other = join(root, 'other-repo'); await mkdir(other);
+    const sub = { id: 'sub-b', session: { header: { cwd: project, origin: 'subagent', parentSession: 'chat-1' }, workingDirectory: other } };
+    await tool('memory_remember').execute({ text: 'Fact of the other repo' }, { agent: sub });
+    assert.match(memorySection(mem.store, mem.store.project(other)), /Fact of the other repo/, 'a subagent saves to its working directory');
+    assert.doesNotMatch(memorySection(mem.store, mem.store.project(project)), /Fact of the other repo/, 'not to its header folder');
+    assert.match(await tool('memory_recall').execute({ query: 'other repo' }, { agent: sub }), /Fact of the other repo/, 'a subagent recalls from its working directory');
+    assert.match(sectionOf(sub), /Fact of the other repo/, 'its section reads its working directory');
+    const rootB = { id: 'chat-b', session: { header: { cwd: project }, workingDirectory: other } };
+    assert.match(await tool('memory_recall').execute({ query: 'short answers' }, { agent: rootB }), /The user wants short answers/, 'a root chat recalls from its header folder');
+    assert.doesNotMatch(await tool('memory_recall').execute({ query: 'other repo' }, { agent: rootB }), /Fact of the other repo/, 'not from its working directory');
+    assert.doesNotMatch(sectionOf(rootB), /Fact of the other repo/, 'a root chat\'s section reads its header folder');
+    assert.match(await tool('memory_forget').execute({ entry: 'Fact of the other repo' }, { agent: sub }), /^Removed/); }
 
   // Review: a fork's parent messages and a rolled-back message are not sent; the changes apply; a secret is left out.
   seq = 0;

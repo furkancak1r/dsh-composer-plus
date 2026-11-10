@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_FREE_SECTION, ASSISTANT_TODOS_PATH, ASSISTANT_TOOLS, STATUS_SECTION, TODO_LIMITS, TODO_SECTION, TODO_TOOLS, assistantFreeTool, installAssistant, installAssistantTodos, todoContext, todoList, todoStore } from '../index.js';
+import { ASSISTANT_FREE_SECTION, ASSISTANT_TODOS_PATH, ASSISTANT_TOOLS, STATUS_SECTION, TODO_LIMITS, TODO_NUDGE, TODO_SECTION, TODO_TOOLS, TODO_WORK_TOOLS, assistantFreeTool, installAssistant, installAssistantTodos, todoContext, todoList, todoStore } from '../index.js';
 
 // The list logic.
 let r = todoList.add([], { text: '  Prosolocal\'i   internete açmak ' }, { id: 'aaaaaaaa', now: 5 });
@@ -131,6 +131,36 @@ assert.match(TODO_SECTION, /do not ask about it, unless the user mentions it/);
 const ctxEntry = contexts.get('composer-plus:assistant-todos');
 assert.equal(ctxEntry.interpolate, false);
 assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'no context for an empty list');
+// The to-do nudge: a turn of the assistant that started work (subagent, subagent_fork, chat_new, schedule_create) and did
+// not change the list puts one line into the next runtime context, once; a turn with a list change does not.
+assert.match(TODO_SECTION, /Each time that you start work for the user \(subagent, subagent_fork, chat_new, schedule_create\), add an item of owner "agent"/);
+assert.match(TODO_SECTION, /Each step that the user must do \(an approval sentence, a manual action, a restart/);
+{
+  const event = (session, e) => { for (const fn of listeners.get('session/event') ?? []) fn(session, e); };
+  const turn = (session, names) => { event(session, { type: 'turn/start' }); for (const name of names) event(session, { type: 'tool/call', data: { name, callId: name } }); event(session, { type: 'turn/end', data: { reason: { kind: 'completed' } } }); };
+  for (const work of TODO_WORK_TOOLS) {
+    turn({ id: 's-a' }, [work]);
+    assert.equal(ctxEntry.text({ agent: assistantAgent }), TODO_NUDGE, `${work} without a to-do item: the nudge`);
+    turn({ id: 's-a' }, []);
+    assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'once: the next turn end takes it away');
+  }
+  turn({ id: 's-a' }, ['subagent', 'todo_list_add']);
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'a turn that started work and added an item: no nudge');
+  turn({ id: 's-a' }, ['todo_list_remove', 'chat_new']);
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'todo_list_remove is a list change too');
+  turn({ id: 's-a' }, ['chats_list', 'memory_recall']);
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'no work started: no nudge');
+  turn({ id: 's-other' }, ['subagent']);
+  assert.equal(ctxEntry.text({ agent: otherAgent }), '', 'another chat: no nudge');
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), '');
+  // The assistant adds the item in its next turn: the line goes at once (the next step's context).
+  turn({ id: 's-a' }, ['subagent']);
+  event({ id: 's-a' }, { type: 'turn/start' });
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), TODO_NUDGE, 'the next turn sees it');
+  event({ id: 's-a' }, { type: 'tool/call', data: { name: 'todo_list_add', callId: 'x' } });
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'gone after the list change');
+  event({ id: 's-a' }, { type: 'turn/end', data: { reason: { kind: 'completed' } } });
+}
 
 // The tools.
 const tool = (name) => assistantAgent.registered.get(name);
