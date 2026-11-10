@@ -2,7 +2,8 @@
 // the tools. The route makes ~/Assistant, adds it as a project, starts one chat with the workspace-write preset and keeps
 // its id; the next call gives the same chat, an archived one is unarchived, a deleted one is made again, two calls at once
 // make one chat. The six tools are registered only in the assistant agent's own scope (a subagent of it gets them
-// denied), and each one refuses another caller. The four tools that change a chat ask (dsh's approval card). chat_read
+// denied), and each one refuses another caller. The four tools that change a chat ask (dsh's approval card), except in
+// dsh's Auto permission mode, where Auto review decides without a Composer Plus card. chat_read
 // leaves out the messages that a rollback withdrew (both marker kinds) and a fork's copy; chats_list shows other projects,
 // the waiting state and filters.
 import assert from 'node:assert/strict';

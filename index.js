@@ -9059,7 +9059,7 @@ export function installApproveButton(ctx, home, file = join(home, 'storages', 'd
  * scope (dsh's agent-scoped `tools.register`), so no other chat lists them; its subagents get them denied
  * (`tools.restrict`), and each tool also refuses a caller that is not the assistant chat. The short instructions go only
  * to that chat (a system-prompt section that is empty for every other agent). On by default: a turn in another chat
- * starts only after the user allows it on the approval card. The Host keeps the switch (`assistant-switch.json`, an
+ * starts only after the user allows it on the approval card (in the Auto permission mode: after Auto review allows it). The Host keeps the switch (`assistant-switch.json`, an
  * explicit off stays off) and the chat id (`assistant.json`). */
 export const ASSISTANT_PATH = '/api/composer-plus.assistant';
 export const ASSISTANT_SWITCH_PATH = '/api/composer-plus.assistant-switch';
@@ -9070,7 +9070,7 @@ export const ASSISTANT_NOTIFY_PATH = '/api/composer-plus.assistant-notify';
 export const ASSISTANT_TOOLS = ['chats_list', 'chat_read', 'chat_send', 'chat_new', 'chat_stop', 'chat_archive'];
 /** The tools of Assistant to-do list (installAssistantTodos): also only in the assistant chat. */
 export const TODO_TOOLS = ['todo_list_add', 'todo_list_remove', 'status_summary_set'];
-/** The tools that change a chat: each call asks the user first. */
+/** The tools that change a chat: each call asks the user first (in the Auto permission mode, Auto review decides). */
 export const ASSISTANT_ASK = ['chat_send', 'chat_new', 'chat_stop', 'chat_archive'];
 /** The narrowest permission preset that does the work: files only inside ~/Assistant, approval asks. */
 export const ASSISTANT_PRESET = 'workspace-write';
