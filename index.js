@@ -9482,7 +9482,7 @@ const FREE_REASON = (name) => `Composer Plus → Assistant always free: this cha
 /** Assistant news: a finished turn counts when it ran this long; a wait counts when it lasts this long; news is collected
  * this long before it goes; two news turns are at least `gap` apart; one note names at most `max` chats. */
 export const ASSISTANT_NEWS = { turn: 60000, wait: 30000, batch: 15000, gap: 120000, max: 10, reply: 300, taskReply: 2000 };
-/** Which chats Assistant news tells about: only automations (chats that a schedule started) or all other root chats. */
+/** Which chats Assistant news tells about: only automations (turns that a schedule started) or all other root chats. */
 export const NOTIFY_SCOPES = ['automations', 'all'];
 const NEWS_SOURCE = 'composer-plus-assistant-news';
 const newsMessage = (text) => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text })]),
@@ -9514,6 +9514,24 @@ const typedPrompt = (m) => m?.source?.kind === 'user' && typeof m.source.rpcId =
 const SENT_FIRST = 'It sent you a message just before finishing, so its closing message is omitted.';
 const quietNotice = (m) => m?.source?.kind === 'subagent-settled' && Array.isArray(m.content) && m.content.length === 2
   && / finished and will do no further work/.test(m.content[0]?.text ?? '') && m.content.some((b) => b?.text === SENT_FIRST);
+
+/** turn/start index → source kind of the queued (next-turn) message that dsh took out to start that turn: the first removal
+ * before the turn's first step. dsh logs the prompt itself as a user/message only when that step runs. The queue is folded
+ * from the start of the log (a fork's inbox includes its parent's splices). */
+function queuedPrompts(events) {
+  const taken = new Map(); let queue = []; let open;
+  events.forEach((e, i) => {
+    if (e.type === 'turn/start') open = i;
+    else if (e.type === 'step/start') open = undefined;
+    else if (e.type === 'agent/inbox/spliced' && e.data?.target === 'next-turn') {
+      const { start = 0, removedCount = 0, inserted = [] } = e.data;
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(removedCount) || !Array.isArray(inserted)) return;
+      if (open !== undefined && removedCount > 0) { taken.set(open, queue[start]?.source?.kind); open = undefined; }
+      queue = queue.toSpliced(start, removedCount, ...inserted);
+    }
+  });
+  return taken;
+}
 
 /** Host half of Assistant apart from chats, Assistant always free and Assistant news from chats. `assistant` is the handle of
  * installAssistant (ready, isOn, id, isAssistant). */
@@ -9592,7 +9610,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   switchRoute(ASSISTANT_FREE_PATH, freeSwitch, setFree, freeRead);
 
   // Assistant news from chats. `{on, scope}` in assistant-notify.json: scope "automations" (also a missing or unknown one,
-  // so a file from an older copy gives the quiet choice) tells only the chats that a schedule started; "all" tells every
+  // so a file from an older copy gives the quiet choice) tells only the turns that a schedule started; "all" tells every
   // other root chat (the first behavior).
   const notifyStore = settingsStore(join(dir, 'assistant-notify.json'), (v) => ({ on: v?.on === true, scope: v?.scope === 'all' ? 'all' : 'automations' }));
   const notifySwitch = { write: (on) => notifyStore.change((s) => ({ ...s, on })) };
@@ -9603,18 +9621,24 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   const notes = new Map(); // assistant agent id → the note that its next step gets
   let flushTimer; let lastWake = -Infinity; let afterIdle = false; let closed = false;
   const watched = (session) => notifyOn && assistant.isOn() && isText(assistant.id()) && isText(session?.id) && session.id !== assistant.id() && isRootChat(session) && !archived(session.id);
-  // ponytail: one entry per chat that ended a turn in this dsh run (a chat's first message does not change).
-  const automations = new Map(); // chat id → whether a schedule started it
-  /** True for a chat that a schedule started (an automation): its first own prompt (after a fork's copy of its parent; a typed
-   * prompt or a scheduled delivery, not dsh's context messages) is dsh's scheduled delivery (`source.kind: 'schedule'`). */
+  /** True for a turn that a schedule started (an automation), also in a chat that you started: the first own prompt (a typed
+   * prompt or a scheduled delivery, not dsh's context messages; not a fork's copy of its parent) of the newest turn that has
+   * one is dsh's scheduled delivery (`source.kind: 'schedule'`). A turn whose first step failed logs no prompt: the queued
+   * message that dsh took to start it counts then. A turn without one (a subagent's result, a resume) continues the turn
+   * before it. Read from the end: no cache, so a typed turn in an automation chat is not an automation. */
   const automation = (session) => {
-    if (automations.has(session.id)) return automations.get(session.id);
-    const agent = live(session.id);
+    const agent = live(session.id); const events = eventsOf(agent);
     const from = Number.isSafeInteger(agent?.session?.inheritedEventCount) && agent.session.inheritedEventCount > 0 ? agent.session.inheritedEventCount : 0;
-    const first = eventsOf(agent).slice(from).find((e) => e.type === 'user/message' && ['user', 'schedule'].includes(e.data?.source?.kind));
-    if (first === undefined) return false; // no prompt yet: ask again at its next turn end
-    automations.set(session.id, first.data?.source?.kind === 'schedule');
-    return automations.get(session.id);
+    let prompt; let taken;
+    for (let i = events.length - 1; i >= from; i--) {
+      if (events[i].type === 'user/message' && ['user', 'schedule'].includes(events[i].data?.source?.kind)) prompt = events[i].data.source.kind;
+      else if (events[i].type === 'turn/start') {
+        // ponytail: one pass over the whole log, only when a turn has no logged prompt (a failed first step, a resume).
+        if (prompt === undefined) { taken ??= queuedPrompts(events); if (['user', 'schedule'].includes(taken.get(i))) prompt = taken.get(i); }
+        if (prompt !== undefined) break;
+      }
+    }
+    return prompt === 'schedule';
   };
   const clearAll = () => { pending.clear(); starts.clear(); for (const t of waits.values()) clearTimeout(t); waits.clear(); clearTimeout(flushTimer); flushTimer = undefined; afterIdle = false; };
   const schedule = (ms) => { if (flushTimer === undefined && !closed) { flushTimer = setTimeout(flush, Math.max(0, ms)); flushTimer.unref?.(); } };

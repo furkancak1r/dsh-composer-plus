@@ -2453,7 +2453,7 @@
     "assistantFree.restart": "Khởi động lại dsh để dùng Trợ lý luôn rảnh.",
     "assistantFree.inactive": "Không hoạt động: cuộc trò chuyện trợ lý không có công cụ subagent (do chế độ quyền hoặc profile), nên trợ lý tự làm việc đó.",
     "feature.assistantNotify": "Trợ lý báo tin từ các cuộc trò chuyện",
-    "feature.assistantNotify.description": "Trợ lý báo cho bạn trong cuộc trò chuyện của nó khi một tự động hóa (cuộc trò chuyện do một tác vụ theo lịch bắt đầu) kết thúc một lượt, gặp lỗi hoặc chờ bạn trong 30 giây. Khi chọn Mọi cuộc trò chuyện, trợ lý cũng báo khi bất kỳ cuộc trò chuyện nào khác kết thúc một lượt dài (1 phút trở lên), gặp lỗi hoặc chờ bạn. Tin được gom trong 15 giây và đến nhiều nhất 2 phút một lần. Mỗi dòng tin là một lượt mô hình của cuộc trò chuyện trợ lý, nên sẽ tốn token.",
+    "feature.assistantNotify.description": "Trợ lý báo cho bạn trong cuộc trò chuyện của nó khi một tự động hóa (một lượt do tác vụ theo lịch bắt đầu, kể cả trong cuộc trò chuyện do bạn bắt đầu) kết thúc, gặp lỗi hoặc chờ bạn trong 30 giây. Khi chọn Mọi cuộc trò chuyện, trợ lý cũng báo khi bất kỳ cuộc trò chuyện nào khác kết thúc một lượt dài (1 phút trở lên), gặp lỗi hoặc chờ bạn. Tin được gom trong 15 giây và đến nhiều nhất 2 phút một lần. Mỗi dòng tin là một lượt mô hình của cuộc trò chuyện trợ lý, nên sẽ tốn token.",
     "assistantNotify.down": "Không thể lưu cài đặt này: {error}",
     "assistantNotify.restart": "Khởi động lại dsh để dùng Trợ lý báo tin từ các cuộc trò chuyện.",
     "assistantNotify.scope": "Báo tin về",

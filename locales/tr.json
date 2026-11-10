@@ -3913,7 +3913,7 @@
     "assistantFree.restart": "Asistan hep boşta özelliğini kullanmak için dsh’yi yeniden başlatın.",
     "assistantFree.inactive": "Etkin değil: asistan sohbetinin alt ajan aracı yok (izin modu ya da profili yüzünden), bu yüzden işi kendisi yapar.",
     "feature.assistantNotify": "Asistan sohbet haberleri",
-    "feature.assistantNotify.description": "Bir otomasyon (zamanlanmış görevin başlattığı sohbet) bir turu bitirdiğinde, hata verdiğinde ya da 30 saniye sizi beklediğinde asistan bunu kendi sohbetinde söyler. Tüm sohbetler seçiliyken başka bir sohbet uzun bir turu (1 dakika ya da daha uzun) bitirdiğinde, hata verdiğinde ya da sizi beklediğinde de söyler. Haberler 15 saniye toplanır ve en fazla 2 dakikada bir gelir. Her haber asistan sohbetinin bir model turudur, bu yüzden token harcar.",
+    "feature.assistantNotify.description": "Bir otomasyon (zamanlanmış bir görevin başlattığı tur, sizin başlattığınız bir sohbette de) bittiğinde, hata verdiğinde ya da 30 saniye sizi beklediğinde asistan bunu kendi sohbetinde söyler. Tüm sohbetler seçiliyken başka bir sohbet uzun bir turu (1 dakika ya da daha uzun) bitirdiğinde, hata verdiğinde ya da sizi beklediğinde de söyler. Haberler 15 saniye toplanır ve en fazla 2 dakikada bir gelir. Her haber asistan sohbetinin bir model turudur, bu yüzden token harcar.",
     "assistantNotify.down": "Bu ayar kaydedilemedi: {error}",
     "assistantNotify.restart": "Asistan sohbet haberleri özelliğini kullanmak için dsh’yi yeniden başlatın.",
     "assistantNotify.scope": "Haber ver",
