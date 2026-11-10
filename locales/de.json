@@ -2453,7 +2453,7 @@
     "assistantFree.restart": "Starte dsh neu, um Assistent immer frei zu nutzen.",
     "assistantFree.inactive": "Nicht aktiv: Der Assistenten-Chat hat kein Subagent-Tool (wegen seines Berechtigungsmodus oder Profils), daher erledigt er die Arbeit selbst.",
     "feature.assistantNotify": "Chat-Neuigkeiten im Assistenten",
-    "feature.assistantNotify.description": "Der Assistent sagt dir in seinem Chat Bescheid, wenn eine Automatisierung (ein Chat, den eine geplante Aufgabe gestartet hat) eine Runde beendet, fehlschlägt oder 30 Sekunden auf dich wartet. Mit Alle Chats sagt er dir auch Bescheid, wenn ein anderer Chat eine lange Runde (1 Minute oder länger) beendet, fehlschlägt oder auf dich wartet. Neuigkeiten werden 15 Sekunden lang gesammelt und kommen höchstens alle 2 Minuten. Jede Neuigkeit ist eine Modellrunde des Assistenten-Chats und verbraucht daher Tokens.",
+    "feature.assistantNotify.description": "Der Assistent sagt dir in seinem Chat Bescheid, wenn eine Automatisierung (eine Runde, die eine geplante Aufgabe gestartet hat, auch in einem Chat, den du begonnen hast) endet, fehlschlägt oder 30 Sekunden auf dich wartet. Mit Alle Chats sagt er dir auch Bescheid, wenn ein anderer Chat eine lange Runde (1 Minute oder länger) beendet, fehlschlägt oder auf dich wartet. Neuigkeiten werden 15 Sekunden lang gesammelt und kommen höchstens alle 2 Minuten. Jede Neuigkeit ist eine Modellrunde des Assistenten-Chats und verbraucht daher Tokens.",
     "assistantNotify.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
     "assistantNotify.restart": "Starte dsh neu, um Chat-Neuigkeiten im Assistenten zu nutzen.",
     "assistantNotify.scope": "Bescheid geben bei",

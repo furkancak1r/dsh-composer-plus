@@ -9,8 +9,9 @@
 //   most one news turn per gap, held while the assistant runs. Short turns, user stops, subagents, archived chats and the
 //   assistant itself give no news. The last reply leaves out what a rollback withdrew (both kinds) and a fork's copy.
 //   Scope "automations" (the default): only a turn that a schedule started (the first own prompt of the newest turn has
-//   source.kind "schedule", also in a chat that you started) gives news, at its end (also a short one) and each wait;
-//   other chats, a typed turn and a fork of an automation give none. Scope "all" is the first behavior (the checks above it run with it). The scope stays in the same file.
+//   source.kind "schedule", also in a chat that you started; a failed first step logs no prompt, so the queued message that
+//   started the turn counts) gives news, at its end (also a short one) and each wait; other chats, a typed turn and a fork
+//   of an automation give none. Scope "all" is the first behavior (the checks above it run with it). The scope stays in the same file.
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -279,6 +280,23 @@ typed.events.push({ seq: 11, type: 'approval/decided', data: { id: 't' } }, { se
 turn(typed, 'completed', 5000);
 await pause(80); await bot.flush();
 assert.equal(steers.length, before + 2, 'a turn that you typed in that chat is no news'); assert.deepEqual(bot.pending(), []);
+// A turn whose first step fails (an unknown model, a rate limit) logs no prompt: dsh only took it out of the queue. A
+// scheduled delivery that fails so after a typed turn is an automation's failure; a typed prompt that fails so after a
+// scheduled turn is not.
+const queued = (seq, kind, id) => ({ seq, type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, inserted: [{ id, role: 'user', content: [], source: { kind } }] } });
+const taken = (seq) => ({ seq, type: 'agent/inbox/spliced', data: { target: 'next-turn', start: 0, removedCount: 1, inserted: [] } });
+const failedStart = (seq, kind, id) => [{ seq, type: 'turn/end' }, queued(seq + 1, kind, id), { seq: seq + 2, type: 'turn/start' }, taken(seq + 3), { seq: seq + 4, type: 'step/start' }, { seq: seq + 5, type: 'step/end' }];
+clock += 200000;
+typed.events.push(...failedStart(16, 'schedule', 'q1'));
+turn(typed, 'error', 1000, { error: { message: 'no configured model' } });
+await until(() => steers.length === before + 3, 'the failed first step of a scheduled turn');
+const typedFail = await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }));
+assert.match(typedFail.messages[0].content[0].text, /chat s-typed, an automation\): failed\. Error: "no configured model"/);
+clock += 200000;
+typed.events.push({ seq: 22, type: 'turn/end' }, { seq: 23, type: 'turn/start' }, sched(24, '[SCHEDULE REMINDER] audit'), am(25, 'Audit: 0 findings.'), ...failedStart(26, 'user', 'q2'));
+turn(typed, 'error', 1000, { error: { message: 'rate limit' } });
+await pause(80); await bot.flush();
+assert.equal(steers.length, before + 3, 'a typed prompt whose first step failed is no automation'); assert.deepEqual(bot.pending(), []);
 // The saved file at the next start: no scope (an older copy's file) reads as automations; "all" stays.
 const startWith = async (text) => {
   await writeFile(join(home, 'storages/dsh-composer-plus/assistant-notify.json'), text);

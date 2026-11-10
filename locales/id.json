@@ -2453,7 +2453,7 @@
     "assistantFree.restart": "Mulai ulang dsh untuk menggunakan Asisten selalu bebas.",
     "assistantFree.inactive": "Tidak aktif: obrolan asisten tidak punya alat subagen (karena mode izin atau profilnya), jadi asisten mengerjakan tugas itu sendiri.",
     "feature.assistantNotify": "Kabar obrolan dari Asisten",
-    "feature.assistantNotify.description": "Asisten memberi tahu Anda di obrolannya sendiri saat otomatisasi (obrolan yang dimulai oleh tugas terjadwal) menyelesaikan giliran, gagal, atau menunggu Anda selama 30 detik. Dengan Semua obrolan, asisten juga memberi tahu saat obrolan lain menyelesaikan giliran panjang (1 menit atau lebih), gagal, atau menunggu Anda. Kabar dikumpulkan selama 15 detik dan datang paling sering setiap 2 menit. Setiap baris kabar adalah giliran model di obrolan asisten, jadi memakai token.",
+    "feature.assistantNotify.description": "Asisten memberi tahu Anda di obrolannya sendiri saat otomatisasi (giliran yang dimulai oleh tugas terjadwal, juga di obrolan yang Anda mulai) selesai, gagal, atau menunggu Anda selama 30 detik. Dengan Semua obrolan, asisten juga memberi tahu saat obrolan lain menyelesaikan giliran panjang (1 menit atau lebih), gagal, atau menunggu Anda. Kabar dikumpulkan selama 15 detik dan datang paling sering setiap 2 menit. Setiap baris kabar adalah giliran model di obrolan asisten, jadi memakai token.",
     "assistantNotify.down": "Tidak dapat menyimpan pengaturan ini: {error}",
     "assistantNotify.restart": "Mulai ulang dsh untuk menggunakan Kabar obrolan dari Asisten.",
     "assistantNotify.scope": "Beri tahu tentang",

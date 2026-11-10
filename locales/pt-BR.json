@@ -2453,7 +2453,7 @@
     "assistantFree.restart": "Reinicie o dsh para usar Assistente sempre livre.",
     "assistantFree.inactive": "Inativo: o chat do assistente não tem a ferramenta de subagentes (pelo modo de permissão ou pelo perfil dele), então ele mesmo faz o trabalho.",
     "feature.assistantNotify": "Avisos de chats no Assistente",
-    "feature.assistantNotify.description": "O assistente avisa você no chat dele quando uma automação (um chat que uma tarefa agendada iniciou) termina um turno, falha ou espera por você durante 30 segundos. Com Todos os chats, ele também avisa quando qualquer outro chat termina um turno longo (1 minuto ou mais), falha ou espera por você. Os avisos são reunidos durante 15 segundos e chegam no máximo a cada 2 minutos. Cada aviso é um turno do modelo no chat do assistente, então usa tokens.",
+    "feature.assistantNotify.description": "O assistente avisa você no chat dele quando uma automação (um turno que uma tarefa agendada iniciou, também em um chat que você iniciou) termina, falha ou espera por você durante 30 segundos. Com Todos os chats, ele também avisa quando qualquer outro chat termina um turno longo (1 minuto ou mais), falha ou espera por você. Os avisos são reunidos durante 15 segundos e chegam no máximo a cada 2 minutos. Cada aviso é um turno do modelo no chat do assistente, então usa tokens.",
     "assistantNotify.down": "Não foi possível salvar esta configuração: {error}",
     "assistantNotify.restart": "Reinicie o dsh para usar Avisos de chats no Assistente.",
     "assistantNotify.scope": "Avisar sobre",

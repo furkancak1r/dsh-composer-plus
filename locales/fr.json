@@ -2453,7 +2453,7 @@
     "assistantFree.restart": "Redémarrez dsh pour utiliser Assistant toujours libre.",
     "assistantFree.inactive": "Inactif : la discussion de l’assistant n’a pas l’outil de sous-agents (à cause de son mode d’autorisation ou de son profil), donc elle fait le travail elle-même.",
     "feature.assistantNotify": "Nouvelles des discussions dans l’Assistant",
-    "feature.assistantNotify.description": "L’assistant vous prévient dans sa discussion quand une automatisation (une discussion lancée par une tâche planifiée) termine un tour, échoue ou vous attend pendant 30 secondes. Avec Toutes les discussions, il vous prévient aussi quand une autre discussion termine un long tour (1 minute ou plus), échoue ou vous attend. Les nouvelles sont regroupées pendant 15 secondes et arrivent au plus toutes les 2 minutes. Chaque nouvelle est un tour du modèle dans la discussion de l’assistant, donc elle consomme des tokens.",
+    "feature.assistantNotify.description": "L’assistant vous prévient dans sa discussion quand une automatisation (un tour lancé par une tâche planifiée, même dans une discussion que vous avez commencée) se termine, échoue ou vous attend pendant 30 secondes. Avec Toutes les discussions, il vous prévient aussi quand une autre discussion termine un long tour (1 minute ou plus), échoue ou vous attend. Les nouvelles sont regroupées pendant 15 secondes et arrivent au plus toutes les 2 minutes. Chaque nouvelle est un tour du modèle dans la discussion de l’assistant, donc elle consomme des tokens.",
     "assistantNotify.down": "Impossible d’enregistrer ce réglage : {error}",
     "assistantNotify.restart": "Redémarrez dsh pour utiliser Nouvelles des discussions dans l’Assistant.",
     "assistantNotify.scope": "Me prévenir pour",
