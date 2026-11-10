@@ -7,7 +7,10 @@
 //    button goes; your message gets no button.
 // 4. An answer whose sentence names a live target (npm publish): the plain block, no button. The older answer shows none.
 // 5. Switched off (the Host switch): the next request has no rule and an `onay` answer shows no button.
-// 6. No page errors.
+// 6. A long sentence (the owner's, 2026-11-10: "Onayla" broke into "Onay / la" and the sentence was cut with "…") at
+//    window widths 600, 940 and 1280: the label of each of the 13 languages stays on one line and is not cut; the button
+//    shows the whole sentence, with no clipping and no ellipsis, and its last line is in view.
+// 7. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-approve-button.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/approveButton.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -15,6 +18,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, writeFile, symlink, rm, realpath, stat } from 'node:fs/promises';
+import { readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,6 +34,11 @@ const until = async (fn, what, ms = 30000) => {
 
 const SENTENCE = (n) => `Approve: push the branch feature/login-fix-${n} of demo-app to origin.`;
 const LIVE = 'Approve: run npm publish for demo-app.';
+const LONG = 'Onaylıyorum: bu turda Composer Plus Asistan iyileştirme otomasyonunu yeniden başlat; salt okunur inceleme alt ajanı, yeni bulguları tek tek doğrulasın, sorun yoksa dalı push etsin, main ile birleştirsin ve yerel kopyayı yedekleyip güncellesin.';
+// The button label of each language: en and zh in client.js, the 11 others in locales/<id>.json.
+const LABELS = [...readFileSync(join(repo, 'client.js'), 'utf8').matchAll(/'approve\.button': '([^']+)'/g)].map((m) => m[1])
+  .concat(readdirSync(join(repo, 'locales')).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(repo, 'locales', f), 'utf8'))['dsh-composer-plus']['approve.button']));
+assert.equal(new Set(LABELS).size, 13, `13 labels: ${LABELS}`);
 const ANSWER = (sentence) => `The login fix is ready on its branch. Pushing it needs your approval:\n\n\`\`\`onay\n${sentence}\n\`\`\`\n`;
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const RULE = '# Approve button (Composer Plus)';
@@ -52,6 +61,7 @@ const fake = createServer((req, res) => {
     const n = last.match(/^approve:(\d+)$/)?.[1];
     if (n) return say(ANSWER(SENTENCE(n)));
     if (last === 'live') return say(ANSWER(LIVE));
+    if (last === 'long') return say(ANSWER(LONG));
     return say('Done.');
   });
 }).listen(0, '127.0.0.1');
@@ -162,6 +172,38 @@ try {
       assert.equal(await approve.count(), 0, 'off: no button');
       assert.deepEqual(await route({ on: true }), { on: true });
       await page.reload(); await input.waitFor(); await approve.waitFor({ timeout: 20000 });
+
+      // 6. A long sentence: each language's label on one line, the whole sentence in view, at 600, 940 and 1280 px.
+      await typeSend('long'); await page.getByText(LONG, { exact: true }).first().waitFor({ timeout: 20000 });
+      const long = approve.locator('button').filter({ hasText: 'Composer Plus Asistan' });
+      await long.waitFor({ timeout: 20000 });
+      for (const width of [600, 940, 1280]) {
+        await page.setViewportSize({ width, height: 800 }); await pause(400);
+        if (process.env.KEEP) await approve.screenshot({ path: join(home, `long-${width}.png`) });
+        for (const label of LABELS) {
+          // The label's own text node gets each language's text (React keeps the node), then the old text again.
+          const m = await long.evaluate((b, label) => {
+            const strong = b.querySelector('strong'); const span = b.querySelector('.cp-op-n'); const was = strong.firstChild.nodeValue;
+            strong.firstChild.nodeValue = label;
+            const lines = (el) => { const r = document.createRange(); r.selectNodeContents(el); const rects = [...r.getClientRects()].filter((x) => x.width > 0);
+              return { count: new Set(rects.map((x) => Math.round(x.top))).size, bottom: Math.max(...rects.map((x) => x.bottom)) }; };
+            const box = b.getBoundingClientRect(); const tail = b.closest('[data-turn-tail]').getBoundingClientRect();
+            const out = { label: lines(strong).count, labelCut: strong.scrollWidth > strong.clientWidth + 1, text: span.textContent,
+              clipped: span.scrollHeight > span.clientHeight + 1 || span.scrollWidth > span.clientWidth + 1 || b.scrollHeight > b.clientHeight + 1,
+              ellipsis: [b, strong, span].some((e) => getComputedStyle(e).textOverflow === 'ellipsis' || getComputedStyle(e).webkitLineClamp !== 'none'),
+              lastLine: lines(span).bottom, bottom: box.bottom, inside: box.left >= tail.left - 1 && box.right <= tail.right + 1 };
+            strong.firstChild.nodeValue = was;
+            return out;
+          }, label);
+          const at = `${width} px, "${label}"`;
+          assert.equal(m.label, 1, `${at}: the label is on one line`);
+          assert.equal(m.labelCut, false, `${at}: the label is not cut`);
+          assert.equal(m.text, LONG, `${at}: the button shows the whole sentence`);
+          assert.equal(m.clipped, false, `${at}: no clipped text`); assert.equal(m.ellipsis, false, `${at}: no ellipsis or line clamp`);
+          assert.ok(m.lastLine <= m.bottom, `${at}: the last line is inside the button`); assert.ok(m.inside, `${at}: the button stays in the chat column`);
+        }
+      }
+      await page.setViewportSize({ width: 1280, height: 800 });
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
