@@ -2252,7 +2252,7 @@
     "assistant.welcome.intro": "Satu obrolan tetap untuk tugas-tugas kecil. Tulis kepadanya seperti kepada orang, misalnya:",
     "assistant.welcome.remind": "“Ingatkan saya minum air dalam 2 menit.” Asisten membuat pengingat dan otomatisasi dengan tugas terjadwal dsh.",
     "assistant.welcome.research": "“Cari penerbangan ke Roma untuk minggu depan.” Tugas yang lebih lama berjalan di latar belakang, jadi Anda bisa langsung menulis pesan berikutnya.",
-    "assistant.welcome.chats": "“Obrolan mana yang menunggu saya?” Asisten menampilkan daftar dan membaca obrolan Anda yang lain. Sebelum mengirim pesan ke obrolan, atau memulai, menghentikan, atau mengarsipkan obrolan, asisten bertanya kepada Anda.",
+    "assistant.welcome.chats": "“Obrolan mana yang menunggu saya?” Asisten menampilkan daftar dan membaca obrolan Anda yang lain. Sebelum mengirim pesan ke obrolan, atau memulai, menghentikan, atau mengarsipkan obrolan, asisten bertanya kepada Anda. Dalam mode izin Auto, Tinjauan otomatis yang memutuskan.",
     "feature.plannedSteps": "Langkah terencana",
     "feature.plannedSteps.description": "Agen dapat merencanakan perintah berikutnya beserta argumen persisnya dan sebuah syarat, misalnya “jalankan tes jika build berhasil”. Jika hasilnya memenuhi syarat, Composer Plus menjalankan langkah berikutnya tanpa panggilan model baru, sehingga obrolan memakai lebih sedikit token. Hanya bash, read, grep, dan glob; persetujuan dan sandbox tetap berlaku. Syarat yang tidak terpenuhi, dua langkah sekaligus, atau pesan baru Anda mengembalikan giliran ke model. Menambahkan satu alat dan instruksi singkat ke setiap obrolan.",
     "planned.down": "Tidak dapat menyimpan pengaturan ini: {error}",
