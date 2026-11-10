@@ -3708,6 +3708,7 @@
     "assistant.retry": "Tekrar dene",
     "assistant.restart": "Asistan'ı kullanmak için dsh’yi yeniden başlatın.",
     "assistant.down": "Bu ayar kaydedilemedi: {error}",
+    "assistantName.label": "Asistan adı",
     "assistant.welcome.title": "Kişisel asistanınız",
     "assistant.welcome.intro": "Küçük işler için tek ve kalıcı bir sohbet. Ona bir insana yazar gibi yazın, örneğin:",
     "assistant.welcome.remind": "“2 dakika sonra bana su içmemi hatırlat.” dsh'nin zamanlanmış görevleriyle hatırlatma ve otomasyon kurar.",

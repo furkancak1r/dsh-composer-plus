@@ -2248,6 +2248,7 @@
     "assistant.retry": "再試行",
     "assistant.restart": "アシスタントを使うには dsh を再起動してください。",
     "assistant.down": "この設定を保存できませんでした：{error}",
+    "assistantName.label": "アシスタントの名前",
     "assistant.welcome.title": "あなたのパーソナルアシスタント",
     "assistant.welcome.intro": "小さな用事のための、長く続く 1 つのチャットです。人に頼むように書いてください。例：",
     "assistant.welcome.remind": "「2 分後に水を飲むようリマインドして」dsh のスケジュールされたタスクでリマインダーと自動化を設定します。",

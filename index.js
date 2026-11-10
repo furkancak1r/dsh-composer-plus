@@ -9076,9 +9076,13 @@ export const ASSISTANT_ASK = ['chat_send', 'chat_new', 'chat_stop', 'chat_archiv
 export const ASSISTANT_PRESET = 'workspace-write';
 export const ASSISTANT_TITLE = 'Assistant';
 export const ASSISTANT_LIMITS = { text: 8000, list: 200, listDefault: 50, read: 50, readDefault: 10, message: 4000, readTotal: 24000, title: 120 };
-/** The assistant's instructions; `{zone}` is the Mac's time zone. */
+/** The name that the user gave the assistant (Settings → Composer Plus → Assistant name, `assistant-name.json`): one line
+ * of at most ASSISTANT_NAME_MAX characters, trimmed; '' is the default (the localized "Assistant"). Else undefined. */
+export const ASSISTANT_NAME_MAX = 40;
+export const assistantName = (v) => (typeof v === 'string' && v.trim().length <= ASSISTANT_NAME_MAX && !/[\p{Cc}\u2028\u2029]/u.test(v) ? v.trim() : undefined);
+/** The assistant's instructions; `{zone}` is the Mac's time zone, `{name}` the user's name for it (empty: none). */
 export const ASSISTANT_SECTION = `# Assistant (Composer Plus)
-You are the user's personal assistant in this chat. The user gives you small tasks.
+You are the user's personal assistant in this chat.{name} The user gives you small tasks.
 - Answer in the user's language. Keep answers short and direct.
 - Talk like a friend who works in the background: this chat must stay free for the next message. Each task that needs more than a quick answer (research, several tool calls, waiting): start it with the subagent tool in the background (run_in_background true when the tool has it), say in one line what you started, and end your turn at once. Do not wait, sleep or poll. Each topic is its own subagent; when the user opens a new topic, start another one, do not stop or merge the running ones. When a subagent finishes, dsh tells you: give the user its result in a few lines and name its topic. A message about a running topic goes to that subagent (send_message). Do short answers, reminders and the tools below yourself.
 - Reminders ("remind me"): use schedule_create (target this_session when the tool has a target). The user's time zone is {zone}.
@@ -9151,8 +9155,12 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: assistant: ${text}`);
   const sw = mobileSwitch(join(dir, 'assistant-switch.json'), true);
-  // Fixed for the dsh run, so the prompt stays the same and the provider's cache holds.
-  const section = ASSISTANT_SECTION.replace('{zone}', zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC');
+  // Fixed for the dsh run (it changes only with the name), so the prompt stays the same and the provider's cache holds.
+  const base = ASSISTANT_SECTION.replace('{zone}', zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC');
+  const names = settingsStore(join(dir, 'assistant-name.json'), (v) => ({ name: assistantName(v?.name) ?? '' }));
+  let name = ''; let section;
+  const setName = (next) => { name = next; section = base.replace('{name}', () => (name === '' ? '' : ` Your name is ${name}.`)); };
+  setName('');
   const saved = settingsStore(join(dir, 'assistant.json'), (v) => (isText(v?.sessionId, 128) ? { sessionId: v.sessionId } : {}));
   let on = false;
   let assistantId; // the chat id in assistant.json
@@ -9433,22 +9441,28 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     if (on && unroute === undefined) unroute = ctx.connection.fetch.register(route) ?? (() => {});
     else if (!on && unroute !== undefined) { const off = unroute; unroute = undefined; await Promise.resolve(off()).catch(() => {}); }
   };
-  const ready = saved.read().then((v) => { assistantId = v.sessionId; }, () => {}).then(() => sw.read()).then(apply, () => apply(false));
+  const ready = names.read().then((v) => setName(v.name), () => {}).then(() => saved.read()).then((v) => { assistantId = v.sessionId; }, () => {})
+    .then(() => sw.read()).then(apply, () => apply(false));
   ctx.effect?.(() => () => { on = false; fiber?.dispose?.(); fiber = undefined; for (const id of [...mounted.keys()]) unmount(id); }, 'dsh-composer-plus: assistant');
   let switching = ready;
   ctx.connection.fetch.register({
     path: ASSISTANT_SWITCH_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    /** GET: `{on, name}`. POST `{on}`: the switch; POST `{name}`: the assistant's name ('' = the default). */
     fetch: async (request) => {
       await ready;
       if (request.method === 'POST') {
         let body;
         try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
-        if (!plainObject(body) || Object.keys(body).join() !== 'on' || typeof body.on !== 'boolean') return json({ error: 'bad request' }, 400);
-        const change = switching.then(async () => { await sw.write(body.on); await apply(body.on); });
+        const key = plainObject(body) ? Object.keys(body).join() : '';
+        const next = key === 'name' ? assistantName(body.name) : undefined;
+        const write = key === 'on' && typeof body.on === 'boolean' ? async () => { await sw.write(body.on); await apply(body.on); }
+          : next !== undefined ? async () => { await names.change(() => ({ name: next })); setName(next); } : undefined;
+        if (write === undefined) return json({ error: 'bad request' }, 400);
+        const change = switching.then(write);
         switching = change.catch(() => {});
         try { await change; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
       }
-      return json({ on });
+      return json({ on, name });
     },
   });
   /** Another feature's tools for the assistant chat: `more()` gives them (an empty list while that feature is off). The
