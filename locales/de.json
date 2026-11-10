@@ -2248,6 +2248,7 @@
     "assistant.retry": "Erneut versuchen",
     "assistant.restart": "Starte dsh neu, um den Assistenten zu nutzen.",
     "assistant.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
+    "assistantName.label": "Name des Assistenten",
     "assistant.welcome.title": "Dein persönlicher Assistent",
     "assistant.welcome.intro": "Ein dauerhafter Chat für kleine Aufgaben. Schreib ihm wie einem Menschen, zum Beispiel:",
     "assistant.welcome.remind": "„Erinnere mich in 2 Minuten daran, Wasser zu trinken.“ Er legt Erinnerungen und Automatisierungen mit den geplanten Aufgaben von dsh an.",

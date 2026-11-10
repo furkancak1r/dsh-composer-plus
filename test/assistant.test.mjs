@@ -107,15 +107,15 @@ const call = async (path, method = 'GET', body) => {
 };
 
 // On by default (no switch file yet): the route and the section are there, but no chat until the first open.
-assert.deepEqual((await call(ASSISTANT_SWITCH_PATH)).body, { on: true });
+assert.deepEqual((await call(ASSISTANT_SWITCH_PATH)).body, { on: true, name: '' });
 assert.equal(routes.has(ASSISTANT_PATH), true, 'the assistant route without a click'); assert.equal(sections.size, 1); assert.equal(fibers, 1); assert.equal(created, 0);
 assert.equal((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: 'yes' })).status, 400);
 // Off: no route, no section, no tools.
-assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: false })).body, { on: false });
+assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: false })).body, { on: false, name: '' });
 assert.equal(routes.has(ASSISTANT_PATH), false, 'no assistant route while off'); assert.equal(sections.size, 0); assert.equal(fibers, 0);
 
 // On: the route makes the folder, the project and one chat with the narrowest preset.
-assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: true })).body, { on: true });
+assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: true })).body, { on: true, name: '' });
 assert.equal(JSON.parse(await readFile(join(home, 'storages/dsh-composer-plus/assistant-switch.json'), 'utf8')).on, true);
 createGate = new Promise((r) => setTimeout(r, 20));
 const [a1, a2] = await Promise.all([call(ASSISTANT_PATH), call(ASSISTANT_PATH)]);
@@ -282,7 +282,7 @@ assert.equal(keptFirst, true, 'the task is kept before the message goes');
 assert.equal(host.tasks.has(`s-assistant-${created}`), false, 'no task without its message'); assert.ok(archived.has(`s-assistant-${created}`), 'archived');
 
 // Off: the route, the section and every tool and restriction go; on again: back once, without a second route.
-assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: false })).body, { on: false });
+assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: false })).body, { on: false, name: '' });
 assert.equal(routes.has(ASSISTANT_PATH), false); assert.equal(sections.size, 0); assert.equal(fibers, 0);
 assert.equal(agents.get('s-assistant-3').registered.size, 0); assert.equal(sub.restrictions.length, 0);
 await assert.rejects(host.tools.find((t) => t.name === 'chats_list').execute({}, { agent: agents.get('s-assistant-3') }), /only in the Composer Plus assistant chat/, 'a kept reference refuses while off');

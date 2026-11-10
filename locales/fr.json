@@ -2248,6 +2248,7 @@
     "assistant.retry": "Réessayer",
     "assistant.restart": "Redémarrez dsh pour utiliser l’Assistant.",
     "assistant.down": "Impossible d’enregistrer ce réglage : {error}",
+    "assistantName.label": "Nom de l’assistant",
     "assistant.welcome.title": "Votre assistant personnel",
     "assistant.welcome.intro": "Une discussion durable pour les petites tâches. Écrivez-lui comme à une personne, par exemple :",
     "assistant.welcome.remind": "« Rappelle-moi de boire de l’eau dans 2 minutes. » Il crée des rappels et des automatisations avec les tâches planifiées de dsh.",

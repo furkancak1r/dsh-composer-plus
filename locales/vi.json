@@ -2248,6 +2248,7 @@
     "assistant.retry": "Thử lại",
     "assistant.restart": "Khởi động lại dsh để dùng Trợ lý.",
     "assistant.down": "Không thể lưu cài đặt này: {error}",
+    "assistantName.label": "Tên trợ lý",
     "assistant.welcome.title": "Trợ lý cá nhân của bạn",
     "assistant.welcome.intro": "Một cuộc trò chuyện lâu dài cho các việc nhỏ. Hãy viết cho trợ lý như viết cho một người, ví dụ:",
     "assistant.welcome.remind": "“Nhắc tôi uống nước sau 2 phút.” Trợ lý đặt lời nhắc và tự động hóa bằng các tác vụ theo lịch của dsh.",

@@ -2248,6 +2248,7 @@
     "assistant.retry": "Coba lagi",
     "assistant.restart": "Mulai ulang dsh untuk menggunakan Asisten.",
     "assistant.down": "Tidak dapat menyimpan pengaturan ini: {error}",
+    "assistantName.label": "Nama asisten",
     "assistant.welcome.title": "Asisten pribadi Anda",
     "assistant.welcome.intro": "Satu obrolan tetap untuk tugas-tugas kecil. Tulis kepadanya seperti kepada orang, misalnya:",
     "assistant.welcome.remind": "“Ingatkan saya minum air dalam 2 menit.” Asisten membuat pengingat dan otomatisasi dengan tugas terjadwal dsh.",
