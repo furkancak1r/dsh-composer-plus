@@ -10115,6 +10115,40 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     const summary = summaries.of(sessionId);
     return { tasks, projects, ...(summary === undefined ? {} : { summary }), at: now() };
   };
+  /** The subagent tasks' result lines in the UI language `lang` (the subagents write English; the user reads the panel).
+   * The lines that are not in the cache go to one model call (dsh's default model, no tools) in the background, so the
+   * panel answers at once; `translating: true` tells the panel to read again soon. The cache key is the sha256 of the
+   * language and the line, so the same line is never sent twice (also while its call runs). A line that is not
+   * translated (yet, or the call failed) is left out: the panel shows no result for it. English needs no call.
+   * Delegated chats (`chat`) are left as they are.
+   * ponytail: the cache lives as long as dsh runs (at most STATUS_TRANSLATED lines, the oldest goes first). */
+  const translated = new Map(); // sha256(lang \n line) → translated line, or '' when it failed
+  const asking = new Set(); // the keys of the lines that a running call translates
+  let queue = Promise.resolve(); // one call at a time
+  const keyOf = (lang, line) => createHash('sha256').update(`${lang}\n${line}`).digest('hex');
+  const localize = (tasks, lang) => {
+    if (!STATUS_LANG.test(lang) || /^en(-|$)/i.test(lang)) return { tasks };
+    const lines = [...new Set(tasks.filter((t) => !t.chat && isText(t.result)).map((t) => t.result))]
+      .filter((l) => !translated.has(keyOf(lang, l)) && !asking.has(keyOf(lang, l)));
+    const llm = get('llm'); const selection = get('agentDefaultModel')?.currentSelection?.();
+    if (lines.length > 0 && llm?.prepareCall !== undefined && isText(selection?.provider) && isText(selection?.model)) {
+      for (const l of lines) asking.add(keyOf(lang, l));
+      queue = queue.then(async () => {
+        const out = await memoryModelCall(llm, { provider: selection.provider, model: selection.model }, statusTranslateSystem(lang), JSON.stringify(lines), STATUS_LIMITS.result * lines.length + 400)
+          .then((answer) => parseStatusLines(answer, lines.length), () => undefined);
+        // A failed call is not tried again for these lines while dsh runs: no repeated calls for the same text.
+        lines.forEach((l, i) => { translated.set(keyOf(lang, l), out?.[i] ?? ''); asking.delete(keyOf(lang, l)); });
+        while (translated.size > STATUS_TRANSLATED) translated.delete(translated.keys().next().value);
+      }).catch(() => { for (const l of lines) asking.delete(keyOf(lang, l)); });
+    }
+    const shown = tasks.map((t) => {
+      if (t.chat || !isText(t.result)) return t;
+      const line = translated.get(keyOf(lang, t.result));
+      if (line) return { ...t, result: line };
+      const { result, ...rest } = t; void result; return rest; // not translated (yet, or the call failed): no English line
+    });
+    return { tasks: shown, ...(asking.size > 0 ? { translating: true } : {}) };
+  };
   ctx.connection.fetch.register({
     path: ASSISTANT_TODOS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     /** GET: `{on}`, with `?sessionId=` also `{items}`. POST `{on}`: the switch. POST `{sessionId, id, action}`: `remove`, or
@@ -10133,7 +10167,9 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
           if (!on || w === undefined || !assistant.isAssistant(get('agents')?.get?.(asked))) return json({ error: 'not found' }, 404);
           return json({ project: w.id, ...(await statusGit(ctx.subprocess, w.path, request.signal)) });
         }
-        return json({ ...view(asked), ...(await status(asked, request.signal, query.get('refresh') === '1')) });
+        const found = await status(asked, request.signal, query.get('refresh') === '1');
+        const lang = query.get('lang') ?? '';
+        return json({ ...view(asked), ...found, ...(Array.isArray(found.tasks) && lang !== '' ? localize(found.tasks, lang) : {}) });
       }
       let body;
       try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
@@ -10177,6 +10213,19 @@ export const STATUS_LIMITS = { projects: 8, text: 600, project: 120, tasks: 20, 
 export const STATUS_SECTION = `# Assistant status panel (Composer Plus)
 The status panel at the right side of this chat shows the user's to-do list, the tasks that you gave to subagents and the projects that changed today. When you write a summary of the projects (for example the morning summary), call status_summary_set with one short text per project (1 or 2 sentences each, at most ${STATUS_LIMITS.projects} projects): the panel shows it at the top. Then write only one sentence in the chat.`;
 const headLine = (text, max) => cutEnd(String(text ?? '').trim().split('\n').find((l) => l.trim() !== '')?.trim() ?? '', max);
+const STATUS_TRANSLATED = 500;
+/** A UI language for the panel's task lines: a BCP 47 tag; English (and no tag) needs no translation. */
+const STATUS_LANG = /^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8}){0,3}$/;
+const languageName = (lang) => { try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(lang) ?? lang; } catch { return lang; } };
+const statusTranslateSystem = (lang) => `Translate each line of the JSON array into ${languageName(lang)}. Keep code, file names, paths, commands, numbers and product names as they are. Answer with only a JSON array of strings: one translated line for each input line, in the same order.`;
+/** The translated lines of a statusTranslateSystem answer, or undefined when it is not an array of `count` strings. */
+export function parseStatusLines(answer, count) {
+  const text = String(answer ?? '').replace(/<think>[\s\S]*?<\/think>/g, '');
+  try {
+    const lines = JSON.parse(text.slice(text.indexOf('['), text.lastIndexOf(']') + 1));
+    return Array.isArray(lines) && lines.length === count && lines.every((l) => typeof l === 'string' && l.trim() !== '') ? lines.map((l) => headLine(l, STATUS_LIMITS.result)) : undefined;
+  } catch { return undefined; }
+}
 
 /** The tasks of the assistant chat: its direct subagents from the `subagent/catalog` events of its own log, newest first.
  * `state`: running, waiting (an open approval, question or plan review), failed, done (also max-tokens) or stopped. A task
