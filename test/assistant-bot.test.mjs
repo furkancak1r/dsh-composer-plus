@@ -8,9 +8,9 @@
 //   become one hidden note in the assistant chat (a marker swapped in agent/pre-step), collected for the batch time, at
 //   most one news turn per gap, held while the assistant runs. Short turns, user stops, subagents, archived chats and the
 //   assistant itself give no news. The last reply leaves out what a rollback withdrew (both kinds) and a fork's copy.
-//   Scope "automations" (the default): only a chat that a schedule started (its first own prompt has source.kind
-//   "schedule") gives news, at each turn end (also a short one) and each wait; other chats and a fork of an automation
-//   give none. Scope "all" is the first behavior (the checks above it run with it). The scope stays in the same file.
+//   Scope "automations" (the default): only a turn that a schedule started (the first own prompt of the newest turn has
+//   source.kind "schedule", also in a chat that you started) gives news, at its end (also a short one) and each wait;
+//   other chats, a typed turn and a fork of an automation give none. Scope "all" is the first behavior (the checks above it run with it). The scope stays in the same file.
 import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -258,6 +258,27 @@ await call(ASSISTANT_NOTIFY_PATH, 'POST', { on: false });
 assert.deepEqual(await saved(), { on: false, scope: 'automations' }, 'the switch keeps the scope');
 turn(auto, 'completed', 5000); await pause(80);
 assert.equal(steers.length, base + 3, 'switched off: no news'); assert.deepEqual(bot.pending(), []);
+// A schedule that delivers into a chat that you started by typing: that turn is an automation (its end and its wait);
+// a turn that you type there later is not.
+await call(ASSISTANT_NOTIFY_PATH, 'POST', { on: true }); clock += 200000;
+const typed = newAgent('s-typed', { cwd: '/home/demo/Assistant' }, [{ seq: 0, type: 'turn/start' }, um(1, 'set up audit'), am(2, 'Done.'), { seq: 3, type: 'turn/end' }, { seq: 4, type: 'turn/start' }, sched(5, '[SCHEDULE REMINDER] audit'), am(6, 'Audit: 2 findings.')]);
+const before = steers.length;
+turn(typed, 'completed', 5000);
+await until(() => steers.length === before + 1, 'one wake for the scheduled turn of a typed chat');
+const typedStep = await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }));
+assert.match(typedStep.messages[0].content[0].text, /\(project "Assistant", chat s-typed, an automation\): finished\. Last reply: "Audit: 2 findings\."/);
+clock += 200000;
+typed.events.push({ seq: 7, type: 'turn/end' }, { seq: 8, type: 'turn/start' }, sched(9, '[SCHEDULE REMINDER] audit'), { seq: 10, type: 'approval/asked', data: { id: 't' } });
+emit('session/event', typed.session, { type: 'turn/start', time: clock });
+emit('session/event', typed.session, { type: 'approval/asked', data: { id: 't' } });
+await until(() => steers.length === before + 2, 'the wait of a scheduled turn');
+const typedWait = await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }));
+assert.match(typedWait.messages[0].content[0].text, /chat s-typed, an automation\): waits for your approval/);
+clock += 200000;
+typed.events.push({ seq: 11, type: 'approval/decided', data: { id: 't' } }, { seq: 12, type: 'turn/end' }, { seq: 13, type: 'turn/start' }, um(14, 'thanks'), am(15, 'You are welcome.'));
+turn(typed, 'completed', 5000);
+await pause(80); await bot.flush();
+assert.equal(steers.length, before + 2, 'a turn that you typed in that chat is no news'); assert.deepEqual(bot.pending(), []);
 // The saved file at the next start: no scope (an older copy's file) reads as automations; "all" stays.
 const startWith = async (text) => {
   await writeFile(join(home, 'storages/dsh-composer-plus/assistant-notify.json'), text);

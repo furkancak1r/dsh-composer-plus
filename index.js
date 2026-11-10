@@ -9603,18 +9603,18 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   const notes = new Map(); // assistant agent id → the note that its next step gets
   let flushTimer; let lastWake = -Infinity; let afterIdle = false; let closed = false;
   const watched = (session) => notifyOn && assistant.isOn() && isText(assistant.id()) && isText(session?.id) && session.id !== assistant.id() && isRootChat(session) && !archived(session.id);
-  // ponytail: one entry per chat that ended a turn in this dsh run (a chat's first message does not change).
-  const automations = new Map(); // chat id → whether a schedule started it
-  /** True for a chat that a schedule started (an automation): its first own prompt (after a fork's copy of its parent; a typed
-   * prompt or a scheduled delivery, not dsh's context messages) is dsh's scheduled delivery (`source.kind: 'schedule'`). */
+  /** True for a turn that a schedule started (an automation), also in a chat that you started: the first own prompt (a typed
+   * prompt or a scheduled delivery, not dsh's context messages; not a fork's copy of its parent) of the newest turn that has
+   * one is dsh's scheduled delivery (`source.kind: 'schedule'`). A turn without one (a subagent's result, a resume) continues
+   * the turn before it. Read from the end: no cache, so a typed turn in an automation chat is not an automation. */
   const automation = (session) => {
-    if (automations.has(session.id)) return automations.get(session.id);
-    const agent = live(session.id);
+    const agent = live(session.id); const events = eventsOf(agent);
     const from = Number.isSafeInteger(agent?.session?.inheritedEventCount) && agent.session.inheritedEventCount > 0 ? agent.session.inheritedEventCount : 0;
-    const first = eventsOf(agent).slice(from).find((e) => e.type === 'user/message' && ['user', 'schedule'].includes(e.data?.source?.kind));
-    if (first === undefined) return false; // no prompt yet: ask again at its next turn end
-    automations.set(session.id, first.data?.source?.kind === 'schedule');
-    return automations.get(session.id);
+    let first;
+    for (let i = events.length - 1; i >= from && !(events[i].type === 'turn/start' && first !== undefined); i--) {
+      if (events[i].type === 'user/message' && ['user', 'schedule'].includes(events[i].data?.source?.kind)) first = events[i];
+    }
+    return first?.data?.source?.kind === 'schedule';
   };
   const clearAll = () => { pending.clear(); starts.clear(); for (const t of waits.values()) clearTimeout(t); waits.clear(); clearTimeout(flushTimer); flushTimer = undefined; afterIdle = false; };
   const schedule = (ms) => { if (flushTimer === undefined && !closed) { flushTimer = setTimeout(flush, Math.max(0, ms)); flushTimer.unref?.(); } };
