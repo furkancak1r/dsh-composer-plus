@@ -34,9 +34,11 @@ const status = { getSnapshot: () => snap, subscribe: (l) => { statusLs.add(l); r
 let byId = {};
 const list = { getSnapshot: () => ({ byId }), subscribe: (l) => { listLs.add(l); return () => listLs.delete(l); } };
 const pub = (m) => { snap = m; for (const l of [...statusLs]) l(); };
-const rows = (open = '') => { byId = Object.fromEntries(['a', 'b', 'c', 'sub'].map((id) => [id, { id, origin: id === 'sub' ? 'subagent' : undefined, retainedBy: { mainView: id === open ? 1 : 0 } }])); for (const l of [...listLs]) l(); };
+const rows = (open = '') => { byId = Object.fromEntries(['a', 'b', 'c', 'sub', 'asst'].map((id) => [id, { id, origin: id === 'sub' ? 'subagent' : undefined, retainedBy: { mainView: id === open ? 1 : 0 } }])); for (const l of [...listLs]) l(); };
 const opened = [];
 const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
+// The Host's assistant-status route: the assistant chat is 'asst'. The other routes are not there.
+globalThis.fetch = async (url) => (String(url) === '/api/composer-plus.assistant-status' ? Response.json({ sessionId: 'asst' }) : new Response('{}', { status: 404 }));
 const fibers = []; let setFeature;
 plugin.apply({
   slots: { inject: (n, f) => f(), register: (o) => { if (o.id === 'composer-plus') setFeature = o.inject().setFeature; return () => {}; } },
@@ -48,6 +50,7 @@ plugin.apply({
   },
 });
 assert.equal(fibers.length, 1, 'on by default');
+for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); // the assistant-status answer
 const ask = (kind) => ({ kind, key: `${kind}:${Math.random()}`, answerable: true });
 const st = (pendingInteraction) => ({ running: false, pendingInteraction, completionUnread: false });
 rows('c');
@@ -151,4 +154,13 @@ advance(30_000); assert.deepEqual(opened, ['c', 'a', 'b'], 'a request still open
 // A subagent's finished turn has no dot of its own: nothing opens.
 rows('c'); pub(new Map()); listeners.get('keydown')(); opened.length = 0;
 pub(new Map([['sub', done()]])); advance(60_000); assert.deepEqual(opened, [], 'green: subagent rows stay quiet');
+
+// The Assistant chat is open: no orange or green chat opens, also after a long idle time. Another chat open (a click):
+// the switch works as before, and the chat that waits longest opens first.
+rows('asst'); pub(new Map()); listeners.get('keydown')(); opened.length = 0;
+pub(new Map([['a', st(ask('question'))], ['b', done()]]));
+advance(120_000); assert.deepEqual(opened, [], 'nothing opens while the Assistant chat is open');
+listeners.get('pointerdown')(); rows('c');
+advance(29_000); assert.deepEqual(opened, []);
+advance(1_000); assert.deepEqual(opened, ['a'], 'another chat open: the switch works as before');
 console.log('idle-switch checks passed');
