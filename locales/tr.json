@@ -3930,6 +3930,8 @@
     "todos.empty": "Madde yok. Aklınızdaki bir işi asistana söyleyin.",
     "todos.ownerUser": "Siz yapacaksınız",
     "todos.ownerAgent": "Asistan yapacak",
+    "todos.groupUser": "Sen yapacaksın",
+    "todos.groupAgent": "{name} yapacak",
     "todos.handover": "Asistana devret: {item}",
     "todos.handoverShort": "Asistana devret",
     "todos.handoverMessage": "Bunu sen yap:",

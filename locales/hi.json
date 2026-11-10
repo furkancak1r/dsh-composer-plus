@@ -2470,6 +2470,8 @@
     "todos.empty": "कोई आइटम नहीं। मन में जो काम है, वह असिस्टेंट को बताएँ।",
     "todos.ownerUser": "आप करेंगे",
     "todos.ownerAgent": "असिस्टेंट करेगा",
+    "todos.groupUser": "आप करेंगे",
+    "todos.groupAgent": "{name} करेगा",
     "todos.handover": "असिस्टेंट को सौंपें: {item}",
     "todos.handoverShort": "असिस्टेंट को सौंपें",
     "todos.handoverMessage": "यह तुम करो:",

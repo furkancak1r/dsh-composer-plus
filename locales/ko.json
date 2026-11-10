@@ -2470,6 +2470,8 @@
     "todos.empty": "항목이 없습니다. 생각하고 있는 작업을 어시스턴트에게 말하세요.",
     "todos.ownerUser": "직접 함",
     "todos.ownerAgent": "어시스턴트가 함",
+    "todos.groupUser": "내 담당",
+    "todos.groupAgent": "{name} 담당",
     "todos.handover": "어시스턴트에게 넘기기: {item}",
     "todos.handoverShort": "어시스턴트에게 넘기기",
     "todos.handoverMessage": "이거 네가 해 줘:",

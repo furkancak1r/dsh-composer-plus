@@ -2470,6 +2470,8 @@
     "todos.empty": "Nenhum item. Diga ao assistente uma tarefa que você tem em mente.",
     "todos.ownerUser": "Você faz",
     "todos.ownerAgent": "O assistente faz",
+    "todos.groupUser": "Você vai fazer",
+    "todos.groupAgent": "{name} vai fazer",
     "todos.handover": "Dar ao assistente: {item}",
     "todos.handoverShort": "Dar ao assistente",
     "todos.handoverMessage": "Faça isso você:",

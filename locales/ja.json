@@ -2470,6 +2470,8 @@
     "todos.empty": "項目はありません。考えているタスクをアシスタントに伝えてください。",
     "todos.ownerUser": "あなたが行う",
     "todos.ownerAgent": "アシスタントが行う",
+    "todos.groupUser": "あなたがやる",
+    "todos.groupAgent": "{name}がやる",
     "todos.handover": "アシスタントに任せる：{item}",
     "todos.handoverShort": "アシスタントに任せる",
     "todos.handoverMessage": "これをやって：",

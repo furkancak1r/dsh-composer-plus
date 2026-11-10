@@ -124,7 +124,7 @@ const card = find(root, (n) => n.p?.className === 'cp-st-summary')[0]; assert.ok
 assert.match(text(card), /Login page done\./); assert.match(text(card), /Not in the list\./);
 const link = find(card, (n) => n.t === 'button' && n.p.className === 'cp-st-link'); assert.equal(link.length, 1, 'only a listed project is a link');
 // To-do items.
-assert.match(text(root), /Prosolocal'i internete açmak/); assert.match(text(root), /todos\.ownerUser/); assert.match(text(root), /todos\.ownerAgent/);
+assert.match(text(root), /Prosolocal'i internete açmak/); assert.match(text(root), /Rapor yaz/);
 const handover = find(root, (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? ''));
 assert.equal(handover.length, 1, 'Hand over only for an item of the user');
 // Tasks: state, time, result; a click opens its chat.
@@ -167,10 +167,43 @@ assert.equal(mem.get('dsh-composer-plus.status-summary-hidden'), String(NOW));
 summary = { at: NOW - 86400000 * 2, projects: [{ project: 'acme-web', text: 'Old.' }] }; mem.delete('dsh-composer-plus.status-summary-hidden');
 await panelProps.store.load('s-assistant'); rt.clear(); tree = panel(); assert.equal(find(tree, (n) => n.p?.className === 'cp-st-summary').length, 0, 'only today\'s summary');
 
+// Owner groups: the user's items first, then the assistant's, each header with a count; no owner line in a row; a
+// header (aria-expanded, aria-controls) folds its group and the folded groups stay folded in this browser.
+const todoSection = (tr) => find(tr, (n) => n.t === 'section' && /-todos$/.test(n.p['aria-labelledby'] ?? ''))[0];
+const groups = (tr) => find(todoSection(tr), (n) => n.t === 'button' && n.p.className === 'cp-td-group');
+const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
+{
+  const saved = items;
+  items = [{ id: '11111111', text: 'U1', owner: 'user', created: 1 }, { id: '22222222', text: 'A1', owner: 'agent', created: 2 }, { id: '33333333', text: 'U2', owner: 'user', created: 3 },
+    { id: '44444444', text: 'A2', owner: 'agent', created: 4 }, { id: '55555555', text: 'A3', owner: 'agent', created: 5 }];
+  await panelProps.store.load('s-assistant');
+  let g = groups(panel());
+  assert.deepEqual(g.map((b) => [b.p['data-owner'], b.p['aria-expanded']]), [['user', true], ['agent', true]], 'two groups, the user\'s first, both open');
+  assert.match(text(g[0]), /todos\.groupUser\s+2$/); assert.match(text(g[1]), /todos\.groupAgent:\{"name":"assistant\.title"\}\s+3$/, 'no Assistant name: the localized label');
+  { rt.reset(); const out = Panels({ ...panelProps, names: { subscribe: () => () => {}, getSnapshot: () => ({ on: true, name: 'Damon' }) }, useSessions, useSessionStatus, t });
+    const inner = out.c[0][0].portal; rt.reset();
+    assert.match(text(groups(inner.t(inner.p))[1]), /todos\.groupAgent:\{"name":"Damon"\}/, 'the Assistant name from Settings'); }
+  assert.ok(g.every((b) => find(b, (n) => n.p?.['aria-hidden'] === true && /[▸▾]/.test(text(n))).length === 1), 'the arrow is aria-hidden');
+  let lists = groupLists(panel());
+  assert.deepEqual(lists.map((l) => find(l, (n) => n.p?.className === 'cp-td-text').map(text)), [['U1', 'U2'], ['A1', 'A2', 'A3']], 'each item in its owner\'s group');
+  assert.deepEqual(lists.map((l) => l.p.id), g.map((b) => b.p['aria-controls']), 'each header controls its list');
+  assert.doesNotMatch(text(todoSection(panel())), /todos\.owner/, 'no owner line in a row');
+  assert.equal(find(lists[1], (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? '')).length, 0, '→ only in the user\'s group');
+  assert.equal(find(lists[1], (n) => n.t === 'button' && /todos\.remove:/.test(n.p['aria-label'] ?? '')).length, 3, '× in both groups');
+  g[1].p.onClick(); g = groups(panel()); lists = groupLists(panel());
+  assert.deepEqual(g.map((b) => b.p['aria-expanded']), [true, false], 'a click folds the group'); assert.deepEqual(lists.map((l) => l.p.hidden), [false, true]);
+  assert.equal(mem.get('dsh-composer-plus.status-todo-groups-closed'), 'agent', 'kept in this browser');
+  rt.clear(); assert.equal(groups(panel())[1].p['aria-expanded'], false, 'still folded after the panel opens again');
+  groups(panel())[1].p.onClick(); assert.equal(groups(panel())[1].p['aria-expanded'], true, 'a second click opens it');
+  assert.equal(mem.get('dsh-composer-plus.status-todo-groups-closed'), '');
+  items = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
+}
+
 // Hand over and Remove.
 handover.length && find(tree, (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? ''))[0].p.onClick(); await tick();
 assert.deepEqual(posts.at(-1), { sessionId: 's-assistant', id: 'aaaaaaaa', action: 'handover', prefix: 'todos.handoverMessage' });
 tree = panel(); assert.equal(find(tree, (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? '')).length, 0, 'now the assistant does it');
+assert.deepEqual(groups(tree).map((b) => [b.p['data-owner'], text(b).trim().split(/\s+/).at(-1)]), [['agent', '2']], 'the handed-over item moves to the assistant\'s group; the empty group does not show');
 find(tree, (n) => n.t === 'button' && /todos\.remove:.*Rapor/.test(n.p['aria-label'] ?? ''))[0].p.onClick(); await tick();
 assert.deepEqual(posts.at(-1), { sessionId: 's-assistant', id: 'bbbbbbbb', action: 'remove' });
 assert.doesNotMatch(text(panel()), /Rapor yaz/);
