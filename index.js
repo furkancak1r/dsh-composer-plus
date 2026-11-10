@@ -7068,7 +7068,7 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
     // preferences reach it; it is never reviewed (its task text is another agent's, not the user's words).
     const header = agent?.session?.header;
     const subagent = header?.origin === 'subagent';
-    const cwd = subagent ? memoryFolder(agent.session) : folderOf(header);
+    const cwd = memoryFolder(agent?.session);
     if (!on || cwd === undefined || !isText(agent.id) || offFor(agent.id)) return '';
     if (frozen.has(agent.id)) return frozen.get(agent.id);
     let text;
