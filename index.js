@@ -7055,12 +7055,20 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
   let on = false;
   let fiber;
   const folderOf = (header) => (header?.origin !== 'subagent' && isText(header?.cwd, 4096) && isAbsolute(header.cwd) ? header.cwd : undefined);
+  /** The memory folder of a chat: its header folder (dsh's project folder). A subagent uses its working directory: dsh puts
+   * the parent's folder in a subagent's header and then changes it to the folder of its task (the `cwd` of `subagent`). */
+  const memoryFolder = (session) => {
+    let cwd;
+    if (session?.header?.origin === 'subagent') { try { cwd = get('workingDirectory')?.get?.(session); } catch { cwd = undefined; } } // dsh 0.2.0 has none
+    if (!isText(cwd, 4096) || !isAbsolute(cwd)) cwd = session?.header?.cwd;
+    return isText(cwd, 4096) && isAbsolute(cwd) ? cwd : undefined;
+  };
   const sectionFor = (agent) => {
     // A subagent (subagent, subagent_fork, workflow agent) reads the notes of its own folder too, so the user's saved
     // preferences reach it; it is never reviewed (its task text is another agent's, not the user's words).
     const header = agent?.session?.header;
     const subagent = header?.origin === 'subagent';
-    const cwd = subagent ? (isText(header?.cwd, 4096) && isAbsolute(header.cwd) ? header.cwd : undefined) : folderOf(header);
+    const cwd = memoryFolder(agent?.session);
     if (!on || cwd === undefined || !isText(agent.id) || offFor(agent.id)) return '';
     if (frozen.has(agent.id)) return frozen.get(agent.id);
     let text;
@@ -7081,9 +7089,9 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
       } finally { observation[Symbol.dispose]?.(); }
     } catch { return agent.id; }
   };
-  /** The tool caller's project, or a refusal. Subagents use their own folder header too. */
+  /** The tool caller's project, or a refusal. A subagent uses its working directory (`memoryFolder`). */
   const callerScope = (exec, scopeArg) => {
-    const cwd = isText(exec?.agent?.session?.header?.cwd, 4096) && isAbsolute(exec.agent.session.header.cwd) ? exec.agent.session.header.cwd : undefined;
+    const cwd = memoryFolder(exec?.agent?.session);
     if (scopeArg !== undefined && scopeArg !== 'project' && scopeArg !== 'global') throw refused('scope is "project" or "global".');
     if (scopeArg === 'global') return store.GLOBAL;
     if (cwd === undefined) throw refused('This chat has no project folder, so it has no project memory. Use scope "global".');
