@@ -308,6 +308,26 @@
       }
     },
     {
+      "id": "subagentRunning",
+      "shot": "subagentRunning",
+      "llms": "dsh's subagent counter in the chat header shows the subagents that run now (also 0) instead of all the subagents that the chat ever had. The open list shows the total on its first line. Switched off, dsh's own counter (the total) shows again.",
+      "how": {
+        "en": "The subagent counter in the chat header shows how many subagents run now, for example \"3 subagents running\". When none runs, it shows \"0 subagents running\". Click the counter: the list opens as before, and its first line shows the total of the chat's subagents (\"Subagents in total: 37\"). Without this feature, dsh's counter shows the total, also the subagents that finished.",
+        "zh": "对话标题栏中的子代理计数显示当前正在运行的子代理数量，例如 「3 个子智能体，正在运行」。没有子代理运行时显示 「0 个子智能体，正在运行」。点击计数：列表照常打开，第一行显示该对话的子代理总数（「共 37 个子智能体」）。没有本功能时，dsh 的计数显示总数，也包括已完成的子代理。",
+        "tr": "Sohbet başlığındaki alt ajan sayacı, şu an çalışan alt ajanların sayısını gösterir, örneğin \"3 alt ajan çalışıyor\". Hiçbiri çalışmıyorsa \"0 alt ajan çalışıyor\" yazar. Sayaca tıklayın: liste her zamanki gibi açılır, ilk satırı sohbetin tüm alt ajanlarının sayısını gösterir (\"Toplam 37 alt ajan\"). Bu özellik olmadan dsh'nin sayacı, biten alt ajanlar dahil toplamı gösterir.",
+        "es": "El contador de subagentes de la cabecera del chat muestra cuántos subagentes se ejecutan ahora. Cuando no se ejecuta ninguno, muestra 0. Haz clic en el contador: la lista se abre como antes y su primera línea muestra el total de subagentes del chat (\"Total de subagentes: 37\"). Sin esta función, el contador de dsh muestra el total, también los subagentes que terminaron.",
+        "pt-BR": "O contador de subagentes no cabeçalho do chat mostra quantos subagentes estão em execução agora, por exemplo \"3 subagentes em execução\". Quando nenhum está em execução, mostra \"0 subagentes em execução\". Clique no contador: a lista abre como antes e a primeira linha mostra o total de subagentes do chat (\"Total de subagentes: 37\"). Sem este recurso, o contador do dsh mostra o total, também os subagentes que terminaram.",
+        "fr": "Le compteur de sous-agents de l’en-tête de la conversation indique combien de sous-agents sont en cours maintenant. Quand aucun n’est en cours, il indique 0. Cliquez sur le compteur : la liste s’ouvre comme avant, et sa première ligne affiche le total des sous-agents de la conversation (« Sous-agents au total : 37 »). Sans cette fonctionnalité, le compteur de dsh affiche le total, y compris les sous-agents terminés.",
+        "de": "Der Subagent-Zähler in der Chat-Kopfzeile zeigt, wie viele Subagents gerade laufen. Läuft keiner, zeigt er 0. Klicke auf den Zähler: Die Liste öffnet sich wie bisher, und ihre erste Zeile zeigt die Gesamtzahl der Subagents des Chats (\"Subagents insgesamt: 37\"). Ohne diese Funktion zeigt der Zähler von dsh die Gesamtzahl, auch die beendeten Subagents.",
+        "ru": "Счётчик субагентов в заголовке чата показывает, сколько субагентов работает сейчас. Когда ни один не работает, он показывает 0. Нажмите на счётчик: список открывается как раньше, а его первая строка показывает общее число субагентов чата («Всего субагентов: 37»). Без этой функции счётчик dsh показывает общее число, включая завершённых субагентов.",
+        "ja": "チャットのヘッダーにあるサブエージェントの数は、今実行中のサブエージェントの数を示します。実行中のものがないときは 0 を示します。数をクリックすると一覧がこれまでどおり開き、1 行目にそのチャットのサブエージェントの合計が表示されます（「サブエージェント合計 37 個」）。この機能がない場合、dsh の数は終了したサブエージェントも含めた合計を示します。",
+        "ko": "채팅 헤더의 하위 에이전트 수는 지금 실행 중인 하위 에이전트 수를 보여 줍니다(예: \"하위 에이전트 3개 실행 중\"). 실행 중인 것이 없으면 \"하위 에이전트 0개 실행 중\"으로 표시합니다. 수를 클릭하면 목록이 이전처럼 열리고, 첫 줄에 채팅의 전체 하위 에이전트 수가 표시됩니다(\"전체 하위 에이전트 37개\"). 이 기능이 없으면 dsh의 수는 끝난 하위 에이전트까지 포함한 전체 수를 보여 줍니다.",
+        "id": "Penghitung subagen di header chat menunjukkan berapa subagen yang sedang berjalan, misalnya \"3 subagen berjalan\". Jika tidak ada yang berjalan, penghitung menunjukkan \"0 subagen berjalan\". Klik penghitung: daftar terbuka seperti biasa, dan baris pertamanya menunjukkan total subagen chat (\"Total subagen: 37\"). Tanpa fitur ini, penghitung dsh menunjukkan total, termasuk subagen yang sudah selesai.",
+        "vi": "Bộ đếm subagent trong tiêu đề cuộc trò chuyện cho biết có bao nhiêu subagent đang chạy, ví dụ \"3 subagent đang chạy\". Khi không có subagent nào chạy, bộ đếm hiện \"0 subagent đang chạy\". Bấm vào bộ đếm: danh sách mở ra như trước, và dòng đầu tiên cho biết tổng số subagent của cuộc trò chuyện (\"Tổng cộng 37 subagent\"). Khi không có tính năng này, bộ đếm của dsh hiện tổng số, kể cả các subagent đã xong.",
+        "hi": "चैट हेडर का सबएजेंट काउंटर दिखाता है कि अभी कितने सबएजेंट चल रहे हैं, जैसे \"3 सबएजेंट चल रहे हैं\"। जब कोई नहीं चल रहा हो, तो यह \"0 सबएजेंट चल रहे हैं\" दिखाता है। काउंटर पर क्लिक करें: सूची पहले की तरह खुलती है, और उसकी पहली पंक्ति चैट के कुल सबएजेंट दिखाती है (\"कुल सबएजेंट: 37\")। इस फ़ीचर के बिना dsh का काउंटर कुल संख्या दिखाता है, जिसमें पूरे हो चुके सबएजेंट भी शामिल हैं।"
+      }
+    },
+    {
       "id": "continueButton",
       "shot": "continueButton",
       "llms": "after a stopped, failed or cut-off turn the Send button becomes ▶ and resumes without a visible chat message. Queued messages stay queued: ▶ continues only the stopped task, then the queue runs.",

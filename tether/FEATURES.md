@@ -45,6 +45,7 @@ While a Composer Plus action in this table waits for the Mac, Tether shows a wai
 | keepFocus | no | A desktop browser focus problem. The iPhone keyboard keeps its focus. |
 | questionFit | no | A fix for dsh's question card in the desktop window. Tether shows a question in its own sheet (a scrolling form), where the question and every answer scroll. |
 | headerFit | no | A fix for dsh's chat header in a narrow desktop window. Tether draws its own chat header for the phone screen. |
+| subagentRunning | no | A change of dsh's subagent counter in the desktop chat header. Tether has no subagent list (see its README); the subagents are on the Mac. |
 | windowSize | no | It sizes the Mac desktop app's window. A phone app always fills the phone screen. |
 | queueReorder | yes | Queued message menu → Move up / Move down. Messages with images move too (the Mac's `queue-move` route). |
 | queueEdit | yes | Queued message menu → Edit (a sheet): change the text, keep or remove its images and files, and add photos or files (Add photo or file → Photos / Files). The kept attachments stay as they are and the message keeps its place in the queue. Images and files go through the Mac's `queue-edit` route; with an older plugin, Edit shows only for messages without images or files. While a message is edited or saved, the queue does not move and that message cannot be sent now or removed. |
