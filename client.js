@@ -5809,8 +5809,8 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
         } else if (mark !== null && (mark[2] ?? mark[4])[0] === fence.mark[0] && (mark[2] ?? mark[4]).length >= fence.mark.length && (mark[3] ?? mark[5]).trim() === '') {
           const body = fence.body.join('\n').trim();
           if (fence.approval && approvable(body)) {
-            const label = body.replace(/\s+/g, ' ');
-            out.push({ n: out.length + 1, label: label.length > 120 ? `${label.slice(0, 119)}…` : label, text: body, message: body });
+            // The whole sentence, never cut: the user approves only what they can read.
+            out.push({ n: out.length + 1, label: body.replace(/\s+/g, ' '), text: body, message: body });
           }
           fence = null;
         } else fence.body.push(line);
@@ -5942,6 +5942,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
 .cp-op-btn:hover,.cp-op-btn:focus-visible{background:var(--dsw-alias-interactive-bg-hover)}
 .cp-op-btn[data-recommended]{border-color:var(--dsw-alias-state-business-primary,#3b6cf6)}
 .cp-op-btn:disabled{opacity:.5;cursor:default}
+.cp-op-btn>strong{flex-shrink:0;white-space:nowrap}
 .cp-op-n{color:var(--dsw-alias-label-tertiary);font-variant-numeric:tabular-nums}
 .cp-op-tag{padding:0 5px;border-radius:4px;font-size:11px;line-height:16px;background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.15));color:var(--dsw-alias-label-secondary);white-space:nowrap}
 .cp-op-err{flex-basis:100%;margin:2px 0 0;font-size:12px;color:var(--dsw-alias-state-error-label,#d92d20)}`;
@@ -5979,7 +5980,8 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
         state.error === null ? null : React.createElement('p', { className: 'cp-op-err', role: 'alert' }, t('optionPicks.failed', { error: state.error })));
     }
     /** Approve button: one "Approve" button per `onay` block of the answer that the chat offers now (the same rules and
-     * store as OptionPicks: one send per answer, rule 7). The button shows the sentence that it sends. */
+     * store as OptionPicks: one send per answer, rule 7). The button shows the whole sentence that it sends, on as many
+     * lines as it needs; its "Approve" label stays on one line. */
     function ApproveButtons(props) {
       const { sessionId, seq, picks, t } = props;
       const shown = useAnswerOffer(props, parseApprovals);
