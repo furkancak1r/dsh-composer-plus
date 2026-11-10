@@ -71,7 +71,9 @@ for (const [text, why] of [
   [block('Onaylıyorum: dalı sil ß.'), 'a letter outside the English and Turkish alphabets'],
 ]) assert.deepEqual(sentences(text), [], `no button: ${why}`);
 assert.deepEqual(sentences(block('a'.repeat(500))), ['a'.repeat(500)], '500 characters is the limit');
-assert.equal(parseApprovals(block(`Onaylıyorum: ${'x '.repeat(80)}sil.`))[0].label.length, 120, 'a long sentence: the label is cut, the message is not');
+{ const long = `Onaylıyorum: ${'x '.repeat(240)}sil.`; assert.equal(long.length, 497);
+  assert.equal(parseApprovals(block(long))[0].label, long, 'a long sentence: the button shows all of it, never cut (the user approves only what they read)'); }
+assert.equal(parseApprovals(block('Onaylıyorum:\n  iki   satır.'))[0].label, 'Onaylıyorum: iki satır.', 'the label: white space as one space');
 assert.deepEqual(sentences(block('Onaylıyorum:\nçok satırlı onay.')), ['Onaylıyorum:\nçok satırlı onay.'], 'a sentence over two lines is sent as it is');
 assert.deepEqual(sentences(`\`\`\`js\nx()\n\`\`\`\n${block(PUSH)}`), [PUSH], 'a code block before it is skipped');
 assert.deepEqual(parseOptions(block(PUSH)), [], 'an approval block is no option list');

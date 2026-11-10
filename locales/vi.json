@@ -2253,7 +2253,7 @@
     "assistant.welcome.intro": "Một cuộc trò chuyện lâu dài cho các việc nhỏ. Hãy viết cho trợ lý như viết cho một người, ví dụ:",
     "assistant.welcome.remind": "“Nhắc tôi uống nước sau 2 phút.” Trợ lý đặt lời nhắc và tự động hóa bằng các tác vụ theo lịch của dsh.",
     "assistant.welcome.research": "“Tìm chuyến bay đến Rome vào tuần sau.” Việc dài hơn chạy ở nền, nên bạn có thể viết tin nhắn tiếp theo ngay.",
-    "assistant.welcome.chats": "“Những cuộc trò chuyện nào đang chờ tôi?” Trợ lý liệt kê và đọc các cuộc trò chuyện khác của bạn. Trước khi gửi tin nhắn đến một cuộc trò chuyện, hoặc bắt đầu, dừng hay lưu trữ một cuộc trò chuyện, trợ lý sẽ hỏi bạn.",
+    "assistant.welcome.chats": "“Những cuộc trò chuyện nào đang chờ tôi?” Trợ lý liệt kê và đọc các cuộc trò chuyện khác của bạn. Trước khi gửi tin nhắn đến một cuộc trò chuyện, hoặc bắt đầu, dừng hay lưu trữ một cuộc trò chuyện, trợ lý sẽ hỏi bạn. Ở chế độ quyền Auto, Đánh giá tự động sẽ quyết định thay.",
     "feature.plannedSteps": "Các bước đã lên kế hoạch",
     "feature.plannedSteps.description": "Tác tử có thể lên kế hoạch trước cho các lệnh tiếp theo với đối số chính xác và một điều kiện, ví dụ “chạy kiểm thử khi bản dựng thành công”. Khi kết quả đáp ứng điều kiện, Composer Plus chạy bước tiếp theo mà không gọi lại mô hình, nhờ đó cuộc trò chuyện tốn ít token hơn. Chỉ bash, read, grep và glob; phê duyệt và sandbox vẫn áp dụng. Điều kiện không đạt, hai bước cùng sẵn sàng hoặc tin nhắn mới của bạn sẽ trả lượt lại cho mô hình. Thêm một công cụ và một chỉ dẫn ngắn vào mỗi cuộc trò chuyện.",
     "planned.down": "Không thể lưu cài đặt này: {error}",

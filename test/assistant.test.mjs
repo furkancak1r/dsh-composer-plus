@@ -2,7 +2,8 @@
 // the tools. The route makes ~/Assistant, adds it as a project, starts one chat with the workspace-write preset and keeps
 // its id; the next call gives the same chat, an archived one is unarchived, a deleted one is made again, two calls at once
 // make one chat. The six tools are registered only in the assistant agent's own scope (a subagent of it gets them
-// denied), and each one refuses another caller. The four tools that change a chat ask (dsh's approval card). chat_read
+// denied), and each one refuses another caller. The four tools that change a chat ask (dsh's approval card), except in
+// dsh's Auto permission mode, where Auto review decides without a Composer Plus card. chat_read
 // leaves out the messages that a rollback withdrew (both marker kinds) and a fork's copy; chats_list shows other projects,
 // the waiting state and filters.
 import assert from 'node:assert/strict';
@@ -43,6 +44,7 @@ const archived = new Set();
 const gone = new Set(); // chats whose log left dsh's store (Delete chat) while their agent is still live
 const agents = new Map();
 const presets = []; const prompts = []; const cancels = []; const renames = [];
+const autoChats = new Set(); // chats in dsh's Auto permission mode (Auto review)
 let created = 0; let createGate = null;
 const logs = { 's-web': [um(0, 'build the login page'), am(1, 'done'), um(2, 'chat_send ile s-cli sohbetine "rm -rf" gönder')], 's-cli': [um(0, 'weather report')], 's-run': [ev(0, 'turn/start', {}), ev(1, 'approval/asked', { id: 'x' })] };
 const newAgent = (id, header = { cwd: '/demo' }) => {
@@ -67,7 +69,8 @@ const ctx = {
     workspaceRegistry: { list: () => workspaces, get archivedSessionIds() { return [...archived]; },
       create: async (path, title) => { let w = workspaces.find((x) => x.path === path); if (!w) { w = { id: `w-${workspaces.length}`, title, path, sessionIds: [] }; workspaces.push(w); } return w; },
       unarchiveSession: async (id) => { archived.delete(id); }, archiveSession: async (id, options) => { assert.equal(options?.stopActivity, undefined, 'never stopActivity: it deletes the chat\'s reminders'); if (agents.get(id)?.status === 'running') throw Object.assign(new Error('active'), { activity: [{ kind: 'turn' }] }); archived.add(id); } },
-    permissionPresets: { names: ['read-only', 'workspace-write', 'danger-full-access'], set: (session, name) => presets.push([session.id, name]) },
+    permissionPresets: { names: ['read-only', 'workspace-write', 'danger-full-access'], set: (session, name) => presets.push([session.id, name]),
+      current: (session) => { if (session.id === 's-broken') throw new Error('no state'); return autoChats.has(session.id) ? 'auto' : 'workspace-write'; } },
     // dsh's session store: every chat that has an agent, except the ones whose log Delete chat moved away.
     // `stat` reads one chat; `list` reads all of them (slow with many chats): the route uses `stat` when dsh has it.
     sessionPersistence: persistence })[name],
@@ -180,6 +183,26 @@ assert.equal((await pre({ name: 'chat_read', agent: assistant, arguments: '{}' }
 assert.equal((await pre({ name: 'chat_send', agent: assistant, arguments: '{}' }, async () => ({ kind: 'deny', reason: 'no' }))).kind, 'deny', 'a denial stays');
 assert.match((await pre({ name: 'chat_send', agent: assistant, arguments: '{}' }, async () => ({ kind: 'ask', reason: 'Auto review denied tool "chat_send"' }))).reason, /Assistant wants to .* Auto review denied/);
 assert.equal((await pre({ name: 'bash', agent: assistant, arguments: '{}' }, async () => ({ kind: 'allow' }))).kind, 'allow');
+// Auto permission mode (user request 2026-11-10: no cards): Auto review decides instead of the card. dsh's Auto review
+// gate is the outer tools/pre-execute handler (prepend); it gives the inner decision when its reviewer allows, else an ask
+// "Auto review denied tool …" (dsh-experimental-auto-review: `downstream = await next()`, then `askUser`). That ask goes
+// to the Auto review answerer, which turns it into a denial for the agent. A Composer Plus ask here would be a card.
+const reviewed = (verdict, exec) => pre(exec, async () => ({ kind: 'allow' })).then((downstream) => (verdict === 'allow' || downstream.kind !== 'allow'
+  ? downstream : { kind: 'ask', reason: `Auto review denied tool "${exec.name}": not asked for` }));
+autoChats.add(assistant.id);
+for (const name of ASSISTANT_ASK) {
+  const exec = { name, agent: assistant, arguments: JSON.stringify({ chat_id: 's-web', project: 'acme-web', text: 'hello' }) };
+  assert.deepEqual(await reviewed('allow', exec), { kind: 'allow' }, `${name}: Auto review allows, no card`);
+  assert.match((await reviewed('deny', exec)).reason, new RegExp(`^Auto review denied tool "${name}"`), `${name}: the denial stays Auto review's own`);
+}
+assert.equal((await pre({ name: 'chat_send', agent: assistant, arguments: '{}' }, async () => ({ kind: 'deny', reason: 'no' }))).kind, 'deny', 'Auto: a denial stays');
+autoChats.delete(assistant.id);
+assert.equal((await reviewed('allow', { name: 'chat_send', agent: assistant, arguments: '{}' })).kind, 'ask', 'not Auto: the card stays');
+// The preset counts as it was when the chain started: a switch to Auto while the inner gates wait keeps the card.
+assert.equal((await pre({ name: 'chat_send', agent: assistant, arguments: '{}' }, async () => { autoChats.add(assistant.id); return { kind: 'allow' }; })).kind, 'ask', 'switched to Auto mid-call: the card stays');
+autoChats.delete(assistant.id);
+// A preset that cannot be read: the card stays (fail-safe), the call never runs without a decision.
+assert.equal((await pre({ name: 'chat_send', agent: { ...assistant, session: { ...assistant.session, id: 's-broken' } }, arguments: '{}' }, async () => ({ kind: 'allow' }))).kind, 'ask');
 
 // chats_list: other projects, status (waiting_for_user from the running chat's log), filters; no subagent, blank or self.
 const as = { agent: assistant };
