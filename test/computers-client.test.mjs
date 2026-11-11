@@ -299,6 +299,58 @@ assert.equal(views.getSnapshot().current, ID, 'one click: Studio');
 assert.equal(renderPicker().c[0].p.open, false, 'no menu opened');
 assert.equal(opens, 1, 'no new ticket'); assert.equal(loaded.length, 1, 'no reload'); assert.equal(root.style.visibility, 'visible');
 
+// Right-click in the other Mac's page: dsh's desktop app shows its edit menu only for its own page (its main window's
+// `context-menu` handler); the webview's right-click comes as the webview's own `context-menu` event. The page gets the
+// same items as dsh's own page, at the pointer, and an item runs the command in the page. The real Electron 44 path is
+// checked by hand: test/electron-computer-menu.cjs.
+{
+  const editEntry = overlay('computer-edit-menu'); assert.ok(editEntry, 'the menu slot is there while the feature is on');
+  const editMenu = () => editEntry[1]({ ...editEntry[0].inject(), t });
+  assert.equal(editMenu().p.open, false, 'closed until a right-click');
+  // The webview sits under a title bar space: Electron's x/y are in this window already and need no offset.
+  wv.getBoundingClientRect = () => ({ left: 100, top: 48 });
+  const calls = []; for (const c of ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll', 'delete', 'stop']) wv[c] = () => { calls.push(c); };
+  const flags = { canUndo: true, canRedo: false, canCut: true, canCopy: true, canPaste: true, canSelectAll: true };
+  wv.fire('context-menu', { params: { x: 40, y: 30, isEditable: true, selectionText: 'world', editFlags: flags } });
+  let m = editMenu();
+  assert.equal(m.t, 'Menu'); assert.equal(m.p.open, true, 'a right-click in a text field opens the menu');
+  assert.deepEqual(m.p.items.map((i) => (i.type === 'separator' ? '-' : `${i.label}${i.disabled ? ' (off)' : ''}`)),
+    ['computers.edit.undo', 'computers.edit.redo (off)', '-', 'computers.edit.cut', 'computers.edit.copy', 'computers.edit.paste', '-', 'computers.edit.selectAll'],
+    'the items of dsh\'s own page, in its order, off as the page says');
+  // Electron gives the pointer in this window's coordinates already (real Electron 44: test/electron-computer-menu.cjs).
+  assert.deepEqual(m.p.getAnchorRect(), { left: 40, right: 40, top: 30, bottom: 30 }, 'at the pointer');
+  const focusBefore = wv.focused;
+  m.p.onSelect('paste');
+  assert.deepEqual(calls, ['paste'], 'Paste runs in the page'); assert.ok(wv.focused > focusBefore, 'the page gets the focus back first');
+  assert.equal(editMenu().p.open, false, 'the menu closes');
+  // Selected text outside a field: Copy only. Nothing selected, or no field: no menu (as on dsh's own page).
+  wv.fire('context-menu', { params: { x: 5, y: 5, isEditable: false, selectionText: 'Studio', editFlags: { canCopy: true } } });
+  assert.deepEqual(editMenu().p.items.map((i) => [i.id, i.disabled]), [['copy', false]]);
+  editMenu().p.onClose(); assert.equal(editMenu().p.open, false, 'Esc or a click outside closes it');
+  // A click in the other Mac's page (the webview gets the focus) closes it; a late focus of the same right-click does not.
+  wv.fire('context-menu', { params: { x: 5, y: 5, isEditable: false, selectionText: 'Studio', editFlags: { canCopy: true } } });
+  wv.fire('focus'); assert.equal(editMenu().p.open, true, 'the focus of the right-click itself keeps the menu');
+  await new Promise((r) => realSetTimeout(r, 350));
+  wv.fire('focus'); assert.equal(editMenu().p.open, false, 'a click in the page closes the menu');
+  wv.fire('context-menu', { params: { x: 5, y: 5, isEditable: false, selectionText: '', editFlags: { canCopy: false } } });
+  assert.equal(editMenu().p.open, false, 'no selection and no field: no menu');
+  wv.fire('context-menu', {}); assert.equal(editMenu().p.open, false, 'no params: no menu');
+  // No item can run (an empty field, an empty clipboard): no menu, and an open menu closes (it could take no focus).
+  wv.fire('context-menu', { params: { x: 1, y: 1, isEditable: true, selectionText: '', editFlags: flags } });
+  assert.equal(editMenu().p.open, true);
+  wv.fire('context-menu', { params: { x: 2, y: 2, isEditable: true, selectionText: '', editFlags: {} } });
+  assert.equal(editMenu().p.open, false, 'every item off: no menu');
+  // Only the six commands; the page sends none of its own.
+  wv.fire('context-menu', { params: { x: 1, y: 1, isEditable: true, selectionText: '', editFlags: flags } });
+  views.edit('stop'); views.edit('delete');
+  assert.deepEqual(calls, ['paste'], 'no other webview method runs'); assert.equal(editMenu().p.open, false);
+  views.edit('copy'); assert.deepEqual(calls, ['paste'], 'no menu open: nothing runs');
+  // A switch closes the menu (the page hides).
+  wv.fire('context-menu', { params: { x: 1, y: 1, isEditable: true, selectionText: '', editFlags: flags } });
+  await views.select('self'); assert.equal(editMenu().p.open, false, 'This Mac: the menu closes');
+  await views.select(ID); assert.equal(views.getSnapshot().current, ID);
+}
+
 // The other Mac's page switches the window: only the page on screen may; "add" goes back to This Mac and opens the dialog.
 pushEvent({ switch: 'self', from: ID2 }); await tick();
 assert.equal(views.getSnapshot().current, ID, 'a page that is not on screen cannot switch');
@@ -428,7 +480,7 @@ assert.equal(timers.size, 1, 'a hello wait runs');
 { const m = mount(); const f = m.out.host; assert.equal(f.hasAttribute('data-composer-plus-computer-float'), true); assert.equal(f.isConnected, true); m.cleanup(); assert.equal(f.isConnected, false, 'the float is gone'); }
 await settings.setFeature('remoteComputers', false);
 await tick();
-assert.equal(overlay('computer-picker'), undefined); assert.equal(overlay('add-computer-dialog'), undefined);
+assert.equal(overlay('computer-picker'), undefined); assert.equal(overlay('add-computer-dialog'), undefined); assert.equal(overlay('computer-edit-menu'), undefined, 'the menu slot goes');
 assert.equal(body.querySelector('[data-composer-plus-computer-views]'), null, 'the views root is gone');
 assert.deepEqual([...new Set(released)].sort(), leases.map((x) => x.lease).sort(), 'every lease went back');
 assert.equal(released.length, leases.length, 'each lease went back once');
