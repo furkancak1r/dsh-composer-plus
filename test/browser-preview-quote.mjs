@@ -5,7 +5,8 @@
 // 2. notes.txt (plain text): a triple-click-like selection of line 2 → `notes.txt:2`.
 // 3. docs/guide.md (Markdown): a part → the path and a `> ` quote.
 // 4. docs/spec.pdf (PDF): the text of page 1 → `docs/spec.pdf#page=1` and a `> ` quote.
-// 5. A selection in the preview's header (the path) shows no button; Quote in reply still works on an answer.
+// 5. A selection in the preview's header (the path) shows no button; a selection in an answer shows no button either (Quote in
+//    reply is in the right-click menu there).
 // 6. Settings → Quote from file preview is on by default; switched off → no button; no page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-preview-quote.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/previewQuote.webp (English UI, made-up project).
@@ -225,13 +226,13 @@ try {
       await pause(600);
       assert.equal(await button.count(), 0, 'the header: no button');
       await page.evaluate(() => {
-        const a = [...document.querySelectorAll('[data-chat-flow-kind="assistant-step"][data-turn-process-answer="true"] [data-slot="conversation.chat.node"]')].find((x) => x.textContent.includes('the guard returns early'));
+        const a = [...document.querySelectorAll('[data-chat-flow-kind="assistant-step"]')].findLast((x) => x.textContent.includes('the guard returns early'));
         const range = document.createRange(); range.selectNodeContents(a); const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
       });
-      await page.locator('[data-composer-plus-quote]').waitFor({ timeout: 5000 });
-      assert.equal(await button.count(), 0, 'an answer: only Quote in reply');
+      await pause(800);
+      assert.equal(await button.count(), 0, 'an answer: no preview button');
       await page.evaluate(() => window.getSelection().removeAllRanges());
-      note('5: a selection of the path label shows no button; an answer shows only Quote in reply');
+      note('5: a selection of the path label or of an answer shows no preview button');
 
       // 6. Settings: on by default; switched off → no button.
       const direct = page.getByRole('button', { name: 'Settings', exact: true });
