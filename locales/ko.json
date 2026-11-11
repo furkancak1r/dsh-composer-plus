@@ -1591,6 +1591,10 @@
     "feature.resumeAfterRestart.description": "채팅이 작업하는 중에 dsh를 종료하면, dsh를 다시 열 때 그 채팅이 자동으로 계속됩니다. 직접 중지한 채팅, 완료된 채팅, 실패한 채팅은 계속되지 않습니다. 클릭 없이 모델 턴을 시작하기 때문에 기본적으로 꺼져 있습니다.",
     "resume.down": "이 설정을 저장하지 못했습니다: {error}",
     "resume.restart": "재시작 후 이어서 실행을 사용하려면 dsh를 다시 시작하세요.",
+    "feature.outageResume": "AIProxy 장애 후 이어서 실행",
+    "feature.outageResume.description": "AIProxy가 재시작되거나 잠시 멈추면, 실행 중인 채팅이 “request_cancelled” (499) 또는 “Connection error.”로 실패합니다. AIProxy가 다시 응답하면 이런 채팅마다 짧은 메시지가 하나 전달되고, 채팅은 멈춘 곳부터 이어집니다. 메시지는 채팅마다 장애 한 번에 최대 1개, 1시간에 최대 2개입니다. 하위 에이전트는 이 메시지를 받지 않습니다. 대신 상위 에이전트에게 실패 원인이 장애라고 알립니다.",
+    "outage.down": "이 설정을 저장하지 못했습니다: {error}",
+    "outage.restart": "AIProxy 장애 후 이어서 실행을 사용하려면 dsh를 다시 시작하세요.",
     "feature.contentSearch": "내용 검색",
     "feature.contentSearch.description": "dsh 사이드바의 기본 검색(작업 공간 옆의 돋보기, Cmd+K)이 메시지와 답변의 단어로도 대화를 찾고, 일치하는 문장을 보여 줍니다. 단어 단위로 검색하며 도구 출력은 검색하지 않습니다. 검색 색인은 이 컴퓨터의 파일이며 첫 검색 때 만들어집니다. dsh를 다시 시작하면 적용됩니다.",
     "contentSearch.down": "이 설정을 저장하지 못했습니다: {error}",
@@ -2509,7 +2513,8 @@
     "status.git": "Git",
     "status.loading": "불러오는 중…",
     "status.noGit": "git 저장소가 아닙니다.",
-    "status.branch": "브랜치: {branch}"
+    "status.branch": "브랜치: {branch}",
+    "status.outage": "AIProxy 장애 후 이어서 실행됨({time})"
   },
   "common": {
     "ok": "확인",

@@ -1591,6 +1591,10 @@
     "feature.resumeAfterRestart.description": "Nếu bạn thoát dsh khi một cuộc trò chuyện đang làm việc, cuộc trò chuyện đó sẽ tự tiếp tục khi bạn mở lại dsh. Các cuộc trò chuyện bạn đã dừng, đã xong hoặc thất bại sẽ không tiếp tục. Mặc định tắt vì tính năng này bắt đầu lượt của mô hình mà không cần nhấp.",
     "resume.down": "Không thể lưu cài đặt này: {error}",
     "resume.restart": "Khởi động lại dsh để dùng Tiếp tục sau khi khởi động lại.",
+    "feature.outageResume": "Tiếp tục sau sự cố AIProxy",
+    "feature.outageResume.description": "Khi AIProxy khởi động lại hoặc dừng trong chốc lát, các cuộc trò chuyện đang chạy sẽ thất bại với “request_cancelled” (499) hoặc “Connection error.”. Khi AIProxy trả lời lại, mỗi cuộc trò chuyện như vậy nhận một tin nhắn ngắn và tiếp tục từ chỗ đã dừng. Tối đa một tin nhắn cho mỗi cuộc trò chuyện trong mỗi lần sự cố và hai tin nhắn mỗi giờ. Subagent không nhận tin nhắn này: agent cha của chúng được báo rằng lỗi đến từ sự cố.",
+    "outage.down": "Không thể lưu cài đặt này: {error}",
+    "outage.restart": "Khởi động lại dsh để dùng Tiếp tục sau sự cố AIProxy.",
     "feature.contentSearch": "Tìm trong nội dung",
     "feature.contentSearch.description": "Ô tìm kiếm có sẵn ở thanh bên của dsh (kính lúp cạnh Không gian làm việc, Cmd+K) cũng tìm cuộc trò chuyện theo các từ trong tin nhắn của bạn và câu trả lời, rồi hiển thị đoạn văn khớp. Nó tìm theo cả từ, không tìm trong đầu ra của công cụ. Chỉ mục tìm kiếm là một tệp trên máy tính này, được tạo ở lần tìm đầu tiên. Có hiệu lực sau khi bạn khởi động lại dsh.",
     "contentSearch.down": "Không thể lưu cài đặt này: {error}",
@@ -2509,7 +2513,8 @@
     "status.git": "Git",
     "status.loading": "Đang tải…",
     "status.noGit": "Không phải kho git.",
-    "status.branch": "Nhánh: {branch}"
+    "status.branch": "Nhánh: {branch}",
+    "status.outage": "Đã tiếp tục sau sự cố AIProxy ({time})"
   },
   "common": {
     "ok": "OK",

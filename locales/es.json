@@ -1591,6 +1591,10 @@
     "feature.resumeAfterRestart.description": "Si sales de dsh mientras un chat está trabajando, ese chat continúa solo cuando vuelves a abrir dsh. Los chats que detuviste, que terminaron o que fallaron no continúan. Desactivado de forma predeterminada, porque inicia turnos del modelo sin un clic.",
     "resume.down": "No se pudo guardar este ajuste: {error}",
     "resume.restart": "Reinicia dsh para usar Reanudar tras reiniciar.",
+    "feature.outageResume": "Reanudar tras una caída de AIProxy",
+    "feature.outageResume.description": "Cuando AIProxy se reinicia o se detiene un momento, los chats en ejecución fallan con “request_cancelled” (499) o “Connection error.”. Cuando AIProxy vuelve a responder, cada uno de esos chats recibe un mensaje breve y continúa desde donde se detuvo. Como máximo, un mensaje por chat en cada caída y dos por hora. Los subagentes no lo reciben: a su agente principal se le indica que el fallo se debió a la caída.",
+    "outage.down": "No se pudo guardar este ajuste: {error}",
+    "outage.restart": "Reinicia dsh para usar Reanudar tras una caída de AIProxy.",
     "feature.contentSearch": "Búsqueda en el contenido",
     "feature.contentSearch.description": "La búsqueda propia de la barra lateral de dsh (la lupa junto a Espacios de trabajo, Cmd+K) también encuentra chats por las palabras de tus mensajes y de las respuestas, y muestra el texto que coincide. Busca palabras completas, no la salida de las herramientas. El índice de búsqueda es un archivo en este equipo y se crea en la primera búsqueda. Se aplica después de reiniciar dsh.",
     "contentSearch.down": "No se pudo guardar este ajuste: {error}",
@@ -2509,7 +2513,8 @@
     "status.git": "Git",
     "status.loading": "Cargando…",
     "status.noGit": "No es un repositorio git.",
-    "status.branch": "Rama: {branch}"
+    "status.branch": "Rama: {branch}",
+    "status.outage": "Continuó tras la caída de AIProxy ({time})"
   },
   "common": {
     "ok": "Aceptar",

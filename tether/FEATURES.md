@@ -40,6 +40,7 @@ While a Composer Plus action in this table waits for the Mac, Tether shows a wai
 | diffComments | yes | Changes → a file's diff → touch and hold a line → Add note…: a note on that line (one line on the phone; the Mac also takes a Shift range). The notes of the chat show at the top of the Changes sheet (swipe to delete one); Send to composer puts them after the chat's draft as Markdown (`path:line`, the line as a diff block, the note), the same text as the Mac, and the keyboard opens. The phone keeps its own notes in memory (the Mac keeps its notes in its browser). No new route: it needs the Mac's `diff` route. |
 | continueButton | yes | After a stopped, failed or cut-off turn, the empty composer shows ▶ (Continue). |
 | resumeAfterRestart | no | The Mac does it at dsh start, with no window. The switch stays on the Mac. |
+| outageResume | no | The Mac does it by itself when AIProxy answers again, with no window; the continued chats show on the phone as usual. The switch stays on the Mac. |
 | inputHistory | no | Needs ↑/↓ keys. Touch and hold your message → Edit or Resend does the same on a phone. |
 | planToggle | yes | The plan button in the composer: adds or removes `/plan`, or leaves plan mode. |
 | keepFocus | no | A desktop browser focus problem. The iPhone keyboard keeps its focus. |

@@ -1591,6 +1591,10 @@
     "feature.resumeAfterRestart.description": "Wenn du dsh beendest, während ein Chat arbeitet, setzt dieser Chat von selbst fort, sobald du dsh wieder öffnest. Chats, die du gestoppt hast, die abgeschlossen sind oder fehlgeschlagen sind, werden nicht fortgesetzt. Standardmäßig aus, weil diese Funktion Modellrunden ohne Klick startet.",
     "resume.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
     "resume.restart": "Starte dsh neu, um Nach Neustart fortsetzen zu nutzen.",
+    "feature.outageResume": "Nach AIProxy-Ausfall fortsetzen",
+    "feature.outageResume.description": "Wenn AIProxy neu startet oder kurz anhält, schlagen laufende Chats mit “request_cancelled” (499) oder “Connection error.” fehl. Sobald AIProxy wieder antwortet, bekommt jeder dieser Chats eine kurze Nachricht und macht dort weiter, wo er aufgehört hat. Höchstens eine Nachricht pro Chat und Ausfall und zwei pro Stunde. Subagents bekommen sie nicht: Ihr übergeordneter Agent erfährt, dass der Fehler vom Ausfall kam.",
+    "outage.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
+    "outage.restart": "Starte dsh neu, um „Nach AIProxy-Ausfall fortsetzen“ zu nutzen.",
     "feature.contentSearch": "Inhaltssuche",
     "feature.contentSearch.description": "Die eigene Seitenleisten-Suche von dsh (die Lupe neben Arbeitsbereiche, Cmd+K) findet Chats auch über die Wörter in deinen Nachrichten und den Antworten und zeigt den passenden Text. Sie sucht ganze Wörter, nicht in der Ausgabe von Tools. Der Suchindex ist eine Datei auf diesem Computer und entsteht bei der ersten Suche. Gilt nach einem Neustart von dsh.",
     "contentSearch.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
@@ -2509,7 +2513,8 @@
     "status.git": "Git",
     "status.loading": "Wird geladen…",
     "status.noGit": "Kein Git-Repository.",
-    "status.branch": "Branch: {branch}"
+    "status.branch": "Branch: {branch}",
+    "status.outage": "Nach dem AIProxy-Ausfall fortgesetzt ({time})"
   },
   "common": {
     "ok": "OK",
