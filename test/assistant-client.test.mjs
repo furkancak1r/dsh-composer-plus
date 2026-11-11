@@ -48,7 +48,7 @@ const row = rows().find((o) => o.id === 'composer-plus-assistant');
 const board = rows().find((o) => o.id === 'composer-plus-board');
 assert.ok(row, 'the sidebar row'); assert.ok(board, 'Task board is on by default');
 assert.equal(row.order, board.order + 1, 'right under Task board');
-assert.equal(row.label(), 'dsh-composer-plus:assistant.title');
+assert.equal(row.label(), 'Damon', 'the fixed name, in every UI language');
 const [page, Page] = pages().find(([o]) => o.key === 'composer-plus-assistant');
 const props = page.inject();
 const t = (k, v) => `${k}${v?.error ? `(${v.error})` : ''}`;

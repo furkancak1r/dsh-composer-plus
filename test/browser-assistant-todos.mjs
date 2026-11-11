@@ -162,7 +162,7 @@ try {
       const item = (text) => panel.locator('li').filter({ hasText: text });
       const group = (owner) => panel.locator(`ul[id$="-${owner}"] > li`);
       const groupHead = (owner) => panel.locator(`.cp-td-group[data-owner="${owner}"]`);
-      const assistantRow = () => page.locator('button[aria-label="Assistant"]');
+      const assistantRow = () => page.locator('button[aria-label="Damon"]');
 
       // Settings: the row has its screenshot and is on by default.
       await settings();
@@ -303,7 +303,7 @@ try {
       await until(async () => (await group('user').count()) === 2 && (await group('agent').count()) === 3, 'two groups with 2 and 3 items');
       const heads = panel.locator('.cp-td-group');
       assert.deepEqual(await heads.evaluateAll((els) => els.map((b) => [b.dataset.owner, b.getAttribute('aria-expanded'), b.innerText.replace(/\s+/g, ' ').trim()])),
-        [['user', 'true', '▾ You will do 2'], ['agent', 'true', '▾ Assistant will do 3']], 'the user\'s group first, both open, with counts');
+        [['user', 'true', '▾ You will do 2'], ['agent', 'true', '▾ Damon will do 3']], 'the user\'s group first, both open, with counts');
       assert.deepEqual(await group('user').locator('.cp-td-text').allInnerTexts(), ['Pay rent', 'Call mom']);
       assert.deepEqual(await group('agent').locator('.cp-td-text').allInnerTexts(), ['Call the bank', 'Book flights', 'Draft the report']);
       assert.doesNotMatch(await panel.locator('section[aria-labelledby$="-todos"]').innerText(), /You do it|The assistant does it/, 'no owner line in a row');
@@ -317,7 +317,7 @@ try {
       assert.equal(await groupHead('agent').getAttribute('aria-expanded'), 'false', 'still folded after a reload');
       await groupHead('agent').click(); await until(async () => (await group('agent').first().isVisible()), 'open again');
       await page.mouse.move(640, 790); // no hover color in the screenshot
-      note('8: "You will do" (2) above "Assistant will do" (3), no owner line, Enter folds a group and it stays folded after a reload');
+      note('8: "You will do" (2) above "Damon will do" (3), no owner line, Enter folds a group and it stays folded after a reload');
 
       if (process.env.SHOT && !shotDone) {
         const png = join(home, 'todos.png');
