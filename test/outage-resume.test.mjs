@@ -19,6 +19,9 @@ const err = (message) => ({ kind: 'error', error: { message, code: 'PI_AI_ERROR'
 // --- the trigger filter ---
 assert.equal(outageError(err(C499)), 'cancelled');
 assert.equal(outageError(err('499: {"code":"request_cancelled","message":"İstek iptal edildi."}')), 'cancelled', 'the openai-completions form');
+// A cancel while the answer streams: AIProxy writes the error into the stream (live logs of 2026-11-11 have the first form).
+assert.equal(outageError(err('request_cancelled: İstek iptal edildi.')), 'cancelled', 'in the stream, openai-responses');
+assert.equal(outageError(err('İstek iptal edildi.')), 'cancelled', 'in the stream, openai-completions');
 assert.equal(outageError({ kind: 'error', error: { message: 'Connection error.', code: 'TRANSPORT' } }), 'connection');
 for (const [reason, why] of [
   [{ kind: 'aborted', reason: { kind: 'user' } }, 'a user stop'],
@@ -31,6 +34,8 @@ for (const [reason, why] of [
   [err('aiproxy API error (499): {"code":"client_gone","message":"x"}'), 'a 499 with another code'],
   [err('aiproxy API error (500): {"code":"internal_error","message":"request_cancelled 499"}'), 'the words in another error'],
   [err('4990: {"code":"request_cancelled"}'), 'another status'],
+  [err('upstream_rejected: request_cancelled: x'), 'another code first'],
+  [err('İstek iptal edildi. Tekrar deneyin.'), 'another message'],
   [err('Connection error. Try again later'), 'another text'],
   [err('Insufficient Balance'), 'quota'],
   [{ kind: 'error' }, 'no error object'],

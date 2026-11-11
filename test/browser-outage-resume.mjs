@@ -2,7 +2,8 @@
 // (acme-web), and a fake provider named "aiproxy" whose /health and model calls can go down. Never the normal DSH_HOME,
 // never the real AIProxy (COMPOSER_PLUS_HEALTH_URL points at the fake). Headless.
 // 1. Settings: the row is on by default and has its screenshot.
-// 2. Two chats run a slow turn. The fake goes down: the running requests end with AIProxy's 499 request_cancelled and new
+// 2. Two chats run a slow turn (one already streams). The fake goes down: the running requests end with AIProxy's
+//    request_cancelled (a 499 answer, or an error inside the stream for the one that streams) and new
 //    requests get a refused connection, so both turns fail. The fake comes back: after the settle time each chat gets one
 //    "continue" message (the English UI text) and finishes. A third chat that you stopped gets nothing.
 // 3. The Assistant chat's status panel lists the two chats that continued.
@@ -52,7 +53,14 @@ const fake = createServer((req, res) => {
     if (CHATS.includes(newest) || newest === STOPPED) {
       state.users.push(newest);
       // A slow turn: it waits until the fake goes down (then 499) or the test ends.
-      const entry = { res, end: () => { res.writeHead(499, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { code: 'request_cancelled', message: 'İstek iptal edildi.' } })); } };
+      // The first chat already streams (AIProxy sent the headers): its cancel comes inside the stream, as AIProxy's shutdown
+      // writes it (server.mjs, headersSent). The second one gets the plain 499 answer.
+      const streaming = newest === CHATS[0];
+      if (streaming) { res.writeHead(200, { 'content-type': 'text/event-stream' }); send({ role: 'assistant', content: 'Working on it' }); }
+      const entry = { res, end: () => {
+        if (streaming) { res.end(`data: ${JSON.stringify({ error: { code: 'request_cancelled', message: 'İstek iptal edildi.' } })}\n\n`); return; }
+        res.writeHead(499, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { code: 'request_cancelled', message: 'İstek iptal edildi.' } }));
+      } };
       state.waiting.add(entry); res.on('close', () => state.waiting.delete(entry));
       return undefined;
     }
@@ -167,7 +175,7 @@ try {
       note('2: after the outage, each failed chat got one message and finished; the stopped chat got none');
 
       // 3. The Assistant chat's status panel lists them.
-      await page.locator('button[aria-label="Assistant"]').click();
+      await page.locator('button[aria-label="Damon"]').click(); // the assistant's fixed name (main, feat/fixed-damon-assistant-name)
       const line = page.locator('[data-composer-plus-outage]');
       await until(async () => (await line.count()) === 1 || (await page.getByRole('button', { name: 'Refresh', exact: true }).click().then(() => false, () => false)), 'the outage line', 30000);
       assert.match(await line.innerText(), /Continued after the AIProxy outage/);

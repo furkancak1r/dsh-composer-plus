@@ -3181,8 +3181,10 @@ export const outageNote = (lang) => [String(lang ?? ''), String(lang ?? '').spli
 export function outageError(reason) {
   if (reason?.kind !== 'error') return undefined;
   const message = String(reason.error?.message ?? '');
-  // `aiproxy API error (499): {…}` (dsh's openai-responses route) or `499: {…}` (openai-completions).
-  if (/(^|\()499\)?: \{.*"code"\s*:\s*"request_cancelled"/.test(message)) return 'cancelled';
+  // Before the answer starts: `aiproxy API error (499): {…}` (dsh's openai-responses route) or `499: {…}`
+  // (openai-completions). While it streams, AIProxy writes the error into the stream: `request_cancelled: İstek iptal
+  // edildi.` (responses, `response.failed`) or its bare message (completions).
+  if (/(^|\()499\)?: \{.*"code"\s*:\s*"request_cancelled"/.test(message) || /^request_cancelled: /.test(message) || message.trim() === 'İstek iptal edildi.') return 'cancelled';
   return message.trim() === 'Connection error.' ? 'connection' : undefined;
 }
 /** The line that a parent agent gets after dsh's notice of a subagent that failed in an outage. */
@@ -3284,14 +3286,14 @@ export function installOutageResume(ctx, home, { file = join(home, 'storages', '
     let name; try { name = get('llm')?.listProviders?.().find((p) => p.id === provider)?.name; } catch { /* no registry */ }
     return /aiproxy/i.test(provider) || /aiproxy/i.test(String(name ?? ''));
   };
-  const children = new Map(); // subagent id → the outage kind of its failed turn, until its parent's notice
+  const children = new Set(); // subagents whose turn failed in an outage, until their parent's notice
   ctx.on('session/event', (session, event) => {
     if (!on || event?.type !== 'turn/end' || !isText(session?.id)) return;
     const kind = outageError(event.data?.reason);
     if (kind === undefined || !onAIProxy(session)) return;
     if (isRootChat(session)) { watch.fail(session.id, event.seq, kind); return; }
-    children.delete(session.id); children.set(session.id, kind);
-    if (children.size > timing.children) children.delete(children.keys().next().value);
+    children.delete(session.id); children.add(session.id); // newest last: the oldest goes first over the cap
+    if (children.size > timing.children) children.delete(children.values().next().value);
   });
   // dsh's notice "Background subagent <id> failed before it finished." does not say why: the outage line goes after it.
   ctx.on('agent/pre-step', async (payload, next) => {
