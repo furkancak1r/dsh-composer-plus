@@ -10414,7 +10414,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   const workspaces = () => { try { return get('workspaceRegistry')?.list?.() ?? []; } catch { return []; } };
   /** The status of the assistant chat `sessionId` (only it: another chat gets no tasks or projects). */
   const ended = new Map(); // child id → its ended task (ponytail: grows with the assistant's tasks of this dsh run)
-  let projectsCache; // { at, value }: the chat list is read at most every STATUS_LIMITS.cacheMs, Refresh reads it now
+  let projectsCache; // { at, sessionId, items }: the chat list is read at most every STATUS_LIMITS.cacheMs, Refresh reads it now
   // A root chat that starts or ends a turn changed the projects: the next read reads the chat list again. The assistant
   // chat's own turns do not: the projects leave it out.
   ctx.on('session/event', (session, event) => { if ((event?.type === 'turn/start' || event?.type === 'turn/end') && isRootChat(session) && session?.id !== assistant.id()) projectsCache = undefined; });
@@ -10429,10 +10429,12 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       { logOf: (id) => savedEvents(ctx.sessionQuery, id, signal).catch(() => []), since: today.getTime(), now: now(), ended });
     if (fresh || projectsCache === undefined || now() - projectsCache.at >= STATUS_LIMITS.cacheMs || projectsCache.sessionId !== sessionId) {
       let items = []; try { items = (await ctx.sessionController.list({}, signal)).items ?? []; } catch { /* no list */ }
-      let archived = new Set(); try { archived = new Set(get('workspaceRegistry')?.archivedSessionIds ?? []); } catch { /* none */ }
-      projectsCache = { at: now(), sessionId, value: statusProjects(items, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived }) };
+      projectsCache = { at: now(), sessionId, items };
     }
-    const projects = projectsCache.value;
+    // Only the chat list is kept: a chat that is archived (also by the assistant's chat_archive, whose turn keeps the
+    // cache) leaves at the next read.
+    let archived = new Set(); try { archived = new Set(get('workspaceRegistry')?.archivedSessionIds ?? []); } catch { /* none */ }
+    const projects = statusProjects(projectsCache.items, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived });
     // Delegated chats (chat_new, with or without branch, and chat_send) are tasks too: open while their turn runs (main's
     // store drops them at the end), then with their final state until the day ends (the bot's endedTasks).
     for (const [id, task] of assistant.tasks?.list?.() ?? []) {

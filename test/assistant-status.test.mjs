@@ -121,9 +121,10 @@ try {
   for (const [id, c] of Object.entries(children)) { if (id === 'c-done' || id === 'c-lost') continue; const a = newAgent(id, { cwd: home, origin: 'subagent', parentSession: 's-a' }, c.log); a.status = c.status; }
   const otherAgent = newAgent('s-web');
   const wsReal = [...ws, { id: 'w-repo', title: 'repo', path: repo, sessionIds: [] }];
+  const archivedIds = ['s-arch'];
   const ctx = {
     logger: { warn: () => {} }, subprocess,
-    get: (name) => ({ agents: { get: (id) => agents.get(id), list: () => [...agents.values()] }, workspaceRegistry: { list: () => wsReal, archivedSessionIds: ['s-arch'] }, sessionPersistence: { list: async () => [...agents.keys()].map((id) => ({ header: { id } })) } })[name],
+    get: (name) => ({ agents: { get: (id) => agents.get(id), list: () => [...agents.values()] }, workspaceRegistry: { list: () => wsReal, archivedSessionIds: archivedIds }, sessionPersistence: { list: async () => [...agents.keys()].map((id) => ({ header: { id } })) } })[name],
     on: (name, fn) => { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); }, effect: () => {},
     inject: (deps, setup) => { setup({ systemPrompt: { section: (x) => { sections.set(x.name, x); }, context: () => {} } }); return { dispose: () => {} }; },
     connection: { fetch: { register: (route) => { routes.set(route.path, route); return () => routes.delete(route.path); } } },
@@ -160,6 +161,12 @@ try {
   // assistant does not read all chats at each panel read. Another root chat's turn and Refresh still read them.
   for (const fn of onEvent) for (const type of ['turn/start', 'turn/end']) fn(assistantAgent.session, { type });
   await call('?sessionId=s-a'); assert.equal(listed, l1 + 2, 'the assistant chat\'s own turn does not drop the cache');
+  // A chat that the assistant archives (chat_archive, in its own turn) leaves the projects at the next read, from the kept list.
+  archivedIds.push('s-web2');
+  for (const fn of onEvent) fn(assistantAgent.session, { type: 'turn/end' });
+  r = await call('?sessionId=s-a'); assert.equal(listed, l1 + 2);
+  assert.deepEqual(r.body.projects[0].chats.map((c) => c.id), ['s-web', 's-branch'], 'an archived chat leaves at once');
+  archivedIds.pop();
   for (const fn of onEvent) fn({ id: 's-web', header: {} }, { type: 'turn/end' });
   await call('?sessionId=s-a'); assert.equal(listed, l1 + 3, 'another root chat\'s turn end drops the cache');
   await call('?sessionId=s-a&refresh=1'); assert.equal(listed, l1 + 4, 'Refresh still reads the chat list');
