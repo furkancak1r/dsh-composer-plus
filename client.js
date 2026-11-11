@@ -5908,8 +5908,31 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       const closing = tail?.data.closing;
       const seq = closing?.finalNode?.seq;
       if (!Number.isSafeInteger(seq) || seq < from || closing.status === 'running' || closing.status === 'interrupted' || !Array.isArray(closing.blocks)) return undefined;
-      const options = parse(closing.blocks.flatMap((block) => (block?.kind === 'text' && typeof block.text === 'string' ? [block.text] : [])).join(''));
+      const options = parse === parseApprovals ? turnApprovals(chat, tail.data.turn, seq, closing.blocks, spans ?? [], from) : parse(answerText(closing.blocks));
       return options.length === 0 ? undefined : { seq, turn: tail.data.turn, latest: tails[0].data.turn, options };
+    }
+    const answerText = (blocks) => blocks.flatMap((block) => (block?.kind === 'text' && typeof block.text === 'string' ? [block.text] : [])).join('');
+    /** The approval sentences of a finished turn: the `onay` blocks of each of its answers after your newest message, not
+     * only of its closing answer (`closingSeq`, `closingBlocks`: dsh's turn tail). A turn goes on after an answer when a
+     * message comes in (a subagent's result, Assistant news): the answer that asks for the approval is then in the middle
+     * of the turn (the owner, 2026-11-11: "onay butonu çıkmıyor kod bloğu çıkıyor"). An answer before your newest message
+     * (you answered it), a withdrawn one (`spans`) and a fork's inherited one (`from`) give none; the same sentence twice
+     * gives one button. */
+    function turnApprovals(chat, turn, closingSeq, closingBlocks, spans, from) {
+      let human = -1;
+      const answers = [{ seq: closingSeq, blocks: closingBlocks }];
+      for (const node of chat.nodes.values()) {
+        if ((node?.kind === 'user' || node?.kind === 'steering') && typeof node.data?.seq === 'number') human = Math.max(human, node.data.seq);
+        const seq = node?.data?.finalNode?.seq;
+        if (node?.kind === 'assistant-step' && node.data.turn === turn && node.data.status === 'settled' && Number.isSafeInteger(seq)
+          && seq < closingSeq && Array.isArray(node.data.blocks)) answers.push({ seq, blocks: node.data.blocks });
+      }
+      const out = [];
+      for (const { seq, blocks } of answers.sort((a, b) => a.seq - b.seq)) {
+        if (seq <= human || seq < from || inSpans(spans, seq)) continue;
+        for (const approval of parseApprovals(answerText(blocks))) if (!out.some((a) => a.message === approval.message)) out.push({ ...approval, n: out.length + 1 });
+      }
+      return out;
     }
     /** Option picks (client store), per chat: `busy` while a pick is sent, `picked` (the answer's seq and the newest turn
      * then) and the last `error`. Every entry point (button, digit key, a second click) goes through `pick` (rule 7): one
