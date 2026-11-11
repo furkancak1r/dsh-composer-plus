@@ -209,10 +209,7 @@ const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
   await panelProps.store.load('s-assistant');
   let g = groups(panel());
   assert.deepEqual(g.map((b) => [b.p['data-owner'], b.p['aria-expanded']]), [['user', true], ['agent', true]], 'two groups, the user\'s first, both open');
-  assert.match(text(g[0]), /todos\.groupUser\s+2$/); assert.match(text(g[1]), /todos\.groupAgent:\{"name":"assistant\.title"\}\s+3$/, 'no Assistant name: the localized label');
-  { rt.reset(); const out = Panels({ ...panelProps, names: { subscribe: () => () => {}, getSnapshot: () => ({ on: true, name: 'Damon' }) }, useSessions, useSessionStatus, t });
-    const inner = out.c[0][0].portal; rt.reset();
-    assert.match(text(groups(inner.t(inner.p))[1]), /todos\.groupAgent:\{"name":"Damon"\}/, 'the Assistant name from Settings'); }
+  assert.match(text(g[0]), /todos\.groupUser\s+2$/); assert.match(text(g[1]), /todos\.groupAgent:\{"name":"Damon"\}\s+3$/, 'the fixed name Damon');
   assert.ok(g.every((b) => find(b, (n) => n.p?.['aria-hidden'] === true && /[▸▾]/.test(text(n))).length === 1), 'the arrow is aria-hidden');
   let lists = groupLists(panel());
   assert.deepEqual(lists.map((l) => find(l, (n) => n.p?.className === 'cp-td-text').map(text)), [['U1', 'U2'], ['A1', 'A2', 'A3']], 'each item in its owner\'s group');
