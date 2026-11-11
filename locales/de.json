@@ -2448,7 +2448,7 @@
     "computers.error.name-taken": "Dieser Mac oder ein anderer Computer hat diesen Namen schon. Gib einen anderen Namen ein.",
     "computers.error.name-missing": "Gib einen Namen für diesen Computer ein.",
     "feature.assistantApart": "Assistent getrennt von Chats",
-    "feature.assistantApart.description": "Der Assistenten-Chat verlässt die Chatliste in der Seitenleiste (auch sein Projekt \"Assistant\", wenn es keinen anderen Chat enthält); die Suche findet ihn weiterhin. Öffne ihn mit Assistent. Ein Punkt in der Zeile Assistent zeigt seinen Zustand: arbeitet (auch ein Thema im Hintergrund), wartet auf dich (orange) oder neue Antwort (grün).",
+    "feature.assistantApart.description": "Der Assistenten-Chat verlässt die Chatliste in der Seitenleiste (auch sein Projekt, \"Assistant\" oder der Name, den du ihm gegeben hast, wenn es keinen anderen Chat enthält); die Suche findet ihn weiterhin. Öffne ihn mit Assistent. Ein Punkt in der Zeile Assistent zeigt seinen Zustand: arbeitet (auch ein Thema im Hintergrund), wartet auf dich (orange) oder neue Antwort (grün).",
     "assistantApart.running": "Arbeitet",
     "assistantApart.waiting": "Wartet auf dich",
     "assistantApart.done": "Neue Antwort",

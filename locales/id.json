@@ -2448,7 +2448,7 @@
     "computers.error.name-taken": "Mac ini atau komputer lain sudah memakai nama ini. Ketik nama lain.",
     "computers.error.name-missing": "Ketik nama untuk komputer ini.",
     "feature.assistantApart": "Asisten terpisah dari obrolan",
-    "feature.assistantApart.description": "Obrolan asisten keluar dari daftar obrolan di bilah samping (juga proyeknya \"Assistant\" jika tidak berisi obrolan lain); pencarian tetap menemukannya. Buka dengan Asisten. Titik pada baris Asisten menunjukkan statusnya: bekerja (juga topik di latar belakang), menunggu Anda (oranye), atau balasan baru (hijau).",
+    "feature.assistantApart.description": "Obrolan asisten keluar dari daftar obrolan di bilah samping (juga proyeknya, \"Assistant\" atau nama yang Anda berikan, jika tidak berisi obrolan lain); pencarian tetap menemukannya. Buka dengan Asisten. Titik pada baris Asisten menunjukkan statusnya: bekerja (juga topik di latar belakang), menunggu Anda (oranye), atau balasan baru (hijau).",
     "assistantApart.running": "Bekerja",
     "assistantApart.waiting": "Menunggu Anda",
     "assistantApart.done": "Balasan baru",
