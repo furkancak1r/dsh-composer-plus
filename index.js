@@ -9140,9 +9140,20 @@ const foldName = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '')
 
 /** At most this many delegated chats are kept (the oldest go first). */
 export const ASSISTANT_TASKS_MAX = 50;
-/** The assistant's delegated chats (chat_new): `{tasks: {<chat id>: {title?, project, branch?, at}}}` in one
- * owner-only file. The map lives in memory; each change saves the whole map, in order, after the saved file was read.
- * ponytail: a delegated chat that is archived or deleted before its turn ends stays until ASSISTANT_TASKS_MAX pushes it out. */
+/** chat_send: `rpc` of a task holds the request ids of its messages whose turn did not end yet. ANY_TURN: the chat's next
+ * turn end counts too (a chat_new task, or a message turn that dsh's quit cut). A task without `rpc` waits for ANY_TURN. */
+const ANY_TURN = '*';
+const rpcOf = (task) => {
+  if (task === undefined) return [];
+  const ids = Array.isArray(task.rpc) ? task.rpc.filter((r) => isText(r, 128)) : [];
+  return ids.length > 0 ? ids : [ANY_TURN];
+};
+const withRpc = (task, rpc) => { const { rpc: _, ...rest } = task; return rpc.length === 1 && rpc[0] === ANY_TURN ? rest : { ...rest, rpc }; };
+
+/** The assistant's delegated chats (chat_new, chat_send): `{tasks: {<chat id>: {title?, project, branch?, rpc?, at}}}` in
+ * one owner-only file. The map lives in memory; each change saves the whole map, in order, after the saved file was read.
+ * ponytail: a delegated chat that is archived or deleted before its turn ends (chat_send: or whose message leaves the queue
+ * without a turn) stays until ASSISTANT_TASKS_MAX pushes it out. */
 export function assistantTasks(file, now = Date.now) {
   const store = settingsStore(file, (v) => (plainObject(v?.tasks) ? v.tasks : {}));
   const map = new Map();
@@ -9179,7 +9190,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   let on = false;
   let assistantId; // the chat id in assistant.json
   let fiber; let unroute; let opening;
-  // chat_new (with or without branch): the chats that the assistant gave work to; the bot tells it when one ends its turn.
+  // chat_new (with or without branch) and chat_send: the chats that the assistant gave work to; the bot tells it when one ends its turn.
   const tasks = assistantTasks(join(dir, 'assistant-tasks.json'));
   // Branch per chat (Worktree chats) keeps its switch in worktrees.json, on by default.
   const worktreesOn = () => mobileSwitch(join(dir, 'worktrees.json'), true).read();
@@ -9296,13 +9307,19 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         const { id, header } = await target(args?.chat_id, signalOf(exec));
         if (archived().has(id)) throw refused('This chat is archived. Ask the user to unarchive it first.');
         // A task too (kept before the message goes), so the reply comes back to the assistant: dsh logs the message with
-        // source.rpcId = requestId, and the bot waits for that turn (`rpc`). An older task (chat_new) keeps its fields.
+        // source.rpcId = requestId, and the bot waits for that turn (`rpc`). An older task (chat_new, an earlier chat_send)
+        // keeps its fields and what it waits for.
         const title = await titleOf(id); const old = tasks.get(id); const requestId = randomUUID();
-        await tasks.add(id, { ...(old ?? { ...(title === undefined ? {} : { title }), project: projectFor(id, header?.cwd, workspaces()) }), rpc: requestId });
+        await tasks.add(id, withRpc(old ?? { ...(title === undefined ? {} : { title }), project: projectFor(id, header?.cwd, workspaces()) }, [...rpcOf(old), requestId]));
         try {
           // Not the call's signal: once admitted, the message must reach the chat whole.
           await ctx.sessionController.prompt({ requestId, sessionId: id, mode: 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
-        } catch (error) { await (old === undefined ? tasks.drop(id) : tasks.add(id, old)); throw error; } // no task for a message that did not go
+        } catch (error) {
+          // No wait for a message that did not go (only its own id: another call can add one meanwhile).
+          const now = tasks.get(id); const rpc = rpcOf(now).filter((r) => r !== requestId);
+          if (now !== undefined) await (rpc.length === 0 ? tasks.drop(id) : tasks.add(id, withRpc(now, rpc)));
+          throw error;
+        }
         return `Sent to "${title ?? id}" (${id}). You get a note with its reply when the turn of this message ends or the chat waits for the user.`;
       },
     },
@@ -9765,7 +9782,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   ctx.on('agent/status', ({ agent, status } = {}) => {
     if (afterIdle && agent?.id === assistant.id() && status !== 'running') { afterIdle = false; schedule(timing.batch); }
   });
-  /** A chat that the assistant gave work to (chat_new, with or without branch): its turn end and its waits are news while Assistant news
+  /** A chat that the assistant gave work to (chat_new, with or without branch, or chat_send): its turn end and its waits are news while Assistant news
    * is off too. */
   const taskOf = (session) => (assistant.isOn() && isText(session?.id) && session.id !== assistant.id() ? assistant.tasks?.get?.(session.id) : undefined);
   // The note names the project that the task was given in (the branch's own project has the branch name).
@@ -9782,22 +9799,32 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
       const agent = live(session.id);
       // Only the chat's own events (a fork's copy of its parent is left out); lastReply leaves out withdrawn replies.
       const inherited = Number.isSafeInteger(agent?.session?.inheritedEventCount) && agent.session.inheritedEventCount > 0 ? agent.session.inheritedEventCount : 0;
-      if (task !== undefined) {
-        // chat_send: a turn without its message (logged with source.rpcId, or the queued message that started a turn whose
-        // first step failed) ran before it, and the message runs in a later turn: the task waits for that turn.
-        if (isText(task.rpc)) {
-          const events = eventsOf(agent); const last = events.findLastIndex((e) => e.type === 'turn/start');
-          if (last < inherited || !(events.slice(last).some((e) => e.type === 'user/message' && e.data?.source?.rpcId === task.rpc) || queuedPrompts(events).get(last)?.rpcId === task.rpc)) return;
+      // chat_send: only the turn that runs one of the task's messages (logged with source.rpcId, or the queued message that
+      // started a turn whose first step failed) is task news; dsh starts one turn per queued message. Another turn (one that
+      // ran before it) keeps the task and is news as for any chat.
+      const rpc = rpcOf(task);
+      let ran = rpc.filter((r) => r === ANY_TURN);
+      if (ran.length < rpc.length) {
+        const events = eventsOf(agent); const last = events.findLastIndex((e) => e.type === 'turn/start');
+        if (last >= inherited) {
+          const own = new Set(events.slice(last).filter((e) => e.type === 'user/message').map((e) => e.data?.source?.rpcId));
+          own.add(queuedPrompts(events).get(last)?.rpcId);
+          ran = rpc.filter((r) => r === ANY_TURN || own.has(r));
         }
-        // dsh's quit or a parent's stop: the task goes on after a restart (Resume after restart), so it stays (its message ran).
-        if (stoppedByDsh(reason)) { if (isText(task.rpc)) { const { rpc, ...rest } = task; assistant.tasks.add(session.id, rest); } return; }
-        assistant.tasks.drop(session.id);
+      }
+      if (ran.length > 0) {
+        const left = rpc.filter((r) => !ran.includes(r));
+        // dsh's quit or a parent's stop: the task goes on after a restart (Resume after restart), so it stays, and the next
+        // turn end (the continued turn) counts.
+        if (stoppedByDsh(reason)) { if (Array.isArray(task.rpc)) assistant.tasks.add(session.id, withRpc(task, [ANY_TURN, ...left])); return; }
+        if (left.length === 0) assistant.tasks.drop(session.id); else assistant.tasks.add(session.id, withRpc(task, left));
         const info = taskInfo(task);
         if (reason?.kind === 'error') add(session, { kind: 'failed', reply: cutEnd(String(reason.error?.message ?? '').trim(), timing.taskReply ?? ASSISTANT_NEWS.taskReply), ...info });
         else if (reason?.kind === 'aborted') { if (pending.get(session.id)?.kind === 'waiting') pending.delete(session.id); } // the user stopped it
         else add(session, { kind: 'finished', reply: cutEnd(lastReply(eventsOf(agent).slice(inherited)), timing.taskReply ?? ASSISTANT_NEWS.taskReply), ...info });
         return;
       }
+      if (!watched(session)) return;
       // An automation reports each turn end, as a subagent does (no 60 s rule); with scope "all" a long turn of any chat counts.
       const auto = automation(session);
       const info = auto ? { automation: true } : {};
@@ -10172,7 +10199,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       projectsCache = { at: now(), sessionId, value: statusProjects(items, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived }) };
     }
     const projects = projectsCache.value;
-    // Delegated chats (chat_new, with or without branch) are tasks too, while their turn runs (main's store drops them at the end).
+    // Delegated chats (chat_new, with or without branch, and chat_send) are tasks too, while their turn runs (main's store drops them at the end).
     // ponytail: an ended delegated chat shows under Projects, not under Tasks; upgrade: keep it in the store until the day ends.
     for (const [id, task] of assistant.tasks?.list?.() ?? []) {
       const live = get('agents')?.get?.(id);

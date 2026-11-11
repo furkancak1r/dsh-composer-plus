@@ -1,7 +1,10 @@
 // Assistant: the reply to a chat_send message comes back to the assistant (Host half, fake dsh, Assistant news off):
-// - chat_send keeps the chat as a task with the request id of its message (`rpc`) before the message goes. dsh's
+// - chat_send keeps the chat as a task with the request ids of its messages (`rpc`) before the message goes. dsh's
 //   sessionController.prompt logs the message with source {kind: 'user', rpcId: requestId}.
-// - A turn end without that message (the turn that ran when the message was queued) is no news and keeps the task.
+// - A turn end without such a message (the turn that ran when the message was queued) is no task news and keeps the task;
+//   with Assistant news on it is news as for any chat (an automation).
+// - Two messages before the first reply: each turn gives its own note. A branch chat whose own turn still runs gives its
+//   note, and the message's turn one more.
 // - The turn of that message gives one task note with its last reply (no 60 s rule), and the task goes.
 // - A wait in that turn is news as for chat_new. A turn whose first step failed logs no prompt: the queued message that
 //   dsh took to start it counts. dsh's quit in that turn keeps the task, and the continued turn gives the note.
@@ -11,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_PATH, installAssistant, installAssistantBot } from '../index.js';
+import { ASSISTANT_NOTIFY_PATH, ASSISTANT_PATH, installAssistant, installAssistantBot } from '../index.js';
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (fn, what, ms = 3000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(5); } };
@@ -75,8 +78,8 @@ try {
   push(web, start, said('build the login page'), reply('Working on it.'));
   const out = await send('s-web', 'Onay: devam et');
   const rpc = prompts.at(-1).requestId;
-  assert.equal(kept?.rpc, rpc, 'the task is kept with this request id before the message goes');
-  assert.deepEqual(assistant.tasks.get('s-web'), { title: 'Login page', project: 'acme-web', rpc, at: assistant.tasks.get('s-web')?.at }, 'chat_send keeps a task');
+  assert.deepEqual(kept?.rpc, [rpc], 'the task is kept with this request id before the message goes');
+  assert.deepEqual(assistant.tasks.get('s-web'), { title: 'Login page', project: 'acme-web', rpc: [rpc], at: assistant.tasks.get('s-web')?.at }, 'chat_send keeps a task');
   assert.match(out, /^Sent to "Login page" \(s-web\)\. You get a note/);
   // The earlier turn ends (8 s, without the message): no note, the task stays.
   clock += 8000; ended(web);
@@ -142,7 +145,55 @@ try {
   promptFails = false;
   assert.deepEqual(assistant.tasks.get('s-branch'), { title: 'Alt bilgi ekle', project: 'acme-web', branch: 'feat/alt-bilgi', at: assistant.tasks.get('s-branch')?.at }, 'the older task stays, without rpc');
   await send('s-branch', 'Footer rengini değiştir');
-  assert.deepEqual(assistant.tasks.get('s-branch'), { title: 'Alt bilgi ekle', project: 'acme-web', branch: 'feat/alt-bilgi', rpc: prompts.at(-1).requestId, at: assistant.tasks.get('s-branch')?.at });
+  assert.deepEqual(assistant.tasks.get('s-branch'), { title: 'Alt bilgi ekle', project: 'acme-web', branch: 'feat/alt-bilgi', rpc: ['*', prompts.at(-1).requestId], at: assistant.tasks.get('s-branch')?.at },
+    'it waits for its own turn end and for the message');
+  const branchRpc = prompts.at(-1).requestId;
+  // The branch chat's own turn ends first: its note comes, and the task waits for the message's turn.
+  const branch = agents.get('s-branch');
+  push(branch, start, said('Alt bilgi ekle'), reply('Alt bilgi eklendi.'));
+  ended(branch);
+  await until(() => steers.length === 6, 'the branch chat\'s own note');
+  assert.match(await noteOf(5), /chat s-branch, your delegated task on branch "feat\/alt-bilgi"\): finished\. Last reply: "Alt bilgi eklendi\."/);
+  assert.deepEqual(assistant.tasks.get('s-branch')?.rpc, [branchRpc], 'the message still waits');
+  push(branch, stop, start, said('Footer rengini değiştir', branchRpc), reply('Renk değişti.'));
+  ended(branch);
+  await until(() => steers.length === 7, 'the note of the message');
+  assert.match(await noteOf(6), /chat s-branch, your delegated task on branch "feat\/alt-bilgi"\): finished\. Last reply: "Renk değişti\."/);
+  assert.equal(assistant.tasks.has('s-branch'), false);
+
+  // Two messages before the first reply (and a third that fails): each message's turn gives its own note.
+  web.status = 'running';
+  await send('s-web', 'Birinci'); const first = prompts.at(-1).requestId;
+  await send('s-web', 'İkinci'); const second = prompts.at(-1).requestId;
+  promptFails = true; await assert.rejects(send('s-web', 'Üçüncü'), /queue is full/); promptFails = false;
+  assert.deepEqual(assistant.tasks.get('s-web')?.rpc, [first, second], 'a failed send takes out only its own id');
+  push(web, stop, start, said('Birinci', first), reply('Birinci bitti.'));
+  ended(web);
+  await until(() => steers.length === 8, 'the first note');
+  assert.match(await noteOf(7), /chat s-web, your delegated task\): finished\. Last reply: "Birinci bitti\."/);
+  assert.deepEqual(assistant.tasks.get('s-web')?.rpc, [second]);
+  push(web, stop, start, said('İkinci', second), reply('İkinci bitti.'));
+  ended(web);
+  await until(() => steers.length === 9, 'the second note');
+  assert.match(await noteOf(8), /chat s-web, your delegated task\): finished\. Last reply: "İkinci bitti\."/);
+  assert.equal(assistant.tasks.has('s-web'), false);
+  await pause(60); assert.equal(steers.length, 9, 'one note each');
+
+  // Assistant news on: an automation turn that runs before the message is still news; the message's turn gives the task note.
+  const switched = await routes.get(ASSISTANT_NOTIFY_PATH).fetch(new Request(`http://x${ASSISTANT_NOTIFY_PATH}`, { method: 'POST', body: JSON.stringify({ on: true }) }));
+  assert.equal((await switched.json()).on, true);
+  await send('s-web', 'Sonra şunu yap'); const later = prompts.at(-1).requestId;
+  push(web, stop, start, said('Gece raporu', undefined, 'schedule'), reply('Gece raporu hazır.'));
+  ended(web);
+  await until(() => bot.pending()[0]?.automation === true, 'the automation is news');
+  clock += timing.gap; await bot.flush();
+  await until(() => steers.length === 10, 'the automation note');
+  assert.match(await noteOf(9), /chat s-web, an automation\): finished\. Last reply: "Gece raporu hazır\."/);
+  assert.deepEqual(assistant.tasks.get('s-web')?.rpc, [later], 'the task still waits for its message');
+  push(web, stop, start, said('Sonra şunu yap', later), reply('Yapıldı.'));
+  ended(web);
+  await until(() => steers.length === 11, 'the task note');
+  assert.match(await noteOf(10), /chat s-web, your delegated task\): finished\. Last reply: "Yapıldı\."/);
 } finally {
   await rm(home, { recursive: true, force: true });
 }
