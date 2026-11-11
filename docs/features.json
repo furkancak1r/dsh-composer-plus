@@ -2004,7 +2004,7 @@
       "name": "assistant",
       "feature": "assistant",
       "request": {
-        "GET": "Only while the switch is on (409 while it is off, and the route is gone after a restart with it off). `{sessionId}` of the assistant chat: the saved one (`assistant.json`, unarchived when it is archived); when there is none or dsh does not have it any more, makes `~/Assistant`, adds it as the project \"Assistant\" and starts a new chat with the workspace-write preset and dsh's default model. One start at a time; 409 when dsh says the chat is busy."
+        "GET": "Only while the switch is on (409 while it is off, and the route is gone after a restart with it off). `{sessionId}` of the assistant chat: the saved one (`assistant.json`, unarchived when it is archived); when there is none or dsh does not have it any more, makes `~/Assistant`, adds it as a project, titles that project and the chat Damon, and starts a new chat with the workspace-write preset and dsh's default model. One start at a time; 409 when dsh says the chat is busy."
       }
     },
     {
