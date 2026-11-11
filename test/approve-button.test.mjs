@@ -4,6 +4,9 @@
 // - ApproveButtons (dsh's turn-tail slot): only under the newest answer, while the chat is idle and the composer is empty;
 //   one click sends the exact sentence once (a second click sends nothing, the button is off); a failed send shows the
 //   reason and keeps the button; a sent answer shows none; never for a user message.
+// - The Assistant chat (owner, 2026-11-11: "onay butonu çıkmıyor kod bloğu çıkıyor"): the answer that asks for the approval
+//   is in the middle of its turn when a subagent's result or Assistant news continues the turn; its sentence still gets
+//   the button under the turn's end. An answer that you already answered or a withdrawn one gets none.
 // - The feature through plugin.apply: on by default; switched off, its slot goes.
 // - Host: the prompt section with the `onay` rule, on by default; the switch route removes and adds it.
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
@@ -169,6 +172,37 @@ buttons = buttonsOf(live.render()); assert.equal(buttons.length, 1, 'a live sent
 assert.deepEqual(texts(buttons[0]), ['approve.button', PUBLISH]);
 buttons[0].p.onClick(); await flush(); assert.deepEqual(sent.at(-1), ['A', PUBLISH], 'a click sends the live sentence');
 newest.unmount(); older.unmount(); third.unmount(); live.unmount();
+
+// --- An approval in the middle of a turn (the Assistant chat: a subagent's result continues the turn) ---
+{
+  const CAT = 'Onaylıyorum: Composer Plus kategori filtresi önerilen 8 kategoriyle yapılsın, sonraki sürüme girsin.';
+  const step = (turn, stepNo, seq, text) => ({ kind: 'assistant-step', anchorSeq: seq, data: { status: 'settled', turn, step: stepNo, blocks: [{ kind: 'text', text }], finalNode: { seq } } });
+  const ctx = (seq) => ({ kind: 'turn-trigger', anchorSeq: seq, data: { seq, source: { kind: 'subagent-settled' } } });
+  const ASK = `The category filter is ready to plan. It needs your approval:\n\n${block(CAT)}`;
+  const mid = chat(user(100, 'kategori filtresi yap'), step(9, 3, 110, ASK), ctx(112), step(9, 4, 115, 'Subagent done: the review passed.'), tail(9, 115, 'Subagent done: the review passed.'));
+  const offer = chatOffer(mid, [], 0, parseApprovals);
+  assert.deepEqual(offer?.options.map((o) => o.message), [CAT], 'a sentence in an earlier answer of the turn gets the button');
+  assert.equal(offer.seq, 115, 'the button sits under the turn\'s end (its closing answer)');
+  assert.deepEqual(chatOffer(mid, [], 0, parseOptions), undefined, 'Option buttons still read only the closing answer');
+  const answered = chat(user(100, 'x'), step(9, 3, 110, ASK), user(113, CAT), step(9, 4, 115, 'Done.'), tail(9, 115, 'Done.'));
+  assert.equal(chatOffer(answered, [], 0, parseApprovals), undefined, 'an answer before your newest message: you answered it');
+  const later = chat(user(100, 'x'), step(9, 3, 110, ASK), ctx(112), step(9, 4, 115, 'Done.'), tail(9, 115, 'Done.'), user(116, 'y'), step(10, 1, 120, 'Ok.'), tail(10, 120, 'Ok.'));
+  assert.equal(chatOffer(later, [], 0, parseApprovals), undefined, 'a newer turn: the older approval gives none');
+  assert.deepEqual(chatOffer(later, [[116, 130]], 0, parseApprovals)?.options.map((o) => o.message), [CAT], 'your later message withdrawn (rollback): the button comes back');
+  const twice = chat(user(100, 'x'), step(9, 3, 110, ASK), ctx(112), step(9, 4, 115, `Still waiting:\n\n${block(CAT)}`), tail(9, 115, `Still waiting:\n\n${block(CAT)}`));
+  assert.deepEqual(chatOffer(twice, [], 0, parseApprovals)?.options.map((o) => [o.n, o.message]), [[1, CAT]], 'the same sentence twice: one button');
+  assert.equal(chatOffer(mid, [[105, 111]], 0, parseApprovals), undefined, 'a withdrawn answer gives none');
+  assert.equal(chatOffer(mid, [], 112, parseApprovals), undefined, 'a fork\'s inherited answer gives none');
+  const older = chat(user(90, 'x'), step(8, 1, 95, ASK), tail(8, 95, ASK), ctx(99), step(9, 1, 115, 'Done.'), tail(9, 115, 'Done.'));
+  assert.equal(chatOffer(older, [], 0, parseApprovals), undefined, 'an answer of an older turn gives none');
+  // The rendered button under the turn's end, and a click sends the sentence.
+  view = mid; const cellMid = cell(115); cellMid.render(); await flush();
+  const midButtons = buttonsOf(cellMid.render());
+  assert.equal(midButtons.length, 1, 'one button under the turn end'); assert.deepEqual(texts(midButtons[0]), ['approve.button', CAT]);
+  assert.equal(cell(110).render(), null, 'not twice: the earlier answer itself shows none');
+  midButtons[0].p.onClick(); await flush(); assert.deepEqual(sent.at(-1), ['A', CAT], 'a click sends the sentence');
+  cellMid.unmount();
+}
 
 // --- The feature through plugin.apply ---
 {
