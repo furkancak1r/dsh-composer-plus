@@ -86,7 +86,10 @@ await rm(home, { recursive: true, force: true });
       const res = await routes.get(path).fetch(new Request(`http://x${path}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }));
       return { status: res.status, body: await res.json() };
     };
-    return { call, warnings, ready: async () => { onReady(); await tick(); } };
+    // retitle reads files (realpath, assistant-name.json): a fixed number of ticks is too short on a slow disk (CI).
+    // Wait until the titles stop changing for a while (a no-change run ends the same way).
+    const settle = async () => { let last; for (let i = 0; i < 200; i++) { const now = `${list.map((w) => w.title).join('|')}|${chat.title}`; if (now === last && i > 5) return; last = now; await new Promise((r) => setTimeout(r, 10)); } };
+    return { call, warnings, ready: async () => { onReady(); await tick(); await settle(); } };
   };
   // Each old default title becomes Damon after dsh's start (not before dsh is ready); other projects stay.
   await writeFile(join(dir2, 'assistant.json'), JSON.stringify({ sessionId: 's-a' }));
