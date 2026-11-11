@@ -2891,14 +2891,14 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           } catch (error) { details.set(key, Object.freeze({ status: 'error', error: String(error?.message ?? error) })); }
           emit();
         },
-        /** `remove` or `handover` (with `prefix`) of item `itemId`; false while another action of this chat runs. */
-        async act(id, itemId, action, prefix) {
+        /** `remove` of item `itemId`; false while another action of this chat runs. */
+        async act(id, itemId, action) {
           if (of(id).busy) return false;
           seqs.set(id, (seqs.get(id) ?? 0) + 1); // a read that started before this action is old now
           patch(id, { busy: true, error: null });
           try {
             const response = await fetch(TODOS_ROUTE, { method: 'POST', headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ sessionId: id, id: itemId, action, ...(action === 'handover' ? { prefix } : {}) }) });
+              body: JSON.stringify({ sessionId: id, id: itemId, action }) });
             const data = await response.json().catch(() => ({}));
             const list = items(data);
             seqs.set(id, (seqs.get(id) ?? 0) + 1); // a read that started while this action ran is old too
@@ -2920,6 +2920,24 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         set(id, host) { if (seats.get(id) !== host) { seats = new Map(seats); seats.set(id, host); emit(); } },
         clear(id, host) { if (seats.get(id) === host) { seats = new Map(seats); seats.delete(id); emit(); } },
       };
+    }
+    /** → of a to-do item: `text` goes at the end of the chat's composer (`shell`, dsh's input shell), on its own line after
+     * the draft that is there, and the focus goes to the composer with the caret after it. Nothing is sent. False when
+     * the composer refuses (it sends now, or it is not there). */
+    function draftTodo(shell, text) {
+      const s = shell?.snapshot; const actions = shell?.actions;
+      if (typeof s?.draft !== 'string' || actions === undefined) return false;
+      // dsh's span counts a chip as one character; the draft has the chip's text. ponytail: the shell's own detect text
+      // (not in dsh's public contract) is the exact end: a claimed command is a chip on dsh 0.2.1, plain text on 0.2.0.
+      // Without it, only reference chips are counted: with a command chip the end is past the span, so dsh refuses the
+      // insert (a notice, no text at a wrong place). Upgrade when InputState gives the span length.
+      const detect = shell.projection?.detectText;
+      const end = typeof detect === 'string' ? detect.length : s.draft.length - (s.occurrences ?? []).reduce((n, o) => n + o.length - 1, 0);
+      const lead = s.draft === '' || s.draft.endsWith('\n') ? '' : '\n';
+      // The revision of the draft that `end` comes from: dsh refuses the insert when the draft changed since.
+      if (!actions.insertText(`${lead}${text}`, { start: end, end, draftRev: s.draftRev })) return false;
+      shell.focus?.();
+      return true;
     }
     const TodoIcon = ({ name, glyph }) => (primitives[name] === undefined ? React.createElement('span', { 'aria-hidden': true }, glyph) : React.createElement(primitives[name], { size: 14, 'aria-hidden': true }));
     const sameDay = (a, b) => { const x = new Date(a); const y = new Date(b); return x.getFullYear() === y.getFullYear() && x.getMonth() === y.getMonth() && x.getDate() === y.getDate(); };
@@ -2954,7 +2972,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       if (createPortal === undefined || map.size === 0) return null;
       return React.createElement(React.Fragment, null, [...map].map(([sessionId, host]) => createPortal(React.createElement(StatusPanel, { key: sessionId, sessionId, host, ...rest }), host, sessionId)));
     }
-    function StatusPanel({ sessionId, host, store, useSessions, useSessionStatus, openSession, locale, t, names }) {
+    function StatusPanel({ sessionId, host, store, useSessions, useSessionStatus, openSession, locale, t, names, composer, notify }) {
       const state = React.useSyncExternalStore(store.subscribe, () => store.of(sessionId));
       const name = React.useSyncExternalStore(names.subscribe, () => names.getSnapshot().name) || t('assistant.title'); // Assistant name, else the localized label
       const [open, setOpen] = React.useState(true);
@@ -2978,7 +2996,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const list = state.items ?? [];
       const headId = `cp-td-${sessionId}`;
       // After a click (or Enter) on an item's button, the item can leave the list: the focus goes back to the title.
-      const act = (itemId, action, prefix) => store.act(sessionId, itemId, action, prefix).finally(() => {
+      const act = (itemId, action) => store.act(sessionId, itemId, action).finally(() => {
         const doc = globalThis.document;
         if (doc !== undefined && (doc.activeElement === null || doc.activeElement === doc.body)) doc.getElementById?.(headId)?.focus();
       });
@@ -2999,9 +3017,11 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const empty = (text) => React.createElement('p', { className: 'cp-td-empty' }, text);
       const todoRows = (rows, id, hide) => React.createElement('ul', { id, hidden: hide }, rows.map((item) => React.createElement('li', { key: item.id, 'data-owner': item.owner },
         React.createElement('span', { className: 'cp-td-text' }, item.text),
-        item.owner === 'agent' ? null : React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-disabled': state.busy,
+        // → writes "<Do this for me:> <item>" in the composer and sends nothing; when the user sends it, the assistant
+        // gives the item to itself (TODO_SECTION). The list does not change here.
+        item.owner === 'agent' ? null : React.createElement('button', { type: 'button', className: 'cp-td-btn',
           'aria-label': t('todos.handover', { item: item.text }), title: t('todos.handoverShort'),
-          onClick: () => { act(item.id, 'handover', t('todos.handoverMessage')); } }, React.createElement(TodoIcon, { name: 'IconArrowRightOutlineRegular', glyph: '→' })),
+          onClick: () => { if (!composer(sessionId, `${t('todos.handoverMessage')} ${item.text}`)) notify(sessionId, 'info', t('quote.changed')); } }, React.createElement(TodoIcon, { name: 'IconArrowRightOutlineRegular', glyph: '→' })),
         React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-disabled': state.busy,
           'aria-label': t('todos.remove', { item: item.text }), title: t('todos.removeShort'),
           onClick: () => { act(item.id, 'remove'); } }, React.createElement(TodoIcon, { name: 'IconCloseOutlineRegular', glyph: '×' })))));
@@ -12949,6 +12969,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           id: 'assistant-status',
           locale: LOCALE_NS,
           inject: () => ({ seats: statusSeats, store: todos, names: assistantSwitch, locale: () => ctx.locale?.getSnapshot?.().active,
+            composer: (id, text) => draftTodo(inputOf(id), text), notify: notifyIn,
             openSession: (id) => { try { ctx.get('uiWorkspace')?.openSession(id); } catch { /* the chat is in the sidebar */ } } }),
         }, StatusPanels)), () => todos.stop()]);
         const toggles = createToggles({ mobileConnect: mobile, remoteComputers: computersSwitch, resumeAfterRestart: resume, stopSendFirst: sendFirst, projectMemory: memory, memoryHistory: memoryHistorySwitch, memoryPerChat: memoryChatSwitch, contentSearch, turnRollback: rollbackSwitch, nextPrediction: prediction, typingCompletion: completion, sessionBranch: branchSwitch, defaultWorkspace: defaultWs, goalCheck: goalSwitch, worktreeChats: worktreeSwitch, branchTree,
