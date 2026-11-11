@@ -10415,8 +10415,9 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   /** The status of the assistant chat `sessionId` (only it: another chat gets no tasks or projects). */
   const ended = new Map(); // child id → its ended task (ponytail: grows with the assistant's tasks of this dsh run)
   let projectsCache; // { at, value }: the chat list is read at most every STATUS_LIMITS.cacheMs, Refresh reads it now
-  // A root chat that starts or ends a turn changed the projects: the next read reads the chat list again.
-  ctx.on('session/event', (session, event) => { if ((event?.type === 'turn/start' || event?.type === 'turn/end') && isRootChat(session)) projectsCache = undefined; });
+  // A root chat that starts or ends a turn changed the projects: the next read reads the chat list again. The assistant
+  // chat's own turns do not: the projects leave it out.
+  ctx.on('session/event', (session, event) => { if ((event?.type === 'turn/start' || event?.type === 'turn/end') && isRootChat(session) && session?.id !== assistant.id()) projectsCache = undefined; });
   // dsh can resume a disposed continuable child (same id) and dispose it again between two reads: it changed, read it again.
   ctx.on('session/event', (session, event) => { if (event?.type === 'turn/start') ended.delete(session?.id); });
   const status = async (sessionId, signal, fresh) => {

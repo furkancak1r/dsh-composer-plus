@@ -156,6 +156,13 @@ try {
   await call('?sessionId=s-a'); assert.equal(listed, l1 + 1, 'a subagent turn does not drop the cache');
   for (const fn of onEvent) fn({ id: 's-web', header: {} }, { type: 'turn/start' });
   await call('?sessionId=s-a'); assert.equal(listed, l1 + 2, 'a root chat turn drops the cache');
+  // The assistant chat's own turns do not drop it (the panel leaves the assistant chat out of the projects), so a busy
+  // assistant does not read all chats at each panel read. Another root chat's turn and Refresh still read them.
+  for (const fn of onEvent) for (const type of ['turn/start', 'turn/end']) fn(assistantAgent.session, { type });
+  await call('?sessionId=s-a'); assert.equal(listed, l1 + 2, 'the assistant chat\'s own turn does not drop the cache');
+  for (const fn of onEvent) fn({ id: 's-web', header: {} }, { type: 'turn/end' });
+  await call('?sessionId=s-a'); assert.equal(listed, l1 + 3, 'another root chat\'s turn end drops the cache');
+  await call('?sessionId=s-a&refresh=1'); assert.equal(listed, l1 + 4, 'Refresh still reads the chat list');
   // dsh resumes a disposed continuable child and disposes it again between two reads (no read saw it live, for example
   // while the panel was closed): its new events drop the kept task, so its new saved log is read.
   children['c-done'].log = [...children['c-done'].log, ev(3, 'turn/start', {}), reply(4, 'Flights booked'), ev(5, 'turn/end', { reason: { kind: 'completed' } }, NOW - 100)];
