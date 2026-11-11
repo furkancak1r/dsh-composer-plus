@@ -2451,7 +2451,7 @@ export function apply(ctx) {
   installUntangle(ctx, home);
   installApproveButton(ctx, home);
   const assistant = installAssistant(ctx, home);
-  installAssistantBot(ctx, home, assistant);
+  installAssistantBot(ctx, home, assistant, { outage });
   installAssistantTodos(ctx, home, assistant, { outage });
   installSecrets(ctx, home);
   installBackup(ctx, home);
@@ -9816,7 +9816,7 @@ function queuedPrompts(events) {
 
 /** Host half of Assistant apart from chats, Assistant always free and Assistant news from chats. `assistant` is the handle of
  * installAssistant (ready, isOn, id, isAssistant). */
-export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), timing = ASSISTANT_NEWS, now = Date.now } = {}) {
+export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), timing = ASSISTANT_NEWS, now = Date.now, outage } = {}) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: assistant: ${text}`);
   const live = (id) => get('agents')?.get?.(id);
@@ -10011,8 +10011,12 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
       if (ran.length > 0) {
         const left = rpc.filter((r) => !ran.includes(r));
         // dsh's quit or a parent's stop: the task goes on after a restart (Resume after restart), so it stays, and the next
-        // turn end (the continued turn) counts.
-        if (stoppedByDsh(reason)) { if (Array.isArray(task.rpc)) assistant.tasks.add(session.id, withRpc(task, [ANY_TURN, ...left])); return; }
+        // turn end (the continued turn) counts. An AIProxy outage while Resume after an AIProxy outage is on: that feature
+        // continues the chat when AIProxy answers again, so the task stays the same way.
+        // ponytail: when the outage feature does not continue the chat (AIProxy does not come back within OUTAGE.giveUp, its
+        // hourly limit, a 499 while AIProxy stayed up, a "Connection error." of another provider), the task waits without a
+        // note. Upgrade: a give-up callback from outageWatch that drops the task with the "failed" note.
+        if (stoppedByDsh(reason) || (outage?.isOn?.() === true && outageError(reason) !== undefined)) { if (Array.isArray(task.rpc)) assistant.tasks.add(session.id, withRpc(task, [ANY_TURN, ...left])); return; }
         if (left.length === 0) assistant.tasks.drop(session.id); else assistant.tasks.add(session.id, withRpc(task, left));
         const info = taskInfo(task);
         if (reason?.kind === 'error') add(session, { kind: 'failed', reply: cutEnd(String(reason.error?.message ?? '').trim(), timing.taskReply ?? ASSISTANT_NEWS.taskReply), ...info });
