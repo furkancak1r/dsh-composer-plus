@@ -1570,7 +1570,7 @@
     "feature.optionPicks": "Nút lựa chọn",
     "feature.optionPicks.description": "Khi một câu trả lời kết thúc bằng một danh sách lựa chọn (danh sách đánh số dưới tiêu đề \"Lựa chọn\"), mỗi lựa chọn có một nút bên dưới câu trả lời. Nhấp vào nút sẽ gửi \"Option N: …\" làm tin nhắn của bạn. Lựa chọn được đề xuất có đánh dấu. Các nút chỉ hiện dưới câu trả lời mới nhất, khi cuộc trò chuyện đang rảnh và ô nhập tin nhắn trống. Trên thẻ câu hỏi của tác tử, các phím 1–9 chọn lựa chọn đó.",
     "feature.approveButton": "Nút Phê duyệt",
-    "feature.approveButton.description": "Khi tác tử cần bạn viết một câu phê duyệt, tác tử viết câu đó trong một khối mã \"onay\". Bên dưới câu trả lời mới nhất, mỗi khối như vậy có một nút Phê duyệt. Một cú nhấp gửi đúng câu đó làm tin nhắn của bạn, một lần, để Đánh giá tự động thấy nó là của bạn. Câu nêu một đích đang chạy thật hoặc công khai (production, cơ sở dữ liệu thật, triển khai, phát hành) không có nút: hãy tự gõ. Thêm một hướng dẫn ngắn vào mỗi cuộc trò chuyện.",
+    "feature.approveButton.description": "Khi tác tử cần bạn viết một câu phê duyệt, tác tử viết câu đó trong một khối mã \"onay\". Bên dưới câu trả lời mới nhất, mỗi khối như vậy có một nút Phê duyệt. Một cú nhấp gửi đúng câu đó làm tin nhắn của bạn, một lần, để Đánh giá tự động thấy nó là của bạn. Thêm một hướng dẫn ngắn vào mỗi cuộc trò chuyện.",
     "feature.allowForChat": "Cho phép trong cuộc trò chuyện này",
     "feature.allowForChat.description": "Thêm “Cho phép trong cuộc trò chuyện này” vào phê duyệt của Đánh giá tự động và tự động cho phép các công cụ đã được cấp quyền. Quyền được cấp sẽ hết hạn sau giới hạn thời gian bên dưới (mặc định 1 giờ); sau đó tác tử sẽ hỏi lại.",
     "feature.rejectNote": "Từ chối kèm ghi chú",
