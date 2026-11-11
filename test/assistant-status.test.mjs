@@ -216,6 +216,17 @@ try {
   assert.deepEqual((await rowsOf('s-deleg')).map((t) => t.state), ['running'], 'an open task again: no ended row');
   turnEnd('s-deleg', { kind: 'error', error: { message: 'HTTP 500\nstack' } }, ev(0, 'turn/start', {}));
   assert.deepEqual(await rowsOf('s-deleg'), [{ id: 's-deleg', title: 'Fix the login form', state: 'failed', started, ended: clock, chat: true, result: 'HTTP 500' }]);
+  // A chat_send whose message does not go drops its new task: the ended row shows again (also when the panel read the
+  // open task while the send waited).
+  {
+    const failed = await rowsOf('s-deleg');
+    const { observeSession } = ctx.sessionQuery; const { prompt } = ctx.sessionController;
+    ctx.sessionQuery.observeSession = async (id, o) => (id === 's-deleg' ? { header: { cwd: '/demo/acme-web' }, events: [], [Symbol.dispose]() {} } : observeSession(id, o));
+    ctx.sessionController.prompt = async () => { assert.deepEqual((await rowsOf('s-deleg')).map((t) => t.state), ['running']); throw new Error('queue full'); };
+    try { await assert.rejects(assistantAgent.registered.get('chat_send').execute({ chat_id: 's-deleg', text: 'again' }, { agent: assistantAgent }), /queue full/); } finally { Object.assign(ctx.sessionQuery, { observeSession }); Object.assign(ctx.sessionController, { prompt }); }
+    assert.equal(assistant.tasks.has('s-deleg'), false);
+    assert.deepEqual(await rowsOf('s-deleg'), failed, 'a message that did not go keeps the ended row');
+  }
   // dsh's quit and an AIProxy outage keep the task: it stays open. The outage feature lets the chat go: failed.
   await assistant.tasks.add('s-kept', { title: 'Deploy', project: 'acme-web' }); newAgent('s-kept', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {})]);
   turnEnd('s-kept', { kind: 'aborted', reason: { kind: 'disposed' } });

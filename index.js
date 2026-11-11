@@ -10435,7 +10435,6 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     // Delegated chats (chat_new, with or without branch, and chat_send) are tasks too: open while their turn runs (main's
     // store drops them at the end), then with their final state until the day ends (the bot's endedTasks).
     for (const [id, task] of assistant.tasks?.list?.() ?? []) {
-      assistant.endedTasks?.delete(id); // the chat has a task again
       const live = get('agents')?.get?.(id);
       let log = []; try { log = live?.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
       tasks.unshift({ id, title: cutEnd(String(task?.title ?? task?.project ?? id), 120), state: waitingOf(log) ? 'waiting' : 'running',
@@ -10444,6 +10443,9 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     const closed = [];
     for (const [id, t] of assistant.endedTasks ?? []) {
       if (t.ended < today.getTime()) { assistant.endedTasks.delete(id); continue; }
+      // The chat has a task again: its open row shows; the bot replaces this row when that task ends (a chat_send whose
+      // message did not go drops the task, and this row shows again).
+      if (assistant.tasks?.has?.(id)) continue;
       closed.push({ id, title: cutEnd(String(t.title ?? t.project ?? id), 120), state: t.state, started: t.started, ended: t.ended, chat: true, ...(t.result === '' ? {} : { result: t.result }) });
     }
     // After the open tasks, newest end first with the ended subagent tasks.
