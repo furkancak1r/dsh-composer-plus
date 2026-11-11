@@ -5924,7 +5924,8 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       let human = -1;
       const answers = [{ seq: closingSeq, blocks: closingBlocks }];
       for (const node of chat.nodes.values()) {
-        if ((node?.kind === 'user' || node?.kind === 'steering') && typeof node.data?.seq === 'number') human = Math.max(human, node.data.seq);
+        // A message that a rollback withdrew does not count: the answer before it offers its button again.
+        if ((node?.kind === 'user' || node?.kind === 'steering') && typeof node.data?.seq === 'number' && !inSpans(spans, node.data.seq)) human = Math.max(human, node.data.seq);
         const seq = node?.data?.finalNode?.seq;
         if (node?.kind === 'assistant-step' && node.data.turn === turn && node.data.status === 'settled' && Number.isSafeInteger(seq)
           && seq < closingSeq && Array.isArray(node.data.blocks)) answers.push({ seq, blocks: node.data.blocks });
