@@ -89,6 +89,7 @@ While a Composer Plus action in this table waits for the Mac, Tether shows a wai
 | branchTree | no | The Mac does it (git, projects, the chat move). The phone already shows the branch projects and the moved chat as dsh projects and chats; the switch stays on the Mac. |
 | autoUpdate | no | Installs the plugin on the Mac. The iPhone app is built and installed separately. |
 | featureFilter | no | It filters the feature list in Settings → Composer Plus on the Mac. Tether has no list of Composer Plus switches to filter. |
+| categoryFilter | no | It filters the feature list in Settings → Composer Plus on the Mac by category. Tether has no list of Composer Plus switches to filter. |
 | issueReport | yes | Settings → Report a Composer Plus issue… (only while the Mac has the route): the type picker (Bug, Feature request, Improvement, Translation, Question) and a text field; Write draft asks the Mac's default model for an English draft; the title and the description can be edited; Open issue runs the Mac's own `gh` in the Composer Plus repository and shows Issue #N with View on GitHub. One draft or open at a time; an open runs to its end on the Mac. |
 | backup | no | Backups read and write the Mac's dsh home and its backup folder; they run on the Mac (Settings → Composer Plus → Backup), not from a phone. |
 | autoBackup | no | A schedule on the Mac; its switch is a Host switch, which the phone never changes. |
