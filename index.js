@@ -9938,13 +9938,14 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
  * off). While on, the assistant chat (only it: installAssistant's tool scope, its subagents get them denied) has two tools,
  * todo_list_add and todo_list_remove, a short prompt section, and the current list as runtime context (the context changes
  * only when the list changes, so the prompt cache holds). The chat view shows the list at the right side of the chat
- * (client half): one click gives an item to the assistant (owner "agent" and a normal user message), one click removes it. */
+ * (client half): one click writes "Do this for me: <item>" in the composer (the user sends it, and the assistant then
+ * gives the item to itself), one click removes it. */
 export const ASSISTANT_TODOS_PATH = '/api/composer-plus.assistant-todos';
-export const TODO_LIMITS = { text: 500, items: 100, reason: 200, prefix: 200 };
+export const TODO_LIMITS = { text: 500, items: 100, reason: 200 };
 export const TODO_SECTION = `# Assistant to-do list (Composer Plus)
 The user keeps a to-do list in this chat and sees it at the right side of the chat. The runtime context gives the current items, each with its id and owner. Keep the list current: it is the user's view of the open work.
 - When the user tells you a task that they have in mind, add it with todo_list_add (owner "user"). The user does an item of owner "user": do not do it and do not ask about it, unless the user mentions it.
-- When the user tells you to do a task ("you do it", "Bunu sen yap: …"), give it owner "agent" with todo_list_add, then do it under the rules above.
+- When the user tells you to do a task ("you do it", "Do this for me: …" in any language, "Bunu sen yap: …"), give it owner "agent" with todo_list_add, then do it under the rules above.
 - Each time that you start work for the user (subagent, subagent_fork, chat_new, schedule_create), add an item of owner "agent" for it with todo_list_add in the same turn, also when the user did not say "you do it".
 - Each step that the user must do (an approval sentence, a manual action, a restart) gets an item of owner "user".
 - Check the items when you get new information (a user message, a subagent result, a chat that you read). When you have evidence that an item is done, remove it with todo_list_remove (reason "completed") and tell the user in one line. Do not remove an item without evidence.
@@ -9984,16 +9985,6 @@ export const todoList = {
   remove(list, id) {
     const item = list.find((i) => i.id === id);
     return { list: item === undefined ? list : list.filter((i) => i !== item), item };
-  },
-  /** Gives item `id` to the assistant (owner "agent"); `item` is undefined when the list does not have it. An item that
-   * is already the assistant's is refused (409): another window still showed its button, and a second message would
-   * give the same task twice. */
-  handover(list, id) {
-    const before = list.find((i) => i.id === id);
-    if (before === undefined) return { list, item: undefined };
-    if (before.owner === 'agent') throw refused('The assistant already does this item.');
-    const item = { ...before, owner: 'agent' };
-    return { list: list.map((i) => (i === before ? item : i)), item, before };
   },
 };
 
@@ -10206,8 +10197,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   };
   ctx.connection.fetch.register({
     path: ASSISTANT_TODOS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
-    /** GET: `{on}`, with `?sessionId=` also `{items}`. POST `{on}`: the switch. POST `{sessionId, id, action}`: `remove`, or
-     * `handover` with `prefix` (the message is `<prefix> <item text>`, sent as the user's message). */
+    /** GET: `{on}`, with `?sessionId=` also `{items}`. POST `{on}`: the switch. POST `{sessionId, id, action: "remove"}`. */
     fetch: async (request) => {
       await ready;
       const query = new URL(request.url).searchParams;
@@ -10234,25 +10224,12 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         try { await change; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
         return json(view());
       }
-      const { sessionId, id, action, prefix } = plainObject(body) ? body : {};
-      if (!isText(sessionId, 128) || typeof id !== 'string' || !TODO_ID.test(id) || (action !== 'remove' && action !== 'handover')
-        || (action === 'handover' && !isText(prefix, TODO_LIMITS.prefix))) return json({ error: 'bad request' }, 400);
+      const { sessionId, id, action } = plainObject(body) ? body : {};
+      if (!isText(sessionId, 128) || typeof id !== 'string' || !TODO_ID.test(id) || action !== 'remove') return json({ error: 'bad request' }, 400);
       if (!on) return json({ error: 'The to-do list is off' }, 409);
       try {
-        if (action === 'remove') {
-          const { item } = await store.change(sessionId, (list) => todoList.remove(list, id));
-          if (item === undefined) return json({ error: 'not found', ...view(sessionId) }, 404);
-          return json(view(sessionId));
-        }
-        const { item, before } = await store.change(sessionId, (list) => todoList.handover(list, id));
+        const { item } = await store.change(sessionId, (list) => todoList.remove(list, id));
         if (item === undefined) return json({ error: 'not found', ...view(sessionId) }, 404);
-        try {
-          await ctx.sessionController.prompt({ requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text: `${prefix.trim()} ${item.text}` }] }, AbortSignal.timeout(STOP_WAIT_MS));
-        } catch (error) {
-          // All or none: the message did not go, so the item keeps its owner (when it is still on the list).
-          await store.change(sessionId, (list) => ({ list: list.map((i) => (i.id === id ? { ...i, owner: before.owner } : i)) })).catch(() => {});
-          return json({ error: String(error?.message ?? error), ...view(sessionId) }, 502);
-        }
         return json(view(sessionId));
       } catch (error) { return json({ error: String(error?.message ?? error), ...view(sessionId) }, Number.isInteger(error?.status) ? error.status : 500); }
     },

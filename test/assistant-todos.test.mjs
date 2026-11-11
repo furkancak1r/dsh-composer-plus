@@ -30,9 +30,7 @@ const full = Array.from({ length: TODO_LIMITS.items }, (_, i) => ({ id: i.toStri
 assert.throws(() => todoList.add(full, { text: 'one more' }), /Remove one first/);
 r = todoList.remove(two, 'aaaaaaaa'); assert.deepEqual(r.list.map((i) => i.id), ['bbbbbbbb']); assert.equal(r.item.id, 'aaaaaaaa');
 r = todoList.remove(two, 'ffffffff'); assert.equal(r.item, undefined); assert.equal(r.list, two);
-r = todoList.handover(two, 'bbbbbbbb'); assert.equal(r.item.owner, 'agent'); assert.equal(r.before.owner, 'user'); assert.equal(two[1].owner, 'user');
-assert.equal(todoList.handover(two, 'ffffffff').item, undefined);
-assert.throws(() => todoList.handover(todoList.handover(two, 'bbbbbbbb').list, 'bbbbbbbb'), (e) => e.status === 409, 'F-06: no second hand over');
+assert.equal(todoList.handover, undefined, '→ only writes in the composer: the Host has no hand over');
 
 // The prompt context.
 assert.equal(todoContext([]), ''); assert.equal(todoContext(undefined), '');
@@ -181,22 +179,12 @@ await assert.rejects(tool('todo_list_remove').execute({ id: items[2].id, reason:
 assert.match(await tool('todo_list_remove').execute({ id: items[2].id, reason: 'completed' }, { agent: assistantAgent }), /^Removed [0-9a-f]{8} \(completed\): "Rapor yaz"/);
 assert.equal((await call('GET', undefined, '?sessionId=s-a')).body.items.length, 2);
 
-// The route: hand over sends a normal user message and gives the item to the assistant.
+// The route has no hand over: → only writes in the composer (client), so the Host sends nothing and changes no owner.
 items = (await call('GET', undefined, '?sessionId=s-a')).body.items;
 let res = await call('POST', { sessionId: 's-a', id: items[1].id, action: 'handover', prefix: 'Bunu sen yap:' });
-assert.equal(res.status, 200);
-assert.equal(res.body.items[1].owner, 'agent');
-assert.equal(prompts.length, 1); assert.equal(prompts[0].sessionId, 's-a'); assert.equal(prompts[0].mode, 'queue');
-assert.deepEqual(prompts[0].content, [{ type: 'text', text: 'Bunu sen yap: Ece Hanım ile Excel doldurmak' }]);
-// F-06: a second hand over of the same item (another window still shows →) sends nothing.
-res = await call('POST', { sessionId: 's-a', id: items[1].id, action: 'handover', prefix: 'Bunu sen yap:' });
-assert.equal(res.status, 409, 'already the assistant\'s'); assert.equal(prompts.length, 1, 'no second message'); assert.equal(res.body.items[1].owner, 'agent');
-// A failed send: the owner goes back.
-failPrompt = true;
-res = await call('POST', { sessionId: 's-a', id: items[0].id, action: 'handover', prefix: 'Bunu sen yap:' });
-failPrompt = false;
-assert.equal(res.status, 502); assert.match(res.body.error, /the chat is gone/);
-assert.equal(res.body.items[0].owner, 'user', 'all or none: the owner is back');
+assert.equal(res.status, 400, 'an older client\'s hand over is refused');
+assert.equal(prompts.length, 0, 'no message'); assert.equal((await call('GET', undefined, '?sessionId=s-a')).body.items[1].owner, 'user', 'the owner stays');
+assert.match(TODO_SECTION, /"Do this for me: …" in any language/, 'the sent text gives the item to the assistant');
 // Remove: one click, no confirmation.
 res = await call('POST', { sessionId: 's-a', id: items[0].id, action: 'remove' });
 assert.equal(res.status, 200); assert.deepEqual(res.body.items.map((i) => i.text), ['Ece Hanım ile Excel doldurmak']);
@@ -204,14 +192,14 @@ res = await call('POST', { sessionId: 's-a', id: items[0].id, action: 'remove' }
 assert.equal(res.status, 404, 'a removed item is gone'); assert.equal(res.body.items.length, 1);
 // Bad requests.
 for (const bad of [{ sessionId: 's-a', id: '../x', action: 'remove' }, { sessionId: '', id: items[1].id, action: 'remove' }, { sessionId: 's-a', id: items[1].id, action: 'delete' },
-  { sessionId: 's-a', id: items[1].id, action: 'handover' }, { sessionId: 's-a', id: items[1].id, action: 'handover', prefix: 'x'.repeat(TODO_LIMITS.prefix + 1) }, { on: 'yes' }, []]) {
+  { sessionId: 's-a', id: items[1].id, action: 'handover' }, { on: 'yes' }, []]) {
   assert.equal((await call('POST', bad)).status, 400, JSON.stringify(bad).slice(0, 60));
 }
 assert.equal((await call('POST', '{broken')).status, 400);
 assert.deepEqual((await call('GET')).body, { on: true }, 'GET without a chat: only the switch');
 // Persistence across a new Host (a dsh restart): the list is in the file.
 const reread = todoStore(file); await reread.ready;
-assert.deepEqual(reread.of('s-a').map((i) => [i.text, i.owner]), [['Ece Hanım ile Excel doldurmak', 'agent']]);
+assert.deepEqual(reread.of('s-a').map((i) => [i.text, i.owner]), [['Ece Hanım ile Excel doldurmak', 'user']]);
 
 // Off: no tools, no section, no context, no item actions; the list stays in the file.
 assert.deepEqual((await call('POST', { on: false })).body, { on: false });
