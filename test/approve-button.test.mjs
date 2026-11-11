@@ -6,7 +6,8 @@
 //   reason and keeps the button; a sent answer shows none; never for a user message.
 // - The Assistant chat (owner, 2026-11-11: "onay butonu çıkmıyor kod bloğu çıkıyor"): the answer that asks for the approval
 //   is in the middle of its turn when a subagent's result or Assistant news continues the turn; its sentence still gets
-//   the button under the turn's end. An answer that you already answered or a withdrawn one gets none.
+//   the button under the turn's end. An answer of an earlier turn gets it too when only Assistant news or a subagent's
+//   result came after it. An answer that you already answered (your message after it) or a withdrawn one gets none.
 // - The feature through plugin.apply: on by default; switched off, its slot goes.
 // - Host: the prompt section with the `onay` rule, on by default; the switch route removes and adds it.
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
@@ -193,8 +194,20 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
   assert.deepEqual(chatOffer(twice, [], 0, parseApprovals)?.options.map((o) => [o.n, o.message]), [[1, CAT]], 'the same sentence twice: one button');
   assert.equal(chatOffer(mid, [[105, 111]], 0, parseApprovals), undefined, 'a withdrawn answer gives none');
   assert.equal(chatOffer(mid, [], 112, parseApprovals), undefined, 'a fork\'s inherited answer gives none');
+  // An answer of an earlier turn, then a new turn that a subagent's result or Assistant news started (owner, 2026-11-11:
+  // "onay butonu çıkmıyor"): you did not answer it yet, so the button shows under the newest turn's end.
   const older = chat(user(90, 'x'), step(8, 1, 95, ASK), tail(8, 95, ASK), ctx(99), step(9, 1, 115, 'Done.'), tail(9, 115, 'Done.'));
-  assert.equal(chatOffer(older, [], 0, parseApprovals), undefined, 'an answer of an older turn gives none');
+  const olderOffer = chatOffer(older, [], 0, parseApprovals);
+  assert.deepEqual(olderOffer?.options.map((o) => o.message), [CAT], 'an answer of an earlier turn, then a subagent turn: the button shows');
+  assert.equal(olderOffer.seq, 115, 'under the newest turn\'s end');
+  // dsh draws a message whose source is not "user" (Assistant news, a subagent's result) as a context row, not as your message.
+  const news = (seq) => ({ kind: 'context', anchorSeq: seq, data: { kind: 'context', seq, source: { kind: 'composer-plus-assistant-news', form: 'snapshot' } } });
+  const newsTurn = chat(user(90, 'x'), step(8, 1, 95, ASK), tail(8, 95, ASK), news(99), step(9, 1, 115, 'X finished.'), tail(9, 115, 'X finished.'));
+  assert.deepEqual(chatOffer(newsTurn, [], 0, parseApprovals)?.options.map((o) => o.message), [CAT], 'an Assistant news steer between them: the button still shows');
+  const humanAfter = chat(user(90, 'x'), step(8, 1, 95, ASK), tail(8, 95, ASK), user(97, 'Bekle.'), step(9, 1, 100, 'Ok.'), tail(9, 100, 'Ok.'),
+    news(105), step(10, 1, 115, 'X finished.'), tail(10, 115, 'X finished.'));
+  assert.equal(chatOffer(humanAfter, [], 0, parseApprovals), undefined, 'your message after the answer (you answered or skipped it): none');
+  assert.equal(chatOffer(older, [], 96, parseApprovals), undefined, 'a fork\'s inherited earlier answer gives none');
   // The rendered button under the turn's end, and a click sends the sentence.
   view = mid; const cellMid = cell(115); cellMid.render(); await flush();
   const midButtons = buttonsOf(cellMid.render());
