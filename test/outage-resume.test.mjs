@@ -3,7 +3,8 @@
 //   errors (429, 503, 409, a 499 with another code) do not.
 // - outageWatch: failures within the window are one outage; it waits for a failed health check (or a Connection error)
 //   and then for the settle time of good checks; a 499 while AIProxy stays up continues nothing;
-//   one message per chat per outage, at most perHour per hour; a chat that moved on gets nothing.
+//   one message per chat per outage, at most perHour per hour; a chat that moved on gets nothing; `left(id, why)` gets
+//   each chat that is not continued (no outage, gave up, max, limit, switched off, resume's answer), not after close.
 // - installOutageResume: on by default, the switch route (on, lang), the message in the UI language through dsh's prompt
 //   (mode queue, as chat_send), only root chats on AIProxy, the outage line after dsh's notice of a failed subagent, and
 //   the status panel's list of continued chats. Switched off, nothing continues.
@@ -50,12 +51,13 @@ for (const [id, text] of Object.entries(OUTAGE_NOTES)) assert.ok(text.length > 2
 
 // --- outageWatch with a fake clock ---
 const T = { ...OUTAGE, window: 60, poll: 1, settle: 10, giveUp: 1000, hour: 3600 };
-function rig({ healthy = () => true, resume } = {}) {
-  let clock = 0; const checks = []; const resumed = [];
-  const w = outageWatch({ now: () => clock, timing: T, sleep: async (ms) => { clock += ms; await null; },
+function rig({ healthy = () => true, resume, timing = T } = {}) {
+  let clock = 0; const checks = []; const resumed = []; const left = [];
+  const w = outageWatch({ now: () => clock, timing, sleep: async (ms) => { clock += ms; await null; },
     health: () => { const ok = healthy(clock); checks.push([clock, ok]); return ok; },
+    left: (id, why) => left.push([id, why]),
     resume: resume ?? (async (id, seq) => { resumed.push([id, seq, clock]); return 'continued'; }) });
-  return { w, checks, resumed, tick: (ms) => { clock += ms; }, at: () => clock };
+  return { w, checks, resumed, left, tick: (ms) => { clock += ms; }, at: () => clock };
 }
 {
   // A restart: AIProxy is down from 0 to 25; three chats fail; one outage, each chat once, after 10 good units.
@@ -66,6 +68,7 @@ function rig({ healthy = () => true, resume } = {}) {
   assert.ok(r.resumed.every(([, , at]) => at >= 25 + T.settle), 'only after AIProxy answered for the settle time');
   assert.ok(r.checks.some(([, ok]) => !ok), 'the health check saw it down');
   assert.deepEqual(r.w.last().chats, ['a', 'b']);
+  assert.deepEqual(r.left, [], 'a continued chat is not left');
 }
 {
   // A failure after the outage was handled is a new outage (and gets its own message).
@@ -76,6 +79,7 @@ function rig({ healthy = () => true, resume } = {}) {
   // A third outage in the same hour: the hourly limit stops it.
   r.tick(10); r.w.fail('a', 3, 'connection'); await r.w.settled();
   assert.equal(r.resumed.length, 2, 'at most two automatic messages per chat per hour');
+  assert.deepEqual(r.left, [['a', 'limit']], 'the hourly limit leaves the chat');
   // After an hour, it continues again.
   r.tick(T.hour); r.w.fail('a', 4, 'connection'); await r.w.settled();
   assert.deepEqual(r.resumed.at(-1).slice(0, 2), ['a', 4], 'the limit is per hour');
@@ -89,6 +93,7 @@ function rig({ healthy = () => true, resume } = {}) {
   // Two cancels at once while AIProxy stays up: still no outage.
   r.w.fail('x', 6, 'cancelled'); r.w.fail('y', 7, 'cancelled'); await r.w.settled();
   assert.deepEqual(r.resumed, [], 'cancels without a failed health check');
+  assert.deepEqual(r.left, [['solo', 'no outage'], ['x', 'no outage'], ['y', 'no outage']], 'each cancel is left');
 }
 {
   // AIProxy never comes back: the watch gives up, nothing continues.
@@ -96,6 +101,14 @@ function rig({ healthy = () => true, resume } = {}) {
   r.w.fail('a', 1, 'connection'); await r.w.settled();
   assert.deepEqual(r.resumed, []);
   assert.ok(r.at() >= T.giveUp);
+  assert.deepEqual(r.left, [['a', 'gave up']]);
+}
+{
+  // More failed chats than `max`: the ones over the cap are left.
+  const r = rig({ healthy: (t) => t > 2, timing: { ...T, max: 1 } });
+  r.w.fail('a', 1, 'connection'); r.w.fail('b', 1, 'connection'); await r.w.settled();
+  assert.deepEqual(r.resumed.map(([id]) => id), ['a']);
+  assert.deepEqual(r.left, [['b', 'max']]);
 }
 {
   // Down and up again before the settle time: the settle time starts again.
@@ -109,17 +122,28 @@ function rig({ healthy = () => true, resume } = {}) {
   const r = rig({ healthy: (t) => t > 2, resume: async (id) => { if (id === 'boom') throw new Error('x'); return answers[id]; } });
   r.w.fail('moved', 1, 'connection'); r.w.fail('boom', 1, 'connection'); r.w.fail('ok', 1, 'connection'); await r.w.settled();
   assert.deepEqual(r.w.last().chats, ['ok']);
+  assert.deepEqual(r.left, [['moved', 'moved'], ['boom', 'failed']], 'each chat that is not continued is left, with why');
 }
 {
   // Switched off (active false) or closed during the wait: nothing continues.
-  let active = true; let clock = 0; const resumed = [];
+  let active = true; let clock = 0; const resumed = []; const left = [];
   const w = outageWatch({ now: () => clock, timing: T, active: () => active, sleep: async (ms) => { clock += ms; if (clock > 3) active = false; },
-    health: () => clock > 50, resume: async (id) => { resumed.push(id); return 'continued'; } });
+    health: () => clock > 50, resume: async (id) => { resumed.push(id); return 'continued'; }, left: (id, why) => left.push([id, why]) });
   w.fail('a', 1, 'connection'); await w.settled();
   assert.deepEqual(resumed, [], 'switched off during the wait');
-  const w2 = outageWatch({ now: () => clock, timing: T, sleep: async (ms) => { clock += ms; }, health: () => false, resume: async (id) => { resumed.push(id); return 'continued'; } });
+  assert.deepEqual(left, [['a', 'off']], 'switched off: the chat is left');
+  const w2 = outageWatch({ now: () => clock, timing: T, sleep: async (ms) => { clock += ms; }, health: () => false, resume: async (id) => { resumed.push(id); return 'continued'; },
+    left: (id, why) => left.push([id, why]) });
   w2.fail('a', 1, 'connection'); w2.close(); await w2.settled();
   assert.deepEqual(resumed, [], 'closed (plugin unload)');
+  assert.equal(left.length, 1, 'closed: nothing is left (the plugin unloads)');
+  // A throwing `left` is logged and does not stop the other chats.
+  const logs = []; const seen = [];
+  const w3 = outageWatch({ now: () => clock, timing: T, sleep: async (ms) => { clock += ms; }, health: () => true, resume: async () => 'continued', log: (t) => logs.push(t),
+    left: (id) => { seen.push(id); if (id === 'a') throw new Error('x'); } });
+  w3.fail('a', 1, 'cancelled'); w3.fail('b', 1, 'cancelled'); await w3.settled();
+  assert.deepEqual(seen, ['a', 'b']);
+  assert.ok(logs.includes('outage left a: x'));
 }
 
 // --- installOutageResume with a fake dsh ---
