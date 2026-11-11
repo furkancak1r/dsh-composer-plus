@@ -3191,8 +3191,9 @@ export function outageError(reason) {
 export const OUTAGE_CHILD_NOTE = 'Composer Plus: this subagent failed because of an AIProxy outage (AIProxy restarted or stopped for a moment), not because of its task. When AIProxy answers again, continue it with send_message (a continuable subagent) or start the task again. Do not repeat the steps that it completed.';
 
 /** The outage logic without dsh: `fail(id, seq, kind)` for each failed root chat; `resume(id, seq)` answers 'continued' or
- * why not. `health()` answers true when AIProxy answers. `sleep`, `now` and `timing` are for the tests. */
-export function outageWatch({ health, resume, log = () => {}, now = Date.now, timing = OUTAGE, active = () => true,
+ * why not. `health()` answers true when AIProxy answers. `left(id, why)` gets each chat of an outage that is not continued
+ * (not after close). `sleep`, `now` and `timing` are for the tests. */
+export function outageWatch({ health, resume, log = () => {}, now = Date.now, timing = OUTAGE, active = () => true, left = () => {},
   sleep = (ms) => new Promise((done) => { const t = setTimeout(done, ms); t.unref?.(); }) }) {
   let current; // { chats: Map(id → seq), confirmed, first, last }
   let closed = false;
@@ -3200,28 +3201,32 @@ export function outageWatch({ health, resume, log = () => {}, now = Date.now, ti
   let last; // { at, chats: [{ id, result }] } of the newest outage that continued a chat
   const sent = new Map(); // chat id → times of its automatic messages in the last hour
   const recent = (id) => (sent.get(id) ?? []).filter((at) => now() - at < timing.hour);
+  const leave = (ids, why) => { for (const id of ids) try { left(id, why); } catch (error) { log(`outage left ${id}: ${error?.message ?? error}`); } };
   const loop = async (outage) => {
     let healthySince;
     while (!closed) {
-      if (!active()) { if (current === outage) current = undefined; return; } // switched off: this outage is forgotten
+      if (!active()) { if (current === outage) current = undefined; leave(outage.chats.keys(), 'off'); return; } // switched off: this outage is forgotten
       const ok = await Promise.resolve().then(health).then((v) => v === true, () => false);
       if (closed) return;
       if (!ok) { outage.confirmed = true; healthySince = undefined; }
       else if (outage.confirmed) { healthySince ??= now(); if (now() - healthySince >= timing.settle) break; }
-      else if (now() - outage.last >= timing.window) { current = undefined; return; } // AIProxy never went away: a cancel
-      if (now() - outage.first >= timing.giveUp) { current = undefined; log(`AIProxy did not answer for ${Math.round(timing.giveUp / 60000)} min: ${outage.chats.size} chats stay stopped`); return; }
+      else if (now() - outage.last >= timing.window) { current = undefined; leave(outage.chats.keys(), 'no outage'); return; } // AIProxy never went away: a cancel
+      if (now() - outage.first >= timing.giveUp) { current = undefined; log(`AIProxy did not answer for ${Math.round(timing.giveUp / 60000)} min: ${outage.chats.size} chats stay stopped`); leave(outage.chats.keys(), 'gave up'); return; }
       await sleep(timing.poll);
     }
     if (closed) return;
     current = undefined; // a failure from now on is a new outage
     const results = [];
-    for (const [id, seq] of [...outage.chats].slice(0, timing.max)) {
+    const chats = [...outage.chats];
+    leave(chats.slice(timing.max).map(([id]) => id), 'max');
+    for (const [id, seq] of chats.slice(0, timing.max)) {
       if (closed) break;
       const times = recent(id);
-      if (times.length >= timing.perHour) { results.push({ id, result: 'limit' }); continue; }
+      if (times.length >= timing.perHour) { results.push({ id, result: 'limit' }); leave([id], 'limit'); continue; }
       let result;
       try { result = await resume(id, seq); } catch (error) { result = 'failed'; log(`outage resume ${id} failed: ${error?.message ?? error}`); }
       if (result === 'continued') sent.set(id, [...times, now()]); else if (times.length > 0) sent.set(id, times); else sent.delete(id);
+      if (result !== 'continued' && !closed) leave([id], result);
       results.push({ id, result });
     }
     const continued = results.filter((r) => r.result === 'continued');
@@ -3275,7 +3280,8 @@ export function installOutageResume(ctx, home, { file = join(home, 'storages', '
     try { titles.set(id, (await ctx.sessionQuery.readTitle?.(id))?.title); } catch { /* no title */ }
     return 'continued';
   };
-  const watch = outageWatch({ health, resume, log, now, timing, active: () => on, ...(sleep === undefined ? {} : { sleep }) });
+  let onLeft = () => {}; // the Assistant's: a chat that an outage does not continue
+  const watch = outageWatch({ health, resume, log, now, timing, active: () => on, left: (id, why) => onLeft(id, why), ...(sleep === undefined ? {} : { sleep }) });
   /** True when the chat's newest model request went to an AIProxy provider (its id or its display name says so), so a
    * "Connection error." of another provider (a network drop) starts nothing. */
   const onAIProxy = (session) => {
@@ -3287,6 +3293,8 @@ export function installOutageResume(ctx, home, { file = join(home, 'storages', '
     return /aiproxy/i.test(provider) || /aiproxy/i.test(String(name ?? ''));
   };
   const children = new Set(); // subagents whose turn failed in an outage, until their parent's notice
+  /** True for a turn end that the watch takes: it continues the chat later or calls `onLeft(id, why)`. */
+  const takes = (session, reason) => on && isText(session?.id) && isRootChat(session) && outageError(reason) !== undefined && onAIProxy(session);
   ctx.on('session/event', (session, event) => {
     if (!on || event?.type !== 'turn/end' || !isText(session?.id)) return;
     const kind = outageError(event.data?.reason);
@@ -3334,7 +3342,9 @@ export function installOutageResume(ctx, home, { file = join(home, 'storages', '
     },
   });
   return {
-    ready, watch, isOn: () => on,
+    ready, watch, isOn: () => on, takes,
+    /** One listener (the Assistant's) for each chat of an outage that is not continued: `fn(id, why)`. */
+    onLeft(fn) { onLeft = fn; },
     /** `{at, chats: [{id, title}]}` of the newest outage that continued a chat, or undefined. */
     last() { const l = watch.last(); return l === undefined ? undefined : { at: l.at, chats: l.chats.map((id) => ({ id, title: cutEnd(String(titles.get(id) ?? '').trim() || '(untitled)', 120) })) }; },
   };
@@ -9983,7 +9993,21 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   const taskOf = (session) => (assistant.isOn() && isText(session?.id) && session.id !== assistant.id() ? assistant.tasks?.get?.(session.id) : undefined);
   // The note names the project that the task was given in (the branch's own project has the branch name).
   const taskInfo = (task) => ({ task: true, ...(isText(task.branch) ? { branch: task.branch } : {}), ...(isText(task.project) ? { project: task.project } : {}) });
+  const stalled = new Map(); // chat id → {session, reply} of a task turn that an AIProxy outage stopped
+  // The outage feature does not continue the chat: its turn's error is the task's result after all. A chat that runs or
+  // moved on (you or a queued message continued it) keeps the task: its next turn end counts (a later turn end of the
+  // chat already took it out of `stalled`).
+  outage?.onLeft?.((id, why) => {
+    const s = stalled.get(id); stalled.delete(id);
+    const runs = why === 'busy' || why === 'moved' || eventsOf(live(id)).findLast((e) => e.type === 'turn/start' || e.type === 'turn/end')?.type === 'turn/start';
+    const task = s === undefined || runs ? undefined : taskOf(s.session);
+    if (task === undefined) return;
+    const left = rpcOf(task).filter((r) => r !== ANY_TURN);
+    if (left.length === 0) assistant.tasks.drop(id); else assistant.tasks.add(id, withRpc(task, left));
+    add(s.session, { kind: 'failed', reply: s.reply, ...taskInfo(task) });
+  });
   ctx.on('session/event', (session, event) => {
+    if (event?.type === 'turn/end') stalled.delete(session?.id); // a newer turn end: the outage's turn is not the result
     const task = taskOf(session);
     if (task === undefined && !watched(session)) return;
     const at = Number.isFinite(event?.time) ? event.time : now();
@@ -10011,12 +10035,16 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
       if (ran.length > 0) {
         const left = rpc.filter((r) => !ran.includes(r));
         // dsh's quit or a parent's stop: the task goes on after a restart (Resume after restart), so it stays, and the next
-        // turn end (the continued turn) counts. An AIProxy outage while Resume after an AIProxy outage is on: that feature
-        // continues the chat when AIProxy answers again, so the task stays the same way.
-        // ponytail: when the outage feature does not continue the chat (AIProxy does not come back within OUTAGE.giveUp, its
-        // hourly limit, a 499 while AIProxy stayed up, a "Connection error." of another provider), the task waits without a
-        // note. Upgrade: a give-up callback from outageWatch that drops the task with the "failed" note.
-        if (stoppedByDsh(reason) || (outage?.isOn?.() === true && outageError(reason) !== undefined)) { if (Array.isArray(task.rpc)) assistant.tasks.add(session.id, withRpc(task, [ANY_TURN, ...left])); return; }
+        // turn end (the continued turn) counts. A turn end that Resume after an AIProxy outage takes: the task stays the same
+        // way until that feature continues the chat, or gets the "failed" note when it does not (stalled, onLeft).
+        // ponytail: `stalled` lives in memory: after a dsh quit while the outage feature waits, the task waits without a
+        // note for the chat's next turn end. Upgrade: keep the outage's chats in outage-resume.json.
+        const outaged = outage?.takes?.(session, reason) === true;
+        if (stoppedByDsh(reason) || outaged) {
+          if (outaged) stalled.set(session.id, { session, reply: cutEnd(String(reason.error?.message ?? '').trim(), timing.taskReply ?? ASSISTANT_NEWS.taskReply) });
+          if (Array.isArray(task.rpc)) assistant.tasks.add(session.id, withRpc(task, [ANY_TURN, ...left]));
+          return;
+        }
         if (left.length === 0) assistant.tasks.drop(session.id); else assistant.tasks.add(session.id, withRpc(task, left));
         const info = taskInfo(task);
         if (reason?.kind === 'error') add(session, { kind: 'failed', reply: cutEnd(String(reason.error?.message ?? '').trim(), timing.taskReply ?? ASSISTANT_NEWS.taskReply), ...info });
