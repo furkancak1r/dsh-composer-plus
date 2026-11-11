@@ -2,8 +2,10 @@
 // - A seat in dsh's input dock (only in the assistant chat) gives the chat body; the panel is a shell.overlay entry
 //   (typing in the composer does not draw it again) portaled into that chat body, at the right side of the chat, not in
 //   dsh's right sidebar.
-// - To-do items have real buttons with an aria-label: Hand over (only for an item of the user) sends the action with the
-//   prefix in the UI language; Remove removes at once. Keyboard: aria-disabled (not disabled) while an action runs.
+// - To-do items have real buttons with an aria-label: → (only for an item of the user) writes "<Do this for me:> <item>"
+//   in the UI language at the end of the composer (a draft that is there stays, the text goes on its own line), focuses
+//   the composer and sends nothing (no POST, the owner stays); Remove removes at once. Keyboard: aria-disabled (not
+//   disabled) while an action runs.
 // - The status: the morning summary card (only today's; Hide keeps it hidden; a project name opens its row), the tasks
 //   (state, time, result; a click opens the task's chat), the projects (closed rows with one line; a click opens the
 //   row, reads its git details once, shows its chats, to-do items, branch and commits), Refresh and the update time.
@@ -47,6 +49,24 @@ globalThis.fetch = async (url, init) => {
   return new Response('{}', { status: 404 });
 };
 
+// The assistant chat's composer (dsh's input shell): insertText at a span of the current revision, as dsh does.
+const composer = { draft: '', occurrences: [], rev: 0, inserts: [], focused: 0, submits: 0, refuse: false, stale: false };
+const shell = {
+  get snapshot() { return { draft: composer.draft, occurrences: composer.occurrences, draftRev: composer.stale ? composer.rev - 1 : composer.rev, phase: 'plain' }; },
+  actions: {
+    captureInsertion: () => ({ start: 0, end: 0, draftRev: composer.rev }),
+    insertText: (text, span) => {
+      composer.inserts.push({ text, span });
+      if (composer.refuse || span.draftRev !== composer.rev) return false;
+      composer.draft = composer.draft + text; composer.rev += 1; return true;
+    },
+    submit: () => { composer.submits += 1; },
+  },
+  get projection() { return composer.detect === undefined ? undefined : { detectText: composer.detect }; },
+  focus: () => { composer.focused += 1; },
+  notify: (level, text) => notices.push(['s-assistant', level, text]),
+};
+const notices = [];
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
 eval(readFileSync(new URL('../client.js', import.meta.url), 'utf8'));
 // A small hook runtime per component: state and refs by call order; layout effects run at each render; effects are kept.
@@ -65,7 +85,8 @@ const rt = runtime();
 const plugin = mod.factory((n) => (n === 'react' ? rt.React : n === 'react-dom' ? { createPortal: (el, host, key) => ({ portal: el, host, key }) }
   : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Menu: 'Menu', Input: 'Input', Button: 'Button' } : {}));
 const live = new Map(); let next = 0; const opened = [];
-plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, get: (n) => (n === 'uiWorkspace' ? { openSession: (id) => opened.push(id) } : undefined),
+plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, sessions: { scope: (id) => (id === 's-assistant' ? { id } : undefined) },
+  get: (n) => (n === 'uiWorkspace' ? { openSession: (id) => opened.push(id) } : n === 'conversation' ? { input: { for: () => shell } } : undefined),
   locale: { register: () => () => {}, bind: (ns) => (k) => `${ns}:${k}`, resolveText: (x) => x, getSnapshot: () => ({ active: 'tr' }) },
   slots: { inject: (n, f) => { const off = f(); return () => off(); }, register: (o, C) => { const key = next++; live.set(key, [o, C]); return () => live.delete(key); } } });
 await tick();
@@ -188,10 +209,7 @@ const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
   await panelProps.store.load('s-assistant');
   let g = groups(panel());
   assert.deepEqual(g.map((b) => [b.p['data-owner'], b.p['aria-expanded']]), [['user', true], ['agent', true]], 'two groups, the user\'s first, both open');
-  assert.match(text(g[0]), /todos\.groupUser\s+2$/); assert.match(text(g[1]), /todos\.groupAgent:\{"name":"assistant\.title"\}\s+3$/, 'no Assistant name: the localized label');
-  { rt.reset(); const out = Panels({ ...panelProps, names: { subscribe: () => () => {}, getSnapshot: () => ({ on: true, name: 'Damon' }) }, useSessions, useSessionStatus, t });
-    const inner = out.c[0][0].portal; rt.reset();
-    assert.match(text(groups(inner.t(inner.p))[1]), /todos\.groupAgent:\{"name":"Damon"\}/, 'the Assistant name from Settings'); }
+  assert.match(text(g[0]), /todos\.groupUser\s+2$/); assert.match(text(g[1]), /todos\.groupAgent:\{"name":"Damon"\}\s+3$/, 'the fixed name Damon');
   assert.ok(g.every((b) => find(b, (n) => n.p?.['aria-hidden'] === true && /[▸▾]/.test(text(n))).length === 1), 'the arrow is aria-hidden');
   let lists = groupLists(panel());
   assert.deepEqual(lists.map((l) => find(l, (n) => n.p?.className === 'cp-td-text').map(text)), [['U1', 'U2'], ['A1', 'A2', 'A3']], 'each item in its owner\'s group');
@@ -208,11 +226,45 @@ const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
   items = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
-// Hand over and Remove.
-handover.length && find(tree, (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? ''))[0].p.onClick(); await tick();
-assert.deepEqual(posts.at(-1), { sessionId: 's-assistant', id: 'aaaaaaaa', action: 'handover', prefix: 'todos.handoverMessage' });
-tree = panel(); assert.equal(find(tree, (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? '')).length, 0, 'now the assistant does it');
-assert.deepEqual(groups(tree).map((b) => [b.p['data-owner'], text(b).trim().split(/\s+/).at(-1)]), [['agent', '2']], 'the handed-over item moves to the assistant\'s group; the empty group does not show');
+// → writes "<Do this for me:> <item>" in the composer and sends nothing: no POST, the owner and the groups stay.
+const arrow = () => find(panel(), (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? ''))[0];
+const postsBefore = posts.length;
+arrow().p.onClick(); await tick();
+assert.equal(posts.length, postsBefore, '→ sends nothing to the Host');
+assert.equal(composer.draft, 'todos.handoverMessage Prosolocal\'i internete açmak', 'the text is in the empty composer');
+assert.deepEqual(composer.inserts.at(-1).span, { start: 0, end: 0, draftRev: 0 }, 'at the end of the draft');
+assert.equal(composer.focused, 1, 'the focus goes to the composer (caret after the text)');
+assert.equal(composer.submits, 0, 'not sent');
+tree = panel(); assert.equal(arrow() !== undefined, true, 'the item stays the user\'s');
+assert.deepEqual(groups(tree).map((b) => b.p['data-owner']), ['user', 'agent'], 'no group change');
+// A draft that is there stays: the text goes on a new line after it.
+composer.draft = 'Ask about the invoice';
+arrow().p.onClick();
+assert.equal(composer.draft, 'Ask about the invoice\ntodos.handoverMessage Prosolocal\'i internete açmak', 'appended on its own line, the draft kept');
+assert.deepEqual(composer.inserts.at(-1).span, { start: 21, end: 21, draftRev: 1 });
+// A chip counts as one character in dsh's span: the end is after the chip, not after its text.
+composer.draft = 'see src/app.js'; composer.occurrences = [{ offset: 4, length: 10 }];
+arrow().p.onClick();
+assert.deepEqual(composer.inserts.at(-1).span, { start: 5, end: 5, draftRev: 2 }, 'the end in dsh\'s span offsets');
+composer.occurrences = [];
+// The shell's detect text is the exact end: dsh 0.2.0 keeps a claimed command as plain text (detect = draft), 0.2.1 as a
+// chip (one character); the claim alone does not tell which.
+composer.detect = '/goal do it'; composer.draft = '/goal do it';
+arrow().p.onClick();
+assert.deepEqual(composer.inserts.at(-1).span, { start: 11, end: 11, draftRev: 3 }, 'dsh 0.2.0: a claimed command is text');
+composer.detect = '\uFFFC do it'; composer.draft = '/goal do it';
+arrow().p.onClick();
+assert.deepEqual(composer.inserts.at(-1).span, { start: 7, end: 7, draftRev: 4 }, 'dsh 0.2.1: a command chip is one character');
+composer.detect = undefined;
+// The composer refuses (it sends now): a notice, nothing else.
+composer.refuse = true; composer.draft = ''; arrow().p.onClick(); composer.refuse = false;
+assert.equal(composer.draft, ''); assert.deepEqual(notices.at(-1), ['s-assistant', 'info', 'quote.changed'], 'the user sees why');
+// The end comes from the published draft: when the editor is a revision ahead of it, dsh refuses the insert (no wrong place).
+composer.stale = true; const n0 = notices.length; arrow().p.onClick(); composer.stale = false;
+assert.equal(composer.draft, ''); assert.equal(notices.length, n0 + 1, 'an older draft: refused, with the notice');
+assert.equal(posts.length, postsBefore, 'still nothing sent');
+// Remove.
+tree = panel();
 find(tree, (n) => n.t === 'button' && /todos\.remove:.*Rapor/.test(n.p['aria-label'] ?? ''))[0].p.onClick(); await tick();
 assert.deepEqual(posts.at(-1), { sessionId: 's-assistant', id: 'bbbbbbbb', action: 'remove' });
 assert.doesNotMatch(text(panel()), /Rapor yaz/);
@@ -237,7 +289,7 @@ assert.deepEqual(store.of('s-assistant').items, [], 'a read from before the acti
 // A failed action keeps the reason.
 items = [{ id: 'dddddddd', text: 'x', owner: 'user', created: 4 }]; await store.load('s-assistant');
 failNext = 'the chat is gone';
-assert.equal(await store.act('s-assistant', 'dddddddd', 'handover', 'Bunu sen yap:'), false);
+assert.equal(await store.act('s-assistant', 'dddddddd', 'remove'), false);
 assert.match(text(find(panel(), (n) => n.p?.role === 'alert')[0]), /todos\.failed:.*the chat is gone/);
 // schedule: a burst of calls is one read.
 const reads = gets.length;

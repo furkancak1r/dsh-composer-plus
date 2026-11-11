@@ -9033,7 +9033,7 @@ Auto review accepts an approval only from a user message. When you need a writte
 \`\`\`onay
 Onaylıyorum: feature/x dalını origin'e push et.
 \`\`\`
-A button under your answer sends the block's text as the user's message with one click. Write one \`onay\` block per answer: one sentence, in the user's language, that names everything that needs the approval, and nothing else in the block. Use an \`onay\` block only for an approval sentence. A sentence that names a live or public target (production, a live database, a deploy, a release, npm publish) gets no button: the user types it.`;
+A button under your answer sends the block's text as the user's message with one click. Write one \`onay\` block per answer: one sentence, in the user's language, that names everything that needs the approval, and nothing else in the block. Use an \`onay\` block only for an approval sentence. Each approval sentence gets the block, also one that names a live or public target (production, a live database, a deploy, a release, npm publish, a public PR).`;
 export function installApproveButton(ctx, home, file = join(home, 'storages', 'dsh-composer-plus', 'approve-button.json')) {
   const sw = mobileSwitch(file, true);
   let on = false;
@@ -9090,13 +9090,14 @@ export const ASSISTANT_ASK = ['chat_send', 'chat_new', 'chat_stop', 'chat_archiv
 export const ASSISTANT_PRESET = 'workspace-write';
 export const ASSISTANT_TITLE = 'Assistant';
 export const ASSISTANT_LIMITS = { text: 8000, list: 200, listDefault: 50, read: 50, readDefault: 10, message: 4000, readTotal: 24000, title: 120 };
-/** The name that the user gave the assistant (Settings → Composer Plus → Assistant name, `assistant-name.json`): one line
- * of at most ASSISTANT_NAME_MAX characters, trimmed; '' is the default (the localized "Assistant"). Else undefined. */
-export const ASSISTANT_NAME_MAX = 40;
-export const assistantName = (v) => (typeof v === 'string' && v.trim().length <= ASSISTANT_NAME_MAX && !/[\p{Cc}\u2028\u2029]/u.test(v) ? v.trim() : undefined);
-/** The assistant's instructions; `{zone}` is the Mac's time zone, `{name}` the user's name for it (empty: none). */
+/** The assistant's name: the same in every UI language, and no setting changes it. */
+export const ASSISTANT_NAME = 'Damon';
+/** Titles that the Host renames to ASSISTANT_NAME: dsh's project title from the first open, and the default row labels of
+ * the UI languages before the fixed name (a user could rename the project or the chat to the label that they saw). */
+export const ASSISTANT_OLD_TITLES = ['Assistant', '助理', 'Asistan', 'Asistente', 'Assistente', 'Assistent', 'Ассистент', 'アシスタント', '어시스턴트', 'Asisten', 'Trợ lý', 'असिस्टेंट'];
+/** The assistant's instructions; `{zone}` is the Mac's time zone. */
 export const ASSISTANT_SECTION = `# Assistant (Composer Plus)
-You are the user's personal assistant in this chat.{name} The user gives you small tasks.
+You are the user's personal assistant in this chat. Your name is ${ASSISTANT_NAME}. The user gives you small tasks.
 - Answer in the user's language. Keep answers short and direct.
 - Talk like a friend who works in the background: this chat must stay free for the next message. Each task that needs more than a quick answer (research, several tool calls, waiting): start it with the subagent tool in the background (run_in_background true when the tool has it), say in one line what you started, and end your turn at once. Do not wait, sleep or poll. Each topic is its own subagent; when the user opens a new topic, start another one, do not stop or merge the running ones. When a subagent finishes, dsh tells you: give the user its result in a few lines and name its topic. A message about a running topic goes to that subagent (send_message). Do short answers, reminders and the tools below yourself.
 - Reminders ("remind me"): use schedule_create (target this_session when the tool has a target). The user's time zone is {zone}.
@@ -9180,12 +9181,14 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: assistant: ${text}`);
   const sw = mobileSwitch(join(dir, 'assistant-switch.json'), true);
-  // Fixed for the dsh run (it changes only with the name), so the prompt stays the same and the provider's cache holds.
-  const base = ASSISTANT_SECTION.replace('{zone}', zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC');
-  const names = settingsStore(join(dir, 'assistant-name.json'), (v) => ({ name: assistantName(v?.name) ?? '', ...(isText(v?.title, 512) ? { title: v.title } : {}) }));
-  let name = ''; let section;
-  const setName = (next) => { name = next; section = base.replace('{name}', () => (name === '' ? '' : ` Your name is ${name}.`)); };
-  setName('');
+  // Fixed for the dsh run, so the prompt stays the same and the provider's cache holds.
+  const section = ASSISTANT_SECTION.replace('{zone}', zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC');
+  // An older version kept a name that the user gave and the last project title that it set here. Read only to rename
+  // those titles to ASSISTANT_NAME; the file is never written or removed.
+  const oldNames = async () => {
+    try { const v = JSON.parse(await readFile(join(dir, 'assistant-name.json'), 'utf8')); return [v?.name, v?.title].filter((x) => isText(x)); } catch { return []; }
+  };
+  const isOld = async (title) => ASSISTANT_OLD_TITLES.includes(title) || (isText(title) && (await oldNames()).includes(title));
   const saved = settingsStore(join(dir, 'assistant.json'), (v) => (isText(v?.sessionId, 128) ? { sessionId: v.sessionId } : {}));
   let on = false;
   let assistantId; // the chat id in assistant.json
@@ -9203,25 +9206,26 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     return at;
   };
   const isAssistant = (agent) => on && isText(assistantId) && chatOf(agent) === assistantId;
-  /** While on, the project of ~/Assistant shows the Assistant name (dsh's own project title, `setTitle`; the folder keeps
-   * its name). Only a title that the Host gave changes (`Assistant`, or the last title that it set: `title` in
-   * assistant-name.json), so a title that the user chose in dsh stays. A title that another project has is not taken
-   * (dsh's own Rename refuses it too). One at a time, and each reads the name when it runs, so a name saved during the
-   * start check wins. */
+  /** While on, the project of ~/Assistant (dsh's own project title, `setTitle`; the folder keeps its name) and the
+   * assistant chat are titled ASSISTANT_NAME. Only an old default title changes (isOld), so a title that the user chose in
+   * dsh stays, and a second run changes nothing. A title that another project has is not taken (dsh's own Rename refuses
+   * it too). One at a time. */
   let titling = Promise.resolve();
   const retitle = () => (titling = titling.then(async () => {
     if (!on) return;
-    const want = name || ASSISTANT_TITLE;
     try {
       const list = get('workspaceRegistry')?.list?.() ?? [];
       const real = await realpath(folder);
       const project = list.find((w) => w.path === real);
-      if (typeof project?.setTitle !== 'function' || project.title === want) return;
-      if (project.title !== ASSISTANT_TITLE && project.title !== (await names.read()).title) return;
-      if (list.some((w) => w !== project && w.title === want)) return log(`project title: another project is named ${JSON.stringify(want)}`);
-      await project.setTitle(want);
-      await names.change((saved) => ({ ...saved, title: want }));
+      if (typeof project?.setTitle === 'function' && project.title !== ASSISTANT_NAME && await isOld(project.title)) {
+        if (list.some((w) => w !== project && w.title === ASSISTANT_NAME)) log(`project title: another project is named ${JSON.stringify(ASSISTANT_NAME)}`);
+        else await project.setTitle(ASSISTANT_NAME);
+      }
     } catch (error) { if (error?.code !== 'ENOENT') log(`project title: ${error?.message ?? error}`); }
+    try {
+      const title = isText(assistantId) ? await titleOf(assistantId) : undefined;
+      if (title !== ASSISTANT_NAME && await isOld(title)) await ctx.sessionController?.rename?.({ sessionId: assistantId, title: ASSISTANT_NAME });
+    } catch (error) { log(`chat title: ${error?.message ?? error}`); }
   }));
   const refuse = (text) => refused(text, 403);
   const workspaces = () => { try { return get('workspaceRegistry')?.list?.() ?? []; } catch { return []; } };
@@ -9480,7 +9484,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
       const presets = get('permissionPresets');
       try { if (presets?.names?.includes?.(ASSISTANT_PRESET)) presets.set(found.agent.session, ASSISTANT_PRESET); } catch (error) { log(`permission preset: ${error?.message ?? error}`); }
     }
-    await Promise.resolve(ctx.sessionController.rename?.({ sessionId, title: ASSISTANT_TITLE })).catch(() => {});
+    await Promise.resolve(ctx.sessionController.rename?.({ sessionId, title: ASSISTANT_NAME })).catch(() => {});
     sync();
     return sessionId;
   };
@@ -9506,10 +9510,9 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     if (on && unroute === undefined) unroute = ctx.connection.fetch.register(route) ?? (() => {});
     else if (!on && unroute !== undefined) { const off = unroute; unroute = undefined; await Promise.resolve(off()).catch(() => {}); }
   };
-  const ready = names.read().then((v) => setName(v.name), () => {}).then(() => saved.read()).then((v) => { assistantId = v.sessionId; }, () => {})
-    .then(() => sw.read()).then(apply, () => apply(false));
+  const ready = saved.read().then((v) => { assistantId = v.sessionId; }, () => {}).then(() => sw.read()).then(apply, () => apply(false));
   ctx.effect?.(() => () => { on = false; fiber?.dispose?.(); fiber = undefined; for (const id of [...mounted.keys()]) unmount(id); }, 'dsh-composer-plus: assistant');
-  // The project title after dsh's start (its project list is ready then); a profile without the signal checks at once.
+  // The project and chat titles after dsh's start (its project list is ready then); a profile without the signal checks at once.
   ctx.effect?.(() => {
     const run = () => { ready.catch(() => {}).then(() => retitle()); };
     const appReady = get('appReady');
@@ -9518,22 +9521,18 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   let switching = ready;
   ctx.connection.fetch.register({
     path: ASSISTANT_SWITCH_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
-    /** GET: `{on, name}`. POST `{on}`: the switch; POST `{name}`: the assistant's name ('' = the default). */
+    /** GET: `{on}`. POST `{on}`: the switch. */
     fetch: async (request) => {
       await ready;
       if (request.method === 'POST') {
         let body;
         try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
-        const key = plainObject(body) ? Object.keys(body).join() : '';
-        const next = key === 'name' ? assistantName(body.name) : undefined;
-        const write = key === 'on' && typeof body.on === 'boolean' ? async () => { await sw.write(body.on); await apply(body.on); await retitle(); }
-          : next !== undefined ? async () => { await names.change((saved) => ({ ...saved, name: next })); setName(next); await retitle(); } : undefined;
-        if (write === undefined) return json({ error: 'bad request' }, 400);
-        const change = switching.then(write);
+        if (!plainObject(body) || Object.keys(body).join() !== 'on' || typeof body.on !== 'boolean') return json({ error: 'bad request' }, 400);
+        const change = switching.then(async () => { await sw.write(body.on); await apply(body.on); await retitle(); });
         switching = change.catch(() => {});
         try { await change; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
       }
-      return json({ on, name });
+      return json({ on });
     },
   });
   /** Another feature's tools for the assistant chat: `more()` gives them (an empty list while that feature is off). The
@@ -9978,13 +9977,14 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
  * off). While on, the assistant chat (only it: installAssistant's tool scope, its subagents get them denied) has two tools,
  * todo_list_add and todo_list_remove, a short prompt section, and the current list as runtime context (the context changes
  * only when the list changes, so the prompt cache holds). The chat view shows the list at the right side of the chat
- * (client half): one click gives an item to the assistant (owner "agent" and a normal user message), one click removes it. */
+ * (client half): one click writes "Do this for me: <item>" in the composer (the user sends it, and the assistant then
+ * gives the item to itself), one click removes it. */
 export const ASSISTANT_TODOS_PATH = '/api/composer-plus.assistant-todos';
-export const TODO_LIMITS = { text: 500, items: 100, reason: 200, prefix: 200 };
+export const TODO_LIMITS = { text: 500, items: 100, reason: 200 };
 export const TODO_SECTION = `# Assistant to-do list (Composer Plus)
 The user keeps a to-do list in this chat and sees it at the right side of the chat. The runtime context gives the current items, each with its id and owner. Keep the list current: it is the user's view of the open work.
 - When the user tells you a task that they have in mind, add it with todo_list_add (owner "user"). The user does an item of owner "user": do not do it and do not ask about it, unless the user mentions it.
-- When the user tells you to do a task ("you do it", "Bunu sen yap: …"), give it owner "agent" with todo_list_add, then do it under the rules above.
+- When the user tells you to do a task ("you do it", "Do this for me: …" in any language, "Bunu sen yap: …"), give it owner "agent" with todo_list_add, then do it under the rules above.
 - Each time that you start work for the user (subagent, subagent_fork, chat_new, schedule_create), add an item of owner "agent" for it with todo_list_add in the same turn, also when the user did not say "you do it".
 - Each step that the user must do (an approval sentence, a manual action, a restart) gets an item of owner "user".
 - Check the items when you get new information (a user message, a subagent result, a chat that you read). When you have evidence that an item is done, remove it with todo_list_remove (reason "completed") and tell the user in one line. Do not remove an item without evidence.
@@ -10024,16 +10024,6 @@ export const todoList = {
   remove(list, id) {
     const item = list.find((i) => i.id === id);
     return { list: item === undefined ? list : list.filter((i) => i !== item), item };
-  },
-  /** Gives item `id` to the assistant (owner "agent"); `item` is undefined when the list does not have it. An item that
-   * is already the assistant's is refused (409): another window still showed its button, and a second message would
-   * give the same task twice. */
-  handover(list, id) {
-    const before = list.find((i) => i.id === id);
-    if (before === undefined) return { list, item: undefined };
-    if (before.owner === 'agent') throw refused('The assistant already does this item.');
-    const item = { ...before, owner: 'agent' };
-    return { list: list.map((i) => (i === before ? item : i)), item, before };
   },
 };
 
@@ -10246,8 +10236,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   };
   ctx.connection.fetch.register({
     path: ASSISTANT_TODOS_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
-    /** GET: `{on}`, with `?sessionId=` also `{items}`. POST `{on}`: the switch. POST `{sessionId, id, action}`: `remove`, or
-     * `handover` with `prefix` (the message is `<prefix> <item text>`, sent as the user's message). */
+    /** GET: `{on}`, with `?sessionId=` also `{items}`. POST `{on}`: the switch. POST `{sessionId, id, action: "remove"}`. */
     fetch: async (request) => {
       await ready;
       const query = new URL(request.url).searchParams;
@@ -10274,25 +10263,12 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         try { await change; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
         return json(view());
       }
-      const { sessionId, id, action, prefix } = plainObject(body) ? body : {};
-      if (!isText(sessionId, 128) || typeof id !== 'string' || !TODO_ID.test(id) || (action !== 'remove' && action !== 'handover')
-        || (action === 'handover' && !isText(prefix, TODO_LIMITS.prefix))) return json({ error: 'bad request' }, 400);
+      const { sessionId, id, action } = plainObject(body) ? body : {};
+      if (!isText(sessionId, 128) || typeof id !== 'string' || !TODO_ID.test(id) || action !== 'remove') return json({ error: 'bad request' }, 400);
       if (!on) return json({ error: 'The to-do list is off' }, 409);
       try {
-        if (action === 'remove') {
-          const { item } = await store.change(sessionId, (list) => todoList.remove(list, id));
-          if (item === undefined) return json({ error: 'not found', ...view(sessionId) }, 404);
-          return json(view(sessionId));
-        }
-        const { item, before } = await store.change(sessionId, (list) => todoList.handover(list, id));
+        const { item } = await store.change(sessionId, (list) => todoList.remove(list, id));
         if (item === undefined) return json({ error: 'not found', ...view(sessionId) }, 404);
-        try {
-          await ctx.sessionController.prompt({ requestId: randomUUID(), sessionId, mode: 'queue', content: [{ type: 'text', text: `${prefix.trim()} ${item.text}` }] }, AbortSignal.timeout(STOP_WAIT_MS));
-        } catch (error) {
-          // All or none: the message did not go, so the item keeps its owner (when it is still on the list).
-          await store.change(sessionId, (list) => ({ list: list.map((i) => (i.id === id ? { ...i, owner: before.owner } : i)) })).catch(() => {});
-          return json({ error: String(error?.message ?? error), ...view(sessionId) }, 502);
-        }
         return json(view(sessionId));
       } catch (error) { return json({ error: String(error?.message ?? error), ...view(sessionId) }, Number.isInteger(error?.status) ? error.status : 500); }
     },

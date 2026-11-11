@@ -111,7 +111,7 @@ try {
         if (await button.count()) await button.first().click(); else await page.keyboard.press('Escape');
         await overlay.waitFor({ state: 'detached' }); await pause(400);
       };
-      const assistantRow = () => page.locator('button[aria-label="Assistant"]');
+      const assistantRow = () => page.locator('button[aria-label="Damon"]');
       const card = page.locator('[data-composer-plus-assistant-welcome]');
 
       // 1. The first click: the card shows above the input of the new assistant chat.
@@ -158,6 +158,11 @@ try {
       assert.equal(await card.count(), 0, 'no card once the chat has a message');
       assert.equal(existsSync(join(home, 'Assistant')), true, '~/Assistant');
       note('3: the first message hides it; not in another new chat; not on the next open');
+      // 4. The fixed name: the project of ~/Assistant and the chat header are Damon (the folder keeps its name).
+      const project = Object.values(JSON.parse(readFileSync(join(dshHome, 'storages/workspace.json'), 'utf8')).tables?.workspaces ?? {}).find((w) => w.path === join(home, 'Assistant'));
+      assert.equal(project?.title, 'Damon', `the project title: ${JSON.stringify(project)}`);
+      await until(async () => (await page.locator('[class*="_crumbCurrent"]').filter({ hasText: /^Damon$/ }).count()) > 0, 'the chat header says Damon');
+      note('4: the project and the chat header are Damon');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true;
       console.log(`PASS dsh ${version}`);
