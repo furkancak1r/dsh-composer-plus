@@ -5,11 +5,11 @@
 // is empty and the name after a save (the row registers again, so dsh reads its label again), and the Settings field
 // sends the trimmed name.
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, stat, writeFile, mkdir } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_SWITCH_PATH, installAssistant } from '../index.js';
+import { ASSISTANT_PATH, ASSISTANT_SWITCH_PATH, installAssistant } from '../index.js';
 
 const tick = async () => { for (let i = 0; i < 20; i++) await new Promise((r) => setImmediate(r)); };
 
@@ -58,6 +58,74 @@ await writeFile(file, '{broken');
 h = await boot();
 assert.equal((await h.call()).body.name, '');
 await rm(home, { recursive: true, force: true });
+
+// The project of ~/Assistant shows the name too (dsh's project title through its own setTitle; the folder keeps its
+// name): after dsh's start, at each saved name and when the first open adds the project. A title that the user chose in
+// dsh stays, and a title that another project has is not taken.
+{
+  const home2 = await mkdtemp(join(tmpdir(), 'cp-assistant-title-'));
+  const dir2 = join(home2, 'storages/dsh-composer-plus'); await mkdir(dir2, { recursive: true });
+  const folder = join(home2, 'Assistant'); await mkdir(folder);
+  const real = await realpath(folder); // dsh keeps the real path (/var → /private/var on macOS)
+  const project = (path, title) => ({ id: `w-${title}`, path, title, sessionIds: [], async setTitle(next) { this.title = next; } });
+  const start = async (list, { name: saved } = {}) => {
+    if (saved !== undefined) await writeFile(join(dir2, 'assistant-name.json'), JSON.stringify({ name: saved }));
+    const routes = new Map(); const warnings = []; let onReady;
+    const registry = { list: () => list, archivedSessionIds: [],
+      create: async (path, title) => { const at = await realpath(path); let w = list.find((x) => x.path === at); if (!w) list.push(w = project(at, title)); return w; } };
+    const services = { workspaceRegistry: registry, appReady: { onReady: (f) => { onReady = f; return () => {}; } } };
+    const ctx = { logger: { warn: (t) => warnings.push(t) }, get: (n) => services[n], on: () => {}, effect: (f) => { f(); },
+      inject: () => ({ dispose: () => {} }),
+      sessionController: { create: async () => ({ sessionId: 's-new' }), resolveAgent: async () => ({ error: { code: 'x' } }), rename: async () => {} },
+      connection: { fetch: { register: (route) => { routes.set(route.path, route); return () => routes.delete(route.path); } } } };
+    const host = installAssistant(ctx, home2, { folder, zone: 'UTC' });
+    await host.ready;
+    const call = async (path, method = 'GET', body) => {
+      const res = await routes.get(path).fetch(new Request(`http://x${path}`, { method, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }));
+      return { status: res.status, body: await res.json() };
+    };
+    return { call, warnings, ready: async () => { onReady(); await tick(); } };
+  };
+  // An older project titled "Assistant" and a saved name: dsh's start gives it the name (not before dsh is ready).
+  const other = project('/demo/acme-web', 'acme-web'); const mine = project(real, 'Assistant');
+  let s = await start([other, mine], { name: 'Damon' });
+  await tick(); assert.equal(mine.title, 'Assistant', 'not before dsh is ready');
+  await s.ready(); assert.equal(mine.title, 'Damon', 'the name after the start'); assert.equal(other.title, 'acme-web', 'other projects stay');
+  // Each saved name: the project follows; empty gives "Assistant" back.
+  await s.call(ASSISTANT_SWITCH_PATH, 'POST', { name: 'Max' }); assert.equal(mine.title, 'Max', 'a new name at once');
+  await s.call(ASSISTANT_SWITCH_PATH, 'POST', { name: '' }); assert.equal(mine.title, 'Assistant', 'empty: the default title');
+  // A title that the user chose in dsh stays.
+  mine.title = 'My helper';
+  await s.call(ASSISTANT_SWITCH_PATH, 'POST', { name: 'Damon' }); assert.equal(mine.title, 'My helper', 'the user title stays');
+  // A title that another project has: no change, one warning. The title stays the Host's own: a later name and the empty
+  // name still reach it, also after a restart (assistant-name.json keeps the last title that the Host set).
+  mine.title = 'Assistant';
+  await s.call(ASSISTANT_SWITCH_PATH, 'POST', { name: 'Damon' }); assert.equal(mine.title, 'Damon');
+  other.title = 'Rex';
+  await s.call(ASSISTANT_SWITCH_PATH, 'POST', { name: 'Rex' }); assert.equal(mine.title, 'Damon', 'no second project named Rex');
+  assert.ok(s.warnings.some((w) => /another project is named "Rex"/.test(w)), 'the reason is logged');
+  await s.call(ASSISTANT_SWITCH_PATH, 'POST', { name: 'Max' }); assert.equal(mine.title, 'Max', 'after a conflict: the next name');
+  s = await start([other, mine]); await s.ready();
+  await s.call(ASSISTANT_SWITCH_PATH, 'POST', { name: '' }); assert.equal(mine.title, 'Assistant', 'after a restart: empty gives Assistant back');
+  // Switched off: the Host does not touch the project (at start or at a saved name); on again: the name comes back.
+  await s.call(ASSISTANT_SWITCH_PATH, 'POST', { on: false });
+  await s.call(ASSISTANT_SWITCH_PATH, 'POST', { name: 'Damon' }); assert.equal(mine.title, 'Assistant', 'off: no change at a saved name');
+  s = await start([other, mine]); await s.ready(); assert.equal(mine.title, 'Assistant', 'off: no change at start');
+  await s.call(ASSISTANT_SWITCH_PATH, 'POST', { on: true }); assert.equal(mine.title, 'Damon', 'on again: the name');
+  assert.equal(JSON.parse(await readFile(join(dir2, 'assistant-name.json'), 'utf8')).name, 'Damon', 'the name file keeps the name');
+  // The first open adds the project as "Assistant" and gives it the name before the chat starts.
+  await rm(join(dir2, 'assistant.json'), { force: true });
+  const list = [];
+  s = await start(list, { name: 'Damon' });
+  await s.ready(); assert.equal(list.length, 0, 'no project before the first open');
+  assert.equal((await s.call(ASSISTANT_PATH)).body.sessionId, 's-new');
+  assert.equal(list.length, 1); assert.equal(list[0].path, real); assert.equal(list[0].title, 'Damon', 'the new project has the name');
+  // No folder (removed): nothing changes, no warning.
+  await rm(folder, { recursive: true });
+  s = await start([project('/gone/Assistant', 'Assistant')], { name: 'Damon' });
+  await s.ready(); assert.deepEqual(s.warnings, [], 'a missing folder is not an error');
+  await rm(home2, { recursive: true, force: true });
+}
 
 // Client half: the real client.js with fake dsh slots and a fake Host.
 const mem = new Map();

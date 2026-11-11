@@ -2448,7 +2448,7 @@
     "computers.error.name-taken": "Ce Mac ou un autre ordinateur a déjà ce nom. Saisissez un autre nom.",
     "computers.error.name-missing": "Saisissez un nom pour cet ordinateur.",
     "feature.assistantApart": "Assistant séparé des discussions",
-    "feature.assistantApart.description": "La discussion de l’assistant quitte la liste des discussions de la barre latérale (son projet \"Assistant\" aussi, quand il ne contient aucune autre discussion) ; la recherche la trouve toujours. Ouvrez-la avec Assistant. Un point sur la ligne Assistant montre son état : en cours (aussi pour un sujet en arrière-plan), en attente de vous (orange) ou nouvelle réponse (vert).",
+    "feature.assistantApart.description": "La discussion de l’assistant quitte la liste des discussions de la barre latérale (son projet aussi, \"Assistant\" ou le nom que vous lui avez donné, quand il ne contient aucune autre discussion) ; la recherche la trouve toujours. Ouvrez-la avec Assistant. Un point sur la ligne Assistant montre son état : en cours (aussi pour un sujet en arrière-plan), en attente de vous (orange) ou nouvelle réponse (vert).",
     "assistantApart.running": "En cours",
     "assistantApart.waiting": "En attente de vous",
     "assistantApart.done": "Nouvelle réponse",

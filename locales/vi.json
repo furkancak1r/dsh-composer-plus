@@ -2448,7 +2448,7 @@
     "computers.error.name-taken": "Máy Mac này hoặc một máy tính khác đã dùng tên này. Nhập tên khác.",
     "computers.error.name-missing": "Nhập tên cho máy tính này.",
     "feature.assistantApart": "Trợ lý tách khỏi các cuộc trò chuyện",
-    "feature.assistantApart.description": "Cuộc trò chuyện trợ lý rời khỏi danh sách cuộc trò chuyện ở thanh bên (cả dự án \"Assistant\" của nó khi dự án không có cuộc trò chuyện nào khác); tìm kiếm vẫn thấy nó. Mở bằng Trợ lý. Một chấm trên dòng Trợ lý cho biết trạng thái: đang làm việc (cả khi có chủ đề chạy nền), đang chờ bạn (cam) hoặc có câu trả lời mới (xanh lá).",
+    "feature.assistantApart.description": "Cuộc trò chuyện trợ lý rời khỏi danh sách cuộc trò chuyện ở thanh bên (cả dự án của nó, \"Assistant\" hoặc tên bạn đặt, khi dự án không có cuộc trò chuyện nào khác); tìm kiếm vẫn thấy nó. Mở bằng Trợ lý. Một chấm trên dòng Trợ lý cho biết trạng thái: đang làm việc (cả khi có chủ đề chạy nền), đang chờ bạn (cam) hoặc có câu trả lời mới (xanh lá).",
     "assistantApart.running": "Đang làm việc",
     "assistantApart.waiting": "Đang chờ bạn",
     "assistantApart.done": "Câu trả lời mới",

@@ -9171,7 +9171,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   const sw = mobileSwitch(join(dir, 'assistant-switch.json'), true);
   // Fixed for the dsh run (it changes only with the name), so the prompt stays the same and the provider's cache holds.
   const base = ASSISTANT_SECTION.replace('{zone}', zone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? 'UTC');
-  const names = settingsStore(join(dir, 'assistant-name.json'), (v) => ({ name: assistantName(v?.name) ?? '' }));
+  const names = settingsStore(join(dir, 'assistant-name.json'), (v) => ({ name: assistantName(v?.name) ?? '', ...(isText(v?.title, 512) ? { title: v.title } : {}) }));
   let name = ''; let section;
   const setName = (next) => { name = next; section = base.replace('{name}', () => (name === '' ? '' : ` Your name is ${name}.`)); };
   setName('');
@@ -9192,6 +9192,26 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     return at;
   };
   const isAssistant = (agent) => on && isText(assistantId) && chatOf(agent) === assistantId;
+  /** While on, the project of ~/Assistant shows the Assistant name (dsh's own project title, `setTitle`; the folder keeps
+   * its name). Only a title that the Host gave changes (`Assistant`, or the last title that it set: `title` in
+   * assistant-name.json), so a title that the user chose in dsh stays. A title that another project has is not taken
+   * (dsh's own Rename refuses it too). One at a time, and each reads the name when it runs, so a name saved during the
+   * start check wins. */
+  let titling = Promise.resolve();
+  const retitle = () => (titling = titling.then(async () => {
+    if (!on) return;
+    const want = name || ASSISTANT_TITLE;
+    try {
+      const list = get('workspaceRegistry')?.list?.() ?? [];
+      const real = await realpath(folder);
+      const project = list.find((w) => w.path === real);
+      if (typeof project?.setTitle !== 'function' || project.title === want) return;
+      if (project.title !== ASSISTANT_TITLE && project.title !== (await names.read()).title) return;
+      if (list.some((w) => w !== project && w.title === want)) return log(`project title: another project is named ${JSON.stringify(want)}`);
+      await project.setTitle(want);
+      await names.change((saved) => ({ ...saved, title: want }));
+    } catch (error) { if (error?.code !== 'ENOENT') log(`project title: ${error?.message ?? error}`); }
+  }));
   const refuse = (text) => refused(text, 403);
   const workspaces = () => { try { return get('workspaceRegistry')?.list?.() ?? []; } catch { return []; } };
   const projectFor = (id, cwd, list) => list.find((w) => Array.isArray(w.sessionIds) && w.sessionIds.includes(id))?.title ?? projectOf(cwd, list);
@@ -9428,6 +9448,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     }
     if (registry?.create === undefined) throw refused('This dsh has no projects, so the assistant chat cannot start.');
     const workspace = await registry.create(folder, ASSISTANT_TITLE);
+    await retitle();
     const { sessionId } = await ctx.sessionController.create({ workspaceId: workspace.id });
     await saved.change(() => ({ sessionId }));
     assistantId = sessionId;
@@ -9465,6 +9486,12 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   const ready = names.read().then((v) => setName(v.name), () => {}).then(() => saved.read()).then((v) => { assistantId = v.sessionId; }, () => {})
     .then(() => sw.read()).then(apply, () => apply(false));
   ctx.effect?.(() => () => { on = false; fiber?.dispose?.(); fiber = undefined; for (const id of [...mounted.keys()]) unmount(id); }, 'dsh-composer-plus: assistant');
+  // The project title after dsh's start (its project list is ready then); a profile without the signal checks at once.
+  ctx.effect?.(() => {
+    const run = () => { ready.catch(() => {}).then(() => retitle()); };
+    const appReady = get('appReady');
+    return appReady?.onReady !== undefined ? appReady.onReady(run) : (run(), undefined);
+  }, 'dsh-composer-plus: assistant project title');
   let switching = ready;
   ctx.connection.fetch.register({
     path: ASSISTANT_SWITCH_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
@@ -9476,8 +9503,8 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
         const key = plainObject(body) ? Object.keys(body).join() : '';
         const next = key === 'name' ? assistantName(body.name) : undefined;
-        const write = key === 'on' && typeof body.on === 'boolean' ? async () => { await sw.write(body.on); await apply(body.on); }
-          : next !== undefined ? async () => { await names.change(() => ({ name: next })); setName(next); } : undefined;
+        const write = key === 'on' && typeof body.on === 'boolean' ? async () => { await sw.write(body.on); await apply(body.on); await retitle(); }
+          : next !== undefined ? async () => { await names.change((saved) => ({ ...saved, name: next })); setName(next); await retitle(); } : undefined;
         if (write === undefined) return json({ error: 'bad request' }, 400);
         const change = switching.then(write);
         switching = change.catch(() => {});
