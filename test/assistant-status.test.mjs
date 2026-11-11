@@ -3,13 +3,14 @@
 // the projects that changed in the last 24 hours (no assistant, subagent, blank or archived chat), one project's git
 // details (a real temporary repository; read-only), the status_summary_set tool (only the assistant chat, limits, saved
 // in a file that a new Host reads again) and the GET guards (another chat gets no status; an unknown or unregistered
-// project gets 404; off: nothing).
+// project gets 404; off: nothing), and the delegated chats that ended today (done, failed or stopped after the open tasks;
+// not a task that dsh's quit or an AIProxy outage keeps; gone the next day).
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_TODOS_PATH, STATUS_LIMITS, TODO_TOOLS, installAssistant, installAssistantTodos, statusGit, statusProjects, statusTasks } from '../index.js';
+import { ASSISTANT_TODOS_PATH, STATUS_LIMITS, TODO_TOOLS, installAssistant, installAssistantBot, installAssistantTodos, statusGit, statusProjects, statusTasks } from '../index.js';
 
 const NOW = Date.UTC(2026, 10, 9, 12, 0, 0);
 const ev = (seq, type, data, time = NOW - 1000) => ({ seq, type, data, time });
@@ -193,6 +194,42 @@ try {
   assert.equal((await call('?sessionId=s-web&project=w-repo')).status, 404, 'not for another chat');
   r = await call('?sessionId=s-a&project=w-web'); assert.equal(r.status, 200); assert.equal(r.body.branch, undefined, 'a folder that is not there: no git details');
   clock = NOW + 1;
+
+  // A delegated chat whose task the bot ends at its turn end stays under Tasks after the open tasks, with its final state,
+  // until the day ends. A turn end that dsh's quit or an AIProxy outage stopped keeps the task open (no ended row).
+  let outageLeft; const outage = { takes: (session, reason) => reason?.error?.message === 'outage', onLeft: (fn) => { outageLeft = fn; } };
+  const bot = installAssistantBot(ctx, home, assistant, { now: () => clock, outage }); await bot.ready;
+  const turnEnd = (id, reason, ...before) => {
+    const log = agents.get(id).session.snapshotEvents();
+    for (const e of [...before, ev(0, 'turn/end', { reason }, clock)]) log.push({ ...e, seq: log.length });
+    for (const fn of listeners.get('session/event')) fn(agents.get(id).session, log.at(-1));
+  };
+  const rowsOf = async (id) => (await call('?sessionId=s-a')).body.tasks.filter((t) => t.id === id);
+  const open = (t) => t.state === 'running' || t.state === 'waiting';
+  let started = assistant.tasks.get('s-deleg').at;
+  turnEnd('s-deleg', { kind: 'completed' }, reply(0, 'PR ready\nmore'));
+  assert.deepEqual(await rowsOf('s-deleg'), [{ id: 's-deleg', title: 'Fix the login form', state: 'done', started, ended: clock, chat: true, result: 'PR ready' }], 'an ended delegated chat stays with its final state');
+  r = await call('?sessionId=s-a');
+  assert.ok(r.body.tasks.findLastIndex(open) < r.body.tasks.findIndex((t) => t.id === 's-deleg'), 'after the open tasks');
+  // The same chat gets a task again (chat_send): one open row; its next end replaces the ended row.
+  await assistant.tasks.add('s-deleg', { title: 'Fix the login form', project: 'acme-web' }); started = assistant.tasks.get('s-deleg').at;
+  assert.deepEqual((await rowsOf('s-deleg')).map((t) => t.state), ['running'], 'an open task again: no ended row');
+  turnEnd('s-deleg', { kind: 'error', error: { message: 'HTTP 500\nstack' } }, ev(0, 'turn/start', {}));
+  assert.deepEqual(await rowsOf('s-deleg'), [{ id: 's-deleg', title: 'Fix the login form', state: 'failed', started, ended: clock, chat: true, result: 'HTTP 500' }]);
+  // dsh's quit and an AIProxy outage keep the task: it stays open. The outage feature lets the chat go: failed.
+  await assistant.tasks.add('s-kept', { title: 'Deploy', project: 'acme-web' }); newAgent('s-kept', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {})]);
+  turnEnd('s-kept', { kind: 'aborted', reason: { kind: 'disposed' } });
+  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.chat]), [['running', true]], 'stopped by dsh: kept open');
+  turnEnd('s-kept', { kind: 'error', error: { message: 'outage' } }, ev(0, 'turn/start', {}));
+  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.chat]), [['running', true]], 'kept for the outage: open');
+  assert.equal(assistant.endedTasks.has('s-kept'), false);
+  outageLeft('s-kept', 'gone');
+  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.result]), [['failed', 'outage']], 'the outage feature did not continue it: failed');
+  // The next day: the ended rows go.
+  clock = NOW + 86400000;
+  r = await call('?sessionId=s-a');
+  assert.deepEqual(r.body.tasks.filter((t) => t.chat && !open(t)), [], 'an ended delegated chat of yesterday is left out');
+  assert.equal(assistant.endedTasks.size, 0, 'and taken out of the map');
 
   // Off: no status, no git.
   const sw = await routes.get(ASSISTANT_TODOS_PATH).fetch(new Request(`http://x${ASSISTANT_TODOS_PATH}`, { method: 'POST', body: JSON.stringify({ on: false }) }));

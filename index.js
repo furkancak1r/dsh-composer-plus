@@ -9402,6 +9402,10 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   let fiber; let unroute; let opening;
   // chat_new (with or without branch) and chat_send: the chats that the assistant gave work to; the bot tells it when one ends its turn.
   const tasks = assistantTasks(join(dir, 'assistant-tasks.json'));
+  // The status panel's ended delegated chats: chat id → {title, project, branch, started, ended, state, result} (the bot
+  // fills it when it ends a task; the panel shows today's rows and takes out the older ones).
+  // ponytail: in memory only, so a dsh restart loses today's ended rows; upgrade: keep them in assistant-tasks.json.
+  const endedTasks = new Map();
   // Branch per chat (Worktree chats) keeps its switch in worktrees.json, on by default.
   const worktreesOn = () => mobileSwitch(join(dir, 'worktrees.json'), true).read();
   const mounted = new Map(); // agent id → disposers of its tool registrations or restriction
@@ -9749,7 +9753,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     extra.add(more); remount();
     return { remount, off: () => { extra.delete(more); remount(); } };
   };
-  return { ready, tools, ensure, isOn: () => on, id: () => assistantId, isAssistant, tasks, addTools };
+  return { ready, tools, ensure, isOn: () => on, id: () => assistantId, isAssistant, tasks, endedTasks, addTools };
 }
 
 /* The assistant as a bot: three Host parts next to installAssistant.
@@ -9993,6 +9997,12 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   const taskOf = (session) => (assistant.isOn() && isText(session?.id) && session.id !== assistant.id() ? assistant.tasks?.get?.(session.id) : undefined);
   // The note names the project that the task was given in (the branch's own project has the branch name).
   const taskInfo = (task) => ({ task: true, ...(isText(task.branch) ? { branch: task.branch } : {}), ...(isText(task.project) ? { project: task.project } : {}) });
+  // The task ends: the status panel keeps its final state for today (the newest ASSISTANT_TASKS_MAX chats).
+  const ended = (id, task, state, result) => {
+    const rows = assistant.endedTasks; if (rows === undefined) return;
+    rows.delete(id); rows.set(id, { title: task.title, project: task.project, branch: task.branch, started: Number.isFinite(task.at) ? task.at : now(), ended: now(), state, result: headLine(result, STATUS_LIMITS.result) });
+    while (rows.size > ASSISTANT_TASKS_MAX) rows.delete(rows.keys().next().value);
+  };
   const stalled = new Map(); // chat id → {session, reply} of a task turn that an AIProxy outage stopped
   // The outage feature does not continue the chat: its turn's error is the task's result after all. A chat that runs or
   // moved on (you or a queued message continued it) keeps the task: its next turn end counts (a later turn end of the
@@ -10003,7 +10013,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
     const task = s === undefined || runs ? undefined : taskOf(s.session);
     if (task === undefined) return;
     const left = rpcOf(task).filter((r) => r !== ANY_TURN);
-    if (left.length === 0) assistant.tasks.drop(id); else assistant.tasks.add(id, withRpc(task, left));
+    if (left.length === 0) { assistant.tasks.drop(id); ended(id, task, 'failed', s.reply); } else assistant.tasks.add(id, withRpc(task, left));
     add(s.session, { kind: 'failed', reply: s.reply, ...taskInfo(task) });
   });
   ctx.on('session/event', (session, event) => {
@@ -10045,7 +10055,11 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
           if (Array.isArray(task.rpc)) assistant.tasks.add(session.id, withRpc(task, [ANY_TURN, ...left]));
           return;
         }
-        if (left.length === 0) assistant.tasks.drop(session.id); else assistant.tasks.add(session.id, withRpc(task, left));
+        if (left.length > 0) assistant.tasks.add(session.id, withRpc(task, left));
+        else {
+          assistant.tasks.drop(session.id);
+          ended(session.id, task, reason?.kind === 'error' ? 'failed' : reason?.kind === 'aborted' ? 'stopped' : 'done', reason?.kind === 'error' ? reason.error?.message : lastReply(eventsOf(agent).slice(inherited)));
+        }
         const info = taskInfo(task);
         if (reason?.kind === 'error') add(session, { kind: 'failed', reply: cutEnd(String(reason.error?.message ?? '').trim(), timing.taskReply ?? ASSISTANT_NEWS.taskReply), ...info });
         else if (reason?.kind === 'aborted') { if (pending.get(session.id)?.kind === 'waiting') pending.delete(session.id); } // the user stopped it
@@ -10418,14 +10432,23 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       projectsCache = { at: now(), sessionId, value: statusProjects(items, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived }) };
     }
     const projects = projectsCache.value;
-    // Delegated chats (chat_new, with or without branch, and chat_send) are tasks too, while their turn runs (main's store drops them at the end).
-    // ponytail: an ended delegated chat shows under Projects, not under Tasks; upgrade: keep it in the store until the day ends.
+    // Delegated chats (chat_new, with or without branch, and chat_send) are tasks too: open while their turn runs (main's
+    // store drops them at the end), then with their final state until the day ends (the bot's endedTasks).
     for (const [id, task] of assistant.tasks?.list?.() ?? []) {
+      assistant.endedTasks?.delete(id); // the chat has a task again
       const live = get('agents')?.get?.(id);
       let log = []; try { log = live?.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
       tasks.unshift({ id, title: cutEnd(String(task?.title ?? task?.project ?? id), 120), state: waitingOf(log) ? 'waiting' : 'running',
         started: Number.isFinite(task?.at) ? task.at : now(), chat: true, ...(isText(task?.branch, 200) ? { result: `${task.project ?? ''} · ${task.branch}`.replace(/^ · /, '') } : {}) });
     }
+    const closed = [];
+    for (const [id, t] of assistant.endedTasks ?? []) {
+      if (t.ended < today.getTime()) { assistant.endedTasks.delete(id); continue; }
+      closed.push({ id, title: cutEnd(String(t.title ?? t.project ?? id), 120), state: t.state, started: t.started, ended: t.ended, chat: true, ...(t.result === '' ? {} : { result: t.result }) });
+    }
+    // After the open tasks, newest end first with the ended subagent tasks.
+    const first = tasks.findLastIndex((t) => t.state === 'running' || t.state === 'waiting') + 1;
+    tasks.splice(first, Infinity, ...[...tasks.slice(first), ...closed].sort((a, b) => (b.ended ?? b.started) - (a.ended ?? a.started)));
     const summary = summaries.of(sessionId);
     // Resume after an AIProxy outage: the chats that the newest outage of today continued.
     const resumed = outage?.isOn?.() ? outage.last?.() : undefined;
