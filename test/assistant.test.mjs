@@ -107,15 +107,15 @@ const call = async (path, method = 'GET', body) => {
 };
 
 // On by default (no switch file yet): the route and the section are there, but no chat until the first open.
-assert.deepEqual((await call(ASSISTANT_SWITCH_PATH)).body, { on: true, name: '' });
+assert.deepEqual((await call(ASSISTANT_SWITCH_PATH)).body, { on: true });
 assert.equal(routes.has(ASSISTANT_PATH), true, 'the assistant route without a click'); assert.equal(sections.size, 1); assert.equal(fibers, 1); assert.equal(created, 0);
 assert.equal((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: 'yes' })).status, 400);
 // Off: no route, no section, no tools.
-assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: false })).body, { on: false, name: '' });
+assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: false })).body, { on: false });
 assert.equal(routes.has(ASSISTANT_PATH), false, 'no assistant route while off'); assert.equal(sections.size, 0); assert.equal(fibers, 0);
 
 // On: the route makes the folder, the project and one chat with the narrowest preset.
-assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: true })).body, { on: true, name: '' });
+assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: true })).body, { on: true });
 assert.equal(JSON.parse(await readFile(join(home, 'storages/dsh-composer-plus/assistant-switch.json'), 'utf8')).on, true);
 createGate = new Promise((r) => setTimeout(r, 20));
 const [a1, a2] = await Promise.all([call(ASSISTANT_PATH), call(ASSISTANT_PATH)]);
@@ -124,7 +124,7 @@ assert.equal(a1.body.sessionId, 's-assistant-1'); assert.equal(a2.body.sessionId
 assert.ok((await stat(folder)).isDirectory(), '~/Assistant made');
 assert.ok(workspaces.some((w) => w.path === folder && w.title === 'Assistant'), 'added as a dsh project');
 assert.deepEqual(presets, [['s-assistant-1', ASSISTANT_PRESET]], 'workspace-write preset');
-assert.equal(renames[0].title, 'Assistant');
+assert.equal(renames[0].title, 'Damon', 'the chat is titled Damon');
 const file = join(home, 'storages/dsh-composer-plus/assistant.json');
 assert.deepEqual(JSON.parse(await readFile(file, 'utf8')), { sessionId: 's-assistant-1' });
 assert.equal(((await stat(file)).mode & 0o777).toString(8), '600');
@@ -282,7 +282,7 @@ assert.equal(keptFirst, true, 'the task is kept before the message goes');
 assert.equal(host.tasks.has(`s-assistant-${created}`), false, 'no task without its message'); assert.ok(archived.has(`s-assistant-${created}`), 'archived');
 
 // Off: the route, the section and every tool and restriction go; on again: back once, without a second route.
-assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: false })).body, { on: false, name: '' });
+assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: false })).body, { on: false });
 assert.equal(routes.has(ASSISTANT_PATH), false); assert.equal(sections.size, 0); assert.equal(fibers, 0);
 assert.equal(agents.get('s-assistant-3').registered.size, 0); assert.equal(sub.restrictions.length, 0);
 await assert.rejects(host.tools.find((t) => t.name === 'chats_list').execute({}, { agent: agents.get('s-assistant-3') }), /only in the Composer Plus assistant chat/, 'a kept reference refuses while off');

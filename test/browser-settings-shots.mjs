@@ -1,7 +1,7 @@
 // Isolated real-app check: every feature row in Settings → Composer Plus shows its screenshot thumbnail, and every
 // thumbnail image loads from the Host route. No model, never the normal DSH_HOME.
-// It also checks the On/off filter (All / On / Off next to Search features). SHOT=1 writes assets/features/featureFilter.webp
-// (English UI, no projects).
+// It also checks the On/off filter (All / On / Off next to Search features) and the Category menu, with the keyboard. SHOT=1
+// writes assets/features/featureFilter.webp and categoryFilter.webp (English UI, no projects).
 // PLAYWRIGHT=/path/to/playwright node test/browser-settings-shots.mjs /path/to/dsh/lib/bin.js [...]
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -111,6 +111,34 @@ try {
       }
       await group.getByRole('button', { name: 'All', exact: true }).click();
       assert.equal((await states()).length, all.length, 'All shows every row again');
+      // Category filter, with the keyboard only: Tab from Off reaches the Category button, Enter opens dsh's menu, the
+      // arrows and Enter pick Composer and queue. Only its rows show and no switch changes; All shows every row again.
+      const before = await states();
+      const category = settings.locator('[data-composer-plus-category]');
+      assert.equal(await category.getAttribute('aria-haspopup'), 'menu');
+      assert.equal(await settings.getByRole('button', { name: 'Category All', exact: true }).count(), 1, 'its accessible name is the label and the picked category');
+      await group.getByRole('button', { name: 'Off', exact: true }).focus(); await page.keyboard.press('Tab');
+      assert.equal(await page.evaluate(() => document.activeElement?.dataset.composerPlusCategory), 'all', 'Tab reaches the Category button');
+      await page.keyboard.press('Enter');
+      const item = page.getByRole('menuitem', { name: 'Composer and queue' }).or(page.getByRole('menuitemradio', { name: 'Composer and queue' })).first();
+      await item.waitFor();
+      for (let i = 0; i < 12 && !(await item.evaluate((el) => el === document.activeElement || el.contains(document.activeElement))); i++) await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.querySelector('[data-composer-plus-category]')?.dataset.composerPlusCategory === 'composer');
+      const names = await settings.evaluate((root) => [...root.querySelectorAll('[role="switch"]')].map((s) => s.getAttribute('aria-label')));
+      assert.deepEqual(names, ['Project name in the composer', 'One-click Continue', 'Resume after restart', 'Input history', 'Shift+Tab plan mode', 'Keep composer focus', 'Queue drag-and-drop', 'Edit queued message in place', 'Send after Stop goes first', 'Project search in a new chat', 'Default workspace for New session', 'Next message prediction', 'Complete while typing', 'Improve prompt', 'Branch per chat'], 'Composer and queue: only its rows');
+      assert.equal(await settings.locator('[data-composer-plus-language]').count(), 0, 'the language row is in App, devices and backup');
+      assert.equal(await settings.getByRole('button', { name: 'Category Composer and queue', exact: true }).count(), 1, 'the name follows the pick');
+      if (process.env.SHOT && bin === process.argv[2]) {
+        await page.mouse.move(5, 5); await page.evaluate(() => document.activeElement?.blur());
+        const top = await settings.boundingBox(); const png = join(tmpdir(), `categoryFilter-${process.pid}.png`);
+        await page.screenshot({ path: png, clip: { x: top.x - 8, y: top.y - 4, width: Math.min(900, top.width + 16), height: 420 } });
+        const out = join(repo, 'assets/features/categoryFilter.webp');
+        execFileSync('cwebp', ['-quiet', '-q', '78', png, '-o', out]); await rm(png, { force: true });
+        console.log(`shot: assets/features/categoryFilter.webp ${(await stat(out)).size} bytes`);
+      }
+      await category.click(); await page.getByRole('menuitem', { name: 'All', exact: true }).or(page.getByRole('menuitemradio', { name: 'All', exact: true })).first().click();
+      assert.deepEqual(await states(), before, 'All: every row again, and every switch has its value');
       // Switch the UI to Türkçe: the links follow it to README.tr.md.
       await page.locator('[data-composer-plus-language] button[aria-haspopup="menu"]').click();
       await page.getByRole('menuitem', { name: 'Türkçe' }).or(page.getByRole('menuitemradio', { name: 'Türkçe' })).or(page.getByRole('option', { name: 'Türkçe' })).first().click();
@@ -124,7 +152,7 @@ try {
       assert.equal(await page.evaluate(() => document.activeElement?.dataset.composerPlusHelp), 'language', 'the ? link takes the keyboard focus');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: ${report.rows} feature rows, each with a loading screenshot and a ? link to its README row (README.md, then README.tr.md in Türkçe); the language row has its ? link too; update and language rows have a screenshot; the On/off filter shows ${offCount} off rows, keeps a switched row and its focus, and reaches All with Tab`);
+      console.log(`PASS ${bin}: ${report.rows} feature rows, each with a loading screenshot and a ? link to its README row (README.md, then README.tr.md in Türkçe); the language row has its ? link too; update and language rows have a screenshot; the On/off filter shows ${offCount} off rows, keeps a switched row and its focus, and reaches All with Tab; the Category menu (keyboard) shows only Composer and queue and keeps every switch`);
     } finally {
       await context?.close();
       await writeFile(join(home, 'server.log'), log); // the token stays inside the temporary home, never stdout

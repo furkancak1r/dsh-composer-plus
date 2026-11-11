@@ -98,8 +98,10 @@ function start(home) {
     assert.equal((await h.fetchRoute(UNREAD_PATH, bad)).status, 400, JSON.stringify(bad).slice(0, 40));
   }
   assert.deepEqual(await h.unread(), ['b']);
-  // Kept across a Host restart (same dsh home).
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  // Kept across a Host restart (same dsh home). The Host saves in the background: wait until the file has the list (a
+  // fixed short wait was too short on CI's slow disk).
+  const saved = () => { try { return JSON.stringify(JSON.parse(readFileSync(join(h.home, 'storages', 'dsh-composer-plus', 'unread.json'), 'utf8')).ids); } catch { return ''; } };
+  for (let i = 0; i < 300 && saved() !== '["b"]'; i++) await new Promise((resolve) => setTimeout(resolve, 10));
   const again = start(h.home);
   assert.deepEqual(await again.unread(), ['b'], 'the list survives a restart');
   // Switching Mobile connect off clears the list; while off nothing is collected and GET says nothing.

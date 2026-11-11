@@ -11,7 +11,10 @@
 // 6. A long sentence (the owner's, 2026-11-10: "Onayla" broke into "Onay / la" and the sentence was cut with "…") at
 //    window widths 600, 940 and 1280: the label of each of the 13 languages stays on one line and is not cut; the button
 //    shows the whole sentence, with no clipping and no ellipsis, and its last line is in view.
-// 7. No page errors.
+// 7. The owner's report (2026-11-11, Assistant chat: "onay butonu çıkmıyor kod bloğu çıkıyor"): the answer with the
+//    `onay` block is in the middle of its turn (the model writes it with a tool call, then the turn goes on and ends with
+//    "Done."). The button still shows, under the turn's end, and a click sends the sentence.
+// 8. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-approve-button.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/approveButton.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -35,6 +38,7 @@ const until = async (fn, what, ms = 30000) => {
 
 const SENTENCE = (n) => `Approve: push the branch feature/login-fix-${n} of demo-app to origin.`;
 const LIVE = 'Approve: run npm publish for demo-app.';
+const MID = 'Onaylıyorum: Composer Plus kategori filtresi önerilen 8 kategoriyle yapılsın, sonraki sürüme girsin.';
 const LONG = 'Onaylıyorum: bu turda Composer Plus Asistan iyileştirme otomasyonunu yeniden başlat; salt okunur inceleme alt ajanı, yeni bulguları tek tek doğrulasın, sorun yoksa dalı push etsin, main ile birleştirsin ve yerel kopyayı yedekleyip güncellesin.';
 // The button label of each language: en and zh in client.js, the 11 others in locales/<id>.json.
 const LABELS = [...readFileSync(join(repo, 'client.js'), 'utf8').matchAll(/'approve\.button': '([^']+)'/g)].map((m) => m[1])
@@ -53,6 +57,8 @@ const fake = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (delta, finish) => res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`);
     const say = (t) => { send({ role: 'assistant', content: t }); send({}, 'stop'); res.end('data: [DONE]\n\n'); };
+    // Text and a tool call in one answer: dsh runs the tool and the turn goes on (the answer is not the turn's last).
+    const sayThenTool = (t) => { send({ role: 'assistant', content: t }); send({ tool_calls: [{ index: 0, id: 'call_mid_todo', type: 'function', function: { name: 'todo_write', arguments: JSON.stringify({ todos: [{ content: 'Plan the category filter', status: 'pending' }] }) } }] }); send({}, 'tool_calls'); res.end('data: [DONE]\n\n'); };
     const all = JSON.stringify(msgs);
     if (/session title/i.test(textOf(msgs.at(-1)?.content))) return say('Login fix');
     if (/You predict the next message|You complete the message that the user is typing|next message that the user will type/.test(all)) return say('');
@@ -63,6 +69,7 @@ const fake = createServer((req, res) => {
     if (n) return say(ANSWER(SENTENCE(n)));
     if (last === 'live') return say(ANSWER(LIVE));
     if (last === 'long') return say(ANSWER(LONG));
+    if (last === 'mid') return msgs.at(-1)?.role === 'tool' ? say('Done.') : sayThenTool(ANSWER(MID));
     return say('Done.');
   });
 }).listen(0, '127.0.0.1');
@@ -206,6 +213,19 @@ try {
         }
       }
       await page.setViewportSize({ width: 1280, height: 800 });
+
+      // 7. The approval in the middle of the turn: the turn ends with "Done.", the button is under the turn's end.
+      // dsh folds the earlier answer into "Completed in …" (the block is in the page, not visible).
+      const dones = page.getByText('Done.', { exact: true }); const doneBefore = await dones.count();
+      await typeSend('mid'); await page.getByText(MID, { exact: true }).first().waitFor({ state: 'attached', timeout: 20000 });
+      await until(async () => (await dones.count()) > doneBefore, 'the turn goes on and ends with Done.');
+      const midButton = approve.locator('button').filter({ hasText: MID });
+      await midButton.waitFor({ timeout: 20000 });
+      assert.equal(await approve.count(), 1, 'one button group, under the turn end');
+      assert.equal((await midButton.innerText()).replace(/\s+/g, ' ').trim(), `Approve ${MID}`, 'the label and the sentence of the earlier answer');
+      const before7 = calls.length; await midButton.click();
+      await page.locator('[data-chat-flow-kind="user"]').filter({ hasText: MID }).first().waitFor({ timeout: 20000 }); await pause(1500);
+      assert.equal(calls.slice(before7).filter((c) => c.last === MID).length, 1, 'the click sends the sentence once');
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;

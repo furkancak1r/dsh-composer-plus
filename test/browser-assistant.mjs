@@ -246,7 +246,7 @@ try {
         const files = execFileSync('find', [join(dshHome, 'sessions'), '-path', `*${id}/*`, '-name', 'session.*']).toString().trim().split('\n').filter((f) => /\.jsonl(\.zstd)?$/.test(f));
         return files.map((f) => (f.endsWith('.zstd') ? execFileSync('zstd', ['-dcq', f]).toString() : readFileSync(f, 'utf8'))).join('\n');
       };
-      const assistantRow = () => page.locator('button[aria-label="Assistant"]');
+      const assistantRow = () => page.locator('button[aria-label="Damon"]');
       const cardButton = (name) => page.getByRole('button', { name, exact: true }).first();
 
       // 1. Settings: screenshot, on by default with the sidebar row (no chat until a click); off: no row, no route.
@@ -279,9 +279,9 @@ try {
       // 2. Switch on: the row under Task board; a click opens the assistant chat.
       await settings(); await sw.click(); await until(async () => (await sw.getAttribute('aria-checked')) === 'true', 'switch on'); await back();
       await assistantRow().waitFor({ timeout: 10000 });
-      const order = await page.evaluate(() => [...document.querySelectorAll('button[aria-label]')].map((b) => b.getAttribute('aria-label')).filter((l) => ['Task board', 'Assistant'].includes(l)));
-      assert.deepEqual(order, ['Task board', 'Assistant'], 'right under Task board');
-      const rows = await page.evaluate(() => { const a = document.querySelector('button[aria-label="Task board"]'); const b = document.querySelector('button[aria-label="Assistant"]'); return a.nextElementSibling === b || a.parentElement?.nextElementSibling?.contains(b); });
+      const order = await page.evaluate(() => [...document.querySelectorAll('button[aria-label]')].map((b) => b.getAttribute('aria-label')).filter((l) => ['Task board', 'Damon'].includes(l)));
+      assert.deepEqual(order, ['Task board', 'Damon'], 'right under Task board');
+      const rows = await page.evaluate(() => { const a = document.querySelector('button[aria-label="Task board"]'); const b = document.querySelector('button[aria-label="Damon"]'); return a.nextElementSibling === b || a.parentElement?.nextElementSibling?.contains(b); });
       assert.ok(rows, 'the next row after Task board');
       await assistantRow().click();
       const assistantId = (await until(async () => { const r = await api('/api/composer-plus.assistant'); return r.status === 200 && r.body.sessionId; }, 'assistant chat id'));
@@ -289,7 +289,7 @@ try {
       assert.equal(await page.locator('[data-composer-plus-assistant]').count(), 0, 'the opening panel closed');
       assert.ok((await stat(join(home, 'Assistant'))).isDirectory(), '~/Assistant');
       assert.deepEqual(JSON.parse(await readFile(join(dshHome, 'storages/dsh-composer-plus/assistant.json'), 'utf8')), { sessionId: assistantId });
-      assert.ok(JSON.parse(await readFile(join(dshHome, 'storages/workspace.json'), 'utf8')).tables.workspaces && (await page.locator('[data-row-key^="workspace:"]').filter({ hasText: 'Assistant' }).count()) > 0, 'the project "Assistant"');
+      assert.ok(JSON.parse(await readFile(join(dshHome, 'storages/workspace.json'), 'utf8')).tables.workspaces && (await page.locator('[data-row-key^="workspace:"]').filter({ hasText: 'Damon' }).count()) > 0, 'the project "Damon"');
       await page.locator('button[aria-label="Task board"]').click(); await pause(600);
       await assistantRow().click(); await pause(1500);
       assert.equal((await api('/api/composer-plus.assistant')).body.sessionId, assistantId, 'the same chat again');
@@ -424,20 +424,20 @@ try {
       for (const summary of ['Topic P2 finished.', 'Topic P1 finished.']) assert.ok(await subChat.getByText(summary).first().isVisible(), `the summary "${summary}" shows`);
       note(`8: two topics ran at the same time in background subagents; P2 ended first, then P1; ${await triggers(false)} subagent rows drawn, 0 shown (notice: ${JSON.stringify(calls.find((c) => c.notice)?.notice).slice(0, 200)})`);
 
-      // 9. Assistant apart from chats (on by default): no row for the assistant chat in the list, the "Assistant" project
-      //    is hidden, search finds the chat; the Assistant row shows the orange dot while a card waits.
+      // 9. Assistant apart from chats (on by default): no row for the assistant chat in the list, the "Damon" project
+      //    is hidden, search finds the chat; the Damon row shows the orange dot while a card waits.
       const nowId = nextId;
       const hiddenRow = async () => page.evaluate((id) => [...document.querySelectorAll(`[data-row-key="session:${id}"]`)]
         .filter((el) => !el.closest('[class*="_searchTree"]')).every((el) => el.getClientRects().length === 0), nowId);
       await until(async () => (await page.locator(`[data-row-key="session:${nowId}"]`).count()) === 0 || hiddenRow(), 'the assistant row is hidden');
       assert.equal(await hiddenRow(), true, 'no visible row for the assistant chat');
-      const assistantProject = page.locator('[data-row-key^="workspace:"]').filter({ hasText: /^Assistant/ });
+      const assistantProject = page.locator('[data-row-key^="workspace:"]').filter({ hasText: /^Damon/ });
       assert.equal(await assistantProject.evaluateAll((els) => els.filter((el) => el.getClientRects().length > 0).length), 0, 'the Assistant project is hidden');
       assert.ok(await page.locator('[data-row-key^="workspace:"]').filter({ hasText: 'acme-web' }).first().isVisible(), 'other projects stay');
-      // Search still finds it (the assistant chat's title is "Assistant").
+      // Search still finds it (the assistant chat's title is "Damon").
       await page.getByRole('button', { name: 'Search sessions', exact: true }).first().click();
-      await page.getByPlaceholder(/Search session/).fill('Assistant');
-      await until(async () => (await page.locator('[class*="_searchTree"] [role="treeitem"]').filter({ hasText: 'Assistant' }).count()) > 0, 'the search finds the assistant chat');
+      await page.getByPlaceholder(/Search session/).fill('Damon');
+      await until(async () => (await page.locator('[class*="_searchTree"] [role="treeitem"]').filter({ hasText: 'Damon' }).count()) > 0, 'the search finds the assistant chat');
       await page.keyboard.press('Escape'); await pause(400);
       if (await page.getByPlaceholder(/Search session/).isVisible().catch(() => false)) { await page.getByRole('button', { name: 'Clear search' }).click().catch(() => {}); await page.keyboard.press('Escape'); }
       // A waiting card: the orange state on the Assistant row.
@@ -449,7 +449,7 @@ try {
       // The dot is at the row's right end, where a project row shows its status (its status seat), not over the icon.
       const place = await page.evaluate(() => {
         const box = (el) => el?.getBoundingClientRect();
-        const row = document.querySelector('button[aria-label="Assistant"]');
+        const row = document.querySelector('button[aria-label="Damon"]');
         const dot = row?.querySelector('[data-composer-plus-assistant-dot] > *');
         const project = [...document.querySelectorAll('[data-composer-plus-project-status]')].find((el) => el.getClientRects().length > 0);
         const [r, d, p] = [box(row), box(dot), box(project)];
@@ -558,7 +558,7 @@ try {
       await openChat(ids.weather);
       const shown = await page.evaluate(async (id) => {
         const start = performance.now();
-        document.querySelector('button[aria-label="Assistant"]').click();
+        document.querySelector('button[aria-label="Damon"]').click();
         for (;;) {
           if (document.querySelector(`[data-conversation-session="${id}"]`) !== null) return { ms: performance.now() - start, early: true };
           if (performance.now() - start > 10000) return { ms: -1, early: false };
