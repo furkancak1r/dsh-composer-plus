@@ -1591,6 +1591,10 @@
     "feature.resumeAfterRestart.description": "Si vous quittez dsh pendant qu’une discussion travaille, cette discussion reprend d’elle-même quand vous rouvrez dsh. Les discussions que vous avez arrêtées, terminées ou en échec ne reprennent pas. Désactivé par défaut, car il lance des tours du modèle sans clic.",
     "resume.down": "Impossible d’enregistrer ce réglage : {error}",
     "resume.restart": "Redémarrez dsh pour utiliser Reprendre après redémarrage.",
+    "feature.outageResume": "Reprendre après une panne d’AIProxy",
+    "feature.outageResume.description": "Quand AIProxy redémarre ou s’arrête un instant, les discussions en cours échouent avec “request_cancelled” (499) ou “Connection error.”. Quand AIProxy répond de nouveau, chacune de ces discussions reçoit un court message et reprend là où elle s’était arrêtée. Au plus un message par discussion pour chaque panne, et deux par heure. Les sous-agents ne le reçoivent pas : leur agent parent est informé que l’échec vient de la panne.",
+    "outage.down": "Impossible d’enregistrer ce réglage : {error}",
+    "outage.restart": "Redémarrez dsh pour utiliser Reprendre après une panne d’AIProxy.",
     "feature.contentSearch": "Recherche dans le contenu",
     "feature.contentSearch.description": "La recherche de la barre latérale de dsh (la loupe à côté d’Espaces de travail, Cmd+K) trouve aussi les conversations par les mots de vos messages et des réponses, et affiche le texte correspondant. Elle cherche des mots entiers, pas la sortie des outils. L’index de recherche est un fichier sur cet ordinateur, créé à la première recherche. S’applique après le redémarrage de dsh.",
     "contentSearch.down": "Impossible d’enregistrer ce réglage : {error}",
@@ -2518,7 +2522,8 @@
     "status.git": "Git",
     "status.loading": "Chargement…",
     "status.noGit": "Ce n’est pas un dépôt git.",
-    "status.branch": "Branche : {branch}"
+    "status.branch": "Branche : {branch}",
+    "status.outage": "Reprise après la panne d’AIProxy ({time})"
   },
   "common": {
     "ok": "OK",

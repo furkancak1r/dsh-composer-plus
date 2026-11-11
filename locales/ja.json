@@ -1591,6 +1591,10 @@
     "feature.resumeAfterRestart.description": "チャットの実行中に dsh を終了しても、次に dsh を開くとそのチャットが自動で続行します。停止したチャット、完了したチャット、失敗したチャットは続行しません。クリックせずにモデルのターンを開始するため、既定ではオフです。",
     "resume.down": "この設定を保存できませんでした：{error}",
     "resume.restart": "再起動後に再開を使うには dsh を再起動してください。",
+    "feature.outageResume": "AIProxy の停止後に再開",
+    "feature.outageResume.description": "AIProxy が再起動したり一時的に止まったりすると、実行中のチャットは “request_cancelled” (499) または “Connection error.” で失敗します。AIProxy が再び応答すると、そのようなチャットにはそれぞれ短いメッセージが届き、止まったところから続行します。メッセージは、チャットごとに 1 回の停止につき最大 1 件、1 時間に最大 2 件です。サブエージェントには届きません。代わりに親エージェントに、失敗の原因が停止であることを伝えます。",
+    "outage.down": "この設定を保存できませんでした：{error}",
+    "outage.restart": "「AIProxy の停止後に再開」を使うには dsh を再起動してください。",
     "feature.contentSearch": "内容検索",
     "feature.contentSearch.description": "dsh のサイドバーにある標準の検索（ワークスペースの横の虫眼鏡、Cmd+K）で、メッセージと返信の単語からもチャットを探し、一致した文を表示します。単語単位で検索し、ツールの出力は検索しません。検索インデックスはこのコンピュータ上のファイルで、最初の検索で作成されます。dsh を再起動すると反映されます。",
     "contentSearch.down": "この設定を保存できませんでした：{error}",
@@ -2518,7 +2522,8 @@
     "status.git": "Git",
     "status.loading": "読み込み中…",
     "status.noGit": "git リポジトリではありません。",
-    "status.branch": "ブランチ：{branch}"
+    "status.branch": "ブランチ：{branch}",
+    "status.outage": "AIProxy の停止後に続行しました（{time}）"
   },
   "common": {
     "ok": "OK",

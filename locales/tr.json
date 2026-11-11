@@ -3055,6 +3055,10 @@
     "feature.resumeAfterRestart.description": "Bir sohbet çalışırken dsh’den çıkarsanız, dsh’yi yeniden açtığınızda o sohbet kendiliğinden devam eder. Sizin durdurduğunuz, tamamlanan veya hata veren sohbetler devam etmez. Tıklamadan model turu başlattığı için varsayılan olarak kapalıdır.",
     "resume.down": "Bu ayar kaydedilemedi: {error}",
     "resume.restart": "Yeniden açılışta sürdür özelliğini kullanmak için dsh’yi yeniden başlatın.",
+    "feature.outageResume": "AIProxy kesintisinden sonra sürdür",
+    "feature.outageResume.description": "AIProxy yeniden başladığında ya da kısa bir süre durduğunda, çalışan sohbetler “request_cancelled” (499) ya da “Connection error.” hatasıyla başarısız olur. AIProxy yeniden yanıt verdiğinde bu sohbetlerin her biri kısa bir mesaj alır ve kaldığı yerden devam eder. Her kesintide sohbet başına en çok bir mesaj, saatte en çok iki mesaj gönderilir. Alt ajanlar bu mesajı almaz: üst ajanlarına hatanın kesintiden kaynaklandığı bildirilir.",
+    "outage.down": "Bu ayar kaydedilemedi: {error}",
+    "outage.restart": "AIProxy kesintisinden sonra sürdür özelliğini kullanmak için dsh’yi yeniden başlatın.",
     "feature.contentSearch": "İçerik araması",
     "feature.contentSearch.description": "dsh’nin kenar çubuğundaki kendi araması (Çalışma alanları yanındaki büyüteç, Cmd+K) sohbetleri mesajlarınızdaki ve yanıtlardaki sözcüklerle de bulur ve eşleşen metni gösterir. Sözcüğün tamamını arar; araç çıktısında aramaz. Arama dizini bu bilgisayarda bir dosyadır ve ilk aramada oluşturulur. dsh’yi yeniden başlattıktan sonra geçerli olur.",
     "contentSearch.down": "Bu ayar kaydedilemedi: {error}",
@@ -3978,7 +3982,8 @@
     "status.git": "Git",
     "status.loading": "Yükleniyor…",
     "status.noGit": "Git deposu değil.",
-    "status.branch": "Dal: {branch}"
+    "status.branch": "Dal: {branch}",
+    "status.outage": "AIProxy kesintisinden sonra devam etti ({time})"
   },
   "directory-browser": {
     "browser.title": "Çalışma alanı klasörünü seçin",

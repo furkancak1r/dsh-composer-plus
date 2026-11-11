@@ -10,6 +10,8 @@
  *   dots (chats that finished and that no device opened yet).
  * - Resume after restart: remembers the chats that were running when dsh quit and continues them at the next start; off by
  *   default (it starts model turns without a click).
+ * - Resume after an AIProxy outage: chats whose turn failed because AIProxy restarted get one "continue" message when
+ *   AIProxy answers again; on by default (the owner's choice).
  * - Feature ideas: on a click, one model call (the chat's own model) reads a short brief of the chat's project and returns
  *   feature ideas as cards. Read-only: no chat message, nothing written to the project. Ideas saved for later are kept
  *   per project folder under the dsh home.
@@ -82,7 +84,7 @@ export const TURKISH_SKILL_PATH = '/api/composer-plus.turkish-skill';
 /** Tether's green dots: at most this many unread chat ids are kept (the oldest goes first). */
 export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
-export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'approveButton', 'allowForChat', 'rejectNote', 'secretInput', 'quoteReply', 'previewQuote', 'sideChat', 'diffComments', 'continueButton', 'resumeAfterRestart', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit', 'subagentRunning', 'windowSize',
+export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'approveButton', 'allowForChat', 'rejectNote', 'secretInput', 'quoteReply', 'previewQuote', 'sideChat', 'diffComments', 'continueButton', 'resumeAfterRestart', 'outageResume', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit', 'subagentRunning', 'windowSize',
   'queueReorder', 'mobileConnect', 'remoteComputers', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'featureFilter', 'categoryFilter', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
   'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'assistant', 'assistantApart', 'assistantChatView', 'assistantFree', 'assistantNotify', 'assistantTodos', 'plannedSteps', 'turkishSkill', 'untangleCodebase', 'memoryHistory', 'memoryExport', 'memorySource', 'memoryCopy', 'memoryStale', 'memoryPerChat', 'memorySuggest', 'issueReport'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
@@ -2416,6 +2418,7 @@ export function apply(ctx) {
     },
   });
   installResume(ctx, home);
+  const outage = installOutageResume(ctx, home);
   installIdeas(ctx, home);
   installContentSearch(ctx, home);
   installActiveCount(ctx, home);
@@ -2449,7 +2452,7 @@ export function apply(ctx) {
   installApproveButton(ctx, home);
   const assistant = installAssistant(ctx, home);
   installAssistantBot(ctx, home, assistant);
-  installAssistantTodos(ctx, home, assistant);
+  installAssistantTodos(ctx, home, assistant, { outage });
   installSecrets(ctx, home);
   installBackup(ctx, home);
 }
@@ -3141,6 +3144,200 @@ function installResume(ctx, home) {
       return json({ on: tracker.isOn() });
     },
   });
+}
+
+/* Resume after an AIProxy outage: when AIProxy restarts or stops for a moment, every running chat fails at once with
+ * `aiproxy API error (499): {"code":"request_cancelled",…}` or `Connection error.` (dsh's single retry also fails while
+ * the port is closed). Failures within OUTAGE.window ms are one outage. The Host asks AIProxy's health address every
+ * OUTAGE.poll ms; when it answered no at least once (a `Connection error.` proves that by itself) and then answers yes for
+ * OUTAGE.settle ms, each failed root chat gets one short message in the UI language, through dsh's prompt (the path of
+ * chat_send). A 499 without a failed health check is a request that someone cancelled in AIProxy's window: nothing
+ * continues. Only a chat whose newest model request went to AIProxy counts. At
+ * most one message per chat per outage and OUTAGE.perHour per hour, so no loop can start. A chat that moved on (a new
+ * turn) or runs gets nothing. Subagents cannot get a message from the Host: the "failed" notice to their parent gets one
+ * line that names the outage. On by default (the owner's choice, 2026-11-11), the switch in `outage-resume.json`. */
+export const OUTAGE_PATH = '/api/composer-plus.outage-resume';
+export const OUTAGE = { window: 60000, poll: 1000, settle: 10000, giveUp: 30 * 60000, hour: 3600000, perHour: 2, max: 20, children: 200 };
+export const OUTAGE_HEALTH_URL = 'http://127.0.0.1:21028/health';
+/** The message that continues a chat, per UI language (en when the language has none). */
+export const OUTAGE_NOTES = {
+  en: 'The turn stopped because of an AIProxy outage. Continue from where you stopped; do not repeat the steps that you completed.',
+  zh: '由于 AIProxy 中断，本回合已停止。请从停下的地方继续，不要重复已完成的步骤。',
+  tr: 'AIProxy kesintisi nedeniyle tur yarıda kaldı. Kaldığın yerden devam et; tamamlanan adımları tekrarlama.',
+  es: 'El turno se detuvo por una caída de AIProxy. Continúa desde donde te quedaste; no repitas los pasos que ya completaste.',
+  'pt-BR': 'O turno parou por causa de uma queda do AIProxy. Continue de onde você parou; não repita os passos que você já concluiu.',
+  fr: 'Le tour s’est arrêté à cause d’une panne d’AIProxy. Reprends là où tu t’es arrêté ; ne répète pas les étapes que tu as terminées.',
+  de: 'Die Runde wurde wegen eines AIProxy-Ausfalls unterbrochen. Mach dort weiter, wo du aufgehört hast; wiederhole keine Schritte, die du schon abgeschlossen hast.',
+  ru: 'Ход прервался из-за сбоя AIProxy. Продолжи с того места, где остановился; не повторяй уже выполненные шаги.',
+  ja: 'AIProxy の停止によりターンが中断されました。止まったところから続けてください。完了した手順は繰り返さないでください。',
+  ko: 'AIProxy 장애로 턴이 중단되었습니다. 멈춘 곳부터 계속하고, 이미 끝낸 단계는 반복하지 마세요.',
+  id: 'Giliran berhenti karena gangguan AIProxy. Lanjutkan dari tempat kamu berhenti; jangan ulangi langkah yang sudah selesai.',
+  vi: 'Lượt đã dừng do sự cố AIProxy. Hãy tiếp tục từ chỗ bạn đã dừng; đừng lặp lại các bước bạn đã hoàn thành.',
+  hi: 'AIProxy की रुकावट की वजह से टर्न रुक गया। जहां रुके थे, वहीं से जारी रखो; जो चरण पूरे हो चुके हैं, उन्हें मत दोहराओ।',
+};
+export const outageNote = (lang) => [String(lang ?? ''), String(lang ?? '').split('-')[0]].map((id) => (Object.hasOwn(OUTAGE_NOTES, id) ? OUTAGE_NOTES[id] : undefined)).find(Boolean) ?? OUTAGE_NOTES.en;
+/** 'cancelled' (AIProxy's 499 request_cancelled), 'connection' (the transport's "Connection error.") or undefined for every
+ * other turn end: a user stop (`aborted`), a denied approval, any other error. */
+export function outageError(reason) {
+  if (reason?.kind !== 'error') return undefined;
+  const message = String(reason.error?.message ?? '');
+  // Before the answer starts: `aiproxy API error (499): {…}` (dsh's openai-responses route) or `499: {…}`
+  // (openai-completions). While it streams, AIProxy writes the error into the stream: `request_cancelled: İstek iptal
+  // edildi.` (responses, `response.failed`) or its bare message (completions).
+  if (/(^|\()499\)?: \{.*"code"\s*:\s*"request_cancelled"/.test(message) || /^request_cancelled: /.test(message) || message.trim() === 'İstek iptal edildi.') return 'cancelled';
+  return message.trim() === 'Connection error.' ? 'connection' : undefined;
+}
+/** The line that a parent agent gets after dsh's notice of a subagent that failed in an outage. */
+export const OUTAGE_CHILD_NOTE = 'Composer Plus: this subagent failed because of an AIProxy outage (AIProxy restarted or stopped for a moment), not because of its task. When AIProxy answers again, continue it with send_message (a continuable subagent) or start the task again. Do not repeat the steps that it completed.';
+
+/** The outage logic without dsh: `fail(id, seq, kind)` for each failed root chat; `resume(id, seq)` answers 'continued' or
+ * why not. `health()` answers true when AIProxy answers. `sleep`, `now` and `timing` are for the tests. */
+export function outageWatch({ health, resume, log = () => {}, now = Date.now, timing = OUTAGE, active = () => true,
+  sleep = (ms) => new Promise((done) => { const t = setTimeout(done, ms); t.unref?.(); }) }) {
+  let current; // { chats: Map(id → seq), confirmed, first, last }
+  let closed = false;
+  let running = Promise.resolve();
+  let last; // { at, chats: [{ id, result }] } of the newest outage that continued a chat
+  const sent = new Map(); // chat id → times of its automatic messages in the last hour
+  const recent = (id) => (sent.get(id) ?? []).filter((at) => now() - at < timing.hour);
+  const loop = async (outage) => {
+    let healthySince;
+    while (!closed) {
+      if (!active()) { if (current === outage) current = undefined; return; } // switched off: this outage is forgotten
+      const ok = await Promise.resolve().then(health).then((v) => v === true, () => false);
+      if (closed) return;
+      if (!ok) { outage.confirmed = true; healthySince = undefined; }
+      else if (outage.confirmed) { healthySince ??= now(); if (now() - healthySince >= timing.settle) break; }
+      else if (now() - outage.last >= timing.window) { current = undefined; return; } // AIProxy never went away: a cancel
+      if (now() - outage.first >= timing.giveUp) { current = undefined; log(`AIProxy did not answer for ${Math.round(timing.giveUp / 60000)} min: ${outage.chats.size} chats stay stopped`); return; }
+      await sleep(timing.poll);
+    }
+    if (closed) return;
+    current = undefined; // a failure from now on is a new outage
+    const results = [];
+    for (const [id, seq] of [...outage.chats].slice(0, timing.max)) {
+      if (closed) break;
+      const times = recent(id);
+      if (times.length >= timing.perHour) { results.push({ id, result: 'limit' }); continue; }
+      let result;
+      try { result = await resume(id, seq); } catch (error) { result = 'failed'; log(`outage resume ${id} failed: ${error?.message ?? error}`); }
+      if (result === 'continued') sent.set(id, [...times, now()]); else if (times.length > 0) sent.set(id, times); else sent.delete(id);
+      results.push({ id, result });
+    }
+    const continued = results.filter((r) => r.result === 'continued');
+    if (continued.length > 0) last = { at: now(), chats: continued.map((r) => r.id) };
+    log(`AIProxy outage: ${results.map((r) => `${r.id} ${r.result}`).join(', ')}`);
+  };
+  return {
+    fail(id, seq, kind) {
+      if (closed) return;
+      if (current === undefined) {
+        current = { chats: new Map(), confirmed: false, first: now(), last: now() };
+        const outage = current;
+        running = running.then(() => loop(outage)).catch((error) => log(`outage watch failed: ${error?.message ?? error}`));
+      }
+      current.chats.set(id, seq);
+      current.last = now();
+      if (kind === 'connection') current.confirmed = true; // the port was closed
+    },
+    last: () => last,
+    settled: () => running,
+    close() { closed = true; current = undefined; },
+  };
+}
+
+/** Resume after an AIProxy outage (Host half): the switch route, the turn end watch and the parent note. Answers the
+ * handle that the Assistant status panel reads (`last()`: the chats that the newest outage continued). */
+export function installOutageResume(ctx, home, { file = join(home, 'storages', 'dsh-composer-plus', 'outage-resume.json'), timing = OUTAGE,
+  health = async () => {
+    try {
+      const r = await fetch(process.env.COMPOSER_PLUS_HEALTH_URL || OUTAGE_HEALTH_URL, { signal: AbortSignal.timeout(2000) });
+      await r.body?.cancel();
+      return r.ok;
+    } catch { return false; }
+  }, sleep, now = Date.now } = {}) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: ${text}`);
+  const store = settingsStore(file, (v) => ({ on: v?.on !== false, ...(isText(v?.lang, 35) && LOCALE_ID.test(v.lang) ? { lang: v.lang } : {}) }));
+  let on = false; let lang;
+  const titles = new Map(); // chat id → its title when it continued (for the status panel)
+  const resume = async (id, seq) => {
+    if (!on) return 'off';
+    try { if (get('workspaceRegistry')?.archivedSessionIds?.includes(id) === true) return 'archived'; } catch { /* not archived */ }
+    const found = await ctx.sessionController.resolveAgent(id);
+    if ('error' in found) return 'unavailable';
+    const { agent } = found;
+    if (agent.status !== 'idle') return 'busy';
+    let events = []; try { events = agent.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
+    const end = events.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
+    if (end?.type !== 'turn/end' || end.seq !== seq) return 'moved'; // you (or another feature) continued it already
+    await ctx.sessionController.prompt({ requestId: randomUUID(), sessionId: id, mode: 'queue', content: [{ type: 'text', text: outageNote(lang) }] }, AbortSignal.timeout(STOP_WAIT_MS));
+    try { titles.set(id, (await ctx.sessionQuery.readTitle?.(id))?.title); } catch { /* no title */ }
+    return 'continued';
+  };
+  const watch = outageWatch({ health, resume, log, now, timing, active: () => on, ...(sleep === undefined ? {} : { sleep }) });
+  /** True when the chat's newest model request went to an AIProxy provider (its id or its display name says so), so a
+   * "Connection error." of another provider (a network drop) starts nothing. */
+  const onAIProxy = (session) => {
+    let events = [];
+    try { events = session.snapshotEvents?.() ?? get('agents')?.get?.(session.id)?.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
+    const provider = events.findLast((e) => e.type === 'request/header')?.data?.header?.config?.provider;
+    if (!isText(provider, 200)) return false;
+    let name; try { name = get('llm')?.listProviders?.().find((p) => p.id === provider)?.name; } catch { /* no registry */ }
+    return /aiproxy/i.test(provider) || /aiproxy/i.test(String(name ?? ''));
+  };
+  const children = new Set(); // subagents whose turn failed in an outage, until their parent's notice
+  ctx.on('session/event', (session, event) => {
+    if (!on || event?.type !== 'turn/end' || !isText(session?.id)) return;
+    const kind = outageError(event.data?.reason);
+    if (kind === undefined || !onAIProxy(session)) return;
+    if (isRootChat(session)) { watch.fail(session.id, event.seq, kind); return; }
+    children.delete(session.id); children.add(session.id); // newest last: the oldest goes first over the cap
+    if (children.size > timing.children) children.delete(children.values().next().value);
+  });
+  // dsh's notice "Background subagent <id> failed before it finished." does not say why: the outage line goes after it.
+  ctx.on('agent/pre-step', async (payload, next) => {
+    const decision = await next();
+    if (decision?.kind !== 'enter' || !Array.isArray(decision.messages) || children.size === 0) return decision;
+    let changed = false;
+    const messages = decision.messages.map((m) => {
+      const child = m?.source?.kind === 'subagent-settled' ? m.source.senderSessionId : undefined;
+      if (!children.has(child) || !Array.isArray(m.content)) return m;
+      children.delete(child); changed = true;
+      return { ...m, content: [...m.content, { type: 'text', text: OUTAGE_CHILD_NOTE }] };
+    });
+    return changed ? { ...decision, messages } : decision;
+  });
+  const ready = store.read().then((s) => { on = s.on; lang = s.lang; }, () => { on = true; });
+  ctx.effect?.(() => () => { on = false; watch.close(); children.clear(); }, 'dsh-composer-plus: resume after an AIProxy outage');
+  let switching = ready;
+  ctx.connection.fetch.register({
+    path: OUTAGE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    /** GET: `{on}`. POST `{on}` (the switch) and/or `{lang}` (dsh's UI language, for the message). */
+    fetch: async (request) => {
+      await ready;
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        const keys = plainObject(body) ? Object.keys(body).sort().join() : '';
+        if (!['on', 'lang', 'lang,on'].includes(keys) || ('on' in body && typeof body.on !== 'boolean')
+          || ('lang' in body && !(isText(body.lang, 35) && LOCALE_ID.test(body.lang)))) return json({ error: 'bad request' }, 400);
+        const change = switching.then(async () => {
+          const next = await store.change((s) => ({ on: 'on' in body ? body.on : s.on, ...('lang' in body ? { lang: body.lang } : s.lang === undefined ? {} : { lang: s.lang }) }));
+          on = next.on; lang = next.lang;
+          if (!on) children.clear();
+        });
+        switching = change.catch(() => {});
+        try { await change; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+      }
+      return json({ on });
+    },
+  });
+  return {
+    ready, watch, isOn: () => on,
+    /** `{at, chats: [{id, title}]}` of the newest outage that continued a chat, or undefined. */
+    last() { const l = watch.last(); return l === undefined ? undefined : { at: l.at, chats: l.chats.map((id) => ({ id, title: cutEnd(String(titles.get(id) ?? '').trim() || '(untitled)', 120) })) }; },
+  };
 }
 
 /** Next message prediction: after a turn ends, a guess of the user's next message in the same chat (Codex "composer
@@ -10071,7 +10268,7 @@ export function todoStore(file) {
 }
 
 /** Assistant to-do list (Host half). `assistant` is the handle of installAssistant. */
-export function installAssistantTodos(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), now = Date.now } = {}) {
+export function installAssistantTodos(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), now = Date.now, outage } = {}) {
   const sw = mobileSwitch(join(dir, 'assistant-todos-switch.json'), true);
   const store = todoStore(join(dir, 'assistant-todos.json'));
   const summaries = summaryStore(join(dir, 'assistant-summary.json'));
@@ -10198,7 +10395,9 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         started: Number.isFinite(task?.at) ? task.at : now(), chat: true, ...(isText(task?.branch, 200) ? { result: `${task.project ?? ''} · ${task.branch}`.replace(/^ · /, '') } : {}) });
     }
     const summary = summaries.of(sessionId);
-    return { tasks, projects, ...(summary === undefined ? {} : { summary }), at: now() };
+    // Resume after an AIProxy outage: the chats that the newest outage of today continued.
+    const resumed = outage?.isOn?.() ? outage.last?.() : undefined;
+    return { tasks, projects, ...(summary === undefined ? {} : { summary }), ...(resumed !== undefined && resumed.at >= today.getTime() ? { outage: resumed } : {}), at: now() };
   };
   /** The subagent tasks' result lines in the UI language `lang` (the subagents write English; the user reads the panel).
    * The lines that are not in the cache go to one model call (dsh's default model, no tools) in the background, so the

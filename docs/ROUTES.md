@@ -37,6 +37,8 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.later` | POST | `{sessionId, add \| remove \| start \| startAll \| issue, plan?}`: change the list, start chats for its ideas, or (`issue: <id>`) open a GitHub issue for one idea with the user's `gh` and keep its link. | featureIdeas | yes |
 | `/api/composer-plus.resume` | GET | The switch `{on}`. | resumeAfterRestart | no |
 | `/api/composer-plus.resume` | POST | `{on}`: the switch (a switch route). | resumeAfterRestart | no |
+| `/api/composer-plus.outage-resume` | GET | The switch `{on}`. | outageResume | no |
+| `/api/composer-plus.outage-resume` | POST | `{on}`: the switch, and/or `{lang}`: dsh's UI language (the language of the message). | outageResume | no |
 | `/api/composer-plus.predict` | GET | The switch and the model; `?catalog=1` adds dsh's model list. | nextPrediction | no |
 | `/api/composer-plus.predict` | POST | `{sessionId, afterSeq}`: the guess for that finished turn (one model call), or `{on}` / `{model}` (Settings only). | nextPrediction | yes |
 | `/api/composer-plus.complete` | GET | The switch and the model; `?catalog=1` adds dsh's model list and the prediction's model. | typingCompletion | no |
