@@ -14,7 +14,9 @@
 // 7. The owner's report (2026-11-11, Assistant chat: "onay butonu çıkmıyor kod bloğu çıkıyor"): the answer with the
 //    `onay` block is in the middle of its turn (the model writes it with a tool call, then the turn goes on and ends with
 //    "Done."). The button still shows, under the turn's end, and a click sends the sentence.
-// 8. No page errors.
+// 8. The `onay` answer ends its turn while a background subagent runs; the subagent's result then starts a new turn that
+//    ends with "X finished." (owner, 2026-11-11: "onay butonu çıkmıyor"). The button of the earlier turn's sentence shows.
+// 9. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-approve-button.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/approveButton.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -39,6 +41,7 @@ const until = async (fn, what, ms = 30000) => {
 const SENTENCE = (n) => `Approve: push the branch feature/login-fix-${n} of demo-app to origin.`;
 const LIVE = 'Approve: run npm publish for demo-app.';
 const MID = 'Onaylıyorum: Composer Plus kategori filtresi önerilen 8 kategoriyle yapılsın, sonraki sürüme girsin.';
+const LATER = 'Onaylıyorum: demo-app için feature/later dalını origin\'e push et.';
 const LONG = 'Onaylıyorum: bu turda Composer Plus Asistan iyileştirme otomasyonunu yeniden başlat; salt okunur inceleme alt ajanı, yeni bulguları tek tek doğrulasın, sorun yoksa dalı push etsin, main ile birleştirsin ve yerel kopyayı yedekleyip güncellesin.';
 // The button label of each language: en and zh in client.js, the 11 others in locales/<id>.json.
 const LABELS = [...readFileSync(join(repo, 'client.js'), 'utf8').matchAll(/'approve\.button': '([^']+)'/g)].map((m) => m[1])
@@ -70,6 +73,15 @@ const fake = createServer((req, res) => {
     if (last === 'live') return say(ANSWER(LIVE));
     if (last === 'long') return say(ANSWER(LONG));
     if (last === 'mid') return msgs.at(-1)?.role === 'tool' ? say('Done.') : sayThenTool(ANSWER(MID));
+    // 8: a background subagent, then the `onay` answer ends the turn; the child answers later, its result starts a new turn.
+    if (last === 'later') {
+      if (msgs.at(-1)?.role === 'tool') return say(ANSWER(LATER));
+      const background = (parsed.tools ?? []).find((t) => t.function?.name === 'subagent')?.function?.parameters?.properties?.run_in_background !== undefined;
+      send({ tool_calls: [{ index: 0, id: 'call_later_sub', type: 'function', function: { name: 'subagent', arguments: JSON.stringify({ description: 'Check demo-app', prompt: 'sleep-child: check demo-app.', ...(background ? { run_in_background: true } : {}) }) } }] });
+      send({}, 'tool_calls'); res.end('data: [DONE]\n\n'); return;
+    }
+    if (last.includes('sleep-child')) { setTimeout(() => say('Child done.'), 3000); return; }
+    if (/Background subagent .* finished/.test(last)) return say('X finished.');
     return say('Done.');
   });
 }).listen(0, '127.0.0.1');
@@ -226,6 +238,17 @@ try {
       const before7 = calls.length; await midButton.click();
       await page.locator('[data-chat-flow-kind="user"]').filter({ hasText: MID }).first().waitFor({ timeout: 20000 }); await pause(1500);
       assert.equal(calls.slice(before7).filter((c) => c.last === MID).length, 1, 'the click sends the sentence once');
+
+      // 8. The approval of an earlier turn, then a new turn from a subagent's result: the button still shows.
+      await until(async () => (await dones.count()) > doneBefore + 1, 'the answer to the sent sentence');
+      await approve.waitFor({ state: 'detached', timeout: 20000 }); await pause(1000);
+      await typeSend('later'); await page.getByText(LATER, { exact: true }).first().waitFor({ state: 'attached', timeout: 20000 });
+      await page.getByText('X finished.', { exact: true }).first().waitFor({ timeout: 30000 });
+      const tails = page.locator('[data-turn-tail]');
+      await until(async () => (await tails.last().locator('[data-composer-plus-approve] button').filter({ hasText: LATER }).count()) === 1, 'the button in the newest turn\'s tail');
+      assert.equal(await approve.count(), 1, 'one button group, under the newest turn');
+      assert.ok(calls.some((c) => /Background subagent .* finished/.test(c.last)), 'the new turn came from the subagent\'s result');
+      assert.equal(await page.locator('[data-chat-flow-kind="user"]').filter({ hasText: 'Background subagent' }).count(), 0, 'dsh does not show the result as your message');
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
