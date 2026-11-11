@@ -109,7 +109,7 @@ try {
         await page.getByRole('button', { name: 'New session in acme-web', exact: true }).click(); await pause(800);
       };
       const finished = () => page.getByText('Finished lint.', { exact: true }).first().isVisible().catch(() => false);
-      const assistantRow = page.locator('button[aria-label="Assistant"]');
+      const assistantRow = page.locator('button[aria-label="Damon"]');
       await assistantRow.waitFor({ timeout: 10000 });
 
       // 1. A chat finishes while the Assistant chat is open.
