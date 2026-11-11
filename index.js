@@ -9156,7 +9156,7 @@ export function assistantTasks(file, now = Date.now) {
     get: (id) => map.get(id),
     list: () => [...map],
     add(id, info) {
-      map.delete(id); map.set(id, { ...info, at: now() });
+      map.delete(id); map.set(id, { at: now(), ...info });
       while (map.size > ASSISTANT_TASKS_MAX) map.delete(map.keys().next().value);
       return save();
     },
@@ -9284,7 +9284,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     },
     {
       name: 'chat_send',
-      description: 'Send a message to another chat, as the user would type it there. It waits in that chat\'s queue when the chat runs. Needs approval: the user\'s approval card, or Auto review in the Auto permission mode.',
+      description: 'Send a message to another chat, as the user would type it there. It waits in that chat\'s queue when the chat runs. You get a note with the chat\'s reply when the turn of this message ends, or when the chat waits for the user. Needs approval: the user\'s approval card, or Auto review in the Auto permission mode.',
       parameters: { type: 'object', properties: {
         chat_id: { type: 'string', description: 'The chat id from chats_list' },
         text: { type: 'string', description: `The message, at most ${ASSISTANT_LIMITS.text} characters` },
@@ -9293,11 +9293,17 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
       async execute(args, exec) {
         const text = String(args?.text ?? '').trim();
         if (!isText(text, ASSISTANT_LIMITS.text)) throw refused(`text is 1 to ${ASSISTANT_LIMITS.text} characters.`);
-        const { id } = await target(args?.chat_id, signalOf(exec));
+        const { id, header } = await target(args?.chat_id, signalOf(exec));
         if (archived().has(id)) throw refused('This chat is archived. Ask the user to unarchive it first.');
-        // Not the call's signal: once admitted, the message must reach the chat whole.
-        await ctx.sessionController.prompt({ requestId: randomUUID(), sessionId: id, mode: 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
-        return `Sent to "${await titleOf(id) ?? id}" (${id}).`;
+        // A task too (kept before the message goes), so the reply comes back to the assistant: dsh logs the message with
+        // source.rpcId = requestId, and the bot waits for that turn (`rpc`). An older task (chat_new) keeps its fields.
+        const title = await titleOf(id); const old = tasks.get(id); const requestId = randomUUID();
+        await tasks.add(id, { ...(old ?? { ...(title === undefined ? {} : { title }), project: projectFor(id, header?.cwd, workspaces()) }), rpc: requestId });
+        try {
+          // Not the call's signal: once admitted, the message must reach the chat whole.
+          await ctx.sessionController.prompt({ requestId, sessionId: id, mode: 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
+        } catch (error) { await (old === undefined ? tasks.drop(id) : tasks.add(id, old)); throw error; } // no task for a message that did not go
+        return `Sent to "${title ?? id}" (${id}). You get a note with its reply when the turn of this message ends or the chat waits for the user.`;
       },
     },
     {
@@ -9577,7 +9583,7 @@ const SENT_FIRST = 'It sent you a message just before finishing, so its closing 
 const quietNotice = (m) => m?.source?.kind === 'subagent-settled' && Array.isArray(m.content) && m.content.length === 2
   && / finished and will do no further work/.test(m.content[0]?.text ?? '') && m.content.some((b) => b?.text === SENT_FIRST);
 
-/** turn/start index → source kind of the queued (next-turn) message that dsh took out to start that turn: the first removal
+/** turn/start index → source of the queued (next-turn) message that dsh took out to start that turn: the first removal
  * before the turn's first step. dsh logs the prompt itself as a user/message only when that step runs. The queue is folded
  * from the start of the log (a fork's inbox includes its parent's splices). */
 function queuedPrompts(events) {
@@ -9588,7 +9594,7 @@ function queuedPrompts(events) {
     else if (e.type === 'agent/inbox/spliced' && e.data?.target === 'next-turn') {
       const { start = 0, removedCount = 0, inserted = [] } = e.data;
       if (!Number.isSafeInteger(start) || !Number.isSafeInteger(removedCount) || !Array.isArray(inserted)) return;
-      if (open !== undefined && removedCount > 0) { taken.set(open, queue[start]?.source?.kind); open = undefined; }
+      if (open !== undefined && removedCount > 0) { taken.set(open, queue[start]?.source); open = undefined; }
       queue = queue.toSpliced(start, removedCount, ...inserted);
     }
   });
@@ -9696,7 +9702,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
       if (events[i].type === 'user/message' && ['user', 'schedule'].includes(events[i].data?.source?.kind)) prompt = events[i].data.source.kind;
       else if (events[i].type === 'turn/start') {
         // ponytail: one pass over the whole log, only when a turn has no logged prompt (a failed first step, a resume).
-        if (prompt === undefined) { taken ??= queuedPrompts(events); if (['user', 'schedule'].includes(taken.get(i))) prompt = taken.get(i); }
+        if (prompt === undefined) { taken ??= queuedPrompts(events); if (['user', 'schedule'].includes(taken.get(i)?.kind)) prompt = taken.get(i).kind; }
         if (prompt !== undefined) break;
       }
     }
@@ -9777,8 +9783,14 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
       // Only the chat's own events (a fork's copy of its parent is left out); lastReply leaves out withdrawn replies.
       const inherited = Number.isSafeInteger(agent?.session?.inheritedEventCount) && agent.session.inheritedEventCount > 0 ? agent.session.inheritedEventCount : 0;
       if (task !== undefined) {
-        // dsh's quit or a parent's stop: the task goes on after a restart (Resume after restart), so it stays.
-        if (stoppedByDsh(reason)) return;
+        // chat_send: a turn without its message (logged with source.rpcId, or the queued message that started a turn whose
+        // first step failed) ran before it, and the message runs in a later turn: the task waits for that turn.
+        if (isText(task.rpc)) {
+          const events = eventsOf(agent); const last = events.findLastIndex((e) => e.type === 'turn/start');
+          if (last < inherited || !(events.slice(last).some((e) => e.type === 'user/message' && e.data?.source?.rpcId === task.rpc) || queuedPrompts(events).get(last)?.rpcId === task.rpc)) return;
+        }
+        // dsh's quit or a parent's stop: the task goes on after a restart (Resume after restart), so it stays (its message ran).
+        if (stoppedByDsh(reason)) { if (isText(task.rpc)) { const { rpc, ...rest } = task; assistant.tasks.add(session.id, rest); } return; }
         assistant.tasks.drop(session.id);
         const info = taskInfo(task);
         if (reason?.kind === 'error') add(session, { kind: 'failed', reply: cutEnd(String(reason.error?.message ?? '').trim(), timing.taskReply ?? ASSISTANT_NEWS.taskReply), ...info });
