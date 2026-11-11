@@ -1,6 +1,6 @@
-// Approve button: the real client.js parser, live-target guard and buttons, and the Host's prompt rule and switch.
+// Approve button: the real client.js parser and buttons, and the Host's prompt rule and switch.
 // - parseApprovals: only closed, top-level ```onay blocks; the exact sentence; nothing for anything unsure.
-// - The guard: a live or public target hides the button; test and feature-branch sentences show it.
+// - A live or public target (production, a deploy, a release, npm publish, a public PR) gets its button too (owner, 2026-11-11).
 // - ApproveButtons (dsh's turn-tail slot): only under the newest answer, while the chat is idle and the composer is empty;
 //   one click sends the exact sentence once (a second click sends nothing, the button is off); a failed send shows the
 //   reason and keeps the button; a sent answer shows none; never for a user message.
@@ -69,6 +69,9 @@ for (const [text, why] of [
   [block('Onaylıyorum: ２.19 sunucusuna kopyala.'.replace('２', '٢')), 'a digit that is not 0–9'],
   [block('Onaylıyorum: dosyayı sil.\uE000'), 'a private-use character'],
   [block('Onaylıyorum: dalı sil ß.'), 'a letter outside the English and Turkish alphabets'],
+  [block('Approve: run ᴅᴇᴘʟᴏʏ now.'), 'small capital letters'],
+  [block('Approve: switch to pʀoduction.'), 'a small capital letter in a word'],
+  [block('Approve: ｄｅｐｌｏｙ now.'), 'full-width letters'],
 ]) assert.deepEqual(sentences(text), [], `no button: ${why}`);
 assert.deepEqual(sentences(block('a'.repeat(500))), ['a'.repeat(500)], '500 characters is the limit');
 { const long = `Onaylıyorum: ${'x '.repeat(240)}sil.`; assert.equal(long.length, 497);
@@ -78,7 +81,7 @@ assert.deepEqual(sentences(block('Onaylıyorum:\nçok satırlı onay.')), ['Onay
 assert.deepEqual(sentences(`\`\`\`js\nx()\n\`\`\`\n${block(PUSH)}`), [PUSH], 'a code block before it is skipped');
 assert.deepEqual(parseOptions(block(PUSH)), [], 'an approval block is no option list');
 
-// --- The live-target guard ---
+// --- Live or public targets: the button shows too (owner, 2026-11-11: "onay mesajlarını bana sorarken her zaman onay butonu çıkmasını sağla") ---
 const LIVE = [
   'Onaylıyorum: 2.19 sunucusuna Z aktarımı yap.', 'Onaylıyorum: Z-share klasörüne kopyala.', 'Onaylıyorum: Z: sürücüsüne yaz.',
   'Onaylıyorum: dosyaları paylaşıma kopyala.', 'Onaylıyorum: canlı sunucuyu yeniden başlat.', 'Onaylıyorum: CANLI ortama al.',
@@ -91,12 +94,12 @@ const LIVE = [
   'Onaylıyorum: sürüm 1.26.0 etiketini at.', 'Onaylıyorum: ssh proso-deploy deploy abc çalıştır.', 'Onaylıyorum: deploy et.',
   'Onaylıyorum: Proso sunucusuna dağıt.', 'Onaylıyorum: bu sayfayı herkese açık yap.', 'Onaylıyorum: repoyu public yap.',
   'Onaylıyorum: dosyayı paylaş.', 'Onaylıyorum: DEPLOY et.', 'Onaylıyorum: deploy’u başlat.', 'Onaylıyorum: Ürün kodunu ürün ortamına al: prodüksiyon.',
-  // Look-alike spellings read as the word (review F-01).
   'Approve: run dep1oy now.', 'Approve: switch to pr0d.', 'Approve: run depIoy now.', 'Approve: npm pub1ish.', 'Onaylıyorum: canIı sunucuyu yeniden başlat.',
   'Approve: run d3ploy now.', 'Approve: re1ea5e it.', 'Approve: d-e-p-l-o-y it.', 'Approve: de_ploy it.', 'Approve: d.e.p.l.o.y it.', 'Onaylıyorum: herkese\naçık yap.',
-  'Onaylıyorum: 2.l9 sunucusuna kopyala.', 'Onaylıyorum: port 51OO servisini durdur.', 'Approve: run ᴅᴇᴘʟᴏʏ now.', 'Approve: switch to pʀoduction.', 'Approve: ｄｅｐｌｏｙ now.',
+  'Onaylıyorum: 2.l9 sunucusuna kopyala.', 'Onaylıyorum: port 51OO servisini durdur.', 'Onaylıyorum: feature/x için public PR aç.',
+  'Approve: deploy demo-app to production.', 'Onaylıyorum: canlı veritabanında (inkool_live) UPDATE çalıştır.',
 ];
-for (const s of LIVE) assert.deepEqual(sentences(block(s)), [], `live target hides the button: ${s}`);
+for (const s of LIVE) assert.deepEqual(sentences(block(s)), [s], `a live or public target shows the button: ${s}`);
 const SAFE = [
   PUSH, 'Onaylıyorum: feature/onay-dugmesi dalını main ile birleştir.', 'Onaylıyorum: test veritabanında (inkool) sorguyu çalıştır.',
   'Onaylıyorum: npm test çalıştır.', 'Onaylıyorum: .worktrees/feature-x klasörünü sil.', 'Onaylıyorum: test/fixtures dosyasını güncelle.',
@@ -160,9 +163,13 @@ out = third.render(); assert.equal(buttonsOf(out).length, 1, 'the button stays a
 assert.equal(out.c.at(-1).p.role, 'alert'); assert.equal(texts(out.c.at(-1)).join(''), 'approve.failed:{"error":"conversation.send failed: busy"}');
 buttonsOf(third.render())[0].p.onClick(); await flush();
 assert.deepEqual(sent.at(-1), ['A', 'Onaylıyorum: feature/z dalını sil.'], 'the retry sends');
-// A live sentence in the newest answer: the plain block only (no group at all).
-view = chat(...view.nodes.values(), user(32, 'x'), tail(4, 40, block('Onaylıyorum: npm publish çalıştır.')));
-const live = cell(40); live.render(); await flush(); assert.equal(live.render(), null, 'a live sentence: no button');
+// A live sentence in the newest answer: its button shows too, and a click sends it.
+const PUBLISH = 'Onaylıyorum: npm publish çalıştır.';
+view = chat(...view.nodes.values(), user(32, 'x'), tail(4, 40, block(PUBLISH)));
+const live = cell(40); live.render(); await flush();
+buttons = buttonsOf(live.render()); assert.equal(buttons.length, 1, 'a live sentence: one button');
+assert.deepEqual(texts(buttons[0]), ['approve.button', PUBLISH]);
+buttons[0].p.onClick(); await flush(); assert.deepEqual(sent.at(-1), ['A', PUBLISH], 'a click sends the live sentence');
 newest.unmount(); older.unmount(); third.unmount(); live.unmount();
 
 // --- The feature through plugin.apply ---
@@ -203,6 +210,8 @@ try {
   assert.ok(section, 'the prompt section'); assert.equal(section.interpolate, false); assert.equal(section.text(), APPROVE_SECTION);
   assert.match(APPROVE_SECTION, /info string `onay`/); assert.match(APPROVE_SECTION, /```onay\nOnaylıyorum: feature\/x dalını origin'e push et\.\n```/);
   assert.deepEqual(sentences(APPROVE_SECTION), ["Onaylıyorum: feature/x dalını origin'e push et."], 'the example in the rule is a block that the client reads');
+  assert.match(APPROVE_SECTION, /Each approval sentence gets the block, also one that names a live or public target/, 'the rule: a block for each approval sentence');
+  assert.doesNotMatch(APPROVE_SECTION, /no button|user types it/, 'no exception for live or public targets');
   for (const bad of [{ on: 'yes' }, { on: true, x: 1 }, {}, []]) assert.equal((await req(bad)).status, 400, JSON.stringify(bad));
   assert.deepEqual((await req({ on: false })).body, { on: false });
   assert.equal(sections.size, 0, 'off: no section'); assert.ok(disposed >= 1);

@@ -5,7 +5,8 @@
 //    in dsh's turn tail. Text in the composer hides it.
 // 3. A double click sends one user message: the exact sentence reaches the model once and shows as your message; the
 //    button goes; your message gets no button.
-// 4. An answer whose sentence names a live target (npm publish): the plain block, no button. The older answer shows none.
+// 4. An answer whose sentence names a live target (npm publish): its button shows too (owner, 2026-11-11). The older
+//    answer shows none.
 // 5. Switched off (the Host switch): the next request has no rule and an `onay` answer shows no button.
 // 6. A long sentence (the owner's, 2026-11-10: "Onayla" broke into "Onay / la" and the sentence was cut with "…") at
 //    window widths 600, 940 and 1280: the label of each of the 13 languages stays on one line and is not cut; the button
@@ -150,11 +151,12 @@ try {
       assert.equal(await mine.count(), 1, 'a normal message of yours in the chat');
       assert.equal(await approve.count(), 0, 'sent: no button, and your message has none');
 
-      // 4. A live target: the plain block, no button; the older answer shows none either.
+      // 4. A live target: the button shows too; the older answer shows none.
       await typeSend('live');
-      await page.getByText(LIVE, { exact: true }).first().waitFor({ timeout: 20000 }); await pause(2500);
-      assert.equal(await approve.count(), 0, 'a live sentence gets no button');
-      assert.ok(await page.locator('.md-code-block').filter({ hasText: LIVE }).count() >= 1, 'the plain block shows');
+      await page.getByText(LIVE, { exact: true }).first().waitFor({ timeout: 20000 }); await approve.waitFor({ timeout: 20000 });
+      assert.equal(await approve.count(), 1, 'a live sentence gets its button');
+      assert.equal((await approve.locator('button').innerText()).replace(/\s+/g, ' ').trim(), `Approve ${LIVE}`, 'the label and the live sentence');
+      assert.ok(await page.locator('.md-code-block').filter({ hasText: LIVE }).count() >= 1, 'the block shows as code');
       await typeSend('approve:2'); await page.getByText(SENTENCE(2), { exact: true }).first().waitFor({ timeout: 20000 });
       await approve.waitFor({ timeout: 20000 });
       assert.equal(await approve.count(), 1, 'only the newest answer has buttons');
