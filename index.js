@@ -9033,7 +9033,7 @@ Auto review accepts an approval only from a user message. When you need a writte
 \`\`\`onay
 Onaylıyorum: feature/x dalını origin'e push et.
 \`\`\`
-A button under your answer sends the block's text as the user's message with one click. Write one \`onay\` block per answer: one sentence, in the user's language, that names everything that needs the approval, and nothing else in the block. Use an \`onay\` block only for an approval sentence. A sentence that names a live or public target (production, a live database, a deploy, a release, npm publish) gets no button: the user types it.`;
+A button under your answer sends the block's text as the user's message with one click. Write one \`onay\` block per answer: one sentence, in the user's language, that names everything that needs the approval, and nothing else in the block. Use an \`onay\` block only for an approval sentence. Each approval sentence gets the block, also one that names a live or public target (production, a live database, a deploy, a release, npm publish, a public PR).`;
 export function installApproveButton(ctx, home, file = join(home, 'storages', 'dsh-composer-plus', 'approve-button.json')) {
   const sw = mobileSwitch(file, true);
   let on = false;
