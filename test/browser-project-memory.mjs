@@ -18,7 +18,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, symlink, rm, realpath, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readdirSync } from 'node:fs';
 // The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read until the migration).
@@ -180,7 +180,7 @@ try {
       assert.deepEqual((await readdir(project)).sort(), ['README.md'], 'nothing new in the project folder');
       const journal = (await readFile(join(memDir, 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
       assert.deepEqual(journal.map((r) => r.actor).sort(), ['agent', 'review']);
-      note(`2: on → section + 3 tools in the request; memory_remember and the review wrote ${mainOf(join('storages/dsh-composer-plus/memory/projects', projects[0]))} (2 entries, journal 2 rows); project folder unchanged`);
+      note(`2: on → section + 3 tools in the request; memory_remember and the review wrote storages/dsh-composer-plus/memory/projects/${projects[0]}/${basename(mainOf(join(memDir, 'projects', projects[0])))} (2 entries, journal 2 rows); project folder unchanged`);
 
       // 3. A new chat in the same project reads both entries in its system prompt.
       await newChat();

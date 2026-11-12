@@ -3051,6 +3051,80 @@ Project memory notları kullanıcının seçtiği bir klasörde (ör. Obsidian k
 - Değişmeyenler (kaynak karşılaştırması, iki alt ajan): olay adları ve yükleri, oturum biçimi (v4), depolama yolları, foldedReplies, slot adları, `[class*=_x]` parçaları, Tether RPC yöntemleri.
 - Davranış farkı (kod değişmedi): rc.2'de alt ajan sonucu ebeveyne kendiliğinden gider; "sessiz haber" (`quietNotice`) seyrek eşleşir.
 
+## Performans: kalite ve özellik kaybı olmadan hızlandırma (2026-11-12, dal `refactor/plugin-performance-optimization`)
+İstek (Furkan, Türkçe): "ayrı bir dalda plugin performans iyileştirmesi araştırması yap kalite veya özellik kaybetmeden hızlandırma araştırması ve sonra düzeltmesi yapsın". Aynı anda çalışan dallar (dokunulmaz, aynı kod bölgelerinde büyük değişiklikten kaçınılır): `fix/portable-assistant-plugin-defaults` (kurulum, hafıza içe aktarma, sabah özeti), `feat/consolidate-worktree-project-memory` (hafıza dosya adı, worktree eşlemesi), `fix/status-refresh-loading-feedback` (durum paneli "Özet getir").
+
+### Amaç
+Kullanıcının hissettiği işi azaltmak: eklentinin açılışta, sohbet geçişinde, akan yanıtta, yazarken, boştayken ve her ajan turunda yaptığı gereksiz işi kaldırmak. Görünen davranış, özellik ve ajana giden bilgi aynı kalır.
+
+### Değişmezler
+- Hiçbir özellik kalkmaz; görünür davranış, ayar varsayılanları, güvenlik kontrolleri ve rota yanıtları aynı kalır.
+- Ajana giden hafıza, yapılacaklar ve durum metni bilgi kaybetmez (istem metinleri bu işte değişmez; aşağıdaki "Değiştirilmeyenler").
+- `npm test` yeşil kalır; gerçek dsh testleri 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1, 0.2.2-rc.2 üzerinde geçer.
+- Her düzeltme ayrı commit; commit mesajında önce/sonra sayıları; önemsiz olmayan her düzeltmeye çalıştırılabilir kontrol.
+
+### Ölçüm yöntemi
+- Yeni `test/browser-perf.mjs` (headless, sahte model, geçici HOME/DSH_HOME, uydurma 10 proje × 30 sohbet, 1000 turluk sentetik Asistan sohbeti, 40 alt ajan satırı, 12 yapılacak). Tarayıcı: CDP `Performance.getMetrics` (CPU ×4 yavaşlatma ile yazma, kaydırma, akan yanıt), CDP profil (`BPROF`). Host: `ps` CPU zamanı, `--cpu-prof` (`HOSTPROF`). `NOPLUGIN=1` eklentisiz taban, `OFF=a,b` özellik kapatma.
+- Kod düzeyi: gerçek Asistan logu (21.660 olay, salt okunur, yalnız süre ve sayı yazıldı) ve gerçek hafıza klasörü (93 proje, salt okunur) üzerinde mikro ölçüm.
+
+### Temel ölçüm (dsh 0.2.2-rc.1, eklenti açık / eklentisiz; medyan)
+| Ölçü | Eklenti | Eklentisiz |
+|---|---|---|
+| Sohbet geçişi kısa / uzun (ms) | 86-102 / 116-131 | 57-73 / 77-93 |
+| Geçiş başına Host isteği | 11 (rollback ×4, memory-chat ×2, side-chat, predict, worktrees) | 0 |
+| Tur başına Host isteği | 11-12 (rollback ×5, side-chat ×2, predict, branches, worktrees) | 0 |
+| Açılışta Host isteği | 49 (assistant-status ×10, 5 rota ×2) | 0 |
+| Akan yanıt, tarayıcı script/toplam iş (ms, CPU ×4) | 444-601 / 1172-1484 | 428 / 1244 |
+| Yazma, tuş başına iş (ms, CPU ×4) | 7.7-13.4 | 9.7-11.8 |
+| Boşta Host CPU (30 sn) | 140-180 ms (ısınma sonrası) | 80-100 ms |
+| Asistan sistem istemi (karakter) | 19.943 | 5.599 |
+
+Sonuç: büyük bir darboğaz yok; eklentinin eklediği iş küçük ve dağınık. En belirgin ve güvenle azaltılabilir olanlar Host'a giden tekrar istekler (geçiş ve tur başına 11-12) ve her istekte tüm sohbet logunu tarayan Host rotalarıdır.
+
+### Darboğazlar (kanıt, kullanıcı etkisi ve risk sırası)
+1. Aynı veri için tekrar Host istekleri (istemci). `rollback?sessionId` geçişte 4, turda 5 kez (TurnRollback, RedoBar, rollbackCheck aynı anda yükler; client.js `createRollback.load`); `memory-chat` geçişte 2 kez (MemoryChatToggle + MemorySuggestButton); `assistant-status` açılışta 10 kez (5 özellik ayrı `watchAssistantStatus`, her biri `refresh()` ve ayrı abonelik). Etki: düşük gecikme, ama her rollback GET Host'ta `resolveAgent` + tüm log taraması yapar. Risk: düşük (aynı anda süren isteği paylaşmak; yanıt aynı).
+2. Yan sohbet GET'i her sohbet açılışında ve her tur başı/sonunda (sideChat, varsayılan açık): Host tüm logu okur, `sideChatOf` tüm mesajları metne çevirir (gerçek Asistan logunda 1,8 ms; Host profilinde rotanın kendisi 72 ms toplam). Normal sohbet hiçbir zaman yan sohbet olmaz. Düzeltme: Host önce başlığa bakar (`parentSession` yoksa metne çevirmeden 404); istemci 404 alan sohbeti hatırlar. Risk: düşük.
+3. Asistan "her zaman serbest": Asistan sohbetindeki her araç çağrısında `snapshotEvents()` + son `request/header` için geriye tarama. dsh'nin `session.requestHeader()` (0.2.0-rc.2 … 0.2.2-rc.2'de var) aynı sonucu artımlı verir. Risk: düşük (yoksa eski tarama).
+4. `lastReply` her çağrıda tüm logda geri alma işaretlerini arar (`withdrawn` → `rollbackSpans`, O(n)); yalnız son turu okur. Tur sonunda Asistan haberleri, Tether bildirimi, durum paneli kullanır. Düzeltme: işaretleri yalnız son `turn/start` sonrasında ara (son turdaki bir olayı gizleyen işaret ondan sonra gelir). Risk: düşük; birim testi.
+5. `predictTranscript` tüm logu metne çevirir, sonra son 6000 karakteri tutar. Düzeltme: sondan geriye 6000 karakter dolana kadar. Çıktı aynı. Risk: düşük; eski ve yeni sonucun eşitliği testi.
+6. Boşta Host zamanlayıcıları: Branch tree (varsayılan kapalı) kapalıyken de 30 sn'de bir uyanır; açıkken her 30 sn ve her kök sohbet tur sonunda her proje için `git worktree list` (gerçek 25 projede tur başına ~150 ms CPU). Düzeltme: zamanlayıcı yalnız anahtar açıkken. Tarama azaltma (riskli) yapılmaz.
+7. Goal check bütçesi: her kök sohbet boşa düştüğünde `goal-check.json` okunur ve ayrıştırılır (gerçekte 10 kB, 0,01 ms). Etki önemsiz: değiştirilmez.
+8. Turn rollback anlık görüntüsü: her kullanıcı mesajında 7-9 git çağrısı (bu depo kopyasında ortalama 59 ms, 50'den sonra prune ile 66 ms); ilk araç çağrısı en çok 10 sn bekler. Ölçüldü, darboğaz değil; davranış riski (git deposu bilgisini önbelleğe almak) yüzünden değiştirilmez.
+9. Dil paketi (client.js'nin %74'ü, 3,2 MB nesne değişmezi): Node'da derleme+çalışma 21 ms (literal) / 17,6 ms (JSON.parse) ilk sefer; tarayıcı yükleme profilinde eklentinin toplam yükleme işi 39 ms. Kazanç tek seferlik ve küçük; `build-locales.mjs` ve diğer dallarla çakışma riski var. Değiştirilmez.
+10. İstemci akış gözlemcileri (onay kod blokları, Asistan kutuları, satır tarayıcılar, sohbette bul): akan yanıtta kapatma denemesi (OFF) toplam işte ölçülebilir fark vermedi (1172-1282 ms, gürültü içinde). Değiştirilmez.
+
+### Değiştirilmeyenler ve nedeni
+- İstem metinleri (hafıza kuralları, Asistan, kutular, onay, yapılacaklar): tekrar eden cümleler var (~600-900 karakter), ama sağlayıcı önbelleğindeki sabit önek olduğu için kazanç küçük ve ajana giden bilginin kaybolma riski var. Furkan'ın kuralı: bilgi kaybı olmaz.
+- Hafıza bölümü: sohbet başına bir kez dondurulur (gerçek klasörde ilk çizim 1,3-4,4 ms); zaten iyi.
+- Dil paketi, rollback git adımları, durum paneli yoklaması (yalnız Asistan çalışırken, sunucu 30 sn önbellekli), Tether ağ geçidi zamanlayıcıları (kapalıyken çalışmıyor).
+
+### Kabul ölçütleri
+- Sohbet geçişinde Composer Plus Host isteği 11 → en çok 7; tur başına 11-12 → en çok 7; açılışta `assistant-status` 10 → 1 (toplam 49 → en çok 40).
+- Normal sohbette yan sohbet GET'i ilk yanıttan sonra tekrar gitmez.
+- Branch tree kapalıyken zamanlayıcı yok.
+- `lastReply`, `predictTranscript` ve "her zaman serbest" kontrolü eski sonuçla aynı (birim testleri); 21 bin olaylık logda ölçülebilir hızlanma.
+- `npm test` yeşil; gerçek dsh testleri dört sürümde geçer; `test/browser-perf.mjs` sonrası sayılar commit mesajlarında.
+
+### Aşamalar
+1. [done] Ölçüm ve plan (bu bölüm), `test/browser-perf.mjs`.
+2. İstemci tekrar istekleri: rollback load paylaşımı, memory-chat okuma paylaşımı, assistant-status tek okuma.
+3. Yan sohbet: Host başlık kontrolü + istemci 404 hatırlama.
+4. Host tur işi: `lastReply` son tur, `predictTranscript` sondan, "her zaman serbest" `requestHeader()`.
+5. Branch tree zamanlayıcısı anahtarla.
+6. `npm test`, gerçek dsh testleri (4 sürüm), main birleştirme, review-guard, push, merge, canlı kopya.
+
+### İzinli yollar
+`client.js`, `index.js`, `test/*`, `package.json` (test betiği), bu bölüm. Dil dosyaları, README'ler, `docs/` değişmez (yeni metin yok).
+
+### Riskler
+- Paylaşılan istek, aynı anda istenen ama farklı durumu bekleyen çağrıya eski yanıt verebilir: yalnız aynı anda süren isteği paylaş, yanıttan sonra yeni çağrı yeni istek yapar.
+- Diğer dallar `installAssistantTodos`, `installMemory`, Asistan istemcisi bölgelerini değiştiriyor: bu dal oralara dokunmaz.
+- 0.2.0'da `requestHeader` davranışı: eski taramaya geri dönüş korunur.
+
+### Son kontrol noktası
+- 2026-11-12 19:05: ölçüm bitti, plan yazıldı, kod değişikliği yok.
+- 2026-11-12 20:50: 5 düzeltme + 2 yan sohbet/inceleme düzeltmesi bitti. Güncel main ile karşılaştırma (dsh 0.2.2-rc.1, test/browser-perf.mjs): açılışta Host isteği 51 → 42, sohbet geçişi 11 → 7, tur 12 → 5-7, tur başına Host CPU 180-200 → 120-140 ms. `npm test` exit 0; gerçek dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1, 0.2.2-rc.2: turn-rollback, approve-button, predict, assistant-todos, assistant-callouts, memory-features PASS; t3code-ideas 0.2.0/0.2.1 PASS, 0.2.2'de adım 12 main'de de kırmızı (bu dala ait değil). review-guard: 1. tur 2 bulgu (P2 kural 7 memory-chat, P3 asılı okuma) düzeltildi (cd4c88e), 2. tur temiz. Canlı kopya bu turda güncellenmedi (main'deki hafıza göçü yüzünden Furkan karar verecek).
+
 ## Değişiklik: Dal sohbeti hafızası ana projede, hafıza dosyaları proje adıyla (2026-11-12, dal `feat/consolidate-worktree-project-memory`)
 İstek (Furkan onayı, Türkçe): dal sohbetlerinin hafızası ana projeye yazılsın, eski dal hafızaları ana projeye taşınsın, hafıza dosyaları proje adıyla görünsün (Obsidian grafiğinde 87 "MEMORY" düğümü, 79'u worktree klasörü).
 - Eşleme: `mainWorktreeOf(real)` (`.git` dosyası → gitdir → `commondir`; git'in iki yönlü bağı `worktrees/<ad>/gitdir` denetlenir, sahte `.git` dosyası başka projenin hafızasını alamaz) → `memoryStore.project()` ana çalışma ağacının yolunu kullanır; araçlar, istem bölümü, inceleme, öneri, kopya hepsi bu yoldan geçer. Düz depo, bare, submodule, git dışı klasör: değişmez.

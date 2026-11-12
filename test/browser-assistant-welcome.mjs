@@ -75,7 +75,7 @@ const fake = createServer((req, res) => {
           { text: 'acme-web deploys with make release.', source: web, project },
           { text: 'The user wants answers in English.', source: paths.find((p) => p.endsWith('.claude/CLAUDE.md')) },
           { text: 'The deploy token is FAKE_TOKEN_9f8e7d6c5b4a3f2e1d', source: web, project },
-        ] });
+        ], done: [web] });
       }
       importAnswers.push(textOf(toolsDone.at(-1).content));
       res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta: { role: 'assistant', content: `Import done: ${textOf(toolsDone.at(-1).content)}` }, finish_reason: null }] })}\n\n`);

@@ -11,7 +11,7 @@ import { execFileSync, spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BRANCH_TREE_PATH, branchToWorktree, copyChatTo, installBranchTree, repoOf, syncBranchTree } from '../index.js';
+import { BRANCH_TREE_PATH, BRANCH_TREE_SYNC_MS, branchToWorktree, copyChatTo, installBranchTree, repoOf, syncBranchTree } from '../index.js';
 
 const subprocess = {
   resolveExecutable: async () => execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim(),
@@ -143,6 +143,10 @@ try {
   const services = { workspaceRegistry: registry, agents, workingDirectory: { set: async (agent, cwd) => { cds.push([agent.id, cwd]); } } };
   const ctx = { subprocess, on, sessionController, get: (n) => services[n], effect: (fn) => effects.push(fn()), logger: { warn: () => {} },
     connection: { fetch: { register: (x) => routes.set(x.path, x) } } };
+  // The 30 s sync timer runs only while the switch is on (counted through setInterval).
+  const realSetInterval = globalThis.setInterval; const realClearInterval = globalThis.clearInterval; const timers = new Set();
+  globalThis.setInterval = (fn, ms, ...rest) => { const t = realSetInterval(fn, ms, ...rest); if (ms === BRANCH_TREE_SYNC_MS) timers.add(t); return t; };
+  globalThis.clearInterval = (t) => { timers.delete(t); return realClearInterval(t); };
   installBranchTree(ctx, home);
   const route = routes.get(BRANCH_TREE_PATH);
   const call = async (method, body, query = '') => {
@@ -150,6 +154,11 @@ try {
     return { status: res.status, data: await res.json() };
   };
   assert.deepEqual((await call('GET')).data, { on: false }, 'off by default');
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(timers.size, 0, 'off: no sync timer');
+  await call('POST', { on: true }); assert.equal(timers.size, 1, 'on: one sync timer');
+  await call('POST', { on: true }); assert.equal(timers.size, 1, 'on again: still one');
+  await call('POST', { on: false }); assert.equal(timers.size, 0, 'off: the timer stops');
   for (const bad of ['{', {}, { on: 'yes' }, { on: true, sync: true }, { sync: 1 }]) assert.equal((await call('POST', bad)).status, 400, JSON.stringify(bad));
   // Off: a chat that makes a branch does not move.
   const chat = fakeAgent('chat-1', D, [{ type: 'turn/start', seq: 0, time: 1 }, { type: 'user/message', seq: 1, time: 1, data: { source: { kind: 'user' } } }]);
@@ -220,7 +229,11 @@ try {
   const s = await call('POST', { sync: true });
   assert.deepEqual(s.data.removed, [wt]);
   assert.ok(!registry.list().some((w) => w.path === wt));
+  assert.equal(timers.size, 1, 'on: the sync timer runs');
   for (const off of effects) off?.();
+  assert.equal(timers.size, 0, 'unload: the timer stops');
+  await call('POST', { on: true }); assert.equal(timers.size, 0, 'after unload: no new timer');
+  globalThis.setInterval = realSetInterval; globalThis.clearInterval = realClearInterval;
   // copyChatTo refuses on a dsh without the internal pieces.
   await assert.rejects(copyChatTo({ sessionController: {}, agents }, chat, D, project), (e) => e.status === 409);
   console.log('branch tree checks passed');

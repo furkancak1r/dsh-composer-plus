@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_FREE_PATH, ASSISTANT_NOTIFY_PATH, ASSISTANT_STATUS_PATH, ASSISTANT_FREE_SECTION, assistantFreeTool, assistantNewsNote, installAssistantBot } from '../index.js';
+import { ASSISTANT_FREE_PATH, ASSISTANT_NOTIFY_PATH, ASSISTANT_STATUS_PATH, ASSISTANT_FREE_SECTION, ASSISTANT_SECTION, assistantFreeTool, assistantNewsNote, installAssistantBot } from '../index.js';
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (fn, what, ms = 3000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(5); } };
@@ -45,6 +45,11 @@ assert.match(note, /"New" \(project "q", chat b\): waits for your approval/);
 assert.match(note, /"Mid" .*failed\. Error: "HTTP 500"/);
 assert.doesNotMatch(note, /"Old"/, 'over the cap');
 assert.match(note, /And 1 more chats changed/);
+// The News rule of the prompt agrees with the note: news updates the to-do list, never the status summary.
+const newsRule = ASSISTANT_SECTION.split('\n').find((l) => l.startsWith('- News rule'));
+assert.ok(newsRule, 'the prompt has a News rule line');
+assert.doesNotMatch(newsRule, /status_summary_set replaces|status panel/, 'the News rule does not ask for a status summary');
+assert.match(newsRule, /to-do list/);
 
 // A fake dsh.
 const routes = new Map(); const listeners = new Map(); const sections = new Map(); let fibers = 0;
@@ -111,6 +116,25 @@ assert.equal((await pre('bash', assistantAgent)).kind, 'allow', 'no subagent too
 assert.deepEqual((await call(ASSISTANT_FREE_PATH)).body, { on: true, active: false });
 assert.equal(free.text({ agent: assistantAgent }), '', 'no section without the subagent tool');
 assistantAgent.events.push({ type: 'request/header', data: { header: { tools: tools(true) } } });
+// dsh's `session.requestHeader()` (its incremental fold of the newest request/header): the rule reads it, not the log. A
+// dsh header with no tools has no `tools` key (dsh's canonicalHeader).
+{
+  const log = assistantAgent.session.snapshotEvents; let header = { config: {}, tools: tools(true) }; let reads = 0;
+  assistantAgent.session.requestHeader = () => header;
+  assistantAgent.session.snapshotEvents = () => { reads++; return log(); };
+  assert.equal((await pre('bash', assistantAgent)).kind, 'deny', 'requestHeader with the subagent tool: the rule works');
+  header = { config: {}, tools: tools(false) };
+  assert.equal((await pre('bash', assistantAgent)).kind, 'allow', 'requestHeader without the subagent tool: no rule');
+  assert.deepEqual((await call(ASSISTANT_FREE_PATH)).body, { on: true, active: false });
+  header = { config: {} }; // no tools at all: as a log header without `tools` (not seen), the chat does the work itself
+  assert.equal((await pre('bash', assistantAgent)).kind, 'allow');
+  header = undefined;
+  assert.equal((await pre('bash', assistantAgent)).kind, 'allow', 'no request yet: the chat does the work itself');
+  header = { config: {}, tools: tools(true, true) };
+  assert.equal((await pre('subagent', assistantAgent, { kind: 'allow' }, { prompt: 'x' })).kind, 'deny', 'dsh 0.2.0 shape from requestHeader');
+  assert.equal(reads, 0, 'the log is not read when dsh has requestHeader');
+  delete assistantAgent.session.requestHeader; assistantAgent.session.snapshotEvents = log;
+}
 // Off: no rule, no section; an explicit off stays off after a restart; a broken file reads as on.
 assert.equal((await call(ASSISTANT_FREE_PATH, 'POST', { on: 'no' })).status, 400);
 assert.deepEqual((await call(ASSISTANT_FREE_PATH, 'POST', { on: false })).body, { on: false, active: false });
