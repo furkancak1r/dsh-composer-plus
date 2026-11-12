@@ -1335,8 +1335,9 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     function createSideChats(request = (url, init) => fetch(url, init)) {
       const starting = new Set();
       const back = new Map(); // parent chat → Bring back text that waits for its composer
-      // Chats that the Host said are not side chats: a chat's parent never changes, so they are not asked again at each
-      // open and turn. ponytail: grows with the chats opened while the page lives (one id each).
+      // Chats that the Host said have no parent (`fork: false`): a chat's parent never changes, so they never become side
+      // chats and are not asked again at each open and turn. A new side chat answers 404 without it until its first
+      // message is in its log: that answer is not kept. ponytail: grows with the chats opened while the page lives (one id each).
       const plain = new Set();
       const listeners = new Set();
       const emit = () => { for (const fn of [...listeners]) fn(); };
@@ -1344,7 +1345,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         const response = await request(url, init);
         const data = await response.json().catch(() => ({}));
         if (response.status === 404 && data?.error === undefined) throw new Error('restart dsh to load the new Composer Plus');
-        if (!response.ok) throw Object.assign(new Error(data?.error ?? `HTTP ${response.status}`), { status: response.status });
+        if (!response.ok) throw Object.assign(new Error(data?.error ?? `HTTP ${response.status}`), { status: response.status, fork: data?.fork });
         return data;
       };
       return {
@@ -1365,7 +1366,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           if (plain.has(sessionId)) return null;
           try { return await call(`${SIDE_ROUTE}?${new URLSearchParams({ sessionId })}`); } catch (error) {
             if (error?.status !== 404) throw error;
-            if (error.message === 'not a side chat') plain.add(sessionId);
+            if (error.fork === false) plain.add(sessionId);
             return null;
           }
         },

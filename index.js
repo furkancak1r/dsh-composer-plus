@@ -4774,9 +4774,11 @@ export function installSideChat(ctx) {
         if (!isText(id)) return json({ error: 'bad request' }, 400);
         try {
           const observation = await ctx.sessionQuery.observeSession(id, { signal: request.signal, projectionMode: 'none' });
-          let side;
-          try { side = sideChatOf(observation.header, observation.events ?? [], observation.inheritedEventCount); } finally { observation[Symbol.dispose]?.(); }
-          return side === undefined ? json({ error: 'not a side chat' }, 404) : json(side);
+          let side; let fork;
+          try { fork = typeof observation.header?.parentSession === 'string'; side = sideChatOf(observation.header, observation.events ?? [], observation.inheritedEventCount); } finally { observation[Symbol.dispose]?.(); }
+          // `fork: false`: the chat has no parent, so it never becomes a side chat (a new side chat answers 404 until its
+          // first message is in its log; that answer has no `fork: false`).
+          return side === undefined ? json({ error: 'not a side chat', ...(fork ? {} : { fork: false }) }, 404) : json(side);
         } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
       }
       let body;
