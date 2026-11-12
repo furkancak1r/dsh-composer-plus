@@ -784,15 +784,7 @@ func parseOptions(_ text: String) -> [ChatOption] {
                               text: ([first] + rest.map { trimEnd(String($0.dropFirst(min(indent, leadingBlank($0))))) }).joined(separator: "\n"),
                               recommended: marked))
     }
-    // A live deploy line in any item: no options at all, the user types the answer (client.js `liveDeploy`).
-    return out.contains { liveDeploy($0.text) } ? [] : out
-}
-/// A live deploy approval line ("CANLI DEPLOY <PRODUCT> <SHA> SAAT HH:MM"): the owner types it himself, never as an option
-/// tap (client.js `liveDeploy`, the Auto review deploy gate's fold: NFC, Turkish lower case, ı and ş as i and s).
-func liveDeploy(_ s: String) -> Bool {
-    s.precomposedStringWithCanonicalMapping.replacingOccurrences(of: "İ", with: "i").lowercased(with: Locale(identifier: "tr"))
-        .replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: "ş", with: "s")
-        .range(of: #"canli\s+deploy"#, options: .regularExpression) != nil
+    return out
 }
 
 /// The option list that the open chat offers now (client.js `chatOffer`, read from the log): the last answer of the

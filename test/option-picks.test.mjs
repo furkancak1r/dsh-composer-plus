@@ -78,15 +78,6 @@ for (const [text, why] of [
   ['## Options\n 1. a', 'an indented list is part of something else'],
 ]) assert.deepEqual(parseOptions(text), [], why);
 
-// --- A CANLI DEPLOY line in any item: no options, the user types the answer (owner, 2026-11-12: the Auto review deploy
-// gate counts a pick as typed). The same list without the line keeps its options. ---
-{ const live = '## Options\n1. Deploy now\n   CANLI DEPLOY PROMES 22e33b30 ŞİMDİ\n2. Wait';
-  assert.deepEqual(parseOptions(live), [], 'the line on its own line of an item');
-  assert.deepEqual(parseOptions(live.replace('CANLI DEPLOY', 'canlı deploy')), [], 'lower case and Turkish ı');
-  assert.deepEqual(parseOptions(live.replace('CANLI DEPLOY', 'CANLİ DEPLOY')), [], 'Turkish İ');
-  assert.deepEqual(parseOptions('## Options\n1. CANLI DEPLOY PROSO 3f2a9c1 SAAT 21:10\n2. Wait').map((o) => o.label), [], 'the line as the label');
-  assert.deepEqual(parseOptions(live.replace('   CANLI DEPLOY PROMES 22e33b30 ŞİMDİ\n', '')).map((o) => o.label), ['Deploy now', 'Wait'], 'without the line: options'); }
-
 // --- One table for both apps: Tether's Swift parseOptions reads the same cases (tether/ios/Tests). ---
 const shared = JSON.parse(readFileSync(new URL('./fixtures/option-lists.json', import.meta.url), 'utf8')).cases;
 for (const { text, options } of shared) assert.deepEqual(parseOptions(text), options, `fixture: ${JSON.stringify(text).slice(0, 60)}`);

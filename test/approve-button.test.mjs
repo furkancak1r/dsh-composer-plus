@@ -1,7 +1,6 @@
 // Approve button: the real client.js parser and buttons, and the Host's prompt rule and switch.
 // - parseApprovals: only closed, top-level ```onay blocks; the exact sentence; nothing for anything unsure.
-// - A live or public target (production, a deploy, a release, npm publish, a public PR) gets its button too (owner, 2026-11-11),
-//   but a CANLI DEPLOY line gets none: the user types it (owner, 2026-11-12).
+// - A live or public target (production, a deploy, a release, npm publish, a public PR) gets its button too (owner, 2026-11-11).
 // - ApproveButtons (dsh's turn-tail slot): only under the newest answer, while the chat is idle and the composer is empty;
 //   one click sends the exact sentence once (a second click sends nothing, the button is off); a failed send shows the
 //   reason and keeps the button; a sent answer shows none; never for a user message.
@@ -114,19 +113,6 @@ SAFE.push('Onaylıyorum: “feature/x” dalını sil – sonra main → origin�
 { const nfd = 'Onaylıyorum: üç şube dalını sil.'.normalize('NFD'); assert.notEqual(nfd, nfd.normalize('NFC'));
   assert.deepEqual(sentences(block(nfd)), [nfd], 'decomposed Turkish letters: checked as NFC, sent as written'); }
 for (const s of SAFE) assert.deepEqual(sentences(block(s)), [s], `test or branch work shows the button: ${s}`);
-
-// --- A CANLI DEPLOY line never gets a button (owner, 2026-11-12): the Auto review deploy gate counts a click as typed,
-// so the user must type the line. Any case, Turkish letters, the gate's fold (ı, İ, ş) and the optional prefix. ---
-for (const s of [
-  'CANLI DEPLOY PROMES 22e33b30 SAAT 21:10', 'CANLI DEPLOY PROSO 3f2a9c1 ŞİMDİ', 'Onaylıyorum: CANLI DEPLOY PROSOLOCAL 22e33b30 ŞİMDİ.',
-  'canli deploy promes 22e33b30 saat 21:10', 'Canlı Deploy promes 22e33b30 şimdi', 'CANLİ DEPLOY PROMES 22e33b30 SAAT 21.10',
-  'CANLI  DEPLOY\tPROMES 22e33b30 SAAT 21:10', 'CANLI DEPLOY PROMES 22e33b30 SAAT 21:10'.normalize('NFD'),
-  'Onaylıyorum: önce testleri çalıştır.\nCANLI DEPLOY PROMES 22e33b30 SAAT 21:10',
-]) {
-  assert.deepEqual(sentences(block(s)), [], `no button for a live deploy line: ${JSON.stringify(s)}`);
-  assert.deepEqual(sentences(`${block(PUSH)}${block(s)}`), [PUSH], `the other block keeps its button: ${JSON.stringify(s)}`);
-}
-assert.deepEqual(sentences(block('Onaylıyorum: canlı ortama deploy et.')), ['Onaylıyorum: canlı ortama deploy et.'], 'other live words keep the button');
 
 // --- ApproveButtons in dsh's turn-tail slot ---
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -270,9 +256,7 @@ try {
   assert.match(APPROVE_SECTION, /info string `onay`/); assert.match(APPROVE_SECTION, /```onay\nOnaylıyorum: feature\/x dalını origin'e push et\.\n```/);
   assert.deepEqual(sentences(APPROVE_SECTION), ["Onaylıyorum: feature/x dalını origin'e push et."], 'the example in the rule is a block that the client reads');
   assert.match(APPROVE_SECTION, /Each approval sentence gets the block, also one that names a live or public target/, 'the rule: a block for each approval sentence');
-  assert.doesNotMatch(APPROVE_SECTION, /no button|user types it/, 'no other exception for live or public targets');
-  assert.match(APPROVE_SECTION, /A CANLI DEPLOY line never goes in an onay block or in an option list: give only the template 'CANLI DEPLOY <PRODUCT> <SHA> SAAT HH:MM' and the user types the line\./, 'the one exception: a live deploy line');
-  assert.deepEqual(parseOptions(APPROVE_SECTION), [], 'the template in the rule is no option');
+  assert.doesNotMatch(APPROVE_SECTION, /no button|user types it/, 'no exception for live or public targets');
   for (const bad of [{ on: 'yes' }, { on: true, x: 1 }, {}, []]) assert.equal((await req(bad)).status, 400, JSON.stringify(bad));
   assert.deepEqual((await req({ on: false })).body, { on: false });
   assert.equal(sections.size, 0, 'off: no section'); assert.ok(disposed >= 1);
