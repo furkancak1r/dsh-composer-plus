@@ -9814,11 +9814,10 @@ const foldName = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '')
 const MAIN_END = String.raw`(?![\p{L}\p{N}_-]|\.\p{L})`; // not "main-backup", "maintenance" or "main.py"
 const SP = '[ \\n]';
 // One word between merge or push and main: 1 to 80 characters with no space, not ending in "." (a sentence end; "v2.0"
-// stays one word). A word cannot hold the space before it, so each way to read the repeat is the only one. merge … main:
-// "feat/a," is a word, but not the "then" of ", then" or ", and then" ("Merge the two PRs, then go back to main").
-const GAP_WORD = String.raw`${SP}(?!(?<=,${SP})(?:and${SP})?then(?![\p{L}\p{N}_]))[^\s!?;:]{0,79}[^\s!?;:.]`;
-// push … main: no comma ("Push the changes, then update main", "Push data, main loop").
-const PUSH_WORD = String.raw`${SP}[^\s!?;:,]{0,79}[^\s!?;:,.]`;
+// stays one word; "feat/a," is a word). A word cannot hold the space before it, so each way to read the repeat is the only
+// one. A comma does not stop it, so a later clause counts too ("Push the changes, then update main"): a false positive
+// costs one parameter, a missed request ("Merge feat/a, then feat/b into main") skips the gate.
+const GAP_WORD = String.raw`${SP}[^\s!?;:]{0,79}[^\s!?;:.]`;
 const MERGE = '(?:merg(?:e|es|ed|ing)|push(?:es|ed|ing)?)'; // English verbs: merges, merged, merging, pushes …
 // main, 'main', origin/main, upstream/'main'; not src/main/java
 const MAIN = String.raw`'?(?:[\p{L}\p{N}._-]{1,80}/)?'?main'?${MAIN_END}(?!/)`;
@@ -9826,10 +9825,10 @@ const MERGE_MAIN = new RegExp([
   String.raw`(?<![\p{L}\p{N}_-])[/$]?merge-main${MAIN_END}`, // the skill or command
   // A "-" before the verb counts: squash-merge, auto-merge, force-push.
   String.raw`(?<![\p{L}\p{N}_])${MERGE}(?!${SP}conflicts?)(?:${GAP_WORD}){0,6}?${SP}(?:into|to|onto|with)${SP}(?:the${SP})?${MAIN}`,
-  String.raw`(?<![\p{L}\p{N}_-])push(?:es|ed|ing)?(?:${PUSH_WORD}){0,6}?${SP}(?:[^\s!?;,]{0,80}:)?(?:refs/heads/)?'?main'?${MAIN_END}`, // git push origin main, HEAD:main
-  // Turkish: main'e, main'a, main'le, main ile, main dalına, main branch'ine + birleş…, pushla…, merge or push
-  // [et/edil/yap…]; its verb is "tr".
-  String.raw`(?<![\p{L}\p{N}_-])main(?:'l?[ea]|${SP}(?:e|ile|dalina|branch'?ine))${SP}(?<tr>birles\p{L}*|pushla\p{L}*|(?:merge|push)(?:${SP}(?:et|ed|yap)\p{L}*)?)`,
+  String.raw`(?<![\p{L}\p{N}_-])push(?:es|ed|ing)?(?:${GAP_WORD}){0,6}?${SP}(?:[^\s!?;,]{0,80}:)?(?:refs/heads/)?'?main'?${MAIN_END}`, // git push origin main, HEAD:main
+  // Turkish: main'e, main'a, main'le, main ile, main dalına, main branch'e/branch'ine (or "branch ine") + birleş…,
+  // pushla…, merge or push [et/edil/yap…], not "merge conflict"; its verb is "tr".
+  String.raw`(?<![\p{L}\p{N}_-])main(?:'l?[ea]|${SP}(?:e|ile|dalina|branch(?:'|${SP})?(?:in)?[ea]))${SP}(?<tr>birles\p{L}*|pushla\p{L}*|(?:merge|push)(?!${SP}conflict)(?:${SP}(?:et|ed|yap)\p{L}*)?)`,
 ].join('|'), 'gu');
 const TR_PAST = /(?:[dt]i|mis)$/; // birleşti, birleştirildi, merge edildi, birleşmiş, pushlandı: a report
 /** True when the text mentions a merge or push into main. */

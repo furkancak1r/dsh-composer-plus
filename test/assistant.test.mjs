@@ -211,6 +211,23 @@ const MENTIONS_MERGE_MAIN = [
   "Dalı main ile birleştir.",
   "main'le birleştir",
   "main branch'ine merge et",
+  "main branch'e merge et",
+  "main branch'a birleştir",
+  "main branch'ına merge et",
+  "main branch ine merge et",
+  "Merge PR #12, then PR #13 into main.",
+  "Merge feat/a, then feat/b into main.",
+  "Merge the fix, then the docs into main.",
+  "Merge the fix, and then the docs into main.",
+  "Push the branch, then main.",
+  "Push feat/a, feat/b and main.",
+  "Push the tag, the branch and main.",
+  "Push the branch, and main.",
+  // Accepted false positives: a comma does not stop the words between merge or push and main (review of 2026-11-13).
+  "Merge the two PRs, then go back to main.",
+  "Push the changes, then update main.",
+  "Push the fix, main stays as is.",
+  "Push data, main loop.",
 ];
 const NO_MERGE_MAIN = [
   "Dal main'e merge edildi.",
@@ -246,14 +263,16 @@ const NO_MERGE_MAIN = [
   "main'e birleşmiş feat/sap-idle-di-runner-guards dalı ve klasörü silinsin.",
   "Dal main'e birleşti.",
   "Kullanıcı bu depoda onay istemiyor: review-guard temizse dal push, main push ve dal silme serbest.",
-  "Push the changes, then update main.",
-  "Push the fix, main stays as is.",
-  "Push data, main loop.",
-  "Merge the two PRs, then go back to main.",
-  "Merge the two PRs, and then go back to main.",
   "git merge upstream/main into this branch",
   "Merge the resources into src/main/resources.",
   "Dal main ile birleşti.",
+  "main ile merge conflict var, çöz.",
+  "Dalda main ile merge conflict çıktı, çöz.",
+  "main'le merge conflict var",
+  "main'e merge conflict var",
+  "Merge the two PRs, and then go back to main.", // 7 words between merge and "to main": over the limit of 6
+  "Dal main branch'ine birleştirildi.",
+  "main branch'e merge edildi",
 ];
 for (const text of MENTIONS_MERGE_MAIN) assert.equal(mentionsMergeMain(text), true, `mentions a merge into main: ${JSON.stringify(text)}`);
 for (const text of NO_MERGE_MAIN) assert.equal(mentionsMergeMain(text), false, `no merge into main: ${JSON.stringify(text)}`);
