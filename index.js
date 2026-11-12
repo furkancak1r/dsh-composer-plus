@@ -7849,7 +7849,8 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
           const raw = body.folder === null ? '' : typeof body.folder === 'string' ? body.folder.trim() : undefined;
           const next = raw === '' ? '' : memoryFolderOf({ folder: raw?.replace(/^~(?=\/|$)/, homedir()) });
           if (next === undefined) return json({ error: 'write an absolute folder path, for example ~/Notes/Memory' }, 400);
-          const problem = next === '' ? undefined : memoryFolderProblem(next);
+          // The same names as the next start uses (the saved names of a new folder).
+          const problem = next === '' ? undefined : memoryFolderProblem(next, memoryNamesOf(next, folderNames));
           if (problem !== undefined) return json({ error: problem }, 409);
           try { await saveFolder(next); } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
           return json(answer());
@@ -7897,7 +7898,7 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
         const problem = memoryFolderProblem(step.folder, memoryNamesOf(step.folder, step.names ?? folderNames));
         if (problem !== undefined) throw refused(problem);
       }
-      let wroteFolder = false; let wroteOn = false; let wroteRules = false;
+      let wroteFolder = false; let wroteOn = false; let wroteRules; // wroteRules: 'new' or 'empty' (an empty file was there)
       try {
         if (step.folder !== undefined && step.folder !== savedFolder) {
           if (memoryDirNames(step.names) !== undefined) folderNames = memoryDirNames(step.names);
@@ -7906,18 +7907,25 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
         }
         if (!on) { await sw.write(true); apply(true); wroteOn = true; }
         if (step.rules !== undefined) {
-          const file = await open(step.rules.path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600)
-            .catch((error) => { if (error?.code === 'EEXIST') return undefined; throw error; });
+          // A new file, or an empty regular file (a write that failed half way). A file with text and a link stay as they are.
+          let file = await open(step.rules.path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600)
+            .then((f) => { wroteRules = 'new'; return f; }, (error) => { if (error?.code === 'EEXIST') return undefined; throw error; });
+          if (file === undefined) {
+            file = await open(step.rules.path, constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)).catch(() => undefined);
+            const info = await file?.stat().catch(() => undefined);
+            if (info?.isFile() && info.size === 0) wroteRules = 'empty';
+            else { await file?.close(); file = undefined; }
+          }
           if (file !== undefined) {
-            wroteRules = true;
             try { await file.writeFile(step.rules.text); } finally { await file.close(); }
           }
         }
       } catch (error) {
-        if (wroteRules) await unlink(step.rules.path).catch(() => {});
+        if (wroteRules === 'new') await unlink(step.rules.path).catch(() => {});
+        if (wroteRules === 'empty') await open(step.rules.path, constants.O_WRONLY | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)).then((f) => f.close(), () => {});
         if (wroteOn) { await sw.write(before.on).catch(() => {}); apply(before.on); }
+        folderNames = before.names; // also when the folder write itself failed
         if (wroteFolder) {
-          folderNames = before.names;
           await writeFolderFile({ ...(before.folder === '' ? {} : { folder: before.folder }), ...(importedFolder === undefined ? {} : { imported: importedFolder }) }).catch(() => {});
           savedFolder = before.folder;
         }
@@ -10223,14 +10231,42 @@ const SECRET_NAME = /^(\.env(\..*)?|.*\.(pem|key|p12|pfx|keystore|jks)|id_[a-z0-
 export const secretFile = (path) => SECRET_NAME.test(String(path).split(/[\\/]/).pop());
 /** A line that looks like a secret: a known key format or a long mixed run (looksSecret), a connection string with a
  * password, or a key/token/password/secret given a value. */
-// A word on its own or after _ (DB_PASS, SIGNING_KEY), not inside another word (compass, monkey, Author, OAuth).
-const SECRET_WORD = String.raw`(?:passw(?:or)?d|passwd|pwd|(?<![a-z])pass(?![a-z])|(?<![a-z])pw(?![a-z])|secret|token|api[_ -]?key|access[_ -]?key|private[_ -]?key|client[_ -]?secret|(?<![a-z0-9])key(?![a-z])|_key(?![a-z])|(?<![a-z])auth(?:orization|[_ -]?token)?(?![a-z])|bearer|şifre|parola)\w*`;
+// A word on its own or after _ (DB_PASS, SIGNING_KEY), not inside another word (compass, monkey, Author, OAuth). The bare
+// words key, auth and token (WEAK_WORD) are also ordinary words ("Primary key: customer_id", "max_tokens: 128000", "| Key |
+// Description |"), so their value must look like a secret: letters and digits, or a long run without spaces.
+// ponytail: a short letters-only value after a bare key/auth/token ("token: abcdefghij", "TOKEN=changeme") is kept, as
+// prose and placeholders have the same shape. A table row "| key | tenant_id_2024 |" is cut like "| token | ghp_… |": it
+// only leaves that line out of the import's input (the source file does not change).
+const SECRET_WORD = String.raw`(?:passw(?:or)?d|passwd|pwd|(?<![a-z])pass(?![a-z])|(?<![a-z])pw(?![a-z])|secret|api[_ -]?key|access[_ -]?key|private[_ -]?key|client[_ -]?secret|_key(?![a-z])|_token(?![a-z])|auth(?:orization|[_ -]?token)|bearer|şifre|parola)\w*`;
+const WEAK_WORD = String.raw`(?:(?<![a-z0-9])key|(?<![a-z])auth|(?<![a-z_])tokens?)(?![a-z])`;
+const SECRET_VALUE = String.raw`(?:(?=[^\s"'\x60|]*\d)(?=[^\s"'\x60|]*[A-Za-z])[^\s"'\x60|]{8,}|[^\s"'\x60|]{24,})`;
 const SECRET_LINE = new RegExp([
   String.raw`\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@`, // a connection string with a password
   String.raw`${SECRET_WORD}["'\x60]?\s*(?:[:=|]|=>)\s*["'\x60]?[^\s"'\x60|]{6,}`, // key: value, key = \x60value\x60, | key | value |
-  String.raw`${SECRET_WORD}\s+(?:is|was|=|:|olarak|şu)\s+["'\x60]?(?=[^\s"'\x60]*\d)(?=[^\s"'\x60]*[A-Za-z])[^\s"'\x60]{8,}`, // "the token is a1b2…" (a value with letters and digits)
+  String.raw`${WEAK_WORD}["'\x60]?\s*(?:[:=|]|=>)\s*["'\x60]?${SECRET_VALUE}`,
+  String.raw`(?:${SECRET_WORD}|${WEAK_WORD})\s+(?:is|was|=|:|olarak|şu)\s+["'\x60]?(?=[^\s"'\x60]*\d)(?=[^\s"'\x60]*[A-Za-z])[^\s"'\x60]{8,}`, // "the token is a1b2…" (a value with letters and digits)
   String.raw`\bBearer\s+[A-Za-z0-9._~+/-]{12,}`,
 ].join('|'), 'i');
+// The same schemes without the header name, as HTTP writes them (case matters: "basic instructions" is prose): Basic and a
+// base64 value (user:password; a full stop may end the sentence), Token and a value with a digit.
+const AUTH_SCHEME = /\bBasic\s+(?=[A-Za-z0-9+/]*[\d+/=])[A-Za-z0-9+/]{8,}={0,2}(?!\w|\.\w)|\bToken\s+(?=[A-Za-z0-9._~+/=-]*\d)[A-Za-z0-9._~+/=-]{8,}/;
+// A value next to a name, tested in code (no nested scan, so a long line stays linear): an auth header (any case: GitHub
+// writes "Authorization: token …") with Basic or Token, and TOKEN=, KEY=, AUTH= in capitals. A value counts when it has a
+// digit, a base64 sign (header only) or both cases, so a placeholder ($TOKEN, <your-token>, ${TOKEN}, changeme, required)
+// or a word ("Basic authentication") stays.
+// The value is captured in a lookahead (at most 256 characters), so each name is tested, also one right after a value that
+// did not count ("KEY=NONE;KEY='MySecretPw'"). In the header, mixed case counts when the value is not made of words
+// ("dXNlcjpwYXNz", "gho_ABCdef" count; "Authentication", "YourToken", "GitHubToken" are prose or placeholders).
+// One way to split a value into words (no nested quantifier: linear).
+const WORDS = /^[A-Z]?[a-z]+(?:[A-Z][a-z]+)*$/;
+const NAMED_VALUE = [
+  { re: /\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:basic|token)\s+(?=([A-Za-z0-9._~+/=-]{8,256}))/gi, counts: (v) => /[\d+/=]/.test(v) || (/[a-z]/.test(v) && /[A-Z]/.test(v) && !WORDS.test(v)) },
+  { re: /(?<![A-Za-z0-9_])(?:TOKEN|KEY|AUTH)\s*=\s*["']?(?=([^\s"'\x60$<{][^\s"'\x60]{5,255}))/g, counts: (v) => /\d/.test(v) || (/[a-z]/.test(v) && /[A-Z]/.test(v)) },
+];
+const namedValue = (line) => NAMED_VALUE.some(({ re, counts }) => {
+  for (const m of line.matchAll(re)) if (counts(m[1])) return true;
+  return false;
+});
 // Command-line forms (case matters: mysql -P is a port): curl -u user:pass, mysql -pSECRET, sshpass -p SECRET (its own -p,
 // not ssh's port), redis-cli -a SECRET, --password=SECRET, and --password SECRET when the value has a digit or a sign.
 // A value is "quoted" or 'quoted' with its closing quote at the end of a word, or plain. A backtick ends it, so
@@ -10249,7 +10285,7 @@ const CLI_SECRET = new RegExp([
   String.raw`--pass(?:word)?=${cliValue('{2,}')}`,
   String.raw`--pass(?:word)?\s+(?:'${CLI_SIGN("'")}[^\s'\x60-][^\s'\x60]{3,}'${CLI_END}|"?${CLI_SIGN(`"'`)}(?:(?=[^\s"'\x60]*\d)[^\s"'\x60$-]|[^\s"'\x60$*_-])[^\s"'\x60]{3,})`,
 ].join('|'));
-export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line) || CLI_SECRET.test(line);
+export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line) || AUTH_SCHEME.test(line) || namedValue(line) || CLI_SECRET.test(line);
 /** The text without its secret-looking lines, and how many lines went. */
 export function withoutSecrets(text) {
   let cut = 0;
@@ -10324,16 +10360,31 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
     if (why !== undefined) throw refused(why);
   };
   const sources = async () => importSources({ projects: projectsOf(), home: userHome, dshHome: home, skip: await skip(), limits });
-  /** source path → the newest day (YYYY-MM-DD) that an import saved a fact from it, in any memory. */
-  const importedDays = () => {
-    const days = new Map();
+  // source path → the day (YYYY-MM-DD) that an import finished it: the subagent read all of the file and saved its facts
+  // (memory_import `done`). A run that stopped half way leaves the file open, so the next run reads it again.
+  const importFile = join(home, 'storages', 'dsh-composer-plus', 'memory-import.json');
+  const doneFile = settingsStore(importFile, (v) => (plainObject(v?.done) ? v.done : {}));
+  // A user who imported before this file existed: each source that a saved note names counts as done on that note's day
+  // (once, so a second run does not word the same facts again).
+  let seeded;
+  const seed = async () => {
+    if (await stat(importFile).then(() => true, () => false)) return;
+    const days = {};
     for (const scope of [memory.store.GLOBAL, ...memory.store.projects()]) {
       for (const f of memory.store.load(scope)) for (const e of f.entries) {
         const from = /^import (.+)$/.exec(String(e.meta?.source ?? ''))?.[1];
-        if (from !== undefined && isText(e.meta?.added, 10) && !(e.meta.added <= (days.get(from) ?? ''))) days.set(from, e.meta.added);
+        if (from !== undefined && isText(e.meta?.added, 10) && !(e.meta.added <= (days[from] ?? ''))) days[from] = e.meta.added;
       }
     }
-    return days;
+    if (Object.keys(days).length > 0) await doneFile.change((d) => ({ done: { ...days, ...d } }));
+  };
+  // The key: the path as a note keeps it (formatEntry) for the seeded days, the path itself for the ones that `done` set.
+  // A failed seed is tried again at the next call, and a `done` write waits for it (seedDone: false skips that write, so
+  // the file never exists without the old days).
+  const importedDays = async () => {
+    seeded ??= seed().then(() => true, (error) => { seeded = undefined; ctx.logger?.warn?.(`dsh-composer-plus: memory import days: ${error?.message ?? error}`); return false; });
+    const ok = await seeded;
+    return Object.assign(new Map(Object.entries(await doneFile.read()).filter(([, d]) => isText(d, 10))), { seedDone: ok });
   };
   const refuseOthers = () => refused('This tool works only in a subagent of the Composer Plus assistant chat.', 403);
   const tools = [
@@ -10346,7 +10397,7 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
         if (!mine(exec)) throw refuseOthers();
         await ready(exec);
         const list = await sources();
-        const days = importedDays();
+        const days = await importedDays();
         const from = Number.isSafeInteger(args?.offset) && args.offset > 0 ? args.offset : 0;
         const files = []; const done = []; let size = 0; let at = from; let secrets = 0;
         for (; at < list.length; at++) {
@@ -10355,8 +10406,8 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
           // A file that an earlier import read and that did not change after that day is not read again, so a second run
           // gives the model nothing to word in a new way. ponytail: a day, not a time: a change later on the import's day waits.
           const day = new Date(read.mtime).toLocaleDateString('en-CA');
-          const key = metaValue(list[at].path); // as the note keeps it (formatEntry)
-          if (days.has(key) && day <= days.get(key)) { done.push(list[at].path); continue; }
+          const until = days.get(list[at].path) ?? days.get(metaValue(list[at].path));
+          if (until !== undefined && day <= until) { done.push(list[at].path); continue; }
           const clean = withoutSecrets(read.text);
           if (files.length > 0 && size + clean.text.length > limits.total) break;
           size += clean.text.length; secrets += clean.cut;
@@ -10368,18 +10419,20 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
     },
     {
       name: 'memory_import',
-      description: `Memory import: save lasting facts that you found with memory_import_sources (a preference of the user, a decision, a fact about a project). One short fact per item, in the user's language, with its source file. A fact that the memory already has is skipped, and nothing is ever overwritten or removed. At most ${limits.facts} items per call.`,
-      parameters: { type: 'object', properties: { facts: { type: 'array', description: `1 to ${limits.facts} items`, items: { type: 'object', properties: {
+      description: `Memory import: save lasting facts that you found with memory_import_sources (a preference of the user, a decision, a fact about a project). One short fact per item, in the user's language, with its source file. A fact that the memory already has is skipped, and nothing is ever overwritten or removed. At most ${limits.facts} items per call. When you finished a file (all of its lasting facts are saved, or it has none), put its path in done: the next run does not read it again until it changes.`,
+      parameters: { type: 'object', properties: { facts: { type: 'array', description: `0 to ${limits.facts} items`, items: { type: 'object', properties: {
         text: { type: 'string', description: 'The fact, one short line' },
         source: { type: 'string', description: 'The path of the source file, as memory_import_sources gave it' },
         project: { type: 'string', description: 'The project folder (from memory_import_sources) for a project fact; leave it out for a global fact' },
-      }, required: ['text', 'source'] } } }, required: ['facts'] },
+      }, required: ['text', 'source'] } },
+      done: { type: 'array', description: 'The source files that you finished, as memory_import_sources gave them', items: { type: 'string' } } } },
       output: textOutput,
       async execute(args, exec) {
         if (!mine(exec)) throw refuseOthers();
         await ready(exec);
         const facts = Array.isArray(args?.facts) ? args.facts.slice(0, limits.facts) : [];
-        if (facts.length === 0) throw refused(`facts is 1 to ${limits.facts} items.`, 400);
+        const finished = Array.isArray(args?.done) ? args.done.filter((p) => typeof p === 'string').map((p) => p.trim()) : [];
+        if (facts.length === 0 && finished.length === 0) throw refused(`Give facts (1 to ${limits.facts} items) or done.`, 400);
         const known = new Set(projectsOf());
         const listed = new Set((await sources()).map((f) => f.path)); // a source is a file that memory_import_sources lists
         const count = { added: 0, duplicate: 0, secret: 0, unclear: 0 };
@@ -10405,7 +10458,16 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
             }
           });
         }
-        return JSON.stringify({ ...count, perProject });
+        // After the facts are saved: a failed save above leaves the files open.
+        const marked = [...new Set(finished.filter((p) => listed.has(p)))];
+        if (marked.length > 0) {
+          // The old imports first (seed), so this write does not hide them; without them, the files stay open this time.
+          if ((await importedDays()).seedDone) {
+            const day = new Date().toLocaleDateString('en-CA');
+            await doneFile.change((d) => ({ done: { ...d, ...Object.fromEntries(marked.map((p) => [p, day])) } }));
+          } else marked.length = 0;
+        }
+        return JSON.stringify({ ...count, perProject, ...(finished.length > 0 ? { done: marked.length } : {}) });
       },
     },
   ];
@@ -10437,7 +10499,7 @@ export const SETUP_BLOCKED = 'Composer Plus → Assistant setup: Obsidian and it
 /** Obsidian's app in its default install folders. */
 export function obsidianApps(platform = osPlatform(), home = homedir(), env = process.env) {
   if (platform === 'darwin') return ['/Applications/Obsidian.app', join(home, 'Applications', 'Obsidian.app')];
-  if (platform === 'win32') return [env.LOCALAPPDATA && join(env.LOCALAPPDATA, 'Programs', 'Obsidian', 'Obsidian.exe'), env.ProgramFiles && join(env.ProgramFiles, 'Obsidian', 'Obsidian.exe')].filter(Boolean);
+  if (platform === 'win32') return [env.LOCALAPPDATA && join(env.LOCALAPPDATA, 'Programs', 'Obsidian', 'Obsidian.exe'), env.LOCALAPPDATA && join(env.LOCALAPPDATA, 'Obsidian', 'Obsidian.exe'), env.ProgramFiles && join(env.ProgramFiles, 'Obsidian', 'Obsidian.exe')].filter(Boolean);
   return ['/usr/bin/obsidian', '/opt/Obsidian/obsidian', '/snap/bin/obsidian', '/var/lib/flatpak/exports/bin/md.obsidian.Obsidian', join(home, '.local', 'share', 'flatpak', 'exports', 'bin', 'md.obsidian.Obsidian')];
 }
 /** Obsidian's global settings file with its vault list (obsidian.md/help/data-storage; Snap and Flatpak keep their own). */
@@ -10470,9 +10532,11 @@ async function obsidianVaults(configs) {
 }
 /** The setup state: `{ready, folder, steps: {obsidian, vault, memory: 'done'|'restart'|'missing', rules}}`. `folder` is the
  * assistant folder; `memory` is installMemory's handle (its `state()`: on, folder, folderActive, folderProblem). */
-export async function assistantSetup({ folder, memory, home = homedir(), apps = obsidianApps(undefined, home), configs = obsidianConfigs(undefined, home) }) {
+export async function assistantSetup({ folder, memory, home = homedir(), apps = obsidianApps(undefined, home), configs = obsidianConfigs(undefined, home), platform = osPlatform() }) {
   const vaults = await obsidianVaults(configs);
-  const installed = vaults !== undefined || (await Promise.all(apps.map((p) => stat(p).then(() => true, () => false)))).some(Boolean);
+  // On macOS only the app counts (its settings file stays after an uninstall). On Windows (the installer lets the user pick
+  // the folder) and Linux (an AppImage can be anywhere), a settings file counts too.
+  const installed = (platform !== 'darwin' && vaults !== undefined) || (await Promise.all(apps.map((p) => stat(p).then(() => true, () => false)))).some(Boolean);
   const real = await realpath(folder).catch(() => undefined);
   const vault = real === undefined ? undefined : vaults?.find((v) => inside(real, v));
   const m = memory?.state?.() ?? {};
@@ -10514,12 +10578,11 @@ export function installAssistantSetup(ctx, assistant, memory, { home = homedir()
     const real = await realpath(assistant.folder);
     const vault = now.steps.vault ? (await obsidianVaults(configs ?? obsidianConfigs(undefined, home)))?.find((v) => inside(real, v)) ?? real : real;
     const rules = join(real, 'AGENTS.md');
-    // An empty AGENTS.md (a write that failed half way) counts as missing: it goes, so Set up can write it again. A link is
-    // the user's: it stays, and Set up says why the step stays missing (lstat: never through the link).
+    // An empty AGENTS.md (a write that failed half way) counts as missing: memory.setup fills it inside its all-or-none
+    // step (a failed Set up leaves it empty). A link is the user's: it stays, and Set up says why the step stays missing
+    // (lstat: never through the link).
     const own = await lstat(rules).catch(() => undefined);
-    if (own?.isSymbolicLink()) {
-      if (!(await stat(rules).then((s) => s.isFile() && s.size > 0, () => false))) throw refused(`${rules} is a link to a missing or empty file: fix the link or remove it, then click Set up again.`);
-    } else if (own?.isFile() && own.size === 0) await unlink(rules).catch(() => {});
+    if (own?.isSymbolicLink() && !(await stat(rules).then((s) => s.isFile() && s.size > 0, () => false))) throw refused(`${rules} is a link to a missing or empty file: fix the link or remove it, then click Set up again.`);
     // The memory folder is read again in the memory's own queue (a folder that Settings saves at the same time wins).
     await memory.setup(async (m) => {
       const saved = isText(m.folder, 4096) ? await realish(m.folder) : undefined;
