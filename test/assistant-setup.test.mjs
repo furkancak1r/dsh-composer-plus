@@ -4,8 +4,8 @@
 // memory). The client shows the setup card in the assistant chat until ready, with Set up, Check again and the download link.
 import './temp-home.mjs';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, realpath, rename, lstat, chmod } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, realpath, rename, lstat, chmod, open } from 'node:fs/promises';
+import { constants, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ASSISTANT_SETUP_PATH, OBSIDIAN_DOWNLOAD, SETUP_BLOCKED, assistantSetup, installAssistantSetup, installMemory, memoryNamesOf, obsidianApps, obsidianConfigs, vaultRules } from '../index.js';
@@ -15,7 +15,7 @@ try {
   // The default places of Obsidian (app and settings file) on each system.
   assert.deepEqual(obsidianApps('darwin', '/Users/u'), ['/Applications/Obsidian.app', '/Users/u/Applications/Obsidian.app']);
   assert.deepEqual(obsidianConfigs('darwin', '/Users/u'), ['/Users/u/Library/Application Support/obsidian/obsidian.json']);
-  assert.deepEqual(obsidianApps('win32', 'C:\\Users\\u', { LOCALAPPDATA: 'L', ProgramFiles: 'P' }).length, 2);
+  assert.deepEqual(obsidianApps('win32', 'C:\\Users\\u', { LOCALAPPDATA: 'L', ProgramFiles: 'P' }).length, 3, 'Programs\\Obsidian, the older Obsidian folder and Program Files');
   assert.equal(obsidianConfigs('win32', 'C:\\Users\\u', {}).length, 0, 'no APPDATA: no file');
   assert.ok(obsidianConfigs('linux', '/home/u', { XDG_CONFIG_HOME: '/x' })[0] === '/x/obsidian/obsidian.json');
   assert.ok(obsidianApps('linux', '/home/u').includes('/var/lib/flatpak/exports/bin/md.obsidian.Obsidian'));
@@ -45,10 +45,10 @@ try {
   await vaults([join(root, 'other'), folder]);
   s = await check();
   assert.deepEqual(s.steps, { obsidian: true, vault: true, memory: 'missing', rules: false }); assert.equal(s.ready, false);
-  // obsidian.json alone counts as installed only on Linux (an AppImage can be anywhere); on macOS and Windows it stays after
-  // an uninstall, so only the app counts (review 2026-11-12).
-  assert.equal((await assistantSetup({ folder, memory, home, apps: [], configs: [config], platform: 'linux' })).steps.obsidian, true);
-  for (const platform of ['darwin', 'win32']) assert.equal((await assistantSetup({ folder, memory, home, apps: [], configs: [config], platform })).steps.obsidian, false, platform);
+  // obsidian.json alone counts as installed on Windows (any install folder) and Linux (an AppImage can be anywhere); on
+  // macOS it stays after an uninstall, so only the app counts (review 2026-11-12).
+  for (const platform of ['linux', 'win32']) assert.equal((await assistantSetup({ folder, memory, home, apps: [], configs: [config], platform })).steps.obsidian, true, platform);
+  assert.equal((await assistantSetup({ folder, memory, home, apps: [], configs: [config], platform: 'darwin' })).steps.obsidian, false, 'darwin');
   // A vault above the folder counts too.
   await vaults([home]); assert.equal((await check()).steps.vault, true, 'a vault that holds the folder');
   await vaults([folder]);
@@ -168,7 +168,23 @@ try {
     const failAfter = { ...mem5, setup: (plan) => mem5.setup(async (m) => { const step = await plan(m); return { ...step, rules: { ...step.rules, text: (async function* () { yield 'half a file'; throw Error('disk full'); })() } }; }) };
     const s6b = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f6 }, failAfter, { home, apps: [], configs: [] });
     await assert.rejects(s6b.fix('Memory'));
-    assert.equal(await readFile(join(f6, 'AGENTS.md'), 'utf8'), '', 'a failed Set up leaves the empty file as it was'); }
+    assert.equal(await readFile(join(f6, 'AGENTS.md'), 'utf8'), '', 'a failed Set up leaves the empty file as it was');
+    // AGENTS.md is a FIFO, or a link swapped in after Set up's own check (AGENTS.md rule 6): the rules step neither blocks
+    // nor writes through the link. A red run ends: after 5 s a writer opens the FIFO.
+    const f7 = join(root, 'f7'); await mkdir(f7);
+    const { execFileSync } = await import('node:child_process'); execFileSync('mkfifo', [join(f7, 'AGENTS.md')]);
+    const s7 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f7 }, mem5, { home, apps: [], configs: [] });
+    let unblock; const guard = new Promise((r) => { unblock = setTimeout(async () => { const w = await open(join(f7, 'AGENTS.md'), constants.O_RDONLY | constants.O_NONBLOCK).catch(() => undefined); await w?.close(); r('blocked'); }, 5000); });
+    const fifoRun = await Promise.race([s7.fix('Memory').then(() => 'done', () => 'done'), guard]);
+    clearTimeout(unblock);
+    assert.equal(fifoRun, 'done', 'a FIFO AGENTS.md does not block Set up');
+    assert.ok((await lstat(join(f7, 'AGENTS.md'))).isFIFO(), 'the FIFO stays');
+    const outside = join(root, 'outside.md'); await writeFile(outside, '');
+    const f8 = join(root, 'f8'); await mkdir(f8); await writeFile(join(f8, 'AGENTS.md'), '');
+    const swapping = { ...mem5, setup: (plan) => mem5.setup(async (m) => { const step = await plan(m); await rm(join(f8, 'AGENTS.md')); await symlink(outside, join(f8, 'AGENTS.md')); return step; }) };
+    const s8 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f8 }, swapping, { home, apps: [], configs: [] });
+    await s8.fix('Memory').catch(() => {});
+    assert.equal(await readFile(outside, 'utf8'), '', 'nothing is written through a swapped-in link'); }
   // A saved memory folder that is already in the vault is kept (the owner's Hafıza): Set up changes nothing.
   const ownerPlan = []; const owner = { state: () => ({ on: true, folder: join(folder, 'Hafıza'), folderActive: join(folder, 'Hafıza') }), setup: async (plan) => { ownerPlan.push(await plan({ ...owner.state(), names: (at, w) => memoryNamesOf(at, w) })); } };
   const keep = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, assistant, owner, { home, apps: [app], configs: [config] });

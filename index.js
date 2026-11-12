@@ -9987,19 +9987,26 @@ export const secretFile = (path) => SECRET_NAME.test(String(path).split(/[\\/]/)
 // A word on its own or after _ (DB_PASS, SIGNING_KEY), not inside another word (compass, monkey, Author, OAuth). The bare
 // words key, auth and token (WEAK_WORD) are also ordinary words ("Primary key: customer_id", "max_tokens: 128000", "| Key |
 // Description |"), so their value must look like a secret: letters and digits, or a long run without spaces.
+// ponytail: a short letters-only value after a lowercase bare key/auth/token ("token: abcdefghij") is kept, as prose
+// ("Auth: required") has the same shape; the env form in capitals (TOKEN=abcdefghijk) is cut by AUTH_SCHEME's neighbour
+// ENV_WORD below.
 const SECRET_WORD = String.raw`(?:passw(?:or)?d|passwd|pwd|(?<![a-z])pass(?![a-z])|(?<![a-z])pw(?![a-z])|secret|api[_ -]?key|access[_ -]?key|private[_ -]?key|client[_ -]?secret|_key(?![a-z])|_token(?![a-z])|auth(?:orization|[_ -]?token)|bearer|şifre|parola)\w*`;
 const WEAK_WORD = String.raw`(?:(?<![a-z0-9])key|(?<![a-z])auth|(?<![a-z_])tokens?)(?![a-z])`;
 const SECRET_VALUE = String.raw`(?:(?=[^\s"'\x60|]*\d)(?=[^\s"'\x60|]*[A-Za-z])[^\s"'\x60|]{8,}|[^\s"'\x60|]{24,})`;
 const SECRET_LINE = new RegExp([
   String.raw`\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@`, // a connection string with a password
   String.raw`${SECRET_WORD}["'\x60]?\s*(?:[:=|]|=>)\s*["'\x60]?[^\s"'\x60|]{6,}`, // key: value, key = \x60value\x60, | key | value |
-  String.raw`${WEAK_WORD}["'\x60]?\s*(?:[:=]|=>)\s*["'\x60]?${SECRET_VALUE}`,
+  String.raw`${WEAK_WORD}["'\x60]?\s*(?:[:=|]|=>)\s*["'\x60]?${SECRET_VALUE}`,
   String.raw`(?:${SECRET_WORD}|${WEAK_WORD})\s+(?:is|was|=|:|olarak|şu)\s+["'\x60]?(?=[^\s"'\x60]*\d)(?=[^\s"'\x60]*[A-Za-z])[^\s"'\x60]{8,}`, // "the token is a1b2…" (a value with letters and digits)
   String.raw`\bBearer\s+[A-Za-z0-9._~+/-]{12,}`,
+  // An auth header (any case: GitHub writes "Authorization: token …") with the scheme Basic or Token and its value.
+  String.raw`\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:basic|token)\s+[^\s"']{8,}`,
 ].join('|'), 'i');
-// The other auth header schemes, as HTTP writes them (case matters: "basic instructions" is prose): Basic (base64 of
-// user:password) and Token, with a value that has a digit or a base64 sign.
-const AUTH_SCHEME = /\b(?:Basic|Token)\s+(?=[A-Za-z0-9._~+/=-]*[\d=+/])[A-Za-z0-9._~+/=-]{8,}/;
+// The same schemes without the header name, as HTTP writes them (case matters: "basic instructions" is prose): Basic and a
+// base64 value (user:password), Token and a value with a digit.
+const AUTH_SCHEME = /\bBasic\s+(?=[A-Za-z0-9+/]*[\d+/=])[A-Za-z0-9+/]{8,}={0,2}(?![\w.])|\bToken\s+(?=[A-Za-z0-9._~+/=-]*\d)[A-Za-z0-9._~+/=-]{8,}/;
+// An environment line with a bare word in capitals: TOKEN=…, KEY=…, AUTH=… (any value of 6 or more characters).
+const ENV_WORD = /(?<![A-Za-z0-9_])(?:TOKEN|KEY|AUTH)\s*=\s*["']?[^\s"'\x60]{6,}/;
 // Command-line forms (case matters: mysql -P is a port): curl -u user:pass, mysql -pSECRET, sshpass -p SECRET (its own -p,
 // not ssh's port), redis-cli -a SECRET, --password=SECRET, and --password SECRET when the value has a digit or a sign.
 // A value is "quoted" or 'quoted' with its closing quote at the end of a word, or plain. A backtick ends it, so
@@ -10018,7 +10025,7 @@ const CLI_SECRET = new RegExp([
   String.raw`--pass(?:word)?=${cliValue('{2,}')}`,
   String.raw`--pass(?:word)?\s+(?:'${CLI_SIGN("'")}[^\s'\x60-][^\s'\x60]{3,}'${CLI_END}|"?${CLI_SIGN(`"'`)}(?:(?=[^\s"'\x60]*\d)[^\s"'\x60$-]|[^\s"'\x60$*_-])[^\s"'\x60]{3,})`,
 ].join('|'));
-export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line) || AUTH_SCHEME.test(line) || CLI_SECRET.test(line);
+export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line) || AUTH_SCHEME.test(line) || ENV_WORD.test(line) || CLI_SECRET.test(line);
 /** The text without its secret-looking lines, and how many lines went. */
 export function withoutSecrets(text) {
   let cut = 0;
@@ -10095,8 +10102,28 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
   const sources = async () => importSources({ projects: projectsOf(), home: userHome, dshHome: home, skip: await skip(), limits });
   // source path → the day (YYYY-MM-DD) that an import finished it: the subagent read all of the file and saved its facts
   // (memory_import `done`). A run that stopped half way leaves the file open, so the next run reads it again.
-  const doneFile = settingsStore(join(home, 'storages', 'dsh-composer-plus', 'memory-import.json'), (v) => (plainObject(v?.done) ? v.done : {}));
-  const importedDays = async () => new Map(Object.entries(await doneFile.read()).filter(([, d]) => isText(d, 10)));
+  const importFile = join(home, 'storages', 'dsh-composer-plus', 'memory-import.json');
+  const doneFile = settingsStore(importFile, (v) => (plainObject(v?.done) ? v.done : {}));
+  // A user who imported before this file existed: each source that a saved note names counts as done on that note's day
+  // (once, so a second run does not word the same facts again).
+  let seeded;
+  const seed = async () => {
+    if (await stat(importFile).then(() => true, () => false)) return;
+    const days = {};
+    for (const scope of [memory.store.GLOBAL, ...memory.store.projects()]) {
+      for (const f of memory.store.load(scope)) for (const e of f.entries) {
+        const from = /^import (.+)$/.exec(String(e.meta?.source ?? ''))?.[1];
+        if (from !== undefined && isText(e.meta?.added, 10) && !(e.meta.added <= (days[from] ?? ''))) days[from] = e.meta.added;
+      }
+    }
+    if (Object.keys(days).length > 0) await doneFile.change((d) => ({ done: { ...days, ...d } }));
+  };
+  // The key: the path as a note keeps it (formatEntry) for the seeded days, the path itself for the ones that `done` set.
+  const importedDays = async () => {
+    seeded ??= seed().catch((error) => ctx.logger?.warn?.(`dsh-composer-plus: memory import days: ${error?.message ?? error}`));
+    await seeded;
+    return new Map(Object.entries(await doneFile.read()).filter(([, d]) => isText(d, 10)));
+  };
   const refuseOthers = () => refused('This tool works only in a subagent of the Composer Plus assistant chat.', 403);
   const tools = [
     {
@@ -10117,8 +10144,8 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
           // A file that an earlier import read and that did not change after that day is not read again, so a second run
           // gives the model nothing to word in a new way. ponytail: a day, not a time: a change later on the import's day waits.
           const day = new Date(read.mtime).toLocaleDateString('en-CA');
-          const key = list[at].path;
-          if (days.has(key) && day <= days.get(key)) { done.push(list[at].path); continue; }
+          const until = days.get(list[at].path) ?? days.get(metaValue(list[at].path));
+          if (until !== undefined && day <= until) { done.push(list[at].path); continue; }
           const clean = withoutSecrets(read.text);
           if (files.length > 0 && size + clean.text.length > limits.total) break;
           size += clean.text.length; secrets += clean.cut;
@@ -10172,6 +10199,7 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
         // After the facts are saved: a failed save above leaves the files open.
         const marked = [...new Set(finished.filter((p) => listed.has(p)))];
         if (marked.length > 0) {
+          await importedDays(); // the old imports first (seed), so this write does not hide them
           const day = new Date().toLocaleDateString('en-CA');
           await doneFile.change((d) => ({ done: { ...d, ...Object.fromEntries(marked.map((p) => [p, day])) } }));
         }
@@ -10207,7 +10235,7 @@ export const SETUP_BLOCKED = 'Composer Plus → Assistant setup: Obsidian and it
 /** Obsidian's app in its default install folders. */
 export function obsidianApps(platform = osPlatform(), home = homedir(), env = process.env) {
   if (platform === 'darwin') return ['/Applications/Obsidian.app', join(home, 'Applications', 'Obsidian.app')];
-  if (platform === 'win32') return [env.LOCALAPPDATA && join(env.LOCALAPPDATA, 'Programs', 'Obsidian', 'Obsidian.exe'), env.ProgramFiles && join(env.ProgramFiles, 'Obsidian', 'Obsidian.exe')].filter(Boolean);
+  if (platform === 'win32') return [env.LOCALAPPDATA && join(env.LOCALAPPDATA, 'Programs', 'Obsidian', 'Obsidian.exe'), env.LOCALAPPDATA && join(env.LOCALAPPDATA, 'Obsidian', 'Obsidian.exe'), env.ProgramFiles && join(env.ProgramFiles, 'Obsidian', 'Obsidian.exe')].filter(Boolean);
   return ['/usr/bin/obsidian', '/opt/Obsidian/obsidian', '/snap/bin/obsidian', '/var/lib/flatpak/exports/bin/md.obsidian.Obsidian', join(home, '.local', 'share', 'flatpak', 'exports', 'bin', 'md.obsidian.Obsidian')];
 }
 /** Obsidian's global settings file with its vault list (obsidian.md/help/data-storage; Snap and Flatpak keep their own). */
@@ -10242,9 +10270,9 @@ async function obsidianVaults(configs) {
  * assistant folder; `memory` is installMemory's handle (its `state()`: on, folder, folderActive, folderProblem). */
 export async function assistantSetup({ folder, memory, home = homedir(), apps = obsidianApps(undefined, home), configs = obsidianConfigs(undefined, home), platform = osPlatform() }) {
   const vaults = await obsidianVaults(configs);
-  // On macOS and Windows only the app counts (its settings file stays after an uninstall); on Linux an AppImage can be
-  // anywhere, so a settings file counts too.
-  const installed = (platform !== 'darwin' && platform !== 'win32' && vaults !== undefined) || (await Promise.all(apps.map((p) => stat(p).then(() => true, () => false)))).some(Boolean);
+  // On macOS only the app counts (its settings file stays after an uninstall). On Windows (the installer lets the user pick
+  // the folder) and Linux (an AppImage can be anywhere), a settings file counts too.
+  const installed = (platform !== 'darwin' && vaults !== undefined) || (await Promise.all(apps.map((p) => stat(p).then(() => true, () => false)))).some(Boolean);
   const real = await realpath(folder).catch(() => undefined);
   const vault = real === undefined ? undefined : vaults?.find((v) => inside(real, v));
   const m = memory?.state?.() ?? {};
