@@ -91,6 +91,18 @@ assert.equal(inSpans([[9, 20]], undefined), false);
   for (const bad of [-3, 2.5, '12', undefined]) { answerInherited = bad; await loaded.load('chat/x'); assert.equal(loaded.of('chat/x').inherited, 0, `not a count: ${bad}`); }
   // load tells whether the Host answered: Option picks shows no buttons before (rules 9 and 10).
   assert.equal(await loaded.load('chat/x'), true, 'the Host answered');
+  // Turn rollback, Redo and Option picks load the same chat in one React commit: one GET for that run, a later load asks again.
+  {
+    const gets = []; let lg = gate();
+    const shared = createRollback(async (init, query) => { gets.push(query); await lg.p; return reply(200, { spans: [[1, 2]] }); });
+    const a = shared.load('s'); const b = shared.load('s'); const c = shared.load('other');
+    assert.equal(a, b, 'the same run shares the read');
+    lg.go(); assert.deepEqual(await Promise.all([a, b, c]), [true, true, true]);
+    assert.deepEqual(gets, ['?sessionId=s', '?sessionId=other'], 'one GET per chat in one run');
+    lg = gate(); lg.go(); await shared.load('s');
+    assert.equal(gets.length, 3, 'a load after that run reads the Host again');
+    assert.deepEqual(shared.of('s').spans, [[1, 2]]);
+  }
   assert.equal(await createRollback(async () => reply(500, { error: 'down' })).load('c'), false, 'an error: no answer');
   assert.equal(await createRollback(async () => { throw new Error('offline'); }).load('c'), false, 'no connection: no answer');
   const preview = createRollback(async (init) => reply(200, { git: true, snapshot: true, files: [{ path: 'a.js', action: 'restore' }], echo: JSON.parse(init.body) }));

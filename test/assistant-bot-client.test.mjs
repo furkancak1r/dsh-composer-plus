@@ -12,10 +12,11 @@ globalThis.document = { visibilityState: 'visible', querySelector: () => null, q
 const tick = async () => { for (let i = 0; i < 10; i++) await new Promise((r) => setImmediate(r)); };
 
 let assistantOn = true; let statusId = 's-assistant'; const switches = { free: { on: true, active: true }, notify: { on: false, scope: 'automations' } }; const posts = [];
+let statusReads = 0;
 globalThis.fetch = async (url, init) => {
   const u = String(url);
   if (u === '/api/composer-plus.assistant-switch') { if (init?.method === 'POST') assistantOn = JSON.parse(init.body).on; return Response.json({ on: assistantOn }); }
-  if (u === '/api/composer-plus.assistant-status') return Response.json({ sessionId: assistantOn ? statusId : null });
+  if (u === '/api/composer-plus.assistant-status') { statusReads++; return Response.json({ sessionId: assistantOn ? statusId : null }); }
   if (u === '/api/composer-plus.assistant') return Response.json({ sessionId: statusId });
   for (const [k, route] of [['free', '/api/composer-plus.assistant-free'], ['notify', '/api/composer-plus.assistant-notify']]) {
     if (u === route) { if (init?.method === 'POST') { posts.push([k, JSON.parse(init.body)]); switches[k] = { ...switches[k], ...JSON.parse(init.body) }; } return Response.json(switches[k]); }
@@ -33,6 +34,9 @@ const live = new Map(); let next = 0; let settings;
 plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, get: () => undefined, locale: { register: () => () => {}, bind: (ns) => (k) => `${ns}:${k}`, resolveText: (x) => x },
   slots: { inject: (n, f) => { const off = f(); return () => off(); }, register: (o, C) => { const key = next++; live.set(key, [o, C]); if (o.name === 'settings.section') settings = o; return () => live.delete(key); } } });
 await tick();
+// Open waiting chat when idle, Assistant apart, Assistant messages only, callouts and the to-do list each need the id: they
+// start together and share one read (the old copy read it five times, and five more when the switch answered).
+assert.ok(statusReads >= 1 && statusReads <= 2, `assistant-status read at start: ${statusReads} (at most one per switch state)`);
 const entry = (name, id) => [...live.values()].find(([o]) => o.name === name && (o.id === id || o.key === id));
 const t = (k) => k;
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join('') : n?.c ? text(n.c) : '');

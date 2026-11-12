@@ -133,11 +133,12 @@ try {
   {
     const memStore = new Map();
     globalThis.localStorage = { getItem: (k) => (memStore.has(k) ? memStore.get(k) : null), setItem: (k, v) => memStore.set(k, String(v)) };
-    let gate; const posts = []; let hostOn = true; const offs = new Set(['session-x']);
+    let gate; const posts = []; const reads = []; let hostOn = true; const offs = new Set(['session-x']);
     globalThis.fetch = async (url, init) => {
       if (url === '/api/composer-plus.memory') return new Response(JSON.stringify({ on: true }), { status: 200 });
       if (url.startsWith('/api/composer-plus.memory-chat')) {
         const q = new URL(url, 'http://h').searchParams;
+        if (init?.method !== 'POST' && q.has('sessionId')) reads.push(q.get('sessionId'));
         if (init?.method === 'POST') {
           const body = JSON.parse(init.body); posts.push(body);
           if (body.on !== undefined) { hostOn = body.on; return new Response(JSON.stringify({ on: hostOn }), { status: 200 }); }
@@ -198,6 +199,13 @@ try {
     // Another chat has its own state.
     draw(Header, headerOpts, 'session-y'); await new Promise((r) => setTimeout(r, 10));
     assert.equal(button(draw(Header, headerOpts, 'session-y')).p['data-composer-plus-memory-chat'], 'on');
+    // The header button and Suggest for memory read the chat that opens together (one React commit): one GET.
+    reads.length = 0;
+    const chats = headerOpts.inject('session-z').chats;
+    await Promise.all([chats.read('session-z'), chats.read('session-z')]);
+    assert.deepEqual(reads, ['session-z'], 'one read per chat in one run');
+    await chats.read('session-z');
+    assert.deepEqual(reads, ['session-z', 'session-z'], 'a later read asks the Host again');
     // Off (a Host switch): the slots go.
     await section.setFeature('memoryPerChat', false);
     assert.deepEqual(posts.at(-1), { on: false }, 'the switch goes to the Host');

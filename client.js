@@ -806,6 +806,17 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * rollback that may run at a time. Every entry point (button, popover keys) goes through `run`, which refuses a second
      * rollback of the same chat while one runs. */
     const ROLLBACK_ROUTE = '/api/composer-plus.rollback';
+    /** One Host read per key in one synchronous run: the callers of that run (the effects of one React commit, the listeners
+     * of one store change) share the read that the first one started. They all saw the same state, so they need the same
+     * answer. A caller after the run (a later event) starts a new read. */
+    function shareInRun(pending, key, start) {
+      const now = pending.get(key);
+      if (now !== undefined) return now;
+      const run = start();
+      pending.set(key, run);
+      queueMicrotask(() => { if (pending.get(key) === run) pending.delete(key); });
+      return run;
+    }
     function createRollback(call = (init, query = '') => fetch(`${ROLLBACK_ROUTE}${query}`, init)) {
       // sessionId → { spans (ours), withdrawn (ours and dsh-rewind-plugin's), rewind, busy, error, redo, inherited (a fork's
       // inherited event count) }
@@ -826,11 +837,12 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const post = (body) => ask({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
       const revs = new Map(); // sessionId → count of finished rollbacks and redos (an older GET answer then loses)
       const bump = (id) => revs.set(id, (revs.get(id) ?? 0) + 1);
+      const loads = new Map(); // sessionId → the GET of this run (Turn rollback, Redo and Option picks load at the same time)
       return {
         of,
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
         /** Load the chat's hidden spans (after a reload they come from its log); true when the Host answered. */
-        async load(sessionId) {
+        load: (sessionId) => shareInRun(loads, sessionId, async () => {
           try {
             const rev = revs.get(sessionId) ?? 0;
             const data = await ask(undefined, `?sessionId=${encodeURIComponent(sessionId)}`);
@@ -843,7 +855,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
             patch(sessionId, { spans, withdrawn, rewind: data.rewind === true, redo, inherited: Number.isSafeInteger(data.inherited) && data.inherited > 0 ? data.inherited : 0 });
             return true;
           } catch { return false; /* no spans: nothing hidden */ }
-        },
+        }),
         preview: (sessionId, seq) => post({ sessionId, seq, preview: true }),
         /** Roll back to before message `seq`; returns the Host answer, or undefined when refused or already running. */
         async run(sessionId, seq, files) {
@@ -2648,11 +2660,12 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     function createAssistantStatus() {
       let id = null; let seq = 0;
       const listeners = new Set();
+      const pending = new Map(); // the read of this run: five features start (and see a switch change) together
       return {
         getSnapshot: () => id,
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
         set(next) { seq += 1; if (next !== id) { id = next; for (const fn of [...listeners]) fn(); } },
-        async refresh() {
+        refresh: () => shareInRun(pending, '', async () => {
           const mine = ++seq;
           try {
             const response = await fetch(ASSISTANT_STATUS_ROUTE);
@@ -2661,7 +2674,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
             if (mine === seq && next !== id) { id = next; for (const fn of [...listeners]) fn(); }
           } catch { /* keep the last answer */ }
           return id;
-        },
+        }),
       };
     }
     /** The assistant chat's state for its sidebar row: `projectStatus()` of that one chat (its subagent topics count as
@@ -8706,17 +8719,20 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         if (!response.ok) throw new Error(data?.error ?? `HTTP ${response.status}`);
         return data;
       };
+      const reads = new Map(); // chat id → the read of this run (the header button and Suggest for memory read together)
       const store = {
         of,
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
         busy: (id) => of(id).busy,
-        async read(id) {
-          if (typeof id !== 'string' || id === '' || of(id).busy) return;
-          const mine = (seqs.get(id) ?? 0) + 1; seqs.set(id, mine);
-          try {
-            const data = await ask(undefined, `?${new URLSearchParams({ sessionId: id })}`);
-            if (seqs.get(id) === mine && !of(id).busy) patch(id, { off: data.off === true, known: data.on === true, memory: data.memory === true, error: null });
-          } catch { if (seqs.get(id) === mine) patch(id, { known: false }); }
+        read(id) {
+          if (typeof id !== 'string' || id === '' || of(id).busy) return Promise.resolve();
+          return shareInRun(reads, id, async () => {
+            const mine = (seqs.get(id) ?? 0) + 1; seqs.set(id, mine);
+            try {
+              const data = await ask(undefined, `?${new URLSearchParams({ sessionId: id })}`);
+              if (seqs.get(id) === mine && !of(id).busy) patch(id, { off: data.off === true, known: data.on === true, memory: data.memory === true, error: null });
+            } catch { if (seqs.get(id) === mine) patch(id, { known: false }); }
+          });
         },
         /** Switch the memory off (true) or on (false) for this chat. False when one change of this chat still runs. */
         async set(id, off) {
