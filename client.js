@@ -3121,15 +3121,17 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           timers.set(id, setTimeout(() => { timers.delete(id); store.load(id); }, wait));
         },
         /** Refresh: the lists and the git details of the open projects again (shown when they come, in less than a second),
-         * and a new summary from the assistant (a model turn: the card waits up to STATUS_SUMMARY_WAIT_MS). False while a
-         * Refresh of this chat reads or asks (one at a time: the button, a key and a second window all come here). */
+         * and a new summary from the assistant (a model turn: the card waits up to STATUS_SUMMARY_WAIT_MS). While a summary
+         * is asked or awaited, a Refresh reads only the lists (one summary request at a time). False while a Refresh of
+         * this chat reads (the button, a key and a second window all come here). */
         async refresh(id) {
           const before = of(id);
-          if (before.refreshing || before.ask?.state === 'asking') return false;
+          if (before.refreshing) return false;
+          const ask = before.ask?.state !== 'asking' && before.ask?.state !== 'waiting';
           for (const key of [...details.keys()]) if (key.startsWith(`${id}|`)) details.delete(key);
           const started = Date.now();
-          patch(id, { refreshing: true, ask: Object.freeze({ state: 'asking' }), error: null, errorKind: null });
-          const asking = (async () => {
+          patch(id, { refreshing: true, ...(ask ? { ask: Object.freeze({ state: 'asking' }) } : {}), error: null, errorKind: null });
+          const asking = ask && (async () => {
             let failure;
             try {
               const response = await fetch(TODOS_ROUTE, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ sessionId: id, action: 'summary' }) });
@@ -3157,7 +3159,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           const rest = of(id).errorKind === 'read' ? 0 : STATUS_BUSY_MS - (Date.now() - started);
           if (rest > 0) await new Promise((r) => { setTimeout(r, rest); });
           patch(id, { refreshing: false });
-          await asking;
+          if (asking) await asking;
           return true;
         },
         /** One project's git details (on its first open). */

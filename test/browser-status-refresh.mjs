@@ -160,9 +160,18 @@ try {
       assert.match(await panel.locator('h2').innerText(), /Liste \d/);
       note(`2: loading state in ${ms.toFixed(1)} ms (button turns, aria-disabled, header "Yenileniyor…"), the lists in less than a second`);
 
-      // 3. The summary comes: the placeholder goes.
+      // 3. The summary comes: the placeholder goes. A click while it is awaited reads only the lists (one summary turn).
       await shot(`${version}-2-summary-waiting`);
       assert.equal(await spoken(), 'Özet hazırlanıyor…');
+      {
+        const posts = []; const onReq = (r) => { if (r.method() === 'POST' && /"action":"summary"/.test(r.postData() ?? '')) posts.push(r); };
+        page.on('request', onReq);
+        const again = page.waitForResponse((r) => r.url().includes('refresh=1'));
+        await refresh.click(); await again; await pause(600);
+        page.off('request', onReq);
+        assert.equal(posts.length, 0, 'no second summary request while the summary is awaited');
+        assert.equal(await card.getByText('Özet hazırlanıyor…').isVisible(), true, 'still waits for the same summary');
+      }
       await card.getByText('Giriş sayfası bitti, testler geçiyor.').waitFor({ timeout: 30000 });
       assert.equal(await card.getByText('Özet hazırlanıyor…').count(), 0);
       assert.equal(await card.getByText('Giriş sayfası yapılıyor.').count(), 0, 'the new summary replaces the old one');

@@ -10633,7 +10633,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
 export const STATUS_LIMITS = { projects: 8, text: 600, project: 120, tasks: 20, result: 160, chats: 5, commits: 5, recentMs: 24 * 3600 * 1000, shown: 5, cacheMs: 30000, askMs: 5 * 60000 };
 /** Refresh in the status panel asks the assistant for a new summary: a hidden note (not a chat bubble) in its next step. */
 const SUMMARY_SOURCE = 'composer-plus-status-summary';
-export const STATUS_SUMMARY_NOTE = '[Composer Plus → Status panel] The user clicked Refresh in the status panel. Call status_summary_set now with a new summary of the projects (1 or 2 sentences each: what changed and what is next). Use what you know and chats_list. Do not start other work and do not write to the user in the chat.';
+export const STATUS_SUMMARY_NOTE = '[Composer Plus → Status panel] The user clicked Refresh in the status panel. Call status_summary_set now with a new summary of the projects (1 or 2 sentences each: what changed and what is next). Use what you know and chats_list. Do not start new work for this note. When a task runs in this turn, continue it after the call. In the chat, write nothing about this note, or at most one short sentence.';
 const summaryMessage = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: STATUS_SUMMARY_NOTE })]),
   source: Object.freeze({ kind: SUMMARY_SOURCE, form: 'snapshot' }) });
 export const STATUS_SECTION = `# Assistant status panel (Composer Plus)

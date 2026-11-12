@@ -345,6 +345,13 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   tree = panel(); assert.equal(store.of('s-assistant').refreshing, false, 'Refreshing… ends after the read (at least 500 ms)');
   assert.equal(find(tree, (n) => n.t === 'button' && n.p['aria-label'] === 'status.refresh')[0].p['aria-disabled'], false);
   assert.match(text(tree), /Fresh item/);
+  // A click while the summary is awaited reads only the lists: no second summary request, the wait goes on.
+  {
+    const p2 = posts.length; const g2 = gets.length; const waitingAsk = store.of('s-assistant').ask;
+    assert.equal(await store.refresh('s-assistant'), true);
+    assert.equal(posts.length, p2, 'no second summary request while one is awaited'); assert.equal(gets.length - g2, 1, 'the lists are read again');
+    assert.equal(store.of('s-assistant').ask, waitingAsk, 'the same wait');
+  }
   // The summary card still waits: the placeholder, the previous summary dimmed below, no Hide button.
   let c = cardOf(tree);
   assert.match(text(c), /status\.summaryWaiting/); assert.equal(c.p['aria-busy'], true); assert.equal(spoken(tree), 'status.summaryWaiting');
@@ -395,11 +402,16 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   const retryRead = find(alert, (n) => n.t === 'button' && n.p['aria-label'] === 'assistant.retry: status.refresh')[0];
   assert.ok(retryRead, 'Try again for the read'); retryRead.p.onClick(); await new Promise((r) => setTimeout(r, 520)); await tick();
   assert.equal(find(panel(), (n) => n.p?.role === 'alert').length, 0, 'Try again read the panel again');
+  // The read error step asked for a summary that is still awaited: it comes now.
+  assert.equal(store.of('s-assistant').ask.state, 'waiting', 'Try again of the read did not ask again while the summary is awaited');
+  summary = { at: askedAt, projects: [{ project: 'acme-web', text: 'After the error.' }] }; askedAt = null;
+  await store.load('s-assistant'); assert.equal(store.of('s-assistant').ask.state, 'done');
   // A slow summary request: Refreshing… waits for the read only; the card waits for the request.
   let release; askGate = new Promise((r) => { release = r; });
   const slow = store.refresh('s-assistant'); await new Promise((r) => setTimeout(r, 520)); await tick();
   assert.equal(store.of('s-assistant').refreshing, false); assert.equal(store.of('s-assistant').ask.state, 'asking');
-  assert.equal(await store.refresh('s-assistant'), false, 'no second request while one is sent');
+  { const p3 = posts.length; assert.equal(await store.refresh('s-assistant'), true); assert.equal(posts.length, p3, 'no second request while one is sent'); }
+  assert.equal(store.of('s-assistant').ask.state, 'asking');
   release(); askGate = null; await slow; askedAt = null;
   // Reduced motion: no turning and no pulse, only the text. Both themes: dsh's color tokens only.
   const css = find(panel(), (n) => n.t === 'style')[0].c[0];
