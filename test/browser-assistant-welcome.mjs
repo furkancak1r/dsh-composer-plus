@@ -37,7 +37,7 @@ const until = async (fn, what, ms = 30000) => {
 // Fake OpenAI-compatible model: every answer is "ok"; "save this" in the assistant chat calls memory_remember once. The
 // import prompt starts a subagent; the subagent calls memory_import_sources, then memory_import with two facts (and one
 // fact that copies the secret line), then answers with the counts.
-const toolResults = []; const importAnswers = [];
+const toolResults = []; const importAnswers = []; const sourceAnswers = [];
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => x.text ?? '').join('') : '');
 const call = (res, model, name, args) => {
   res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: `call_${name}_${Date.now()}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: null }] })}\n\n`);
@@ -65,11 +65,16 @@ const fake = createServer((req, res) => {
       if (toolsDone.length === 0) return call(res, parsed.model, 'memory_import_sources', {});
       if (toolsDone.length === 1) {
         const read = JSON.parse(textOf(toolsDone[0].content));
-        const web = read.files.find((f) => f.path.endsWith('acme-web/AGENTS.md'));
+        sourceAnswers.push(read);
+        // A second run: the files that the first run imported come only as `alreadyImported` (no text); the made-up
+        // model still sends the same facts, which the store skips.
+        const paths = [...read.files.map((f) => f.path), ...(read.alreadyImported ?? [])];
+        const web = paths.find((p) => p.endsWith('acme-web/AGENTS.md'));
+        const project = web.slice(0, -'/AGENTS.md'.length);
         return call(res, parsed.model, 'memory_import', { facts: [
-          { text: 'acme-web deploys with make release.', source: web.path, project: web.project },
-          { text: 'The user wants answers in English.', source: read.files.find((f) => f.scope === 'global')?.path ?? web.path },
-          { text: 'The deploy token is FAKE_TOKEN_9f8e7d6c5b4a3f2e1d', source: web.path, project: web.project },
+          { text: 'acme-web deploys with make release.', source: web, project },
+          { text: 'The user wants answers in English.', source: paths.find((p) => p.endsWith('.claude/CLAUDE.md')) },
+          { text: 'The deploy token is FAKE_TOKEN_9f8e7d6c5b4a3f2e1d', source: web, project },
         ] });
       }
       importAnswers.push(textOf(toolsDone.at(-1).content));
@@ -174,7 +179,7 @@ try {
       };
       const assistantRow = () => page.locator('button[aria-label="Damon"]');
       let card; let setupCard;
-      const bind = () => { input = page.locator('[data-composer-input]'); card = page.locator('[data-composer-plus-assistant-welcome]:not([data-composer-plus-assistant-setup])'); setupCard = page.locator('[data-composer-plus-assistant-setup]'); };
+      const bind = () => { input = page.locator('[data-composer-input]'); card = page.locator('[data-composer-plus-assistant-welcome]:not([data-composer-plus-assistant-setup]):not([data-composer-plus-memory-import-card])'); setupCard = page.locator('[data-composer-plus-assistant-setup]'); };
       bind();
       const memFiles = async (at) => { const out = []; const walk = async (d) => { for (const e of await readdir(d, { withFileTypes: true }).catch(() => [])) { if (e.isDirectory()) await walk(join(d, e.name)); else if (e.name.endsWith('.md')) out.push(join(d, e.name)); } }; await walk(at); return out; };
 
@@ -203,7 +208,8 @@ try {
       await until(async () => (await setupCard.locator('[data-step="rules"]').getAttribute('data-state')) === 'done', 'rules done');
       assert.equal(await setupCard.locator('[data-step="memory"]').getAttribute('data-state'), 'restart');
       assert.ok(readFileSync(join(home, 'Assistant', 'AGENTS.md'), 'utf8').startsWith('# Vault rules'));
-      assert.equal(JSON.parse(readFileSync(join(dshHome, 'storages/dsh-composer-plus/memory-folder.json'), 'utf8')).folder, join(home, 'Assistant', 'Memory'));
+      assert.deepEqual(JSON.parse(readFileSync(join(dshHome, 'storages/dsh-composer-plus/memory-folder.json'), 'utf8')), { folder: join(home, 'Assistant', 'Memory'), names: { global: 'General', projects: 'Projects' } }, 'a new memory folder gets the English subfolder names');
+      assert.match(readFileSync(join(home, 'Assistant', 'AGENTS.md'), 'utf8'), /Memory\/: General\/ for every project, Projects\/<project>\//);
       // The user installs Obsidian and opens ~/Assistant as a vault (made up here: its settings file), then restarts dsh.
       const obsidian = process.platform === 'darwin' ? join(home, 'Library/Application Support/obsidian') : join(home, '.config/obsidian');
       await mkdir(obsidian, { recursive: true });
@@ -244,6 +250,8 @@ try {
       };
       const firstRun = await runImport(1);
       assert.equal(firstRun.added, 2, `two facts: ${JSON.stringify(firstRun)}`); assert.equal(firstRun.secret, 1, 'the secret fact is skipped');
+      await importBox.waitFor({ state: 'detached', timeout: 10000 }); // Start ends the card on this device
+      assert.ok(existsSync(join(vaultMemory, 'General', 'MEMORY.md')) && existsSync(join(vaultMemory, 'Projects')), 'the English subfolder names in the vault');
       const vaultFiles = await memFiles(vaultMemory);
       const vaultText = (await Promise.all(vaultFiles.map((f) => readFile(f, 'utf8')))).join('\n');
       assert.match(vaultText, /acme-web deploys with make release\./); assert.match(vaultText, /The user wants answers in English\./);
@@ -251,6 +259,8 @@ try {
       assert.deepEqual(await memFiles(join(dshHome, 'storages/dsh-composer-plus/memory')), [], 'no memory file outside the vault');
       const secondRun = await runImport(2);
       assert.equal(secondRun.added, 0, `a second run adds nothing: ${JSON.stringify(secondRun)}`);
+      assert.ok(sourceAnswers[1].alreadyImported?.some((p) => p.endsWith('acme-web/AGENTS.md')), `the second scan marks the imported file: ${JSON.stringify(sourceAnswers[1].alreadyImported)}`);
+      assert.ok(!sourceAnswers[1].files.some((f) => f.path.endsWith('acme-web/AGENTS.md')), 'and does not give its text again');
       assert.equal((await Promise.all((await memFiles(vaultMemory)).map((f) => readFile(f, 'utf8')))).join('\n'), vaultText, 'the vault did not change');
       assert.equal(readFileSync(join(dir, 'AGENTS.md'), 'utf8').includes('FAKE_TOKEN'), true, 'the source file did not change');
       note(`0c: the import prompt ran twice: ${JSON.stringify(firstRun)}, then ${JSON.stringify(secondRun)}; the facts are in the vault, the secret is not`);
@@ -297,9 +307,14 @@ try {
       await card.waitFor({ timeout: 20000 });
       note('2: off removes the card and its style; on + click shows it again');
 
-      // 3. The first message hides it; another new chat never has it; the next click opens the chat without it.
+      // 3. The first message hides it; another new chat never has it; the next click opens the chat without it. The
+      // import card (not started on this device) stays in the chat with a message until Hide.
       await input.first().click(); await page.keyboard.type('hello', { delay: 5 }); await page.keyboard.press('Enter');
       await card.waitFor({ state: 'detached', timeout: 10000 });
+      const importCard = page.locator('[data-composer-plus-memory-import-card]');
+      await importCard.waitFor({ timeout: 10000 });
+      await importCard.getByRole('button', { name: 'Hide', exact: true }).click();
+      await importCard.waitFor({ state: 'detached', timeout: 10000 });
       await page.getByText('ok', { exact: true }).first().waitFor({ timeout: 30000 });
       const proj = page.locator('[data-row-key^="workspace:"]').filter({ hasText: 'acme-web' }).first();
       await proj.hover(); await page.getByRole('button', { name: 'New session in acme-web', exact: true }).click(); await pause(1500);
@@ -307,8 +322,9 @@ try {
       await assistantRow().click(); await pause(1500);
       assert.equal((await api('/api/composer-plus.assistant')).body.sessionId, id, 'the same assistant chat');
       assert.equal(await card.count(), 0, 'no card once the chat has a message');
+      assert.equal(await importCard.count(), 0, 'Hide keeps the import card away');
       assert.equal(existsSync(join(home, 'Assistant')), true, '~/Assistant');
-      note('3: the first message hides it; not in another new chat; not on the next open');
+      note('3: the first message hides it; the import card stays until Hide; not in another new chat; not on the next open');
       // 4. The fixed name: the project of ~/Assistant and the chat header are Damon (the folder keeps its name).
       const project = Object.values(JSON.parse(readFileSync(join(dshHome, 'storages/workspace.json'), 'utf8')).tables?.workspaces ?? {}).find((w) => w.path === join(home, 'Assistant'));
       assert.equal(project?.title, 'Damon', `the project title: ${JSON.stringify(project)}`);

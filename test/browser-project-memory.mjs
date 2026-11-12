@@ -1,6 +1,7 @@
 // Real-app check of "Project memory" on each dsh given: a fake model, a throwaway DSH_HOME, a made-up project (acme-web).
 // Never the normal DSH_HOME, no real model. Headless.
-// 1. Settings: the switch is off by default; with it off, a turn sends no memory section and no memory tools.
+// 1. Settings: the switch is off for an earlier user (the storage folder is there); with it off, a turn sends no memory
+//    section and no memory tools.
 // 2. Switch on. Chat 1: "Remember: …" → after the turn the review (a call with the review system prompt) saves the entry.
 //    The model also calls memory_remember once. The files are under DSH_HOME/storages/dsh-composer-plus/memory/, the
 //    project folder has no new file.
@@ -140,11 +141,12 @@ try {
       const memorySwitch = page.getByRole('switch', { name: 'Project memory', exact: true });
       const editorStyles = () => page.evaluate(() => [...document.querySelectorAll('style')].filter((el) => el.textContent.includes('.cp-mem{')).length);
 
-      // 1. Off by default: no section, no tools.
+      // 1. Off for a user who had Composer Plus before (its storage folder is there): no section, no tools. A new user
+      // starts with it on (test/memory-default.test.mjs).
       await settings();
       const predict = page.getByRole('switch', { name: 'Next message prediction' });
       if (await predict.getAttribute('aria-checked') === 'true') await predict.click();
-      assert.equal(await memorySwitch.getAttribute('aria-checked'), 'false', 'off by default');
+      assert.equal(await memorySwitch.getAttribute('aria-checked'), 'false', 'off for an earlier user');
       await back();
       await say('Hello there');
       await until(() => chats().length >= 1, 'first chat request');
