@@ -17,6 +17,9 @@ import { tmpdir } from 'node:os';
 import * as zlib from 'node:zlib';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readdirSync } from 'node:fs';
+// The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read until the migration).
+const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 const require = createRequire(import.meta.url);
 if (!process.env.PLAYWRIGHT || process.argv.length < 3) throw Error('Set PLAYWRIGHT and pass one or more dsh CLI entry paths');
 const { chromium } = require(process.env.PLAYWRIGHT);
@@ -82,7 +85,7 @@ try {
       const id = createHash('sha256').update(await realpath(folder)).digest('hex').slice(0, 32);
       await mkdir(join(memDir, 'projects', id), { recursive: true });
       const notes = Array.from({ length: p % 3 === 0 ? 14 : 4 }, (_, i) => `- Demo note ${i} of project ${p}: the build uses make release, the tests run with npm test, and the deploy goes to the staging server first. [source: demo; added: 2026-10-29]`).join('\n');
-      await writeFile(join(memDir, 'projects', id, 'MEMORY.md'), `# Memory\n\n${notes}\n\n## Index\n`);
+      await writeFile(mainOf(join(memDir, 'projects', id)), `# Memory\n\n${notes}\n\n## Index\n`);
       await writeFile(join(memDir, 'projects', id, 'project.json'), JSON.stringify({ path: folder }));
       const chats = [];
       for (let c = 0; c < 10; c++) {
@@ -97,7 +100,7 @@ try {
       tables[wid] = { path: folder, title: `demo-${p}`, sessionIds: chats, createdAt: now, updatedAt: now };
     }
     await mkdir(join(memDir, 'global'), { recursive: true });
-    await writeFile(join(memDir, 'global', 'MEMORY.md'), `# Memory\n\n${Array.from({ length: 6 }, (_, i) => `- Global demo note ${i}: the user wants short answers. [added: 2026-10-30]`).join('\n')}\n\n## Index\n`);
+    await writeFile(mainOf(join(memDir, 'global')), `# Memory\n\n${Array.from({ length: 6 }, (_, i) => `- Global demo note ${i}: the user wants short answers. [added: 2026-10-30]`).join('\n')}\n\n## Index\n`);
     await writeFile(join(store, 'memory.json'), JSON.stringify({ on: true }));
     await writeFile(join(store, 'default-workspace.json'), JSON.stringify({ on: false }));
     await writeFile(join(home, 'storages/workspace.json'), JSON.stringify({ unit: { name: 'workspace', version: 2 },

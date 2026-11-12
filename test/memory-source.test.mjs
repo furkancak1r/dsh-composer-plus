@@ -4,12 +4,15 @@
 // as "editor" or a bad value: none). Client (real client.js, fake React): Source next to a note closes the dialog and
 // Settings, then opens the chat at the message (dsh's own message link opener); a note without a source has no link;
 // switching the feature off removes the links.
+import { readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MEMORY_PATH, MEMORY_EDIT_PATH, installMemory, memoryView, ROLLBACK_SOURCE } from '../index.js';
+// The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read).
+const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 
 const root = await mkdtemp(join(tmpdir(), 'cp-memory-source-'));
 try {
@@ -38,19 +41,19 @@ try {
   const scope = mem.store.project(project);
   // The tool: the newest own user message that was not withdrawn (seq 2), not the parent's (1) or the withdrawn one (4).
   await registered.get('memory_remember').execute({ text: 'The user deploys with make release' }, { agent: { id: 'session-fork-1', session: { header: { cwd: project } } } });
-  assert.match(await readFile(join(scope.dir, 'MEMORY.md'), 'utf8'), /\[source: session-fork-1 #2; added: /);
+  assert.match(await readFile(mainOf(scope.dir), 'utf8'), /\[source: session-fork-1 #2; added: /);
   // A chat whose log cannot be read: the chat only.
   await registered.get('memory_remember').execute({ text: 'The user writes tests first' }, { agent: { id: 'session-gone', session: { header: { cwd: project } } } });
-  assert.match(await readFile(join(scope.dir, 'MEMORY.md'), 'utf8'), /writes tests first \[source: session-gone; added: /);
+  assert.match(await readFile(mainOf(scope.dir), 'utf8'), /writes tests first \[source: session-gone; added: /);
   // The review: the seq of the newest user line it read.
   const pnpm = user('I use pnpm');
   events['session-rev-1'] = [...parent, pnpm, reply('noted')];
   ctx.sessionQuery.observeSession = async (id) => ({ events: events[id], header: { cwd: project }, inheritedEventCount: parent.length });
   await mem.store.remove({ scope, match: 'make release', actor: 'agent' });
   await mem.review('session-rev-1');
-  assert.match(await readFile(join(scope.dir, 'MEMORY.md'), 'utf8'), new RegExp(`deploys with make release \\[source: session-rev-1 #${pnpm.seq}; added: `));
+  assert.match(await readFile(mainOf(scope.dir), 'utf8'), new RegExp(`deploys with make release \\[source: session-rev-1 #${pnpm.seq}; added: `));
   // The view: a source per note; a bad or actor value gives none.
-  await writeFile(join(scope.dir, 'MEMORY.md'), `${await readFile(join(scope.dir, 'MEMORY.md'), 'utf8')}`.replace('## Index', '- An editor note [source: editor; added: 2026-11-01]\n- A bad one [source: session-x/../y #3]\n\n## Index'));
+  await writeFile(mainOf(scope.dir), `${await readFile(mainOf(scope.dir), 'utf8')}`.replace('## Index', '- An editor note [source: editor; added: 2026-11-01]\n- A bad one [source: session-x/../y #3]\n\n## Index'));
   const view = (await call(MEMORY_EDIT_PATH)).body.projects[0].files[0].entries;
   const byText = Object.fromEntries(view.map((e) => [e.text, e.source]));
   assert.deepEqual(byText['The user deploys with make release'], { sessionId: 'session-rev-1', seq: pnpm.seq });
