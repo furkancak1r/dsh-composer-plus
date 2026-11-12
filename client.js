@@ -806,16 +806,20 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * rollback that may run at a time. Every entry point (button, popover keys) goes through `run`, which refuses a second
      * rollback of the same chat while one runs. */
     const ROLLBACK_ROUTE = '/api/composer-plus.rollback';
-    /** One Host read per key in one synchronous run: the callers of that run (the effects of one React commit, the listeners
-     * of one store change) share the read that the first one started. They all saw the same state, so they need the same
-     * answer. A caller after the run (a later event) starts a new read. */
-    function shareInRun(pending, key, start) {
-      const now = pending.get(key);
-      if (now !== undefined) return now;
-      const run = start();
-      pending.set(key, run);
-      queueMicrotask(() => { if (pending.get(key) === run) pending.delete(key); });
-      return run;
+    /** One Host read per key at a time, and each caller gets an answer that the Host read after its call. The callers of
+     * the run that started a read (the effects of one React commit, the listeners of one store change) share it: they saw
+     * the same state. A caller while it runs gets the next read, which starts when this one ends; every caller until then
+     * shares that next read. */
+    function freshRead(reads, key, start) {
+      const now = reads.get(key);
+      if (now?.open) return now.run;
+      if (now !== undefined) return (now.next ??= now.run.then(() => {}, () => {}).then(() => freshRead(reads, key, start)));
+      const entry = { open: true, run: start(), next: undefined };
+      reads.set(key, entry);
+      queueMicrotask(() => { entry.open = false; });
+      const end = () => { if (reads.get(key) === entry) reads.delete(key); };
+      entry.run.then(end, end);
+      return entry.run;
     }
     function createRollback(call = (init, query = '') => fetch(`${ROLLBACK_ROUTE}${query}`, init)) {
       // sessionId → { spans (ours), withdrawn (ours and dsh-rewind-plugin's), rewind, busy, error, redo, inherited (a fork's
@@ -842,7 +846,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         of,
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
         /** Load the chat's hidden spans (after a reload they come from its log); true when the Host answered. */
-        load: (sessionId) => shareInRun(loads, sessionId, async () => {
+        load: (sessionId) => freshRead(loads, sessionId, async () => {
           try {
             const rev = revs.get(sessionId) ?? 0;
             const data = await ask(undefined, `?sessionId=${encodeURIComponent(sessionId)}`);
@@ -2673,7 +2677,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         getSnapshot: () => id,
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
         set(next) { seq += 1; if (next !== id) { id = next; for (const fn of [...listeners]) fn(); } },
-        refresh: () => shareInRun(pending, '', async () => {
+        refresh: () => freshRead(pending, '', async () => {
           const mine = ++seq;
           try {
             const response = await fetch(ASSISTANT_STATUS_ROUTE);
@@ -8734,7 +8738,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         busy: (id) => of(id).busy,
         read(id) {
           if (typeof id !== 'string' || id === '' || of(id).busy) return Promise.resolve();
-          return shareInRun(reads, id, async () => {
+          return freshRead(reads, id, async () => {
             const mine = (seqs.get(id) ?? 0) + 1; seqs.set(id, mine);
             try {
               const data = await ask(undefined, `?${new URLSearchParams({ sessionId: id })}`);

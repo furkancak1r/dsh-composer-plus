@@ -102,6 +102,14 @@ assert.equal(inSpans([[9, 20]], undefined), false);
     lg = gate(); lg.go(); await shared.load('s');
     assert.equal(gets.length, 3, 'a load after that run reads the Host again');
     assert.deepEqual(shared.of('s').spans, [[1, 2]]);
+    // A load while a read runs (a later event) gets a read that starts after it: callers until then share that one read.
+    lg = gate();
+    const first = shared.load('s'); await Promise.resolve();
+    const second = shared.load('s'); const third = shared.load('s');
+    assert.equal(second, third, 'the callers during a read share the next read');
+    assert.equal(gets.length, 4, 'the next read waits for the running one');
+    lg.go(); await first; await second;
+    assert.equal(gets.length, 5, 'then exactly one more read');
   }
   assert.equal(await createRollback(async () => reply(500, { error: 'down' })).load('c'), false, 'an error: no answer');
   assert.equal(await createRollback(async () => { throw new Error('offline'); }).load('c'), false, 'no connection: no answer');
