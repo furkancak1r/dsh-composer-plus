@@ -27,7 +27,7 @@ import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readd
 import { appendFile, chmod, copyFile, cp, lstat, mkdir, mkdtemp, open, readdir, readFile, readlink, realpath, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { homedir, platform as osPlatform, release as osRelease, userInfo } from 'node:os';
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createGateway, createRelay, macName, normFp, parseComputerLink } from './tether/gateway/server.mjs';
 import { request as httpsRequest } from 'node:https';
 import { fileURLToPath } from 'node:url';
@@ -2438,7 +2438,7 @@ export function apply(ctx) {
   installWorktrees(ctx, home);
   installBranchTree(ctx, home);
   installDefaultWorkspace(ctx, home);
-  installMemory(ctx, home);
+  const memory = installMemory(ctx, home);
   installProtectedFiles(ctx, home);
   installBlockedCommands(ctx, home);
   installHandoff(ctx, home);
@@ -2453,6 +2453,7 @@ export function apply(ctx) {
   const assistant = installAssistant(ctx, home);
   installAssistantBot(ctx, home, assistant, { outage });
   installAssistantTodos(ctx, home, assistant, { outage });
+  installAssistantSetup(ctx, assistant, memory);
   installSecrets(ctx, home);
   installBackup(ctx, home);
 }
@@ -7316,10 +7317,16 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
     if (topic === undefined) throw refused(`"${String(raw).slice(0, 60)}" cannot be a topic name: use a short word or two, such as "deploy" or "api".`);
     return topic;
   };
+  /** Assistant setup's gate (`block(fn)`): `fn(<root chat id>)` gives a reason while that chat must not save notes (the
+   * assistant chat before its Obsidian vault is ready), else undefined. */
+  let blocked = async () => undefined;
   /** Every memory tool refuses in a chat with the memory off (also for a dsh without `tools.restrict`), before it reads or
-   * writes anything, the global memory too. */
-  const guarded = (tool) => ({ ...tool, execute: (args, exec) => {
-    if (offFor(exec?.agent?.id)) return Promise.reject(refused('The project memory is switched off for this chat. Do not use the memory tools here.'));
+   * writes anything, the global memory too. A tool that saves also refuses while the gate blocks the chat's root chat. */
+  const guarded = (tool) => ({ ...tool, execute: async (args, exec) => {
+    if (offFor(exec?.agent?.id)) throw refused('The project memory is switched off for this chat. Do not use the memory tools here.');
+    // The root chat: from the agent's own header first (a subagent that dsh's agent list does not have any more).
+    const parent = exec?.agent?.session?.header?.parentSession;
+    if (tool.name !== 'memory_recall' && isText(exec?.agent?.id)) { const why = await blocked(rootOf(isText(parent) ? parent : exec.agent.id)); if (why !== undefined) throw refused(why); }
     return tool.execute(args, exec);
   } });
   const tools = [
@@ -7407,6 +7414,8 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
     const cwd = folderOf(header);
     const through = events.at(-1)?.seq;
     if (!on || cwd === undefined || through === undefined) return;
+    // A chat that the gate blocks is not read now; its cursor stays, so the review reads these lines when it is ready.
+    if (await blocked(id) !== undefined) return;
     const since = (await cursors.read())[id];
     if (Number.isSafeInteger(since) && through <= since) return;
     // The user's answers on question cards count as the user's words: the user often gives a decision there.
@@ -7549,25 +7558,32 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
           if (next === undefined) return json({ error: 'write an absolute folder path, for example ~/Notes/Memory' }, 400);
           const problem = next === '' ? undefined : memoryFolderProblem(next);
           if (problem !== undefined) return json({ error: problem }, 409);
-          const change = switching.then(async () => {
-            await writeFolderFile({ ...(next === '' ? {} : { folder: next }), ...(importedFolder === undefined ? {} : { imported: importedFolder }) });
-            savedFolder = next;
-          });
-          switching = change.catch(() => {});
-          try { await change; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+          try { await saveFolder(next); } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
           return json(answer());
         }
         if (keys !== 'on' || typeof body.on !== 'boolean') return json({ error: 'bad request' }, 400);
-        // The notes were not copied into the memory folder: switching on now would start a new memory there and the copy
-        // would never run. The next dsh start tries the copy again.
-        if (body.on && !(await imported)) return json({ error: `the notes are not in ${folder} yet; restart dsh to copy them` }, 409);
-        const change = switching.then(async () => { await sw.write(body.on); apply(body.on); });
-        switching = change.catch(() => {});
-        try { await change; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+        try { await saveOn(body.on); } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
       }
       return json(answer());
     },
   });
+  /** The memory folder (an absolute path, or '' for the default) is saved, in `switching` order; it works from the next start. */
+  function saveFolder(next) {
+    const change = switching.then(async () => {
+      await writeFolderFile({ ...(next === '' ? {} : { folder: next }), ...(importedFolder === undefined ? {} : { imported: importedFolder }) });
+      savedFolder = next;
+    });
+    switching = change.catch(() => {});
+    return change;
+  }
+  /** The switch, in `switching` order. The notes were not copied into the memory folder: switching on now would start a
+   * new memory there and the copy would never run, so it is refused (the next dsh start tries the copy again). */
+  async function saveOn(value) {
+    if (value && !(await imported)) throw refused(`the notes are not in ${folder} yet; restart dsh to copy them`);
+    const change = switching.then(async () => { await sw.write(value); apply(value); });
+    switching = change.catch(() => {});
+    return change;
+  }
 
   /** Do not use the memory in this chat. GET: the switch `{on}`; GET `?sessionId`: `{on, off}` for that chat. POST `{on}`:
    * the switch. POST `{sessionId, off}`: this chat's setting, saved at once; the next model request of that chat follows it
@@ -7962,7 +7978,7 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });
-  return { store, history, ready, historyReady, review, sectionFor, tools };
+  return { store, history, ready, historyReady, review, sectionFor, tools, state: answer, saveFolder, saveOn, block: (fn) => { blocked = fn; } };
 }
 
 /** Backup (dsh-backup's work, see backup.mjs): the archives in one folder next to the dsh home. ponytail: one fixed folder,
@@ -9756,7 +9772,133 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     extra.add(more); remount();
     return { remount, off: () => { extra.delete(more); remount(); } };
   };
-  return { ready, tools, ensure, isOn: () => on, id: () => assistantId, isAssistant, tasks, endedTasks, addTools };
+  return { ready, tools, ensure, isOn: () => on, id: () => assistantId, isAssistant, tasks, endedTasks, addTools, folder };
+}
+
+/* Assistant setup (part of Assistant): the assistant keeps its memory and the user's notes in an Obsidian vault, so
+ * Obsidian is a required part. The check reads the disk only (Obsidian's default install folders and its own vault list,
+ * obsidian.json): Obsidian is installed, it knows the assistant folder (or a folder above it) as a vault, Project memory
+ * is on with its memory folder in that vault (from this dsh run on), and the assistant folder has its rules file
+ * AGENTS.md. Until each part is ready, the client shows a setup card in the assistant chat, and the memory tools and the
+ * review save no note of the assistant chat or its subagents (other chats keep their memory). Nothing is downloaded or
+ * installed: the card links to Obsidian's download page. The folder name is never fixed: a renamed folder that ~/Assistant
+ * links to passes when Obsidian knows its real path. */
+export const ASSISTANT_SETUP_PATH = '/api/composer-plus.assistant-setup';
+export const OBSIDIAN_DOWNLOAD = 'https://obsidian.md/download';
+export const SETUP_BLOCKED = 'Composer Plus → Assistant setup: Obsidian and its vault are not ready, so this chat saves no memory yet. Tell the user to finish the setup card above the input (Check again), then try again.';
+/** Obsidian's app in its default install folders. */
+export function obsidianApps(platform = osPlatform(), home = homedir(), env = process.env) {
+  if (platform === 'darwin') return ['/Applications/Obsidian.app', join(home, 'Applications', 'Obsidian.app')];
+  if (platform === 'win32') return [env.LOCALAPPDATA && join(env.LOCALAPPDATA, 'Programs', 'Obsidian', 'Obsidian.exe'), env.ProgramFiles && join(env.ProgramFiles, 'Obsidian', 'Obsidian.exe')].filter(Boolean);
+  return ['/usr/bin/obsidian', '/opt/Obsidian/obsidian', '/snap/bin/obsidian', '/var/lib/flatpak/exports/bin/md.obsidian.Obsidian', join(home, '.local', 'share', 'flatpak', 'exports', 'bin', 'md.obsidian.Obsidian')];
+}
+/** Obsidian's global settings file with its vault list (obsidian.md/help/data-storage; Snap and Flatpak keep their own). */
+export function obsidianConfigs(platform = osPlatform(), home = homedir(), env = process.env) {
+  if (platform === 'darwin') return [join(home, 'Library', 'Application Support', 'obsidian', 'obsidian.json')];
+  if (platform === 'win32') return env.APPDATA ? [join(env.APPDATA, 'obsidian', 'obsidian.json')] : [];
+  return [join(env.XDG_CONFIG_HOME || join(home, '.config'), 'obsidian', 'obsidian.json'), join(home, 'snap', 'obsidian', 'current', '.config', 'obsidian', 'obsidian.json'),
+    join(home, '.var', 'app', 'md.obsidian.Obsidian', 'config', 'obsidian', 'obsidian.json')];
+}
+/** The real path of `path`; for a missing path, the real path of its nearest existing folder and the missing names. */
+async function realish(path) {
+  try { return await realpath(path); } catch (error) {
+    if (error?.code !== 'ENOENT' || dirname(path) === path) return undefined;
+    const up = await realish(dirname(path));
+    return up === undefined ? undefined : join(up, basename(path));
+  }
+}
+/** The real paths of the vaults in the first obsidian.json that can be read, or undefined when none can. */
+async function obsidianVaults(configs) {
+  for (const file of configs) {
+    try {
+      const info = await stat(file);
+      if (!info.isFile() || info.size > 1024 * 1024) continue; // a FIFO would block the read
+      const vaults = JSON.parse(await readFile(file, 'utf8'))?.vaults;
+      const paths = plainObject(vaults) ? Object.values(vaults).map((v) => v?.path).filter((p) => isText(p, 4096) && isAbsolute(p)) : [];
+      return (await Promise.all(paths.map((p) => realpath(p).catch(() => undefined)))).filter(Boolean);
+    } catch { /* missing or broken: the next one */ }
+  }
+  return undefined;
+}
+/** The setup state: `{ready, folder, steps: {obsidian, vault, memory: 'done'|'restart'|'missing', rules}}`. `folder` is the
+ * assistant folder; `memory` is installMemory's handle (its `state()`: on, folder, folderActive, folderProblem). */
+export async function assistantSetup({ folder, memory, home = homedir(), apps = obsidianApps(undefined, home), configs = obsidianConfigs(undefined, home) }) {
+  const vaults = await obsidianVaults(configs);
+  const installed = vaults !== undefined || (await Promise.all(apps.map((p) => stat(p).then(() => true, () => false)))).some(Boolean);
+  const real = await realpath(folder).catch(() => undefined);
+  const vault = real === undefined ? undefined : vaults?.find((v) => inside(real, v));
+  const m = memory?.state?.() ?? {};
+  const saved = isText(m.folder, 4096) ? await realish(m.folder) : undefined;
+  const active = isText(m.folderActive, 4096) && m.folderProblem === undefined ? await realish(m.folderActive) : undefined;
+  const memoryStep = m.on === true && vault !== undefined && active !== undefined && inside(active, vault) ? 'done'
+    : m.on === true && saved !== undefined && real !== undefined && inside(saved, vault ?? real) && m.folder !== m.folderActive ? 'restart' : 'missing';
+  const rules = real !== undefined && await stat(join(real, 'AGENTS.md')).then((s) => s.isFile() && s.size > 0, () => false);
+  const shown = folder.startsWith(`${home}${sep}`) ? `~${folder.slice(home.length)}` : folder;
+  const steps = { obsidian: installed, vault: vault !== undefined, memory: memoryStep, rules };
+  return { ready: installed && vault !== undefined && memoryStep === 'done' && rules, folder: shown, steps, download: OBSIDIAN_DOWNLOAD };
+}
+/** The vault rules that Set up writes into a missing AGENTS.md of the assistant folder (`memoryDir`: the memory folder,
+ * relative to it). Never written over a file that is there. */
+export const vaultRules = (memoryDir) => `# Vault rules
+
+This folder is the user's Obsidian vault. The assistant works in it. Write your own rules below: Composer Plus wrote this file once and never changes it.
+
+- Keep the user's personal notes and documents as Markdown notes in this vault.
+- The memory notes are in ${memoryDir}/: ${MEMORY_GLOBAL_DIR}/ for every project, ${MEMORY_PROJECTS_DIR}/<project>/ for each project. memory_remember writes there. Do not change these files by hand: use memory_remember, memory_forget and memory_recall.
+- Before you answer a question about the user's notes, search the vault with grep and glob. Try other spellings too.
+- Never write a password, a token or a key into the vault.
+- Never read, search or change a folder that this file marks as private.
+`;
+/** A memory folder name from the client (the UI language's word): one plain folder name. */
+const setupName = (raw) => (isText(raw, 64) && raw === raw.trim() && !/[/\\\0]/.test(raw) && !raw.startsWith('.') ? raw : undefined);
+
+/** Assistant setup (Host half): the check route, Set up, and the memory gate. `assistant`: installAssistant's handle;
+ * `memory`: installMemory's handle. */
+export function installAssistantSetup(ctx, assistant, memory, { home = homedir(), apps, configs } = {}) {
+  const check = () => assistantSetup({ folder: assistant.folder, memory, home, ...(apps === undefined ? {} : { apps }), ...(configs === undefined ? {} : { configs }) });
+  // The memory tools and the review of the assistant chat (and its subagents: their root chat) save nothing until it is ready.
+  memory?.block?.(async (rootId) => (assistant.isOn() && isText(rootId) && rootId === assistant.id() && !(await check().then((s) => s.ready, () => false)) ? SETUP_BLOCKED : undefined));
+  let fixing = Promise.resolve();
+  /** Set up: what Composer Plus may do itself. The memory folder goes into the vault (`<assistant folder>/<name>` unless
+   * the saved one is already in it) and Project memory goes on; AGENTS.md is written only when it is missing. */
+  const fix = (name) => (fixing = fixing.catch(() => {}).then(async () => {
+    const now = await check();
+    await mkdir(assistant.folder, { recursive: true });
+    const real = await realpath(assistant.folder);
+    const vault = now.steps.vault ? (await obsidianVaults(configs ?? obsidianConfigs(undefined, home)))?.find((v) => inside(real, v)) ?? real : real;
+    const m = memory.state();
+    const saved = isText(m.folder, 4096) ? await realish(m.folder) : undefined;
+    const target = saved !== undefined && inside(saved, vault) ? m.folder : join(real, name);
+    if (target !== m.folder) {
+      const problem = memoryFolderProblem(target);
+      if (problem !== undefined) throw refused(problem);
+      await memory.saveFolder(target);
+    }
+    if (m.on !== true) await memory.saveOn(true);
+    const rel = relative(real, (await realish(target)) ?? target);
+    try {
+      const file = await open(join(real, 'AGENTS.md'), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
+      try { await file.writeFile(vaultRules(rel === '' || rel.startsWith('..') ? target : rel)); } finally { await file.close(); }
+    } catch (error) { if (error?.code !== 'EEXIST') throw error; }
+    return check();
+  }));
+  ctx.connection.fetch.register({
+    path: ASSISTANT_SETUP_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    /** GET: the setup state. POST `{fix: {name}}`: Set up, then the setup state. */
+    fetch: async (request) => {
+      await assistant.ready;
+      if (!assistant.isOn()) return json({ error: 'Assistant is off' }, 409);
+      try {
+        if (request.method === 'GET') return json(await check());
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        const name = plainObject(body) && Object.keys(body).join() === 'fix' && plainObject(body.fix) && Object.keys(body.fix).join() === 'name' ? setupName(body.fix.name) : undefined;
+        if (name === undefined || memory === undefined) return json({ error: 'bad request' }, 400);
+        return json(await fix(name));
+      } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
+    },
+  });
+  return { check, fix };
 }
 
 /* The assistant as a bot: three Host parts next to installAssistant.

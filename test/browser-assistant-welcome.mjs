@@ -5,6 +5,10 @@
 // 2. Switch off in Settings: the card and its style go; switch on and click Assistant again: the card comes back.
 // 3. The first message hides the card; a new chat in another project never shows it; the next click on Assistant opens
 //    the same chat without the card. No page errors.
+// 0. Before that, a new user without Obsidian (Project memory on): the setup card shows the four steps as missing, the
+//    official download link, Set up and Check again; a memory_remember of the assistant chat is refused and no memory file
+//    is written. Set up writes AGENTS.md and the memory folder setting in ~/Assistant; a made-up Obsidian settings file
+//    that knows ~/Assistant as a vault and a dsh restart make it ready (the welcome card shows).
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-welcome.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=/path/to/file.png also saves a screenshot of step 1 (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -12,7 +16,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, symlink, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, realpath, readdir, readFile } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,12 +31,21 @@ const until = async (fn, what, ms = 30000) => {
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(250); }
 };
 
-// Fake OpenAI-compatible model: every answer is "ok".
+// Fake OpenAI-compatible model: every answer is "ok"; "save this" in the assistant chat calls memory_remember once.
+const toolResults = [];
 const fake = createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
     const parsed = JSON.parse(body);
     res.writeHead(200, { 'content-type': 'text/event-stream' });
+    const msgs = parsed.messages ?? []; const tool = msgs.findLast((m) => m.role === 'tool');
+    const own = msgs.findLast((m) => m.role === 'user' && /^save this/.test(String(typeof m.content === 'string' ? m.content : (m.content ?? []).map((c) => c.text ?? '').join(''))));
+    if (own !== undefined && msgs.indexOf(tool) < msgs.indexOf(own) && (parsed.tools ?? []).some((t) => t.function?.name === 'memory_remember')) {
+      res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'call_mem', type: 'function', function: { name: 'memory_remember', arguments: '{"text":"The user likes tea"}' } }] }, finish_reason: null }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })}\n\n`);
+      res.end('data: [DONE]\n\n'); return;
+    }
+    if (tool !== undefined) toolResults.push(String(typeof tool.content === 'string' ? tool.content : (tool.content ?? []).map((c) => c.text ?? '').join('')));
     res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null }] })}\n\n`);
     res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 5, completion_tokens: 1, total_tokens: 6 } })}\n\n`);
     res.end('data: [DONE]\n\n');
@@ -73,19 +86,27 @@ try {
   config: { provider: demo, model: demo }
 `);
     const dir = join(home, 'projects', 'acme-web'); await mkdir(dir, { recursive: true }); await writeFile(join(dir, 'README.md'), '# acme-web\n');
+    await mkdir(join(dshHome, 'storages/dsh-composer-plus'), { recursive: true });
+    await writeFile(join(dshHome, 'storages/dsh-composer-plus/memory.json'), '{"on":true}');
     const wsId = randomUUID(); const now = new Date().toISOString();
     await mkdir(join(dshHome, 'storages'), { recursive: true });
     await writeFile(join(dshHome, 'storages/workspace.json'), JSON.stringify({ unit: { name: 'workspace', version: 2 },
       global: { initialized: true, workspaceIds: [wsId], archivedSessionIds: [], pinnedSessionIds: [], defaultWorkspaceId: wsId },
       tables: { workspaces: { [wsId]: { path: dir, title: 'acme-web', sessionIds: [], createdAt: now, updatedAt: now } } } }));
-    const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3214', '--no-open'], { cwd: dir,
-      env: { ...process.env, HOME: home, DSH_HOME: dshHome, DEMO_KEY: 'demo', npm_config_cache: join(tmpdir(), 'npm-cache'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
-    let log = ''; child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
+    let child; let log = '';
+    const start = async () => {
+      log = '';
+      child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3214', '--no-open'], { cwd: dir,
+        env: { ...process.env, HOME: home, DSH_HOME: dshHome, DEMO_KEY: 'demo', npm_config_cache: join(tmpdir(), 'npm-cache'), npm_config_update_notifier: 'false', npm_config_fund: 'false', npm_config_audit: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
+      child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
+      for (let i = 0; i < 200 && !log.match(/http:\/\/[^\s]*token=[^\s]*/); i++) { if (child.exitCode !== null) throw Error(`test dsh exited (${child.exitCode})`); await pause(250); }
+      return log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0];
+    };
+    const stop = async () => { child.kill('SIGTERM'); await new Promise((r) => { if (child.exitCode !== null) r(); else child.once('exit', r); }); };
     const errors = []; let context; let page; let passed = false;
     const note = (line) => console.log(`  ${line}`);
     try {
-      for (let i = 0; i < 200 && !log.match(/http:\/\/[^\s]*token=[^\s]*/); i++) { if (child.exitCode !== null) throw Error(`test dsh exited (${child.exitCode})`); await pause(250); }
-      const url = log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0]; assert.ok(url, 'test server URL available');
+      let url = await start(); assert.ok(url, 'test server URL available');
       context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
       await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.features') === null) localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}'); });
       page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
@@ -96,7 +117,7 @@ try {
       }
       const close = page.getByRole('dialog', { name: /^Get started$/ }).getByRole('button', { name: /^Close$/ });
       if (await close.waitFor({ timeout: 2000 }).then(() => true, () => false)) { await close.click(); await close.waitFor({ state: 'hidden' }); }
-      const input = page.locator('[data-composer-input]'); await input.first().waitFor({ timeout: 20000 });
+      let input = page.locator('[data-composer-input]'); await input.first().waitFor({ timeout: 20000 });
       const api = (path) => page.evaluate(async (p) => { const r = await fetch(p); return { status: r.status, body: await r.json().catch(() => null) }; }, path);
       const settings = async () => {
         const direct = page.getByRole('button', { name: 'Settings', exact: true });
@@ -112,7 +133,63 @@ try {
         await overlay.waitFor({ state: 'detached' }); await pause(400);
       };
       const assistantRow = () => page.locator('button[aria-label="Damon"]');
-      const card = page.locator('[data-composer-plus-assistant-welcome]');
+      let card; let setupCard;
+      const bind = () => { input = page.locator('[data-composer-input]'); card = page.locator('[data-composer-plus-assistant-welcome]:not([data-composer-plus-assistant-setup])'); setupCard = page.locator('[data-composer-plus-assistant-setup]'); };
+      bind();
+      const memFiles = async (at) => { const out = []; const walk = async (d) => { for (const e of await readdir(d, { withFileTypes: true }).catch(() => [])) { if (e.isDirectory()) await walk(join(d, e.name)); else if (e.name.endsWith('.md')) out.push(join(d, e.name)); } }; await walk(at); return out; };
+
+      // 0. A new user without Obsidian: the setup card; the assistant saves no memory.
+      await assistantRow().waitFor({ timeout: 10000 });
+      await assistantRow().click();
+      const id0 = await until(async () => { const r = await api('/api/composer-plus.assistant'); return r.status === 200 && r.body.sessionId; }, 'assistant chat id');
+      await setupCard.waitFor({ timeout: 20000 });
+      assert.equal(await card.count(), 0, 'no welcome card before the setup is ready');
+      const setupText = await setupCard.innerText();
+      for (const part of ['Set up Obsidian for Damon', 'Obsidian is installed', 'Obsidian knows the folder ~/Assistant as a vault', 'Project memory is on', 'AGENTS.md']) assert.ok(setupText.includes(part), `setup card has "${part}": ${setupText}`);
+      // /Applications is not in the made-up home: on a Mac with Obsidian there, the first step is done.
+      const appThere = process.platform === 'darwin' && existsSync('/Applications/Obsidian.app');
+      assert.deepEqual(await setupCard.locator('[data-step]').evaluateAll((els) => els.map((e) => [e.dataset.step, e.dataset.state])), [['obsidian', appThere ? 'done' : 'missing'], ['vault', 'missing'], ['memory', 'missing'], ['rules', 'missing']]);
+      if (!appThere) assert.equal(await setupCard.getByRole('link', { name: 'Download Obsidian' }).getAttribute('href'), 'https://obsidian.md/download');
+      await input.first().click(); await page.keyboard.type('save this', { delay: 5 }); await page.keyboard.press('Enter');
+      await until(() => toolResults.length > 0, 'the memory_remember result', 30000);
+      assert.match(toolResults[0], /Assistant setup: Obsidian and its vault are not ready, so this chat saves no memory yet/, `refused: ${toolResults[0]}`);
+      await pause(3500); // the memory review of the turn (2 s after it)
+      assert.deepEqual(await memFiles(join(dshHome, 'storages/dsh-composer-plus/memory')), [], 'no memory file under the dsh home');
+      assert.deepEqual(await memFiles(join(home, 'Assistant')), [], 'no memory file in the assistant folder');
+      assert.ok(await setupCard.isVisible(), 'the setup card stays after the first message');
+      note('0a: no Obsidian: the setup card (4 steps missing, download link); memory_remember refused; no memory file written');
+      // Set up: AGENTS.md and the memory folder in ~/Assistant; Obsidian is still missing.
+      await setupCard.getByRole('button', { name: 'Set up', exact: true }).click();
+      await until(async () => (await setupCard.locator('[data-step="rules"]').getAttribute('data-state')) === 'done', 'rules done');
+      assert.equal(await setupCard.locator('[data-step="memory"]').getAttribute('data-state'), 'restart');
+      assert.ok(readFileSync(join(home, 'Assistant', 'AGENTS.md'), 'utf8').startsWith('# Vault rules'));
+      assert.equal(JSON.parse(readFileSync(join(dshHome, 'storages/dsh-composer-plus/memory-folder.json'), 'utf8')).folder, join(home, 'Assistant', 'Memory'));
+      // The user installs Obsidian and opens ~/Assistant as a vault (made up here: its settings file), then restarts dsh.
+      const obsidian = process.platform === 'darwin' ? join(home, 'Library/Application Support/obsidian') : join(home, '.config/obsidian');
+      await mkdir(obsidian, { recursive: true });
+      await writeFile(join(obsidian, 'obsidian.json'), JSON.stringify({ vaults: { abc123: { path: join(home, 'Assistant'), ts: 1, open: true } } }));
+      await context.close(); await stop();
+      url = await start(); assert.ok(url, 'test server URL after the restart');
+      context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
+      await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.features') === null) localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}'); });
+      page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
+      await page.goto(url);
+      await page.locator('[data-composer-input]').first().waitFor({ timeout: 20000 }); bind();
+      const ready = await until(async () => { const r = await api('/api/composer-plus.assistant-setup'); return r.status === 200 && r.body.ready === true && r.body; }, 'setup ready after the restart');
+      assert.deepEqual(ready.steps, { obsidian: true, vault: true, memory: 'done', rules: true });
+      await assistantRow().click(); await pause(1500);
+      assert.equal(await setupCard.count(), 0, 'ready: no setup card');
+      note(`0b: Set up wrote AGENTS.md and the memory folder; with Obsidian's vault and a restart the setup is ready (${id0})`);
+      // The rest of the test starts with a new assistant chat (the old one has a message): Delete chat is not needed,
+      // a new assistant.json makes the Host start a new chat.
+      await context.close(); await stop();
+      await writeFile(join(dshHome, 'storages/dsh-composer-plus/assistant.json'), '{}');
+      url = await start(); assert.ok(url);
+      context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
+      await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.features') === null) localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}'); });
+      page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
+      await page.goto(url);
+      await page.locator('[data-composer-input]').first().waitFor({ timeout: 20000 }); bind();
 
       // 1. The first click: the card shows above the input of the new assistant chat.
       await assistantRow().waitFor({ timeout: 10000 });
@@ -170,7 +247,7 @@ try {
       if (!passed && page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});
       if (!passed) console.log(`  home kept: ${home}\n${log.split('\n').filter((l) => /error|warn|assistant/i.test(l)).slice(-30).join('\n')}`);
       await context?.close().catch(() => {});
-      child.kill('SIGTERM'); await new Promise((r) => { if (child.exitCode !== null) r(); else child.once('exit', r); });
+      await stop();
     }
   }
 } finally { await browser.close(); fake.close(); }
