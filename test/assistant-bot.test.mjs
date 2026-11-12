@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_FREE_PATH, ASSISTANT_NOTIFY_PATH, ASSISTANT_STATUS_PATH, ASSISTANT_FREE_SECTION, assistantFreeTool, assistantNewsNote, installAssistantBot } from '../index.js';
+import { ASSISTANT_FREE_PATH, ASSISTANT_NOTIFY_PATH, ASSISTANT_STATUS_PATH, ASSISTANT_FREE_SECTION, ASSISTANT_SECTION, assistantFreeTool, assistantNewsNote, installAssistantBot } from '../index.js';
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (fn, what, ms = 3000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(5); } };
@@ -45,6 +45,11 @@ assert.match(note, /"New" \(project "q", chat b\): waits for your approval/);
 assert.match(note, /"Mid" .*failed\. Error: "HTTP 500"/);
 assert.doesNotMatch(note, /"Old"/, 'over the cap');
 assert.match(note, /And 1 more chats changed/);
+// The News rule of the prompt agrees with the note: news updates the to-do list, never the status summary.
+const newsRule = ASSISTANT_SECTION.split('\n').find((l) => l.startsWith('- News rule'));
+assert.ok(newsRule, 'the prompt has a News rule line');
+assert.doesNotMatch(newsRule, /status_summary_set replaces|status panel/, 'the News rule does not ask for a status summary');
+assert.match(newsRule, /to-do list/);
 
 // A fake dsh.
 const routes = new Map(); const listeners = new Map(); const sections = new Map(); let fibers = 0;
