@@ -1331,6 +1331,9 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     function createSideChats(request = (url, init) => fetch(url, init)) {
       const starting = new Set();
       const back = new Map(); // parent chat → Bring back text that waits for its composer
+      // Chats that the Host said are not side chats: a chat's parent never changes, so they are not asked again at each
+      // open and turn. ponytail: grows with the chats opened while the page lives (one id each).
+      const plain = new Set();
       const listeners = new Set();
       const emit = () => { for (const fn of [...listeners]) fn(); };
       const call = async (url, init) => {
@@ -1355,7 +1358,12 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         },
         /** `{parent, messages}` of a side chat, or null for another chat. */
         async info(sessionId) {
-          try { return await call(`${SIDE_ROUTE}?${new URLSearchParams({ sessionId })}`); } catch (error) { if (error?.status === 404) return null; throw error; }
+          if (plain.has(sessionId)) return null;
+          try { return await call(`${SIDE_ROUTE}?${new URLSearchParams({ sessionId })}`); } catch (error) {
+            if (error?.status !== 404) throw error;
+            if (error.message === 'not a side chat') plain.add(sessionId);
+            return null;
+          }
         },
         /** Keep the Bring back text for the parent's composer. */
         bringBack(parent, text) { back.set(parent, text); emit(); },

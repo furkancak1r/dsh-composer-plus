@@ -4721,6 +4721,8 @@ export const sideTitle = (text) => {
 /** A side chat's own messages for Bring back: `{parent, messages, truncated}`, the lead taken off its first message;
  * undefined for a chat that is not a side chat. */
 export function sideChatOf(header, events, inherited) {
+  // A chat without a parent is never a side chat: no need to read its messages (each chat open and each turn asks).
+  if (typeof header?.parentSession !== 'string') return undefined;
   const from = Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0;
   // Only the last reply before each question (and at the end): not the agent's notes between its tool calls.
   const own = events.filter((e) => e.seq >= from);
@@ -4732,7 +4734,7 @@ export function sideChatOf(header, events, inherited) {
   }
   if (reply !== undefined) last.add(reply);
   const { messages, truncated } = chatTranscript(own.filter((e) => e.type !== 'assistant/message' || last.has(e.seq)));
-  if (typeof header?.parentSession !== 'string' || messages[0]?.role !== 'user' || !messages[0].text.startsWith(SIDE_LEAD.trim())) return undefined;
+  if (messages[0]?.role !== 'user' || !messages[0].text.startsWith(SIDE_LEAD.trim())) return undefined;
   return { parent: header.parentSession, messages: [{ role: 'user', text: messages[0].text.slice(SIDE_LEAD.length).trim() }, ...messages.slice(1)], truncated };
 }
 /** Start a side chat of `sessionId` with `text`. All or none: when its first message cannot be sent, the copy is archived. */
