@@ -18,7 +18,7 @@ const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ??
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
 const ANCHOR = '/** Feature switches, in Settings order.';
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks };\n    ${ANCHOR}`));
 let cur;
 const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }),
   useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
@@ -34,7 +34,7 @@ const mount = (C, props) => {
   return { render: () => { cur = inst; inst.si = 0; inst.ri = 0; inst.ei = 0; return C(props); }, unmount: () => { for (const c of inst.cleanups) c?.(); } };
 };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host) => ({ portal: el, host }) } : {}));
-const { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX } = globalThis.__ap;
+const { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks } = globalThis.__ap;
 
 // --- parseApprovals ---
 const sentences = (text) => parseApprovals(text).map((a) => a.message);
@@ -232,6 +232,69 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
   cellQuiet.unmount();
 }
 
+// --- The sentence shows once (the owner, 2026-11-12: "kod bloğu içinde onay metni çıkıyor bir de onay butonu çıkıyor
+// ikisinde de aynı metin yazıyor sadece onay butonunun çıkması yeterli") ---
+{
+  const A = 'Onaylıyorum: A dalını push et.'; const B = 'Onaylıyorum: B dalını push et.';
+  const step = (key, seq, text, status = 'settled') => ({ key, kind: 'assistant-step', anchorSeq: seq, data: { status, turn: 1, step: 1, blocks: [{ kind: 'text', text }], finalNode: status === 'settled' ? { seq } : undefined } });
+  const stepTail = (key, turn, seq, text) => ({ ...tail(turn, seq, text), key });
+  const LONG_ONAY = `Onaylıyorum: ${'z '.repeat(260)}`;
+  const two = { nodes: new Map([
+    ['s1', step('s1', 50, `Old.\n\n${block(A)}`)], ['t1', stepTail('t1', 1, 50, `Old.\n\n${block(A)}`)], ['u1', { ...user(55, A), key: 'u1' }],
+    ['s2', step('s2', 60, `New.\n\n${block(B)}\n${block(LONG_ONAY)}\n\`\`\`js\n${B}\n\`\`\``)], ['t2', stepTail('t2', 2, 60, `New.\n\n${block(B)}`)],
+  ]) };
+  const offer = chatOffer(two, [], 0, parseApprovals);
+  assert.deepEqual(offer.options.map((o) => [o.text, o.from]), [[B, 60]], 'the offer names the answer that holds the block');
+  assert.deepEqual(onayMarks(two, offer), [['s1', A, 'text'], ['s2', B, 'button']], 'the button sentence is hidden, an old one is plain text, a too long one stays code');
+  assert.deepEqual(onayMarks(two, undefined), [['s1', A, 'text'], ['s2', B, 'text']], 'no button on screen (sent, chat runs, composer text): each sentence is plain text');
+  const running = { nodes: new Map([['s3', step('s3', 70, block(B), 'running')]]) };
+  assert.deepEqual(onayMarks(running, undefined), [], 'a streaming answer is not touched');
+  assert.match(ONAY_CSS, /\.md-code-block\[data-composer-plus-onay="button"\]\{display:none\}/, 'the button sentence: dsh\'s code block is hidden');
+  assert.match(ONAY_CSS, /\[data-composer-plus-onay="text"\]>:not\(\[data-code-block-content\]\)\{display:none\}/, 'plain text: no code header, no copy button');
+  for (const rule of ONAY_CSS.split('}').map((r) => r.trim()).filter(Boolean)) assert.match(rule.split('{')[0], /data-composer-plus-onay/, `only marked blocks: ${rule}`);
+  // markOnayBlocks on a fake DOM: a code block whose text is the sentence gets the mark; another one does not; the
+  // disposer takes the marks off.
+  const el = (attrs = {}, kids = [], text = '') => {
+    const node = { attrs: { ...attrs }, kids, text, parent: null,
+      getAttribute: (n) => node.attrs[n] ?? null, setAttribute: (n, v) => { node.attrs[n] = String(v); }, removeAttribute: (n) => { delete node.attrs[n]; },
+      closest: (sel) => { const name = /^\[([a-z-]+)\]$/.exec(sel)[1]; for (let at = node; at; at = at.parent) if (name in at.attrs) return at; return null; },
+      get textContent() { return node.text + node.kids.map((k) => k.textContent).join(''); },
+      all: () => node.kids.flatMap((k) => [k, ...k.all()]),
+      querySelector: (sel) => node.querySelectorAll(sel)[0] ?? null,
+      querySelectorAll: (sel) => {
+        if (sel === '[data-chat-node-key] .md-code-block') return node.all().filter((b) => b.attrs.class === 'md-code-block' && b.parent?.closest('[data-chat-node-key]'));
+        if (sel === '[data-code-block-content]') return node.all().filter((k) => 'data-code-block-content' in k.attrs);
+        throw new Error(`selector ${sel}`);
+      } };
+    for (const k of kids) k.parent = node;
+    return node;
+  };
+  const code = (text) => el({ class: 'md-code-block' }, [el({ 'data-code-block-banner': '' }, [], 'onay Copy'), el({ 'data-code-block-content': '' }, [], `${text}\n`)]);
+  const live = code(B); const old = code(A); const other = code('npm test'); const thinking = code(B); const elsewhere = code(B);
+  const root = el({}, [el({ 'data-chat-node-key': 's1' }, [old]), el({ 'data-chat-node-key': 's2' }, [live, other, el({ 'data-markdown-variant': 'compact' }, [thinking])]),
+    el({ 'data-chat-node-key': 's9' }, [elsewhere])]);
+  const off = markOnayBlocks(root, onayMarks(two, offer));
+  assert.equal(live.getAttribute('data-composer-plus-onay'), 'button', 'the code block of the button sentence: hidden');
+  assert.equal(old.getAttribute('data-composer-plus-onay'), 'text', 'the old sentence: plain text');
+  for (const [b, why] of [[other, 'another code block'], [thinking, 'the same text in thinking'], [elsewhere, 'the same text in another row (a tool result)']]) assert.equal(b.getAttribute('data-composer-plus-onay'), null, `${why} stays`);
+  off();
+  assert.deepEqual([live, old].map((b) => b.getAttribute('data-composer-plus-onay')), [null, null], 'off: dsh\'s blocks come back');
+  // OnayCodeBlocks: one per chat; the newest offer decides; no hide before the Host answered (no button yet).
+  view = two; input = { ...input, draft: '' };
+  const layout = []; const keep = React.useLayoutEffect; React.useLayoutEffect = (f, deps) => { layout.push(JSON.parse(deps[0])); };
+  try {
+    const dock = mount(OnayCodeBlocks, { sessionId: 'A', ...hooks, picks: createOptionPicks(async () => {}), check: createRollbackCheck(async () => true), rollback, t });
+    const first = dock.render();
+    assert.equal(first.c[0].t, 'style'); assert.equal(first.c[0].c[0], ONAY_CSS);
+    assert.deepEqual(layout.at(-1).map((m) => m[2]), ['text', 'text'], 'before the button shows: the sentences as plain text');
+    await flush(); dock.render();
+    assert.deepEqual(layout.at(-1), [['s1', A, 'text'], ['s2', B, 'button']], 'the button shows: its code block is hidden');
+    input = { ...input, draft: 'x' }; dock.render();
+    assert.deepEqual(layout.at(-1).map((m) => m[2]), ['text', 'text'], 'composer text hides the button: the sentence comes back as plain text');
+    input = { ...input, draft: '' }; dock.unmount();
+  } finally { React.useLayoutEffect = keep; }
+}
+
 // --- The feature through plugin.apply ---
 {
   const slots = new Map(); let setFeature;
@@ -245,8 +308,11 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
   const face = found[0].inject('A'); assert.equal(typeof face.picks.pick, 'function'); assert.equal(typeof face.check.ask, 'function');
   const options = [...slots.values()].find(([o]) => o.id === 'option-picks');
   assert.equal(options[0].inject('A').picks, face.picks, 'one store with Option picks: one send per answer');
-  setFeature('approveButton', false); assert.equal(slot(), undefined, 'off: no slot');
-  setFeature('approveButton', true); assert.ok(slot(), 'on again');
+  const dockSlot = () => [...slots.values()].find(([o]) => o.id === 'onay-code-blocks');
+  assert.equal(dockSlot()?.[0].name, 'conversation.composer.dock', 'one entry per open chat for the code blocks');
+  assert.equal(dockSlot()[1], OnayCodeBlocks); assert.equal(dockSlot()[0].inject('A').picks, face.picks, 'the same store as the buttons');
+  setFeature('approveButton', false); assert.equal(slot(), undefined, 'off: no slot'); assert.equal(dockSlot(), undefined, 'off: dsh\'s code blocks as they are');
+  setFeature('approveButton', true); assert.ok(slot(), 'on again'); assert.ok(dockSlot());
 }
 
 // --- Host: the prompt rule and its switch ---
