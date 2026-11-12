@@ -1,13 +1,13 @@
 // Real-app check of Refresh and Get summary in the Assistant status panel on each dsh given: a fake model, a throwaway
 // DSH_HOME and HOME, a made-up project (acme-web), Turkish UI. Never the normal DSH_HOME, no real model. Headless, with
 // Chromium's sandbox.
-// 1. Setup: the assistant writes a summary without a request (status_summary_set, as a morning automation) and adds a
-//    to-do item. The panel shows no summary card: only the lists, "Liste HH:MM", Özet getir and Refresh.
+// 1. Setup: the assistant adds a to-do item. The panel shows no summary card: only the lists, "Liste HH:MM", Özet getir
+//    and Refresh. (A summary of a news turn stays closed: test/assistant-status.test.mjs and the client test.)
 // 2. Refresh: within 100 ms the button turns and is aria-disabled, the header says "Yenileniyor…", the old content stays
 //    in place (dimmed), the polite status line says it. The lists come back in less than a second. No summary request.
 // 3. Özet getir: the button and the card say "Özet hazırlanıyor…" while the assistant's turn writes it (a hidden note,
 //    not a chat bubble); a second click and Refresh send no second request; the card then shows the new summary.
-//    Close: the card goes and stays hidden, also after an unrequested summary.
+//    Close: the card goes; a summary that you ask for in the chat opens it again.
 // 4. A turn that ends without a summary: "Yeni özet gelmedi." and Try again (the 5-minute timer itself is in
 //    test/assistant-todos-client.test.mjs).
 // 5. Errors (the Host answers 500/502): a short reason and Try again; Try again works.
@@ -146,19 +146,16 @@ try {
       const ask = panel.locator('.cp-st-ask');
       const spoken = () => panel.locator('[role="status"][aria-live="polite"]').innerText();
 
-      // 1. Setup: an unrequested summary opens no card.
+      // 1. Setup: no summary card by default.
       await page.locator('button[aria-label="Damon"]').click();
       const sessionId = await until(async () => (await page.evaluate(async () => (await (await fetch('/api/composer-plus.assistant-status')).json()).sessionId)), 'assistant id');
-      await send('Morning summary please');
-      await until(async () => calls.some((c) => /Morning summary please/.test(c.newest) && c.after), 'the unrequested summary is written');
       await send('Remember: buy milk'); await panel.getByText('Süt al').waitFor({ timeout: 30000 });
       await pause(1500); await page.mouse.move(10, 10);
-      assert.equal(await card.count(), 0, 'no summary card by default (an unrequested summary does not open it)');
-      assert.equal(await panel.getByText('Giriş sayfası yapılıyor.').count(), 0, 'no summary text anywhere');
+      assert.equal(await card.count(), 0, 'no summary card by default');
       assert.equal(await ask.innerText(), 'Özet getir');
       assert.match(await panel.locator('h2').innerText(), /Liste \d{2}[.:]\d{2}/, 'the list time is named "Liste"');
       await shot(`${version}-0-default`);
-      note('1: no summary card by default (also after an unrequested status_summary_set); "Liste HH:MM", Özet getir and Refresh');
+      note('1: no summary card by default; "Liste HH:MM", Özet getir and Refresh');
 
       // 2. Refresh: the loading state in the same frame, the lists in less than a second, no summary request.
       const summaryPosts = []; page.on('request', (r) => { if (r.method() === 'POST' && /"action":"summary"/.test(r.postData() ?? '')) summaryPosts.push(r); });
@@ -203,9 +200,9 @@ try {
       await card.getByRole('button', { name: 'Özeti gizle' }).click();
       assert.equal(await card.count(), 0, 'closed');
       assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('cp-st-ask')), true, 'the focus goes to Özet getir');
-      await send('Morning summary please'); await until(async () => calls.filter((c) => /Morning summary please/.test(c.newest) && c.after).length === 2, 'a second unrequested summary');
-      await pause(1500); assert.equal(await card.count(), 0, 'stays closed after an unrequested summary');
-      note('3: Özet getir: "Özet hazırlanıyor…", one hidden note, the new summary with "Özet · HH:MM"; close keeps it hidden');
+      await send('Morning summary please'); await card.getByText('Giriş sayfası yapılıyor.').waitFor({ timeout: 30000 });
+      assert.equal(summaryPosts.length, 1, 'a summary asked for in the chat opens the card without Özet getir');
+      note('3: Özet getir: "Özet hazırlanıyor…", one hidden note, the new summary with "Özet · HH:MM"; close; a chat request opens it again');
 
       // 4. A turn that ends without a summary.
       model.summary = 'skip'; model.delay = 500;

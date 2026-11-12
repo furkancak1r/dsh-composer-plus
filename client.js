@@ -3150,7 +3150,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
             // the card, also at the first read after a reload. Not the summary that you closed (this browser keeps its time),
             // and not the answer to a request whose card you closed while it waited (`quiet`).
             if (open && ask.quiet === true && summary !== null && summary.at >= ask.asked) closeSummary(summary.at);
-            const opens = summary?.show === true && summary.at !== of(id).summary?.at && summary.at !== closedSummary();
+            const opens = summary?.show === true && summary.at !== of(id).summary?.at && summary.at !== closedSummary() && sameDay(summary.at, Date.now());
             const nextAsk = off ? null : !open ? ask : summary !== null && summary.at >= ask.asked ? Object.freeze({ ...ask, state: 'done' })
               : ask.state === 'waiting' && mine >= ask.from && (data.missed === true || !Number.isFinite(data.asked)) ? Object.freeze({ ...ask, state: 'late' }) : ask;
             if (nextAsk !== ask && nextAsk?.state !== 'waiting') { clearTimeout(waits.get(id)); waits.delete(id); }

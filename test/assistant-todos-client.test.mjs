@@ -249,6 +249,9 @@ find(dTree, (n) => n.t === 'button' && n.p.className === 'cp-st-link')[0].p.onCl
   await store.askSummary('s-assistant'); close();
   summary = { at: askedAt, show: true, projects: [{ project: 'acme-web', text: 'Answer.' }] }; askedAt = null; await store.load('s-assistant');
   assert.equal(store.of('s-assistant').ask.state, 'done'); assert.equal(cardOf(), undefined, 'closed while it waited: its answer opens nothing');
+  // A reload on a later day: yesterday's morning summary opens no (empty) card.
+  summary = { at: NOW - 86400000 * 2, show: true, projects: [{ project: 'acme-web', text: 'Two days ago.' }] }; await store.load('s-assistant');
+  assert.equal(cardOf(), undefined, 'an older day\'s summary opens nothing');
   summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }] }; await store.load('s-assistant'); rt.clear();
 }
 

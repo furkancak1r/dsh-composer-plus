@@ -213,7 +213,8 @@ try {
     { projects: Array.from({ length: STATUS_LIMITS.projects + 1 }, (_, i) => ({ project: `p${i}`, text: 't' })) }]) {
     await assert.rejects(tool.execute(bad, { agent: assistantAgent }), (e) => e.status === 400, JSON.stringify(bad).slice(0, 50));
   }
-  assert.match(await tool.execute({ projects: [{ project: 'acme-web', text: '  Login page   done. ' }, { project: 'weather-cli', text: 'Tests fail.' }] }, { agent: assistantAgent }), /summary of 2 projects/);
+  // No request and no typed or scheduled turn in the log: stored only (the tool result says so; see the morning summary below).
+  assert.match(await tool.execute({ projects: [{ project: 'acme-web', text: '  Login page   done. ' }, { project: 'weather-cli', text: 'Tests fail.' }] }, { agent: assistantAgent }), /^The summary is stored\./);
   r = await call('?sessionId=s-a');
   assert.deepEqual(r.body.summary, { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }, { project: 'weather-cli', text: 'Tests fail.' }] });
   const file = join(dir, 'assistant-summary.json');
@@ -315,7 +316,8 @@ try {
       await sw(true); assert.equal((await call('?sessionId=s-a')).body.asked, undefined, 'off forgets the request');
     }
     // The morning summary: status_summary_set in a turn that a scheduled task started opens the card (`show`) like a Get
-    // summary answer. A summary in a typed turn (or a turn of Assistant news after it) without a request is stored only.
+    // summary answer, and so does a summary in a typed turn (the user asks in the chat). A summary in a turn of Assistant
+    // news (background news) is stored only, and its tool result says so.
     {
       const log = assistantAgent.session.snapshotEvents(); const base = log.length;
       const add = (type, data) => log.push({ seq: log.length, type, data, time: clock });
@@ -327,10 +329,10 @@ try {
       assert.equal((await call('?sessionId=s-a')).body.summary.show, true, 'its update in the same turn too');
       add('turn/end', {}); add('turn/start', {}); add('user/message', { source: { kind: 'user', rpcId: 'r9' } });
       clock += 1; await tool.execute({ projects: [{ project: 'acme-web', text: 'Typed.' }] }, { agent: assistantAgent });
-      r = await call('?sessionId=s-a'); assert.equal(r.body.summary.show, undefined, 'a typed turn without a request: stored only');
+      r = await call('?sessionId=s-a'); assert.equal(r.body.summary.show, true, 'the user asks in the chat: it opens the card');
       add('turn/end', {}); add('turn/start', {}); add('user/message', { source: { kind: 'schedule' } }); add('turn/end', {});
       add('turn/start', {}); add('user/message', { source: { kind: 'composer-plus-assistant-news' } });
-      clock += 1; await tool.execute({ projects: [{ project: 'acme-web', text: 'News.' }] }, { agent: assistantAgent });
+      clock += 1; assert.match(await tool.execute({ projects: [{ project: 'acme-web', text: 'News.' }] }, { agent: assistantAgent }), /^The summary is stored\. .*do not write it in the chat/);
       assert.equal((await call('?sessionId=s-a')).body.summary.show, undefined, 'a news turn after the morning summary: stored only');
       log.splice(base);
     }

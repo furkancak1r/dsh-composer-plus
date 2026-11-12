@@ -9927,12 +9927,12 @@ function queuedPrompts(events) {
   return taken;
 }
 
-/** True when a schedule started the newest turn of `agent`: the first own prompt (a typed prompt or a scheduled delivery,
- * not dsh's context messages; not a fork's copy of its parent) of the newest turn that has one is dsh's scheduled delivery
- * (`source.kind: 'schedule'`). A turn whose first step failed logs no prompt: the queued message that dsh took to start it
- * counts then. A turn without one (a subagent's result, a resume, a Get summary note) continues the turn before it. Read from
- * the end: no cache, so a typed turn in an automation chat is not an automation. */
-function scheduledTurn(agent) {
+/** What started the newest turn of `agent`: the source kind of the first own prompt (a typed prompt `user`, dsh's scheduled
+ * delivery `schedule`, Assistant news; not dsh's context messages; not a fork's copy of its parent) of the newest turn that
+ * has one. A turn whose first step failed logs no prompt: the queued message that dsh took to start it counts then. A turn
+ * without one (a subagent's result, a resume, a Get summary note) continues the turn before it. Read from the end: no
+ * cache, so a typed turn in an automation chat is not an automation. */
+function turnPrompt(agent) {
   let events = []; try { events = agent?.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
   const from = Number.isSafeInteger(agent?.session?.inheritedEventCount) && agent.session.inheritedEventCount > 0 ? agent.session.inheritedEventCount : 0;
   let prompt; let taken;
@@ -9944,7 +9944,7 @@ function scheduledTurn(agent) {
       if (prompt !== undefined) break;
     }
   }
-  return prompt === 'schedule';
+  return prompt;
 }
 // The prompts that start a turn of their own: yours, a scheduled delivery, and Assistant news (only in the assistant chat:
 // a news turn after the morning summary is not the morning summary).
@@ -10055,8 +10055,8 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   const notes = new Map(); // assistant agent id → the note that its next step gets
   let flushTimer; let lastWake = -Infinity; let afterIdle = false; let closed = false;
   const watched = (session) => notifyOn && assistant.isOn() && isText(assistant.id()) && isText(session?.id) && session.id !== assistant.id() && isRootChat(session) && !archived(session.id);
-  /** True for a turn that a schedule started (an automation), also in a chat that you started (scheduledTurn). */
-  const automation = (session) => scheduledTurn(live(session.id));
+  /** True for a turn that a schedule started (an automation), also in a chat that you started. */
+  const automation = (session) => turnPrompt(live(session.id)) === 'schedule';
   const clearAll = () => { pending.clear(); starts.clear(); for (const t of waits.values()) clearTimeout(t); waits.clear(); clearTimeout(flushTimer); flushTimer = undefined; afterIdle = false; };
   const schedule = (ms) => { if (flushTimer === undefined && !closed) { flushTimer = setTimeout(flush, Math.max(0, ms)); flushTimer.unref?.(); } };
   const add = async (session, item) => {
@@ -10512,11 +10512,13 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         if (projects.length === 0 || projects.length > STATUS_LIMITS.projects || !projects.every((p) => isText(p.project, STATUS_LIMITS.project) && isText(p.text, STATUS_LIMITS.text))) {
           throw refused(`projects is 1 to ${STATUS_LIMITS.projects} items, each with project (1 to ${STATUS_LIMITS.project} characters) and text (1 to ${STATUS_LIMITS.text} characters).`, 400);
         }
-        // The summary of a Get summary request or of a scheduled turn (the morning summary) opens the panel's card (`show`);
-        // another one is stored only.
-        await summaries.set(id, { at: now(), projects, ...(asks.has(id) || scheduledTurn(exec.agent) ? { show: true } : {}) });
+        // The summary of a Get summary request, of your message in the chat or of a scheduled turn (the morning summary)
+        // opens the panel's card (`show`); another one (a news turn) is stored only.
+        const show = asks.has(id) || ['user', 'schedule'].includes(turnPrompt(exec.agent));
+        await summaries.set(id, { at: now(), projects, ...(show ? { show: true } : {}) });
         asks.delete(id); // the Get summary request got its summary
-        return `The status panel shows the summary of ${projects.length} projects. Write at most one sentence in the chat (for news, use the news rule).`;
+        return show ? `The status panel shows the summary of ${projects.length} projects. Write at most one sentence in the chat.`
+          : 'The summary is stored. The status panel shows a summary only when the user asks for it: do not write it in the chat (for news, use the news rule).';
       },
     },
   ];
