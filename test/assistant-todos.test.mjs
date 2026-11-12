@@ -73,6 +73,11 @@ assert.equal(keptAside.length, 1, 'a broken file is kept as a.json.broken-<time>
 assert.equal(await readFile(join(brokenDir, keptAside[0]), 'utf8'), '{not json', 'with its old bytes');
 await writeFile(join(brokenDir, 'b.json'), JSON.stringify({ lists: { 's-a': [{ id: 'xyz', text: 'bad id', owner: 'user', created: 1 }, { id: '44444444', text: 'ok', owner: 'agent', created: 1 }, { id: '55555555', text: 'bad owner', owner: 'x', created: 1 }] } }));
 const mixed = todoStore(join(brokenDir, 'b.json')); await mixed.ready; assert.deepEqual(mixed.of('s-a').map((i) => i.id), ['44444444'], 'broken items are left out');
+// An id that is no string (here one that cannot become a string) is a broken item too: no half-read file is kept aside.
+await writeFile(join(brokenDir, 'c.json'), JSON.stringify({ lists: { 's-a': [{ id: { toString: 1 }, text: 'bad', owner: 'user', created: 1 }, { id: '66666666', text: 'ok', owner: 'user', created: 1 }], 's-b': [{ id: '77777777', text: 'ok', owner: 'agent', created: 1 }] } }));
+const odd = todoStore(join(brokenDir, 'c.json')); await odd.ready;
+assert.deepEqual([odd.of('s-a').map((i) => i.id), odd.of('s-b').map((i) => i.id)], [['66666666'], ['77777777']], 'an object id is left out');
+assert.ok(!(await readdir(brokenDir)).some((n) => n.startsWith('c.json.broken-')), 'and the file is not kept aside');
 
 // A fake dsh with the real installAssistant.
 const listeners = new Map(); const routes = new Map(); const sections = new Map(); const contexts = new Map(); const agents = new Map(); const prompts = [];

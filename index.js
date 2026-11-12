@@ -10241,7 +10241,7 @@ const TODO_ID = /^[0-9a-f]{8}$/;
 const todoText = (raw) => String(raw ?? '').replace(/\s+/g, ' ').trim();
 const todoKey = (text) => foldName(text);
 /** A saved item, or undefined when the value is not one. */
-const todoItem = (v) => (plainObject(v) && TODO_ID.test(v.id) && isText(v.text, TODO_LIMITS.text) && (v.owner === 'user' || v.owner === 'agent') && Number.isSafeInteger(v.created)
+const todoItem = (v) => (plainObject(v) && typeof v.id === 'string' && TODO_ID.test(v.id) && isText(v.text, TODO_LIMITS.text) && (v.owner === 'user' || v.owner === 'agent') && Number.isSafeInteger(v.created)
   ? { id: v.id, text: v.text, owner: v.owner, created: v.created } : undefined);
 
 /** The list logic (pure; each answers a new list and never changes the given one). */
