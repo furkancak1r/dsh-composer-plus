@@ -806,14 +806,23 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * rollback that may run at a time. Every entry point (button, popover keys) goes through `run`, which refuses a second
      * rollback of the same chat while one runs. */
     const ROLLBACK_ROUTE = '/api/composer-plus.rollback';
-    /** One Host read per key at a time, and each caller gets an answer that the Host read after its call. The callers of
-     * the run that started a read (the effects of one React commit, the listeners of one store change) share it: they saw
-     * the same state. A caller while it runs gets the next read, which starts when this one ends; every caller until then
-     * shares that next read. */
-    function freshRead(reads, key, start) {
+    /** One Host read per key for the callers of one synchronous run (the effects of one React commit, the listeners of one
+     * store change): they saw the same state, so they share the read that the first one started. A caller after that run
+     * starts a new read, as before. With `follow` (Turn rollback's state, read again by three parts of the chat at a turn
+     * edge): a caller while a read runs gets the next read instead, which starts when that read ends, and every caller
+     * until then shares it; each still gets an answer that the Host read after its call. A read that does not end holds
+     * the next one at most FOLLOW_WAIT_MS. */
+    const FOLLOW_WAIT_MS = 2000;
+    function freshRead(reads, key, start, follow = false) {
       const now = reads.get(key);
       if (now?.open) return now.run;
-      if (now !== undefined) return (now.next ??= now.run.then(() => {}, () => {}).then(() => freshRead(reads, key, start)));
+      if (now !== undefined && follow) {
+        return (now.next ??= new Promise((resolve) => {
+          const timer = setTimeout(resolve, FOLLOW_WAIT_MS);
+          const done = () => { clearTimeout(timer); resolve(); };
+          now.run.then(done, done);
+        }).then(() => { if (reads.get(key) === now) reads.delete(key); return freshRead(reads, key, start, follow); }));
+      }
       const entry = { open: true, run: start(), next: undefined };
       reads.set(key, entry);
       queueMicrotask(() => { entry.open = false; });
@@ -859,7 +868,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
             patch(sessionId, { spans, withdrawn, rewind: data.rewind === true, redo, inherited: Number.isSafeInteger(data.inherited) && data.inherited > 0 ? data.inherited : 0 });
             return true;
           } catch { return false; /* no spans: nothing hidden */ }
-        }),
+        }, true),
         preview: (sessionId, seq) => post({ sessionId, seq, preview: true }),
         /** Roll back to before message `seq`; returns the Host answer, or undefined when refused or already running. */
         async run(sessionId, seq, files) {

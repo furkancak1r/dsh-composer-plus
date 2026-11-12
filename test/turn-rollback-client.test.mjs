@@ -111,6 +111,16 @@ assert.equal(inSpans([[9, 20]], undefined), false);
     lg.go(); await first; await second;
     assert.equal(gets.length, 5, 'then exactly one more read');
   }
+  // A read that never ends (a Host that does not answer) holds the next load at most about 2 s, then that load asks again.
+  {
+    const gets = []; let hang = true;
+    const stuck = createRollback(async (init, query) => { gets.push(query); if (hang) { hang = false; return new Promise(() => {}); } return reply(200, { spans: [[5, 6]] }); });
+    stuck.load('h'); await Promise.resolve();
+    const t0 = Date.now(); const next = await stuck.load('h');
+    assert.equal(next, true, 'the next load answers'); assert.ok(Date.now() - t0 < 3000, `it did not wait for the stuck read (${Date.now() - t0} ms)`);
+    assert.equal(gets.length, 2, 'it made its own GET'); assert.deepEqual(stuck.of('h').spans, [[5, 6]]);
+    assert.equal(await stuck.load('h'), true); assert.equal(gets.length, 3, 'later loads are not held by the stuck read');
+  }
   assert.equal(await createRollback(async () => reply(500, { error: 'down' })).load('c'), false, 'an error: no answer');
   assert.equal(await createRollback(async () => { throw new Error('offline'); }).load('c'), false, 'no connection: no answer');
   const preview = createRollback(async (init) => reply(200, { git: true, snapshot: true, files: [{ path: 'a.js', action: 'restore' }], echo: JSON.parse(init.body) }));
