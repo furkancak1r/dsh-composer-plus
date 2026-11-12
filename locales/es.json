@@ -2523,6 +2523,7 @@
     "status.summaryFailed": "No se pudo pedir un resumen nuevo: {error}",
     "status.refresh": "Actualizar",
     "status.summary": "Resumen",
+    "status.summarize": "Obtener resumen",
     "status.hideSummary": "Ocultar el resumen",
     "status.tasks": "Tareas",
     "status.tasksEmpty": "El asistente no tiene tareas hoy.",

@@ -2523,6 +2523,7 @@
     "status.summaryFailed": "新しいまとめを依頼できませんでした: {error}",
     "status.refresh": "更新",
     "status.summary": "まとめ",
+    "status.summarize": "まとめを取得",
     "status.hideSummary": "まとめを隠す",
     "status.tasks": "タスク",
     "status.tasksEmpty": "アシスタントの今日のタスクはありません。",

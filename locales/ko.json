@@ -2523,6 +2523,7 @@
     "status.summaryFailed": "새 요약을 요청하지 못했습니다: {error}",
     "status.refresh": "새로 고침",
     "status.summary": "요약",
+    "status.summarize": "요약 가져오기",
     "status.hideSummary": "요약 숨기기",
     "status.tasks": "작업",
     "status.tasksEmpty": "오늘 어시스턴트의 작업이 없습니다.",

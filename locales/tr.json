@@ -3983,6 +3983,7 @@
     "status.summaryFailed": "Yeni özet istenemedi: {error}",
     "status.refresh": "Yenile",
     "status.summary": "Özet",
+    "status.summarize": "Özet getir",
     "status.hideSummary": "Özeti gizle",
     "status.tasks": "Görevler",
     "status.tasksEmpty": "Asistanın bugün görevi yok.",

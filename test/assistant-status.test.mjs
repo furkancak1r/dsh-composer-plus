@@ -237,7 +237,7 @@ try {
     assert.equal(await readFile(join(brokenDir, names[1]), 'utf8'), '{not json', 'with its old bytes');
   }
 
-  // Refresh asks the assistant for a new summary (POST {sessionId, action: "summary"}): an idle chat gets a turn with one
+  // Get summary asks the assistant for a new summary (POST {sessionId, action: "summary"}): an idle chat gets a turn with one
   // hidden note (dsh's steer plus a marker at the queue head, as Assistant news), a running chat gets it at its next step.
   // One open request per chat; status_summary_set ends it; a turn that took the note and ended without a summary is
   // `missed`; after STATUS_LIMITS.askMs the Host forgets it. Not for another chat, not while off, a failed steer is 502.
@@ -256,7 +256,7 @@ try {
     const typed = { id: 'u1', role: 'user', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user', rpcId: 'r1' } };
     const entered = await step([heads[0][1], steers[0], typed]);
     const notes = entered.messages.filter((m) => m.source?.kind === 'composer-plus-status-summary');
-    assert.equal(notes.length, 1, 'one note'); assert.match(notes[0].content[0].text, /clicked Refresh in the status panel\. Call status_summary_set now/);
+    assert.equal(notes.length, 1, 'one note'); assert.match(notes[0].content[0].text, /clicked "Get summary" in the status panel\. Call status_summary_set now/);
     assert.equal(notes[0].source.form, 'snapshot'); assert.ok(entered.messages.includes(typed), 'the user\'s message stays');
     r = await call('?sessionId=s-a'); assert.equal(r.body.asked, NOW + 10); assert.equal(r.body.missed, undefined);
     // A second click (another window) while it is open: the same request, no second note.

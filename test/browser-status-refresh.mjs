@@ -1,14 +1,17 @@
-// Real-app check of Refresh in the Assistant status panel on each dsh given: a fake model, a throwaway DSH_HOME and HOME,
-// a made-up project (acme-web), Turkish UI. Never the normal DSH_HOME, no real model. Headless, with Chromium's sandbox.
-// 1. Setup: the assistant writes a summary (status_summary_set) and adds a to-do item.
-// 2. Click Refresh: within 100 ms the button turns and is aria-disabled, the header says "Yenileniyor…", the old
-//    content stays in place (dimmed), and the polite status line says it. The lists come back in less than a second.
-// 3. The summary: the card says "Özet hazırlanıyor…" while the assistant's turn writes it (a hidden note, not a chat
-//    bubble), then shows the new summary.
-// 4. A turn that ends without a summary: the card shows the previous summary, "Yeni özet gelmedi." and Try again (the
-//    same view as after the 5-minute limit; the timer itself is in test/assistant-todos-client.test.mjs).
-// 5. Errors (the Host answers 500/502): a short reason and Try again; Try again reads again.
-// 6. Keyboard (Enter keeps the focus on Refresh), reduced motion (no turning, only the text), dark theme (the text reads).
+// Real-app check of Refresh and Get summary in the Assistant status panel on each dsh given: a fake model, a throwaway
+// DSH_HOME and HOME, a made-up project (acme-web), Turkish UI. Never the normal DSH_HOME, no real model. Headless, with
+// Chromium's sandbox.
+// 1. Setup: the assistant writes a summary without a request (status_summary_set, as a morning automation) and adds a
+//    to-do item. The panel shows no summary card: only the lists, "Liste HH:MM", Özet getir and Refresh.
+// 2. Refresh: within 100 ms the button turns and is aria-disabled, the header says "Yenileniyor…", the old content stays
+//    in place (dimmed), the polite status line says it. The lists come back in less than a second. No summary request.
+// 3. Özet getir: the button and the card say "Özet hazırlanıyor…" while the assistant's turn writes it (a hidden note,
+//    not a chat bubble); a second click and Refresh send no second request; the card then shows the new summary.
+//    Close: the card goes and stays hidden, also after an unrequested summary.
+// 4. A turn that ends without a summary: "Yeni özet gelmedi." and Try again (the 5-minute timer itself is in
+//    test/assistant-todos-client.test.mjs).
+// 5. Errors (the Host answers 500/502): a short reason and Try again; Try again works.
+// 6. Keyboard (Enter keeps the focus), reduced motion (no turning, only the text), dark theme (the text reads).
 // PLAYWRIGHT=/path/to/playwright node test/browser-status-refresh.mjs /path/to/dsh/lib/bin.js [...]
 // DSH_NODE=<node or Electron binary> runs dsh with it (ELECTRON_RUN_AS_NODE=1 for the DeepSeek Harness app's own dsh).
 // SHOTS=<folder> writes panel screenshots there.
@@ -31,7 +34,7 @@ const until = async (fn, what, ms = 30000) => {
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(100); }
 };
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
-const NOTE = /^\[Composer Plus → Status panel\] The user clicked Refresh/;
+const NOTE = /^\[Composer Plus → Status panel\] The user clicked "Get summary"/;
 const calls = [];
 const model = { summary: 'write', delay: 2500 }; // the assistant's answer to the note: 'write' (status_summary_set) or 'skip'
 const fake = createServer((req, res) => {
@@ -123,21 +126,25 @@ try {
       const panel = page.locator('[data-composer-plus-todos]');
       const card = panel.locator('.cp-st-summary');
       const refresh = panel.locator('.cp-st-top > button.cp-td-btn');
+      const ask = panel.locator('.cp-st-ask');
       const spoken = () => panel.locator('[role="status"][aria-live="polite"]').innerText();
 
-      // 1. Setup.
+      // 1. Setup: an unrequested summary opens no card.
       await page.locator('button[aria-label="Damon"]').click();
       const sessionId = await until(async () => (await page.evaluate(async () => (await (await fetch('/api/composer-plus.assistant-status')).json()).sessionId)), 'assistant id');
-      await send('Morning summary please'); await card.getByText('Giriş sayfası yapılıyor.').waitFor({ timeout: 30000 });
+      await send('Morning summary please');
+      await until(async () => calls.some((c) => /Morning summary please/.test(c.newest) && c.after), 'the unrequested summary is written');
       await send('Remember: buy milk'); await panel.getByText('Süt al').waitFor({ timeout: 30000 });
-      await until(async () => (await page.evaluate((id) => fetch(`/api/composer-plus.assistant-todos?sessionId=${id}`).then((r) => r.json()), sessionId)).asked === undefined, 'idle');
       await pause(1500); await page.mouse.move(10, 10);
+      assert.equal(await card.count(), 0, 'no summary card by default (an unrequested summary does not open it)');
+      assert.equal(await panel.getByText('Giriş sayfası yapılıyor.').count(), 0, 'no summary text anywhere');
+      assert.equal(await ask.innerText(), 'Özet getir');
       assert.match(await panel.locator('h2').innerText(), /Liste \d{2}[.:]\d{2}/, 'the list time is named "Liste"');
-      assert.match(await card.locator('h3').innerText(), /^Özet · \d{2}[.:]\d{2}/, 'the summary time is named "Özet"');
-      await shot(`${version}-0-before-click`);
-      note('1: summary and a to-do item; the labels say "Liste HH:MM" and "Özet · HH:MM"');
+      await shot(`${version}-0-default`);
+      note('1: no summary card by default (also after an unrequested status_summary_set); "Liste HH:MM", Özet getir and Refresh');
 
-      // 2. Click: the loading state in the same frame, the lists in less than a second.
+      // 2. Refresh: the loading state in the same frame, the lists in less than a second, no summary request.
+      const summaryPosts = []; page.on('request', (r) => { if (r.method() === 'POST' && /"action":"summary"/.test(r.postData() ?? '')) summaryPosts.push(r); });
       const listRead = page.waitForResponse((r) => r.url().includes('refresh=1'));
       const ms = await refresh.evaluate((button) => new Promise((resolve) => {
         const t0 = performance.now(); button.click();
@@ -152,42 +159,44 @@ try {
       await shot(`${version}-1-refreshing`);
       assert.equal(await spoken(), 'Yenileniyor…', 'the polite status line says it');
       assert.equal(await panel.getByText('Süt al').isVisible(), true, 'the old content stays in place');
-      assert.ok(Number(await panel.locator('section[aria-labelledby$="-todos"]').evaluate((el) => getComputedStyle(el).opacity)) < 0.6, 'and is dimmed');
+      await until(async () => Number(await panel.locator('section[aria-labelledby$="-todos"]').evaluate((el) => getComputedStyle(el).opacity)) < 0.6, 'and is dimmed (after its .15 s fade)', 400);
       const clickedAt = Date.now(); const read = await listRead; await read.finished();
       assert.ok(Date.now() - clickedAt < 1000, 'the lists come back in less than a second');
-      assert.equal(await card.getByText('Özet hazırlanıyor…').isVisible(), true, 'the summary card waits for the assistant');
       await until(async () => (await refresh.getAttribute('aria-disabled')) === 'false', 'Refreshing ends after the read', 3000);
       assert.match(await panel.locator('h2').innerText(), /Liste \d/);
-      note(`2: loading state in ${ms.toFixed(1)} ms (button turns, aria-disabled, header "Yenileniyor…"), the lists in less than a second`);
+      assert.equal(summaryPosts.length, 0, 'Refresh asks for no summary'); assert.equal(await card.count(), 0, 'and opens no card');
+      note(`2: Refresh: loading state in ${ms.toFixed(1)} ms (button turns, aria-disabled, header "Yenileniyor…"), the lists in less than a second, no summary`);
 
-      // 3. The summary comes: the placeholder goes. A click while it is awaited reads only the lists (one summary turn).
-      await shot(`${version}-2-summary-waiting`);
+      // 3. Özet getir: the card waits, then shows the new summary; one request at a time; close hides it.
+      model.delay = 5000;
+      await ask.click();
+      await card.getByText('Özet hazırlanıyor…').waitFor({ timeout: 3000 });
+      assert.equal(await ask.innerText(), 'Özet hazırlanıyor…'); assert.equal(await ask.getAttribute('aria-disabled'), 'true');
       assert.equal(await spoken(), 'Özet hazırlanıyor…');
-      {
-        const posts = []; const onReq = (r) => { if (r.method() === 'POST' && /"action":"summary"/.test(r.postData() ?? '')) posts.push(r); };
-        page.on('request', onReq);
-        const again = page.waitForResponse((r) => r.url().includes('refresh=1'));
-        await refresh.click(); await again; await pause(600);
-        page.off('request', onReq);
-        assert.equal(posts.length, 0, 'no second summary request while the summary is awaited');
-        assert.equal(await card.getByText('Özet hazırlanıyor…').isVisible(), true, 'still waits for the same summary');
-      }
+      // At once, while it waits (Playwright's click waits for a stable element; the summary could come meanwhile).
+      await ask.evaluate((b) => b.click()); await refresh.evaluate((b) => b.click()); await pause(800);
+      assert.equal(summaryPosts.length, 1, 'one summary request: a second click and Refresh send none');
+      await page.mouse.move(10, 10); await shot(`${version}-2-summary-waiting`);
       await card.getByText('Giriş sayfası bitti, testler geçiyor.').waitFor({ timeout: 30000 });
       assert.equal(await card.getByText('Özet hazırlanıyor…').count(), 0);
-      assert.equal(await card.getByText('Giriş sayfası yapılıyor.').count(), 0, 'the new summary replaces the old one');
-      assert.ok(calls.some((c) => NOTE.test(c.newest)), 'the assistant got the note');
+      assert.match(await card.locator('h3').innerText(), /^Özet · \d{2}[.:]\d{2}/, 'the summary time is named "Özet"');
+      assert.equal(calls.filter((c) => NOTE.test(c.newest) && !c.after).length, 1, 'one assistant turn for the note');
       assert.equal(await page.getByText(/Composer Plus → Status panel/).count(), 0, 'the note is not a chat bubble');
       await page.mouse.move(10, 10); await shot(`${version}-3-summary-done`);
-      note('3: "Özet hazırlanıyor…" until the assistant\'s summary, then the new summary (the note is hidden)');
+      await card.getByRole('button', { name: 'Özeti gizle' }).click();
+      assert.equal(await card.count(), 0, 'closed');
+      assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('cp-st-ask')), true, 'the focus goes to Özet getir');
+      await send('Morning summary please'); await until(async () => calls.filter((c) => /Morning summary please/.test(c.newest) && c.after).length === 2, 'a second unrequested summary');
+      await pause(1500); assert.equal(await card.count(), 0, 'stays closed after an unrequested summary');
+      note('3: Özet getir: "Özet hazırlanıyor…", one hidden note, the new summary with "Özet · HH:MM"; close keeps it hidden');
 
       // 4. A turn that ends without a summary.
       model.summary = 'skip'; model.delay = 500;
-      await refresh.click();
+      await ask.click();
       await card.getByText('Yeni özet gelmedi.').waitFor({ timeout: 30000 });
-      assert.equal(await card.getByText('Giriş sayfası bitti, testler geçiyor.').isVisible(), true, 'the previous summary again');
-      assert.equal(await card.getByRole('button', { name: 'Tekrar dene: Özet' }).count(), 1);
+      assert.equal(await card.getByRole('button', { name: 'Tekrar dene: Özet getir' }).count(), 1);
       await page.mouse.move(10, 10); await shot(`${version}-4-summary-late`);
-      note('4: a turn without a summary: the previous summary, "Yeni özet gelmedi." and Try again');
+      note('4: a turn without a summary: "Yeni özet gelmedi." and Try again');
 
       // 5. Errors from the Host: a reason and Try again.
       await page.route('**/api/composer-plus.assistant-todos**', (route) => {
@@ -196,9 +205,9 @@ try {
         if (req.method() === 'GET' && req.url().includes('refresh=1')) return route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"disk dolu"}' });
         return route.continue();
       });
-      await refresh.click();
       const alert = panel.locator('[role="alert"]');
-      await alert.getByText(/Yenilenemedi: disk dolu/).waitFor({ timeout: 5000 });
+      await refresh.click(); await alert.getByText(/Yenilenemedi: disk dolu/).waitFor({ timeout: 5000 });
+      await card.getByRole('button', { name: 'Tekrar dene: Özet getir' }).click();
       await card.getByText(/Yeni özet istenemedi: asistan sohbeti yok/).waitFor({ timeout: 5000 });
       await page.mouse.move(10, 10); await shot(`${version}-5-errors`);
       await page.unroute('**/api/composer-plus.assistant-todos**');
@@ -206,29 +215,26 @@ try {
       await alert.getByRole('button', { name: 'Tekrar dene: Yenile' }).click();
       await until(async () => (await alert.count()) === 0, 'Try again read again', 5000);
       assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Yenile', 'Try again gives the focus to Refresh');
-      await until(async () => (await card.getByText('Yeni özet istenemedi').count()) === 0 && (await card.getByText('Özet hazırlanıyor…').count()) === 0, 'the summary again', 30000);
+      await card.getByRole('button', { name: 'Tekrar dene: Özet getir' }).click();
+      await card.getByText('Giriş sayfası bitti, testler geçiyor.').waitFor({ timeout: 30000 });
       note('5: a failed read and a failed request each show the reason and Try again; Try again works');
 
       // 6. Keyboard, reduced motion, dark theme.
-      model.delay = 2000;
       await refresh.focus(); await page.keyboard.press('Enter');
       assert.equal(await page.evaluate(() => document.activeElement?.getAttribute('aria-label')), 'Yenile', 'Enter keeps the focus on Refresh');
-      await page.keyboard.press('Enter'); // a second press while it refreshes does nothing
       await until(async () => (await refresh.getAttribute('aria-disabled')) === 'false', 'idle again', 5000);
-      await card.getByText('Özet hazırlanıyor…').waitFor({ state: 'detached', timeout: 30000 });
-      // Notes so far: step 3, step 4, Try again (step 5) and this Enter. Each note turn's first call (not the call after its
-      // tool result).
-      assert.equal(calls.filter((c) => NOTE.test(c.newest) && !c.after).length, 4, 'one note per Refresh, not one per key press');
       await page.emulateMedia({ reducedMotion: 'reduce' }); model.delay = 1500;
+      await ask.focus(); await page.keyboard.press('Enter');
+      assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('cp-st-ask')), true, 'Enter keeps the focus on Özet getir');
       await refresh.click();
       assert.equal(await refresh.locator(':scope > *').evaluate((el) => getComputedStyle(el).animationName), 'none', 'reduced motion: the icon does not turn');
       assert.match(await panel.locator('h2').innerText(), /Yenileniyor…/, 'reduced motion: the text stays');
-      assert.equal(await card.locator('.cp-st-wait .cp-st-spin').evaluate((el) => getComputedStyle(el).display), 'none', 'reduced motion: no spinner');
+      assert.equal(await ask.locator('.cp-st-spin').evaluate((el) => getComputedStyle(el).display), 'none', 'reduced motion: no spinner');
       await card.getByText('Özet hazırlanıyor…').waitFor({ state: 'detached', timeout: 30000 });
       await page.emulateMedia({ reducedMotion: 'no-preference', colorScheme: 'dark' });
       await until(() => page.evaluate(() => document.body.hasAttribute('data-ds-dark-theme')), 'dsh dark theme', 10000); await pause(300);
       model.delay = 2500;
-      await refresh.click(); await panel.locator('.cp-st-time[data-refreshing="true"]').waitFor();
+      await ask.click(); await refresh.click(); await panel.locator('.cp-st-time[data-refreshing="true"]').waitFor();
       const contrast = await panel.locator('.cp-st-time[data-refreshing="true"]').evaluate((el) => {
         const rgb = (c) => c.match(/[\d.]+/g).slice(0, 3).map(Number).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
         const lum = (c) => { const [r, g, b] = rgb(c); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
@@ -236,7 +242,7 @@ try {
         const s = getComputedStyle(el); const [a, b] = [lum(s.color), lum(bg)].sort((x, y) => y - x); return (a + 0.05) / (b + 0.05);
       });
       assert.ok(contrast >= 4.5, `dark: "Yenileniyor…" reads (contrast ${contrast.toFixed(2)})`);
-      await shot(`${version}-6-dark-refreshing`);
+      await shot(`${version}-6-dark`);
       await card.getByText('Özet hazırlanıyor…').waitFor({ state: 'detached', timeout: 30000 });
       note(`6: Enter keeps the focus; reduced motion shows only the text; dark theme text contrast ${contrast.toFixed(2)}`);
 

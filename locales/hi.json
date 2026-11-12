@@ -2523,6 +2523,7 @@
     "status.summaryFailed": "नया सार नहीं मांगा जा सका: {error}",
     "status.refresh": "रीफ़्रेश करें",
     "status.summary": "सार",
+    "status.summarize": "सार लाएं",
     "status.hideSummary": "सार छिपाएँ",
     "status.tasks": "काम",
     "status.tasksEmpty": "असिस्टेंट के पास आज कोई काम नहीं है।",
