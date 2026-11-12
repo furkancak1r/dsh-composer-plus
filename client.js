@@ -6189,7 +6189,8 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       for (const { seq, blocks } of answers.sort((a, b) => b.seq - a.seq)) {
         if (seq <= human || seq < from || inSpans(spans, seq)) continue;
         const bodies = onayBlocks(answerText(blocks));
-        if (bodies.length > 0) return approvalsOf([...new Set(bodies)]);
+        // `from`: the answer that holds the blocks (ApproveButtons hides them while the buttons show).
+        if (bodies.length > 0) return approvalsOf([...new Set(bodies)]).map((option) => ({ ...option, from: seq }));
       }
       return [];
     }
@@ -6271,7 +6272,8 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       memo.set(chat, { withdrawn, inherited, offer });
       return offer;
     };
-    const sameOffer = (a, b) => a === b || (a !== undefined && b !== undefined && a.seq === b.seq && a.latest === b.latest && a.options.length === b.options.length);
+    const sameOffer = (a, b) => a === b || (a !== undefined && b !== undefined && a.seq === b.seq && a.latest === b.latest && a.options.length === b.options.length
+      && a.options.every((o, i) => o.text === b.options[i].text && o.from === b.options[i].from));
     /** Whether a chat offers option buttons now: its newest answer ends with an option list that is not picked, from the
      * chat view and the rollback spans this window has (no wait for the Host). Next message prediction makes no guess
      * then: one owner of the space above the composer, and no model call for a guess that would not show. `version`
@@ -6316,8 +6318,9 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       const rb = React.useSyncExternalStore(rollback.subscribe, () => rollback.of(sessionId));
       const state = React.useSyncExternalStore(picks.subscribe, () => picks.of(sessionId));
       const offer = useChat((chat) => (idle && ready ? offerOf(chat, rb.withdrawn, rb.inherited, parse) : undefined), sameOffer);
-      // dsh gives each cell its answer's seq (`turn` is dsh's turn object, not its number); one seq is one answer.
-      const offered = offer !== undefined && offer.seq === seq && (state.busy || picks.open(sessionId, offer));
+      // dsh gives each cell its answer's seq (`turn` is dsh's turn object, not its number); one seq is one answer. Without
+      // a seq (OnayCodeBlocks): the offer of the chat, under whichever answer it shows.
+      const offered = offer !== undefined && (seq === undefined || offer.seq === seq) && (state.busy || picks.open(sessionId, offer));
       return offered && empty ? { offer, state } : undefined;
     }
     function OptionPicks(props) {
@@ -6350,6 +6353,71 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
           onClick: () => { picks.pick(sessionId, offer, option.n); },
         }, React.createElement('strong', null, t('approve.button')), React.createElement('span', { className: 'cp-op-n' }, option.label))),
         state.error === null ? null : React.createElement('p', { className: 'cp-op-err', role: 'alert' }, t('approve.failed', { error: state.error })));
+    }
+    /** Approve button: an `onay` sentence shows once (the owner, 2026-11-12: "ikisinde de aynı metin yazıyor sadece onay
+     * butonunun çıkması yeterli"). While its button shows, dsh's code block of the sentence is hidden: the button holds the
+     * whole sentence. Any other `onay` block with a button-worthy sentence (sent, answered, a newer block holds the
+     * approval, or its button is hidden for now: the chat runs, the composer has text) shows the sentence as plain gray
+     * text. A block that never gets a button (too long, a character outside APPROVAL_CHARS) stays dsh's code block. The
+     * chat log, dsh's Copy (the answer's Markdown), Tether and other viewers keep the block as it is.
+     * ponytail: found through dsh's markup (a `.md-code-block` in the answer's `[data-chat-node-key]` row whose
+     * `[data-code-block-content]` text is the sentence); if dsh changes it, the code block shows again. A code block of
+     * another language with the same sentence in the same answer changes too. Upgrade when dsh's Markdown has a code-block
+     * slot. */
+    const ONAY_ATTR = 'data-composer-plus-onay';
+    const ONAY_CSS = `.md-code-block[${ONAY_ATTR}="button"]{display:none}
+.md-code-block[${ONAY_ATTR}="text"]{margin:8px 0;background:none;border-radius:0}
+.md-code-block[${ONAY_ATTR}="text"]>:not([data-code-block-content]){display:none}
+.md-code-block[${ONAY_ATTR}="text"] pre{padding:0;font:inherit;color:var(--dsw-alias-label-secondary);background:none!important;white-space:pre-wrap;word-break:normal;overflow-wrap:anywhere}`;
+    const onaySentences = new WeakMap(); // a settled answer's blocks → its button-worthy `onay` sentences
+    /** The `onay` sentences of the chat's settled answers as `[node key, sentence, 'button' | 'text']`: 'button' for the
+     * sentences of `offer` (the buttons on screen) in their own answer (`from`), 'text' for the rest. */
+    function onayMarks(chat, offer) {
+      const out = [];
+      for (const node of chat?.nodes?.values?.() ?? []) {
+        if (node?.kind !== 'assistant-step' || node.data?.status !== 'settled' || !Array.isArray(node.data.blocks) || typeof node.key !== 'string') continue;
+        let sentences = onaySentences.get(node.data.blocks);
+        if (sentences === undefined) onaySentences.set(node.data.blocks, sentences = [...new Set(onayBlocks(answerText(node.data.blocks)).filter(approvable))]);
+        const seq = node.data.finalNode?.seq;
+        for (const text of sentences) out.push([node.key, text, offer?.options.some((o) => o.from === seq && o.text === text) ? 'button' : 'text']);
+      }
+      return out;
+    }
+    /** Marks dsh's code blocks of `marks` (onayMarks) in `root` (the chat) now and when dsh draws rows again; the disposer
+     * gives dsh its blocks back. The marks are set in the MutationObserver callback, before the browser paints the row. */
+    function markOnayBlocks(root, marks) {
+      const rows = new Map(); // node key → sentence → mode
+      for (const [key, text, mode] of marks) rows.set(key, (rows.get(key) ?? new Map()).set(text, mode));
+      let marked = new Set();
+      const apply = () => {
+        const now = new Set();
+        for (const block of root.querySelectorAll('[data-chat-node-key] .md-code-block')) {
+          const modes = rows.get(block.closest('[data-chat-node-key]').getAttribute('data-chat-node-key'));
+          // Only the code blocks of the answers with a sentence are read; not the ones of their thinking.
+          const mode = modes === undefined || block.closest('[data-markdown-variant]') !== null ? undefined
+            : modes.get(block.querySelector('[data-code-block-content]')?.textContent.trim());
+          if (mode === undefined) continue;
+          now.add(block);
+          if (block.getAttribute(ONAY_ATTR) !== mode) block.setAttribute(ONAY_ATTR, mode);
+        }
+        for (const block of marked) if (!now.has(block)) block.removeAttribute(ONAY_ATTR);
+        marked = now;
+      };
+      const observer = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver(apply);
+      observer?.observe(root, { childList: true, subtree: true });
+      apply();
+      return () => { observer?.disconnect(); for (const block of marked) block.removeAttribute(ONAY_ATTR); };
+    }
+    /** One per open chat (dsh's composer dock, inside the chat's `[data-conversation-session]`). */
+    function OnayCodeBlocks(props) {
+      const shown = useAnswerOffer({ ...props, seq: undefined }, parseApprovals);
+      const marks = props.useChat((chat) => JSON.stringify(onayMarks(chat, shown?.offer)));
+      const anchor = React.useRef(null);
+      React.useLayoutEffect(() => {
+        const root = anchor.current?.closest('[data-conversation-session]');
+        return marks === '[]' || root == null ? undefined : markOnayBlocks(root, JSON.parse(marks));
+      }, [marks]);
+      return React.createElement(React.Fragment, null, React.createElement('style', null, ONAY_CSS), React.createElement('span', { ref: anchor, hidden: true }));
     }
     /** Option picks on dsh's question card (ask_user_question): keys 1–9 click option N of the question on screen, as a
      * click does (dsh's own button). Nothing happens in a text field, with a modifier key, for a held key, during IME
@@ -13004,7 +13072,12 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           order: 101,
           locale: LOCALE_NS,
           inject: () => ({ picks: optionPicks, check: rollbackCheck, rollback }),
-        }, ApproveButtons))]);
+        }, ApproveButtons)), ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+          name: 'conversation.composer.dock',
+          id: 'onay-code-blocks', // one per open chat: the sentence shows once (OnayCodeBlocks)
+          order: 30,
+          inject: () => ({ picks: optionPicks, check: rollbackCheck, rollback }),
+        }, OnayCodeBlocks))]);
         // Delete chat: a "Delete…" item in the chat's "…" menu and one confirm dialog for the whole app.
         const deleteChat = createDeleteChat();
         feature('deleteChat', () => [ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
