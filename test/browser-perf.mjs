@@ -324,6 +324,7 @@ try {
       }
       result.turnHostCalls = median(turnCalls.map((c) => c.length));
       if (process.env.PATHS) console.log('TURN PATHS', JSON.stringify(turnCalls.at(-1)));
+      if (process.env.PATHS) { const k = hostCalls.length; const t = Date.now(); await page.locator('[data-composer-input]').click(); await page.keyboard.type('perf probe last'); await page.keyboard.press('Enter'); await pause(3000); console.log('TURN TIMES', JSON.stringify(hostCalls.slice(k).filter((x) => x.path.startsWith('/api/composer-plus.')).map((x) => `${x.at - t}ms ${x.path.slice(19)}`))); }
       result.turnMs = median(turnMs); result.hostTurnCpuMs = median(turnCpu);
       const r = requests.at(-1);
       if (process.env.DUMP) await writeFile(process.env.DUMP, JSON.stringify(r, null, 1));
