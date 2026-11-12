@@ -200,6 +200,17 @@ const MENTIONS_MERGE_MAIN = [
   "Merge into **main** after review.",
   "Merge feat/a, feat/b and feat/c into main.",
   "git push upstream main",
+  "Squash-merge into main.",
+  "Squash-merge the PR into main.",
+  "Enable auto-merge into main.",
+  "Rebase-merge into main.",
+  "Force-push to main.",
+  "Push the branch to upstream/main.",
+  "Merge into upstream/main.",
+  "Merge the PRs, then merge into main.",
+  "Dalı main ile birleştir.",
+  "main'le birleştir",
+  "main branch'ine merge et",
 ];
 const NO_MERGE_MAIN = [
   "Dal main'e merge edildi.",
@@ -235,6 +246,14 @@ const NO_MERGE_MAIN = [
   "main'e birleşmiş feat/sap-idle-di-runner-guards dalı ve klasörü silinsin.",
   "Dal main'e birleşti.",
   "Kullanıcı bu depoda onay istemiyor: review-guard temizse dal push, main push ve dal silme serbest.",
+  "Push the changes, then update main.",
+  "Push the fix, main stays as is.",
+  "Push data, main loop.",
+  "Merge the two PRs, then go back to main.",
+  "Merge the two PRs, and then go back to main.",
+  "git merge upstream/main into this branch",
+  "Merge the resources into src/main/resources.",
+  "Dal main ile birleşti.",
 ];
 for (const text of MENTIONS_MERGE_MAIN) assert.equal(mentionsMergeMain(text), true, `mentions a merge into main: ${JSON.stringify(text)}`);
 for (const text of NO_MERGE_MAIN) assert.equal(mentionsMergeMain(text), false, `no merge into main: ${JSON.stringify(text)}`);
