@@ -33,7 +33,7 @@ const fake = createServer((req, res) => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
     const msgs = JSON.parse(body).messages ?? []; const last = msgs.at(-1);
     const users = msgs.filter((m) => m.role === 'user').map((m) => JSON.stringify(m.content));
-    const lastUser = users.filter((u) => !/runtime context|session title|Time sampled while preparing/i.test(u)).at(-1) ?? '';
+    const lastUser = users.filter((u) => !/runtime context|session title|Time sampled while preparing|<system-reminder>/i.test(u)).at(-1) ?? '';
     const base = { id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo' };
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (delta, finish) => res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`);

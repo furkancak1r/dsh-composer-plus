@@ -75,7 +75,10 @@ const find = load({ Menu: 'Menu', Tooltip: 'Tooltip', IconCopyOutlineRegular: 'C
 
 // --- Copy path ---
 let items = [{ workspaceId: 'w1', path: '/Users/demo/acme web' }, { workspaceId: 'w2', path: 'C:\\work\\api' }];
-const pm = mount(find('project-path-menu'), { useWorkspaces: (f) => f({ items }), t: (k) => k });
+const pm0 = mount(find('project-path-menu'), { useWorkspaces: (f) => f({ items }), t: (k) => k });
+// dsh's Menu under <body> (dsh 0.2.2-rc.2 places it at anchorPoint with position: fixed).
+const underBody = (r) => { assert.equal(r?.host, document.body, 'under <body>'); assert.equal(r.portal.p.style.position, 'fixed', 'in a fixed box'); return r.portal.c[0]; };
+const pm = { settle: () => underBody(pm0.settle()), render: () => underBody(pm0.render()), unmount: pm0.unmount };
 let out = pm.settle();
 assert.equal(out.t, 'Menu'); assert.equal(out.p.open, false); assert.equal(out.p.portal, true); assert.equal(out.p.autoFocus, true, 'keyboard: the item gets the focus');
 assert.equal(typeof listeners.contextmenu, 'function', 'listens for right-clicks');
@@ -84,6 +87,7 @@ const title = new El('span'); const rowW1 = new El('div', { 'data-row-key': 'wor
 let e = rightClick(title); out = pm.render();
 assert.equal(e.prevented, 1, 'a project row gets this menu instead of the browser menu');
 assert.equal(out.p.open, true); assert.deepEqual(out.p.getAnchorRect(), { left: 40, right: 40, top: 120, bottom: 120 }, 'opens at the pointer');
+assert.deepEqual(out.p.anchorPoint, { x: 40, y: 120 }, 'dsh 0.2.2-rc.2: opens at the pointer (anchorPoint)');
 assert.deepEqual(out.p.items.map((i) => [i.id, i.label, i.icon.t]), [['copy-path', 'projectMenu.copyPath', 'Copy']]);
 out.p.onSelect('copy-path'); out = pm.render();
 assert.deepEqual(copied, ['/Users/demo/acme web'], 'copies the full folder path'); assert.equal(out.p.open, false, 'closes after copying');
@@ -149,4 +153,23 @@ button.p.onClick({ currentTarget: domButton, detail: 0 });
 assert.deepEqual(order, ['b']); assert.equal(document.activeElement, viewOptions, 'after a key press the focus moves to the next header button');
 cb.unmount(); assert.equal(observer, null, 'unmount stops watching');
 assert.equal(document.querySelector('[data-composer-plus-collapse-projects]'), null, 'unmount removes the button host');
+// dsh 0.2.2 and later: their project-row menu (contextMenus) takes the right-click first. Copy path is an item of it,
+// with dsh's copy icon; it copies the clicked row's folder. The switch off withdraws it.
+{
+  const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host) => ({ portal: el, host }) }
+    : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Menu: 'Menu', writeClipboard: async (text) => { copied.push(text); return true; } } : {}));
+  const contributions = []; const effects = [];
+  const scope = { contextMenus: { register: (c) => { contributions.push(c); return () => contributions.splice(contributions.indexOf(c), 1); } },
+    effect: (f) => { effects.push(f()); } };
+  let fibers = 0;
+  plugin.apply({ effect: (f) => f(), configForms: { get: () => ({}) }, slots: { inject: (n, f) => f(), register: () => () => {} }, locale: { register: () => () => {}, bind: () => (k) => `T:${k}` },
+    inject: (deps, setup) => { if (deps.includes('contextMenus')) { fibers += 1; setup(scope); } return { dispose: () => { for (const off of effects.splice(0)) off?.(); fibers -= 1; } }; } });
+  const mine = contributions.find((c) => c.id === 'composer-plus.copy-path');
+  assert.ok(mine, 'Copy path joins dsh\'s project menu');
+  assert.equal(mine.target, 'workspace');
+  const [action] = mine.resolve({ workspaceId: 'w1', path: '/Users/demo/acme web', displayTitle: 'acme web' });
+  assert.deepEqual([action.id, action.label, action.icon], ['copy-path', 'T:projectMenu.copyPath', { key: 'workspace.copy' }]);
+  action.run(); assert.equal(copied.at(-1), '/Users/demo/acme web', 'copies the clicked project\'s folder');
+  assert.deepEqual(mine.resolve({ workspaceId: 'w9', path: '', displayTitle: 'x' }), [], 'no folder: no item');
+}
 console.log('project-tools checks passed');

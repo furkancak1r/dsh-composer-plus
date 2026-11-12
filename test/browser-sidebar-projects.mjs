@@ -16,7 +16,7 @@ if (!process.env.PLAYWRIGHT || process.argv.length < 3) throw Error('Set PLAYWRI
 const { chromium } = require(process.env.PLAYWRIGHT);
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-sidebar-')));
@@ -80,9 +80,13 @@ try {
       /** Copy path: right-click a project row → menu at the pointer → the clipboard holds that project's folder. */
       const copyPath = async (page, name, label) => {
         await page.evaluate(() => navigator.clipboard.writeText('-'));
-        await row(page, name).click({ button: 'right' });
+        const box = await row(page, name).boundingBox(); const at = { x: box.x + 30, y: box.y + box.height / 2 };
+        await page.mouse.click(at.x, at.y, { button: 'right' });
         const item = page.getByRole('menuitem', { name: label, exact: true });
         await item.waitFor();
+        // The menu opens at the pointer (dsh 0.2.2-rc.2 places it with anchorPoint, older dsh with getAnchorRect).
+        const menu = await page.getByRole('menu').filter({ has: item }).boundingBox();
+        assert.ok(Math.abs(menu.x - at.x) < 40 && Math.abs(menu.y - at.y) < 60, `the menu is at the pointer (${JSON.stringify([menu, at])})`);
         return item;
       };
       /** Collapse all: open these projects, check the button shows, click it, check all are closed and the button hides. */

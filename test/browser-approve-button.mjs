@@ -65,7 +65,7 @@ const fake = createServer((req, res) => {
     const all = JSON.stringify(msgs);
     if (/session title/i.test(textOf(msgs.at(-1)?.content))) return say('Login fix');
     if (/You predict the next message|You complete the message that the user is typing|next message that the user will type/.test(all)) return say('');
-    const users = msgs.filter((m) => m.role === 'user').map((m) => textOf(m.content)).filter((u) => !/runtime context|Time sampled while preparing/i.test(u));
+    const users = msgs.filter((m) => m.role === 'user').map((m) => textOf(m.content)).filter((u) => !/runtime context|Time sampled while preparing|^<system-reminder>/i.test(u));
     const last = users.at(-1) ?? '';
     calls.push({ last, rule: all.includes(RULE) });
     const n = last.match(/^approve:(\d+)$/)?.[1];

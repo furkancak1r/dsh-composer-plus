@@ -3105,14 +3105,14 @@ function installIdeas(ctx, home) {
  * Services that a profile may not have (`agents`, `goals`, `workspaceRegistry`, `appReady`) are read with `ctx.get`. */
 function installResume(ctx, home) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
-  const isRoot = (agent) => {
-    const agents = get('agents');
-    return agents?.roots?.().includes(agent) === true && agent.session?.header?.origin !== 'subagent';
-  };
+  // dsh 0.2.2-rc.2 removed `agents.roots()`: a live agent that is not a subagent's session counts as top-level (dsh's own
+  // plugin-recommendations rule). Older dsh: `roots()` (no runtime owner) as before.
+  const live = () => { const agents = get('agents'); return (typeof agents?.roots === 'function' ? agents.roots() : agents?.list?.()) ?? []; };
+  const isRoot = (agent) => live().includes(agent) && agent.session?.header?.origin !== 'subagent';
   const tracker = resumeTracker({
     store: resumeStore(join(home, 'storages', 'dsh-composer-plus', 'resume.json')),
     isRoot,
-    running: () => (get('agents')?.roots?.() ?? []).filter((a) => a.status === 'running' && isRoot(a)).map((a) => a.id),
+    running: () => live().filter((a) => a.status === 'running' && isRoot(a)).map((a) => a.id),
     // ponytail: an unreadable archive list counts as "not archived"; dsh's own archived-session gate still blocks the step.
     wakeOne: (id) => wakeSession({ sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, goals: get('goals'),
       archived: (sid) => { try { return get('workspaceRegistry')?.archivedSessionIds?.includes(sid) === true; } catch { return false; } } }, id),
@@ -9774,7 +9774,7 @@ export const ASSISTANT_FREE_TOOLS = [...ASSISTANT_TOOLS, ...TODO_TOOLS, 'subagen
  * by its own name. */
 export const assistantFreeTool = (name) => ASSISTANT_FREE_TOOLS.includes(name) || /^(schedule|job|memory)_/.test(String(name));
 export const ASSISTANT_FREE_SECTION = `# Assistant always free (Composer Plus)
-In this chat you call only these tools yourself: chats_list, chat_read, chat_send, chat_new, chat_stop, chat_archive, todo_list_add, todo_list_remove, status_summary_set, the schedule_*, job_* and memory_* tools, subagent, subagent_fork, send_message, list_agents, interrupt_agent, list_subagent_models and ask_user_question. Any other call is refused. This rule comes before the lines above: for every other step (a web search, a web page, a file, a command), start a subagent in the background, say in one line what you started and end your turn. Project work (a code or configuration change in a project's git repository) goes to chat_new with branch true, not to a subagent.`;
+In this chat you call only these tools yourself: chats_list, chat_read, chat_send, chat_new, chat_stop, chat_archive, todo_list_add, todo_list_remove, status_summary_set, the schedule_*, job_* and memory_* tools, subagent, subagent_fork, send_message, list_agents, interrupt_agent (when this chat has it), list_subagent_models and ask_user_question. Any other call is refused. This rule comes before the lines above: for every other step (a web search, a web page, a file, a command), start a subagent in the background, say in one line what you started and end your turn. Project work (a code or configuration change in a project's git repository) goes to chat_new with branch true, not to a subagent.`;
 /** Assistant callouts (Host half): the assistant chat's prompt rule for the boxes and the closed details section that the
  * client draws (client.js, decorateCallouts). On by default (no port, no model call); the switch keeps it in
  * assistant-callouts.json, and while it is off the assistant writes plain answers. */

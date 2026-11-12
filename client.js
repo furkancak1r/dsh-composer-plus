@@ -299,6 +299,16 @@ window.__ModuleLoader__.load({
       if (body === null || body.getAttribute('data-conversation-session') !== sessionId) return null;
       return selection.toString().trim() === '' ? null : a;
     }
+    /** dsh's Menu at a point (x, y in the viewport), under <body>. dsh 0.2.2-rc.2 and later place it with `anchorPoint` (its
+     * root becomes `position: fixed` there, so no box around it may hold it); older dsh with `getAnchorRect`. Each dsh
+     * ignores the other prop. The Menu's root box sits in a fixed box, out of the page's flow (no scrollable line under it). */
+    function pointMenu(point, props) {
+      const at = point === null ? undefined : { x: point.x, y: point.y };
+      const menu = React.createElement(primitives.Menu, { ...props, anchor: React.createElement('span', { hidden: true }), portal: true,
+        getAnchorRect: () => (at === undefined ? null : { left: at.x, right: at.x, top: at.y, bottom: at.y }), anchorPoint: at });
+      return createPortal === undefined ? menu
+        : createPortal(React.createElement('div', { style: { position: 'fixed', left: 0, top: 0, width: 0, height: 0 } }, menu), document.body);
+    }
     /** Also the row of Quote from file preview: `pick` finds the selection's target (else null), `format` makes the text.
      * `menu`: no floating button; a right-click on the selection opens a menu with Copy and Quote (Quote in reply). */
     function QuoteReply({ sessionId, useInput, inputActions, focusComposer, notify, t, pick = quoteTarget, format = quoteFormat, mark = 'data-composer-plus-quote', title, menu = false }) {
@@ -336,7 +346,6 @@ window.__ModuleLoader__.load({
         try { copied = document.execCommand('copy'); } catch { /* no copy command: the plain text below */ }
         if (!copied) primitives.writeClipboard?.(at.text);
       }, []);
-      const anchorRect = React.useCallback(() => { const a = live.current.at; return a === null ? null : { left: a.x, right: a.x, top: a.y, bottom: a.y }; }, []);
       React.useEffect(() => {
         if (menu) {
           // A right-click on a link or a button keeps the browser's menu, and so does a part that drew its own menu.
@@ -378,8 +387,8 @@ window.__ModuleLoader__.load({
       }, [sessionId, pick]);
       if (menu) {
         if (primitives.Menu === undefined || inputActions === undefined) return null;
-        return React.createElement(primitives.Menu, {
-          open: at !== null, anchor: React.createElement('span', { hidden: true }), portal: true, getAnchorRect: anchorRect, autoFocus: true, dense: true,
+        return pointMenu(at, {
+          open: at !== null, autoFocus: true, dense: true,
           // ponytail: Copy has the label of the other Mac's menu (`computers.edit.copy`, 13 languages); one word, one key.
           items: [{ id: 'copy', label: t('computers.edit.copy') }, { id: 'quote', label: t('quote.button') }],
           onClose: () => setAt(null),
@@ -558,6 +567,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * `body > div` whose first child is dsh's `[role="tree"]` with dsh's own tree label, while dsh's button has
      * aria-expanded="true". If dsh changes that markup, the list has no total line and the header keeps the running count. */
     const SUBAGENT_SLOT = 'conversation.session.header.actions';
+    const SUBAGENT_FOOTER = `${SUBAGENT_SLOT}.subagent.footer`; // dsh 0.2.2-rc.2: the Agent Team task board
     const isTotalKey = (key) => key === 'count.total.one' || key === 'count.total.other';
     function SubagentRunningCount(props) {
       const { sessionId, useSessions, useSessionStatus, t, shippedOf, totalText } = props;
@@ -567,13 +577,22 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const running = useSessionStatus((st) => kids.split(' ').filter((k) => k !== '' && (st?.get?.(k.slice(0, k.lastIndexOf(':')))?.running ?? k.endsWith(':1')) === true).length);
       const total = kids === '' ? 0 : kids.split(' ').length;
       const tRunning = React.useCallback((key, params) => (isTotalKey(key) ? t(running === 1 ? 'count.running.one' : 'count.running.other', { count: running }) : t(key, params)), [t, running]);
-      const actions = React.useMemo(() => shipped?.inject?.(sessionId) ?? {}, [shipped, sessionId]);
+      // dsh 0.2.2-rc.2's inject also gives `hooks` (`footerAvailable`): dsh's slot renderer turns each into a `use<Name>`
+      // selector hook, and its component calls `useFooterAvailable`. The same here.
+      const actions = React.useMemo(() => {
+        const { hooks, ...face } = shipped?.inject?.(sessionId) ?? {};
+        for (const [name, source] of Object.entries(hooks ?? {})) {
+          face[`use${name[0].toUpperCase()}${name.slice(1)}`] = (select) => React.useSyncExternalStore(source.subscribe, () => select(source.getSnapshot()));
+        }
+        return face;
+      }, [shipped, sessionId]);
       const ref = React.useRef(null);
       const [open, setOpen] = React.useState(false);
       React.useLayoutEffect(() => {
         const root = ref.current;
         if (root == null || typeof MutationObserver !== 'function') return undefined;
-        const read = () => setOpen(root.querySelector('[aria-haspopup="tree"][aria-expanded="true"]') !== null);
+        // dsh 0.2.2-rc.2 and later: aria-haspopup="dialog"; before: "tree".
+        const read = () => setOpen(root.querySelector('[aria-haspopup="tree"][aria-expanded="true"], [aria-haspopup="dialog"][aria-expanded="true"]') !== null);
         const observer = new MutationObserver(read);
         observer.observe(root, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-expanded'] });
         read();
@@ -583,7 +602,11 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const treeLabel = t('tree.aria');
       React.useLayoutEffect(() => {
         if (!open) return undefined;
-        const menu = [...document.body.children].filter((el) => el.firstElementChild?.getAttribute('role') === 'tree' && el.firstElementChild.getAttribute('aria-label') === treeLabel).at(-1);
+        // Before 0.2.2-rc.2: `body > div > [role=tree]`. 0.2.2-rc.2: `body > [role=dialog][data-subagent-panel] > div >
+        // [role=tree]`, after the panel's backdrop div (the line goes in the tree's div, above the tree, as before).
+        const isTree = (c) => c.getAttribute('role') === 'tree' && c.getAttribute('aria-label') === treeLabel;
+        const menu = [...document.body.children].flatMap((el) => (el.hasAttribute('data-subagent-panel') ? [...el.children] : [el]))
+          .filter((el) => [...(el?.children ?? [])].some(isTree)).at(-1);
         if (menu === undefined) return undefined;
         const line = document.createElement('div');
         line.setAttribute('data-composer-plus-subagent-total', '');
@@ -593,8 +616,14 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         return () => line.remove();
       }, [open, label, treeLabel]);
       if (shipped === undefined) return null; // no dsh subagent plugin: dsh shows no counter either
+      // dsh 0.2.2-rc.2's component renders its child slot (the Agent Team task board under the list) with `renderSlot`,
+      // which dsh gives only to the entry that declares the slot (its own entry; a second declaration throws). This one
+      // draws the slot's entries (`footerOf`) with this entry's props and each entry's own texts.
+      // ponytail: no dsh error boundary per footer entry: one that throws takes this entry down, and dsh's counter is back.
+      const renderSlot = (key) => (key !== SUBAGENT_FOOTER ? null : props.footerOf().map((e, i) =>
+        React.createElement(e.component, { key: e.options?.id ?? i, ...props, ...e.inject?.(sessionId), t: props.tOf(e.locale) ?? t })));
       return React.createElement('span', { ref, style: { display: 'contents' }, 'data-composer-plus-subagent-running': running },
-        React.createElement(shipped.component, { ...props, ...actions, t: tRunning }));
+        React.createElement(shipped.component, { ...props, ...actions, renderSlot, t: tRunning }));
     }
     /** Remember window size. dsh's desktop app opens its window at 1280 × 820 at each start (it keeps no window bounds).
      * This saves the window's place and size in the app's own browser storage and, at the page start (`restore`), puts
@@ -2671,6 +2700,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * description for screen readers. In the collapsed rail (dsh gives size 18) the row has no end: the dot sits on the icon.
      * shortcut: dsh's panel row has no trailing slot, so the dot goes into a seat that this glyph adds at the end of its
      * row button (as the project rows' status does); without that button the dot stays on the icon. */
+    /** dsh 0.2.2-rc.2 shows its pin button at the right end of a panel row (`_panelEntry`) on hover and keyboard focus. */
+    const APART_DOT_CSS = '@media (hover:hover){[class*="_panelEntry"]:is(:hover,:has(:focus-visible)) [data-composer-plus-assistant-dot]{visibility:hidden}}';
     function AssistantApartIcon({ size = 16, active, status, useSessions, useSessionStatus, useWorkspaces, usePanelInfo, t }) {
       const id = React.useSyncExternalStore(status.subscribe, status.getSnapshot);
       // Only the assistant chat and its subagents (the row is always drawn; the whole lists change with every chat's status).
@@ -2705,6 +2736,11 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         next.setAttribute('aria-hidden', 'true');
         // order: last even when dsh adds the label after it (collapse and expand); margin: the row's right end.
         next.style.cssText = 'display:inline-flex;align-items:center;flex:none;margin-left:auto;order:1';
+        // dsh 0.2.2-rc.2 keeps room for its pin button at the right of a wide panel row (more padding on the right): the dot
+        // goes into that room, where a project row shows its status, and gives way to the button (APART_DOT_CSS).
+        const style = globalThis.getComputedStyle?.(button);
+        const room = parseFloat(style?.paddingRight) - parseFloat(style?.paddingLeft);
+        if (room > 0 && globalThis.matchMedia?.('(hover: hover)').matches === true) next.style.marginRight = `${-room}px`;
         button.append(next); setSeat(next);
         return () => { next.remove(); setSeat(null); };
       }, [rail]);
@@ -2712,7 +2748,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       return React.createElement('span', { ref, 'data-composer-plus-assistant-state': state?.state ?? 'idle', 'data-open': open ? 'true' : undefined, title: label || undefined,
         style: { position: 'relative', display: 'inline-flex' } },
         React.createElement(AssistantIcon, { size }),
-        dot === null ? null : seat !== null ? createPortal(React.createElement('span', { title: label, style: { display: 'inline-flex' } }, dot), seat)
+        dot === null ? null : seat !== null ? createPortal(React.createElement('span', { title: label, style: { display: 'inline-flex' } }, React.createElement('style', null, APART_DOT_CSS), dot), seat)
           : React.createElement('span', { 'aria-hidden': true, style: { position: 'absolute', right: -4, top: -4, display: 'inline-flex' } }, dot));
     }
     /** A boolean store; `on()` sets it and returns the disposer that clears it. */
@@ -3025,7 +3061,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     const TODOS_CSS = `[${TODOS_ATTR}]{position:absolute;top:12px;right:20px;z-index:8;box-sizing:border-box;width:300px;max-width:calc(100% - 32px);max-height:calc(100% - 180px);display:flex;flex-direction:column;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-base);box-shadow:0 4px 16px rgba(0,0,0,.08);font-size:13px;line-height:18px;color:var(--dsw-alias-label-primary)}`
       // The chat moves left to make room while the panel is open: the panel never covers a message. ponytail: below
       // 1000px the panel covers the right edge of the chat (fold it with its title); upgrade when dsh has a side slot.
-      + `@media (min-width:1000px){[${SEAT_ATTR}="open"] > [data-conversation-scroll]{padding-right:332px}}`
+      // dsh 0.2.2-rc.2 wraps the scroll body in a `display:contents` frame (`conversation.hero.frame`): not a direct child.
+      + `@media (min-width:1000px){[${SEAT_ATTR}="open"] [data-conversation-scroll]{padding-right:332px}}`
       + `[${TODOS_ATTR}] h2,[${TODOS_ATTR}] h3,[${TODOS_ATTR}] h4{margin:0;font-size:13px;line-height:18px}[${TODOS_ATTR}] .cp-td-name{font-weight:600}`
       + `[${TODOS_ATTR}] .cp-st-top{display:flex;align-items:center;gap:2px;padding-right:6px}`
       + `[${TODOS_ATTR}] .cp-td-head{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:8px 10px;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;border-radius:var(--dsw-radius-lg,12px)}`
@@ -5804,12 +5841,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         document.addEventListener('contextmenu', onContextMenu);
         return () => document.removeEventListener('contextmenu', onContextMenu);
       }, []);
-      const anchorRect = React.useCallback(() => (menu === null ? null : { left: menu.x, right: menu.x, top: menu.y, bottom: menu.y }), [menu]);
       const { Menu, writeClipboard, IconCopyOutlineRegular: Copy } = primitives;
       if (Menu === undefined || writeClipboard === undefined) return null;
-      return React.createElement(Menu, {
-        open: menu !== null, anchor: React.createElement('span', { hidden: true }), portal: true, getAnchorRect: anchorRect,
-        autoFocus: true, dense: true,
+      return pointMenu(menu, {
+        open: menu !== null, autoFocus: true, dense: true,
         items: [{ id: 'copy-path', label: t('projectMenu.copyPath'), ...(Copy === undefined ? {} : { icon: React.createElement(Copy, {}) }) }],
         onClose: () => setMenu(null),
         onSelect: () => { setMenu(null); writeClipboard(menu.path); },
@@ -9350,10 +9385,9 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
      * Esc and a click in this page close it (dsh's Menu); a click in the other Mac's page closes it too (`views`). */
     function ComputerEditMenu({ views, t }) {
       const m = React.useSyncExternalStore(views.subscribe, views.getSnapshot).menu;
-      const anchorRect = React.useCallback(() => (m === null ? null : { left: m.x, right: m.x, top: m.y, bottom: m.y }), [m]);
       if (primitives.Menu === undefined) return null;
-      return React.createElement(primitives.Menu, {
-        open: m !== null, anchor: React.createElement('span', { hidden: true }), portal: true, getAnchorRect: anchorRect, autoFocus: true, dense: true,
+      return pointMenu(m, {
+        open: m !== null, autoFocus: true, dense: true,
         items: (m?.items ?? []).map((x, i) => (x === null ? { type: 'separator', id: `sep${i}` } : { id: x[0], label: t(`computers.edit.${x[0]}`), disabled: !x[1] })),
         onClose: () => views.closeMenu(),
         onSelect: (id) => views.edit(id),
@@ -10311,7 +10345,8 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           order: 10,
           priority: -1,
           locale: 'subagent',
-          inject: () => ({ shippedOf: shippedSubagentCount, totalText: subagentTotal }),
+          inject: () => ({ shippedOf: shippedSubagentCount, totalText: subagentTotal,
+            footerOf: () => ctx.slots.entriesOfSlot?.(SUBAGENT_FOOTER) ?? [], tOf: (ns) => (ns === undefined ? undefined : ctx.locale?.bind(ns)) }),
         }, SubagentRunningCount))]));
         // Only the page start puts the window back; switched on later, the feature only saves.
         let windowStart = true;
@@ -12482,11 +12517,20 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           id: 'collapse-projects',
           locale: LOCALE_NS,
         }, CollapseProjectsButton))]);
+        // dsh 0.2.2 and later have their own project-row menu (dsh-client-ui-context-menu, which takes the right-click
+        // first): Copy path is an item of that menu. Older dsh: our own menu at the pointer (ProjectPathMenu).
         feature('copyProjectPath', () => [ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay',
           id: 'project-path-menu',
           locale: LOCALE_NS,
-        }, ProjectPathMenu))]);
+        }, ProjectPathMenu)), ...injectScope(['contextMenus'], (scope) => {
+          if (typeof scope.contextMenus?.register !== 'function') return;
+          scope.effect(() => scope.contextMenus.register({
+            id: 'composer-plus.copy-path', target: 'workspace', order: 250,
+            resolve: ({ path }) => (typeof path === 'string' && path !== '' && primitives.writeClipboard !== undefined && ctx.locale !== undefined
+              ? [{ id: 'copy-path', label: ctx.locale.bind(LOCALE_NS)('projectMenu.copyPath'), icon: { key: 'workspace.copy' }, run: () => { primitives.writeClipboard(path); } }] : []),
+          }), 'dsh-composer-plus: copy path in the project menu');
+        })]);
         // Mark all as read: the project "…" menu item, on dsh's own unread set (see markReadApi).
         feature('markProjectRead', () => injectScope(['uiSession'], (scope) => {
           const api = markReadApi(scope.uiSession);

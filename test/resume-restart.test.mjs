@@ -261,28 +261,31 @@ async function boot(home, { agents, goals } = {}) {
   const emit = (name, ...args) => { for (const fn of hooks.get(name) ?? []) fn(...args); };
   return { call, emit, ready: () => readyFns.forEach((f) => f()), unload: () => effects.forEach((f) => f?.()) };
 }
-const liveAgents = (ids) => {
+// `rc2`: dsh 0.2.2-rc.2's registry (no `roots()`, only `get`/`list`); a subagent's session is live there too.
+const liveAgents = (ids, rc2 = false) => {
   const byId = new Map(ids.map((id) => [id, { id, status: 'idle', events: [], steered: [], session: { header: {} }, steer(m) { this.steered.push(m); } }]));
-  return { byId, roots: () => [...byId.values()] };
+  return rc2 ? { byId, get: (id) => byId.get(id), list: () => [...byId.values()] } : { byId, roots: () => [...byId.values()] };
 };
-{
+for (const rc2 of [false, true]) {
   const home = mkdtempSync(join(root, 'home-'));
   // Run 1: switch on, two chats run, one finishes, dsh quits (the other one's turn ends as aborted/disposed).
-  let agents = liveAgents(['one', 'two']);
+  let agents = liveAgents(['one', 'two', 'kid'], rc2);
+  agents.byId.get('kid').session.header.origin = 'subagent';
   let app = await boot(home, { agents });
   assert.deepEqual((await app.call()).json, { on: false }, 'off by default');
   assert.equal((await app.call('{x')).status, 400); assert.equal((await app.call({ on: 1 })).status, 400);
   assert.deepEqual((await app.call({ on: true })).json, { on: true });
-  const [one, two] = ['one', 'two'].map((id) => agents.byId.get(id));
-  for (const a of [one, two]) { a.status = 'running'; app.emit('agent/status', { agent: a, status: 'running' }); }
+  const [one, two, kid] = ['one', 'two', 'kid'].map((id) => agents.byId.get(id));
+  for (const a of [one, two, kid]) { a.status = 'running'; app.emit('agent/status', { agent: a, status: 'running' }); }
+  app.emit('session/event', { id: 'kid' }, { type: 'turn/end', data: { reason: quit } }); // a subagent is never saved
   app.emit('session/event', { id: 'one' }, { type: 'turn/end', data: { reason: { kind: 'completed' } } });
   one.status = 'idle'; app.emit('agent/status', { agent: one, status: 'idle' });
   app.emit('session/event', { id: 'two' }, { type: 'turn/end', data: { reason: quit } });
   two.status = 'idle'; app.emit('agent/status', { agent: two, status: 'idle' });
   await tick(); app.unload(); await tick();
-  assert.deepEqual(await savedIds(home, ['two']), ['two'], 'only the chat the quit stopped is saved');
+  assert.deepEqual(await savedIds(home, ['two']), ['two'], `only the chat the quit stopped is saved${rc2 ? ' (0.2.2-rc.2 registry)' : ''}`);
   // Run 2: dsh starts; after appReady the stopped chat continues without a click; the finished one does not.
-  agents = liveAgents(['one', 'two']);
+  agents = liveAgents(['one', 'two'], rc2);
   agents.byId.get('two').events = ended(quit);
   agents.byId.get('one').events = ended({ kind: 'completed' });
   app = await boot(home, { agents });
@@ -297,7 +300,7 @@ const liveAgents = (ids) => {
   // Run 3: the user switched it off: nothing is tracked, and a saved list never wakes.
   mkdirSync(join(home, 'storages/dsh-composer-plus'), { recursive: true });
   writeFileSync(join(home, 'storages/dsh-composer-plus/resume.json'), JSON.stringify({ on: false, sessions: [{ id: 'two', at: 1 }] }));
-  agents = liveAgents(['two']); agents.byId.get('two').events = ended(quit);
+  agents = liveAgents(['two'], rc2); agents.byId.get('two').events = ended(quit);
   app = await boot(home, { agents }); app.ready(); await tick(); await tick();
   assert.equal(agents.byId.get('two').steered.length, 0, 'off: no continue');
   app.unload();

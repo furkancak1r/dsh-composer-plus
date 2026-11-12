@@ -41,7 +41,7 @@ const fake = createServer((req, res) => {
     const msgs = JSON.parse(body).messages ?? []; const last = msgs.at(-1);
     if (/next message that the user will type/.test(JSON.stringify(msgs))) { predictCalls += 1; res.writeHead(200, { 'content-type': 'text/event-stream' }); res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo', choices: [{ index: 0, delta: { role: 'assistant', content: 'Run the tests.' }, finish_reason: 'stop' }] })}\n\n`); res.end('data: [DONE]\n\n'); return; }
     const users = msgs.filter((m) => m.role === 'user').map((m) => JSON.stringify(m.content));
-    const lastUser = users.filter((u) => !/runtime context|session title|Time sampled while preparing/i.test(u)).at(-1) ?? '';
+    const lastUser = users.filter((u) => !/runtime context|session title|Time sampled while preparing|<system-reminder>/i.test(u)).at(-1) ?? '';
     const base = { id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo' };
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const send = (delta, finish) => res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`);
@@ -116,6 +116,8 @@ try {
         await input.click(); await page.keyboard.type(text); await page.keyboard.press('Enter');
       };
       const card = (text) => page.getByText(text, { exact: true }).first();
+      // dsh's open question card only (the answered question stays in the transcript with the same text).
+      const asking = (text) => page.locator('[data-question-key]').filter({ hasText: text });
       const shown = (text) => card(text).isVisible().catch(() => false);
       const button = page.locator('[data-composer-plus-next-waiting] > button');
       const label = () => button.getAttribute('aria-label');
@@ -188,13 +190,13 @@ try {
       // Each answered chat finishes its turn on screen (the fake model says "Done."), so it gets no green dot.
       await page.getByText('Blue', { exact: true }).first().click();
       await page.getByRole('button', { name: 'Submit', exact: true }).click();
-      await card('Which color palette should the theme use?').waitFor({ state: 'hidden', timeout: 20000 });
+      await asking('Which color palette should the theme use?').waitFor({ state: 'hidden', timeout: 20000 });
       await card('Done.').waitFor({ state: 'visible', timeout: 20000 }); await pause(1000);
       await button.click();
       await card('Which environment should I deploy to?').waitFor({ state: 'visible', timeout: 10000 });
       await page.getByText('Staging', { exact: true }).first().click();
       await page.getByRole('button', { name: 'Submit', exact: true }).click();
-      await card('Which environment should I deploy to?').waitFor({ state: 'hidden', timeout: 20000 });
+      await asking('Which environment should I deploy to?').waitFor({ state: 'hidden', timeout: 20000 });
       await card('Done.').waitFor({ state: 'visible', timeout: 20000 }); await pause(1000);
       await page.waitForFunction(() => document.querySelector('[data-composer-plus-next-waiting] > button')?.getAttribute('aria-label') === 'Next waiting chat (1)', null, { timeout: 20000 });
       await nextKey();
@@ -273,7 +275,7 @@ try {
       await page.evaluate(() => document.activeElement?.blur?.()); await page.keyboard.press('2');
       await page.waitForFunction(() => document.querySelectorAll('[data-question-key] [role="radio"]')[1]?.getAttribute('aria-checked') === 'true', null, { timeout: 5000 });
       await page.getByRole('button', { name: 'Submit', exact: true }).click();
-      await sizeQ.waitFor({ state: 'hidden', timeout: 20000 });
+      await asking('Which page size should the report use?').waitFor({ state: 'hidden', timeout: 20000 });
       // Switched off: no buttons and no keys.
       await page.evaluate(() => { const s = JSON.parse(localStorage.getItem('dsh-composer-plus.features')); s.optionPicks = false; localStorage.setItem('dsh-composer-plus.features', JSON.stringify(s)); });
       await sendIn('opts:2'); await page.getByText('I fixed the login redirect (round 2).').first().waitFor({ timeout: 20000 });
