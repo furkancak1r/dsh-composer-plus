@@ -2455,6 +2455,7 @@ export function apply(ctx) {
   const assistant = installAssistant(ctx, home);
   installAssistantBot(ctx, home, assistant, { outage });
   installAssistantTodos(ctx, home, assistant, { outage });
+  installAssistantMorning(ctx, home, assistant);
   const setup = installAssistantSetup(ctx, assistant, memory);
   installMemoryImport(ctx, home, assistant, memory, setup);
   installSecrets(ctx, home);
@@ -11012,6 +11013,87 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     },
   });
   return { ready, store, tools, isOn: () => on };
+}
+
+/* Morning summary (a setting of Assistant status panel, off by default): one dsh automation task, made through dsh's own
+ * schedule service, asks the assistant chat for the morning summary on weekdays at the saved time, in the Host's time
+ * zone. The Host keeps `{on, time, taskId?, sessionId?}` in `assistant-morning.json` (owner-only, atomic) and changes or
+ * deletes only the task that it made; it never reads or changes another task. */
+export const ASSISTANT_MORNING_PATH = '/api/composer-plus.assistant-morning';
+export const MORNING_TITLE = 'Morning summary';
+export const MORNING_PROMPT = `Write the morning summary for the user, per project, in the user's language.
+Sources: chats_list (the chats updated in the last 24 hours and their projects), list_agents when you have it (running, finished and blocked tasks), the to-do list in the runtime context, and schedule_list (the last state of the automations).
+In the first answer of this turn, call status_summary_set with the summary: 1 or 2 sentences per project, at most 8 projects. When a subagent collects details, call status_summary_set again when its result comes.
+In the chat, write only one sentence: the one thing that the user must do today.`;
+const MORNING_TIME = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+/** dsh's schedule service in its two shapes, or undefined without it: 0.2.2 `create(request, actor)` with
+ * `timing: {kind: 'weekly'}` and `target: {kind: 'session'}`, delete with `edit({id, action: 'delete'})`; 0.2.0 and 0.2.1
+ * `create(sessionId, {weekly})` and `delete({sessionId, id})`. A missing task is no error when it is deleted. The assistant
+ * chat is the actor, so dsh does not post a "schedule changed" notice into it. */
+export function morningSchedule(service, zone) {
+  if (typeof service?.create !== 'function') return undefined;
+  const weekly = (time) => ({ time: `${time}:00`, time_zone: zone, weekdays: [1, 2, 3, 4, 5] });
+  if (typeof service.edit === 'function') return {
+    create: async (sessionId, time) => (await service.create({ title: MORNING_TITLE, prompt: MORNING_PROMPT, timing: { kind: 'weekly', weekly: weekly(time) }, target: { kind: 'session', sessionId } }, sessionId)).id,
+    remove: (sessionId, id) => service.edit({ id, action: 'delete' }, sessionId),
+  };
+  if (typeof service.delete !== 'function') return undefined;
+  return {
+    create: async (sessionId, time) => (await service.create(sessionId, { title: MORNING_TITLE, prompt: MORNING_PROMPT, weekly: weekly(time) })).id,
+    remove: (sessionId, id) => service.delete({ sessionId, id }),
+  };
+}
+/** Morning summary (Host half). `assistant` is the handle of installAssistant. */
+export function installAssistantMorning(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), zone } = {}) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const store = settingsStore(join(dir, 'assistant-morning.json'), (v) => ({ on: v?.on === true, time: typeof v?.time === 'string' && MORNING_TIME.test(v.time) ? v.time : '07:50',
+    ...(v?.on === true && isText(v?.taskId, 200) && isText(v?.sessionId, 128) ? { taskId: v.taskId, sessionId: v.sessionId } : {}) }));
+  let queue = Promise.resolve();
+  /** One change at a time, all or none. A new task comes first when it goes on or its time changes; then the file; then
+   * the old task goes. A failed step puts back the file and deletes the new task. */
+  const change = (patch) => {
+    const done = queue.then(async () => {
+      const before = await store.read();
+      const next = { on: patch.on ?? before.on, time: patch.time ?? before.time };
+      // The Host's zone when the task is made (a task keeps it; a later change of the Mac's zone needs a new time).
+      const api = morningSchedule(get('schedule'), zone ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'));
+      // `{on: true}` also while on makes the task again: the user may have deleted it on the Automation tasks page.
+      const fresh = next.on && (patch.on === true || before.taskId === undefined || next.time !== before.time);
+      if (api === undefined && (fresh || (before.taskId !== undefined && !next.on))) throw refused('This dsh has no schedule service: turn on Automation tasks in Plugins.');
+      if (fresh) {
+        if (!assistant.isOn()) throw refused('Assistant is off.');
+        next.sessionId = await assistant.ensure();
+        next.taskId = await api.create(next.sessionId, next.time);
+      } else if (next.on) Object.assign(next, { taskId: before.taskId, sessionId: before.sessionId });
+      const undo = () => (fresh ? Promise.resolve(api.remove(next.sessionId, next.taskId)).catch(() => {}) : undefined);
+      try { await store.change(() => next); } catch (error) { await undo(); throw error; }
+      if (before.taskId !== undefined && (fresh || !next.on)) {
+        try { await api.remove(before.sessionId, before.taskId); } catch (error) { await store.change(() => before).catch(() => {}); await undo(); throw error; }
+      }
+      return next;
+    });
+    queue = done.catch(() => {});
+    return done;
+  };
+  ctx.connection.fetch.register({
+    path: ASSISTANT_MORNING_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    /** GET: `{on, time}`. POST `{on}` or `{time: "HH:MM"}`: one change. */
+    fetch: async (request) => {
+      if (request.method === 'POST') {
+        let body;
+        try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        const key = plainObject(body) ? Object.keys(body).join() : '';
+        if (!(key === 'on' && typeof body.on === 'boolean') && !(key === 'time' && typeof body.time === 'string' && MORNING_TIME.test(body.time))) return json({ error: 'bad request' }, 400);
+        try { await change(body); } catch (error) {
+          const { on, time } = await store.read();
+          return json({ error: String(error?.message ?? error), on, time }, Number.isInteger(error?.status) ? error.status : 500);
+        }
+      }
+      const { on, time } = await store.read();
+      return json({ on, time });
+    },
+  });
+  return { change, read: store.read };
 }
 
 /* Assistant status panel (part of Assistant to-do list): next to the to-do list, the panel shows the morning summary
