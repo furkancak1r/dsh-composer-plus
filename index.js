@@ -3408,7 +3408,9 @@ export function projectOf(cwd, workspaces) {
  * A reply that a rollback withdrew does not count. */
 export function lastReply(events) {
   const start = events.findLastIndex((e) => e.type === 'turn/start');
-  const gone = withdrawn(events);
+  // A marker always comes after the messages that it withdraws, so only the markers in the last turn can hide one of its
+  // replies: the rest of the log (a long chat has thousands of events) is not read.
+  const gone = withdrawn(events.slice(start + 1));
   for (let i = events.length - 1; i > start; i--) {
     const text = events[i].type === 'assistant/message' && !gone(events[i].seq) ? textBlocks(events[i].data?.message?.content).trim() : '';
     if (text !== '') return text;
@@ -3418,26 +3420,22 @@ export function lastReply(events) {
 /** The recent conversation for the prediction: the user's own messages and the agent's replies (no tools, no hidden
  * context), oldest first, the newest kept when it is long. `undefined` when the chat has no reply after its last message. */
 export function predictTranscript(events) {
-  const lines = [];
-  for (const e of events) {
-    if (e.type === 'user/message' && e.data?.source?.kind === 'user') {
-      const text = textBlocks(e.data.content).trim();
-      if (text !== '') lines.push({ who: 'User', text });
-    } else if (e.type === 'assistant/message') {
-      const text = textBlocks(e.data?.message?.content).trim();
-      if (text !== '') lines.push({ who: 'Agent', text });
-    }
-  }
-  if (lines.at(-1)?.who !== 'Agent') return undefined;
+  // From the end: only the newest PREDICT_CONTEXT characters are kept, so the older messages are not read.
   const out = [];
   let size = 0;
-  for (let i = lines.length - 1; i >= 0 && size < PREDICT_CONTEXT; i--) {
+  for (let i = events.length - 1; i >= 0 && size < PREDICT_CONTEXT; i--) {
+    const e = events[i];
+    const who = e.type === 'user/message' && e.data?.source?.kind === 'user' ? 'User' : e.type === 'assistant/message' ? 'Agent' : undefined;
+    if (who === undefined) continue;
+    const full = textBlocks(who === 'User' ? e.data.content : e.data?.message?.content).trim();
+    if (full === '') continue;
+    if (out.length === 0 && who !== 'Agent') return undefined;
     const room = PREDICT_CONTEXT - size;
-    const text = lines[i].text.length > room ? `…${lines[i].text.slice(-room)}` : lines[i].text;
-    out.unshift(`${lines[i].who}: ${text}`);
+    const text = full.length > room ? `…${full.slice(-room)}` : full;
+    out.unshift(`${who}: ${text}`);
     size += text.length;
   }
-  return out.join('\n\n');
+  return out.length === 0 ? undefined : out.join('\n\n');
 }
 /** The model's answer as one clean line: no quotes or label; empty when it has nothing useful. */
 export function cleanPrediction(text) {
@@ -9972,7 +9970,13 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   let delegate; // whether the assistant's newest request had the subagent tool (undefined: not seen yet)
   /** The `subagent` tool of the agent's newest request: `null` when that request had none, undefined without a request. */
   const subagentTool = (agent) => {
-    const tools = eventsOf(agent).findLast((e) => e.type === 'request/header')?.data?.header?.tools;
+    // dsh's own fold of the newest request/header (the same header, folded from the events after its last call); a session
+    // without it: the log, from its end.
+    let tools;
+    try {
+      tools = typeof agent?.session?.requestHeader === 'function' ? agent.session.requestHeader()?.tools
+        : eventsOf(agent).findLast((e) => e.type === 'request/header')?.data?.header?.tools;
+    } catch { tools = undefined; }
     return Array.isArray(tools) ? tools.find((t) => t?.name === 'subagent') ?? null : undefined;
   };
   const setFree = (next) => {
