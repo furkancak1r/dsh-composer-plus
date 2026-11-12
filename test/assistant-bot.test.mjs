@@ -111,6 +111,25 @@ assert.equal((await pre('bash', assistantAgent)).kind, 'allow', 'no subagent too
 assert.deepEqual((await call(ASSISTANT_FREE_PATH)).body, { on: true, active: false });
 assert.equal(free.text({ agent: assistantAgent }), '', 'no section without the subagent tool');
 assistantAgent.events.push({ type: 'request/header', data: { header: { tools: tools(true) } } });
+// dsh's `session.requestHeader()` (its incremental fold of the newest request/header): the rule reads it, not the log. A
+// dsh header with no tools has no `tools` key (dsh's canonicalHeader).
+{
+  const log = assistantAgent.session.snapshotEvents; let header = { config: {}, tools: tools(true) }; let reads = 0;
+  assistantAgent.session.requestHeader = () => header;
+  assistantAgent.session.snapshotEvents = () => { reads++; return log(); };
+  assert.equal((await pre('bash', assistantAgent)).kind, 'deny', 'requestHeader with the subagent tool: the rule works');
+  header = { config: {}, tools: tools(false) };
+  assert.equal((await pre('bash', assistantAgent)).kind, 'allow', 'requestHeader without the subagent tool: no rule');
+  assert.deepEqual((await call(ASSISTANT_FREE_PATH)).body, { on: true, active: false });
+  header = { config: {} }; // no tools at all: as a log header without `tools` (not seen), the chat does the work itself
+  assert.equal((await pre('bash', assistantAgent)).kind, 'allow');
+  header = undefined;
+  assert.equal((await pre('bash', assistantAgent)).kind, 'allow', 'no request yet: the chat does the work itself');
+  header = { config: {}, tools: tools(true, true) };
+  assert.equal((await pre('subagent', assistantAgent, { kind: 'allow' }, { prompt: 'x' })).kind, 'deny', 'dsh 0.2.0 shape from requestHeader');
+  assert.equal(reads, 0, 'the log is not read when dsh has requestHeader');
+  delete assistantAgent.session.requestHeader; assistantAgent.session.snapshotEvents = log;
+}
 // Off: no rule, no section; an explicit off stays off after a restart; a broken file reads as on.
 assert.equal((await call(ASSISTANT_FREE_PATH, 'POST', { on: 'no' })).status, 400);
 assert.deepEqual((await call(ASSISTANT_FREE_PATH, 'POST', { on: false })).body, { on: false, active: false });

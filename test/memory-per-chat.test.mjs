@@ -133,11 +133,12 @@ try {
   {
     const memStore = new Map();
     globalThis.localStorage = { getItem: (k) => (memStore.has(k) ? memStore.get(k) : null), setItem: (k, v) => memStore.set(k, String(v)) };
-    let gate; const posts = []; let hostOn = true; const offs = new Set(['session-x']);
+    let gate; const posts = []; const reads = []; let hostOn = true; const offs = new Set(['session-x']);
     globalThis.fetch = async (url, init) => {
       if (url === '/api/composer-plus.memory') return new Response(JSON.stringify({ on: true }), { status: 200 });
       if (url.startsWith('/api/composer-plus.memory-chat')) {
         const q = new URL(url, 'http://h').searchParams;
+        if (init?.method !== 'POST' && q.has('sessionId')) reads.push(q.get('sessionId'));
         if (init?.method === 'POST') {
           const body = JSON.parse(init.body); posts.push(body);
           if (body.on !== undefined) { hostOn = body.on; return new Response(JSON.stringify({ on: hostOn }), { status: 200 }); }
@@ -198,6 +199,36 @@ try {
     // Another chat has its own state.
     draw(Header, headerOpts, 'session-y'); await new Promise((r) => setTimeout(r, 10));
     assert.equal(button(draw(Header, headerOpts, 'session-y')).p['data-composer-plus-memory-chat'], 'on');
+    // The header button and Suggest for memory read the chat that opens together (one React commit): one GET.
+    reads.length = 0;
+    const chats = headerOpts.inject('session-z').chats;
+    await Promise.all([chats.read('session-z'), chats.read('session-z')]);
+    assert.deepEqual(reads, ['session-z'], 'one read per chat in one run');
+    await chats.read('session-z');
+    assert.deepEqual(reads, ['session-z', 'session-z'], 'a later read asks the Host again');
+    // Rule 7: a read that runs while a change starts never writes over the change. A read A runs, a second read B comes
+    // later (not in A's run), then the change saves "off"; B's answer must not set the chat back to "on".
+    {
+      // The Host answers a GET with the list as it is when the GET comes in; a POST changes it only when it ends.
+      let holdA; const heldA = new Promise((r) => { holdA = r; });
+      let holdPost; const heldPost = new Promise((r) => { holdPost = r; });
+      const realFetch = globalThis.fetch; let gets = 0; const order = [];
+      globalThis.fetch = async (url, init) => {
+        if (!String(url).includes('session-r') && !(init?.body ?? '').includes('session-r')) return realFetch(url, init);
+        if (init?.method === 'POST') { order.push('POST'); await heldPost; offs.add('session-r'); return new Response(JSON.stringify({ on: true, memory: true, off: true }), { status: 200 }); }
+        gets++; order.push(`GET${gets}`); const now = offs.has('session-r');
+        if (gets === 1) await heldA;
+        else await heldPost.then(() => new Promise((r) => setTimeout(r, 5))); // its answer comes after the POST's
+        return new Response(JSON.stringify({ on: true, memory: true, off: now }), { status: 200 });
+      };
+      const a = chats.read('session-r'); await new Promise((r) => setTimeout(r, 5));
+      const b = chats.read('session-r'); await new Promise((r) => setTimeout(r, 5)); // a later read while A runs
+      const change = chats.set('session-r', true); await new Promise((r) => setTimeout(r, 5)); // the click: POST waits
+      holdA(); await a; await new Promise((r) => setTimeout(r, 5)); // A ends while the POST runs
+      holdPost(); await Promise.all([b, change]); await new Promise((r) => setTimeout(r, 10));
+      assert.equal(chats.of('session-r').off, true, `the change stays: an older read does not write over it (${order.join(', ')})`);
+      globalThis.fetch = realFetch;
+    }
     // Off (a Host switch): the slots go.
     await section.setFeature('memoryPerChat', false);
     assert.deepEqual(posts.at(-1), { on: false }, 'the switch goes to the Host');

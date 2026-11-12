@@ -3413,7 +3413,9 @@ export function projectOf(cwd, workspaces) {
  * A reply that a rollback withdrew does not count. */
 export function lastReply(events) {
   const start = events.findLastIndex((e) => e.type === 'turn/start');
-  const gone = withdrawn(events);
+  // A marker always comes after the messages that it withdraws, so only the markers in the last turn can hide one of its
+  // replies: the rest of the log (a long chat has thousands of events) is not read.
+  const gone = withdrawn(events.slice(start + 1));
   for (let i = events.length - 1; i > start; i--) {
     const text = events[i].type === 'assistant/message' && !gone(events[i].seq) ? textBlocks(events[i].data?.message?.content).trim() : '';
     if (text !== '') return text;
@@ -3423,26 +3425,22 @@ export function lastReply(events) {
 /** The recent conversation for the prediction: the user's own messages and the agent's replies (no tools, no hidden
  * context), oldest first, the newest kept when it is long. `undefined` when the chat has no reply after its last message. */
 export function predictTranscript(events) {
-  const lines = [];
-  for (const e of events) {
-    if (e.type === 'user/message' && e.data?.source?.kind === 'user') {
-      const text = textBlocks(e.data.content).trim();
-      if (text !== '') lines.push({ who: 'User', text });
-    } else if (e.type === 'assistant/message') {
-      const text = textBlocks(e.data?.message?.content).trim();
-      if (text !== '') lines.push({ who: 'Agent', text });
-    }
-  }
-  if (lines.at(-1)?.who !== 'Agent') return undefined;
+  // From the end: only the newest PREDICT_CONTEXT characters are kept, so the older messages are not read.
   const out = [];
   let size = 0;
-  for (let i = lines.length - 1; i >= 0 && size < PREDICT_CONTEXT; i--) {
+  for (let i = events.length - 1; i >= 0 && size < PREDICT_CONTEXT; i--) {
+    const e = events[i];
+    const who = e.type === 'user/message' && e.data?.source?.kind === 'user' ? 'User' : e.type === 'assistant/message' ? 'Agent' : undefined;
+    if (who === undefined) continue;
+    const full = textBlocks(who === 'User' ? e.data.content : e.data?.message?.content).trim();
+    if (full === '') continue;
+    if (out.length === 0 && who !== 'Agent') return undefined;
     const room = PREDICT_CONTEXT - size;
-    const text = lines[i].text.length > room ? `…${lines[i].text.slice(-room)}` : lines[i].text;
-    out.unshift(`${lines[i].who}: ${text}`);
+    const text = full.length > room ? `…${full.slice(-room)}` : full;
+    out.unshift(`${who}: ${text}`);
     size += text.length;
   }
-  return out.join('\n\n');
+  return out.length === 0 ? undefined : out.join('\n\n');
 }
 /** The model's answer as one clean line: no quotes or label; empty when it has nothing useful. */
 export function cleanPrediction(text) {
@@ -4726,6 +4724,8 @@ export const sideTitle = (text) => {
 /** A side chat's own messages for Bring back: `{parent, messages, truncated}`, the lead taken off its first message;
  * undefined for a chat that is not a side chat. */
 export function sideChatOf(header, events, inherited) {
+  // A chat without a parent is never a side chat: no need to read its messages (each chat open and each turn asks).
+  if (typeof header?.parentSession !== 'string') return undefined;
   const from = Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0;
   // Only the last reply before each question (and at the end): not the agent's notes between its tool calls.
   const own = events.filter((e) => e.seq >= from);
@@ -4737,7 +4737,7 @@ export function sideChatOf(header, events, inherited) {
   }
   if (reply !== undefined) last.add(reply);
   const { messages, truncated } = chatTranscript(own.filter((e) => e.type !== 'assistant/message' || last.has(e.seq)));
-  if (typeof header?.parentSession !== 'string' || messages[0]?.role !== 'user' || !messages[0].text.startsWith(SIDE_LEAD.trim())) return undefined;
+  if (messages[0]?.role !== 'user' || !messages[0].text.startsWith(SIDE_LEAD.trim())) return undefined;
   return { parent: header.parentSession, messages: [{ role: 'user', text: messages[0].text.slice(SIDE_LEAD.length).trim() }, ...messages.slice(1)], truncated };
 }
 /** Start a side chat of `sessionId` with `text`. All or none: when its first message cannot be sent, the copy is archived. */
@@ -4779,9 +4779,11 @@ export function installSideChat(ctx) {
         if (!isText(id)) return json({ error: 'bad request' }, 400);
         try {
           const observation = await ctx.sessionQuery.observeSession(id, { signal: request.signal, projectionMode: 'none' });
-          let side;
-          try { side = sideChatOf(observation.header, observation.events ?? [], observation.inheritedEventCount); } finally { observation[Symbol.dispose]?.(); }
-          return side === undefined ? json({ error: 'not a side chat' }, 404) : json(side);
+          let side; let fork;
+          try { fork = typeof observation.header?.parentSession === 'string'; side = sideChatOf(observation.header, observation.events ?? [], observation.inheritedEventCount); } finally { observation[Symbol.dispose]?.(); }
+          // `fork: false`: the chat has no parent, so it never becomes a side chat (a new side chat answers 404 until its
+          // first message is in its log; that answer has no `fork: false`).
+          return side === undefined ? json({ error: 'not a side chat', ...(fork ? {} : { fork: false }) }, 404) : json(side);
         } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); }
       }
       let body;
@@ -6081,11 +6083,16 @@ export function installBranchTree(ctx, home) {
     const entry = watch.get(agent?.id);
     if (status === 'idle' && entry?.move !== undefined) finish(agent, entry);
   });
+  // The 30 s sync runs only while the switch is on (off by default: no timer at all).
+  let timer; let closed = false;
+  const tick = (now) => {
+    if (now && timer === undefined && !closed) { timer = setInterval(sync, BRANCH_TREE_SYNC_MS); timer.unref?.(); }
+    else if (!now && timer !== undefined) { clearInterval(timer); timer = undefined; }
+  };
   ctx.effect?.(() => {
-    const timer = setInterval(sync, BRANCH_TREE_SYNC_MS);
     const ready = get('appReady');
-    const cancel = ready?.onReady !== undefined ? ready.onReady(() => { read.then(sync); }) : (read.then(sync), undefined);
-    return () => { clearInterval(timer); cancel?.(); };
+    const cancel = ready?.onReady !== undefined ? ready.onReady(() => { read.then(() => { tick(on); sync(); }); }) : (read.then(() => { tick(on); sync(); }), undefined);
+    return () => { closed = true; tick(false); cancel?.(); };
   }, 'dsh-composer-plus: branch tree');
   ctx.connection.fetch.register({
     path: BRANCH_TREE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
@@ -6099,7 +6106,7 @@ export function installBranchTree(ctx, home) {
       try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
       if (typeof body?.on === 'boolean' && Object.keys(body).length === 1) {
         // Off: no new watch; a move that already began (the main folder is back on its branch) still ends.
-        const done = switchQueue.then(async () => { await saved.write(body.on); on = body.on; if (!on) for (const [id, e] of watch) if (e.move === undefined) watch.delete(id); });
+        const done = switchQueue.then(async () => { await saved.write(body.on); on = body.on; tick(on); if (!on) for (const [id, e] of watch) if (e.move === undefined) watch.delete(id); });
         switchQueue = done.catch(() => {});
         try { await done; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
         if (on) sync();
@@ -10766,7 +10773,13 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   let delegate; // whether the assistant's newest request had the subagent tool (undefined: not seen yet)
   /** The `subagent` tool of the agent's newest request: `null` when that request had none, undefined without a request. */
   const subagentTool = (agent) => {
-    const tools = eventsOf(agent).findLast((e) => e.type === 'request/header')?.data?.header?.tools;
+    // dsh's own fold of the newest request/header (the same header, folded from the events after its last call); a session
+    // without it: the log, from its end.
+    let tools;
+    try {
+      tools = typeof agent?.session?.requestHeader === 'function' ? agent.session.requestHeader()?.tools
+        : eventsOf(agent).findLast((e) => e.type === 'request/header')?.data?.header?.tools;
+    } catch { tools = undefined; }
     return Array.isArray(tools) ? tools.find((t) => t?.name === 'subagent') ?? null : undefined;
   };
   const setFree = (next) => {
