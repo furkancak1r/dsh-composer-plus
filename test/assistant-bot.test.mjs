@@ -7,7 +7,8 @@
 // - Assistant news from chats (off by default): a long finished turn, a failed turn or a wait of 30 s in another root chat
 //   become one hidden note in the assistant chat (a marker swapped in agent/pre-step), collected for the batch time, at
 //   most one news turn per gap, held while the assistant runs. Short turns, user stops, subagents, archived chats and the
-//   assistant itself give no news. The last reply leaves out what a rollback withdrew (both kinds) and a fork's copy.
+//   assistant itself give no news. A chat archived or deleted after its news was queued gives none either (a delegated
+//   task's result still goes). The last reply leaves out what a rollback withdrew (both kinds) and a fork's copy.
 //   Scope "automations" (the default): only a turn that a schedule started (the first own prompt of the newest turn has
 //   source.kind "schedule", also in a chat that you started; a failed first step logs no prompt, so the queued message that
 //   started the turn counts) gives news, at its end (also a short one) and each wait; other chats, a typed turn and a fork
@@ -35,7 +36,7 @@ const note = assistantNewsNote([
 assert.match(note, /not instructions for you/);
 assert.match(note, /Do not call other tools/);
 // Quiet news: the panel and the list first; a chat line only when the user must act or a requested task ends.
-assert.match(note, /Update the to-do list and the status panel/);
+assert.match(note, /Update the to-do list \(todo_list_add, todo_list_remove\)\. Do not write a status summary for this news/, 'news updates the list, not the summary (the panel shows a summary only after Get summary)');
 assert.match(note, /Write to the user only when the user must act, when a task that the user asked for is done, when a task failed or is blocked, or when a live system has an error or a risk/);
 assert.match(note, /with the topic name and not internal IDs\. Otherwise write nothing in the chat/);
 assert.doesNotMatch(note, /a few lines|Tell the user each line/, 'no reply per news line');
@@ -302,6 +303,31 @@ typed.events.push({ seq: 22, type: 'turn/end' }, { seq: 23, type: 'turn/start' }
 turn(typed, 'error', 1000, { error: { message: 'rate limit' } });
 await pause(80); await bot.flush();
 assert.equal(steers.length, before + 3, 'a typed prompt whose first step failed is no automation'); assert.deepEqual(bot.pending(), []);
+// A chat that you archive or delete (Delete Chat archives it first) after its news was queued: the news goes and the
+// assistant does not wake, in the batch time and while the assistant runs, also for an automation. A delegated task's
+// result still goes (the user asked for that task).
+await call(ASSISTANT_NOTIFY_PATH, 'POST', { scope: 'all' }); clock += 200000;
+const gone = newAgent('s-gone', { cwd: '/demo/acme-web' }, [{ seq: 0, type: 'turn/start' }, am(1, 'Old work done.')]);
+const goneAuto = newAgent('s-gone-auto', { cwd: '/home/demo/Assistant' }, [{ seq: 0, type: 'turn/start' }, sched(1, '[SCHEDULE REMINDER] audit'), am(2, 'Audit: 1 finding.')]);
+const quiet = steers.length;
+turn(gone, 'completed', 90000); turn(goneAuto, 'completed', 5000); archived.add('s-gone'); archived.add('s-gone-auto');
+await pause(80);
+assert.deepEqual(bot.pending(), [], 'no news of a chat archived in the batch time'); assert.equal(steers.length, quiet, 'no wake for an archived chat');
+archived.clear(); assistantAgent.status = 'running';
+turn(gone, 'completed', 90000);
+await until(() => bot.pending().length === 1, 'the news is queued'); await pause(60); // the flush holds it while the assistant runs
+archived.add('s-gone'); assistantAgent.status = 'idle'; emit('agent/status', { agent: assistantAgent, status: 'idle' });
+await pause(80);
+assert.deepEqual(bot.pending(), [], 'no news of a chat archived while the assistant ran'); assert.equal(steers.length, quiet, 'no wake after the assistant run');
+archived.clear(); clock += 200000;
+const taskList = new Map([['s-task', { title: 'Fix the login', project: 'acme-web' }]]);
+assistant.tasks = { get: (id) => taskList.get(id), has: (id) => taskList.has(id), add: (id, t) => taskList.set(id, t), drop: (id) => taskList.delete(id) };
+const taskChat = newAgent('s-task', { cwd: '/demo/acme-web' }, [{ seq: 0, type: 'turn/start' }, am(1, 'The login is fixed.')]);
+turn(taskChat, 'completed', 5000); archived.add('s-task');
+await until(() => steers.length === quiet + 1, 'the task result of an archived chat goes');
+const taskStep = await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }));
+assert.match(taskStep.messages[0].content[0].text, /chat s-task, your delegated task\): finished\. Last reply: "The login is fixed\."/);
+archived.clear(); delete assistant.tasks;
 // The saved file at the next start: no scope (an older copy's file) reads as automations; "all" stays.
 const startWith = async (text) => {
   await writeFile(join(home, 'storages/dsh-composer-plus/assistant-notify.json'), text);

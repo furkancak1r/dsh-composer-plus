@@ -44,7 +44,7 @@ const fake = createServer((req, res) => {
     if (/session title/i.test(JSON.stringify(msgs.at(-1)?.content ?? ''))) { answer('Queue test'); return; }
     if (JSON.stringify(msgs.at(-1)?.content ?? '').includes('Recent conversation:')) { answer(''); return; } // Composer Plus prediction
     const lastAssistant = msgs.findLastIndex((m) => m.role === 'assistant');
-    const added = msgs.slice(lastAssistant + 1).filter((m) => m.role === 'user' && !/Current runtime context|Time sampled while preparing/.test(JSON.stringify(m.content)));
+    const added = msgs.slice(lastAssistant + 1).filter((m) => m.role === 'user' && !/Current runtime context|Time sampled while preparing|<system-reminder>/.test(JSON.stringify(m.content)));
     const text = JSON.stringify(added.map((m) => m.content));
     const r = { note: text.includes(NOTE), task: text.includes(TASK), images: added.flatMap((m) => (Array.isArray(m.content) ? m.content : [])).filter((p) => p.type === 'image_url').length, file: text.includes('notes.txt') };
     for (const [k, v] of Object.entries(Q)) if (text.includes(v)) r[k] = true;

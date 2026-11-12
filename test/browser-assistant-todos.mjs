@@ -53,7 +53,8 @@ const fake = createServer((req, res) => {
     const own = msgs.filter((m) => m.role === 'user').map((m) => textOf(m.content)).filter((t) => !/^<|^Current runtime context|^Time sampled/.test(t.trim()));
     const newest = own.at(-1) ?? '';
     const system = msgs.filter((m) => m.role === 'system').map((m) => textOf(m.content)).join('\n');
-    const context = msgs.filter((m) => m.role === 'user' && /^Current runtime context/.test(textOf(m.content).trim())).map((m) => textOf(m.content)).at(-1) ?? '';
+    // dsh's runtime context: "Current runtime context…" before 0.2.2-rc.2, a <system-reminder> block ("The following information describes your current session…") in 0.2.2-rc.2.
+    const context = msgs.filter((m) => m.role === 'user' && /^(<system-reminder>\s*)?(Current runtime context|The following information describes your current session)/.test(textOf(m.content).trim())).map((m) => textOf(m.content)).at(-1) ?? '';
     const tools = (parsed.tools ?? []).map((t) => t.function?.name);
     // A tool result after the newest own message: the same turn (dsh adds a new runtime-context message after the result
     // when the list changed, so the last message is not always the tool result).
@@ -297,9 +298,9 @@ try {
       await until(async () => /Working/.test(await task.innerText()), 'the task shows as working', 20000);
       gate.open = true;
       await until(async () => /Done/.test(await task.innerText()) && /Flights found: 3 options/.test(await task.innerText()), 'the task shows done with its result', 30000);
-      // Refresh updates the time; the button has its name.
+      // Refresh updates the list time; the button has its name (test/browser-status-refresh.mjs checks its feedback).
       await panel.getByRole('button', { name: 'Refresh', exact: true }).click();
-      assert.match(await panel.locator('h2').innerText(), /Updated/);
+      await until(async () => /List \d/.test(await panel.locator('h2').innerText()), 'the list time after Refresh', 5000);
       // Refresh reads the open project's git details again: wait until they are back before the typing check.
       await detail.getByText('feature/login').first().waitFor({ timeout: 15000 }); await pause(1500);
       // Typing does not draw the panel: count DOM changes in the panel while 30 keys go into the composer.

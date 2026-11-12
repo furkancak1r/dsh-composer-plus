@@ -55,7 +55,7 @@ const fake = createServer((req, res) => {
     if (/session title/i.test(last)) return say('Login review');
     if (/You predict the next message|You complete the message that the user is typing/.test(JSON.stringify(msgs))) return say('');
     // dsh adds runtime notes after the prompt: the user's own message is the newest one that is not such a note.
-    const own = msgs.filter((m) => m.role === 'user').map((m) => textOf(m.content)).filter((t) => !/^(Current runtime context|Time sampled)/.test(t)).at(-1) ?? '';
+    const own = msgs.filter((m) => m.role === 'user').map((m) => textOf(m.content)).filter((t) => !/^(Current runtime context|Time sampled|<system-reminder>)/.test(t)).at(-1) ?? '';
     sent.push(own);
     return say(`Answer ${sent.length}: the guard returns early.`);
   });

@@ -114,9 +114,12 @@ const rightClick = (on, x = 410, y = 220, more = {}) => { let prevented = false;
   let draft = 'First line'; const span = { start: 10, end: 10, draftRev: 3 }; const inserts = []; let accept = true; const notes = []; let focused = 0;
   const inputActions = { captureInsertion: () => span, insertText: (text, s) => { inserts.push([text, s]); return accept; } };
   const props = { sessionId: 'S', menu: true, useInput: (f) => f({ draft }), inputActions, focusComposer: () => { focused += 1; }, notify: (level, text) => notes.push([level, text]), t };
-  const v = mount(QuoteReply, props);
+  // The Menu is portaled under <body> (dsh 0.2.2-rc.2 places it at anchorPoint with position: fixed).
+  const m = mount(QuoteReply, props);
+  const v = { render: (more) => { const r = m.render(more); assert.equal(r?.host, document.body, 'the menu is under <body>');
+    assert.equal(r.portal.p.style.position, 'fixed', 'in a fixed box: out of the page flow'); return r.portal.c[0]; }, unmount: m.unmount };
   let out = v.render();
-  assert.equal(out.t, 'Menu', "dsh's Menu"); assert.equal(out.p.open, false, 'closed until a right-click');
+  assert.equal(out.t, 'Menu', "dsh's Menu"); assert.equal(out.p.open, false, 'closed until a right-click'); assert.equal(out.p.anchorPoint, undefined);
   assert.equal(listeners.doc.get('selectionchange')?.size ?? 0, 0, 'no floating button: no selectionchange listener');
   assert.equal(listeners.doc.get('contextmenu').size, 1);
   // The labels: Copy next to Quote, from the language pack (t gives the key here; the packs give the words, below).
@@ -125,6 +128,7 @@ const rightClick = (on, x = 410, y = 220, more = {}) => { let prevented = false;
   selection = sel(text(answer1), text(answer1), 'Use pnpm, not npm.');
   assert.equal(rightClick(answer1), true, 'a selection in an answer: our menu, not the browser menu');
   out = v.render(); assert.equal(out.p.open, true); assert.deepEqual(out.p.getAnchorRect(), { left: 410, right: 410, top: 220, bottom: 220 });
+  assert.deepEqual(out.p.anchorPoint, { x: 410, y: 220 }, 'dsh 0.2.2-rc.2 and later: the pointer as anchorPoint (its Menu has no getAnchorRect)');
   // Quote: the quote at the caret through insertText (older dsh: no insertQuote), the selection goes, the composer gets the focus.
   out.p.onSelect('quote');
   assert.deepEqual(inserts, [['\n\n> Use pnpm, not npm.\n\n\n', span]]);
@@ -170,6 +174,7 @@ const rightClick = (on, x = 410, y = 220, more = {}) => { let prevented = false;
   // The menu key (no pointer): the menu at the start of the selection.
   selection = sel(text(answer1), text(answer1), 'x'); rightClick(answer1, 0, 0);
   assert.deepEqual(v.render().p.getAnchorRect(), { left: 500, right: 500, top: 320, bottom: 320 });
+  assert.deepEqual(v.render().p.anchorPoint, { x: 500, y: 320 });
   v.render().p.onClose(); assert.equal(v.render().p.open, false, 'Esc or a click outside closes it');
   // No dsh input face or no dsh Menu: nothing, the browser menu stays.
   assert.equal(mount(QuoteReply, { ...props, inputActions: undefined }).render(), null);

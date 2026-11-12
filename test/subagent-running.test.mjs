@@ -21,17 +21,27 @@ const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? {
 
 // dsh's own entry, already registered by dsh-client-ui-subagent.
 const shippedComponent = (props) => ({ shipped: true, text: props.t('count.total.other', { count: 37 }), aria: props.t('count.running.other', { count: 3 }), tree: props.t('tree.aria'), props });
-const shipped = { component: shippedComponent, options: { id: 'subagent-catalog', order: 10 }, inject: () => ({ openChild: 'dsh-open-child' }) };
+// dsh 0.2.2-rc.2: its inject also gives `hooks` (the renderer makes `use<Name>` hooks) and its entry declares `children`.
+let footer = false; const footerListeners = new Set();
+const footerAvailable = { getSnapshot: () => footer, subscribe: (fn) => { footerListeners.add(fn); return () => footerListeners.delete(fn); } };
+const CHILDREN = { 'conversation.session.header.actions.subagent.footer': { kind: 'list', scope: 'session' } };
+const shipped = { component: shippedComponent, options: { id: 'subagent-catalog', order: 10 }, children: CHILDREN, inject: () => ({ openChild: 'dsh-open-child', hooks: { footerAvailable } }) };
 const registered = [];
+// dsh 0.2.2-rc.2's Agent Team board: an entry of the child slot, with its own locale namespace.
+const FOOTER = 'conversation.session.header.actions.subagent.footer';
+const TeamBoard = (p) => ({ board: true, sessionId: p.sessionId, title: p.t('tasks') });
+const boards = [{ component: TeamBoard, options: { id: 'agent-team' }, locale: 'agent-team' }];
 const slots = {
   inject: (n, f) => f(),
-  register: (o, Comp) => { const entry = { options: o, component: Comp }; registered.push(entry); return () => registered.splice(registered.indexOf(entry), 1); },
+  register: (o, Comp) => { const entry = { options: o, component: Comp, children: o.children }; registered.push(entry); return () => registered.splice(registered.indexOf(entry), 1); },
   entries: (key) => (key === 'conversation.session.header.actions' ? [shipped, ...registered.filter((e) => e.options.name === key).map((e) => ({ component: e.component, options: { id: e.options.id, priority: e.options.priority } }))] : []),
+  entriesOfSlot: (key) => (key === FOOTER ? boards : []),
 };
 const effectsOff = []; let settings;
 const dict = { 'count.running.one': '{count} subagent running', 'count.running.other': '{count} subagents running', 'tree.aria': 'Subagent sessions', 'subagentCount.total': 'Subagents in total: {count}' };
 const fill = (k, p) => (dict[k] ?? k).replace(/\{(\w+)\}/g, (_, n) => String(p?.[n]));
-plugin.apply({ effect: (f) => { effectsOff.push(f()); }, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: () => fill },
+const teamDict = { tasks: 'Shared tasks' };
+plugin.apply({ effect: (f) => { effectsOff.push(f()); }, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: (ns) => (ns === 'agent-team' ? (k) => teamDict[k] ?? k : fill) },
   slots: { ...slots, register: (o, Comp) => { if (o.id === 'composer-plus') settings = o; return slots.register(o, Comp); } } });
 const mine = () => registered.filter((e) => e.options.name === 'conversation.session.header.actions' && e.options.id === 'subagent-catalog');
 
@@ -40,15 +50,23 @@ const entry = mine()[0];
 assert.equal(entry.options.priority, -1, 'a lower priority than dsh (0): the slot cell renders it instead of dsh\'s entry');
 assert.equal(entry.options.order, 10, 'same place as dsh\'s counter');
 assert.equal(entry.options.locale, 'subagent', 'dsh\'s own subagent texts');
+assert.equal(entry.options.children, undefined, 'no second declaration of dsh\'s child slot (dsh throws "already declared")');
 
 // A fake page: dsh's button (aria-expanded) inside the entry's root, and dsh's portal menu under <body>.
 let expanded = 'false';
-const root = { querySelector: (sel) => (sel === '[aria-haspopup="tree"][aria-expanded="true"]' && expanded === 'true' ? {} : null) };
+// `popup`: dsh's button kind ("tree" before 0.2.2-rc.2, "dialog" in 0.2.2-rc.2).
+let popup = 'tree';
+const root = { querySelector: (sel) => (sel.split(', ').includes(`[aria-haspopup="${popup}"][aria-expanded="true"]`) && expanded === 'true' ? {} : null) };
 const body = [];
-const node = (tag) => ({ tag, style: {}, attrs: new Map(), children: [], setAttribute(k, v) { this.attrs.set(k, v); }, remove() { const i = menu.children.indexOf(this); if (i >= 0) menu.children.splice(i, 1); } });
+const node = (tag) => ({ tag, style: {}, attrs: new Map(), children: [], setAttribute(k, v) { this.attrs.set(k, v); }, remove() { for (const box of [menu, body2]) { const i = box.children.indexOf(this); if (i >= 0) box.children.splice(i, 1); } } });
 const tree = { getAttribute: (k) => ({ role: 'tree', 'aria-label': 'Subagent sessions' })[k] };
-const menu = { firstElementChild: tree, children: [tree], prepend(n) { this.children.unshift(n); } };
-const other = { firstElementChild: { getAttribute: (k) => ({ role: 'tree', 'aria-label': 'Projects' })[k] }, children: [], prepend() { throw Error('another tree must not get the line'); } };
+const menu = { hasAttribute: () => false, firstElementChild: tree, children: [tree], prepend(n) { this.children.unshift(n); } };
+const projects = { getAttribute: (k) => ({ role: 'tree', 'aria-label': 'Projects' })[k] };
+const other = { hasAttribute: () => false, firstElementChild: projects, children: [projects], prepend() { throw Error('another tree must not get the line'); } };
+// dsh 0.2.2-rc.2: `body > [role=dialog][data-subagent-panel] > div > [role=tree]`, the line goes into that div.
+const body2 = { children: [tree], prepend(n) { this.children.unshift(n); } };
+const backdrop = { children: [], prepend() { throw Error('not into the backdrop'); } };
+const dialog = { hasAttribute: (k) => k === 'data-subagent-panel', firstElementChild: backdrop, children: [backdrop, body2], prepend() { throw Error('the line goes into the panel body'); } };
 globalThis.document = { createElement: node, body: { get children() { return body; } } };
 globalThis.MutationObserver = class { constructor(fn) { this.fn = fn; } observe() {} disconnect() {} };
 
@@ -78,6 +96,18 @@ const shown = shippedComponent(drawn.p);
 assert.equal(shown.text, '3 subagents running', 'the header shows the subagents that run now, not the total (37)');
 assert.equal(shown.aria, '3 subagents running', 'other texts stay dsh\'s');
 assert.equal(drawn.p.openChild, 'dsh-open-child', 'dsh\'s own actions (open a subagent) still reach the component');
+assert.equal(drawn.p.hooks, undefined, 'no raw hooks to dsh\'s component');
+const footerOut = drawn.p.renderSlot(FOOTER, {});
+assert.equal(footerOut.length, 1, 'dsh 0.2.2-rc.2: renderSlot draws the Agent Team board under the list');
+assert.equal(footerOut[0].t, TeamBoard);
+const board = TeamBoard(footerOut[0].p);
+assert.equal(board.sessionId, 's1', 'the board gets the chat');
+assert.equal(board.title, 'Shared tasks', 'the board gets its own texts, not the subagent texts');
+assert.equal(drawn.p.renderSlot('another.slot', {}), null, 'another slot: nothing');
+boards.length = 0; assert.deepEqual(drawn.p.renderSlot(FOOTER, {}), [], 'no board plugin: nothing under the list');
+assert.equal(drawn.p.useFooterAvailable((v) => v), false, 'dsh 0.2.2-rc.2: hooks become use<Name> selector hooks');
+footer = true; assert.equal(drawn.p.useFooterAvailable((v) => !v), false, 'the hook reads the source and applies the selector');
+footer = false;
 assert.equal(out.p['data-composer-plus-subagent-running'], 3);
 // One running: singular.
 let one = render(list, new Map([['k0', { running: true }], ['k2', { running: false }]]));
@@ -98,6 +128,13 @@ out = render();
 assert.equal(menu.children.length, 2, 'a second render adds no second line');
 expanded = 'false'; out = render();
 assert.equal(menu.children.length, 1, 'closed again: the line goes');
+// dsh 0.2.2-rc.2: its button says aria-haspopup="dialog" and its panel wraps the tree in one more box.
+body.splice(0, body.length, other, dialog); popup = 'dialog';
+expanded = 'true'; out = render();
+assert.equal(body2.children.length, 2, '0.2.2-rc.2: open, one line above the tree');
+assert.equal(body2.children[0].textContent, 'Subagents in total: 37');
+expanded = 'false'; out = render();
+assert.equal(body2.children.length, 1, '0.2.2-rc.2: closed, the line goes');
 
 // Switch off: the entry goes, so dsh's own counter (the total) renders again; on again: back.
 const { setFeature } = settings.inject();
