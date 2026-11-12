@@ -10282,7 +10282,8 @@ export function todoContext(list) {
 
 /** One owner-only file `{lists: {<chat id>: [item]}}`, read once and kept in memory (the prompt context reads it at each
  * step). `change(id, mutate)` runs one change at a time: `mutate(list)` answers `{list, ...}`; the file is written
- * atomically before memory changes, so a failed write changes nothing and throws. */
+ * atomically before memory changes, so a failed write changes nothing and throws. A missing file is empty; a file that
+ * cannot be read or parsed is kept as `<file>.broken-<time>` and the lists start empty, so no write overwrites it. */
 export function todoStore(file) {
   let lists = new Map();
   const ready = readFile(file, 'utf8').then((text) => {
@@ -10293,7 +10294,7 @@ export function todoStore(file) {
       const list = items.map(todoItem).filter(Boolean).slice(0, TODO_LIMITS.items);
       if (list.length > 0 && !lists.has(id)) lists.set(id, list);
     }
-  }).catch(() => {});
+  }).catch((error) => (error?.code === 'ENOENT' ? undefined : rename(file, `${file}.broken-${Date.now()}`).catch(() => {})));
   let queue = ready;
   const change = (id, mutate) => {
     const done = queue.then(async () => {
@@ -10639,14 +10640,15 @@ export async function statusGit(subprocess, cwd, signal) {
 }
 
 /** Summary store: one summary per chat in `assistant-summary.json` (`{chats: {<id>: {at, projects: [{project, text}]}}}`),
- * owner-only, written atomically, one change at a time. */
+ * owner-only, written atomically, one change at a time. A file that cannot be read or parsed (not a missing one) is kept
+ * as `<file>.broken-<time>`, so no write overwrites it. */
 function summaryStore(file) {
   let chats = new Map();
   const ok = (v) => plainObject(v) && Number.isSafeInteger(v.at) && Array.isArray(v.projects) && v.projects.every((p) => isText(p?.project, STATUS_LIMITS.project) && isText(p?.text, STATUS_LIMITS.text));
   const ready = readFile(file, 'utf8').then((text) => {
     const saved = JSON.parse(text)?.chats;
     if (plainObject(saved)) for (const [id, v] of Object.entries(saved)) if (isText(id, 128) && ok(v) && !chats.has(id)) chats.set(id, { at: v.at, projects: v.projects.slice(0, STATUS_LIMITS.projects) });
-  }).catch(() => {});
+  }).catch((error) => (error?.code === 'ENOENT' ? undefined : rename(file, `${file}.broken-${Date.now()}`).catch(() => {})));
   let queue = ready;
   const set = (id, value) => {
     const done = queue.then(async () => {

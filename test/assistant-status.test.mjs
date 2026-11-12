@@ -2,12 +2,12 @@
 // state, times and the first line of the result; a fork's copy of its parent is left out; older than today: left out),
 // the projects that changed in the last 24 hours (no assistant, subagent, blank or archived chat), one project's git
 // details (a real temporary repository; read-only), the status_summary_set tool (only the assistant chat, limits, saved
-// in a file that a new Host reads again) and the GET guards (another chat gets no status; an unknown or unregistered
+// in a file that a new Host reads again, a broken file is kept aside) and the GET guards (another chat gets no status; an unknown or unregistered
 // project gets 404; off: nothing), and the delegated chats that ended today (done, failed or stopped after the open tasks;
 // not a task that dsh's quit or an AIProxy outage keeps; gone the next day).
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ASSISTANT_TODOS_PATH, STATUS_LIMITS, TODO_TOOLS, installAssistant, installAssistantBot, installAssistantTodos, statusGit, statusProjects, statusTasks } from '../index.js';
@@ -199,6 +199,17 @@ try {
   const again = installAssistantTodos(ctx2, home, { ...assistant, addTools: () => ({ remount() {}, off() {} }) }, { now: () => clock }); await again.ready;
   r = await routes2.get(ASSISTANT_TODOS_PATH).fetch(new Request(`http://x${ASSISTANT_TODOS_PATH}?sessionId=s-a`));
   assert.equal((await r.json()).summary.projects.length, 2, 'the summary survives a restart');
+  // A broken summary file is kept aside before the next write (a missing to-do file is not).
+  {
+    const brokenDir = join(root, 'broken'); await mkdir(brokenDir);
+    await writeFile(join(brokenDir, 'assistant-summary.json'), '{not json');
+    let toolsOf;
+    const host = installAssistantTodos(ctx2, home, { ...assistant, addTools: (fn) => { toolsOf = fn; return { remount() {}, off() {} }; } }, { dir: brokenDir, now: () => clock }); await host.ready;
+    await toolsOf().find((t) => t.name === 'status_summary_set').execute({ projects: [{ project: 'p', text: 't' }] }, { agent: assistantAgent });
+    const names = (await readdir(brokenDir)).sort();
+    assert.deepEqual(names.map((n) => n.replace(/\d+$/, 'N')), ['assistant-summary.json', 'assistant-summary.json.broken-N'], 'kept as assistant-summary.json.broken-<time>');
+    assert.equal(await readFile(join(brokenDir, names[1]), 'utf8'), '{not json', 'with its old bytes');
+  }
 
   // One project's git details: only a registered project and only for the assistant chat.
   r = await call('?sessionId=s-a&project=w-repo');
