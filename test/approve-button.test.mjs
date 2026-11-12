@@ -257,6 +257,9 @@ try {
   assert.deepEqual(sentences(APPROVE_SECTION), ["Onaylıyorum: feature/x dalını origin'e push et."], 'the example in the rule is a block that the client reads');
   assert.match(APPROVE_SECTION, /Each approval sentence gets the block, also one that names a live or public target/, 'the rule: a block for each approval sentence');
   assert.doesNotMatch(APPROVE_SECTION, /no button|user types it/, 'no exception for live or public targets');
+  assert.match(APPROVE_SECTION, /Write at most one `onay` block per answer/);
+  assert.match(APPROVE_SECTION, /Show the `onay` block once\. After that, keep the pending approval in the to-do list and do not repeat the block in each reply\./, 'no repeated block');
+  assert.match(APPROVE_SECTION, /name the targets and the live or not-live scope, without file lines or script names/, 'a short sentence');
   for (const bad of [{ on: 'yes' }, { on: true, x: 1 }, {}, []]) assert.equal((await req(bad)).status, 400, JSON.stringify(bad));
   assert.deepEqual((await req({ on: false })).body, { on: false });
   assert.equal(sections.size, 0, 'off: no section'); assert.ok(disposed >= 1);
