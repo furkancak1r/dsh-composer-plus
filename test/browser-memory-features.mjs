@@ -13,6 +13,9 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, symlink, rm, realpath, st
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readdirSync } from 'node:fs';
+// The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read until the migration).
+const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 const require = createRequire(import.meta.url);
 if (!process.env.PLAYWRIGHT || process.argv.length < 3) throw Error('Set PLAYWRIGHT and pass one or more dsh CLI entry paths');
 const { chromium } = require(process.env.PLAYWRIGHT);
@@ -111,7 +114,7 @@ try {
     const idOf = async (path) => createHash('sha256').update(await realpath(path)).digest('hex').slice(0, 32);
     const webId = await idOf(web); const blogId = await idOf(blog);
     await mkdir(join(memDir, 'projects', webId), { recursive: true });
-    await writeFile(join(memDir, 'projects', webId, 'MEMORY.md'), '# Memory\n\n- The user runs the tests with `npm run test` [added: 2026-10-30]\n- The user wants short answers [added: 2026-10-31]\n- Releases need a git tag first [added: 2026-11-01]\n\n## Index\n');
+    await writeFile(mainOf(join(memDir, 'projects', webId)), '# Memory\n\n- The user runs the tests with `npm run test` [added: 2026-10-30]\n- The user wants short answers [added: 2026-10-31]\n- Releases need a git tag first [added: 2026-11-01]\n\n## Index\n');
     await writeFile(join(memDir, 'projects', webId, 'project.json'), JSON.stringify({ path: web }));
 
     const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3208', '--no-open'], { cwd: web, env: { ...process.env, HOME: home, DSH_HOME: home, DEMO_KEY: 'demo', DSH_PERMISSION_MODE: 'danger-full-access', npm_config_cache: join(tmpdir(), 'npm-cache') }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -175,7 +178,7 @@ try {
         await dialog.locator('[data-composer-plus-memory-preview-button]').click();
         await dialog.locator('[data-composer-plus-memory-apply]').click();
         await until(async () => !(await dialog.locator('[data-composer-plus-memory-preview]').count()), 'applied');
-        assert.doesNotMatch(await readFile(join(memDir, 'projects', webId, 'MEMORY.md'), 'utf8'), /short answers/);
+        assert.doesNotMatch(await readFile(mainOf(join(memDir, 'projects', webId)), 'utf8'), /short answers/);
         await dialog.locator(`[data-composer-plus-memory-history-open="${webId}"]`).click();
         const version = dialog.locator('[data-composer-plus-memory-version]').first(); await version.waitFor();
         assert.match(await version.textContent(), /Before a change by Open memory/);
@@ -185,7 +188,7 @@ try {
         await shot(dialog, 'memoryHistory');
         await dialog.locator('[data-composer-plus-memory-restore]').click();
         await dialog.getByText(/Version restored/).waitFor();
-        const main = await readFile(join(memDir, 'projects', webId, 'MEMORY.md'), 'utf8');
+        const main = await readFile(mainOf(join(memDir, 'projects', webId)), 'utf8');
         assert.match(main, /short answers/); assert.doesNotMatch(main, /answers in English/);
         const versions = await readdir(join(memDir, 'history', webId));
         assert.equal(versions.length, 2, 'the Apply and the restore each kept a version');
@@ -217,7 +220,7 @@ try {
         // The agent saves a note with memory_remember: the note keeps this chat and the message; Source opens it there.
         toolCall = { name: 'memory_remember', args: { text: 'Checkout uses the Stripe test keys on staging' }, when: /Remember: checkout/ };
         await say('Remember: checkout uses the Stripe test keys on staging');
-        const main = await until(async () => { const t = await readFile(join(memDir, 'projects', webId, 'MEMORY.md'), 'utf8'); return /Stripe test keys/.test(t) && t; }, 'the tool saved the note');
+        const main = await until(async () => { const t = await readFile(mainOf(join(memDir, 'projects', webId)), 'utf8'); return /Stripe test keys/.test(t) && t; }, 'the tool saved the note');
         const src = /Stripe test keys on staging \[source: (session-[\w-]+) #(\d+);/.exec(main);
         assert.ok(src, `the note has a source: ${main}`);
         // Another chat, so that Source must switch chats.
@@ -244,7 +247,7 @@ try {
         await shot(dialog, 'memoryCopy');
         await dialog.locator('[data-composer-plus-memory-copy-search]').press('Enter');
         await dialog.getByText(/Copied 2 note\(s\) to acme-blog/).waitFor();
-        const blogMain = await readFile(join(memDir, 'projects', blogId, 'MEMORY.md'), 'utf8');
+        const blogMain = await readFile(mainOf(join(memDir, 'projects', blogId)), 'utf8');
         assert.match(blogMain, /npm run test/); assert.match(blogMain, /Releases need a git tag first/);
         assert.deepEqual(JSON.parse(await readFile(join(memDir, 'projects', blogId, 'project.json'), 'utf8')), { path: blog });
         await closeMemory(dialog);
@@ -253,7 +256,7 @@ try {
 
       if (part('stale')) {
         // Two notes that name what acme-web has, two that name what it does not have any more.
-        const main = join(memDir, 'projects', webId, 'MEMORY.md');
+        const main = mainOf(join(memDir, 'projects', webId));
         await writeFile(main, (await readFile(main, 'utf8')).replace('\n## Index', '- The cart lives in `src/cart.ts` [added: 2026-11-02]\n- The old checkout was in `src/checkout.ts` [added: 2026-10-20]\n- Deploy with `npm run deploy` [added: 2026-10-21]\n\n## Index'));
         const dialog = await openMemory();
         await dialog.locator(`[data-composer-plus-memory-project="${webId}"]`).click();
@@ -362,7 +365,7 @@ try {
         await list.getByText(/1 suggestion\(s\) were left out/).waitFor();
         await list.locator('[data-composer-plus-memory-suggestion-accept="0"]').click();
         await list.locator('[data-composer-plus-memory-suggestion="saved"]').waitFor();
-        const main = await readFile(join(memDir, 'projects', webId, 'MEMORY.md'), 'utf8');
+        const main = await readFile(mainOf(join(memDir, 'projects', webId)), 'utf8');
         const src = new RegExp(`The user wants pnpm in acme-web, never npm \\[source: ${sid} #(\\d+);`).exec(main);
         assert.ok(src, `the note keeps its source: ${main}`);
         const modal = page.getByRole('dialog').filter({ has: list });
@@ -376,8 +379,8 @@ try {
         await list.locator('[data-composer-plus-memory-suggestion="rejected"]').waitFor();
         await list.locator('[data-composer-plus-memory-suggestion-accept="2"]').click();
         await until(async () => (await list.locator('[data-composer-plus-memory-suggestion="saved"]').count()) === 2, 'the global note saved');
-        assert.match(await readFile(join(memDir, 'global', 'MEMORY.md'), 'utf8'), /The user prefers short commit messages \[source: /);
-        assert.doesNotMatch(await readFile(join(memDir, 'projects', webId, 'MEMORY.md'), 'utf8'), /Fridays/, 'a rejected note is not saved');
+        assert.match(await readFile(mainOf(join(memDir, 'global')), 'utf8'), /The user prefers short commit messages \[source: /);
+        assert.doesNotMatch(await readFile(mainOf(join(memDir, 'projects', webId)), 'utf8'), /Fridays/, 'a rejected note is not saved');
         assert.equal(asks(), calls, 'Reject and Accept call no model');
         await page.locator('[data-composer-plus-memory-suggest-close]').click();
         await until(async () => (await list.count()) === 0, 'the dialog closes');

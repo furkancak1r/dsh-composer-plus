@@ -5,12 +5,15 @@
 // default): off keeps no copy and refuses a restore. One memory action at a time (409 busy). Client (real client.js, fake
 // React): History opens the versions of the selected memory, a version shows its diff, Restore runs once; a second action
 // (Restore, Preview, Apply, History) while one runs does nothing; switching the feature off closes the panel.
+import { readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { chmod, mkdtemp, mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MEMORY_PATH, MEMORY_EDIT_PATH, MEMORY_HISTORY_PATH, installMemory, memoryHistory, memoryStore } from '../index.js';
+// The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read).
+const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 
 const root = await mkdtemp(join(tmpdir(), 'cp-memory-history-'));
 try {
@@ -79,13 +82,13 @@ try {
   }
   // A change in between: 409, nothing written.
   await store.add({ scope: s, text: 'The user likes short answers', actor: 'review' });
-  const mainNow = await readFile(join(s.dir, 'MEMORY.md'), 'utf8');
+  const mainNow = await readFile(mainOf(s.dir), 'utf8');
   const stale = await call(MEMORY_HISTORY_PATH, { restore: { scope: s.id, id: older.id, version: diffOld.body.version } });
   assert.equal(stale.status, 409); assert.match(stale.body.error, /changed after you opened/);
-  assert.equal(await readFile(join(s.dir, 'MEMORY.md'), 'utf8'), mainNow);
+  assert.equal(await readFile(mainOf(s.dir), 'utf8'), mainNow);
   // The last file of a restore cannot be written (a read-only memory folder): every file as it was, no journal row.
   const journalPath = join(home, 'storages', 'dsh-composer-plus', 'memory', 'journal.jsonl');
-  const files = async () => Promise.all([join(s.dir, 'MEMORY.md'), join(s.dir, 'api.md'), journalPath].map((f) => readFile(f, 'utf8').catch(() => null)));
+  const files = async () => Promise.all([mainOf(s.dir), join(s.dir, 'api.md'), journalPath].map((f) => readFile(f, 'utf8').catch(() => null)));
   const fresh = await call(MEMORY_HISTORY_PATH, undefined, `?scope=${s.id}&id=${older.id}`);
   if (process.getuid?.() !== 0) {
     const was = await files();
@@ -101,13 +104,13 @@ try {
   const restored = await call(MEMORY_HISTORY_PATH, { restore: { scope: s.id, id: older.id, version: fresh.body.version } });
   assert.equal(restored.status, 200, JSON.stringify(restored.body));
   assert.equal(await readFile(join(s.dir, 'api.md'), 'utf8').catch(() => null), null, 'a topic that the version did not have goes');
-  assert.match(await readFile(join(s.dir, 'MEMORY.md'), 'utf8'), /uses yarn/);
+  assert.match(await readFile(mainOf(s.dir), 'utf8'), /uses yarn/);
   assert.equal(restored.body.versions[0].actor, 'restore', 'the memory before the restore is kept');
   assert.equal(JSON.parse((await readFile(journalPath, 'utf8')).trim().split('\n').at(-1)).op, 'restore');
   // Undo the restore with the version it kept.
   const undo = await call(MEMORY_HISTORY_PATH, undefined, `?scope=${s.id}&id=${restored.body.versions[0].id}`);
   assert.equal((await call(MEMORY_HISTORY_PATH, { restore: { scope: s.id, id: restored.body.versions[0].id, version: undo.body.version } })).status, 200);
-  assert.match(await readFile(join(s.dir, 'MEMORY.md'), 'utf8'), /short answers/, 'the restore was undone');
+  assert.match(await readFile(mainOf(s.dir), 'utf8'), /short answers/, 'the restore was undone');
   assert.match(await readFile(join(s.dir, 'api.md'), 'utf8'), /8080/);
   // One action at a time: a restore while a preview runs → 409 busy.
   let release; const hold = new Promise((r) => { release = r; });

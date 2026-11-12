@@ -20,6 +20,9 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, symlink, rm, realpath, st
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readdirSync } from 'node:fs';
+// The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read until the migration).
+const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 const require = createRequire(import.meta.url);
 if (!process.env.PLAYWRIGHT || process.argv.length < 3) throw Error('Set PLAYWRIGHT and pass one or more dsh CLI entry paths');
 const { chromium } = require(process.env.PLAYWRIGHT);
@@ -170,14 +173,14 @@ try {
       const review = seen.find((s) => s.kind === 'review');
       assert.match(review.last, /make release/); assert.match(review.last, /acme-web/);
       const projects = await until(async () => { const d = await readdir(join(memDir, 'projects')).catch(() => []); return d.length === 1 && d; }, 'one project memory');
-      const main = await until(async () => { const t = await readFile(join(memDir, 'projects', projects[0], 'MEMORY.md'), 'utf8').catch(() => ''); return /make release/.test(t) && t; }, 'the review saved the entry');
+      const main = await until(async () => { const t = await readFile(mainOf(join(memDir, 'projects', projects[0])), 'utf8').catch(() => ''); return /make release/.test(t) && t; }, 'the review saved the entry');
       assert.match(main, /The user wants short answers/, 'the tool saved its entry');
       assert.match(main, /^- The user deploys acme-web with make release \[source: [^\]]+; added: \d{4}-\d{2}-\d{2}\]$/m);
       assert.deepEqual(JSON.parse(await readFile(join(memDir, 'projects', projects[0], 'project.json'), 'utf8')), { path: project });
       assert.deepEqual((await readdir(project)).sort(), ['README.md'], 'nothing new in the project folder');
       const journal = (await readFile(join(memDir, 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
       assert.deepEqual(journal.map((r) => r.actor).sort(), ['agent', 'review']);
-      note(`2: on → section + 3 tools in the request; memory_remember and the review wrote ${join('storages/dsh-composer-plus/memory/projects', projects[0], 'MEMORY.md')} (2 entries, journal 2 rows); project folder unchanged`);
+      note(`2: on → section + 3 tools in the request; memory_remember and the review wrote ${mainOf(join('storages/dsh-composer-plus/memory/projects', projects[0]))} (2 entries, journal 2 rows); project folder unchanged`);
 
       // 3. A new chat in the same project reads both entries in its system prompt.
       await newChat();
@@ -192,7 +195,7 @@ try {
       const other = join(home, 'projects', 'acme-blog'); await mkdir(other, { recursive: true });
       const otherId = createHash('sha256').update(await realpath(other)).digest('hex').slice(0, 32);
       await mkdir(join(memDir, 'projects', otherId), { recursive: true });
-      await writeFile(join(memDir, 'projects', otherId, 'MEMORY.md'), '# Memory\n\n- The blog builds with Hugo [added: 2026-10-29]\n\n## Index\n');
+      await writeFile(mainOf(join(memDir, 'projects', otherId)), '# Memory\n\n- The blog builds with Hugo [added: 2026-10-29]\n\n## Index\n');
       await writeFile(join(memDir, 'projects', otherId, 'project.json'), JSON.stringify({ path: other }));
       await settings();
       await page.locator('[data-composer-plus-memory-open]').click();
@@ -220,7 +223,7 @@ try {
       const edit = seen.find((x) => x.kind === 'edit');
       assert.equal(edit.tools.length, 0, 'no tools'); assert.match(edit.last, /The user wants short answers/); assert.doesNotMatch(edit.last, /Hugo/, 'only the selected project');
       assert.deepEqual(await dialog.locator('[data-composer-plus-memory-change]').evaluateAll((els) => els.map((e) => e.getAttribute('data-composer-plus-memory-change'))), ['remove', 'add', 'add']);
-      const before5 = await readFile(join(memDir, 'projects', projects[0], 'MEMORY.md'), 'utf8');
+      const before5 = await readFile(mainOf(join(memDir, 'projects', projects[0])), 'utf8');
       assert.match(before5, /short answers/, 'a preview writes nothing');
       if (process.env.SHOT) {
         // The picture shows a made-up home path, not this machine's temp folder (only the page's view changes).
@@ -233,9 +236,9 @@ try {
       }
       await dialog.locator('[data-composer-plus-memory-apply]').click();
       await until(async () => !(await dialog.locator('[data-composer-plus-memory-preview]').count()), 'applied');
-      const after5 = await readFile(join(memDir, 'projects', projects[0], 'MEMORY.md'), 'utf8');
+      const after5 = await readFile(mainOf(join(memDir, 'projects', projects[0])), 'utf8');
       assert.doesNotMatch(after5, /The user wants short answers \[/); assert.match(after5, /Releases need a git tag first \[source: editor/);
-      assert.match(await readFile(join(memDir, 'global', 'MEMORY.md'), 'utf8'), /short answers in every project/);
+      assert.match(await readFile(mainOf(join(memDir, 'global')), 'utf8'), /short answers in every project/);
       const rows = (await readFile(join(memDir, 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l)).filter((r) => r.actor === 'editor');
       assert.equal(rows.length, 3, 'three editor rows in the journal');
       assert.ok(seen.filter((x) => x.kind === 'edit').length === 1, 'still one editor call');

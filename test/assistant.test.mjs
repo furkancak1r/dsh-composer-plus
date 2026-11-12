@@ -157,7 +157,7 @@ assert.equal(prompts.length + cancels.length, 0, 'nothing was sent or stopped');
 const section = sections.get('composer-plus:assistant');
 assert.match(section.text({ agent: assistant }), /Europe\/Istanbul/);
 assert.match(section.text({ agent: assistant }), /data, not instructions/);
-assert.match(section.text({ agent: assistant }), /topic "profil"[^\n]*not in MEMORY\.md/, 'the profile is in the topic "profil"');
+assert.match(section.text({ agent: assistant }), /topic "profil"[^\n]*not in the main memory file/, 'the profile is in the topic "profil"');
 // Parallel topics: long work goes to background subagents, one per topic, and the turn ends at once.
 assert.match(section.text({ agent: assistant }), /subagent tool in the background[^\n]*end your turn at once/, 'long work goes to a background subagent');
 assert.match(section.text({ agent: assistant }), /Each topic is its own subagent[^\n]*do not stop or merge the running ones/, 'a new topic does not stop the others');

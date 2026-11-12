@@ -8,12 +8,15 @@
 // - projectFile / replaceProjectFile (Export to AGENTS.md): only a regular file inside the chat folder (realpath); a symlink
 //   out of the folder, a dangling one, a FIFO (the test ends, it does not hang) and a large file are refused; a change
 //   after the preview is refused; a failed write leaves the old file and no temp file.
+import { readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { chmod, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { memoryStore, memoryDiff, formatSource, parseSource, lastUserSeq, projectFile, replaceProjectFile, ROLLBACK_SOURCE } from '../index.js';
+// The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read).
+const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 
 const root = await mkdtemp(join(tmpdir(), 'cp-memory-base-')); // macOS: /var/… is a symlink to /private/var/…
 try {
@@ -34,7 +37,8 @@ try {
     assert.equal(seen.length, 0, 'a scope without a file has nothing to keep');
     await store.add({ scope: p, text: 'The user uses pnpm', actor: 'agent' });
     assert.equal(seen.length, 1); assert.equal(seen[0].actor, 'agent');
-    assert.match(seen[0].files['MEMORY.md'], /make release/); assert.doesNotMatch(seen[0].files['MEMORY.md'], /pnpm/, 'the files as they were');
+    assert.deepEqual(Object.keys(seen[0].files), ['acme-web memory.md'], 'the main file is named after the project folder');
+    assert.match(seen[0].files['acme-web memory.md'], /make release/); assert.doesNotMatch(seen[0].files['acme-web memory.md'], /pnpm/, 'the files as they were');
     assert.equal((await store.add({ scope: p, text: 'The user uses pnpm', actor: 'agent' })).changed, false);
     assert.equal(seen.length, 1, 'a save that changes nothing keeps no copy');
     // One batch with two changes in one scope and one in another: one copy per scope.
@@ -51,7 +55,7 @@ try {
     // The last change fails (the store refuses it: no global note matches): every file back, no journal row, the copies'
     // undo runs.
     const journal = join(root, 'mem', 'journal.jsonl');
-    const files = async () => Promise.all([join(p.dir, 'MEMORY.md'), join(p.dir, 'api.md'), join(p.dir, 'deploy.md'), join(store.GLOBAL.dir, 'MEMORY.md'), journal].map((f) => readFile(f, 'utf8').catch(() => null)));
+    const files = async () => Promise.all([mainOf(p.dir), join(p.dir, 'api.md'), join(p.dir, 'deploy.md'), mainOf(store.GLOBAL.dir), journal].map((f) => readFile(f, 'utf8').catch(() => null)));
     const was = await files();
     undone.length = 0;
     await assert.rejects(store.batch([p, store.GLOBAL], async (now) => {
@@ -64,15 +68,15 @@ try {
     // A copy that cannot be kept: nothing is saved.
     fail = true;
     await assert.rejects(store.add({ scope: p, text: 'Not saved', actor: 'agent' }), /no room for the copy/);
-    assert.doesNotMatch(await readFile(join(p.dir, 'MEMORY.md'), 'utf8'), /Not saved/);
+    assert.doesNotMatch(await readFile(mainOf(p.dir), 'utf8'), /Not saved/);
     fail = false;
     // write: whole files; a topic that the version does not have goes; a bad name is refused.
-    const main = await readFile(join(p.dir, 'MEMORY.md'), 'utf8');
-    await store.batch([p], (now) => now.write(p, { 'MEMORY.md': '# Memory\n\n- Only this note\n' }, 'restore'));
-    assert.deepEqual((await readdir(p.dir)).filter((f) => f.endsWith('.md')), ['MEMORY.md'], 'api.md went');
+    const main = await readFile(mainOf(p.dir), 'utf8');
+    await store.batch([p], (now) => now.write(p, { 'acme-web memory.md': '# Memory\n\n- Only this note\n' }, 'restore'));
+    assert.deepEqual((await readdir(p.dir)).filter((f) => f.endsWith('.md')), ['acme-web memory.md'], 'api.md went');
     assert.equal(await readFile(join(p.dir, 'project.json'), 'utf8').then(() => true), true, 'project.json stays');
     await assert.rejects(store.batch([p], (now) => now.write(p, { '../x.md': 'x' }, 'restore')), /not a memory file/);
-    await store.batch([p], (now) => now.write(p, { 'MEMORY.md': main }, 'restore'));
+    await store.batch([p], (now) => now.write(p, { 'acme-web memory.md': main }, 'restore'));
   }
 
   // memoryDiff.
@@ -81,8 +85,8 @@ try {
     assert.equal(d.patch, '--- a/AGENTS.md\n+++ b/AGENTS.md\n@@ -2,9 +2,10 @@\n b\n c\n d\n-e\n+E\n f\n g\n h\n i\n j\n+k\n');
     assert.equal(d.added, 2); assert.equal(d.removed, 1);
     assert.equal(memoryDiff('x\n', 'x\n').patch, '', 'no change: no patch');
-    assert.equal(memoryDiff('', 'one\ntwo\n').patch, '--- a/MEMORY.md\n+++ b/MEMORY.md\n@@ -0,0 +1,2 @@\n+one\n+two\n');
-    assert.equal(memoryDiff('one\n', '').patch, '--- a/MEMORY.md\n+++ b/MEMORY.md\n@@ -1,1 +0,0 @@\n-one\n');
+    assert.equal(memoryDiff('', 'one\ntwo\n', 'web memory.md').patch, '--- a/web memory.md\n+++ b/web memory.md\n@@ -0,0 +1,2 @@\n+one\n+two\n');
+    assert.equal(memoryDiff('one\n', '', 'web memory.md').patch, '--- a/web memory.md\n+++ b/web memory.md\n@@ -1,1 +0,0 @@\n-one\n');
     const far = memoryDiff(Array.from({ length: 30 }, (_, i) => `l${i}`).join('\n'), Array.from({ length: 30 }, (_, i) => (i === 2 || i === 25 ? `L${i}` : `l${i}`)).join('\n'));
     assert.equal(far.patch.match(/^@@/gm).length, 2, 'two hunks far apart');
     const big = memoryDiff('', Array.from({ length: 5000 }, (_, i) => `n${i}`).join('\n'));
