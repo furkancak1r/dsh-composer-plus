@@ -9907,7 +9907,7 @@ const SECRET_LINE = new RegExp([
 // Command-line forms (case matters: mysql -P is a port): curl -u user:pass, mysql -pSECRET, sshpass -p SECRET (its own -p,
 // not ssh's port), redis-cli -a SECRET, --password=SECRET, and --password SECRET when the value has a digit or a sign.
 // A value is "quoted" or 'quoted' with its closing quote at the end of a word, or plain. A backtick ends it, so
-// "`mysql -u root -p`" (a prompt) and ["sshpass -p","rm -rf"] stay. A plain or "double-quoted" value that starts with $ is
+// a prompt command in backticks and a list of quoted command names stay. A plain or "double-quoted" value that starts with $ is
 // a variable, not a secret ('$x' is a literal).
 const CLI_END = String.raw`(?=[\s;|&)]|$)`;
 const cliValue = (more) => String.raw`(?:"[^\s"\x60$-][^\s"\x60]${more}"${CLI_END}|'[^\s'\x60-][^\s'\x60]${more}'${CLI_END}|[^\s"'\x60$-][^\s"'\x60]${more})`;
