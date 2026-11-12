@@ -119,4 +119,37 @@ failing.unmount();
 open = 's-assistant'; drawn(); out = view.render();
 assert.ok(css().includes(rule('4:trig-late')), 'drawn again: hidden again'); assert.equal(a.s.listeners.size, 1);
 view.unmount(); assert.equal(a.s.listeners.size, 0, 'unmount stops the subscription');
+
+// Folded answers (the real case: a user asks, the reply comes, then a subagent's message arrives mid-turn and wakes a next
+// step whose reply ends the turn). dsh folds every reply but the turn's last into the turn's process, whose control this
+// view hides: the first reply must be shown again. A next turn that a hidden agent message starts keeps its own reply.
+const blocks = (...kinds) => kinds.map((k) => (k === 'tool' ? { kind: 'tool-call', callId: 'c', name: 'chat_read' } : k === 'think' ? { kind: 'reasoning', text: 'hm' } : k === 'blank' ? { kind: 'text', text: '  ' } : { kind: 'text', text: k }));
+const step = (key, turn, n, ...kinds) => [key, { key, kind: 'assistant-step', data: { turn, step: n, blocks: blocks(...kinds) } }];
+stores.set('s-answers', storeOf([
+  node('9:user', 'user', { kind: 'user' }),
+  step('9:1', 9, 1, 'think', 'tool'), // tool step: stays hidden as process
+  step('9:2', 9, 2, 'think', 'Promes is fine.'), // the first answer: folded by dsh
+  node('9:relay', 'context', { kind: 'agent-message', form: 'relay' }), // the subagent's message mid-turn: hidden
+  step('9:3', 9, 3, 'Let me check.', 'tool'), // a progress note with a tool call: stays hidden
+  step('9:4', 9, 4, 'think', 'blank'), // reasoning only: no answer
+  step('9:5', 9, 5, 'GIB has no code.'), // the turn's last reply: dsh shows it
+  node('10:trig', 'turn-trigger', { kind: 'agent-message', form: 'relay' }), // a hidden agent message starts the next turn
+  step('10:1', 10, 1, 'Second result.'),
+]));
+open = 's-answers'; id = 's-answers';
+const answersView = mount(() => ({ status, chatOf, t: (k) => k }));
+out = answersView.render();
+const shown = (key) => `[data-conversation-session="s-answers"] [data-chat-node-key=${JSON.stringify(key)}]:not([data-chat-group-part="reasoning"])`;
+const answerBlock = css().split('}').find((b) => b.includes('content-visibility')) ?? '';
+assert.ok(answerBlock.includes(shown('9:2')), 'the folded first answer is shown again');
+for (const key of ['9:1', '9:3', '9:4', '9:5', '10:1']) assert.ok(!answerBlock.includes(JSON.stringify(key)), `${key} gets no answer rule`);
+assert.match(answerBlock, /content-visibility: visible !important; height: auto !important; opacity: 1 !important;/, 'beats dsh\'s hidden="until-found" and its fade');
+for (const key of ['9:relay', '10:trig']) assert.ok(css().includes(`${rule(key, 's-answers')} `) || css().includes(`${rule(key, 's-answers')},`), `${key} stays hidden`);
+// The turn goes on: a next step comes, so the old last reply is now folded too and shown again.
+stores.get('s-answers').add(step('10:2', 10, 2, 'Third result.'));
+out = answersView.render();
+assert.ok(css().includes(shown('10:1')), 'a reply that is no longer the turn\'s last is shown again');
+// Assistant off: no rule.
+id = null; out = answersView.render(); assert.equal(css(), '', 'off: nothing');
+answersView.unmount();
 console.log('assistant subagent rows: ok');
