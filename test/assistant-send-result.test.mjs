@@ -73,21 +73,19 @@ try {
   const ended = (agent, reason = { kind: 'completed' }) => emit('session/event', agent.session, { type: 'turn/end', time: clock, data: { reason } });
   const noteOf = async (i) => (await listeners.get('agent/pre-step')[0]({ agent: me }, async () => ({ kind: 'enter', messages: [me.queued, steers[i][1]] }))).messages[0].content[0].text;
 
-  // The chat runs an earlier turn; the message waits in its queue. The task is kept before the message goes.
+  // The chat runs a long turn: the message goes to that turn at its next step (dsh's steer), not to the queue behind it.
+  // The task is kept before the message goes.
   web.status = 'running';
   push(web, start, said('build the login page'), reply('Working on it.'));
   const out = await send('s-web', 'Onay: devam et');
   const rpc = prompts.at(-1).requestId;
+  assert.equal(prompts.at(-1).mode, 'steer', 'a running chat: steer');
   assert.deepEqual(kept?.rpc, [rpc], 'the task is kept with this request id before the message goes');
   assert.deepEqual(assistant.tasks.get('s-web'), { title: 'Login page', project: 'acme-web', rpc: [rpc], at: assistant.tasks.get('s-web')?.at }, 'chat_send keeps a task');
   assert.match(out, /^Sent to "Login page" \(s-web\)\. You get a note/);
-  // The earlier turn ends (8 s, without the message): no note, the task stays.
-  clock += 8000; ended(web);
-  await pause(60);
-  assert.equal(steers.length, 0, 'no note for the earlier turn'); assert.deepEqual(bot.pending(), []);
-  assert.equal(assistant.tasks.has('s-web'), true, 'the task stays');
-  // The turn of the message ends (8 s): one note with its last reply; the task goes.
-  push(web, stop, start, said('Onay: devam et', rpc), reply('Bu onay yeterli değil: SAP\'de alan açılmalı.'));
+  // dsh logs the steered message in the running turn (its next step). That turn ends (8 s): one note with its last
+  // reply; the task goes.
+  push(web, { type: 'step/start' }, said('Onay: devam et', rpc), reply('Bu onay yeterli değil: SAP\'de alan açılmalı.'));
   clock += 8000; ended(web);
   await until(() => steers.length === 1, 'the note');
   assert.equal(steers[0][0], me.id);
@@ -95,10 +93,11 @@ try {
   assert.equal(assistant.tasks.has('s-web'), false, 'the task goes');
   await pause(60); assert.equal(steers.length, 1, 'one note');
 
-  // An idle chat: a wait in the message's turn is news (after the gap), then its end.
+  // An idle chat: the message goes to the queue (it starts a turn); a wait in the message's turn is news (after the gap), then its end.
   web.status = 'idle';
   await send('s-web', 'Raporu gönder');
   const rpc2 = prompts.at(-1).requestId;
+  assert.equal(prompts.at(-1).mode, 'queue', 'an idle chat: queue');
   push(web, stop, start, said('Raporu gönder', rpc2), { type: 'approval/asked', data: { id: 'a' } });
   emit('session/event', web.session, { type: 'approval/asked', data: { id: 'a' } });
   await until(() => bot.pending()[0]?.kind === 'waiting', 'the wait is news');
@@ -161,8 +160,7 @@ try {
   assert.match(await noteOf(6), /chat s-branch, your delegated task on branch "feat\/alt-bilgi"\): finished\. Last reply: "Renk değişti\."/);
   assert.equal(assistant.tasks.has('s-branch'), false);
 
-  // Two messages before the first reply (and a third that fails): each message's turn gives its own note.
-  web.status = 'running';
+  // Two queued messages before the first reply (an idle chat; and a third that fails): each message's turn gives its own note.
   await send('s-web', 'Birinci'); const first = prompts.at(-1).requestId;
   await send('s-web', 'İkinci'); const second = prompts.at(-1).requestId;
   promptFails = true; await assert.rejects(send('s-web', 'Üçüncü'), /queue is full/); promptFails = false;
@@ -194,6 +192,27 @@ try {
   ended(web);
   await until(() => steers.length === 11, 'the task note');
   assert.match(await noteOf(10), /chat s-web, your delegated task\): finished\. Last reply: "Yapıldı\."/);
+
+  // A steer that came after the running turn's last inbox check: the turn ends without it (no note, the task stays), and
+  // the idle chat is woken for it once (a Continue marker at the queue head and one as a steer). The turn that the wake
+  // starts logs the message: its end gives the note.
+  web.status = 'running'; web.inbox.nextStep = [];
+  await send('s-web', 'Acil: dur, bu değişiklik reddedildi.'); const late = prompts.at(-1).requestId;
+  assert.equal(prompts.at(-1).mode, 'steer');
+  web.inbox.nextStep = [{ id: randomUUID(), role: 'user', content: [{ type: 'text', text: 'Acil: dur, bu değişiklik reddedildi.' }], source: { kind: 'user', rpcId: late } }];
+  web.status = 'idle'; push(web, { type: 'turn/end', data: { reason: { kind: 'completed' } } }); ended(web);
+  await until(() => steers.length === 12, 'the wake');
+  assert.deepEqual([steers[11][0], steers[11][1].source.kind, web.queued?.source?.kind], ['s-web', 'composer-plus-assistant-interject', 'composer-plus-assistant-interject'], 'one wake of the chat');
+  assert.equal(assistant.tasks.get('s-web')?.rpc?.[0], late, 'no note yet: the task waits for the message');
+  push(web, start, said('Acil: dur, bu değişiklik reddedildi.', late), reply('Durdum.'));
+  ended(web);
+  await until(() => steers.length === 13, 'the note of the late steer');
+  assert.match(await noteOf(12), /chat s-web, your delegated task\): finished\. Last reply: "Durdum\."/);
+  // After a Stop or an error, a late steer waits for the chat's next turn (no wake, as a queued message in dsh).
+  web.status = 'running'; await send('s-web', 'Bir şey daha'); web.queued = undefined;
+  web.inbox.nextStep = [{ id: randomUUID(), role: 'user', content: [], source: { kind: 'user', rpcId: prompts.at(-1).requestId } }];
+  web.status = 'idle'; push(web, { type: 'turn/end', data: { reason: { kind: 'aborted', reason: { kind: 'user' } } } }); ended(web, { kind: 'aborted', reason: { kind: 'user' } });
+  await pause(60); assert.equal(steers.length, 13, 'no wake after a stop'); assert.equal(web.queued, undefined);
 } finally {
   await rm(home, { recursive: true, force: true });
 }

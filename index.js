@@ -9429,6 +9429,27 @@ export function assistantRead(events, inherited, count, { message = ASSISTANT_LI
 }
 const foldName = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase('en');
 
+/** A task text that asks for a merge into main and names no review-guard step (2026-11-12: two such task texts went to
+ * main without a review). Only a request counts, not a report of a merge that happened ("merged", "main'e birleşmiş").
+ * Case, accents, curly apostrophes and line breaks do not matter. One regular expression of fixed words without nested
+ * quantifiers, so the time is linear in the text.
+ * ponytail: only these fixed English and Turkish words count, so another wording passes and an unusual negation ("do not,
+ * under any circumstances, merge into main") is refused. A later chat_send can add work to a branch chat whose first task
+ * already asked for the merge, with no merge words in the new message (2026-11-12: that work went to main without a
+ * review). Upgrade: keep the merge request with the task and check each later message to that chat. */
+const MERGE_ASK = /(?<![\p{L}\p{N}])(?:[/$]merge-main|run merge-main|[`'"]?merge-main[`'"]? skill|merge (?:it |the branch |this branch )?into main|main'e (?:birlestir(?:ilsin|in)?|birlessin|merge et)|push origin main)(?![\p{L}\p{N}_-])/gu;
+const NEGATION = new Set(['not', 'never', "don't", 'dont', 'without', 'no']);
+export const asksMergeWithoutReview = (text) => {
+  const t = foldName(text).replace(/[\u2018\u2019\u02bc]/g, "'").replace(/\s+/g, ' ');
+  if (t.includes('review-guard')) return false;
+  // "Do not merge into main", "don't run /merge-main": a negation in the 2 words before it, in the same clause.
+  for (const m of t.matchAll(MERGE_ASK)) {
+    if (!t.slice(Math.max(0, m.index - 40), m.index).split(/[.!?;:,]/).pop().split(' ').filter(Boolean).slice(-2).some((w) => NEGATION.has(w))) return true;
+  }
+  return false;
+};
+export const MERGE_REFUSAL = 'This task asks for a merge into main but has no review-guard step. Add: run review-guard on the final diff, fix the findings, and merge only when the review is clean.';
+
 /** At most this many delegated chats are kept (the oldest go first). */
 export const ASSISTANT_TASKS_MAX = 50;
 /** chat_send: `rpc` of a task holds the request ids of its messages whose turn did not end yet. ANY_TURN: the chat's next
@@ -9540,6 +9561,16 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     return { id, header };
   };
   const signalOf = (exec) => AbortSignal.any([exec?.signal ?? new AbortController().signal, AbortSignal.timeout(STOP_WAIT_MS)]);
+  /** The merge gate (asksMergeWithoutReview) works only where a skill named review-guard exists: dsh's own skill lookup (as
+   * its skill tool: the assistant agent's scope, whose preset reads ~/.dsh/skills and ~/.agents/skills) for the target
+   * folder (its project's .dsh/skills and .agents/skills). A dsh without skills: no gate. A failed lookup keeps it closed. */
+  const mergeGate = async (text, cwd, exec) => {
+    const skills = get('skills');
+    if (!asksMergeWithoutReview(text) || typeof skills?.list !== 'function') return;
+    let has;
+    try { has = (await skills.list({ cwd, signal: signalOf(exec), scope: exec?.agent })).some((s) => s?.name === 'review-guard'); } catch { has = true; }
+    if (has) throw refused(MERGE_REFUSAL);
+  };
   const tools = [
     {
       name: 'chats_list',
@@ -9593,7 +9624,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     },
     {
       name: 'chat_send',
-      description: 'Send a message to another chat, as the user would type it there. It waits in that chat\'s queue when the chat runs. You get a note with the chat\'s reply when the turn of this message ends, or when the chat waits for the user. Needs approval: the user\'s approval card, or Auto review in the Auto permission mode.',
+      description: 'Send a message to another chat, as the user would type it there. When that chat runs, the message reaches its running turn at the next step. You get a note with the chat\'s reply when the turn of this message ends, or when the chat waits for the user. Needs approval: the user\'s approval card, or Auto review in the Auto permission mode.',
       parameters: { type: 'object', properties: {
         chat_id: { type: 'string', description: 'The chat id from chats_list' },
         text: { type: 'string', description: `The message, at most ${ASSISTANT_LIMITS.text} characters` },
@@ -9604,20 +9635,37 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         if (!isText(text, ASSISTANT_LIMITS.text)) throw refused(`text is 1 to ${ASSISTANT_LIMITS.text} characters.`);
         const { id, header } = await target(args?.chat_id, signalOf(exec));
         if (archived().has(id)) throw refused('This chat is archived. Ask the user to unarchive it first.');
+        await mergeGate(text, header?.cwd, exec);
         // A task too (kept before the message goes), so the reply comes back to the assistant: dsh logs the message with
         // source.rpcId = requestId, and the bot waits for that turn (`rpc`). An older task (chat_new, an earlier chat_send)
         // keeps its fields and what it waits for.
         const title = await titleOf(id); const old = tasks.get(id); const requestId = randomUUID();
         await tasks.add(id, withRpc(old ?? { ...(title === undefined ? {} : { title }), project: projectFor(id, header?.cwd, workspaces()) }, [...rpcOf(old), requestId]));
+        // A running chat gets the message at its next step (dsh's steer), so a decision or a stop reaches a long turn at
+        // once (2026-11-12: queued messages waited 1.5 to 6 hours behind one turn). It joins that turn, and the bot's note
+        // comes at that turn's end. An idle chat keeps the queue: a steer would also take the chat's first queued message.
+        // ponytail: a turn that ends between this check and dsh's admission makes the steer start a turn that also takes
+        // the first queued message of the chat (a few ms; nothing is lost). Upgrade when dsh can steer only a running turn.
+        const mode = get('agents')?.get?.(id)?.status === 'running' ? 'steer' : 'queue';
         try {
           // Not the call's signal: once admitted, the message must reach the chat whole.
-          await ctx.sessionController.prompt({ requestId, sessionId: id, mode: 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
+          await ctx.sessionController.prompt({ requestId, sessionId: id, mode, content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
         } catch (error) {
           // No wait for a message that did not go (only its own id: another call can add one meanwhile).
           const now = tasks.get(id); const rpc = rpcOf(now).filter((r) => r !== requestId);
           if (now !== undefined) await (rpc.length === 0 ? tasks.drop(id) : tasks.add(id, withRpc(now, rpc)));
           throw error;
         }
+        // dsh checks the inbox for the last time a few microtasks before the chat is idle: a steer in that gap waits with no
+        // turn. Wake the chat for it when that turn completed (installAssistantBot's pre-step hook takes out the wake
+        // markers). After a Stop or an error it waits for the next turn, as a queued message does in dsh.
+        if (mode === 'steer') setImmediate(() => {
+          const agent = get('agents')?.get?.(id);
+          if (agent?.status !== 'idle' || !agent.inbox?.nextStep?.some?.((m) => m?.source?.rpcId === requestId)) return;
+          let end; try { end = agent.session.snapshotEvents().findLast((e) => e.type === 'turn/end')?.data?.reason?.kind; } catch { /* no log */ }
+          if (end !== 'completed' && end !== 'max-tokens') return;
+          try { wakeWithContinue(agent, INTERJECT_SOURCE); } catch (error) { log(`the message to ${id} waits for the chat's next turn: ${error?.message ?? error}`); }
+        });
         return `Sent to "${title ?? id}" (${id}). You get a note with its reply when the turn of this message ends or the chat waits for the user.`;
       },
     },
@@ -9641,6 +9689,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         const want = String(args?.project ?? '').trim();
         const hits = list.filter((w) => w.path === want || foldName(w.title) === foldName(want));
         if (hits.length !== 1) throw refused(`${hits.length === 0 ? 'No project has this name.' : 'More than one project has this name: use its folder path.'} Projects: ${list.map((w) => `${w.title} (${w.path})`).join('; ') || 'none'}.`);
+        await mergeGate(text, hits[0].path, exec);
         if (args?.branch === true) {
           if (!(await worktreesOn())) throw refused('Branch per chat is switched off in Settings → Composer Plus: start the chat without branch, or ask the user to switch it on.');
           if (get('workspaceRegistry')?.create === undefined) throw refused('This dsh cannot add a project for a branch.');

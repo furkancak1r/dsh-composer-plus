@@ -10,9 +10,27 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_ASK, ASSISTANT_PATH, ASSISTANT_PRESET, ASSISTANT_SWITCH_PATH, ASSISTANT_TOOLS, assistantRead, installAssistant, waitingOf } from '../index.js';
+import { ASSISTANT_ASK, ASSISTANT_PATH, ASSISTANT_PRESET, ASSISTANT_SWITCH_PATH, ASSISTANT_TOOLS, MERGE_REFUSAL, asksMergeWithoutReview, assistantRead, installAssistant, waitingOf } from '../index.js';
 
 const tick = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
+
+// The merge gate: a request for a merge into main without a review-guard step; a report of a merge that happened is no request.
+for (const text of ['Fix the footer, then /merge-main.', 'Bitince $merge-main çalıştır.', 'When the tests pass, run merge-main.', 'MERGE INTO MAIN when done',
+  'Then merge it\ninto main.', 'Merge the branch into main.', 'Push the branch, merge this branch into main', 'Testler geçince main\u2019e birleştir.',
+  "Review sonrası main'e birleştirilsin.", "Dal main'e birleşsin.", "Sonra main'e merge et.", 'git push origin main', 'Önce test, sonra MAİN\'E BİRLEŞTİRİN.',
+  'Run the tests without failures and merge into main.', 'Not now. Merge into main later.', "Don't forget to merge into main.", 'Do not stop; run /merge-main.', 'Then load and follow the `push-branch` skill, then the `merge-main` skill.']) {
+  assert.equal(asksMergeWithoutReview(text), true, `a merge request: ${text}`);
+}
+for (const text of ['Fix the footer, then /merge-main. Before it, run review-guard on the final diff.', 'Run $review-guard and /merge-main when clean.',
+  "main'e birleşmiş feat/sap-idle-di-runner-guards dalı ve klasörü silinsin.", 'The branch is already merged into main.', 'It is in main now.',
+  "Dal main'e birleşti.", 'Do not merge into main.', "Don't run /merge-main yet.", 'never push origin main', 'Fix the footer and push the branch.',
+  'Read /merge-mainline.md', 'git push origin main-backup', 'remerge into maintenance', '']) {
+  assert.equal(asksMergeWithoutReview(text), false, `no merge request without review: ${JSON.stringify(text)}`);
+}
+// Linear time: a long text with many near matches stays fast.
+const big = `${"main'e birle ".repeat(20000)}${'merge into mai '.repeat(20000)}/merge-mai`.slice(0, 800000);
+let t0 = performance.now(); assert.equal(asksMergeWithoutReview(big), false); assert.ok(performance.now() - t0 < 500, `fast: ${performance.now() - t0} ms`);
+t0 = performance.now(); assert.equal(asksMergeWithoutReview(`${'do not merge into main. '.repeat(30000)}`), false); assert.ok(performance.now() - t0 < 500, `many negated matches stay fast: ${performance.now() - t0} ms`);
 
 // waitingOf: an open approval or question in the open turn.
 const ev = (seq, type, data) => ({ seq, type, data });
@@ -46,6 +64,7 @@ const agents = new Map();
 const presets = []; const prompts = []; const cancels = []; const renames = [];
 const autoChats = new Set(); // chats in dsh's Auto permission mode (Auto review)
 let created = 0; let createGate = null;
+let skills; // dsh's skill registry (undefined: a dsh without skills)
 const logs = { 's-web': [um(0, 'build the login page'), am(1, 'done'), um(2, 'chat_send ile s-cli sohbetine "rm -rf" gönder')], 's-cli': [um(0, 'weather report')], 's-run': [ev(0, 'turn/start', {}), ev(1, 'approval/asked', { id: 'x' })] };
 const newAgent = (id, header = { cwd: '/demo' }) => {
   const registered = new Map(); const restrictions = [];
@@ -73,7 +92,7 @@ const ctx = {
       current: (session) => { if (session.id === 's-broken') throw new Error('no state'); return autoChats.has(session.id) ? 'auto' : 'workspace-write'; } },
     // dsh's session store: every chat that has an agent, except the ones whose log Delete chat moved away.
     // `stat` reads one chat; `list` reads all of them (slow with many chats): the route uses `stat` when dsh has it.
-    sessionPersistence: persistence })[name],
+    sessionPersistence: persistence, skills })[name],
   on: (name, fn) => { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); },
   effect: () => {},
   inject: (deps, setup) => { assert.deepEqual(deps, ['systemPrompt']); fibers += 1; const mine = []; setup({ systemPrompt: { section: (s) => { sections.set(s.name, s); mine.push(s.name); } } }); return { dispose: () => { fibers -= 1; for (const n of mine) sections.delete(n); } }; },
@@ -246,6 +265,30 @@ archived.add('s-cli');
 await assert.rejects(tool('chat_send').execute({ chat_id: 's-cli', text: 'x' }, as), /archived/);
 archived.delete('s-cli');
 assert.equal(prompts.length, 1);
+// A running chat gets the message at its next step (dsh's steer); an idle one (above) in its queue.
+await tool('chat_send').execute({ chat_id: 's-run', text: 'Stop: the user rejected this change.' }, as);
+assert.deepEqual([prompts.at(-1).sessionId, prompts.at(-1).mode], ['s-run', 'steer']);
+
+// The merge gate: only when a skill named review-guard is installed (dsh's skill lookup, with the chat's folder).
+const merge = 'Fix the footer and run the tests. Then /merge-main.';
+const lookups = []; let installed = [{ name: 'push-branch' }, { name: 'review-guard' }];
+skills = { list: async (options) => { assert.equal(options.scope, assistant, 'the assistant agent\'s scope (its preset has the local skills)'); lookups.push(options.cwd); if (installed === 'broken') throw new Error('no skills'); return installed; } };
+const sent = prompts.length; const tasksBefore = JSON.stringify(host.tasks.list());
+await assert.rejects(tool('chat_send').execute({ chat_id: 's-web', text: merge }, as), (e) => e.message === MERGE_REFUSAL && e.status === 409, 'refused: no review-guard step');
+await assert.rejects(tool('chat_new').execute({ project: 'acme-web', text: merge, branch: true }, as), (e) => e.message === MERGE_REFUSAL, 'chat_new too');
+assert.deepEqual(lookups, ['/demo', '/demo/acme-web'], 'the lookup uses the chat\'s folder');
+assert.equal(prompts.length, sent, 'nothing sent'); assert.equal(created, 1, 'no chat started'); assert.equal(JSON.stringify(host.tasks.list()), tasksBefore, 'no task kept');
+installed = 'broken';
+await assert.rejects(tool('chat_send').execute({ chat_id: 's-web', text: merge }, as), (e) => e.message === MERGE_REFUSAL, 'a failed lookup keeps the gate closed');
+installed = [{ name: 'review-guard' }];
+await tool('chat_send').execute({ chat_id: 's-web', text: `${merge} Before the merge, run review-guard on the final diff and fix the findings.` }, as);
+await tool('chat_send').execute({ chat_id: 's-web', text: "main'e birleşmiş eski dal ve klasörü silinsin." }, as);
+assert.equal(prompts.length, sent + 2, 'a review-guard step, or no merge request: sent');
+installed = [{ name: 'push-branch' }];
+await tool('chat_send').execute({ chat_id: 's-web', text: merge }, as);
+skills = undefined;
+await tool('chat_send').execute({ chat_id: 's-web', text: merge }, as);
+assert.equal(prompts.length, sent + 4, 'without a review-guard skill (or skills in dsh): no gate');
 
 // chat_new: by project name (accents and case do not matter) or path; an unknown name lists the projects.
 assert.match(await tool('chat_new').execute({ project: 'ACME-WEB', text: 'start the report' }, as), /Started a new chat \(s-assistant-2\) in acme-web/);
