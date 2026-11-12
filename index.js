@@ -9906,15 +9906,17 @@ const SECRET_LINE = new RegExp([
 ].join('|'), 'i');
 // Command-line forms (case matters: mysql -P is a port): curl -u user:pass, mysql -pSECRET, sshpass -p SECRET (its own -p,
 // not ssh's port), redis-cli -a SECRET, --password=SECRET, and --password SECRET when the value has a digit or a sign.
-// A quote or backtick ends a value, so "`mysql -u root -p`" (a prompt) stays.
-const CLI_Q = String.raw`"'\x60`;
+// A value is "quoted" or 'quoted' with its closing quote, or plain. A backtick ends it, so "`mysql -u root -p`" (a prompt)
+// stays. A plain or "double-quoted" value that starts with $ is a variable, not a secret ('$x' is a literal).
+const cliValue = (more) => String.raw`(?:"[^\s"\x60$-][^\s"\x60]${more}"|'[^\s'\x60-][^\s'\x60]${more}'|[^\s"'\x60$-][^\s"'\x60]${more})`;
 const CLI_SECRET = new RegExp([
-  String.raw`\bcurl\b.*\s(?:-u\s*|--user[=\s]\s*)["']?[^\s:${CLI_Q}]+:[^\s${CLI_Q}]+`,
-  String.raw`\b(?:mysql\w*|mariadb\w*)\b.*\s-p[^\s${CLI_Q}]{3,}`,
-  String.raw`\bsshpass\s+(?:-[a-oq-zA-Z]\w*\s+)*-p\s*[^\s${CLI_Q}-][^\s${CLI_Q}]*`,
-  String.raw`\bredis-cli\b.*\s(?:-a|--pass)\s+[^\s${CLI_Q}-][^\s${CLI_Q}]*`,
-  String.raw`--pass(?:word)?=[^\s${CLI_Q}]{3,}`,
-  String.raw`--pass(?:word)?\s+(?=[^\s${CLI_Q}]*[\d!@#$%^&*_+.])[^\s${CLI_Q}-][^\s${CLI_Q}]{3,}`,
+  String.raw`\bcurl\b.*\s(?:-u\s*|--user[=\s]\s*)(?:'[^\s:'\x60]+:[^\s'\x60]+'|"?[^\s:"'\x60]+:(?:'[^\s'\x60]+'|"?[^\s"'\x60$][^\s"'\x60]*))`,
+  String.raw`\b(?:mysql\w*|mariadb\w*)\b.*\s-p${cliValue('{2,}')}`,
+  String.raw`\bsshpass\s+(?:-[a-oq-zA-Z]\w*\s+)*-p\s*${cliValue('*')}`,
+  String.raw`\bredis-cli\b.*\s(?:-a|--pass)\s+${cliValue('*')}`,
+  String.raw`--pass(?:word)?=${cliValue('{2,}')}`,
+  // A sign counts only inside the value, so prose ("directly!", "**only**") stays.
+  String.raw`--pass(?:word)?\s+["']?(?=[^\s"'\x60]*(?:\d|[!@#$%^&*_+][^\s"'\x60*_]))[^\s"'\x60$*_-][^\s"'\x60]{3,}`,
 ].join('|'));
 export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line) || CLI_SECRET.test(line);
 /** The text without its secret-looking lines, and how many lines went. */
