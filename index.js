@@ -7609,7 +7609,8 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
           const raw = body.folder === null ? '' : typeof body.folder === 'string' ? body.folder.trim() : undefined;
           const next = raw === '' ? '' : memoryFolderOf({ folder: raw?.replace(/^~(?=\/|$)/, homedir()) });
           if (next === undefined) return json({ error: 'write an absolute folder path, for example ~/Notes/Memory' }, 400);
-          const problem = next === '' ? undefined : memoryFolderProblem(next);
+          // The same names as the next start uses (the saved names of a new folder).
+          const problem = next === '' ? undefined : memoryFolderProblem(next, memoryNamesOf(next, folderNames));
           if (problem !== undefined) return json({ error: problem }, 409);
           try { await saveFolder(next); } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
           return json(answer());
@@ -7651,7 +7652,7 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
         const problem = memoryFolderProblem(step.folder, memoryNamesOf(step.folder, step.names ?? folderNames));
         if (problem !== undefined) throw refused(problem);
       }
-      let wroteFolder = false; let wroteOn = false; let wroteRules = false;
+      let wroteFolder = false; let wroteOn = false; let wroteRules; // wroteRules: 'new' or 'empty' (an empty file was there)
       try {
         if (step.folder !== undefined && step.folder !== savedFolder) {
           if (memoryDirNames(step.names) !== undefined) folderNames = memoryDirNames(step.names);
@@ -7660,18 +7661,25 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
         }
         if (!on) { await sw.write(true); apply(true); wroteOn = true; }
         if (step.rules !== undefined) {
-          const file = await open(step.rules.path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600)
-            .catch((error) => { if (error?.code === 'EEXIST') return undefined; throw error; });
+          // A new file, or an empty regular file (a write that failed half way). A file with text and a link stay as they are.
+          let file = await open(step.rules.path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600)
+            .then((f) => { wroteRules = 'new'; return f; }, (error) => { if (error?.code === 'EEXIST') return undefined; throw error; });
+          if (file === undefined) {
+            file = await open(step.rules.path, constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)).catch(() => undefined);
+            const info = await file?.stat().catch(() => undefined);
+            if (info?.isFile() && info.size === 0) wroteRules = 'empty';
+            else { await file?.close(); file = undefined; }
+          }
           if (file !== undefined) {
-            wroteRules = true;
             try { await file.writeFile(step.rules.text); } finally { await file.close(); }
           }
         }
       } catch (error) {
-        if (wroteRules) await unlink(step.rules.path).catch(() => {});
+        if (wroteRules === 'new') await unlink(step.rules.path).catch(() => {});
+        if (wroteRules === 'empty') await open(step.rules.path, constants.O_WRONLY | constants.O_TRUNC | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0)).then((f) => f.close(), () => {});
         if (wroteOn) { await sw.write(before.on).catch(() => {}); apply(before.on); }
+        folderNames = before.names; // also when the folder write itself failed
         if (wroteFolder) {
-          folderNames = before.names;
           await writeFolderFile({ ...(before.folder === '' ? {} : { folder: before.folder }), ...(importedFolder === undefined ? {} : { imported: importedFolder }) }).catch(() => {});
           savedFolder = before.folder;
         }
@@ -9976,14 +9984,22 @@ const SECRET_NAME = /^(\.env(\..*)?|.*\.(pem|key|p12|pfx|keystore|jks)|id_[a-z0-
 export const secretFile = (path) => SECRET_NAME.test(String(path).split(/[\\/]/).pop());
 /** A line that looks like a secret: a known key format or a long mixed run (looksSecret), a connection string with a
  * password, or a key/token/password/secret given a value. */
-// A word on its own or after _ (DB_PASS, SIGNING_KEY), not inside another word (compass, monkey, Author, OAuth).
-const SECRET_WORD = String.raw`(?:passw(?:or)?d|passwd|pwd|(?<![a-z])pass(?![a-z])|(?<![a-z])pw(?![a-z])|secret|token|api[_ -]?key|access[_ -]?key|private[_ -]?key|client[_ -]?secret|(?<![a-z0-9])key(?![a-z])|_key(?![a-z])|(?<![a-z])auth(?:orization|[_ -]?token)?(?![a-z])|bearer|şifre|parola)\w*`;
+// A word on its own or after _ (DB_PASS, SIGNING_KEY), not inside another word (compass, monkey, Author, OAuth). The bare
+// words key, auth and token (WEAK_WORD) are also ordinary words ("Primary key: customer_id", "max_tokens: 128000", "| Key |
+// Description |"), so their value must look like a secret: letters and digits, or a long run without spaces.
+const SECRET_WORD = String.raw`(?:passw(?:or)?d|passwd|pwd|(?<![a-z])pass(?![a-z])|(?<![a-z])pw(?![a-z])|secret|api[_ -]?key|access[_ -]?key|private[_ -]?key|client[_ -]?secret|_key(?![a-z])|_token(?![a-z])|auth(?:orization|[_ -]?token)|bearer|şifre|parola)\w*`;
+const WEAK_WORD = String.raw`(?:(?<![a-z0-9])key|(?<![a-z])auth|(?<![a-z_])tokens?)(?![a-z])`;
+const SECRET_VALUE = String.raw`(?:(?=[^\s"'\x60|]*\d)(?=[^\s"'\x60|]*[A-Za-z])[^\s"'\x60|]{8,}|[^\s"'\x60|]{24,})`;
 const SECRET_LINE = new RegExp([
   String.raw`\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@`, // a connection string with a password
   String.raw`${SECRET_WORD}["'\x60]?\s*(?:[:=|]|=>)\s*["'\x60]?[^\s"'\x60|]{6,}`, // key: value, key = \x60value\x60, | key | value |
-  String.raw`${SECRET_WORD}\s+(?:is|was|=|:|olarak|şu)\s+["'\x60]?(?=[^\s"'\x60]*\d)(?=[^\s"'\x60]*[A-Za-z])[^\s"'\x60]{8,}`, // "the token is a1b2…" (a value with letters and digits)
+  String.raw`${WEAK_WORD}["'\x60]?\s*(?:[:=]|=>)\s*["'\x60]?${SECRET_VALUE}`,
+  String.raw`(?:${SECRET_WORD}|${WEAK_WORD})\s+(?:is|was|=|:|olarak|şu)\s+["'\x60]?(?=[^\s"'\x60]*\d)(?=[^\s"'\x60]*[A-Za-z])[^\s"'\x60]{8,}`, // "the token is a1b2…" (a value with letters and digits)
   String.raw`\bBearer\s+[A-Za-z0-9._~+/-]{12,}`,
 ].join('|'), 'i');
+// The other auth header schemes, as HTTP writes them (case matters: "basic instructions" is prose): Basic (base64 of
+// user:password) and Token, with a value that has a digit or a base64 sign.
+const AUTH_SCHEME = /\b(?:Basic|Token)\s+(?=[A-Za-z0-9._~+/=-]*[\d=+/])[A-Za-z0-9._~+/=-]{8,}/;
 // Command-line forms (case matters: mysql -P is a port): curl -u user:pass, mysql -pSECRET, sshpass -p SECRET (its own -p,
 // not ssh's port), redis-cli -a SECRET, --password=SECRET, and --password SECRET when the value has a digit or a sign.
 // A value is "quoted" or 'quoted' with its closing quote at the end of a word, or plain. A backtick ends it, so
@@ -10002,7 +10018,7 @@ const CLI_SECRET = new RegExp([
   String.raw`--pass(?:word)?=${cliValue('{2,}')}`,
   String.raw`--pass(?:word)?\s+(?:'${CLI_SIGN("'")}[^\s'\x60-][^\s'\x60]{3,}'${CLI_END}|"?${CLI_SIGN(`"'`)}(?:(?=[^\s"'\x60]*\d)[^\s"'\x60$-]|[^\s"'\x60$*_-])[^\s"'\x60]{3,})`,
 ].join('|'));
-export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line) || CLI_SECRET.test(line);
+export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line) || AUTH_SCHEME.test(line) || CLI_SECRET.test(line);
 /** The text without its secret-looking lines, and how many lines went. */
 export function withoutSecrets(text) {
   let cut = 0;
@@ -10077,17 +10093,10 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
     if (why !== undefined) throw refused(why);
   };
   const sources = async () => importSources({ projects: projectsOf(), home: userHome, dshHome: home, skip: await skip(), limits });
-  /** source path → the newest day (YYYY-MM-DD) that an import saved a fact from it, in any memory. */
-  const importedDays = () => {
-    const days = new Map();
-    for (const scope of [memory.store.GLOBAL, ...memory.store.projects()]) {
-      for (const f of memory.store.load(scope)) for (const e of f.entries) {
-        const from = /^import (.+)$/.exec(String(e.meta?.source ?? ''))?.[1];
-        if (from !== undefined && isText(e.meta?.added, 10) && !(e.meta.added <= (days.get(from) ?? ''))) days.set(from, e.meta.added);
-      }
-    }
-    return days;
-  };
+  // source path → the day (YYYY-MM-DD) that an import finished it: the subagent read all of the file and saved its facts
+  // (memory_import `done`). A run that stopped half way leaves the file open, so the next run reads it again.
+  const doneFile = settingsStore(join(home, 'storages', 'dsh-composer-plus', 'memory-import.json'), (v) => (plainObject(v?.done) ? v.done : {}));
+  const importedDays = async () => new Map(Object.entries(await doneFile.read()).filter(([, d]) => isText(d, 10)));
   const refuseOthers = () => refused('This tool works only in a subagent of the Composer Plus assistant chat.', 403);
   const tools = [
     {
@@ -10099,7 +10108,7 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
         if (!mine(exec)) throw refuseOthers();
         await ready(exec);
         const list = await sources();
-        const days = importedDays();
+        const days = await importedDays();
         const from = Number.isSafeInteger(args?.offset) && args.offset > 0 ? args.offset : 0;
         const files = []; const done = []; let size = 0; let at = from; let secrets = 0;
         for (; at < list.length; at++) {
@@ -10108,7 +10117,7 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
           // A file that an earlier import read and that did not change after that day is not read again, so a second run
           // gives the model nothing to word in a new way. ponytail: a day, not a time: a change later on the import's day waits.
           const day = new Date(read.mtime).toLocaleDateString('en-CA');
-          const key = metaValue(list[at].path); // as the note keeps it (formatEntry)
+          const key = list[at].path;
           if (days.has(key) && day <= days.get(key)) { done.push(list[at].path); continue; }
           const clean = withoutSecrets(read.text);
           if (files.length > 0 && size + clean.text.length > limits.total) break;
@@ -10121,18 +10130,20 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
     },
     {
       name: 'memory_import',
-      description: `Memory import: save lasting facts that you found with memory_import_sources (a preference of the user, a decision, a fact about a project). One short fact per item, in the user's language, with its source file. A fact that the memory already has is skipped, and nothing is ever overwritten or removed. At most ${limits.facts} items per call.`,
-      parameters: { type: 'object', properties: { facts: { type: 'array', description: `1 to ${limits.facts} items`, items: { type: 'object', properties: {
+      description: `Memory import: save lasting facts that you found with memory_import_sources (a preference of the user, a decision, a fact about a project). One short fact per item, in the user's language, with its source file. A fact that the memory already has is skipped, and nothing is ever overwritten or removed. At most ${limits.facts} items per call. When you finished a file (all of its lasting facts are saved, or it has none), put its path in done: the next run does not read it again until it changes.`,
+      parameters: { type: 'object', properties: { facts: { type: 'array', description: `0 to ${limits.facts} items`, items: { type: 'object', properties: {
         text: { type: 'string', description: 'The fact, one short line' },
         source: { type: 'string', description: 'The path of the source file, as memory_import_sources gave it' },
         project: { type: 'string', description: 'The project folder (from memory_import_sources) for a project fact; leave it out for a global fact' },
-      }, required: ['text', 'source'] } } }, required: ['facts'] },
+      }, required: ['text', 'source'] } },
+      done: { type: 'array', description: 'The source files that you finished, as memory_import_sources gave them', items: { type: 'string' } } } },
       output: textOutput,
       async execute(args, exec) {
         if (!mine(exec)) throw refuseOthers();
         await ready(exec);
         const facts = Array.isArray(args?.facts) ? args.facts.slice(0, limits.facts) : [];
-        if (facts.length === 0) throw refused(`facts is 1 to ${limits.facts} items.`, 400);
+        const finished = Array.isArray(args?.done) ? args.done.filter((p) => typeof p === 'string').map((p) => p.trim()) : [];
+        if (facts.length === 0 && finished.length === 0) throw refused(`Give facts (1 to ${limits.facts} items) or done.`, 400);
         const known = new Set(projectsOf());
         const listed = new Set((await sources()).map((f) => f.path)); // a source is a file that memory_import_sources lists
         const count = { added: 0, duplicate: 0, secret: 0, unclear: 0 };
@@ -10158,7 +10169,13 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
             }
           });
         }
-        return JSON.stringify({ ...count, perProject });
+        // After the facts are saved: a failed save above leaves the files open.
+        const marked = [...new Set(finished.filter((p) => listed.has(p)))];
+        if (marked.length > 0) {
+          const day = new Date().toLocaleDateString('en-CA');
+          await doneFile.change((d) => ({ done: { ...d, ...Object.fromEntries(marked.map((p) => [p, day])) } }));
+        }
+        return JSON.stringify({ ...count, perProject, ...(finished.length > 0 ? { done: marked.length } : {}) });
       },
     },
   ];
@@ -10223,9 +10240,11 @@ async function obsidianVaults(configs) {
 }
 /** The setup state: `{ready, folder, steps: {obsidian, vault, memory: 'done'|'restart'|'missing', rules}}`. `folder` is the
  * assistant folder; `memory` is installMemory's handle (its `state()`: on, folder, folderActive, folderProblem). */
-export async function assistantSetup({ folder, memory, home = homedir(), apps = obsidianApps(undefined, home), configs = obsidianConfigs(undefined, home) }) {
+export async function assistantSetup({ folder, memory, home = homedir(), apps = obsidianApps(undefined, home), configs = obsidianConfigs(undefined, home), platform = osPlatform() }) {
   const vaults = await obsidianVaults(configs);
-  const installed = vaults !== undefined || (await Promise.all(apps.map((p) => stat(p).then(() => true, () => false)))).some(Boolean);
+  // On macOS and Windows only the app counts (its settings file stays after an uninstall); on Linux an AppImage can be
+  // anywhere, so a settings file counts too.
+  const installed = (platform !== 'darwin' && platform !== 'win32' && vaults !== undefined) || (await Promise.all(apps.map((p) => stat(p).then(() => true, () => false)))).some(Boolean);
   const real = await realpath(folder).catch(() => undefined);
   const vault = real === undefined ? undefined : vaults?.find((v) => inside(real, v));
   const m = memory?.state?.() ?? {};
@@ -10267,12 +10286,11 @@ export function installAssistantSetup(ctx, assistant, memory, { home = homedir()
     const real = await realpath(assistant.folder);
     const vault = now.steps.vault ? (await obsidianVaults(configs ?? obsidianConfigs(undefined, home)))?.find((v) => inside(real, v)) ?? real : real;
     const rules = join(real, 'AGENTS.md');
-    // An empty AGENTS.md (a write that failed half way) counts as missing: it goes, so Set up can write it again. A link is
-    // the user's: it stays, and Set up says why the step stays missing (lstat: never through the link).
+    // An empty AGENTS.md (a write that failed half way) counts as missing: memory.setup fills it inside its all-or-none
+    // step (a failed Set up leaves it empty). A link is the user's: it stays, and Set up says why the step stays missing
+    // (lstat: never through the link).
     const own = await lstat(rules).catch(() => undefined);
-    if (own?.isSymbolicLink()) {
-      if (!(await stat(rules).then((s) => s.isFile() && s.size > 0, () => false))) throw refused(`${rules} is a link to a missing or empty file: fix the link or remove it, then click Set up again.`);
-    } else if (own?.isFile() && own.size === 0) await unlink(rules).catch(() => {});
+    if (own?.isSymbolicLink() && !(await stat(rules).then((s) => s.isFile() && s.size > 0, () => false))) throw refused(`${rules} is a link to a missing or empty file: fix the link or remove it, then click Set up again.`);
     // The memory folder is read again in the memory's own queue (a folder that Settings saves at the same time wins).
     await memory.setup(async (m) => {
       const saved = isText(m.folder, 4096) ? await realish(m.folder) : undefined;

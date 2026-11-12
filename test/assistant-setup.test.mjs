@@ -45,8 +45,10 @@ try {
   await vaults([join(root, 'other'), folder]);
   s = await check();
   assert.deepEqual(s.steps, { obsidian: true, vault: true, memory: 'missing', rules: false }); assert.equal(s.ready, false);
-  // obsidian.json alone counts as installed (Windows or a portable app in another folder).
-  assert.equal((await assistantSetup({ folder, memory, home, apps: [], configs: [config] })).steps.obsidian, true);
+  // obsidian.json alone counts as installed only on Linux (an AppImage can be anywhere); on macOS and Windows it stays after
+  // an uninstall, so only the app counts (review 2026-11-12).
+  assert.equal((await assistantSetup({ folder, memory, home, apps: [], configs: [config], platform: 'linux' })).steps.obsidian, true);
+  for (const platform of ['darwin', 'win32']) assert.equal((await assistantSetup({ folder, memory, home, apps: [], configs: [config], platform })).steps.obsidian, false, platform);
   // A vault above the folder counts too.
   await vaults([home]); assert.equal((await check()).steps.vault, true, 'a vault that holds the folder');
   await vaults([folder]);
@@ -155,7 +157,18 @@ try {
     await assert.rejects(s5.fix('Memory'));
     assert.deepEqual(mem5.state(), { on: false, folder: '', folderActive: '' }, 'the folder setting and the switch went back');
     assert.equal(await readFile(join(home5, 'storages/dsh-composer-plus/memory.json'), 'utf8').then((t) => JSON.parse(t).on, () => false), false);
-    assert.equal(await readFile(join(home5, 'storages/dsh-composer-plus/memory-folder.json'), 'utf8').then((t) => JSON.parse(t).folder, () => undefined), undefined); }
+    assert.equal(await readFile(join(home5, 'storages/dsh-composer-plus/memory-folder.json'), 'utf8').then((t) => JSON.parse(t).folder, () => undefined), undefined);
+    // An empty AGENTS.md and a Set up that the memory refuses (review 2026-11-12): the empty file stays, nothing is lost.
+    const f6 = join(root, 'f6'); await mkdir(f6); await writeFile(join(f6, 'AGENTS.md'), '');
+    const refusing = { ...mem5, setup: async () => { throw Error('the notes are not in the folder yet'); } };
+    const s6 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f6 }, refusing, { home, apps: [], configs: [] });
+    await assert.rejects(s6.fix('Memory'), /not in the folder yet/);
+    assert.equal(await readFile(join(f6, 'AGENTS.md'), 'utf8'), '', 'the empty AGENTS.md is still there');
+    // An empty AGENTS.md and a failure after its write: it goes back to empty (not removed).
+    const failAfter = { ...mem5, setup: (plan) => mem5.setup(async (m) => { const step = await plan(m); return { ...step, rules: { ...step.rules, text: (async function* () { yield 'half a file'; throw Error('disk full'); })() } }; }) };
+    const s6b = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f6 }, failAfter, { home, apps: [], configs: [] });
+    await assert.rejects(s6b.fix('Memory'));
+    assert.equal(await readFile(join(f6, 'AGENTS.md'), 'utf8'), '', 'a failed Set up leaves the empty file as it was'); }
   // A saved memory folder that is already in the vault is kept (the owner's Hafıza): Set up changes nothing.
   const ownerPlan = []; const owner = { state: () => ({ on: true, folder: join(folder, 'Hafıza'), folderActive: join(folder, 'Hafıza') }), setup: async (plan) => { ownerPlan.push(await plan({ ...owner.state(), names: (at, w) => memoryNamesOf(at, w) })); } };
   const keep = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, assistant, owner, { home, apps: [app], configs: [config] });
@@ -207,7 +220,20 @@ try {
     assert.match(await readFile(join(vF, 'Général', 'MEMORY.md'), 'utf8'), /A note in English folders/);
     await mm.setup(async () => ({ folder: join(root, 'vF2') })); // a later save writes the names that it holds
     const saved = JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8'));
-    assert.deepEqual([saved.imported, saved.importedNames], [vG, { global: 'Allgemein', projects: 'Projekte' }], 'a failed save keeps the old folder with its own names'); }
+    assert.deepEqual([saved.imported, saved.importedNames], [vG, { global: 'Allgemein', projects: 'Projekte' }], 'a failed save keeps the old folder with its own names');
+    // A Set up whose folder write fails keeps the old names in memory too (review 2026-11-12): a later save does not
+    // write names that the user never saved.
+    const namesBefore = saved.names;
+    await chmod(sN, 0o500);
+    try { await assert.rejects(mm.setup(async () => ({ folder: join(root, 'vH'), names: { global: 'Generale', projects: 'Progetti' } }))); } finally { await chmod(sN, 0o700); }
+    await mm.setup(async () => ({ folder: join(root, 'vH2') }));
+    assert.deepEqual(JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8')).names, namesBefore, 'the failed names are not saved later');
+    // Settings → Memory folder checks a new folder with the saved names, as the next start does.
+    const mRoutes = new Map();
+    const mR = installMemory({ ...mCtx, connection: { fetch: { register: (r) => mRoutes.set(r.path, r) } } }, dshN); await mR.ready;
+    const vS = join(root, 'vS'); await mkdir(vS, { recursive: true }); await symlink(join(root, 'other'), join(vS, namesBefore.global));
+    const res = await mRoutes.get('/api/composer-plus.memory').fetch(new Request('http://h/api/composer-plus.memory', { method: 'POST', body: JSON.stringify({ folder: vS }) }));
+    assert.equal(res.status, 409, 'a symlinked subfolder under the saved name is refused at once'); }
   // Ready (Obsidian knows the fresh folder, the memory is active): the gate opens.
   await vaults([fresh]);
   const readySetup = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: fresh }, { ...mem, state: () => ({ on: true, folder: join(fresh, 'Memory'), folderActive: join(fresh, 'Memory') }) }, { home, apps: [app], configs: [config] });
