@@ -5950,8 +5950,8 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
     /** Printable ASCII, the Turkish letters, new lines and a few typographic marks (after NFC). */
     const APPROVAL_CHARS = /^[\x20-\x7E\n\tçğıöşüâîûÇĞİÖŞÜÂÎÛ‘’“”–—…→«»]*$/;
     const approvable = (text) => text !== '' && text.length <= APPROVAL_MAX && APPROVAL_CHARS.test(text.normalize('NFC'));
-    /** The approval sentences of `text`, in the shape of parseOptions: `[{ n, label, text, message }]`. */
-    function parseApprovals(text) {
+    /** The bodies of the closed, top-level `onay` blocks of `text`, also the ones that get no button. */
+    function onayBlocks(text) {
       const out = [];
       let fence = null; // the open fence: { mark, approval, body }
       for (const line of String(text ?? '').replace(/\r\n?/g, '\n').split('\n')) {
@@ -5959,16 +5959,16 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
         if (fence === null) {
           if (mark !== null) fence = { mark: mark[2] ?? mark[4], approval: mark[1] === '' && (mark[3] ?? mark[5]).trim().toLowerCase() === 'onay', body: [] };
         } else if (mark !== null && (mark[2] ?? mark[4])[0] === fence.mark[0] && (mark[2] ?? mark[4]).length >= fence.mark.length && (mark[3] ?? mark[5]).trim() === '') {
-          const body = fence.body.join('\n').trim();
-          if (fence.approval && approvable(body)) {
-            // The whole sentence, never cut: the user approves only what they can read.
-            out.push({ n: out.length + 1, label: body.replace(/\s+/g, ' '), text: body, message: body });
-          }
+          if (fence.approval) out.push(fence.body.join('\n').trim());
           fence = null;
         } else fence.body.push(line);
       }
       return out;
     }
+    /** The approval sentences of `text`, in the shape of parseOptions: `[{ n, label, text, message }]`. The whole
+     * sentence, never cut: the user approves only what they can read. */
+    const approvalsOf = (bodies) => bodies.filter(approvable).map((body, i) => ({ n: i + 1, label: body.replace(/\s+/g, ' '), text: body, message: body }));
+    function parseApprovals(text) { return approvalsOf(onayBlocks(text)); }
     /** The option list that a chat offers now (`chat`: dsh's chat view snapshot, node key → node): the list at the end of
      * the closing answer of the chat's newest turn, as `{ seq, turn, latest, options }`, or undefined. A turn that a
      * rollback withdrew (`spans`: Turn rollback's and dsh-rewind-plugin's, rule 9) does not count: the newest turn still
@@ -5997,7 +5997,8 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
      * turn after the answer's turn ended: the answers of earlier turns after your newest message count too (dsh draws
      * that message as a context row, not as yours). Only the newest answer that has an `onay` block counts: its block
      * holds all pending approvals, so an older block is not shown again (the owner, 2026-11-12: "tek seferde tek onay
-     * butonu gösterilsin ve hepsi tek butonda yer alsın"); a newer answer without a block keeps it. An answer before your
+     * butonu gösterilsin ve hepsi tek butonda yer alsın"); a newer answer without a block keeps it. A newest block that
+     * gets no button (too long, a character outside APPROVAL_CHARS) still hides the older ones. An answer before your
      * newest message (you answered or skipped it), a withdrawn one (`spans`) and a fork's inherited one (`from`) give
      * none; the same sentence twice gives one button. */
     function turnApprovals(chat, closingSeq, closingBlocks, spans, from) {
@@ -6012,9 +6013,8 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       }
       for (const { seq, blocks } of answers.sort((a, b) => b.seq - a.seq)) {
         if (seq <= human || seq < from || inSpans(spans, seq)) continue;
-        const out = [];
-        for (const approval of parseApprovals(answerText(blocks))) if (!out.some((a) => a.message === approval.message)) out.push({ ...approval, n: out.length + 1 });
-        if (out.length > 0) return out;
+        const bodies = onayBlocks(answerText(blocks));
+        if (bodies.length > 0) return approvalsOf([...new Set(bodies)]);
       }
       return [];
     }

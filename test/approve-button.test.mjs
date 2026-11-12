@@ -225,6 +225,8 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
   assert.deepEqual(quietOffer?.options.map((o) => o.message), [XY], 'a later answer without a block keeps that button');
   assert.equal(quietOffer.seq, 120, 'under the newest turn\'s end');
   assert.deepEqual(chatOffer(quiet, [[108, 111]], 0, parseApprovals)?.options.map((o) => o.message), [X], 'the newest block withdrawn (rollback): the older block offers again');
+  const tooLong = chat(user(100, 'x'), step(9, 1, 105, block(X)), ctx(107), step(9, 2, 110, block(`Onaylıyorum: ${'y '.repeat(250)}`)), tail(9, 110, block(`Onaylıyorum: ${'y '.repeat(250)}`)));
+  assert.equal(chatOffer(tooLong, [], 0, parseApprovals), undefined, 'the newest block gets no button (too long): the older block does not come back');
   view = quiet; const cellQuiet = cell(120); cellQuiet.render(); await flush();
   assert.deepEqual(buttonsOf(cellQuiet.render()).map((b) => b.p.title), [XY], 'rendered: one button');
   cellQuiet.unmount();
