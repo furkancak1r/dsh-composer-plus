@@ -237,6 +237,54 @@ try {
     assert.equal(await readFile(join(brokenDir, names[1]), 'utf8'), '{not json', 'with its old bytes');
   }
 
+  // Refresh asks the assistant for a new summary (POST {sessionId, action: "summary"}): an idle chat gets a turn with one
+  // hidden note (dsh's steer plus a marker at the queue head, as Assistant news), a running chat gets it at its next step.
+  // One open request per chat; status_summary_set ends it; a turn that took the note and ended without a summary is
+  // `missed`; after STATUS_LIMITS.askMs the Host forgets it. Not for another chat, not while off, a failed steer is 502.
+  {
+    const post = async (body) => { const res = await routes.get(ASSISTANT_TODOS_PATH).fetch(new Request(`http://x${ASSISTANT_TODOS_PATH}`, { method: 'POST', body: JSON.stringify(body) })); return { status: res.status, body: await res.json() }; };
+    const steers = []; const heads = [];
+    Object.assign(assistantAgent, { status: 'idle', steer: (m) => { steers.push(m); }, inbox: { prepend: (target, m) => heads.push([target, m]), remove: () => {}, nextStep: [] } });
+    clock = NOW + 10;
+    r = await post({ sessionId: 's-a', action: 'summary' });
+    assert.deepEqual(r, { status: 200, body: { asked: NOW + 10 } });
+    assert.equal(steers.length, 1); assert.equal(heads.length, 1, 'idle: a marker at the queue head too (the user\'s queued message waits)');
+    assert.equal(steers[0].source.kind, 'composer-plus-status-summary');
+    // dsh's pre-step: the markers become one note with the request text (a hidden message, not the user's).
+    const preStep = listeners.get('agent/pre-step');
+    const step = async (messages) => { let out = { kind: 'enter', messages }; for (const fn of [...preStep].reverse()) { const inner = out; out = await fn({ agent: assistantAgent }, async () => inner); } return out; };
+    const typed = { id: 'u1', role: 'user', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user', rpcId: 'r1' } };
+    const entered = await step([heads[0][1], steers[0], typed]);
+    const notes = entered.messages.filter((m) => m.source?.kind === 'composer-plus-status-summary');
+    assert.equal(notes.length, 1, 'one note'); assert.match(notes[0].content[0].text, /clicked Refresh in the status panel\. Call status_summary_set now/);
+    assert.equal(notes[0].source.form, 'snapshot'); assert.ok(entered.messages.includes(typed), 'the user\'s message stays');
+    r = await call('?sessionId=s-a'); assert.equal(r.body.asked, NOW + 10); assert.equal(r.body.missed, undefined);
+    // A second click (another window) while it is open: the same request, no second note.
+    clock = NOW + 20; r = await post({ sessionId: 's-a', action: 'summary' });
+    assert.equal(r.body.asked, NOW + 10); assert.equal(steers.length, 1, 'no second note');
+    // The turn ends without a summary: missed; the next click asks again.
+    for (const fn of onEvent) fn(assistantAgent.session, { type: 'turn/start' });
+    for (const fn of onEvent) fn(assistantAgent.session, { type: 'turn/end' });
+    r = await call('?sessionId=s-a'); assert.equal(r.body.missed, true, 'the turn with the note ended without a summary');
+    clock = NOW + 30; r = await post({ sessionId: 's-a', action: 'summary' });
+    assert.equal(r.body.asked, NOW + 30); assert.equal(steers.length, 2, 'after a missed turn, Refresh asks again');
+    // A running chat: only the steer (the turn takes it at its next step).
+    assistantAgent.status = 'running';
+    await tool.execute({ projects: [{ project: 'acme-web', text: 'New.' }] }, { agent: assistantAgent });
+    r = await call('?sessionId=s-a'); assert.equal(r.body.asked, undefined, 'status_summary_set ends the request'); assert.equal(r.body.summary.at, NOW + 30);
+    clock = NOW + 40; r = await post({ sessionId: 's-a', action: 'summary' });
+    assert.equal(steers.length, 3); assert.equal(heads.length, 2, 'running: no queue marker');
+    // The time limit: the Host forgets it.
+    clock = NOW + 40 + STATUS_LIMITS.askMs; r = await call('?sessionId=s-a'); assert.equal(r.body.asked, undefined, 'forgotten after askMs');
+    // A steer that dsh refuses: 502 with the reason, and no request stays open.
+    assistantAgent.status = 'idle'; assistantAgent.steer = () => { throw new Error('inbox closed'); };
+    r = await post({ sessionId: 's-a', action: 'summary' }); assert.equal(r.status, 502); assert.match(r.body.error, /inbox closed/);
+    assert.equal((await call('?sessionId=s-a')).body.asked, undefined);
+    assert.equal((await post({ sessionId: 's-web', action: 'summary' })).status, 404, 'not for another chat');
+    assert.equal((await post({ sessionId: 's-a', action: 'summary', extra: 1 })).status, 400);
+    delete assistantAgent.steer; delete assistantAgent.inbox; assistantAgent.status = 'idle';
+  }
+
   // One project's git details: only a registered project and only for the assistant chat.
   r = await call('?sessionId=s-a&project=w-repo');
   assert.equal(r.status, 200); assert.equal(r.body.branch, 'feature/x'); assert.equal(r.body.commits.length, STATUS_LIMITS.commits);

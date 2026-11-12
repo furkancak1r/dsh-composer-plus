@@ -297,9 +297,9 @@ try {
       await until(async () => /Working/.test(await task.innerText()), 'the task shows as working', 20000);
       gate.open = true;
       await until(async () => /Done/.test(await task.innerText()) && /Flights found: 3 options/.test(await task.innerText()), 'the task shows done with its result', 30000);
-      // Refresh updates the time; the button has its name.
+      // Refresh updates the list time; the button has its name (test/browser-status-refresh.mjs checks its feedback).
       await panel.getByRole('button', { name: 'Refresh', exact: true }).click();
-      assert.match(await panel.locator('h2').innerText(), /Updated/);
+      await until(async () => /List \d/.test(await panel.locator('h2').innerText()), 'the list time after Refresh', 5000);
       // Refresh reads the open project's git details again: wait until they are back before the typing check.
       await detail.getByText('feature/login').first().waitFor({ timeout: 15000 }); await pause(1500);
       // Typing does not draw the panel: count DOM changes in the panel while 30 keys go into the composer.

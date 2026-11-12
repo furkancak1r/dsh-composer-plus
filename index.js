@@ -10358,6 +10358,9 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   let on = false; let fiber;
   const mine = (exec) => (assistant.isAssistant(exec?.agent) ? exec.agent.id : undefined);
+  // chat id → the open summary request of Refresh: { at, taken (a turn took the note), missed (that turn ended without a
+  // summary) }, until status_summary_set or askMs.
+  const asks = new Map();
   const tools = [
     {
       name: 'todo_list_add',
@@ -10411,11 +10414,49 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
           throw refused(`projects is 1 to ${STATUS_LIMITS.projects} items, each with project (1 to ${STATUS_LIMITS.project} characters) and text (1 to ${STATUS_LIMITS.text} characters).`, 400);
         }
         await summaries.set(id, { at: now(), projects });
+        asks.delete(id); // a Refresh that asked for this summary got it
         return `The status panel shows the summary of ${projects.length} projects. Write at most one sentence in the chat (for news, use the news rule).`;
       },
     },
   ];
   const mount = assistant.addTools(() => (on ? tools : []));
+  /** Refresh asks the assistant for a new summary: a hidden note at its next step (a running turn takes it at once, an
+   * idle chat gets a turn of its own; the user's queued messages wait, wakeWithContinue). One open request per chat: a
+   * second click (another window) in the next askMs gets the same request time. The panel waits for a summary that is not
+   * older than that time. */
+  const askSummary = async (sessionId) => {
+    let agent = get('agents')?.get?.(sessionId);
+    if (agent === undefined) {
+      const found = await ctx.sessionController.resolveAgent(sessionId);
+      if ('error' in found) throw new Error(found.error?.message ?? 'the assistant chat is not available');
+      agent = found.agent;
+    }
+    if (!assistant.isAssistant(agent)) return undefined;
+    const open = asks.get(sessionId);
+    if (open !== undefined && !open.missed && now() - open.at < STATUS_LIMITS.askMs) return open.at;
+    const at = now(); asks.set(sessionId, { at, taken: false, missed: false });
+    try {
+      if (agent.status === 'running') agent.steer({ id: randomUUID(), role: 'user', content: [], source: { kind: SUMMARY_SOURCE } });
+      else wakeWithContinue(agent, SUMMARY_SOURCE);
+    } catch (error) { asks.delete(sessionId); throw error; }
+    return at;
+  };
+  // The wake markers become one summary note (dsh logs it as a hidden message, not as a chat bubble).
+  ctx.on('agent/pre-step', async (payload, next) => {
+    const decision = await next();
+    if (decision?.kind !== 'enter' || !Array.isArray(decision.messages) || !decision.messages.some((m) => m?.source?.kind === SUMMARY_SOURCE)) return decision;
+    const first = decision.messages.findIndex((m) => m?.source?.kind === SUMMARY_SOURCE);
+    const ask = asks.get(payload?.agent?.id); if (ask !== undefined) ask.taken = true;
+    return { ...decision, messages: decision.messages.flatMap((m, i) => (m?.source?.kind !== SUMMARY_SOURCE ? [m] : i === first ? [summaryMessage()] : [])) };
+  }, true);
+  // A steer that came after the running turn's last inbox check waits with no turn: wake the chat for it.
+  ctx.on('agent/status', ({ agent, status } = {}) => {
+    if (status === 'running' || !asks.has(agent?.id)) return;
+    queueMicrotask(() => {
+      if (agent.status !== 'idle' || !agent.inbox?.nextStep?.some?.((m) => m?.source?.kind === SUMMARY_SOURCE)) return;
+      try { wakeWithContinue(agent, SUMMARY_SOURCE); } catch (error) { ctx.logger?.warn?.(`dsh-composer-plus: the summary request waits: ${String(error?.message ?? error).slice(0, 300)}`); }
+    });
+  });
   // The to-do nudge: a turn of the assistant that started work without a list change (TODO_WORK_TOOLS).
   const turns = new Map(); const nudged = new Set(); // chat id → { work, changed } of the running turn; chats to nudge
   ctx.on('session/event', (session, event) => {
@@ -10428,6 +10469,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       if (TODO_CHANGE_TOOLS.has(event.data?.name)) { turn.changed = true; nudged.delete(id); }
     } else if (event?.type === 'turn/end') {
       const turn = turns.get(id); turns.delete(id);
+      const ask = asks.get(id); if (ask?.taken) ask.missed = true; // the turn with the note ended without a summary
       // Once: the next turn end takes it away (or sets it again for that turn).
       if (on && turn?.work && !turn.changed) nudged.add(id); else nudged.delete(id);
     }
@@ -10494,7 +10536,12 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     const summary = summaries.of(sessionId);
     // Resume after an AIProxy outage: the chats that the newest outage of today continued.
     const resumed = outage?.isOn?.() ? outage.last?.() : undefined;
-    return { tasks, projects, ...(summary === undefined ? {} : { summary }), ...(resumed !== undefined && resumed.at >= today.getTime() ? { outage: resumed } : {}), at: now() };
+    // An open summary request of Refresh: `asked` (its time); `missed` when the turn that took it ended without a summary.
+    const ask = asks.get(sessionId);
+    if (ask !== undefined && now() - ask.at >= STATUS_LIMITS.askMs) asks.delete(sessionId);
+    const asked = asks.get(sessionId);
+    return { tasks, projects, ...(summary === undefined ? {} : { summary }), ...(resumed !== undefined && resumed.at >= today.getTime() ? { outage: resumed } : {}),
+      ...(asked === undefined ? {} : { asked: asked.at, ...(asked.missed ? { missed: true } : {}) }), at: now() };
   };
   /** The subagent tasks' result lines in the UI language `lang` (the subagents write English; the user reads the panel).
    * The lines that are not in the cache go to one model call (dsh's default model, no tools) in the background, so the
@@ -10560,6 +10607,13 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         return json(view());
       }
       const { sessionId, id, action } = plainObject(body) ? body : {};
+      // Refresh: ask the assistant for a new summary; `{asked}` is the request time (the panel waits for a newer summary).
+      if (plainObject(body) && Object.keys(body).sort().join() === 'action,sessionId' && action === 'summary' && isText(sessionId, 128)) {
+        if (!on) return json({ error: 'The to-do list is off' }, 409);
+        let asked;
+        try { asked = await askSummary(sessionId); } catch (error) { return json({ error: String(error?.message ?? error) }, 502); }
+        return asked === undefined ? json({ error: 'not found' }, 404) : json({ asked });
+      }
       if (!isText(sessionId, 128) || typeof id !== 'string' || !TODO_ID.test(id) || action !== 'remove') return json({ error: 'bad request' }, 400);
       if (!on) return json({ error: 'The to-do list is off' }, 409);
       try {
@@ -10576,7 +10630,12 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
  * that the assistant wrote (status_summary_set), the tasks that it gave to subagents and the projects that changed in
  * the last 24 hours. The Host answers them with the list (GET ?sessionId=…) and the git details of one project on a
  * click (GET ?sessionId=…&project=<workspace id>: read-only git, only in a registered project folder). */
-export const STATUS_LIMITS = { projects: 8, text: 600, project: 120, tasks: 20, result: 160, chats: 5, commits: 5, recentMs: 24 * 3600 * 1000, shown: 5, cacheMs: 30000 };
+export const STATUS_LIMITS = { projects: 8, text: 600, project: 120, tasks: 20, result: 160, chats: 5, commits: 5, recentMs: 24 * 3600 * 1000, shown: 5, cacheMs: 30000, askMs: 5 * 60000 };
+/** Refresh in the status panel asks the assistant for a new summary: a hidden note (not a chat bubble) in its next step. */
+const SUMMARY_SOURCE = 'composer-plus-status-summary';
+export const STATUS_SUMMARY_NOTE = '[Composer Plus → Status panel] The user clicked Refresh in the status panel. Call status_summary_set now with a new summary of the projects (1 or 2 sentences each: what changed and what is next). Use what you know and chats_list. Do not start other work and do not write to the user in the chat.';
+const summaryMessage = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: STATUS_SUMMARY_NOTE })]),
+  source: Object.freeze({ kind: SUMMARY_SOURCE, form: 'snapshot' }) });
 export const STATUS_SECTION = `# Assistant status panel (Composer Plus)
 The status panel at the right side of this chat shows the user's to-do list, the tasks that you gave to subagents and the projects that changed today. When you write a summary of the projects (for example the morning summary), call status_summary_set with one short text per project (1 or 2 sentences each, at most ${STATUS_LIMITS.projects} projects): the panel shows it at the top. Then write at most one sentence in the chat.`;
 const headLine = (text, max) => cutEnd(String(text ?? '').trim().split('\n').find((l) => l.trim() !== '')?.trim() ?? '', max);

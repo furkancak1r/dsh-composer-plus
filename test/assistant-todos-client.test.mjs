@@ -28,6 +28,8 @@ let tasks = [{ id: 'c-run', title: 'Research Rome', state: 'running', started: N
 let projects = [{ id: 'w-web', title: 'acme-web', count: 2, updated: NOW, chats: [{ id: 's-web', title: 'Login page', updated: NOW - 1000, running: true }] }, { id: 'w-cli', title: 'weather-cli', count: 1, updated: NOW - 5000, chats: [{ id: 's-cli', title: 'Weather', updated: NOW - 5000, running: false }] }];
 let summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }, { project: 'other-proj', text: 'Not in the list.' }] };
 const posts = []; const gets = []; let gate = null; let failNext = null;
+// Refresh's summary request: the Host's open request time (`asked`), a refused request, a read that fails.
+let askedAt = null; let askFail = null; let missed = false; let readFail = null; let askGate = null;
 globalThis.fetch = async (url, init) => {
   const u = String(url);
   if (u === '/api/composer-plus.assistant-status') return Response.json({ sessionId: 's-assistant' });
@@ -35,6 +37,11 @@ globalThis.fetch = async (url, init) => {
     if (init?.method === 'POST') {
       const body = JSON.parse(init.body); posts.push(body);
       if ('on' in body) { switchOn = body.on; return Response.json({ on: switchOn }); }
+      if (body.action === 'summary') {
+        if (askGate) await askGate;
+        if (askFail) return Response.json({ error: askFail }, { status: 502 });
+        askedAt ??= Date.now(); return Response.json({ asked: askedAt });
+      }
       if (gate) await gate;
       if (failNext) { const error = failNext; failNext = null; return Response.json({ error, on: true, items }, { status: 502 }); }
       if (body.action === 'remove') items = items.filter((i) => i.id !== body.id);
@@ -44,7 +51,9 @@ globalThis.fetch = async (url, init) => {
     gets.push(u);
     const q = new URL(u, 'http://x').searchParams;
     if (q.get('project') !== null) return Response.json({ project: q.get('project'), branch: 'feature/x', commits: [{ hash: 'abc1234', at: NOW - 3600000, subject: 'Fix login' }] });
-    return Response.json(q.get('sessionId') === null ? { on: switchOn } : { on: switchOn, items: switchOn ? items : [], tasks, projects, summary, at: NOW });
+    if (readFail) return Response.json({ error: readFail }, { status: 500 });
+    return Response.json(q.get('sessionId') === null ? { on: switchOn } : { on: switchOn, items: switchOn ? items : [], tasks, projects, summary, at: NOW,
+      ...(askedAt === null ? {} : { asked: askedAt, ...(missed ? { missed: true } : {}) }) });
   }
   return new Response('{}', { status: 404 });
 };
@@ -296,10 +305,109 @@ const reads = gets.length;
 for (let i = 0; i < 5; i++) store.schedule('s-assistant');
 await new Promise((r) => setTimeout(r, 3200)); await tick();
 assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
-// Refresh reads the status and the git details again.
-const r0 = gets.length; tree = panel(); find(tree, (n) => n.t === 'button' && n.p['aria-label'] === 'status.refresh')[0].p.onClick(); await tick();
-assert.equal(gets.length - r0, 1); assert.equal(store.detailsOf('s-assistant', 'w-web'), undefined, 'git details are read again on the next open');
-assert.match(gets.at(-1), /refresh=1/, 'F-08: Refresh asks the Host to read again');
+// Refresh: feedback at once, the lists in less than a second, the summary from the assistant (a model turn) on its own.
+{
+  const refreshBtn = () => find(panel(), (n) => n.t === 'button' && n.p['aria-label'] === 'status.refresh')[0];
+  const cardOf = (tr) => find(tr, (n) => n.p?.className === 'cp-st-summary')[0];
+  const spoken = (tr) => text(find(tr, (n) => n.p?.role === 'status' && n.p['aria-live'] === 'polite')[0]);
+  const old = { at: NOW - 60000, projects: [{ project: 'acme-web', text: 'Old summary.' }] };
+  summary = old; mem.delete('dsh-composer-plus.status-summary-hidden'); await store.load('s-assistant');
+  // The two labels say what each time is: the list's read time and the summary's write time (a hint explains both).
+  tree = panel();
+  assert.match(text(find(tree, (n) => n.t === 'h2')[0]), /status\.updated/); assert.match(text(find(cardOf(tree), (n) => n.t === 'h3')[0]), /^\s*status\.summary · \d/);
+  assert.equal(find(tree, (n) => n.p?.title === 'status.updatedHint').length, 2, 'both times have the hint');
+  const r0 = gets.length; const p0 = posts.length;
+  items = [{ id: 'ffffffff', text: 'Fresh item', owner: 'user', created: 9 }];
+  const clicked = Date.now();
+  refreshBtn().p.onClick();
+  // At once (no await): the button turns and is aria-disabled, the panel says Refreshing…, the old content is dimmed in
+  // place, the summary card waits, and the polite status line says it.
+  tree = panel();
+  assert.ok(Date.now() - clicked < 100, 'the loading state shows within 100 ms');
+  const btn = find(tree, (n) => n.t === 'button' && n.p['aria-label'] === 'status.refresh')[0];
+  assert.equal(btn.p['aria-disabled'], true); assert.equal(btn.p['data-refreshing'], 'true'); assert.equal(btn.p.disabled, undefined, 'aria-disabled, not disabled: the focus stays');
+  assert.match(text(find(tree, (n) => n.t === 'h2')[0]), /status\.refreshing/, 'the header says Refreshing… instead of the time');
+  const bodyNode = find(tree, (n) => n.p?.className === 'cp-st-body')[0];
+  assert.equal(bodyNode.p['data-refreshing'], 'true'); assert.equal(bodyNode.p['aria-busy'], true);
+  assert.match(text(bodyNode), /Prosolocal|Old summary|status\.tasks/, 'the old content stays (dimmed), so the panel does not jump');
+  assert.match(text(cardOf(tree)), /status\.summaryWaiting/); assert.equal(spoken(tree), 'status.refreshing');
+  // A second click while it refreshes does nothing (the store refuses it, not only the button).
+  assert.equal(await store.refresh('s-assistant'), false, 'one Refresh at a time');
+  refreshBtn().p.onClick();
+  await tick();
+  assert.equal(posts.length - p0, 1, 'one summary request'); assert.deepEqual(posts.at(-1), { sessionId: 's-assistant', action: 'summary' });
+  assert.equal(gets.length - r0, 1); assert.match(gets.at(-1), /refresh=1/, 'F-08: Refresh asks the Host to read again');
+  assert.equal(store.detailsOf('s-assistant', 'w-web'), undefined, 'git details are read again on the next open');
+  // The lists are there now (before the summary): the new item shows.
+  assert.deepEqual(store.of('s-assistant').items.map((i) => i.text), ['Fresh item'], 'the lists come at once');
+  assert.equal(store.of('s-assistant').ask.state, 'waiting');
+  await new Promise((r) => setTimeout(r, 520)); await tick();
+  tree = panel(); assert.equal(store.of('s-assistant').refreshing, false, 'Refreshing… ends after the read (at least 500 ms)');
+  assert.equal(find(tree, (n) => n.t === 'button' && n.p['aria-label'] === 'status.refresh')[0].p['aria-disabled'], false);
+  assert.match(text(tree), /Fresh item/);
+  // The summary card still waits: the placeholder, the previous summary dimmed below, no Hide button.
+  let c = cardOf(tree);
+  assert.match(text(c), /status\.summaryWaiting/); assert.equal(c.p['aria-busy'], true); assert.equal(spoken(tree), 'status.summaryWaiting');
+  assert.equal(find(c, (n) => n.p?.className === 'cp-st-old')[0].p['data-old'], 'true', 'the previous summary is dimmed');
+  assert.equal(find(c, (n) => n.p?.['aria-label'] === 'status.hideSummary').length, 0);
+  // The new summary comes (a read after status_summary_set): it replaces the placeholder.
+  summary = { at: askedAt, projects: [{ project: 'acme-web', text: 'New summary.' }] }; askedAt = null;
+  await store.load('s-assistant'); tree = panel(); c = cardOf(tree);
+  assert.equal(store.of('s-assistant').ask.state, 'done'); assert.doesNotMatch(text(c), /summaryWaiting|Old summary/); assert.match(text(c), /New summary\./);
+  assert.match(spoken(tree), /^status\.summary · \d/, 'the status line says that the summary is new');
+  // The time limit: no new summary in 5 minutes. The previous summary shows again with a short note and Try again.
+  {
+    const realTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = (fn, ms, ...rest) => realTimeout(fn, ms === 5 * 60000 ? 30 : ms, ...rest);
+    try { await store.refresh('s-assistant'); } finally { globalThis.setTimeout = realTimeout; }
+    await new Promise((r) => setTimeout(r, 60)); tree = panel(); c = cardOf(tree);
+    assert.equal(store.of('s-assistant').ask.state, 'late');
+    assert.match(text(c), /status\.summaryLate/); assert.match(text(c), /New summary\./, 'the previous summary again');
+    assert.equal(find(c, (n) => n.p?.className === 'cp-st-old')[0].p['data-old'], 'false', 'not dimmed');
+    const again = find(c, (n) => n.t === 'button' && n.p['aria-label'] === 'assistant.retry: status.summary')[0];
+    assert.ok(again, 'Try again'); assert.equal(spoken(tree), 'status.summaryLate');
+    // A summary that comes late still replaces it.
+    summary = { at: askedAt, projects: [{ project: 'acme-web', text: 'Late summary.' }] };
+    await store.load('s-assistant'); assert.equal(store.of('s-assistant').ask.state, 'done'); assert.match(text(cardOf(panel())), /Late summary\./);
+    askedAt = null;
+    // Try again asks again, and the focus goes to Refresh.
+    const p1 = posts.length; again.p.onClick(); await tick();
+    assert.equal(posts.length - p1, 1); assert.equal(focused.at(-1), 'cp-td-s-assistant-refresh');
+    await new Promise((r) => setTimeout(r, 520));
+  }
+  // The turn that got the request ended without a summary (`missed`): the wait ends at once, with the same note.
+  missed = true; await store.load('s-assistant'); missed = false;
+  assert.equal(store.of('s-assistant').ask.state, 'late', 'a turn without a summary ends the wait'); askedAt = null;
+  // The Host forgets the request (its time limit, a dsh restart): a later read without `asked` ends the wait too.
+  await store.refresh('s-assistant'); askedAt = null; await store.load('s-assistant');
+  assert.equal(store.of('s-assistant').ask.state, 'late', 'no open request on the Host: late');
+  // Errors: a refused summary request and a failed read each say why and offer Try again. No silent failure.
+  askFail = 'the assistant chat is not available';
+  await store.refresh('s-assistant'); askFail = null;
+  tree = panel(); c = cardOf(tree);
+  assert.match(text(c), /status\.summaryFailed:\{"error":"the assistant chat is not available"\}/);
+  assert.ok(find(c, (n) => n.t === 'button' && n.p['aria-label'] === 'assistant.retry: status.summary').length === 1, 'Try again for the summary');
+  readFail = 'disk full';
+  await store.refresh('s-assistant'); readFail = null;
+  tree = panel();
+  const alert = find(tree, (n) => n.p?.role === 'alert')[0];
+  assert.match(text(alert), /status\.readFailed:\{"error":"disk full"\}/); assert.equal(store.of('s-assistant').refreshing, false, 'the button works again');
+  const retryRead = find(alert, (n) => n.t === 'button' && n.p['aria-label'] === 'assistant.retry: status.refresh')[0];
+  assert.ok(retryRead, 'Try again for the read'); retryRead.p.onClick(); await new Promise((r) => setTimeout(r, 520)); await tick();
+  assert.equal(find(panel(), (n) => n.p?.role === 'alert').length, 0, 'Try again read the panel again');
+  // A slow summary request: Refreshing… waits for the read only; the card waits for the request.
+  let release; askGate = new Promise((r) => { release = r; });
+  const slow = store.refresh('s-assistant'); await new Promise((r) => setTimeout(r, 520)); await tick();
+  assert.equal(store.of('s-assistant').refreshing, false); assert.equal(store.of('s-assistant').ask.state, 'asking');
+  assert.equal(await store.refresh('s-assistant'), false, 'no second request while one is sent');
+  release(); askGate = null; await slow; askedAt = null;
+  // Reduced motion: no turning and no pulse, only the text. Both themes: dsh's color tokens only.
+  const css = find(panel(), (n) => n.t === 'style')[0].c[0];
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{[^}]*cp-td-btn\[data-refreshing="true"\] > \*,[^}]*cp-st-skel\{animation:none\}/);
+  assert.match(css, /prefers-reduced-motion:reduce[^@]*\.cp-st-spin\{display:none\}/);
+  assert.match(css, /\.cp-st-time\[data-refreshing="true"\]\{[^}]*color:var\(--dsw-alias-state-business-primary\)/);
+  summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }] }; items = []; await store.load('s-assistant');
+}
 // Collapse: the chat gives its room back.
 tree = panel(); find(tree, (n) => n.t === 'button' && n.p['aria-expanded'] === true && n.p.className === 'cp-td-head')[0].p.onClick();
 tree = panel(); assert.equal(attrs.get('data-composer-plus-status-seat'), 'closed'); assert.equal(find(tree, (n) => n.p?.className === 'cp-st-body').length, 0);
