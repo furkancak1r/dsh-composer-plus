@@ -148,7 +148,7 @@ try {
       await send('Ask the slow chat to merge');
       await allow.waitFor({ timeout: 30000 }); await allow.click();
       await until(() => seen.merge, 'the chat_send result');
-      assert.match(seen.merge, /asks for a merge into main but has no review-guard step/, `refused: ${seen.merge.slice(0, 300)}`);
+      assert.match(seen.merge, /task text asks for a merge into main but has no review-guard step/, `refused: ${seen.merge.slice(0, 300)}`);
       await pause(500);
       assert.ok(!events(seen.ids.slow).some((e) => textOf(e.data?.content).includes('/merge-main') || (e.data?.inserted ?? []).some((m) => textOf(m?.content).includes('/merge-main'))), 'nothing reached the chat');
       assert.deepEqual(errors, [], 'no page errors');

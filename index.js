@@ -9783,26 +9783,46 @@ export function assistantRead(events, inherited, count, { message = ASSISTANT_LI
 }
 const foldName = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase('en');
 
-/** A task text that asks for a merge into main and names no review-guard step (2026-11-12: two such task texts went to
- * main without a review). Only a request counts, not a report of a merge that happened ("merged", "main'e birleşmiş").
- * Case, accents, curly apostrophes and line breaks do not matter. One regular expression of fixed words without nested
- * quantifiers, so the time is linear in the text.
- * ponytail: only these fixed English and Turkish words count, so another wording passes and an unusual negation ("do not,
- * under any circumstances, merge into main") is refused. A later chat_send can add work to a branch chat whose first task
- * already asked for the merge, with no merge words in the new message (2026-11-12: that work went to main without a
- * review). Upgrade: keep the merge request with the task and check each later message to that chat. */
-const MERGE_ASK = /(?<![\p{L}\p{N}])(?:[/$]merge-main|run merge-main|[`'"]?merge-main[`'"]? skill|merge (?:it |the branch |this branch )?into main|main'e (?:birles(?:tir(?:ilsin|in)?|sin)?|merge et)|push origin main)(?![\p{L}\p{N}_-])/gu;
-const NEGATION = new Set(['not', 'never', "don't", 'dont', 'without', 'no']);
+/** A task text that asks for a merge into main and has no review-guard step (2026-11-12: two such task texts went to main
+ * without a review). Only a request counts, not a report of a merge that happened ("merged", "main'e birleşmiş", "birleşti")
+ * or a negated one ("do not merge into main", "main'e birleştirme"). Case, accents, apostrophes (' ’ ` ´), the dotless ı and
+ * line breaks do not matter. Fixed words with bounded repeats only, and each check reads at most 200 characters around a
+ * match, so the time is linear in the text.
+ * ponytail: only these English and Turkish words count, so another wording passes. A negation counts only before the words
+ * in the same clause (a clause ends at . ! ? ; : , and before "and", "then", "but", "ve", "sonra"): "do not, in any case,
+ * merge into main" and "merge into main is not allowed" are refused. A later chat_send can add work to a branch chat whose
+ * first task already asked for the merge, with no merge words in the new message (2026-11-12: that work went to main
+ * without a review). Upgrade: keep the merge request with the task and check each later message to that chat. */
+const MAIN_END = String.raw`(?![\p{L}\p{N}_-]|\.\p{L})`; // not "main-backup", "maintenance" or "main.py"
+// A word ([^\s…]+) cannot hold the space that comes before it, so each way to read "{0,3} words" is the only one.
+const MERGE_ASK = new RegExp([
+  String.raw`(?<![\p{L}\p{N}_-])[/$]?merge-main${MAIN_END}`, // the skill or command
+  String.raw`(?<![\p{L}\p{N}_-])merge(?! conflicts?)(?: [^\s.!?;:,]+){0,3}? (?:into|to|onto|with) (?:the )?(?:origin/)?'?main'?${MAIN_END}`,
+  String.raw`(?<![\p{L}\p{N}_-])push(?: [^\s.!?;,]+){0,3}? (?:origin|to|into|onto)(?: the)? (?:origin/)?'?main'?${MAIN_END}`,
+  String.raw`(?<![\p{L}\p{N}_-])push(?: [^\s.!?;,]+){0,3}? [^\s.!?;,]*:(?:refs/heads/)?main${MAIN_END}`, // a refspec: HEAD:main
+  String.raw`(?<![\p{L}\p{N}_-])main(?:'[ea]| e| dalina) (?<tr>birles\p{L}*|merge(?: (?:et|ed|yap)\p{L}*)?)`, // Turkish: its verb is "tr"
+].join('|'), 'gu');
+// A Turkish verb after its stem: -me/-ma (negative; -mek and -meli stay requests), -miş, -di/-ti (past; -dikten stays).
+const TR_STEM = /^(?:birles(?:tir)?(?:il)?|merge(?: (?:et|ed|yap)(?:il)?)?)/;
+const trRequest = (verb) => { const rest = verb.replace(TR_STEM, ''); return !/^m(?!ek|ak|el|al)/.test(rest) && !/^[dt][iu](?!kten)/.test(rest); };
+const NEGATED = /(?:^|[^\p{L}])(?:not|never|cannot|dont|without|skip|skipping)(?![\p{L}])(?! forget)|n't(?![\p{L}])(?! forget)|(?:^|[^\p{L}])no (?:need(?![\p{L}])|$)/u;
+const NEGATED_AFTER = /^ (?:is|are) (?:not|forbidden)|^ (?:yasak|gerekmez|gerekmiyor|yok)/;
+const clauseBefore = (t, at) => t.slice(Math.max(0, at - 200), at).split(/[.!?;:,]| and | then | but | ve | sonra /).pop();
+/** A review-guard step: a mention without a negation before it in its clause ("skip review-guard") or after it
+ * ("review-guard is not needed", "review-guard olmadan", "review-guard'ı atla"). */
+const reviewStep = (t) => [...t.matchAll(/review-guard/g)].some((m) => !NEGATED.test(clauseBefore(t, m.index))
+  && !/^(?:['\p{L}]*\s?(?:olmadan|atla|yok|gerekmez|gerekmiyor|kullanma(?!k)|calistirma(?!k))|(?: skill)? (?:is|are) not)/u.test(t.slice(m.index + 12, m.index + 40)));
 export const asksMergeWithoutReview = (text) => {
-  const t = foldName(text).replace(/[\u2018\u2019\u02bc]/g, "'").replace(/\s+/g, ' ');
-  if (t.includes('review-guard')) return false;
-  // "Do not merge into main", "don't run /merge-main": a negation in the 2 words before it, in the same clause.
+  // Apostrophes first: NFKD makes ´ a space and a mark.
+  const t = foldName(String(text ?? '').replace(/[\u2018\u2019\u02bc\u0060\u00b4]/g, "'")).replace(/ı/g, 'i').replace(/\s+/g, ' ');
   for (const m of t.matchAll(MERGE_ASK)) {
-    if (!t.slice(Math.max(0, m.index - 40), m.index).split(/[.!?;:,]/).pop().split(' ').filter(Boolean).slice(-2).some((w) => NEGATION.has(w))) return true;
+    if (m.groups.tr !== undefined && !trRequest(m.groups.tr)) continue;
+    if (NEGATED.test(clauseBefore(t, m.index)) || NEGATED_AFTER.test(t.slice(m.index + m[0].length, m.index + m[0].length + 30))) continue;
+    return !reviewStep(t);
   }
   return false;
 };
-export const MERGE_REFUSAL = 'This task asks for a merge into main but has no review-guard step. Add: run review-guard on the final diff, fix the findings, and merge only when the review is clean.';
+export const MERGE_REFUSAL = 'This task text asks for a merge into main but has no review-guard step. If the task must merge into main, add: run review-guard on the final diff, fix the findings, and merge only when the review is clean. If it must not merge, write \'do not merge into main\' and no other merge words.';
 
 /** At most this many delegated chats are kept (the oldest go first). */
 export const ASSISTANT_TASKS_MAX = 50;
@@ -9918,11 +9938,15 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   /** The merge gate (asksMergeWithoutReview) works only where a skill named review-guard exists: dsh's own skill lookup (as
    * its skill tool: the assistant agent's scope, whose preset reads ~/.dsh/skills and ~/.agents/skills) for the target
    * folder (its project's .dsh/skills and .agents/skills). A dsh without skills: no gate. A failed lookup keeps it closed. */
+  let lookupFailed = false; // the first failed lookup is logged
   const mergeGate = async (text, cwd, exec) => {
     const skills = get('skills');
     if (!asksMergeWithoutReview(text) || typeof skills?.list !== 'function') return;
     let has;
-    try { has = (await skills.list({ cwd, signal: signalOf(exec), scope: exec?.agent })).some((s) => s?.name === 'review-guard'); } catch { has = true; }
+    try { has = (await skills.list({ cwd, signal: signalOf(exec), scope: exec?.agent })).some((s) => s?.name === 'review-guard'); } catch (error) {
+      has = true;
+      if (!lookupFailed) { lookupFailed = true; log(`the merge check could not read the skills, so it refuses: ${error?.message ?? error}`); }
+    }
     if (has) throw refused(MERGE_REFUSAL);
   };
   const tools = [
