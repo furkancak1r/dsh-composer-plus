@@ -114,7 +114,8 @@ try {
     const idOf = async (path) => createHash('sha256').update(await realpath(path)).digest('hex').slice(0, 32);
     const webId = await idOf(web); const blogId = await idOf(blog);
     await mkdir(join(memDir, 'projects', webId), { recursive: true });
-    await writeFile(mainOf(join(memDir, 'projects', webId)), '# Memory\n\n- The user runs the tests with `npm run test` [added: 2026-10-30]\n- The user wants short answers [added: 2026-10-31]\n- Releases need a git tag first [added: 2026-11-01]\n\n## Index\n');
+    // Under the main file's new name: an old MEMORY.md would be renamed at start, and History would list that save too.
+    await writeFile(join(memDir, 'projects', webId, 'acme-web memory.md'), '# Memory\n\n- The user runs the tests with `npm run test` [added: 2026-10-30]\n- The user wants short answers [added: 2026-10-31]\n- Releases need a git tag first [added: 2026-11-01]\n\n## Index\n');
     await writeFile(join(memDir, 'projects', webId, 'project.json'), JSON.stringify({ path: web }));
 
     const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3208', '--no-open'], { cwd: web, env: { ...process.env, HOME: home, DSH_HOME: home, DEMO_KEY: 'demo', DSH_PERMISSION_MODE: 'danger-full-access', npm_config_cache: join(tmpdir(), 'npm-cache') }, stdio: ['ignore', 'pipe', 'pipe'] });
