@@ -213,7 +213,8 @@ try {
     { projects: Array.from({ length: STATUS_LIMITS.projects + 1 }, (_, i) => ({ project: `p${i}`, text: 't' })) }]) {
     await assert.rejects(tool.execute(bad, { agent: assistantAgent }), (e) => e.status === 400, JSON.stringify(bad).slice(0, 50));
   }
-  assert.match(await tool.execute({ projects: [{ project: 'acme-web', text: '  Login page   done. ' }, { project: 'weather-cli', text: 'Tests fail.' }] }, { agent: assistantAgent }), /summary of 2 projects/);
+  // No request and no typed or scheduled turn in the log: stored only (the tool result says so; see the morning summary below).
+  assert.match(await tool.execute({ projects: [{ project: 'acme-web', text: '  Login page   done. ' }, { project: 'weather-cli', text: 'Tests fail.' }] }, { agent: assistantAgent }), /^The summary is stored\./);
   r = await call('?sessionId=s-a');
   assert.deepEqual(r.body.summary, { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }, { project: 'weather-cli', text: 'Tests fail.' }] });
   const file = join(dir, 'assistant-summary.json');
@@ -235,6 +236,107 @@ try {
     const names = (await readdir(brokenDir)).sort();
     assert.deepEqual(names.map((n) => n.replace(/\d+$/, 'N')), ['assistant-summary.json', 'assistant-summary.json.broken-N'], 'kept as assistant-summary.json.broken-<time>');
     assert.equal(await readFile(join(brokenDir, names[1]), 'utf8'), '{not json', 'with its old bytes');
+  }
+
+  // Get summary asks the assistant for a new summary (POST {sessionId, action: "summary"}): an idle chat gets a turn with one
+  // hidden note (dsh's steer plus a marker at the queue head, as Assistant news), a running chat gets it at its next step.
+  // One open request per chat; status_summary_set ends it; a turn that took the note and ended without a summary is
+  // `missed`; after STATUS_LIMITS.askMs the Host forgets it. Not for another chat, not while off, a failed steer is 502.
+  {
+    const post = async (body) => { const res = await routes.get(ASSISTANT_TODOS_PATH).fetch(new Request(`http://x${ASSISTANT_TODOS_PATH}`, { method: 'POST', body: JSON.stringify(body) })); return { status: res.status, body: await res.json() }; };
+    const steers = []; const heads = [];
+    Object.assign(assistantAgent, { status: 'idle', steer: (m) => { steers.push(m); }, inbox: { prepend: (target, m) => heads.push([target, m]), remove: () => {}, nextStep: [] } });
+    clock = NOW + 10;
+    r = await post({ sessionId: 's-a', action: 'summary' });
+    assert.deepEqual(r, { status: 200, body: { asked: NOW + 10 } });
+    assert.equal(steers.length, 1); assert.equal(heads.length, 1, 'idle: a marker at the queue head too (the user\'s queued message waits)');
+    assert.equal(steers[0].source.kind, 'composer-plus-status-summary');
+    // dsh's pre-step: the markers become one note with the request text (a hidden message, not the user's).
+    const preStep = listeners.get('agent/pre-step');
+    const step = async (messages) => { let out = { kind: 'enter', messages }; for (const fn of [...preStep].reverse()) { const inner = out; out = await fn({ agent: assistantAgent }, async () => inner); } return out; };
+    const typed = { id: 'u1', role: 'user', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user', rpcId: 'r1' } };
+    const entered = await step([heads[0][1], steers[0], typed]);
+    const notes = entered.messages.filter((m) => m.source?.kind === 'composer-plus-status-summary');
+    assert.equal(notes.length, 1, 'one note'); assert.match(notes[0].content[0].text, /clicked "Get summary" in the status panel\. Call status_summary_set now/);
+    assert.equal(notes[0].source.form, 'snapshot'); assert.ok(entered.messages.includes(typed), 'the user\'s message stays');
+    r = await call('?sessionId=s-a'); assert.equal(r.body.asked, NOW + 10); assert.equal(r.body.missed, undefined);
+    // A second click (another window) while it is open: the same request, no second note.
+    clock = NOW + 20; r = await post({ sessionId: 's-a', action: 'summary' });
+    assert.equal(r.body.asked, NOW + 10); assert.equal(steers.length, 1, 'no second note');
+    // The turn ends without a summary: missed; the next click asks again.
+    for (const fn of onEvent) fn(assistantAgent.session, { type: 'turn/start' });
+    for (const fn of onEvent) fn(assistantAgent.session, { type: 'turn/end' });
+    r = await call('?sessionId=s-a'); assert.equal(r.body.missed, true, 'the turn with the note ended without a summary');
+    clock = NOW + 30; r = await post({ sessionId: 's-a', action: 'summary' });
+    assert.equal(r.body.asked, NOW + 30); assert.equal(steers.length, 2, 'after a missed turn, Get summary asks again');
+    // A running chat: only the steer (the turn takes it at its next step).
+    assistantAgent.status = 'running';
+    await tool.execute({ projects: [{ project: 'acme-web', text: 'New.' }] }, { agent: assistantAgent });
+    r = await call('?sessionId=s-a'); assert.equal(r.body.asked, undefined, 'status_summary_set ends the request'); assert.equal(r.body.summary.at, NOW + 30);
+    assert.equal(r.body.summary.show, true, 'the answer to Get summary opens the card');
+    clock = NOW + 40; r = await post({ sessionId: 's-a', action: 'summary' });
+    assert.equal(steers.length, 3); assert.equal(heads.length, 2, 'running: no queue marker');
+    // The time limit: the Host forgets it.
+    clock = NOW + 40 + STATUS_LIMITS.askMs; r = await call('?sessionId=s-a'); assert.equal(r.body.asked, undefined, 'forgotten after askMs');
+    // A steer that dsh refuses: 502 with the reason, and no request stays open.
+    assistantAgent.status = 'idle'; assistantAgent.steer = () => { throw new Error('inbox closed'); };
+    r = await post({ sessionId: 's-a', action: 'summary' }); assert.equal(r.status, 502); assert.match(r.body.error, /inbox closed/);
+    assert.equal((await call('?sessionId=s-a')).body.asked, undefined);
+    assert.equal((await post({ sessionId: 's-web', action: 'summary' })).status, 404, 'not for another chat');
+    assert.equal((await post({ sessionId: 's-a', action: 'summary', extra: 1 })).status, 400);
+    // A steer that came after the turn's last inbox check: the chat is woken for it when the turn completed. After your Stop
+    // (or an error), no new turn starts: the marker goes and the request is missed.
+    {
+      const wakes = []; const removed = []; const left = { id: 'm-left', role: 'user', content: [], source: { kind: 'composer-plus-status-summary' } };
+      Object.assign(assistantAgent, { status: 'idle', steer: (m) => { wakes.push(m); }, inbox: { prepend: () => {}, remove: (id) => { removed.push(id); return true; }, nextStep: [left] } });
+      const settle = async (reason) => {
+        clock += 1; await post({ sessionId: 's-a', action: 'summary' }); wakes.length = 0;
+        for (const fn of onEvent) fn(assistantAgent.session, { type: 'turn/end', data: { reason: { kind: reason } } });
+        for (const fn of listeners.get('agent/status')) fn({ agent: assistantAgent, status: 'idle' });
+        await new Promise((res) => setImmediate(res));
+      };
+      await settle('completed'); assert.equal(wakes.length, 1, 'a completed turn: the chat wakes for the waiting note'); assert.deepEqual(removed, []);
+      clock += STATUS_LIMITS.askMs; await settle('aborted');
+      assert.equal(wakes.length, 0, 'after Stop: no new turn'); assert.deepEqual(removed, ['m-left'], 'the marker goes');
+      assert.equal((await call('?sessionId=s-a')).body.missed, true, 'the request is missed');
+      clock += STATUS_LIMITS.askMs; removed.length = 0; await settle('error');
+      assert.equal(wakes.length, 0, 'after an error: no new turn'); assert.deepEqual(removed, ['m-left']);
+      clock += STATUS_LIMITS.askMs; await call('?sessionId=s-a');
+    }
+    // Switched off while the note waits: the markers go without a note (the tool is gone) and the request is forgotten.
+    {
+      Object.assign(assistantAgent, { status: 'idle', steer: () => {}, inbox: { prepend: () => {}, remove: () => true, nextStep: [] } });
+      clock += 1; await post({ sessionId: 's-a', action: 'summary' });
+      const sw = (on) => routes.get(ASSISTANT_TODOS_PATH).fetch(new Request(`http://x${ASSISTANT_TODOS_PATH}`, { method: 'POST', body: JSON.stringify({ on }) }));
+      await sw(false);
+      const marker = { id: 'm-off', role: 'user', content: [], source: { kind: 'composer-plus-status-summary' } };
+      const preStep = listeners.get('agent/pre-step'); let out = { kind: 'enter', messages: [marker] };
+      for (const fn of [...preStep].reverse()) { const inner = out; out = await fn({ agent: assistantAgent }, async () => inner); }
+      assert.deepEqual(out.messages, [], 'off: no note');
+      await sw(true); assert.equal((await call('?sessionId=s-a')).body.asked, undefined, 'off forgets the request');
+    }
+    // The morning summary: status_summary_set in a turn that a scheduled task started opens the card (`show`) like a Get
+    // summary answer, and so does a summary in a typed turn (the user asks in the chat). A summary in a turn of Assistant
+    // news (background news) is stored only, and its tool result says so.
+    {
+      const log = assistantAgent.session.snapshotEvents(); const base = log.length;
+      const add = (type, data) => log.push({ seq: log.length, type, data, time: clock });
+      add('turn/start', {}); add('user/message', { source: { kind: 'schedule' } });
+      clock += 1; await tool.execute({ projects: [{ project: 'acme-web', text: 'Morning.' }] }, { agent: assistantAgent });
+      r = await call('?sessionId=s-a'); assert.equal(r.body.summary.show, true, 'the morning summary opens the card');
+      add('tool/result', {}); add('subagent/settled', {}); // the same turn goes on: still the morning summary
+      clock += 1; await tool.execute({ projects: [{ project: 'acme-web', text: 'Morning, with details.' }] }, { agent: assistantAgent });
+      assert.equal((await call('?sessionId=s-a')).body.summary.show, true, 'its update in the same turn too');
+      add('turn/end', {}); add('turn/start', {}); add('user/message', { source: { kind: 'user', rpcId: 'r9' } });
+      clock += 1; await tool.execute({ projects: [{ project: 'acme-web', text: 'Typed.' }] }, { agent: assistantAgent });
+      r = await call('?sessionId=s-a'); assert.equal(r.body.summary.show, true, 'the user asks in the chat: it opens the card');
+      add('turn/end', {}); add('turn/start', {}); add('user/message', { source: { kind: 'schedule' } }); add('turn/end', {});
+      add('turn/start', {}); add('user/message', { source: { kind: 'composer-plus-assistant-news' } });
+      clock += 1; assert.match(await tool.execute({ projects: [{ project: 'acme-web', text: 'News.' }] }, { agent: assistantAgent }), /^The summary is stored\. .*do not write it in the chat/);
+      assert.equal((await call('?sessionId=s-a')).body.summary.show, undefined, 'a news turn after the morning summary: stored only');
+      log.splice(base);
+    }
+    delete assistantAgent.steer; delete assistantAgent.inbox; assistantAgent.status = 'idle';
   }
 
   // One project's git details: only a registered project and only for the assistant chat.
