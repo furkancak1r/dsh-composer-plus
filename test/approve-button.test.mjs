@@ -18,7 +18,7 @@ const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ??
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
 const ANCHOR = '/** Feature switches, in Settings order.';
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX };\n    ${ANCHOR}`));
 let cur;
 const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }),
   useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
@@ -34,7 +34,7 @@ const mount = (C, props) => {
   return { render: () => { cur = inst; inst.si = 0; inst.ri = 0; inst.ei = 0; return C(props); }, unmount: () => { for (const c of inst.cleanups) c?.(); } };
 };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host) => ({ portal: el, host }) } : {}));
-const { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer } = globalThis.__ap;
+const { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX } = globalThis.__ap;
 
 // --- parseApprovals ---
 const sentences = (text) => parseApprovals(text).map((a) => a.message);
@@ -215,6 +215,21 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
   assert.equal(cell(110).render(), null, 'not twice: the earlier answer itself shows none');
   midButtons[0].p.onClick(); await flush(); assert.deepEqual(sent.at(-1), ['A', CAT], 'a click sends the sentence');
   cellMid.unmount();
+  // One button at a time (the owner, 2026-11-12: "tek seferde tek onay butonu gösterilsin ve hepsi tek butonda yer alsın"):
+  // two answers with blocks after one user message (a subagent's result between them) give only the newest block.
+  const X = 'Onaylıyorum: X dalını push et.'; const XY = 'Onaylıyorum: X dalını push et ve Y dalını main ile birleştir.';
+  const both = chat(user(100, 'x'), step(9, 1, 105, block(X)), ctx(107), step(9, 2, 110, block(XY)), tail(9, 110, block(XY)));
+  assert.deepEqual(chatOffer(both, [], 0, parseApprovals)?.options.map((o) => o.message), [XY], 'two answers with blocks: one button, the newest');
+  const quiet = chat(...both.nodes.values(), ctx(112), step(10, 1, 120, 'Subagent done.'), tail(10, 120, 'Subagent done.'));
+  const quietOffer = chatOffer(quiet, [], 0, parseApprovals);
+  assert.deepEqual(quietOffer?.options.map((o) => o.message), [XY], 'a later answer without a block keeps that button');
+  assert.equal(quietOffer.seq, 120, 'under the newest turn\'s end');
+  assert.deepEqual(chatOffer(quiet, [[108, 111]], 0, parseApprovals)?.options.map((o) => o.message), [X], 'the newest block withdrawn (rollback): the older block offers again');
+  const tooLong = chat(user(100, 'x'), step(9, 1, 105, block(X)), ctx(107), step(9, 2, 110, block(`Onaylıyorum: ${'y '.repeat(250)}`)), tail(9, 110, block(`Onaylıyorum: ${'y '.repeat(250)}`)));
+  assert.equal(chatOffer(tooLong, [], 0, parseApprovals), undefined, 'the newest block gets no button (too long): the older block does not come back');
+  view = quiet; const cellQuiet = cell(120); cellQuiet.render(); await flush();
+  assert.deepEqual(buttonsOf(cellQuiet.render()).map((b) => b.p.title), [XY], 'rendered: one button');
+  cellQuiet.unmount();
 }
 
 // --- The feature through plugin.apply ---
@@ -259,8 +274,10 @@ try {
   assert.doesNotMatch(APPROVE_SECTION, /no button|user types it/, 'no exception for live or public targets');
   assert.match(APPROVE_SECTION, /Write at most one `onay` block per answer/);
   // One button at a time (the owner, 2026-11-12: a click removes the other buttons): all pending approvals in one block.
-  assert.match(APPROVE_SECTION, /Write at most one `onay` block in the chat at a time\. When several approvals are pending, put all of them in one sentence in one block in your newest reply\./, 'one block for all pending approvals');
-  assert.match(APPROVE_SECTION, /A click or a new user message removes the older buttons, so when an approval is still pending after that, include it again in the next `onay` block, together with any new approval\./, 'a pending approval comes back in the next block');
+  assert.match(APPROVE_SECTION, /Write at most one `onay` block in the chat at a time\. When several approvals are pending, put all of them in one sentence in one block in your newest reply:/, 'one block for all pending approvals');
+  assert.match(APPROVE_SECTION, /only the newest block gets a button\. After a user message, when an approval is still pending, include it again in the next `onay` block, together with any new approval\./, 'a pending approval comes back in the next block');
+  // The rule's limit is the client's limit (approvable: a longer block gets no button).
+  assert.match(APPROVE_SECTION, new RegExp(`Keep the block under ${APPROVAL_MAX} characters: a longer block shows only as code, without the button\\.`), 'the length limit');
   assert.doesNotMatch(APPROVE_SECTION, /Show the `onay` block once|do not repeat the block/, 'no rule that hides a pending approval');
   assert.match(APPROVE_SECTION, /name the targets and the live or not-live scope, without file lines or script names/, 'a short sentence');
   for (const bad of [{ on: 'yes' }, { on: true, x: 1 }, {}, []]) assert.equal((await req(bad)).status, 400, JSON.stringify(bad));
