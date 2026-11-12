@@ -53,6 +53,8 @@ assert.deepEqual(sideChatOf({ parentSession: 'P' }, [...parentEvents, ...own], 2
 }, 'own messages, withdrawn ones out, lead off, only the last reply of each question');
 assert.equal(sideChatOf({ parentSession: 'P' }, [...parentEvents, msg(2, 'a plain fork')], 2), undefined, 'a fork without the lead');
 assert.equal(sideChatOf({}, own, 0), undefined, 'no parent');
+// No parent: the answer comes from the header alone; the messages are not read (each chat open and turn asks).
+assert.equal(sideChatOf({}, new Proxy([], { get: (t, k) => { if (k === 'filter' || k === Symbol.iterator) throw new Error('read the events'); return t[k]; } }), 0), undefined, 'no parent: the events are not read');
 assert.equal(sideChatOf({ parentSession: 'P' }, [msg(0, `${SIDE_LEAD}old`), ...own.slice(1)], 1), undefined, 'the lead in the copied part does not count');
 
 // --- The route ---
@@ -130,7 +132,9 @@ observed = { header: { id: 'side1', parentSession: 'P' }, inheritedEventCount: 2
 r = await getSide('side1');
 assert.equal(r.status, 200); assert.equal(r.data.parent, 'P'); assert.equal(r.data.messages.length, 4);
 observed = { header: { id: 'P' }, events: parentEvents };
-assert.equal((await getSide('P')).status, 404, 'not a side chat');
+assert.deepEqual(await getSide('P'), { status: 404, data: { error: 'not a side chat', fork: false } }, 'not a side chat: no parent, never one');
+observed = { header: { id: 'side9', parentSession: 'P' }, inheritedEventCount: 2, events: parentEvents };
+assert.deepEqual(await getSide('side9'), { status: 404, data: { error: 'not a side chat' } }, 'a fork without its question yet: may become one');
 assert.equal((await getSide('')).status, 400);
 
 // --- Client ---
@@ -194,8 +198,18 @@ for (const s of [undefined, plain('/plan x'), plain('x', { phase: 'claimed' }), 
   const old = createSideChats(async () => ({ ok: false, status: 404, json: async () => ({}) }));
   await assert.rejects(old.start('P', 'q'), /restart dsh/);
   await assert.rejects(old.info('X'), /restart dsh/, 'an older Host: an error (the bar hides)');
-  const notSide = createSideChats(async () => ({ ok: false, status: 404, json: async () => ({ error: 'not a side chat' }) }));
+  let asked = 0;
+  const notSide = createSideChats(async () => { asked++; return { ok: false, status: 404, json: async () => ({ error: 'not a side chat', fork: false }) }; });
   assert.equal(await notSide.info('X'), null, 'GET 404 from the route: not a side chat');
+  assert.equal(await notSide.info('X'), null); assert.equal(asked, 1, 'a chat without a parent is not asked again (its parent never changes)');
+  assert.equal(await notSide.info('Y'), null); assert.equal(asked, 2, 'another chat is asked');
+  // A fork whose first message is not in its log yet (a side chat that just started), and a chat that is not found: the
+  // next open or turn asks again, so the bar shows once the side chat has its question.
+  for (const body of [{ error: 'not a side chat' }, { error: 'session not found' }]) {
+    let n = 0;
+    const later = createSideChats(async () => { n++; return { ok: false, status: 404, json: async () => body }; });
+    await later.info('Z'); await later.info('Z'); assert.equal(n, 2, `not remembered: ${body.error}`);
+  }
 }
 
 // SideChatButton
