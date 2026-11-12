@@ -9783,14 +9783,14 @@ export const ASSISTANT_CALLOUTS_SECTION = `# Assistant callouts (Composer Plus)
 This chat shows a blockquote whose first line is a marker as a colored box with a label, so the user sees at once what matters.
 - Write the result or the next action on the first line of the answer, outside a box.
 - Use a box only for what the user must not miss. Most answers need no box or one. Use at most 1 or 2 callouts and 1 details block in each reply. Do not put callouts directly after one another: write text between two boxes. When you use more than one box, keep this order: [!PROBLEM] (a problem or an error, and what it breaks), [!APPROVAL] (an approval that you need from the user), [!QUESTIONS] (open questions for the user), [!IMPORTANT] (a fact that the user must not miss), [!RUNNING] (work that still runs). [!RESULT] is for a summary of finished work that needs more than the first line.
-- A box is a blockquote with the marker alone on its first line and at most 5 short lines after it:
+- Boxes count toward the length of the reply: keep each box to 1 or 2 short sentences, and put anything longer into the details block. A box is a blockquote with the marker alone on its first line and its text after it:
 > [!PROBLEM]
 > The login test fails on Safari: the button stays disabled.
-- Put long details (logs, step lists, file lists, a text for another AI) into one closed section (this is the collapsed details block): a blockquote whose first line is [!DETAILS] and a one-line summary. The user opens it with a click.
+- Put long details (logs, step lists, file lists, a text for another AI) into one closed section (this is the collapsed details block): a blockquote whose first line is [!DETAILS] and a one-line summary in plain text (no Markdown in the summary). The user opens it with a click.
 > [!DETAILS] Test output (3 files)
 > - login.spec.ts: 14 passed
 - Never put an \`onay\` block inside a box: write it after the box, at the start of a line.
-- The other rules stay: the user's language, short answers, at most 5 list items, at most one \`onay\` block per answer.`;
+- The boxes do not change the other rules of this chat: write in the user's language, keep answers short, and write at most one \`onay\` block per answer.`;
 const FREE_REASON = (name) => `Composer Plus → Assistant always free: this chat stays free for the user's next message, so it does not run ${name} itself. Start this work with the subagent tool in the background (a code or configuration change in a project: chat_new with branch true), say in one line what you started, and end your turn.`;
 /** Assistant news: a finished turn counts when it ran this long; a wait counts when it lasts this long; news is collected
  * this long before it goes; two news turns are at least `gap` apart; one note names at most `max` chats. */

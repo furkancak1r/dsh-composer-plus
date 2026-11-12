@@ -2840,7 +2840,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * other CALLOUT_KINDS, in any case) shows as a colored box with its label, and `[!DETAILS] <summary>` as a section that
      * stays closed until you open it. The Host's prompt rule (installAssistantBot) tells the assistant to write them. A
      * marker is plain Markdown, so a viewer without this feature (another chat, Tether, an older copy, GitHub) shows a
-     * plain quote that starts with its marker. dsh draws the quote; this only marks it: two attributes and CSS (the label
+     * plain quote that starts with its marker. The summary of `[!DETAILS]` is plain text (the prompt rule): it is read from
+     * the first text of the line, so Markdown in it would cut it. dsh draws the quote; this only marks it: two attributes and CSS (the label
      * is the box's ::before), the marker taken out of the first text, and one native button per details section. A
      * details body stays hidden while it streams in, so the page does not move.
      * ponytail: found through dsh's markup (a blockquote in `[data-chat-flow-kind="assistant-step"]` of the assistant
@@ -2871,7 +2872,7 @@ blockquote[data-cp-callout="result"]{--cp-co:var(--dsw-alias-state-success-prima
 blockquote[data-cp-callout="problem"]{--cp-co:var(--dsw-alias-state-error-primary,#d92d20)}
 blockquote[data-cp-callout="approval"]{--cp-co:var(--dsw-alias-state-business-primary,#3b6cf6)}
 blockquote[data-cp-callout="questions"]{--cp-co:#8250df}
-.dark blockquote[data-cp-callout="questions"]{--cp-co:#a371f7}
+[data-ds-dark-theme] blockquote[data-cp-callout="questions"]{--cp-co:#a371f7}
 blockquote[data-cp-callout="important"]{--cp-co:var(--dsw-alias-state-warn-primary,#f59e0b)}
 blockquote[data-cp-callout="running"]{--cp-co:var(--dsw-alias-label-secondary,#6b7280)}
 blockquote[data-cp-callout="details"]{--cp-co:var(--dsw-alias-border-l3,rgba(127,127,127,.35));padding:0;border:.5px solid var(--cp-co);background:transparent}

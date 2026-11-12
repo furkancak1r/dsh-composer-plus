@@ -39,6 +39,9 @@ for (const no of ['[!NOTE]\nx', '[!WARNING]', 'Text [!PROBLEM]', ' [!PROBLEM]', 
 // --- CALLOUTS_CSS: only quotes that the feature marked, and its own button ---
 for (const rule of CALLOUTS_CSS.split('}').map((r) => r.trim()).filter(Boolean)) assert.match(rule.split('{')[0], /data-cp-|cp-co-toggle/, `only marked quotes: ${rule}`);
 assert.ok(CALLOUTS_CSS.includes('blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){display:none}'), 'a closed section shows only its button');
+// dsh's dark theme is body[data-ds-dark-theme] (dsh-client-ui-theme), not a .dark class.
+assert.ok(CALLOUTS_CSS.includes('[data-ds-dark-theme] blockquote[data-cp-callout="questions"]'), 'the dark Questions color');
+assert.doesNotMatch(CALLOUTS_CSS, /\.dark\b/, 'no .dark class rule');
 for (const kind of CALLOUT_KINDS) assert.ok(CALLOUTS_CSS.includes(`[data-cp-callout="${kind}"]`), `a style for ${kind}`);
 
 // --- The prompt section ---
@@ -49,7 +52,9 @@ for (const m of ['[!RESULT]', '[!DETAILS]']) assert.ok(ASSISTANT_CALLOUTS_SECTIO
 assert.match(ASSISTANT_CALLOUTS_SECTION, /Never put an `onay` block inside a box/);
 assert.match(ASSISTANT_CALLOUTS_SECTION, /at most one `onay` block per answer/);
 assert.match(ASSISTANT_CALLOUTS_SECTION, /\(this is the collapsed details block\)/, 'the Assistant reply form names the same section');
-assert.match(ASSISTANT_CALLOUTS_SECTION, /at most 5 list items/);
+assert.doesNotMatch(ASSISTANT_CALLOUTS_SECTION, /list items/, 'no list rule of its own (a user style can have one)');
+assert.match(ASSISTANT_CALLOUTS_SECTION, /keep each box to 1 or 2 short sentences/, 'boxes fit the reply form (one bold line, at most 3 sentences)');
+assert.match(ASSISTANT_CALLOUTS_SECTION, /one-line summary in plain text/, 'the details summary is plain text');
 assert.match(ASSISTANT_CALLOUTS_SECTION, /first line of the answer, outside a box/);
 // The owner's box limit (2026-11-12, after GitHub's alerts guidance): few boxes, never two in a row.
 assert.ok(ASSISTANT_CALLOUTS_SECTION.includes('Use at most 1 or 2 callouts and 1 details block in each reply.'), 'the box limit');

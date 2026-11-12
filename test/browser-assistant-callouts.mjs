@@ -277,9 +277,10 @@ try {
 
       // 5. Light and dark theme: each label reads on its box.
       for (const kind of KINDS.slice(0, 6)) { const c = await box(kind).evaluate(CONTRAST); assert.ok(c >= 4.5, `light: the ${kind} label reads (contrast ${c.toFixed(2)})`); }
-      await page.emulateMedia({ colorScheme: 'dark' }); await pause(600);
-      const dark = await page.evaluate(() => document.documentElement.classList.contains('dark') || document.body.classList.contains('dark') || matchMedia('(prefers-color-scheme: dark)').matches);
-      assert.ok(dark, 'the page is dark');
+      const lightQuestions = await box('questions').evaluate((el) => getComputedStyle(el).borderLeftColor);
+      await page.emulateMedia({ colorScheme: 'dark' });
+      await until(() => page.evaluate(() => document.body.hasAttribute('data-ds-dark-theme')), 'dsh dark theme (body[data-ds-dark-theme])', 10000); await pause(300);
+      assert.notEqual(await box('questions').evaluate((el) => getComputedStyle(el).borderLeftColor), lightQuestions, 'dark: the Questions box has its dark color');
       const contrast = await box('problem').evaluate(CONTRAST);
       assert.ok(contrast >= 4.5, `dark: the label reads (contrast ${contrast.toFixed(2)})`);
       for (const kind of KINDS.slice(1, 6)) { const c = await box(kind).evaluate(CONTRAST); assert.ok(c >= 4.5, `dark: the ${kind} label reads (contrast ${c.toFixed(2)})`); }
