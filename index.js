@@ -7245,18 +7245,23 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
   // `imported` in the setting names the folder that got the copy: deleting its Genel and Projeler later does not bring the
   // old notes back. The setting file is written only by this Host (here, and by the route below, in `switching` order).
   let importedFolder = memoryFolderOf({ folder: folderSetting?.imported });
+  // The subfolder names of the folder that holds the notes (`importedNames`), so a later Set up with other names still
+  // copies them from there.
+  let importedNames = memoryDirNames(folderSetting?.importedNames);
   let importError;
   const writeFolderFile = async (value) => {
     await mkdir(dirname(folderFile), { recursive: true });
     const tmp = `${folderFile}.${process.pid}.tmp`;
     // The names go with each write, so a later change of the folder does not lose them.
-    await writeFile(tmp, JSON.stringify({ ...value, ...(value.folder !== undefined && folderNames !== undefined ? { names: folderNames } : {}) }), { mode: 0o600 });
+    await writeFile(tmp, JSON.stringify({ ...value, ...(value.folder !== undefined && folderNames !== undefined ? { names: folderNames } : {}),
+      ...(value.imported !== undefined && importedNames !== undefined ? { importedNames } : {}) }), { mode: 0o600 });
     await rename(tmp, folderFile);
   };
+  const fromNames = importedFolder === undefined ? undefined : memoryNamesOf(importedFolder, importedNames ?? folderNames);
   const imported = folder === undefined || folderProblem !== undefined || importedFolder === folder ? Promise.resolve(true)
-    : importMemory(dir, folder, importedFolder !== undefined && memoryFolderProblem(importedFolder, memoryNamesOf(importedFolder, folderNames)) === undefined ? importedFolder : undefined, names,
-      importedFolder === undefined ? undefined : memoryNamesOf(importedFolder, folderNames)).then(async (count) => {
+    : importMemory(dir, folder, importedFolder !== undefined && memoryFolderProblem(importedFolder, fromNames) === undefined ? importedFolder : undefined, names, fromNames).then(async (count) => {
       if (count !== undefined) log(`copied ${count.entries} notes of ${count.scopes} memories into ${folder}`);
+      importedNames = names.global === MEMORY_GLOBAL_DIR && names.projects === MEMORY_PROJECTS_DIR ? undefined : names;
       await writeFolderFile({ folder, imported: folder }); importedFolder = folder;
       return true;
     }, (error) => {
@@ -9889,14 +9894,21 @@ export const secretFile = (path) => SECRET_NAME.test(String(path).split(/[\\/]/)
 /** A line that looks like a secret: a known key format or a long mixed run (looksSecret), a connection string with a
  * password, or a key/token/password/secret given a value. */
 // A word on its own or after _ (DB_PASS, SIGNING_KEY), not inside another word (compass, monkey, Author, OAuth).
-const SECRET_WORD = String.raw`(?:passw(?:or)?d|passwd|pwd|(?<![a-z])pass(?![a-z])|secret|token|api[_ -]?key|access[_ -]?key|private[_ -]?key|client[_ -]?secret|(?<![a-z0-9])key(?![a-z])|_key(?![a-z])|(?<![a-z])auth(?:orization|[_ -]?token)?(?![a-z])|bearer|şifre|parola)\w*`;
+const SECRET_WORD = String.raw`(?:passw(?:or)?d|passwd|pwd|(?<![a-z])pass(?![a-z])|(?<![a-z])pw(?![a-z])|secret|token|api[_ -]?key|access[_ -]?key|private[_ -]?key|client[_ -]?secret|(?<![a-z0-9])key(?![a-z])|_key(?![a-z])|(?<![a-z])auth(?:orization|[_ -]?token)?(?![a-z])|bearer|şifre|parola)\w*`;
 const SECRET_LINE = new RegExp([
   String.raw`\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@`, // a connection string with a password
   String.raw`${SECRET_WORD}["'\x60]?\s*(?:[:=|]|=>)\s*["'\x60]?[^\s"'\x60|]{6,}`, // key: value, key = \x60value\x60, | key | value |
   String.raw`${SECRET_WORD}\s+(?:is|was|=|:|olarak|şu)\s+["'\x60]?(?=[^\s"'\x60]*\d)(?=[^\s"'\x60]*[A-Za-z])[^\s"'\x60]{8,}`, // "the token is a1b2…" (a value with letters and digits)
   String.raw`\bBearer\s+[A-Za-z0-9._~+/-]{12,}`,
 ].join('|'), 'i');
-export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line);
+// Command-line forms (case matters: mysql -P is a port): curl -u user:pass, mysql -pSECRET, sshpass -p and redis-cli -a.
+const CLI_SECRET = new RegExp([
+  String.raw`(?:^|\s)(?:-u|--user)\s+[^\s:]+:(?=[^\s@]*[A-Za-z])[^\s@]{4,}`,
+  String.raw`\b(?:mysql\w*|mariadb\w*)\b.*\s-p(?!\s)\S+`,
+  String.raw`\b(?:sshpass|redis-cli)\b.*\s-[pa]\s+\S+`,
+  String.raw`--pass(?:word)?[= ]\S{4,}`,
+].join('|'));
+export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line) || CLI_SECRET.test(line);
 /** The text without its secret-looking lines, and how many lines went. */
 export function withoutSecrets(text) {
   let cut = 0;
@@ -10002,7 +10014,8 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
           // A file that an earlier import read and that did not change after that day is not read again, so a second run
           // gives the model nothing to word in a new way. ponytail: a day, not a time: a change later on the import's day waits.
           const day = new Date(read.mtime).toLocaleDateString('en-CA');
-          if (days.has(list[at].path) && day <= days.get(list[at].path)) { done.push(list[at].path); continue; }
+          const key = metaValue(list[at].path); // as the note keeps it (formatEntry)
+          if (days.has(key) && day <= days.get(key)) { done.push(list[at].path); continue; }
           const clean = withoutSecrets(read.text);
           if (files.length > 0 && size + clean.text.length > limits.total) break;
           size += clean.text.length; secrets += clean.cut;
@@ -10143,8 +10156,6 @@ This folder is the user's Obsidian vault. The assistant works in it. Write your 
 - Never write a password, a token or a key into the vault.
 - Never read, search or change a folder that this file marks as private.
 `;
-/** A memory folder name from the client (the UI language's word): one plain folder name. */
-const setupName = (raw) => (isText(raw, 64) && raw === raw.trim() && !/[/\\\0]/.test(raw) && !raw.startsWith('.') ? raw : undefined);
 
 /** Assistant setup (Host half): the check route, Set up, and the memory gate. `assistant`: installAssistant's handle;
  * `memory`: installMemory's handle. */
@@ -10194,7 +10205,7 @@ export function installAssistantSetup(ctx, assistant, memory, { home = homedir()
         // `{fix: {name, dirs?: {global, projects}}}`: the memory folder's name and its subfolder names in the UI language.
         const keys = plainObject(body?.fix) ? Object.keys(body.fix).sort().join() : '';
         const ok = plainObject(body) && Object.keys(body).join() === 'fix' && (keys === 'name' || keys === 'dirs,name');
-        const name = ok ? setupName(body.fix.name) : undefined;
+        const name = ok ? dirName(body.fix.name) : undefined; // the UI language's word: one plain folder name
         const dirs = keys === 'dirs,name' ? memoryDirNames(body.fix.dirs) : undefined;
         if (name === undefined || (keys === 'dirs,name' && dirs === undefined) || memory === undefined) return json({ error: 'bad request' }, 400);
         return json(await fix(name, dirs));
@@ -11058,6 +11069,7 @@ export function installAssistantMorning(ctx, home, assistant, { dir = join(home,
   const change = (patch) => {
     const done = queue.then(async () => {
       const before = await store.read();
+      if (patch.on === false && !before.on) return before; // already off: nothing to write
       const next = { on: patch.on ?? before.on, time: patch.time ?? before.time };
       // The Host's zone when the task is made (a task keeps it; a later change of the Mac's zone needs a new time).
       const api = morningSchedule(get('schedule'), zone ?? (Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'));
@@ -11083,7 +11095,8 @@ export function installAssistantMorning(ctx, home, assistant, { dir = join(home,
   };
   // Assistant or its status panel off: the task goes too (it would start turns whose summary has nowhere to go). The
   // setting is off then, so switching the panel on again makes no task until the user switches it on.
-  const follow = (on) => { if (!on) store.read().then((s) => (s.on ? change({ on: false }) : undefined)).catch((error) => ctx.logger?.warn?.(`dsh-composer-plus: morning summary: ${error?.message ?? error}`)); };
+  // In the queue at once, so a GET right after the switch's answer already sees it.
+  const follow = (on) => { if (!on) change({ on: false }).catch((error) => ctx.logger?.warn?.(`dsh-composer-plus: morning summary: ${error?.message ?? error}`)); };
   assistant.onSwitch?.(follow); todos?.onSwitch?.(follow);
   ctx.connection.fetch.register({
     path: ASSISTANT_MORNING_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
@@ -11099,6 +11112,7 @@ export function installAssistantMorning(ctx, home, assistant, { dir = join(home,
           return json({ error: String(error?.message ?? error), on, time }, Number.isInteger(error?.status) ? error.status : 500);
         }
       }
+      await queue; // a change that runs (also one that a switch started) ends first
       const { on, time } = await store.read();
       return json({ on, time });
     },

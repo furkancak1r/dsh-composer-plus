@@ -177,13 +177,28 @@ try {
     const mN = installMemory({ ...ctx, inject: undefined, connection: { fetch: { register: () => {} } } }, dshN); await mN.ready;
     await mN.store.add({ scope: mN.store.GLOBAL, text: 'A note in English folders', actor: 'agent' });
     assert.equal(mN.store.GLOBAL.dir, join(vN, 'General'), 'a new folder: the UI language names');
-    assert.deepEqual(JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8')), { folder: vN, imported: vN, names: { global: 'General', projects: 'Projects' } }, 'the names stay in the setting');
+    assert.deepEqual(JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8')), { folder: vN, imported: vN, names: { global: 'General', projects: 'Projects' }, importedNames: { global: 'General', projects: 'Projects' } }, 'the names stay in the setting');
     // An existing folder with Genel/Projeler keeps them, also when the saved names are others.
     const vO = join(root, 'vO'); await mkdir(join(vO, 'Genel'), { recursive: true }); await writeFile(join(vO, 'Genel', 'MEMORY.md'), '# Memory\n\n- Owner note\n\n## Index\n');
     assert.deepEqual(memoryNamesOf(vO, { global: 'General', projects: 'Projects' }), { global: 'Genel', projects: 'Projeler' });
     assert.deepEqual(memoryNamesOf(vN), { global: 'Genel', projects: 'Projeler' }, 'without the saved names, the first names (no folder of them there)');
     assert.deepEqual(memoryNamesOf(vN, { global: 'General', projects: 'Projects' }), { global: 'General', projects: 'Projects' });
-    assert.deepEqual(memoryNamesOf(join(root, 'nothing'), { global: 'Allgemein', projects: 'Projekte' }), { global: 'Allgemein', projects: 'Projekte' }); }
+    assert.deepEqual(memoryNamesOf(join(root, 'nothing'), { global: 'Allgemein', projects: 'Projekte' }), { global: 'Allgemein', projects: 'Projekte' });
+    // The notes move with their own names: English Set up, a move to another folder by hand, then a German Set up. Each
+    // restart copies every note (review 2026-11-12: the copy read the old folder with the new names and lost them).
+    const mCtx = { ...ctx, inject: undefined, connection: { fetch: { register: () => {} } } };
+    const restart = async () => { const m = installMemory(mCtx, dshN); await m.ready; return m; };
+    const notes = join(root, 'vN-notes');
+    const raw = JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8'));
+    await writeFile(join(sN, 'memory-folder.json'), JSON.stringify({ ...raw, folder: notes })); // Settings → Memory folder
+    let mm = await restart();
+    assert.match(await readFile(join(notes, 'General', 'MEMORY.md'), 'utf8'), /A note in English folders/, 'the move copies the notes (English names)');
+    assert.deepEqual(JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8')).importedNames, { global: 'General', projects: 'Projects' });
+    const vG = join(root, 'vG', 'Gedächtnis');
+    await mm.setup(async (st) => ({ folder: vG, names: { global: 'Allgemein', projects: 'Projekte' } }));
+    mm = await restart();
+    assert.match(await readFile(join(vG, 'Allgemein', 'MEMORY.md'), 'utf8'), /A note in English folders/, 'a German Set up still copies the notes from the English folders');
+    assert.equal(mm.store.GLOBAL.dir, join(vG, 'Allgemein')); }
   // Ready (Obsidian knows the fresh folder, the memory is active): the gate opens.
   await vaults([fresh]);
   const readySetup = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: fresh }, { ...mem, state: () => ({ on: true, folder: join(fresh, 'Memory'), folderActive: join(fresh, 'Memory') }) }, { home, apps: [app], configs: [config] });

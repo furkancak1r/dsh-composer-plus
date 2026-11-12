@@ -56,8 +56,8 @@ try {
 
   // 2. The secret filter: a line that looks like a secret goes; the rest stays.
   for (const s of ['password: hunter2hunter2', 'API_KEY=sk-abcdefghijklmnopqrstuv', 'DATABASE_URL=postgres://app:s3cretpw@db:5432/x', 'Authorization: Bearer abcdefghijklmnop123', 'token = 9f8e7d6c5b4a', 'ghp_abcdefghijklmnopqrstuvwxyz0123456789', 'şifre: Gizli123!', 'The deploy token is FAKE_TOKEN_9f8e7d6c5b4a3f2e1d', 'The secret is abc123def456',
-    'Deploy token: `9f8e7d6c5b4a3f2e`', 'secret: `abcd1234efgh`', 'DB_PASS=hunter2hunter2', 'SMTP_PASS=mailpass99', 'JWT_SIGNING_KEY=abcdef123456', 'ENCRYPTION_KEY: 0123456789abcdef', '| DB password | hunter2hunter2 |']) assert.ok(secretLine(s), s);
-  for (const s of ['Use pnpm, not npm.', 'The token budget is 8000 tokens.', 'Deploys go through make release.', 'See https://example.com/docs', 'Auth is handled by OAuth2.', 'The token is refreshed every 15 minutes.', 'Author: Furkancakir', 'OAuth: enabled always', 'compass: northwest', 'monkey: banana12']) assert.equal(secretLine(s), false, s);
+    'Deploy token: `9f8e7d6c5b4a3f2e`', 'PW=hunter22', 'pw: hunter22', 'mysql -u root -pS3cretPass123', 'sshpass -p hunter22 ssh host', 'curl -u admin:Secr3tPw https://x', 'redis-cli -a S3cretPass1', 'psql --password=Secr3tPw', 'secret: `abcd1234efgh`', 'DB_PASS=hunter2hunter2', 'SMTP_PASS=mailpass99', 'JWT_SIGNING_KEY=abcdef123456', 'ENCRYPTION_KEY: 0123456789abcdef', '| DB password | hunter2hunter2 |']) assert.ok(secretLine(s), s);
+  for (const s of ['Use pnpm, not npm.', 'The token budget is 8000 tokens.', 'Deploys go through make release.', 'See https://example.com/docs', 'Auth is handled by OAuth2.', 'The token is refreshed every 15 minutes.', 'Author: Furkancakir', 'OAuth: enabled always', 'compass: northwest', 'monkey: banana12', 'mysql -u root -P 3306 db', 'Run curl -u with your own user.', 'Use npm -p for packages.', 'The pwd command shows the folder.']) assert.equal(secretLine(s), false, s);
   // A secret file name with either separator (Windows paths too).
   for (const f of ['C:\\p\\.env', 'C:\\p\\memory-bank\\secrets.md', '/p/.env.local', '/p/certs/server.pem']) assert.ok(secretFile(f), f);
   for (const f of ['/p/AGENTS.md', 'C:\\p\\CLAUDE.md', '/p/id_card.md']) assert.equal(secretFile(f), false, f);
@@ -137,6 +137,12 @@ try {
   const offMem = { ...mem, refusal: async () => 'The project memory is switched off for this chat. Do not use the memory tools here.' };
   const offImp = installMemoryImport({ ...ctx, on: () => {} }, dshHome, assistant, offMem, { check: async () => ({ ready: true }) }, { userHome: home });
   await assert.rejects(offImp.tools[1].execute({ facts: [{ text: 'x', source: join(dshHome, 'AGENTS.md') }] }, exec), /switched off for this chat/);
+  // A source path with [ ] or ; (the note's metadata changes them): the scan still finds it as imported.
+  const odd = join(root, 'odd [old]; x'); await mkdir(join(odd, '.dsh'), { recursive: true }); await writeFile(join(odd, '.dsh', 'AGENTS.md'), '- Odd path note.\n');
+  const oddImp = installMemoryImport({ ...ctx, on: () => {} }, join(odd, '.dsh'), assistant, mem, { check: async () => ({ ready: true }) }, { userHome: odd });
+  const oddSrc = join(odd, '.dsh', 'AGENTS.md');
+  assert.equal(JSON.parse(await oddImp.tools[1].execute({ facts: [{ text: 'An odd path fact.', source: oddSrc }] }, exec)).added, 1);
+  assert.ok(JSON.parse(await oddImp.tools[0].execute({}, exec)).alreadyImported?.includes(oddSrc), 'a path with [ ] ; is found as imported');
   // The source files did not change.
   assert.equal(await readFile(join(web, 'AGENTS.md'), 'utf8'), '# acme-web\n- Deploys go through make release.\n- password: hunter2hunter2\n');
 

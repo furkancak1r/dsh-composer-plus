@@ -187,7 +187,8 @@ console.log('assistant morning: ok');
       }
       return Response.json(morning);
     }
-    if (u.startsWith('/api/composer-plus.assistant-todos')) { if (init?.method === 'POST') todosOn = JSON.parse(init.body).on; return Response.json({ on: todosOn }); }
+    // The Host turns the summary off when the panel goes off (its `follow`).
+    if (u.startsWith('/api/composer-plus.assistant-todos')) { if (init?.method === 'POST') { todosOn = JSON.parse(init.body).on; if (!todosOn) morning = { ...morning, on: false }; } return Response.json({ on: todosOn }); }
     return new Response('{}', { status: 404 });
   };
   let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
@@ -237,5 +238,6 @@ console.log('assistant morning: ok');
   // The Assistant status panel off: the setting stays reachable, so a task that is on can still be switched off.
   await section.inject().setFeature('assistantTodos', false); await tick();
   assert.notEqual(element(), undefined, 'the switch stays while the Assistant status panel is off');
+  out = draw(); assert.equal(sw().p.checked, false, 'Settings reads the summary again: the Host switched it off with the panel');
   console.log('  client: ok');
 }
