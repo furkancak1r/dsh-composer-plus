@@ -53,7 +53,8 @@ const fake = createServer((req, res) => {
     const own = msgs.filter((m) => m.role === 'user').map((m) => textOf(m.content)).filter((t) => !/^<|^Current runtime context|^Time sampled/.test(t.trim()));
     const newest = own.at(-1) ?? '';
     const system = msgs.filter((m) => m.role === 'system').map((m) => textOf(m.content)).join('\n');
-    const context = msgs.filter((m) => m.role === 'user' && /^Current runtime context/.test(textOf(m.content).trim())).map((m) => textOf(m.content)).at(-1) ?? '';
+    // dsh's runtime context: "Current runtime context…" before 0.2.2-rc.2, a <system-reminder> block ("The following information describes your current session…") in 0.2.2-rc.2.
+    const context = msgs.filter((m) => m.role === 'user' && /^(<system-reminder>\s*)?(Current runtime context|The following information describes your current session)/.test(textOf(m.content).trim())).map((m) => textOf(m.content)).at(-1) ?? '';
     const tools = (parsed.tools ?? []).map((t) => t.function?.name);
     // A tool result after the newest own message: the same turn (dsh adds a new runtime-context message after the result
     // when the list changed, so the last message is not always the tool result).

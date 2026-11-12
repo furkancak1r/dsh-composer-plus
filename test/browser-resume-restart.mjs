@@ -39,7 +39,7 @@ const fake = createServer((req, res) => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
     const msgs = JSON.parse(body).messages ?? []; const last = msgs.at(-1);
     // dsh appends context notes after the prompt (runtime context; 0.2.1 also the sampled time): read the newest other one.
-    const prompt = msgs.findLast((m) => m.role === 'user' && !/Current runtime context|Time sampled while preparing/.test(JSON.stringify(m.content))) ?? last;
+    const prompt = msgs.findLast((m) => m.role === 'user' && !/Current runtime context|Time sampled while preparing|<system-reminder>/.test(JSON.stringify(m.content))) ?? last;
     const lastText = JSON.stringify(prompt?.content ?? '');
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo', choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`;
     res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -56,7 +56,7 @@ const fake = createServer((req, res) => {
 await new Promise((r) => fake.once('listening', r));
 const fakePort = fake.address().port;
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', chromiumSandbox: true });
 try {
   for (const [index, bin] of process.argv.slice(2).entries()) {
     seen.length = 0;
