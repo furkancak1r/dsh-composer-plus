@@ -10239,17 +10239,22 @@ const SECRET_LINE = new RegExp([
   String.raw`${WEAK_WORD}["'\x60]?\s*(?:[:=|]|=>)\s*["'\x60]?${SECRET_VALUE}`,
   String.raw`(?:${SECRET_WORD}|${WEAK_WORD})\s+(?:is|was|=|:|olarak|şu)\s+["'\x60]?(?=[^\s"'\x60]*\d)(?=[^\s"'\x60]*[A-Za-z])[^\s"'\x60]{8,}`, // "the token is a1b2…" (a value with letters and digits)
   String.raw`\bBearer\s+[A-Za-z0-9._~+/-]{12,}`,
-  // An auth header (any case: GitHub writes "Authorization: token …") with the scheme Basic or Token and its value.
-  // A placeholder ($TOKEN, <your-token>, ${TOKEN}) or a word ("Basic authentication") is no value: it needs a digit or a
-  // base64 sign.
-  String.raw`\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:basic|token)\s+(?=[A-Za-z0-9._~+/=-]*[\d+/=])[A-Za-z0-9._~+/=-]{8,}`,
 ].join('|'), 'i');
 // The same schemes without the header name, as HTTP writes them (case matters: "basic instructions" is prose): Basic and a
 // base64 value (user:password; a full stop may end the sentence), Token and a value with a digit.
 const AUTH_SCHEME = /\bBasic\s+(?=[A-Za-z0-9+/]*[\d+/=])[A-Za-z0-9+/]{8,}={0,2}(?!\w|\.\w)|\bToken\s+(?=[A-Za-z0-9._~+/=-]*\d)[A-Za-z0-9._~+/=-]{8,}/;
-// An environment line with a bare word in capitals: TOKEN=…, KEY=…, AUTH=… with a value that has a digit or both cases
-// (not a placeholder: $VAR, <…>, ${…}, changeme, required).
-const ENV_WORD = /(?<![A-Za-z0-9_])(?:TOKEN|KEY|AUTH)\s*=\s*["']?(?=[^\s"'\x60]*(?:\d|[a-z][^\s"'\x60]*[A-Z]|[A-Z][^\s"'\x60]*[a-z]))[^\s"'\x60$<{][^\s"'\x60]{5,}/;
+// A value next to a name, tested in code (no nested scan, so a long line stays linear): an auth header (any case: GitHub
+// writes "Authorization: token …") with Basic or Token, and TOKEN=, KEY=, AUTH= in capitals. A value counts when it has a
+// digit, a base64 sign (header only) or both cases, so a placeholder ($TOKEN, <your-token>, ${TOKEN}, changeme, required)
+// or a word ("Basic authentication") stays.
+const NAMED_VALUE = [
+  { re: /\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:basic|token)\s+([A-Za-z0-9._~+/=-]{8,})/gi, sign: /[\d+/=]/ },
+  { re: /(?<![A-Za-z0-9_])(?:TOKEN|KEY|AUTH)\s*=\s*["']?([^\s"'\x60$<{][^\s"'\x60]{5,})/g, sign: /\d/ },
+];
+const namedValue = (line) => NAMED_VALUE.some(({ re, sign }) => {
+  for (const m of line.matchAll(re)) if (sign.test(m[1]) || (/[a-z]/.test(m[1]) && /[A-Z]/.test(m[1]))) return true;
+  return false;
+});
 // Command-line forms (case matters: mysql -P is a port): curl -u user:pass, mysql -pSECRET, sshpass -p SECRET (its own -p,
 // not ssh's port), redis-cli -a SECRET, --password=SECRET, and --password SECRET when the value has a digit or a sign.
 // A value is "quoted" or 'quoted' with its closing quote at the end of a word, or plain. A backtick ends it, so
@@ -10268,7 +10273,7 @@ const CLI_SECRET = new RegExp([
   String.raw`--pass(?:word)?=${cliValue('{2,}')}`,
   String.raw`--pass(?:word)?\s+(?:'${CLI_SIGN("'")}[^\s'\x60-][^\s'\x60]{3,}'${CLI_END}|"?${CLI_SIGN(`"'`)}(?:(?=[^\s"'\x60]*\d)[^\s"'\x60$-]|[^\s"'\x60$*_-])[^\s"'\x60]{3,})`,
 ].join('|'));
-export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line) || AUTH_SCHEME.test(line) || ENV_WORD.test(line) || CLI_SECRET.test(line);
+export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line) || AUTH_SCHEME.test(line) || namedValue(line) || CLI_SECRET.test(line);
 /** The text without its secret-looking lines, and how many lines went. */
 export function withoutSecrets(text) {
   let cut = 0;
