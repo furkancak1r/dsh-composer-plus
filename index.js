@@ -6076,11 +6076,16 @@ export function installBranchTree(ctx, home) {
     const entry = watch.get(agent?.id);
     if (status === 'idle' && entry?.move !== undefined) finish(agent, entry);
   });
+  // The 30 s sync runs only while the switch is on (off by default: no timer at all).
+  let timer; let closed = false;
+  const tick = (now) => {
+    if (now && timer === undefined && !closed) { timer = setInterval(sync, BRANCH_TREE_SYNC_MS); timer.unref?.(); }
+    else if (!now && timer !== undefined) { clearInterval(timer); timer = undefined; }
+  };
   ctx.effect?.(() => {
-    const timer = setInterval(sync, BRANCH_TREE_SYNC_MS);
     const ready = get('appReady');
-    const cancel = ready?.onReady !== undefined ? ready.onReady(() => { read.then(sync); }) : (read.then(sync), undefined);
-    return () => { clearInterval(timer); cancel?.(); };
+    const cancel = ready?.onReady !== undefined ? ready.onReady(() => { read.then(() => { tick(on); sync(); }); }) : (read.then(() => { tick(on); sync(); }), undefined);
+    return () => { closed = true; tick(false); cancel?.(); };
   }, 'dsh-composer-plus: branch tree');
   ctx.connection.fetch.register({
     path: BRANCH_TREE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
@@ -6094,7 +6099,7 @@ export function installBranchTree(ctx, home) {
       try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
       if (typeof body?.on === 'boolean' && Object.keys(body).length === 1) {
         // Off: no new watch; a move that already began (the main folder is back on its branch) still ends.
-        const done = switchQueue.then(async () => { await saved.write(body.on); on = body.on; if (!on) for (const [id, e] of watch) if (e.move === undefined) watch.delete(id); });
+        const done = switchQueue.then(async () => { await saved.write(body.on); on = body.on; tick(on); if (!on) for (const [id, e] of watch) if (e.move === undefined) watch.delete(id); });
         switchQueue = done.catch(() => {});
         try { await done; } catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
         if (on) sync();
