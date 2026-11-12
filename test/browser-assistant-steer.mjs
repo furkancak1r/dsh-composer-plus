@@ -5,7 +5,7 @@
 //    inbox (a steer), not in the queue, while the turn still runs.
 // 3. The held reply ends; the same turn takes the message at its next step and answers it (no second turn/start before it).
 // 4. The hidden news note of that turn's end reaches the assistant with the reply to the urgent message.
-// 5. The assistant sends "/merge-main" without a review-guard step: the tool refuses it, and nothing reaches the chat.
+// 5. The assistant sends "/merge-main" without merge_main: the tool refuses it, and nothing reaches the chat.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-steer.mjs /path/to/dsh/lib/bin.js [...]
 // PORT=<port> uses another port than 3243.
 import assert from 'node:assert/strict';
@@ -144,11 +144,11 @@ try {
       assert.equal(after.slice(0, at).filter((e) => e.type === 'turn/end').length, 0, 'before that turn ended');
       assert.match(seen.note, /your delegated task\): finished\. Last reply: "Got the urgent note\."/);
       console.log(`  note line: ${seen.note.split('\n').find((l) => l.startsWith('- '))?.slice(0, 300)}`);
-      // 5. A merge task without a review step: refused after Allow once, nothing sent.
+      // 5. A merge task without merge_main: refused after Allow once, nothing sent.
       await send('Ask the slow chat to merge');
       await allow.waitFor({ timeout: 30000 }); await allow.click();
       await until(() => seen.merge, 'the chat_send result');
-      assert.match(seen.merge, /task text asks for a merge into main but has no review-guard step/, `refused: ${seen.merge.slice(0, 300)}`);
+      assert.match(seen.merge, /mentions a merge or push into main\. Set merge_main/, `refused: ${seen.merge.slice(0, 300)}`);
       await pause(500);
       assert.ok(!events(seen.ids.slow).some((e) => textOf(e.data?.content).includes('/merge-main') || (e.data?.inserted ?? []).some((m) => textOf(m?.content).includes('/merge-main'))), 'nothing reached the chat');
       assert.deepEqual(errors, [], 'no page errors');
