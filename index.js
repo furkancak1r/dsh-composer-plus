@@ -9906,17 +9906,21 @@ const SECRET_LINE = new RegExp([
 ].join('|'), 'i');
 // Command-line forms (case matters: mysql -P is a port): curl -u user:pass, mysql -pSECRET, sshpass -p SECRET (its own -p,
 // not ssh's port), redis-cli -a SECRET, --password=SECRET, and --password SECRET when the value has a digit or a sign.
-// A value is "quoted" or 'quoted' with its closing quote, or plain. A backtick ends it, so "`mysql -u root -p`" (a prompt)
-// stays. A plain or "double-quoted" value that starts with $ is a variable, not a secret ('$x' is a literal).
-const cliValue = (more) => String.raw`(?:"[^\s"\x60$-][^\s"\x60]${more}"|'[^\s'\x60-][^\s'\x60]${more}'|[^\s"'\x60$-][^\s"'\x60]${more})`;
+// A value is "quoted" or 'quoted' with its closing quote at the end of a word, or plain. A backtick ends it, so
+// "`mysql -u root -p`" (a prompt) and ["sshpass -p","rm -rf"] stay. A plain or "double-quoted" value that starts with $ is
+// a variable, not a secret ('$x' is a literal).
+const CLI_END = String.raw`(?=[\s;|&)]|$)`;
+const cliValue = (more) => String.raw`(?:"[^\s"\x60$-][^\s"\x60]${more}"${CLI_END}|'[^\s'\x60-][^\s'\x60]${more}'${CLI_END}|[^\s"'\x60$-][^\s"'\x60]${more})`;
+// --password SECRET (no =): a value with a digit, or a sign with a letter or digit after it (prose such as "directly!"
+// and "_only_" stays). Only a value with a digit can start with _ or *.
+const CLI_SIGN = (q) => String.raw`(?=[^\s${q}\x60]*(?:\d|[!@#$%^&*_+][A-Za-z0-9]))`;
 const CLI_SECRET = new RegExp([
   String.raw`\bcurl\b.*\s(?:-u\s*|--user[=\s]\s*)(?:'[^\s:'\x60]+:[^\s'\x60]+'|"?[^\s:"'\x60]+:(?:'[^\s'\x60]+'|"?[^\s"'\x60$][^\s"'\x60]*))`,
   String.raw`\b(?:mysql\w*|mariadb\w*)\b.*\s-p${cliValue('{2,}')}`,
   String.raw`\bsshpass\s+(?:-[a-oq-zA-Z]\w*\s+)*-p\s*${cliValue('*')}`,
   String.raw`\bredis-cli\b.*\s(?:-a|--pass)\s+${cliValue('*')}`,
   String.raw`--pass(?:word)?=${cliValue('{2,}')}`,
-  // A sign counts only inside the value, so prose ("directly!", "**only**") stays.
-  String.raw`--pass(?:word)?\s+["']?(?=[^\s"'\x60]*(?:\d|[!@#$%^&*_+][^\s"'\x60*_]))[^\s"'\x60$*_-][^\s"'\x60]{3,}`,
+  String.raw`--pass(?:word)?\s+(?:'${CLI_SIGN("'")}[^\s'\x60-][^\s'\x60]{3,}'${CLI_END}|"?${CLI_SIGN(`"'`)}(?:(?=[^\s"'\x60]*\d)[^\s"'\x60$-]|[^\s"'\x60$*_-])[^\s"'\x60]{3,})`,
 ].join('|'));
 export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line) || CLI_SECRET.test(line);
 /** The text without its secret-looking lines, and how many lines went. */
