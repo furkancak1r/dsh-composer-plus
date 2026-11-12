@@ -170,9 +170,10 @@ assert.doesNotMatch(rules, /a few lines/, 'no long news replies');
 // Defaults that every user gets (no local AGENTS.md needed): the news rule wins over a global "report progress" rule, the
 // subagent title is in the user's language, no own next step or unchanged facts in the chat, and a branch chat reviews its
 // own diff before a merge.
-assert.match(rules, /this rule comes before other instructions that ask you to report the progress of subagents or background work/);
+assert.match(rules, /this rule comes before general instructions \(for example in AGENTS\.md\) that ask you to report the progress of subagents or background work\. A request of the user in this chat comes before this rule\./);
 assert.match(rules, /Write the subagent's description \(the task title that the user sees\) in the user's language\./);
-assert.match(rules, /Do not write your own next step in the chat: it is on the to-do list\. Do not repeat what did not change since your last answer/);
+assert.match(rules, /Do not repeat what did not change since your last answer/);
+assert.doesNotMatch(rules, /next step in the chat/, 'that rule needs the to-do list, so it is in its section');
 assert.match(rules, /how to check the result: the tests, and a review of its own diff before a merge\)/);
 assert.doesNotMatch(rules, /Furkan|\/Users\/|aiproxy|review-guard|Promes|Proso/i, 'no personal names, paths, providers or local skills');
 assert.equal(section.text({ agent: agents.get('s-web') }), '', 'no section in another chat');
