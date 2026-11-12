@@ -8833,7 +8833,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           pick === 'all' || g.path ? React.createElement('h3', null, g.name, g.path ? React.createElement('small', { title: g.path }, g.path) : null) : null,
           files.length === 0 ? React.createElement('div', { className: 'cp-mem-empty' }, t('memoryEditor.none')) : null,
           ...files.map((f) => React.createElement(React.Fragment, { key: f.topic ?? '' },
-            React.createElement('div', { className: 'cp-mem-file' }, f.topic === null ? 'MEMORY.md' : t('memoryEditor.topic', { topic: f.topic })),
+            React.createElement('div', { className: 'cp-mem-file' }, f.topic === null ? f.file ?? 'MEMORY.md' : t('memoryEditor.topic', { topic: f.topic })),
             React.createElement('ul', null, f.entries.map((e, i) => React.createElement('li', { key: i },
               copying ? React.createElement('input', { type: 'checkbox', className: 'cp-mem-pick', disabled: busy, checked: state.copy.picked.includes(`${f.topic ?? ''}\u0000${e.text}`),
                 'aria-label': t('memoryCopy.pick', { note: e.text }), 'data-composer-plus-memory-pick': '', onChange: () => store.pickNote(`${f.topic ?? ''}\u0000${e.text}`) }) : null,
@@ -13189,7 +13189,20 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         if (typeof fetch === 'function') memory.refresh();
         // Project memory → Open memory (Settings only): switching the feature off closes the dialog.
         const memoryEditor = createMemoryEditor();
-        feature('projectMemory', () => [() => memoryEditor.close()]);
+        // The Host names each main memory file with a word of the UI language (`<project> hafıza.md`): this browser reports
+        // it (also after a language switch); the Host uses it from the next start.
+        let memoryLang;
+        feature('projectMemory', () => {
+          if (typeof fetch !== 'function') return [() => memoryEditor.close()];
+          const report = () => {
+            const lang = uiLanguage(); // defined below: feature setups run at the end of apply()
+            if (lang === undefined || lang === memoryLang) return;
+            memoryLang = lang;
+            fetch(MEMORY_ROUTE, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ lang }) }).catch(() => {});
+          };
+          report();
+          return [() => memoryEditor.close(), ctx.locale?.subscribe?.(report)];
+        });
         // Memory history: the Host keeps the switch (it keeps a copy before each save); the dialog's History panel goes with it.
         const memoryHistorySwitch = createMobile(MEMORY_HISTORY_ROUTE);
         if (typeof fetch === 'function') memoryHistorySwitch.refresh();

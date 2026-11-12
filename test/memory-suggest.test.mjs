@@ -7,12 +7,15 @@
 // chat or a chat with the memory off; one memory action at a time for accept (409 busy). Client (real client.js, fake React):
 // the model is called only by the button; one ask or accept at a time from every entry point; Reject changes nothing on the
 // Host; switching the feature off closes the dialog and removes the button.
+import { readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MEMORY_PATH, MEMORY_CHAT_PATH, MEMORY_EDIT_PATH, MEMORY_SUGGEST_PATH, MEMORY_SUGGEST_SYSTEM, installMemory, parseMemorySuggest, ROLLBACK_SOURCE, REWIND_SOURCE } from '../index.js';
+// The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read).
+const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 
 const root = await mkdtemp(join(tmpdir(), 'cp-memory-suggest-'));
 try {
@@ -77,11 +80,11 @@ try {
   assert.match(sent, /\(project\) The user wants short answers/, 'the saved notes go along');
   assert.deepEqual(asked.body.suggestions.map((x) => [x.text, x.seq, x.topic ?? null]), [['Releases go only from the main branch, after a git tag', keep.seq, null], ['Tests run with vitest', own[7].seq, 'testing']]);
   assert.equal(asked.body.skipped, 1, 'a saved note is left out');
-  assert.equal((await readFile(join(scope.dir, 'MEMORY.md'), 'utf8')).includes('main branch'), false, 'nothing is saved before Accept');
+  assert.equal((await readFile(mainOf(scope.dir), 'utf8')).includes('main branch'), false, 'nothing is saved before Accept');
   // Accept: saved with its source, once; journal actor suggest.
   const ok = await call(MEMORY_SUGGEST_PATH, { accept: { id: asked.body.id, index: 0 } });
   assert.equal(ok.status, 200); assert.equal(ok.body.saved, true);
-  assert.match(await readFile(join(scope.dir, 'MEMORY.md'), 'utf8'), new RegExp(`main branch, after a git tag \\[source: session-fork #${keep.seq}; added: `));
+  assert.match(await readFile(mainOf(scope.dir), 'utf8'), new RegExp(`main branch, after a git tag \\[source: session-fork #${keep.seq}; added: `));
   assert.equal((await call(MEMORY_SUGGEST_PATH, { accept: { id: asked.body.id, index: 0 } })).status, 409, 'once');
   assert.equal((await call(MEMORY_SUGGEST_PATH, { accept: { id: asked.body.id, index: 7 } })).status, 410);
   assert.equal((await call(MEMORY_SUGGEST_PATH, { accept: { id: 'gone', index: 0 } })).status, 410);

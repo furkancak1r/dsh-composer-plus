@@ -5,12 +5,15 @@
 // project, an unknown project, a note that is gone and a bad body are refused. One memory action at a time (409 busy).
 // Client (real client.js, fake React): Copy to project shows checkboxes and the projects; the search filters them (case and
 // accents ignored) and Enter picks the first match; one copy at a time from every entry point; switching off drops it.
+import { readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MEMORY_PATH, MEMORY_EDIT_PATH, MEMORY_COPY_PATH, installMemory } from '../index.js';
+// The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read).
+const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 
 const root = await mkdtemp(join(tmpdir(), 'cp-memory-copy-'));
 try {
@@ -53,14 +56,14 @@ try {
   const gone = await call(MEMORY_COPY_PATH, { copy: { from: w.id, notes: [{ text: 'A note that is not there' }], to: 'w-api' } });
   assert.equal(gone.status, 409); assert.match(gone.body.error, /not in this memory any more/);
   // Copy: topic and source go along, a note the target has is skipped, the journal says copy.
-  const before = await readFile(join(a.dir, 'MEMORY.md'), 'utf8');
+  const before = await readFile(mainOf(a.dir), 'utf8');
   const ok = await call(MEMORY_COPY_PATH, { copy: { from: w.id, notes: [{ text: 'Run the tests with npm test' }, { text: 'Use tabs in TypeScript files', topic: null }, { text: 'Releases need a git tag first', topic: 'deploy' }], to: 'w-api' } });
   assert.equal(ok.status, 200, JSON.stringify(ok.body)); assert.equal(ok.body.copied, 2); assert.equal(ok.body.skipped, 1);
-  const main = await readFile(join(a.dir, 'MEMORY.md'), 'utf8');
+  const main = await readFile(mainOf(a.dir), 'utf8');
   assert.match(main, /Run the tests with npm test \[source: session-abc #4; added: /); assert.match(main, /\[\[deploy\]\]/);
   assert.match(await readFile(join(a.dir, 'deploy.md'), 'utf8'), /Releases need a git tag first/);
   assert.notEqual(main, before);
-  assert.match(await readFile(join(w.dir, 'MEMORY.md'), 'utf8'), /npm test/, 'the notes stay in the first memory');
+  assert.match(await readFile(mainOf(w.dir), 'utf8'), /npm test/, 'the notes stay in the first memory');
   const journal = (await readFile(join(home, 'storages', 'dsh-composer-plus', 'memory', 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(journal.slice(-2).map((r) => r.actor), ['copy', 'copy']);
   // A new project (no memory yet) gets its project.json.
@@ -72,7 +75,7 @@ try {
   // journal as they were. (No size limit since 2026-11-09, so a long note now fits.)
   await store.add({ scope: w, topic: 'style', text: 'Prefer small functions', actor: 'agent' });
   await store.add({ scope: w, text: `A long web note ${'y'.repeat(2500)}`, actor: 'agent' });
-  const files = async () => Promise.all([join(a.dir, 'MEMORY.md'), join(a.dir, 'style.md'), join(home, 'storages', 'dsh-composer-plus', 'memory', 'journal.jsonl')].map((f) => readFile(f, 'utf8').catch(() => null)));
+  const files = async () => Promise.all([mainOf(a.dir), join(a.dir, 'style.md'), join(home, 'storages', 'dsh-composer-plus', 'memory', 'journal.jsonl')].map((f) => readFile(f, 'utf8').catch(() => null)));
   const was = await files();
   const full = await call(MEMORY_COPY_PATH, { copy: { from: w.id, notes: [{ text: 'Prefer small functions', topic: 'style' }, { text: 'A web note that is gone' }], to: 'w-api' } });
   assert.equal(full.status, 409); assert.match(full.body.error, /^Nothing was copied: "A web note that is gone" is not in this memory any more/);
