@@ -136,6 +136,9 @@ assert.equal(section.text({ agent: assistantAgent }), `${TODO_SECTION}\n\n${STAT
 assert.match(STATUS_SECTION, /status_summary_set/);
 assert.match(TODO_SECTION, /evidence that an item is done, remove it with todo_list_remove/);
 assert.match(TODO_SECTION, /do not ask about it, unless the user mentions it/);
+// Keep the list current before each answer: done, missing or a new owner (a default for every user, not a local rule).
+assert.match(TODO_SECTION, /Before each answer, and when you get new information[^\n]*is one done, is one missing, or does the other owner do it now \(todo_list_add with the same text and the new owner\)\?/);
+assert.match(TODO_SECTION, /Write each item as one short line in the user's language\. Do not write your own next step in the chat: the list shows it\./);
 const ctxEntry = contexts.get('composer-plus:assistant-todos');
 assert.equal(ctxEntry.interpolate, false);
 assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'no context for an empty list');

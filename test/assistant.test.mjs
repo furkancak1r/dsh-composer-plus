@@ -167,6 +167,15 @@ assert.match(rules, /News rule[^\n]*write to the user only when the user asked f
 assert.match(rules, /all other news \(an interim report, a review round, a clean automation round, a sub-step that needs nothing from the user\), update the to-do list and the status panel[^\n]*write nothing in the chat, or one line for all news of the last 10 to 15 minutes/);
 assert.match(rules, /one bold line, then write at most 3 sentences\. The last line names the step that the user must do \("Senden: \.\.\." in Turkish replies\), or says that the user must do nothing\. Put details in a collapsed details block\. Do not write internal IDs \(session, agent or to-do IDs\): use the topic name\./);
 assert.doesNotMatch(rules, /a few lines/, 'no long news replies');
+// Defaults that every user gets (no local AGENTS.md needed): the news rule wins over a global "report progress" rule, the
+// subagent title is in the user's language, no own next step or unchanged facts in the chat, and a branch chat reviews its
+// own diff before a merge.
+assert.match(rules, /this rule comes before general instructions \(for example in AGENTS\.md\) that ask you to report the progress of subagents or background work\. A request of the user in this chat comes before this rule\./);
+assert.match(rules, /Write the subagent's description \(the task title that the user sees\) in the user's language\./);
+assert.match(rules, /Do not repeat what did not change since your last answer/);
+assert.doesNotMatch(rules, /next step in the chat/, 'that rule needs the to-do list, so it is in its section');
+assert.match(rules, /how to check the result: the tests, and a review of its own diff before a merge\)/);
+assert.doesNotMatch(rules, /Furkan|\/Users\/|aiproxy|review-guard|Promes|Proso/i, 'no personal names, paths, providers or local skills');
 assert.equal(section.text({ agent: agents.get('s-web') }), '', 'no section in another chat');
 assert.equal(section.text({ agent: sub }), '', 'no section in its subagent');
 
