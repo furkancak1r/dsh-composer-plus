@@ -305,7 +305,8 @@ assert.equal(opens, 1, 'no new ticket'); assert.equal(loaded.length, 1, 'no relo
 // checked by hand: test/electron-computer-menu.cjs.
 {
   const editEntry = overlay('computer-edit-menu'); assert.ok(editEntry, 'the menu slot is there while the feature is on');
-  const editMenu = () => editEntry[1]({ ...editEntry[0].inject(), t });
+  // dsh's Menu under <body> (dsh 0.2.2-rc.2 places it at anchorPoint with position: fixed).
+  const editMenu = () => { const r = editEntry[1]({ ...editEntry[0].inject(), t }); assert.equal(r.host, document.body, 'under <body>'); assert.equal(r.portal.p.style.position, 'fixed', 'in a fixed box'); return r.portal.c[0]; };
   assert.equal(editMenu().p.open, false, 'closed until a right-click');
   // The webview sits under a title bar space: Electron's x/y are in this window already and need no offset.
   wv.getBoundingClientRect = () => ({ left: 100, top: 48 });
@@ -319,6 +320,7 @@ assert.equal(opens, 1, 'no new ticket'); assert.equal(loaded.length, 1, 'no relo
     'the items of dsh\'s own page, in its order, off as the page says');
   // Electron gives the pointer in this window's coordinates already (real Electron 44: test/electron-computer-menu.cjs).
   assert.deepEqual(m.p.getAnchorRect(), { left: 40, right: 40, top: 30, bottom: 30 }, 'at the pointer');
+  assert.deepEqual(m.p.anchorPoint, { x: 40, y: 30 }, 'dsh 0.2.2-rc.2: at the pointer (anchorPoint)');
   const focusBefore = wv.focused;
   m.p.onSelect('paste');
   assert.deepEqual(calls, ['paste'], 'Paste runs in the page'); assert.ok(wv.focused > focusBefore, 'the page gets the focus back first');

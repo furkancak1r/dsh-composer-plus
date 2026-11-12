@@ -145,7 +145,19 @@ delete list.byId['s-assistant'].retainedBy;
   // Expanding the rail again moves the dot to a new seat at the row's end.
   draw(16); out = draw(16);
   assert.equal(button.appended.length, 1); assert.equal(portalOf(out)?.p.host, button.appended[0], 'expanded again: the dot is at the end');
+  assert.equal(button.appended[0].style.marginRight, undefined, 'dsh before 0.2.2-rc.2 (same padding on both sides): no shift');
+  assert.match(find(portalOf(out), (n) => n.t === 'style').c.join(''), /_panelEntry.*:hover.*\[data-composer-plus-assistant-dot\]\{visibility:hidden\}/, 'the dot gives way to dsh 0.2.2-rc.2\'s pin button');
   unmount();
+  // dsh 0.2.2-rc.2 keeps 38 px on the right of a wide panel row for its pin button (12 px on the left): the dot moves into
+  // that room, where the project rows' status sits. Only with a mouse (hover): a touch screen shows no pin button.
+  const realStyle = globalThis.getComputedStyle; const realMedia = globalThis.matchMedia;
+  globalThis.getComputedStyle = () => ({ paddingLeft: '9px', paddingRight: '38px' }); globalThis.matchMedia = () => ({ matches: true });
+  button.appended.length = 0; draw(16); draw(16);
+  assert.equal(button.appended[0].style.marginRight, '-29px', '0.2.2-rc.2: the dot sits in the pin room');
+  unmount(); globalThis.matchMedia = () => ({ matches: false });
+  button.appended.length = 0; draw(16); draw(16);
+  assert.equal(button.appended[0].style.marginRight, undefined, 'no hover: no shift');
+  unmount(); globalThis.getComputedStyle = realStyle; globalThis.matchMedia = realMedia;
   [React.useState, React.useLayoutEffect] = real; React.useRef = realRef; statuses = new Map();
 }
 delete globalThis.document.createElement;

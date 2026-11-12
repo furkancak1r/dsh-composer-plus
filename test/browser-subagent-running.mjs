@@ -12,8 +12,9 @@ import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, symlink, rm, realpath } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const require = createRequire(import.meta.url);
 if (!process.env.PLAYWRIGHT || process.argv.length < 3) throw Error('Set PLAYWRIGHT and pass one or more dsh CLI entry paths');
@@ -41,8 +42,11 @@ const fake = createServer((req, res) => {
       // 0.2.0's tool waits unless run_in_background is true; 0.2.1+ always returns at once (no such parameter).
       const bg = (parsed.tools ?? []).find((t) => t.function?.name === 'subagent')?.function?.parameters?.properties?.run_in_background !== undefined;
       const call = (index, task) => ({ index, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'subagent', arguments: JSON.stringify({ description: `Check part ${task}`, prompt: `Child ${task}: check part ${task}.`, ...(bg ? { run_in_background: true } : {}) }) } });
+      // dsh 0.2.2-rc.2 team chat: one shared task too, so that dsh's task board shows under the list.
+      const team = (parsed.tools ?? []).some((t) => t.function?.name === 'team_task_create')
+        ? [{ index: 3, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'team_task_create', arguments: JSON.stringify({ subject: 'Review the order rules', description: 'Read the rules and list the gaps.' }) } }] : [];
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.end(chunk({ role: 'assistant', tool_calls: [call(0, 'A'), call(1, 'B'), call(2, 'C')] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n');
+      res.end(chunk({ role: 'assistant', tool_calls: [call(0, 'A'), call(1, 'B'), call(2, 'C'), ...team] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n');
       return;
     }
     say(res, 'Started the work.');
@@ -57,6 +61,8 @@ try {
   for (const bin of process.argv.slice(2)) {
     held = [];
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-sar-')));
+    // dsh 0.2.2-rc.2 and later ship Agent Team: each new chat is a team chat here (its task board shows in the list).
+    const team = existsSync(join(dirname(bin), '../../dsh-agent-team/package.json'));
     const profile = join(home, 'profiles/web');
     await mkdir(join(profile, 'node_modules'), { recursive: true });
     await symlink(repo, join(profile, 'node_modules/dsh-composer-plus'));
@@ -82,7 +88,7 @@ try {
   config: { provider: demo, model: demo }
 - id: permission-presets
   config: { default: full-access }
-`);
+${team ? '- id: agent-team\n  config: { defaultEnabled: true }\n' : ''}`);
     const project = join(home, 'projects', 'acme-web'); await mkdir(project, { recursive: true });
     await writeFile(join(project, 'README.md'), '# acme-web\n');
     const wid = randomUUID(); const now = new Date().toISOString();
@@ -105,9 +111,11 @@ try {
       const input = page.locator('[data-composer-input]'); await input.waitFor({ timeout: 20000 });
       await input.click(); await page.keyboard.type('Check the order rules'); await page.keyboard.press('Enter');
       await page.getByText('Started the work.').first().waitFor({ timeout: 30000 });
-      const counter = page.locator('[aria-haspopup="tree"]').first();
+      // dsh's counter button: aria-haspopup "tree" before 0.2.2-rc.2, "dialog" (in `[data-subagent-action]`) in 0.2.2-rc.2.
+      const COUNTER = '[aria-haspopup="tree"], [data-subagent-action] > button[aria-haspopup="dialog"], [data-subagent-action] button[aria-haspopup="dialog"]';
+      const counter = page.locator(COUNTER).first();
       const counterText = () => counter.innerText().then((s) => s.replace(/\s+/g, ' ').trim());
-      const waitText = async (re, what) => { await page.waitForFunction((src) => { const b = document.querySelector('[aria-haspopup="tree"]'); return b !== null && new RegExp(src).test(b.textContent.replace(/\s+/g, ' ').trim()); }, re.source, { timeout: 30000 }).catch(() => {}); const s = await counterText(); assert.match(s, re, `${what} (header: "${s}")`); return s; };
+      const waitText = async (re, what) => { await page.waitForFunction(([src, sel]) => { const b = document.querySelector(sel); return b !== null && new RegExp(src).test(b.textContent.replace(/\s+/g, ' ').trim()); }, [re.source, COUNTER], { timeout: 30000 }).catch(() => {}); const s = await counterText(); assert.match(s, re, `${what} (header: "${s}")`); return s; };
       const totalLine = page.locator('[data-composer-plus-subagent-total]');
 
       // 1. Two of three run: the header shows 2; the list's first line shows the total 3.
@@ -117,9 +125,15 @@ try {
       const tree = page.getByRole('tree', { name: 'Subagent sessions' }); await tree.waitFor({ timeout: 10000 });
       await totalLine.waitFor({ timeout: 10000 });
       assert.equal(await totalLine.innerText(), 'Subagents in total: 3', 'the list shows the total');
-      const order = await page.evaluate(() => { const line = document.querySelector('[data-composer-plus-subagent-total]'); return line.nextElementSibling?.getAttribute('role') ?? line.nextElementSibling?.tagName; });
-      assert.equal(order, 'tree', 'the total is the first line, above dsh\'s rows');
+      const order = await page.evaluate(() => { const line = document.querySelector('[data-composer-plus-subagent-total]'); const next = line.nextElementSibling; return next?.hasAttribute('data-subagent-section-header') ? 'header' : next?.getAttribute('role') ?? next?.tagName; });
+      assert.equal(order, team ? 'header' : 'tree', 'the total is the first line, above dsh\'s rows (and above the team chat\'s "Subagents" header)');
       assert.equal(await tree.getByRole('treeitem').count(), 3, 'dsh\'s three rows');
+      if (team) {
+        // dsh's Agent Team task board under the list (it is in the child slot that dsh's own entry declares).
+        const board = page.locator('[data-subagent-panel] [data-team-panel]');
+        await board.waitFor({ timeout: 10000 });
+        assert.match(await board.innerText(), /Shared tasks[\s\S]*Review the order rules/, 'the team chat\'s task board shows under the list');
+      }
       const lineBox = await totalLine.boundingBox(); const treeBox = await tree.boundingBox();
       assert.ok(lineBox && treeBox && lineBox.y + lineBox.height <= treeBox.y + 1 && lineBox.width > 100, `the line is above the rows and inside the menu (${JSON.stringify(lineBox)} / ${JSON.stringify(treeBox)})`);
       if (process.env.SHOT || process.env.KEEP) {
@@ -157,7 +171,7 @@ try {
       await waitText(/^0 subagents running$/, 'none running: 0');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      results.push(`PASS ${bin}: header "${shown}" with 3 in total · list first line "Subagents in total: 3" · off: "3 subagents", no line · on again · all done: "0 subagents running"`);
+      results.push(`PASS ${bin}: header "${shown}" with 3 in total · list first line "Subagents in total: 3" · off: "3 subagents", no line · on again · all done: "0 subagents running"${team ? ' · team chat: task board under the list' : ''}`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});
