@@ -57,11 +57,12 @@ for (const shape of ['0.2.0', '0.2.2']) {
   const dir = join(home, 'storages', 'dsh-composer-plus');
   const file = join(dir, 'assistant-morning.json');
   const fake = fakeService(shape);
-  let schedule = fake.service; let assistantOn = true; let ensured = 0;
+  let schedule = fake.service; let assistantOn = true; let ensured = 0; let todosOn = true;
   const routes = new Map();
   const ctx = { get: (name) => (name === 'schedule' ? schedule : undefined), connection: { fetch: { register: (r) => { routes.set(r.path, r); return () => {}; } } } };
-  const assistant = { isOn: () => assistantOn, ensure: async () => { ensured++; return 's-assistant'; }, id: () => 's-assistant' };
-  installAssistantMorning(ctx, home, assistant, { zone: 'Europe/Istanbul' });
+  const followers = [];
+  const assistant = { isOn: () => assistantOn, ensure: async () => { ensured++; return 's-assistant'; }, id: () => 's-assistant', onSwitch: (fn) => followers.push(fn) };
+  installAssistantMorning(ctx, home, assistant, { zone: 'Europe/Istanbul', todos: { isOn: () => todosOn, onSwitch: (fn) => followers.push(fn) } });
   const call = async (body) => {
     const r = await routes.get(ASSISTANT_MORNING_PATH).fetch(new Request(`http://x${ASSISTANT_MORNING_PATH}`, body === undefined ? {} : { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) }));
     return { status: r.status, body: await r.json() };
@@ -142,6 +143,19 @@ for (const shape of ['0.2.0', '0.2.2']) {
   r = await call({ on: true });
   assert.equal(r.status, 409); assert.equal(r.body.on, false); assert.equal(mine().length, 0);
   assistantOn = true;
+  // Assistant or the status panel goes off while the summary is on: its task goes and the setting is off.
+  for (const which of [0, 1]) {
+    r = await call({ on: true }); assert.equal(r.body.on, true); assert.equal(mine().length, 1);
+    followers[which](false);
+    for (let i = 0; i < 50 && mine().length > 0; i++) await new Promise((res) => setTimeout(res, 10));
+    assert.equal(mine().length, 0, `the task goes when ${which === 0 ? 'Assistant' : 'the status panel'} goes off`);
+    assert.equal((await call()).body.on, false);
+  }
+  // The status panel off: no new task (its summary would have nowhere to go).
+  todosOn = false;
+  r = await call({ on: true });
+  assert.equal(r.status, 409); assert.match(r.body.error, /status panel is off/); assert.equal(r.body.on, false); assert.equal(mine().length, 0);
+  todosOn = true;
 
   // Bad bodies.
   for (const bad of ['not json', [], null, {}, { on: 'yes' }, { on: true, time: '08:00' }, { time: '7:50' }, { time: '24:00' }, { time: '12:60' }, { time: '08:00:00' }, { time: 750 }, { scope: 'all' }]) {
@@ -220,8 +234,8 @@ console.log('assistant morning: ok');
   assert.equal(sw().p.checked, true, 'still on');
   const status = find(out, (n) => typeof n.t === 'function' && n.t.name === 'MobileStatus');
   assert.match(text(status.t(status.p)), /morning\.down:.*no schedule service/, 'the reason shows');
-  // The Assistant status panel off: no setting.
+  // The Assistant status panel off: the setting stays reachable, so a task that is on can still be switched off.
   await section.inject().setFeature('assistantTodos', false); await tick();
-  assert.equal(element(), undefined, 'not while the Assistant status panel is off');
+  assert.notEqual(element(), undefined, 'the switch stays while the Assistant status panel is off');
   console.log('  client: ok');
 }

@@ -10287,7 +10287,8 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             id === 'assistantNotify' && assistantNotifySwitch !== undefined ? React.createElement(MobileStatus, { mobile: assistantNotifySwitch, t, prefix: 'assistantNotify' }) : null,
             id === 'assistantNotify' && assistantNotifySwitch !== undefined && primitives.Menu !== undefined && isOn(enabled, id) ? React.createElement(AssistantNotifyScope, { store: assistantNotifySwitch, t }) : null,
             id === 'assistantTodos' && assistantTodosSwitch !== undefined ? React.createElement(MobileStatus, { mobile: assistantTodosSwitch, t, prefix: 'todos' }) : null,
-            id === 'assistantTodos' && assistantTodosSwitch?.morning !== undefined && primitives.Switch !== undefined && isOn(enabled, id) ? React.createElement(AssistantMorning, { store: assistantTodosSwitch.morning, t }) : null,
+            // Also while the panel is off: a task that is on keeps its weekday turns, so its switch must stay reachable.
+            id === 'assistantTodos' && assistantTodosSwitch?.morning !== undefined && primitives.Switch !== undefined ? React.createElement(AssistantMorning, { store: assistantTodosSwitch.morning, t }) : null,
             id === 'assistantCallouts' && calloutsSwitch !== undefined ? React.createElement(MobileStatus, { mobile: calloutsSwitch, t, prefix: 'callouts' }) : null,
             id === 'turkishSkill' && turkishSkill !== undefined ? React.createElement(TurkishSkillStatus, { store: turkishSkill, t }) : null,
             id === 'untangleCodebase' && untangleSwitch !== undefined ? React.createElement(MobileStatus, { mobile: untangleSwitch, t, prefix: 'untangle' }) : null,

@@ -2454,8 +2454,8 @@ export function apply(ctx) {
   installApproveButton(ctx, home);
   const assistant = installAssistant(ctx, home);
   installAssistantBot(ctx, home, assistant, { outage });
-  installAssistantTodos(ctx, home, assistant, { outage });
-  installAssistantMorning(ctx, home, assistant);
+  const todos = installAssistantTodos(ctx, home, assistant, { outage });
+  installAssistantMorning(ctx, home, assistant, { todos });
   const setup = installAssistantSetup(ctx, assistant, memory);
   installMemoryImport(ctx, home, assistant, memory, setup);
   installSecrets(ctx, home);
@@ -9819,8 +9819,10 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   };
   /** Switch on: the section and the `assistant` route; off: both go, and the tools leave every agent. The route's removal
    * is awaited, so a quick off → on never registers the path twice. */
+  const switched = new Set(); // another part that follows the switch (Morning summary): called with the new state
   const apply = async (next) => {
     on = next;
+    for (const fn of switched) fn(on);
     if (on && fiber === undefined && typeof ctx.inject === 'function') {
       fiber = ctx.inject(['systemPrompt'], (sub) => {
         sub.systemPrompt.section({ name: 'composer-plus:assistant', order: 670, interpolate: false, text: (context) => (isAssistant(context?.agent) ? section : '') });
@@ -9862,7 +9864,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     extra.add(more); remount();
     return { remount, off: () => { extra.delete(more); remount(); } };
   };
-  return { ready, tools, ensure, isOn: () => on, id: () => assistantId, isAssistant, tasks, endedTasks, addTools, folder, rootOf };
+  return { ready, tools, ensure, isOn: () => on, id: () => assistantId, isAssistant, tasks, endedTasks, addTools, folder, rootOf, onSwitch: (fn) => { switched.add(fn); } };
 }
 
 /* Memory import (part of Assistant setup): once the setup is ready, the onboarding shows a ready prompt that the user can
@@ -10875,8 +10877,10 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       if (on && turn?.work && !turn.changed) nudged.add(id); else nudged.delete(id);
     }
   });
+  const switched = new Set(); // Morning summary follows this switch
   const apply = (next) => {
     on = next;
+    for (const fn of switched) fn(on);
     if (on && fiber === undefined && typeof ctx.inject === 'function') {
       fiber = ctx.inject(['systemPrompt'], (sub) => {
         sub.systemPrompt.section({ name: 'composer-plus:assistant-todos', order: 672, interpolate: false,
@@ -11012,7 +11016,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       } catch (error) { return json({ error: String(error?.message ?? error), ...view(sessionId) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });
-  return { ready, store, tools, isOn: () => on };
+  return { ready, store, tools, isOn: () => on, onSwitch: (fn) => { switched.add(fn); } };
 }
 
 /* Morning summary (a setting of Assistant status panel, off by default): one dsh automation task, made through dsh's own
@@ -11044,7 +11048,7 @@ export function morningSchedule(service, zone) {
   };
 }
 /** Morning summary (Host half). `assistant` is the handle of installAssistant. */
-export function installAssistantMorning(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), zone } = {}) {
+export function installAssistantMorning(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), zone, todos } = {}) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const store = settingsStore(join(dir, 'assistant-morning.json'), (v) => ({ on: v?.on === true, time: typeof v?.time === 'string' && MORNING_TIME.test(v.time) ? v.time : '07:50',
     ...(v?.on === true && isText(v?.taskId, 200) && isText(v?.sessionId, 128) ? { taskId: v.taskId, sessionId: v.sessionId } : {}) }));
@@ -11062,6 +11066,8 @@ export function installAssistantMorning(ctx, home, assistant, { dir = join(home,
       if (api === undefined && (fresh || (before.taskId !== undefined && !next.on))) throw refused('This dsh has no schedule service: turn on Automation tasks in Plugins.');
       if (fresh) {
         if (!assistant.isOn()) throw refused('Assistant is off.');
+        // The summary goes to the status panel (status_summary_set): without it the task would only cost tokens.
+        if (todos !== undefined && !todos.isOn()) throw refused('Assistant status panel is off.');
         next.sessionId = await assistant.ensure();
         next.taskId = await api.create(next.sessionId, next.time);
       } else if (next.on) Object.assign(next, { taskId: before.taskId, sessionId: before.sessionId });
@@ -11075,6 +11081,10 @@ export function installAssistantMorning(ctx, home, assistant, { dir = join(home,
     queue = done.catch(() => {});
     return done;
   };
+  // Assistant or its status panel off: the task goes too (it would start turns whose summary has nowhere to go). The
+  // setting is off then, so switching the panel on again makes no task until the user switches it on.
+  const follow = (on) => { if (!on) store.read().then((s) => (s.on ? change({ on: false }) : undefined)).catch((error) => ctx.logger?.warn?.(`dsh-composer-plus: morning summary: ${error?.message ?? error}`)); };
+  assistant.onSwitch?.(follow); todos?.onSwitch?.(follow);
   ctx.connection.fetch.register({
     path: ASSISTANT_MORNING_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
     /** GET: `{on, time}`. POST `{on}` or `{time: "HH:MM"}`: one change. */
