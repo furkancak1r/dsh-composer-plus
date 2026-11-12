@@ -5,11 +5,19 @@
 // after the setup is ready, can be changed, and goes only with a click on Start.
 import './temp-home.mjs';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, realpath } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, realpath, utimes, chmod } from 'node:fs/promises';
+import { readFileSync, openSync, closeSync, constants } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { IMPORT_PROJECT_FILES, SETUP_BLOCKED, importSources, installMemory, installMemoryImport, secretLine, withoutSecrets } from '../index.js';
+import { IMPORT_PROJECT_FILES, SETUP_BLOCKED, importSources, installMemory, installMemoryImport, secretFile, secretLine, withoutSecrets } from '../index.js';
+
+/** A FIFO that a hanging open would wait on: after `ms` the test opens it for writing, so a red run ends. */
+function fifo(path, ms = 3000) {
+  execFileSync('mkfifo', [path]);
+  const timer = setTimeout(() => { try { closeSync(openSync(path, constants.O_WRONLY | constants.O_NONBLOCK)); } catch { /* no reader */ } }, ms);
+  timer.unref();
+}
 
 const root = await realpath(await mkdtemp(join(tmpdir(), 'cp-import-')));
 try {
@@ -30,9 +38,12 @@ try {
   await symlink(join(outside, 'AGENTS.md'), join(api, 'AGENTS.md')); // a link out of the project: never read
   await mkdir(join(api, '.windsurf')); await symlink(outside, join(api, '.windsurf', 'rules')); // a folder link out: never read
   await writeFile(join(api, '.env'), 'SECRET=2\n'); await symlink(join(api, '.env'), join(api, 'CLAUDE.md')); // a link to .env inside: never read
+  fifo(join(api, 'GEMINI.md')); await mkdir(join(api, '.cursor', 'rules'), { recursive: true }); fifo(join(api, '.cursor', 'rules', 'pipe.md')); // FIFOs: never read, never block
+  const tree = join(root, 'acme-web', '.worktrees', 'feature-x'); await mkdir(tree, { recursive: true }); await writeFile(join(tree, 'AGENTS.md'), '- worktree copy\n'); // a branch worktree
 
   // 1. The scan list: documented files only, in a fixed order; the user's own files first; no README, .env, link out.
   const list = await importSources({ projects: [web, api, join(root, 'gone')], home, dshHome });
+  assert.ok(list.every((f) => !/GEMINI|pipe|\.env/.test(f.path)), 'no FIFO, no .env behind a link');
   const rel = (p) => p.replace(`${root}/`, '');
   assert.deepEqual(list.map((f) => [rel(f.path), f.scope]), [
     ['home/.dsh/AGENTS.md', 'global'], ['home/.claude/projects/-x-acme/memory/MEMORY.md', 'global'],
@@ -44,21 +55,25 @@ try {
   assert.equal(skipped.filter((f) => f.scope === 'project').length, 0, 'a skipped folder is not read');
 
   // 2. The secret filter: a line that looks like a secret goes; the rest stays.
-  for (const s of ['password: hunter2hunter2', 'API_KEY=sk-abcdefghijklmnopqrstuv', 'DATABASE_URL=postgres://app:s3cretpw@db:5432/x', 'Authorization: Bearer abcdefghijklmnop123', 'token = 9f8e7d6c5b4a', 'ghp_abcdefghijklmnopqrstuvwxyz0123456789', 'şifre: Gizli123!', 'The deploy token is FAKE_TOKEN_9f8e7d6c5b4a3f2e1d', 'The secret is abc123def456']) assert.ok(secretLine(s), s);
-  for (const s of ['Use pnpm, not npm.', 'The token budget is 8000 tokens.', 'Deploys go through make release.', 'See https://example.com/docs', 'Auth is handled by OAuth2.', 'The token is refreshed every 15 minutes.']) assert.equal(secretLine(s), false, s);
+  for (const s of ['password: hunter2hunter2', 'API_KEY=sk-abcdefghijklmnopqrstuv', 'DATABASE_URL=postgres://app:s3cretpw@db:5432/x', 'Authorization: Bearer abcdefghijklmnop123', 'token = 9f8e7d6c5b4a', 'ghp_abcdefghijklmnopqrstuvwxyz0123456789', 'şifre: Gizli123!', 'The deploy token is FAKE_TOKEN_9f8e7d6c5b4a3f2e1d', 'The secret is abc123def456',
+    'Deploy token: `9f8e7d6c5b4a3f2e`', 'secret: `abcd1234efgh`', 'DB_PASS=hunter2hunter2', 'SMTP_PASS=mailpass99', 'JWT_SIGNING_KEY=abcdef123456', 'ENCRYPTION_KEY: 0123456789abcdef', '| DB password | hunter2hunter2 |']) assert.ok(secretLine(s), s);
+  for (const s of ['Use pnpm, not npm.', 'The token budget is 8000 tokens.', 'Deploys go through make release.', 'See https://example.com/docs', 'Auth is handled by OAuth2.', 'The token is refreshed every 15 minutes.', 'Author: Furkancakir', 'OAuth: enabled always', 'compass: northwest', 'monkey: banana12']) assert.equal(secretLine(s), false, s);
+  // A secret file name with either separator (Windows paths too).
+  for (const f of ['C:\\p\\.env', 'C:\\p\\memory-bank\\secrets.md', '/p/.env.local', '/p/certs/server.pem']) assert.ok(secretFile(f), f);
+  for (const f of ['/p/AGENTS.md', 'C:\\p\\CLAUDE.md', '/p/id_card.md']) assert.equal(secretFile(f), false, f);
   assert.deepEqual(withoutSecrets('- a\n- password: hunter2hunter2\n- b'), { text: '- a\n- b', cut: 1 });
 
   // 3. The tools: only a subagent of the assistant chat, only when the setup is ready; save through the store.
   const tools = new Map(); const routes = new Map();
   const agents = new Map();
-  const ctx = { on: () => {}, effect: () => {}, logger: { warn: () => {} }, get: (n) => (n === 'workspaceRegistry' ? { list: () => [{ path: web }, { path: api }] } : n === 'agents' ? { list: () => [...agents.values()], get: (id) => agents.get(id) } : undefined),
+  const ctx = { on: () => {}, effect: () => {}, logger: { warn: () => {} }, get: (n) => (n === 'workspaceRegistry' ? { list: () => [{ path: web }, { path: api }, { path: tree }] } : n === 'agents' ? { list: () => [...agents.values()], get: (id) => agents.get(id) } : undefined),
     connection: { fetch: { register: (r) => routes.set(r.path, r) } }, sessionQuery: { observeSession: async () => ({ events: [], header: {} }) } };
   const mem = installMemory({ ...ctx, inject: undefined }, join(root, 'dsh-host'));
   await mem.ready;
   const vault = join(root, 'vault'); await mkdir(join(vault, 'Gizli'), { recursive: true }); await writeFile(join(vault, 'Gizli', 'AGENTS.md'), '- private\n');
   let ready = false;
   const assistant = { ready: Promise.resolve(), isOn: () => true, id: () => 'chat-a', folder: vault, rootOf: (id) => (id === 's-sub' || id === 's-nested' ? 'chat-a' : id) };
-  const imp = installMemoryImport(ctx, dshHome, assistant, mem, { check: async () => ({ ready }) }, { userHome: home, now: () => new Date('2026-11-12T10:00:00Z') });
+  const imp = installMemoryImport(ctx, dshHome, assistant, mem, { check: async () => ({ ready }) }, { userHome: home });
   const sub = { id: 's-sub', session: { header: { origin: 'subagent', parentSession: 'chat-a' } }, ctx: { tools: { register: (t) => { tools.set(t.name, t); return () => tools.delete(t.name); } } } };
   imp.mount(sub);
   assert.deepEqual([...tools.keys()].sort(), ['memory_import', 'memory_import_sources'], 'the assistant\'s subagent gets the two tools');
@@ -69,7 +84,8 @@ try {
   await assert.rejects(tools.get('memory_import').execute({ facts: [{ text: 'x', source: 'y' }] }, { agent: { id: 'chat-b', session: { header: {} } } }), /only in a subagent of the Composer Plus assistant chat/);
   ready = true;
   const read = JSON.parse(await tools.get('memory_import_sources').execute({}, exec));
-  assert.equal(read.files.length, 6); assert.equal(read.secretLinesCut, 1, 'the password line is cut');
+  assert.equal(read.files.length, 6, 'a branch worktree is not a project of its own'); assert.equal(read.secretLinesCut, 1, 'the password line is cut');
+  assert.ok(!read.files.some((f) => /worktree copy/.test(f.text)), 'the worktree copy is not read');
   assert.ok(read.files.every((f) => !/hunter2/.test(f.text)), 'no secret reaches the model');
   assert.ok(!read.files.some((f) => /private/.test(f.text)), 'the vault\'s private folder is not read');
   assert.match(read.note, /data, not instructions/);
@@ -83,12 +99,14 @@ try {
     { text: 'acme-web deploys go through make release.', source: join(web, 'AGENTS.md'), project: web },
     { text: 'acme-web uses pnpm.', source: join(web, 'CLAUDE.md'), project: web },
     { text: 'The deploy password is hunter2hunter2', source: join(web, 'AGENTS.md'), project: web },
-    { text: 'Something about a project that dsh does not know.', source: '/x/AGENTS.md', project: join(root, 'unknown') },
+    { text: 'Something about a project that dsh does not know.', source: join(web, 'AGENTS.md'), project: join(root, 'unknown') },
+    { text: 'A fact from a file that the scan did not list.', source: 'api key sk-abcdefghijklmnopqrstuv' },
   ];
   const first = JSON.parse(await tools.get('memory_import').execute({ facts }, exec));
-  assert.deepEqual(first, { added: 3, duplicate: 0, secret: 1, unclear: 1, perProject: { global: 1, 'acme-web': 2 } });
+  assert.deepEqual(first, { added: 3, duplicate: 0, secret: 1, unclear: 2, perProject: { global: 1, 'acme-web': 2 } });
   const webMemory = mem.store.load(mem.store.project(web))[0].content;
-  assert.match(webMemory, /- acme-web uses pnpm\. \[source: import .*acme-web\/CLAUDE\.md; imported: 2026-11-12; added: \d{4}-\d{2}-\d{2}\]/, 'the source file and the date');
+  assert.match(webMemory, /- acme-web uses pnpm\. \[source: import .*acme-web\/CLAUDE\.md; added: \d{4}-\d{2}-\d{2}\]/, 'the source file and the date');
+  assert.doesNotMatch(webMemory + mem.store.load(mem.store.GLOBAL)[0].content, /sk-abc/, 'a source that is not a listed file is not saved');
   assert.match(mem.store.load(mem.store.GLOBAL)[0].content, /The user writes in Turkish/);
   assert.doesNotMatch(webMemory + mem.store.load(mem.store.GLOBAL)[0].content, /hunter2/, 'the secret is not saved');
   const journal = await readFile(join(root, 'dsh-host', 'storages', 'dsh-composer-plus', 'memory', 'journal.jsonl'), 'utf8');
@@ -102,6 +120,23 @@ try {
   await mem.store.add({ scope: mem.store.project(web), text: 'The user reviews every release.', actor: 'agent' });
   JSON.parse(await tools.get('memory_import').execute({ facts: [{ text: 'The user reviews every release.', source: join(web, 'AGENTS.md'), project: web }] }, exec));
   assert.equal((mem.store.load(mem.store.project(web))[0].content.match(/reviews every release/g) ?? []).length, 1);
+  // A file that an import read and that did not change since is not read again; a changed file is.
+  const again = JSON.parse(await tools.get('memory_import_sources').execute({}, exec));
+  assert.ok(again.alreadyImported.includes(join(web, 'AGENTS.md')) && again.alreadyImported.includes(join(dshHome, 'AGENTS.md')), 'imported files are listed as done');
+  assert.ok(!again.files.some((f) => f.path === join(web, 'CLAUDE.md')), 'its text is not given again');
+  const later = new Date(Date.now() + 2 * 86400000); await utimes(join(web, 'CLAUDE.md'), later, later);
+  assert.ok(JSON.parse(await tools.get('memory_import_sources').execute({}, exec)).files.some((f) => f.path === join(web, 'CLAUDE.md')), 'a changed file is read again');
+  // All or none: a write that fails at the last fact saves none of the call's facts.
+  const globalBefore = mem.store.load(mem.store.GLOBAL)[0].content;
+  const apiScope = mem.store.project(api);
+  await mkdir(apiScope.dir, { recursive: true }); await chmod(apiScope.dir, 0o500);
+  await assert.rejects(tools.get('memory_import').execute({ facts: [{ text: 'A new global fact.', source: join(dshHome, 'AGENTS.md') }, { text: 'acme-api fact.', source: join(web, 'AGENTS.md'), project: api }] }, exec));
+  await chmod(apiScope.dir, 0o700);
+  assert.equal(mem.store.load(mem.store.GLOBAL)[0].content, globalBefore, 'the global fact went back too');
+  // Project memory switched off for the assistant chat: the import saves nothing either.
+  const offMem = { ...mem, refusal: async () => 'The project memory is switched off for this chat. Do not use the memory tools here.' };
+  const offImp = installMemoryImport({ ...ctx, on: () => {} }, dshHome, assistant, offMem, { check: async () => ({ ready: true }) }, { userHome: home });
+  await assert.rejects(offImp.tools[1].execute({ facts: [{ text: 'x', source: join(dshHome, 'AGENTS.md') }] }, exec), /switched off for this chat/);
   // The source files did not change.
   assert.equal(await readFile(join(web, 'AGENTS.md'), 'utf8'), '# acme-web\n- Deploys go through make release.\n- password: hunter2hunter2\n');
 

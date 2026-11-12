@@ -2288,6 +2288,8 @@
     "assistant.setup.checking": "Vérification…",
     "assistant.setup.failed": "La vérification a échoué : {error}",
     "assistant.setup.memoryDir": "Mémoire",
+    "assistant.setup.globalDir": "Général",
+    "assistant.setup.projectsDir": "Projets",
     "assistant.import.title": "Importez votre mémoire précédente",
     "assistant.import.intro": "Damon peut lire les fichiers de mémoire de vos autres agents (AGENTS.md, CLAUDE.md et d’autres) dans vos projets dsh et enregistrer les faits durables dans votre coffre. Il ne modifie aucun fichier, ignore les secrets et les doublons, et travaille en arrière-plan. Lisez le prompt, modifiez-le si vous voulez, puis cliquez sur « Démarrer ».",
     "assistant.import.start": "Démarrer",

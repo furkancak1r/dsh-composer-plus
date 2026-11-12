@@ -2288,6 +2288,8 @@
     "assistant.setup.checking": "確認しています…",
     "assistant.setup.failed": "確認に失敗しました：{error}",
     "assistant.setup.memoryDir": "メモリー",
+    "assistant.setup.globalDir": "共通",
+    "assistant.setup.projectsDir": "プロジェクト",
     "assistant.import.title": "以前のメモリーをインポート",
     "assistant.import.intro": "Damon は、dsh のプロジェクトにあるほかのエージェントのメモリーファイル（AGENTS.md、CLAUDE.md など）を読み、長く有効な事実をあなたの保管庫に保存できます。ファイルは何も変更せず、秘密情報と重複はスキップし、バックグラウンドで動きます。プロンプトを読み、必要なら変更してから「開始」をクリックしてください。",
     "assistant.import.start": "開始",

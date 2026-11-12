@@ -2288,6 +2288,8 @@
     "assistant.setup.checking": "जांच हो रही है…",
     "assistant.setup.failed": "जांच विफल रही: {error}",
     "assistant.setup.memoryDir": "मेमोरी",
+    "assistant.setup.globalDir": "सामान्य",
+    "assistant.setup.projectsDir": "प्रोजेक्ट",
     "assistant.import.title": "अपनी पिछली मेमोरी इंपोर्ट करें",
     "assistant.import.intro": "Damon आपके dsh प्रोजेक्ट में आपके दूसरे एजेंट की मेमोरी फ़ाइलें (AGENTS.md, CLAUDE.md और अन्य) पढ़ सकता है और स्थायी तथ्यों को आपके वॉल्ट में सेव कर सकता है। यह कोई फ़ाइल नहीं बदलता, सीक्रेट और दोहराव छोड़ देता है, और बैकग्राउंड में काम करता है। प्रॉम्प्ट पढ़ें, चाहें तो उसे बदलें, फिर “शुरू करें” पर क्लिक करें।",
     "assistant.import.start": "शुरू करें",

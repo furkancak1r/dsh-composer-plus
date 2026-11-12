@@ -2288,6 +2288,8 @@
     "assistant.setup.checking": "Đang kiểm tra…",
     "assistant.setup.failed": "Kiểm tra thất bại: {error}",
     "assistant.setup.memoryDir": "Bộ nhớ",
+    "assistant.setup.globalDir": "Chung",
+    "assistant.setup.projectsDir": "Dự án",
     "assistant.import.title": "Nhập bộ nhớ trước đây của bạn",
     "assistant.import.intro": "Damon có thể đọc các tệp bộ nhớ của những agent khác của bạn (AGENTS.md, CLAUDE.md và các tệp khác) trong các dự án dsh của bạn, rồi lưu các thông tin lâu dài vào khối lưu trữ của bạn. Damon không thay đổi tệp nào, bỏ qua bí mật và nội dung trùng lặp, và làm việc ở nền. Hãy đọc prompt, sửa nếu bạn muốn, rồi nhấp “Bắt đầu”.",
     "assistant.import.start": "Bắt đầu",

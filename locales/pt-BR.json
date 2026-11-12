@@ -2288,6 +2288,8 @@
     "assistant.setup.checking": "Verificando…",
     "assistant.setup.failed": "A verificação falhou: {error}",
     "assistant.setup.memoryDir": "Memória",
+    "assistant.setup.globalDir": "Geral",
+    "assistant.setup.projectsDir": "Projetos",
     "assistant.import.title": "Importe sua memória anterior",
     "assistant.import.intro": "O Damon pode ler os arquivos de memória dos seus outros agentes (AGENTS.md, CLAUDE.md e outros) nos seus projetos do dsh e salvar os fatos duradouros no seu cofre. Ele não altera nenhum arquivo, ignora segredos e duplicados e trabalha em segundo plano. Leia o prompt, altere se quiser e clique em “Iniciar”.",
     "assistant.import.start": "Iniciar",

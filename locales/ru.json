@@ -2288,6 +2288,8 @@
     "assistant.setup.checking": "Проверка…",
     "assistant.setup.failed": "Проверка не удалась: {error}",
     "assistant.setup.memoryDir": "Память",
+    "assistant.setup.globalDir": "Общее",
+    "assistant.setup.projectsDir": "Проекты",
     "assistant.import.title": "Импорт прежней памяти",
     "assistant.import.intro": "Damon может прочитать файлы памяти ваших других агентов (AGENTS.md, CLAUDE.md и другие) в ваших проектах dsh и сохранить долговременные факты в вашем хранилище. Он не изменяет файлы, пропускает секреты и повторы и работает в фоне. Прочитайте промпт, при желании измените его, затем нажмите «Начать».",
     "assistant.import.start": "Начать",

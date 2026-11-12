@@ -8,7 +8,7 @@ import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, realpath, re
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_SETUP_PATH, OBSIDIAN_DOWNLOAD, SETUP_BLOCKED, assistantSetup, installAssistantSetup, installMemory, obsidianApps, obsidianConfigs, vaultRules } from '../index.js';
+import { ASSISTANT_SETUP_PATH, OBSIDIAN_DOWNLOAD, SETUP_BLOCKED, assistantSetup, installAssistantSetup, installMemory, memoryNamesOf, obsidianApps, obsidianConfigs, vaultRules } from '../index.js';
 
 const root = await realpath(await mkdtemp(join(tmpdir(), 'cp-setup-')));
 try {
@@ -115,13 +115,16 @@ try {
   assert.equal((await call()).status, 409);
   assistantIsOn.on = true;
   // Bad bodies.
-  for (const bad of [{}, { fix: {} }, { fix: { name: '../x' } }, { fix: { name: '.hidden' } }, { fix: { name: 'a/b' } }, { fix: { name: 'M' }, x: 1 }]) assert.equal((await call(bad)).status, 400, JSON.stringify(bad));
-  // Set up: memory folder inside the assistant folder (restart), AGENTS.md from the template; it installs nothing.
-  r = await call({ fix: { name: 'Memory' } });
+  for (const bad of [{}, { fix: {} }, { fix: { name: '../x' } }, { fix: { name: '.hidden' } }, { fix: { name: 'a/b' } }, { fix: { name: 'M' }, x: 1 },
+    { fix: { name: 'M', dirs: { global: 'a/b', projects: 'P' } } }, { fix: { name: 'M', dirs: { global: 'Same', projects: 'same' } } }, { fix: { name: 'M', dirs: { global: 'G' } } }, { fix: { name: 'M', other: 1 } }]) assert.equal((await call(bad)).status, 400, JSON.stringify(bad));
+  // Set up: memory folder inside the assistant folder (restart) with the UI language's subfolder names, AGENTS.md from the
+  // template; it installs nothing.
+  r = await call({ fix: { name: 'Memory', dirs: { global: 'General', projects: 'Projects' } } });
   assert.equal(r.status, 200);
   assert.equal(r.body.steps.memory, 'restart'); assert.equal(r.body.steps.rules, true); assert.equal(r.body.steps.obsidian, false, 'Obsidian is not installed for the user');
-  assert.deepEqual(JSON.parse(await readFile(join(dshHome, 'storages/dsh-composer-plus/memory-folder.json'), 'utf8')).folder, join(fresh, 'Memory'));
-  assert.equal(await readFile(join(fresh, 'AGENTS.md'), 'utf8'), vaultRules('Memory'));
+  assert.deepEqual(JSON.parse(await readFile(join(dshHome, 'storages/dsh-composer-plus/memory-folder.json'), 'utf8')), { folder: join(fresh, 'Memory'), names: { global: 'General', projects: 'Projects' } });
+  assert.equal(await readFile(join(fresh, 'AGENTS.md'), 'utf8'), vaultRules('Memory', { global: 'General', projects: 'Projects' }));
+  assert.match(vaultRules('Memory', { global: 'General', projects: 'Projects' }), /Memory\/: General\/ for every project, Projects\/<project>\//);
   // A second Set up never writes over a file that is there (the user's own AGENTS.md).
   await writeFile(join(fresh, 'AGENTS.md'), '# Mine\n');
   await call({ fix: { name: 'Memory' } });
@@ -129,7 +132,7 @@ try {
   // An empty AGENTS.md (a write that failed half way) is written again.
   await writeFile(join(fresh, 'AGENTS.md'), '');
   r = await call({ fix: { name: 'Memory' } });
-  assert.equal(r.body.steps.rules, true); assert.equal(await readFile(join(fresh, 'AGENTS.md'), 'utf8'), vaultRules('Memory'), 'an empty file is repaired');
+  assert.equal(r.body.steps.rules, true); assert.equal(await readFile(join(fresh, 'AGENTS.md'), 'utf8'), vaultRules('Memory', { global: 'General', projects: 'Projects' }), 'an empty file is repaired');
   // All or none: when writing AGENTS.md fails, the folder setting and the switch go back and no AGENTS.md stays.
   { const home4 = join(root, 'dsh4'); const mem4 = installMemory({ ...ctx, inject: undefined, connection: { fetch: { register: () => {} } } }, home4); await mem4.ready;
     const f4 = join(root, 'f4'); await mkdir(f4);
@@ -154,17 +157,33 @@ try {
     assert.equal(await readFile(join(home5, 'storages/dsh-composer-plus/memory.json'), 'utf8').then((t) => JSON.parse(t).on, () => false), false);
     assert.equal(await readFile(join(home5, 'storages/dsh-composer-plus/memory-folder.json'), 'utf8').then((t) => JSON.parse(t).folder, () => undefined), undefined); }
   // A saved memory folder that is already in the vault is kept (the owner's Hafıza): Set up changes nothing.
-  const ownerPlan = []; const owner = { state: () => ({ on: true, folder: join(folder, 'Hafıza'), folderActive: join(folder, 'Hafıza') }), setup: async (plan) => { ownerPlan.push(await plan(owner.state())); } };
+  const ownerPlan = []; const owner = { state: () => ({ on: true, folder: join(folder, 'Hafıza'), folderActive: join(folder, 'Hafıza') }), setup: async (plan) => { ownerPlan.push(await plan({ ...owner.state(), names: (at, w) => memoryNamesOf(at, w) })); } };
   const keep = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, assistant, owner, { home, apps: [app], configs: [config] });
   assert.equal((await keep.fix('Memory')).ready, true, 'the owner\'s setup passes without a change');
   assert.equal(ownerPlan[0].folder, undefined, 'the owner\'s memory folder stays');
   assert.equal(await readFile(join(folder, 'AGENTS.md'), 'utf8'), '# My rules\n');
   // A saved folder in the vault that cannot hold the notes (a symlink) is replaced by <vault>/<name>.
   { const linkPlan = []; await symlink(join(root, 'other'), join(folder, 'Linked'));
-    const bad = { state: () => ({ on: true, folder: join(folder, 'Linked'), folderActive: '', folderProblem: 'is a symbolic link' }), setup: async (plan) => { linkPlan.push(await plan(bad.state())); } };
+    const bad = { state: () => ({ on: true, folder: join(folder, 'Linked'), folderActive: '', folderProblem: 'is a symbolic link' }), setup: async (plan) => { linkPlan.push(await plan({ ...bad.state(), names: (at, w) => memoryNamesOf(at, w) })); } };
     await installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, assistant, bad, { home, apps: [app], configs: [config] }).fix('Memory');
     assert.equal(linkPlan[0].folder, join(await realpath(folder), 'Memory'), 'a symlinked memory folder is not kept');
     await rm(join(folder, 'Linked')); }
+  // Folder names (owner, 2026-11-12): a new memory folder uses the saved (UI language) names; a folder that has its
+  // subfolders keeps them, under either name pair; the owner's Genel/Projeler is never renamed.
+  { const dshN = join(root, 'dshN'); const sN = join(dshN, 'storages/dsh-composer-plus'); await mkdir(sN, { recursive: true });
+    const vN = join(root, 'vN', 'Memory');
+    await writeFile(join(sN, 'memory.json'), JSON.stringify({ on: true }));
+    await writeFile(join(sN, 'memory-folder.json'), JSON.stringify({ folder: vN, names: { global: 'General', projects: 'Projects' } }));
+    const mN = installMemory({ ...ctx, inject: undefined, connection: { fetch: { register: () => {} } } }, dshN); await mN.ready;
+    await mN.store.add({ scope: mN.store.GLOBAL, text: 'A note in English folders', actor: 'agent' });
+    assert.equal(mN.store.GLOBAL.dir, join(vN, 'General'), 'a new folder: the UI language names');
+    assert.deepEqual(JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8')), { folder: vN, imported: vN, names: { global: 'General', projects: 'Projects' } }, 'the names stay in the setting');
+    // An existing folder with Genel/Projeler keeps them, also when the saved names are others.
+    const vO = join(root, 'vO'); await mkdir(join(vO, 'Genel'), { recursive: true }); await writeFile(join(vO, 'Genel', 'MEMORY.md'), '# Memory\n\n- Owner note\n\n## Index\n');
+    assert.deepEqual(memoryNamesOf(vO, { global: 'General', projects: 'Projects' }), { global: 'Genel', projects: 'Projeler' });
+    assert.deepEqual(memoryNamesOf(vN), { global: 'Genel', projects: 'Projeler' }, 'without the saved names, the first names (no folder of them there)');
+    assert.deepEqual(memoryNamesOf(vN, { global: 'General', projects: 'Projects' }), { global: 'General', projects: 'Projects' });
+    assert.deepEqual(memoryNamesOf(join(root, 'nothing'), { global: 'Allgemein', projects: 'Projekte' }), { global: 'Allgemein', projects: 'Projekte' }); }
   // Ready (Obsidian knows the fresh folder, the memory is active): the gate opens.
   await vaults([fresh]);
   const readySetup = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: fresh }, { ...mem, state: () => ({ on: true, folder: join(fresh, 'Memory'), folderActive: join(fresh, 'Memory') }) }, { home, apps: [app], configs: [config] });
@@ -214,7 +233,7 @@ try {
   const buttons = find(card, (n) => n.t === 'Button');
   assert.deepEqual(buttons.map(text), ['assistant.setup.fix', 'assistant.setup.check']);
   buttons[0].p.onClick(); await tick();
-  assert.deepEqual(posts, [{ fix: { name: 'assistant.setup.memoryDir' } }], 'Set up sends the memory folder name in the UI language');
+  assert.deepEqual(posts, [{ fix: { name: 'assistant.setup.memoryDir', dirs: { global: 'assistant.setup.globalDir', projects: 'assistant.setup.projectsDir' } } }], 'Set up sends the memory folder name and its subfolder names in the UI language');
   // Check again reads the Host; ready → the welcome card on a blank chat, nothing after the first message.
   hostState = { ...hostState, ready: true, steps: { obsidian: true, vault: true, memory: 'done', rules: true } };
   find(draw(false), (n) => n.t === 'Button').at(-1).p.onClick(); await tick();

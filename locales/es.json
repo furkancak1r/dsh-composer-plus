@@ -2288,6 +2288,8 @@
     "assistant.setup.checking": "Comprobando…",
     "assistant.setup.failed": "La comprobación falló: {error}",
     "assistant.setup.memoryDir": "Memoria",
+    "assistant.setup.globalDir": "General",
+    "assistant.setup.projectsDir": "Proyectos",
     "assistant.import.title": "Importa tu memoria anterior",
     "assistant.import.intro": "Damon puede leer los archivos de memoria de tus otros agentes (AGENTS.md, CLAUDE.md y otros) en tus proyectos de dsh y guardar los hechos duraderos en tu bóveda. No cambia ningún archivo, omite secretos y duplicados, y trabaja en segundo plano. Lee el prompt, cámbialo si quieres y luego haz clic en «Iniciar».",
     "assistant.import.start": "Iniciar",

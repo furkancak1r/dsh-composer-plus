@@ -3748,6 +3748,8 @@
     "assistant.setup.checking": "Kontrol ediliyor…",
     "assistant.setup.failed": "Kontrol başarısız: {error}",
     "assistant.setup.memoryDir": "Hafıza",
+    "assistant.setup.globalDir": "Genel",
+    "assistant.setup.projectsDir": "Projeler",
     "assistant.import.title": "Önceki hafızanızı aktarın",
     "assistant.import.intro": "Damon, dsh projelerinizdeki diğer ajanların hafıza dosyalarını (AGENTS.md, CLAUDE.md ve diğerleri) okuyup kalıcı bilgileri kasanıza kaydedebilir. Hiçbir dosyayı değiştirmez, gizli bilgileri ve tekrarları atlar, arka planda çalışır. İstemi okuyun, isterseniz değiştirin, sonra Başlat'a tıklayın.",
     "assistant.import.start": "Başlat",

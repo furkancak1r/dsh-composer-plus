@@ -2288,6 +2288,8 @@
     "assistant.setup.checking": "Memeriksa…",
     "assistant.setup.failed": "Pemeriksaan gagal: {error}",
     "assistant.setup.memoryDir": "Memori",
+    "assistant.setup.globalDir": "Umum",
+    "assistant.setup.projectsDir": "Proyek",
     "assistant.import.title": "Impor memori lama Anda",
     "assistant.import.intro": "Damon dapat membaca file memori agen Anda yang lain (AGENTS.md, CLAUDE.md, dan lainnya) di proyek dsh Anda dan menyimpan fakta yang bertahan lama di vault Anda. Damon tidak mengubah file apa pun, melewati rahasia dan duplikat, dan bekerja di latar belakang. Baca prompt-nya, ubah jika Anda mau, lalu klik “Mulai”.",
     "assistant.import.start": "Mulai",

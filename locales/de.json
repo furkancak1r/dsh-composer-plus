@@ -2288,6 +2288,8 @@
     "assistant.setup.checking": "Wird geprüft…",
     "assistant.setup.failed": "Die Prüfung ist fehlgeschlagen: {error}",
     "assistant.setup.memoryDir": "Gedächtnis",
+    "assistant.setup.globalDir": "Allgemein",
+    "assistant.setup.projectsDir": "Projekte",
     "assistant.import.title": "Dein früheres Gedächtnis importieren",
     "assistant.import.intro": "Damon kann die Gedächtnisdateien deiner anderen Agenten (AGENTS.md, CLAUDE.md und weitere) in deinen dsh-Projekten lesen und die dauerhaften Fakten in deinem Vault speichern. Er ändert keine Datei, überspringt Geheimnisse und Duplikate und arbeitet im Hintergrund. Lies den Prompt, ändere ihn, wenn du willst, und klicke dann auf „Starten“.",
     "assistant.import.start": "Starten",

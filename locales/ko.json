@@ -2288,6 +2288,8 @@
     "assistant.setup.checking": "확인 중…",
     "assistant.setup.failed": "확인하지 못했습니다: {error}",
     "assistant.setup.memoryDir": "메모리",
+    "assistant.setup.globalDir": "공통",
+    "assistant.setup.projectsDir": "프로젝트",
     "assistant.import.title": "이전 메모리 가져오기",
     "assistant.import.intro": "Damon은 dsh 프로젝트에 있는 다른 에이전트의 메모리 파일(AGENTS.md, CLAUDE.md 등)을 읽고, 오래 유지할 사실을 보관함에 저장할 수 있습니다. 파일은 바꾸지 않고, 비밀 정보와 중복은 건너뛰며, 백그라운드에서 작업합니다. 프롬프트를 읽고 원하면 수정한 다음 ‘시작’을 클릭하세요.",
     "assistant.import.start": "시작",
