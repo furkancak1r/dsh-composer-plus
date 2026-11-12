@@ -465,6 +465,22 @@
   {
    "text": "## Options\n 1. a",
    "options": []
+  },
+  {
+   "text": "Build is green.\n\n## Options\n1. Deploy now\n   CANLI DEPLOY PROMES 22e33b30 ŞİMDİ\n2. Wait",
+   "options": []
+  },
+  {
+   "text": "## Seçenekler\n1. Canlıya al (önerilen)\n\n   canlı deploy proso 3f2a9c1 saat 21:10\n2. Bekle",
+   "options": []
+  },
+  {
+   "text": "## Options\n1. Onaylıyorum: CANLI DEPLOY PROSOLOCAL 22e33b30 SAAT 21.10\n2. Do not deploy",
+   "options": []
+  },
+  {
+   "text": "## Options\n1. Run the tests\n2. CANLİ  DEPLOY PROMES 22e33b30 şimdi",
+   "options": []
   }
  ]
 }

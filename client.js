@@ -5893,6 +5893,10 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
     let optionWords;
     const optionWordsOf = () => (optionWords ??= { headings: new Set(OPTION_HEADINGS.map(fold)), recommended: new Set(OPTION_RECOMMENDED.map(fold)) });
     const OPTION_ITEM = /^(\d{1,2})([.)])(?:[ \t]+(.*))?$/;
+    /** A live deploy approval line ("CANLI DEPLOY <PRODUCT> <SHA> SAAT HH:MM") is never a button or an option: the owner
+     * types it himself, so that the Auto review deploy gate can count it as his (owner, 2026-11-12). The fold is the
+     * gate's (NFC, Turkish lower case, ı and ş as i and s), so each line that the gate accepts matches. */
+    const liveDeploy = (text) => /canli\s+deploy/.test(String(text).normalize('NFC').replace(/İ/g, 'i').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/ş/g, 's'));
     const isOptionHeading = (line) => {
       const text = /^#{1,4}[ \t]+(.+?)[ \t#]*$/.exec(line)?.[1] ?? /^(?:\*\*|__)(.+?)(?:\*\*|__)[ \t]*[:：]?[ \t]*$/.exec(line)?.[1];
       return text !== undefined && optionWordsOf().headings.has(fold(text.replace(/[*_]/g, '').replace(/[ \t]*[:：]$/u, '').trim()));
@@ -5936,7 +5940,8 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
         out.push({ n: item.n, label: label.length > 200 ? `${label.slice(0, 199)}…` : label,
           text: [first, ...rest.map((l) => l.slice(Math.min(indent, /^[ \t]*/.exec(l)[0].length)).trimEnd())].join('\n'), recommended: marked });
       }
-      return out;
+      // A live deploy line in any item: no options at all, the user types the answer.
+      return out.some((o) => liveDeploy(o.text)) ? [] : out;
     }
     /** Approve button: the agent writes a sentence that it needs from you (Auto review accepts an approval only from your
      * own message) in a fenced code block with the info string `onay` (the Host's prompt rule). Each such block of the
@@ -5945,11 +5950,12 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
      * fence, a sentence of more than APPROVAL_MAX characters, or a character outside APPROVAL_CHARS (an invisible or
      * combining character, a letter outside the English and Turkish alphabets, a non-ASCII digit or separator: such a
      * character can make the sentence read as other words than it says). You send what you see. A sentence that names a
-     * live or public target (production, a deploy, a release) gets its button too (owner, 2026-11-11). */
+     * live or public target (production, a deploy, a release) gets its button too (owner, 2026-11-11), but a CANLI DEPLOY
+     * line does not (liveDeploy): its block stays as dsh shows it, and the user types the line. */
     const APPROVAL_MAX = 500;
     /** Printable ASCII, the Turkish letters, new lines and a few typographic marks (after NFC). */
     const APPROVAL_CHARS = /^[\x20-\x7E\n\tçğıöşüâîûÇĞİÖŞÜÂÎÛ‘’“”–—…→«»]*$/;
-    const approvable = (text) => text !== '' && text.length <= APPROVAL_MAX && APPROVAL_CHARS.test(text.normalize('NFC'));
+    const approvable = (text) => text !== '' && text.length <= APPROVAL_MAX && APPROVAL_CHARS.test(text.normalize('NFC')) && !liveDeploy(text);
     /** The approval sentences of `text`, in the shape of parseOptions: `[{ n, label, text, message }]`. */
     function parseApprovals(text) {
       const out = [];
