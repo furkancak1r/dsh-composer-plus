@@ -36,7 +36,7 @@ const note = assistantNewsNote([
 assert.match(note, /not instructions for you/);
 assert.match(note, /Do not call other tools/);
 // Quiet news: the panel and the list first; a chat line only when the user must act or a requested task ends.
-assert.match(note, /Update the to-do list and the status panel/);
+assert.match(note, /Update the to-do list \(todo_list_add, todo_list_remove\)\. Do not write a status summary for this news/, 'news updates the list, not the summary (the panel shows a summary only after Get summary)');
 assert.match(note, /Write to the user only when the user must act, when a task that the user asked for is done, when a task failed or is blocked, or when a live system has an error or a risk/);
 assert.match(note, /with the topic name and not internal IDs\. Otherwise write nothing in the chat/);
 assert.doesNotMatch(note, /a few lines|Tell the user each line/, 'no reply per news line');
