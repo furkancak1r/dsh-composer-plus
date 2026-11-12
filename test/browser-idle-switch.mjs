@@ -109,6 +109,8 @@ try {
           return (t?.textContent ?? document.title ?? '').trim();
         });
         const card = (text) => page.getByText(text, { exact: true }).first(); // not the sidebar's hidden status label
+        // dsh's open question card only (the answered question stays in the transcript with the same text).
+        const asking = (text) => page.locator('[data-question-key]').filter({ hasText: text });
         const question = (text) => card(text).isVisible().catch(() => false);
         // Two chats ask, in this order; then a third chat stays open and idle.
         await sendIn('ask:deploy'); await card('Which environment should I deploy to?').waitFor({ timeout: 20000 });
@@ -160,7 +162,7 @@ try {
         // Answer it (clicks): the other question opens after the next 30 s idle.
         await page.getByText('Staging', { exact: true }).first().click();
         await page.getByRole('button', { name: 'Submit', exact: true }).click();
-        await card('Which environment should I deploy to?').waitFor({ state: 'hidden', timeout: 20000 });
+        await asking('Which environment should I deploy to?').waitFor({ state: 'hidden', timeout: 20000 });
         await page.mouse.move(5, 5);
         const secondFrom = Date.now();
         await card('Which color palette should the theme use?').waitFor({ state: 'visible', timeout: 45000 });
@@ -169,7 +171,7 @@ try {
         // Answer it too and let its turn finish on screen (no green dot), so no chat waits any more.
         await page.getByText('Blue', { exact: true }).first().click();
         await page.getByRole('button', { name: 'Submit', exact: true }).click();
-        await card('Which color palette should the theme use?').waitFor({ state: 'hidden', timeout: 20000 });
+        await asking('Which color palette should the theme use?').waitFor({ state: 'hidden', timeout: 20000 });
         await pause(3000);
         // Green dot: two chats finish while a new chat is open.
         await sendIn('slow:lint'); await pause(1500);
