@@ -9,6 +9,9 @@
 //    official download link, Set up and Check again; a memory_remember of the assistant chat is refused and no memory file
 //    is written. Set up writes AGENTS.md and the memory folder setting in ~/Assistant; a made-up Obsidian settings file
 //    that knows ~/Assistant as a vault and a dsh restart make it ready (the welcome card shows).
+// 0c. Memory import: the welcome card shows the ready prompt; Start sends it; the assistant starts a subagent that reads the
+//    sources (acme-web's AGENTS.md and CLAUDE.md with a fake secret line) and saves facts: they arrive in the vault, the
+//    secret does not, no memory file is written outside the vault, and a second run adds nothing.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-welcome.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=/path/to/file.png also saves a screenshot of step 1 (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -16,7 +19,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, symlink, realpath, readdir, readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, realpath, readdir, readFile, rm } from 'node:fs/promises';
 import { existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -31,8 +34,16 @@ const until = async (fn, what, ms = 30000) => {
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(250); }
 };
 
-// Fake OpenAI-compatible model: every answer is "ok"; "save this" in the assistant chat calls memory_remember once.
-const toolResults = [];
+// Fake OpenAI-compatible model: every answer is "ok"; "save this" in the assistant chat calls memory_remember once. The
+// import prompt starts a subagent; the subagent calls memory_import_sources, then memory_import with two facts (and one
+// fact that copies the secret line), then answers with the counts.
+const toolResults = []; const importAnswers = [];
+const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((x) => x.text ?? '').join('') : '');
+const call = (res, model, name, args) => {
+  res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: `call_${name}_${Date.now()}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] }, finish_reason: null }] })}\n\n`);
+  res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model, choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })}\n\n`);
+  res.end('data: [DONE]\n\n');
+};
 const fake = createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
@@ -44,6 +55,32 @@ const fake = createServer((req, res) => {
       res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta: { role: 'assistant', tool_calls: [{ index: 0, id: 'call_mem', type: 'function', function: { name: 'memory_remember', arguments: '{"text":"The user likes tea"}' } }] }, finish_reason: null }] })}\n\n`);
       res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] })}\n\n`);
       res.end('data: [DONE]\n\n'); return;
+    }
+    const names = (parsed.tools ?? []).map((t) => t.function?.name);
+    const firstUser = textOf(msgs.find((m) => m.role === 'user' && !/^<|^Current runtime context|^Time sampled/.test(textOf(m.content).trim()))?.content);
+    const lastUser = textOf(msgs.findLast((m) => m.role === 'user' && !/^<|^Current runtime context|^Time sampled/.test(textOf(m.content).trim()))?.content);
+    const toolsDone = msgs.slice(msgs.findLastIndex((m) => m.role === 'user' && textOf(m.content) === lastUser) + 1).filter((m) => m.role === 'tool');
+    // The subagent: its task is the import prompt; it has the two import tools.
+    if (names.includes('memory_import_sources') && /memory_import_sources/.test(firstUser)) {
+      if (toolsDone.length === 0) return call(res, parsed.model, 'memory_import_sources', {});
+      if (toolsDone.length === 1) {
+        const read = JSON.parse(textOf(toolsDone[0].content));
+        const web = read.files.find((f) => f.path.endsWith('acme-web/AGENTS.md'));
+        return call(res, parsed.model, 'memory_import', { facts: [
+          { text: 'acme-web deploys with make release.', source: web.path, project: web.project },
+          { text: 'The user wants answers in English.', source: read.files.find((f) => f.scope === 'global')?.path ?? web.path },
+          { text: 'The deploy token is FAKE_TOKEN_9f8e7d6c5b4a3f2e1d', source: web.path, project: web.project },
+        ] });
+      }
+      importAnswers.push(textOf(toolsDone.at(-1).content));
+      res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta: { role: 'assistant', content: `Import done: ${textOf(toolsDone.at(-1).content)}` }, finish_reason: null }] })}\n\n`);
+      res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] })}\n\n`);
+      res.end('data: [DONE]\n\n'); return;
+    }
+    // The assistant: the import prompt starts one background subagent with the prompt as its task.
+    if (names.includes('subagent') && /memory_import_sources/.test(lastUser) && toolsDone.length === 0) {
+      const bg = (parsed.tools ?? []).find((t) => t.function?.name === 'subagent')?.function?.parameters?.properties?.run_in_background !== undefined;
+      return call(res, parsed.model, 'subagent', { description: 'Memory import', prompt: lastUser, ...(bg ? { run_in_background: true } : {}) });
     }
     if (tool !== undefined) toolResults.push(String(typeof tool.content === 'string' ? tool.content : (tool.content ?? []).map((c) => c.text ?? '').join('')));
     res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta: { role: 'assistant', content: 'ok' }, finish_reason: null }] })}\n\n`);
@@ -86,6 +123,9 @@ try {
   config: { provider: demo, model: demo }
 `);
     const dir = join(home, 'projects', 'acme-web'); await mkdir(dir, { recursive: true }); await writeFile(join(dir, 'README.md'), '# acme-web\n');
+    await writeFile(join(dir, 'AGENTS.md'), '# acme-web\n- Deploys go through make release.\n- API_TOKEN=FAKE_TOKEN_9f8e7d6c5b4a3f2e1d\n');
+    await writeFile(join(dir, 'CLAUDE.md'), '- Use pnpm.\n');
+    await mkdir(join(home, '.claude'), { recursive: true }); await writeFile(join(home, '.claude', 'CLAUDE.md'), '- Answer in English.\n');
     await mkdir(join(dshHome, 'storages/dsh-composer-plus'), { recursive: true });
     await writeFile(join(dshHome, 'storages/dsh-composer-plus/memory.json'), '{"on":true}');
     const wsId = randomUUID(); const now = new Date().toISOString();
@@ -180,6 +220,40 @@ try {
       await assistantRow().click(); await pause(1500);
       assert.equal(await setupCard.count(), 0, 'ready: no setup card');
       note(`0b: Set up wrote AGENTS.md and the memory folder; with Obsidian's vault and a restart the setup is ready (${id0})`);
+      // 0c. Memory import from the welcome card of a new assistant chat.
+      await context.close(); await stop();
+      await writeFile(join(dshHome, 'storages/dsh-composer-plus/assistant.json'), '{}');
+      url = await start(); assert.ok(url);
+      context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
+      await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.features') === null) localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}'); });
+      page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
+      await page.goto(url); await page.locator('[data-composer-input]').first().waitFor({ timeout: 20000 }); bind();
+      await assistantRow().click();
+      const importBox = page.locator('[data-composer-plus-memory-import]');
+      await importBox.waitFor({ timeout: 20000 });
+      const promptText = await importBox.locator('textarea').inputValue();
+      assert.match(promptText, /^Import my earlier memory into Obsidian\./); assert.match(promptText, /memory_import_sources/);
+      const vaultMemory = join(home, 'Assistant', 'Memory');
+      // The first run from the card's Start; a later run is a message in the chat (the card goes with the first message).
+      const runImport = async (n) => {
+        if (n === 1) await importBox.getByRole('button', { name: 'Start', exact: true }).click();
+        else { await input.first().click(); await page.keyboard.type('Run the memory import again (memory_import_sources, then memory_import).', { delay: 2 }); await page.keyboard.press('Enter'); }
+        await until(() => importAnswers.length >= n, `import run ${n}`, 60000);
+        await pause(3000); // the memory review of the turns
+        return JSON.parse(importAnswers[n - 1]);
+      };
+      const firstRun = await runImport(1);
+      assert.equal(firstRun.added, 2, `two facts: ${JSON.stringify(firstRun)}`); assert.equal(firstRun.secret, 1, 'the secret fact is skipped');
+      const vaultFiles = await memFiles(vaultMemory);
+      const vaultText = (await Promise.all(vaultFiles.map((f) => readFile(f, 'utf8')))).join('\n');
+      assert.match(vaultText, /acme-web deploys with make release\./); assert.match(vaultText, /The user wants answers in English\./);
+      assert.doesNotMatch(vaultText, /FAKE_TOKEN/, 'the secret is not in the vault');
+      assert.deepEqual(await memFiles(join(dshHome, 'storages/dsh-composer-plus/memory')), [], 'no memory file outside the vault');
+      const secondRun = await runImport(2);
+      assert.equal(secondRun.added, 0, `a second run adds nothing: ${JSON.stringify(secondRun)}`);
+      assert.equal((await Promise.all((await memFiles(vaultMemory)).map((f) => readFile(f, 'utf8')))).join('\n'), vaultText, 'the vault did not change');
+      assert.equal(readFileSync(join(dir, 'AGENTS.md'), 'utf8').includes('FAKE_TOKEN'), true, 'the source file did not change');
+      note(`0c: the import prompt ran twice: ${JSON.stringify(firstRun)}, then ${JSON.stringify(secondRun)}; the facts are in the vault, the secret is not`);
       // The rest of the test starts with a new assistant chat (the old one has a message): Delete chat is not needed,
       // a new assistant.json makes the Host start a new chat.
       await context.close(); await stop();
@@ -248,6 +322,7 @@ try {
       if (!passed) console.log(`  home kept: ${home}\n${log.split('\n').filter((l) => /error|warn|assistant/i.test(l)).slice(-30).join('\n')}`);
       await context?.close().catch(() => {});
       await stop();
+      if (passed) await rm(home, { recursive: true, force: true }).catch(() => {});
     }
   }
 } finally { await browser.close(); fake.close(); }

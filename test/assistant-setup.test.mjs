@@ -4,7 +4,7 @@
 // memory). The client shows the setup card in the assistant chat until ready, with Set up, Check again and the download link.
 import './temp-home.mjs';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, realpath, rename } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, realpath, rename, lstat } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -134,10 +134,17 @@ try {
   { const home4 = join(root, 'dsh4'); const mem4 = installMemory({ ...ctx, inject: undefined, connection: { fetch: { register: () => {} } } }, home4); await mem4.ready;
     const f4 = join(root, 'f4'); await mkdir(f4);
     const s4 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f4 }, mem4, { home, apps: [], configs: [] });
-    await symlink(join(root, 'missing-dir', 'x'), join(f4, 'AGENTS.md')); // O_NOFOLLOW|O_EXCL on a dangling link: EEXIST, so no write
-    await s4.fix('Memory');
-    assert.equal(mem4.state().on, true, 'a link in the place of AGENTS.md is not followed, the rest is saved');
+    // AGENTS.md is the user's link to a missing file: Set up says why, changes nothing and keeps the link.
+    await symlink(join(root, 'missing-dir', 'x'), join(f4, 'AGENTS.md'));
+    await assert.rejects(s4.fix('Memory'), /AGENTS\.md is a link to a missing or empty file/);
+    assert.equal(mem4.state().on, false, 'nothing saved'); assert.ok((await lstat(join(f4, 'AGENTS.md'))).isSymbolicLink(), 'the link stays');
     await rm(join(f4, 'AGENTS.md'));
+    // A link to an empty file is the user's too: it is not removed.
+    await writeFile(join(root, 'empty.md'), ''); await symlink(join(root, 'empty.md'), join(f4, 'AGENTS.md'));
+    await assert.rejects(s4.fix('Memory'), /link to a missing or empty file/);
+    assert.ok((await lstat(join(f4, 'AGENTS.md'))).isSymbolicLink(), 'a link to an empty file stays');
+    await rm(join(f4, 'AGENTS.md'));
+    await s4.fix('Memory'); assert.equal(mem4.state().on, true, 'without the link, Set up saves');
     const f5 = join(root, 'f5'); await mkdir(f5);
     const home5 = join(root, 'dsh5'); const mem5 = installMemory({ ...ctx, inject: undefined, connection: { fetch: { register: () => {} } } }, home5); await mem5.ready;
     const failing = { ...mem5, setup: (plan) => mem5.setup(async (m) => ({ ...(await plan(m)), rules: { path: join(root, 'no-such-dir', 'AGENTS.md'), text: 'x' } })) };
