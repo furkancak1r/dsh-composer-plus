@@ -9800,33 +9800,38 @@ const foldName = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '')
 
 /** A task text that mentions a merge or push into main (2026-11-12: two task texts that asked for /merge-main went to main
  * without a review). The caller then states its intent with the tool parameter merge_main, and the tool appends one fixed
- * line (MERGE_MAIN_LINES). The detector reads no intent: a negation, a question or a noun counts too ("do not merge into
- * main"), and a false positive costs the caller one parameter. Only these reports are left out: "merged", "main'e
- * birleşti", "main'e birleşmiş", and refs that read main (origin/main, git log/diff/fetch/pull … main, git merge origin/main).
- * Case, accents, quotes and backticks around main (' ’ ` ´ " “ ”), the dotless ı and line breaks do not matter.
- * Fixed words with bounded repeats (at most 6 words of 80 characters between merge or push and main), so the time is linear.
+ * line (MERGE_MAIN_LINES). The detector reads no intent: a negation, a question, a noun or a report counts too ("do not
+ * merge into main", "already merged into main"), and a false positive costs the caller one parameter. Only the Turkish past
+ * ("main'e birleşti", "main'e birleşmiş") and refs that read main (origin/main, git log/diff/fetch/pull … main, git merge
+ * origin/main) are left out. Case, accents, quotes, backticks and Markdown * and _ around main (' ’ ` ´ " “ ”), the dotless ı
+ * and line breaks do not matter. Fixed words with bounded repeats (at most 6 words of 80 characters between merge or push
+ * and main), so the time is linear.
  * ponytail: only these English and Turkish words count. "into the main function" and participles ("main'e birleştirilen
  * dallar") are found too (the caller sets "none"); "merge in main", "fast-forward main", "update main with this branch",
- * "main'e al/geçir/gönder", "git checkout main && git merge X && git push", "git push upstream main" and "merge into master"
- * are not found. A later chat_send to a branch chat whose first task asked for the merge is not checked. Upgrade: keep
- * merge_main with the task and check each later message to that chat. */
+ * "main'e al/geçir/gönder", "git checkout main && git merge X && git push" and "merge into master" are not found. A later
+ * chat_send to a branch chat whose first task asked for the merge is not checked. Upgrade: keep merge_main with the task and
+ * check each later message to that chat. */
 const MAIN_END = String.raw`(?![\p{L}\p{N}_-]|\.\p{L})`; // not "main-backup", "maintenance" or "main.py"
 const SP = '[ \\n]';
 // One word between merge or push and main: 1 to 80 characters with no space, not ending in "." (a sentence end; "v2.0"
-// stays one word). A word cannot hold the space before it, so each way to read the repeat is the only one.
-const GAP_WORD = String.raw`${SP}[^\s!?;:,]{0,79}[^\s!?;:,.]`;
+// stays one word; "feat/a," is a word). A word cannot hold the space before it, so each way to read the repeat is the only one.
+const GAP_WORD = String.raw`${SP}[^\s!?;:]{0,79}[^\s!?;:.]`;
+const MERGE = '(?:merg(?:e|es|ed|ing)|push(?:es|ed|ing)?)'; // English verbs: merges, merged, merging, pushes …
+const MAIN = String.raw`'?(?:origin/)?'?main'?${MAIN_END}`; // main, 'main', 'origin/main', origin/'main'
 const MERGE_MAIN = new RegExp([
   String.raw`(?<![\p{L}\p{N}_-])[/$]?merge-main${MAIN_END}`, // the skill or command
-  String.raw`(?<![\p{L}\p{N}_-])(?:merge|push)(?!${SP}conflicts?)(?:${GAP_WORD}){0,6}?${SP}(?:into|to|onto|with)${SP}(?:the${SP})?(?:origin/)?'?main'?${MAIN_END}`,
-  String.raw`(?<![\p{L}\p{N}_-])push(?:${GAP_WORD}){0,6}?${SP}(?:[^\s!?;,]{0,80}:)?(?:refs/heads/)?'?main'?${MAIN_END}`, // git push origin main, HEAD:main
+  String.raw`(?<![\p{L}\p{N}_-])${MERGE}(?!${SP}conflicts?)(?:${GAP_WORD}){0,6}?${SP}(?:into|to|onto|with)${SP}(?:the${SP})?${MAIN}`,
+  String.raw`(?<![\p{L}\p{N}_-])push(?:es|ed|ing)?(?:${GAP_WORD}){0,6}?${SP}(?:[^\s!?;,]{0,80}:)?(?:refs/heads/)?'?main'?${MAIN_END}`, // git push origin main, HEAD:main
   // Turkish: main'e, main'a, main dalına + birleş…, pushla…, merge or push [et/edil/yap…]; its verb is "tr".
   String.raw`(?<![\p{L}\p{N}_-])main(?:'[ea]|${SP}e|${SP}dalina)${SP}(?<tr>birles\p{L}*|pushla\p{L}*|(?:merge|push)(?:${SP}(?:et|ed|yap)\p{L}*)?)`,
 ].join('|'), 'gu');
 const TR_PAST = /(?:[dt]i|mis)$/; // birleşti, birleştirildi, merge edildi, birleşmiş, pushlandı: a report
 /** True when the text mentions a merge or push into main. */
 export const mentionsMergeMain = (text) => {
-  // Quotes and backticks first (NFKD makes ´ a space and a mark): "`main`'e" becomes "'main'e".
-  const t = foldName(String(text ?? '').replace(/[\u2018\u2019\u02bc\u0060\u00b4"\u201c\u201d]/g, "'")).replace(/'{2,}/g, "'").replace(/ı/g, 'i').replace(/\s+/g, ' ');
+  // Quotes and backticks first (NFKD makes ´ a space and a mark): "`main`'e" becomes "'main'e". Markdown * and _ go
+  // ("**main**"), but not "_" inside a word.
+  const t = foldName(String(text ?? '').replace(/[\u2018\u2019\u02bc\u0060\u00b4"\u201c\u201d]/g, "'")).replace(/\*+|(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, '')
+    .replace(/'{2,}/g, "'").replace(/ı/g, 'i').replace(/\s+/g, ' ');
   for (const m of t.matchAll(MERGE_MAIN)) if (m.groups.tr === undefined || !TR_PAST.test(m.groups.tr)) return true;
   return false;
 };
@@ -9973,6 +9978,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     if (!Object.hasOwn(MERGE_MAIN_LINES, mergeMain)) throw refused('merge_main is "none" or "after_review".');
     if (mergeMain === 'after_review' && !(await hasReviewGuard(cwd, exec))) throw refused('merge_main "after_review" needs a skill named review-guard, and none is installed. Set it to "none", or leave it out.');
     const line = MERGE_MAIN_LINES[mergeMain];
+    if (Object.entries(MERGE_MAIN_LINES).some(([value, other]) => value !== mergeMain && text.includes(other))) throw refused(`The text has the line of another merge_main value. Remove that line, or set merge_main to match it.`);
     if (text.includes(line)) return text;
     if (text.length + line.length + 2 > ASSISTANT_LIMITS.text) throw refused(`text is 1 to ${ASSISTANT_LIMITS.text - line.length - 2} characters with merge_main.`);
     return `${text}\n\n${line}`;

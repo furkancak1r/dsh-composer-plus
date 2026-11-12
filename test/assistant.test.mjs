@@ -17,10 +17,14 @@ import { ASSISTANT_ASK, ASSISTANT_PATH, ASSISTANT_PRESET, ASSISTANT_SWITCH_PATH,
 const tick = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
 
 // The merge gate's detector: a text that mentions a merge or push into main. It reads no intent: a negation, a question,
-// a noun or a review step counts too (the caller sets merge_main). Only a report of a merge that happened and refs that read
-// main are left out. Rows from the reviews of 2026-11-12.
+// a noun, a review step or an English report (merged into main) counts too (the caller sets merge_main). Only the Turkish
+// past and refs that read main are left out. Rows from the reviews of 2026-11-12.
 const MENTIONS_MERGE_MAIN = [
-  "main'e merge", "main'e push", "Bitince main'e pushla.", "main'e birleştirilen dalları sil.", "Merge the two helpers into the main function.",
+  "main'e merge",
+  "main'e push",
+  "Bitince main'e pushla.",
+  "main'e birleştirilen dalları sil.",
+  "Merge the two helpers into the main function.",
   "Rules:\n- Do not change the API\n- Merge into main when the tests pass",
   "Do not touch the tests\nMerge into main when done",
   "Do not force push then git push origin main",
@@ -185,10 +189,23 @@ const MENTIONS_MERGE_MAIN = [
   "Merge the PR and never push to main.",
   "Merge the PR and do not push to main.",
   "Merge the fix, then do not push to main.",
+  "merged into main",
+  "The branch is already merged into main.",
+  "When CI is green, the branch merges into main.",
+  "Finish by merging the branch into main.",
+  "After the tests, the branch is merged into main.",
+  "The fix is pushed to main when the tests pass.",
+  "Push the branch to `origin/main`.",
+  "Merge into \"origin/main\".",
+  "Merge into **main** after review.",
+  "Merge feat/a, feat/b and feat/c into main.",
+  "git push upstream main",
 ];
 const NO_MERGE_MAIN = [
-  "Dal main'e merge edildi.", "Dal main'e pushlandı.", "main'e birleştirilmiş dal", "main'e push edildi",
-  "merged into main",
+  "Dal main'e merge edildi.",
+  "Dal main'e pushlandı.",
+  "main'e birleştirilmiş dal",
+  "main'e push edildi",
   "main'e birleşti",
   "main'e birleşmiş dal",
   "main is at 05a6bda",
@@ -201,7 +218,6 @@ const NO_MERGE_MAIN = [
   "Fix the footer and push the branch.",
   "Dal main'e birleştirildi.",
   "Dal main'e birleştirilmiş.",
-  "The branch is already merged into main.",
   "It is in main now.",
   "The fix is in origin/main.",
   "Pull from main and push the branch.",
@@ -493,6 +509,10 @@ for (const text of [merge, ...MENTIONS_MERGE_MAIN.slice(0, 40), 'Do not merge or
     await tool('chat_send').execute({ chat_id: 's-web', text, merge_main: value }, as);
     assert.equal(textOf(prompts.at(-1)), `${text.trim()}\n\n${line}`, `${value}: ${JSON.stringify(text)}`);
   }
+}
+// A text that has the line of the other value is refused (it would get both lines).
+for (const [value, other] of [['after_review', 'none'], ['none', 'after_review']]) {
+  await assert.rejects(tool('chat_send').execute({ chat_id: 's-web', text: `${merge}\n\n${MERGE_MAIN_LINES[other]}`, merge_main: value }, as), /line of another merge_main value/, `${value} with the ${other} line`);
 }
 // The line is not added twice; with no merge words, a set merge_main still adds it; without it nothing is added.
 const withLine = `${merge}\n\n${MERGE_MAIN_LINES.after_review}`;
