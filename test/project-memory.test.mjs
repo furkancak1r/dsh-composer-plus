@@ -3,6 +3,7 @@
 // the review after a turn reads only the chat's own messages (a fork's parent copy and rolled-back messages are left out),
 // and the switch removes the tools and the section. A symlink or FIFO put in place of a memory file is not followed and
 // does not block.
+import { readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, readdir, writeFile, rm, symlink, stat } from 'node:fs/promises';
@@ -12,6 +13,8 @@ import {
   MEMORY_PATH, MEMORY_TOOLS, installMemory, memoryStore, memorySection, memoryReviewRequest, memoryLines, parseMemoryReview, parseMemory, looksSecret,
   entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE, MEMORY_PROMPT_MAX, MEMORY_REVIEW_SYSTEM, squash,
 } from '../index.js';
+// The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read).
+const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 
 let seq = 0;
 const ev = (type, data, extra = {}) => ({ seq: seq++, time: 1000 + seq, type, data, ...extra });
@@ -42,14 +45,14 @@ try {
   assert.equal((await store.add({ scope, text: 'The user wants answers in Turkish', meta: { source: 's1' }, actor: 'agent' })).changed, true);
   assert.equal((await store.add({ scope, text: 'the user wants answers in  turkish', actor: 'agent' })).changed, false, 'same entry: nothing changes');
   await store.add({ scope, topic: 'deploy', text: 'Deploys go through the staging box first', actor: 'agent' });
-  let main = await readFile(join(scope.dir, 'MEMORY.md'), 'utf8');
+  let main = await readFile(mainOf(scope.dir), 'utf8');
   assert.equal(main, '# Memory\n\n- The user wants answers in Turkish [source: s1; added: 2026-10-28]\n\n## Index\n- [[deploy]]\n');
   assert.deepEqual(JSON.parse(await readFile(join(scope.dir, 'project.json'), 'utf8')), { path: scope.path });
   assert.deepEqual(parseMemory(await readFile(join(scope.dir, 'deploy.md'), 'utf8')).entries.map((e) => e.text), ['Deploys go through the staging box first']);
   await store.replace({ scope, match: 'Turkish', text: 'The user wants answers in English', actor: 'agent' });
   await assert.rejects(store.remove({ scope, match: 'nothing like this', actor: 'agent' }), /No entry/);
   await store.remove({ scope, match: 'staging box', actor: 'agent' });
-  main = await readFile(join(scope.dir, 'MEMORY.md'), 'utf8');
+  main = await readFile(mainOf(scope.dir), 'utf8');
   assert.match(main, /answers in English/); assert.doesNotMatch(main, /deploy/, 'the empty topic and its link are gone');
   assert.deepEqual(await readdir(project), [], 'nothing in the project folder');
   const rows = (await readFile(join(dir, 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
@@ -61,11 +64,11 @@ try {
   const bigScope = big.project(project);
   for (let i = 0; i < 60; i++) await big.add({ scope: bigScope, text: `Fact number ${i} ${'x'.repeat(200)}`, actor: 'agent' });
   for (let i = 0; i < 45; i++) await big.add({ scope: bigScope, topic: `t-${i}`, text: `Topic fact ${i}`, actor: 'agent' });
-  assert.ok((await readFile(join(bigScope.dir, 'MEMORY.md'), 'utf8')).length > 12000, 'MEMORY.md has no size limit');
+  assert.ok((await readFile(mainOf(bigScope.dir), 'utf8')).length > 12000, 'MEMORY.md has no size limit');
   assert.equal(big.load(bigScope).length, 46, '45 topics and MEMORY.md');
   const bigSection = memorySection(big, bigScope);
   assert.match(bigSection, /Fact number 59 /, 'the newest entry is in the prompt'); assert.doesNotMatch(bigSection, /Fact number 0 /, 'the oldest is not');
-  const hidden = Number(/\((\d+) older entries of this MEMORY\.md are not shown here: find them with memory_recall\.\)/.exec(bigSection)?.[1]);
+  const hidden = Number(/\((\d+) older entries of this main file are not shown here: find them with memory_recall\.\)/.exec(bigSection)?.[1]);
   const shownFacts = bigSection.match(/Fact number \d+ /g).length;
   assert.equal(hidden + shownFacts, 60, 'every entry is shown or counted'); assert.ok(shownFacts > 20);
   assert.ok(bigSection.split('## Global memory')[0].split('\n').filter((l) => l.startsWith('- Fact')).join('\n').length <= MEMORY_PROMPT_MAX, 'the budget holds');
@@ -77,11 +80,11 @@ try {
   // A symlink or a FIFO in place of MEMORY.md is not followed and does not block (rule 6).
   const outside = join(root, 'outside.md'); await writeFile(outside, '# Memory\n\n- SECRET outside entry\n');
   const linked = memoryStore(join(root, 'linked')); const ls = linked.project(project);
-  await mkdir(ls.dir, { recursive: true }); await symlink(outside, join(ls.dir, 'MEMORY.md'));
+  await mkdir(ls.dir, { recursive: true }); await symlink(outside, mainOf(ls.dir));
   assert.deepEqual(linked.load(ls)[0].entries, [], 'a symlink is not followed');
   const fifo = memoryStore(join(root, 'fifo')); const fs2 = fifo.project(project);
-  await mkdir(fs2.dir, { recursive: true }); execFileSync('mkfifo', [join(fs2.dir, 'MEMORY.md')]);
-  const timer = setTimeout(() => { execFileSync('sh', ['-c', `echo x > "${join(fs2.dir, 'MEMORY.md')}"`]); }, 3000); // a red test ends here
+  await mkdir(fs2.dir, { recursive: true }); execFileSync('mkfifo', [mainOf(fs2.dir)]);
+  const timer = setTimeout(() => { execFileSync('sh', ['-c', `echo x > "${mainOf(fs2.dir)}"`]); }, 3000); // a red test ends here
   const t0 = Date.now(); assert.deepEqual(fifo.load(fs2)[0].entries, [], 'a FIFO is not read'); clearTimeout(timer);
   assert.ok(Date.now() - t0 < 1000, 'a FIFO does not block');
 
@@ -234,14 +237,14 @@ try {
 
   // A big MEMORY.md (no limit now): the review's new note and the agent's note are both saved there.
   { const pDir = mem.store.project(project).dir;
-    const before = await readFile(join(pDir, 'MEMORY.md'), 'utf8');
-    await writeFile(join(pDir, 'MEMORY.md'), before.replace('## Index', `- ${'Filler fact. '.repeat(610)}\n\n## Index`));
+    const before = await readFile(mainOf(pDir), 'utf8');
+    await writeFile(mainOf(pDir), before.replace('## Index', `- ${'Filler fact. '.repeat(610)}\n\n## Index`));
     sessionEvents = [...sessionEvents, user('I always deploy on Fridays')];
     answer = '{"changes":[{"op":"add","text":"The user deploys on Fridays"}]}';
     await mem.review('chat-1');
-    assert.match(await readFile(join(pDir, 'MEMORY.md'), 'utf8'), /The user deploys on Fridays/, 'the review note is in MEMORY.md');
-    assert.match(await tool('memory_remember').execute({ text: 'Another main fact' }, exec), /^Saved to the project memory, in MEMORY\.md/);
-    await writeFile(join(pDir, 'MEMORY.md'), before); }
+    assert.match(await readFile(mainOf(pDir), 'utf8'), /The user deploys on Fridays/, 'the review note is in MEMORY.md');
+    assert.match(await tool('memory_remember').execute({ text: 'Another main fact' }, exec), /^Saved to the project memory, in acme-web memory\.md/);
+    await writeFile(mainOf(pDir), before); }
 
   // A failed review and a left-out change leave a journal row (dsh's warning is in memory only).
   { const journalRows = async () => (await readFile(join(hostHome, 'storages', 'dsh-composer-plus', 'memory', 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));

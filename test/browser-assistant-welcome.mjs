@@ -20,7 +20,7 @@ import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, mkdir, writeFile, symlink, realpath, readdir, readFile, rm } from 'node:fs/promises';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -251,7 +251,7 @@ try {
       const firstRun = await runImport(1);
       assert.equal(firstRun.added, 2, `two facts: ${JSON.stringify(firstRun)}`); assert.equal(firstRun.secret, 1, 'the secret fact is skipped');
       await importBox.waitFor({ state: 'detached', timeout: 10000 }); // Start ends the card on this device
-      assert.ok(existsSync(join(vaultMemory, 'General', 'MEMORY.md')) && existsSync(join(vaultMemory, 'Projects')), 'the English subfolder names in the vault');
+      assert.ok(readdirSync(join(vaultMemory, 'General')).some((f) => / memory\.md$/.test(f)) && existsSync(join(vaultMemory, 'Projects')), 'the English subfolder names in the vault');
       const vaultFiles = await memFiles(vaultMemory);
       const vaultText = (await Promise.all(vaultFiles.map((f) => readFile(f, 'utf8')))).join('\n');
       assert.match(vaultText, /acme-web deploys with make release\./); assert.match(vaultText, /The user wants answers in English\./);

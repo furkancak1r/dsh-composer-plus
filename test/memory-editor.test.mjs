@@ -5,12 +5,15 @@
 // answers 409 while the switch is off. Client (real client.js, fake React): the Settings row shows "Open memory" only while
 // the feature is on; the dialog groups by project; a second preview or apply while one runs does nothing, from the button
 // and from ⌘/Ctrl+Enter; switching the feature off closes the dialog and its style goes with it.
+import { readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { chmod, mkdtemp, mkdir, readFile, rm } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MEMORY_PATH, MEMORY_EDIT_PATH, MEMORY_EDIT_SYSTEM, installMemory, memoryStore, memoryView, memoryEditScopes, memoryEditRequest, planMemoryEdit, parseMemoryEdit } from '../index.js';
+// The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read).
+const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 
 const root = await mkdtemp(join(tmpdir(), 'cp-memory-edit-'));
 try {
@@ -89,7 +92,7 @@ try {
   assert.equal((await call(MEMORY_EDIT_PATH, { preview: { project: 'a'.repeat(32), text: 'x' } })).status, 404, 'a project without memory');
 
   // Preview: dsh's default model, no tools, nothing written.
-  const before = await readFile(join(s.dir, 'MEMORY.md'), 'utf8');
+  const before = await readFile(mainOf(s.dir), 'utf8');
   answer = '{"changes":[{"op":"remove","entry":2},{"op":"add","text":"The user uses pnpm"},{"op":"add","text":"the key is sk-abcdefghijklmnopqrstu"}],"note":"Yarn becomes pnpm."}';
   const p1 = await call(MEMORY_EDIT_PATH, { preview: { project: s.id, text: 'I switched from yarn to pnpm' } });
   assert.equal(p1.status, 200);
@@ -98,21 +101,21 @@ try {
   assert.match(calls.at(-1).messages[0].content[0].text, /I switched from yarn to pnpm/);
   assert.deepEqual(p1.body.changes.map((c) => [c.op, c.before ?? c.text]), [['remove', 'The user uses yarn'], ['add', 'The user uses pnpm']]);
   assert.equal(p1.body.skipped, 1, 'the secret is left out'); assert.equal(p1.body.note, 'Yarn becomes pnpm.');
-  assert.equal(await readFile(join(s.dir, 'MEMORY.md'), 'utf8'), before, 'a preview writes nothing');
+  assert.equal(await readFile(mainOf(s.dir), 'utf8'), before, 'a preview writes nothing');
 
   // A review writes between the preview and Apply: Apply refuses (409) and writes nothing.
   await store.add({ scope: s, text: 'The user likes short answers', actor: 'review' });
-  const changed = await readFile(join(s.dir, 'MEMORY.md'), 'utf8');
+  const changed = await readFile(mainOf(s.dir), 'utf8');
   const stale = await call(MEMORY_EDIT_PATH, { apply: p1.body.id });
   assert.equal(stale.status, 409); assert.match(stale.body.error, /changed after this preview/);
-  assert.equal(await readFile(join(s.dir, 'MEMORY.md'), 'utf8'), changed);
+  assert.equal(await readFile(mainOf(s.dir), 'utf8'), changed);
 
   // Preview again and apply.
   answer = '{"changes":[{"op":"remove","entry":2},{"op":"add","text":"The user uses pnpm"}],"note":"ok"}';
   const p2 = await call(MEMORY_EDIT_PATH, { preview: { project: s.id, text: 'I switched from yarn to pnpm' } });
   const applied = await call(MEMORY_EDIT_PATH, { apply: p2.body.id });
   assert.equal(applied.status, 200); assert.equal(applied.body.applied, 2); assert.equal('failed' in applied.body, false, 'all or none: no list of failed changes');
-  const after = await readFile(join(s.dir, 'MEMORY.md'), 'utf8');
+  const after = await readFile(mainOf(s.dir), 'utf8');
   assert.match(after, /uses pnpm \[source: editor; added: /); assert.doesNotMatch(after, /yarn/); assert.match(after, /make release/); assert.match(after, /short answers/);
   const journal = (await readFile(join(home, 'storages', 'dsh-composer-plus', 'memory', 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(journal.slice(-2).map((r) => [r.op, r.actor]), [['remove', 'editor'], ['add', 'editor']]);
@@ -145,7 +148,7 @@ try {
   await store.add({ scope: b, text: 'The blog uses Hugo', actor: 'agent' });
   await store.add({ scope: b, topic: 'api', text: 'The API runs on port 8080', actor: 'agent' });
   const journalPath = join(home, 'storages', 'dsh-composer-plus', 'memory', 'journal.jsonl');
-  const files = async () => Promise.all([join(b.dir, 'MEMORY.md'), join(b.dir, 'api.md'), join(b.dir, 'deploy.md'), join(store.GLOBAL.dir, 'MEMORY.md'), journalPath]
+  const files = async () => Promise.all([mainOf(b.dir), join(b.dir, 'api.md'), join(b.dir, 'deploy.md'), mainOf(store.GLOBAL.dir), journalPath]
     .map((path) => readFile(path, 'utf8').catch(() => null)));
   const num = (req, note) => Number(new RegExp(`\\[(\\d+)\\] \\([^)]*\\) ${note}`).exec(req)[1]);
   answer = (req) => JSON.stringify({ changes: [
@@ -168,7 +171,7 @@ try {
   const move2 = await call(MEMORY_EDIT_PATH, { preview: { project: b.id, text: 'move the deploy rule to global' } });
   const applied2 = await call(MEMORY_EDIT_PATH, { apply: move2.body.id });
   assert.equal(applied2.status, 200); assert.equal(applied2.body.applied, 4);
-  assert.match(await readFile(join(store.GLOBAL.dir, 'MEMORY.md'), 'utf8'), /The blog deploys with git push on the main branch/);
+  assert.match(await readFile(mainOf(store.GLOBAL.dir), 'utf8'), /The blog deploys with git push on the main branch/);
   // The count: a note that is already saved changes nothing, so it is not counted.
   answer = '{"changes":[{"op":"add","text":"The blog uses Hugo 0.140"},{"op":"add","text":"The blog has a dark theme"}]}';
   const again = await call(MEMORY_EDIT_PATH, { apply: (await call(MEMORY_EDIT_PATH, { preview: { project: b.id, text: 'the blog has a dark theme' } })).body.id });

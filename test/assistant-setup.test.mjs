@@ -5,10 +5,12 @@
 import './temp-home.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, realpath, rename, lstat, chmod } from 'node:fs/promises';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ASSISTANT_SETUP_PATH, OBSIDIAN_DOWNLOAD, SETUP_BLOCKED, assistantSetup, installAssistantSetup, installMemory, memoryNamesOf, obsidianApps, obsidianConfigs, vaultRules } from '../index.js';
+// The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read until the migration).
+const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 
 const root = await realpath(await mkdtemp(join(tmpdir(), 'cp-setup-')));
 try {
@@ -192,19 +194,19 @@ try {
     const raw = JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8'));
     await writeFile(join(sN, 'memory-folder.json'), JSON.stringify({ ...raw, folder: notes })); // Settings → Memory folder
     let mm = await restart();
-    assert.match(await readFile(join(notes, 'General', 'MEMORY.md'), 'utf8'), /A note in English folders/, 'the move copies the notes (English names)');
+    assert.match(await readFile(mainOf(join(notes, 'General')), 'utf8'), /A note in English folders/, 'the move copies the notes (English names)');
     assert.deepEqual(JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8')).importedNames, { global: 'General', projects: 'Projects' });
     const vG = join(root, 'vG', 'Gedächtnis');
     await mm.setup(async (st) => ({ folder: vG, names: { global: 'Allgemein', projects: 'Projekte' } }));
     mm = await restart();
-    assert.match(await readFile(join(vG, 'Allgemein', 'MEMORY.md'), 'utf8'), /A note in English folders/, 'a German Set up still copies the notes from the English folders');
+    assert.match(await readFile(mainOf(join(vG, 'Allgemein')), 'utf8'), /A note in English folders/, 'a German Set up still copies the notes from the English folders');
     assert.equal(mm.store.GLOBAL.dir, join(vG, 'Allgemein'));
     // The copy works but the setting file is not saved: the names of the notes stay with their folder (review 2026-11-12).
     const vF = join(root, 'vF', 'Mémoire');
     await writeFile(join(sN, 'memory-folder.json'), JSON.stringify({ ...JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8')), folder: vF, names: { global: 'Général', projects: 'Projets' } }));
     await chmod(sN, 0o500);
     try { mm = await restart(); } finally { await chmod(sN, 0o700); }
-    assert.match(await readFile(join(vF, 'Général', 'MEMORY.md'), 'utf8'), /A note in English folders/);
+    assert.match(await readFile(mainOf(join(vF, 'Général')), 'utf8'), /A note in English folders/);
     await mm.setup(async () => ({ folder: join(root, 'vF2') })); // a later save writes the names that it holds
     const saved = JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8'));
     assert.deepEqual([saved.imported, saved.importedNames], [vG, { global: 'Allgemein', projects: 'Projekte' }], 'a failed save keeps the old folder with its own names'); }
