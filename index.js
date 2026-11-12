@@ -86,7 +86,7 @@ export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'approveButton', 'allowForChat', 'rejectNote', 'secretInput', 'quoteReply', 'previewQuote', 'sideChat', 'diffComments', 'continueButton', 'resumeAfterRestart', 'outageResume', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit', 'subagentRunning', 'windowSize',
   'queueReorder', 'mobileConnect', 'remoteComputers', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'featureFilter', 'categoryFilter', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
-  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'assistant', 'assistantApart', 'assistantChatView', 'assistantFree', 'assistantNotify', 'assistantTodos', 'plannedSteps', 'turkishSkill', 'untangleCodebase', 'memoryHistory', 'memoryExport', 'memorySource', 'memoryCopy', 'memoryStale', 'memoryPerChat', 'memorySuggest', 'issueReport'];
+  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'assistant', 'assistantApart', 'assistantChatView', 'assistantCallouts', 'assistantFree', 'assistantNotify', 'assistantTodos', 'plannedSteps', 'turkishSkill', 'untangleCodebase', 'memoryHistory', 'memoryExport', 'memorySource', 'memoryCopy', 'memoryStale', 'memoryPerChat', 'memorySuggest', 'issueReport'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -9773,6 +9773,22 @@ export const ASSISTANT_FREE_TOOLS = [...ASSISTANT_TOOLS, ...TODO_TOOLS, 'subagen
 export const assistantFreeTool = (name) => ASSISTANT_FREE_TOOLS.includes(name) || /^(schedule|job|memory)_/.test(String(name));
 export const ASSISTANT_FREE_SECTION = `# Assistant always free (Composer Plus)
 In this chat you call only these tools yourself: chats_list, chat_read, chat_send, chat_new, chat_stop, chat_archive, todo_list_add, todo_list_remove, status_summary_set, the schedule_*, job_* and memory_* tools, subagent, subagent_fork, send_message, list_agents, interrupt_agent, list_subagent_models and ask_user_question. Any other call is refused. This rule comes before the lines above: for every other step (a web search, a web page, a file, a command), start a subagent in the background, say in one line what you started and end your turn. Project work (a code or configuration change in a project's git repository) goes to chat_new with branch true, not to a subagent.`;
+/** Assistant callouts (Host half): the assistant chat's prompt rule for the boxes and the closed details section that the
+ * client draws (client.js, decorateCallouts). On by default (no port, no model call); the switch keeps it in
+ * assistant-callouts.json, and while it is off the assistant writes plain answers. */
+export const ASSISTANT_CALLOUTS_PATH = '/api/composer-plus.assistant-callouts';
+export const ASSISTANT_CALLOUTS_SECTION = `# Assistant callouts (Composer Plus)
+This chat shows a blockquote whose first line is a marker as a colored box with a label, so the user sees at once what matters.
+- Write the result or the next action on the first line of the answer, outside a box.
+- Use a box only for what the user must not miss. Most answers need no box or one. Use at most 1 or 2 callouts and 1 details block in each reply. Do not put callouts directly after one another: write text between two boxes. When you use more than one box, keep this order: [!PROBLEM] (a problem or an error, and what it breaks), [!APPROVAL] (an approval that you need from the user), [!QUESTIONS] (open questions for the user), [!IMPORTANT] (a fact that the user must not miss), [!RUNNING] (work that still runs). [!RESULT] is for a summary of finished work that needs more than the first line.
+- A box is a blockquote with the marker alone on its first line and at most 5 short lines after it:
+> [!PROBLEM]
+> The login test fails on Safari: the button stays disabled.
+- Put long details (logs, step lists, file lists, a text for another AI) into one closed section (this is the collapsed details block): a blockquote whose first line is [!DETAILS] and a one-line summary. The user opens it with a click.
+> [!DETAILS] Test output (3 files)
+> - login.spec.ts: 14 passed
+- Never put an \`onay\` block inside a box: write it after the box, at the start of a line.
+- The other rules stay: the user's language, short answers, at most 5 list items, at most one \`onay\` block per answer.`;
 const FREE_REASON = (name) => `Composer Plus → Assistant always free: this chat stays free for the user's next message, so it does not run ${name} itself. Start this work with the subagent tool in the background (a code or configuration change in a project: chat_new with branch true), say in one line what you started, and end your turn.`;
 /** Assistant news: a finished turn counts when it ran this long; a wait counts when it lasts this long; news is collected
  * this long before it goes; two news turns are at least `gap` apart; one note names at most `max` chats. */
@@ -9903,6 +9919,23 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   });
   const freeRead = freeSwitch.read().then((on) => setFree(on), () => setFree(true));
   switchRoute(ASSISTANT_FREE_PATH, freeSwitch, setFree, freeRead);
+
+  // Assistant callouts: the prompt rule for the boxes, only in the assistant chat (the client draws them).
+  const calloutsSwitch = mobileSwitch(join(dir, 'assistant-callouts.json'), true);
+  let calloutsOn = false; let calloutsFiber;
+  const setCallouts = (next) => {
+    if (next === undefined) return { on: calloutsOn };
+    calloutsOn = next;
+    if (calloutsOn && calloutsFiber === undefined && typeof ctx.inject === 'function') {
+      calloutsFiber = ctx.inject(['systemPrompt'], (sub) => {
+        sub.systemPrompt.section({ name: 'composer-plus:assistant-callouts', order: 673, interpolate: false,
+          text: (context) => (calloutsOn && assistant.isAssistant(context?.agent) ? ASSISTANT_CALLOUTS_SECTION : '') });
+      });
+    } else if (!calloutsOn) { calloutsFiber?.dispose?.(); calloutsFiber = undefined; }
+    return undefined;
+  };
+  const calloutsRead = calloutsSwitch.read().then((on) => setCallouts(on), () => setCallouts(true));
+  switchRoute(ASSISTANT_CALLOUTS_PATH, calloutsSwitch, setCallouts, calloutsRead);
 
   // Assistant news from chats. `{on, scope}` in assistant-notify.json: scope "automations" (also a missing or unknown one,
   // so a file from an older copy gives the quiet choice) tells only the turns that a schedule started; "all" tells every
@@ -10210,8 +10243,8 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
     held.clear();
   }, 'dsh-composer-plus: assistant interjection');
 
-  ctx.effect?.(() => () => { closed = true; freeOn = false; notifyOn = false; fiber?.dispose?.(); fiber = undefined; clearAll(); notes.clear(); }, 'dsh-composer-plus: assistant bot');
-  return { ready: Promise.all([freeRead, notifyRead]), flush, pending: () => [...pending.values()], free: () => freeOn, notify: () => notifyOn };
+  ctx.effect?.(() => () => { closed = true; freeOn = false; notifyOn = false; fiber?.dispose?.(); fiber = undefined; calloutsOn = false; calloutsFiber?.dispose?.(); calloutsFiber = undefined; clearAll(); notes.clear(); }, 'dsh-composer-plus: assistant bot');
+  return { ready: Promise.all([freeRead, notifyRead, calloutsRead]), flush, pending: () => [...pending.values()], free: () => freeOn, notify: () => notifyOn };
 }
 
 /* Assistant to-do list: the tasks that the user has in mind, in the assistant chat. The user does an item of owner "user"
