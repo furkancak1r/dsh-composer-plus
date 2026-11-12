@@ -2739,13 +2739,15 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * ponytail: dsh has no per-chat display mode. The rows are found by dsh's chat markup (`data-chat-flow-kind`,
      * `data-turn-process-member`, `data-chat-group-key`) inside `data-conversation-session`; if dsh changes it, the rows show
      * again. Upgrade when dsh lets a chat pick its work-details mode. */
-    function assistantChatCss(id, quiet = []) {
+    function assistantChatCss(id, quiet = [], answers = []) {
       if (typeof id !== 'string') return '';
       const chat = `[data-conversation-session=${JSON.stringify(id)}]`;
       return [`${chat} [data-chat-flow-kind="turn-process"]`, `${chat} [data-chat-flow-kind="tool-call"]`, `${chat} [data-chat-group-key]`,
         `${chat} [data-chat-flow-kind="reasoning"]`, `${chat} [data-turn-process-member]:not([data-chat-flow-kind="assistant-step"])`,
         `${chat} [data-chat-flow-kind="assistant-step"][data-chat-group-part="reasoning"]`].join(',\n') + ' { display: none !important; }'
-        + (quiet.length === 0 ? '' : `\n${quiet.map((key) => `${chat} [data-chat-node-key=${JSON.stringify(key)}]`).join(',\n')} { height: 0 !important; margin: 0 !important; overflow: hidden !important; visibility: hidden !important; }`);
+        + (quiet.length === 0 ? '' : `\n${quiet.map((key) => `${chat} [data-chat-node-key=${JSON.stringify(key)}]`).join(',\n')} { height: 0 !important; margin: 0 !important; overflow: hidden !important; visibility: hidden !important; }`)
+        // dsh folds these with hidden="until-found" (content-visibility: hidden) and a fade (inline height and opacity).
+        + (answers.length === 0 ? '' : `\n${answers.map((key) => `${chat} [data-chat-node-key=${JSON.stringify(key)}]:not([data-chat-group-part="reasoning"])`).join(',\n')} { content-visibility: visible !important; height: auto !important; opacity: 1 !important; }`);
     }
     /** The rows that relay a subagent to the assistant chat: its message (send_message, dsh's "Task message received") and
      * dsh's notice that it ended ("Subtask status updated"), drawn as a turn trigger or a context row. The assistant's own
@@ -2756,6 +2758,18 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     const SUBAGENT_SOURCES = ['agent-message', 'subagent-settled'];
     const subagentRowKeys = (chat) => [...(chat?.nodes?.values?.() ?? [])]
       .filter((n) => (n?.kind === 'turn-trigger' || n?.kind === 'context') && SUBAGENT_SOURCES.includes(n.data?.source?.kind)).map((n) => n.key);
+    /** The replies that answered an input before a later step of the same turn: a step with reply content and no tool call
+     * (it would have ended the turn) when a subagent's message or a finished notice came mid-turn and woke a next step. dsh
+     * folds every reply but the turn's last one into the turn's process (always in 0.2.0-0.2.1, with foldedReplies: final in
+     * 0.2.2), and this view hides the control that opens it, so the answer would go. Their rows are shown again.
+     * ponytail: CSS only; the shown row keeps dsh's hidden="until-found", so the tools that skip [hidden] (dsh's text
+     * selection, Quote reply, Find in chat) skip it too. Upgrade when dsh lets a plugin keep a turn's replies open. */
+    const replyBlock = (b) => b?.kind !== 'reasoning' && b?.kind !== 'tool-call' && (b?.kind !== 'text' || String(b.text ?? '').trim() !== '');
+    const answerRowKeys = (chat) => {
+      const steps = [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks));
+      const last = new Map(); for (const n of steps) last.set(n.data.turn, Math.max(last.get(n.data.turn) ?? -Infinity, n.data.step));
+      return steps.filter((n) => n.data.step < last.get(n.data.turn) && n.data.blocks.some(replyBlock) && !n.data.blocks.some((b) => b?.kind === 'tool-call')).map((n) => n.key);
+    };
     /** The assistant chat shows only its newest ASSISTANT_TURNS turns at first: the older rows that dsh drew (its window
      * can hold many turns of a long assistant chat) get `display: none`, and a button above the rows shows them all. The
      * rows are found as dsh's chat view finds them (the children of its `conversation.chat.flow` slot, a `display:
@@ -2783,6 +2797,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const [all, setAll] = React.useState(null); // the chat whose earlier turns the user showed
       const [flow, setFlow] = React.useState(null);
       const [quiet, setQuiet] = React.useState([]); // node keys of the subagent rows (subagentRowKeys)
+      const [answers, setAnswers] = React.useState([]); // node keys of the folded answers (answerRowKeys)
 
       React.useEffect(() => {
         if (typeof id !== 'string') return undefined;
@@ -2808,8 +2823,9 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       // comes with its node, so it is hidden when it is drawn). ponytail: one pass over the drawn window's nodes per change.
       React.useEffect(() => {
         let source; try { source = typeof id === 'string' && flow !== null ? chatOf?.(id) : undefined; } catch { source = undefined; }
-        if (source === undefined) { setQuiet((prev) => (prev.length === 0 ? prev : [])); return undefined; }
-        const read = () => { const keys = subagentRowKeys(source.getSnapshot()); setQuiet((prev) => (prev.length === keys.length && prev.every((k, i) => k === keys[i]) ? prev : keys)); };
+        const same = (keys) => (prev) => (prev.length === keys.length && prev.every((k, i) => k === keys[i]) ? prev : keys);
+        if (source === undefined) { setQuiet(same([])); setAnswers(same([])); return undefined; }
+        const read = () => { const chat = source.getSnapshot(); setQuiet(same(subagentRowKeys(chat))); setAnswers(same(answerRowKeys(chat))); };
         read();
         return source.subscribe(read);
       }, [id, flow, chatOf]);
@@ -2828,7 +2844,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         setSeat(next);
         return () => { next.remove(); setSeat(null); };
       }, [capped, flow]);
-      const css = assistantChatCss(id, quiet) + (capped ? `\n${assistantCapCss(id, turns)}` : '');
+      const css = assistantChatCss(id, quiet, answers) + (capped ? `\n${assistantCapCss(id, turns)}` : '');
       const hidden = capped ? turns.length - ASSISTANT_TURNS : 0;
       const button = seat === null || !capped ? null : createPortal(React.createElement(primitives.Button ?? 'button', { type: 'button', variant: 'outline', size: 'sm',
         'data-composer-plus-assistant-earlier-button': String(hidden), onClick: () => setAll(id) }, t('assistantChatView.earlier', { count: String(hidden) })), seat);
