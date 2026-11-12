@@ -231,6 +231,26 @@ find(dTree, (n) => n.t === 'button' && n.p.className === 'cp-st-link')[0].p.onCl
   find(panel(), (n) => n.t === 'button' && n.p['aria-label'] === 'status.hideSummary')[0].p.onClick();
   summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }] }; await panelProps.store.load('s-assistant'); rt.clear();
 }
+// The morning summary: a summary that the Host marks `show` (written in a scheduled turn, or the answer to Get summary)
+// opens the card without a click. After its close button the same summary stays closed (this browser keeps its time);
+// the next one opens it again. The answer to a request whose card you closed while it waited does not open it.
+{
+  const store = panelProps.store; const cardOf = () => find(panel(), (n) => n.p?.className === 'cp-st-summary')[0];
+  const close = () => find(panel(), (n) => n.t === 'button' && n.p['aria-label'] === 'status.hideSummary')[0].p.onClick();
+  const p0 = posts.length;
+  summary = { at: NOW - 3000, show: true, projects: [{ project: 'acme-web', text: 'Morning summary.' }] }; await store.load('s-assistant');
+  assert.match(text(cardOf()), /Morning summary\./, 'the morning summary opens the card'); assert.equal(posts.length, p0, 'no request');
+  close(); await store.load('s-assistant');
+  assert.equal(cardOf(), undefined, 'closed: the same summary does not open it again');
+  assert.equal(mem.get('dsh-composer-plus.status-summary-closed'), String(NOW - 3000), 'kept for a reload');
+  summary = { at: NOW - 2000, show: true, projects: [{ project: 'acme-web', text: 'Next morning.' }] }; await store.load('s-assistant');
+  assert.match(text(cardOf()), /Next morning\./, 'the next morning summary opens it again');
+  close();
+  await store.askSummary('s-assistant'); close();
+  summary = { at: askedAt, show: true, projects: [{ project: 'acme-web', text: 'Answer.' }] }; askedAt = null; await store.load('s-assistant');
+  assert.equal(store.of('s-assistant').ask.state, 'done'); assert.equal(cardOf(), undefined, 'closed while it waited: its answer opens nothing');
+  summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }] }; await store.load('s-assistant'); rt.clear();
+}
 
 // Owner groups: the user's items first, then the assistant's, each header with a count; no owner line in a row; a
 // header (aria-expanded, aria-controls) folds its group and the folded groups stay folded in this browser.
@@ -419,6 +439,11 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   tree = panel(); c = cardOf(tree);
   assert.match(text(c), /status\.summaryFailed:\{"error":"the assistant chat is not available"\}/);
   assert.ok(find(c, (n) => n.t === 'button' && n.p['aria-label'] === 'assistant.retry: status.summarize').length === 1, 'Try again for the summary');
+  {
+    const running = store.refresh('s-assistant'); tree = panel();
+    assert.equal(find(cardOf(tree), (n) => n.p?.['aria-label'] === 'assistant.retry: status.summarize')[0].p['aria-disabled'], false, 'the summary\'s Try again does not wait for Refresh');
+    await running;
+  }
   readFail = 'disk full';
   await store.refresh('s-assistant'); readFail = null;
   tree = panel();
@@ -428,6 +453,14 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   assert.ok(retryRead, 'Try again for the read'); retryRead.p.onClick(); await new Promise((r) => setTimeout(r, 520)); await tick();
   assert.equal(find(panel(), (n) => n.p?.role === 'alert').length, 0, 'Try again read the panel again');
   assert.equal(focused.at(-1), 'cp-td-s-assistant-refresh', 'the focus goes to Refresh');
+  // A remove while the read error shows: the read error goes at once (no empty "Could not refresh" while it runs).
+  {
+    readFail = 'disk full'; await store.load('s-assistant'); readFail = null;
+    let open; gate = new Promise((r) => { open = r; });
+    const acting = store.act('s-assistant', 'ffffffff', 'remove'); await tick();
+    assert.equal(store.of('s-assistant').errorKind, null); assert.equal(find(panel(), (n) => n.p?.role === 'alert').length, 0, 'no stale read error');
+    open(); gate = null; await acting;
+  }
   // A slow summary request: a second Get summary while it is sent does nothing.
   let release; askGate = new Promise((r) => { release = r; });
   const slow = store.askSummary('s-assistant'); await tick();
@@ -451,10 +484,19 @@ const r1 = renders; for (let i = 0; i < 20; i++) seatOut('s-assistant');
 assert.equal(renders, r1, 'the panel is not drawn while you type');
 assert.equal(seatOut('s-assistant').t, 'span'); assert.equal(seatOut('s-assistant').p.hidden, true);
 
-// Switched off: the seat and the overlay entries go.
+// Switched off: the seat and the overlay entries go. An open summary request ends (on again, the card does not wait), and
+// the answer to a request that was sent while it went off sets no timer and no state.
 const settings = [...live.values()].find(([o]) => o.name === 'settings.section')[0];
+await store.askSummary('s-assistant'); assert.equal(store.of('s-assistant').ask.state, 'waiting');
 await settings.inject().setFeature('assistantTodos', false); await tick();
 assert.equal(entry('conversation.input.dock', 'assistant-todos'), undefined); assert.equal(entry('shell.overlay', 'assistant-status'), undefined);
+assert.equal(store.of('s-assistant').ask, null, 'off ends the open summary request'); askedAt = null;
+{
+  let release; askGate = new Promise((r) => { release = r; });
+  const pending = store.askSummary('s-assistant'); await tick();
+  store.stop(); release(); askGate = null;
+  assert.equal(await pending, false, 'an answer after stop does nothing'); assert.equal(store.of('s-assistant').ask, null); askedAt = null;
+}
 await settings.inject().setFeature('assistantTodos', true); await tick();
 assert.ok(entry('shell.overlay', 'assistant-status'), 'on again');
 store.stop(); for (const off of cleanups) off();

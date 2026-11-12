@@ -267,11 +267,12 @@ try {
     for (const fn of onEvent) fn(assistantAgent.session, { type: 'turn/end' });
     r = await call('?sessionId=s-a'); assert.equal(r.body.missed, true, 'the turn with the note ended without a summary');
     clock = NOW + 30; r = await post({ sessionId: 's-a', action: 'summary' });
-    assert.equal(r.body.asked, NOW + 30); assert.equal(steers.length, 2, 'after a missed turn, Refresh asks again');
+    assert.equal(r.body.asked, NOW + 30); assert.equal(steers.length, 2, 'after a missed turn, Get summary asks again');
     // A running chat: only the steer (the turn takes it at its next step).
     assistantAgent.status = 'running';
     await tool.execute({ projects: [{ project: 'acme-web', text: 'New.' }] }, { agent: assistantAgent });
     r = await call('?sessionId=s-a'); assert.equal(r.body.asked, undefined, 'status_summary_set ends the request'); assert.equal(r.body.summary.at, NOW + 30);
+    assert.equal(r.body.summary.show, true, 'the answer to Get summary opens the card');
     clock = NOW + 40; r = await post({ sessionId: 's-a', action: 'summary' });
     assert.equal(steers.length, 3); assert.equal(heads.length, 2, 'running: no queue marker');
     // The time limit: the Host forgets it.
@@ -282,6 +283,57 @@ try {
     assert.equal((await call('?sessionId=s-a')).body.asked, undefined);
     assert.equal((await post({ sessionId: 's-web', action: 'summary' })).status, 404, 'not for another chat');
     assert.equal((await post({ sessionId: 's-a', action: 'summary', extra: 1 })).status, 400);
+    // A steer that came after the turn's last inbox check: the chat is woken for it when the turn completed. After your Stop
+    // (or an error), no new turn starts: the marker goes and the request is missed.
+    {
+      const wakes = []; const removed = []; const left = { id: 'm-left', role: 'user', content: [], source: { kind: 'composer-plus-status-summary' } };
+      Object.assign(assistantAgent, { status: 'idle', steer: (m) => { wakes.push(m); }, inbox: { prepend: () => {}, remove: (id) => { removed.push(id); return true; }, nextStep: [left] } });
+      const settle = async (reason) => {
+        clock += 1; await post({ sessionId: 's-a', action: 'summary' }); wakes.length = 0;
+        for (const fn of onEvent) fn(assistantAgent.session, { type: 'turn/end', data: { reason: { kind: reason } } });
+        for (const fn of listeners.get('agent/status')) fn({ agent: assistantAgent, status: 'idle' });
+        await new Promise((res) => setImmediate(res));
+      };
+      await settle('completed'); assert.equal(wakes.length, 1, 'a completed turn: the chat wakes for the waiting note'); assert.deepEqual(removed, []);
+      clock += STATUS_LIMITS.askMs; await settle('aborted');
+      assert.equal(wakes.length, 0, 'after Stop: no new turn'); assert.deepEqual(removed, ['m-left'], 'the marker goes');
+      assert.equal((await call('?sessionId=s-a')).body.missed, true, 'the request is missed');
+      clock += STATUS_LIMITS.askMs; removed.length = 0; await settle('error');
+      assert.equal(wakes.length, 0, 'after an error: no new turn'); assert.deepEqual(removed, ['m-left']);
+      clock += STATUS_LIMITS.askMs; await call('?sessionId=s-a');
+    }
+    // Switched off while the note waits: the markers go without a note (the tool is gone) and the request is forgotten.
+    {
+      Object.assign(assistantAgent, { status: 'idle', steer: () => {}, inbox: { prepend: () => {}, remove: () => true, nextStep: [] } });
+      clock += 1; await post({ sessionId: 's-a', action: 'summary' });
+      const sw = (on) => routes.get(ASSISTANT_TODOS_PATH).fetch(new Request(`http://x${ASSISTANT_TODOS_PATH}`, { method: 'POST', body: JSON.stringify({ on }) }));
+      await sw(false);
+      const marker = { id: 'm-off', role: 'user', content: [], source: { kind: 'composer-plus-status-summary' } };
+      const preStep = listeners.get('agent/pre-step'); let out = { kind: 'enter', messages: [marker] };
+      for (const fn of [...preStep].reverse()) { const inner = out; out = await fn({ agent: assistantAgent }, async () => inner); }
+      assert.deepEqual(out.messages, [], 'off: no note');
+      await sw(true); assert.equal((await call('?sessionId=s-a')).body.asked, undefined, 'off forgets the request');
+    }
+    // The morning summary: status_summary_set in a turn that a scheduled task started opens the card (`show`) like a Get
+    // summary answer. A summary in a typed turn (or a turn of Assistant news after it) without a request is stored only.
+    {
+      const log = assistantAgent.session.snapshotEvents(); const base = log.length;
+      const add = (type, data) => log.push({ seq: log.length, type, data, time: clock });
+      add('turn/start', {}); add('user/message', { source: { kind: 'schedule' } });
+      clock += 1; await tool.execute({ projects: [{ project: 'acme-web', text: 'Morning.' }] }, { agent: assistantAgent });
+      r = await call('?sessionId=s-a'); assert.equal(r.body.summary.show, true, 'the morning summary opens the card');
+      add('tool/result', {}); add('subagent/settled', {}); // the same turn goes on: still the morning summary
+      clock += 1; await tool.execute({ projects: [{ project: 'acme-web', text: 'Morning, with details.' }] }, { agent: assistantAgent });
+      assert.equal((await call('?sessionId=s-a')).body.summary.show, true, 'its update in the same turn too');
+      add('turn/end', {}); add('turn/start', {}); add('user/message', { source: { kind: 'user', rpcId: 'r9' } });
+      clock += 1; await tool.execute({ projects: [{ project: 'acme-web', text: 'Typed.' }] }, { agent: assistantAgent });
+      r = await call('?sessionId=s-a'); assert.equal(r.body.summary.show, undefined, 'a typed turn without a request: stored only');
+      add('turn/end', {}); add('turn/start', {}); add('user/message', { source: { kind: 'schedule' } }); add('turn/end', {});
+      add('turn/start', {}); add('user/message', { source: { kind: 'composer-plus-assistant-news' } });
+      clock += 1; await tool.execute({ projects: [{ project: 'acme-web', text: 'News.' }] }, { agent: assistantAgent });
+      assert.equal((await call('?sessionId=s-a')).body.summary.show, undefined, 'a news turn after the morning summary: stored only');
+      log.splice(base);
+    }
     delete assistantAgent.steer; delete assistantAgent.inbox; assistantAgent.status = 'idle';
   }
 

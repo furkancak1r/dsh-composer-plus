@@ -12,6 +12,8 @@
 //    test/assistant-todos-client.test.mjs).
 // 5. Errors (the Host answers 500/502): a short reason and Try again; Try again works.
 // 6. Keyboard (Enter keeps the focus), reduced motion (no turning, only the text), dark theme (the text reads).
+// 7. The morning summary: the assistant makes a scheduled task (schedule_create, dsh delivers it as `source: schedule`);
+//    the status_summary_set of that turn opens the card without a click.
 // PLAYWRIGHT=/path/to/playwright node test/browser-status-refresh.mjs /path/to/dsh/lib/bin.js [...]
 // DSH_NODE=<node or Electron binary> runs dsh with it (ELECTRON_RUN_AS_NODE=1 for the DeepSeek Harness app's own dsh).
 // SHOTS=<folder> writes panel screenshots there.
@@ -20,7 +22,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, symlink, realpath, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, symlink, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,7 +38,7 @@ const until = async (fn, what, ms = 30000) => {
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const NOTE = /^\[Composer Plus → Status panel\] The user clicked "Get summary"/;
 const calls = [];
-const model = { summary: 'write', delay: 2500 }; // the assistant's answer to the note: 'write' (status_summary_set) or 'skip'
+const model = { summary: 'write', delay: 2500, rrule: true }; // the answer to the note: 'write' (status_summary_set) or 'skip'; schedule_create's shape
 const fake = createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
@@ -55,6 +57,10 @@ const fake = createServer((req, res) => {
     if (after) return say('ok');
     if (/Morning summary please/.test(newest)) return tool('status_summary_set', { projects: [{ project: 'acme-web', text: 'Giriş sayfası yapılıyor.' }] });
     if (/Remember: buy milk/.test(newest)) return tool('todo_list_add', { text: 'Süt al', owner: 'user' });
+    if (/Plan the morning summary/.test(newest)) return tool('schedule_create', model.rrule
+      ? { title: 'Morning summary', prompt: 'Morning summary time.', target: 'this_session', rrule: `DTSTART:${new Date(Date.now() + 15000).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}\nRRULE:FREQ=DAILY;COUNT=1` }
+      : { title: 'Morning summary', prompt: 'Morning summary time.', after_seconds: 15 });
+    if (/Morning summary time/.test(newest)) return tool('status_summary_set', { projects: [{ project: 'acme-web', text: 'Sabah: giriş sayfası yayında.' }] });
     if (NOTE.test(newest)) {
       const answer = model.summary === 'write' ? () => tool('status_summary_set', { projects: [{ project: 'acme-web', text: 'Giriş sayfası bitti, testler geçiyor.' }] }) : () => say('ok');
       return setTimeout(answer, model.delay);
@@ -70,6 +76,7 @@ try {
   for (const bin of process.argv.slice(2)) {
     calls.length = 0; model.summary = 'write';
     const version = bin.includes('app.asar') ? 'app' : bin.match(/dsh-real-([^/]+)|\/(\d+\.\d+\.\d+[^/]*)\//)?.slice(1).find(Boolean) ?? bin;
+    model.rrule = !/^0\.2\.[01]-/.test(version); // 0.2.0/0.2.1: schedule_create({after_seconds}); 0.2.2: an rrule
     console.log(`dsh ${version}`);
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-status-refresh-')));
     const dshHome = join(home, '.dsh');
@@ -78,7 +85,17 @@ try {
     await symlink(repo, join(profile, 'node_modules/dsh-composer-plus'));
     await writeFile(join(profile, 'package.json'), JSON.stringify({ name: 'status-refresh-test', private: true, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-composer-plus'] } } }));
     await writeFile(join(profile, 'cordis.yml'), '[]\n');
-    await writeFile(join(profile, 'cordis.patch.yml'), `- id: ui-settings-general
+    // dsh 0.2.0's web profile has no schedule plugin: add it (as test/browser-assistant.mjs does).
+    const webApp = await readFile(join(bin, '../../../..', '@deepseek-ai/dsh-web-app/cordis.patch.yml'), 'utf8').catch(() => '');
+    const scheduleRows = webApp.includes("'@deepseek-ai/dsh-schedule'") ? '' : `- insert:
+    - id: time-context
+      name: '@deepseek-ai/dsh-time-context'
+    - id: schedule
+      name: '@deepseek-ai/dsh-schedule'
+    - id: ui-schedule
+      name: '@deepseek-ai/dsh-client-ui-schedule'
+`;
+    await writeFile(join(profile, 'cordis.patch.yml'), `${scheduleRows}- id: ui-settings-general
   name: "@deepseek-ai/dsh-client-ui-settings-general"
   config:
     welcomeNoticeVersion: 2026-09-28.1
@@ -245,6 +262,23 @@ try {
       await shot(`${version}-6-dark`);
       await card.getByText('Özet hazırlanıyor…').waitFor({ state: 'detached', timeout: 30000 });
       note(`6: Enter keeps the focus; reduced motion shows only the text; dark theme text contrast ${contrast.toFixed(2)}`);
+
+      // 7. The morning summary: a scheduled turn's summary opens the closed card without a click.
+      await page.emulateMedia({ colorScheme: 'light' });
+      await card.getByRole('button', { name: 'Özeti gizle' }).click(); assert.equal(await card.count(), 0, 'closed before the morning');
+      const posts7 = summaryPosts.length;
+      await send('Plan the morning summary');
+      const allowEnd = Date.now() + 60000; // Assistant always free allows schedule_create; an approval card (if any) is allowed
+      while (!calls.some((c) => /Plan the morning summary/.test(c.newest) && c.after)) {
+        if (Date.now() > allowEnd) throw Error('timed out: schedule_create');
+        const allow = page.getByRole('button', { name: /^(Allow once|Bir kez izin ver|İzin ver|Allow|Onayla)$/ }).first();
+        if (await allow.isVisible().catch(() => false)) await allow.click().catch(() => {}); else await pause(200);
+      }
+      await card.getByText('Sabah: giriş sayfası yayında.').waitFor({ timeout: 90000 });
+      assert.equal(summaryPosts.length, posts7, 'no Get summary click');
+      assert.ok(calls.some((c) => /Morning summary time/.test(c.newest)), 'dsh delivered the scheduled task');
+      await page.mouse.move(10, 10); await shot(`${version}-7-morning`);
+      note('7: the morning summary of a scheduled task opens the card without a click');
 
       assert.deepEqual(errors, [], 'no page errors');
       passed = true;

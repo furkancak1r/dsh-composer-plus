@@ -134,10 +134,10 @@ for (const name of TODO_TOOLS) { assert.equal(assistantFreeTool(name), true, nam
 const section = sections.get('composer-plus:assistant-todos');
 assert.equal(section.text({ agent: assistantAgent }), `${TODO_SECTION}\n\n${STATUS_SECTION}`); assert.equal(section.text({ agent: otherAgent }), '');
 assert.match(STATUS_SECTION, /status_summary_set/);
-// The summary only on request: the Get summary note or the user's request in the chat, never for background news.
-assert.match(STATUS_SECTION, /shows a summary of the projects only when the user asks for it\. Call status_summary_set only in two cases: a note says that the user clicked "Get summary", or the user asks for a summary in the chat/);
-assert.match(STATUS_SECTION, /Do not call it for background news, a finished task or an automation\./);
-assert.doesNotMatch(STATUS_SECTION, /morning summary/, 'no morning summary rule');
+// The summary only on request: the Get summary note, the user's request in the chat or a scheduled task (the morning
+// summary), never for background news.
+assert.match(STATUS_SECTION, /shows a summary of the projects only when the user asks for it\. Call status_summary_set only in three cases: a note says that the user clicked "Get summary", the user asks for a summary in the chat, or a scheduled task asks for it \(for example the morning summary\)/);
+assert.match(STATUS_SECTION, /Do not call it for background news or a finished task\./);
 assert.match(TODO_SECTION, /evidence that an item is done, remove it with todo_list_remove/);
 assert.match(TODO_SECTION, /do not ask about it, unless the user mentions it/);
 // Keep the list current before each answer: done, missing or a new owner (a default for every user, not a local rule).
