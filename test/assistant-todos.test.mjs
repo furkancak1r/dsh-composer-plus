@@ -1,11 +1,11 @@
 // Assistant to-do list (Host half) with a fake dsh: the list logic (add, the same text again, remove, hand over), the
 // prompt context (data mark, `{{` broken up, empty list), the file (owner-only, one list per chat, a new Host reads it
-// again, a broken file is an empty list, a failed write changes nothing), the two tools (only in the assistant agent's
+// again, a broken file is an empty list and is kept aside, a failed write changes nothing), the two tools (only in the assistant agent's
 // own scope, its subagent gets them denied, another caller is refused), the route (remove, hand over with a normal user
 // message, a failed send puts the owner back, bad requests), the Assistant always free allowlist and the switch (off: no
 // tools, no section, no context, no item actions; an explicit off stays off).
 import assert from 'node:assert/strict';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ASSISTANT_FREE_SECTION, ASSISTANT_TODOS_PATH, ASSISTANT_TOOLS, STATUS_SECTION, TODO_LIMITS, TODO_NUDGE, TODO_SECTION, TODO_TOOLS, TODO_WORK_TOOLS, assistantFreeTool, installAssistant, installAssistantTodos, todoContext, todoList, todoStore } from '../index.js';
@@ -66,8 +66,18 @@ assert.deepEqual(store.of('c-1').map((i) => i.text), ['first', 'next'], 'the que
 const brokenDir = await mkdtemp(join(tmpdir(), 'cp-todos-broken-'));
 await writeFile(join(brokenDir, 'a.json'), '{not json');
 const broken = todoStore(join(brokenDir, 'a.json')); await broken.ready; assert.deepEqual(broken.of('s-a'), []);
+// The broken file is kept aside, so the next write does not overwrite the other chats' lists.
+await broken.change('s-a', (l) => todoList.add(l, { text: 'x' }));
+const keptAside = (await readdir(brokenDir)).filter((n) => /^a\.json\.broken-\d+$/.test(n));
+assert.equal(keptAside.length, 1, 'a broken file is kept as a.json.broken-<time>');
+assert.equal(await readFile(join(brokenDir, keptAside[0]), 'utf8'), '{not json', 'with its old bytes');
 await writeFile(join(brokenDir, 'b.json'), JSON.stringify({ lists: { 's-a': [{ id: 'xyz', text: 'bad id', owner: 'user', created: 1 }, { id: '44444444', text: 'ok', owner: 'agent', created: 1 }, { id: '55555555', text: 'bad owner', owner: 'x', created: 1 }] } }));
 const mixed = todoStore(join(brokenDir, 'b.json')); await mixed.ready; assert.deepEqual(mixed.of('s-a').map((i) => i.id), ['44444444'], 'broken items are left out');
+// An id that is no string (here one that cannot become a string) is a broken item too: no half-read file is kept aside.
+await writeFile(join(brokenDir, 'c.json'), JSON.stringify({ lists: { 's-a': [{ id: { toString: 1 }, text: 'bad', owner: 'user', created: 1 }, { id: '66666666', text: 'ok', owner: 'user', created: 1 }], 's-b': [{ id: '77777777', text: 'ok', owner: 'agent', created: 1 }] } }));
+const odd = todoStore(join(brokenDir, 'c.json')); await odd.ready;
+assert.deepEqual([odd.of('s-a').map((i) => i.id), odd.of('s-b').map((i) => i.id)], [['66666666'], ['77777777']], 'an object id is left out');
+assert.ok(!(await readdir(brokenDir)).some((n) => n.startsWith('c.json.broken-')), 'and the file is not kept aside');
 
 // A fake dsh with the real installAssistant.
 const listeners = new Map(); const routes = new Map(); const sections = new Map(); const contexts = new Map(); const agents = new Map(); const prompts = [];
