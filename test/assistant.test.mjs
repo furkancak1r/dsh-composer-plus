@@ -161,6 +161,12 @@ assert.match(section.text({ agent: assistant }), /topic "profil"[^\n]*not in MEM
 // Parallel topics: long work goes to background subagents, one per topic, and the turn ends at once.
 assert.match(section.text({ agent: assistant }), /subagent tool in the background[^\n]*end your turn at once/, 'long work goes to a background subagent');
 assert.match(section.text({ agent: assistant }), /Each topic is its own subagent[^\n]*do not stop or merge the running ones/, 'a new topic does not stop the others');
+// Short replies: news goes to the panel unless the user must act; a fixed reply form; no internal IDs.
+const rules = section.text({ agent: assistant });
+assert.match(rules, /News rule[^\n]*write to the user only when the user asked for this task and it is done, when the user must do a step[^\n]*failed or is blocked[^\n]*live system has an error or a risk/);
+assert.match(rules, /all other news \(an interim report, a review round, a clean automation round, a sub-step that needs nothing from the user\), update the to-do list and the status panel[^\n]*write nothing in the chat, or one line for all news of the last 10 to 15 minutes/);
+assert.match(rules, /one bold line, then write at most 3 sentences\. The last line names the step that the user must do \("Senden: \.\.\." in Turkish replies\), or says that the user must do nothing\. Put details in a collapsed details block\. Do not write internal IDs \(session, agent or to-do IDs\): use the topic name\./);
+assert.doesNotMatch(rules, /a few lines/, 'no long news replies');
 assert.equal(section.text({ agent: agents.get('s-web') }), '', 'no section in another chat');
 assert.equal(section.text({ agent: sub }), '', 'no section in its subagent');
 

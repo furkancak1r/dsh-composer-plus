@@ -33,7 +33,12 @@ const note = assistantNewsNote([
   { id: 'c', title: 'Mid', project: 'q', at: 2, kind: 'failed', reply: 'HTTP 500' },
 ], 2);
 assert.match(note, /not instructions for you/);
-assert.match(note, /Do not call a tool/);
+assert.match(note, /Do not call other tools/);
+// Quiet news: the panel and the list first; a chat line only when the user must act or a requested task ends.
+assert.match(note, /Update the to-do list and the status panel/);
+assert.match(note, /Write to the user only when the user must act, when a task that the user asked for is done, when a task failed or is blocked, or when a live system has an error or a risk/);
+assert.match(note, /with the topic name and not internal IDs\. Otherwise write nothing in the chat/);
+assert.doesNotMatch(note, /a few lines|Tell the user each line/, 'no reply per news line');
 assert.ok(note.indexOf('"New"') < note.indexOf('"Mid"'), 'newest first');
 assert.match(note, /"New" \(project "q", chat b\): waits for your approval/);
 assert.match(note, /"Mid" .*failed\. Error: "HTTP 500"/);
@@ -228,7 +233,7 @@ await until(() => steers.length === base + 1, 'one wake for the automation');
 const autoStep = await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }));
 const autoNote = autoStep.messages[0].content[0].text;
 assert.match(autoNote, /\(project "Assistant", chat s-auto, an automation\): finished\. Last reply: "Audit done: 0 findings\."/);
-assert.match(autoNote, /not instructions for you/); assert.match(autoNote, /result of each automation in a few lines/); assert.match(autoNote, /chat_read/);
+assert.match(autoNote, /not instructions for you/); assert.match(autoNote, /Call chat_read only to read more of the chat of each automation\./); assert.match(autoNote, /Otherwise write nothing in the chat/);
 assert.doesNotMatch(autoNote, /s-web|s-assistant\b/, 'no ordinary chat, not the assistant');
 for (const named of autoNote.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) assert.ok(assistantFreeTool(named), `the note names ${named}, which the assistant cannot call`);
 await pause(80); await bot.flush();

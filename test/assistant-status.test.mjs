@@ -61,6 +61,32 @@ assert.equal(byId['c-done'].result.length <= STATUS_LIMITS.result + 1, true);
   log = [...log, reply(4, 'new answer'), ev(5, 'turn/end', { reason: { kind: 'completed' } }, NOW - 500)]; live = undefined;
   assert.equal((await read())[0]?.result, 'new answer', 'disposed again: its new saved log is read');
 }
+// dsh crashed or was killed while a child ran: the child is gone and its saved log ends with turn/start. When dsh opens
+// such a child again, it closes the turn as `interrupted`. Neither runs or is done: both show as stopped, their saved log
+// is read once, and they leave the next day.
+{
+  const logs = { 'c-crash': [ev(0, 'turn/start', {}), reply(1, 'Half of the answer', NOW - 7000)],
+    'c-intr': [ev(0, 'turn/start', {}), reply(1, 'Half of the answer'), ev(2, 'turn/end', { reason: { kind: 'interrupted' } }, NOW - 2000)],
+    // A continuable child: its first turn was done, dsh crashed in its second turn.
+    'c-again': [ev(0, 'turn/start', {}), reply(1, 'First answer'), ev(2, 'turn/end', { reason: { kind: 'completed' } }, NOW - 9000), ev(3, 'turn/start', {}, NOW - 8000)] };
+  const reads = { 'c-crash': 0, 'c-intr': 0, 'c-again': 0 }; const kept = new Map();
+  const list = [cat(0, 'c-crash', 'Crashed'), cat(1, 'c-intr', 'Interrupted'), cat(2, 'c-again', 'Crashed again')];
+  const read = (since, now) => statusTasks(list, 0, () => undefined, { logOf: async (id) => { reads[id] += 1; return logs[id]; }, since, now, ended: kept });
+  for (let i = 0; i < 3; i++) {
+    const rows = Object.fromEntries((await read(today.getTime(), NOW)).map((t) => [t.id, t]));
+    assert.equal(rows['c-crash']?.state, 'stopped', 'a gone child with an open turn (dsh crashed) does not run');
+    assert.equal(rows['c-crash'].ended, NOW - 7000, 'it stopped at its last saved event: its time does not grow');
+    assert.equal(rows['c-crash'].result, 'Half of the answer');
+    assert.equal(rows['c-intr']?.state, 'stopped', 'a crashed turn that dsh closed as interrupted is not done');
+    assert.equal(rows['c-again']?.state, 'stopped', 'an open turn after a done turn: not done');
+    assert.equal(rows['c-again'].ended, NOW - 8000);
+  }
+  assert.deepEqual(reads, { 'c-crash': 1, 'c-intr': 1, 'c-again': 1 }, 'the saved log of a gone child is read once');
+  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+  const fresh = (since, now) => statusTasks(list, 0, () => undefined, { logOf: async (id) => logs[id], since, now });
+  assert.deepEqual((await read(tomorrow.getTime(), tomorrow.getTime() + 3600000)).map((t) => t.id), [], 'the next day: left out (kept rows)');
+  assert.deepEqual((await fresh(tomorrow.getTime(), tomorrow.getTime() + 3600000)).map((t) => t.id), [], 'the next day: left out');
+}
 
 // Projects.
 const ws = [{ id: 'w-web', title: 'acme-web', path: '/demo/acme-web', sessionIds: ['s-web', 's-web2', 's-old'] }, { id: 'w-cli', title: 'weather-cli', path: '/demo/weather-cli', sessionIds: ['s-cli', 's-arch'] },
