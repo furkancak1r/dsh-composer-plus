@@ -10250,9 +10250,10 @@ const AUTH_SCHEME = /\bBasic\s+(?=[A-Za-z0-9+/]*[\d+/=])[A-Za-z0-9+/]{8,}={0,2}(
 // The value is captured in a lookahead (at most 256 characters), so each name is tested, also one right after a value that
 // did not count ("KEY=NONE;KEY='MySecretPw'"). In the header, mixed case counts when the value is not made of words
 // ("dXNlcjpwYXNz", "gho_ABCdef" count; "Authentication", "YourToken", "GitHubToken" are prose or placeholders).
-const WORDS = /^(?:[A-Z]?[a-z]+)+$/;
+// One way to split a value into words (no nested quantifier: linear).
+const WORDS = /^[A-Z]?[a-z]+(?:[A-Z][a-z]+)*$/;
 const NAMED_VALUE = [
-  { re: /\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:basic|token)\s+(?=([A-Za-z0-9._~+/=-]{8,256}))/gi, counts: (v) => /[\d+/=]/.test(v) || (/[a-z][^]*[A-Z]/.test(v) && !WORDS.test(v)) },
+  { re: /\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:basic|token)\s+(?=([A-Za-z0-9._~+/=-]{8,256}))/gi, counts: (v) => /[\d+/=]/.test(v) || (/[a-z]/.test(v) && /[A-Z]/.test(v) && !WORDS.test(v)) },
   { re: /(?<![A-Za-z0-9_])(?:TOKEN|KEY|AUTH)\s*=\s*["']?(?=([^\s"'\x60$<{][^\s"'\x60]{5,255}))/g, counts: (v) => /\d/.test(v) || (/[a-z]/.test(v) && /[A-Z]/.test(v)) },
 ];
 const namedValue = (line) => NAMED_VALUE.some(({ re, counts }) => {
