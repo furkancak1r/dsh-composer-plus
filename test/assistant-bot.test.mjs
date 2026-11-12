@@ -113,7 +113,7 @@ assistantAgent.events.push({ type: 'request/header', data: { header: { tools: to
 // Off: no rule, no section; an explicit off stays off after a restart; a broken file reads as on.
 assert.equal((await call(ASSISTANT_FREE_PATH, 'POST', { on: 'no' })).status, 400);
 assert.deepEqual((await call(ASSISTANT_FREE_PATH, 'POST', { on: false })).body, { on: false, active: false });
-assert.equal((await pre('bash', assistantAgent)).kind, 'allow'); assert.equal(sections.has('composer-plus:assistant-free'), false); assert.equal(fibers, 0);
+assert.equal((await pre('bash', assistantAgent)).kind, 'allow'); assert.equal(sections.has('composer-plus:assistant-free'), false); assert.equal(fibers, 1, 'only the fiber of Assistant callouts stays'); assert.ok(sections.has('composer-plus:assistant-callouts'));
 const restart = async (text) => {
   await mkdir(join(home, 'storages/dsh-composer-plus'), { recursive: true });
   if (text !== undefined) await writeFile(join(home, 'storages/dsh-composer-plus/assistant-free.json'), text);
