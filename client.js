@@ -5995,8 +5995,11 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
      * message comes in (a subagent's result, Assistant news): the answer that asks for the approval is then in the middle
      * of the turn (the owner, 2026-11-11: "onay butonu çıkmıyor kod bloğu çıkıyor"). Such a message can also start a new
      * turn after the answer's turn ended: the answers of earlier turns after your newest message count too (dsh draws
-     * that message as a context row, not as yours). An answer before your newest message (you answered or skipped it), a
-     * withdrawn one (`spans`) and a fork's inherited one (`from`) give none; the same sentence twice gives one button. */
+     * that message as a context row, not as yours). Only the newest answer that has an `onay` block counts: its block
+     * holds all pending approvals, so an older block is not shown again (the owner, 2026-11-12: "tek seferde tek onay
+     * butonu gösterilsin ve hepsi tek butonda yer alsın"); a newer answer without a block keeps it. An answer before your
+     * newest message (you answered or skipped it), a withdrawn one (`spans`) and a fork's inherited one (`from`) give
+     * none; the same sentence twice gives one button. */
     function turnApprovals(chat, closingSeq, closingBlocks, spans, from) {
       let human = -1;
       const answers = [{ seq: closingSeq, blocks: closingBlocks }];
@@ -6007,12 +6010,13 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
         if (node?.kind === 'assistant-step' && node.data.status === 'settled' && Number.isSafeInteger(seq)
           && seq < closingSeq && Array.isArray(node.data.blocks)) answers.push({ seq, blocks: node.data.blocks });
       }
-      const out = [];
-      for (const { seq, blocks } of answers.sort((a, b) => a.seq - b.seq)) {
+      for (const { seq, blocks } of answers.sort((a, b) => b.seq - a.seq)) {
         if (seq <= human || seq < from || inSpans(spans, seq)) continue;
+        const out = [];
         for (const approval of parseApprovals(answerText(blocks))) if (!out.some((a) => a.message === approval.message)) out.push({ ...approval, n: out.length + 1 });
+        if (out.length > 0) return out;
       }
-      return out;
+      return [];
     }
     /** Option picks (client store), per chat: `busy` while a pick is sent, `picked` (the answer's seq and the newest turn
      * then) and the last `error`. Every entry point (button, digit key, a second click) goes through `pick` (rule 7): one
