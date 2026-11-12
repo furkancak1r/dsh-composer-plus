@@ -2,11 +2,14 @@
 // names: Genel/ for the global memory, Projeler/<project folder name>/ per project (project.json names the project). The
 // journal and the review cursor stay under the dsh home. The first start with a folder copies every old note there, all or
 // none; until the copy is done the memory stays off, so no note is written to either place and lost.
+import { readdirSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MEMORY_PATH, installMemory, importMemory, memoryFolderOf, memoryFolderProblem, memorySection, memoryStore, memoryView } from '../index.js';
+// The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read).
+const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 
 const root = await mkdtemp(join(tmpdir(), 'cp-memfolder-'));
 try {
@@ -40,6 +43,9 @@ try {
   }
   const count = await importMemory(dir, vault);
   assert.deepEqual(count, { scopes: 4, files: 5, entries: 5 });
+  // The copy names each main file after its new folder (`<folder> memory.md`).
+  assert.deepEqual((await readdir(join(vault, 'Genel'))).filter((f) => f.endsWith('.md')), ['Genel memory.md']);
+  assert.ok((await readdir(join(vault, 'Projeler', 'api'))).includes('api memory.md'));
   assert.deepEqual((await readdir(vault)).sort(), ['Genel', 'Projeler'], 'no work folder left');
   const names = (await readdir(join(vault, 'Projeler'))).sort();
   assert.equal(names.length, 3); assert.ok(names.includes('api'));
@@ -56,8 +62,8 @@ try {
   const webDir = s.project(web).dir;
   assert.match(await readFile(join(webDir, 'deploy.md'), 'utf8'), /Staging first/);
   await s.add({ scope: s.project(web), text: 'Web uses Hugo', actor: 'agent' });
-  assert.match(await readFile(join(webDir, 'MEMORY.md'), 'utf8'), /Web uses Hugo/);
-  assert.doesNotMatch(await readFile(join(old.project(web).dir, 'MEMORY.md'), 'utf8'), /Hugo/, 'nothing goes to the old layout');
+  assert.match(await readFile(mainOf(webDir), 'utf8'), /Web uses Hugo/);
+  assert.doesNotMatch(await readFile(mainOf(old.project(web).dir), 'utf8'), /Hugo/, 'nothing goes to the old layout');
   const journal = (await readFile(join(dir, 'journal.jsonl'), 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
   assert.deepEqual(journal.slice(-2).map((r) => r.op), ['import', 'add'], 'the journal stays under the dsh home');
   assert.equal((await readdir(vault)).includes('journal.jsonl'), false);
@@ -66,14 +72,14 @@ try {
   await rename(webDir, join(vault, 'Projeler', 'Web sitesi'));
   const renamed = s.project(web);
   assert.equal(renamed.dir, join(vault, 'Projeler', 'Web sitesi'));
-  const main = join(renamed.dir, 'MEMORY.md');
+  const main = mainOf(renamed.dir);
   await writeFile(main, (await readFile(main, 'utf8')).replace('Web uses Hugo', 'Web uses Astro'));
   assert.match(memorySection(s, renamed), /Web uses Astro/, 'a hand edit shows in the next chat');
   // A batch finds the folder again: a scope named before the rename still writes into the renamed folder.
   const before = s.project(api);
   await rename(before.dir, join(vault, 'Projeler', 'Servis'));
   await s.add({ scope: before, text: 'The API has a health route', actor: 'agent' });
-  assert.match(await readFile(join(vault, 'Projeler', 'Servis', 'MEMORY.md'), 'utf8'), /health route/);
+  assert.match(await readFile(mainOf(join(vault, 'Projeler', 'Servis')), 'utf8'), /health route/);
   assert.equal(await lstat(before.dir).then(() => true, () => false), false, 'no second folder for the old name');
   // A new project gets a folder named after it.
   const blog = join(root, 'blog'); await mkdir(blog);
@@ -106,7 +112,7 @@ try {
   await writeFile(join(store2, 'memory-folder.json'), JSON.stringify({ folder: vault2 }));
   const m = installMemory(ctx(home2), home2); await m.ready;
   assert.deepEqual((await call()).body, { on: true, folder: vault2, folderActive: vault2 });
-  assert.match(await readFile(join(vault2, 'Genel', 'MEMORY.md'), 'utf8'), /An old global note/, 'the first start copied the notes');
+  assert.match(await readFile(mainOf(join(vault2, 'Genel')), 'utf8'), /An old global note/, 'the first start copied the notes');
   assert.equal(m.store.GLOBAL.dir, join(vault2, 'Genel'));
   assert.deepEqual(JSON.parse(await readFile(join(store2, 'memory-folder.json'), 'utf8')), { folder: vault2, imported: vault2 }, 'the copy is marked done');
   // The user deletes Genel and Projeler later: the next start does not copy the old notes back.
@@ -125,7 +131,7 @@ try {
   const vault3 = join(root, 'vault3');
   await writeFile(join(store2, 'memory-folder.json'), JSON.stringify({ folder: vault3, imported: vault2 }));
   const m3 = installMemory(ctx(home2), home2); await m3.ready;
-  assert.match(await readFile(join(vault3, 'Genel', 'MEMORY.md'), 'utf8'), /Saved in the first vault/, 'the notes of the folder in use move');
+  assert.match(await readFile(mainOf(join(vault3, 'Genel')), 'utf8'), /Saved in the first vault/, 'the notes of the folder in use move');
 
   // A copy that fails at start: the memory stays off for this run (no tools, no review), and switching on is refused.
   if (process.getuid?.() !== 0) {
@@ -140,7 +146,7 @@ try {
       assert.equal((await call()).body.on, false, 'the memory is off while the notes are not copied');
       assert.match((await call()).body.folderProblem, /not copied/, 'Settings shows why');
       const refusedOn = await call({ on: true });
-      assert.equal(refusedOn.status, 409); assert.match(refusedOn.body.error, /restart dsh to copy them/);
+      assert.equal(refusedOn.status, 409); assert.match(refusedOn.body.error, /not copied into .*Project memory is off until dsh starts again/, 'the refusal gives the reason');
     } finally { await chmod(locked, 0o700); }
   }
   console.log('memory folder checks passed');
