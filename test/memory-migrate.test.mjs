@@ -9,10 +9,11 @@
 //   stays. A failed save puts every file back. A second run changes nothing.
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MEMORY_PATH, cleanTopic, installMemory, mainWorktreeOf, memorySection, memoryStore, memoryWord, mergeMemory, migrateMemory, parseMemory, worktreeRepoOf } from '../index.js';
+import { MEMORY_PATH, cleanTopic, importMemory, installMemory, mainWorktreeOf, memorySection, memoryStore, memoryWord, mergeMemory, migrateMemory, parseMemory, worktreeRepoOf } from '../index.js';
 
 const git = (cwd, ...a) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...a], { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
 /** Every entry line of a memory folder tree: `{folder: [line, ...]}` (the lines of all .md files, sorted). */
@@ -98,7 +99,9 @@ try {
     assert.equal(r.files['x hafıza.md'], '# Memory\n\n- Kept [added: 2026-01-01]\n- New one [source: s1; added: 2026-03-03]\n\n## Index\n- [[api]]\n- [[ci]]\n');
     assert.equal(r.files['ci.md'], '# ci\n\n- CI runs on push [added: 2026-04-04]\n');
     assert.deepEqual(r.dropped, [{ file: 'MEMORY.md', line: '- Kept [added: 2026-02-02]' }]); assert.equal(r.moved.length, 2);
-    assert.throws(() => mergeMemory([main], [src(undefined, 'MEMORY.md', '# Memory\n\nA paragraph by hand\n')]), /not entries/); }
+    assert.throws(() => mergeMemory([main], [src(undefined, 'MEMORY.md', '# Memory\n\nA paragraph by hand\n')]), /not entries/);
+    // Hand lines: a paragraph, a bullet with only tags, an Index bullet without a link; titles, entries, links and blanks are not.
+    assert.equal(parseMemory('# Memory\n\n- Fact\n- [added: 2026-01-01]\nBy hand\n\n## Index\n- [[api]]\n- no link\n').stray, 3); }
 
   // The migration on a copy of an old vault layout (MEMORY.md everywhere, branch folders as their own projects).
   const old = join(root, 'old-vault');
@@ -225,8 +228,61 @@ try {
     await d.add({ scope: d.GLOBAL, text: 'Default global fact', actor: 'agent' });
     assert.ok((await readdir(d.GLOBAL.dir)).includes('global memory.md')); }
 
+  // importMemory of a folder with two main files (a scope that the migration left as it is): each one is copied, none is
+  // written over the other, the new folder reads both, and the next migration merges them. The new folder is named after
+  // the project (`plain`): (1) the second main file has the new name of the first (`plain hafıza.md`); (2) the second main
+  // file's old name (`proj memory.md`, no `# Memory` title) means nothing in the new folder.
+  for (const [i, second] of [['plain hafıza.md', '# Memory\n\n- B\n'], ['proj memory.md', '# Notes\n\n- B\n']].entries()) {
+    const from = join(root, `two-mains-${i}`); const to = join(root, `two-mains-new-${i}`);
+    await mkdir(join(from, 'Projeler', 'proj'), { recursive: true }); await mkdir(to);
+    await writeFile(join(from, 'Projeler', 'proj', 'project.json'), JSON.stringify({ path: plain }));
+    await writeFile(join(from, 'Projeler', 'proj', 'proj hafıza.md'), '# Memory\n\n- A\n');
+    await writeFile(join(from, 'Projeler', 'proj', second[0]), second[1]);
+    const c = await importMemory(join(root, `dsh-two-${i}`), to, from, undefined, undefined, () => 'hafıza');
+    assert.equal(c.entries, 2, second[0]);
+    const copied = await linesOf(to); assert.deepEqual(Object.values(copied).flat().sort(), ['A', 'B'], `no main file is written over: ${second[0]}`);
+    const s = memoryStore(join(root, `dsh-two-${i}`), { folder: to, word: () => 'hafıza' });
+    await migrateMemory(s, { log: () => {} });
+    assert.deepEqual(s.load(s.project(plain))[0].entries.map((e) => e.text).sort(), ['A', 'B'], `the migration merges them: ${second[0]}`);
+  }
+  // Three main files in one folder: the copy stops (nothing is written), the reason names the files.
+  { const from = join(root, 'three-mains'); const to = join(root, 'three-mains-new');
+    await mkdir(join(from, 'Projeler', 'proj'), { recursive: true }); await mkdir(to);
+    await writeFile(join(from, 'Projeler', 'proj', 'project.json'), JSON.stringify({ path: plain }));
+    for (const f of ['proj hafıza.md', 'proj memory.md', 'MEMORY.md']) await writeFile(join(from, 'Projeler', 'proj', f), `# Memory\n\n- ${f}\n`);
+    await assert.rejects(importMemory(join(root, 'dsh-three'), to, from, undefined, undefined, () => 'hafıza'), /3 main files/);
+    assert.deepEqual(await readdir(to), [], 'nothing is copied'); }
+
   // worktreeRepoOf: a path that is not a worktree, one that is, one that is gone.
   assert.equal(worktreeRepoOf(repo), undefined); assert.equal(worktreeRepoOf(wt), repo);
   assert.equal(worktreeRepoOf(join(repo, '.worktrees', 'gone')), repo); assert.equal(worktreeRepoOf(join(root, 'x', '.worktrees', 'y')), null);
-  console.log('memory migrate checks passed');
 } finally { await rm(root, { recursive: true, force: true }); }
+
+// The browser reports its UI language to the memory route at start and after a switch, once per language, and stops
+// when Project memory is switched off.
+{
+  let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
+  const posts = [];
+  const server = { on: true };
+  globalThis.fetch = async (url, init) => {
+    if (init?.body) { const body = JSON.parse(init.body); posts.push([url, body]); if (url === MEMORY_PATH && 'on' in body) server.on = body.on; }
+    return Response.json(url === MEMORY_PATH ? { ...server } : { on: true });
+  };
+  eval(readFileSync(new URL('../client.js', import.meta.url), 'utf8'));
+  const React = { createElement: (t, p, ...c) => ({ t, p, c }), Fragment: 'F', useState: (v) => [v, () => {}], useRef: (v) => ({ current: v }), useEffect: () => {}, useSyncExternalStore: (_, get) => get() };
+  const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Input: 'Input' } : {}));
+  let active = 'tr'; const subs = new Set(); let section;
+  const locale = { register: () => () => {}, bind: () => (k) => k, getSnapshot: () => ({ active, locales: [] }), subscribe: (fn) => { subs.add(fn); return () => subs.delete(fn); } };
+  plugin.apply({ effect: (fn) => fn(), configForms: { get: () => ({}) }, locale, sessions: {},
+    slots: { inject: (n, f) => f(), register: (o) => { if (o.id === 'composer-plus') section = o; return () => {}; } } });
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+  const langs = () => posts.filter(([u, b]) => u === MEMORY_PATH && 'lang' in b).map(([, b]) => b.lang);
+  const notify = async () => { for (const fn of [...subs]) fn(); await flush(); };
+  await flush();
+  assert.deepEqual(langs(), ['tr'], 'reports the UI language at start');
+  await notify(); assert.deepEqual(langs(), ['tr'], 'the same language is not sent twice');
+  active = 'en'; await notify(); assert.deepEqual(langs(), ['tr', 'en'], 'reports a language switch');
+  section.inject().setFeature('projectMemory', false); await flush();
+  active = 'de'; await notify(); assert.deepEqual(langs(), ['tr', 'en'], 'switched off: the language is not reported');
+}
+console.log('memory migrate checks passed');

@@ -6275,34 +6275,27 @@ export function cleanTopic(raw) {
 /** A main file or a topic file (`<topic>.md` with a clean topic name): the only files a memory scope keeps. */
 const isMemoryFile = (name) => isMainName(name) || (name.endsWith('.md') && cleanTopic(name.slice(0, -3)) === name.slice(0, -3));
 /** Bullets outside `## Index` are entries; the Index holds `[[topic]]` links. Other lines (titles, notes written by hand)
- * stay as they are. */
+ * stay as they are. `stray`: how many lines are not a title, an entry, an Index link or a blank line (text written by hand
+ * that a merge of entries would lose). */
 export function parseMemory(content) {
   const lines = String(content ?? '').replace(/\r\n?/g, '\n').split('\n');
   while (lines.length > 0 && lines.at(-1).trim() === '') lines.pop();
   const entries = []; const links = [];
-  let index = false;
+  let index = false; let stray = 0;
   lines.forEach((line, at) => {
     if (MEMORY_HEADING.test(line)) { index = MEMORY_INDEX.test(line.trim()); return; }
     const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
-    if (bullet === null) return;
-    if (index) { for (const m of bullet[1].matchAll(/\[\[([^\]]+)\]\]/g)) links.push(m[1].trim()); return; }
+    if (bullet === null) { if (line.trim() !== '') stray++; return; }
+    if (index) {
+      const found = [...bullet[1].matchAll(/\[\[([^\]]+)\]\]/g)].map((m) => m[1].trim());
+      if (found.length === 0) stray++;
+      links.push(...found); return;
+    }
     const { text, meta } = splitMeta(bullet[1]);
-    if (text !== '') entries.push({ line: at, text, meta });
+    if (text !== '') entries.push({ line: at, text, meta }); else stray++;
   });
-  return { lines, entries, links };
+  return { lines, entries, links, stray };
 }
-/** How many lines of a memory file are not a title, an entry, an Index link or a blank line: text written by hand that a
- * merge of entries would lose. */
-const strayLines = (content) => {
-  let index = false;
-  return String(content ?? '').replace(/\r\n?/g, '\n').split('\n').filter((line) => {
-    if (MEMORY_HEADING.test(line)) { index = MEMORY_INDEX.test(line.trim()); return false; }
-    if (line.trim() === '') return false;
-    const bullet = /^\s*[-*]\s+(.*)$/.exec(line);
-    if (bullet === null) return true;
-    return index ? !/\[\[[^\]]+\]\]/.test(bullet[1]) : splitMeta(bullet[1]).text === '';
-  }).length;
-};
 const joinLines = (lines) => `${lines.join('\n')}\n`;
 /** A new entry goes after the last entry above `## Index` (or at the end of a topic). */
 function insertEntry(lines, line) {
@@ -6340,8 +6333,7 @@ export function mergeMemory([main, ...topics], sources) {
   const seen = new Set([main, ...topics].flatMap((f) => f.entries.map((e) => e.text)));
   const links = []; const moved = []; const dropped = [];
   for (const f of sources) {
-    const stray = strayLines(f.content);
-    if (stray > 0) throw new Error(`${f.file} has ${stray} lines that are not entries; merge it by hand`);
+    if (f.stray > 0) throw new Error(`${f.file} has ${f.stray} lines that are not entries; merge it by hand`);
     for (const e of f.entries) {
       const line = f.lines[e.line].trim();
       if (seen.has(e.text)) { dropped.push({ file: f.file, line }); continue; }
@@ -6730,7 +6722,7 @@ export async function importMemory(dir, folder, from, names = MEMORY_DIR_NAMES, 
   const exists = (p) => { try { lstatSync(p); return true; } catch { return false; } };
   const into = [names.global, names.projects].map((n) => join(folder, n));
   if (into.some(exists)) return undefined;
-  const legacy = memoryStore(dir, { folder: from, names: fromNames });
+  const legacy = memoryStore(dir, { folder: from, names: fromNames, word });
   const scopes = [legacy.GLOBAL, ...legacy.projects()];
   const count = { scopes: 0, files: 0, entries: 0 };
   const work = join(folder, `.composer-plus-import-${process.pid}`);
@@ -6738,14 +6730,17 @@ export async function importMemory(dir, folder, from, names = MEMORY_DIR_NAMES, 
   const temp = memoryStore(dir, { folder: work, names, word });
   try {
     for (const scope of scopes) {
-      // Every memory file as it is (a second main file too: the migration merges it); the main file in use gets the name
-      // of its new folder (`<folder> <word>.md`).
-      const main = legacy.mainName(scope);
+      // Every memory file as it is. The main file in use gets the name of its new folder (`<folder> <word>.md`); a second
+      // one (a folder that the migration left as it is) gets MEMORY.md, which the new folder reads too and the migration
+      // merges. Its old name could mean nothing there (`<old folder> memory.md`): its notes would not be read.
+      const mains = legacy.mainNames(scope);
+      if (mains.length > 2) throw new Error(`${scope.dir} has ${mains.length} main files (${mains.join(', ')}): merge them by hand, then restart dsh`);
       const files = legacy.scopeFiles(scope).map((file) => ({ file, content: readOwn(join(scope.dir, file)) })).filter((f) => f.content !== '');
       if (files.length === 0) continue;
       const at = scope.kind === 'global' ? temp.GLOBAL : temp.projectScope(scope.id, scope.path);
+      const nameOf = (file) => (file === mains[0] ? temp.wantedMain(at) : file === mains[1] ? MEMORY_OLD_MAIN : file);
       if (scope.kind === 'project' && scope.path !== undefined) await writeOwn(join(at.dir, 'project.json'), JSON.stringify({ path: scope.path }));
-      for (const f of files) { await writeOwn(join(at.dir, f.file === main ? temp.wantedMain(at) : f.file), f.content); count.files++; count.entries += parseMemory(f.content).entries.length; }
+      for (const f of files) { await writeOwn(join(at.dir, nameOf(f.file)), f.content); count.files++; count.entries += parseMemory(f.content).entries.length; }
       count.scopes++;
     }
     const moved = [];

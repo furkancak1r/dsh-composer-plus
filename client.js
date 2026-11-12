@@ -13195,8 +13195,8 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         feature('projectMemory', () => {
           if (typeof fetch !== 'function') return [() => memoryEditor.close()];
           const report = () => {
-            let lang; try { lang = ctx.locale?.getSnapshot?.().active; } catch { lang = undefined; }
-            if (typeof lang !== 'string' || lang === memoryLang) return;
+            const lang = uiLanguage(); // defined below: feature setups run at the end of apply()
+            if (lang === undefined || lang === memoryLang) return;
             memoryLang = lang;
             fetch(MEMORY_ROUTE, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ lang }) }).catch(() => {});
           };
