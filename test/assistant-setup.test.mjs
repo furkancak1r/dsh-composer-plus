@@ -4,7 +4,7 @@
 // memory). The client shows the setup card in the assistant chat until ready, with Set up, Check again and the download link.
 import './temp-home.mjs';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, realpath, rename, lstat } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, realpath, rename, lstat, chmod } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -198,7 +198,16 @@ try {
     await mm.setup(async (st) => ({ folder: vG, names: { global: 'Allgemein', projects: 'Projekte' } }));
     mm = await restart();
     assert.match(await readFile(join(vG, 'Allgemein', 'MEMORY.md'), 'utf8'), /A note in English folders/, 'a German Set up still copies the notes from the English folders');
-    assert.equal(mm.store.GLOBAL.dir, join(vG, 'Allgemein')); }
+    assert.equal(mm.store.GLOBAL.dir, join(vG, 'Allgemein'));
+    // The copy works but the setting file is not saved: the names of the notes stay with their folder (review 2026-11-12).
+    const vF = join(root, 'vF', 'Mémoire');
+    await writeFile(join(sN, 'memory-folder.json'), JSON.stringify({ ...JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8')), folder: vF, names: { global: 'Général', projects: 'Projets' } }));
+    await chmod(sN, 0o500);
+    try { mm = await restart(); } finally { await chmod(sN, 0o700); }
+    assert.match(await readFile(join(vF, 'Général', 'MEMORY.md'), 'utf8'), /A note in English folders/);
+    await mm.setup(async () => ({ folder: join(root, 'vF2') })); // a later save writes the names that it holds
+    const saved = JSON.parse(await readFile(join(sN, 'memory-folder.json'), 'utf8'));
+    assert.deepEqual([saved.imported, saved.importedNames], [vG, { global: 'Allgemein', projects: 'Projekte' }], 'a failed save keeps the old folder with its own names'); }
   // Ready (Obsidian knows the fresh folder, the memory is active): the gate opens.
   await vaults([fresh]);
   const readySetup = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: fresh }, { ...mem, state: () => ({ on: true, folder: join(fresh, 'Memory'), folderActive: join(fresh, 'Memory') }) }, { home, apps: [app], configs: [config] });

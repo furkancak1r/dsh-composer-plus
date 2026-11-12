@@ -7261,8 +7261,11 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
   const imported = folder === undefined || folderProblem !== undefined || importedFolder === folder ? Promise.resolve(true)
     : importMemory(dir, folder, importedFolder !== undefined && memoryFolderProblem(importedFolder, fromNames) === undefined ? importedFolder : undefined, names, fromNames).then(async (count) => {
       if (count !== undefined) log(`copied ${count.entries} notes of ${count.scopes} memories into ${folder}`);
+      // importedNames and importedFolder change together, only when the setting file is saved.
+      const before = importedNames;
       importedNames = names.global === MEMORY_GLOBAL_DIR && names.projects === MEMORY_PROJECTS_DIR ? undefined : names;
-      await writeFolderFile({ folder, imported: folder }); importedFolder = folder;
+      await writeFolderFile({ folder, imported: folder }).catch((error) => { importedNames = before; throw error; });
+      importedFolder = folder;
       return true;
     }, (error) => {
       importError = `the notes were not copied into ${folder}, so Project memory is off until dsh starts again: ${error?.message ?? error}`;
@@ -9901,12 +9904,17 @@ const SECRET_LINE = new RegExp([
   String.raw`${SECRET_WORD}\s+(?:is|was|=|:|olarak|şu)\s+["'\x60]?(?=[^\s"'\x60]*\d)(?=[^\s"'\x60]*[A-Za-z])[^\s"'\x60]{8,}`, // "the token is a1b2…" (a value with letters and digits)
   String.raw`\bBearer\s+[A-Za-z0-9._~+/-]{12,}`,
 ].join('|'), 'i');
-// Command-line forms (case matters: mysql -P is a port): curl -u user:pass, mysql -pSECRET, sshpass -p and redis-cli -a.
+// Command-line forms (case matters: mysql -P is a port): curl -u user:pass, mysql -pSECRET, sshpass -p SECRET (its own -p,
+// not ssh's port), redis-cli -a SECRET, --password=SECRET, and --password SECRET when the value has a digit or a sign.
+// A quote or backtick ends a value, so "`mysql -u root -p`" (a prompt) stays.
+const CLI_Q = String.raw`"'\x60`;
 const CLI_SECRET = new RegExp([
-  String.raw`(?:^|\s)(?:-u|--user)\s+[^\s:]+:(?=[^\s@]*[A-Za-z])[^\s@]{4,}`,
-  String.raw`\b(?:mysql\w*|mariadb\w*)\b.*\s-p(?!\s)\S+`,
-  String.raw`\b(?:sshpass|redis-cli)\b.*\s-[pa]\s+\S+`,
-  String.raw`--pass(?:word)?[= ]\S{4,}`,
+  String.raw`\bcurl\b.*\s(?:-u\s*|--user[=\s]\s*)["']?[^\s:${CLI_Q}]+:[^\s${CLI_Q}]+`,
+  String.raw`\b(?:mysql\w*|mariadb\w*)\b.*\s-p[^\s${CLI_Q}]{3,}`,
+  String.raw`\bsshpass\s+(?:-[a-oq-zA-Z]\w*\s+)*-p\s*[^\s${CLI_Q}-][^\s${CLI_Q}]*`,
+  String.raw`\bredis-cli\b.*\s(?:-a|--pass)\s+[^\s${CLI_Q}-][^\s${CLI_Q}]*`,
+  String.raw`--pass(?:word)?=[^\s${CLI_Q}]{3,}`,
+  String.raw`--pass(?:word)?\s+(?=[^\s${CLI_Q}]*[\d!@#$%^&*_+.])[^\s${CLI_Q}-][^\s${CLI_Q}]{3,}`,
 ].join('|'));
 export const secretLine = (line) => looksSecret(line) || SECRET_LINE.test(line) || CLI_SECRET.test(line);
 /** The text without its secret-looking lines, and how many lines went. */
