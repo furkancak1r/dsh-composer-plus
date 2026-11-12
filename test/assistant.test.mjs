@@ -15,40 +15,85 @@ import { ASSISTANT_ASK, ASSISTANT_PATH, ASSISTANT_PRESET, ASSISTANT_SWITCH_PATH,
 
 const tick = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
 
-// The merge gate: a request for a merge into main without a review-guard step; a report of a merge that happened is no request.
-for (const text of ['Fix the footer, then /merge-main.', 'Bitince $merge-main çalıştır.', 'When the tests pass, run merge-main.', 'MERGE INTO MAIN when done',
-  'Then merge it\ninto main.', 'Merge the branch into main.', 'Push the branch, merge this branch into main', 'Testler geçince main\u2019e birleştir.',
-  "Review sonrası main'e birleştirilsin.", "Dal main'e birleşsin.", "Sonra main'e merge et.", "Bitince main'e birleş.", 'git push origin main', 'Önce test, sonra MAİN\'E BİRLEŞTİRİN.',
-  'Run the tests without failures and merge into main.', 'Not now. Merge into main later.', "Don't forget to merge into main.", 'Do not stop; run /merge-main.', 'Then load and follow the `push-branch` skill, then the `merge-main` skill.',
-  // Review 1 of the gate (2026-11-12): requests that the first word list missed.
+// The merge gate: a request for a merge into main without a review-guard step. A report of a merge that happened, a
+// negated request, a question and a noun are no request. Rows from the reviews of 2026-11-12.
+const MERGE_REQUESTS = [
+  // round 2 P2-1
+  'Rules:\n- Do not change the API\n- Merge into main when the tests pass', 'Do not touch the tests\nMerge into main when done',
+  'Do not force push then git push origin main', 'Do not push then merge into main', 'Do not use a squash merge then merge into main',
+  'Do not delete the branch after you merge into main.', 'Do not squash when you merge into main.', "Don't stop until you merge into main.",
+  'Do not wait for CI to merge into main.', 'Never force push when you push to main.',
+  // round 2 P2-2
+  'Merge the work of this branch into main.', 'Merge the current feature branch into main.', 'Merge release-1.4 into main.', 'Merge branch fix/v2.0-footer into main.',
+  "main'e birleştirmeyi unutma.", "main'e birleştirmen gerekiyor", "Dalı main'e birleştirmeni istiyorum.", "main'e birleştirilmesi gerekiyor.", "Testler geçince main'e birleştirmeyi yap.",
+  "main'e push et", "main'e pushla", 'merge into "main"', 'merge into \u201cmain\u201d', "`main`'e birleştir",
+  // round 2 P2-3
+  "Merge into main. review-guard isn't needed.", 'Merge into main; review-guard not needed.', 'review-guard is unnecessary here, merge into main.',
+  'Merge into main (review-guard optional).', 'Merge into main; review-guard is skipped.', "review-guard'a gerek yok, main'e birleştir.", 'review-guard gerekli değil, main\'e birleştir.',
+  'review-guard was clean on the previous commit. Add the docs fix and merge into main.',
+  // round 1 and earlier
   'merge to main', 'Merge onto main', 'merge with main then push', 'push to main', 'git push origin HEAD:main', 'git push -u origin main', 'merge into the main branch',
   'merge into `main`', 'Merge into origin/main', 'merge back into main', 'merge the PR into main', 'merge-main', 'main dalına birleştir', "main'a birleştir",
   "main'e birleştirelim", "main'e birleştiriniz", "main'e merge edilsin", "main'e birleştirilecek", "CI yeşil olunca dal main'e birleşir",
   "Dal origin'e push edilir, main'e birleşip push edilir", 'main`e birleştir', 'main´e birleştir', "main'e birleştır",
-  // A mention of review-guard that is no step.
   'Skip review-guard and merge into main.', 'Merge into main without review-guard.', "review-guard olmadan main'e birleştir.", 'No review-guard needed; merge into main.',
   'Merge into main. Note: review-guard is not needed.', "Review-guard gerekmez, main'e birleştir.", 'Do not run review-guard. Merge into main.', 'git push origin feature:main',
-  // A negation in another clause does not count.
-  'With no conflicts merge into main', 'Do not stop, merge into main.', 'The tests do not fail and then merge into main.']) {
-  assert.equal(asksMergeWithoutReview(text), true, `a merge request: ${text}`);
-}
-for (const text of ['Fix the footer, then /merge-main. Before it, run review-guard on the final diff.', 'Run $review-guard and /merge-main when clean.',
-  "main'e birleşmiş feat/sap-idle-di-runner-guards dalı ve klasörü silinsin.", 'The branch is already merged into main.', 'It is in main now.',
-  "Dal main'e birleşti.", "main'e birleştirme.", 'Do not merge into main.', "Don't run /merge-main yet.", 'never push origin main', 'Fix the footer and push the branch.',
-  'Read /merge-mainline.md', 'git push origin main-backup', 'remerge into maintenance', '',
-  // Review 1 of the gate: negations further before the words, and reports that are no request.
+  'With no conflicts merge into main', 'Do not stop, merge into main.', 'The tests do not fail and then merge into main.',
+  'Fix the footer, then /merge-main.', 'Bitince $merge-main çalıştır.', 'When the tests pass, run merge-main.', 'MERGE INTO MAIN when done',
+  'Then merge it\ninto main.', 'Merge the branch into main.', 'Push the branch, merge this branch into main', 'Testler geçince main\u2019e birleştir.',
+  "Review sonrası main'e birleştirilsin.", "Dal main'e birleşsin.", "Sonra main'e merge et.", "Bitince main'e birleş.", 'git push origin main', 'Önce test, sonra MAİN\'E BİRLEŞTİRİN.',
+  'Run the tests without failures and merge into main.', 'Not now. Merge into main later.', "Don't forget to merge into main.", 'Do not stop; run /merge-main.',
+  'Then load and follow the `push-branch` skill, then the `merge-main` skill.', 'Can you merge into main?', 'Please merge into main?',
+  "main'e pushlayın", "Bitince main'e merge yap.", "main'e birleştirildikten sonra dal silinir.",
+];
+const NO_MERGE_REQUESTS = [
+  // round 2 P3
+  'Do not merge into main until review-guard is clean, then merge into main.', 'Never merge into main without a clean review-guard run. After that, merge into main.',
+  'Did you merge into main?', 'Why did the merge into main fail?', 'Show me the result of the merge into main.', 'main is at 05a6bda; the merge to main of PR 12 is done.',
+  // review steps that must stay
+  'Run review-guard, then merge into main', 'Run review-guard on the final diff, fix the findings, and merge into main. No need to run review-guard again for docs.',
+  // made-up relayed approvals (Turkish) that name review-guard
+  "Kullanıcı onayladı (acme-web): gece dalı bir dal sohbetinde testlerden ve review-guard'dan geçer. Temizse /merge-main ile main'e birleşir ve origin main'e push edilir. Deploy yok.",
+  'Kullanıcı onayladı (weather-cli): betik ve yapılandırma dal sohbetinde hazırlanır, test ve review-guard sonrası main\'e birleşir. Sunucuya kurulum ayrı onay ister.',
+  "Kullanıcı onayladı (acme-web, canlı değil): koruma dalı, iki dal main'e girdikten sonra test ve review-guard ile main'e birleşir.",
+  "Kullanıcı onayladı: hafıza dosyaları proje adıyla görünür. Test ve review-guard sonrası main'e birleşir, canlı kopyaya alınmaz.",
+  "Kullanıcı onayladı (acme-web): düşen test ayrı dalda düzeltilir. Test, review-guard ve CI sonrası main'e birleşir.",
+  "Kullanıcı onayladı: düzeltme fix/cert-verify dalında yapılır. Review-guard temizse main'e birleşip push edilir. SSH değişikliği bu onaya dahil değil.",
+  "Kullanıcı onayladı (acme-web): şablondaki açıklama satırı bir dal sohbetinde düzeltilir. Review-guard temizse main'e birleşir ve origin main'e push edilir.",
+  "Kullanıcı onayladı (weather-cli): uyarı eklenir, test ve review-guard sonrası main'e birleşir. Kurulum ayrı karar.",
+  "Kullanıcı bu depoda onay istemiyor: review-guard temizse dal push, main'e merge, main push ve dal silme serbest.",
+  "Kullanıcı kararı: review-guard ve tüm kontroller temizse sormadan push ve main'e merge yapar; canlı ve deploy hariç. Temiz değilse dalı birleştirmez.",
+  "Kullanıcı onayladı: onay defteri ayrı dalda yapılır, test ve review-guard sonrası main'e birleşir. Canlı kurulum ayrı onay ister.",
+  // round 1 allows
   'You are not allowed to merge into main.', 'Do not try to merge into main; Furkan merges it.', 'Never attempt to push origin main.', 'Do not run git push origin main.',
   'Push the branch. Do not run the merge-main skill.', 'Do not load the `merge-main` skill.', 'No need to merge into main.', 'It is not your job to merge into main.',
   'Push the branch. You are not allowed to merge into main.', "main'e birleştirmeyin.", "main'e birleştirmesin.", "Dal main'e birleştirildi.", "Dal main'e birleştirilmiş.",
   'Merging into main is forbidden: merge into main is not allowed.', 'Fix the merge conflicts with main.', 'Pull from main and push the branch.',
   'Load the review-guard skill, fix the findings, then merge into main.', "Review-guard'ı final diff üzerinde çalıştır, sonra main'e birleştir.", 'Edit main.py and push.',
-  'Merge main into the branch.', 'git merge origin/main', 'Push to origin and open a PR against main.', 'merge-main.md dosyasını oku', 'Use the push-branch skill, not merge-main.']) {
-  assert.equal(asksMergeWithoutReview(text), false, `no merge request without review: ${JSON.stringify(text)}`);
+  'Merge main into the branch.', 'git merge origin/main', 'Push to origin and open a PR against main.', 'merge-main.md dosyasını oku', 'Use the push-branch skill, not merge-main.',
+  'Fix the footer, then /merge-main. Before it, run review-guard on the final diff.', 'Run $review-guard and /merge-main when clean.',
+  "main'e birleşmiş feat/sap-idle-di-runner-guards dalı ve klasörü silinsin.", 'The branch is already merged into main.', 'It is in main now.',
+  "Dal main'e birleşti.", "main'e birleştirme.", 'Do not merge into main.', "Don't run /merge-main yet.", 'never push origin main', 'Fix the footer and push the branch.',
+  'Read /merge-mainline.md', 'git push origin main-backup', 'remerge into maintenance', '',
+  // status texts
+  'merged into main', 'The fix is in origin/main.', 'git log origin/main', 'git pull --ff-only origin main', "main'e pushlama.",
+  "main'e birleştirmez.", "main'e birleştirmiyor.", "main'e birleştirmemeli.", "main'e birleştirmeden önce bekle.",
+  'Merge the PR and never push to main.', 'Merge the PR and do not push to main.', 'Merge the fix, then do not push to main.',
+];
+for (const text of MERGE_REQUESTS) assert.equal(asksMergeWithoutReview(text), true, `a merge request without a review-guard step: ${JSON.stringify(text)}`);
+for (const text of NO_MERGE_REQUESTS) assert.equal(asksMergeWithoutReview(text), false, `no merge request, or one with a review-guard step: ${JSON.stringify(text)}`);
+// Linear time: about 0.8 MB of near matches, negated matches, questions, nouns and waived reviews stays fast.
+const slow = {
+  near: `${"main'e birle ".repeat(20000)}${'merge into mai '.repeat(20000)}/merge-mai`.slice(0, 800000),
+  negated: 'do not merge into main. '.repeat(34000), negatedNoStop: 'do not merge into main '.repeat(35000),
+  turkishNeg: "main'e birlestirme ".repeat(42000), pushWords: 'push a b c d e f g h '.repeat(40000), mergeWords: 'merge a b c d e f g h '.repeat(38000),
+  mergeLong: ('merge ' + `${'x'.repeat(79)} `.repeat(6)).repeat(1650), reviewMentions: `${'skip review-guard '.repeat(44000)}merge into main`,
+  questions: 'did you merge into main? '.repeat(32000), nouns: 'the merge into main '.repeat(40000), colons: ('push ' + ':'.repeat(80) + ' ').repeat(9500),
+};
+for (const [name, text] of Object.entries(slow)) {
+  const t0 = performance.now(); asksMergeWithoutReview(text);
+  assert.ok(performance.now() - t0 < 500, `${name} stays fast: ${performance.now() - t0} ms`);
 }
-// Linear time: a long text with many near matches stays fast.
-const big = `${"main'e birle ".repeat(20000)}${'merge into mai '.repeat(20000)}/merge-mai`.slice(0, 800000);
-let t0 = performance.now(); assert.equal(asksMergeWithoutReview(big), false); assert.ok(performance.now() - t0 < 500, `fast: ${performance.now() - t0} ms`);
-t0 = performance.now(); assert.equal(asksMergeWithoutReview(`${'do not merge into main. '.repeat(30000)}`), false); assert.ok(performance.now() - t0 < 500, `many negated matches stay fast: ${performance.now() - t0} ms`);
 
 // waitingOf: an open approval or question in the open turn.
 const ev = (seq, type, data) => ({ seq, type, data });

@@ -9799,40 +9799,95 @@ export function assistantRead(events, inherited, count, { message = ASSISTANT_LI
 const foldName = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase('en');
 
 /** A task text that asks for a merge into main and has no review-guard step (2026-11-12: two such task texts went to main
- * without a review). Only a request counts, not a report of a merge that happened ("merged", "main'e birleşmiş", "birleşti")
- * or a negated one ("do not merge into main", "main'e birleştirme"). Case, accents, apostrophes (' ’ ` ´), the dotless ı and
- * line breaks do not matter. Fixed words with bounded repeats only, and each check reads at most 200 characters around a
- * match, so the time is linear in the text.
- * ponytail: only these English and Turkish words count, so another wording passes. A negation counts only before the words
- * in the same clause (a clause ends at . ! ? ; : , and before "and", "then", "but", "ve", "sonra"): "do not, in any case,
- * merge into main" and "merge into main is not allowed" are refused. A later chat_send can add work to a branch chat whose
- * first task already asked for the merge, with no merge words in the new message (2026-11-12: that work went to main
- * without a review). Upgrade: keep the merge request with the task and check each later message to that chat. */
+ * without a review). Only a request counts, not a report of a merge that happened ("merged", "main'e birleşmiş", "birleşti"),
+ * a negated one ("do not merge into main", "main'e birleştirme"), a question ("did you merge into main?") or a noun ("the
+ * merge into main"). Case, accents, quotes and apostrophes (' ’ ` ´ " “ ”), the dotless ı and spaces do not matter. Fixed
+ * words with bounded repeats (at most 6 words of 80 characters between merge and main, 3 after push), and each check reads
+ * at most 200 characters around a match, so the time is linear in the text.
+ * ponytail: only these English and Turkish words count, so another wording passes. A negation counts only right before the
+ * words, with only NEG_GAP words between ("do not try to merge into main"): "do not, in any case, merge into main" is
+ * refused. A later chat_send can add work to a branch chat whose first task already asked for the merge, with no merge
+ * words in the new message (2026-11-12: that work went to main without a review). Upgrade: keep the merge request with the
+ * task and check each later message to that chat. */
 const MAIN_END = String.raw`(?![\p{L}\p{N}_-]|\.\p{L})`; // not "main-backup", "maintenance" or "main.py"
-// A word ([^\s…]+) cannot hold the space that comes before it, so each way to read "{0,3} words" is the only one.
+const SP = '[ \\n]';
+// One word of the gap: 1 to 80 characters with no space, not a word that starts another part ("then", "and", "merge",
+// "not" …), and not ending in "." (a sentence end; "v2.0" stays one word). A word cannot hold the space before it, so each
+// way to read the repeat is the only one.
+const GAP_WORD = String.raw`${SP}(?!(?:then|but|and|or|merge|push|not|never|dont|don't|without)${SP})[^\s!?;:,]{0,79}[^\s!?;:,.]`;
 const MERGE_ASK = new RegExp([
   String.raw`(?<![\p{L}\p{N}_-])[/$]?merge-main${MAIN_END}`, // the skill or command
-  String.raw`(?<![\p{L}\p{N}_-])merge(?! conflicts?)(?: [^\s.!?;:,]+){0,3}? (?:into|to|onto|with) (?:the )?(?:origin/)?'?main'?${MAIN_END}`,
-  String.raw`(?<![\p{L}\p{N}_-])push(?: [^\s.!?;,]+){0,3}? (?:origin|to|into|onto)(?: the)? (?:origin/)?'?main'?${MAIN_END}`,
-  String.raw`(?<![\p{L}\p{N}_-])push(?: [^\s.!?;,]+){0,3}? [^\s.!?;,]*:(?:refs/heads/)?main${MAIN_END}`, // a refspec: HEAD:main
-  String.raw`(?<![\p{L}\p{N}_-])main(?:'[ea]| e| dalina) (?<tr>birles\p{L}*|merge(?: (?:et|ed|yap)\p{L}*)?)`, // Turkish: its verb is "tr"
+  String.raw`(?<![\p{L}\p{N}_-])merge(?!${SP}conflicts?)(?:${GAP_WORD}){0,6}?${SP}(?:into|to|onto|with)${SP}(?:the${SP})?(?:origin/)?'?main'?${MAIN_END}`,
+  String.raw`(?<![\p{L}\p{N}_-])push(?:${GAP_WORD}){0,3}?${SP}(?:origin|to|into|onto)(?:${SP}the)?${SP}(?:origin/)?'?main'?${MAIN_END}`,
+  String.raw`(?<![\p{L}\p{N}_-])push(?:${GAP_WORD}){0,3}?${SP}[^\s!?;,]{0,80}:(?:refs/heads/)?main${MAIN_END}`, // a refspec: HEAD:main
+  // Turkish: main'e, main'a, main dalına + its verb ("tr").
+  String.raw`(?<![\p{L}\p{N}_-])main(?:'[ea]|${SP}e|${SP}dalina)${SP}(?<tr>birles\p{L}*|merge(?:${SP}(?:et|ed|yap)\p{L}*)?|push(?:la\p{L}*|${SP}(?:et|ed|yap)\p{L}*))`,
 ].join('|'), 'gu');
-// A Turkish verb after its stem: -me/-ma (negative; -mek and -meli stay requests), -miş, -di/-ti (past; -dikten stays).
-const TR_STEM = /^(?:birles(?:tir)?(?:il)?|merge(?: (?:et|ed|yap)(?:il)?)?)/;
-const trRequest = (verb) => { const rest = verb.replace(TR_STEM, ''); return !/^m(?!ek|ak|el|al)/.test(rest) && !/^[dt][iu](?!kten)/.test(rest); };
-const NEGATED = /(?:^|[^\p{L}])(?:not|never|cannot|dont|without|skip|skipping)(?![\p{L}])(?! forget)|n't(?![\p{L}])(?! forget)|(?:^|[^\p{L}])no (?:need(?![\p{L}])|$)/u;
-const NEGATED_AFTER = /^ (?:is|are) (?:not|forbidden)|^ (?:yasak|gerekmez|gerekmiyor|yok)/;
-const clauseBefore = (t, at) => t.slice(Math.max(0, at - 200), at).split(/[.!?;:,]| and | then | but | ve | sonra /).pop();
-/** A review-guard step: a mention without a negation before it in its clause ("skip review-guard") or after it
- * ("review-guard is not needed", "review-guard olmadan", "review-guard'ı atla"). */
-const reviewStep = (t) => [...t.matchAll(/review-guard/g)].some((m) => !NEGATED.test(clauseBefore(t, m.index))
-  && !/^(?:['\p{L}]*\s?(?:olmadan|atla|yok|gerekmez|gerekmiyor|kullanma(?!k)|calistirma(?!k))|(?: skill)? (?:is|are) not)/u.test(t.slice(m.index + 12, m.index + 40)));
+// A Turkish verb after its stem. A request: the stem ("birleştir"), -in, -elim, -sin, -ip, -ir, -ecek, -dikten, and the verbal
+// nouns -mek, -meli, -meyi, -meye, -men(i), -mesi(ni) ("birleştirmeyi unutma", "birleştirilmesi gerekiyor"). No request:
+// -me alone, -meyin, -mesin, -mez, -memeli, -meden, -miyor (negative), -miş, -di/-ti (past).
+const TR_STEM = /^(?:birles(?:tir)?(?:il)?|pushla(?:n)?|(?:merge|push)(?: (?:et|ed|yap)(?:il)?)?)/;
+const TR_NOUN = /^m[ea](?:k|l[ia]|y[iae](?!\p{L})|n(?:[ia][nz]?)?(?!\p{L})|s[ia](?:n[iae])?(?!\p{L}))/u;
+const trRequest = (verb) => { const rest = verb.replace(/\n/g, ' ').replace(TR_STEM, ''); return rest.startsWith('m') ? TR_NOUN.test(rest) : !/^[dt][iu](?!kten)/.test(rest); };
+const NEG_WORD = /^(?:not|never|cannot|without|skip|skipping|no|nor|avoid|dont|cant|wont)$|n't$/;
+// The words that may come between a negation and what it negates ("do not try to run the merge-main skill").
+const NEG_GAP = new Set(['try', 'to', 'attempt', 'run', 'load', 'use', 'the', 'a', 'an', 'git', 'allowed', 'your', 'job', 'need', 'ever', 'again', 'yourself']);
+/** The words before `at` on its line (at most 120 characters). */
+const wordsBefore = (t, at) => {
+  const s = t.slice(Math.max(0, at - 120), at); const words = s.slice(s.lastIndexOf('\n') + 1).split(' ');
+  if (words.at(-1) === '') words.pop();
+  return words;
+};
+const bare = (w) => w.replace(/^['()[\]$/]+|['()[\]]+$/g, ''); // without quotes and brackets at its ends
+/** A negation right before the words: only NEG_GAP words between them, and no clause mark. */
+const negatedBefore = (words) => {
+  for (let i = words.length - 1; i >= 0; i--) {
+    if (/[.!?;:,]$/.test(words[i])) return false;
+    const w = bare(words[i]);
+    if (NEG_WORD.test(w)) return true;
+    if (w !== '' && !NEG_GAP.has(w)) return false;
+  }
+  return false;
+};
+const NEGATED_AFTER = /^ (?:is|are)(?: not|n't| forbidden)|^ (?:yasak|gerekmez|gerekmiyor|yok)/;
+/** The clause around `at`: from the mark before it to the mark after it (. ! ? ; , or a line break), at most 150 characters
+ * on each side. */
+const MARK = /[!?;,\n]|\.(?:\s|$)/;
+const clauseAround = (t, at) => t.slice(Math.max(0, at - 150), at).split(MARK).pop() + t.slice(at, at + 150).split(MARK)[0];
+/** A positive review-guard step: its clause asks to run it or makes the merge wait for it, and nothing negates or waives
+ * it ("skip review-guard", "review-guard isn't needed", "review-guard'a gerek yok"). A report ("review-guard was clean on
+ * the previous commit") is no step. */
+const REVIEW_DO = /(?<!\p{L})(?:run|runs|running|load|loads|use|uses|follow|follows|apply|invoke|execute|until|after|once|when|if|before|pass|passes|calistir\p{L}*|uygula\p{L}*|ile|sonrasi\p{L}*|sonra|gecince|gecer|gectikten|temizse)(?!\p{L})/u;
+const REVIEW_WAIVED = /^(?:'\p{L}*)?(?: (?:skill|step|run|check|review))? (?:(?:is|are|was|were|be) )?(?:not|isn't|aren't|wasn't|unnecessary|optional|skipped|gerek yok|gerekli degil|gerekmez|gerekmiyor|olmadan|yok|atla|kullanma(?!k)|calistirma(?!k))/u;
+const reviewStep = (t) => {
+  for (const m of t.matchAll(/review-guard/g)) {
+    if (!negatedBefore(wordsBefore(t, m.index)) && !REVIEW_WAIVED.test(t.slice(m.index + 12, m.index + 60)) && REVIEW_DO.test(clauseAround(t, m.index))) return true;
+  }
+  return false;
+};
+const NOUN_BEFORE = new Set(['the', 'a', 'an', 'this', 'that']);
+const QUESTION_END = /[!?\n]|\.(?:\s|$)/; // the end of the sentence after a match
+const POLITE = new Set(['can', 'could', 'would', 'will', 'please']);
 export const asksMergeWithoutReview = (text) => {
-  // Apostrophes first: NFKD makes ´ a space and a mark.
-  const t = foldName(String(text ?? '').replace(/[\u2018\u2019\u02bc\u0060\u00b4]/g, "'")).replace(/ı/g, 'i').replace(/\s+/g, ' ');
-  for (const m of t.matchAll(MERGE_ASK)) {
-    if (m.groups.tr !== undefined && !trRequest(m.groups.tr)) continue;
-    if (NEGATED.test(clauseBefore(t, m.index)) || NEGATED_AFTER.test(t.slice(m.index + m[0].length, m.index + m[0].length + 30))) continue;
+  // Quotes and apostrophes first (NFKD makes ´ a space and a mark); "`main`'e" becomes "'main'e". Line breaks stay: they end
+  // a clause.
+  const t = foldName(String(text ?? '').replace(/[\u2018\u2019\u02bc\u0060\u00b4"\u201c\u201d]/g, "'")).replace(/'{2,}/g, "'").replace(/ı/g, 'i')
+    .replace(/[^\S\n]+/g, ' ').replace(/ ?\n[\s]*/g, '\n');
+  MERGE_ASK.lastIndex = 0;
+  for (let m; (m = MERGE_ASK.exec(t)) !== null;) {
+    // A match that does not count gives back all but its first character: a request can start inside it ("do not force
+    // push then git push origin main").
+    const skip = () => { MERGE_ASK.lastIndex = m.index + 1; };
+    if (m.groups.tr !== undefined && !trRequest(m.groups.tr)) { skip(); continue; }
+    const words = wordsBefore(t, m.index);
+    if (/^(?:merge|push)\s/.test(m[0]) && NOUN_BEFORE.has(bare(words.at(-1) ?? ''))) { skip(); continue; } // "the merge into main"
+    if (negatedBefore(words) || NEGATED_AFTER.test(t.slice(m.index + m[0].length, m.index + m[0].length + 30))) { skip(); continue; }
+    // A question ("did you merge into main?"), unless it starts with can, could, would, will or please.
+    const after = m.index + m[0].length; const end = QUESTION_END.exec(t.slice(after, after + 200))?.[0];
+    if (end === '?') {
+      let first = words.length; while (first > 0 && !/[.!?;:]$/.test(words[first - 1])) first--;
+      if (!POLITE.has(bare(words[first] ?? ''))) { skip(); continue; }
+    }
     return !reviewStep(t);
   }
   return false;
