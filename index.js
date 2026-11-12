@@ -10227,9 +10227,9 @@ export const secretFile = (path) => SECRET_NAME.test(String(path).split(/[\\/]/)
 // A word on its own or after _ (DB_PASS, SIGNING_KEY), not inside another word (compass, monkey, Author, OAuth). The bare
 // words key, auth and token (WEAK_WORD) are also ordinary words ("Primary key: customer_id", "max_tokens: 128000", "| Key |
 // Description |"), so their value must look like a secret: letters and digits, or a long run without spaces.
-// ponytail: a short letters-only value after a lowercase bare key/auth/token ("token: abcdefghij") is kept, as prose
-// ("Auth: required") has the same shape; the env form in capitals (TOKEN=abcdefghijk) is cut by AUTH_SCHEME's neighbour
-// ENV_WORD below.
+// ponytail: a short letters-only value after a bare key/auth/token ("token: abcdefghij", "TOKEN=changeme") is kept, as
+// prose and placeholders have the same shape. A table row "| key | tenant_id_2024 |" is cut like "| token | ghp_… |": it
+// only leaves that line out of the import's input (the source file does not change).
 const SECRET_WORD = String.raw`(?:passw(?:or)?d|passwd|pwd|(?<![a-z])pass(?![a-z])|(?<![a-z])pw(?![a-z])|secret|api[_ -]?key|access[_ -]?key|private[_ -]?key|client[_ -]?secret|_key(?![a-z])|_token(?![a-z])|auth(?:orization|[_ -]?token)|bearer|şifre|parola)\w*`;
 const WEAK_WORD = String.raw`(?:(?<![a-z0-9])key|(?<![a-z])auth|(?<![a-z_])tokens?)(?![a-z])`;
 const SECRET_VALUE = String.raw`(?:(?=[^\s"'\x60|]*\d)(?=[^\s"'\x60|]*[A-Za-z])[^\s"'\x60|]{8,}|[^\s"'\x60|]{24,})`;
@@ -10240,13 +10240,16 @@ const SECRET_LINE = new RegExp([
   String.raw`(?:${SECRET_WORD}|${WEAK_WORD})\s+(?:is|was|=|:|olarak|şu)\s+["'\x60]?(?=[^\s"'\x60]*\d)(?=[^\s"'\x60]*[A-Za-z])[^\s"'\x60]{8,}`, // "the token is a1b2…" (a value with letters and digits)
   String.raw`\bBearer\s+[A-Za-z0-9._~+/-]{12,}`,
   // An auth header (any case: GitHub writes "Authorization: token …") with the scheme Basic or Token and its value.
-  String.raw`\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:basic|token)\s+[^\s"']{8,}`,
+  // A placeholder ($TOKEN, <your-token>, ${TOKEN}) or a word ("Basic authentication") is no value: it needs a digit or a
+  // base64 sign.
+  String.raw`\b(?:proxy-)?authorization["']?\s*[:=]\s*["']?(?:basic|token)\s+(?=[A-Za-z0-9._~+/=-]*[\d+/=])[A-Za-z0-9._~+/=-]{8,}`,
 ].join('|'), 'i');
 // The same schemes without the header name, as HTTP writes them (case matters: "basic instructions" is prose): Basic and a
-// base64 value (user:password), Token and a value with a digit.
-const AUTH_SCHEME = /\bBasic\s+(?=[A-Za-z0-9+/]*[\d+/=])[A-Za-z0-9+/]{8,}={0,2}(?![\w.])|\bToken\s+(?=[A-Za-z0-9._~+/=-]*\d)[A-Za-z0-9._~+/=-]{8,}/;
-// An environment line with a bare word in capitals: TOKEN=…, KEY=…, AUTH=… (any value of 6 or more characters).
-const ENV_WORD = /(?<![A-Za-z0-9_])(?:TOKEN|KEY|AUTH)\s*=\s*["']?[^\s"'\x60]{6,}/;
+// base64 value (user:password; a full stop may end the sentence), Token and a value with a digit.
+const AUTH_SCHEME = /\bBasic\s+(?=[A-Za-z0-9+/]*[\d+/=])[A-Za-z0-9+/]{8,}={0,2}(?!\w|\.\w)|\bToken\s+(?=[A-Za-z0-9._~+/=-]*\d)[A-Za-z0-9._~+/=-]{8,}/;
+// An environment line with a bare word in capitals: TOKEN=…, KEY=…, AUTH=… with a value that has a digit or both cases
+// (not a placeholder: $VAR, <…>, ${…}, changeme, required).
+const ENV_WORD = /(?<![A-Za-z0-9_])(?:TOKEN|KEY|AUTH)\s*=\s*["']?(?=[^\s"'\x60]*(?:\d|[a-z][^\s"'\x60]*[A-Z]|[A-Z][^\s"'\x60]*[a-z]))[^\s"'\x60$<{][^\s"'\x60]{5,}/;
 // Command-line forms (case matters: mysql -P is a port): curl -u user:pass, mysql -pSECRET, sshpass -p SECRET (its own -p,
 // not ssh's port), redis-cli -a SECRET, --password=SECRET, and --password SECRET when the value has a digit or a sign.
 // A value is "quoted" or 'quoted' with its closing quote at the end of a word, or plain. A backtick ends it, so
@@ -10359,10 +10362,12 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
     if (Object.keys(days).length > 0) await doneFile.change((d) => ({ done: { ...days, ...d } }));
   };
   // The key: the path as a note keeps it (formatEntry) for the seeded days, the path itself for the ones that `done` set.
+  // A failed seed is tried again at the next call, and a `done` write waits for it (seedDone: false skips that write, so
+  // the file never exists without the old days).
   const importedDays = async () => {
-    seeded ??= seed().catch((error) => ctx.logger?.warn?.(`dsh-composer-plus: memory import days: ${error?.message ?? error}`));
-    await seeded;
-    return new Map(Object.entries(await doneFile.read()).filter(([, d]) => isText(d, 10)));
+    seeded ??= seed().then(() => true, (error) => { seeded = undefined; ctx.logger?.warn?.(`dsh-composer-plus: memory import days: ${error?.message ?? error}`); return false; });
+    const ok = await seeded;
+    return Object.assign(new Map(Object.entries(await doneFile.read()).filter(([, d]) => isText(d, 10))), { seedDone: ok });
   };
   const refuseOthers = () => refused('This tool works only in a subagent of the Composer Plus assistant chat.', 403);
   const tools = [
@@ -10439,9 +10444,11 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
         // After the facts are saved: a failed save above leaves the files open.
         const marked = [...new Set(finished.filter((p) => listed.has(p)))];
         if (marked.length > 0) {
-          await importedDays(); // the old imports first (seed), so this write does not hide them
-          const day = new Date().toLocaleDateString('en-CA');
-          await doneFile.change((d) => ({ done: { ...d, ...Object.fromEntries(marked.map((p) => [p, day])) } }));
+          // The old imports first (seed), so this write does not hide them; without them, the files stay open this time.
+          if ((await importedDays()).seedDone) {
+            const day = new Date().toLocaleDateString('en-CA');
+            await doneFile.change((d) => ({ done: { ...d, ...Object.fromEntries(marked.map((p) => [p, day])) } }));
+          } else marked.length = 0;
         }
         return JSON.stringify({ ...count, perProject, ...(finished.length > 0 ? { done: marked.length } : {}) });
       },
