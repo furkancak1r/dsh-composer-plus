@@ -83,7 +83,8 @@ try {
     on: (name, fn) => { (on[name] ??= []).push(fn); }, effect: () => {}, logger: { warn: () => {} },
     get: () => undefined,
     connection: { fetch: { register: (r) => routes.set(r.path, r) } },
-    sessionQuery: { observeSession: async () => ({ events: [], header: { cwd: folder } }) },
+    // Saved chat headers: a gone subagent (s-gone) between a nested subagent and the assistant chat.
+    sessionQuery: { observeSession: async (id) => ({ events: [], header: { cwd: folder, ...(id === 's-gone' ? { origin: 'subagent', parentSession: 'chat-a' } : {}) } }) },
     inject: (deps, setup) => { setup({ tools: { register: (t) => tools.set(t.name, t) }, systemPrompt: { section: () => {} } }); return { dispose: () => tools.clear() }; },
   };
   const mem = installMemory(ctx, dshHome); await mem.ready;
@@ -91,7 +92,7 @@ try {
   const assistant = { ready: Promise.resolve(), isOn: () => assistantIsOn.on, id: () => 'chat-a', folder };
   const fresh = join(root, 'fresh'); await mkdir(fresh);
   const freshConfig = join(root, 'fresh.json');
-  const setup = installAssistantSetup(ctx, { ...assistant, folder: fresh }, mem, { home, apps: [join(root, 'none.app')], configs: [freshConfig] });
+  installAssistantSetup(ctx, { ...assistant, folder: fresh }, mem, { home, apps: [join(root, 'none.app')], configs: [freshConfig] });
   const call = async (body) => { const r = await routes.get(ASSISTANT_SETUP_PATH).fetch(new Request(`http://h${ASSISTANT_SETUP_PATH}`, body === undefined ? undefined : { method: 'POST', body: JSON.stringify(body) })); return { status: r.status, body: await r.json() }; };
   let r = await call();
   assert.equal(r.status, 200); assert.equal(r.body.ready, false); assert.equal(r.body.steps.obsidian, false, 'a new user without Obsidian');
@@ -101,6 +102,7 @@ try {
   await assert.rejects(tools.get('memory_remember').execute({ text: 'The user likes tea' }, exec('chat-a', fresh)), (e) => e.message === SETUP_BLOCKED);
   await assert.rejects(tools.get('memory_forget').execute({ entry: 'tea' }, exec('chat-a', fresh)), (e) => e.message === SETUP_BLOCKED);
   await assert.rejects(tools.get('memory_remember').execute({ text: 'The user likes tea' }, exec('s-sub0', fresh, 'chat-a')), (e) => e.message === SETUP_BLOCKED, 'a subagent of the assistant chat too');
+  await assert.rejects(tools.get('memory_remember').execute({ text: 'The user likes tea' }, exec('s-nested', fresh, 's-gone')), (e) => e.message === SETUP_BLOCKED, 'a nested subagent whose parent is gone: its saved header');
   assert.match(await tools.get('memory_recall').execute({}, exec('chat-a', fresh)), /0 entries/, 'recall still reads');
   const other = join(root, 'proj'); await mkdir(other);
   assert.match(await tools.get('memory_remember').execute({ text: 'The user deploys on Fridays' }, exec('chat-b', other)), /^Saved/, 'another chat keeps its memory');
@@ -124,16 +126,43 @@ try {
   await writeFile(join(fresh, 'AGENTS.md'), '# Mine\n');
   await call({ fix: { name: 'Memory' } });
   assert.equal(await readFile(join(fresh, 'AGENTS.md'), 'utf8'), '# Mine\n', 'the user\'s AGENTS.md stays');
-  // A saved memory folder that is already in the vault is kept (the owner's Hafıza).
-  const keep = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, assistant, { state: () => ({ on: true, folder: join(folder, 'Hafıza'), folderActive: join(folder, 'Hafıza') }), saveFolder: async () => { throw Error('must not move the folder'); }, saveOn: async () => { throw Error('already on'); } }, { home, apps: [app], configs: [config] });
+  // An empty AGENTS.md (a write that failed half way) is written again.
+  await writeFile(join(fresh, 'AGENTS.md'), '');
+  r = await call({ fix: { name: 'Memory' } });
+  assert.equal(r.body.steps.rules, true); assert.equal(await readFile(join(fresh, 'AGENTS.md'), 'utf8'), vaultRules('Memory'), 'an empty file is repaired');
+  // All or none: when writing AGENTS.md fails, the folder setting and the switch go back and no AGENTS.md stays.
+  { const home4 = join(root, 'dsh4'); const mem4 = installMemory({ ...ctx, inject: undefined, connection: { fetch: { register: () => {} } } }, home4); await mem4.ready;
+    const f4 = join(root, 'f4'); await mkdir(f4);
+    const s4 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f4 }, mem4, { home, apps: [], configs: [] });
+    await symlink(join(root, 'missing-dir', 'x'), join(f4, 'AGENTS.md')); // O_NOFOLLOW|O_EXCL on a dangling link: EEXIST, so no write
+    await s4.fix('Memory');
+    assert.equal(mem4.state().on, true, 'a link in the place of AGENTS.md is not followed, the rest is saved');
+    await rm(join(f4, 'AGENTS.md'));
+    const f5 = join(root, 'f5'); await mkdir(f5);
+    const home5 = join(root, 'dsh5'); const mem5 = installMemory({ ...ctx, inject: undefined, connection: { fetch: { register: () => {} } } }, home5); await mem5.ready;
+    const failing = { ...mem5, setup: (plan) => mem5.setup(async (m) => ({ ...(await plan(m)), rules: { path: join(root, 'no-such-dir', 'AGENTS.md'), text: 'x' } })) };
+    const s5 = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: f5 }, failing, { home, apps: [], configs: [] });
+    await assert.rejects(s5.fix('Memory'));
+    assert.deepEqual(mem5.state(), { on: false, folder: '', folderActive: '' }, 'the folder setting and the switch went back');
+    assert.equal(await readFile(join(home5, 'storages/dsh-composer-plus/memory.json'), 'utf8').then((t) => JSON.parse(t).on, () => false), false);
+    assert.equal(await readFile(join(home5, 'storages/dsh-composer-plus/memory-folder.json'), 'utf8').then((t) => JSON.parse(t).folder, () => undefined), undefined); }
+  // A saved memory folder that is already in the vault is kept (the owner's Hafıza): Set up changes nothing.
+  const ownerPlan = []; const owner = { state: () => ({ on: true, folder: join(folder, 'Hafıza'), folderActive: join(folder, 'Hafıza') }), setup: async (plan) => { ownerPlan.push(await plan(owner.state())); } };
+  const keep = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, assistant, owner, { home, apps: [app], configs: [config] });
   assert.equal((await keep.fix('Memory')).ready, true, 'the owner\'s setup passes without a change');
+  assert.equal(ownerPlan[0].folder, undefined, 'the owner\'s memory folder stays');
   assert.equal(await readFile(join(folder, 'AGENTS.md'), 'utf8'), '# My rules\n');
+  // A saved folder in the vault that cannot hold the notes (a symlink) is replaced by <vault>/<name>.
+  { const linkPlan = []; await symlink(join(root, 'other'), join(folder, 'Linked'));
+    const bad = { state: () => ({ on: true, folder: join(folder, 'Linked'), folderActive: '', folderProblem: 'is a symbolic link' }), setup: async (plan) => { linkPlan.push(await plan(bad.state())); } };
+    await installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, assistant, bad, { home, apps: [app], configs: [config] }).fix('Memory');
+    assert.equal(linkPlan[0].folder, join(await realpath(folder), 'Memory'), 'a symlinked memory folder is not kept');
+    await rm(join(folder, 'Linked')); }
   // Ready (Obsidian knows the fresh folder, the memory is active): the gate opens.
   await vaults([fresh]);
   const readySetup = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: fresh }, { ...mem, state: () => ({ on: true, folder: join(fresh, 'Memory'), folderActive: join(fresh, 'Memory') }) }, { home, apps: [app], configs: [config] });
   assert.equal((await readySetup.check()).ready, true);
   assert.match(await tools.get('memory_remember').execute({ text: 'The user likes tea' }, exec('s-sub', fresh, 'chat-a')), /^Saved/, 'ready: the assistant\'s subagent saves');
-  void setup;
 
   // Client: the card shows in the assistant chat until ready (also after the first message), with the steps, the
   // download link, Set up and Check again; ready → the welcome card on a blank chat, nothing later.
@@ -192,6 +221,12 @@ try {
   globalThis.fetch = async () => Response.json({ error: 'disk' }, { status: 500 });
   await setupStore.check();
   assert.match(text(draw(false)), /assistant\.setup\.failed:\{"error":"disk"\}/);
+  // Switched off and on while a read runs: reset drops that read, and the next check reads again (no lost card).
+  { let release; globalThis.fetch = () => new Promise((res) => { release = () => res(Response.json(hostState)); });
+    const pending = setupStore.check(); setupStore.reset();
+    globalThis.fetch = async () => Response.json({ ...hostState, ready: false });
+    await setupStore.check(); release(); await pending;
+    assert.equal(setupStore.getSnapshot()?.ready, false, 'the new read wins; the old one is dropped'); }
   // An older Host without the route (dsh not restarted after an update): no card, the chat works as before.
   globalThis.fetch = async () => new Response('not found', { status: 404 });
   await setupStore.check();

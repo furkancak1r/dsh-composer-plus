@@ -7320,13 +7320,27 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
   /** Assistant setup's gate (`block(fn)`): `fn(<root chat id>)` gives a reason while that chat must not save notes (the
    * assistant chat before its Obsidian vault is ready), else undefined. */
   let blocked = async () => undefined;
+  /** The root chat of `agent`: up the live agents, then up the saved chat headers for a parent that dsh's agent list
+   * does not have any more (a gone subagent between a nested subagent and its root chat). At most 16 levels. */
+  const savedRoot = async (agent) => {
+    let at = rootOf(agent.id); const seen = new Set([at]);
+    for (let i = 0; i < 16; i++) {
+      // A live agent's header (rootOf stopped there: it has no parent) is the answer; only a gone one is read from disk.
+      const live = at === agent.id ? agent : get('agents')?.get?.(at);
+      let parent = live?.session?.header?.parentSession;
+      if (live === undefined) {
+        try { const o = await ctx.sessionQuery.observeSession(at, { projectionMode: 'none' }); try { parent = o.header?.parentSession; } finally { o[Symbol.dispose]?.(); } } catch { parent = undefined; }
+      }
+      if (!isText(parent) || seen.has(parent)) return at;
+      at = rootOf(parent); seen.add(at);
+    }
+    return at;
+  };
   /** Every memory tool refuses in a chat with the memory off (also for a dsh without `tools.restrict`), before it reads or
    * writes anything, the global memory too. A tool that saves also refuses while the gate blocks the chat's root chat. */
   const guarded = (tool) => ({ ...tool, execute: async (args, exec) => {
     if (offFor(exec?.agent?.id)) throw refused('The project memory is switched off for this chat. Do not use the memory tools here.');
-    // The root chat: from the agent's own header first (a subagent that dsh's agent list does not have any more).
-    const parent = exec?.agent?.session?.header?.parentSession;
-    if (tool.name !== 'memory_recall' && isText(exec?.agent?.id)) { const why = await blocked(rootOf(isText(parent) ? parent : exec.agent.id)); if (why !== undefined) throw refused(why); }
+    if (tool.name !== 'memory_recall' && isText(exec?.agent?.id)) { const why = await blocked(await savedRoot(exec.agent)); if (why !== undefined) throw refused(why); }
     return tool.execute(args, exec);
   } });
   const tools = [
@@ -7581,6 +7595,47 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
   async function saveOn(value) {
     if (value && !(await imported)) throw refused(`the notes are not in ${folder} yet; restart dsh to copy them`);
     const change = switching.then(async () => { await sw.write(value); apply(value); });
+    switching = change.catch(() => {});
+    return change;
+  }
+  /** Assistant setup's Set up, all or none (AGENTS.md rule 11), in `switching` order, so a folder that Settings saves at
+   * the same time is never overwritten. `plan(state)` answers `{folder?, rules?: {path, text}}`: the memory folder to
+   * save (undefined: keep), and a new rules file (never written over a file that is there). Memory goes on. A failed
+   * step puts back the folder setting and the switch, and removes the new rules file. */
+  function setup(plan) {
+    const change = switching.then(async () => {
+      if (!(await imported)) throw refused(`the notes are not in ${folder} yet; restart dsh to copy them`);
+      const before = { folder: savedFolder, on };
+      const step = await plan(answer());
+      if (step.folder !== undefined && step.folder !== savedFolder) {
+        const problem = memoryFolderProblem(step.folder);
+        if (problem !== undefined) throw refused(problem);
+      }
+      let wroteFolder = false; let wroteOn = false; let wroteRules = false;
+      try {
+        if (step.folder !== undefined && step.folder !== savedFolder) {
+          await writeFolderFile({ folder: step.folder, ...(importedFolder === undefined ? {} : { imported: importedFolder }) });
+          savedFolder = step.folder; wroteFolder = true;
+        }
+        if (!on) { await sw.write(true); apply(true); wroteOn = true; }
+        if (step.rules !== undefined) {
+          const file = await open(step.rules.path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600)
+            .catch((error) => { if (error?.code === 'EEXIST') return undefined; throw error; });
+          if (file !== undefined) {
+            wroteRules = true;
+            try { await file.writeFile(step.rules.text); } finally { await file.close(); }
+          }
+        }
+      } catch (error) {
+        if (wroteRules) await unlink(step.rules.path).catch(() => {});
+        if (wroteOn) { await sw.write(before.on).catch(() => {}); apply(before.on); }
+        if (wroteFolder) {
+          await writeFolderFile({ ...(before.folder === '' ? {} : { folder: before.folder }), ...(importedFolder === undefined ? {} : { imported: importedFolder }) }).catch(() => {});
+          savedFolder = before.folder;
+        }
+        throw error;
+      }
+    });
     switching = change.catch(() => {});
     return change;
   }
@@ -7978,7 +8033,7 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });
-  return { store, history, ready, historyReady, review, sectionFor, tools, state: answer, saveFolder, saveOn, block: (fn) => { blocked = fn; } };
+  return { store, history, ready, historyReady, review, sectionFor, tools, state: answer, setup, block: (fn) => { blocked = fn; } };
 }
 
 /** Backup (dsh-backup's work, see backup.mjs): the archives in one folder next to the dsh home. ponytail: one fixed folder,
@@ -9866,20 +9921,18 @@ export function installAssistantSetup(ctx, assistant, memory, { home = homedir()
     await mkdir(assistant.folder, { recursive: true });
     const real = await realpath(assistant.folder);
     const vault = now.steps.vault ? (await obsidianVaults(configs ?? obsidianConfigs(undefined, home)))?.find((v) => inside(real, v)) ?? real : real;
-    const m = memory.state();
-    const saved = isText(m.folder, 4096) ? await realish(m.folder) : undefined;
-    const target = saved !== undefined && inside(saved, vault) ? m.folder : join(real, name);
-    if (target !== m.folder) {
-      const problem = memoryFolderProblem(target);
-      if (problem !== undefined) throw refused(problem);
-      await memory.saveFolder(target);
-    }
-    if (m.on !== true) await memory.saveOn(true);
-    const rel = relative(real, (await realish(target)) ?? target);
-    try {
-      const file = await open(join(real, 'AGENTS.md'), constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | (constants.O_NOFOLLOW ?? 0), 0o600);
-      try { await file.writeFile(vaultRules(rel === '' || rel.startsWith('..') ? target : rel)); } finally { await file.close(); }
-    } catch (error) { if (error?.code !== 'EEXIST') throw error; }
+    const rules = join(real, 'AGENTS.md');
+    // An empty AGENTS.md (a write that failed half way) counts as missing: it goes, so Set up can write it again.
+    if (await stat(rules).then((s) => s.isFile() && s.size === 0, () => false)) await unlink(rules).catch(() => {});
+    // The memory folder is read again in the memory's own queue (a folder that Settings saves at the same time wins).
+    await memory.setup(async (m) => {
+      const saved = isText(m.folder, 4096) ? await realish(m.folder) : undefined;
+      // A saved folder in the vault stays, unless it cannot hold the notes (the check shows that as missing too).
+      const keep = saved !== undefined && inside(saved, vault) && memoryFolderProblem(m.folder) === undefined;
+      const target = keep ? m.folder : join(real, name);
+      const rel = relative(real, (await realish(target)) ?? target);
+      return { folder: keep ? undefined : target, rules: { path: rules, text: vaultRules(rel === '' || rel.startsWith('..') ? target : rel) } };
+    });
     return check();
   }));
   ctx.connection.fetch.register({

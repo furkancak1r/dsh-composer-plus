@@ -2998,12 +2998,13 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * time; the newest answer wins. `null`: not read yet; `{error}`: the read failed. */
     const SETUP_ROUTE = '/api/composer-plus.assistant-setup';
     function createAssistantSetup(request = (init) => fetch(SETUP_ROUTE, init)) {
-      let state = null; let busy = false; let seq = 0;
+      let state = null; let seq = 0;
+      let running = null; // the seq of the request that runs; reset() ends its claim
       const listeners = new Set();
       const set = (next) => { state = next; for (const fn of [...listeners]) fn(); };
       const call = async (init) => {
-        if (busy) return state;
-        busy = true; const mine = ++seq; set({ ...(state ?? {}), busy: true });
+        if (running !== null) return state;
+        const mine = ++seq; running = mine; set({ ...(state ?? {}), busy: true });
         try {
           const response = await request(init);
           // An older Host (dsh not restarted after an update) has no setup route and no memory gate: no card.
@@ -3011,7 +3012,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           const data = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(data?.error ?? `HTTP ${response.status}`);
           if (mine === seq) set(data);
-        } catch (error) { if (mine === seq) set({ ...(state ?? {}), busy: false, error: String(error?.message ?? error) }); } finally { busy = false; }
+        } catch (error) { if (mine === seq) set({ ...(state ?? {}), busy: false, error: String(error?.message ?? error) }); } finally { if (running === mine) running = null; }
         return state;
       };
       return {
@@ -3019,7 +3020,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
         check: () => call(undefined),
         fix: (name) => call({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ fix: { name } }) }),
-        reset: () => { seq++; set(null); },
+        reset: () => { seq++; running = null; set(null); },
       };
     }
     const SETUP_STEPS = ['obsidian', 'vault', 'memory', 'rules'];
