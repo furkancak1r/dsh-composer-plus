@@ -5,7 +5,8 @@
 // denied), and each one refuses another caller. The four tools that change a chat ask (dsh's approval card), except in
 // dsh's Auto permission mode, where Auto review decides without a Composer Plus card. chat_read
 // leaves out the messages that a rollback withdrew (both marker kinds) and a fork's copy; chats_list shows other projects,
-// the waiting state and filters.
+// the waiting state and filters. chat_send steers a running chat and queues to an idle one. The merge gate: with a
+// review-guard skill, chat_send and chat_new refuse a merge request into main that names no review-guard step.
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -17,13 +18,13 @@ const tick = async () => { for (let i = 0; i < 30; i++) await new Promise((r) =>
 // The merge gate: a request for a merge into main without a review-guard step; a report of a merge that happened is no request.
 for (const text of ['Fix the footer, then /merge-main.', 'Bitince $merge-main çalıştır.', 'When the tests pass, run merge-main.', 'MERGE INTO MAIN when done',
   'Then merge it\ninto main.', 'Merge the branch into main.', 'Push the branch, merge this branch into main', 'Testler geçince main\u2019e birleştir.',
-  "Review sonrası main'e birleştirilsin.", "Dal main'e birleşsin.", "Sonra main'e merge et.", 'git push origin main', 'Önce test, sonra MAİN\'E BİRLEŞTİRİN.',
+  "Review sonrası main'e birleştirilsin.", "Dal main'e birleşsin.", "Sonra main'e merge et.", "Bitince main'e birleş.", 'git push origin main', 'Önce test, sonra MAİN\'E BİRLEŞTİRİN.',
   'Run the tests without failures and merge into main.', 'Not now. Merge into main later.', "Don't forget to merge into main.", 'Do not stop; run /merge-main.', 'Then load and follow the `push-branch` skill, then the `merge-main` skill.']) {
   assert.equal(asksMergeWithoutReview(text), true, `a merge request: ${text}`);
 }
 for (const text of ['Fix the footer, then /merge-main. Before it, run review-guard on the final diff.', 'Run $review-guard and /merge-main when clean.',
   "main'e birleşmiş feat/sap-idle-di-runner-guards dalı ve klasörü silinsin.", 'The branch is already merged into main.', 'It is in main now.',
-  "Dal main'e birleşti.", 'Do not merge into main.', "Don't run /merge-main yet.", 'never push origin main', 'Fix the footer and push the branch.',
+  "Dal main'e birleşti.", "main'e birleştirme.", 'Do not merge into main.', "Don't run /merge-main yet.", 'never push origin main', 'Fix the footer and push the branch.',
   'Read /merge-mainline.md', 'git push origin main-backup', 'remerge into maintenance', '']) {
   assert.equal(asksMergeWithoutReview(text), false, `no merge request without review: ${JSON.stringify(text)}`);
 }

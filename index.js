@@ -9791,7 +9791,7 @@ const foldName = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '')
  * under any circumstances, merge into main") is refused. A later chat_send can add work to a branch chat whose first task
  * already asked for the merge, with no merge words in the new message (2026-11-12: that work went to main without a
  * review). Upgrade: keep the merge request with the task and check each later message to that chat. */
-const MERGE_ASK = /(?<![\p{L}\p{N}])(?:[/$]merge-main|run merge-main|[`'"]?merge-main[`'"]? skill|merge (?:it |the branch |this branch )?into main|main'e (?:birlestir(?:ilsin|in)?|birlessin|merge et)|push origin main)(?![\p{L}\p{N}_-])/gu;
+const MERGE_ASK = /(?<![\p{L}\p{N}])(?:[/$]merge-main|run merge-main|[`'"]?merge-main[`'"]? skill|merge (?:it |the branch |this branch )?into main|main'e (?:birles(?:tir(?:ilsin|in)?|sin)?|merge et)|push origin main)(?![\p{L}\p{N}_-])/gu;
 const NEGATION = new Set(['not', 'never', "don't", 'dont', 'without', 'no']);
 export const asksMergeWithoutReview = (text) => {
   const t = foldName(text).replace(/[\u2018\u2019\u02bc]/g, "'").replace(/\s+/g, ' ');

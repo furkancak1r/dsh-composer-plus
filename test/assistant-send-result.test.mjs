@@ -1,8 +1,10 @@
 // Assistant: the reply to a chat_send message comes back to the assistant (Host half, fake dsh, Assistant news off):
 // - chat_send keeps the chat as a task with the request ids of its messages (`rpc`) before the message goes. dsh's
 //   sessionController.prompt logs the message with source {kind: 'user', rpcId: requestId}.
-// - A turn end without such a message (the turn that ran when the message was queued) is no task news and keeps the task;
-//   with Assistant news on it is news as for any chat (an automation).
+// - A running chat gets the message as a steer: it joins the running turn, and that turn's end gives the note. A steer
+//   that came after the turn's last inbox check wakes the idle chat once when the turn completed (not after a stop).
+// - An idle chat gets it in its queue. A turn end without such a message (one that ran before it) is no task news and
+//   keeps the task; with Assistant news on it is news as for any chat (an automation).
 // - Two messages before the first reply: each turn gives its own note. A branch chat whose own turn still runs gives its
 //   note, and the message's turn one more.
 // - The turn of that message gives one task note with its last reply (no 60 s rule), and the task goes.
