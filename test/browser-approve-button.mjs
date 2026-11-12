@@ -1,10 +1,11 @@
 // Real-app check of the Approve button on each dsh given: a fake model, a throwaway DSH_HOME, a made-up project (demo-app).
 // Never the normal DSH_HOME, no real model. Headless, with Chromium's sandbox.
 // 1. The model's request has the prompt rule (# Approve button (Composer Plus), the `onay` block).
-// 2. An answer with an `onay` block: dsh shows the block as code; under the answer one "Approve" button with the sentence,
-//    in dsh's turn tail. Text in the composer hides it.
+// 2. An answer with an `onay` block: under the answer one "Approve" button with the sentence, in dsh's turn tail, and
+//    the sentence shows once: dsh's code block of it is hidden (owner, 2026-11-12). Text in the composer hides the button
+//    and the sentence shows as plain gray text (no code header, no copy button); an empty composer brings the button back.
 // 3. A double click sends one user message: the exact sentence reaches the model once and shows as your message; the
-//    button goes; your message gets no button.
+//    button goes; your message gets no button; the sent sentence shows once in the answer, as plain text.
 // 4. An answer whose sentence names a live target (npm publish): its button shows too (owner, 2026-11-11). The older
 //    answer shows none.
 // 5. Switched off (the Host switch): the next request has no rule and an `onay` answer shows no button.
@@ -138,14 +139,23 @@ try {
       // 1–2. The rule in the request; an answer with an `onay` block gets one Approve button in dsh's turn tail.
       await page.locator('button:visible', { hasText: 'New Session' }).first().click(); await pause(600);
       await typeSend('approve:1');
-      await page.getByText(SENTENCE(1), { exact: true }).first().waitFor({ timeout: 20000 });
+      await page.getByText(SENTENCE(1), { exact: true }).first().waitFor({ state: 'attached', timeout: 20000 });
       assert.ok(calls.find((c) => c.last === 'approve:1')?.rule, 'the request carries the prompt rule');
       await approve.waitFor({ timeout: 20000 });
       const button = approve.locator('button');
       assert.equal(await button.count(), 1, 'one button for one block');
       assert.equal((await button.innerText()).replace(/\s+/g, ' ').trim(), `Approve ${SENTENCE(1)}`, 'the label and the sentence');
       assert.equal(await approve.evaluate((e) => e.closest('[data-turn-tail]') !== null), true, 'in dsh\'s turn tail, under the answer');
-      assert.ok(await page.locator('.md-code-block').filter({ hasText: SENTENCE(1) }).count() >= 1, 'dsh shows the block as code, unchanged');
+      const block1 = page.locator('.md-code-block').filter({ hasText: SENTENCE(1) });
+      const once = async (sentence, mode, why) => {
+        const blocks = page.locator('.md-code-block').filter({ hasText: sentence });
+        await until(async () => (await blocks.evaluateAll((els, m) => els.every((e) => e.getAttribute('data-composer-plus-onay') === m), mode)), `${why}: ${mode}`, 10000);
+        const shown = await blocks.evaluateAll((els) => els.map((e) => ({ box: e.getBoundingClientRect().height > 0, header: [...e.children].some((c) => !c.hasAttribute('data-code-block-content') && c.getBoundingClientRect().height > 0) })));
+        if (mode === 'button') assert.ok(shown.every((b) => !b.box), `${why}: dsh's code block of the sentence is hidden`);
+        else assert.ok(shown.every((b) => b.box && !b.header), `${why}: the sentence as plain text, no code header or copy button`);
+      };
+      assert.equal(await block1.count(), 1, 'dsh draws the block');
+      await once(SENTENCE(1), 'button', 'the button shows');
       if (index === 0 && process.env.SHOT) {
         await page.mouse.move(1200, 120); await pause(600);
         const rect = (loc) => loc.evaluate((e) => { const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, right: r.right, bottom: r.bottom }; });
@@ -157,7 +167,9 @@ try {
       }
       // Text in the composer hides it; an empty composer shows it again.
       await input.click(); await page.keyboard.type('hm'); await approve.waitFor({ state: 'detached', timeout: 5000 });
+      await once(SENTENCE(1), 'text', 'composer text hides the button');
       await page.keyboard.press('Backspace'); await page.keyboard.press('Backspace'); await approve.waitFor({ timeout: 5000 });
+      await once(SENTENCE(1), 'button', 'the button is back');
 
       // 3. A double click sends the exact sentence once, as your message.
       const before = calls.length;
@@ -169,33 +181,36 @@ try {
       const mine = page.locator('[data-chat-flow-kind="user"]').filter({ hasText: SENTENCE(1) });
       assert.equal(await mine.count(), 1, 'a normal message of yours in the chat');
       assert.equal(await approve.count(), 0, 'sent: no button, and your message has none');
+      await once(SENTENCE(1), 'text', 'sent');
 
       // 4. A live target: the button shows too; the older answer shows none.
       await typeSend('live');
-      await page.getByText(LIVE, { exact: true }).first().waitFor({ timeout: 20000 }); await approve.waitFor({ timeout: 20000 });
+      await page.getByText(LIVE, { exact: true }).first().waitFor({ state: 'attached', timeout: 20000 }); await approve.waitFor({ timeout: 20000 });
       assert.equal(await approve.count(), 1, 'a live sentence gets its button');
       assert.equal((await approve.locator('button').innerText()).replace(/\s+/g, ' ').trim(), `Approve ${LIVE}`, 'the label and the live sentence');
-      assert.ok(await page.locator('.md-code-block').filter({ hasText: LIVE }).count() >= 1, 'the block shows as code');
-      await typeSend('approve:2'); await page.getByText(SENTENCE(2), { exact: true }).first().waitFor({ timeout: 20000 });
+      await once(LIVE, 'button', 'a live sentence');
+      await typeSend('approve:2'); await page.getByText(SENTENCE(2), { exact: true }).first().waitFor({ state: 'attached', timeout: 20000 });
       await approve.waitFor({ timeout: 20000 });
       assert.equal(await approve.count(), 1, 'only the newest answer has buttons');
       assert.equal((await approve.locator('button').innerText()).includes(SENTENCE(2)), true);
       await page.reload(); await input.waitFor(); await approve.waitFor({ timeout: 20000 });
       assert.equal(await approve.count(), 1, 'after a reload: the same one button (the chat log is read, not changed)');
+      await once(SENTENCE(2), 'button', 'after a reload'); await once(LIVE, 'text', 'an older block after a reload');
 
       // 5. Switched off (Host switch): no rule in the next request, no button.
       const route = (body) => page.evaluate(async (b) => (await fetch('/api/composer-plus.approve-button', b === undefined ? undefined : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b) })).json(), body);
       assert.deepEqual(await route(), { on: true }, 'on by default');
       assert.deepEqual(await route({ on: false }), { on: false });
       await page.reload(); await input.waitFor(); await pause(1000);
-      await typeSend('approve:3'); await page.getByText(SENTENCE(3), { exact: true }).first().waitFor({ timeout: 20000 }); await pause(2500);
+      await typeSend('approve:3'); await page.getByText(SENTENCE(3), { exact: true }).first().waitFor({ state: 'attached', timeout: 20000 }); await pause(2500);
       assert.equal(calls.find((c) => c.last === 'approve:3')?.rule, false, 'off: the request has no rule');
       assert.equal(await approve.count(), 0, 'off: no button');
+      assert.equal(await page.locator('[data-composer-plus-onay]').count(), 0, 'off: dsh\'s code blocks as they are');
       assert.deepEqual(await route({ on: true }), { on: true });
       await page.reload(); await input.waitFor(); await approve.waitFor({ timeout: 20000 });
 
       // 6. A long sentence: each language's label on one line, the whole sentence in view, at 600, 940 and 1280 px.
-      await typeSend('long'); await page.getByText(LONG, { exact: true }).first().waitFor({ timeout: 20000 });
+      await typeSend('long'); await page.getByText(LONG, { exact: true }).first().waitFor({ state: 'attached', timeout: 20000 });
       const long = approve.locator('button').filter({ hasText: 'Composer Plus Asistan' });
       await long.waitFor({ timeout: 20000 });
       for (const width of [600, 940, 1280]) {

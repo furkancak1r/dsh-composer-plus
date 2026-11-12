@@ -10075,6 +10075,9 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
     if (!notifyOn) for (const [key, n] of pending) if (!n.task) pending.delete(key);
     // A held wait (the gap, an archived assistant chat, a failed delivery) that the user answered meanwhile is no news.
     for (const [key, n] of pending) if (n.kind === 'waiting' && !waitingOf(eventsOf(live(key)))) pending.delete(key);
+    // A chat that the user archived or deleted (Delete Chat archives it first) after its news was queued is no news; a
+    // delegated task's result still goes (the user asked for it).
+    for (const [key, n] of pending) if (!n.task && archived(key)) pending.delete(key);
     if (closed || pending.size === 0) return;
     const id = assistant.id();
     if (!assistant.isOn() || !isText(id)) { pending.clear(); return; }
