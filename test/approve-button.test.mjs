@@ -276,7 +276,6 @@ try {
   // One button at a time (the owner, 2026-11-12: a click removes the other buttons): all pending approvals in one block.
   assert.match(APPROVE_SECTION, /Write at most one `onay` block in the chat at a time\. When several approvals are pending, put all of them in one sentence in one block in your newest reply:/, 'one block for all pending approvals');
   assert.match(APPROVE_SECTION, /only the newest block gets a button\. After a user message, when an approval is still pending, include it again in the next `onay` block, together with any new approval\./, 'a pending approval comes back in the next block');
-  assert.match(APPROVE_SECTION, /Write at most one `onay` block per answer/, 'still one block in a reply');
   // The rule's limit is the client's limit (approvable: a longer block gets no button).
   assert.match(APPROVE_SECTION, new RegExp(`Keep the block under ${APPROVAL_MAX} characters: a longer block shows only as code, without the button\\.`), 'the length limit');
   assert.doesNotMatch(APPROVE_SECTION, /Show the `onay` block once|do not repeat the block/, 'no rule that hides a pending approval');
