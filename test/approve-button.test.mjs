@@ -258,7 +258,10 @@ try {
   assert.match(APPROVE_SECTION, /Each approval sentence gets the block, also one that names a live or public target/, 'the rule: a block for each approval sentence');
   assert.doesNotMatch(APPROVE_SECTION, /no button|user types it/, 'no exception for live or public targets');
   assert.match(APPROVE_SECTION, /Write at most one `onay` block per answer/);
-  assert.match(APPROVE_SECTION, /Show the `onay` block once\. After that, keep the pending approval in the to-do list and do not repeat the block in each reply\./, 'no repeated block');
+  // One button at a time (the owner, 2026-11-12: a click removes the other buttons): all pending approvals in one block.
+  assert.match(APPROVE_SECTION, /Write at most one `onay` block in the chat at a time\. When several approvals are pending, put all of them in one sentence in one block in your newest reply\./, 'one block for all pending approvals');
+  assert.match(APPROVE_SECTION, /A click or a new user message removes the older buttons, so when an approval is still pending after that, include it again in the next `onay` block, together with any new approval\./, 'a pending approval comes back in the next block');
+  assert.doesNotMatch(APPROVE_SECTION, /Show the `onay` block once|do not repeat the block/, 'no rule that hides a pending approval');
   assert.match(APPROVE_SECTION, /name the targets and the live or not-live scope, without file lines or script names/, 'a short sentence');
   for (const bad of [{ on: 'yes' }, { on: true, x: 1 }, {}, []]) assert.equal((await req(bad)).status, 400, JSON.stringify(bad));
   assert.deepEqual((await req({ on: false })).body, { on: false });
