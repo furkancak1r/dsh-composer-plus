@@ -10584,13 +10584,15 @@ export async function statusTasks(events, inherited, agentOf, { logOf = async ()
     const end = log.findLast((x) => x.type === 'turn/end');
     const start = log.findLast((x) => x.type === 'turn/start');
     const open = start !== undefined && (end === undefined || end.seq < start.seq);
-    const running = child?.status === 'running' || open;
+    const running = child?.status === 'running' || (child !== undefined && open);
     const reason = end?.data?.reason?.kind;
-    // No live agent and no saved end: the child is gone (its log could not be read); it does not run.
-    const state = running ? (waitingOf(log) ? 'waiting' : 'running') : reason === 'error' ? 'failed' : reason === 'aborted' ? 'stopped'
-      : end === undefined ? (child === undefined ? 'stopped' : 'running') : 'done';
+    // No live agent: the child is gone and does not run. An open turn or no saved end: dsh crashed or quit during its turn
+    // (dsh closes such a turn as `interrupted` when it opens the child again), or its log could not be read.
+    const state = running ? (waitingOf(log) ? 'waiting' : 'running') : open || reason === 'aborted' || reason === 'interrupted' ? 'stopped'
+      : reason === 'error' ? 'failed' : end === undefined ? (child === undefined ? 'stopped' : 'running') : 'done';
     const started = Number.isFinite(d.childCreatedAt) ? d.childCreatedAt : Number.isFinite(e.time) ? e.time : now;
-    const ended = state === 'running' || state === 'waiting' ? undefined : Number.isFinite(end?.time) ? end.time : undefined;
+    const last = open ? log.at(-1) : end; // a gone child's open turn ended at its last saved event
+    const ended = state === 'running' || state === 'waiting' ? undefined : Number.isFinite(last?.time) ? last.time : undefined;
     const result = state === 'failed' ? headLine(end?.data?.reason?.error?.message, STATUS_LIMITS.result) : headLine(lastReply(log), STATUS_LIMITS.result);
     const task = { id: d.childId, title: cutEnd(String(d.label ?? '').trim() || d.childId, 120), state, started, ...(ended === undefined ? {} : { ended }), ...(result === '' ? {} : { result }) };
     if (child === undefined && state !== 'running' && state !== 'waiting' && log.length > 0) done.set(d.childId, task);
