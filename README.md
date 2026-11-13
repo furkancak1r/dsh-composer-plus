@@ -544,6 +544,8 @@ PLAYWRIGHT=/path/to/playwright node test/browser-status-refresh.mjs /path/to/dsh
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-assistant-callouts.mjs /path/to/dsh/lib/bin.js
 # Assistant messages only, Show earlier messages (made-up long chats): the first message on screen stays at its place after the click (at the top, below it, a chat at its end), a new reply at the end is still followed; dsh's own Load earlier keeps its place too
 PLAYWRIGHT=/path/to/playwright node test/browser-load-older.mjs /path/to/dsh/lib/bin.js
+# Quote in reply speed (made-up long Assistant chat, 46 projects): a right-click on selected text shows Copy, Quote in 50 ms or less in a short and a 2000-turn chat; a small scroll and the right-clicks load no hidden older pages
+PLAYWRIGHT=/path/to/playwright node test/browser-quote-menu-speed.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
