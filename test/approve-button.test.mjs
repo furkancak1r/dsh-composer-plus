@@ -10,9 +10,11 @@
 //   result came after it. An answer that you already answered (your message after it) or a withdrawn one gets none.
 // - The feature through plugin.apply: on by default; switched off, its slot goes.
 // - Host: the prompt section with the `onay` rule, on by default; the switch route removes and adds it.
+// - Host: the block stays at most APPROVAL_MAX characters (the same value as the client's); a too long block gets one note
+//   in the chat's next step (the owner, 2026-11-13: blocks of 1092 to 1439 characters showed no button).
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises'; import { tmpdir } from 'node:os'; import { join } from 'node:path';
-import { APPROVE_PATH, APPROVE_SECTION, installApproveButton } from '../index.js';
+import { APPROVE_PATH, APPROVE_SECTION, APPROVAL_MAX as HOST_MAX, approveLongNote, installApproveButton } from '../index.js';
 const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
@@ -318,9 +320,10 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
 // --- Host: the prompt rule and its switch ---
 const root = await mkdtemp(join(tmpdir(), 'cp-approve-'));
 try {
-  const routes = new Map(); const effects = []; const sections = new Map(); let disposed = 0;
+  const routes = new Map(); const effects = []; const sections = new Map(); let disposed = 0; const listeners = new Map();
   const ctx = {
     connection: { fetch: { register: (r) => routes.set(r.path, r) } }, effect: (f) => effects.push(f()),
+    on: (name, fn) => { if (!listeners.has(name)) listeners.set(name, fn); },
     inject(names, setup) {
       assert.deepEqual(names, ['systemPrompt']);
       const offs = [];
@@ -339,16 +342,55 @@ try {
   assert.match(APPROVE_SECTION, /Each approval sentence gets the block, also one that names a live or public target/, 'the rule: a block for each approval sentence');
   assert.doesNotMatch(APPROVE_SECTION, /no button|user types it/, 'no exception for live or public targets');
   assert.match(APPROVE_SECTION, /Write at most one `onay` block per answer/);
-  // One button at a time (the owner, 2026-11-12: a click removes the other buttons): all pending approvals in one block.
-  assert.match(APPROVE_SECTION, /Write at most one `onay` block in the chat at a time\. When several approvals are pending, put all of them in one sentence in one block in your newest reply:/, 'one block for all pending approvals');
-  assert.match(APPROVE_SECTION, /only the newest block gets a button\. After a user message, when an approval is still pending, include it again in the next `onay` block, together with any new approval\./, 'a pending approval comes back in the next block');
-  // The rule's limit is the client's limit (approvable: a longer block gets no button).
-  assert.match(APPROVE_SECTION, new RegExp(`Keep the block under ${APPROVAL_MAX} characters: a longer block shows only as code, without the button\\.`), 'the length limit');
+  // One button at a time (the owner, 2026-11-12: a click removes the other buttons): the pending approvals in one block.
+  assert.match(APPROVE_SECTION, /Write at most one `onay` block in the chat at a time\. When several approvals are pending, put them in one sentence in one block in your newest reply:/, 'one block for the pending approvals');
+  assert.match(APPROVE_SECTION, /After a user message, when an approval is still pending, include it again in the next `onay` block, together with any new approval\./, 'a pending approval comes back in the next block');
+  // The rule's limit is the client's limit (approvable: a longer block gets no button), one value on both halves.
+  assert.equal(HOST_MAX, APPROVAL_MAX, 'the Host and the client use the same limit');
+  assert.match(APPROVE_SECTION, new RegExp(`Keep the block at most ${APPROVAL_MAX} characters, always: a longer block shows only as code, without the button\\.`), 'the length limit');
+  // 2026-11-13: the old rule "all pending approvals in one block" made blocks of 1092 to 1439 characters, with no button.
+  // The limit wins: the most urgent approvals that fit, and one line that says how many still wait.
+  assert.match(APPROVE_SECTION, new RegExp(`When the pending approvals do not fit in ${APPROVAL_MAX} characters, put the most urgent ones that fit in the block and write one short line outside the block that says how many approvals still wait\\. They come in your next replies\\.`), 'the limit wins over "all approvals in one block"');
+  assert.doesNotMatch(APPROVE_SECTION, /put all of them in one sentence/, 'no rule that makes the block longer than the limit');
   assert.doesNotMatch(APPROVE_SECTION, /Show the `onay` block once|do not repeat the block/, 'no rule that hides a pending approval');
   assert.match(APPROVE_SECTION, /name the targets and the live or not-live scope, without file lines or script names/, 'a short sentence');
+  // A too long block: one note in the chat's next step that has a message (the owner, 2026-11-13: no button, the owner
+  // typed a 1439-character sentence by hand). The note never starts a step itself.
+  const on = (name) => listeners.get(name);
+  const say = (sessionId, seq, text, extra = {}) => on('session/event')({ id: sessionId, ...extra }, { type: 'assistant/message', seq, data: { message: { content: [{ type: 'text', text }] } } });
+  const step = async (sessionId, messages) => on('agent/pre-step')({ agent: { id: sessionId, session: { id: sessionId } }, messages }, async () => ({ kind: 'enter', messages }));
+  const typed = { id: 'u1', role: 'user', content: [{ type: 'text', text: 'ok' }], source: { kind: 'user' } };
+  const noteOf = (d) => d.messages.filter((m) => m.source?.kind === 'composer-plus-approve-long').map((m) => m.content[0].text);
+  const LONG_BLOCK = 'a'.repeat(APPROVAL_MAX + 1);
+  say('c1', 10, block(LONG_BLOCK));
+  assert.deepEqual(noteOf(await step('c1', [])), [], 'no message in the step: no note, no step of its own');
+  assert.deepEqual(noteOf(await step('c1', [{ id: 'w', role: 'user', content: [], source: { kind: 'composer-plus-continue' } }])), [], 'an empty wake marker does not count');
+  assert.deepEqual(noteOf(await step('c1', [{ id: 'r', role: 'user', content: [{ type: 'text', text: 'ctx' }], source: { kind: 'runtime-context' } }])), [], 'dsh\'s runtime context does not count');
+  const first = await step('c1', [typed]);
+  assert.deepEqual(noteOf(first), [approveLongNote(APPROVAL_MAX + 1)], 'one note with the length');
+  assert.equal(first.messages[0], typed, 'your message stays first');
+  assert.match(approveLongNote(1439), /1439 characters, more than 500/);
+  assert.deepEqual(noteOf(await step('c1', [typed])), [], 'once: no loop');
+  say('c2', 5, block('a'.repeat(APPROVAL_MAX)));
+  assert.deepEqual(noteOf(await step('c2', [typed])), [], 'a block of the limit gets no note');
+  say('c3', 5, block(LONG_BLOCK)); say('c3', 6, 'Done.');
+  assert.equal(noteOf(await step('c3', [typed])).length, 1, 'an answer without a block keeps the long block');
+  say('c4', 5, block(LONG_BLOCK)); say('c4', 7, block(PUSH));
+  assert.deepEqual(noteOf(await step('c4', [typed])), [], 'a newer block of the right length replaces it');
+  say('c5', 5, block(LONG_BLOCK), { inheritedEventCount: 6 });
+  assert.deepEqual(noteOf(await step('c5', [typed])), [], 'a fork\'s copied answer is not its own (rule 10)');
+  for (const kind of ['composer-plus-rollback', 'dsh-rewind']) {
+    say('c6', 5, block(LONG_BLOCK));
+    on('session/event')({ id: 'c6' }, { type: 'user/message', seq: 8, sourceEventSeqs: [4, 5, 6], data: { source: { kind } } });
+    assert.deepEqual(noteOf(await step('c6', [typed])), [], `a withdrawn block gets no note (${kind})`);
+  }
   for (const bad of [{ on: 'yes' }, { on: true, x: 1 }, {}, []]) assert.equal((await req(bad)).status, 400, JSON.stringify(bad));
+  say('c7', 5, block(LONG_BLOCK));
   assert.deepEqual((await req({ on: false })).body, { on: false });
   assert.equal(sections.size, 0, 'off: no section'); assert.ok(disposed >= 1);
+  assert.deepEqual(noteOf(await step('c7', [typed])), [], 'off: no note');
+  say('c7', 6, block(LONG_BLOCK)); await req({ on: true });
+  assert.deepEqual(noteOf(await step('c7', [typed])), [], 'a block written while off gets no note later'); await req({ on: false });
   await Promise.all([req({ on: true }), req({ on: false }), req({ on: true })]);
   assert.deepEqual((await req()).body, { on: true }, 'the newest click wins'); assert.ok(sections.has('composer-plus:approve-button'));
   await req({ on: false });
