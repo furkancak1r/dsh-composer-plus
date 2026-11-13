@@ -5,7 +5,8 @@
 //    "Quote text"). A right-click on the selection opens the menu at the pointer: Copy, Quote. Copy runs the copy command
 //    on the same text. Quote puts the part into the composer; the model gets it as a `> ` quote. A right-click in the
 //    composer, with no selection, or beside the selected words in the same message opens no menu of ours (the browser's
-//    menu stays).
+//    menu stays). A mouse drag selection and a right-click at once where the drag ended (past the last selected
+//    letter) opens our menu, not the browser's Copy.
 // 2. Settings → Composer Plus → Application language → Türkçe: the same menu says Kopyala, Alıntıla (no reload).
 // 3. The other Mac (Remote computers, B in A's window): its page shows the same menu (English, light).
 // 4. A new window in Turkish (tr-TR) and dark: This Mac and the other Mac show Kopyala, Alıntıla on a dark menu.
@@ -44,7 +45,7 @@ const fake = createServer((req, res) => {
     const answer = (text) => res.end(chunk({ role: 'assistant', content: text }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
     const last = textOf(msgs.at(-1)?.content);
     if (/session title/i.test(last)) return answer('Garden watering');
-    if (/You predict the next message|You complete the message that the user is typing/.test(JSON.stringify(msgs))) return answer('');
+    if (/You predict the next message|You complete the message that the user is typing|long-term memory/.test(JSON.stringify(msgs))) return answer('');
     sent.push(msgs.filter((m) => m.role === 'user').map((m) => textOf(m.content)).filter((t) => !/^(Current runtime context|Time sampled|<system-reminder>)/.test(t)).at(-1) ?? '');
     answer(sent.at(-1).includes('Every day?') ? 'Noted.' : ANSWER);
   });
@@ -233,6 +234,34 @@ try {
       await pa.mouse.click(beside.x, beside.y, { button: 'right' }); await pause(400);
       assert.equal(await menuOf(pa), null, 'beside the selection in the same message: no menu of ours');
       await pa.evaluate(() => getSelection().removeAllRanges());
+      // A fast right-click where a mouse drag ended (just past the last selected letter, no wait): our menu, not the
+      // browser's Copy. The browser keeps the selection there; the pointer is outside the boxes of the selected text.
+      const drag = await pa.evaluate((part) => {
+        const root = [...document.querySelectorAll('[data-conversation-session] [data-chat-flow-kind="assistant-step"]')].filter((el) => el.textContent.includes(part)).at(-1);
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+          const i = n.data.indexOf(part); if (i < 0) continue;
+          const range = document.createRange(); range.setStart(n, i); range.setEnd(n, n.data.length);
+          const boxes = [...range.getClientRects()]; const first = boxes[0]; const last = boxes.at(-1);
+          return { x0: first.left + 1, y0: (first.top + first.bottom) / 2, x1: last.right + 30, y1: (last.top + last.bottom) / 2 };
+        }
+        return null;
+      }, PART);
+      assert.ok(drag, `the answer holds "${PART}"`);
+      await pa.mouse.move(drag.x0, drag.y0); await pa.mouse.down(); await pa.mouse.move(drag.x1, drag.y1, { steps: 8 }); await pa.mouse.up();
+      assert.ok((await pa.evaluate(() => String(getSelection()))).includes(PART), 'the drag selected the part');
+      await pa.mouse.click(drag.x1, drag.y1, { button: 'right' });
+      await until(() => menuOf(pa), 5000, 'the menu opens on a fast right-click where the drag ended');
+      assert.deepEqual((await menuOf(pa)).items, ['Copy', 'Quote'], 'a fast right-click after a drag: Copy next to Quote');
+      await pa.keyboard.press('Escape'); await pa.getByRole('menu').waitFor({ state: 'hidden', timeout: 5000 });
+      // The selection stays in the answer; a contextmenu event on the composer (its text position is not in the
+      // selection) keeps the browser's menu. A real right-click there would move the selection first.
+      await selectPart(pa, pa, PART);
+      await inputA.evaluate((el) => { const r = el.getBoundingClientRect(); el.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 })); });
+      await pause(400);
+      assert.equal(await menuOf(pa), null, 'a selection in the answer, a right-click on the composer: no menu of ours');
+      await pa.evaluate(() => getSelection().removeAllRanges());
+      note('1b: a drag selection, then a right-click at once where the drag ended → [Copy, Quote]; on the composer → no menu of ours');
 
       // 2. Application language → Türkçe: the labels change at once.
       let settings = await openSettings(pa);

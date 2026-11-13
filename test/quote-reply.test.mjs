@@ -5,7 +5,8 @@
 //   0.2.1) or dsh's own quote source (0.2.2+: your message too); not two messages, another chat, a tool row, a collapsed
 //   or blank selection.
 // - QuoteReply with `menu` (Quote in reply): no floating button. A right-click on the selected text opens dsh's Menu at
-//   the pointer with Copy and Quote (in this order, from the language packs); a link, a part with its own menu, a click
+//   the pointer with Copy and Quote (in this order, from the language packs), also at once where a drag ended (past the
+//   last selected letter: its text position is in the selection); a link, a part with its own menu, a click
 //   beside the selected text (also in the same message) or no selection keeps the browser's menu. Quote inserts at the caret (dsh's insertQuote
 //   when it has one, else `> ` lines through insertText with the captured span), clears the selection, focuses the
 //   composer; a refused insert shows the notice. Copy selects the text again and runs the copy command.
@@ -85,7 +86,8 @@ const tool = node({}, body);
 const other = node({ answer: true }, node({ 'data-conversation-session': 'T' }));
 const sel = (a, f, str = 'Use pnpm.', more = {}) => ({ rangeCount: 1, isCollapsed: false, anchorNode: a, focusNode: f, toString: () => str,
   // The selected text has two line boxes: 400..640 × 210..230 and 380..520 × 230..250.
-  getRangeAt: () => ({ getBoundingClientRect: () => ({ left: 500, right: 600, top: 300, bottom: 320 }), getClientRects: () => [{ left: 400, right: 640, top: 210, bottom: 230 }, { left: 380, right: 520, top: 230, bottom: 250 }], cloneRange() { return this; } }), ...more });
+  getRangeAt: () => ({ getBoundingClientRect: () => ({ left: 500, right: 600, top: 300, bottom: 320 }), getClientRects: () => [{ left: 400, right: 640, top: 210, bottom: 230 }, { left: 380, right: 520, top: 230, bottom: 250 }],
+    isPointInRange: (node) => node === 'in', cloneRange() { return this; } }), ...more });
 
 // --- quoteTarget ---
 assert.equal(quoteTarget(sel(text(answer1), text(answer1)), 'S'), answer1, 'one answer of this chat');
@@ -165,6 +167,19 @@ const rightClick = (on, x = 410, y = 220, more = {}) => { let prevented = false;
   selection = sel(text(answer1), text(answer1), 'x'); assert.equal(rightClick(answer2), false, 'a click outside the selected message');
   assert.equal(rightClick(answer1, 700, 220), false, 'a click in the same message, beside the selected text');
   assert.equal(rightClick(answer1, 450, 245), true, 'a click on the second line of the selected text'); v.render().p.onClose();
+  // A fast right-click where a drag ended: past the last selected letter, outside its boxes (also below the message). Its
+  // text position is in the selection, so the browser keeps the selection and shows its own Copy: our menu shows instead.
+  document.caretPositionFromPoint = (x) => ({ offsetNode: x === 660 ? 'in' : 'out', offset: 0 });
+  assert.equal(rightClick(answer1, 660, 220), true, 'where a drag ended, past the last selected letter'); v.render().p.onClose();
+  assert.equal(rightClick(body, 660, 262), true, 'where a drag ended, below the message'); v.render().p.onClose();
+  assert.equal(rightClick(answer1, 700, 220), false, 'beside the selected text, its text position outside the selection');
+  document.caretPositionFromPoint = () => ({ offsetNode: 'in', offset: 0 });
+  assert.equal(rightClick(body, 0, 0), false, 'the menu key outside the selected message: the browser menu, as before');
+  // A text field's caret offset is not a child index: isPointInRange throws (IndexSizeError). The browser menu stays.
+  const range = selection.getRangeAt(0);
+  selection = sel(text(answer1), text(answer1), 'x', { getRangeAt: () => ({ ...range, isPointInRange: () => { throw Error('IndexSizeError'); } }) });
+  assert.equal(rightClick(body, 660, 262), false, 'isPointInRange throws: no menu of ours, no error');
+  delete document.caretPositionFromPoint;
   assert.equal(rightClick({ ...answer1, closest: (s) => (s === 'a[href], button' ? {} : null) }), false, 'a link or a button');
   assert.equal(rightClick(answer1, 1, 1, { defaultPrevented: true }), false, 'a part with its own menu');
   selection = sel(text(answer1), text(answer2), 'x'); assert.equal(rightClick(answer1), false, 'two messages');
