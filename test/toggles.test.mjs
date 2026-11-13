@@ -103,5 +103,12 @@ plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
   a.unload();a=boot(native);assert.equal(row(a).c[2].p.checked,true,'switched on: stays on after a reload');
   a.settings.inject().setFeature('questionFit',false);a.unload();a=boot(native);assert.equal(row(a).c[2].p.checked,false,'stored false: stays off');
   a.unload();mem.set('dsh-composer-plus.features','{"questionFit":false}');a=boot();assert.equal(row(a).c[2].p.checked,false,'old data: stored false stays off');
-  a.unload();mem.delete('dsh-composer-plus.features');a=boot();r=row(a);assert.equal(r.c[2].p.checked,true,'not detected: on, as before');assert.equal(noteOf(r),undefined,'no note');a.unload(); }
+  a.unload();mem.delete('dsh-composer-plus.features');a=boot();r=row(a);assert.equal(r.c[2].p.checked,true,'not detected: on, as before');assert.equal(noteOf(r),undefined,'no note');a.unload();
+  // dsh 0.2.1 in Turkish: our tr pack registers dsh's own `question` namespace too, with text.expand. That is our text, not
+  // dsh's, so the feature stays on. (A locale that reads dictionaries at lookup time, as dsh's LocaleRuntime does.)
+  const reading=(dshHasExpand)=>{const dicts=new Map();if(dshHasExpand)dicts.set('question/en',{'text.expand':'Expand'});
+    return{register:(ns,id,d)=>{dicts.set(`${ns}/${id}`,d);return()=>dicts.delete(`${ns}/${id}`);},getLocale:()=>({locales:[{id:'zh'},{id:'en'}]}),addLanguage:()=>()=>{},subscribe:()=>()=>{},
+      bind:(ns)=>(k)=>dicts.get(`${ns}/tr`)?.[k]??dicts.get(`${ns}/en`)?.[k]??k};};
+  a=boot(reading(false));r=row(a);assert.equal(r.c[2].p.checked,true,'0.2.1 in Turkish: our own pack text is not dsh\'s feature');assert.equal(noteOf(r),undefined,'no note on 0.2.1 in Turkish');a.unload();
+  a=boot(reading(true));assert.equal(row(a).c[2].p.checked,false,'0.2.2 in Turkish: dsh\'s own text is found');a.unload(); }
 console.log('toggle checks passed');

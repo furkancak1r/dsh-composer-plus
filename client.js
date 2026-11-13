@@ -3789,7 +3789,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         try {
           if (pack[LOCALE_NS] !== undefined) mine.push(locale.register(LOCALE_NS, id, pack[LOCALE_NS]));
           if (!locale.getLocale().locales.some((l) => l.id.toLowerCase() === id.toLowerCase())) {
-            for (const [ns, dict] of Object.entries(pack)) if (ns !== LOCALE_NS) mine.push(locale.register(ns, id, dict));
+            // dsh reads a dictionary at lookup time: while detectNative() runs, our copies answer nothing (probingNative).
+            for (const [ns, dict] of Object.entries(pack)) if (ns !== LOCALE_NS) mine.push(locale.register(ns, id, new Proxy(dict, { get: (d, key) => (probingNative ? undefined : d[key]) })));
             mine.push(locale.addLanguage({ id, label, fallback: 'en' }));
           }
           offs.push(...mine);
@@ -10304,6 +10305,9 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       // Skip/Submit stay in view. Its question dictionary has the Expand label (`question` / `text.expand`).
       questionFit: { reason: 'native', detect: (locale) => { try { const t = locale?.bind?.('question'); return typeof t === 'function' && t('text.expand') !== 'text.expand'; } catch { return false; } } },
     };
+    /** True while detectNative() runs. Our packs also hold dsh's own namespaces (installLanguages), for example Turkish
+     * `question` / `text.expand`: without this, on dsh 0.2.1 in Turkish the check finds our text and not dsh's. */
+    let probingNative = false;
     /** The NATIVE_FEATURES ids that this dsh has (apply() checks at start and at each locale change). */
     const nativeNow = new Set();
     /** A feature's state: the user's stored choice, else its default (off for OFF_BY_DEFAULT and for a detected native one). */
@@ -14056,10 +14060,13 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         // NATIVE_FEATURES: dsh registers its dictionaries while its plugins load, so check again at each locale change.
         const detectNative = () => {
           let moved = false;
-          for (const [id, native] of Object.entries(NATIVE_FEATURES)) {
-            const has = native.detect(ctx.locale) === true;
-            if (has !== nativeNow.has(id)) { moved = true; if (has) nativeNow.add(id); else nativeNow.delete(id); }
-          }
+          probingNative = true;
+          try {
+            for (const [id, native] of Object.entries(NATIVE_FEATURES)) {
+              const has = native.detect(ctx.locale) === true;
+              if (has !== nativeNow.has(id)) { moved = true; if (has) nativeNow.add(id); else nativeNow.delete(id); }
+            }
+          } finally { probingNative = false; }
           return moved;
         };
         detectNative();
