@@ -15,6 +15,9 @@
 // 8. Owner groups: 2 items of the user and 3 of the assistant show in two folding groups ("You will do 2" first, then
 //    "Damon will do 3"), with no owner line in a row; Enter on a header folds it, and it stays folded after a reload.
 //    The turn after "Research Rome" (a subagent and no to-do change) has the to-do nudge in its runtime context.
+// 9. Issue #6: todo_list_add with waiting shows "Waiting for you", the time and the reason on the assistant's item, and
+//    its group header counts it. Tasks: the ended subagent task is in the folded "History" group; × hides it, and it
+//    stays hidden after a reload.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-todos.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/assistantTodos.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -70,6 +73,7 @@ const fake = createServer((req, res) => {
       const id = /- ([0-9a-f]{8}) \(owner \w+\): "Buy milk"/.exec(context)?.[1] ?? 'ffffffff';
       return tool('todo_list_remove', { id, reason: 'completed' });
     }
+    if (/Wait for the ANR path/.test(newest) && !after) return tool('todo_list_add', { text: 'Install ANR', owner: 'agent', waiting: 'Needs the game folder path' });
     if (/Morning summary please/.test(newest) && !after) return tool('status_summary_set', { projects: [{ project: 'acme-web', text: 'Login page is done; tests pass.' }] });
     if (/Research Rome/.test(newest) && !after) {
       const bg = (parsed.tools ?? []).find((t) => t.function?.name === 'subagent')?.function?.parameters?.properties?.run_in_background !== undefined;
@@ -320,7 +324,7 @@ try {
         'the to-do nudge after a turn that started a subagent without a to-do item');
       assert.ok(!calls.slice(0, calls.findIndex((c) => /Research Rome/.test(c.newest))).some((c) => /To-do list: in your last turn/.test(c.context)), 'no nudge before it');
       await until(async () => (await group('user').count()) === 2 && (await group('agent').count()) === 3, 'two groups with 2 and 3 items');
-      const heads = panel.locator('.cp-td-group');
+      const heads = panel.locator('section[aria-labelledby$="-todos"] .cp-td-group');
       assert.deepEqual(await heads.evaluateAll((els) => els.map((b) => [b.dataset.owner, b.getAttribute('aria-expanded'), b.innerText.replace(/\s+/g, ' ').trim()])),
         [['user', 'true', '▾ You will do 2'], ['agent', 'true', '▾ Damon will do 3']], 'the user\'s group first, both open, with counts');
       assert.deepEqual(await group('user').locator('.cp-td-text').allInnerTexts(), ['Pay rent', 'Call mom']);
@@ -344,6 +348,30 @@ try {
         execFileSync('cwebp', ['-quiet', '-q', '72', '-resize', '960', '0', png, '-o', join(repo, 'assets/features/assistantTodos.webp')]);
         shotDone = true; note('SHOT: assets/features/assistantTodos.webp');
       }
+      // 9. Waiting for the user, and History.
+      await send('Wait for the ANR path');
+      const anr = item('Install ANR');
+      await until(async () => (await anr.count()) === 1 && /Waiting for you/.test(await anr.innerText()), 'the waiting item', 30000);
+      assert.match(await anr.innerText(), /Needs the game folder path/, 'the reason');
+      assert.equal(await anr.getAttribute('data-waiting'), 'true');
+      assert.match((await until(() => calls.find((c) => /Wait for the ANR path/.test(c.newest) && c.after), 'waiting result')).result, /owner agent, waiting for the user/);
+      assert.match(await groupHead('agent').innerText(), /1 waiting$/, 'the group header counts it');
+      const taskSection = panel.locator('section[aria-labelledby$="-tasks"]');
+      const historyHead = taskSection.locator('.cp-td-group');
+      assert.equal(await historyHead.getAttribute('aria-expanded'), 'false', 'History is folded');
+      assert.match(await historyHead.innerText(), /History\s+1$/);
+      const rome = taskSection.locator('li').filter({ hasText: 'Rome flights' });
+      assert.equal(await rome.isVisible(), false, 'the ended task is not in the live list');
+      await historyHead.click(); await rome.waitFor({ timeout: 5000 });
+      assert.match(await rome.innerText(), /Done/);
+      await page.getByRole('button', { name: 'Hide from the list: Rome flights', exact: true }).click();
+      await until(async () => (await rome.count()) === 0, 'the row is hidden');
+      assert.match(await taskSection.innerText(), /The assistant has no tasks today\./);
+      await page.reload(); await input.waitFor({ timeout: 20000 }); await assistantRow().click();
+      await item('Install ANR').waitFor({ timeout: 20000 }); await pause(1000);
+      assert.equal(await rome.count(), 0, 'still hidden after a reload');
+      note('9: an agent item waits for the user (reason, time, group count); History folded, × hides an ended task after a reload too');
+
       assert.deepEqual(errors, [], 'no page errors');
       passed = true;
       console.log(`PASS dsh ${version}`);
