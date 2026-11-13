@@ -11420,13 +11420,26 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     const projects = statusProjects(projectsCache.items, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived });
     // Delegated chats (chat_new, with or without branch, and chat_send) are tasks too: open while their turn runs (main's
     // store drops them at the end), then with their final state until the day ends (the bot's endedTasks).
+    const closed = [];
     for (const [id, task] of assistant.tasks?.list?.() ?? []) {
       const live = get('agents')?.get?.(id);
       let log = []; try { log = live?.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
-      tasks.unshift({ id, title: cutEnd(String(task?.title ?? task?.project ?? id), 120), state: waitingOf(log) ? 'waiting' : 'running',
-        started: Number.isFinite(task?.at) ? task.at : now(), chat: true, ...(isText(task?.branch, 200) ? { result: `${task.project ?? ''} · ${task.branch}`.replace(/^ · /, '') } : {}) });
+      const row = { id, title: cutEnd(String(task?.title ?? task?.project ?? id), 120), started: Number.isFinite(task?.at) ? task.at : now(), chat: true,
+        ...(isText(task?.branch, 200) ? { result: `${task.project ?? ''} · ${task.branch}`.replace(/^ · /, '') } : {}) };
+      // A new task whose message is still on its way (chat_new, chat_send: at most STOP_WAIT_MS) counts as running too.
+      // ponytail: chat_send keeps the `at` of a kept task, so its send gets no such time; the row is stopped until the turn
+      // starts (less than a second for an idle chat). The time of a running row starts at its newest turn, not at a kept
+      // task's first start.
+      if (live?.status === 'running' || (Number.isFinite(task?.at) && now() - task.at < STOP_WAIT_MS)) {
+        const turn = log.findLast((e) => e?.type === 'turn/start')?.time;
+        tasks.unshift({ ...row, started: Number.isFinite(turn) ? Math.max(turn, row.started) : row.started, state: waitingOf(log) ? 'waiting' : 'running' }); continue;
+      }
+      // Issue #5: the bot keeps a task whose turn dsh's quit or an AIProxy outage stopped (and one whose chat is gone), so
+      // the chat's next turn end is still news. The chat does not run: stopped at its last activity, and gone the next day.
+      const item = projectsCache.items.find((s) => s?.sessionId === id);
+      const last = [log.at(-1)?.time, item?.updatedAt, task?.at].find(Number.isFinite);
+      if (last !== undefined && last >= today.getTime()) closed.push({ ...row, state: 'stopped', ended: Math.max(last, row.started) });
     }
-    const closed = [];
     for (const [id, t] of assistant.endedTasks ?? []) {
       if (t.ended < today.getTime()) { assistant.endedTasks.delete(id); continue; }
       // The chat has a task again: its open row shows; the bot replaces this row when that task ends (a chat_send whose
