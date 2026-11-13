@@ -11397,6 +11397,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   const workspaces = () => { try { return get('workspaceRegistry')?.list?.() ?? []; } catch { return []; } };
   /** The status of the assistant chat `sessionId` (only it: another chat gets no tasks or projects). */
   const ended = new Map(); // child id → its ended task (ponytail: grows with the assistant's tasks of this dsh run)
+  const scan = {}; // the catalog events of the assistant chat's log read so far (statusTasks)
   let projectsCache; // { at, sessionId, items }: the chat list is read at most every STATUS_LIMITS.cacheMs, Refresh reads it now
   // A root chat that starts or ends a turn changed the projects: the next read reads the chat list again. The assistant
   // chat's own turns do not: the projects leave it out.
@@ -11409,7 +11410,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     const today = new Date(now()); today.setHours(0, 0, 0, 0);
     let events = []; try { events = agent.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
     const tasks = await statusTasks(events, agent.session?.inheritedEventCount, (id) => get('agents')?.get?.(id),
-      { logOf: (id) => savedEvents(ctx.sessionQuery, id, signal).catch(() => []), since: today.getTime(), now: now(), ended });
+      { logOf: (id) => savedEvents(ctx.sessionQuery, id, signal).catch(() => []), since: today.getTime(), now: now(), ended, scan });
     if (fresh || projectsCache === undefined || now() - projectsCache.at >= STATUS_LIMITS.cacheMs || projectsCache.sessionId !== sessionId) {
       let items = []; try { items = (await ctx.sessionController.list({}, signal)).items ?? []; } catch { /* no list */ }
       projectsCache = { at: now(), sessionId, items };
@@ -11652,15 +11653,23 @@ export function parseStatusLines(answer, count) {
  * `state`: running, waiting (an open approval, question or plan review), failed, done (also max-tokens) or stopped. A task
  * that ended before `since` is left out. `result` is the first line of its last reply (or of its error). `agentOf(id)`
  * gives a live child agent; `logOf(id)` reads the saved log of a child without one (dsh disposes a one-shot child when
- * it ends). Only the newest `max` children are read. */
-export async function statusTasks(events, inherited, agentOf, { logOf = async () => [], since = 0, now = Date.now(), max = STATUS_LIMITS.tasks, ended: done = new Map() } = {}) {
+ * it ends). Only the newest `max` children are read. `scan` (an object that the caller keeps between reads) keeps the
+ * catalog events found so far: dsh's log only grows and keeps its event objects, so a read whose log still has the last
+ * scanned event at its place reads only the new events (the panel reads a long assistant chat every 5 s while it runs).
+ * Another log (another chat, or dsh loaded the chat again) is read again from its start. */
+export async function statusTasks(events, inherited, agentOf, { logOf = async () => [], since = 0, now = Date.now(), max = STATUS_LIMITS.tasks, ended: done = new Map(), scan = {} } = {}) {
   const from = Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0;
-  const seen = new Set(); const found = [];
-  for (const e of events.slice(from)) {
+  if (scan.from !== from || !(scan.length <= events.length) || (scan.length > 0 && events[scan.length - 1] !== scan.last)) {
+    Object.assign(scan, { from, length: 0, last: undefined, seen: new Set(), found: [] });
+  }
+  const { seen, found } = scan;
+  for (let i = Math.max(scan.length, from); i < events.length; i++) {
+    const e = events[i];
     const d = e?.type === 'subagent/catalog' ? e.data : undefined;
     if (!isText(d?.childId, 128) || seen.has(d.childId) || d.mode === 'external') continue;
     seen.add(d.childId); found.push(e);
   }
+  if (events.length > scan.length) Object.assign(scan, { length: events.length, last: events.at(-1) });
   const tasks = [];
   for (const e of found.slice(-max * 2)) {
     const d = e.data;
