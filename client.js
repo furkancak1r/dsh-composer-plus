@@ -2877,7 +2877,12 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * rows are found as dsh's chat view finds them (the children of its `conversation.chat.flow` slot, a `display:
      * contents` wrapper in the `data-chat-flow` column, else the column) by their `data-chat-turn` (each row and step group
      * has it, in turn order); dsh's own "Load earlier" shows again when every drawn row is shown. ponytail: one rule per
-     * hidden turn number (not per row); if dsh renames the attribute, every row shows. */
+     * hidden turn number (not per row); if dsh renames the attribute, every row shows.
+     * dsh's "Load earlier" row is also its history edge: dsh 0.2.2-rc.2 loads the next older page by itself while that
+     * row's bottom is less than two chat heights above the chat's top. With `display: none` its box is at 0, so dsh loaded
+     * every page of a long assistant chat behind the cap after a scroll or a selection (100,000 hidden elements: each
+     * right-click, key and paint then waited for their styles). So the row stays out of sight far above the chat, and dsh
+     * loads nothing while the cap is on. ponytail: found by dsh's `_older` class; upgrade when dsh can pause history loading. */
     const ASSISTANT_TURNS = 8;
     const ASSISTANT_EARLIER_ATTR = 'data-composer-plus-assistant-earlier';
     function assistantCapCss(id, turns, keep = ASSISTANT_TURNS) {
@@ -2885,7 +2890,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const chat = `[data-conversation-session=${JSON.stringify(id)}] [data-chat-flow]`;
       const hide = turns.slice(0, turns.length - keep);
       return `${hide.flatMap((turn) => [`${chat} > ${FLOW_SLOT} > [data-chat-turn="${turn}"]`, `${chat} > [data-chat-turn="${turn}"]`]).join(',\n')} { display: none !important; }\n`
-        + `${chat} > [class*="_older"] { display: none !important; }`;
+        + `${chat} > [class*="_older"] { position: absolute !important; top: -100000px !important; visibility: hidden !important; pointer-events: none !important; }`;
     }
     const FLOW_SLOT = '[data-slot="conversation.chat.flow"]';
     /** The sorted, distinct turn numbers of the rows that dsh drew in the open assistant chat. */

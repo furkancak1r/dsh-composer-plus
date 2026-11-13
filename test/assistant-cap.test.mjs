@@ -86,7 +86,13 @@ assert.equal(ASSISTANT_TURNS, 8);
 // The oldest 4 turns (29-32) are hidden, in the slot wrapper and directly in the column; the newest 8 stay.
 for (const n of [29, 30, 31, 32]) assert.ok(css().includes(`[data-conversation-session="s-assistant"] [data-chat-flow] > [data-slot="conversation.chat.flow"] > [data-chat-turn="${n}"]`), `turn ${n} hidden`);
 for (const n of [33, 40]) assert.ok(!css().includes(`[data-chat-turn="${n}"]`), `turn ${n} shown`);
-assert.match(css(), /\[data-chat-flow\] > \[class\*="_older"\] \{ display: none !important; \}/, 'dsh\'s Load earlier waits behind the cap');
+// dsh's Load earlier waits behind the cap. Its row is dsh's history edge: dsh 0.2.2-rc.2 loads older pages while the row
+// is near the chat's top, and `display: none` puts its box at 0, so dsh loaded the whole long chat behind the cap (each
+// right-click then waited 100 ms and more for 100,000 hidden elements). The row keeps a box, out of sight far above.
+const olderRule = css().match(/\[data-chat-flow\] > \[class\*="_older"\] \{([^}]*)\}/)?.[1] ?? '';
+assert.ok(/visibility: hidden !important/.test(olderRule) && /pointer-events: none !important/.test(olderRule), 'dsh\'s Load earlier waits behind the cap, out of sight');
+assert.ok(!/display:\s*none/.test(olderRule), 'dsh\'s history edge keeps a box (display: none made dsh load every page)');
+assert.match(olderRule, /position: absolute !important; top: -100000px !important/, 'the history edge is far above the chat');
 assert.match(css(), /\[data-chat-flow-kind="tool-call"\]/, 'the process rows stay hidden as before');
 // The button: above the rows (right before dsh's slot wrapper), labeled with the hidden turn count.
 const seat = flow.children[flow.children.indexOf(slot) - 1];
