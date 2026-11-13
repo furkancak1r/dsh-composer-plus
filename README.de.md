@@ -544,6 +544,8 @@ SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-assistant-todos.mjs /pat
 PLAYWRIGHT=/path/to/playwright node test/browser-status-refresh.mjs /path/to/dsh/lib/bin.js
 # Assistant callouts (fake model): the section only in the assistant chat, seven boxes with their labels and colors, the onay button under them, a closed details section (click, Enter, Space), no jump while it streams, light and dark contrast, Turkish labels, plain quotes in another chat, switch off + its thumbnail
 SHOT=1 PLAYWRIGHT=/path/to/playwright node test/browser-assistant-callouts.mjs /path/to/dsh/lib/bin.js
+# Assistant messages only, Show earlier messages (made-up long chats): the first message on screen stays at its place after the click (at the top, below it, a chat at its end), a new reply at the end is still followed; dsh's own Load earlier keeps its place too
+PLAYWRIGHT=/path/to/playwright node test/browser-load-older.mjs /path/to/dsh/lib/bin.js
 ```
 
 ```sh
