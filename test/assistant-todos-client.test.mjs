@@ -284,6 +284,89 @@ const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
   items = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
+// Issue #6: an item of the assistant that waits for the user shows "Waiting for you", how long and the reason; after
+// 24 hours it is overdue too. The panel sends nothing by itself. The agent group's header counts the waiting items, so
+// a folded group still shows them.
+{
+  const saved = items; const p0 = posts.length;
+  items = [{ id: '11111111', text: 'U1', owner: 'user', created: 1 }, { id: '22222222', text: 'Install ANR', owner: 'agent', created: 2, waiting: { reason: 'Needs the game folder path', since: Date.now() - 3 * 3600000 } },
+    { id: '33333333', text: 'Old ask', owner: 'agent', created: 3, waiting: { reason: 'Needs the license key', since: Date.now() - 25 * 3600000 } }, { id: '44444444', text: 'A free', owner: 'agent', created: 4 }];
+  await panelProps.store.load('s-assistant');
+  const tr = panel();
+  const rowOf = (s) => find(todoSection(tr), (n) => n.t === 'li' && text(n).includes(s))[0];
+  const waiting = rowOf('Install ANR'); const overdue = rowOf('Old ask'); const free = rowOf('A free');
+  assert.equal(waiting.p['data-waiting'], 'true'); assert.match(text(waiting), /todos\.waiting\s+·\s+3/); assert.match(text(waiting), /Needs the game folder path/);
+  assert.equal(find(waiting, (n) => n.p?.['data-state'] === 'overdue').length, 0, 'not overdue before 24 hours');
+  assert.equal(find(overdue, (n) => n.p?.['data-state'] === 'overdue').length, 1, 'overdue after 24 hours'); assert.match(text(overdue), /todos\.overdue/); assert.match(text(overdue), /Needs the license key/);
+  assert.equal(free.p['data-waiting'], undefined); assert.doesNotMatch(text(free), /todos\.waiting/);
+  assert.match(text(groups(tr)[1]), /todos\.groupAgent:\{"name":"Damon"\}\s+3\s+todos\.waitingCount:\{"count":"2"\}$/, 'the agent group counts the waiting items');
+  assert.equal(posts.length, p0, 'no message and no request by itself');
+  // The wait time and Overdue change while nothing runs: a waiting item draws the panel again once a minute (no read,
+  // no request); its cleanup stops the timer.
+  {
+    const realInterval = globalThis.setInterval; const realClear = globalThis.clearInterval; const timers = []; const cleared = [];
+    globalThis.setInterval = (fn, ms) => { timers.push({ fn, ms }); return timers.length; }; globalThis.clearInterval = (id) => { cleared.push(id); };
+    try {
+      rt.clear(); panel(); const own = []; for (const f of rt.effects()) { const off = f(); if (typeof off === 'function') own.push(off); } await tick();
+      const minute = timers.find((x) => x.ms === 60000);
+      assert.ok(minute, 'a one-minute timer while an item waits');
+      const g = gets.length; minute.fn(); await tick(); assert.equal(gets.length, g, 'it reads nothing'); assert.equal(posts.length, p0, 'and sends nothing');
+      for (const off of own) off(); assert.ok(cleared.includes(timers.indexOf(minute) + 1), 'the timer stops with the panel');
+    } finally { globalThis.setInterval = realInterval; globalThis.clearInterval = realClear; }
+  }
+  items = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
+}
+
+// Issue #6: Tasks shows the live tasks (working or waiting); the ended ones are in a folded "History" group with an ×
+// that hides a row in this browser (a new end of the same task shows it again).
+{
+  const saved = tasks;
+  const hist = (tr) => find(find(tr, (n) => n.t === 'section' && /-tasks$/.test(n.p['aria-labelledby'] ?? ''))[0], (n) => n.t === 'button' && n.p.className === 'cp-td-group')[0];
+  const listOf = (tr, id) => find(tr, (n) => n.t === 'ul' && n.p.id === id)[0];
+  const rowsIn = (ul) => find(ul, (n) => n.t === 'li');
+  tasks = [{ id: 'c-run', title: 'Research Rome', state: 'running', started: NOW - 125000 }, { id: 'c-ask', title: 'Deploy', state: 'waiting', started: NOW - 5000 },
+    { id: 'c-done', title: 'Flights', state: 'done', started: NOW - 600000, ended: NOW - 60000, result: 'Flights found' }, { id: 'c-stop', title: 'Hotels', state: 'stopped', started: NOW - 900000, ended: NOW - 300000 }];
+  await panelProps.store.load('s-assistant'); rt.clear();
+  let tr = panel(); let h = hist(tr);
+  assert.ok(h, 'a History header'); assert.equal(h.p['aria-expanded'], false, 'folded by default'); assert.match(text(h), /status\.history\s+2$/);
+  const taskSection = find(tr, (n) => n.t === 'section' && /-tasks$/.test(n.p['aria-labelledby'] ?? ''))[0];
+  assert.match(text(find(taskSection, (n) => n.t === 'h3')[0]), /status\.tasks\s*2$/, 'the title counts the live tasks');
+  const liveList = find(taskSection, (n) => n.t === 'ul')[0];
+  assert.deepEqual(rowsIn(liveList).map((r) => text(find(r, (n) => n.p?.className === 'cp-st-name')[0])), ['Research Rome', 'Deploy'], 'the live tasks');
+  assert.equal(find(liveList, (n) => n.t === 'button' && /status\.dismiss/.test(n.p['aria-label'] ?? '')).length, 0, 'no × on a live task');
+  assert.equal(listOf(tr, h.p['aria-controls']).p.hidden, true, 'the ended tasks are hidden');
+  h.p.onClick(); tr = panel(); h = hist(tr);
+  assert.equal(h.p['aria-expanded'], true); const history = listOf(tr, h.p['aria-controls']); assert.equal(history.p.hidden, false);
+  assert.deepEqual(rowsIn(history).map((r) => text(find(r, (n) => n.p?.className === 'cp-st-name')[0])), ['Flights', 'Hotels']);
+  const x = find(history, (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Flights"}')[0];
+  assert.ok(x, 'an × with an aria-label'); assert.equal(x.p.title, 'status.dismissShort');
+  const p0 = posts.length; x.p.onClick(); assert.equal(focused.at(-1), 'cp-td-s-assistant-history', 'the focus goes to the History header'); tr = panel(); h = hist(tr);
+  assert.deepEqual(rowsIn(listOf(tr, h.p['aria-controls'])).map((r) => text(find(r, (n) => n.p?.className === 'cp-st-name')[0])), ['Hotels'], 'the row is gone');
+  assert.match(text(h), /status\.history\s+1$/); assert.equal(posts.length, p0, 'nothing sent to the Host');
+  assert.equal(mem.get('dsh-composer-plus.status-tasks-dismissed'), JSON.stringify([`c-done|${NOW - 60000}`]), 'kept in this browser');
+  rt.clear(); assert.equal(rowsIn(listOf(panel(), hist(panel()).p['aria-controls'])).length, 1, 'still hidden after the panel opens again');
+  // The same task ends again (a new end time): it shows again, and the old key goes.
+  tasks = tasks.map((t) => (t.id === 'c-done' ? { ...t, ended: NOW - 1000 } : t)); await panelProps.store.load('s-assistant');
+  tr = panel(); assert.match(text(hist(tr)), /status\.history\s+2$/, 'a new end shows the row again');
+  find(tr, (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Hotels"}')[0].p.onClick();
+  assert.equal(focused.at(-1), 'cp-td-s-assistant-history', 'one row stays: the History header');
+  tr = panel(); find(tr, (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Flights"}')[0].p.onClick();
+  assert.equal(focused.at(-1), 'cp-td-s-assistant', 'the last row: the History header goes, the focus goes to the panel title');
+  // Two windows: the other one hid Hotels after this panel read the list; this × keeps that key (it reads the list again).
+  mem.set('dsh-composer-plus.status-tasks-dismissed', '[]'); rt.clear(); tr = panel();
+  mem.set('dsh-composer-plus.status-tasks-dismissed', JSON.stringify([`c-stop|${NOW - 300000}`]));
+  find(tr, (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Flights"}')[0].p.onClick();
+  assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.status-tasks-dismissed')).sort(), [`c-done|${NOW - 1000}`, `c-stop|${NOW - 300000}`], 'both windows\' rows stay hidden');
+  mem.set('dsh-composer-plus.status-tasks-dismissed', JSON.stringify([`c-stop|${NOW - 300000}`])); rt.clear(); tr = panel();
+  assert.equal(mem.get('dsh-composer-plus.status-tasks-dismissed'), JSON.stringify([`c-stop|${NOW - 300000}`]), 'only the keys of the ended tasks stay');
+  // Only ended tasks: no live row and no "no tasks" line; no task at all: the line.
+  tasks = tasks.filter((t) => t.ended !== undefined); await panelProps.store.load('s-assistant'); tr = panel();
+  assert.doesNotMatch(text(tr), /status\.tasksEmpty/); assert.ok(hist(tr));
+  tasks = []; await panelProps.store.load('s-assistant'); tr = panel();
+  assert.match(text(tr), /status\.tasksEmpty/); assert.equal(hist(tr), undefined, 'no History header without ended tasks');
+  mem.delete('dsh-composer-plus.status-tasks-dismissed'); tasks = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
+}
+
 // → writes "<Do this for me:> <item>" in the composer and sends nothing: no POST, the owner and the groups stay.
 const arrow = () => find(panel(), (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? ''))[0];
 const postsBefore = posts.length;

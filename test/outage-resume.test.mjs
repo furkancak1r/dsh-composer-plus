@@ -1,10 +1,13 @@
 // Resume after an AIProxy outage (Host half), with fakes only (no real AIProxy, no real dsh):
-// - outageError: AIProxy's 499 request_cancelled and "Connection error." trigger; a user stop, a denied approval and other
-//   errors (429, 503, 409, a 499 with another code) do not.
+// - outageError: AIProxy's 499 request_cancelled and "Connection error." trigger; AIProxy's 429 and 503 upstream_rejected
+//   (the provider refused the request) are 'rejected'; a user stop, a denied approval and other errors (409, 500, a 499
+//   or 429 with another code) do not.
 // - outageWatch: failures within the window are one outage; it waits for a failed health check (or a Connection error)
 //   and then for the settle time of good checks; a 499 while AIProxy stays up continues nothing;
 //   one message per chat per outage, at most perHour per hour; a chat that moved on gets nothing; `left(id, why)` gets
 //   each chat that is not continued (no outage, gave up, max, limit, switched off, resume's answer), not after close.
+//   A 'rejected' chat gets no health check: it is continued once after the fixed wait `retry`, in the same hourly limit;
+//   the newest failure of a chat wins (also across the outage and the wait).
 // - installOutageResume: on by default, the switch route (on, lang), the message in the UI language through dsh's prompt
 //   (mode queue, as chat_send), only root chats on AIProxy, the outage line after dsh's notice of a failed subagent, and
 //   the status panel's list of continued chats. Switched off, nothing continues.
@@ -24,13 +27,21 @@ assert.equal(outageError(err('499: {"code":"request_cancelled","message":"İstek
 assert.equal(outageError(err('request_cancelled: İstek iptal edildi.')), 'cancelled', 'in the stream, openai-responses');
 assert.equal(outageError(err('İstek iptal edildi.')), 'cancelled', 'in the stream, openai-completions');
 assert.equal(outageError({ kind: 'error', error: { message: 'Connection error.', code: 'TRANSPORT' } }), 'connection');
+// The provider refused the request (live logs of 2026-11-13: 60 turn ends with these two texts).
+const C429 = 'aiproxy API error (429): {"code":"upstream_rejected","message":"Sağlayıcı isteği reddetti (HTTP 429)."}';
+const C503 = 'aiproxy API error (503): {"code":"upstream_rejected","message":"Sağlayıcı isteği reddetti (HTTP 503)."}';
+assert.equal(outageError({ kind: 'error', error: { message: C429, code: 'RATE_LIMIT' } }), 'rejected', '429');
+assert.equal(outageError({ kind: 'error', error: { message: C503, code: 'SERVER' } }), 'rejected', '503');
+assert.equal(outageError(err('429: {"code":"upstream_rejected","message":"x"}')), 'rejected', 'the openai-completions form');
 for (const [reason, why] of [
   [{ kind: 'aborted', reason: { kind: 'user' } }, 'a user stop'],
   [{ kind: 'aborted', reason: { kind: 'disposed' } }, 'dsh quit'],
   [{ kind: 'blocked' }, 'a denied approval or a hook refusal'],
   [{ kind: 'completed' }, 'a finished turn'],
-  [err('aiproxy API error (429): {"code":"upstream_rejected","message":"x"}'), '429'],
-  [err('aiproxy API error (503): {"code":"upstream_rejected","message":"x"}'), '503'],
+  [err('aiproxy API error (429): {"code":"rate_limited","message":"x"}'), 'a 429 with another code'],
+  [err('aiproxy API error (503): {"code":"all_failed","message":"x"}'), 'a 503 with another code'],
+  [err('aiproxy API error (500): {"code":"upstream_rejected","message":"x"}'), 'upstream_rejected with another status'],
+  [err('aiproxy API error (502): {"code":"internal_error","message":"upstream_rejected 429"}'), 'the words in another error'],
   [err('aiproxy API error (409): {"code":"session_mismatch","message":"x"}'), '409'],
   [err('aiproxy API error (499): {"code":"client_gone","message":"x"}'), 'a 499 with another code'],
   [err('aiproxy API error (500): {"code":"internal_error","message":"request_cancelled 499"}'), 'the words in another error'],
@@ -50,7 +61,8 @@ for (const id of ['constructor', 'toString', '__proto__', 'hasOwnProperty-x']) a
 for (const [id, text] of Object.entries(OUTAGE_NOTES)) assert.ok(text.length > 20 && !text.includes('\u2014'), id);
 
 // --- outageWatch with a fake clock ---
-const T = { ...OUTAGE, window: 60, poll: 1, settle: 10, giveUp: 1000, hour: 3600 };
+const T = { ...OUTAGE, window: 60, poll: 1, settle: 10, giveUp: 1000, hour: 3600, retry: 100 };
+assert.ok(OUTAGE.retry >= 120000 && OUTAGE.retry <= 300000, 'the wait after a 429/503 is 2 to 5 minutes');
 function rig({ healthy = () => true, resume, timing = T } = {}) {
   let clock = 0; const checks = []; const resumed = []; const left = [];
   const w = outageWatch({ now: () => clock, timing, sleep: async (ms) => { clock += ms; await null; },
@@ -123,6 +135,93 @@ function rig({ healthy = () => true, resume, timing = T } = {}) {
   r.w.fail('moved', 1, 'connection'); r.w.fail('boom', 1, 'connection'); r.w.fail('ok', 1, 'connection'); await r.w.settled();
   assert.deepEqual(r.w.last().chats, ['ok']);
   assert.deepEqual(r.left, [['moved', 'moved'], ['boom', 'failed']], 'each chat that is not continued is left, with why');
+}
+{
+  // 429/503 upstream_rejected: AIProxy runs, the provider refused the request. No health check: one try after `retry`.
+  const r = rig();
+  r.w.fail('a', 5, 'rejected'); r.w.fail('b', 7, 'rejected');
+  await r.w.settled();
+  assert.deepEqual(r.resumed.map(([id, seq]) => [id, seq]), [['a', 5], ['b', 7]], 'each refused chat continues once');
+  assert.ok(r.resumed.every(([, , at]) => at >= T.retry), 'only after the fixed wait');
+  assert.deepEqual(r.checks, [], 'no health check');
+  assert.deepEqual(r.left, []);
+  // The provider refuses again: one more try; the third refusal in the same hour is left (no loop).
+  r.w.fail('a', 9, 'rejected'); await r.w.settled();
+  r.w.fail('a', 11, 'rejected'); await r.w.settled();
+  assert.deepEqual(r.resumed.filter(([id]) => id === 'a').map(([, seq]) => seq), [5, 9], 'at most two per hour');
+  assert.deepEqual(r.left, [['a', 'limit']], 'the hourly limit leaves the chat');
+  // The limit is the same for outages: b continued once, an outage continues it once more, then a refusal is left.
+  r.w.fail('b', 8, 'connection'); await r.w.settled();
+  r.w.fail('b', 10, 'rejected'); await r.w.settled();
+  assert.deepEqual(r.resumed.filter(([id]) => id === 'b').map(([, seq]) => seq), [7, 8]);
+  assert.deepEqual(r.left.at(-1), ['b', 'limit']);
+  // After an hour, it continues again.
+  r.tick(T.hour); r.w.fail('a', 13, 'rejected'); await r.w.settled();
+  assert.deepEqual(r.resumed.at(-1).slice(0, 2), ['a', 13], 'the limit is per hour');
+}
+{
+  // A chat that is refused again during the wait: one try, for its newest turn, a full wait after it.
+  const r = rig();
+  r.w.fail('a', 1, 'rejected'); r.tick(60); r.w.fail('a', 2, 'rejected');
+  await r.w.settled();
+  assert.deepEqual(r.resumed.map(([id, seq]) => [id, seq]), [['a', 2]], 'one try, the newest refused turn');
+  assert.ok(r.resumed[0][2] >= 60 + T.retry, 'the wait starts again');
+}
+{
+  // The newest failure of a chat wins: an outage takes a chat that waits, a refusal takes a chat of the outage.
+  const r = rig({ healthy: (t) => t >= 5 });
+  r.w.fail('a', 1, 'rejected'); r.w.fail('a', 2, 'cancelled'); r.w.fail('b', 1, 'connection'); r.w.fail('b', 2, 'rejected');
+  await r.w.settled();
+  assert.deepEqual(r.resumed.map(([id, seq]) => [id, seq]).sort(), [['a', 2], ['b', 2]], 'each chat once, its newest failure');
+  assert.deepEqual(r.left, []);
+}
+{
+  // A chat that is refused again while its try runs: the older try is not left (the bot would lose the newer failure);
+  // the newer try decides.
+  let clock = 0; const left = []; const tries = []; let w;
+  w = outageWatch({ now: () => clock, timing: T, health: () => true, sleep: async (ms) => { clock += ms; await null; }, left: (id, why) => left.push([id, why]),
+    resume: async (id, seq) => { tries.push(seq); if (seq === 1) { w.fail('a', 2, 'rejected'); return 'moved'; } return 'limit-test'; } });
+  w.fail('a', 1, 'rejected'); await w.settled(); await w.settled();
+  assert.deepEqual(tries, [1, 2], 'one try per refusal');
+  assert.deepEqual(left, [['a', 'limit-test']], 'only the newest try leaves the chat');
+}
+{
+  // A refusal's try and an outage's try for the same chat at the same time: both count against the hourly limit.
+  let clock = 0; let release; const tries = [];
+  const w = outageWatch({ now: () => clock, timing: T, health: () => true, sleep: async (ms) => { clock += ms; await null; },
+    resume: async (id, seq) => { tries.push(seq); if (seq === 1) await new Promise((r) => { release = r; }); return 'continued'; } });
+  w.fail('a', 1, 'rejected');
+  while (release === undefined) await null; // the refusal's try waits in resume()
+  w.fail('a', 2, 'connection'); // an outage of the same chat: its try runs and ends first
+  while (tries.length < 2) await null;
+  release(); await w.settled();
+  w.fail('a', 3, 'rejected'); await w.settled();
+  assert.deepEqual(tries, [1, 2], 'two messages in the hour, then the limit');
+}
+{
+  // One message earlier in the hour, then the same overlap: the second try finds the slot taken (the limit holds).
+  let clock = 0; let release; const tries = []; const left = [];
+  const w = outageWatch({ now: () => clock, timing: T, health: () => true, sleep: async (ms) => { clock += ms; await null; }, left: (id, why) => left.push([id, why]),
+    resume: async (id, seq) => { tries.push(seq); if (seq === 1) await new Promise((r) => { release = r; }); return 'continued'; } });
+  w.fail('a', 0, 'rejected'); await w.settled();
+  w.fail('a', 1, 'rejected');
+  while (release === undefined) await null;
+  w.fail('a', 2, 'connection');
+  while (tries.length < 3 && left.length === 0) await null; // the outage's try ends
+  release(); await w.settled();
+  assert.deepEqual(tries, [0, 1], 'at most two messages in the hour');
+  assert.deepEqual(left, [['a', 'limit']]);
+}
+{
+  // Switched off or closed during the wait after a refusal: nothing continues; off leaves the chat, close does not.
+  let active = true; let clock = 0; const resumed = []; const left = [];
+  const opts = { now: () => clock, timing: T, health: () => true, resume: async (id) => { resumed.push(id); return 'continued'; }, left: (id, why) => left.push([id, why]) };
+  const w = outageWatch({ ...opts, active: () => active, sleep: async (ms) => { clock += ms; active = false; } });
+  w.fail('a', 1, 'rejected'); await w.settled();
+  assert.deepEqual([resumed, left], [[], [['a', 'off']]], 'switched off during the wait');
+  const w2 = outageWatch({ ...opts, sleep: async (ms) => { clock += ms; await null; } });
+  w2.fail('a', 1, 'rejected'); w2.close(); await w2.settled();
+  assert.deepEqual([resumed, left.length], [[], 1], 'closed (plugin unload): nothing continues, nothing is left');
 }
 {
   // Switched off (active false) or closed during the wait: nothing continues.
@@ -224,6 +323,27 @@ try {
   await handle.watch.settled();
   assert.deepEqual(prompts, [], 'moved on, running or archived: no message');
   b.status = 'idle'; archived.length = 0;
+
+  // The provider refused the request (429 or 503 upstream_rejected) while AIProxy runs: no health check (it would say
+  // no here), each chat gets one message after the fixed wait, so dsh starts its queued messages too. A chat that you
+  // stopped gets nothing.
+  clock += T.hour; downUntil = Infinity;
+  const h1 = chat('h1'); const h2 = chat('h2'); const h3 = chat('h3'); const t0 = clock;
+  end(h1, { kind: 'error', error: { message: C429, code: 'RATE_LIMIT' } });
+  end(h2, { kind: 'error', error: { message: C503, code: 'SERVER' } });
+  end(h3, { kind: 'aborted', reason: { kind: 'user' } });
+  assert.deepEqual(prompts, [], 'nothing at once');
+  await handle.watch.settled();
+  assert.deepEqual(prompts.map((p) => [p.sessionId, p.mode, p.content[0].text]), [['h1', 'queue', OUTAGE_NOTES.tr], ['h2', 'queue', OUTAGE_NOTES.tr]],
+    'each refused chat gets one message; the chat that you stopped gets none');
+  assert.ok(clock - t0 >= T.retry, 'after the wait');
+  assert.equal(handle.takes(h1.session, { kind: 'error', error: { message: C429 } }), true, 'the Assistant keeps such a task until the try');
+  assert.equal(handle.takes(h3.session, { kind: 'aborted', reason: { kind: 'user' } }), false);
+  // A subagent that the provider refused: its parent's notice gets no outage line (AIProxy did not stop).
+  end(chat('child3', { sub: true }), { kind: 'error', error: { message: C429, code: 'RATE_LIMIT' } });
+  const notice3 = { ...notice, source: { ...notice.source, senderSessionId: 'child3' } };
+  assert.equal((await preStep({}, async () => ({ kind: 'enter', messages: [notice3] }))).messages[0], notice3, 'a refused subagent: no outage line');
+  prompts.length = 0; downUntil = -1;
 
   // Switched off: nothing continues, and no outage line.
   assert.deepEqual((await call({ on: false })).json, { on: false });

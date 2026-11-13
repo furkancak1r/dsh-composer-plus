@@ -7,6 +7,10 @@
 //    requests get a refused connection, so both turns fail. The fake comes back: after the settle time each chat gets one
 //    "continue" message (the English UI text) and finishes. A third chat that you stopped gets nothing.
 // 3. The Assistant chat's status panel lists the two chats that continued.
+// 4. A fourth chat runs a slow turn and you queue one more message. The fake answers the turn with AIProxy's
+//    `429 upstream_rejected` while it stays up: the turn fails and dsh leaves the queued message waiting. After the fixed
+//    wait (3 min, OUTAGE.retry) Composer Plus continues the chat once: the note runs (Stop send first puts it first),
+//    then the queued message.
 // PLAYWRIGHT=/path/to/playwright node test/browser-outage-resume.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/outageResume.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -32,10 +36,13 @@ const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) 
 const NOTE = 'The turn stopped because of an AIProxy outage.';
 const CHATS = ['Migrate the build to the new bundler', 'Write the API docs for the billing module'];
 const STOPPED = 'Draft the weekly status report';
+const REFUSED = 'Import the supplier price list';
+const QUEUED = 'Then update the changelog';
 
 // The fake AIProxy. `down`: /health answers 503 and every request is refused at once (the socket closes); the requests
-// that wait end with 499 request_cancelled when it goes down, as AIProxy's own shutdown does.
-const state = { down: false, waiting: new Set(), notes: [], users: [] };
+// that wait end with 499 request_cancelled when it goes down, as AIProxy's own shutdown does. The REFUSED request waits in `held`; step 4 answers it with
+// AIProxy's 429 upstream_rejected (the provider refused it) while AIProxy stays up.
+const state = { down: false, waiting: new Set(), notes: [], users: [], held: null, refusedAt: 0, queuedAt: 0, refusedNote: 0 };
 const fake = createServer((req, res) => {
   if (state.down) { req.socket.destroy(); return; }
   if (req.url === '/health') { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"status":"ok"}'); return; }
@@ -49,7 +56,13 @@ const fake = createServer((req, res) => {
     if (/You predict the next message|You complete the message that the user is typing|label a coding task/.test(all)) return say('');
     const own = msgs.filter((m) => m.role === 'user').map((m) => textOf(m.content)).filter((t) => !/^<|^Current runtime context|^Time sampled/.test(t.trim()));
     const newest = own.at(-1) ?? '';
-    if (newest.startsWith(NOTE)) { state.notes.push(own.find((t) => CHATS.includes(t) || t === STOPPED)); return say('Continued: the migration plan is done.'); }
+    if (newest.startsWith(NOTE)) {
+      const origin = own.find((t) => CHATS.includes(t) || t === STOPPED || t === REFUSED);
+      if (origin === REFUSED) state.refusedNote = Date.now(); else state.notes.push(origin);
+      return say('Continued: the migration plan is done.');
+    }
+    if (newest === QUEUED) { state.queuedAt = Date.now(); return say('Changelog updated.'); }
+    if (newest === REFUSED) { state.users.push(newest); state.held = res; return undefined; }
     if (CHATS.includes(newest) || newest === STOPPED) {
       state.users.push(newest);
       // A slow turn: it waits until the fake goes down (then 499) or the test ends.
@@ -75,7 +88,7 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true, chrom
 let shotDone = false;
 try {
   for (const bin of process.argv.slice(2)) {
-    Object.assign(state, { down: false, notes: [], users: [] });
+    Object.assign(state, { down: false, notes: [], users: [], held: null, refusedAt: 0, queuedAt: 0, refusedNote: 0 });
     const version = JSON.parse(readFileSync(join(bin, '../../package.json'), 'utf8')).version;
     console.log(`dsh ${version}`);
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-outage-resume-')));
@@ -181,6 +194,20 @@ try {
       assert.match(await line.innerText(), /Continued after the AIProxy outage/);
       assert.equal(await line.getByRole('button').count(), CHATS.length, 'one link per continued chat');
       note('3: the status panel lists the continued chats');
+
+      // 4. A 429 upstream_rejected while AIProxy stays up, with one message in the chat's queue.
+      await newChat(); await send(REFUSED); await until(() => state.held !== null, 'the fourth chat runs');
+      await send(QUEUED); await pause(2000); // the turn runs: dsh queues the message
+      const held = state.held; state.held = null;
+      held.writeHead(429, { 'content-type': 'application/json' });
+      held.end(JSON.stringify({ error: { code: 'upstream_rejected', message: 'Sağlayıcı isteği reddetti (HTTP 429).' } }));
+      state.refusedAt = Date.now();
+      await pause(20000);
+      assert.equal(state.queuedAt, 0, 'dsh leaves the queued message waiting after the failed turn');
+      // Stop send first (on by default) puts the note before the waiting message: the stopped turn goes on first.
+      await until(() => state.refusedNote > 0 && state.queuedAt > 0, 'the refused chat continued and its queued message ran', 240000);
+      assert.ok(state.refusedNote - state.refusedAt >= 175000, 'only after the fixed wait');
+      note(`4: after a 429 the chat continued once after ${Math.round((state.refusedNote - state.refusedAt) / 1000)} s; its queued message ran too`);
 
       if (process.env.SHOT && !shotDone) {
         await page.mouse.move(640, 790);

@@ -5,6 +5,8 @@
 // - The outage feature does not continue the chat (a 499 while AIProxy stays up): the "failed" note comes then, once.
 // - A "Connection error." of another provider (the outage feature does not take it): the "failed" note at once.
 // - chat_send: a message that waits in the queue across the outage stays the task's.
+// - A 429 upstream_rejected (the provider refused the request): the task is kept, the try after the wait gives one task
+//   note; at the hourly limit the "failed" note comes once.
 // - Switched off: nothing continues the chat, so the same turn end gives the "failed" note and drops the task.
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
@@ -58,7 +60,7 @@ try {
   // As in apply(): the outage feature first, its handle goes to the bot. A fake AIProxy health and short times.
   let healthy = true;
   // `sleep` keeps the process alive (the default timer is unref'd).
-  const outage = installOutageResume(ctx, home, { health: async () => healthy, sleep: pause, timing: { ...OUTAGE, window: 300, poll: 5, settle: 30, giveUp: 5000 } });
+  const outage = installOutageResume(ctx, home, { health: async () => healthy, sleep: pause, timing: { ...OUTAGE, window: 300, poll: 5, settle: 30, giveUp: 5000, retry: 40 } });
   await outage.ready;
   assert.equal(outage.isOn(), true, 'Resume after an AIProxy outage is on by default');
   const assistant = installAssistant(ctx, home, { folder, zone: 'UTC' });
@@ -154,16 +156,41 @@ try {
   assert.equal(prompts.length, 1, 'the chat moved on: the outage feature sends nothing');
   await pause(60); assert.equal(steers.length, 5, 'no second note when the outage feature lets the chat go');
 
+  // (f) The provider refused the task's turn (AIProxy's 429 upstream_rejected): the task is kept with no note at once, and
+  // the turn that the try continues gives the one task note. The next refusal in the same hour reaches the hourly limit
+  // (the outage in (a) and this try): the "failed" note comes once.
+  const refused = { kind: 'error', error: { message: 'aiproxy API error (429): {"code":"upstream_rejected","message":"Sağlayıcı isteği reddetti (HTTP 429)."}', code: 'RATE_LIMIT' } };
+  await assistant.tasks.add('s-task', { title: 'Open the release PR', project: 'acme-web' });
+  push(task, start, said('Open the release PR once more'), asked(), reply('Half way.'));
+  ended(task, refused);
+  await pause(10);
+  assert.equal(assistant.tasks.has('s-task'), true, 'the refusal keeps the task'); assert.equal(steers.length, 5, 'no note at once');
+  await settled();
+  assert.deepEqual(prompts.slice(1).map((p) => p.sessionId), ['s-task'], 'one try after the wait');
+  push(task, start, said(OUTAGE_NOTES.en, prompts[1].requestId), asked(), reply('PR ready after the limit'));
+  ended(task);
+  await until(() => steers.length === 6, 'the note of the continued turn');
+  assert.match(await noteOf(5), /finished\. Last reply: "PR ready after the limit"/);
+  await assistant.tasks.add('s-task', { title: 'Open the release PR', project: 'acme-web' });
+  push(task, start, said('And the tag'), asked(), reply('Half way.'));
+  ended(task, refused);
+  await settled();
+  await until(() => steers.length === 7, 'the failure note at the hourly limit');
+  assert.equal(prompts.length, 2, 'the limit: no third message');
+  assert.match(await noteOf(6), /failed\. Error: "aiproxy API error \(429\)/);
+  assert.equal(assistant.tasks.has('s-task'), false, 'the task goes');
+  await pause(60); assert.equal(steers.length, 7, 'one note');
+
   // (e) Outage feature off: nothing continues the chat, so the 499 turn end is the task's result (the behavior before).
   const switched = await routes.get(OUTAGE_PATH).fetch(new Request(`http://x${OUTAGE_PATH}`, { method: 'POST', body: JSON.stringify({ on: false }) }));
   assert.deepEqual(await switched.json(), { on: false });
   await assistant.tasks.add('s-task', { title: 'Open the release PR', project: 'acme-web' });
   push(task, start, said('Open the release PR again'), asked(), reply('Half way.'));
   ended(task, failed);
-  await until(() => steers.length === 6, 'the failure note');
-  assert.match(await noteOf(5), /"Release PR" \(project "acme-web", chat s-task, your delegated task\): failed\. Error: "aiproxy API error \(499\)/);
+  await until(() => steers.length === 8, 'the failure note');
+  assert.match(await noteOf(7), /"Release PR" \(project "acme-web", chat s-task, your delegated task\): failed\. Error: "aiproxy API error \(499\)/);
   assert.equal(assistant.tasks.has('s-task'), false, 'the task goes');
-  await pause(60); assert.equal(steers.length, 6, 'one note');
+  await pause(60); assert.equal(steers.length, 8, 'one note');
 } finally {
   await rm(home, { recursive: true, force: true });
 }
