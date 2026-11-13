@@ -299,6 +299,13 @@ window.__ModuleLoader__.load({
       if (body === null || body.getAttribute('data-conversation-session') !== sessionId) return null;
       return selection.toString().trim() === '' ? null : a;
     }
+    /** The text position at the viewport point (x, y) is in `range`, its ends included (Chromium's `FrameSelection::Contains`).
+     * ponytail: a browser without `caretPositionFromPoint` (Chromium before 128, Safari before 26.2) answers false: only the
+     * box rule applies there. The dsh desktop app has Chromium 152. */
+    function pointInRange(range, x, y) {
+      const at = document.caretPositionFromPoint?.(x, y);
+      try { return at != null && range.isPointInRange(at.offsetNode, at.offset); } catch { return false; }
+    }
     /** dsh's Menu at a point (x, y in the viewport), under <body>. dsh 0.2.2-rc.2 and later place it with `anchorPoint` (its
      * root becomes `position: fixed` there, so no box around it may hold it); older dsh with `getAnchorRect`. Each dsh
      * ignores the other prop. The Menu's root box sits in a fixed box, out of the page's flow (no scrollable line under it). */
@@ -353,11 +360,15 @@ window.__ModuleLoader__.load({
             if (event.defaultPrevented || event.target?.closest?.('a[href], button') != null) return;
             const selection = window.getSelection?.() ?? null;
             const target = pick(selection, sessionId);
-            if (target === null || target.contains?.(event.target) !== true) return;
+            if (target === null) return;
             const range = selection.getRangeAt(0).cloneRange();
-            // On the selected text only (dsh's own rule): a pointer in one of its boxes; the menu key has no pointer.
+            // On the selected text: in the message, a pointer in one of its boxes (dsh's own rule; the menu key has no
+            // pointer), or the text position under the pointer in the selection (the browser's rule: it keeps the selection
+            // and shows its own Copy). A drag ends past the last selected letter, outside its box: a right-click there at once.
             const key = event.clientX === 0 && event.clientY === 0;
-            if (!key && ![...(range.getClientRects?.() ?? [])].some((b) => event.clientX >= b.left && event.clientX <= b.right && event.clientY >= b.top && event.clientY <= b.bottom)) return;
+            const onBox = target.contains?.(event.target) === true
+              && (key || [...(range.getClientRects?.() ?? [])].some((b) => event.clientX >= b.left && event.clientX <= b.right && event.clientY >= b.top && event.clientY <= b.bottom));
+            if (!onBox && (key || !pointInRange(range, event.clientX, event.clientY))) return;
             // Only left-out parts selected (a code block's language label): nothing to quote, the browser's menu.
             const text = quoteSelectionText(selection, target);
             if (text.trim() === '') return;
