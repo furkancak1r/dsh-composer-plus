@@ -11,9 +11,8 @@
 // menu), dom (input → menu in the page), visible (input → the next paint after it: Event Timing, else two frames).
 // PLAYWRIGHT=/path/to/playwright node test/browser-quote-menu-speed.mjs /path/to/dsh/lib/bin.js [...]
 // DSH_NODE=<node or Electron binary> runs dsh with it (ELECTRON_RUN_AS_NODE=1 for the DeepSeek Harness app's own dsh).
-// PLUGIN=<folder> measures another Composer Plus checkout. RUNS=<n> right-clicks per chat (default 7). CPU=<rate> slows
-// the page (default 1). PROFILE=<folder> writes a CPU profile of each chat's right-clicks there and prints its top
-// functions. OFF=<id,id> switches Composer Plus features off. PROJECTS=<n> (default 45). PORT=<port> (default 3291).
+// PLUGIN=<folder> measures another Composer Plus checkout. RUNS=<n> right-clicks per chat (default 7).
+// OFF=<id,id> switches Composer Plus features off. PROJECTS=<n> (default 45). PORT=<port> (default 3291).
 // KEEP=1 keeps the throwaway home.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -35,7 +34,6 @@ const median = (xs) => { const s = xs.filter((x) => typeof x === 'number').sort(
 const TURNS = Number(process.env.TURNS || 2000);
 const RUNS = Number(process.env.RUNS || 7);
 const LIMIT = Number(process.env.LIMIT || 50);
-const CPU = Number(process.env.CPU || 1);
 const PART = 'build is green';
 
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
@@ -133,18 +131,6 @@ async function selectPart(page, scrolled = false) {
   await pause(1500);
   return selectPart(page, true);
 }
-/** The top self-time functions of a CPU profile (no idle, program or GC). */
-function topFunctions(profile, n = 12) {
-  const self = new Map(); const dt = new Map();
-  profile.samples.forEach((id, i) => dt.set(id, (dt.get(id) ?? 0) + (profile.timeDeltas[i + 1] ?? 0)));
-  for (const node of profile.nodes) {
-    const { functionName: fn, url, lineNumber } = node.callFrame;
-    if (['(idle)', '(program)', '(garbage collector)', '(root)'].includes(fn)) continue;
-    const key = `${fn || '(anonymous)'} ${url.split('/').pop().slice(-60)}:${lineNumber + 1}`;
-    self.set(key, (self.get(key) ?? 0) + (dt.get(node.id) ?? 0) / 1000);
-  }
-  return [...self].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k, ms]) => `${ms.toFixed(1)} ms ${k}`);
-}
 /** The open chat's elements and its scroll box: `{ elements, top, end }`. */
 const chatState = (page) => page.evaluate(() => {
   const flow = [...document.querySelectorAll('[data-conversation-session] [data-chat-flow]')].find((el) => el.getClientRects().length > 0);
@@ -157,7 +143,7 @@ const failures = [];
 try {
   for (const bin of process.argv.slice(2)) {
     const version = await readFile(join(bin, '../../package.json'), 'utf8').then((s) => JSON.parse(s).version, () => (bin.includes('app.asar') ? 'app' : bin));
-    console.log(`dsh ${version}, Composer Plus ${plugin}, ${TURNS} turns, CPU ×${CPU}`);
+    console.log(`dsh ${version}, Composer Plus ${plugin}, ${TURNS} turns`);
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-quote-speed-')));
     const dshHome = join(home, '.dsh');
     const profile = join(dshHome, 'profiles/web');
@@ -226,7 +212,6 @@ try {
       await context.addInitScript((json) => { if (localStorage.getItem('dsh-composer-plus.features') === null) localStorage.setItem('dsh-composer-plus.features', json); },
         JSON.stringify({ autoUpdate: false, ...Object.fromEntries((process.env.OFF ?? '').split(',').filter(Boolean).map((id) => [id, false])) }));
       const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
-      const cdp = await context.newCDPSession(page);
       await page.goto(url);
       for (const name of [/^Continue$/, /^Configure later$/]) { const b = page.getByRole('button', { name }); if (await b.waitFor({ timeout: 1500 }).then(() => true, () => false)) { await b.click(); await b.waitFor({ state: 'hidden' }); } }
       const close = page.getByRole('dialog', { name: /^Get started$/ }).getByRole('button', { name: /^Close$/ });
@@ -254,8 +239,6 @@ try {
         const after = await chatState(page);
         console.log(`  ${label}: ${before.elements} elements; after a 300 px wheel scroll up ${after.elements} (scroll ${after.top} of ${after.end})`);
         if (after.elements > before.elements + 500) failures.push(`${version}, ${label}: a small scroll drew ${after.elements - before.elements} more elements (dsh loaded older pages)`);
-        if (CPU !== 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: CPU });
-        if (process.env.PROFILE) { await cdp.send('Profiler.enable'); await cdp.send('Profiler.setSamplingInterval', { interval: 100 }); await cdp.send('Profiler.start'); }
         const from = await page.evaluate(() => window.cpSpeed.runs.length);
         let items;
         for (let i = 0; i < RUNS; i++) {
@@ -270,12 +253,6 @@ try {
           await until(() => page.evaluate(() => document.querySelector('[role="menu"]') === null), `${label}: the menu closes`, 5000);
           await page.evaluate(() => getSelection().removeAllRanges()); await pause(300);
         }
-        if (process.env.PROFILE) {
-          const { profile: prof } = await cdp.send('Profiler.stop');
-          await writeFile(join(process.env.PROFILE, `${label.split(' ')[0]}.cpuprofile`), JSON.stringify(prof));
-          console.log(`  ${label}: top self time during the right-clicks\n    ${topFunctions(prof).join('\n    ')}`);
-        }
-        if (CPU !== 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
         const runs = await page.evaluate((from) => window.cpSpeed.runs.slice(from), from);
         const end = await chatState(page);
         const ms = (x) => (typeof x === 'number' ? Math.round(x) : null);

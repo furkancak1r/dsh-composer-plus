@@ -90,7 +90,7 @@ for (const n of [33, 40]) assert.ok(!css().includes(`[data-chat-turn="${n}"]`), 
 // is near the chat's top, and `display: none` puts its box at 0, so dsh loaded the whole long chat behind the cap (each
 // right-click then waited 100 ms and more for 100,000 hidden elements). The row keeps a box, out of sight far above.
 const olderRule = css().match(/\[data-chat-flow\] > \[class\*="_older"\] \{([^}]*)\}/)?.[1] ?? '';
-assert.ok(/visibility: hidden !important/.test(olderRule) && /pointer-events: none !important/.test(olderRule), 'dsh\'s Load earlier waits behind the cap, out of sight');
+assert.match(olderRule, /visibility: hidden !important/, 'dsh\'s Load earlier waits behind the cap, out of sight');
 assert.ok(!/display:\s*none/.test(olderRule), 'dsh\'s history edge keeps a box (display: none made dsh load every page)');
 assert.match(olderRule, /position: absolute !important; top: -100000px !important/, 'the history edge is far above the chat');
 assert.match(css(), /\[data-chat-flow-kind="tool-call"\]/, 'the process rows stay hidden as before');

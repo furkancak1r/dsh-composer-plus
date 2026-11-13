@@ -2890,7 +2890,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const chat = `[data-conversation-session=${JSON.stringify(id)}] [data-chat-flow]`;
       const hide = turns.slice(0, turns.length - keep);
       return `${hide.flatMap((turn) => [`${chat} > ${FLOW_SLOT} > [data-chat-turn="${turn}"]`, `${chat} > [data-chat-turn="${turn}"]`]).join(',\n')} { display: none !important; }\n`
-        + `${chat} > [class*="_older"] { position: absolute !important; top: -100000px !important; visibility: hidden !important; pointer-events: none !important; }`;
+        + `${chat} > [class*="_older"] { position: absolute !important; top: -100000px !important; visibility: hidden !important; }`;
     }
     const FLOW_SLOT = '[data-slot="conversation.chat.flow"]';
     /** The sorted, distinct turn numbers of the rows that dsh drew in the open assistant chat. */
