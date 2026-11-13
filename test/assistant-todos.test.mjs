@@ -31,6 +31,26 @@ assert.throws(() => todoList.add(full, { text: 'one more' }), /Remove one first/
 r = todoList.remove(two, 'aaaaaaaa'); assert.deepEqual(r.list.map((i) => i.id), ['bbbbbbbb']); assert.equal(r.item.id, 'aaaaaaaa');
 r = todoList.remove(two, 'ffffffff'); assert.equal(r.item, undefined); assert.equal(r.list, two);
 assert.equal(todoList.handover, undefined, '→ only writes in the composer: the Host has no hand over');
+// Waiting for the user (issue #6): an item of owner "agent" can wait with a short reason. The same text again keeps the
+// state, a new reason keeps its start time, "" clears it, the owner "user" drops it, and an item of the user cannot wait.
+{
+  const first = todoList.add([], { text: 'Install ANR', owner: 'agent' }, { id: 'abababab', now: 10 });
+  const w = todoList.add(first.list, { text: 'install anr', waiting: '  needs the  game folder path ' }, { now: 20 });
+  assert.equal(w.added, false);
+  assert.deepEqual(w.item, { id: 'abababab', text: 'Install ANR', owner: 'agent', created: 10, waiting: { reason: 'needs the game folder path', since: 20 } });
+  assert.deepEqual(todoList.add(w.list, { text: 'Install ANR' }, { now: 30 }).item.waiting, { reason: 'needs the game folder path', since: 20 }, 'left out: the item keeps waiting');
+  assert.deepEqual(todoList.add(w.list, { text: 'Install ANR', waiting: 'needs the license key' }, { now: 30 }).item.waiting, { reason: 'needs the license key', since: 20 }, 'a new reason keeps the start time');
+  assert.equal('waiting' in todoList.add(w.list, { text: 'Install ANR', waiting: ' ' }, { now: 30 }).item, false, '"" clears it');
+  assert.equal('waiting' in todoList.add(w.list, { text: 'Install ANR', owner: 'user' }).item, false, 'the user does it now: it does not wait');
+  assert.throws(() => todoList.add(w.list, { text: 'Install ANR', owner: 'user', waiting: 'x' }), (e) => e.status === 400 && /owner "agent"/.test(e.message));
+  assert.throws(() => todoList.add([], { text: 'new', waiting: 'x' }), (e) => e.status === 400, 'a new item of the user cannot wait');
+  assert.deepEqual(todoList.add([], { text: 'new', owner: 'agent', waiting: 'needs the path' }, { id: 'acacacac', now: 5 }).item,
+    { id: 'acacacac', text: 'new', owner: 'agent', created: 5, waiting: { reason: 'needs the path', since: 5 } }, 'a new item of the agent can wait');
+  for (const bad of ['x'.repeat(TODO_LIMITS.reason + 1), 5, {}]) assert.throws(() => todoList.add(w.list, { text: 'Install ANR', waiting: bad }), (e) => e.status === 400, String(bad).slice(0, 20));
+  assert.equal(first.list[0].waiting, undefined, 'the given list does not change');
+  assert.match(todoContext(w.list), /- abababab \(owner agent, waiting for the user since [^)]*: "needs the game folder path"\): "Install ANR"/);
+  assert.match(TODO_SECTION, /When an item of owner "agent" needs the user[^\n]*todo_list_add with the same text and waiting/, 'the prompt line');
+}
 
 // The prompt context.
 assert.equal(todoContext([]), ''); assert.equal(todoContext(undefined), '');
@@ -75,6 +95,13 @@ await writeFile(join(brokenDir, 'b.json'), JSON.stringify({ lists: { 's-a': [{ i
 const mixed = todoStore(join(brokenDir, 'b.json')); await mixed.ready; assert.deepEqual(mixed.of('s-a').map((i) => i.id), ['44444444'], 'broken items are left out');
 // An id that is no string (here one that cannot become a string) is a broken item too: no half-read file is kept aside.
 await writeFile(join(brokenDir, 'c.json'), JSON.stringify({ lists: { 's-a': [{ id: { toString: 1 }, text: 'bad', owner: 'user', created: 1 }, { id: '66666666', text: 'ok', owner: 'user', created: 1 }], 's-b': [{ id: '77777777', text: 'ok', owner: 'agent', created: 1 }] } }));
+// A waiting item is read again; a broken waiting state is left out, the item stays.
+await writeFile(join(brokenDir, 'd.json'), JSON.stringify({ lists: { 's-a': [{ id: '88888888', text: 'w', owner: 'agent', created: 1, waiting: { reason: 'needs the path', since: 2 } },
+  { id: '99999999', text: 'bad wait', owner: 'agent', created: 1, waiting: { reason: '', since: 'x' } }, { id: '12121212', text: 'user wait', owner: 'user', created: 1, waiting: { reason: 'r', since: 2 } },
+  { id: '13131313', text: 'far wait', owner: 'agent', created: 1, waiting: { reason: 'r', since: 9e15 } }] } }));
+const waits = todoStore(join(brokenDir, 'd.json')); await waits.ready;
+assert.deepEqual(waits.of('s-a').map((i) => [i.id, i.waiting]), [['88888888', { reason: 'needs the path', since: 2 }], ['99999999', undefined], ['12121212', undefined], ['13131313', undefined]], 'only a valid waiting state of an agent item');
+assert.doesNotThrow(() => todoContext(waits.of('s-a')), 'a time past the last valid date does not break the context');
 const odd = todoStore(join(brokenDir, 'c.json')); await odd.ready;
 assert.deepEqual([odd.of('s-a').map((i) => i.id), odd.of('s-b').map((i) => i.id)], [['66666666'], ['77777777']], 'an object id is left out');
 assert.ok(!(await readdir(brokenDir)).some((n) => n.startsWith('c.json.broken-')), 'and the file is not kept aside');
@@ -186,6 +213,15 @@ assert.match(await tool('todo_list_add').execute({ text: 'Ece Hanım ile Excel d
 assert.match(await tool('todo_list_add').execute({ text: 'Rapor yaz', owner: 'agent' }, { agent: assistantAgent }), /owner agent/);
 assert.match(await tool('todo_list_add').execute({ text: 'rapor YAZ' }, { agent: assistantAgent }), /^Already on the list: .*owner agent/, 'F-03: no owner keeps the owner');
 assert.match(await tool('todo_list_add').execute({ text: 'rapor YAZ', owner: 'user' }, { agent: assistantAgent }), /^Already on the list: .*owner user/);
+// Waiting: the tool sets and clears it; the GET answer and the context carry it.
+assert.ok(tool('todo_list_add').parameters.properties.waiting, 'the tool has a waiting field');
+assert.match(await tool('todo_list_add').execute({ text: 'ANR kur', owner: 'agent', waiting: 'Oyun klasörünün yolu gerekiyor' }, { agent: assistantAgent }), /^Added [0-9a-f]{8} \(owner agent, waiting for the user\)/);
+assert.deepEqual((await call('GET', undefined, '?sessionId=s-a')).body.items.find((i) => i.text === 'ANR kur').waiting?.reason, 'Oyun klasörünün yolu gerekiyor');
+assert.match(ctxEntry.text({ agent: assistantAgent }), /waiting for the user since [^)]*: "Oyun klasörünün yolu gerekiyor"\): "ANR kur"/);
+await assert.rejects(tool('todo_list_add').execute({ text: 'Ece Hanım ile Excel doldurmak', waiting: 'x' }, { agent: assistantAgent }), (e) => e.status === 400, 'an item of the user cannot wait');
+assert.match(await tool('todo_list_add').execute({ text: 'ANR kur', waiting: '' }, { agent: assistantAgent }), /^Already on the list: [0-9a-f]{8} \(owner agent\)/, '"" clears it');
+assert.equal((await call('GET', undefined, '?sessionId=s-a')).body.items.find((i) => i.text === 'ANR kur').waiting, undefined);
+await tool('todo_list_remove').execute({ id: (await call('GET', undefined, '?sessionId=s-a')).body.items.find((i) => i.text === 'ANR kur').id, reason: 'test' }, { agent: assistantAgent });
 let items = (await call('GET', undefined, '?sessionId=s-a')).body.items;
 assert.deepEqual(items.map((i) => [i.text, i.owner]), [['Prosolocal\'i internete açmak', 'user'], ['Ece Hanım ile Excel doldurmak', 'user'], ['Rapor yaz', 'user']]);
 assert.match(ctxEntry.text({ agent: assistantAgent }), /Ece Hanım ile Excel doldurmak/, 'the context has the list');
