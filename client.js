@@ -2880,10 +2880,24 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const rows = (flow?.querySelector(`:scope > ${FLOW_SLOT}`) ?? flow)?.querySelectorAll(':scope > [data-chat-turn]') ?? [];
       return [...new Set([...rows].map((row) => Number(row.getAttribute('data-chat-turn'))).filter(Number.isSafeInteger))].sort((a, b) => a - b);
     };
+    /** The first row of the open assistant chat on screen, its top and the chat's scroll box: the place that Show earlier
+     * messages keeps. The turns that it shows go above this row: without a correction the browser keeps no place at the
+     * top of the box, and dsh moves a chat that follows its end to the newest message. */
+    const shownRow = (flow) => {
+      const scroller = flow?.closest('[data-conversation-scroll]') ?? flow?.parentElement;
+      if (scroller == null) return null;
+      const top = scroller.getBoundingClientRect().top;
+      for (const row of (flow.querySelector(`:scope > ${FLOW_SLOT}`) ?? flow).querySelectorAll(':scope > [data-chat-turn]')) {
+        const box = row.getBoundingClientRect();
+        if (box.height > 0 && box.bottom > top) return { row, top: box.top, scroller };
+      }
+      return null;
+    };
     function AssistantChatView({ status, chatOf, t }) {
       const id = React.useSyncExternalStore(status.subscribe, status.getSnapshot);
       const [turns, setTurns] = React.useState([]);
       const [all, setAll] = React.useState(null); // the chat whose earlier turns the user showed
+      const kept = React.useRef(null); // shownRow at the click on Show earlier messages
       const [flow, setFlow] = React.useState(null);
       const [quiet, setQuiet] = React.useState([]); // node keys of the subagent rows (subagentRowKeys)
       const [answers, setAnswers] = React.useState([]); // node keys of the folded answers (answerRowKeys)
@@ -2933,10 +2947,20 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         setSeat(next);
         return () => { next.remove(); setSeat(null); };
       }, [capped, flow]);
+      // After the click, the earlier turns show (this commit's style): put the row that was on screen back at its place.
+      // A chat that followed its end stays at its end (the write lands there, and dsh keeps following).
+      // ponytail: when the newest turns fit on the screen (no scroll range), the row moves down by the empty room below
+      // the chat's end, as a browser cannot scroll past it; it stays on screen. Upgrade: a dsh paging hook for plugins.
+      React.useLayoutEffect(() => {
+        const place = kept.current; kept.current = null;
+        if (capped || place === null || !place.row.isConnected) return;
+        const moved = place.row.getBoundingClientRect().top - place.top;
+        if (Math.abs(moved) > 0.5) place.scroller.scrollTop += moved;
+      }, [capped]);
       const css = assistantChatCss(id, quiet, answers) + (capped ? `\n${assistantCapCss(id, turns)}` : '');
       const hidden = capped ? turns.length - ASSISTANT_TURNS : 0;
       const button = seat === null || !capped ? null : createPortal(React.createElement(primitives.Button ?? 'button', { type: 'button', variant: 'outline', size: 'sm',
-        'data-composer-plus-assistant-earlier-button': String(hidden), onClick: () => setAll(id) }, t('assistantChatView.earlier', { count: String(hidden) })), seat);
+        'data-composer-plus-assistant-earlier-button': String(hidden), onClick: () => { kept.current = shownRow(flow); setAll(id); } }, t('assistantChatView.earlier', { count: String(hidden) })), seat);
       return css === '' ? null : React.createElement(React.Fragment, null, React.createElement('style', { 'data-composer-plus-assistant-chat': '' }, css), button);
     }
     /** Assistant callouts: in the assistant chat, an answer's blockquote whose first line is a marker (`[!PROBLEM]` and the

@@ -2,6 +2,8 @@
 // ASSISTANT_TURNS turns of the rows that dsh drew. The older rows (found by dsh's `data-chat-turn`, inside dsh's
 // `conversation.chat.flow` slot wrapper, as dsh's own chat view finds them) get `display: none`; a button above the rows
 // shows them all; dsh's "Load earlier" is hidden while the cap holds. Other chats and a short assistant chat do not change.
+// The click keeps the reader's place: the row that was first on screen is put back at its offset after the earlier turns
+// show above it (test/browser-load-older.mjs checks this in a real dsh).
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 const mem = new Map(); globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
@@ -16,6 +18,10 @@ class El {
   before(c) { const s = this.parentElement.children; s.splice(s.indexOf(this), 0, c); c.parentElement = this.parentElement; }
   remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter((x) => x !== this); this.parentElement = null; }
   get all() { return this.children.flatMap((c) => [c, ...c.all]); }
+  closest(sel) { const a = sel.slice(1, -1); for (let e = this; e !== null; e = e.parentElement) if (a in e.attrs) return e; return null; }
+  get isConnected() { let e = this; while (e.parentElement !== null) e = e.parentElement; return e === body; }
+  // Geometry: `y` (place in the content) and `h` (0 while a rule hides the row), minus the scroll box's scrollTop.
+  getBoundingClientRect() { const top = (this.y ?? 0) - (this === scroller ? 0 : scroller.scrollTop); return { top, bottom: top + (this.h ?? 0), height: this.h ?? 0 }; }
   querySelector(sel) { return this.querySelectorAll(sel)[0] ?? null; }
   querySelectorAll(sel) {
     if (sel === ':scope > [data-slot="conversation.chat.flow"]') return this.children.filter((c) => c.attrs['data-slot'] === 'conversation.chat.flow');
@@ -66,7 +72,9 @@ const rowsOf = (turns) => turns.flatMap((n) => [new El({ 'data-chat-turn': Strin
 const slot = new El({ 'data-slot': 'conversation.chat.flow' }, rowsOf([29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40]));
 const older = new El({ class: 'tnXGgG_older' });
 const flow = new El({ 'data-chat-flow': '' }, [older, slot]);
-body.append(new El({ 'data-conversation-session': 's-assistant' }, [flow]));
+const scroller = new El({ 'data-conversation-scroll': '' }, [new El({ 'data-conversation-session': 's-assistant' }, [flow])]);
+scroller.scrollTop = 0;
+body.append(scroller);
 let id = 's-assistant';
 const status = { subscribe: () => () => {}, getSnapshot: () => id };
 const t = (k, v) => `${k}:${v?.count ?? ''}`;
@@ -94,13 +102,20 @@ observers.get(flow).fn([{ addedNodes: added, removedNodes: [] }]);
 out = view.render(); assert.ok(!css().includes('[data-chat-turn="33"]'), 'not at once: one rescan per CHAT_ROWS_MS');
 await sleep(300); out = view.render();
 assert.ok(css().includes('[data-chat-turn="33"]') && !css().includes('[data-chat-turn="34"]'), 'the cap moves with a new turn');
-// Show earlier: every drawn row shows, the seat goes, dsh's Load earlier is back.
-button().c[0].p.onClick(); out = view.render();
-assert.ok(!css().includes('data-chat-turn'), 'every turn shows'); assert.ok(!css().includes('_older'), 'Load earlier is back');
-assert.equal(out.c[1], null, 'no button'); assert.ok(!flow.children.includes(seat), 'the seat goes');
+// Show earlier: every drawn row shows, the seat goes, dsh's Load earlier is back. The reader is at the top of the chat:
+// the 5 hidden turns (29-33) have no height, the shown rows are 100 px each from y = 40.
+const layout = (hidden) => { let y = 40; for (const row of slot.children) { const n = Number(row.getAttribute('data-chat-turn')); row.h = hidden.includes(n) ? 0 : 100; row.y = y; y += row.h; } };
+layout([29, 30, 31, 32, 33]);
+const first = slot.children.find((row) => row.getAttribute('data-chat-turn') === '34');
+assert.equal(first.getBoundingClientRect().top, 40, 'turn 34 is first on screen, 40 px down');
+button().c[0].p.onClick();
+layout([]); // the earlier turns show above it (1500 px); the browser keeps scrollTop 0 at the top of the box
+out = view.render();
+assert.equal(scroller.scrollTop, 1500, 'the scroll box moves down by the shown turns');
+assert.equal(first.getBoundingClientRect().top, 40, 'turn 34 stays at its place on screen');
 // The chat opens again (dsh draws a new column): the cap holds again.
 const flowAgain = new El({ 'data-chat-flow': '' }, [new El({ 'data-slot': 'conversation.chat.flow' }, rowsOf([30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41]))]);
-body.children[0].children = [flowAgain]; flowAgain.parentElement = body.children[0];
+const conv = body.children[0].children[0]; conv.children = [flowAgain]; flowAgain.parentElement = conv;
 observers.get(body)?.fn([{ target: body }]); out = view.render();
 assert.ok(css().includes('[data-chat-turn="30"]'), 'opened again: capped again'); assert.ok(out.c[1] !== null, 'the button is back');
 // Another chat id (the assistant chat was made again): the cap holds again for it.
