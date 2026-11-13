@@ -3056,7 +3056,7 @@
     "resume.down": "Bu ayar kaydedilemedi: {error}",
     "resume.restart": "Yeniden açılışta sürdür özelliğini kullanmak için dsh’yi yeniden başlatın.",
     "feature.outageResume": "AIProxy kesintisinden sonra sürdür",
-    "feature.outageResume.description": "AIProxy yeniden başladığında ya da kısa bir süre durduğunda, çalışan sohbetler “request_cancelled” (499) ya da “Connection error.” hatasıyla başarısız olur. AIProxy yeniden yanıt verdiğinde bu sohbetlerin her biri kısa bir mesaj alır ve kaldığı yerden devam eder. Her kesintide sohbet başına en çok bir mesaj, saatte en çok iki mesaj gönderilir. Alt ajanlar bu mesajı almaz: üst ajanlarına hatanın kesintiden kaynaklandığı bildirilir.",
+    "feature.outageResume.description": "AIProxy yeniden başladığında ya da kısa bir süre durduğunda, çalışan sohbetler “request_cancelled” (499) ya da “Connection error.” hatasıyla başarısız olur. AIProxy yeniden yanıt verdiğinde bu sohbetlerin her biri kısa bir mesaj alır ve kaldığı yerden devam eder. Her kesintide sohbet başına en çok bir mesaj, saatte en çok iki mesaj gönderilir. Alt ajanlar bu mesajı almaz: üst ajanlarına hatanın kesintiden kaynaklandığı bildirilir. 429 ya da 503 “upstream_rejected” (sağlayıcı isteği reddetti) hatasında sohbet 3 dakika sonra aynı mesajı alır, böylece kuyruktaki mesajlar da başlar.",
     "outage.down": "Bu ayar kaydedilemedi: {error}",
     "outage.restart": "AIProxy kesintisinden sonra sürdür özelliğini kullanmak için dsh’yi yeniden başlatın.",
     "feature.contentSearch": "İçerik araması",

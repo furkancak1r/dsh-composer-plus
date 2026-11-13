@@ -1592,7 +1592,7 @@
     "resume.down": "Não foi possível salvar esta configuração: {error}",
     "resume.restart": "Reinicie o dsh para usar Retomar após reiniciar.",
     "feature.outageResume": "Retomar após uma queda do AIProxy",
-    "feature.outageResume.description": "Quando o AIProxy reinicia ou para por um momento, os chats em execução falham com “request_cancelled” (499) ou “Connection error.”. Quando o AIProxy volta a responder, cada um desses chats recebe uma mensagem curta e continua de onde parou. No máximo uma mensagem por chat em cada queda e duas por hora. Os subagentes não a recebem: o agente principal deles é informado de que a falha veio da queda.",
+    "feature.outageResume.description": "Quando o AIProxy reinicia ou para por um momento, os chats em execução falham com “request_cancelled” (499) ou “Connection error.”. Quando o AIProxy volta a responder, cada um desses chats recebe uma mensagem curta e continua de onde parou. No máximo uma mensagem por chat em cada queda e duas por hora. Os subagentes não a recebem: o agente principal deles é informado de que a falha veio da queda. Um 429 ou 503 “upstream_rejected” (o provedor recusou a solicitação) recebe a mesma mensagem após 3 minutos, então as mensagens na fila também começam.",
     "outage.down": "Não foi possível salvar esta configuração: {error}",
     "outage.restart": "Reinicie o dsh para usar Retomar após uma queda do AIProxy.",
     "feature.contentSearch": "Pesquisa no conteúdo",

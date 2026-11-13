@@ -1592,7 +1592,7 @@
     "resume.down": "Không thể lưu cài đặt này: {error}",
     "resume.restart": "Khởi động lại dsh để dùng Tiếp tục sau khi khởi động lại.",
     "feature.outageResume": "Tiếp tục sau sự cố AIProxy",
-    "feature.outageResume.description": "Khi AIProxy khởi động lại hoặc dừng trong chốc lát, các cuộc trò chuyện đang chạy sẽ thất bại với “request_cancelled” (499) hoặc “Connection error.”. Khi AIProxy trả lời lại, mỗi cuộc trò chuyện như vậy nhận một tin nhắn ngắn và tiếp tục từ chỗ đã dừng. Tối đa một tin nhắn cho mỗi cuộc trò chuyện trong mỗi lần sự cố và hai tin nhắn mỗi giờ. Subagent không nhận tin nhắn này: agent cha của chúng được báo rằng lỗi đến từ sự cố.",
+    "feature.outageResume.description": "Khi AIProxy khởi động lại hoặc dừng trong chốc lát, các cuộc trò chuyện đang chạy sẽ thất bại với “request_cancelled” (499) hoặc “Connection error.”. Khi AIProxy trả lời lại, mỗi cuộc trò chuyện như vậy nhận một tin nhắn ngắn và tiếp tục từ chỗ đã dừng. Tối đa một tin nhắn cho mỗi cuộc trò chuyện trong mỗi lần sự cố và hai tin nhắn mỗi giờ. Subagent không nhận tin nhắn này: agent cha của chúng được báo rằng lỗi đến từ sự cố. Với 429 hoặc 503 “upstream_rejected” (nhà cung cấp từ chối yêu cầu), cùng tin nhắn đó được gửi sau 3 phút, nên các tin nhắn đang chờ cũng bắt đầu.",
     "outage.down": "Không thể lưu cài đặt này: {error}",
     "outage.restart": "Khởi động lại dsh để dùng Tiếp tục sau sự cố AIProxy.",
     "feature.contentSearch": "Tìm trong nội dung",

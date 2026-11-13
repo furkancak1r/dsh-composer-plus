@@ -1592,7 +1592,7 @@
     "resume.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
     "resume.restart": "Starte dsh neu, um Nach Neustart fortsetzen zu nutzen.",
     "feature.outageResume": "Nach AIProxy-Ausfall fortsetzen",
-    "feature.outageResume.description": "Wenn AIProxy neu startet oder kurz anhält, schlagen laufende Chats mit “request_cancelled” (499) oder “Connection error.” fehl. Sobald AIProxy wieder antwortet, bekommt jeder dieser Chats eine kurze Nachricht und macht dort weiter, wo er aufgehört hat. Höchstens eine Nachricht pro Chat und Ausfall und zwei pro Stunde. Subagents bekommen sie nicht: Ihr übergeordneter Agent erfährt, dass der Fehler vom Ausfall kam.",
+    "feature.outageResume.description": "Wenn AIProxy neu startet oder kurz anhält, schlagen laufende Chats mit “request_cancelled” (499) oder “Connection error.” fehl. Sobald AIProxy wieder antwortet, bekommt jeder dieser Chats eine kurze Nachricht und macht dort weiter, wo er aufgehört hat. Höchstens eine Nachricht pro Chat und Ausfall und zwei pro Stunde. Subagents bekommen sie nicht: Ihr übergeordneter Agent erfährt, dass der Fehler vom Ausfall kam. Bei 429 oder 503 “upstream_rejected” (der Anbieter hat die Anfrage abgelehnt) kommt dieselbe Nachricht nach 3 Minuten, damit auch die wartenden Nachrichten starten.",
     "outage.down": "Diese Einstellung konnte nicht gespeichert werden: {error}",
     "outage.restart": "Starte dsh neu, um „Nach AIProxy-Ausfall fortsetzen“ zu nutzen.",
     "feature.contentSearch": "Inhaltssuche",
