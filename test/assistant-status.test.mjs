@@ -385,9 +385,11 @@ try {
   // chat's next turn end is still news), but the chat does not run: today the panel shows no running row with a time of
   // 23 hours, also when dsh does not have the chat live.
   {
-    const at = clock - 86400000;
+    // Yesterday in the local time zone (the panel's day starts at local midnight), in every zone (TZ=Australia/Sydney too).
+    const midnight = new Date(clock); midnight.setHours(0, 0, 0, 0);
+    const at = midnight.getTime() - 86400000;
     await assistant.tasks.add('s-stale', { title: 'Update prices', project: 'acme-web', at });
-    const log = [ev(0, 'turn/start', {}, at), ev(1, 'turn/end', { reason: { kind: 'aborted', reason: { kind: 'disposed' } } }, at + 3600000)];
+    const log = [ev(0, 'turn/start', {}, at), ev(1, 'turn/end', { reason: { kind: 'aborted', reason: { kind: 'disposed' } } }, midnight.getTime() - 3600000)];
     const a = newAgent('s-stale', { cwd: '/demo/acme-web' }, log);
     for (const fn of listeners.get('session/event')) fn(a.session, log[1]);
     assert.equal(assistant.tasks.has('s-stale'), true, 'stopped by dsh: the task is kept');

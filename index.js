@@ -11405,7 +11405,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   // chat's own turns do not: the projects leave it out.
   ctx.on('session/event', (session, event) => { if ((event?.type === 'turn/start' || event?.type === 'turn/end') && isRootChat(session) && session?.id !== assistant.id()) projectsCache = undefined; });
   // dsh can resume a disposed continuable child (same id) and dispose it again between two reads: it changed, read it again.
-  const stale = new Map(); // kept delegated chat id → its saved log (dsh does not have it live; read once until its next turn)
+  const stale = new Map(); // kept delegated chat id → {last, turn} times of its saved log (not live; read once until its next turn)
   ctx.on('session/event', (session, event) => { if (event?.type === 'turn/start') { ended.delete(session?.id); stale.delete(session?.id); } });
   const status = async (sessionId, signal, fresh) => {
     if (!on || !assistant.isAssistant(get('agents')?.get?.(sessionId))) return {};
@@ -11444,14 +11444,18 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       // the chat's next turn end is still news. The chat does not run: stopped with the time of its last turn (its live
       // log; else its saved log, read once until its next turn; else dsh's list time, its last prompt), and gone the next day.
       const item = listed.find((s) => s?.sessionId === id);
+      let times = { last: log.at(-1)?.time, turn: log.findLast((e) => e?.type === 'turn/start')?.time };
       if (live === undefined && log.length === 0 && Number.isFinite(item?.updatedAt) && item.updatedAt >= today.getTime()) {
-        // A log that could not be read is tried again at the next read.
-        if (!stale.has(id)) { const saved = await savedEvents(ctx.sessionQuery, id, signal).catch(() => []); if (saved.length > 0) stale.set(id, saved); }
-        log = stale.get(id) ?? [];
+        // Only the two times are kept. A log that could not be read is tried again at the next read.
+        if (!stale.has(id)) {
+          const saved = await savedEvents(ctx.sessionQuery, id, signal).catch(() => []);
+          if (saved.length > 0) stale.set(id, { last: saved.at(-1)?.time, turn: saved.findLast((e) => e?.type === 'turn/start')?.time });
+        }
+        times = stale.get(id) ?? times;
       }
-      const last = [log.at(-1)?.time, item?.updatedAt, task?.at].find(Number.isFinite);
+      const last = [times.last, item?.updatedAt, task?.at].find(Number.isFinite);
       if (last === undefined || last < today.getTime()) continue;
-      const turn = [log.findLast((e) => e?.type === 'turn/start')?.time, item?.updatedAt].find(Number.isFinite) ?? row.started;
+      const turn = [times.turn, item?.updatedAt].find(Number.isFinite) ?? row.started;
       closed.push({ ...row, state: 'stopped', started: Math.min(last, Math.max(turn, row.started)), ended: last });
     }
     for (const [id, t] of assistant.endedTasks ?? []) {
