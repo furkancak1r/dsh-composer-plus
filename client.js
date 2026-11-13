@@ -2678,6 +2678,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       let state = { status: 'idle' };
       const listeners = new Set();
       const set = (next) => { state = next; for (const fn of [...listeners]) fn(); };
+      let run = 0; // the open that runs; reset() ends it (it then opens nothing and keeps the reset state)
       return {
         getSnapshot: () => state,
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
@@ -2693,18 +2694,23 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
           if (typeof now === 'string') { try { openSession(now); shown = true; } catch { /* not listed yet: see below */ } }
           if (state.status === 'opening') return;
           const { sessionId } = state;
+          const mine = ++run;
           set({ status: 'opening', sessionId });
           try {
             const response = await fetch(ASSISTANT_ROUTE);
+            if (mine !== run) return;
             if (response.status === 404) { set({ status: 'error', restart: true, sessionId }); return; }
             const data = await response.json().catch(() => ({}));
+            if (mine !== run) return;
             if (!response.ok || typeof data?.sessionId !== 'string') throw new Error(data?.error ?? `HTTP ${response.status}`);
             onOpen?.(data.sessionId);
-            if (data.sessionId !== now || !shown) { try { openSession(data.sessionId); } catch { await listed(data.sessionId); openSession(data.sessionId); } }
+            if (data.sessionId !== now || !shown) {
+              try { openSession(data.sessionId); } catch { await listed(data.sessionId); if (mine !== run) return; openSession(data.sessionId); }
+            }
             set({ status: 'idle', sessionId: data.sessionId });
-          } catch (error) { set({ status: 'error', error: String(error?.message ?? error), sessionId }); }
+          } catch (error) { if (mine === run) set({ status: 'error', error: String(error?.message ?? error), sessionId }); }
         },
-        reset: () => set({ status: 'idle' }),
+        reset: () => { run++; set({ status: 'idle' }); },
       };
     }
     const AssistantIcon = ({ size = 16 }) => React.createElement('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },

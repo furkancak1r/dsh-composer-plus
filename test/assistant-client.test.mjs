@@ -126,6 +126,23 @@ snap = { phase: 'ready', ids: ['s-status'], byId: { 's-status': { id: 's-status'
 await tick();
 assert.deepEqual(opened, ['s-status'], 'the chat opens once dsh lists it');
 assert.equal(props2.assistant.getSnapshot().status, 'idle'); assert.equal(subs.size, 0, 'the wait stops listening');
+// Switched off while it waits (reset): the late list opens nothing and keeps the reset state. Off and on again: the new
+// open opens the chat once.
+const waitForList = async (again) => {
+  snap = { phase: 'pending', ids: [], byId: {} }; props2.assistant.reset(); opened.length = 0;
+  const first = props2.assistant.open(props2.openSession); await tick();
+  assert.equal(props2.assistant.getSnapshot().status, 'opening');
+  props2.assistant.reset();
+  const second = again ? props2.assistant.open(props2.openSession) : undefined; await tick();
+  snap = { phase: 'ready', ids: ['s-status'], byId: { 's-status': { id: 's-status' } } }; for (const fn of [...subs]) fn();
+  await first; await second; await tick();
+};
+await waitForList(false);
+assert.deepEqual(opened, [], 'switched off while it waited: nothing opens');
+assert.deepEqual(props2.assistant.getSnapshot(), { status: 'idle' }, 'the reset state stays');
+await waitForList(true);
+assert.deepEqual(opened, ['s-status'], 'off and on again while it waited: the chat opens once');
+assert.equal(props2.assistant.getSnapshot().status, 'idle'); assert.equal(subs.size, 0);
 services.uiWorkspace.openSession = listedOpen; sessions = undefined;
 
 // Off: the row and the panel go.
