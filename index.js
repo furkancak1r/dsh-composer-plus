@@ -6927,6 +6927,41 @@ export function memorySection(store, scope, { subagent = false } = {}) {
   ].join('\n');
 }
 
+/** The memory section of an earlier prompt of the same chat (`prompt`, its logged system prompt) when that section has the
+ * same rule lines and project line as the new section `text` and each of its entries is still saved (`saved`: the entry
+ * lines of every main file, formatEntry): then it stays, so the prompt and the provider's cache stay the same after a dsh
+ * restart or when dsh loads a subagent again. Only new entries are then missing, and the section says that they are not
+ * shown. A removed or changed entry, or a new topic, gives `text`. Entries never hold a line break, and dsh joins the
+ * sections with an empty line, so the section ends at the first empty line after its global part. */
+export function keptMemorySection(text, prompt, saved) {
+  const lines = String(prompt ?? '').split('\n');
+  const start = lines.indexOf('# Memory (Composer Plus)');
+  const fresh = String(text).split('\n');
+  const head = fresh.findIndex((l) => l.startsWith('## Project memory ('));
+  if (start < 0 || head < 0 || lines.slice(start, start + head + 1).join('\n') !== fresh.slice(0, head + 1).join('\n')) return text;
+  const global = lines.indexOf('## Global memory (every project)', start + head + 1);
+  if (global < 0) return text;
+  let end = global + 1;
+  while (end < lines.length && lines[end] !== '') end++;
+  const old = lines.slice(start, end);
+  // The Topics lines under their headings (project, then global): a new, removed or moved topic gives the new section.
+  const topics = (part) => part.filter((l) => l.startsWith('Topics: ') || l.startsWith('## ')).join('\n');
+  if (topics(old) !== topics(fresh)) return text;
+  if (!old.slice(head + 1).every((l) => !l.startsWith('- ') || saved?.has(l) === true)) return text;
+  return old.join('\n');
+}
+/** The newest system prompt in a live chat's own log ('' when none). A fork's copy of its parent is left out (rule 10): a
+ * fork reads the current notes, as before. */
+function lastPrompt(session) {
+  let events; try { events = session?.snapshotEvents?.() ?? []; } catch { return ''; }
+  const from = Number.isSafeInteger(session?.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0;
+  for (let i = events.length - 1; i >= from; i--) {
+    const text = events[i]?.type === 'system/message' ? textBlocks(events[i].data?.message?.content) : '';
+    if (text !== '') return text;
+  }
+  return '';
+}
+
 /** The chat lines that the review reads: the user's own messages and the agent's text replies, with their seq. Only the chat's
  * own events (a fork's copy of its parent comes first: `inherited` of them); messages that Turn rollback or dsh-rewind-plugin
  * withdrew are left out (dsh's /compact marker is not a withdraw). */
@@ -7602,6 +7637,15 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
     if (frozen.has(agent.id)) return frozen.get(agent.id);
     let text;
     try { text = memorySection(store, store.project(cwd), { subagent }); } catch (error) { log(`not read: ${error?.message ?? error}`); return ''; } // not kept: the next render tries again
+    // A chat that showed its notes before (after a dsh restart, a resumed subagent, a chat that left `frozen`) keeps the
+    // entries of that prompt, so the prompt stays the same and the provider's cache holds.
+    const prompt = lastPrompt(agent.session);
+    if (prompt.includes('# Memory (Composer Plus)')) {
+      try {
+        const saved = new Set([store.project(cwd), store.GLOBAL].flatMap((s) => store.load(s)[0].entries.map((e) => formatEntry(e.text, e.meta))));
+        text = keptMemorySection(text, prompt, saved);
+      } catch (error) { log(`not read: ${error?.message ?? error}`); } // the new section
+    }
     frozen.set(agent.id, text);
     if (frozen.size > MEMORY_FROZEN_MAX) frozen.delete(frozen.keys().next().value);
     return text;
@@ -11216,7 +11260,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
 export const ASSISTANT_TODOS_PATH = '/api/composer-plus.assistant-todos';
 export const TODO_LIMITS = { text: 500, items: 100, reason: 200 };
 export const TODO_SECTION = `# Assistant to-do list (Composer Plus)
-The user keeps a to-do list in this chat and sees it at the right side of the chat. The runtime context gives the current items, each with its id and owner. Keep the list current: it is the user's view of the open work.
+The user keeps a to-do list in this chat and sees it at the right side of the chat. The runtime context gives the items, each with its id and owner, as they were at the start of this turn (or at the user's last change); the results of your own todo_list_add and todo_list_remove calls show your changes in this turn. Keep the list current: it is the user's view of the open work.
 - When the user tells you a task that they have in mind, add it with todo_list_add (owner "user"). The user does an item of owner "user": do not do it and do not ask about it, unless the user mentions it.
 - When the user tells you to do a task ("you do it", "Do this for me: …" in any language, "Bunu sen yap: …"), give it owner "agent" with todo_list_add, then do it under the rules above.
 - Each time that you start work for the user (subagent, subagent_fork, chat_new, schedule_create), add an item of owner "agent" for it with todo_list_add in the same turn, also when the user did not say "you do it".
@@ -11346,6 +11390,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       async execute(args, exec) {
         const id = mine(exec);
         if (id === undefined) throw refused('This tool works only in the Composer Plus assistant chat.', 403);
+        keepShown(id); // the context keeps the list without this change (todoShown)
         const { item, added } = await store.change(id, (list) => todoList.add(list, { text: args?.text, owner: args?.owner ?? undefined, waiting: args?.waiting ?? undefined }));
         return `${added ? 'Added' : 'Already on the list:'} ${item.id} (owner ${item.owner}${item.waiting === undefined ? '' : ', waiting for the user'}): ${JSON.stringify(item.text)}`;
       },
@@ -11354,7 +11399,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       name: 'todo_list_remove',
       description: 'Remove an item from the user\'s to-do list in this chat, for example when you have evidence that it is done.',
       parameters: { type: 'object', properties: {
-        id: { type: 'string', description: 'The item id from the to-do list in the runtime context' },
+        id: { type: 'string', description: 'The item id from the to-do list in the runtime context, or from the result of your todo_list_add in this turn' },
         reason: { type: 'string', description: `Why, for example "completed" or "removed by user" (at most ${TODO_LIMITS.reason} characters)` },
       }, required: ['id', 'reason'] },
       output: textOutput,
@@ -11363,8 +11408,9 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         if (id === undefined) throw refused('This tool works only in the Composer Plus assistant chat.', 403);
         const reason = todoText(args?.reason);
         if (!isText(reason, TODO_LIMITS.reason)) throw refused(`reason is 1 to ${TODO_LIMITS.reason} characters.`, 400);
+        keepShown(id);
         const { item } = await store.change(id, (list) => todoList.remove(list, String(args?.id ?? '').trim()));
-        if (item === undefined) throw refused(`No item has the id ${JSON.stringify(String(args?.id ?? ''))}. The current list is in the runtime context.`, 404);
+        if (item === undefined) throw refused(`No item has the id ${JSON.stringify(String(args?.id ?? ''))}. The list in the runtime context is from the start of this turn; the results of your todo_list_add and todo_list_remove calls in this turn show your changes.`, 404);
         return `Removed ${item.id} (${reason}): ${JSON.stringify(item.text)}`;
       },
     },
@@ -11446,9 +11492,18 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   });
   // The to-do nudge: a turn of the assistant that started work without a list change (TODO_WORK_TOOLS).
   const turns = new Map(); const nudged = new Set(); // chat id → { work, changed } of the running turn; chats to nudge
+  // The list in the runtime context (todoShown). dsh sends a new copy of the whole runtime context (with the cwd, the
+  // policies and every item) each time that its text changes. The assistant's own todo_list_add / todo_list_remove already
+  // tells it the change in the tool result, so the context keeps the list of the last turn start until the next turn (one
+  // copy per turn, not one per tool call). A change from outside (the panel's remove) shows at the next step.
+  const shown = new Map(); // chat id → the list in its runtime context
+  const todoShown = (id) => (shown.has(id) ? shown.get(id) : store.of(id));
+  const keepShown = (id) => { if (turns.has(id) && !shown.has(id)) shown.set(id, store.of(id)); }; // only in a running turn
   ctx.on('session/event', (session, event) => {
     if (!isText(session?.id) || session.id !== assistant.id()) return;
     const id = session.id;
+    // A compaction can summarize the tool results that told the change: the next step shows the current list.
+    if (event?.type === 'turn/start' || event?.type === 'compaction/end') shown.delete(id);
     if (event?.type === 'turn/start') turns.set(id, { work: false, changed: false });
     else if (event?.type === 'tool/call' && turns.has(id)) {
       const turn = turns.get(id);
@@ -11470,9 +11525,9 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         sub.systemPrompt.section({ name: 'composer-plus:assistant-todos', order: 672, interpolate: false,
           text: (context) => (on && assistant.isAssistant(context?.agent) ? `${TODO_SECTION}\n\n${STATUS_SECTION}` : '') });
         sub.systemPrompt.context?.({ name: 'composer-plus:assistant-todos', order: 650, interpolate: false,
-          text: (context) => (on && assistant.isAssistant(context?.agent) ? [todoContext(store.of(context.agent.id)), nudged.has(context.agent.id) ? TODO_NUDGE : ''].filter(Boolean).join('\n\n') : '') });
+          text: (context) => (on && assistant.isAssistant(context?.agent) ? [todoContext(todoShown(context.agent.id)), nudged.has(context.agent.id) ? TODO_NUDGE : ''].filter(Boolean).join('\n\n') : '') });
       });
-    } else if (!on) { fiber?.dispose?.(); fiber = undefined; asks.clear(); }
+    } else if (!on) { fiber?.dispose?.(); fiber = undefined; asks.clear(); shown.clear(); }
     mount.remount();
   };
   const ready = Promise.all([store.ready, summaries.ready, sw.read()]).then(([, , value]) => apply(value), () => apply(true));
@@ -11639,6 +11694,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       if (!on) return json({ error: 'The to-do list is off' }, 409);
       try {
         const { item } = await store.change(sessionId, (list) => todoList.remove(list, id));
+        shown.delete(sessionId); // the user's change: the assistant sees the current list at its next step
         if (item === undefined) return json({ error: 'not found', ...view(sessionId) }, 404);
         return json(view(sessionId));
       } catch (error) { return json({ error: String(error?.message ?? error), ...view(sessionId) }, Number.isInteger(error?.status) ? error.status : 500); }

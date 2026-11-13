@@ -227,6 +227,41 @@ assert.deepEqual(items.map((i) => [i.text, i.owner]), [['Prosolocal\'i internete
 assert.match(ctxEntry.text({ agent: assistantAgent }), /Ece Hanım ile Excel doldurmak/, 'the context has the list');
 await todos.store.change('s-other', (list) => todoList.add(list, { text: 'not for that chat' }));
 assert.equal(ctxEntry.text({ agent: otherAgent }), '', 'another chat gets no context, also when it has a list');
+// Tokens: dsh sends a new copy of the whole runtime context each time that its text changes. The assistant's own
+// list changes in a turn are in its tool results, so the context keeps the list of the turn start until the next turn
+// (one copy per turn); the panel's change and a compaction show the current list at once.
+{
+  const event = (e) => { for (const fn of listeners.get('session/event') ?? []) fn({ id: 's-a' }, e); };
+  event({ type: 'turn/start' });
+  const atStart = ctxEntry.text({ agent: assistantAgent });
+  await tool('todo_list_add').execute({ text: 'Bir madde daha', owner: 'agent' }, { agent: assistantAgent });
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'an own add in the running turn: the context does not change');
+  const extra = todos.store.of('s-a').find((i) => i.text === 'Bir madde daha');
+  assert.match(await tool('todo_list_add').execute({ text: 'Bir madde daha', waiting: 'needs the folder path' }, { agent: assistantAgent }), /waiting for the user/);
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'an own waiting change: the result tells it, the context stays');
+  await tool('todo_list_add').execute({ text: 'Bir madde daha', waiting: '' }, { agent: assistantAgent });
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'waiting "" too');
+  await assert.rejects(tool('todo_list_add').execute({ text: 'x'.repeat(501) }, { agent: assistantAgent }), (e) => e.status === 400);
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'a refused add: no change');
+  await tool('todo_list_remove').execute({ id: extra.id, reason: 'completed' }, { agent: assistantAgent });
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'an own remove in the running turn: no change either');
+  await tool('todo_list_add').execute({ text: 'Sonraki tur maddesi' }, { agent: assistantAgent });
+  event({ type: 'turn/end', data: { reason: { kind: 'completed' } } });
+  event({ type: 'turn/start' });
+  assert.match(ctxEntry.text({ agent: assistantAgent }), /Sonraki tur maddesi/, 'the next turn shows the current list');
+  await tool('todo_list_add').execute({ text: 'Sıkıştırma maddesi' }, { agent: assistantAgent });
+  assert.doesNotMatch(ctxEntry.text({ agent: assistantAgent }), /Sıkıştırma maddesi/);
+  event({ type: 'compaction/end', data: {} });
+  assert.match(ctxEntry.text({ agent: assistantAgent }), /Sıkıştırma maddesi/, 'after a compaction: the current list');
+  await tool('todo_list_add').execute({ text: 'Panelden silinecek' }, { agent: assistantAgent });
+  const gone = todos.store.of('s-a').find((i) => i.text === 'Panelden silinecek');
+  assert.equal((await call('POST', { sessionId: 's-a', id: gone.id, action: 'remove' })).status, 200);
+  const now = ctxEntry.text({ agent: assistantAgent });
+  assert.doesNotMatch(now, /Panelden silinecek/, 'the user\'s remove in the panel shows at once');
+  assert.match(now, /Sıkıştırma maddesi/, 'with the assistant\'s earlier changes');
+  for (const t of ['Sonraki tur maddesi', 'Sıkıştırma maddesi']) await todos.store.change('s-a', (list) => todoList.remove(list, list.find((i) => i.text === t).id));
+  event({ type: 'turn/end', data: { reason: { kind: 'completed' } } });
+}
 await assert.rejects(tool('todo_list_remove').execute({ id: 'ffffffff', reason: 'completed' }, { agent: assistantAgent }), (e) => e.status === 404);
 await assert.rejects(tool('todo_list_remove').execute({ id: items[2].id, reason: '' }, { agent: assistantAgent }), (e) => e.status === 400, 'a reason is needed');
 assert.match(await tool('todo_list_remove').execute({ id: items[2].id, reason: 'completed' }, { agent: assistantAgent }), /^Removed [0-9a-f]{8} \(completed\): "Rapor yaz"/);
