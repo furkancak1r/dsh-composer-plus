@@ -971,22 +971,35 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * Element changes run `onRows` on the next frame, then at most once per CHAT_ROWS_MS: each run reads every row of the
      * window, and a long chat with many subagents changes its rows many times a second. */
     const CHAT_ROWS_MS = 250;
+    /** False while the window is hidden (minimized, another tab): the pollers of the page skip their work then. */
+    const pageShown = () => globalThis.document?.visibilityState !== 'hidden';
     const changesElements = (record) => [...(record.addedNodes ?? []), ...(record.removedNodes ?? [])].some((node) => node.nodeType === 1);
+    /** The same limit for the observers that read every row of a chat (Assistant callouts, Approve button): `queue()` runs
+     * `fn` on the next frame (before the browser paints), then at most once per CHAT_ROWS_MS while the chat goes on
+     * changing (the calls in between wait for one run at the end). `run()` runs it now; `stop()` drops a waiting run and
+     * ends the queue (the disposer: a late observer call runs nothing). */
+    function throttleRows(fn) {
+      let timer = 0; let frame = 0; let last = -Infinity; let stopped = false;
+      const run = () => { timer = 0; frame = 0; last = Date.now(); fn(); };
+      return {
+        run,
+        queue() {
+          if (stopped || timer !== 0 || frame !== 0) return;
+          const wait = last + CHAT_ROWS_MS - Date.now();
+          if (wait > 0 || typeof requestAnimationFrame !== 'function') timer = setTimeout(run, Math.max(0, wait)); else frame = requestAnimationFrame(run);
+        },
+        stop() { stopped = true; clearTimeout(timer); if (frame !== 0) cancelAnimationFrame(frame); timer = 0; frame = 0; },
+      };
+    }
     function useChatRows(sessionId, chatOf, onRows, cleanup = () => {}) {
       const live = React.useRef(onRows); live.current = onRows;
       const poke = React.useRef(() => {});
       React.useEffect(() => {
         if (createPortal === undefined) return undefined;
-        let timer = 0; let frame = 0; let last = -Infinity;
-        const refresh = () => { timer = 0; frame = 0; last = Date.now(); live.current(chatOf(sessionId)); };
-        const queue = () => {
-          if (timer !== 0 || frame !== 0) return;
-          const wait = last + CHAT_ROWS_MS - Date.now();
-          if (wait > 0) timer = setTimeout(refresh, wait); else frame = requestAnimationFrame(refresh);
-        };
-        poke.current = queue;
-        refresh();
-        const observer = new MutationObserver((records) => { if (!Array.isArray(records) || records.some(changesElements)) queue(); });
+        const rows = throttleRows(() => live.current(chatOf(sessionId)));
+        poke.current = rows.queue;
+        rows.run();
+        const observer = new MutationObserver((records) => { if (!Array.isArray(records) || records.some(changesElements)) rows.queue(); });
         // dsh's chat flow container (`data-chat-flow`) holds every row; before it exists, the body (the chat is still loading).
         let watched = null;
         const watch = () => {
@@ -995,7 +1008,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         };
         watch();
         const reattach = setInterval(watch, 2000); // the flow is replaced when the chat view mounts again
-        return () => { observer.disconnect(); clearInterval(reattach); clearTimeout(timer); if (frame !== 0) cancelAnimationFrame(frame); poke.current = () => {}; cleanup(); };
+        return () => { observer.disconnect(); clearInterval(reattach); rows.stop(); poke.current = () => {}; cleanup(); };
       }, [sessionId]);
       return () => poke.current();
     }
@@ -3013,8 +3026,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
 .cp-co-toggle::before{content:'';flex-shrink:0;border-style:solid;border-width:4px 0 4px 6px;border-color:transparent transparent transparent currentColor}
 .cp-co-toggle[aria-expanded="true"]::before{transform:rotate(90deg)}`;
     /** Marks the boxes in `root` (the assistant chat's rows) now and at each change (`labels`: kind → label) and returns the
-     * disposer, which puts each quote back as dsh drew it. When dsh writes a text again (a streamed answer), it is marked
-     * again before the browser paints it: a MutationObserver callback runs before the next frame. */
+     * disposer, which puts each quote back as dsh drew it. When dsh writes a text again (a streamed answer) or draws a new
+     * quote, that quote is marked again before the browser paints it: a MutationObserver callback runs before the next
+     * frame, and it reads only the quotes that the change touched. The whole chat is read at most once per CHAT_ROWS_MS. */
+    const CALLOUT_QUOTES = '[data-chat-flow-kind="assistant-step"] blockquote';
     function decorateCallouts(root, labels) {
       const marks = new Map(); // quote → { node, original, stripped, p, button }
       const firstText = (quote) => {
@@ -3027,46 +3042,64 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         mark.button?.remove();
         if (mark.node.nodeValue === mark.stripped) mark.node.nodeValue = mark.original;
       };
-      const apply = () => {
-        for (const quote of [...marks.keys()]) if (!quote.isConnected) marks.delete(quote);
-        for (const quote of root.querySelectorAll('[data-chat-flow-kind="assistant-step"] blockquote')) {
-          if (quote.closest('[data-markdown-variant]') !== null) continue; // thinking (dsh's compact Markdown)
-          let mark = marks.get(quote);
-          const first = firstText(quote);
-          if (mark === undefined || first?.node !== mark.node || first.node.nodeValue !== mark.stripped) {
-            const found = first === undefined ? undefined : calloutOf(first.node.nodeValue);
-            if (found === undefined) { if (mark !== undefined) { undo(quote, mark); marks.delete(quote); } continue; }
-            if (mark !== undefined && mark.node !== first.node) { undo(quote, mark); mark = undefined; }
-            const original = first.node.nodeValue;
-            first.node.nodeValue = found.rest;
-            quote.setAttribute('data-cp-callout', found.kind);
-            quote.setAttribute('data-cp-label', labels[found.kind]);
-            let button = mark?.button;
-            if (found.kind === 'details') {
-              if (button === undefined) {
-                const made = document.createElement('button');
-                made.type = 'button'; made.className = 'cp-co-toggle'; made.setAttribute('aria-expanded', 'false');
-                made.addEventListener('click', () => {
-                  const open = quote.getAttribute('data-cp-open') !== 'true';
-                  quote.setAttribute('data-cp-open', String(open)); made.setAttribute('aria-expanded', String(open));
-                });
-                quote.setAttribute('data-cp-open', 'false');
-                button = made;
-              }
-              button.textContent = found.title || labels.details;
-              if (quote.firstChild !== button) quote.prepend(button);
-            } else if (button !== undefined) { button.remove(); button = undefined; quote.removeAttribute('data-cp-open'); }
-            mark = { node: first.node, original, stripped: found.rest, p: first.p, button };
-            marks.set(quote, mark);
-          }
-          // A marker alone on its line leaves an empty paragraph; dsh can add to it while the answer streams.
-          mark.p.toggleAttribute('data-cp-co-empty', mark.p.children.length === 0 && mark.p.textContent.trim() === '');
+      const one = (quote) => {
+        if (quote.closest('[data-markdown-variant]') !== null) return; // thinking (dsh's compact Markdown)
+        let mark = marks.get(quote);
+        const first = firstText(quote);
+        if (mark === undefined || first?.node !== mark.node || first.node.nodeValue !== mark.stripped) {
+          const found = first === undefined ? undefined : calloutOf(first.node.nodeValue);
+          if (found === undefined) { if (mark !== undefined) { undo(quote, mark); marks.delete(quote); } return; }
+          if (mark !== undefined && mark.node !== first.node) { undo(quote, mark); mark = undefined; }
+          const original = first.node.nodeValue;
+          first.node.nodeValue = found.rest;
+          quote.setAttribute('data-cp-callout', found.kind);
+          quote.setAttribute('data-cp-label', labels[found.kind]);
+          let button = mark?.button;
+          if (found.kind === 'details') {
+            if (button === undefined) {
+              const made = document.createElement('button');
+              made.type = 'button'; made.className = 'cp-co-toggle'; made.setAttribute('aria-expanded', 'false');
+              made.addEventListener('click', () => {
+                const open = quote.getAttribute('data-cp-open') !== 'true';
+                quote.setAttribute('data-cp-open', String(open)); made.setAttribute('aria-expanded', String(open));
+              });
+              quote.setAttribute('data-cp-open', 'false');
+              button = made;
+            }
+            button.textContent = found.title || labels.details;
+            if (quote.firstChild !== button) quote.prepend(button);
+          } else if (button !== undefined) { button.remove(); button = undefined; quote.removeAttribute('data-cp-open'); }
+          mark = { node: first.node, original, stripped: found.rest, p: first.p, button };
+          marks.set(quote, mark);
         }
+        // A marker alone on its line leaves an empty paragraph; dsh can add to it while the answer streams.
+        mark.p.toggleAttribute('data-cp-co-empty', mark.p.children.length === 0 && mark.p.textContent.trim() === '');
       };
-      const observer = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver(apply);
+      const all = throttleRows(() => {
+        for (const quote of [...marks.keys()]) if (!quote.isConnected) marks.delete(quote);
+        for (const quote of root.querySelectorAll(CALLOUT_QUOTES)) one(quote);
+      });
+      // A streamed answer changes the chat many times a second: each change marks the quotes that it touched at once (no
+      // marker shows, a closed section stays closed), and the whole chat is read on the next frame, then at most once
+      // per CHAT_ROWS_MS.
+      const observer = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver((records) => {
+        const quotes = new Set();
+        for (const record of records) {
+          const at = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          const quote = at?.closest('blockquote');
+          if (quote != null) quotes.add(quote);
+          for (const node of record.addedNodes ?? []) {
+            if (node.nodeType !== 1) continue;
+            if (node.tagName === 'BLOCKQUOTE') quotes.add(node);
+            for (const inner of node.querySelectorAll('blockquote')) quotes.add(inner);
+          }
+        }
+        for (const quote of quotes) if (quote.isConnected && quote.matches(CALLOUT_QUOTES)) one(quote);
+        all.queue();
+      });
       observer?.observe(root, { childList: true, subtree: true, characterData: true });
-      apply();
-      return () => { observer?.disconnect(); for (const [quote, mark] of marks) undo(quote, mark); marks.clear(); };
+      all.run();
+      return () => { observer?.disconnect(); all.stop(); for (const [quote, mark] of marks) undo(quote, mark); marks.clear(); };
     }
     function AssistantCallouts({ status, t }) {
       const id = React.useSyncExternalStore(status.subscribe, status.getSnapshot);
@@ -3501,7 +3534,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       React.useEffect(() => { if (first.current) { first.current = false; return; } store.schedule(sessionId); }, [kids, live]);
       React.useEffect(() => {
         if (!running) return undefined;
-        const timer = setInterval(() => { if (globalThis.document?.visibilityState !== 'hidden') store.schedule(sessionId); }, STATUS_POLL_MS);
+        const timer = setInterval(() => { if (pageShown()) store.schedule(sessionId); }, STATUS_POLL_MS);
         return () => clearInterval(timer);
       }, [sessionId, running]);
       React.useLayoutEffect(() => { host.setAttribute(SEAT_ATTR, open ? 'open' : 'closed'); return () => host.removeAttribute(SEAT_ATTR); }, [host, open]);
@@ -6679,29 +6712,51 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       return out;
     }
     /** Marks dsh's code blocks of `marks` (onayMarks) in `root` (the chat) now and when dsh draws rows again; the disposer
-     * gives dsh its blocks back. The marks are set in the MutationObserver callback, before the browser paints the row. */
+     * gives dsh its blocks back. A code block that dsh draws is marked in the MutationObserver callback, before the browser
+     * paints it. The whole chat is read again (marks that go) on the next frame, then at most once per CHAT_ROWS_MS. */
     function markOnayBlocks(root, marks) {
       const rows = new Map(); // node key → sentence → mode
       for (const [key, text, mode] of marks) rows.set(key, (rows.get(key) ?? new Map()).set(text, mode));
       let marked = new Set();
-      const apply = () => {
+      const modeOf = (block) => {
+        const modes = rows.get(block.closest('[data-chat-node-key]')?.getAttribute('data-chat-node-key'));
+        // Only the code blocks of the answers with a sentence are read; not the ones of their thinking.
+        return modes === undefined || block.closest('[data-markdown-variant]') !== null ? undefined
+          : modes.get(block.querySelector('[data-code-block-content]')?.textContent.trim());
+      };
+      const mark = (block, mode) => { if (block.getAttribute(ONAY_ATTR) !== mode) block.setAttribute(ONAY_ATTR, mode); };
+      const all = throttleRows(() => {
         const now = new Set();
         for (const block of root.querySelectorAll('[data-chat-node-key] .md-code-block')) {
-          const modes = rows.get(block.closest('[data-chat-node-key]').getAttribute('data-chat-node-key'));
-          // Only the code blocks of the answers with a sentence are read; not the ones of their thinking.
-          const mode = modes === undefined || block.closest('[data-markdown-variant]') !== null ? undefined
-            : modes.get(block.querySelector('[data-code-block-content]')?.textContent.trim());
+          const mode = modeOf(block);
           if (mode === undefined) continue;
-          now.add(block);
-          if (block.getAttribute(ONAY_ATTR) !== mode) block.setAttribute(ONAY_ATTR, mode);
+          now.add(block); mark(block, mode);
         }
         for (const block of marked) if (!now.has(block)) block.removeAttribute(ONAY_ATTR);
         marked = now;
-      };
-      const observer = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver(apply);
+      });
+      // The code blocks that dsh drew or changed are marked at once.
+      const observer = typeof MutationObserver === 'undefined' ? undefined : new MutationObserver((records) => {
+        const blocks = new Set();
+        for (const record of records ?? []) {
+          const at = record.target?.nodeType === 1 ? record.target : record.target?.parentElement;
+          const block = at?.closest('.md-code-block');
+          if (block != null) blocks.add(block);
+          for (const node of record.addedNodes ?? []) {
+            if (node.nodeType !== 1) continue;
+            if (node.matches('.md-code-block')) blocks.add(node);
+            for (const inner of node.querySelectorAll('.md-code-block')) blocks.add(inner);
+          }
+        }
+        for (const block of blocks) {
+          const mode = block.isConnected ? modeOf(block) : undefined;
+          if (mode !== undefined) { marked.add(block); mark(block, mode); } else if (marked.delete(block)) block.removeAttribute(ONAY_ATTR);
+        }
+        all.queue();
+      });
       observer?.observe(root, { childList: true, subtree: true });
-      apply();
-      return () => { observer?.disconnect(); for (const block of marked) block.removeAttribute(ONAY_ATTR); };
+      all.run();
+      return () => { observer?.disconnect(); all.stop(); for (const block of marked) block.removeAttribute(ONAY_ATTR); };
     }
     /** One per open chat (dsh's composer dock, inside the chat's `[data-conversation-session]`). */
     function OnayCodeBlocks(props) {
@@ -8332,7 +8387,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       React.useEffect(() => { store.refresh(); }, []);
       // While the Host downloads the pack, ask again every 2 s, so the row shows the result.
       const busy = state.on === true && state.turkish === true && state.installed !== true && state.failed === undefined && state.error === undefined;
-      React.useEffect(() => { if (!busy) return undefined; const timer = setInterval(() => store.refresh(), 2000); return () => clearInterval(timer); }, [busy]);
+      React.useEffect(() => { if (!busy) return undefined; const timer = setInterval(() => { if (pageShown()) store.refresh(); }, 2000); return () => clearInterval(timer); }, [busy]);
       if (state.restart) return React.createElement('div', { role: 'alert', style: { color: 'var(--dsw-alias-state-warn-label, #b25000)', marginTop: 4, fontSize: 12 } }, t('turkishSkill.restart'));
       if (state.error !== undefined) return React.createElement('div', { role: 'alert', style: { color: 'var(--dsw-alias-state-warn-label, #b25000)', marginTop: 4, fontSize: 12 } }, t('turkishSkill.down', { error: state.error }));
       if (state.on !== true) return null;
@@ -9842,7 +9897,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       React.useEffect(() => { computers.refresh(); }, []);
       // A waiting request or a fresh link: ask the Host again every 2 s while this panel shows.
       const watching = state.accept?.code !== null && state.accept?.code !== undefined || (state.accept?.pending?.length ?? 0) > 0;
-      React.useEffect(() => { if (!watching) return undefined; const timer = setInterval(() => computers.refresh(), 2000); return () => clearInterval(timer); }, [watching]);
+      React.useEffect(() => { if (!watching) return undefined; const timer = setInterval(() => { if (pageShown()) computers.refresh(); }, 2000); return () => clearInterval(timer); }, [watching]);
       if (state.on !== true) return null;
       const small = { fontSize: 12, lineHeight: '18px', color: 'var(--dsw-alias-label-secondary)' };
       const btn = (label, onClick, extra = {}) => React.createElement(primitives.Button, { variant: 'outline', size: 'small', onClick, ...extra }, label);

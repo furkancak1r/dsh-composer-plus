@@ -4,7 +4,7 @@
 // details (a real temporary repository; read-only), the status_summary_set tool (only the assistant chat, limits, saved
 // in a file that a new Host reads again, a broken file is kept aside) and the GET guards (another chat gets no status; an unknown or unregistered
 // project gets 404; off: nothing), and the delegated chats that ended today (done, failed or stopped after the open tasks;
-// not a task that dsh's quit or an AIProxy outage keeps; gone the next day).
+// gone the next day). A task that dsh's quit or an AIProxy outage keeps runs only while its chat runs (issue #5).
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
@@ -349,7 +349,8 @@ try {
   clock = NOW + 1;
 
   // A delegated chat whose task the bot ends at its turn end stays under Tasks after the open tasks, with its final state,
-  // until the day ends. A turn end that dsh's quit or an AIProxy outage stopped keeps the task open (no ended row).
+  // until the day ends. A turn end that dsh's quit or an AIProxy outage stopped keeps the task (no ended row in the bot's
+  // map), and the row is stopped while its chat does not run.
   let outageLeft; const outage = { takes: (session, reason) => reason?.error?.message === 'outage', onLeft: (fn) => { outageLeft = fn; } };
   const bot = installAssistantBot(ctx, home, assistant, { now: () => clock, outage }); await bot.ready;
   const turnEnd = (id, reason, ...before) => {
@@ -380,15 +381,55 @@ try {
     assert.equal(assistant.tasks.has('s-deleg'), false);
     assert.deepEqual(await rowsOf('s-deleg'), failed, 'a message that did not go keeps the ended row');
   }
-  // dsh's quit and an AIProxy outage keep the task: it stays open. The outage feature lets the chat go: failed.
-  await assistant.tasks.add('s-kept', { title: 'Deploy', project: 'acme-web' }); newAgent('s-kept', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {})]);
+  // Issue #5: a delegated chat that dsh's quit stopped yesterday and that nothing continued. The bot keeps its task (the
+  // chat's next turn end is still news), but the chat does not run: today the panel shows no running row with a time of
+  // 23 hours, also when dsh does not have the chat live.
+  {
+    // Yesterday in the local time zone (the panel's day starts at local midnight), in every zone (TZ=Australia/Sydney too).
+    const midnight = new Date(clock); midnight.setHours(0, 0, 0, 0);
+    const at = midnight.getTime() - 86400000;
+    await assistant.tasks.add('s-stale', { title: 'Update prices', project: 'acme-web', at });
+    const log = [ev(0, 'turn/start', {}, at), ev(1, 'turn/end', { reason: { kind: 'aborted', reason: { kind: 'disposed' } } }, midnight.getTime() - 3600000)];
+    const a = newAgent('s-stale', { cwd: '/demo/acme-web' }, log);
+    for (const fn of listeners.get('session/event')) fn(a.session, log[1]);
+    assert.equal(assistant.tasks.has('s-stale'), true, 'stopped by dsh: the task is kept');
+    assert.deepEqual(await rowsOf('s-stale'), [], 'not running since yesterday: no row today');
+    agents.delete('s-stale');
+    assert.deepEqual(await rowsOf('s-stale'), [], 'not live: no row either');
+    // Not live, but dsh's chat list shows activity today (for example after a restart). Without a saved log: dsh's list
+    // time (its last prompt) for both ends, not the time from the task's first start yesterday.
+    items.push({ sessionId: 's-stale', updatedAt: clock - 400, cwd: '/demo/acme-web' });
+    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.started, t.ended]), [['stopped', clock - 400, clock - 400]], 'no saved log: its last prompt');
+    // With its saved log (a log that could not be read is tried again): the time of its last turn. A saved log is read
+    // once (until the chat's next turn).
+    children['s-stale'] = { status: 'idle', log: [...log, ev(2, 'turn/start', {}, clock - 3000), ev(3, 'turn/end', { reason: { kind: 'interrupted' } }, clock - 500)] };
+    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.started, t.ended]), [['stopped', clock - 3000, clock - 500]], 'stopped: the time of its last turn');
+    children['s-stale'].log = [];
+    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.started, t.ended]), [[clock - 3000, clock - 500]], 'the saved log is read once');
+    delete children['s-stale']; items.pop();
+    // It runs again (Resume after restart): running, and its time starts at the new turn, not yesterday.
+    const again = newAgent('s-stale', { cwd: '/demo/acme-web' }, [...log, ev(2, 'turn/start', {}, clock - 2000)]); again.status = 'running';
+    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.started]), [['running', clock - 2000]], 'running again: the time of its new turn');
+    agents.delete('s-stale');
+    await assistant.tasks.drop('s-stale');
+    // A new task whose message is on its way (the chat does not run yet) is not stopped.
+    await assistant.tasks.add('s-new', { title: 'New one', project: 'acme-web', at: clock - 1000 });
+    assert.deepEqual((await rowsOf('s-new')).map((t) => t.state), ['running'], 'a new task: running while its message goes');
+    await assistant.tasks.drop('s-new');
+  }
+  // dsh's quit and an AIProxy outage keep the task, but the chat does not run: the row is stopped at the chat's last
+  // event (its time does not grow). The outage feature lets the chat go: failed.
+  await assistant.tasks.add('s-kept', { title: 'Deploy', project: 'acme-web', at: clock - 60000 }); newAgent('s-kept', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {})]);
   turnEnd('s-kept', { kind: 'aborted', reason: { kind: 'disposed' } });
-  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.chat]), [['running', true]], 'stopped by dsh: kept open');
+  assert.equal(assistant.tasks.has('s-kept'), true, 'stopped by dsh: the task is kept');
+  // Its time is the time of its last turn (from that turn's start, NOW - 1000), not from the task's start.
+  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.started, t.ended, t.chat]), [['stopped', NOW - 1000, clock, true]], 'stopped by dsh: not running');
   turnEnd('s-kept', { kind: 'error', error: { message: 'outage' } }, ev(0, 'turn/start', {}));
-  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.chat]), [['running', true]], 'kept for the outage: open');
+  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.chat]), [['stopped', true]], 'kept for the outage: not running');
+  assert.equal(assistant.tasks.has('s-kept'), true);
   assert.equal(assistant.endedTasks.has('s-kept'), false);
   outageLeft('s-kept', 'gone');
-  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.result]), [['failed', 'outage']], 'the outage feature did not continue it: failed');
+  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.started, t.result]), [['failed', NOW - 1000, 'outage']], 'the outage feature did not continue it: failed, with the time of its last turn');
   // The next day: the ended rows go.
   clock = NOW + 86400000;
   r = await call('?sessionId=s-a');
