@@ -301,6 +301,19 @@ const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
   assert.equal(free.p['data-waiting'], undefined); assert.doesNotMatch(text(free), /todos\.waiting/);
   assert.match(text(groups(tr)[1]), /todos\.groupAgent:\{"name":"Damon"\}\s+3\s+todos\.waitingCount:\{"count":"2"\}$/, 'the agent group counts the waiting items');
   assert.equal(posts.length, p0, 'no message and no request by itself');
+  // The wait time and Overdue change while nothing runs: a waiting item draws the panel again once a minute (no read,
+  // no request); its cleanup stops the timer.
+  {
+    const realInterval = globalThis.setInterval; const realClear = globalThis.clearInterval; const timers = []; const cleared = [];
+    globalThis.setInterval = (fn, ms) => { timers.push({ fn, ms }); return timers.length; }; globalThis.clearInterval = (id) => { cleared.push(id); };
+    try {
+      rt.clear(); panel(); const own = []; for (const f of rt.effects()) { const off = f(); if (typeof off === 'function') own.push(off); } await tick();
+      const minute = timers.find((x) => x.ms === 60000);
+      assert.ok(minute, 'a one-minute timer while an item waits');
+      const g = gets.length; minute.fn(); await tick(); assert.equal(gets.length, g, 'it reads nothing'); assert.equal(posts.length, p0, 'and sends nothing');
+      for (const off of own) off(); assert.ok(cleared.includes(timers.indexOf(minute) + 1), 'the timer stops with the panel');
+    } finally { globalThis.setInterval = realInterval; globalThis.clearInterval = realClear; }
+  }
   items = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
@@ -339,6 +352,11 @@ const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
   assert.equal(focused.at(-1), 'cp-td-s-assistant-history', 'one row stays: the History header');
   tr = panel(); find(tr, (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Flights"}')[0].p.onClick();
   assert.equal(focused.at(-1), 'cp-td-s-assistant', 'the last row: the History header goes, the focus goes to the panel title');
+  // Two windows: the other one hid Hotels after this panel read the list; this × keeps that key (it reads the list again).
+  mem.set('dsh-composer-plus.status-tasks-dismissed', '[]'); rt.clear(); tr = panel();
+  mem.set('dsh-composer-plus.status-tasks-dismissed', JSON.stringify([`c-stop|${NOW - 300000}`]));
+  find(tr, (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Flights"}')[0].p.onClick();
+  assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.status-tasks-dismissed')).sort(), [`c-done|${NOW - 1000}`, `c-stop|${NOW - 300000}`], 'both windows\' rows stay hidden');
   mem.set('dsh-composer-plus.status-tasks-dismissed', JSON.stringify([`c-stop|${NOW - 300000}`])); rt.clear(); tr = panel();
   assert.equal(mem.get('dsh-composer-plus.status-tasks-dismissed'), JSON.stringify([`c-stop|${NOW - 300000}`]), 'only the keys of the ended tasks stay');
   // Only ended tasks: no live row and no "no tasks" line; no task at all: the line.

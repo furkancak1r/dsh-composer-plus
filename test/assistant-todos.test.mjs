@@ -97,9 +97,11 @@ const mixed = todoStore(join(brokenDir, 'b.json')); await mixed.ready; assert.de
 await writeFile(join(brokenDir, 'c.json'), JSON.stringify({ lists: { 's-a': [{ id: { toString: 1 }, text: 'bad', owner: 'user', created: 1 }, { id: '66666666', text: 'ok', owner: 'user', created: 1 }], 's-b': [{ id: '77777777', text: 'ok', owner: 'agent', created: 1 }] } }));
 // A waiting item is read again; a broken waiting state is left out, the item stays.
 await writeFile(join(brokenDir, 'd.json'), JSON.stringify({ lists: { 's-a': [{ id: '88888888', text: 'w', owner: 'agent', created: 1, waiting: { reason: 'needs the path', since: 2 } },
-  { id: '99999999', text: 'bad wait', owner: 'agent', created: 1, waiting: { reason: '', since: 'x' } }, { id: '12121212', text: 'user wait', owner: 'user', created: 1, waiting: { reason: 'r', since: 2 } }] } }));
+  { id: '99999999', text: 'bad wait', owner: 'agent', created: 1, waiting: { reason: '', since: 'x' } }, { id: '12121212', text: 'user wait', owner: 'user', created: 1, waiting: { reason: 'r', since: 2 } },
+  { id: '13131313', text: 'far wait', owner: 'agent', created: 1, waiting: { reason: 'r', since: 9e15 } }] } }));
 const waits = todoStore(join(brokenDir, 'd.json')); await waits.ready;
-assert.deepEqual(waits.of('s-a').map((i) => [i.id, i.waiting]), [['88888888', { reason: 'needs the path', since: 2 }], ['99999999', undefined], ['12121212', undefined]], 'only a valid waiting state of an agent item');
+assert.deepEqual(waits.of('s-a').map((i) => [i.id, i.waiting]), [['88888888', { reason: 'needs the path', since: 2 }], ['99999999', undefined], ['12121212', undefined], ['13131313', undefined]], 'only a valid waiting state of an agent item');
+assert.doesNotThrow(() => todoContext(waits.of('s-a')), 'a time past the last valid date does not break the context');
 const odd = todoStore(join(brokenDir, 'c.json')); await odd.ready;
 assert.deepEqual([odd.of('s-a').map((i) => i.id), odd.of('s-b').map((i) => i.id)], [['66666666'], ['77777777']], 'an object id is left out');
 assert.ok(!(await readdir(brokenDir)).some((n) => n.startsWith('c.json.broken-')), 'and the file is not kept aside');

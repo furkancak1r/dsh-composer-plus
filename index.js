@@ -11194,7 +11194,8 @@ const todoText = (raw) => String(raw ?? '').replace(/\s+/g, ' ').trim();
 const todoKey = (text) => foldName(text);
 /** A saved item, or undefined when the value is not one. */
 /** `waiting` (only owner "agent"): `{reason, since}` while the item's next step needs the user (issue #6). */
-const todoWaiting = (v) => (plainObject(v) && isText(v.reason, TODO_LIMITS.reason) && Number.isSafeInteger(v.since) ? { reason: v.reason, since: v.since } : undefined);
+// `since` must be a valid Date time (at most 8.64e15 ms): todoContext writes it with toISOString, which throws past that.
+const todoWaiting = (v) => (plainObject(v) && isText(v.reason, TODO_LIMITS.reason) && Number.isSafeInteger(v.since) && Math.abs(v.since) <= 8.64e15 ? { reason: v.reason, since: v.since } : undefined);
 const todoItem = (v) => {
   if (!(plainObject(v) && typeof v.id === 'string' && TODO_ID.test(v.id) && isText(v.text, TODO_LIMITS.text) && (v.owner === 'user' || v.owner === 'agent') && Number.isSafeInteger(v.created))) return undefined;
   const waiting = v.owner === 'agent' ? todoWaiting(v.waiting) : undefined;

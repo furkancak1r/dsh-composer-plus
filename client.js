@@ -3267,6 +3267,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     // it: no message, no notice). The ended tasks that you hid with × (`<task id>|<end time>`, this browser only).
     const TODO_OVERDUE_MS = 24 * 3600000;
     const TASKS_DISMISSED_KEY = 'dsh-composer-plus.status-tasks-dismissed';
+    const readDismissed = () => { try { const v = JSON.parse(localStorage.getItem(TASKS_DISMISSED_KEY) ?? '[]'); return new Set(Array.isArray(v) ? v.filter((k) => typeof k === 'string') : []); } catch { return new Set(); } };
     const SUMMARY_CLOSED_KEY = 'dsh-composer-plus.status-summary-closed'; // the time of the summary whose card you closed
     const closedSummary = () => { try { return Number(localStorage.getItem(SUMMARY_CLOSED_KEY)) || 0; } catch { return 0; } };
     const closeSummary = (at) => { try { localStorage.setItem(SUMMARY_CLOSED_KEY, String(at)); } catch { /* private mode */ } };
@@ -3532,7 +3533,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const [expanded, setExpanded] = React.useState(() => new Set());
       const [closedGroups, setClosedGroups] = React.useState(() => { try { return new Set(String(localStorage.getItem(TODO_GROUPS_KEY) ?? '').split(' ').filter(Boolean)); } catch { return new Set(); } });
       const [historyOpen, setHistoryOpen] = React.useState(false);
-      const [dismissed, setDismissed] = React.useState(() => { try { const v = JSON.parse(localStorage.getItem(TASKS_DISMISSED_KEY) ?? '[]'); return new Set(Array.isArray(v) ? v.filter((k) => typeof k === 'string') : []); } catch { return new Set(); } });
+      const [dismissed, setDismissed] = React.useState(readDismissed);
       const kids = typeof useSessions === 'function' ? useSessions((list) => childIdsOf(list, sessionId).join(' ')) : '';
       const live = typeof useSessionStatus === 'function' ? useSessionStatus((statuses) => liveText(statuses, undefined, [sessionId, ...kids.split(' ').filter(Boolean)])) : '';
       const running = /(^|,)1/.test(live);
@@ -3544,6 +3545,15 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const timer = setInterval(() => { if (pageShown()) store.schedule(sessionId); }, STATUS_POLL_MS);
         return () => clearInterval(timer);
       }, [sessionId, running]);
+      // An item that waits for you: its wait time and Overdue change while nothing runs, so the panel draws again once a
+      // minute (no read, no request).
+      const waits = (state.items ?? []).some((i) => i.waiting);
+      const [, tick] = React.useState(0);
+      React.useEffect(() => {
+        if (!waits) return undefined;
+        const timer = setInterval(() => tick((n) => n + 1), 60000);
+        return () => clearInterval(timer);
+      }, [waits]);
       React.useLayoutEffect(() => { host.setAttribute(SEAT_ATTR, open ? 'open' : 'closed'); return () => host.removeAttribute(SEAT_ATTR); }, [host, open]);
       if (state.items === null && state.error === null) return null;
       const lang = locale?.();
@@ -3617,8 +3627,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const historyId = `${headId}-history`;
       const dismiss = (task) => {
         // Only the keys of today's ended tasks stay, so the stored list does not grow.
+        // The stored list again (another window can have hidden a row since this panel read it), merged with this one.
         const ended = new Set(state.tasks.filter((x) => !isLive(x)).map(endKey));
-        const next = new Set([...dismissed].filter((k) => ended.has(k))); next.add(endKey(task));
+        const next = new Set([...readDismissed(), ...dismissed].filter((k) => ended.has(k))); next.add(endKey(task));
         setDismissed(next); try { localStorage.setItem(TASKS_DISMISSED_KEY, JSON.stringify([...next])); } catch { /* storage blocked: this page only */ }
         // The row leaves: the focus goes to its group, or to the panel title when the group goes too.
         globalThis.document?.getElementById?.(endedTasks.length > 1 ? historyId : headId)?.focus?.();
