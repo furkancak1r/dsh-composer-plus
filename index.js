@@ -9846,9 +9846,9 @@ function answerableCards(ctx, takes, by) {
   ctx.on('user-questions/request', async (request, next) => {
     const agent = request?.agent;
     if (!takes(agent) || !Array.isArray(request.questions) || request.questions.some((q) => q?.intent !== undefined)) return next();
-    const stop = new AbortController(); const typed = Promise.withResolvers(); let closed = false;
+    const stop = new AbortController(); const typed = Promise.withResolvers();
     const card = { answer: (text) => {
-      if (text === '' || closed || stop.signal.aborted) return false; // answered on a screen meanwhile: the message only joins the turn
+      if (text === '' || stop.signal.aborted) return false;
       typed.resolve({ answers: request.questions.map((q) => ({ id: q.id, selected: [], custom: text })) });
       stop.abort(new Error(`Composer Plus → Assistant: answered with ${by}`));
       return true;
@@ -9860,7 +9860,7 @@ function answerableCards(ctx, takes, by) {
       shown.catch(() => {}); // after a message answered it, the closed card rejects; that is expected
       return await Promise.race([shown, typed.promise]);
     } finally {
-      closed = true;
+      // Answered on a screen or closed: out of the map, so a later message only joins the turn.
       const left = (cards.get(agent) ?? []).filter((c) => c !== card);
       if (left.length > 0) cards.set(agent, left); else cards.delete(agent);
     }
@@ -9945,6 +9945,8 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   // chat_send to a chat whose question card waits (2026-11-13: five chats waited 55 minutes with the answers in their
   // queue: a queued message runs only after the turn, and the turn waits for the card): the message answers the card and
   // goes into the same turn at its next step. Only root chats other than the assistant (chat_send's targets).
+  // ponytail: a card is held only when it opens while Assistant is on, so a card that opened while it was off still waits
+  // for the user (chat_send queues behind it, as before). Upgrade: answer such a card through dsh's own question state.
   const cards = answerableCards(ctx, (agent) => on && isText(chatOf(agent)) && !isAssistant(agent), 'chat_send');
   const tools = [
     {
@@ -9999,7 +10001,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     },
     {
       name: 'chat_send',
-      description: 'Send a message to another chat, as the user would type it there. It waits in that chat\'s queue when the chat runs. When the chat waits on a question card (ask_user_question, not an approval), the message is the answer to each question of the card, and the chat continues at once. You get a note with the chat\'s reply when the turn of this message ends, or when the chat waits for the user. Needs approval: the user\'s approval card, or Auto review in the Auto permission mode.',
+      description: 'Send a message to another chat, as the user would type it there. It waits in that chat\'s queue when the chat runs. When the chat waits on a question card (ask_user_question, not an approval or a plan review), the message is the answer to each question of the card, and the chat continues at once. You get a note with the chat\'s reply when the turn of this message ends, or when the chat waits for the user. Needs approval: the user\'s approval card, or Auto review in the Auto permission mode.',
       parameters: { type: 'object', properties: {
         chat_id: { type: 'string', description: 'The chat id from chats_list' },
         text: { type: 'string', description: `The message, at most ${ASSISTANT_LIMITS.text} characters` },
@@ -10149,7 +10151,9 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     // The whole message (the tools refuse more than ASSISTANT_LIMITS.text): the user approves what is sent, so the card
     // must not cut it. dsh's card draws the reason as plain text (no HTML) in its scrolling body.
     const quote = typeof a.text === 'string' ? `: "${cutEnd(a.text.trim(), ASSISTANT_LIMITS.text)}"` : '';
-    const own = `Composer Plus → Assistant wants to ${words}${quote}`;
+    // The user approves a decision too when the message will answer the chat's waiting question card.
+    const answers = exec.name === 'chat_send' && isText(a.chat_id, 128) && cards.open(get('agents')?.get?.(a.chat_id)) ? ' It answers the question card that waits there.' : '';
+    const own = `Composer Plus → Assistant wants to ${words}${quote}${answers}`;
     return { kind: 'ask', reason: decision.kind === 'ask' && typeof decision.reason === 'string' && decision.reason !== '' ? `${own} ${decision.reason}` : own };
   });
 
