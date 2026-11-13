@@ -3160,9 +3160,14 @@ function installResume(ctx, home) {
  * continues. Only a chat whose newest model request went to AIProxy counts. At
  * most one message per chat per outage and OUTAGE.perHour per hour, so no loop can start. A chat that moved on (a new
  * turn) or runs gets nothing. Subagents cannot get a message from the Host: the "failed" notice to their parent gets one
- * line that names the outage. On by default (the owner's choice, 2026-11-11), the switch in `outage-resume.json`. */
+ * line that names the outage. On by default (the owner's choice, 2026-11-11), the switch in `outage-resume.json`.
+ * AIProxy's 429 and 503 `upstream_rejected` (the provider refused the request; AIProxy runs, so no health check) wait
+ * OUTAGE.retry ms, then the chat gets the same message once, in the same hourly limit. dsh starts the next queued message
+ * only after a turn that did not fail, so this message also lets the queued messages of the chat run (2026-11-13). */
 export const OUTAGE_PATH = '/api/composer-plus.outage-resume';
-export const OUTAGE = { window: 60000, poll: 1000, settle: 10000, giveUp: 30 * 60000, hour: 3600000, perHour: 2, max: 20, children: 200 };
+// retry: 3 min. AIProxy cools a refused account 60 s (a longer Retry-After wins); the refusals of 2026-11-13 came in
+// bursts of 1-2 min. Two tries per hour (perHour) cover about 6 min of refusals, then the chat stays stopped.
+export const OUTAGE = { window: 60000, poll: 1000, settle: 10000, giveUp: 30 * 60000, hour: 3600000, perHour: 2, max: 20, children: 200, retry: 180000 };
 export const OUTAGE_HEALTH_URL = 'http://127.0.0.1:21028/health';
 /** The message that continues a chat, per UI language (en when the language has none). */
 export const OUTAGE_NOTES = {
@@ -3181,8 +3186,9 @@ export const OUTAGE_NOTES = {
   hi: 'AIProxy की रुकावट की वजह से टर्न रुक गया। जहां रुके थे, वहीं से जारी रखो; जो चरण पूरे हो चुके हैं, उन्हें मत दोहराओ।',
 };
 export const outageNote = (lang) => [String(lang ?? ''), String(lang ?? '').split('-')[0]].map((id) => (Object.hasOwn(OUTAGE_NOTES, id) ? OUTAGE_NOTES[id] : undefined)).find(Boolean) ?? OUTAGE_NOTES.en;
-/** 'cancelled' (AIProxy's 499 request_cancelled), 'connection' (the transport's "Connection error.") or undefined for every
- * other turn end: a user stop (`aborted`), a denied approval, any other error. */
+/** 'cancelled' (AIProxy's 499 request_cancelled), 'connection' (the transport's "Connection error."), 'rejected' (AIProxy's
+ * 429 or 503 upstream_rejected) or undefined for every other turn end: a user stop (`aborted`), a denied approval, any
+ * other error. */
 export function outageError(reason) {
   if (reason?.kind !== 'error') return undefined;
   const message = String(reason.error?.message ?? '');
@@ -3190,6 +3196,9 @@ export function outageError(reason) {
   // (openai-completions). While it streams, AIProxy writes the error into the stream: `request_cancelled: İstek iptal
   // edildi.` (responses, `response.failed`) or its bare message (completions).
   if (/(^|\()499\)?: \{.*"code"\s*:\s*"request_cancelled"/.test(message) || /^request_cancelled: /.test(message) || message.trim() === 'İstek iptal edildi.') return 'cancelled';
+  // ponytail: only the form before the answer starts (all 60 refusals in the logs of 2026-11-13). A refusal after the
+  // first streamed byte ends the answer and is not tried again here.
+  if (/(^|\()(429|503)\)?: \{.*"code"\s*:\s*"upstream_rejected"/.test(message)) return 'rejected';
   return message.trim() === 'Connection error.' ? 'connection' : undefined;
 }
 /** The line that a parent agent gets after dsh's notice of a subagent that failed in an outage. */
@@ -3207,6 +3216,28 @@ export function outageWatch({ health, resume, log = () => {}, now = Date.now, ti
   const sent = new Map(); // chat id → times of its automatic messages in the last hour
   const recent = (id) => (sent.get(id) ?? []).filter((at) => now() - at < timing.hour);
   const leave = (ids, why) => { for (const id of ids) try { left(id, why); } catch (error) { log(`outage left ${id}: ${error?.message ?? error}`); } };
+  // 429/503 upstream_rejected: chat id → the token of its newest refusal. A newer failure of the chat replaces or removes
+  // the token, so the older timer does nothing.
+  const waiting = new Map();
+  const timers = new Set(); // the pending tries (for settled())
+  /** One automatic message, in the hourly limit (outages and refusals together): resume's answer or 'limit'. A chat that
+   * failed again meanwhile (a newer try waits for it) is not left: the newer try decides. */
+  const tryOne = async (id, seq) => {
+    const times = recent(id);
+    let result = 'limit';
+    if (times.length < timing.perHour) {
+      // Take the slot before resume(): a try of the outage loop and a refusal's try can run for the same chat at the
+      // same time, and both must count. A try that does not continue the chat gives its slot back.
+      const mark = now(); sent.set(id, [...times, mark]);
+      try { result = await resume(id, seq); } catch (error) { result = 'failed'; log(`outage resume ${id} failed: ${error?.message ?? error}`); }
+      if (result !== 'continued') {
+        const kept = recent(id); const i = kept.indexOf(mark); if (i >= 0) kept.splice(i, 1);
+        if (kept.length > 0) sent.set(id, kept); else sent.delete(id);
+      }
+    }
+    if (result !== 'continued' && !closed && !waiting.has(id) && current?.chats.has(id) !== true) leave([id], result);
+    return result;
+  };
   const loop = async (outage) => {
     let healthySince;
     while (!closed) {
@@ -3226,13 +3257,7 @@ export function outageWatch({ health, resume, log = () => {}, now = Date.now, ti
     leave(chats.slice(timing.max).map(([id]) => id), 'max');
     for (const [id, seq] of chats.slice(0, timing.max)) {
       if (closed) break;
-      const times = recent(id);
-      if (times.length >= timing.perHour) { results.push({ id, result: 'limit' }); leave([id], 'limit'); continue; }
-      let result;
-      try { result = await resume(id, seq); } catch (error) { result = 'failed'; log(`outage resume ${id} failed: ${error?.message ?? error}`); }
-      if (result === 'continued') sent.set(id, [...times, now()]); else if (times.length > 0) sent.set(id, times); else sent.delete(id);
-      if (result !== 'continued' && !closed) leave([id], result);
-      results.push({ id, result });
+      results.push({ id, result: await tryOne(id, seq) });
     }
     const continued = results.filter((r) => r.result === 'continued');
     if (continued.length > 0) last = { at: now(), chats: continued.map((r) => r.id) };
@@ -3241,6 +3266,21 @@ export function outageWatch({ health, resume, log = () => {}, now = Date.now, ti
   return {
     fail(id, seq, kind) {
       if (closed) return;
+      // The newest failure of a chat wins: a refusal takes it out of the outage, an outage out of the wait.
+      if (kind === 'rejected') {
+        // 429/503 upstream_rejected: AIProxy runs, so no health check: one try timing.retry ms after the newest refusal.
+        current?.chats.delete(id);
+        const token = { seq }; waiting.set(id, token);
+        const timer = sleep(timing.retry).then(async () => {
+          if (closed || waiting.get(id) !== token) return;
+          waiting.delete(id);
+          if (!active()) { leave([id], 'off'); return; }
+          log(`AIProxy refused (429/503), tried again: ${id} ${await tryOne(id, seq)}`);
+        }).catch((error) => log(`outage retry failed: ${error?.message ?? error}`)).finally(() => timers.delete(timer));
+        timers.add(timer);
+        return;
+      }
+      waiting.delete(id);
       if (current === undefined) {
         current = { chats: new Map(), confirmed: false, first: now(), last: now() };
         const outage = current;
@@ -3251,8 +3291,8 @@ export function outageWatch({ health, resume, log = () => {}, now = Date.now, ti
       if (kind === 'connection') current.confirmed = true; // the port was closed
     },
     last: () => last,
-    settled: () => running,
-    close() { closed = true; current = undefined; },
+    settled: () => Promise.all([running, ...timers]),
+    close() { closed = true; current = undefined; waiting.clear(); },
   };
 }
 
@@ -3305,6 +3345,7 @@ export function installOutageResume(ctx, home, { file = join(home, 'storages', '
     const kind = outageError(event.data?.reason);
     if (kind === undefined || !onAIProxy(session)) return;
     if (isRootChat(session)) { watch.fail(session.id, event.seq, kind); return; }
+    if (kind === 'rejected') return; // the provider refused it: the outage line would be false for the parent
     children.delete(session.id); children.add(session.id); // newest last: the oldest goes first over the cap
     if (children.size > timing.children) children.delete(children.values().next().value);
   });
@@ -11466,22 +11507,25 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         tasks.unshift({ ...row, started: Number.isFinite(turn) ? Math.max(turn, row.started) : row.started, state: waitingOf(log) ? 'waiting' : 'running' }); continue;
       }
       // Issue #5: the bot keeps a task whose turn dsh's quit or an AIProxy outage stopped (and one whose chat is gone), so
-      // the chat's next turn end is still news. The chat does not run: stopped with the time of its last turn (its live
-      // log; else its saved log, read once until its next turn; else dsh's list time, its last prompt), and gone the next day.
+      // the chat's next turn end is still news. The chat does not run: failed when its last turn ended with an error (an
+      // AIProxy outage, 429 or 503), else stopped, with the time of its last turn (its live log; else its saved log, read
+      // once until its next turn; else dsh's list time, its last prompt), and gone the next day.
       const item = listed.find((s) => s?.sessionId === id);
-      let times = { last: log.at(-1)?.time, turn: log.findLast((e) => e?.type === 'turn/start')?.time };
+      const timesOf = (events) => ({ last: events.at(-1)?.time, turn: events.findLast((e) => e?.type === 'turn/start')?.time,
+        failed: events.findLast((e) => e?.type === 'turn/end')?.data?.reason?.kind === 'error' });
+      let times = timesOf(log);
       if (live === undefined && log.length === 0 && Number.isFinite(item?.updatedAt) && item.updatedAt >= today.getTime()) {
-        // Only the two times are kept. A log that could not be read is tried again at the next read.
+        // Only the two times and the failed mark are kept. A log that could not be read is tried again at the next read.
         if (!stale.has(id)) {
           const saved = await savedEvents(ctx.sessionQuery, id, signal).catch(() => []);
-          if (saved.length > 0) stale.set(id, { last: saved.at(-1)?.time, turn: saved.findLast((e) => e?.type === 'turn/start')?.time });
+          if (saved.length > 0) stale.set(id, timesOf(saved));
         }
         times = stale.get(id) ?? times;
       }
       const last = [times.last, item?.updatedAt, task?.at].find(Number.isFinite);
       if (last === undefined || last < today.getTime()) continue;
       const turn = [times.turn, item?.updatedAt].find(Number.isFinite) ?? row.started;
-      closed.push({ ...row, state: 'stopped', started: Math.min(last, Math.max(turn, row.started)), ended: last });
+      closed.push({ ...row, state: times.failed ? 'failed' : 'stopped', started: Math.min(last, Math.max(turn, row.started)), ended: last });
     }
     for (const [id, t] of assistant.endedTasks ?? []) {
       if (t.ended < today.getTime()) { assistant.endedTasks.delete(id); continue; }

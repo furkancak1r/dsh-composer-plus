@@ -1592,7 +1592,7 @@
     "resume.down": "이 설정을 저장하지 못했습니다: {error}",
     "resume.restart": "재시작 후 이어서 실행을 사용하려면 dsh를 다시 시작하세요.",
     "feature.outageResume": "AIProxy 장애 후 이어서 실행",
-    "feature.outageResume.description": "AIProxy가 재시작되거나 잠시 멈추면, 실행 중인 채팅이 “request_cancelled” (499) 또는 “Connection error.”로 실패합니다. AIProxy가 다시 응답하면 이런 채팅마다 짧은 메시지가 하나 전달되고, 채팅은 멈춘 곳부터 이어집니다. 메시지는 채팅마다 장애 한 번에 최대 1개, 1시간에 최대 2개입니다. 하위 에이전트는 이 메시지를 받지 않습니다. 대신 상위 에이전트에게 실패 원인이 장애라고 알립니다.",
+    "feature.outageResume.description": "AIProxy가 재시작되거나 잠시 멈추면, 실행 중인 채팅이 “request_cancelled” (499) 또는 “Connection error.”로 실패합니다. AIProxy가 다시 응답하면 이런 채팅마다 짧은 메시지가 하나 전달되고, 채팅은 멈춘 곳부터 이어집니다. 메시지는 채팅마다 장애 한 번에 최대 1개, 1시간에 최대 2개입니다. 하위 에이전트는 이 메시지를 받지 않습니다. 대신 상위 에이전트에게 실패 원인이 장애라고 알립니다. 429 또는 503 “upstream_rejected”(제공자가 요청을 거부함)에는 3분 후 같은 메시지가 전달되므로, 대기열의 메시지도 시작됩니다.",
     "outage.down": "이 설정을 저장하지 못했습니다: {error}",
     "outage.restart": "AIProxy 장애 후 이어서 실행을 사용하려면 dsh를 다시 시작하세요.",
     "feature.contentSearch": "내용 검색",

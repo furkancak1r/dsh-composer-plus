@@ -1592,7 +1592,7 @@
     "resume.down": "Tidak dapat menyimpan pengaturan ini: {error}",
     "resume.restart": "Mulai ulang dsh untuk menggunakan Lanjutkan setelah mulai ulang.",
     "feature.outageResume": "Lanjutkan setelah gangguan AIProxy",
-    "feature.outageResume.description": "Saat AIProxy dimulai ulang atau berhenti sebentar, obrolan yang sedang berjalan gagal dengan “request_cancelled” (499) atau “Connection error.”. Saat AIProxy menjawab lagi, setiap obrolan tersebut mendapat satu pesan singkat dan berlanjut dari tempat obrolan itu berhenti. Paling banyak satu pesan per obrolan untuk setiap gangguan dan dua per jam. Subagen tidak mendapatkannya: agen induknya diberi tahu bahwa kegagalan itu berasal dari gangguan.",
+    "feature.outageResume.description": "Saat AIProxy dimulai ulang atau berhenti sebentar, obrolan yang sedang berjalan gagal dengan “request_cancelled” (499) atau “Connection error.”. Saat AIProxy menjawab lagi, setiap obrolan tersebut mendapat satu pesan singkat dan berlanjut dari tempat obrolan itu berhenti. Paling banyak satu pesan per obrolan untuk setiap gangguan dan dua per jam. Subagen tidak mendapatkannya: agen induknya diberi tahu bahwa kegagalan itu berasal dari gangguan. Untuk 429 atau 503 “upstream_rejected” (penyedia menolak permintaan), pesan yang sama dikirim setelah 3 menit, sehingga pesan dalam antrean juga mulai.",
     "outage.down": "Tidak dapat menyimpan pengaturan ini: {error}",
     "outage.restart": "Mulai ulang dsh untuk menggunakan Lanjutkan setelah gangguan AIProxy.",
     "feature.contentSearch": "Pencarian isi",

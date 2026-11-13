@@ -1592,7 +1592,7 @@
     "resume.down": "Impossible d’enregistrer ce réglage : {error}",
     "resume.restart": "Redémarrez dsh pour utiliser Reprendre après redémarrage.",
     "feature.outageResume": "Reprendre après une panne d’AIProxy",
-    "feature.outageResume.description": "Quand AIProxy redémarre ou s’arrête un instant, les discussions en cours échouent avec “request_cancelled” (499) ou “Connection error.”. Quand AIProxy répond de nouveau, chacune de ces discussions reçoit un court message et reprend là où elle s’était arrêtée. Au plus un message par discussion pour chaque panne, et deux par heure. Les sous-agents ne le reçoivent pas : leur agent parent est informé que l’échec vient de la panne.",
+    "feature.outageResume.description": "Quand AIProxy redémarre ou s’arrête un instant, les discussions en cours échouent avec “request_cancelled” (499) ou “Connection error.”. Quand AIProxy répond de nouveau, chacune de ces discussions reçoit un court message et reprend là où elle s’était arrêtée. Au plus un message par discussion pour chaque panne, et deux par heure. Les sous-agents ne le reçoivent pas : leur agent parent est informé que l’échec vient de la panne. Un 429 ou 503 « upstream_rejected » (le fournisseur a refusé la requête) reçoit le même message après 3 minutes, donc les messages en file démarrent aussi.",
     "outage.down": "Impossible d’enregistrer ce réglage : {error}",
     "outage.restart": "Redémarrez dsh pour utiliser Reprendre après une panne d’AIProxy.",
     "feature.contentSearch": "Recherche dans le contenu",
