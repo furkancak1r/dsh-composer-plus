@@ -6,10 +6,10 @@ const mem=new Map();globalThis.localStorage={getItem:k=>mem.has(k)?mem.get(k):nu
 let mod;globalThis.window={__ModuleLoader__:{load:m=>{mod=m;}}};eval(src);
 let q='';const React={createElement:(t,p,...c)=>({t,p,c}),useState:v=>(v===''?[q,x=>{q=x;}]:[v,()=>{}])};
 const plugin=mod.factory(n=>n==='react'?React:n==='@deepseek-ai/dsh-client-ui-primitives'?{Switch:'Switch'}:{});
-function boot(){
-  const live=new Map();let next=0;const scopes=new Set();const effects=[];
-  const slots={inject:(name,f)=>{const off=f();return()=>off();},entries:()=>[],register:(o)=>{const key=`${o.name}#${o.id??o.key}#${next++}`;live.set(key,o);return()=>live.delete(key);}};
-  const ctx={slots,configForms:{get:()=>({})},effect:(f)=>{effects.push(f());},locale:{register:()=>()=>{},bind:()=>(k)=>k},
+function boot(locale={register:()=>()=>{},bind:()=>(k)=>k}){
+  const live=new Map();let next=0;const scopes=new Set();const effects=[];let Settings;
+  const slots={inject:(name,f)=>{const off=f();return()=>off();},entries:()=>[],register:(o,Comp)=>{if(o.id==='composer-plus')Settings=Comp;const key=`${o.name}#${o.id??o.key}#${next++}`;live.set(key,o);return()=>live.delete(key);}};
+  const ctx={slots,configForms:{get:()=>({})},effect:(f)=>{effects.push(f());},locale,
     inject:(deps,setup)=>{const id=deps.join(',');scopes.add(id);
       setup({effect:()=>{},uiSession:{sessionStatus:{getSnapshot:()=>new Map(),subscribe:()=>()=>{}}},sessions:{list:{getSnapshot:()=>({}),subscribe:()=>()=>{}}},
         uiWorkspace:{},workspaces:{list:{getSnapshot:()=>undefined,subscribe:()=>()=>{}}},sidebarRight:{},sidebarRightTabs:{register:()=>()=>{}}});
@@ -17,7 +17,7 @@ function boot(){
   plugin.apply(ctx);
   const ids=()=>[...live.values()].map(o=>o.id??o.key).sort();
   const settings=[...live.values()].find(o=>o.id==='composer-plus');
-  return {ids,scopes,settings,unload:()=>effects.forEach(f=>typeof f==='function'&&f())};
+  return {ids,scopes,settings,Settings,unload:()=>effects.forEach(f=>typeof f==='function'&&f())};
 }
 let app=boot();
 const all=['approve-button','assistant-apart','assistant-callouts','assistant-chat-view','assistant-status','assistant-todos','assistant-welcome','branch-chip','branch-status','chat-tool-grants','collapse-projects','composer-continue','composer-history','composer-keep-focus','composer-plan-toggle','composer-plus','composer-plus-assistant','composer-plus-assistant','composer-plus-board','composer-plus-board','copy-deeplink','delete-chat','delete-chat-dialog','export-markdown','export-markdown-dialog','find-in-chat','goal-check','handoff-chat','handoff-dialog','issue-report','issue-report-dialog','memory-chat','memory-chat-chip','memory-suggest','memory-suggest-dialog','message-links','next-prediction','onay-code-blocks','option-picks','preview-quote','project-name','project-path-menu','project-picker-search','project-status','prompt-improve','queue-edit','queue-reorder','quote','quote-reply','recent-projects','reject-note','request_secret','session-branch','session-context-menu','side-chat','side-chat-bar','status-order','subagent-catalog','turn-redo','turn-rollback','whats-new'];
@@ -36,7 +36,8 @@ for (const [id, slots] of [['assistant',['assistant-welcome','composer-plus-assi
   const before=app.ids(); setFeature(id,false); assert.deepEqual(app.ids(),before.filter((x)=>!slots.includes(x)),`${id} removes only its slots`);
   setFeature(id,true); assert.deepEqual(app.ids(),before,`${id} comes back`);
 }
-assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.features')),{activeProjectsFirst:false,notifications:false},'only off switches are stored');
+{ const stored=JSON.parse(mem.get('dsh-composer-plus.features'));assert.equal(stored.activeProjectsFirst,false);assert.equal(stored.notifications,false);
+  assert.equal(stored.copyDeeplink,true,'an on choice is stored too (a NATIVE_FEATURES default can change)');assert.ok(Object.values(stored).every(v=>typeof v==='boolean'),'only explicit choices'); }
 app.unload();assert.deepEqual(app.ids(),['composer-plus'],'unload removes every feature slot (dsh disposes the settings section with the plugin)');assert.equal(app.scopes.size,0);
 app=boot();assert.ok(app.ids().includes('copy-deeplink'));assert.ok(!app.scopes.has('workspaces,uiSession,sessions'),'off switch survives a reload');
 // Settings UI: one Switch per feature, reflecting state and writing back.
@@ -89,4 +90,18 @@ plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
   plugin.apply(ctx);const title=regs.find(([o])=>o.name==='sidebar.right.pane.tab.title');
   assert.ok(title,'title seat registered');assert.equal(title[0].key,'dsh-composer-plus/changes');assert.equal(title[0].locale,'dsh-composer-plus');
   assert.equal(title[1]({t:k=>({'changes.title':'Değişiklikler'})[k]}),'Değişiklikler'); }
+// NATIVE_FEATURES (native-default-off.md): Fit question card to window is built into dsh 0.2.2 (its question dictionary has
+// text.expand). Detected → off by default with a note; switched on → stays on after a reload; stored false → off; not
+// detected → on, as before, without a note.
+{ const native={register:()=>()=>{},bind:(ns)=>(k)=>(ns==='question'&&k==='text.expand'?'Expand':k)};
+  const row=(a)=>{const st=a.settings.inject().hooks.composerPlusToggles;return a.Settings({useComposerPlusToggles:f=>f(st.getSnapshot()),setFeature:()=>{},t:k=>k}).c.slice(5).find(r=>r.p.key==='questionFit');};
+  const noteOf=(r)=>r.c[1].c.find(c=>c?.p?.role==='note');
+  mem.delete('dsh-composer-plus.features');app.unload();
+  let a=boot(native);let r=row(a);assert.equal(r.c[2].p.checked,false,'detected: off by default');
+  assert.equal(noteOf(r).c[0],'settings.nativeNote');assert.equal(noteOf(r).p['data-composer-plus-native'],'native');
+  a.settings.inject().setFeature('questionFit',true);assert.equal(JSON.parse(mem.get('dsh-composer-plus.features')).questionFit,true,'the on choice is stored');
+  a.unload();a=boot(native);assert.equal(row(a).c[2].p.checked,true,'switched on: stays on after a reload');
+  a.settings.inject().setFeature('questionFit',false);a.unload();a=boot(native);assert.equal(row(a).c[2].p.checked,false,'stored false: stays off');
+  a.unload();mem.set('dsh-composer-plus.features','{"questionFit":false}');a=boot();assert.equal(row(a).c[2].p.checked,false,'old data: stored false stays off');
+  a.unload();mem.delete('dsh-composer-plus.features');a=boot();r=row(a);assert.equal(r.c[2].p.checked,true,'not detected: on, as before');assert.equal(noteOf(r),undefined,'no note');a.unload(); }
 console.log('toggle checks passed');

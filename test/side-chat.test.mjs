@@ -19,8 +19,12 @@
 //   the text for the parent and opens it; Back to the chat opens the parent.
 // - The feature through plugin.apply: on by default, two slots; switched off, both go.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { SIDE_CHAT_PATH, SIDE_LEAD, SIDE_TEXT_MAX, installSideChat, sideChatOf, sideForkSeq, sideTitle } from '../index.js';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { SIDE_CHAT_PATH, SIDE_LEAD, SIDE_PARENTS_MAX, SIDE_TEXT_MAX, installSideChat, sideChatOf, sideForkSeq, sideParentsStore, sideTitle } from '../index.js';
+const tmpHome = mkdtempSync(join(tmpdir(), 'cp-side-chat-'));
+process.on('exit', () => rmSync(tmpHome, { recursive: true, force: true }));
 
 // --- sideTitle ---
 assert.equal(sideTitle('  Why is the cart slow?\nmore'), '↳ Why is the cart slow?');
@@ -56,6 +60,21 @@ assert.equal(sideChatOf({}, own, 0), undefined, 'no parent');
 // No parent: the answer comes from the header alone; the messages are not read (each chat open and turn asks).
 assert.equal(sideChatOf({}, new Proxy([], { get: (t, k) => { if (k === 'filter' || k === Symbol.iterator) throw new Error('read the events'); return t[k]; } }), 0), undefined, 'no parent: the events are not read');
 assert.equal(sideChatOf({ parentSession: 'P' }, [msg(0, `${SIDE_LEAD}old`), ...own.slice(1)], 1), undefined, 'the lead in the copied part does not count');
+// dsh 0.2.2 and later: a fork's header has no parentSession; the parent that the Host saved counts. A header parent wins.
+assert.equal(sideChatOf({}, [...parentEvents, ...own], 2, 'P').parent, 'P', 'dsh 0.2.2: the saved parent');
+assert.equal(sideChatOf({ parentSession: 'H' }, [...parentEvents, ...own], 2, 'P').parent, 'H', 'the header parent wins');
+assert.equal(sideChatOf({}, [...parentEvents, msg(2, 'a plain fork')], 2, 'P'), undefined, 'a saved parent without the lead');
+// The store: newest SIDE_PARENTS_MAX kept, a broken file reads as empty, a reload reads the file.
+{
+  const file = join(tmpHome, 'store', 'side-chats.json');
+  const a1 = sideParentsStore(file); await a1.ready;
+  for (let i = 0; i <= SIDE_PARENTS_MAX; i++) await a1.add(`s${i}`, `p${i}`);
+  assert.equal(a1.get('s0'), undefined, 'the oldest goes'); assert.equal(a1.get(`s${SIDE_PARENTS_MAX}`), `p${SIDE_PARENTS_MAX}`);
+  const a2 = sideParentsStore(file); await a2.ready;
+  assert.equal(a2.get('s1'), 'p1', 'read again from the file'); assert.equal(a2.get('s0'), undefined);
+  const { writeFileSync } = await import('node:fs'); writeFileSync(file, '[1,2');
+  const a3 = sideParentsStore(file); await a3.ready; assert.equal(a3.get('s1'), undefined, 'a broken file reads as empty');
+}
 
 // --- The route ---
 const routes = new Map();
@@ -79,7 +98,7 @@ installSideChat({
     rename: async (o) => { renames.push(o); },
     prompt: async (p, signal) => { await promptGate(p); assert.ok(signal); prompts.push(p); },
   },
-});
+}, tmpHome);
 const route = routes.get(SIDE_CHAT_PATH);
 const post = async (body) => {
   const r = await route.fetch(new Request(`http://h${SIDE_CHAT_PATH}`, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) }));
@@ -135,6 +154,13 @@ observed = { header: { id: 'P' }, events: parentEvents };
 assert.deepEqual(await getSide('P'), { status: 404, data: { error: 'not a side chat', fork: false } }, 'not a side chat: no parent, never one');
 observed = { header: { id: 'side9', parentSession: 'P' }, inheritedEventCount: 2, events: parentEvents };
 assert.deepEqual(await getSide('side9'), { status: 404, data: { error: 'not a side chat' } }, 'a fork without its question yet: may become one');
+// dsh 0.2.2 and later: the fork's header has no parentSession; the Host saved side1's parent when it started it.
+observed = { header: { id: 'side1' }, inheritedEventCount: 2, events: [...parentEvents, ...own] };
+r = await getSide('side1');
+assert.equal(r.status, 200, 'dsh 0.2.2: a side chat by its saved parent'); assert.equal(r.data.parent, 'P');
+observed = { header: { id: 'other' }, inheritedEventCount: 2, events: [...parentEvents, ...own] };
+assert.deepEqual(await getSide('other'), { status: 404, data: { error: 'not a side chat', fork: false } }, 'dsh 0.2.2: a fork that this Host did not start');
+assert.equal(JSON.parse(readFileSync(join(tmpHome, 'storages', 'dsh-composer-plus', 'side-chats.json'), 'utf8')).side1, 'P', 'saved on disk');
 assert.equal((await getSide('')).status, 400);
 
 // --- Client ---

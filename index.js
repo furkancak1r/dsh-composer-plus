@@ -2445,7 +2445,7 @@ export function apply(ctx) {
   installBlockedCommands(ctx, home);
   installHandoff(ctx, home);
   installIssueReport(ctx);
-  installSideChat(ctx);
+  installSideChat(ctx, home);
   installContext(ctx);
   installBoard(ctx, home);
   installPlannedSteps(ctx, home);
@@ -4722,10 +4722,12 @@ export const sideTitle = (text) => {
   return `↳ ${[...line].length > 60 ? `${[...line].slice(0, 59).join('').trimEnd()}…` : line}`;
 };
 /** A side chat's own messages for Bring back: `{parent, messages, truncated}`, the lead taken off its first message;
- * undefined for a chat that is not a side chat. */
-export function sideChatOf(header, events, inherited) {
+ * undefined for a chat that is not a side chat. `known`: the parent that the Host saved when it started the side chat
+ * (dsh 0.2.2 and later do not write `parentSession` into a fork's header; older dsh do, and their header wins). */
+export function sideChatOf(header, events, inherited, known) {
+  const parent = typeof header?.parentSession === 'string' ? header.parentSession : known;
   // A chat without a parent is never a side chat: no need to read its messages (each chat open and each turn asks).
-  if (typeof header?.parentSession !== 'string') return undefined;
+  if (typeof parent !== 'string') return undefined;
   const from = Number.isSafeInteger(inherited) && inherited > 0 ? inherited : 0;
   // Only the last reply before each question (and at the end): not the agent's notes between its tool calls.
   const own = events.filter((e) => e.seq >= from);
@@ -4738,10 +4740,29 @@ export function sideChatOf(header, events, inherited) {
   if (reply !== undefined) last.add(reply);
   const { messages, truncated } = chatTranscript(own.filter((e) => e.type !== 'assistant/message' || last.has(e.seq)));
   if (messages[0]?.role !== 'user' || !messages[0].text.startsWith(SIDE_LEAD.trim())) return undefined;
-  return { parent: header.parentSession, messages: [{ role: 'user', text: messages[0].text.slice(SIDE_LEAD.length).trim() }, ...messages.slice(1)], truncated };
+  return { parent, messages: [{ role: 'user', text: messages[0].text.slice(SIDE_LEAD.length).trim() }, ...messages.slice(1)], truncated };
+}
+/** The side chats that this Host started: `{<side chat id>: <parent id>}`, the newest SIDE_PARENTS_MAX. Kept in memory
+ * first, so a failed file write still works until dsh quits. */
+export const SIDE_PARENTS_MAX = 500;
+export function sideParentsStore(file) {
+  const store = settingsStore(file, (v) => Object.fromEntries(Object.entries(v !== null && typeof v === 'object' && !Array.isArray(v) ? v : {})
+    .filter(([id, parent]) => isText(id) && isText(parent))));
+  let data = {};
+  const ready = store.read().then((v) => { data = { ...v, ...data }; });
+  return {
+    ready,
+    get: (id) => (Object.hasOwn(data, id) ? data[id] : undefined),
+    add: async (id, parent) => {
+      const plus = (d) => Object.fromEntries([...Object.entries(d).filter(([k]) => k !== id), [id, parent]].slice(-SIDE_PARENTS_MAX));
+      data = plus(data);
+      await ready;
+      await store.change(plus);
+    },
+  };
 }
 /** Start a side chat of `sessionId` with `text`. All or none: when its first message cannot be sent, the copy is archived. */
-export async function startSideChat({ sessionController, sessionQuery, presets, goals, registry }, sessionId, text, signal) {
+export async function startSideChat({ sessionController, sessionQuery, presets, goals, registry, parents }, sessionId, text, signal) {
   if (presets?.names?.includes?.('read-only') !== true) throw refused('this dsh has no read-only permission mode, so a side chat cannot start');
   const observation = await sessionQuery.observeSession(sessionId, { signal, projectionMode: 'none' });
   let header, cut;
@@ -4751,6 +4772,8 @@ export async function startSideChat({ sessionController, sessionQuery, presets, 
   const parent = await sessionController.resolveAgent(sessionId);
   const model = 'error' in parent ? undefined : sessionController.agents?.selectionFor?.(parent.agent)?.current;
   const { sessionId: created } = await sessionController.fork({ sessionId, atSeq: cut });
+  // dsh 0.2.2 and later keep no parent in the fork: remember it for Bring back (memory first, so a failed write is no error).
+  await parents?.add(created, sessionId).catch(() => {});
   try {
     const found = await sessionController.resolveAgent(created);
     if ('error' in found) throw new Error('the side chat could not start');
@@ -4767,8 +4790,9 @@ export async function startSideChat({ sessionController, sessionQuery, presets, 
   }
   return { sessionId: created };
 }
-export function installSideChat(ctx) {
+export function installSideChat(ctx, home) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const parents = sideParentsStore(join(home, 'storages', 'dsh-composer-plus', 'side-chats.json'));
   const starting = new Set(); // one start per chat at a time
   ctx.connection.fetch.register({
     path: SIDE_CHAT_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
@@ -4778,9 +4802,11 @@ export function installSideChat(ctx) {
         const id = new URL(request.url).searchParams.get('sessionId');
         if (!isText(id)) return json({ error: 'bad request' }, 400);
         try {
+          await parents.ready;
+          const known = parents.get(id);
           const observation = await ctx.sessionQuery.observeSession(id, { signal: request.signal, projectionMode: 'none' });
           let side; let fork;
-          try { fork = typeof observation.header?.parentSession === 'string'; side = sideChatOf(observation.header, observation.events ?? [], observation.inheritedEventCount); } finally { observation[Symbol.dispose]?.(); }
+          try { fork = typeof observation.header?.parentSession === 'string' || known !== undefined; side = sideChatOf(observation.header, observation.events ?? [], observation.inheritedEventCount, known); } finally { observation[Symbol.dispose]?.(); }
           // `fork: false`: the chat has no parent, so it never becomes a side chat (a new side chat answers 404 until its
           // first message is in its log; that answer has no `fork: false`).
           return side === undefined ? json({ error: 'not a side chat', ...(fork ? {} : { fork: false }) }, 404) : json(side);
@@ -4795,7 +4821,7 @@ export function installSideChat(ctx) {
       if (starting.has(id)) return json({ error: 'a side chat of this chat is still starting' }, 409);
       starting.add(id);
       try {
-        return json(await startSideChat({ sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, presets: get('permissionPresets'), goals: get('goals'), registry: get('workspaceRegistry') }, id, text, request.signal));
+        return json(await startSideChat({ sessionController: ctx.sessionController, sessionQuery: ctx.sessionQuery, presets: get('permissionPresets'), goals: get('goals'), registry: get('workspaceRegistry'), parents }, id, text, request.signal));
       } catch (error) { return json({ error: String(error?.message ?? error) }, status(error)); } finally { starting.delete(id); }
     },
   });

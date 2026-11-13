@@ -93,11 +93,11 @@ tree = render({ ...enabled, categoryFilter: false });
 assert.equal(menu(tree), null, 'no menu while its switch is off');
 assert.deepEqual(ids(tree), FEATURES, 'every row shows');
 assert.ok(tree.c[2] !== null && tree.c[3] !== null);
-// The switch is a browser setting: on by default, stored only when off, and it installs nothing to remove.
+// The switch is a browser setting: on by default (nothing stored), each choice is stored, and it installs nothing to remove.
 const { setFeature, hooks } = section.inject();
 assert.equal(hooks.composerPlusToggles.getSnapshot().categoryFilter, undefined, 'on by default (nothing stored)');
 setFeature('categoryFilter', false);
 assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.features')), { categoryFilter: false });
 setFeature('categoryFilter', true);
-assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.features')), {});
+assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.features')), { categoryFilter: true }, 'an on choice is stored too (NATIVE_FEATURES)');
 console.log(`category filter checks passed (${FEATURES.length} rows in ${KEYS.length} categories)`);

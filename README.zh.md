@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 然后重启 dsh。（CLI 无法安装到桌面版 profile 中；桌面版 profile 由应用自己管理。）
 
-> dsh 使用的 pnpm 会跳过发布不到 24 小时的版本。刚发布新版本时，请加上版本号：`dsh-composer-plus@1.28.0`。
+> dsh 使用的 pnpm 会跳过发布不到 24 小时的版本。刚发布新版本时，请加上版本号：`dsh-composer-plus@1.29.0`。
 
 ## 功能
 
@@ -46,7 +46,7 @@ dsh plugin --profile web add dsh-composer-plus
 | **输入历史** | <a id="feature-inputhistory"></a>在空输入框中按 `↑` / `↓`，可以像在终端里一样浏览你发送过的消息。 | <a href="assets/features/inputHistory.webp"><img src="assets/features/inputHistory.webp" width="160" alt="截图：输入历史"></a> |
 | **Shift+Tab 计划模式** | <a id="feature-plantoggle"></a>`Shift+Tab` 会在草稿开头添加 `/plan `（再按一次可移除）。如果对话已处于计划模式，`Shift+Tab` 会退出计划模式。 | <a href="assets/features/planToggle.webp"><img src="assets/features/planToggle.webp" width="160" alt="截图：Shift+Tab 计划模式"></a> |
 | **保持输入框焦点** | <a id="feature-keepfocus"></a>发送 `/` 命令或技能后，光标仍留在输入框中，你可以立即继续输入。对于输入命令后按 `Enter` 的键盘宏，这同样有效。dsh 在解析命令时会把输入框设为只读，浏览器随后会移除焦点。本功能会把焦点放回输入框，除非菜单、对话框或其他输入框正持有焦点。 | <a href="assets/features/keepFocus.webp"><img src="assets/features/keepFocus.webp" width="160" alt="截图：保持输入框焦点"></a> |
-| **问题卡片适应窗口** | <a id="feature-questionfit"></a>代理向你提问时，问题和答案在卡片中一起滚动，**跳过**和**提交**始终显示在底部。卡片使用窗口的高度（减去 200 px，留给对话标题和一部分对话），所以会随窗口变大变小。没有本功能时，dsh 把卡片限制在窗口的 60%（最多 520 px），并且只有答案可以滚动：较长的问题会把它自己的结尾、答案和按钮挤出卡片。 | <a href="assets/features/questionFit.webp"><img src="assets/features/questionFit.webp" width="160" alt="截图：问题卡片适应窗口"></a> |
+| **问题卡片适应窗口** | <a id="feature-questionfit"></a>代理向你提问时，问题和答案在卡片中一起滚动，**跳过**和**提交**始终显示在底部。卡片使用窗口的高度（减去 200 px，留给对话标题和一部分对话），所以会随窗口变大变小。没有本功能时，dsh 把卡片限制在窗口的 60%（最多 520 px），并且只有答案可以滚动：较长的问题会把它自己的结尾、答案和按钮挤出卡片。 在 dsh 0.2.2 及更高版本中，dsh 自己会让卡片适应窗口（问题折叠为预览，可点击**展开**），因此本功能在那里默认关闭，设置中也会注明；仅在你仍需要时再打开。 | <a href="assets/features/questionFit.webp"><img src="assets/features/questionFit.webp" width="160" alt="截图：问题卡片适应窗口"></a> |
 | **对话标题栏适应窗口** | <a id="feature-headerfit"></a>窗口较窄时，dsh 对话标题栏中的按钮（模式、子代理、后台任务、打开方式、分支标签和授权标签）不再互相遮挡。对话标题至少保留 120 px；放不下的按钮换到右侧的第二行，每个按钮仍可点击。所有内容能放在一行时（宽窗口），标题栏与 dsh 原样一致。没有本功能时，dsh 只压缩标题：有子代理和后台任务时，在较窄的对话栏中按钮会互相覆盖。即使关闭本开关，分支标签（**每个对话一个分支**）和授权标签（**本对话内允许**）也会让标题栏适应窗口。 | <a href="assets/features/headerFit.webp"><img src="assets/features/headerFit.webp" width="160" alt="截图：对话标题栏适应窗口"></a> |
 | **记住窗口大小** | <a id="feature-windowsize"></a>dsh 桌面应用每次启动时都以 1280 × 820 打开窗口。开启本功能后，窗口会以上次使用时的大小和位置打开。每次调整窗口大小或移动窗口时都会保存，下次启动、插件加载后恢复。全屏或最小化的窗口不会被保存；如果保存的位置所在的显示器现在未连接，窗口会回到主显示器。仅限桌面应用：浏览器标签页无法改变自己窗口的大小。 | <a href="assets/features/windowSize.webp"><img src="assets/features/windowSize.webp" width="160" alt="截图：记住窗口大小"></a> |
 | **标题栏显示运行中的子代理** | <a id="feature-subagentrunning"></a>对话标题栏中的子代理计数显示当前正在运行的子代理数量，例如 「3 个子智能体，正在运行」。没有子代理运行时显示 「0 个子智能体，正在运行」。点击计数：列表照常打开，第一行显示该对话的子代理总数（「共 37 个子智能体」）。没有本功能时，dsh 的计数显示总数，也包括已完成的子代理。 | <a href="assets/features/subagentRunning.webp"><img src="assets/features/subagentRunning.webp" width="160" alt="截图：标题栏显示运行中的子代理"></a> |
@@ -143,7 +143,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 整个应用会立即切换语言。这个选择保存在 dsh 自己的 `locale.preference` 中（与 通用设置 → 语言 是同一个设置），因此重启后依然有效。**系统语言** 会清除这个选择：桌面应用跟随操作系统语言，网页版跟随浏览器语言，不支持的语言会回退为英语。安装插件绝不会覆盖你已经选择的语言。
 
-每个语言包有 3,280 条文本：dsh `0.2.0-rc.2` 和 `0.2.1-rc.2` 的全部界面文本（对话、侧边栏、设置、审批、自动化任务、文件预览、插件管理器、插件市场）、插件自己的控件，以及常用的 [dsh-rewind](https://github.com/SiriLee/dsh-rewind) 插件。以下内容不会翻译：你的消息、模型输出、代码、斜杠命令名称（`/plan`、`/compact`）、由提供商定义的标签（例如推理强度 `High`）、其他插件的文本，以及桌面应用的原生菜单和更新对话框（dsh 只提供这些内容的英文和中文版本）。较新版本的 dsh 新增的字符串，在语言包更新之前会以英文显示。如果其他插件已经提供了某种语言，该语言仍由那个插件提供。
+每个语言包有 5,497 条文本：dsh `0.2.2-rc.1` 和 `0.2.2-rc.3` 的全部界面文本（对话、侧边栏、设置、审批、自动化任务、文件预览、插件管理器、插件市场）、插件自己的控件，以及常用的 [dsh-rewind](https://github.com/SiriLee/dsh-rewind) 插件。以下内容不会翻译：你的消息、模型输出、代码、斜杠命令名称（`/plan`、`/compact`）、由提供商定义的标签（例如推理强度 `High`）、其他插件的文本，以及桌面应用的原生菜单和更新对话框（dsh 只提供这些内容的英文和中文版本）。较新版本的 dsh 新增的字符串，在语言包更新之前会以英文显示。如果其他插件已经提供了某种语言，该语言仍由那个插件提供。 从 dsh 0.2.2 起，dsh 自带 日本語、Español、Français、Deutsch 和 Русский：这些语言使用 dsh 自己的文本，语言包只补充插件自己的文本（Português (Brasil) 仍是 dsh 的 Português 之外的单独语言）。
 
 ## 键盘快捷键
 
@@ -177,7 +177,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 ## 兼容性
 
-已在 dsh `0.2.0-rc.2`（桌面版和网页版）和 `0.2.1-rc.2`（网页版）上测试。每次推送时，CI 都会运行测试。
+已在 dsh `0.2.2-rc.1`（桌面版和网页版）和 `0.2.2-rc.3`（网页版）上测试。每次推送时，CI 都会运行测试。
 
 ## 隐私与安全
 
@@ -236,7 +236,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **对话行上没有分支标签：** 侧边栏不是“单列表”视图（在“按工作区”和“按工作区树”中，对话行都不显示标签）；或者安装此版本后，该对话还没有新的一轮；或者它的文件夹不是 git 仓库；或者 **对话行显示 Git 分支** 已关闭。更新后，请重启 dsh（分支由 Host 端记录）。
 - **目标检查显示测试以代码 127 或 “not found” 退出：** 从 Finder 或程序坞启动的 dsh 的 PATH 可能比终端里的短，因此找不到 `npm`、`pnpm` 或 `cargo`。请从终端启动 dsh，或者在 **目标检查** → **编辑** 中用完整路径设置你自己的测试命令。**立即运行** 会马上显示结果。
 - **目标没有关闭，智能体一直在工作：** **目标检查** 发现了失败的测试或缺少的工作；目标下方的一行会显示原因（将鼠标悬停在结果上可查看详情）。请修正原因或测试命令，或者用 `/goal` 或目标栏自己完成目标（这不会被检查）。
-- **刚发布新版本时安装失败：** 请加上版本号（`dsh-composer-plus@1.28.0`），见上文的安装说明。
+- **刚发布新版本时安装失败：** 请加上版本号（`dsh-composer-plus@1.29.0`），见上文的安装说明。
 - **立即备份显示“另一个备份操作正在进行”：** 另一个 dsh 窗口或救援控制台中正在运行一个操作（它们共用备份文件夹中的锁文件 `.composer-plus.lock`）。请等待它完成。如果没有操作在运行，下次点击时会接管已关闭进程留下的锁。
 - **救援控制台显示“dsh is running”：** 请先退出 dsh。如果 dsh 确实已关闭，消息中提到的文件是崩溃后留下的：删除它，然后重试。
 - **恢复后 dsh 无法启动或缺少插件：** 需要重新安装 profile 的插件包。恢复后，救援控制台会提供这一步；你也可以在它列出的 `$DSH_HOME/profiles/` 下的每个文件夹中运行 `pnpm install`。不在 vault 中的机密（另一台电脑）必须重新输入：控制台会列出它们。
@@ -456,7 +456,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 **怎样让智能体整理一个混乱的代码库？** 在对话中输入 `/untangle-codebase`（**理清代码库**，默认开启），可在后面加上要关注的部分，例如 `/untangle-codebase src/api`。智能体会先列出重复代码、隐藏的耦合、多余的包装层、无用代码和特殊处理，然后以目标的方式修复，并用子智能体再次检查。请在 **每个对话一个分支** 的对话中启动，让这些改动留在单独的分支上。
 
-**它支持桌面应用吗？** 支持：设置 → 插件 → **添加插件** → `dsh-composer-plus`。已在 dsh 0.2.0-rc.2（桌面版和网页版）和 0.2.1-rc.2（网页版）上测试。
+**它支持桌面应用吗？** 支持：设置 → 插件 → **添加插件** → `dsh-composer-plus`。已在 dsh 0.2.2-rc.1（桌面版和网页版）和 0.2.2-rc.3（网页版）上测试。
 
 ## 开发
 

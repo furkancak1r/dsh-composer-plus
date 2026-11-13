@@ -347,8 +347,9 @@ try {
       assert.ok(fit.cardOverflow <= 1 && fit.titleRight <= fit.cardRight + 0.5, `a long title stays in its card (${JSON.stringify(fit)})`);
       // A narrow window (the columns at their 140 px minimum): each word of a title stays whole on one line (the owner saw
       // "firması / na", "araştırm / ası").
-      // Three columns: 540 px puts them at their minimum (the board has the full width: no project column next to it).
-      await page.setViewportSize({ width: 540, height: 820 }); await pause(400);
+      // Three columns: 480 px puts them at their minimum (no project column next to them). On dsh 0.2.2 the board gets the
+      // whole 540 px window ((540 - 40 - 20) / 3 = 160 px columns), so the test uses 480 px: (480 - 40 - 20) / 3 = 140 px.
+      await page.setViewportSize({ width: 480, height: 820 }); await pause(400);
       const colWidth = await column('done').evaluate((el) => Math.round(el.getBoundingClientRect().width));
       assert.ok(colWidth <= 150, `the columns are at their minimum width (${colWidth}px)`);
       const words = await boardPage.evaluate((el) => [...el.querySelectorAll('[data-cpb-card]')].flatMap((c) => {

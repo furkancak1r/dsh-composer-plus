@@ -74,7 +74,8 @@ try {
       assert.equal(state.saved, '{"x":40,"y":40,"w":1500,"h":900}', 'a browser tab writes no window size');
       // 3. Off and on again.
       await sw.click(); await page.waitForFunction(() => JSON.parse(localStorage.getItem('dsh-composer-plus.features') ?? '{}').windowSize === false);
-      await sw.click(); await page.waitForFunction(() => JSON.parse(localStorage.getItem('dsh-composer-plus.features') ?? '{}').windowSize === undefined);
+      // An on choice is stored too (true), since 1.29.0 (NATIVE_FEATURES); older copies removed it.
+      await sw.click(); await page.waitForFunction(() => JSON.parse(localStorage.getItem('dsh-composer-plus.features') ?? '{}').windowSize !== false);
       await pause(1500);
       state = await page.evaluate(() => ({ calls: window.__calls }));
       assert.deepEqual(state.calls, [], 'switching on in a tab does not move the window');
