@@ -5420,9 +5420,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       React.useEffect(() => {
         if (!running || found) return undefined;
         store.load(sessionId);
-        // dsh can draw the row a moment before the Host keeps the request: ask again until it shows (not while the window
-        // is hidden: the next second after it shows).
-        const timer = setInterval(() => { if (pageShown()) store.load(sessionId); }, 1000);
+        // dsh can draw the row a moment before the Host keeps the request: ask again until it shows.
+        const timer = setInterval(() => { store.load(sessionId); }, 1000);
         return () => clearInterval(timer);
       }, [running, found, sessionId, callId]);
       const label = secretArg(block, 'label') ?? ask?.label;
@@ -5768,14 +5767,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       };
       const offStatus = status.subscribe(onStatus);
       const offList = sessionsList.subscribe(() => { if (host === undefined) check(); });
-      // A hidden window does not ask the Host; it asks at once when it shows again.
-      // ponytail: a read that only this check sends (a chat that the Host keeps as unread but dsh shows read in two checks
-      // in a row) waits until the window shows again.
-      const shown = () => (pageShown() ? check() : undefined);
-      const timer = setInterval(shown, UNREAD_POLL_MS);
-      globalThis.document?.addEventListener?.('visibilitychange', shown);
+      const timer = setInterval(check, UNREAD_POLL_MS);
       check();
-      return () => { offStatus(); offList(); clearInterval(timer); globalThis.document?.removeEventListener?.('visibilitychange', shown); stopped = true; };
+      return () => { offStatus(); offList(); clearInterval(timer); stopped = true; };
     }
 
     /** Codex-style "Changes" page in the right sidebar: Uncommitted / Unstaged / Staged / Branch (vs upstream) with

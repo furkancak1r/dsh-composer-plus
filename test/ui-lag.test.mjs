@@ -3,7 +3,6 @@
 //     chat observers do; a quote or a code block that dsh draws in the burst is still marked at once (before the paint).
 // (b) The status panel's read (every 5 s while the assistant runs) does not read the unchanged part of the assistant
 //     chat's log again; its result stays the same as a full read (a new event, a reloaded log, a fork's offset).
-// (c) Tether's read check (every 3 s) does not ask the Host while the window is hidden, and asks at once when it shows.
 import './temp-home.mjs';
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 import { statusTasks } from '../index.js';
@@ -13,11 +12,11 @@ globalThis.localStorage = { getItem: () => null, setItem() {} };
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
 const ANCHOR = '/** Feature switches, in Settings order.';
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__lag = { decorateCallouts, markOnayBlocks, watchRead };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__lag = { decorateCallouts, markOnayBlocks };\n    ${ANCHOR}`));
 const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), useState: (v) => [v, () => {}], useRef: (v) => ({ current: v }),
   useSyncExternalStore: (_s, get) => get(), useLayoutEffect: () => {}, useEffect: () => {}, useMemo: (f) => f(), useCallback: (f) => f };
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el) => el } : {}));
-const { decorateCallouts, markOnayBlocks, watchRead } = globalThis.__lag;
+const { decorateCallouts, markOnayBlocks } = globalThis.__lag;
 
 // A fake clock: timers, frames and Date.now.
 let now = 1000; let nextId = 1; const timers = new Map(); const frames = new Map();
@@ -168,31 +167,5 @@ Object.assign(globalThis, { setTimeout: real.setTimeout, clearTimeout: real.clea
   assert.ok(touched >= reloaded.length, 'a reloaded log is read again');
   assert.deepEqual(await statusTasks(snapshot(reloaded), 1001, () => undefined, opts(scan)), await statusTasks(snapshot(reloaded), 1001, () => undefined, opts()), 'another offset: the same as a full read');
   assert.deepEqual(await statusTasks(snapshot(reloaded.slice(0, 3000)), 0, () => undefined, opts(scan)), await statusTasks(snapshot(reloaded.slice(0, 3000)), 0, () => undefined, opts()), 'a shorter log: the same as a full read');
-}
-// --- (c) The 3 s read check of Tether's dots: not while the window is hidden ---
-{
-  const ticks = []; const shows = new Set(); let gets = 0;
-  const keep = { setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval };
-  globalThis.setInterval = (fn) => { ticks.push(fn); return ticks.length; };
-  globalThis.clearInterval = () => { ticks.length = 0; };
-  globalThis.document = { visibilityState: 'visible', addEventListener: (type, fn) => { if (type === 'visibilitychange') shows.add(fn); }, removeEventListener: (type, fn) => { shows.delete(fn); } };
-  const store = (value) => ({ getSnapshot: () => value, subscribe: () => () => {} });
-  const stop = watchRead(store(new Map()), store({ phase: 'ready', byId: {} }), async (init) => { if (init?.method !== 'POST') gets += 1; return { on: true, unread: [] }; });
-  await new Promise((r) => { real.setTimeout(r, 0); });
-  assert.equal(gets, 1, 'a check at the start');
-  ticks[0](); await new Promise((r) => { real.setTimeout(r, 0); });
-  assert.equal(gets, 2, 'shown: a check every 3 s');
-  globalThis.document.visibilityState = 'hidden';
-  for (let i = 0; i < 5; i++) ticks[0]();
-  for (const fn of shows) fn();
-  await new Promise((r) => { real.setTimeout(r, 0); });
-  assert.equal(gets, 2, 'hidden: no check');
-  globalThis.document.visibilityState = 'visible';
-  for (const fn of shows) fn();
-  await new Promise((r) => { real.setTimeout(r, 0); });
-  assert.equal(gets, 3, 'shown again: a check at once');
-  stop();
-  assert.equal(shows.size, 0, 'stopped: no listener stays');
-  Object.assign(globalThis, keep);
 }
 console.log('ui-lag: ok');
