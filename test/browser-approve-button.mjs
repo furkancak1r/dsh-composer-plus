@@ -17,7 +17,9 @@
 //    "Done."). The button still shows, under the turn's end, and a click sends the sentence.
 // 8. The `onay` answer ends its turn while a background subagent runs; the subagent's result then starts a new turn that
 //    ends with "X finished." (owner, 2026-11-11: "onay butonu çıkmıyor"). The button of the earlier turn's sentence shows.
-// 9. No page errors.
+// 9. A block longer than 500 characters (owner, 2026-11-13: blocks of 1092 to 1439 characters): no button; your next
+//    message's request carries one note with the length, and the request after it has no second note.
+// 10. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-approve-button.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/approveButton.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -48,6 +50,8 @@ const LONG = 'Onaylıyorum: bu turda Composer Plus Asistan iyileştirme otomasyo
 const LABELS = [...readFileSync(join(repo, 'client.js'), 'utf8').matchAll(/'approve\.button': '([^']+)'/g)].map((m) => m[1])
   .concat(readdirSync(join(repo, 'locales')).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(repo, 'locales', f), 'utf8'))['dsh-composer-plus']['approve.button']));
 assert.equal(new Set(LABELS).size, 13, `13 labels: ${LABELS}`);
+const TOO_LONG = `Onaylıyorum: ${'demo-app için uzun onay. '.repeat(25)}`.trim();
+const NOTE = 'Composer Plus → Approve button: your last `onay` block had';
 const ANSWER = (sentence) => `The login fix is ready on its branch. Pushing it needs your approval:\n\n\`\`\`onay\n${sentence}\n\`\`\`\n`;
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const RULE = '# Approve button (Composer Plus)';
@@ -68,9 +72,10 @@ const fake = createServer((req, res) => {
     if (/You predict the next message|You complete the message that the user is typing|next message that the user will type/.test(all)) return say('');
     const users = msgs.filter((m) => m.role === 'user').map((m) => textOf(m.content)).filter((u) => !/runtime context|Time sampled while preparing|^<system-reminder>/i.test(u));
     const last = users.at(-1) ?? '';
-    calls.push({ last, rule: all.includes(RULE) });
+    calls.push({ last, rule: all.includes(RULE), notes: all.split(NOTE).length - 1, users });
     const n = last.match(/^approve:(\d+)$/)?.[1];
     if (n) return say(ANSWER(SENTENCE(n)));
+    if (last === 'toolong') return say(ANSWER(TOO_LONG));
     if (last === 'live') return say(ANSWER(LIVE));
     if (last === 'long') return say(ANSWER(LONG));
     if (last === 'mid') return msgs.at(-1)?.role === 'tool' ? say('Done.') : sayThenTool(ANSWER(MID));
@@ -264,6 +269,21 @@ try {
       assert.equal(await approve.count(), 1, 'one button group, under the newest turn');
       assert.ok(calls.some((c) => /Background subagent .* finished/.test(c.last)), 'the new turn came from the subagent\'s result');
       assert.equal(await page.locator('[data-chat-flow-kind="user"]').filter({ hasText: 'Background subagent' }).count(), 0, 'dsh does not show the result as your message');
+
+      // 9. A too long block: no button; one note in the next request (with the length), none in the request after it.
+      assert.ok(TOO_LONG.length > 500, `the sentence is too long: ${TOO_LONG.length}`);
+      const dones9 = await dones.count();
+      await typeSend('toolong'); await page.getByText(TOO_LONG, { exact: true }).first().waitFor({ state: 'attached', timeout: 20000 }); await pause(2000);
+      assert.equal(await approve.count(), 0, 'a block longer than 500 characters gets no button (and hides the older one)');
+      const before9 = calls.length;
+      await typeSend('after-long'); await until(async () => (await dones.count()) > dones9, 'the answer to the next message');
+      const after = calls.slice(before9).find((c) => c.users.includes('after-long'));
+      assert.ok(after, `the next request: ${JSON.stringify(calls.slice(before9).map((c) => c.last))}`);
+      assert.equal(after.notes, 1, 'one note in the next request');
+      assert.ok(after.users.some((u) => u.startsWith(NOTE) && u.includes(`had ${TOO_LONG.length} characters`)), 'the note has the length');
+      assert.ok(after.users.indexOf('after-long') < after.users.findIndex((u) => u.startsWith(NOTE)), 'your message comes before the note');
+      const before9b = calls.length; await typeSend('approve:4'); await approve.waitFor({ timeout: 20000 });
+      assert.equal(calls.slice(before9b).find((c) => c.last === 'approve:4')?.notes, 1, 'no second note: the old one stays in the history only');
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;

@@ -9603,24 +9603,63 @@ export function installUntangle(ctx, home, file = join(home, 'storages', 'dsh-co
 /** Approve button (Host half): the prompt rule that makes the agent write an approval sentence in an `onay` block; the
  * client shows the button. On by default (no port, no model call); the switch adds and removes the section in one fiber. */
 export const APPROVE_PATH = '/api/composer-plus.approve-button';
+/** The longest `onay` block that gets a button: the client's APPROVAL_MAX (client.js) has the same value, and
+ * test/approve-button.test.mjs fails when the two differ (the client cannot import this file). */
+export const APPROVAL_MAX = 500;
+const APPROVE_LONG_SOURCE = 'composer-plus-approve-long';
+/** The note for an agent whose newest `onay` block got no button because it was too long (owner, 2026-11-13: blocks of
+ * 1092 to 1439 characters showed only as code, and the owner typed a 1439-character sentence by hand). */
+export const approveLongNote = (length) => `Composer Plus → Approve button: your last \`onay\` block had ${length} characters, more than ${APPROVAL_MAX}, so it showed only as code, without the button. When an approval is still pending, write its block again with at most ${APPROVAL_MAX} characters: the most urgent approvals that fit, and one short line that says how many still wait.`;
+const approveLongMessage = (length) => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: approveLongNote(length) })]),
+  source: Object.freeze({ kind: APPROVE_LONG_SOURCE, form: 'snapshot' }) });
 export const APPROVE_SECTION = `# Approve button (Composer Plus)
 Auto review accepts an approval only from a user message. When you need a written approval sentence from the user, write the exact sentence in a fenced code block with the info string \`onay\`, for example:
 \`\`\`onay
 Onaylıyorum: feature/x dalını origin'e push et.
 \`\`\`
-A button under your answer sends the block's text as the user's message with one click. Write at most one \`onay\` block per answer: one sentence, in the user's language, that names everything that needs the approval, and nothing else in the block. Keep the block under 500 characters: a longer block shows only as code, without the button. Use an \`onay\` block only for an approval sentence. Each approval sentence gets the block, also one that names a live or public target (production, a live database, a deploy, a release, npm publish, a public PR). Write at most one \`onay\` block in the chat at a time. When several approvals are pending, put all of them in one sentence in one block in your newest reply: only the newest block gets a button. After a user message, when an approval is still pending, include it again in the next \`onay\` block, together with any new approval. Keep the sentence short: name the targets and the live or not-live scope, without file lines or script names.`;
+A button under your answer sends the block's text as the user's message with one click. Write at most one \`onay\` block per answer: one sentence, in the user's language, that names what needs the approval, and nothing else in the block. Keep the block at most ${APPROVAL_MAX} characters, always: a longer block shows only as code, without the button. Use an \`onay\` block only for an approval sentence. Each approval sentence gets the block, also one that names a live or public target (production, a live database, a deploy, a release, npm publish, a public PR). Write at most one \`onay\` block in the chat at a time. When several approvals are pending, put them in one sentence in one block in your newest reply: only the newest block gets a button. When the pending approvals do not fit in ${APPROVAL_MAX} characters, put the most urgent ones that fit in the block and write one short line outside the block that says how many approvals still wait. They come in your next replies. After a user message, when an approval is still pending, include it again in the next \`onay\` block, together with any new approval. Keep the sentence short: name the targets and the live or not-live scope, without file lines or script names.`;
 export function installApproveButton(ctx, home, file = join(home, 'storages', 'dsh-composer-plus', 'approve-button.json')) {
   const sw = mobileSwitch(file, true);
   let on = false;
   let fiber;
+  const long = new Map(); // chat id → { seq, length } of its newest `onay` block when that block is too long
   const apply = (next) => {
     on = next;
     if (on && fiber === undefined && typeof ctx.inject === 'function') {
       fiber = ctx.inject(['systemPrompt'], (sub) => { sub.systemPrompt.section({ name: 'composer-plus:approve-button', order: 661, interpolate: false, text: () => APPROVE_SECTION }); });
-    } else if (!on) { fiber?.dispose?.(); fiber = undefined; }
+    } else if (!on) { fiber?.dispose?.(); fiber = undefined; long.clear(); }
   };
+  // A chat whose newest `onay` block is too long gets one note in its next step.
+  // ponytail: the note joins only a step that has a message with text already (your message, a subagent's result, a
+  // note); it never starts a step or a turn, so it cannot loop. dsh's runtime context and an empty wake marker do not
+  // count (another hook can remove the marker). A long block whose next step has no such message gets the note later.
+  // Upgrade: a wake (wakeWithContinue) if the owner wants the fix in the same turn.
+  ctx.on?.('session/event', (session, event) => {
+    if (!on || !isText(session?.id)) return;
+    if (event?.type === 'user/message' && [ROLLBACK_SOURCE, REWIND_SOURCE].includes(event.data?.source?.kind)
+      && Array.isArray(event.sourceEventSeqs) && event.sourceEventSeqs.length > 0 && long.get(session.id)?.seq >= Math.min(...event.sourceEventSeqs)) {
+      long.delete(session.id); return; // the long block was withdrawn (rule 9)
+    }
+    const from = Number.isSafeInteger(session.inheritedEventCount) ? session.inheritedEventCount : 0;
+    if (event?.type !== 'assistant/message' || !(event.seq >= from)) return; // a fork's copied answer is not its own (rule 10)
+    const blocks = onayBlocks(textBlocks(event.data?.message?.content));
+    if (blocks.length === 0) return; // an answer without a block keeps the newest block (the client does the same)
+    const length = Math.max(...blocks.map((b) => b.length));
+    long.delete(session.id);
+    if (length > APPROVAL_MAX) long.set(session.id, { seq: event.seq, length });
+    if (long.size > 100) long.delete(long.keys().next().value);
+  });
+  ctx.on?.('agent/pre-step', async (payload, next) => {
+    const decision = await next();
+    const id = payload?.agent?.session?.id ?? payload?.agent?.id;
+    const hit = long.get(id);
+    if (!on || hit === undefined || decision?.kind !== 'enter' || !Array.isArray(decision.messages)
+      || !decision.messages.some((m) => m?.source?.kind !== 'runtime-context' && Array.isArray(m?.content) && m.content.length > 0)) return decision;
+    long.delete(id);
+    return { ...decision, messages: [...decision.messages, approveLongMessage(hit.length)] };
+  });
   const ready = sw.read().then(apply, () => apply(true));
-  ctx.effect?.(() => () => { on = false; fiber?.dispose?.(); fiber = undefined; }, 'dsh-composer-plus: approve button');
+  ctx.effect?.(() => () => { on = false; fiber?.dispose?.(); fiber = undefined; long.clear(); }, 'dsh-composer-plus: approve button');
   let switching = ready;
   ctx.connection.fetch.register({
     path: APPROVE_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',

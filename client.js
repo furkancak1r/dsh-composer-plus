@@ -6506,7 +6506,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
      * combining character, a letter outside the English and Turkish alphabets, a non-ASCII digit or separator: such a
      * character can make the sentence read as other words than it says). You send what you see. A sentence that names a
      * live or public target (production, a deploy, a release) gets its button too (owner, 2026-11-11). */
-    const APPROVAL_MAX = 500;
+    const APPROVAL_MAX = 500; // the Host's APPROVAL_MAX (index.js) has the same value: test/approve-button.test.mjs checks it
     /** Printable ASCII, the Turkish letters, new lines and a few typographic marks (after NFC). */
     const APPROVAL_CHARS = /^[\x20-\x7E\n\tçğıöşüâîûÇĞİÖŞÜÂÎÛ‘’“”–—…→«»]*$/;
     const approvable = (text) => text !== '' && text.length <= APPROVAL_MAX && APPROVAL_CHARS.test(text.normalize('NFC'));
@@ -6556,7 +6556,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
      * of the turn (the owner, 2026-11-11: "onay butonu çıkmıyor kod bloğu çıkıyor"). Such a message can also start a new
      * turn after the answer's turn ended: the answers of earlier turns after your newest message count too (dsh draws
      * that message as a context row, not as yours). Only the newest answer that has an `onay` block counts: its block
-     * holds all pending approvals, so an older block is not shown again (the owner, 2026-11-12: "tek seferde tek onay
+     * holds the pending approvals that fit, so an older block is not shown again (the owner, 2026-11-12: "tek seferde tek onay
      * butonu gösterilsin ve hepsi tek butonda yer alsın"); a newer answer without a block keeps it. A newest block that
      * gets no button (too long, a character outside APPROVAL_CHARS) still hides the older ones. An answer before your
      * newest message (you answered or skipped it), a withdrawn one (`spans`) and a fork's inherited one (`from`) give
