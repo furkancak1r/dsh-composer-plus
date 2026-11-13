@@ -3153,4 +3153,5 @@ result, so the model could lose the task text. It stays a proposal.
 Checks: test/assistant-todos.test.mjs, test/project-memory.test.mjs (each red on main), npm test, build-docs --check.
 Decision: test/tether-gateway.test.mjs "paired iPhones" failed once with ERR_SSL_WRONG_VERSION_NUMBER and passed on the
 rerun (flaky, not part of this change).
-Last checkpoint: review round 1 fixes done; review round 2 next.
+Review round 2: no P1/P2; two P3 fixed (a Topics line is compared under its heading; tests for a waiting change and a refused add).
+Last checkpoint: rebased on origin/main 9dcd6fc, npm test and build-docs --check green; merge to main next.

@@ -237,6 +237,12 @@ assert.equal(ctxEntry.text({ agent: otherAgent }), '', 'another chat gets no con
   await tool('todo_list_add').execute({ text: 'Bir madde daha', owner: 'agent' }, { agent: assistantAgent });
   assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'an own add in the running turn: the context does not change');
   const extra = todos.store.of('s-a').find((i) => i.text === 'Bir madde daha');
+  assert.match(await tool('todo_list_add').execute({ text: 'Bir madde daha', waiting: 'needs the folder path' }, { agent: assistantAgent }), /waiting for the user/);
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'an own waiting change: the result tells it, the context stays');
+  await tool('todo_list_add').execute({ text: 'Bir madde daha', waiting: '' }, { agent: assistantAgent });
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'waiting "" too');
+  await assert.rejects(tool('todo_list_add').execute({ text: 'x'.repeat(501) }, { agent: assistantAgent }), (e) => e.status === 400);
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'a refused add: no change');
   await tool('todo_list_remove').execute({ id: extra.id, reason: 'completed' }, { agent: assistantAgent });
   assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'an own remove in the running turn: no change either');
   await tool('todo_list_add').execute({ text: 'Sonraki tur maddesi' }, { agent: assistantAgent });

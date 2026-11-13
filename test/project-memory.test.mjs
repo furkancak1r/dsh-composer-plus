@@ -214,6 +214,9 @@ try {
     await tool('memory_remember').execute({ text: 'A topic note', topic: 'newtopic' }, exec);
     const logged3 = `x\n\n${sectionOf({ id: 'chat-base-3', session: session([]) }).replace(/\nTopics: [^\n]*/g, '')}\n\n# Next`;
     assert.match(sectionOf({ id: 'chat-topic', session: session([sys(logged3)]) }), /\[\[newtopic\]\]/, 'a new topic: the new notes');
+    const current = sectionOf({ id: 'chat-base-4', session: session([]) });
+    const moved = current.replace(/\nTopics: ([^\n]*)/, '').replace(/(## Global memory \(every project\)[\s\S]*)$/, (g) => `${g}\nTopics: [[newtopic]]`);
+    assert.equal(keptMemorySection(current, `x\n\n${moved}\n\n# Next`, new Set([mem.store.project(project), mem.store.GLOBAL].flatMap((s) => mem.store.load(s)[0].entries.map((e) => formatEntry(e.text, e.meta))))), current, 'a topic under the other heading: the new notes');
     for (const e of ['Saved before the restart', 'Only added later', 'A topic note']) await tool('memory_forget').execute({ entry: e }, exec); }
   assert.match(await tool('memory_forget').execute({ entry: 'saved later' }, exec), /^Removed/);
   assert.match(await tool('memory_recall').execute({}, { agent: { id: 'x', session: { header: {} } } }), /global memory/, 'no folder: global only');

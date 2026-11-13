@@ -6944,8 +6944,8 @@ export function keptMemorySection(text, prompt, saved) {
   let end = global + 1;
   while (end < lines.length && lines[end] !== '') end++;
   const old = lines.slice(start, end);
-  // The Topics lines in order (project, then global): a new or removed topic gives the new section.
-  const topics = (part) => part.filter((l) => l.startsWith('Topics: ')).join('\n');
+  // The Topics lines under their headings (project, then global): a new, removed or moved topic gives the new section.
+  const topics = (part) => part.filter((l) => l.startsWith('Topics: ') || l.startsWith('## ')).join('\n');
   if (topics(old) !== topics(fresh)) return text;
   if (!old.slice(head + 1).every((l) => !l.startsWith('- ') || saved?.has(l) === true)) return text;
   return old.join('\n');
