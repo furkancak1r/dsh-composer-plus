@@ -9835,6 +9835,39 @@ export function assistantTasks(file, now = Date.now) {
   };
 }
 
+/** dsh's question cards that a message can answer, in the chats where `takes(agent)` is true. The outermost answerer of
+ * dsh's question waterfall: the card shows as usual (next), and `answer(agent, text)` answers the chat's oldest open card
+ * first: each question gets the text as its own answer, and the card closes on every screen. Approval and plan-review
+ * cards (with an intent) are not touched. `answer` gives false when no card was open (or it closed meanwhile).
+ * ponytail: the card closes through the request's own signal (dsh's gateway cancels a forwarded card when it aborts), so
+ * the signal is joined with this one before the card goes out. Upgrade when dsh lets a plugin close a card it did not open. */
+function answerableCards(ctx, takes, by) {
+  const cards = new WeakMap(); // agent → its open question cards, oldest first
+  ctx.on('user-questions/request', async (request, next) => {
+    const agent = request?.agent;
+    if (!takes(agent) || !Array.isArray(request.questions) || request.questions.some((q) => q?.intent !== undefined)) return next();
+    const stop = new AbortController(); const typed = Promise.withResolvers();
+    const card = { answer: (text) => {
+      if (text === '' || stop.signal.aborted) return false;
+      typed.resolve({ answers: request.questions.map((q) => ({ id: q.id, selected: [], custom: text })) });
+      stop.abort(new Error(`Composer Plus → Assistant: answered with ${by}`));
+      return true;
+    } };
+    request.signal = request.signal instanceof AbortSignal ? AbortSignal.any([request.signal, stop.signal]) : stop.signal;
+    cards.set(agent, [...(cards.get(agent) ?? []), card]);
+    try {
+      const shown = Promise.resolve().then(next);
+      shown.catch(() => {}); // after a message answered it, the closed card rejects; that is expected
+      return await Promise.race([shown, typed.promise]);
+    } finally {
+      // Answered on a screen or closed: out of the map, so a later message only joins the turn.
+      const left = (cards.get(agent) ?? []).filter((c) => c !== card);
+      if (left.length > 0) cards.set(agent, left); else cards.delete(agent);
+    }
+  }, true);
+  return { open: (agent) => cards.has(agent), answer: (agent, text) => cards.get(agent)?.[0]?.answer(text) === true };
+}
+
 /** Assistant (Host half): the switch route; while on, the `assistant` route, the tools, the approval and the section. */
 export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-composer-plus'), folder = join(homedir(), 'Assistant'), zone } = {}) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
@@ -9909,6 +9942,12 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     return { id, header };
   };
   const signalOf = (exec) => AbortSignal.any([exec?.signal ?? new AbortController().signal, AbortSignal.timeout(STOP_WAIT_MS)]);
+  // chat_send to a chat whose question card waits (2026-11-13: five chats waited 55 minutes with the answers in their
+  // queue: a queued message runs only after the turn, and the turn waits for the card): the message answers the card and
+  // goes into the same turn at its next step. Only root chats other than the assistant (chat_send's targets).
+  // ponytail: a card is held only when it opens while Assistant is on, so a card that opened while it was off still waits
+  // for the user (chat_send queues behind it, as before). Upgrade: answer such a card through dsh's own question state.
+  const cards = answerableCards(ctx, (agent) => on && isText(chatOf(agent)) && !isAssistant(agent), 'chat_send');
   const tools = [
     {
       name: 'chats_list',
@@ -9962,7 +10001,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     },
     {
       name: 'chat_send',
-      description: 'Send a message to another chat, as the user would type it there. It waits in that chat\'s queue when the chat runs. You get a note with the chat\'s reply when the turn of this message ends, or when the chat waits for the user. Needs approval: the user\'s approval card, or Auto review in the Auto permission mode.',
+      description: 'Send a message to another chat, as the user would type it there. It waits in that chat\'s queue when the chat runs. When the chat waits on a question card (ask_user_question, not an approval or a plan review), the message is the answer to each question of the card, and the chat continues at once. You get a note with the chat\'s reply when the turn of this message ends, or when the chat waits for the user. Needs approval: the user\'s approval card, or Auto review in the Auto permission mode.',
       parameters: { type: 'object', properties: {
         chat_id: { type: 'string', description: 'The chat id from chats_list' },
         text: { type: 'string', description: `The message, at most ${ASSISTANT_LIMITS.text} characters` },
@@ -9978,16 +10017,20 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         // keeps its fields and what it waits for.
         const title = await titleOf(id); const old = tasks.get(id); const requestId = randomUUID();
         await tasks.add(id, withRpc(old ?? { ...(title === undefined ? {} : { title }), project: projectFor(id, header?.cwd, workspaces()) }, [...rpcOf(old), requestId]));
+        // An open question card: the message joins the waiting turn (steer), and the card gets it as its answer below.
+        const agent = get('agents')?.get?.(id); const card = cards.open(agent);
         try {
           // Not the call's signal: once admitted, the message must reach the chat whole.
-          await ctx.sessionController.prompt({ requestId, sessionId: id, mode: 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
+          await ctx.sessionController.prompt({ requestId, sessionId: id, mode: card ? 'steer' : 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
         } catch (error) {
           // No wait for a message that did not go (only its own id: another call can add one meanwhile).
           const now = tasks.get(id); const rpc = rpcOf(now).filter((r) => r !== requestId);
           if (now !== undefined) await (rpc.length === 0 ? tasks.drop(id) : tasks.add(id, withRpc(now, rpc)));
           throw error;
         }
-        return `Sent to "${title ?? id}" (${id}). You get a note with its reply when the turn of this message ends or the chat waits for the user.`;
+        // After the message went: if dsh refused it, no card is answered.
+        const answered = card && cards.answer(agent, text);
+        return `Sent to "${title ?? id}" (${id}).${answered ? ' It answered the question card that waited there, so the chat continues now.' : ''} You get a note with its reply when the turn of this message ends or the chat waits for the user.`;
       },
     },
     {
@@ -10108,7 +10151,12 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     // The whole message (the tools refuse more than ASSISTANT_LIMITS.text): the user approves what is sent, so the card
     // must not cut it. dsh's card draws the reason as plain text (no HTML) in its scrolling body.
     const quote = typeof a.text === 'string' ? `: "${cutEnd(a.text.trim(), ASSISTANT_LIMITS.text)}"` : '';
-    const own = `Composer Plus → Assistant wants to ${words}${quote}`;
+    // The user approves a decision too when the message will answer the chat's waiting question card (the chat id as
+    // chat_send reads it). ponytail: the state when the card shows; a question card that opens while this card waits is
+    // answered too, without this line (2026-11-09: a message while a question card is open is its answer).
+    const sendTo = String(a.chat_id ?? '').trim();
+    const answers = exec.name === 'chat_send' && isText(sendTo, 128) && cards.open(get('agents')?.get?.(sendTo)) ? ' It answers the question card that waits there.' : '';
+    const own = `Composer Plus → Assistant wants to ${words}${quote}${answers}`;
     return { kind: 'ask', reason: decision.kind === 'ask' && typeof decision.reason === 'string' && decision.reason !== '' ? `${own} ${decision.reason}` : own };
   });
 
@@ -11051,7 +11099,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   let lastEnd; // reason kind of the assistant chat's newest turn end
   // A message that you type while a question card of the assistant is open answers the card (each question gets your text
   // as its own answer) and closes it on every screen; the message also stays in the chat, so nothing is lost.
-  const cards = new Map(); // assistant agent → its open question cards, oldest first
+  const cards = answerableCards(ctx, interjects, 'a chat message');
   const patch = (agent) => {
     if (patched.has(agent) || !assistant.isAssistant(agent) || typeof agent.followup !== 'function' || typeof agent.steer !== 'function' || typeof agent.inject !== 'function') return;
     const original = { followup: agent.followup, steer: agent.steer };
@@ -11064,7 +11112,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
       }
       if (interjects(agent) && agent.status === 'running' && typedPrompt(message)) {
         const result = original.steer.call(agent, message); // first: if dsh refuses it, no card is answered
-        cards.get(agent)?.[0]?.answer(textBlocks(message.content).trim());
+        cards.answer(agent, textBlocks(message.content).trim());
         return result;
       }
       return original[name].call(agent, message);
@@ -11073,33 +11121,9 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
     agent.steer = (message) => deliver('steer', message);
     patched.set(agent, () => { for (const name of ['followup', 'steer']) { if (own[name]) agent[name] = original[name]; else delete agent[name]; } });
   };
-  // Outermost answerer of dsh's question waterfall: the card shows as usual (next), and a typed message can answer it first.
-  // ponytail: the card closes through the request's own signal (dsh's gateway cancels a forwarded card when it aborts), so
-  // the signal is joined with this one before the card goes out. Approval and plan-review cards (with an intent) are not
-  // touched. Upgrade when dsh lets a plugin close a card it did not open.
-  ctx.on('user-questions/request', async (request, next) => {
-    const agent = request?.agent;
-    if (!interjects(agent) || !Array.isArray(request.questions) || request.questions.some((q) => q?.intent !== undefined)) return next();
-    const stop = new AbortController(); const typed = Promise.withResolvers();
-    const card = { answer: (text) => {
-      if (text === '' || stop.signal.aborted) return;
-      typed.resolve({ answers: request.questions.map((q) => ({ id: q.id, selected: [], custom: text })) });
-      stop.abort(new Error('Composer Plus → Assistant: answered with a chat message'));
-    } };
-    request.signal = request.signal instanceof AbortSignal ? AbortSignal.any([request.signal, stop.signal]) : stop.signal;
-    cards.set(agent, [...(cards.get(agent) ?? []), card]);
-    try {
-      const shown = Promise.resolve().then(next);
-      shown.catch(() => {}); // after a typed answer, the closed card rejects; that is expected
-      return await Promise.race([shown, typed.promise]);
-    } finally {
-      const left = (cards.get(agent) ?? []).filter((c) => c !== card);
-      if (left.length > 0) cards.set(agent, left); else cards.delete(agent);
-    }
-  }, true);
   const unpatch = (agent) => { patched.get(agent)?.(); patched.delete(agent); };
   ctx.on('agent/created', ({ agent } = {}) => { patch(agent); });
-  ctx.on('agent/disposed', ({ agent } = {}) => { patched.delete(agent); held.delete(agent); cards.delete(agent); });
+  ctx.on('agent/disposed', ({ agent } = {}) => { patched.delete(agent); held.delete(agent); });
   ctx.on('session/event', (session, event) => {
     if (event?.type === 'turn/end' && isText(session?.id) && session.id === assistant.id()) lastEnd = event.data?.reason?.kind;
   });

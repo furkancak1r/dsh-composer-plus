@@ -9,12 +9,14 @@
 // - A wait in that turn is news as for chat_new. A turn whose first step failed logs no prompt: the queued message that
 //   dsh took to start it counts. dsh's quit in that turn keeps the task, and the continued turn gives the note.
 // - A failed send drops the task that it added, and keeps an older task of the chat (a chat_new branch chat) as it was.
+// - A message to a chat whose question card waits answers the card (custom text), closes it and joins the same turn
+//   (steer); an approval card and the Assistant switched off keep the card as it was.
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_NOTIFY_PATH, ASSISTANT_PATH, installAssistant, installAssistantBot } from '../index.js';
+import { ASSISTANT_NOTIFY_PATH, ASSISTANT_PATH, ASSISTANT_SWITCH_PATH, installAssistant, installAssistantBot } from '../index.js';
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (fn, what, ms = 3000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(5); } };
@@ -194,6 +196,56 @@ try {
   ended(web);
   await until(() => steers.length === 11, 'the task note');
   assert.match(await noteOf(10), /chat s-web, your delegated task\): finished\. Last reply: "Yapıldı\."/);
+
+  // A question card waits in the chat (dsh's ask_user_question without intent; 2026-11-13: five chats waited 55 minutes
+  // with the answers in their queue): the message answers the card (each question gets the text), the card closes on every
+  // screen (its request signal aborts) and the message goes into the same turn (steer), whose end gives the note.
+  // dsh's card answerer (api-remotes, the innermost listener here) settles only when a screen answers or the signal aborts.
+  const shown = [];
+  const ask = (agent, questions) => {
+    const request = { agent, questions, signal: new AbortController().signal }; const given = request.signal;
+    const fns = listeners.get('user-questions/request') ?? [];
+    const run = (i) => (i < fns.length ? fns[i](request, () => run(i + 1)) : new Promise((resolve, reject) => {
+      shown.push({ request, resolve }); request.signal.addEventListener('abort', () => reject(request.signal.reason), { once: true });
+    }));
+    return { request, given, answer: run(0) };
+  };
+  const within = (promise) => Promise.race([promise, pause(300).then(() => 'still open')]);
+  const questions = [{ id: 'field', question: 'Which field?', options: [{ label: 'MinLevel (Recommended)' }] }, { id: 'scope', question: 'Which warehouses?' }];
+  push(web, stop, start, said('Depo stok paneli'), { type: 'tool/call', data: { name: 'ask_user_question', callId: 'q1' } });
+  const card = ask(web, questions);
+  await until(() => shown.length === 1, 'the card shows');
+  const answer = '1. MinLevel 2. Tümü';
+  // The approval card says that the message answers a waiting question (the user approves that decision too).
+  const gate = listeners.get('tools/pre-execute')[0];
+  const reason = async (chat) => (await gate({ name: 'chat_send', agent: me, arguments: { chat_id: chat, text: answer } }, async () => ({ kind: 'allow' }))).reason;
+  assert.match(await reason('s-web'), /: "1\. MinLevel 2\. Tümü" It answers the question card that waits there\.$/);
+  assert.match(await reason(' s-web '), /It answers the question card/, 'the chat id as chat_send reads it (trimmed)');
+  assert.doesNotMatch(await reason('s-branch'), /question card/, 'no card in that chat');
+  const sent = await send('s-web', answer);
+  const cardRpc = prompts.at(-1).requestId;
+  assert.deepEqual(await within(card.answer), { answers: [{ id: 'field', selected: [], custom: answer }, { id: 'scope', selected: [], custom: answer }] }, 'the message answers the card');
+  assert.equal(shown[0].request.signal.aborted, true, 'the card closes on every screen');
+  assert.equal(prompts.at(-1).mode, 'steer', 'the message goes into the same turn at its next step');
+  assert.match(sent, /answered the question card/);
+  push(web, said(answer, cardRpc), reply('Devam ediyorum.'));
+  ended(web);
+  await until(() => steers.length === 12, 'the note of that turn');
+  assert.match(await noteOf(11), /chat s-web, your delegated task\): finished\. Last reply: "Devam ediyorum\."/);
+  // An approval card (intent) stays for the user, and the message waits in the queue as before.
+  const approval = ask(web, [{ ...questions[0], intent: { kind: 'approval', approve: 'MinLevel (Recommended)', reject: 'No' }, detail: 'x' }]);
+  await until(() => shown.length === 2, 'the approval card');
+  await send('s-web', 'Evet');
+  assert.equal(await within(approval.answer), 'still open'); assert.equal(approval.request.signal, approval.given, 'the approval card is not touched');
+  assert.equal(prompts.at(-1).mode, 'queue');
+  shown[1].resolve({ answers: [] }); await approval.answer;
+  // Assistant off: the cards of the chats are not touched.
+  const off = await routes.get(ASSISTANT_SWITCH_PATH).fetch(new Request(`http://x${ASSISTANT_SWITCH_PATH}`, { method: 'POST', body: JSON.stringify({ on: false }) }));
+  assert.equal((await off.json()).on, false);
+  const offCard = ask(web, questions);
+  await until(() => shown.length === 3, 'the card while off');
+  assert.equal(offCard.request.signal, offCard.given, 'switch off: the card is not touched');
+  shown[2].resolve({ answers: [] }); await offCard.answer;
 } finally {
   await rm(home, { recursive: true, force: true });
 }
