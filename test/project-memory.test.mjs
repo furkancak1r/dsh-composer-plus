@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   MEMORY_PATH, MEMORY_TOOLS, installMemory, memoryStore, memorySection, memoryReviewRequest, memoryLines, parseMemoryReview, parseMemory, looksSecret,
-  entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE, MEMORY_PROMPT_MAX, MEMORY_REVIEW_SYSTEM, squash, keptMemorySection,
+  entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE, MEMORY_PROMPT_MAX, MEMORY_REVIEW_SYSTEM, squash, keptMemorySection, formatEntry,
 } from '../index.js';
 // The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read).
 const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
@@ -191,14 +191,30 @@ try {
     await tool('memory_remember').execute({ text: 'Saved before the restart' }, exec);
     const again = { id: 'chat-restarted', session: session([sys(logged), sys('')]) };
     assert.equal(sectionOf(again), frozen, 'a chat with a logged prompt keeps its notes');
-    assert.equal(keptMemorySection(memorySection(mem.store, mem.store.project(project)), logged), frozen);
+    const savedLines = new Set([mem.store.project(project), mem.store.GLOBAL].flatMap((s) => mem.store.load(s)[0].entries.map((e) => formatEntry(e.text, e.meta))));
+    assert.equal(keptMemorySection(memorySection(mem.store, mem.store.project(project)), logged, savedLines), frozen);
+    assert.notEqual(keptMemorySection(memorySection(mem.store, mem.store.project(project)), logged), frozen, 'no saved entries: the new section');
     assert.match(sectionOf({ id: 'chat-new', session: session([]) }), /Saved before the restart/, 'a new chat reads the new note');
     assert.match(sectionOf({ id: 'chat-fork', session: session([sys(logged)], { inheritedEventCount: 1 }) }), /Saved before the restart/, 'a fork reads the current notes');
     const sub = sectionOf({ id: 'sub-again', session: session([sys(logged)], { header: { cwd: project, origin: 'subagent', parentSession: 'chat-1' } }) });
     assert.match(sub, /You are a subagent/, 'other rule lines: the new section');
     assert.match(sub, /Saved before the restart/);
     assert.equal(keptMemorySection('x', 'no memory here'), 'x');
-    await tool('memory_forget').execute({ entry: 'Saved before the restart' }, exec); }
+    // Only added entries are missing (the section says so). A removed or changed entry, or a new topic: the new notes.
+    await tool('memory_forget').execute({ entry: 'answers' }, exec);
+    const afterForget = sectionOf({ id: 'chat-restarted-2', session: session([sys(logged)]) });
+    assert.doesNotMatch(afterForget, /short answers/, 'a removed entry does not come back from the logged prompt');
+    assert.match(afterForget, /Saved before the restart/);
+    await tool('memory_remember').execute({ text: 'The user wants short answers' }, exec);
+    const logged2 = `x\n\n${sectionOf({ id: 'chat-base', session: session([]) })}\n\n# Next`;
+    await tool('memory_remember').execute({ text: 'Only added later' }, exec);
+    assert.equal(sectionOf({ id: 'chat-added', session: session([sys(logged2)]) }), logged2.split('\n\n# Next')[0].slice(3), 'only an added entry: the logged notes stay');
+    await tool('memory_remember').execute({ text: 'The user wants short answers in Turkish', replace: 'short answers' }, exec);
+    assert.match(sectionOf({ id: 'chat-changed', session: session([sys(logged2)]) }), /short answers in Turkish/, 'a changed entry: the new notes');
+    await tool('memory_remember').execute({ text: 'A topic note', topic: 'newtopic' }, exec);
+    const logged3 = `x\n\n${sectionOf({ id: 'chat-base-3', session: session([]) }).replace(/\nTopics: [^\n]*/g, '')}\n\n# Next`;
+    assert.match(sectionOf({ id: 'chat-topic', session: session([sys(logged3)]) }), /\[\[newtopic\]\]/, 'a new topic: the new notes');
+    for (const e of ['Saved before the restart', 'Only added later', 'A topic note']) await tool('memory_forget').execute({ entry: e }, exec); }
   assert.match(await tool('memory_forget').execute({ entry: 'saved later' }, exec), /^Removed/);
   assert.match(await tool('memory_recall').execute({}, { agent: { id: 'x', session: { header: {} } } }), /global memory/, 'no folder: global only');
   // A subagent started in another folder: dsh copies the parent's folder into its header, then changes its working

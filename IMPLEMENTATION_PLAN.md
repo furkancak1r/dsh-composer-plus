@@ -3146,8 +3146,11 @@ Fixes:
    tools (the tool result tells the change); the panel's remove and a compaction show the current list at once.
 2. Memory section: a chat that dsh loads again keeps the notes of its newest logged prompt (same rules and project line),
    so the system prompt and the provider cache stay the same; a new chat and a fork read the current notes.
-3. chat_read: a message over 600 characters that an earlier chat_read result of the same chat still has in the
-   assistant's surface keeps its first 300 characters and a note.
-Checks: test/assistant-todos.test.mjs, test/project-memory.test.mjs, test/assistant.test.mjs (each red on main),
-npm test, build-docs --check.
-Last checkpoint: three fixes and tests done; review-guard next.
+   Review round 1 (P1): only while every logged entry is still saved and the Topics lines are the same; a removed or
+   changed entry or a new topic gives the current notes.
+Dropped after review round 1 (P2): the chat_read stub. A later compaction can keep the stub and summarize the full
+result, so the model could lose the task text. It stays a proposal.
+Checks: test/assistant-todos.test.mjs, test/project-memory.test.mjs (each red on main), npm test, build-docs --check.
+Decision: test/tether-gateway.test.mjs "paired iPhones" failed once with ERR_SSL_WRONG_VERSION_NUMBER and passed on the
+rerun (flaky, not part of this change).
+Last checkpoint: review round 1 fixes done; review round 2 next.
