@@ -394,10 +394,17 @@ try {
     assert.deepEqual(await rowsOf('s-stale'), [], 'not running since yesterday: no row today');
     agents.delete('s-stale');
     assert.deepEqual(await rowsOf('s-stale'), [], 'not live: no row either');
-    // Not live, but dsh's chat list shows activity today (for example after a restart): stopped at that time.
-    items.push({ sessionId: 's-stale', updatedAt: clock - 500, cwd: '/demo/acme-web' });
-    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.ended]), [['stopped', clock - 500]], 'stopped at its last update');
-    items.pop();
+    // Not live, but dsh's chat list shows activity today (for example after a restart). Without a saved log: dsh's list
+    // time (its last prompt) for both ends, not the time from the task's first start yesterday.
+    items.push({ sessionId: 's-stale', updatedAt: clock - 400, cwd: '/demo/acme-web' });
+    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.started, t.ended]), [['stopped', clock - 400, clock - 400]], 'no saved log: its last prompt');
+    // With its saved log (a log that could not be read is tried again): the time of its last turn. A saved log is read
+    // once (until the chat's next turn).
+    children['s-stale'] = { status: 'idle', log: [...log, ev(2, 'turn/start', {}, clock - 3000), ev(3, 'turn/end', { reason: { kind: 'interrupted' } }, clock - 500)] };
+    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.started, t.ended]), [['stopped', clock - 3000, clock - 500]], 'stopped: the time of its last turn');
+    children['s-stale'].log = [];
+    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.started, t.ended]), [[clock - 3000, clock - 500]], 'the saved log is read once');
+    delete children['s-stale']; items.pop();
     // It runs again (Resume after restart): running, and its time starts at the new turn, not yesterday.
     const again = newAgent('s-stale', { cwd: '/demo/acme-web' }, [...log, ev(2, 'turn/start', {}, clock - 2000)]); again.status = 'running';
     assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.started]), [['running', clock - 2000]], 'running again: the time of its new turn');
@@ -413,13 +420,14 @@ try {
   await assistant.tasks.add('s-kept', { title: 'Deploy', project: 'acme-web', at: clock - 60000 }); newAgent('s-kept', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {})]);
   turnEnd('s-kept', { kind: 'aborted', reason: { kind: 'disposed' } });
   assert.equal(assistant.tasks.has('s-kept'), true, 'stopped by dsh: the task is kept');
-  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.ended, t.chat]), [['stopped', clock, true]], 'stopped by dsh: not running');
+  // Its time is the time of its last turn (from that turn's start, NOW - 1000), not from the task's start.
+  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.started, t.ended, t.chat]), [['stopped', NOW - 1000, clock, true]], 'stopped by dsh: not running');
   turnEnd('s-kept', { kind: 'error', error: { message: 'outage' } }, ev(0, 'turn/start', {}));
   assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.chat]), [['stopped', true]], 'kept for the outage: not running');
   assert.equal(assistant.tasks.has('s-kept'), true);
   assert.equal(assistant.endedTasks.has('s-kept'), false);
   outageLeft('s-kept', 'gone');
-  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.result]), [['failed', 'outage']], 'the outage feature did not continue it: failed');
+  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.started, t.result]), [['failed', NOW - 1000, 'outage']], 'the outage feature did not continue it: failed, with the time of its last turn');
   // The next day: the ended rows go.
   clock = NOW + 86400000;
   r = await call('?sessionId=s-a');

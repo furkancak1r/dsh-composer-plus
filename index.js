@@ -10917,10 +10917,13 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   const taskOf = (session) => (assistant.isOn() && isText(session?.id) && session.id !== assistant.id() ? assistant.tasks?.get?.(session.id) : undefined);
   // The note names the project that the task was given in (the branch's own project has the branch name).
   const taskInfo = (task) => ({ task: true, ...(isText(task.branch) ? { branch: task.branch } : {}), ...(isText(task.project) ? { project: task.project } : {}) });
-  // The task ends: the status panel keeps its final state for today (the newest ASSISTANT_TASKS_MAX chats).
+  // The task ends: the status panel keeps its final state for today (the newest ASSISTANT_TASKS_MAX chats). Its time
+  // starts at the chat's newest turn: a kept task (dsh's quit, an outage) keeps the `at` of its first start.
   const ended = (id, task, state, result) => {
     const rows = assistant.endedTasks; if (rows === undefined) return;
-    rows.delete(id); rows.set(id, { title: task.title, project: task.project, branch: task.branch, started: Number.isFinite(task.at) ? task.at : now(), ended: now(), state, result: headLine(result, STATUS_LIMITS.result) });
+    const turn = eventsOf(live(id)).findLast((e) => e?.type === 'turn/start')?.time;
+    const at = Number.isFinite(task.at) ? task.at : now();
+    rows.delete(id); rows.set(id, { title: task.title, project: task.project, branch: task.branch, started: Number.isFinite(turn) ? Math.max(turn, at) : at, ended: now(), state, result: headLine(result, STATUS_LIMITS.result) });
     while (rows.size > ASSISTANT_TASKS_MAX) rows.delete(rows.keys().next().value);
   };
   const stalled = new Map(); // chat id → {session, reply} of a task turn that an AIProxy outage stopped
@@ -11402,7 +11405,8 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   // chat's own turns do not: the projects leave it out.
   ctx.on('session/event', (session, event) => { if ((event?.type === 'turn/start' || event?.type === 'turn/end') && isRootChat(session) && session?.id !== assistant.id()) projectsCache = undefined; });
   // dsh can resume a disposed continuable child (same id) and dispose it again between two reads: it changed, read it again.
-  ctx.on('session/event', (session, event) => { if (event?.type === 'turn/start') ended.delete(session?.id); });
+  const stale = new Map(); // kept delegated chat id → its saved log (dsh does not have it live; read once until its next turn)
+  ctx.on('session/event', (session, event) => { if (event?.type === 'turn/start') { ended.delete(session?.id); stale.delete(session?.id); } });
   const status = async (sessionId, signal, fresh) => {
     if (!on || !assistant.isAssistant(get('agents')?.get?.(sessionId))) return {};
     const agent = get('agents').get(sessionId);
@@ -11417,7 +11421,9 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     // Only the chat list is kept: a chat that is archived (also by the assistant's chat_archive, whose turn keeps the
     // cache) leaves at the next read.
     let archived = new Set(); try { archived = new Set(get('workspaceRegistry')?.archivedSessionIds ?? []); } catch { /* none */ }
-    const projects = statusProjects(projectsCache.items, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived });
+    // This read's chat list: a turn edge during the awaits below drops projectsCache.
+    const listed = projectsCache.items;
+    const projects = statusProjects(listed, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived });
     // Delegated chats (chat_new, with or without branch, and chat_send) are tasks too: open while their turn runs (main's
     // store drops them at the end), then with their final state until the day ends (the bot's endedTasks).
     const closed = [];
@@ -11435,10 +11441,18 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         tasks.unshift({ ...row, started: Number.isFinite(turn) ? Math.max(turn, row.started) : row.started, state: waitingOf(log) ? 'waiting' : 'running' }); continue;
       }
       // Issue #5: the bot keeps a task whose turn dsh's quit or an AIProxy outage stopped (and one whose chat is gone), so
-      // the chat's next turn end is still news. The chat does not run: stopped at its last activity, and gone the next day.
-      const item = projectsCache.items.find((s) => s?.sessionId === id);
+      // the chat's next turn end is still news. The chat does not run: stopped with the time of its last turn (its live
+      // log; else its saved log, read once until its next turn; else dsh's list time, its last prompt), and gone the next day.
+      const item = listed.find((s) => s?.sessionId === id);
+      if (live === undefined && log.length === 0 && Number.isFinite(item?.updatedAt) && item.updatedAt >= today.getTime()) {
+        // A log that could not be read is tried again at the next read.
+        if (!stale.has(id)) { const saved = await savedEvents(ctx.sessionQuery, id, signal).catch(() => []); if (saved.length > 0) stale.set(id, saved); }
+        log = stale.get(id) ?? [];
+      }
       const last = [log.at(-1)?.time, item?.updatedAt, task?.at].find(Number.isFinite);
-      if (last !== undefined && last >= today.getTime()) closed.push({ ...row, state: 'stopped', ended: Math.max(last, row.started) });
+      if (last === undefined || last < today.getTime()) continue;
+      const turn = [log.findLast((e) => e?.type === 'turn/start')?.time, item?.updatedAt].find(Number.isFinite) ?? row.started;
+      closed.push({ ...row, state: 'stopped', started: Math.min(last, Math.max(turn, row.started)), ended: last });
     }
     for (const [id, t] of assistant.endedTasks ?? []) {
       if (t.ended < today.getTime()) { assistant.endedTasks.delete(id); continue; }
