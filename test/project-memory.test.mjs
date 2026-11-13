@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   MEMORY_PATH, MEMORY_TOOLS, installMemory, memoryStore, memorySection, memoryReviewRequest, memoryLines, parseMemoryReview, parseMemory, looksSecret,
-  entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE, MEMORY_PROMPT_MAX, MEMORY_REVIEW_SYSTEM, squash,
+  entryProblem, cleanTopic, ROLLBACK_SOURCE, REWIND_SOURCE, MEMORY_PROMPT_MAX, MEMORY_REVIEW_SYSTEM, squash, keptMemorySection,
 } from '../index.js';
 // The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read).
 const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
@@ -182,6 +182,23 @@ try {
     assert.match(sectionOf(subAgent), /Saved while the subagent ran/, 'a new subagent with that id reads the new note');
     assert.equal(sectionOf(agent), frozen, 'a root chat stays frozen');
     await tool('memory_forget').execute({ entry: 'Saved while the subagent ran' }, exec); }
+  // Tokens: a chat that dsh loads again (a dsh restart, a resumed subagent) keeps the notes of its logged prompt, so the
+  // system prompt and the provider's cache stay the same; a chat without a logged prompt (a new chat, a fork) reads the
+  // current notes.
+  { const logged = `You are an agent.\n\n${frozen}\n\n# Planned steps (Composer Plus)\nmore`;
+    const session = (events, extra = {}) => ({ header: { cwd: project }, snapshotEvents: () => events, ...extra });
+    const sys = (text) => ({ type: 'system/message', data: { message: { role: 'system', content: [{ type: 'text', text }] } } });
+    await tool('memory_remember').execute({ text: 'Saved before the restart' }, exec);
+    const again = { id: 'chat-restarted', session: session([sys(logged), sys('')]) };
+    assert.equal(sectionOf(again), frozen, 'a chat with a logged prompt keeps its notes');
+    assert.equal(keptMemorySection(memorySection(mem.store, mem.store.project(project)), logged), frozen);
+    assert.match(sectionOf({ id: 'chat-new', session: session([]) }), /Saved before the restart/, 'a new chat reads the new note');
+    assert.match(sectionOf({ id: 'chat-fork', session: session([sys(logged)], { inheritedEventCount: 1 }) }), /Saved before the restart/, 'a fork reads the current notes');
+    const sub = sectionOf({ id: 'sub-again', session: session([sys(logged)], { header: { cwd: project, origin: 'subagent', parentSession: 'chat-1' } }) });
+    assert.match(sub, /You are a subagent/, 'other rule lines: the new section');
+    assert.match(sub, /Saved before the restart/);
+    assert.equal(keptMemorySection('x', 'no memory here'), 'x');
+    await tool('memory_forget').execute({ entry: 'Saved before the restart' }, exec); }
   assert.match(await tool('memory_forget').execute({ entry: 'saved later' }, exec), /^Removed/);
   assert.match(await tool('memory_recall').execute({}, { agent: { id: 'x', session: { header: {} } } }), /global memory/, 'no folder: global only');
   // A subagent started in another folder: dsh copies the parent's folder into its header, then changes its working

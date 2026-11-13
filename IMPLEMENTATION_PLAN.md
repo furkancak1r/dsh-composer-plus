@@ -3133,3 +3133,21 @@ Sonuç: büyük bir darboğaz yok; eklentinin eklediği iş küçük ve dağın�
 - Kontroller: `test/memory-migrate.test.mjs` (yeni; eşleme, ad, cleanTopic, birleştirme, kopya not, bulunamayan depo, el satırı, ikinci çalıştırma değişmez, son yazmada hata → hepsi geri; 5 bozma denemesinde kırmızı), mevcut hafıza testleri yeni adla, `npm test` exit 0. Kasa kopyası /tmp'de (Gizli/ hariç): 92 klasör → 8, 853 not → 853, 0 kayıp, 256 not taşındı, 92 MEMORY.md → 8 `<ad> hafıza.md`, ikinci çalıştırma 0 değişiklik, kopuk bağ 0; kopya silindi.
 - Koordinasyon: `fix/portable-assistant-plugin-defaults` main'e girdi (9a49d68); dal onun üstüne alındı, `memory_import` yeni ad ve eşlemeyle çalışır.
 - İnceleme: review-guard 6 tur. Düzeltilenler: kullanıcının `<x> memory.md` notu silinmez, yalnız harf büyüklüğü farklı ad yeniden adlandırılmaz, ret metni gerçek nedeni söyler, `strayLines` yerine `parseMemory().stray`, Türkçe belge "başka arayüz dillerinde", istemci dil bildirimi testi, içe aktarmada iki ana dosya (ikincisi `MEMORY.md` olarak kopyalanır, göç birleştirir; üçten fazlası içe aktarmayı durdurur). Son tur temiz.
+
+## Token use: fewer tokens without loss of quality (2026-11-13, fix/reduce-composer-plus-token-usage)
+Objective: measure where the tokens go (session logs of the last 7 days) and fix only what keeps the same behavior.
+Invariants: no visible change, no rule removed, the model gets the same facts; one test per fix, red on main.
+Measured (7 days, 11-06..11-12, 12.1 B tokens, 98 % cache reads): growth comes from more chats, turns and subagents
+(11-11/11-12: 200+ sessions a day), not from bigger calls. Composer Plus parts: Damon's runtime context (to-do list
+copied again after each own todo_list_* call: 15 % of Damon's context), memory text that changed the system prompt of a
+reloaded chat (82 prompt rewrites, 16.7 M uncached tokens), chat_read texts already in the context (3.9 M).
+Fixes:
+1. To-do runtime context: the list of the turn start stays until the next turn when the assistant changes it with its own
+   tools (the tool result tells the change); the panel's remove and a compaction show the current list at once.
+2. Memory section: a chat that dsh loads again keeps the notes of its newest logged prompt (same rules and project line),
+   so the system prompt and the provider cache stay the same; a new chat and a fork read the current notes.
+3. chat_read: a message over 600 characters that an earlier chat_read result of the same chat still has in the
+   assistant's surface keeps its first 300 characters and a note.
+Checks: test/assistant-todos.test.mjs, test/project-memory.test.mjs, test/assistant.test.mjs (each red on main),
+npm test, build-docs --check.
+Last checkpoint: three fixes and tests done; review-guard next.
