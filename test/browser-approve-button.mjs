@@ -18,7 +18,8 @@
 // 8. The `onay` answer ends its turn while a background subagent runs; the subagent's result then starts a new turn that
 //    ends with "X finished." (owner, 2026-11-11: "onay butonu çıkmıyor"). The button of the earlier turn's sentence shows.
 // 9. A block longer than 500 characters (owner, 2026-11-13: blocks of 1092 to 1439 characters): no button; your next
-//    message's request carries one note with the length, and the request after it has no second note.
+//    message's request carries one note with the length, the chat shows no bubble or row for the note, and the request
+//    after it has no second note.
 // 10. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-approve-button.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/approveButton.webp (English UI, made-up project).
@@ -282,8 +283,11 @@ try {
       assert.equal(after.notes, 1, 'one note in the next request');
       assert.ok(after.users.some((u) => u.startsWith(NOTE) && u.includes(`had ${TOO_LONG.length} characters`)), 'the note has the length');
       assert.ok(after.users.indexOf('after-long') < after.users.findIndex((u) => u.startsWith(NOTE)), 'your message comes before the note');
+      assert.equal(await page.getByText('Composer Plus → Approve button', { exact: false }).count(), 0, 'the note is hidden: no bubble or context row in the chat');
       const before9b = calls.length; await typeSend('approve:4'); await approve.waitFor({ timeout: 20000 });
       assert.equal(calls.slice(before9b).find((c) => c.last === 'approve:4')?.notes, 1, 'no second note: the old one stays in the history only');
+      await page.reload(); await input.waitFor(); await approve.waitFor({ timeout: 20000 });
+      assert.equal(await page.getByText('Composer Plus → Approve button', { exact: false }).count(), 0, 'after a reload (the chat log is read): still no row for the note');
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
