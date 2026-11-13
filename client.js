@@ -2663,34 +2663,54 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     const ASSISTANT_PANEL_ID = 'composer-plus-assistant';
     /** The assistant's name: the same in every UI language (the Host's ASSISTANT_NAME), and no setting changes it. */
     const ASSISTANT_NAME = 'Damon';
-    function createAssistant(onOpen, known = () => null) {
+    /** Resolves when dsh's chat list (`ctx.sessions.list`) has the chat `id`, or after `wait` ms (then dsh's openSession
+     * gives its reason). A dsh without the list resolves at once. */
+    function listedChat(list, id, wait = 15000) {
+      if (list?.subscribe === undefined || list.getSnapshot()?.byId?.[id] !== undefined) return Promise.resolve();
+      return new Promise((resolve) => {
+        let off = () => {};
+        const end = () => { clearTimeout(timer); off(); resolve(); };
+        const timer = setTimeout(end, wait);
+        off = list.subscribe(() => { if (list.getSnapshot()?.byId?.[id] !== undefined) end(); });
+      });
+    }
+    function createAssistant(onOpen, known = () => null, listed = () => Promise.resolve()) {
       let state = { status: 'idle' };
       const listeners = new Set();
       const set = (next) => { state = next; for (const fn of [...listeners]) fn(); };
+      let run = 0; // the open that runs; reset() ends it (it then opens nothing and keeps the reset state)
       return {
         getSnapshot: () => state,
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
         /** Asks the Host for the chat (it makes one when there is none) and opens it with `openSession(id)`. The state keeps
          * the id of the chat that it opened last (`sessionId`: the welcome card shows only in that chat). A chat that the
          * client already knows (`known()`: the Host's assistant-status, or the last open) opens at once, as a sidebar row
-         * does; the Host's answer then only opens another chat when it made a new one (the known one was deleted). */
+         * does; the Host's answer then only opens another chat when it made a new one (the known one was deleted). After a
+         * page reload dsh lists its chats a moment after the plugins start, and its openSession refuses a chat that it does
+         * not list yet: the Host's answer then opens the chat when `listed(id)` says that dsh lists it. */
         async open(openSession) {
           const now = typeof state.sessionId === 'string' ? state.sessionId : known();
-          if (typeof now === 'string') openSession(now);
+          let shown = false;
+          if (typeof now === 'string') { try { openSession(now); shown = true; } catch { /* not listed yet: see below */ } }
           if (state.status === 'opening') return;
           const { sessionId } = state;
+          const mine = ++run;
           set({ status: 'opening', sessionId });
           try {
             const response = await fetch(ASSISTANT_ROUTE);
+            if (mine !== run) return;
             if (response.status === 404) { set({ status: 'error', restart: true, sessionId }); return; }
             const data = await response.json().catch(() => ({}));
+            if (mine !== run) return;
             if (!response.ok || typeof data?.sessionId !== 'string') throw new Error(data?.error ?? `HTTP ${response.status}`);
-            set({ status: 'idle', sessionId: data.sessionId });
             onOpen?.(data.sessionId);
-            if (data.sessionId !== now) openSession(data.sessionId);
-          } catch (error) { set({ status: 'error', error: String(error?.message ?? error), sessionId }); }
+            if (data.sessionId !== now || !shown) {
+              try { openSession(data.sessionId); } catch { await listed(data.sessionId); if (mine !== run) return; openSession(data.sessionId); }
+            }
+            set({ status: 'idle', sessionId: data.sessionId });
+          } catch (error) { if (mine === run) set({ status: 'error', error: String(error?.message ?? error), sessionId }); }
         },
-        reset: () => set({ status: 'idle' }),
+        reset: () => { run++; set({ status: 'idle' }); },
       };
     }
     const AssistantIcon = ({ size = 16 }) => React.createElement('svg', { width: size, height: size, viewBox: '0 0 16 16', fill: 'none', stroke: 'currentColor', strokeWidth: 1.3, strokeLinecap: 'round', strokeLinejoin: 'round', 'aria-hidden': true },
@@ -13904,7 +13924,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         const assistantStatus = createAssistantStatus();
         // Assistant apart from chats puts its state dot on the Assistant row (the row belongs to Assistant).
         const apartFlag = createFlag();
-        const assistant = createAssistant((id) => assistantStatus.set(id), () => assistantStatus.getSnapshot());
+        const assistant = createAssistant((id) => assistantStatus.set(id), () => assistantStatus.getSnapshot(), (id) => listedChat(ctx.sessions?.list, id));
         const assistantSetup = createAssistantSetup();
         const assistantFreeSwitch = createMobile(ASSISTANT_FREE_ROUTE);
         const assistantNotifySwitch = createMobile(ASSISTANT_NOTIFY_ROUTE);

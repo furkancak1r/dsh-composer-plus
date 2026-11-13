@@ -27,8 +27,8 @@ const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment:
 const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Menu: 'Menu', Input: 'Input', Button: 'Button' } : {}));
 const live = new Map(); let next = 0; const opened = [];
 const services = { uiWorkspace: { openSession: (id) => opened.push(id) } };
-let settings;
-plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, get: (n) => services[n], locale: { register: () => () => {}, bind: (ns) => (k, v) => `${ns}:${k}${v?.error ? `(${v.error})` : ''}`, resolveText: (x) => x },
+let settings; let sessions; // dsh's ctx.sessions (its chat list), set by the reload check below
+plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, get: (n) => services[n], get sessions() { return sessions; }, locale: { register: () => () => {}, bind: (ns) => (k, v) => `${ns}:${k}${v?.error ? `(${v.error})` : ''}`, resolveText: (x) => x },
   slots: { inject: (n, f) => { const off = f(); return () => off(); }, register: (o, C) => { const key = next++; live.set(key, [o, C]); if (o.name === 'settings.section') settings = o; return () => live.delete(key); } } });
 const rows = () => [...live.values()].filter(([o]) => o.name === 'sidebar.panellist').map(([o]) => o);
 const pages = () => [...live.values()].filter(([o]) => o.name === 'main').map(([o, C]) => [o, C]);
@@ -108,6 +108,42 @@ assert.deepEqual(opened, ['s-status'], 'the chat from assistant-status opens bef
 answer = () => Response.json({ sessionId: 's-status' });
 gate.open(); gate = null; await tick();
 assert.deepEqual(opened, ['s-status']);
+
+// After a page reload, dsh lists its chats a moment after the plugins start, and its openSession refuses a chat that its
+// list does not have yet ("sessions.retain: unknown session"). That refusal must not stop the open (it ended open()
+// before it asked the Host, and the panel stayed on "Opening…"): the Host's answer opens the chat once dsh lists it.
+let snap = { phase: 'pending', ids: [], byId: {} }; const subs = new Set();
+sessions = { list: { getSnapshot: () => snap, subscribe: (fn) => { subs.add(fn); return () => { subs.delete(fn); }; } } };
+const listedOpen = services.uiWorkspace.openSession;
+services.uiWorkspace.openSession = (id) => { if (snap.byId[id] === undefined) throw new Error(`sessions.retain: unknown session ${id}`); listedOpen(id); };
+props2.assistant.reset(); opened.length = 0; asks.length = 0; // a new page: the store knows the chat only from assistant-status
+React.useEffect = (f) => { f(); }; Page({ ...props2, t }); React.useEffect = () => {}; // the panel's first render opens
+await tick();
+assert.equal(asks.length, 1, 'dsh refused the known chat: the panel asks the Host');
+assert.deepEqual(opened, [], 'nothing opens before dsh lists the chat');
+assert.equal(props2.assistant.getSnapshot().status, 'opening', 'it waits for dsh\'s list');
+snap = { phase: 'ready', ids: ['s-status'], byId: { 's-status': { id: 's-status' } } }; for (const fn of [...subs]) fn();
+await tick();
+assert.deepEqual(opened, ['s-status'], 'the chat opens once dsh lists it');
+assert.equal(props2.assistant.getSnapshot().status, 'idle'); assert.equal(subs.size, 0, 'the wait stops listening');
+// Switched off while it waits (reset): the late list opens nothing and keeps the reset state. Off and on again: the new
+// open opens the chat once.
+const waitForList = async (again) => {
+  snap = { phase: 'pending', ids: [], byId: {} }; props2.assistant.reset(); opened.length = 0;
+  const first = props2.assistant.open(props2.openSession); await tick();
+  assert.equal(props2.assistant.getSnapshot().status, 'opening');
+  props2.assistant.reset();
+  const second = again ? props2.assistant.open(props2.openSession) : undefined; await tick();
+  snap = { phase: 'ready', ids: ['s-status'], byId: { 's-status': { id: 's-status' } } }; for (const fn of [...subs]) fn();
+  await first; await second; await tick();
+};
+await waitForList(false);
+assert.deepEqual(opened, [], 'switched off while it waited: nothing opens');
+assert.deepEqual(props2.assistant.getSnapshot(), { status: 'idle' }, 'the reset state stays');
+await waitForList(true);
+assert.deepEqual(opened, ['s-status'], 'off and on again while it waited: the chat opens once');
+assert.equal(props2.assistant.getSnapshot().status, 'idle'); assert.equal(subs.size, 0);
+services.uiWorkspace.openSession = listedOpen; sessions = undefined;
 
 // Off: the row and the panel go.
 await settings.inject().setFeature('assistant', false); await tick();
