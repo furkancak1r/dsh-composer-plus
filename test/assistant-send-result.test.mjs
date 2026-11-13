@@ -220,6 +220,7 @@ try {
   const gate = listeners.get('tools/pre-execute')[0];
   const reason = async (chat) => (await gate({ name: 'chat_send', agent: me, arguments: { chat_id: chat, text: answer } }, async () => ({ kind: 'allow' }))).reason;
   assert.match(await reason('s-web'), /: "1\. MinLevel 2\. Tümü" It answers the question card that waits there\.$/);
+  assert.match(await reason(' s-web '), /It answers the question card/, 'the chat id as chat_send reads it (trimmed)');
   assert.doesNotMatch(await reason('s-branch'), /question card/, 'no card in that chat');
   const sent = await send('s-web', answer);
   const cardRpc = prompts.at(-1).requestId;

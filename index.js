@@ -10151,8 +10151,11 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     // The whole message (the tools refuse more than ASSISTANT_LIMITS.text): the user approves what is sent, so the card
     // must not cut it. dsh's card draws the reason as plain text (no HTML) in its scrolling body.
     const quote = typeof a.text === 'string' ? `: "${cutEnd(a.text.trim(), ASSISTANT_LIMITS.text)}"` : '';
-    // The user approves a decision too when the message will answer the chat's waiting question card.
-    const answers = exec.name === 'chat_send' && isText(a.chat_id, 128) && cards.open(get('agents')?.get?.(a.chat_id)) ? ' It answers the question card that waits there.' : '';
+    // The user approves a decision too when the message will answer the chat's waiting question card (the chat id as
+    // chat_send reads it). ponytail: the state when the card shows; a question card that opens while this card waits is
+    // answered too, without this line (2026-11-09: a message while a question card is open is its answer).
+    const sendTo = String(a.chat_id ?? '').trim();
+    const answers = exec.name === 'chat_send' && isText(sendTo, 128) && cards.open(get('agents')?.get?.(sendTo)) ? ' It answers the question card that waits there.' : '';
     const own = `Composer Plus → Assistant wants to ${words}${quote}${answers}`;
     return { kind: 'ask', reason: decision.kind === 'ask' && typeof decision.reason === 'string' && decision.reason !== '' ? `${own} ${decision.reason}` : own };
   });
