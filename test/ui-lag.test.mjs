@@ -96,6 +96,10 @@ const added = (parent, node) => ({ type: 'childList', target: parent, addedNodes
   fresh.kids[0].kids[0].nodeValue = '[!RESULT] Done, 3 files.';
   observe([changed(fresh.kids[0].kids[0])]);
   assert.equal(fresh.kids[0].kids[0].nodeValue, 'Done, 3 files.', 'a rewritten text loses its marker at once');
+  // dsh writes it again without a marker: the box goes at once.
+  fresh.kids[0].kids[0].nodeValue = 'Plain text now.';
+  observe([changed(fresh.kids[0].kids[0])]);
+  assert.equal(fresh.getAttribute('data-cp-callout'), null, 'a text without a marker is a plain quote at once');
   off();
   assert.equal(quote.getAttribute('data-cp-callout'), null, 'off: the quote is back');
   assert.equal(frames.size + timers.size, 0, 'off: no read stays queued');
@@ -128,6 +132,11 @@ const added = (parent, node) => ({ type: 'childList', target: parent, addedNodes
   observe([added(root, answer)]);
   assert.equal(block.getAttribute('data-composer-plus-onay'), 'text', 'a new code block is marked at once');
   assert.equal(root.scans, before, 'without a read of the whole chat');
+  // dsh draws the block's text again as another text: its mark goes at once.
+  const content = block.kids[0]; const other = text('npm test\n');
+  content.kids = []; content.append(other);
+  observe([added(content, other)]);
+  assert.equal(block.getAttribute('data-composer-plus-onay'), null, 'a block that is no longer the sentence loses its mark at once');
   off();
   assert.deepEqual([first, block].map((b) => b.getAttribute('data-composer-plus-onay')), [null, null], 'off: dsh\'s blocks come back');
   assert.equal(frames.size + timers.size, 0, 'off: no read stays queued');
