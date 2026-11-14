@@ -10151,7 +10151,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     },
     {
       name: 'chat_send',
-      description: 'Send a message to another chat, as the user would type it there. It waits in that chat\'s queue when the chat runs. When the chat waits on a question card (ask_user_question, not an approval or a plan review), the message is the answer to each question of the card, and the chat continues at once. You get a note with the chat\'s reply when the turn of this message ends, or when the chat waits for the user. Needs approval: the user\'s approval card, or Auto review in the Auto permission mode.',
+      description: 'Send a message to another chat, as the user would type it there. When that chat runs, the message goes into its running turn, and the chat reads it at its next step. When the chat is idle, the message goes into its queue and starts a turn. The result says which of these happened. When the chat waits on a question card (ask_user_question, not an approval or a plan review), the message is the answer to each question of the card, and the chat continues at once. You get a note with the chat\'s reply when the turn of this message ends, or when the chat waits for the user. Needs approval: the user\'s approval card, or Auto review in the Auto permission mode.',
       parameters: { type: 'object', properties: {
         chat_id: { type: 'string', description: 'The chat id from chats_list' },
         text: { type: 'string', description: `The message, at most ${ASSISTANT_LIMITS.text} characters` },
@@ -10167,11 +10167,18 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         // keeps its fields and what it waits for.
         const title = await titleOf(id); const old = tasks.get(id); const requestId = randomUUID();
         await tasks.add(id, withRpc(old ?? { ...(title === undefined ? {} : { title }), project: projectFor(id, header?.cwd, workspaces()) }, [...rpcOf(old), requestId]));
-        // An open question card: the message joins the waiting turn (steer), and the card gets it as its answer below.
+        // A running chat gets the message at its next step (dsh's steer), so a correction or a stop reaches a long turn at
+        // once (2026-11-14: a correction waited 63 minutes in the queue behind one turn, and the result said "Sent"). It
+        // joins that turn, and the bot's note comes at that turn's end. An open question card: the same steer, and the card
+        // gets the message as its answer below. An idle chat keeps the queue: a steer would also take its first queued message.
+        // ponytail: a turn that ends between this check and dsh's admission makes the steer start a turn that also takes
+        // the first queued message of the chat (a few ms; nothing is lost). Upgrade when dsh can steer only a running turn.
         const agent = get('agents')?.get?.(id); const card = cards.open(agent);
+        const mode = card || agent?.status === 'running' ? 'steer' : 'queue';
+        let waits = false; try { waits = mode === 'steer' && !card && waitingOf(agent.session.snapshotEvents()); } catch { /* no log */ }
         try {
           // Not the call's signal: once admitted, the message must reach the chat whole.
-          await ctx.sessionController.prompt({ requestId, sessionId: id, mode: card ? 'steer' : 'queue', content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
+          await ctx.sessionController.prompt({ requestId, sessionId: id, mode, content: [{ type: 'text', text }] }, AbortSignal.timeout(STOP_WAIT_MS));
         } catch (error) {
           // No wait for a message that did not go (only its own id: another call can add one meanwhile).
           const now = tasks.get(id); const rpc = rpcOf(now).filter((r) => r !== requestId);
@@ -10180,7 +10187,21 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         }
         // After the message went: if dsh refused it, no card is answered.
         const answered = card && cards.answer(agent, text);
-        return `Sent to "${title ?? id}" (${id}).${answered ? ' It answered the question card that waited there, so the chat continues now.' : ''} You get a note with its reply when the turn of this message ends or the chat waits for the user.`;
+        // dsh checks the inbox for the last time a few microtasks before the chat is idle: a steer in that gap waits with no
+        // turn. Wake the chat for it when that turn completed (installAssistantBot's pre-step hook takes out the wake
+        // markers). After a Stop or an error it waits for the next turn, as a queued message does in dsh.
+        if (mode === 'steer') setImmediate(() => {
+          const now = get('agents')?.get?.(id);
+          if (now?.status !== 'idle' || !now.inbox?.nextStep?.some?.((m) => m?.source?.rpcId === requestId)) return;
+          let end; try { end = now.session.snapshotEvents().findLast((e) => e.type === 'turn/end')?.data?.reason?.kind; } catch { /* no log */ }
+          if (end !== 'completed' && end !== 'max-tokens') return;
+          try { wakeWithContinue(now, INTERJECT_SOURCE); } catch (error) { log(`the message to ${id} waits for the chat's next turn: ${error?.message ?? error}`); }
+        });
+        // The result says where the message went, so the assistant does not tell the user that a queued message arrived.
+        const where = answered ? ' It answered the question card that waited there, so the chat continues now.'
+          : mode === 'steer' ? ` The chat runs: the message went into its running turn, and the chat reads it at its next step.${waits ? ' The chat waits for the user now (an approval or a plan review): it reads the message after that answer.' : ''}`
+            : ' The chat was idle: the message went into its queue and starts a turn (messages queued before it run first).';
+        return `Sent to "${title ?? id}" (${id}).${where} You get a note with its reply when the turn of this message ends or the chat waits for the user.`;
       },
     },
     {
