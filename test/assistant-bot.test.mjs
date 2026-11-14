@@ -17,7 +17,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_FREE_PATH, ASSISTANT_NOTIFY_PATH, ASSISTANT_STATUS_PATH, ASSISTANT_FREE_SECTION, ASSISTANT_SECTION, assistantFreeTool, assistantNewsNote, installAssistantBot } from '../index.js';
+import { ASSISTANT_FREE_PATH, ASSISTANT_NOTIFY_PATH, ASSISTANT_STATUS_PATH, ASSISTANT_FREE_SECTION, ASSISTANT_SECTION, QUIET_NEWS_MARKER, assistantFreeTool, assistantNewsNote, installAssistantBot } from '../index.js';
 
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const until = async (fn, what, ms = 3000) => { const end = Date.now() + ms; while (!fn()) { if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(5); } };
@@ -250,7 +250,7 @@ assert.deepEqual((await call(ASSISTANT_NOTIFY_PATH, 'POST', { scope: 'automation
 assert.deepEqual(await saved(), { on: true, scope: 'automations' }, 'the scope and the switch in one file');
 const sched = (seq, text) => um(seq, text, 'schedule');
 const auto = newAgent('s-auto', { cwd: '/home/demo/Assistant' }, [{ seq: 0, type: 'turn/start' }, um(1, 'context', 'agent-instructions'), sched(2, '[SCHEDULE REMINDER] audit'), am(3, 'Audit done: 0 findings.')]);
-const base = steers.length;
+let base = steers.length;
 turn(auto, 'completed', 5000); // a short turn counts for an automation
 turn(web, 'completed', 90000); // a long turn of an ordinary chat does not
 turn(assistantAgent, 'completed', 90000); // nor the assistant itself
@@ -263,6 +263,38 @@ assert.doesNotMatch(autoNote, /s-web|s-assistant\b/, 'no ordinary chat, not the 
 for (const named of autoNote.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) assert.ok(assistantFreeTool(named), `the note names ${named}, which the assistant cannot call`);
 await pause(80); await bot.flush();
 assert.equal(steers.length, base + 1, 'told once'); assert.deepEqual(bot.pending(), []);
+// A quiet automation turn: a finished reply whose first line is exactly the marker gives no news (2026-11-14: 30 "no
+// finding" turns of a 30-minute audit woke the assistant, about 15 M tokens). Only the exact first line counts.
+assert.equal(QUIET_NEWS_MARKER, '[quiet]');
+clock += 200000;
+for (const reply of [`${QUIET_NEWS_MARKER}\nAudit: 0 findings.`, `  ${QUIET_NEWS_MARKER}  `]) {
+  auto.events = [{ seq: 0, type: 'turn/start' }, sched(1, '[SCHEDULE REMINDER] audit'), am(2, reply)];
+  turn(auto, 'completed', 5000);
+}
+await pause(80); await bot.flush();
+assert.deepEqual([bot.pending(), steers.length], [[], base + 1], 'a quiet automation turn is no news (no item, no wake)');
+for (const [i, reply] of ['Audit: [quiet] 2 findings.', `${QUIET_NEWS_MARKER}: 2 findings`, `Audit done.\n${QUIET_NEWS_MARKER}`].entries()) {
+  auto.events = [{ seq: 0, type: 'turn/start' }, sched(1, '[SCHEDULE REMINDER] audit'), am(2, reply)];
+  turn(auto, 'completed', 5000);
+  await until(() => bot.pending()[0]?.reply === reply, `not quiet ${i}: ${reply}`);
+}
+clock += 200000; await bot.flush();
+await until(() => steers.length === base + 2, 'the news of the replies that are not quiet');
+const notQuiet = (await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }))).messages[0].content[0].text;
+assert.equal(notQuiet.match(/chat s-auto, an automation\): finished\. Last reply: /g)?.length, 1, 'one line: the newest of these replies');
+assert.match(notQuiet, /Last reply: "Audit done\.\\n\[quiet\]"/);
+// A quiet reply does not hide what the chat asks: a step that was denied after the reply still gives a line.
+clock += 200000;
+auto.events = [{ seq: 0, type: 'turn/start' }, sched(1, '[SCHEDULE REMINDER] audit'), am(2, `${QUIET_NEWS_MARKER}\nNo finding.`),
+  { seq: 3, type: 'approval/asked', data: { id: 'd', reason: 'Deletes the audit log' } }, { seq: 4, type: 'approval/decided', data: { id: 'd', outcome: 'denied' } }];
+turn(auto, 'completed', 5000);
+await until(() => bot.pending()[0]?.ask !== undefined, 'a quiet reply with a denied step is news');
+assert.match(bot.pending()[0].ask, /\[denied\]/);
+clock += 200000; await bot.flush();
+await until(() => steers.length === base + 3, 'the news of the denied step');
+await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }));
+base += 2; // the checks below count from here
+auto.events = [{ seq: 0, type: 'turn/start' }, sched(1, '[SCHEDULE REMINDER] audit'), am(2, `${QUIET_NEWS_MARKER}\nAudit: 0 findings.`)];
 // A failed automation turn and a wait of an automation are news; a fork of an automation (its own first prompt is yours) is not.
 clock += 200000;
 turn(auto, 'error', 1000, { error: { message: 'Insufficient Balance' } });

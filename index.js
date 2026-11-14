@@ -10878,6 +10878,10 @@ export const ASSISTANT_NEWS = { turn: 60000, wait: 30000, batch: 15000, gap: 120
 /** Which chats Assistant news tells about: only automations (turns that a schedule started) or all other root chats. */
 export const NOTIFY_SCOPES = ['automations', 'all'];
 const NEWS_SOURCE = 'composer-plus-assistant-news';
+/** An automation turn whose last reply has this exact first line (spaces trimmed) gives no news when it finishes: a check
+ * that found nothing ends quietly, without a turn of the assistant (2026-11-14: 30 "no finding" turns of one audit used
+ * about 15 M tokens). A failure, a wait and an open question still give news. */
+export const QUIET_NEWS_MARKER = '[quiet]';
 const newsMessage = (text) => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text })]),
   source: Object.freeze({ kind: NEWS_SOURCE, form: 'snapshot' }) });
 const WAIT_WORDS = { approval: 'waits for your approval', ask_user_question: 'waits for your answer', exit_plan_mode: 'waits for your plan review' };
@@ -11215,8 +11219,12 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
       if (notifyScope !== 'all' && !auto) return;
       if (reason?.kind === 'error') add(session, { kind: 'failed', reply: cutEnd(String(reason.error?.message ?? '').trim(), timing.reply), ...info });
       else if ((reason?.kind === 'completed' || reason?.kind === 'max-tokens') && (auto || (start !== undefined && at - start >= timing.turn))) {
-        const reply = cutEnd(lastReply(eventsOf(agent).slice(inherited)), timing.reply);
-        add(session, { kind: 'finished', reply, ...askNow(agent, inherited, reply), ...info });
+        const full = lastReply(eventsOf(agent).slice(inherited));
+        const reply = cutEnd(full, timing.reply);
+        const ask = askNow(agent, inherited, reply);
+        // A quiet automation turn (QUIET_NEWS_MARKER) with nothing open for the user: no item, no assistant turn.
+        if (auto && ask.ask === undefined && full.split('\n', 1)[0].trim() === QUIET_NEWS_MARKER) { if (pending.get(session.id)?.kind === 'waiting') pending.delete(session.id); return; }
+        add(session, { kind: 'finished', reply, ...ask, ...info });
       } else if (pending.get(session.id)?.kind === 'waiting') pending.delete(session.id); // the wait ended with the turn
       return;
     }
