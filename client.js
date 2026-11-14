@@ -5360,8 +5360,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     }
     // While you write a note, the card row shows only the note, Cancel and Reject: no second Reject, no Allow once to hit by
     // mistake. Cancel, Esc or a switch off (the style goes with the field) bring dsh's buttons back.
-    const REJECT_NOTE_CSS = `:has(>[data-composer-plus-reject-note]){flex-wrap:wrap}
-:has(>[data-composer-plus-reject-note])>:not([data-composer-plus-reject-note]){display:none!important}
+    // Inside the card only: a bare `:has()` is checked on every element at each change, and made typing slow on dsh 0.2.2
+    // (test/has-selectors.test.mjs).
+    const REJECT_NOTE_CSS = `[data-approval-key] :has(>[data-composer-plus-reject-note]){flex-wrap:wrap}
+[data-approval-key] :has(>[data-composer-plus-reject-note])>:not([data-composer-plus-reject-note]){display:none!important}
 .cp-rn{flex-basis:100%;order:-3;display:flex;flex-direction:column;gap:6px;margin-bottom:2px}
 .cp-rn textarea{width:100%;box-sizing:border-box;min-height:56px;max-height:160px;resize:vertical;padding:6px 8px;border:.5px solid var(--dsw-alias-border-l3,rgba(127,127,127,.35));border-radius:var(--dsw-radius-md,8px);background:transparent;color:var(--dsw-alias-label-primary);font:inherit;font-size:var(--dsh-content-font-size-secondary,13px);line-height:18px}
 .cp-rn-row{display:flex;justify-content:flex-end;gap:6px}
