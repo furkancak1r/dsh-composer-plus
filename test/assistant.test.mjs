@@ -246,6 +246,12 @@ archived.add('s-cli');
 await assert.rejects(tool('chat_send').execute({ chat_id: 's-cli', text: 'x' }, as), /archived/);
 archived.delete('s-cli');
 assert.equal(prompts.length, 1);
+// A running chat gets the message at its next step (dsh's steer); an idle one (above) in its queue. This running chat
+// waits on an approval: the result says that it reads the message after the user's answer.
+const toRun = await tool('chat_send').execute({ chat_id: 's-run', text: 'Stop: the user rejected this change.' }, as);
+assert.deepEqual([prompts.at(-1).sessionId, prompts.at(-1).mode], ['s-run', 'steer']);
+assert.match(toRun, /The chat runs: the message went into its running turn, and the chat reads it at its next step\. The chat waits for the user now \(an approval or a plan review\): it reads the message after that answer\./);
+prompts.pop();
 
 // chat_new: by project name (accents and case do not matter) or path; an unknown name lists the projects.
 assert.match(await tool('chat_new').execute({ project: 'ACME-WEB', text: 'start the report' }, as), /Started a new chat \(s-assistant-2\) in acme-web/);

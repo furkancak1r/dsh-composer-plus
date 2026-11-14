@@ -224,6 +224,15 @@ try {
       await pause(800);
       assert.equal(await card.isVisible(), true, 'Enter in the empty field allows nothing and rejects nothing');
       assert.equal(calls.filter((c) => c.task === 'A').length, 1, 'no model call yet');
+      // Typing in the note stays fast: its style rules hang on the card, not on the page (a bare `:has()` cost about 65 ms
+      // of style work per key at CPU ×4 on dsh 0.2.2). The browser's own counter while the first 20 characters go in.
+      const cdp = await context.newCDPSession(page);
+      await cdp.send('Performance.enable'); await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 });
+      const styleTime = async () => (await cdp.send('Performance.getMetrics')).metrics.find((m) => m.name === 'RecalcStyleDuration').value;
+      const style0 = await styleTime(); await page.keyboard.type(NOTE.slice(0, 20), { delay: 30 }); await pause(500);
+      const perKey = ((await styleTime()) - style0) * 1000 / 20;
+      await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 }); await cdp.detach();
+      assert.ok(perKey < 5, `style work per key press in the note: ${perKey.toFixed(2)} ms (limit 5 ms)`);
       await field.fill(NOTE);
       if (index === 0 && process.env.SHOT) {
         await page.mouse.move(1000, 100); await pause(400);

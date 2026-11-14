@@ -21,6 +21,35 @@ const filled = source.replace(/\$\{([A-Z_][A-Z0-9_]*)\}/g, (all, name) => consts
 const found = rootHas(filled);
 assert.deepEqual(found, [], `style rules with :has() on the page root: ${found.join(', ')}`);
 
+// A `:has()` with no element before it (`:has(> x) > y`, or after `*`) is the same as `*:has(…)`: it hangs on every
+// element of the page, `html` and `body` too. dsh 0.2.2 (seen on 0.2.2-rc.1, 2026-11-12) runs this check with each key
+// press in Open memory: one bare `:has()` rule cost about 55 ms of style work per key at CPU ×4. dsh 0.2.2-rc.1's own
+// FilesBody rule `:has(>.k-1LKG_navigator.k-1LKG_fill)>…` was such a rule (dsh 0.2.2-rc.2 scoped it), and so was Reject
+// with note's `:has(>[data-composer-plus-reject-note])` (65 ms per key with it on 0.2.2-rc.3).
+const STOP = '{}`\'"';
+const WRAP = /:(?:is|where|not)\($/; // `:is(:has(…))` hangs where the `:is(` stands
+/** Whether the simple selector that starts at `index` has no element before it. */
+const bareAt = (text, index) => {
+  let j = index - 1; while (j >= 0 && /\s/.test(text[j])) j--;
+  if (text[j] === '*') { j--; while (j >= 0 && /\s/.test(text[j])) j--; }
+  if (j < 0 || STOP.includes(text[j])) return true; // the start of a rule or a string
+  if (text[j] === '(') { const wrap = WRAP.exec(text.slice(Math.max(0, j - 7), j + 1)); return wrap !== null && bareAt(text, j + 1 - wrap[0].length); }
+  if (text[j] !== ',') return false; // after an element: `x :has(…)`, `x > :has(…)`, `:hover:is(.a, :has(…))` …
+  // After a comma: the start of a selector of the rule, or of the list inside its parentheses (`:is(.a, :has(…))`).
+  for (let k = j - 1, depth = 0; k >= 0 && !STOP.includes(text[k]); k--) {
+    if (text[k] === ')') depth++;
+    else if (text[k] === '(') { if (depth > 0) { depth--; continue; } const wrap = WRAP.exec(text.slice(Math.max(0, k - 7), k + 1)); return wrap !== null && bareAt(text, k + 1 - wrap[0].length); }
+  }
+  return true;
+};
+const bareHas = (text) => [...text.matchAll(/:has\(/g)].filter(({ index }) => text[index + 5] !== ')' /* "`:has()`" in a comment */ && bareAt(text, index))
+  .map(({ index }) => text.slice(index, index + 50));
+for (const bad of [':has(>.k-1LKG_navigator.k-1LKG_fill)>:not(.k-1LKG_navigator){visibility:hidden}', '@media (width<768px){:has(> .a) > b{}}', '.x{} * :has(.a){}', 'a, :has(.b){}', '`:has(>[x]){flex-wrap:wrap}\n:has(>[x])>y{}`',
+  ':is(:has(>[x]))>y{}', ':where(:has(>[x]))>y{}', ':not(:has(>[x]))>y{}', '.a{} :is(.b, :has(>[x]))>y{}']) assert.ok(bareHas(bad).length > 0, bad);
+for (const ok of ['[x]:is(:hover,:has(:focus-visible)) y{}', '[data-approval-key] :has(> [y]) > button{}', '.a:has(.b){}', 'one `:has()` rule per chat', 'x > :has(.a){}', '.f:is(:empty, :has(> [d]:empty)){}']) assert.deepEqual(bareHas(ok), [], ok);
+const bare = bareHas(filled);
+assert.deepEqual(bare, [], `style rules with a bare :has() (no element before it): ${bare.join(', ')}`);
+
 // The Collapse all projects style still hides the empty host and gives the header room only while the host is there.
 const collapse = /const COLLAPSE_CSS = `([^`]*)`/.exec(filled)?.[1];
 assert.ok(collapse !== undefined, 'COLLAPSE_CSS is in client.js');
