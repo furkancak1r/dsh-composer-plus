@@ -101,7 +101,8 @@ try {
   const idleOut = await send('s-web', 'Raporu gönder');
   const rpc2 = prompts.at(-1).requestId;
   assert.equal(prompts.at(-1).mode, 'queue', 'an idle chat: queue');
-  assert.match(idleOut, /^Sent to "Login page" \(s-web\)\. The chat was idle: the message went into its queue and starts a turn \(messages queued before it run first\)\. You get a note/);
+  // No claim about the order: Send first (on by default) puts a new message before the queued ones.
+  assert.match(idleOut, /^Sent to "Login page" \(s-web\)\. The chat was idle: the message went into its queue and starts a turn\. You get a note/);
   push(web, stop, start, said('Raporu gönder', rpc2), { type: 'approval/asked', data: { id: 'a' } });
   emit('session/event', web.session, { type: 'approval/asked', data: { id: 'a' } });
   await until(() => bot.pending()[0]?.kind === 'waiting', 'the wait is news');
@@ -259,11 +260,21 @@ try {
   ended(web);
   await until(() => steers.length === 15, 'the note of the late steer');
   assert.match(await noteOf(14), /chat s-web, your delegated task\): finished\. Last reply: "Durdum\."/);
+  // A turn that the user stopped but that did not end yet still runs (dsh's status), but it takes no steer: dsh puts the
+  // message at the end of the queue and starts a new turn for it. So chat_send queues it and the result says so.
+  const abort = new AbortController(); abort.abort();
+  web.status = 'running'; web.phase = { kind: 'running', abort }; push(web, stop, start);
+  const stopped = await send('s-web', 'Şunu da yap');
+  assert.equal(prompts.at(-1).mode, 'queue', 'a stopped turn that did not end yet: queue');
+  assert.match(stopped, /The chat was idle: the message went into its queue and starts a turn\./);
+  web.phase = undefined; web.status = 'idle'; push(web, stop, start, said('Şunu da yap', prompts.at(-1).requestId), reply('Yaptım.')); ended(web);
+  await until(() => steers.length === 16, 'the note of the message after the stop');
+  assert.match(await noteOf(15), /Last reply: "Yaptım\."/);
   // After a Stop or an error, a late steer waits for the chat's next turn (no wake, as a queued message in dsh).
   web.status = 'running'; push(web, stop, start); await send('s-web', 'Bir şey daha'); web.queued = undefined;
   web.inbox.nextStep = [{ id: randomUUID(), role: 'user', content: [], source: { kind: 'user', rpcId: prompts.at(-1).requestId } }];
   web.status = 'idle'; push(web, { type: 'turn/end', data: { reason: { kind: 'aborted', reason: { kind: 'user' } } } }); ended(web, { kind: 'aborted', reason: { kind: 'user' } });
-  await pause(60); assert.equal(steers.length, 15, 'no wake after a stop'); assert.equal(web.queued, undefined);
+  await pause(60); assert.equal(steers.length, 16, 'no wake after a stop'); assert.equal(web.queued, undefined);
   // Assistant off: the cards of the chats are not touched.
   const off = await routes.get(ASSISTANT_SWITCH_PATH).fetch(new Request(`http://x${ASSISTANT_SWITCH_PATH}`, { method: 'POST', body: JSON.stringify({ on: false }) }));
   assert.equal((await off.json()).on, false);

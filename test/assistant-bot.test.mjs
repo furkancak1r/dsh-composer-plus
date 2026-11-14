@@ -293,7 +293,30 @@ assert.match(bot.pending()[0].ask, /\[denied\]/);
 clock += 200000; await bot.flush();
 await until(() => steers.length === base + 3, 'the news of the denied step');
 await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }));
-base += 2; // the checks below count from here
+base += 2;
+// Two more things that a quiet first line must not hide: an onay block in a short reply (the cut reply holds it, so
+// askNow leaves it out) and a step that was denied before the last reply (askOf counts a denial only after it).
+const quietButOpen = [
+  [`${QUIET_NEWS_MARKER}\nNo finding, but the fix needs your approval:\n\`\`\`onay\nOnaylıyorum: prod sunucusuna deploy et.\n\`\`\``, []],
+  [`${QUIET_NEWS_MARKER}\nNo finding.`, [{ type: 'approval/asked', data: { id: 'e', reason: 'Deletes the audit log' } }, { type: 'approval/decided', data: { id: 'e', outcome: 'denied' } }]],
+];
+for (const [i, [reply, steps]] of quietButOpen.entries()) {
+  clock += 200000;
+  auto.events = [{ seq: 0, type: 'turn/start' }, sched(1, '[SCHEDULE REMINDER] audit'), ...steps.map((e, k) => ({ seq: 2 + k, ...e })), am(2 + steps.length, reply)];
+  turn(auto, 'completed', 5000);
+  await until(() => steers.length === base + 2, `quiet but open ${i} is news`);
+  const open = (await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }))).messages[0].content[0].text;
+  assert.match(open, /chat s-auto, an automation\): finished\./);
+  if (i === 0) assert.match(open, /prod sunucusuna deploy et/);
+  base += 1;
+}
+// An approval that the user allowed once (or cancelled) in a quiet turn: still quiet.
+clock += 200000;
+auto.events = [{ seq: 0, type: 'turn/start' }, sched(1, '[SCHEDULE REMINDER] audit'), { seq: 2, type: 'approval/asked', data: { id: 'f' } }, { seq: 3, type: 'approval/decided', data: { id: 'f', outcome: 'allowed-once' } }, am(4, `${QUIET_NEWS_MARKER}\nNo finding.`)];
+turn(auto, 'completed', 5000);
+await pause(80); await bot.flush();
+assert.deepEqual([bot.pending(), steers.length], [[], base + 1], 'an allowed step keeps a quiet turn quiet');
+// the checks below count from here
 auto.events = [{ seq: 0, type: 'turn/start' }, sched(1, '[SCHEDULE REMINDER] audit'), am(2, `${QUIET_NEWS_MARKER}\nAudit: 0 findings.`)];
 // A failed automation turn and a wait of an automation are news; a fork of an automation (its own first prompt is yours) is not.
 clock += 200000;

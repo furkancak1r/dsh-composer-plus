@@ -10173,8 +10173,10 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         // gets the message as its answer below. An idle chat keeps the queue: a steer would also take its first queued message.
         // ponytail: a turn that ends between this check and dsh's admission makes the steer start a turn that also takes
         // the first queued message of the chat (a few ms; nothing is lost). Upgrade when dsh can steer only a running turn.
+        // A turn that the user stopped still runs until it ends, but dsh queues a steer then and starts a new turn for it
+        // (agent-loop `wakingAfterAbort`): that counts as idle here, as in Send first.
         const agent = get('agents')?.get?.(id); const card = cards.open(agent);
-        const mode = card || agent?.status === 'running' ? 'steer' : 'queue';
+        const mode = card || (agent?.status === 'running' && agent.phase?.abort?.signal?.aborted !== true) ? 'steer' : 'queue';
         let waits = false; try { waits = mode === 'steer' && !card && waitingOf(agent.session.snapshotEvents()); } catch { /* no log */ }
         try {
           // Not the call's signal: once admitted, the message must reach the chat whole.
@@ -10200,7 +10202,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         // The result says where the message went, so the assistant does not tell the user that a queued message arrived.
         const where = answered ? ' It answered the question card that waited there, so the chat continues now.'
           : mode === 'steer' ? ` The chat runs: the message went into its running turn, and the chat reads it at its next step.${waits ? ' The chat waits for the user now (an approval or a plan review): it reads the message after that answer.' : ''}`
-            : ' The chat was idle: the message went into its queue and starts a turn (messages queued before it run first).';
+            : ' The chat was idle: the message went into its queue and starts a turn.';
         return `Sent to "${title ?? id}" (${id}).${where} You get a note with its reply when the turn of this message ends or the chat waits for the user.`;
       },
     },
@@ -11222,8 +11224,15 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
         const full = lastReply(eventsOf(agent).slice(inherited));
         const reply = cutEnd(full, timing.reply);
         const ask = askNow(agent, inherited, reply);
-        // A quiet automation turn (QUIET_NEWS_MARKER) with nothing open for the user: no item, no assistant turn.
-        if (auto && ask.ask === undefined && full.split('\n', 1)[0].trim() === QUIET_NEWS_MARKER) { if (pending.get(session.id)?.kind === 'waiting') pending.delete(session.id); return; }
+        // A quiet automation turn (QUIET_NEWS_MARKER) with nothing for the user: no item, no assistant turn. Its own gate,
+        // not only askNow: askNow leaves out an onay sentence that the cut reply holds, and askOf counts a denied step only
+        // after the last reply. So no onay block in the reply and no refused approval anywhere in the turn.
+        const quiet = () => {
+          if (!auto || ask.ask !== undefined || full.split('\n', 1)[0].trim() !== QUIET_NEWS_MARKER || onayBlocks(full).length > 0) return false;
+          const own = eventsOf(agent).slice(inherited);
+          return !own.slice(own.findLastIndex((e) => e.type === 'turn/start') + 1).some((e) => e.type === 'approval/decided' && e.data?.outcome !== 'allowed-once' && e.data?.outcome !== 'cancelled');
+        };
+        if (quiet()) { if (pending.get(session.id)?.kind === 'waiting') pending.delete(session.id); return; }
         add(session, { kind: 'finished', reply, ...ask, ...info });
       } else if (pending.get(session.id)?.kind === 'waiting') pending.delete(session.id); // the wait ended with the turn
       return;
