@@ -6555,8 +6555,9 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
     /** The option list that a chat offers now (`chat`: dsh's chat view snapshot, node key → node): the list at the end of
      * the closing answer of the chat's newest turn, as `{ seq, turn, latest, options }`, or undefined. A turn that a
      * rollback withdrew (`spans`: Turn rollback's and dsh-rewind-plugin's, rule 9) does not count: the newest turn still
-     * in the chat does. A turn without an answer (it runs, or it ended with tools only) and a stopped answer offer nothing.
-     * The text is the answer's text blocks joined as dsh joins them (reasoning and tools left out). `latest` is the newest
+     * in the chat does. A turn without an answer (it runs, or it ended with tools only) and a stopped answer offer no
+     * Option buttons. For the Approve button, a stopped answer offers nothing too, but a turn that ended with tools only
+     * keeps an older block's button (below). The text is the answer's text blocks joined as dsh joins them (reasoning and tools left out). `latest` is the newest
      * turn number, withdrawn ones too: a pick waits for a turn newer than it (createOptionPicks). `from` is a fork's
      * inherited event count (rule 10): an answer before it is the parent's and offers nothing, so a fork shows no buttons
      * until its own first answer. Approve button: a newer turn without a text answer (tools only, dsh's `closing` is null)

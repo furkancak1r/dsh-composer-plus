@@ -4,7 +4,7 @@
 // - The prompt rule: a reply without a block keeps the button; no new block for news, a reminder or an agent result
 //   when the pending approvals did not change; the sentence names subjects, not internal codes. The old rule for a user
 //   message stays.
-// - The Assistant news note: do not write an unchanged block again, its button stays.
+// - The Assistant news note: do not write an unchanged block again, its button stays until the user's next message.
 // - The client (real client.js chatOffer): a newer turn without a text answer (tools only, dsh's closing is null) keeps
 //   the button of the older block, under that turn's end; not after your message, a rollback of the block or in a fork's
 //   inherited part. Option buttons do not change.
@@ -12,13 +12,16 @@ import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 import { APPROVE_SECTION, assistantNewsNote } from '../index.js';
 
 // 1. The prompt rule and the news note.
-assert.match(APPROVE_SECTION, /A reply without an `onay` block keeps the button of the newest block\./);
+assert.match(APPROVE_SECTION, /A reply without an `onay` block keeps the button of the newest block until the user's next message\./);
+// Review 1: no wording that asks for the block in every reply.
+assert.match(APPROVE_SECTION, /When several approvals are pending, put them in one sentence in one block \(only the newest block gets a button\)\./);
+assert.doesNotMatch(APPROVE_SECTION, /in your newest reply/, 'no "block in your newest reply" (the model read it as "in every reply")');
 assert.match(APPROVE_SECTION, /When the pending approvals did not change, do not write the block again in a reply to news, a scheduled reminder or an agent result: write a new block only when the list of pending approvals changes or after a user message\./);
 assert.match(APPROVE_SECTION, /After a user message, when an approval is still pending, include it again in the next `onay` block, together with any new approval\./, 'the rule after a user message stays');
 assert.match(APPROVE_SECTION, /Name each item by its subject in the user's words, never by an internal code such as a review item name \(G3, H1\) or a session id\./);
 for (const kind of [{ task: true }, { automation: true }, {}]) {
   const note = assistantNewsNote([{ id: 's-1', title: 'Nightly audit', project: 'demo-app', at: 1, kind: 'finished', reply: 'No finding.', ...kind }]);
-  assert.match(note, /Do not write an unchanged `onay` block again: its button stays\./, `the news note: ${JSON.stringify(kind)}`);
+  assert.match(note, /Do not write an unchanged `onay` block again: its button stays until the user's next message\./, `the news note: ${JSON.stringify(kind)}`);
 }
 
 // 2. The client: the real chatOffer of client.js.
