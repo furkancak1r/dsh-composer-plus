@@ -343,7 +343,7 @@ try {
   assert.doesNotMatch(APPROVE_SECTION, /no button|user types it/, 'no exception for live or public targets');
   assert.match(APPROVE_SECTION, /Write at most one `onay` block per answer/);
   // One button at a time (the owner, 2026-11-12: a click removes the other buttons): the pending approvals in one block.
-  assert.match(APPROVE_SECTION, /Write at most one `onay` block in the chat at a time\. When several approvals are pending, put them in one sentence in one block in your newest reply:/, 'one block for the pending approvals');
+  assert.match(APPROVE_SECTION, /Write at most one `onay` block in the chat at a time\. When several approvals are pending, put them in one sentence in one block \(only the newest block gets a button\)\./, 'one block for the pending approvals');
   assert.match(APPROVE_SECTION, /After a user message, when an approval is still pending, include it again in the next `onay` block, together with any new approval\./, 'a pending approval comes back in the next block');
   // The rule's limit is the client's limit (approvable: a longer block gets no button), one value on both halves.
   assert.equal(HOST_MAX, APPROVAL_MAX, 'the Host and the client use the same limit');

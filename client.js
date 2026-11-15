@@ -6555,11 +6555,14 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
     /** The option list that a chat offers now (`chat`: dsh's chat view snapshot, node key → node): the list at the end of
      * the closing answer of the chat's newest turn, as `{ seq, turn, latest, options }`, or undefined. A turn that a
      * rollback withdrew (`spans`: Turn rollback's and dsh-rewind-plugin's, rule 9) does not count: the newest turn still
-     * in the chat does. A turn without an answer (it runs, or it ended with tools only) and a stopped answer offer nothing.
-     * The text is the answer's text blocks joined as dsh joins them (reasoning and tools left out). `latest` is the newest
+     * in the chat does. A turn without an answer (it runs, or it ended with tools only) and a stopped answer offer no
+     * Option buttons. For the Approve button, a stopped answer offers nothing too, but a turn that ended with tools only
+     * keeps an older block's button (below). The text is the answer's text blocks joined as dsh joins them (reasoning and tools left out). `latest` is the newest
      * turn number, withdrawn ones too: a pick waits for a turn newer than it (createOptionPicks). `from` is a fork's
      * inherited event count (rule 10): an answer before it is the parent's and offers nothing, so a fork shows no buttons
-     * until its own first answer. */
+     * until its own first answer. Approve button: a newer turn without a text answer (tools only, dsh's `closing` is null)
+     * keeps the button of an older `onay` block, under that turn's end (dsh gives the slot the turn end's seq): the
+     * assistant does not write an unchanged block again in a reply to news (2026-11-15: 38 news turns repeated one block). */
     function chatOffer(chat, spans, from = 0, parse = parseOptions) {
       const tails = [];
       for (const node of chat?.nodes?.values?.() ?? []) if (node?.kind === 'turn-tail' && Number.isSafeInteger(node.data?.turn)) tails.push(node);
@@ -6567,9 +6570,9 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       tails.sort((a, b) => b.data.turn - a.data.turn);
       const tail = tails.find((node) => !inSpans(spans ?? [], node.data.closing?.finalNode?.seq ?? node.data.seq));
       const closing = tail?.data.closing;
-      const seq = closing?.finalNode?.seq;
-      if (!Number.isSafeInteger(seq) || seq < from || closing.status === 'running' || closing.status === 'interrupted' || !Array.isArray(closing.blocks)) return undefined;
-      const options = parse === parseApprovals ? turnApprovals(chat, seq, closing.blocks, spans ?? [], from) : parse(answerText(closing.blocks));
+      const seq = closing === null && parse === parseApprovals ? tail.data.seq : closing?.finalNode?.seq;
+      if (!Number.isSafeInteger(seq) || seq < from || closing?.status === 'running' || closing?.status === 'interrupted' || (closing !== null && !Array.isArray(closing.blocks))) return undefined;
+      const options = parse === parseApprovals ? turnApprovals(chat, seq, closing?.blocks ?? [], spans ?? [], from) : parse(answerText(closing.blocks));
       return options.length === 0 ? undefined : { seq, turn: tail.data.turn, latest: tails[0].data.turn, options };
     }
     const answerText = (blocks) => blocks.flatMap((block) => (block?.kind === 'text' && typeof block.text === 'string' ? [block.text] : [])).join('');
