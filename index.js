@@ -2396,10 +2396,15 @@ export function apply(ctx) {
     else if (busy.delete(agent.id) && mobileOn === true) {
       changeUnread([agent.id], []);
       // Tether's "Turn finished" also while Tether is closed (APNs, when the gateway has a key): the agent's reply, under
-      // the Mac, the project and the chat's title (chatAbout).
-      let reply = '';
-      try { reply = lastReply(agent.session?.snapshotEvents?.() ?? []); } catch { /* no log */ }
-      mobile?.push('Turn finished', reply, agent.id);
+      // the Mac, the project and the chat's title (chatAbout). An Assistant news turn with nothing to say gives no push
+      // (quietNewsTurn); its green dot above stays.
+      let reply = '', quiet = false;
+      try {
+        const events = agent.session?.snapshotEvents?.() ?? [];
+        reply = lastReply(events);
+        quiet = quietNewsTurn(events, reply);
+      } catch { /* no log */ }
+      if (!quiet) mobile?.push('Turn finished', reply, agent.id);
     }
   });
   ctx.connection.fetch.register({
@@ -10957,6 +10962,14 @@ function turnPrompt(agent) {
 // The prompts that start a turn of their own: yours, a scheduled delivery, and Assistant news (only in the assistant chat:
 // a news turn after the morning summary is not the morning summary).
 const TURN_PROMPTS = ['user', 'schedule', NEWS_SOURCE];
+/** Tether's Turn finished push skips an Assistant news turn with nothing to say: the first own prompt (TURN_PROMPTS) of the
+ * newest turn is the news note, and the turn's `reply` (lastReply) is empty or only `[quiet]`. A turn that you start and a
+ * news turn with a text reply still push (2026-11-15: news turns that ended with `[quiet]` pushed to the iPhone). */
+export function quietNewsTurn(events, reply) {
+  const start = events.findLastIndex((e) => e.type === 'turn/start');
+  const prompt = events.slice(start + 1).find((e) => e.type === 'user/message' && TURN_PROMPTS.includes(e.data?.source?.kind));
+  return prompt?.data.source.kind === NEWS_SOURCE && /^(?:\[quiet\])?$/i.test(reply.trim());
+}
 
 /** Host half of Assistant apart from chats, Assistant always free and Assistant news from chats. `assistant` is the handle of
  * installAssistant (ready, isOn, id, isAssistant). */
