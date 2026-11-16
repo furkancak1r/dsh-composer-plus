@@ -14,13 +14,13 @@
 //   in the chat's next step (the owner, 2026-11-13: blocks of 1092 to 1439 characters showed no button).
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises'; import { tmpdir } from 'node:os'; import { join } from 'node:path';
-import { APPROVE_PATH, APPROVE_SECTION, APPROVAL_DUR as HOST_DUR, APPROVAL_HOLD as HOST_HOLD, APPROVAL_LIVE_WORD as HOST_LIVE, APPROVAL_MAX as HOST_MAX, DEPLOY_ASK as HOST_ASK, DEPLOY_LINE as HOST_LINE, approveLongNote, approveRuleNote, installApproveButton } from '../index.js';
+import { APPROVE_PATH, APPROVE_SECTION, APPROVAL_DUR as HOST_DUR, APPROVAL_HOLD as HOST_HOLD, APPROVAL_LIVE_WORD as HOST_LIVE, APPROVAL_MAX as HOST_MAX, APPROVAL_SCOPE_OFF as HOST_SCOPE, DEPLOY_ASK as HOST_ASK, DEPLOY_LINE as HOST_LINE, approveLongNote, approveRuleNote, installApproveButton } from '../index.js';
 const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
 const ANCHOR = '/** Feature switches, in Settings order.';
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_LIVE_WORD, DEPLOY_ASK, DEPLOY_LINE };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD, DEPLOY_ASK, DEPLOY_LINE };\n    ${ANCHOR}`));
 let cur;
 const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }),
   useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
@@ -123,26 +123,41 @@ const GOOD = ["Onaylıyorum: PR Addon S01 dalı ve geçici klasörü silinsin (m
   // Review 1: a hold word in a block without a deploy or live word is a task, not a hold.
   'Onaylıyorum: GYP/EKS/SRV dalı silinsin (genişletmeden vazgeçildi).', "Onaylıyorum: erteleme raporu düzeltmesi main'e alınsın.",
   'Onaylıyorum: zamanlanmış görevi durdur (yalnız test sunucusu).', "Onaylıyorum: Stop butonu düzeltmesi main'e alınsın.", 'Onaylıyorum: "Hayır" seçeneği eklensin.',
-  'Onaylıyorum: dur kontrolü eklensin.', "Onaylıyorum: Canlı deploy ayrı onayla; Promes main'e alınsın.", "Onaylıyorum: Promes iptal ekranı main'e alınsın."];
+  'Onaylıyorum: dur kontrolü eklensin.', "Onaylıyorum: Canlı deploy ayrı onayla; Promes main'e alınsın.", "Onaylıyorum: Promes iptal ekranı main'e alınsın.",
+  // Review 2: the real form names the not-live scope ("canlı değil", "deploy ayrı onayla"); dur/durdur without a condition.
+  "Onaylıyorum: sipariş iptal ekranı main'e alınsın (canlı değil).", "Onaylıyorum: erteleme raporu düzeltmesi main'e alınsın (canlı değil).",
+  "Onaylıyorum: Stop butonu düzeltmesi main'e alınsın, canlı değil.", 'Onaylıyorum: GYP/EKS/SRV dalı silinsin (genişletmeden vazgeçildi, canlı değil).',
+  'Onaylıyorum: test sunucusunda servisi durdur (canlı değil).', "Onaylıyorum: iptal ekranı main'e alınsın, deploy ayrı onayla.",
+  'Onaylıyorum: canlı deploy Promes için ayrı onayla, şimdi yalnız main.', 'Onaylıyorum: zamanlanmış görevi yarın sabaha kadar durdur.',
+  "Onaylıyorum: runner'ı iş bitene kadar durdur.", 'Onaylıyorum: servisleri birer birer durdur.', 'Onaylıyorum: tüm runnerlar durdur',
+  'Onaylıyorum: arka plandaki işler durdur.',
+  // Any product word in the strict line: the gate refuses a product that it does not know with its own message.
+  'CANLI DEPLOY ProsoCockpit 15c101d7 ŞİMDİ', 'CANLI DEPLOY demo-app 15c101d7 SAAT 18:00'];
 for (const s of GOOD) assert.deepEqual(sentences(block(s)), [s], `the gate accepts it: ${s}`);
 const HELD = [
   ["Onaylıyorum: 2.19 deploy ayarı değişsin (CANLI sunucu ayarı, kod deploy'u yok).", "deploy'u yok"], ['Onaylıyorum: kurulum yapılsın, hata varsa dur.', 'varsa dur'], ['Onaylıyorum: kurulum yapılsın, gerekirse dur ve bildir.', 'gerekirse dur'],
   ['Onaylıyorum: canlı servisi kur, sorun çıkarsa durdur.', 'çıkarsa durdur'], ['Onaylıyorum: canlı işler bitene kadar bekle.', 'bekle'], ['Onaylıyorum: canlı görevi iptal et.', 'iptal'],
   ['Onaylıyorum: canlıya dokunma, yalnız test.', 'canlıya dokunma'], ['Onaylıyorum: deploy şimdi olmaz, dalı push et.', 'deploy şimdi olmaz'], ['Approve: stop the deploy runner.', 'stop'],
+  ['Onaylıyorum: servisi kur, hata çıkarsa hemen durdur.', 'çıkarsa hemen durdur'], ['Onaylıyorum: hata görürsen durdur.', 'görürsen durdur'],
+  ['Onaylıyorum: sayfa açılmazsa durdur.', 'açılmazsa durdur'], ['Onaylıyorum: kur, gerekiyorsa dur.', 'gerekiyorsa dur'],
+  ["Onaylıyorum: ayar değişsin (canlı değil, kod deploy'u yok).", "deploy'u yok"],
 ];
 for (const [s, word] of HELD) {
   assert.deepEqual(sentences(block(s)), [], `a hold word gets no button: ${s}`);
-  assert.match(approveRuleNote(s), new RegExp(`has "${word}", which Auto review reads as a hold or stop word.*When the block is not about a deploy, remove the live or deploy words, or write the scope with positive words \\("yalnız main", "test kopyası"\\).*"canlı değil", "yalnız yerel", "deploy ayrı onayla"`), `the note names the word: ${s}`);
+  assert.match(approveRuleNote(s), new RegExp(`has "${word}", which Auto review reads as a hold or stop word.*keep its scope \\(for example "canlı değil"\\) and remove only the hold word, or write the scope with positive words, for example "canlı değil", "yalnız yerel", "yalnız main", "deploy ayrı onayla"\\.$`), `the note names the word: ${s}`);
+  assert.doesNotMatch(approveRuleNote(s), /remove the live or deploy words/, 'the note keeps the scope words');
 }
 for (const s of ["CANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ: 2.19'a betikle yedekli deploy, CalVer etiketi ve rapor kontrolü.", 'CANLI DEPLOY PROSOLOCAL 1234567 ŞİMDİ',
   'Onaylıyorum: PROMES canlı deploy abc1234 şimdi.', 'Onaylıyorum: prosolocal 15c101d7 deploy edilsin.',
-  'CANLI DEPLOY PROSOLOCAL 15c101d7', 'CANLI DEPLOY ProsoCockpit 15c101d7 ŞİMDİ', 'Onaylıyorum: CANLI DEPLOY PROMES 15c101d7 SAAT 25:00', 'CANLI DEPLOY PROMES 15c101d7 ŞİMDİ ve etiket at.']) {
+  'CANLI DEPLOY PROSOLOCAL 15c101d7', 'Onaylıyorum: CANLI DEPLOY PROMES 15c101d7 SAAT 25:00', 'CANLI DEPLOY PROMES 15c101d7 ŞİMDİ ve etiket at.', 'CANLI DEPLOY PROMES ŞİMDİ']) {
   assert.deepEqual(sentences(block(s)), [], `a loose deploy line gets no button: ${s}`);
-  assert.match(approveRuleNote(s), /looks like a live deploy approval .* but is not the strict deploy line.*leave out the commit SHA or the deploy words/, `its note: ${s}`);
+  assert.match(approveRuleNote(s), /looks like a live deploy approval .* but is not the strict deploy line.*"CANLI DEPLOY <PRODUCT> <commit SHA> ŞİMDİ".*When the block is not a deploy approval, leave out the commit SHA\.$/, `its note: ${s}`);
 }
 for (const s of GOOD) assert.equal(approveRuleNote(s), undefined, `no note: ${s}`);
 // The client's expressions are the Host's (one source: the Auto review plugin).
-for (const [name, host] of Object.entries({ APPROVAL_HOLD: HOST_HOLD, APPROVAL_DUR: HOST_DUR, APPROVAL_LIVE_WORD: HOST_LIVE, DEPLOY_ASK: HOST_ASK, DEPLOY_LINE: HOST_LINE })) assert.equal(String(globalThis.__ap[name]), String(host), `${name}: the client and the Host agree`);
+// The prompt rule and the notes name no product or person of the owner (a public package).
+for (const text of [APPROVE_SECTION, approveRuleNote('Onaylıyorum: canlı görevi iptal et.'), approveRuleNote('CANLI DEPLOY X 15c101d7')]) assert.doesNotMatch(text, /Furkan|\/Users\/|aiproxy|review-guard|Promes|Proso/i);
+for (const [name, host] of Object.entries({ APPROVAL_HOLD: HOST_HOLD, APPROVAL_DUR: HOST_DUR, APPROVAL_SCOPE_OFF: HOST_SCOPE, APPROVAL_LIVE_WORD: HOST_LIVE, DEPLOY_ASK: HOST_ASK, DEPLOY_LINE: HOST_LINE })) assert.equal(String(globalThis.__ap[name]), String(host), `${name}: the client and the Host agree`);
 
 // --- ApproveButtons in dsh's turn-tail slot ---
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -383,7 +398,7 @@ try {
   assert.doesNotMatch(APPROVE_SECTION, /Show the `onay` block once|do not repeat the block/, 'no rule that hides a pending approval');
   assert.match(APPROVE_SECTION, /name the targets and the live or not-live scope, without file lines or script names/, 'a short sentence');
   assert.match(APPROVE_SECTION, /Do not put a word in the block that Auto review reads as a hold or stop \(for example dur, bekle, iptal, hayır, "deploy yok"\): such a block shows only as code, so name the scope with positive words \("canlı değil", "yalnız yerel", "deploy ayrı onayla"\)\./, 'the hold-word rule');
-  assert.match(APPROVE_SECTION, /A block that starts with "CANLI DEPLOY" holds only the strict line "CANLI DEPLOY <PROMES\|PROSOLOCAL\|PROSO> <commit SHA> ŞİMDİ" or "CANLI DEPLOY <PROMES\|PROSOLOCAL\|PROSO> <commit SHA> SAAT HH:MM", optionally after "Onaylıyorum: ", and nothing after it: another form shows only as code\./, 'the strict deploy line rule');
+  assert.match(APPROVE_SECTION, /A block that starts with "CANLI DEPLOY" holds only the strict line "CANLI DEPLOY <PRODUCT> <commit SHA> ŞİMDİ" or "CANLI DEPLOY <PRODUCT> <commit SHA> SAAT HH:MM", optionally after "Onaylıyorum: ", and nothing after it: another form shows only as code\./, 'the strict deploy line rule');
   // A too long block: one note in the chat's next step that has a message (the owner, 2026-11-13: no button, the owner
   // typed a 1439-character sentence by hand). The note never starts a step itself.
   const on = (name) => listeners.get(name);

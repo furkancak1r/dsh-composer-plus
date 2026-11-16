@@ -9739,32 +9739,39 @@ const HOLD_DEPLOY_NOUN = String.raw`(?:deploy|yayın|canlı|başlat|güncelle)\p
 export const APPROVAL_HOLD = new RegExp(String.raw`(?<![\p{L}\p{N}])(?:(?<!\p{L}{2,20}(?:(?<!l)[ae]r|[ıiuü]r|m[ae]z)s[ae]n?\s{1,3})(?:dur|durdur|durdurun|durun)|bekle|bekleyin|bekleyelim|beklesin|iptal\p{L}*|ertele\p{L}*|vazgeç\p{L}*|hayır|stop|cancel|do not|don't|onay\p{L}*\s{1,3}geri\s{1,3}(?:al|çek)\p{L}*|onaylam[ıi]yorum|onaylamad[ıi]m|onay\s{1,3}verm(?:edim|iyorum)|(?:şimdi|hemen|simdi)\s{1,3}(?:yapma|yapmayın|olmaz)|deploy\p{L}{0,4}(?:['’]\p{L}{1,4})?(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}${HOLD_NEGATED}|(?:yayınla|(?<!yeniden\s{1,3})başlat|kur)(?:ma|mayın|mayalım|masın)|(?:yayınlan|başlatıl|kurul|alın)masın|canlıya\s{1,3}(?:alma|almayın|çıkma|çıkmayın)|${HOLD_DEPLOY_NOUN}(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}(?:olmaz|dokunma|dokunmayın|askıya\s{1,3}al\p{L}*|yok|edilmeyecek))(?![\p{L}\p{N}])`, 'u');
 /** dur and durdur after a condition, in any block: the model review of Auto review reads its wider STOP list (same file,
  * line 645), which has no condition rule (2026-11-16 15:18: "gerekirse dur" in a clicked sentence denied an install).
- * Without a condition ("servisi durdur") it is a task, not a hold. */
-export const APPROVAL_DUR = /(?<![\p{L}\p{N}])\p{L}+(?:s[ae]n?|s[ae]n[ıi]z|[ıiuü]r|[ae]r)\s{1,3}(?:dur|durun|durdur|durdurun)(?![\p{L}\p{N}])/u;
+ * The condition is the suffix -sa/-se (-san, -sen, -sanız, -seniz) after an aorist, -mAz, -yor, var/yok or a vowel
+ * (y): "çıkarsa", "gerekirse", "açılmazsa", "gerekiyorsa", "varsa", "bittiyse"; one word can come between ("çıkarsa
+ * hemen durdur"). Without a condition ("servisi durdur", "kadar durdur", "kasa servisi durdur") it is a task. */
+export const APPROVAL_DUR = /(?<![\p{L}\p{N}])\p{L}*(?:[aeıiuü]r|m[ae]z|yor|var|yok|y)s[ae](?:n|n[ıi]z)?(?:\s{1,3}\p{L}+)?\s{1,3}(?:dur|durun|durdur|durdurun)(?![\p{L}\p{N}])/u;
+/** The not-live scope phrases of an approval, on the folded text: "canlı değil", "deploy ayrı onayla", "yalnız yerel".
+ * They are taken out before the live word and the deploy checks (review 2: every approval names its scope). */
+export const APPROVAL_SCOPE_OFF = /canli\p{L}* +değil|deploy\p{L}*(?:['’]\p{L}+)? +ayri +onay\p{L}*|yalniz +yerel/gu;
 /** The words that make a block a deploy or live approval: only then the gate's HOLD list counts ("erteleme raporu",
- * "Stop butonu", "vazgeçildi" in a branch approval keep the button). On the folded text. */
+ * "Stop butonu", "vazgeçildi" in a branch approval keep the button). On the folded text without the scope phrases. */
 export const APPROVAL_LIVE_WORD = /deploy|canli|yayin/;
-/** A block that asks for a live deploy, on the folded text: "CANLI DEPLOY <product>", "CANLI DEPLOY <name> <commit SHA>"
- * (a product that the gate does not know), or a product name, a commit SHA (7-40 hex with a letter a-f) and "deploy" in
- * any order. Not "Canlı deploy ayrı onayla" (review 1). Only the strict line passes (DEPLOY_LINE). */
-export const DEPLOY_ASK = /canli +deploy +(?:(?:promes|prosolocal|proso)(?![\p{L}\p{N}])|\p{L}+ +(?=[0-9]*[a-f])[0-9a-f]{7,40}(?![\p{L}\p{N}]))|^(?=[^]*deploy)(?=[^]*(?<![\p{L}\p{N}])(?:promes|prosolocal|proso)(?![\p{L}\p{N}]))[^]*(?<![\p{L}\p{N}])(?=[0-9]*[a-f])[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
+/** A block that asks for a live deploy, on the folded text without the scope phrases: "deploy" and a commit SHA (7-40 hex
+ * with a letter a-f), or "CANLI DEPLOY <product>" before a SHA-like token (4-40 hex) or ŞİMDİ|SAAT. Not "Canlı deploy
+ * <product> için ayrı onayla" (review 2).
+ * Only the strict line passes (DEPLOY_LINE). */
+export const DEPLOY_ASK = /canli +deploy +[a-z][a-z0-9-]{1,30} +(?:[0-9a-f]{4,40}|simdi|saat)(?![\p{L}\p{N}])|^(?=[^]*deploy)[^]*(?<![\p{L}\p{N}])(?=[0-9]*[a-f])[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
 /** The strict live deploy line of the same gate (its APPROVAL_LINE, without "Option N: "), on the folded text (lower
- * case, ı to i, ş to s): the gate accepts nothing else (2026-11-16: "CANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ: 2.19'a ..."
- * got two clicks and approved no deploy). */
-export const DEPLOY_LINE = /^(?:onayliyorum:? {1,3})?canli {1,3}deploy {1,3}(?:promes|prosolocal|proso) {1,3}(?=[0-9]*[a-f])[0-9a-f]{7,40} {1,3}(?:saat {1,3}(?:[01]\d|2[0-3])[:.][0-5]\d|simdi) {0,20}\.?$/;
+ * case, ı to i, ş to s): the gate accepts nothing else (2026-11-16: "CANLI DEPLOY <product> 15c101d7 ŞİMDİ: 2.19'a ..."
+ * got two clicks and approved no deploy).
+ * ponytail: any product word here; the gate knows only its own products, so a product that it does not know (16.11: a
+ * deploy line for another product) still gets a button, and the gate refuses it with its own message. */
+export const DEPLOY_LINE = /^(?:onayliyorum:? {1,3})?canli {1,3}deploy {1,3}[a-z][a-z0-9-]{1,30} {1,3}(?=[0-9]*[a-f])[0-9a-f]{7,40} {1,3}(?:saat {1,3}(?:[01]\d|2[0-3])[:.][0-5]\d|simdi) {0,20}\.?$/;
 const foldDeploy = (s) => s.normalize('NFC').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/ş/g, 's').replace(/[^\S\n]/g, ' ').trim();
 const hit = (re, text) => (re.exec(text.toLocaleLowerCase('tr')) ?? re.exec(text.toLowerCase()))?.[0];
 /** The note for an `onay` block that the client shows without a button because Auto review would not accept it, or
- * undefined (the length has its own note). The client's passesGate (client.js) makes the same three checks.
+ * undefined (the length has its own note). The client's passesGate (client.js) makes the same checks.
  * ponytail: a pre-filter for the button, not the gate. The gate also holds a pending deploy when a later message of the
- * user has a hold word, so a block like "Promes iptal ekranı main'e alınsın" keeps its button here (no deploy word) and
- * can still hold a Promes deploy that waits. A merge approval that names a product, a SHA and "deploy" gets no button:
- * the note tells the agent to leave out the SHA or the deploy words. */
+ * user has a hold word, so a block like "<product> iptal ekranı main'e alınsın" keeps its button here (no deploy word)
+ * and can still hold a deploy of that product that waits. */
 export function approveRuleNote(body) {
-  const folded = foldDeploy(body);
-  const word = (APPROVAL_LIVE_WORD.test(folded) ? hit(APPROVAL_HOLD, body) : undefined) ?? hit(APPROVAL_DUR, body);
-  if (word !== undefined) return `Composer Plus → Approve button: your last \`onay\` block has "${word}", which Auto review reads as a hold or stop word, so it showed only as code, without the button. When the approval is still pending, write the block again without such a word. When the block is not about a deploy, remove the live or deploy words, or write the scope with positive words ("yalnız main", "test kopyası"). For a deploy or live scope, use positive words, for example "canlı değil", "yalnız yerel", "deploy ayrı onayla".`;
-  if (DEPLOY_ASK.test(folded) && !DEPLOY_LINE.test(folded)) return 'Composer Plus → Approve button: your last `onay` block looks like a live deploy approval (CANLI DEPLOY, or a product name, a commit SHA and "deploy") but is not the strict deploy line, so it showed only as code, without the button (Auto review accepts only that line). When the deploy approval is still pending, write a block with only the line "CANLI DEPLOY <PROMES|PROSOLOCAL|PROSO> <commit SHA> ŞİMDİ" or "CANLI DEPLOY <PROMES|PROSOLOCAL|PROSO> <commit SHA> SAAT HH:MM", optionally after "Onaylıyorum: ", and nothing after it. When the block is not a deploy approval, leave out the commit SHA or the deploy words.';
+  const scope = foldDeploy(body).replace(APPROVAL_SCOPE_OFF, ' ');
+  const word = (APPROVAL_LIVE_WORD.test(scope) ? hit(APPROVAL_HOLD, body) : undefined) ?? hit(APPROVAL_DUR, body);
+  if (word !== undefined) return `Composer Plus → Approve button: your last \`onay\` block has "${word}", which Auto review reads as a hold or stop word, so it showed only as code, without the button. When the approval is still pending, write the block again: keep its scope (for example "canlı değil") and remove only the hold word, or write the scope with positive words, for example "canlı değil", "yalnız yerel", "yalnız main", "deploy ayrı onayla".`;
+  if (DEPLOY_ASK.test(scope) && !DEPLOY_LINE.test(foldDeploy(body))) return 'Composer Plus → Approve button: your last `onay` block looks like a live deploy approval ("deploy" with a commit SHA, or CANLI DEPLOY) but is not the strict deploy line, so it showed only as code, without the button (Auto review accepts only that line). When the deploy approval is still pending, write a block with only the line "CANLI DEPLOY <PRODUCT> <commit SHA> ŞİMDİ" or "CANLI DEPLOY <PRODUCT> <commit SHA> SAAT HH:MM", optionally after "Onaylıyorum: ", and nothing after it. When the block is not a deploy approval, leave out the commit SHA.';
   return undefined;
 }
 export const APPROVE_SECTION = `# Approve button (Composer Plus)
@@ -9772,7 +9779,7 @@ Auto review accepts an approval only from a user message. When you need a writte
 \`\`\`onay
 Onaylıyorum: feature/x dalını origin'e push et.
 \`\`\`
-A button under your answer sends the block's text as the user's message with one click. Write at most one \`onay\` block per answer: one sentence, in the user's language, that names what needs the approval, and nothing else in the block. Keep the block at most ${APPROVAL_MAX} characters, always: a longer block shows only as code, without the button. Do not put a word in the block that Auto review reads as a hold or stop (for example dur, bekle, iptal, hayır, "deploy yok"): such a block shows only as code, so name the scope with positive words ("canlı değil", "yalnız yerel", "deploy ayrı onayla"). A block that starts with "CANLI DEPLOY" holds only the strict line "CANLI DEPLOY <PROMES|PROSOLOCAL|PROSO> <commit SHA> ŞİMDİ" or "CANLI DEPLOY <PROMES|PROSOLOCAL|PROSO> <commit SHA> SAAT HH:MM", optionally after "Onaylıyorum: ", and nothing after it: another form shows only as code. Use an \`onay\` block only for an approval sentence. Each approval sentence gets the block, also one that names a live or public target (production, a live database, a deploy, a release, npm publish, a public PR). Write at most one \`onay\` block in the chat at a time. When several approvals are pending, put them in one sentence in one block (only the newest block gets a button). A reply without an \`onay\` block keeps the button of the newest block until the user's next message. When the pending approvals did not change, do not write the block again in a reply to news, a scheduled reminder or an agent result: write a new block only when the list of pending approvals changes or after a user message. When the pending approvals do not fit in ${APPROVAL_MAX} characters, put the most urgent ones that fit in the block and write one short line outside the block that says how many approvals still wait. They come in your next replies. After a user message, when an approval is still pending, include it again in the next \`onay\` block, together with any new approval. Keep the sentence short: name the targets and the live or not-live scope, without file lines or script names. Name each item by its subject in the user's words, never by an internal code such as a review item name (G3, H1) or a session id.`;
+A button under your answer sends the block's text as the user's message with one click. Write at most one \`onay\` block per answer: one sentence, in the user's language, that names what needs the approval, and nothing else in the block. Keep the block at most ${APPROVAL_MAX} characters, always: a longer block shows only as code, without the button. Do not put a word in the block that Auto review reads as a hold or stop (for example dur, bekle, iptal, hayır, "deploy yok"): such a block shows only as code, so name the scope with positive words ("canlı değil", "yalnız yerel", "deploy ayrı onayla"). A block that starts with "CANLI DEPLOY" holds only the strict line "CANLI DEPLOY <PRODUCT> <commit SHA> ŞİMDİ" or "CANLI DEPLOY <PRODUCT> <commit SHA> SAAT HH:MM", optionally after "Onaylıyorum: ", and nothing after it: another form shows only as code. Use an \`onay\` block only for an approval sentence. Each approval sentence gets the block, also one that names a live or public target (production, a live database, a deploy, a release, npm publish, a public PR). Write at most one \`onay\` block in the chat at a time. When several approvals are pending, put them in one sentence in one block (only the newest block gets a button). A reply without an \`onay\` block keeps the button of the newest block until the user's next message. When the pending approvals did not change, do not write the block again in a reply to news, a scheduled reminder or an agent result: write a new block only when the list of pending approvals changes or after a user message. When the pending approvals do not fit in ${APPROVAL_MAX} characters, put the most urgent ones that fit in the block and write one short line outside the block that says how many approvals still wait. They come in your next replies. After a user message, when an approval is still pending, include it again in the next \`onay\` block, together with any new approval. Keep the sentence short: name the targets and the live or not-live scope, without file lines or script names. Name each item by its subject in the user's words, never by an internal code such as a review item name (G3, H1) or a session id.`;
 export function installApproveButton(ctx, home, file = join(home, 'storages', 'dsh-composer-plus', 'approve-button.json')) {
   const sw = mobileSwitch(file, true);
   let on = false;
@@ -9998,12 +10005,12 @@ export function assistantRead(events, inherited, count, { message = ASSISTANT_LI
 }
 const foldName = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase('en');
 
-/** A relayed approval in a chat_send or chat_new text: the RELAY_HEADER of the Auto review plugin (copied from
- * ~/.dsh/local/auto-review-relaxed-dev/.worktrees/fix-deploy-relay-hold-and-secret-guards/index.js:1132, 2026-11-16):
- * "Furkan's <0-2 words> approval (exact text …): "<quote>"", the quote on the same line or the next one, closed at the line
- * end (to the last quote mark of that line: real approvals have inner quotes). Group 1 is the quote. A quote that the
- * gate does not read as a relay (another name, "message", more text after the quote on its line) is not checked here. */
-const RELAY_QUOTE = /Furkan['’]s(?:[ \t]+(?!(?:cancel\w*|revok\w*|withdr\w*|reject\w*|denied|deny|no|not|never)[ \t])[A-Za-z-]{1,20}){0,2}[ \t]+approval \(exact text(?:,[^()\n]*)?\):?[ \t]*(?:\r?\n[ \t]*)?["“]([^\r\n]{0,4000})["”][ \t]*(?=\r?\n|$)/gi;
+/** A relayed approval in a chat_send or chat_new text, in the shape of the relay header of a local Auto review plugin
+ * (2026-11-16): "<Name>'s <0-2 words> approval (exact text …): "<quote>"", the quote on the same line or the next one,
+ * closed at the line end (to the last quote mark of that line: real approvals have inner quotes). Group 1 is the quote.
+ * Any name, in any letter case (that plugin reads one name). A quote that is not in this shape ("message", more text after the
+ * quote on its line) is not checked here. */
+const RELAY_QUOTE = /\p{L}+['’]s(?:[ \t]+(?!(?:cancel\w*|revok\w*|withdr\w*|reject\w*|denied|deny|no|not|never)[ \t])[A-Za-z-]{1,20}){0,2}[ \t]+approval \(exact text(?:,[^()\n]*)?\):?[ \t]*(?:\r?\n[ \t]*)?["“]([^\r\n]{0,4000})["”][ \t]*(?=\r?\n|$)/giu;
 export const RELAY_WINDOW_MS = 12 * 3600000;
 /** The refusal of a chat_send or chat_new `text` that quotes an approval that the user did not type: each quote must be
  * in one message that the user typed in the assistant chat (`events`, its log; also an Approve button click, which is the
