@@ -20,7 +20,7 @@
  * - Worktree chats: the chat's branch status, and "New branch": a git worktree under `<repo>/.worktrees/`, named by the
  *   model, with the shared ignored files that `.worktreeinclude` names, registered as a dsh workspace with a new chat.
  *   It adds a worktree and a branch; it never removes, pushes or merges one.
- * - Backup: archives of the dsh home in ~/Desktop/dsh-backups (secrets masked, their copies in a local vault), automatic
+ * - Backup: archives of the dsh home in <dsh home>/backups (secrets masked, their copies in a local vault), automatic
  *   backups, session log check and repair, and a rescue console in the backup folder for a restore while dsh is closed.
  */
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
@@ -8450,8 +8450,9 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
   return { store, history, ready, historyReady, review, sectionFor, tools, state: answer, setup, refusal, block: (fn) => { blocked = fn; } };
 }
 
-/** Backup (dsh-backup's work, see backup.mjs): the archives in one folder next to the dsh home. ponytail: one fixed folder,
- * dsh-backup's default, so its archives stay usable; COMPOSER_PLUS_BACKUP_DIR moves it (tests). Upgrade: a folder setting. */
+/** Backup (dsh-backup's work, see backup.mjs): the archives in one folder, `backups` in the dsh home (not archived; a
+ * restore moves it back). ponytail: one fixed folder; COMPOSER_PLUS_BACKUP_DIR moves it (tests). Upgrade: a folder setting.
+ * Up to 1.29.2 the folder was ~/Desktop/dsh-backups (oldBackupFolder): never moved, deleted or listed here. */
 export const BACKUP_PATH = '/api/composer-plus.backup';
 export const AUTO_BACKUP_PATH = '/api/composer-plus.auto-backup';
 export const RESCUE_PATH = '/api/composer-plus.rescue-console';
@@ -8463,7 +8464,8 @@ export const SNAPSHOT_KEEP = 2;
 export const AUTO_BACKUP_GRACE_MS = 45000;
 /** After a failed automatic backup, the next try waits this long (or the interval, when that is shorter). */
 export const AUTO_BACKUP_RETRY_MS = 30 * 60000;
-export const backupFolder = () => process.env.COMPOSER_PLUS_BACKUP_DIR || join(homedir(), 'Desktop', 'dsh-backups');
+export const backupFolder = (home = process.env.DSH_HOME || join(homedir(), '.dsh')) => process.env.COMPOSER_PLUS_BACKUP_DIR || join(home, 'backups');
+export const oldBackupFolder = () => join(homedir(), 'Desktop', 'dsh-backups');
 /** The running dsh's version: the desktop app sets DSH_CLIENT_VERSION; the dsh CLI runs from its own package folder. */
 export function dshVersion(env = process.env, entry = process.argv[1]) {
   if (/^\d+\.\d+\.\d+\S*$/.test(env.DSH_CLIENT_VERSION ?? '')) return env.DSH_CLIENT_VERSION;
@@ -8491,7 +8493,7 @@ const archiveView = (a) => ({ name: a.name, kind: a.kind, at: a.at, size: a.size
  * `GET/POST /api/composer-plus.auto-backup {on|hours|keep}`: the automatic backup switch and its settings.
  * `GET/POST /api/composer-plus.rescue-console {on}`: the rescue console files in the backup folder (on by default).
  * Restore is not here: it replaces the dsh home, so it runs only in the rescue console while dsh is closed. */
-export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retryMs = AUTO_BACKUP_RETRY_MS, folder = backupFolder(), version = `${dshVersion() ?? 'dsh'} / Composer Plus ${PACKAGE.version}` } = {}) {
+export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retryMs = AUTO_BACKUP_RETRY_MS, folder = backupFolder(home), oldFolder = resolve(home) === join(homedir(), '.dsh') ? oldBackupFolder() : undefined, version = `${dshVersion() ?? 'dsh'} / Composer Plus ${PACKAGE.version}` } = {}) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: ${text}`);
   const auto = settingsStore(join(home, 'storages', 'dsh-composer-plus', 'auto-backup.json'), parseAutoBackup);
@@ -8597,8 +8599,12 @@ export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retry
       try {
         const settings = await auto.read();
         if (version !== undefined && (settings.version === undefined || !settings.on) && settings.version !== version) await auto.change((saved) => ({ ...saved, version }));
-        // An updated Composer Plus brings a new console: replace a copy that is there (a start makes no new files).
+        // An updated Composer Plus brings a new console: replace a copy that is there (a start makes no new files). Also the
+        // copy in the old folder of ~/.dsh: an old console's restore would leave the new backup folder in the old dsh home.
         if (await exists(join(folder, backups.RESCUE_FILE))) await refreshRescue();
+        if (oldFolder !== undefined && oldFolder !== folder && await exists(join(oldFolder, backups.RESCUE_FILE)) && await rescue.read()) {
+          await backups.writeRescue(oldFolder).catch((error) => log(`could not write the rescue console in ${oldFolder}: ${error?.message ?? error}`));
+        }
       } catch (error) { log(`backup start-up: ${error?.message ?? error}`); }
       await tick();
     }, graceMs);

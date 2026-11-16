@@ -2285,7 +2285,7 @@
     "backup.transfer": "दूसरे कंप्यूटर के लिए",
     "backup.delete": "हटाएं",
     "backup.deleteConfirm": "{name} हटाएं? vault में रखी इसकी कॉपी भी हट जाएंगी।",
-    "backup.restoreHow": "बहाल करने के लिए: dsh बंद करें, फिर बैकअप फ़ोल्डर में “Composer Plus Rescue” खोलें।",
+    "backup.restoreHow": "बहाल करने के लिए: फ़ोल्डर दिखाएं पर क्लिक करें, dsh बंद करें, फिर उस फ़ोल्डर में “Composer Plus Rescue” खोलें।",
     "backup.running.backup": "बैकअप लिया जा रहा है… {files} फ़ाइलें, {size}",
     "backup.running.check": "{name} जांचा जा रहा है… {size} पढ़ा गया",
     "backup.running.scan": "सेशन लॉग जांचे जा रहे हैं… {total} में से {done}",

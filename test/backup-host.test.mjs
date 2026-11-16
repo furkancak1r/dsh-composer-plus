@@ -4,10 +4,10 @@
 // files written with a backup, off removes them) and the running-dsh marker. Real files under a temporary folder.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as zlib from 'node:zlib';
-import { AUTO_BACKUP_PATH, BACKUP_PATH, RESCUE_PATH, apply, installBackup, parseAutoBackup } from '../index.js';
+import { AUTO_BACKUP_PATH, BACKUP_PATH, RESCUE_PATH, apply, backupFolder, installBackup, parseAutoBackup } from '../index.js';
 import * as b from '../backup.mjs';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'cp-backup-host-')));
@@ -15,11 +15,11 @@ const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 const until = async (fn, what, ms = 10000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error(`timed out: ${what}`); await tick(10); } };
 const write = (path, text) => { mkdirSync(join(path, '..'), { recursive: true }); writeFileSync(path, text); };
 
-function boot({ home, folder, version, graceMs = 0, retryMs = 1000, agents = new Map() }) {
+function boot({ home, folder, oldFolder, version, graceMs = 0, retryMs = 1000, agents = new Map() }) {
   const routes = new Map(); const effects = [];
   const ctx = { get: (n) => (n === 'agents' ? agents : undefined), effect: (f) => { effects.push(f()); }, logger: { warn() {} },
     connection: { fetch: { register: (r) => routes.set(r.path, r) } }, subprocess: {} };
-  const host = installBackup(ctx, home, { graceMs, retryMs, folder, version });
+  const host = installBackup(ctx, home, { graceMs, retryMs, folder, oldFolder, version });
   const call = async (path, body) => {
     const response = await routes.get(path).fetch(new Request(`http://h${path}`, body === undefined ? {} : { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) }));
     return { status: response.status, data: await response.json() };
@@ -27,13 +27,26 @@ function boot({ home, folder, version, graceMs = 0, retryMs = 1000, agents = new
   return { call, host, routes, unload: () => effects.forEach((f) => f?.()) };
 }
 
-// The real apply() registers the three routes.
+// The real apply() registers the three routes. The folder: `backups` in the dsh home; COMPOSER_PLUS_BACKUP_DIR wins.
 {
   process.env.DSH_HOME = join(root, 'apply-home');
-  process.env.COMPOSER_PLUS_BACKUP_DIR = join(root, 'apply-dest');
+  delete process.env.COMPOSER_PLUS_BACKUP_DIR;
+  assert.equal(backupFolder(), join(root, 'apply-home', 'backups'));
+  const saved = process.env.DSH_HOME;
+  delete process.env.DSH_HOME;
+  assert.equal(backupFolder(), join(homedir(), '.dsh', 'backups'), 'no DSH_HOME: ~/.dsh/backups');
+  process.env.DSH_HOME = saved;
   const routes = new Map();
   apply({ on() {}, effect() {}, get: () => undefined, connection: { fetch: { register: (x) => routes.set(x.path, x) } }, subprocess: {}, sessionQuery: {}, sessionController: {} });
   assert.deepEqual([BACKUP_PATH, AUTO_BACKUP_PATH, RESCUE_PATH].map((p) => routes.get(p)?.methods), [['GET', 'POST'], ['GET', 'POST'], ['GET', 'POST']]);
+  const folderOf = async (r) => (await (await r.get(BACKUP_PATH).fetch(new Request(`http://h${BACKUP_PATH}`))).json()).folder;
+  assert.equal(await folderOf(routes), join(root, 'apply-home', 'backups'), 'apply() uses the dsh home\'s backups folder');
+  process.env.COMPOSER_PLUS_BACKUP_DIR = join(root, 'apply-dest');
+  assert.equal(backupFolder(), join(root, 'apply-dest'), 'the variable wins');
+  const routes2 = new Map();
+  apply({ on() {}, effect() {}, get: () => undefined, connection: { fetch: { register: (x) => routes2.set(x.path, x) } }, subprocess: {}, sessionQuery: {}, sessionController: {} });
+  assert.equal(await folderOf(routes2), join(root, 'apply-dest'));
+  assert.equal(existsSync(join(root, 'apply-home', 'backups')), false, 'a start makes no backup folder');
 }
 
 const home = join(root, 'home', '.dsh');
@@ -188,6 +201,25 @@ assert.deepEqual(parseAutoBackup({ on: 'yes', hours: 5, keep: 100, version: '0.2
   assert.match(r.data.failed.message, /EEXIST|ENOTDIR|not a directory|file already exists/i);
   assert.ok(Date.parse(r.data.next) - Date.now() > 50000, 'the next try waits');
   broken.unload();
+  // The old folder (~/Desktop/dsh-backups up to 1.29.2): a start replaces its rescue console only, an automatic backup with
+  // keep 1 never touches its archives, and the list shows the new folder only.
+  const oldHome = join(root, 'old', '.dsh');
+  const oldFolder = join(root, 'old-desktop-backups');
+  const newFolder = join(oldHome, 'backups');
+  write(join(oldHome, 'a.txt'), 'a');
+  for (let i = 0; i < 2; i++) await b.backup({ home: oldHome, dest: oldFolder, now: new Date(2026, 9, 1, 0, 0, i) });
+  write(join(oldFolder, b.RESCUE_FILE), 'old console');
+  const oldBefore = readdirSync(oldFolder, { recursive: true }).filter((n) => n !== b.RESCUE_FILE).sort();
+  write(join(oldHome, 'storages', 'dsh-composer-plus', 'auto-backup.json'), JSON.stringify({ on: true, keep: 3, version: '0.2.1' }));
+  const moved = boot({ home: oldHome, folder: newFolder, oldFolder, version: '0.2.1', graceMs: 5 });
+  await until(async () => (await b.listArchives(newFolder)).length === 1, 'the automatic backup in the new folder');
+  await moved.host.settled();
+  await until(() => readFileSync(join(oldFolder, b.RESCUE_FILE), 'utf8') !== 'old console', 'the old console replaced');
+  assert.equal(readFileSync(join(oldFolder, b.RESCUE_FILE), 'utf8'), readFileSync(new URL('../backup.mjs', import.meta.url), 'utf8'));
+  assert.deepEqual(readdirSync(oldFolder, { recursive: true }).filter((n) => !b.rescueFiles().includes(n)).sort(), oldBefore, 'no archive in the old folder changed');
+  r = await moved.call(BACKUP_PATH);
+  assert.deepEqual([r.data.folder, r.data.archives.length], [newFolder, 1], 'the list shows the new folder only');
+  moved.unload();
   // The first start with a version and an automatic backup that is off: the version is remembered, no snapshot.
   const offHome = join(root, 'off', '.dsh');
   write(join(offHome, 'a.txt'), 'a');

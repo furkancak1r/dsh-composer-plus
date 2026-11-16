@@ -2285,7 +2285,7 @@
     "backup.transfer": "Para otro equipo",
     "backup.delete": "Eliminar",
     "backup.deleteConfirm": "¿Eliminar {name}? También se eliminan sus copias del vault.",
-    "backup.restoreHow": "Para restaurar: sal de dsh y luego abre «Composer Plus Rescue» en la carpeta de copias de seguridad.",
+    "backup.restoreHow": "Para restaurar: haz clic en Mostrar carpeta, sal de dsh y luego abre «Composer Plus Rescue» en esa carpeta.",
     "backup.running.backup": "Haciendo copia de seguridad… {files} archivos, {size}",
     "backup.running.check": "Comprobando {name}… {size} leídos",
     "backup.running.scan": "Comprobando registros de sesión… {done} de {total}",

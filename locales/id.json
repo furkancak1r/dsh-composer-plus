@@ -2285,7 +2285,7 @@
     "backup.transfer": "Untuk komputer lain",
     "backup.delete": "Hapus",
     "backup.deleteConfirm": "Hapus {name}? Salinannya di vault juga ikut terhapus.",
-    "backup.restoreHow": "Untuk memulihkan: keluar dari dsh, lalu buka “Composer Plus Rescue” di folder cadangan.",
+    "backup.restoreHow": "Untuk memulihkan: klik Tampilkan folder, keluar dari dsh, lalu buka “Composer Plus Rescue” di folder itu.",
     "backup.running.backup": "Mencadangkan… {files} file, {size}",
     "backup.running.check": "Memeriksa {name}… {size} dibaca",
     "backup.running.scan": "Memeriksa log sesi… {done} dari {total}",
