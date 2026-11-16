@@ -3199,4 +3199,11 @@ Tether row + shot (advisor.webp 15 kB, demo-app, English UI, checked by eye). Ch
 mutations each red), npm test exit 0, git diff --check clean, npm pack ships the shot; test/browser-advisor.mjs PASS on
 0.2.0-rc.2, 0.2.1-rc.2 and 0.2.2-rc.1 (off by default, model choice, one tool-free advisor request with the chat as text,
 advice in the same turn, Advice row, limit 2 → error and no request, per-chat off, switch off, no page errors).
-Next: review-guard rounds, then merge.
+Review (review-guard, 5 rounds): R1 P2 PTC uses (tool/ptc-dispatch) not counted → counted; P3 model change wrote twice
+→ one write; P3 rule 7 two stores → the menus read the model store only. R2 P2 efforts read during a model save → wait.
+R3 P2 switch-on read raced its POST → busy post; P3 extra reads after each menu save → once per saved model. R4 P2 the
+Settings switch did not wait for a running save → guard. R5: no P1/P2; P3 stale effort on a first run after another
+model save → read when the store copy names another model; P4 the switch also waits for a model save. Each guard has a
+test that is red without it (test/advisor.test.mjs 9 Host guards, test/advisor-client.test.mjs 6 client guards).
+Last checkpoint (2026-11-16 21:50): npm test exit 0; test/browser-advisor.mjs PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1.
+Next: merge into main (no release).

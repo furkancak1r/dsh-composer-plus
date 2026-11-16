@@ -17,7 +17,8 @@ globalThis.fetch = async (url, init) => {
   if (init?.method === 'POST') { const body = JSON.parse(init.body); if (failNext) { failNext = false; return { ok: false, status: 500, json: async () => ({ error: 'disk full' }) }; } if (holdOn && 'on' in body) await holdOn; if (hold && 'maxUses' in body) await hold; if (holdModel && 'model' in body) await holdModel; host = { ...host, ...body }; if (host.model === null) delete host.model; } // the Host drops a removed model
   const body = String(url).includes('efforts=1') ? { efforts: host.model?.model === 'opus' ? [{ id: 'high', name: 'High' }] : [] } : String(url).includes('sessionId=') ? { on: host.on, ready: host.on && host.model !== undefined, off: false }
     : String(url).includes('catalog=1') ? { ...host, catalog: { groups: [{ id: 'strong', name: 'Strong', models: [{ id: 'opus', name: 'Opus' }] }] } } : host;
-  return { ok: true, status: 200, json: async () => body };
+  const copy = structuredClone(body); // the Host's answer is a snapshot, not the live object
+  return { ok: true, status: 200, json: async () => copy };
 };
 eval(readFileSync(new URL('../client.js', import.meta.url), 'utf8'));
 let cur;
@@ -128,7 +129,9 @@ assert.ok(effortMenu(render(settingsEl.t, { ...settingsEl.p, t }, sInst)), 'the 
 }
 // Switching it on in Settings: the advisor menus that appear wait for the switch save; the Host's answer wins (rule 7).
 {
-  host.on = false; await sp.advisorSwitch.refresh();
+  // The store copy names an older model, so the menus' first run reads the settings again: that read must wait.
+  host.on = false; host.model = { provider: 'old', model: 'gone' }; await sp.advisorSwitch.refresh();
+  host.model = { provider: 'strong', model: 'opus' }; await sp.advisorModel.load();
   let go; holdOn = new Promise((r) => { go = r; });
   const turning = sp.setFeature('advisor', true);
   const inst = { state: [], deps: [] };
@@ -148,6 +151,27 @@ assert.ok(effortMenu(render(settingsEl.t, { ...settingsEl.p, t }, sInst)), 'the 
   assert.equal(onPosts(), n, 'no switch POST while a save runs');
   go(); hold = undefined; await saving;
   assert.equal(sp.advisorSwitch.getSnapshot().maxUses, 5, 'the menu save keeps its answer');
+}
+// The Settings switch also waits for a model save.
+{
+  const onPosts = () => fetches.filter((f) => f.url === ROUTE && f.init?.method === 'POST' && 'on' in JSON.parse(f.init.body)).length;
+  let go; holdModel = new Promise((r) => { go = r; });
+  const changing = sp.advisorModel.setModel({ provider: 'strong', model: 'opus' });
+  const n = onPosts();
+  await sp.setFeature('advisor', false);
+  assert.equal(onPosts(), n, 'no switch POST while the model saves');
+  go(); holdModel = undefined; await changing;
+}
+// A new menus instance whose store copy names an older model reads the settings again (the Host dropped the effort).
+{
+  // The switch store's copy: the old model with its effort (read before the model save).
+  host.effort = 'high'; host.model = { provider: 'old', model: 'gone' }; await sp.advisorSwitch.refresh();
+  assert.equal(sp.advisorSwitch.getSnapshot().effort, 'high');
+  // The model save ended (another tab, or before these menus mounted): the Host has the new model and no effort.
+  delete host.effort; host.model = { provider: 'strong', model: 'opus' }; await sp.advisorModel.load();
+  const inst = { state: [], deps: [] };
+  for (let i = 0; i < 3; i++) { render(settingsEl.t, { ...settingsEl.p, t }, inst); await tick(); }
+  assert.equal(sp.advisorSwitch.getSnapshot().effort, undefined, 'the dropped effort is not shown');
 }
 // A refused switch-off keeps its reason, also when the advisor menus mount again (a new Settings instance).
 {
