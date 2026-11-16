@@ -444,6 +444,16 @@ try {
     turnEnd('s-plain', { kind: 'completed' }, reply(0, 'Report sent.'));
     assert.deepEqual((await rowsOf('s-onay')).map((t) => [t.state, t.result]), [['waiting', 'acme-web · fix/deploy']], 'an onay block: waits for the user');
     assert.deepEqual((await rowsOf('s-plain')).map((t) => t.state), ['done'], 'an answer without a block: done');
+    // Review 1: the 5 s poll does not read an unchanged log again (only the jobs); a grown log is read again.
+    {
+      const plainLog = agents.get('s-plain').session.snapshotEvents(); let scans = 0;
+      const counted = new Proxy(plainLog, { get: (target, key, recv) => { if (key === 'slice') scans += 1; return Reflect.get(target, key, recv); } });
+      agents.get('s-plain').session.snapshotEvents = () => counted;
+      await rowsOf('s-plain'); const first = scans; await rowsOf('s-plain'); await rowsOf('s-plain');
+      assert.equal(scans, first, 'an unchanged log: no new scan');
+      plainLog.push(reply(9, 'Later note.')); await rowsOf('s-plain');
+      assert.ok(scans > first, 'a grown log: read again');
+    }
     // You answer in that chat: its new turn runs, then it ends without a block.
     o.status = 'running'; o.session.snapshotEvents().push(ev(2, 'turn/start', {}, clock));
     assert.deepEqual((await rowsOf('s-onay')).map((t) => [t.state, t.started]), [['running', clock]], 'its next turn runs: running');
