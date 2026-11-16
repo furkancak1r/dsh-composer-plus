@@ -6971,7 +6971,10 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
         if (!on || schedule?.catalog === undefined) { setAutomated(new Set()); return undefined; }
         let live = true;
         const read = () => schedule.catalog().then((reply) => {
-          if (live && reply?.ok) setAutomated(new Set(reply.value.filter((task) => task.status === 'active').map((task) => task.sessionId)));
+          // dsh 0.2.2: the chat is in `target.sessionId` and `involvedSessionIds`; older dsh: `sessionId`.
+          if (live && reply?.ok) setAutomated(new Set(reply.value.filter((task) => task.status === 'active')
+            .flatMap((task) => [task.target?.sessionId, ...(Array.isArray(task.involvedSessionIds) ? task.involvedSessionIds : []), task.sessionId])
+            .filter((id) => typeof id === 'string')));
         }, () => {});
         read();
         const off = schedule.onChange?.(read);
@@ -9202,6 +9205,10 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       + '.cp-memchat:hover{background:var(--dsw-alias-interactive-bg-hover)}.cp-memchat:disabled{opacity:.5;cursor:default}'
       + '.cp-memchat[aria-pressed=true]{color:var(--dsw-alias-state-warn-label,#b25000)}'
       + '.cp-memchat:focus-visible{outline:2px solid var(--dsw-alias-state-business-primary,#3b6cf6);outline-offset:-2px}';
+    /** Header fit with a memory chip: dsh's utilities (Open in, the branch pill, the grants chip, the two chips, More
+     * actions) are wider than a narrow header, so they wrap to the next line (right-aligned) instead of leaving it. */
+    const memoryFitCss = (marker) => headerFitCss(marker)
+      + `\n[class*="_titleRow"]:has(> [class*="_headerUtilities"] [${marker}]) > [class*="_headerUtilities"] { flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; }`;
     /** The chat header's switch (and, on dsh 0.2.1+, the New chat chip): "Memory on" / "Memory off in this chat". Shown
      * only while Project memory is on and the Host has this feature; not in a subagent chat (it follows its root chat). */
     function MemoryChatToggle({ sessionId, chats, isSubagent, chip, t }) {
@@ -9211,7 +9218,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       const label = state.off ? t('memoryPerChat.off') : t('memoryPerChat.on');
       const title = state.error ? t('memoryPerChat.failed', { error: state.error }) : state.off ? t('memoryPerChat.offHint') : t('memoryPerChat.onHint');
       // The header fit rules come with the button (only while it shows; the New chat chip needs none).
-      return React.createElement(React.Fragment, null, React.createElement('style', chip ? null : { 'data-composer-plus-header-fit': 'memoryPerChat' }, MEMORY_CHAT_CSS + (chip ? '' : headerFitCss('data-composer-plus-memory-chat'))),
+      return React.createElement(React.Fragment, null, React.createElement('style', chip ? null : { 'data-composer-plus-header-fit': 'memoryPerChat' }, MEMORY_CHAT_CSS + (chip ? '' : memoryFitCss('data-composer-plus-memory-chat'))),
         React.createElement('button', { type: 'button', className: 'cp-memchat', 'aria-pressed': state.off, 'aria-busy': state.busy, disabled: state.busy, title, 'aria-label': `${t('memoryPerChat.label')}: ${label}`,
           [chip ? 'data-composer-plus-memory-chat-chip' : 'data-composer-plus-memory-chat']: state.off ? 'off' : 'on',
           onClick: () => chats.set(sessionId, !state.off) }, state.off ? '◌' : '●', ' ', label));
@@ -9275,7 +9282,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       const chat = React.useSyncExternalStore(chats.subscribe, () => chats.of(sessionId));
       React.useEffect(() => { chats.read(sessionId); }, [sessionId]);
       if (!chat.memory || chat.off || isSubagent?.(sessionId)) return null;
-      return React.createElement(React.Fragment, null, React.createElement('style', { 'data-composer-plus-header-fit': 'memorySuggest' }, MEMORY_CHAT_CSS + headerFitCss('data-composer-plus-memory-suggest')),
+      return React.createElement(React.Fragment, null, React.createElement('style', { 'data-composer-plus-header-fit': 'memorySuggest' }, MEMORY_CHAT_CSS + memoryFitCss('data-composer-plus-memory-suggest')),
         React.createElement('button', { type: 'button', className: 'cp-memchat', disabled: state.busy !== null, 'aria-busy': state.busy === 'ask' && state.request?.sessionId === sessionId,
           title: t('memorySuggest.hint'), 'data-composer-plus-memory-suggest': sessionId, onClick: () => suggest.ask(sessionId, titleOf?.(sessionId)) }, '✦ ', t('memorySuggest.open')));
     }

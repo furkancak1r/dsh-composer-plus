@@ -2681,6 +2681,9 @@ const isEditPart = (p) => p !== null && typeof p === 'object' && (
   || (p.type === 'file' && Object.keys(p).length === 2 && isText(p.receiptId, 128)));
 /** What the user sees of a queued message: its text and attachment ids, in order (the client sends the same as `seen`). */
 export const seenOf = (content) => content.map((b) => (b?.type === 'text' ? ['text', b.text] : [b?.type ?? null, b?.attachment?.attachmentId ?? null]));
+/** The file reference of an upload receipt (`fileUploads.resolve`), or undefined: dsh 0.2.2 stages `{type, attachment}`
+ * (a file or an image), 0.2.0 and 0.2.1 give the file reference itself. */
+const stagedFile = (found) => (found?.type === undefined ? found : found.type === 'file' ? found.attachment : undefined);
 const deepFreeze = (v) => { if (v !== null && typeof v === 'object' && !Object.isFrozen(v)) { for (const x of Object.values(v)) deepFreeze(x); Object.freeze(v); } return v; };
 function installQueueEdit(ctx, busy) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
@@ -2727,7 +2730,7 @@ function installQueueEdit(ctx, busy) {
         const fileUploads = get('fileUploads'), attachments = get('attachments');
         const receipts = content.filter((p) => p.receiptId !== undefined).map((p) => p.receiptId);
         if (receipts.length > 0 && (fileUploads?.resolve === undefined || fileUploads.bindPrompt === undefined)) return json({ error: 'this dsh cannot add files to a queued message' }, 409);
-        const files = receipts.map((id) => fileUploads.resolve(agent, id));
+        const files = receipts.map((id) => stagedFile(fileUploads.resolve(agent, id)));
         if (files.includes(undefined)) return json({ error: 'a new file is not uploaded for this chat: add it again' }, 409);
         const images = content.filter((p) => p.data !== undefined).map(({ type, mediaType, data, name }) => ({ type, mediaType, data, ...(name === undefined ? {} : { name }) }));
         // dsh's per-message image count (20 by default) counts the kept images too. ponytail: the aggregate byte limit is
@@ -5749,9 +5752,7 @@ export async function startOnBranch({ subprocess, sessionController, sessionQuer
   const source = attachments.some((a) => a.type === 'file') ? agents?.get?.(sessionId) : undefined;
   const files = attachments.filter((a) => a.type === 'file').map((a) => {
     if (fileUploads?.uploadStream === undefined || store?.readFileStream === undefined) throw refused('this dsh cannot give files to a new chat');
-    const found = source === undefined ? undefined : fileUploads.resolve?.(source, a.receiptId);
-    // dsh 0.2.2 stages `{type, attachment}` (a file or an image); 0.2.0 and 0.2.1 give the file reference itself.
-    const ref = found?.type === undefined ? found : found.type === 'file' ? found.attachment : undefined;
+    const ref = source === undefined ? undefined : stagedFile(fileUploads.resolve?.(source, a.receiptId));
     if (ref === undefined) throw refused('a file of this message is not uploaded any more: add it again');
     return ref;
   });

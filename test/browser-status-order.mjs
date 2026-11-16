@@ -45,7 +45,7 @@ const fake = createServer((req, res) => {
 await new Promise((r) => fake.once('listening', r));
 const fakePort = fake.address().port;
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-status-')));
