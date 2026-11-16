@@ -51,7 +51,8 @@ try {
       const settings = page.locator('[data-composer-plus-settings]'); await settings.waitFor();
       // Every row with a switch (one per feature) also holds a thumbnail; every thumbnail image decodes.
       const report = await settings.evaluate(async (root) => {
-        const rows = [...root.querySelectorAll('[role="switch"]')].map((s) => s.parentElement);
+        // Only the row's own switch: a row can hold a sub-setting switch (Morning summary under the status panel).
+        const rows = [...root.querySelectorAll(':scope > * > [role="switch"]')].map((s) => s.parentElement);
         const shots = [...root.querySelectorAll('[data-composer-plus-shot] img')];
         // The thumbnails load lazily: rows below the fold never start. Ask each one to load now, then wait.
         for (const img of shots) img.loading = 'eager';
@@ -78,7 +79,7 @@ try {
         assert.equal(h.target, '_blank'); assert.equal(h.rel, 'noopener noreferrer'); assert.match(h.label, /^How to use it: .+ \(opens the README\)$/);
       }
       // On/off filter: Off shows only rows whose switch is off, On only rows whose switch is on, All every row again.
-      const states = () => settings.evaluate((root) => [...root.querySelectorAll('[role="switch"]')].map((s) => s.getAttribute('aria-checked')));
+      const states = () => settings.evaluate((root) => [...root.querySelectorAll(':scope > * > [role="switch"]')].map((s) => s.getAttribute('aria-checked')));
       const group = settings.locator('[data-composer-plus-filter-group]');
       assert.equal(await group.getAttribute('role'), 'group'); assert.equal(await group.getAttribute('aria-label'), 'Filter by switch state');
       const all = await states(); const offCount = all.filter((x) => x === 'false').length;
@@ -125,8 +126,8 @@ try {
       for (let i = 0; i < 12 && !(await item.evaluate((el) => el === document.activeElement || el.contains(document.activeElement))); i++) await page.keyboard.press('ArrowDown');
       await page.keyboard.press('Enter');
       await page.waitForFunction(() => document.querySelector('[data-composer-plus-category]')?.dataset.composerPlusCategory === 'composer');
-      const names = await settings.evaluate((root) => [...root.querySelectorAll('[role="switch"]')].map((s) => s.getAttribute('aria-label')));
-      assert.deepEqual(names, ['Project name in the composer', 'One-click Continue', 'Resume after restart', 'Input history', 'Shift+Tab plan mode', 'Keep composer focus', 'Queue drag-and-drop', 'Edit queued message in place', 'Send after Stop goes first', 'Project search in a new chat', 'Default workspace for New session', 'Next message prediction', 'Complete while typing', 'Improve prompt', 'Branch per chat'], 'Composer and queue: only its rows');
+      const names = await settings.evaluate((root) => [...root.querySelectorAll(':scope > * > [role="switch"]')].map((s) => s.getAttribute('aria-label')));
+      assert.deepEqual(names, ['Project name in the composer', 'One-click Continue', 'Resume after restart', 'Resume after an AIProxy outage', 'Input history', 'Shift+Tab plan mode', 'Keep composer focus', 'Queue drag-and-drop', 'Edit queued message in place', 'Send after Stop goes first', 'Project search in a new chat', 'Default workspace for New session', 'Next message prediction', 'Complete while typing', 'Improve prompt', 'Branch per chat'], 'Composer and queue: only its rows');
       assert.equal(await settings.locator('[data-composer-plus-language]').count(), 0, 'the language row is in App, devices and backup');
       assert.equal(await settings.getByRole('button', { name: 'Category Composer and queue', exact: true }).count(), 1, 'the name follows the pick');
       if (process.env.SHOT && bin === process.argv[2]) {

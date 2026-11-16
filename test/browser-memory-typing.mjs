@@ -41,7 +41,8 @@ const fake = createServer((req, res) => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
     const parsed = JSON.parse(body);
     const all = JSON.stringify(parsed.messages);
-    const text = /session title/i.test(all) ? 'Demo' : /next message|complete the message|long-term memory/.test(all) ? '' : `Here is the list:\n\n${list}`;
+    // Helpers by the start of their own prompts: the chat's system text also says "next message".
+    const text = /(Generate|Update) the session title/.test(all) ? 'Demo' : /You predict the next message|You complete the message that the user is typing|You (keep|suggest notes for) the long-term memory/.test(all) ? '' : `Here is the list:\n\n${list}`;
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 } } : {}) })}\n\n`;
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.end(chunk({ role: 'assistant', content: text }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
