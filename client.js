@@ -6973,7 +6973,8 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
         const read = () => schedule.catalog().then((reply) => {
           // dsh 0.2.2: the chat is in `target.sessionId` and `involvedSessionIds`; older dsh: `sessionId`.
           if (live && reply?.ok) setAutomated(new Set(reply.value.filter((task) => task.status === 'active')
-            .flatMap((task) => [task.target?.sessionId, ...(Array.isArray(task.involvedSessionIds) ? task.involvedSessionIds : []), task.sessionId])));
+            .flatMap((task) => [task.target?.sessionId, ...(Array.isArray(task.involvedSessionIds) ? task.involvedSessionIds : []), task.sessionId])
+            .filter((id) => typeof id === 'string')));
         }, () => {});
         read();
         const off = schedule.onChange?.(read);
