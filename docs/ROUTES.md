@@ -62,6 +62,8 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.board-progress` | POST | `{mode}`: "fast" (the default, no model call) or "ai". Settings only. | taskBoard | no |
 | `/api/composer-plus.planned-steps` | GET | The switch `{on}`. | plannedSteps | no |
 | `/api/composer-plus.planned-steps` | POST | `{on}`: the switch (a switch route). | plannedSteps | no |
+| `/api/composer-plus.advisor` | GET | No query: `{on, model?, effort?, maxUses, maxTokens, subagents}`. `?catalog=1` adds dsh's model list; `?efforts=1`: `{efforts}` of the chosen model; `?sessionId`: `{on, ready, sessionId, off}` (`ready`: the tool is offered). | advisor | no |
+| `/api/composer-plus.advisor` | POST | `{on}`: the switch (a switch route; the gateway refuses it). `{model}` (`null` removes it), `{effort}` (`null`: the model default), `{maxUses}` (1–20), `{maxTokens}` (1000–64000), `{subagents}`. `{sessionId, off}`: this chat's choice, saved at once; the chat's next model request follows it. | advisor | no |
 | `/api/composer-plus.turkish-skill` | GET | The switch and the pack state `{on, turkish, installed, commit?, checkedAt?, failed?}`. | turkishSkill | no |
 | `/api/composer-plus.turkish-skill` | POST | `{on}`, `{lang}` (dsh's UI language id) or both: the switch (a switch route) and the language that decides the install. | turkishSkill | no |
 | `/api/composer-plus.untangle-codebase` | GET | The switch `{on}`. | untangleCodebase | no |

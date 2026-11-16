@@ -3155,3 +3155,48 @@ Decision: test/tether-gateway.test.mjs "paired iPhones" failed once with ERR_SSL
 rerun (flaky, not part of this change).
 Review round 2: no P1/P2; two P3 fixed (a Topics line is compared under its heading; tests for a waiting change and a refused add).
 Last checkpoint: rebased on origin/main 9dcd6fc, npm test and build-docs --check green; merge to main next.
+
+## Advisor model (`advisor`, issue #8, 2026-11-16, branch `feat/advisor-model-tool`)
+Approval (Furkan, Damon chat 2026-11-16 14:35): off by default, limited use, merge to main after review; no release.
+Objective: the main model calls a parameterless `advisor` tool at a hard decision point; Composer Plus sends the chat as
+text to a stronger model that the user chose and returns the advice as the tool result in the same turn.
+Invariants:
+- Off by default (`OFF_BY_DEFAULT`, Host switch `advisor.json`). No model chosen → no tool (no fallback to dsh's default).
+- One tool-free model call per use; the chat goes as plain text (system prompt start + tool names + transcript), never as
+  the raw provider request (Anthropic refuses tool history without tools; DeepSeek thinking refuses history without reasoning).
+- Limits: uses per chat (default 3, 1–20) counted from the chat's own log (successful advisor results; a fork starts at
+  `inheritedEventCount`, withdrawn steps do not count); input ≤ 100,000 characters (oldest part cut, said in the text);
+  answer ≤ maxTokens (default 4000) and ≤ the model's own default. At the limit: an error result, no model call.
+- Hidden for subagents unless the user allows it; hidden in a chat that the user switched off (per-chat button in the
+  chat header). Mechanism: per-agent `tools.restrict({deny})` (works on 0.2.0-rc.2; `register(def, {when})` exists only
+  from 0.2.2, so it is not used); the tool also refuses in such a chat (backstop).
+- Transcript: `goalTranscript` (rollback-withdrawn steps left out, rule 9); secret-looking lines removed (`withoutSecrets`).
+- Not in our control (docs): adding the advisor's tokens to dsh's own usage meter; provider prompt caching.
+Acceptance: unit test (fake llm): one call; maxUses; subagent hidden; no model hidden; transcript cut; rollback left out;
+switch off = no tool; per-chat off. Real dsh (0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.1): off by default, on + model → tool in
+the request, advice in the same turn, "Advice" card, limit, per-chat off, switch off.
+Phases: 1 Host + unit test; 2 client (switch, model menu, settings menus, header button, card, en/zh); 3 11 locales,
+features.json (how ×13, llms, route), README limits/FAQ ×13, tether/FEATURES.md, release-notes draft (not committed as a
+release); 4 real dsh test + shot; 5 npm test, review-guard rounds, merge.
+Allowed paths: index.js, client.js, package.json (test script), locales/*.json, locale/*.json (built), docs/{features.json,
+ROUTES.md}, llms.txt, README*.md, tether/FEATURES.md, assets/features/advisor.webp, test/{advisor.test.mjs,
+browser-advisor.mjs,toggles.test.mjs,memory-per-chat.test.mjs}, IMPLEMENTATION_PLAN.md.
+Risks: a model without usage chunks shows 0 tokens; restrict throws if the tool is not registered yet (logged, the
+execute backstop refuses); dsh's usage meter does not count the advisor.
+Decisions made while building:
+- The tool registers only while the switch is on AND a model is chosen; on without a model shows a hint in Settings.
+- Effort and the answer cap are read with `llm.resolveModelInfo` before `prepareCall` (dsh 0.2.0 has no `configure`
+  argument); an effort that the model does not list is not sent; the cap is never above the model default.
+- Uses are counted from the chat log plus the answers of this run (dsh logs a result after the next call can start).
+- The per-chat button reuses `MemoryChatToggle`/`createMemoryChats` (field `memory` renamed to `active`).
+- The Advice row is a `tool.call.toolview` view keyed `advisor` (like Secret input), parsed from the result's first line.
+Release notes draft (next minor release; not written to release-notes.json, whose version must equal package.json):
+  "## New" + "- **Advisor model** (off by default): at a hard decision point, the agent can ask a stronger model that you
+  choose for advice with the tool `advisor`; the advice comes back in the same turn and shows as an **Advice** row with
+  its tokens. Limits per chat, a per-chat switch in the chat header; subagents only when you allow it (issue #8)."
+Last checkpoint (2026-11-16 16:40): phases 1–4 done. Host + client + 11 locales + 13 READMEs/features.json/llms/ROUTES +
+Tether row + shot (advisor.webp 15 kB, demo-app, English UI, checked by eye). Checks: test/advisor.test.mjs (8 guard
+mutations each red), npm test exit 0, git diff --check clean, npm pack ships the shot; test/browser-advisor.mjs PASS on
+0.2.0-rc.2, 0.2.1-rc.2 and 0.2.2-rc.1 (off by default, model choice, one tool-free advisor request with the chat as text,
+advice in the same turn, Advice row, limit 2 → error and no request, per-chat off, switch off, no page errors).
+Next: review-guard rounds, then merge.
