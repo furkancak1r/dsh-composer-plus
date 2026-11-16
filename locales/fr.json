@@ -2496,7 +2496,6 @@
     "advisor.subagents": "Sous-agents",
     "advisor.subagents.off": "Pas de conseiller",
     "advisor.subagents.on": "Conseiller aussi",
-    "advisor.failed": "Impossible d’enregistrer ce réglage : {error}",
     "advisor.card.running": "Conseil en cours…",
     "advisor.card.title": "Conseil",
     "advisor.card.failed": "Aucun conseil",

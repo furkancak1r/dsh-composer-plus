@@ -2496,7 +2496,6 @@
     "advisor.subagents": "Subagentes",
     "advisor.subagents.off": "Sem consultor",
     "advisor.subagents.on": "Com consultor também",
-    "advisor.failed": "Não foi possível salvar esta configuração: {error}",
     "advisor.card.running": "Consultando…",
     "advisor.card.title": "Conselho",
     "advisor.card.failed": "Sem conselho",

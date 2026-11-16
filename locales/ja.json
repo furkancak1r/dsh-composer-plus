@@ -2496,7 +2496,6 @@
     "advisor.subagents": "サブエージェント",
     "advisor.subagents.off": "アドバイザーなし",
     "advisor.subagents.on": "アドバイザーも使う",
-    "advisor.failed": "この設定を保存できませんでした：{error}",
     "advisor.card.running": "助言中…",
     "advisor.card.title": "助言",
     "advisor.card.failed": "助言なし",

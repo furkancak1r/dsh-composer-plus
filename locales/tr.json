@@ -4160,7 +4160,6 @@
     "advisor.subagents": "Alt ajanlar",
     "advisor.subagents.off": "Danışman yok",
     "advisor.subagents.on": "Danışman da var",
-    "advisor.failed": "Bu ayar kaydedilemedi: {error}",
     "advisor.card.running": "Danışılıyor…",
     "advisor.card.title": "Tavsiye",
     "advisor.card.failed": "Tavsiye yok",

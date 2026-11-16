@@ -2496,7 +2496,6 @@
     "advisor.subagents": "Субагенты",
     "advisor.subagents.off": "Без советника",
     "advisor.subagents.on": "Тоже с советником",
-    "advisor.failed": "Не удалось сохранить этот параметр: {error}",
     "advisor.card.running": "Совет готовится…",
     "advisor.card.title": "Совет",
     "advisor.card.failed": "Нет совета",

@@ -2496,7 +2496,6 @@
     "advisor.subagents": "Subagen",
     "advisor.subagents.off": "Tanpa penasihat",
     "advisor.subagents.on": "Penasihat juga",
-    "advisor.failed": "Tidak dapat menyimpan pengaturan ini: {error}",
     "advisor.card.running": "Memberi saran…",
     "advisor.card.title": "Saran",
     "advisor.card.failed": "Tanpa saran",

@@ -2496,7 +2496,6 @@
     "advisor.subagents": "सबएजेंट",
     "advisor.subagents.off": "सलाहकार नहीं",
     "advisor.subagents.on": "सलाहकार भी",
-    "advisor.failed": "यह सेटिंग सेव नहीं की जा सकी: {error}",
     "advisor.card.running": "सलाह दी जा रही है…",
     "advisor.card.title": "सलाह",
     "advisor.card.failed": "कोई सलाह नहीं",

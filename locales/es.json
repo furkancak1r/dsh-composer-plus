@@ -2496,7 +2496,6 @@
     "advisor.subagents": "Subagentes",
     "advisor.subagents.off": "Sin asesor",
     "advisor.subagents.on": "También con asesor",
-    "advisor.failed": "No se pudo guardar este ajuste: {error}",
     "advisor.card.running": "Asesorando…",
     "advisor.card.title": "Consejo",
     "advisor.card.failed": "Sin consejo",

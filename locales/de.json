@@ -2496,7 +2496,6 @@
     "advisor.subagents": "Subagents",
     "advisor.subagents.off": "Kein Berater",
     "advisor.subagents.on": "Auch Berater",
-    "advisor.failed": "Diese Einstellung konnte nicht gespeichert werden: {error}",
     "advisor.card.running": "Berät …",
     "advisor.card.title": "Rat",
     "advisor.card.failed": "Kein Rat",

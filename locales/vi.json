@@ -2496,7 +2496,6 @@
     "advisor.subagents": "Subagent",
     "advisor.subagents.off": "Không có cố vấn",
     "advisor.subagents.on": "Cũng có cố vấn",
-    "advisor.failed": "Không thể lưu cài đặt này: {error}",
     "advisor.card.running": "Đang tư vấn…",
     "advisor.card.title": "Lời khuyên",
     "advisor.card.failed": "Không có lời khuyên",

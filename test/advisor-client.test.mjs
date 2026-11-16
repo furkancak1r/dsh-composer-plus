@@ -10,11 +10,11 @@ let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } }
 const ROUTE = '/api/composer-plus.advisor';
 const fetches = [];
 let host = { on: false, maxUses: 3, maxTokens: 16000, subagents: false };
-let hold; let holdModel;
+let hold; let holdModel; let holdOn; let failNext;
 globalThis.fetch = async (url, init) => {
   fetches.push({ url, init });
   if (!String(url).startsWith(ROUTE)) return { ok: true, status: 200, json: async () => ({ on: false }) };
-  if (init?.method === 'POST') { const body = JSON.parse(init.body); if (hold && 'maxUses' in body) await hold; if (holdModel && 'model' in body) await holdModel; host = { ...host, ...body }; if (host.model === null) delete host.model; } // the Host drops a removed model
+  if (init?.method === 'POST') { const body = JSON.parse(init.body); if (failNext) { failNext = false; return { ok: false, status: 500, json: async () => ({ error: 'disk full' }) }; } if (holdOn && 'on' in body) await holdOn; if (hold && 'maxUses' in body) await hold; if (holdModel && 'model' in body) await holdModel; host = { ...host, ...body }; if (host.model === null) delete host.model; } // the Host drops a removed model
   const body = String(url).includes('efforts=1') ? { efforts: host.model?.model === 'opus' ? [{ id: 'high', name: 'High' }] : [] } : String(url).includes('sessionId=') ? { on: host.on, ready: host.on && host.model !== undefined, off: false }
     : String(url).includes('catalog=1') ? { ...host, catalog: { groups: [{ id: 'strong', name: 'Strong', models: [{ id: 'opus', name: 'Opus' }] }] } } : host;
   return { ok: true, status: 200, json: async () => body };
@@ -23,8 +23,8 @@ eval(readFileSync(new URL('../client.js', import.meta.url), 'utf8'));
 let cur;
 const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }),
   useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = typeof v === 'function' ? v() : v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
-  useRef: (v) => ({ current: v }), useEffect: (f, deps) => { cur.effects.push([f, deps]); }, useLayoutEffect: () => {}, useSyncExternalStore: (sub, get) => get() };
-const render = (C, props, inst = { state: [], deps: [] }) => { cur = inst; inst.si = 0; inst.effects = []; const out = C(props); inst.effects.forEach(([f, deps], i) => { if (inst.deps[i] !== undefined && deps.every((d, j) => Object.is(d, inst.deps[i][j]))) return; f(); inst.deps[i] = deps; }); return out; };
+  useRef: (v) => { const i = cur.ri++; return cur.refs[i] ??= { current: v }; }, useEffect: (f, deps) => { cur.effects.push([f, deps]); }, useLayoutEffect: () => {}, useSyncExternalStore: (sub, get) => get() };
+const render = (C, props, inst = { state: [], deps: [] }) => { cur = inst; inst.si = 0; inst.ri = 0; inst.refs ??= []; inst.effects = []; const out = C(props); inst.effects.forEach(([f, deps], i) => { if (inst.deps[i] !== undefined && deps.every((d, j) => Object.is(d, inst.deps[i][j]))) return; f(); inst.deps[i] = deps; }); return out; };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Menu: 'Menu', Switch: 'Switch', MarkdownText: 'MarkdownText' } : {}));
 const regs = []; const gone = [];
 plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: () => (k) => k, getSnapshot: () => ({ active: 'en' }) },
@@ -106,6 +106,37 @@ assert.ok(effortMenu(render(settingsEl.t, { ...settingsEl.p, t }, sInst)), 'the 
   render(settingsEl.t, { ...settingsEl.p, t }, sInst); await tick(); await tick();
   out = render(settingsEl.t, { ...settingsEl.p, t }, sInst);
   assert.equal(effortMenu(out), undefined, 'no model now: no Reasoning menu (the Host answered for the new state)');
+}
+// A menu save reads nothing again (the Reasoning menu stays, no extra GET), and a refused save keeps its reason.
+{
+  const gets = () => fetches.filter((f) => String(f.url).startsWith(ROUTE) && f.init === undefined).length;
+  await sp.advisorModel.setModel({ provider: 'strong', model: 'opus' });
+  for (let i = 0; i < 3; i++) { render(settingsEl.t, { ...settingsEl.p, t }, sInst); await tick(); }
+  const g0 = gets();
+  let go; hold = new Promise((r) => { go = r; });
+  const saving = sp.advisorSwitch.post({ maxUses: 10 }, { maxUses: 10, busy: true });
+  render(settingsEl.t, { ...settingsEl.p, t }, sInst); await tick();
+  assert.ok(effortMenu(render(settingsEl.t, { ...settingsEl.p, t }, sInst)), 'the Reasoning menu stays while a menu saves');
+  go(); hold = undefined; await saving;
+  for (let i = 0; i < 3; i++) { render(settingsEl.t, { ...settingsEl.p, t }, sInst); await tick(); }
+  assert.equal(gets(), g0, 'a menu save reads nothing again');
+  failNext = true;
+  await sp.advisorSwitch.post({ maxUses: 20 }, { maxUses: 20, busy: true });
+  for (let i = 0; i < 3; i++) { render(settingsEl.t, { ...settingsEl.p, t }, sInst); await tick(); }
+  assert.equal(sp.advisorSwitch.getSnapshot().error, 'disk full', 'the reason of a refused save stays');
+  assert.equal(sp.advisorSwitch.getSnapshot().maxUses, 10, 'and the saved value');
+}
+// Switching it on in Settings: the advisor menus that appear wait for the switch save; the Host's answer wins (rule 7).
+{
+  host.on = false; await sp.advisorSwitch.refresh();
+  let go; holdOn = new Promise((r) => { go = r; });
+  const turning = sp.setFeature('advisor', true);
+  const inst = { state: [], deps: [] };
+  render(settingsEl.t, { ...settingsEl.p, t }, inst); await tick();
+  render(settingsEl.t, { ...settingsEl.p, t }, inst); await tick();
+  go(); holdOn = undefined; await turning;
+  for (let i = 0; i < 3; i++) { render(settingsEl.t, { ...settingsEl.p, t }, inst); await tick(); }
+  assert.equal(sp.advisorSwitch.getSnapshot().on, true, 'the switch stays on (a read during the save does not win)');
 }
 // The Advice row: running, done (parsed first line), error.
 const R = row[1];

@@ -2496,7 +2496,6 @@
     "advisor.subagents": "하위 에이전트",
     "advisor.subagents.off": "어드바이저 없음",
     "advisor.subagents.on": "어드바이저도 사용",
-    "advisor.failed": "이 설정을 저장하지 못했습니다: {error}",
     "advisor.card.running": "조언 중…",
     "advisor.card.title": "조언",
     "advisor.card.failed": "조언 없음",
