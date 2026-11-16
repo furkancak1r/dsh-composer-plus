@@ -189,8 +189,8 @@ assert.equal(gets.length, once, 'the git details are read once, not at each draw
 dTree = D(detail.p);
 assert.match(text(dTree), /Login page/); assert.match(text(dTree), /status\.branch:\{"branch":"feature\/x"\}/); assert.match(text(dTree), /abc1234/); assert.match(text(dTree), /Fix login/);
 find(dTree, (n) => n.t === 'button' && n.p.className === 'cp-st-link')[0].p.onClick(); assert.deepEqual(opened, ['c-run', 's-web'], 'a chat link opens the chat');
-// Get summary: one click asks the assistant (a POST), opens the card with "Preparing the summary…" and the button says it
-// too (aria-disabled). The new summary replaces the placeholder; a project name in it opens and focuses the project row.
+// Get summary: one click asks the assistant (a POST), opens the card with "Preparing the summary…" (only there: the button
+// is aria-disabled and keeps its label). The new summary replaces the placeholder; a project name in it opens and focuses the project row.
 {
   mem.clear(); summary = { at: NOW - 60000, projects: [{ project: 'acme-web', text: 'Old summary.' }] }; await panelProps.store.load('s-assistant');
   const p0 = posts.length;

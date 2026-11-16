@@ -3305,8 +3305,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // A narrow header: the list time shrinks first (its width is 0, so the title keeps its name and chevron), then Get
       // summary; the title button never runs under Get summary (its chevron once drew over the summary spinner).
       + `[${TODOS_ATTR}] .cp-st-top{display:flex;align-items:center;gap:2px;padding-right:6px}`
-      + `[${TODOS_ATTR}] .cp-td-head{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:8px 10px;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;border-radius:var(--dsw-radius-lg,12px)}`
-      + `[${TODOS_ATTR}] .cp-st-time,[${TODOS_ATTR}] .cp-td-count{color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}[${TODOS_ATTR}] .cp-st-time{flex:1 1 auto;width:0;overflow:hidden;text-overflow:ellipsis}`
+      + `[${TODOS_ATTR}] .cp-td-head{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:8px 10px;border:0;background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap;cursor:pointer;border-radius:var(--dsw-radius-lg,12px)}`
+      + `[${TODOS_ATTR}] .cp-st-time,[${TODOS_ATTR}] .cp-td-count{color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}[${TODOS_ATTR}] .cp-st-time{flex:1 1 auto;width:0;overflow:hidden;text-overflow:ellipsis;text-align:right}`
       + `[${TODOS_ATTR}] .cp-st-body{overflow-y:auto;padding:0 6px 6px}`
       + `[${TODOS_ATTR}] section{padding-top:6px}[${TODOS_ATTR}] h3{display:flex;gap:6px;padding:4px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}`
       + `[${TODOS_ATTR}] ul{margin:0;padding:0;list-style:none}`
@@ -3333,7 +3333,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // on its own.
       + `@keyframes cp-st-spin{to{transform:rotate(360deg)}}@keyframes cp-st-pulse{from{opacity:.35}to{opacity:.8}}`
       + `[${TODOS_ATTR}] .cp-td-btn[data-refreshing="true"]{opacity:1;cursor:progress;color:var(--dsw-alias-state-business-primary)}[${TODOS_ATTR}] .cp-td-btn[data-refreshing="true"] > *{animation:cp-st-spin .8s linear infinite}`
-      + `[${TODOS_ATTR}] .cp-st-ask{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:140px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;white-space:nowrap;overflow:hidden;cursor:pointer}[${TODOS_ATTR}] .cp-st-label{min-width:0;overflow:hidden;text-overflow:ellipsis}[${TODOS_ATTR}] .cp-st-ask[aria-disabled="true"]{cursor:progress;color:var(--dsw-alias-state-business-primary)}`
+      + `[${TODOS_ATTR}] .cp-st-ask{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:140px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;white-space:nowrap;overflow:hidden;cursor:pointer}[${TODOS_ATTR}] .cp-st-label{min-width:0;overflow:hidden;text-overflow:ellipsis}[${TODOS_ATTR}] .cp-st-ask[aria-disabled="true"]{cursor:progress}[${TODOS_ATTR}] .cp-st-ask[data-waiting="true"]{color:var(--dsw-alias-state-business-primary)}`
       + `[${TODOS_ATTR}] .cp-st-time[data-refreshing="true"]{font-size:12px;font-weight:500;color:var(--dsw-alias-state-business-primary)}`
       + `[${TODOS_ATTR}] .cp-st-body[data-refreshing="true"] > :not(.cp-st-summary),[${TODOS_ATTR}] .cp-st-old[data-old="true"]{opacity:.4;transition:opacity .15s}`
       + `[${TODOS_ATTR}] .cp-st-spin{flex:none;box-sizing:border-box;width:12px;height:12px;border:2px solid var(--dsw-alias-state-business-primary);border-right-color:transparent;border-radius:50%;animation:cp-st-spin .8s linear infinite}`
@@ -3739,7 +3739,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           // Get summary: a text button (the summary costs a model turn, so it is a choice, not a side effect of Refresh).
           // "Preparing the summary…" shows in one place: the card, or this button while the card is closed or the panel is
           // folded. The label is its own span, so a narrow header ends it with "…".
-          React.createElement('button', { id: `${headId}-summarize`, type: 'button', className: 'cp-st-ask', 'aria-disabled': asking,
+          React.createElement('button', { id: `${headId}-summarize`, type: 'button', className: 'cp-st-ask', 'aria-disabled': asking, 'data-waiting': String(waitInHead),
             onClick: () => { store.askSummary(sessionId); } },
             waitInHead ? React.createElement('span', { className: 'cp-st-spin', 'aria-hidden': true }) : null,
             React.createElement('span', { className: 'cp-st-label' }, waitInHead ? t('status.summaryWaiting') : t('status.summarize'))),
