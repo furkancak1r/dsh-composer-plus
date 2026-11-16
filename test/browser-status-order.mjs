@@ -139,10 +139,13 @@ try {
       const png = join(home, 'statusOrder.png'); await page.screenshot({ path: png, clip: shot });
       if (process.env.SHOT) execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.round(640 * 1.25)), '0', png, '-o', join(repo, 'assets/features/statusOrder.webp')]);
       // The choice survives a reload; dsh's own Last updated turns it off and restores dsh's order.
-      const ordered = () => page.evaluate(() => [...document.querySelectorAll('style')].some((s) => s.textContent.includes('_flatList"] > :has(') && s.textContent.includes('{ order: -')));
+      // By status sets an inline `order` on the flat list's row wrappers (since 033baab, no `:has()` rule).
+      const ordered = () => page.evaluate(() => [...(document.querySelector('[role="tree"][class*="_flatList"]')?.children ?? [])].some((el) => el.style.order !== ''));
       await page.keyboard.press('Escape'); await page.reload(); await ready(page); await page.waitForTimeout(1200);
       assert.equal(await ordered(), true, 'order rule is back after a reload');
       await viewOptions.click();
+      // The option comes into dsh's menu after the menu shows (a body watcher): wait for it.
+      await page.getByRole('menuitem', { name: /^By status/ }).waitFor({ timeout: 5000 });
       assert.equal(await page.getByRole('menuitem', { name: 'By status selected', exact: true }).count(), 1, 'still selected after a reload');
       await page.getByRole('menuitem', { name: 'Last updated', exact: true }).click(); await page.waitForTimeout(600);
       assert.equal(await ordered(), false, 'Last updated: dsh order again');
