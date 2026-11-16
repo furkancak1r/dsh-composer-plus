@@ -8724,18 +8724,22 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
     }
     /** Settings → Advisor model: reasoning effort (the chosen model's own list), uses per chat, answer tokens and subagents.
      * The Host keeps them (`POST {effort}` / `{maxUses}` / `{maxTokens}` / `{subagents}`); one change at a time (a choice
-     * while one saves does nothing, and the store takes only the newest answer). The model menu is PredictionModel's. */
+     * while one saves does nothing, and the store takes only the newest answer). The model menu is PredictionModel's, with
+     * its own store (`models`): the chosen model is read from that store only, so the two stores never write the same field. */
     const ADVISOR_ROUTE = '/api/composer-plus.advisor';
     const ADVISOR_USES = [1, 2, 3, 5, 10, 20];
     const ADVISOR_TOKENS = [4000, 8000, 16000, 32000, 64000];
-    function AdvisorSettings({ store, t }) {
+    function AdvisorSettings({ store, models, t }) {
       const state = React.useSyncExternalStore(store.subscribe, store.getSnapshot);
+      const model = React.useSyncExternalStore(models.subscribe, models.getSnapshot).model;
       const [open, setOpen] = React.useState(null);
       const [efforts, setEfforts] = React.useState([]);
-      const chosen = state.model === undefined ? '' : modelKey(state.model);
+      const chosen = model === undefined ? '' : modelKey(model);
       React.useEffect(() => {
         let live = true;
         setEfforts([]);
+        // A new model drops the saved effort on the Host: read it again, unless a setting of this store is being saved.
+        if (store.getSnapshot().busy !== true) store.refresh();
         if (chosen !== '') fetch(`${ADVISOR_ROUTE}?efforts=1`).then((r) => r.json()).then((d) => { if (live && Array.isArray(d?.efforts)) setEfforts(d.efforts); }, () => {});
         return () => { live = false; };
       }, [chosen]);
@@ -8751,7 +8755,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           primitives.IconChevronDownOutlineRegular === undefined ? null : React.createElement(primitives.IconChevronDownOutlineRegular, { size: 12, 'aria-hidden': true })) }));
       const number = (n) => ({ id: String(n), label: n.toLocaleString() });
       return React.createElement('div', { style: { marginTop: 8 } },
-        state.on && state.model === undefined ? React.createElement('div', { role: 'alert', style: warnStyle }, t('advisor.noModel')) : null,
+        state.on && model === undefined && models.getSnapshot().catalog !== undefined ? React.createElement('div', { role: 'alert', style: warnStyle }, t('advisor.noModel')) : null,
         React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 4 } },
           efforts.length === 0 ? null : menu('effort', t('advisor.effort'), [{ id: '', label: t('advisor.effortDefault') }, ...efforts.map((e) => ({ id: e.id, label: e.name }))], state.effort ?? '', (v) => save({ effort: v === '' ? null : v })),
           menu('uses', t('advisor.uses'), ADVISOR_USES.map(number), state.maxUses, (v) => save({ maxUses: Number(v) })),
@@ -10829,7 +10833,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             id === 'plannedSteps' && plannedSwitch !== undefined ? React.createElement(MobileStatus, { mobile: plannedSwitch, t, prefix: 'planned' }) : null,
             id === 'advisor' && advisorSwitch !== undefined ? React.createElement(MobileStatus, { mobile: advisorSwitch, t, prefix: 'advisor.switch' }) : null,
             id === 'advisor' && advisorModel !== undefined && primitives.Menu !== undefined && isOn(enabled, id) ? React.createElement(PredictionModel, { store: advisorModel, t, advisor: true }) : null,
-            id === 'advisor' && advisorSwitch !== undefined && primitives.Menu !== undefined && isOn(enabled, id) ? React.createElement(AdvisorSettings, { store: advisorSwitch, t }) : null,
+            id === 'advisor' && advisorSwitch !== undefined && primitives.Menu !== undefined && isOn(enabled, id) ? React.createElement(AdvisorSettings, { store: advisorSwitch, models: advisorModel, t }) : null,
             id === 'assistant' && assistantSwitch !== undefined ? React.createElement(MobileStatus, { mobile: assistantSwitch, t, prefix: 'assistant' }) : null,
             id === 'assistantFree' && assistantFreeSwitch !== undefined ? React.createElement(MobileStatus, { mobile: assistantFreeSwitch, t, prefix: 'assistantFree' }) : null,
             id === 'assistantFree' && assistantFreeSwitch !== undefined && isOn(enabled, id) ? React.createElement(AssistantFreeNote, { store: assistantFreeSwitch, t }) : null,
@@ -14070,7 +14074,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         // client has the Settings menus, the chat header's per-chat button and the tool's row in the chat.
         const advisorSwitch = createMobile(ADVISOR_ROUTE);
         if (typeof fetch === 'function') advisorSwitch.refresh();
-        const advisorModel = createPredictionModel(ADVISOR_ROUTE, () => advisorSwitch.refresh());
+        const advisorModel = createPredictionModel(ADVISOR_ROUTE);
         feature('advisor', () => {
           const chats = createMemoryChats((init, query = '') => fetch(`${ADVISOR_ROUTE}${query}`, init), 'ready');
           const isSubagent = (id) => { try { return ctx.sessions.list.getSnapshot().byId[id]?.origin === 'subagent'; } catch { return false; } };

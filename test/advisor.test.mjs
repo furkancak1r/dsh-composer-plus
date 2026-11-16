@@ -47,6 +47,10 @@ for (const kind of ['composer-plus-rollback', 'dsh-rewind']) {
   const events = [call('a1'), result('a1', 'advice'), call('a2'), result('a2', 'failed', true), call('b1', 'bash'), result('b1', 'ok'), call('a3'), result('a3', 'advice')];
   assert.deepEqual([...advisorCalls(events)], ['a1', 'a3']);
   assert.deepEqual([...advisorCalls(events, 2)], ['a3'], 'from the fork offset');
+  // PTC mode: the tool runs inside run_code; dsh logs each use as tool/ptc-dispatch (a failed one does not count).
+  const ptc = (subCallId, isError = false, name = ADVISOR_TOOL) => ev('tool/ptc-dispatch', { rootCallId: 'r1', parentCallId: 'r1', subCallId, name, arguments: {}, isError, content: [] });
+  const run = [call('r1', 'run_code'), ptc('r1:ptc:1'), ptc('r1:ptc:2', true), ptc('r1:ptc:3', false, 'bash'), ptc('r1:ptc:4'), result('r1', 'done')];
+  assert.deepEqual([...advisorCalls(run)], ['r1:ptc:1', 'r1:ptc:4'], 'PTC uses count from the log, so a restart keeps the limit');
 }
 assert.equal(adviceText({ model: 'opus', inputTokens: 10, outputTokens: 5, use: 1, maxUses: 3, advice: 'Do X.' }),
   'Advice from opus (10 input tokens, 5 output tokens; use 1 of 3 in this chat):\n\nDo X.');
@@ -112,8 +116,11 @@ try {
     },
   };
   const home = join(root, 'home');
+  // A chat and a subagent that exist before the tool is registered (dsh refuses a restriction of an unknown tool).
+  const early = agent('k0', { origin: 'subagent', parentSession: 's0' });
   const host = installAdvisor(ctx, home);
   await host.ready;
+  assert.ok(!restrictions.has('k0'), 'no restriction while the tool is not registered');
   const req = async (body, query = '') => {
     const r = await routes.get(ADVISOR_PATH).fetch(new Request(`http://h${ADVISOR_PATH}${query}`, body === undefined ? undefined : { method: 'POST', body: JSON.stringify(body) }));
     return { status: r.status, body: await r.json() };
@@ -132,6 +139,12 @@ try {
   assert.deepEqual(catalog.groups.map((g) => g.id), ['strong', 'cheap']);
   assert.deepEqual((await req({ model: { provider: 'strong', model: 'opus' } })).body.model, { provider: 'strong', model: 'opus' });
   assert.ok(live.has(ADVISOR_TOOL), 'on + model: the tool');
+  assert.ok(restrictions.get('k0')?.has(ADVISOR_TOOL), 'a subagent that existed before the tool gets its restriction when the tool comes');
+  // A restriction that dsh refuses: the tool stays listed, and the tool itself still refuses there.
+  const stubborn = agent('k9', { origin: 'subagent', parentSession: 's0' });
+  restrictions.delete('k9'); stubborn.ctx.tools.restrict = () => { throw new Error('refused'); };
+  await assert.rejects(live.get(ADVISOR_TOOL).execute({}, { agent: stubborn, callId: 'k9c' }), /not available in subagent chats/);
+  agents.delete('k9');
   assert.deepEqual((await req(undefined, '?efforts=1')).body.efforts, [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }]);
   assert.equal((await req({ effort: 'high' })).body.effort, 'high');
   assert.equal((await req({ maxUses: 2 })).body.maxUses, 2);
@@ -200,7 +213,13 @@ try {
   await req({ on: false });
   assert.equal(live.size, 0, 'off removes the tool'); assert.equal(restrictions.size, 0, 'and every restriction');
   assert.equal((await req({ model: { provider: 'cheap', model: 'flash' } })).body.effort, undefined, 'a new model drops the effort');
+  assert.equal(JSON.parse(await readFile(join(home, 'storages', 'dsh-composer-plus', 'advisor.json'), 'utf8')).effort, undefined, 'in the same write');
+  await req({ effort: 'low' });
+  assert.equal((await req({ model: null })).body.model, undefined, 'null removes the model');
+  assert.equal((await req()).body.effort, undefined, 'and its effort');
+  await req({ model: { provider: 'strong', model: 'opus' } });
   await req({ on: true }); assert.ok(live.has(ADVISOR_TOOL));
+  assert.ok(restrictions.get('k1')?.has(ADVISOR_TOOL), 'off → on brings back the restriction of a subagent');
   const again = installAdvisor({ ...ctx, connection: { fetch: { register: () => {} } } }, home);
   await again.ready; assert.ok(live.has(ADVISOR_TOOL), 'the saved state comes back after a restart');
   effects.forEach((f) => typeof f === 'function' && f()); assert.equal(live.size, 0, 'unload removes the tool');

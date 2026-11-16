@@ -3166,7 +3166,7 @@ Invariants:
   the raw provider request (Anthropic refuses tool history without tools; DeepSeek thinking refuses history without reasoning).
 - Limits: uses per chat (default 3, 1–20) counted from the chat's own log (successful advisor results; a fork starts at
   `inheritedEventCount`, withdrawn steps do not count); input ≤ 100,000 characters (oldest part cut, said in the text);
-  answer ≤ maxTokens (default 4000) and ≤ the model's own default. At the limit: an error result, no model call.
+  answer ≤ maxTokens (default 16000) and ≤ the model's own default. At the limit: an error result, no model call.
 - Hidden for subagents unless the user allows it; hidden in a chat that the user switched off (per-chat button in the
   chat header). Mechanism: per-agent `tools.restrict({deny})` (works on 0.2.0-rc.2; `register(def, {when})` exists only
   from 0.2.2, so it is not used); the tool also refuses in such a chat (backstop).

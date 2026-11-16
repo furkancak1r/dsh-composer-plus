@@ -9480,13 +9480,15 @@ export function advisorInput(events, max = ADVISOR_INPUT_MAX) {
   return cut === 0 ? text : `${text}\n(${cut} line(s) that looked like a secret were left out.)`;
 }
 /** The call ids of the advice that this chat already got: successful advisor results in its own log (a fork's copy of its
- * parent does not count; a withdrawn one counts, as it was paid for). */
+ * parent does not count; a withdrawn one counts, as it was paid for). In PTC mode the tool runs inside `run_code`, and
+ * dsh logs each use as one `tool/ptc-dispatch` event (its id is the `callId` that the tool got). */
 export function advisorCalls(events, from = 0) {
   const calls = new Set();
   const done = new Set();
   for (const e of events.slice(from)) {
     if (e.type === 'tool/call' && e.data?.name === ADVISOR_TOOL) calls.add(e.data.callId);
     else if (e.type === 'tool/result' && e.data?.message?.isError !== true && calls.has(e.data?.message?.source?.callId)) done.add(e.data.message.source.callId);
+    else if (e.type === 'tool/ptc-dispatch' && e.data?.name === ADVISOR_TOOL && e.data.isError !== true && isText(e.data.subCallId)) done.add(e.data.subCallId);
   }
   return done;
 }
@@ -9531,7 +9533,7 @@ export function installAdvisor(ctx, home, file = join(home, 'storages', 'dsh-com
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: advisor: ${text}`);
   const store = advisorStore(file);
-  let settings = { on: false, maxUses: 3, maxTokens: 4000, subagents: false, off: {} };
+  let settings = { on: false, off: {} }; // the saved state replaces it before the tool or the route is used
   let fiber;
   let live = false; // the tool is registered now (dsh refuses a restriction of a tool that it does not know)
   const restricted = new Map(); // agent id → the disposer of its tool restriction
@@ -9582,7 +9584,7 @@ export function installAdvisor(ctx, home, file = join(home, 'storages', 'dsh-com
       try {
         const answer = await askAdvisor({ llm, route, effort: s.effort, maxTokens: s.maxTokens }, advisorInput(events), exec.signal);
         if (!given.has(session.id)) given.set(session.id, new Set());
-        given.get(session.id).add(exec.callId ?? randomUUID());
+        given.get(session.id).add(exec.callId);
         return adviceText({ model: route.model, ...answer, advice: answer.text, use: used.size + 1, maxUses: s.maxUses });
       } finally { running.delete(session.id); }
     },
@@ -9624,9 +9626,15 @@ export function installAdvisor(ctx, home, file = join(home, 'storages', 'dsh-com
         let change;
         if (keys === 'on' && typeof body.on === 'boolean') change = (s) => ({ ...s, on: body.on });
         else if (keys === 'model') {
-          const response = await saveModel(ctx, get, store, body.model);
-          if (!response.ok) return response;
-          change = ({ effort: _, ...s }) => s; // an effort belongs to the model it was chosen for
+          // One write: the model and the effort (an effort belongs to the model it was chosen for) change together.
+          let chosen;
+          if (body.model !== null) {
+            if (!isText(body.model?.provider) || !isText(body.model?.model)) return json({ error: 'bad request' }, 400);
+            const catalog = await modelCatalogOf(ctx, get);
+            if (!catalog.groups.some((g) => g.id === body.model.provider && g.models.some((m) => m.id === body.model.model))) return json({ error: 'dsh does not list this model' }, 409);
+            chosen = { provider: body.model.provider, model: body.model.model };
+          }
+          change = ({ model: _, effort: __, ...s }) => (chosen === undefined ? s : { ...s, model: chosen });
         } else if (keys === 'effort' && (body.effort === null || isText(body.effort, 64))) change = ({ effort: _, ...s }) => (body.effort === null ? s : { ...s, effort: body.effort });
         else if (keys === 'maxUses' && intIn(body.maxUses, ADVISOR_USES) !== undefined) change = (s) => ({ ...s, maxUses: body.maxUses });
         else if (keys === 'maxTokens' && intIn(body.maxTokens, ADVISOR_TOKENS) !== undefined) change = (s) => ({ ...s, maxTokens: body.maxTokens });
