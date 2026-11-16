@@ -18,7 +18,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, symlink, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, rm, realpath, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -172,8 +172,10 @@ try {
       await page.reload(); await input.waitFor({ timeout: 20000 });
       await page.locator('[data-composer-plus-branch-status]').waitFor({ timeout: 20000 });
       await page.locator('[data-composer-plus-grants]').waitFor({ timeout: 20000 });
-      // dsh 0.2.2-rc.2 dropped "running" from the label ("2 background jobs").
-      await page.getByRole('button', { name: /^\d+ background jobs?( running)?$/ }).waitFor({ timeout: 20000 });
+      // dsh 0.2.2-rc.2 dropped "running" from the label ("2 background jobs"); before it, the idle label has no "running".
+      const { version } = JSON.parse(await readFile(join(bin, '../../package.json'), 'utf8'));
+      const jobsLabel = /^0\.2\.([01]\b|2-(alpha|rc\.1\b))/.test(version) ? /^\d+ background jobs? running$/ : /^\d+ background jobs?$/;
+      await page.getByRole('button', { name: jobsLabel }).waitFor({ timeout: 20000 });
       await pause(1000);
       const fitOn = (on) => page.evaluate((v) => { for (const st of document.querySelectorAll('style[data-composer-plus-header-fit]')) st.disabled = !v; }, on);
       const at = async (width, name = `w${width}`) => {

@@ -92,7 +92,7 @@ try {
       await context.addInitScript(() => localStorage.setItem('dsh-composer-plus.features', JSON.stringify({ autoUpdate: false })));
       const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       // A 404 is not a page error: Side chat asks its route about each chat, and a chat that is not a side chat is a 404.
-      page.on('console', (m) => { if (m.type() === 'error' && !m.text().startsWith('Failed to load resource')) errors.push('console: ' + m.text()); });
+      page.on('console', (m) => { if (m.type() === 'error' && !/^Failed to load resource: .*status of 404/.test(m.text())) errors.push('console: ' + m.text()); });
       await page.goto(url);
       for (const name of [/^Continue$/, /^Configure later$/]) {
         const b = page.getByRole('button', { name });
