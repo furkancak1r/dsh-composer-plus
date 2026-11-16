@@ -197,7 +197,10 @@ find(dTree, (n) => n.t === 'button' && n.p.className === 'cp-st-link')[0].p.onCl
   let c = find(tree, (n) => n.p?.className === 'cp-st-summary')[0];
   assert.ok(c, 'the card opens at once'); assert.match(text(c), /status\.summaryWaiting/);
   assert.equal(find(tree, (n) => n.p?.className === 'cp-st-ask')[0].p['aria-disabled'], true);
-  assert.match(text(find(tree, (n) => n.p?.className === 'cp-st-ask')[0]), /status\.summaryWaiting/, 'the button says it too');
+  // One place says it: the card. The button keeps its label and has no second spinner.
+  const waitMarks = (tr) => find(tr, (n) => n.p?.className === 'cp-st-spin' || (n.p?.className !== 'cp-st-sr' && (n.c ?? []).flat(Infinity).includes('status.summaryWaiting'))).map((n) => n.p.className);
+  assert.deepEqual(waitMarks(tree), ['cp-st-wait', 'cp-st-spin'], 'one "Preparing the summary…" with one spinner, in the card');
+  assert.match(text(find(tree, (n) => n.p?.className === 'cp-st-ask')[0]), /status\.summarize/);
   await tick();
   assert.deepEqual(posts.slice(p0), [{ sessionId: 's-assistant', action: 'summary' }], 'one summary request');
   assert.equal(panelProps.store.of('s-assistant').ask.state, 'waiting');
@@ -554,6 +557,10 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   { const p3 = posts.length; assert.equal(await store.askSummary('s-assistant'), false); assert.equal(posts.length, p3, 'no second request while one is sent'); }
   release(); askGate = null; await slow; askedAt = null;
   store.hideSummary('s-assistant'); assert.equal(cardOf(panel()), undefined, 'closed');
+  // The card closed while it waits: Get summary says it instead (one place, one spinner).
+  assert.equal(store.of('s-assistant').ask.state, 'waiting');
+  assert.deepEqual(find(panel(), (n) => n.p?.className === 'cp-st-spin' || (n.p?.className !== 'cp-st-sr' && (n.c ?? []).flat(Infinity).includes('status.summaryWaiting'))).map((n) => n.p.className),
+    ['cp-st-ask', 'cp-st-spin'], 'card closed: the button says it, with one spinner');
   // Reduced motion: no turning and no pulse, only the text. Both themes: dsh's color tokens only.
   const css = find(panel(), (n) => n.t === 'style')[0].c[0];
   assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{[^}]*cp-td-btn\[data-refreshing="true"\] > \*,[^}]*cp-st-skel\{animation:none\}/);

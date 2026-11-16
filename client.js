@@ -3302,9 +3302,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // dsh 0.2.2-rc.2 wraps the scroll body in a `display:contents` frame (`conversation.hero.frame`): not a direct child.
       + `@media (min-width:1000px){[${SEAT_ATTR}="open"] [data-conversation-scroll]{padding-right:332px}}`
       + `[${TODOS_ATTR}] h2,[${TODOS_ATTR}] h3,[${TODOS_ATTR}] h4{margin:0;font-size:13px;line-height:18px}[${TODOS_ATTR}] .cp-td-name{font-weight:600}`
+      // A narrow header: the list time shrinks first (its width is 0, so the title keeps its name and chevron), then Get
+      // summary; the title button never runs under Get summary (its chevron once drew over the summary spinner).
       + `[${TODOS_ATTR}] .cp-st-top{display:flex;align-items:center;gap:2px;padding-right:6px}`
       + `[${TODOS_ATTR}] .cp-td-head{display:flex;align-items:center;gap:6px;flex:1;min-width:0;padding:8px 10px;border:0;background:none;color:inherit;font:inherit;text-align:left;cursor:pointer;border-radius:var(--dsw-radius-lg,12px)}`
-      + `[${TODOS_ATTR}] .cp-st-time,[${TODOS_ATTR}] .cp-td-count{color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}[${TODOS_ATTR}] .cp-st-time{margin-left:auto}`
+      + `[${TODOS_ATTR}] .cp-st-time,[${TODOS_ATTR}] .cp-td-count{color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums;white-space:nowrap}[${TODOS_ATTR}] .cp-st-time{flex:1 1 auto;width:0;overflow:hidden;text-overflow:ellipsis}`
       + `[${TODOS_ATTR}] .cp-st-body{overflow-y:auto;padding:0 6px 6px}`
       + `[${TODOS_ATTR}] section{padding-top:6px}[${TODOS_ATTR}] h3{display:flex;gap:6px;padding:4px;font-size:12px;font-weight:600;color:var(--dsw-alias-label-secondary)}`
       + `[${TODOS_ATTR}] ul{margin:0;padding:0;list-style:none}`
@@ -3331,7 +3333,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // on its own.
       + `@keyframes cp-st-spin{to{transform:rotate(360deg)}}@keyframes cp-st-pulse{from{opacity:.35}to{opacity:.8}}`
       + `[${TODOS_ATTR}] .cp-td-btn[data-refreshing="true"]{opacity:1;cursor:progress;color:var(--dsw-alias-state-business-primary)}[${TODOS_ATTR}] .cp-td-btn[data-refreshing="true"] > *{animation:cp-st-spin .8s linear infinite}`
-      + `[${TODOS_ATTR}] .cp-st-ask{flex:none;display:inline-flex;align-items:center;gap:5px;height:24px;max-width:140px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}[${TODOS_ATTR}] .cp-st-ask[aria-disabled="true"]{cursor:progress;color:var(--dsw-alias-state-business-primary)}`
+      + `[${TODOS_ATTR}] .cp-st-ask{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:140px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}[${TODOS_ATTR}] .cp-st-ask[aria-disabled="true"]{cursor:progress;color:var(--dsw-alias-state-business-primary)}`
       + `[${TODOS_ATTR}] .cp-st-time[data-refreshing="true"]{font-size:12px;font-weight:500;color:var(--dsw-alias-state-business-primary)}`
       + `[${TODOS_ATTR}] .cp-st-body[data-refreshing="true"] > :not(.cp-st-summary),[${TODOS_ATTR}] .cp-st-old[data-old="true"]{opacity:.4;transition:opacity .15s}`
       + `[${TODOS_ATTR}] .cp-st-spin{flex:none;box-sizing:border-box;width:12px;height:12px;border:2px solid var(--dsw-alias-state-business-primary);border-right-color:transparent;border-radius:50%;animation:cp-st-spin .8s linear infinite}`
@@ -3728,15 +3730,16 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       return React.createElement('section', { [TODOS_ATTR]: '', 'data-open': String(open), 'aria-labelledby': headId },
         React.createElement('style', null, TODOS_CSS),
         React.createElement('div', { className: 'cp-st-top' },
-          React.createElement('h2', { style: { flex: 1, minWidth: 0 } }, React.createElement('button', { id: headId, type: 'button', className: 'cp-td-head', 'aria-expanded': open, onClick: () => setOpen((v) => !v) },
+          React.createElement('h2', { style: { display: 'flex', flex: 1 } }, React.createElement('button', { id: headId, type: 'button', className: 'cp-td-head', 'aria-expanded': open, onClick: () => setOpen((v) => !v) },
             React.createElement('span', { className: 'cp-td-name' }, t('status.title')),
             state.refreshing ? React.createElement('span', { className: 'cp-st-time', 'data-refreshing': 'true' }, t('status.refreshing'))
               : state.at === null ? null : React.createElement('span', { className: 'cp-st-time', title: t('status.updatedHint') }, t('status.updated', { time: clockText(state.at, lang) })),
             React.createElement(TodoIcon, open ? { name: 'IconChevronDownOutlineRegular', glyph: '▾' } : { name: 'IconChevronUpOutlineRegular', glyph: '▴' }))),
           // Get summary: a text button (the summary costs a model turn, so it is a choice, not a side effect of Refresh).
+          // "Preparing the summary…" shows in one place: the card, or this button while the card is closed.
           React.createElement('button', { id: `${headId}-summarize`, type: 'button', className: 'cp-st-ask', 'aria-disabled': asking,
             onClick: () => { store.askSummary(sessionId); } },
-            asking ? React.createElement('span', { className: 'cp-st-spin', 'aria-hidden': true }) : null, asking ? t('status.summaryWaiting') : t('status.summarize')),
+            asking && !state.shown ? React.createElement('span', { className: 'cp-st-spin', 'aria-hidden': true }) : null, asking && !state.shown ? t('status.summaryWaiting') : t('status.summarize')),
           React.createElement('button', { id: `${headId}-refresh`, type: 'button', className: 'cp-td-btn', 'data-refreshing': String(state.refreshing), 'aria-disabled': state.refreshing,
             'aria-label': t('status.refresh'), title: t('status.refresh'), onClick: () => { store.refresh(sessionId); } },
             React.createElement(TodoIcon, { name: 'IconRefreshOutlineRegular', glyph: '↻' })),
