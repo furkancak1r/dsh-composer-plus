@@ -8536,8 +8536,7 @@ export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retry
     await backups.writeRescue(oldFolder).catch((error) => log(`could not write the rescue console in ${oldFolder}: ${error?.message ?? error}`));
   };
   const refreshRescue = async () => {
-    if (!(await rescue.read())) return;
-    await backups.writeRescue(folder).catch((error) => log(`could not write the rescue console: ${error?.message ?? error}`));
+    if (await rescue.read()) await backups.writeRescue(folder).catch((error) => log(`could not write the rescue console: ${error?.message ?? error}`));
     await refreshOld();
   };
   /** A click keeps every archive; an automatic backup keeps the newest `keep` of its own, a snapshot the newest 2. */
@@ -8610,7 +8609,7 @@ export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retry
         // An updated Composer Plus brings a new console: replace a copy that is there, also in the old folder (a start makes
         // no new files).
         if (await exists(join(folder, backups.RESCUE_FILE))) await refreshRescue();
-        else if (await rescue.read()) await refreshOld();
+        else await refreshOld();
       } catch (error) { log(`backup start-up: ${error?.message ?? error}`); }
       await tick();
     }, graceMs);

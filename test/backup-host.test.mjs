@@ -229,6 +229,16 @@ assert.deepEqual(parseAutoBackup({ on: 'yes', hours: 5, keep: 100, version: '0.2
   r = await moved.call(BACKUP_PATH);
   assert.deepEqual([r.data.folder, r.data.archives.length], [newFolder, 1], 'the list shows the new folder only');
   moved.unload();
+  // A start with no console in the new folder, Automatic backup and Rescue console off: only the old console is replaced,
+  // and no new folder is made.
+  const offStart = join(root, 'old-start', '.dsh');
+  write(join(offStart, 'a.txt'), 'a');
+  write(join(offStart, 'storages', 'dsh-composer-plus', 'rescue-console.json'), JSON.stringify({ on: false }));
+  write(join(oldFolder, b.RESCUE_FILE), 'old console');
+  const started = boot({ home: offStart, folder: join(offStart, 'backups'), oldFolder, version: '0.2.1', graceMs: 5 });
+  await until(() => readFileSync(join(oldFolder, b.RESCUE_FILE), 'utf8') === ownConsole, 'the old console replaced at a start');
+  assert.equal(existsSync(join(offStart, 'backups')), false, 'a start makes no new folder');
+  started.unload();
   // An old folder without a console gets none.
   const bare = join(root, 'old-bare');
   mkdirSync(bare);
