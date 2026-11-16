@@ -138,6 +138,26 @@ assert.ok(effortMenu(render(settingsEl.t, { ...settingsEl.p, t }, sInst)), 'the 
   for (let i = 0; i < 3; i++) { render(settingsEl.t, { ...settingsEl.p, t }, inst); await tick(); }
   assert.equal(sp.advisorSwitch.getSnapshot().on, true, 'the switch stays on (a read during the save does not win)');
 }
+// The Settings switch waits for a running save too: no {on} POST while a menu save runs.
+{
+  const onPosts = () => fetches.filter((f) => f.url === ROUTE && f.init?.method === 'POST' && 'on' in JSON.parse(f.init.body)).length;
+  let go; hold = new Promise((r) => { go = r; });
+  const saving = sp.advisorSwitch.post({ maxUses: 5 }, { maxUses: 5, busy: true });
+  const n = onPosts();
+  await sp.setFeature('advisor', false);
+  assert.equal(onPosts(), n, 'no switch POST while a save runs');
+  go(); hold = undefined; await saving;
+  assert.equal(sp.advisorSwitch.getSnapshot().maxUses, 5, 'the menu save keeps its answer');
+}
+// A refused switch-off keeps its reason, also when the advisor menus mount again (a new Settings instance).
+{
+  failNext = true;
+  await sp.setFeature('advisor', false);
+  assert.equal(sp.advisorSwitch.getSnapshot().on, true); assert.equal(sp.advisorSwitch.getSnapshot().error, 'disk full');
+  const inst = { state: [], deps: [] };
+  for (let i = 0; i < 3; i++) { render(settingsEl.t, { ...settingsEl.p, t }, inst); await tick(); }
+  assert.equal(sp.advisorSwitch.getSnapshot().error, 'disk full', 'the reason stays after the menus mount again');
+}
 // The Advice row: running, done (parsed first line), error.
 const R = row[1];
 assert.match(JSON.stringify(R({ phase: 'start', t })), /advisor.card.running/);

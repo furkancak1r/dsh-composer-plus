@@ -8736,16 +8736,18 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
       const [open, setOpen] = React.useState(null);
       const [efforts, setEfforts] = React.useState([]);
       const chosen = model === undefined ? '' : modelKey(model);
-      // One change of the advisor's settings at a time: a model save and a menu save wait for each other (rule 7).
+      // One change of the advisor's settings at a time: a menu save (and the Settings switch) waits for a model save and for
+      // another save of this store (rule 7).
       const busy = state.busy === true || picked.busy === true;
-      const synced = React.useRef(null); // the model whose efforts and settings were read last
+      const synced = React.useRef(null); // the model whose efforts were read last
       React.useEffect(() => {
-        // Once per saved model, when no save runs: the Host has that model then and dropped the old effort. A menu save
-        // reads nothing again (its answer is the new state, also a refused save's reason).
+        // Once per saved model, when no save runs: the Host has that model then and dropped the old effort. The first run
+        // reads only the efforts (MobileStatus reads the settings when Settings opens; re-reading here would hide the reason
+        // of a refused switch save); a menu save reads nothing again (its answer is the new state).
         if (busy || synced.current === chosen) return;
+        if (synced.current !== null) store.refresh();
         synced.current = chosen;
         setEfforts([]);
-        store.refresh();
         if (chosen !== '') fetch(`${ADVISOR_ROUTE}?efforts=1`).then((r) => r.json()).then((d) => { if (synced.current === chosen && Array.isArray(d?.efforts)) setEfforts(d.efforts); }, () => {});
       }, [chosen, busy]);
       if (state.restart || typeof state.maxUses !== 'number') return null;
@@ -14279,7 +14281,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           inject: () => ({ hooks: { composerPlusToggles: toggles }, openMessage, languageForm: ctx.configForms.get('locale'), locale: ctx.locale, updater, whatsNew, mobile, computersSwitch, computers, addComputer, resume, outageSwitch, sendFirst, memory, memoryEditor, memoryHistorySwitch, memoryChatSwitch, contentSearch, rollbackSwitch, branchSwitch, worktreeSwitch,
             prediction, predictionModel, completion, completionModel, improveModel, defaultWs, goalSwitch, goalModel, branchTree, backups, autoBackup, rescueSwitch, protectedSwitch, blockedSwitch, boardSwitch, boardProgress, plannedSwitch, advisorSwitch, advisorModel, assistantSwitch, assistantFreeSwitch, assistantNotifySwitch, assistantTodosSwitch, calloutsSwitch, untangleSwitch, secretSwitch, approveSwitch, issueReport, turkishSkill,
             setFeature: (id, on) => (id === 'mobileConnect' ? mobile.setOn(on) : id === 'remoteComputers' ? computersSwitch.setOn(on).then(() => computers.refresh()) : id === 'resumeAfterRestart' ? resume.setOn(on) : id === 'outageResume' ? setOutage(on) : id === 'stopSendFirst' ? sendFirst.setOn(on) : id === 'projectMemory' ? memory.setOn(on) : id === 'memoryHistory' ? memoryHistorySwitch.setOn(on) : id === 'memoryPerChat' ? memoryChatSwitch.setOn(on) : id === 'contentSearch' ? contentSearch.setOn(on)
-              : id === 'autoBackup' ? autoBackup.setOn(on) : id === 'rescueConsole' ? rescueSwitch.setOn(on) : id === 'protectedFiles' ? protectedSwitch.setOn(on) : id === 'blockedCommands' ? blockedSwitch.setOn(on) : id === 'taskBoard' ? boardSwitch.setOn(on) : id === 'assistant' ? assistantSwitch.setOn(on).then((s) => { assistantStatus.refresh(); assistantTodosSwitch.morning?.refresh(); return s; }) : id === 'assistantFree' ? assistantFreeSwitch.setOn(on) : id === 'assistantNotify' ? assistantNotifySwitch.setOn(on) : id === 'assistantTodos' ? assistantTodosSwitch.setOn(on).then((s) => { assistantTodosSwitch.morning?.refresh(); return s; }) : id === 'assistantCallouts' ? calloutsSwitch.setOn(on) : id === 'plannedSteps' ? plannedSwitch.setOn(on) : id === 'advisor' ? advisorSwitch.post({ on }, { on, busy: true }) : id === 'turkishSkill' ? setTurkishSkill(on) : id === 'untangleCodebase' ? untangleSwitch.setOn(on) : id === 'secretInput' ? secretSwitch.setOn(on) : id === 'approveButton' ? approveSwitch.setOn(on)
+              : id === 'autoBackup' ? autoBackup.setOn(on) : id === 'rescueConsole' ? rescueSwitch.setOn(on) : id === 'protectedFiles' ? protectedSwitch.setOn(on) : id === 'blockedCommands' ? blockedSwitch.setOn(on) : id === 'taskBoard' ? boardSwitch.setOn(on) : id === 'assistant' ? assistantSwitch.setOn(on).then((s) => { assistantStatus.refresh(); assistantTodosSwitch.morning?.refresh(); return s; }) : id === 'assistantFree' ? assistantFreeSwitch.setOn(on) : id === 'assistantNotify' ? assistantNotifySwitch.setOn(on) : id === 'assistantTodos' ? assistantTodosSwitch.setOn(on).then((s) => { assistantTodosSwitch.morning?.refresh(); return s; }) : id === 'assistantCallouts' ? calloutsSwitch.setOn(on) : id === 'plannedSteps' ? plannedSwitch.setOn(on) : id === 'advisor' ? (advisorSwitch.getSnapshot().busy === true ? Promise.resolve(advisorSwitch.getSnapshot()) : advisorSwitch.post({ on }, { on, busy: true })) : id === 'turkishSkill' ? setTurkishSkill(on) : id === 'untangleCodebase' ? untangleSwitch.setOn(on) : id === 'secretInput' ? secretSwitch.setOn(on) : id === 'approveButton' ? approveSwitch.setOn(on)
               : id === 'turnRollback' ? rollbackSwitch.setOn(on) : id === 'nextPrediction' ? prediction.setOn(on) : id === 'typingCompletion' ? completion.setOn(on)
               : id === 'sessionBranch' ? branchSwitch.setOn(on) : id === 'worktreeChats' ? worktreeSwitch.setOn(on) : id === 'defaultWorkspace' ? defaultWs.setOn(on) : id === 'goalCheck' ? goalSwitch.setOn(on) : id === 'branchTree' ? branchTree.setOn(on)
               : toggles.update((draft) => { draft[id] = on; })) }),
