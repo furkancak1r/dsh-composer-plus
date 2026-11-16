@@ -49,7 +49,8 @@ const fake = createServer((req, res) => {
     const msgs = JSON.parse(body).messages ?? [];
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo', choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } } : {}) })}\n\n`;
     res.writeHead(200, { 'content-type': 'text/event-stream' });
-    if (/session title|next message|complete the message|improve a prompt/i.test(JSON.stringify(msgs[0]?.content ?? '') + JSON.stringify(msgs.at(-1)?.content ?? ''))) { res.end(chunk({ role: 'assistant', content: 'Release plan' }) + chunk({}, 'stop') + 'data: [DONE]\n\n'); return; }
+    // Helper requests by the start of their own prompts: the chat's system text also says "next message".
+    if (/(Generate|Update) the session title|You predict the next message|You complete the message that the user is typing|You improve a prompt/.test(JSON.stringify(msgs[0]?.content ?? '') + JSON.stringify(msgs.at(-1)?.content ?? ''))) { res.end(chunk({ role: 'assistant', content: 'Release plan' }) + chunk({}, 'stop') + 'data: [DONE]\n\n'); return; }
     if (!msgs.some((m) => m.role === 'tool')) {
       const call = { index: 0, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'ask_user_question', arguments: JSON.stringify({ questions: [{ id: 'plan', header: 'Release plan', question: QUESTION, options: OPTIONS }] }) } };
       res.end(chunk({ role: 'assistant', tool_calls: [call] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n'); return;

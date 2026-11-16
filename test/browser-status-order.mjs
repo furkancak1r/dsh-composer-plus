@@ -30,7 +30,10 @@ const fake = createServer((req, res) => {
     const end = () => res.end('data: [DONE]\n\n');
     if (/session title/i.test(JSON.stringify(last?.content))) { const k = Object.values(CHATS).find((x) => body.includes(x)); send({ role: 'assistant', content: k ?? 'Demo' }); send({}, 'stop'); end(); return; }
     if (last?.role !== 'tool' && body.includes(CHATS.automated)) {
-      send({ role: 'assistant', tool_calls: [{ index: 0, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'schedule_create', arguments: JSON.stringify({ title: 'Dependency check', prompt: 'Check for outdated dependencies.', daily: { time: '09:00:00', time_zone: 'UTC' } }) } }] });
+      // The arguments of the dsh given: 0.2.2 takes `rrule` and `target`, older dsh `daily`.
+      const create = (JSON.parse(body).tools ?? []).find((tool) => tool.function?.name === 'schedule_create');
+      const when = JSON.stringify(create?.function?.parameters ?? {}).includes('"rrule"') ? { rrule: 'DTSTART:20260901T090000Z\nRRULE:FREQ=DAILY', target: 'this_session' } : { daily: { time: '09:00:00', time_zone: 'UTC' } };
+      send({ role: 'assistant', tool_calls: [{ index: 0, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'schedule_create', arguments: JSON.stringify({ title: 'Dependency check', prompt: 'Check for outdated dependencies.', ...when }) } }] });
       send({}, 'tool_calls'); end(); return;
     }
     const slow = body.includes(CHATS.running) ? 120000 : body.includes(CHATS.done) ? 5000 : 0;

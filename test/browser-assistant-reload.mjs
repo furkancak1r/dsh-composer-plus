@@ -5,7 +5,7 @@
 //    openSession refuses a chat that it does not list yet: the panel says "Opening the assistant chat…" until the list
 //    comes, then the assistant chat opens (before the fix the panel stayed on "Opening…" for good).
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-reload.mjs /path/to/dsh/lib/bin.js [...]
-// The Playwright must have its own headless Chromium installed (the check does not use Chrome). PORT=<port> uses another
+// It uses the installed Chrome (channel 'chrome'), as the other checks. PORT=<port> uses another
 // port than 3297. TMPDIR=/tmp keeps the throwaway homes in /tmp.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -40,7 +40,7 @@ const fake = createServer((req, res) => {
 await new Promise((r) => fake.once('listening', r));
 const fakePort = fake.address().port;
 
-const browser = await chromium.launch({ headless: true, chromiumSandbox: true });
+const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
     const version = JSON.parse(readFileSync(join(bin, '../../package.json'), 'utf8')).version;

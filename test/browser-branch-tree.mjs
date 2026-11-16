@@ -37,7 +37,9 @@ const fake = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const say = (text) => res.end(chunk({ role: 'assistant', content: text }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
     const bash = (command) => res.end(chunk({ role: 'assistant', tool_calls: [{ index: 0, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'bash', arguments: JSON.stringify({ command, description: 'Run a git command' }) } }] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n');
-    if (/session title|next message|complete the message|improve a prompt/i.test(JSON.stringify(msgs[0]?.content ?? '') + JSON.stringify(msgs.at(-1)?.content ?? ''))) { say(''); return; }
+    // Helper requests (dsh's title, Composer Plus prediction, completion, prompt help) by the start of their own prompts: the
+    // chat's system text also says "next message" (the Approve button rule).
+    if (/(Generate|Update) the session title|You predict the next message|You complete the message that the user is typing|You improve a prompt/.test(JSON.stringify(msgs[0]?.content ?? '') + JSON.stringify(msgs.at(-1)?.content ?? ''))) { say(''); return; }
     bodies.push(all);
     const tools = msgs.filter((m) => m.role === 'tool').map((m) => JSON.stringify(m.content));
     if (msgs.filter((m) => m.role === 'tool').length > 6) { say('Stopped.'); return; } // a red run ends

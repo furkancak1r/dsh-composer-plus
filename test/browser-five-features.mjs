@@ -35,7 +35,8 @@ const fake = createServer((req, res) => {
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo', choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } } : {}) })}\n\n`;
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     const text = JSON.stringify(last?.content ?? '');
-    if (/session title|next message|complete the message|improve a prompt/i.test(JSON.stringify(msgs[0]?.content ?? '') + text)) { res.end(chunk({ role: 'assistant', content: '' }) + chunk({}, 'stop') + 'data: [DONE]\n\n'); return; }
+    // Helper requests by the start of their own prompts: the chat's system text also says "next message".
+    if (/(Generate|Update) the session title|You predict the next message|You complete the message that the user is typing|You improve a prompt/.test(JSON.stringify(msgs[0]?.content ?? '') + text)) { res.end(chunk({ role: 'assistant', content: '' }) + chunk({}, 'stop') + 'data: [DONE]\n\n'); return; }
     const users = msgs.filter((m) => m.role === 'user').map((m) => JSON.stringify(m.content));
     const prompt = users.findLast((u) => /Edit app \d|Run the tests|Say hello/.test(u)) ?? '';
     const edit = /Edit app (\d)/.exec(prompt);

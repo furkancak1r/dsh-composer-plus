@@ -130,9 +130,10 @@ ${provider('fast', 'Fast', [['nano', 'Nano']])}
       const predict = page.getByRole('switch', { name: 'Next message prediction' });
       if (await predict.getAttribute('aria-checked') === 'true') await predict.click();
       // Each switch has its own Model menu; the completion's starts at "Same as Next message prediction".
-      const menus = page.locator('[data-composer-plus-prediction-model] button');
-      assert.equal(await menus.count(), 2, 'a Model menu under each switch');
-      await page.waitForFunction(() => document.querySelectorAll('[data-composer-plus-prediction-model] button')[1]?.textContent.startsWith('Same as Next message prediction'), null, { timeout: 10000 });
+      // The Model menu in the row of this switch (Improve prompt and Goal check have a Model menu too).
+      const modelMenu = (name) => page.getByRole('switch', { name, exact: true }).locator('xpath=..').locator('[data-composer-plus-prediction-model] button');
+      assert.equal(await modelMenu('Next message prediction').count() + await modelMenu('Complete while typing').count(), 2, 'a Model menu under each switch');
+      await modelMenu('Complete while typing').filter({ hasText: /^Same as Next message prediction/ }).waitFor({ timeout: 10000 });
       await back();
 
       // Typing: after a pause the rest shows after the cursor, in dsh's caption colour.
@@ -172,10 +173,10 @@ ${provider('fast', 'Fast', [['nano', 'Nano']])}
 
       // The prediction's model (its own menu) is the one the completion follows while the completion has no choice.
       await settings();
-      const modelButtons = () => page.locator('[data-composer-plus-prediction-model] button');
-      await modelButtons().first().click();
+      await modelMenu('Next message prediction').click();
       await page.locator('body > [role="menu"]').last().getByRole('menuitem', { name: 'Nano', exact: true }).click();
-      await page.waitForFunction(() => { const b = [...document.querySelectorAll('[data-composer-plus-prediction-model] button')]; return b[0]?.textContent.includes('Nano') && b[1]?.textContent === 'Same as Next message prediction (Nano)'; }, null, { timeout: 10000 });
+      await modelMenu('Next message prediction').filter({ hasText: 'Nano' }).waitFor({ timeout: 10000 });
+      await modelMenu('Complete while typing').filter({ hasText: /^Same as Next message prediction \(Nano\)$/ }).waitFor({ timeout: 10000 });
       await back();
       // Text that the last guess does not fit (a fitting guess is reused with no call, whatever the model).
       await input.click(); await page.keyboard.type('Fix the', { delay: 40 });
@@ -184,9 +185,10 @@ ${provider('fast', 'Fast', [['nano', 'Nano']])}
       await clear();
       // The completion's own choice: Demo model for completions while the prediction keeps Nano.
       await settings();
-      await modelButtons().nth(1).click();
+      await modelMenu('Complete while typing').click();
       await page.locator('body > [role="menu"]').last().getByRole('menuitem', { name: 'Demo model', exact: true }).click();
-      await page.waitForFunction(() => { const b = [...document.querySelectorAll('[data-composer-plus-prediction-model] button')]; return b[0]?.textContent.includes('Nano') && b[1]?.textContent === 'Demo model'; }, null, { timeout: 10000 });
+      await modelMenu('Complete while typing').filter({ hasText: /^Demo model$/ }).waitFor({ timeout: 10000 });
+      await modelMenu('Next message prediction').filter({ hasText: 'Nano' }).waitFor({ timeout: 10000 });
       const saved = JSON.parse(await readFile(join(home, 'storages/dsh-composer-plus/complete.json'), 'utf8'));
       assert.deepEqual(saved, { on: true, model: { provider: 'demo', model: 'demo' } }, 'complete.json keeps the switch and its model');
       assert.deepEqual(JSON.parse(await readFile(join(home, 'storages/dsh-composer-plus/predict.json'), 'utf8')).model, { provider: 'fast', model: 'nano' }, 'the prediction keeps Nano');

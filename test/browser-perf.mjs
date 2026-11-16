@@ -63,7 +63,9 @@ const fake = createServer((req, res) => {
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 } } : {}) })}\n\n`;
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     // "stream probe": a long Markdown answer in STREAM_CHUNKS pieces, one each 20 ms (a streamed reply).
-    if (!helper && /stream probe/.test(textOf(parsed.messages.filter((m) => m.role === 'user').at(-3)?.content) + textOf(parsed.messages.filter((m) => m.role === 'user').at(-2)?.content) + textOf(parsed.messages.filter((m) => m.role === 'user').at(-1)?.content))) {
+    // The newest typed message: dsh adds runtime notes as user messages (`<system-reminder>`, "Time sampled …").
+    const typed = parsed.messages.filter((m) => m.role === 'user' && !/^(<system-reminder>|Time sampled while preparing)/.test(textOf(m.content))).at(-1);
+    if (!helper && /stream probe/.test(textOf(typed?.content))) {
       const pieces = STREAM_TEXT.match(/[\s\S]{1,24}/g);
       let i = 0;
       const timer = setInterval(() => {

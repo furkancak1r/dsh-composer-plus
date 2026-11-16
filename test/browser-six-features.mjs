@@ -267,7 +267,8 @@ try {
       const projectRow = page.locator(`[data-row-key="workspace:${ids.cli}"]`);
       await projectRow.hover();
       await projectRow.getByRole('button', { name: /Workspace actions|actions/i }).first().click();
-      const item = page.locator('[data-composer-plus-mark-read-item]'); await item.waitFor({ timeout: 5000 });
+      // Only the item of an open menu: a closing menu loses role="menu" but keeps its old item for a moment (dsh 0.2.2-rc.3).
+      const item = page.locator('[role="menu"] [data-composer-plus-mark-read-item]'); await item.waitFor({ timeout: 5000 });
       const unreadCount = Number(await item.getAttribute('data-composer-plus-mark-read-item'));
       assert.ok(unreadCount >= 1, `weather-cli has ${unreadCount} unread chat(s)`);
       if (process.env.SHOT) {
