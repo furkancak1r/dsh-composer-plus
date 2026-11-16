@@ -1,9 +1,11 @@
 // Real-app check of "Running subagents in the chat header" on each dsh given (fake model, throwaway DSH_HOME and HOME,
 // made-up project, headless). The chat starts three subagents: one finishes, two keep running.
 // 1. On (default): dsh's header counter says "2 subagents running" (not the total, 3). A click opens dsh's list: its first
-//    line is "Subagents in total: 3", then dsh's three rows (one done, two running). Closed, the line goes.
+//    line is "Subagents in total: 3", then dsh's three rows: the two running first, then the finished one (issue #7).
+//    Closed, the line goes.
 // 2. When the two running subagents end, the counter says "0 subagents running".
-// 3. Switched off: dsh's own counter ("3 subagents") is back and its list has no total line; on again: running count.
+// 3. Switched off: dsh's own counter ("3 subagents") is back and its list has no total line and dsh's start order; on
+//    again: running count, and dsh's order with the running subagents first.
 // PLAYWRIGHT=/path/to/playwright node test/browser-subagent-running.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/subagentRunning.webp (English UI, demo project). KEEP=1 keeps the temp home.
 import assert from 'node:assert/strict';
@@ -22,8 +24,8 @@ const { chromium } = require(process.env.PLAYWRIGHT);
 const repo = fileURLToPath(new URL('..', import.meta.url));
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// Fake model: the chat's first request starts three subagents in the background. "Child A" answers at once; "Child B"
-// and "Child C" wait until `release()`. Then the chat says "Started the work.".
+// Fake model: the chat starts three subagents in the background, "Child A" in its first step, "Child B" and "Child C"
+// in the next. Child A answers at once; B and C wait until `release()`. Then the chat says "Started the work.".
 let held = [];
 const release = () => { for (const r of held.splice(0)) say(r, 'Done.'); };
 const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo', choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } } : {}) })}\n\n`;
@@ -38,15 +40,22 @@ const fake = createServer((req, res) => {
     const firstUser = text(msgs.find((m) => m.role === 'user'));
     if (firstUser.includes('Child A')) { say(res, 'Checked.'); return; }
     if (firstUser.includes('Child B') || firstUser.includes('Child C')) { res.writeHead(200, { 'content-type': 'text/event-stream' }); held.push(res); return; }
-    if (!msgs.some((m) => m.role === 'tool')) {
-      // 0.2.0's tool waits unless run_in_background is true; 0.2.1+ always returns at once (no such parameter).
-      const bg = (parsed.tools ?? []).find((t) => t.function?.name === 'subagent')?.function?.parameters?.properties?.run_in_background !== undefined;
-      const call = (index, task) => ({ index, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'subagent', arguments: JSON.stringify({ description: `Check part ${task}`, prompt: `Child ${task}: check part ${task}.`, ...(bg ? { run_in_background: true } : {}) }) } });
+    // 0.2.0's tool waits unless run_in_background is true; 0.2.1+ always returns at once (no such parameter).
+    const bg = (parsed.tools ?? []).find((t) => t.function?.name === 'subagent')?.function?.parameters?.properties?.run_in_background !== undefined;
+    const call = (index, task) => ({ index, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'subagent', arguments: JSON.stringify({ description: `Check part ${task}`, prompt: `Child ${task}: check part ${task}.`, ...(bg ? { run_in_background: true } : {}) }) } });
+    const toolResults = msgs.filter((m) => m.role === 'tool').length;
+    // Child A starts in its own step first, so dsh's start order always has A first (B and C start together).
+    if (toolResults === 0) {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      res.end(chunk({ role: 'assistant', tool_calls: [call(0, 'A')] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n');
+      return;
+    }
+    if (toolResults === 1) {
       // dsh 0.2.2-rc.2 team chat: one shared task too, so that dsh's task board shows under the list.
       const team = (parsed.tools ?? []).some((t) => t.function?.name === 'team_task_create')
-        ? [{ index: 3, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'team_task_create', arguments: JSON.stringify({ subject: 'Review the order rules', description: 'Read the rules and list the gaps.' }) } }] : [];
+        ? [{ index: 2, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'team_task_create', arguments: JSON.stringify({ subject: 'Review the order rules', description: 'Read the rules and list the gaps.' }) } }] : [];
       res.writeHead(200, { 'content-type': 'text/event-stream' });
-      res.end(chunk({ role: 'assistant', tool_calls: [call(0, 'A'), call(1, 'B'), call(2, 'C'), ...team] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n');
+      res.end(chunk({ role: 'assistant', tool_calls: [call(0, 'B'), call(1, 'C'), ...team] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n');
       return;
     }
     say(res, 'Started the work.');
@@ -128,6 +137,10 @@ ${team ? '- id: agent-team\n  config: { defaultEnabled: true }\n' : ''}`);
       const order = await page.evaluate(() => { const line = document.querySelector('[data-composer-plus-subagent-total]'); const next = line.nextElementSibling; return next?.hasAttribute('data-subagent-section-header') ? 'header' : next?.getAttribute('role') ?? next?.tagName; });
       assert.equal(order, team ? 'header' : 'tree', 'the total is the first line, above dsh\'s rows (and above the team chat\'s "Subagents" header)');
       assert.equal(await tree.getByRole('treeitem').count(), 3, 'dsh\'s three rows');
+      // Issue #7: the running subagents first (B, C), then the finished one (A). dsh's own order is the start order: A
+      // first (it starts one step earlier), then B and C in either order. Step 3 checks it.
+      const rowOrder = () => tree.getByRole('treeitem').allInnerTexts().then((rows) => rows.map((r) => r.match(/part ([ABC])/)?.[1] ?? r).join(''));
+      assert.match(await rowOrder(), /^(BC|CB)A$/, 'running subagents first, then the finished one');
       if (team) {
         // dsh's Agent Team task board under the list (it is in the child slot that dsh's own entry declares).
         const board = page.locator('[data-subagent-panel] [data-team-panel]');
@@ -162,16 +175,21 @@ ${team ? '- id: agent-team\n  config: { defaultEnabled: true }\n' : ''}`);
       await waitText(/^3 subagents$/, 'switched off: dsh\'s own counter (the total)');
       await counter.click(); await tree.waitFor({ timeout: 10000 }); await pause(300);
       assert.equal(await totalLine.count(), 0, 'switched off: no total line');
+      const dshOrder = await rowOrder();
+      assert.match(dshOrder, /^A(BC|CB)$/, 'switched off: dsh\'s own order (start order, A first)');
       await page.keyboard.press('Escape'); await tree.waitFor({ state: 'detached', timeout: 10000 });
       await setSwitch(true);
       await waitText(/^2 subagents running$/, 'on again: the running count');
+      await counter.click(); await tree.waitFor({ timeout: 10000 });
+      assert.equal(await rowOrder(), `${dshOrder.replace('A', '')}A`, `on again: dsh's order (${dshOrder}) with the running subagents first`);
+      await page.keyboard.press('Escape'); await tree.waitFor({ state: 'detached', timeout: 10000 });
 
       // 2. The two running subagents end: 0.
       release();
       await waitText(/^0 subagents running$/, 'none running: 0');
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      results.push(`PASS ${bin}: header "${shown}" with 3 in total · list first line "Subagents in total: 3" · off: "3 subagents", no line · on again · all done: "0 subagents running"${team ? ' · team chat: task board under the list' : ''}`);
+      results.push(`PASS ${bin}: header "${shown}" with 3 in total · list first line "Subagents in total: 3" · off: "3 subagents", no line, dsh's order ${dshOrder} · on again: ${dshOrder.replace('A', '')}A · all done: "0 subagents running"${team ? ' · team chat: task board under the list' : ''}`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});
