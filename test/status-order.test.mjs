@@ -114,6 +114,11 @@ assert.match(css(out), /\[data-composer-plus-dsh-order\] > \[role="menuitem"\] >
 // Changes: opening the finished chat clears dsh's done dot; a new automation; the subagent stops.
 statuses.delete('f'); tasks = [...tasks, { sessionId: 'o', status: 'active' }]; list.byId.s.running = false; changed(); out = await so.settle();
 assert.deepEqual(orders(), { w: -2, r: -2, a: -1, o: -1 }, 'a chat that leaves its rank gets dsh\'s place back');
+// dsh 0.2.2's catalog: no `sessionId`; the chat is the task's target and in `involvedSessionIds`.
+tasks = [{ target: { kind: 'session', sessionId: 'a' }, involvedSessionIds: ['a'], status: 'active' }, { target: { kind: 'new' }, involvedSessionIds: ['o'], status: 'active' },
+  { target: { kind: 'session', sessionId: 'f' }, involvedSessionIds: ['f'], status: 'paused' }];
+changed(); out = await so.settle();
+assert.deepEqual(orders(), { w: -2, r: -2, a: -1, o: -1 }, 'dsh 0.2.2: the target chat and the creating chat are automated, a paused task is not');
 
 // dsh's own Manual / Last updated turn it off; group rows do not.
 const click = (row) => listeners.get(rows)({ target: row.children[0] });
