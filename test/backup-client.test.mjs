@@ -109,7 +109,7 @@ const archive = (name, extra = {}) => ({ name, kind: 'backup', at: '2026-10-28T1
 {
   fetches.length = 0; opened = null;
   const name = 'dsh-20261028-100000000.tar.gz';
-  let body = { folder: '/Users/demo/Desktop/dsh-backups', archives: [archive(name), archive('dsh-pre-upgrade-20261027-100000000.tar.gz', { kind: 'pre-upgrade', checksum: false, masked: null })], busy: null,
+  let body = { folder: '/Users/demo/.dsh/backups', archives: [archive(name), archive('dsh-pre-upgrade-20261027-100000000.tar.gz', { kind: 'pre-upgrade', checksum: false, masked: null })], busy: null,
     last: { op: 'backup', ok: true, result: { name, size: 1.2e9, masked: 3 } } };
   reply = async () => ({ status: 200, body });
   const store = createBackups({ pollMs: 1e6 });

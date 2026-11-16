@@ -1,6 +1,7 @@
 // Real-app check of Backup, Automatic backup, Session log check and Rescue console on each dsh given. A throwaway
-// DSH_HOME with made-up data (demo chat logs, a fake token in the profile patch) and a throwaway backup folder next to it
-// (COMPOSER_PLUS_BACKUP_DIR); never the normal DSH_HOME or ~/Desktop/dsh-backups. Headless, English UI.
+// DSH_HOME with made-up data (demo chat logs, a fake token in the profile patch) and its default backup folder
+// (`<DSH_HOME>/backups`, no COMPOSER_PLUS_BACKUP_DIR); never the normal DSH_HOME or ~/Desktop/dsh-backups. Headless,
+// English UI. The archive leaves its own folder out.
 // 1. Settings → Composer Plus shows the four rows; Automatic backup is off, the others on.
 // 2. Back up now → the archive shows with "N masked" (the demo file is in the masked list); it is in the folder with its sidecars and the rescue console; the
 //    fake token is not in the archive but in the vault; a second click while it runs sends nothing.
@@ -43,11 +44,11 @@ const shot = async (page, row, id) => {
   await rm(png, { force: true });
   console.log(`shot: assets/features/${id}.webp ${(await stat(join(repo, 'assets/features', `${id}.webp`))).size} bytes`);
 };
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-backup-check-')));
-    const folder = `${home}-backups`;
+    const folder = join(home, 'backups');
     const profile = join(home, 'profiles/web');
     await mkdir(join(profile, 'node_modules'), { recursive: true });
     await symlink(repo, join(profile, 'node_modules/dsh-composer-plus'));
@@ -61,7 +62,7 @@ try {
     }
     await writeFile(join(home, 'demo-settings.yml'), 'demo:\n  DEMO_API_TOKEN: demo-token-not-real\n');
     const child = spawn(process.execPath, [bin, '--profile', 'web', '--port', '3197', '--no-open'], { cwd: home,
-      env: { ...process.env, DSH_HOME: home, COMPOSER_PLUS_BACKUP_DIR: folder, npm_config_cache: join(tmpdir(), 'npm-cache') }, stdio: ['ignore', 'pipe', 'pipe'] });
+      env: { ...process.env, DSH_HOME: home, COMPOSER_PLUS_BACKUP_DIR: '', npm_config_cache: join(tmpdir(), 'npm-cache') }, stdio: ['ignore', 'pipe', 'pipe'] });
     let log = ''; child.stdout.on('data', (d) => { log += d; }); child.stderr.on('data', (d) => { log += d; });
     const errors = []; let context; let passed = false;
     try {
@@ -96,10 +97,11 @@ try {
       for (const f of [`${name}.sha256`, `${name}.meta.json`, `${name}.redacted.json`, 'composer-plus-rescue.mjs']) assert.ok(files.includes(f), f);
       assert.ok(JSON.parse(await readFile(join(folder, `${name}.redacted.json`), 'utf8')).files.includes('demo-settings.yml'), 'the demo file is in the masked list');
       assert.ok(!zlib.gunzipSync(await readFile(join(folder, name))).includes('demo-token-not-real'), 'the token is masked in the archive');
+      assert.ok(!execFileSync('tar', ['-tzf', join(folder, name)]).toString().split('\n').some((n) => /^[^/]+\/backups(\/|$)/.test(n)), 'the archive leaves its folder out');
       assert.ok((await readFile(join(folder, 'composer-plus-vault', name, 'demo-settings.yml'), 'utf8')).includes('demo-token-not-real'), 'the vault has it');
       // The screenshot shows a demo folder, not this computer's temp path (DOM text only; the files stay where they are).
       if (process.env.SHOT) await page.evaluate((real) => { const walk = document.createTreeWalker(document.querySelector('[data-composer-plus-backup]'), NodeFilter.SHOW_TEXT);
-        for (let n = walk.nextNode(); n !== null; n = walk.nextNode()) n.nodeValue = n.nodeValue.replaceAll(real, '/Users/demo/Desktop/dsh-backups'); }, folder);
+        for (let n = walk.nextNode(); n !== null; n = walk.nextNode()) n.nodeValue = n.nodeValue.replaceAll(real, '/Users/demo/.dsh/backups'); }, folder);
       await shot(page, rowOf('Backup'), 'backup');
       // 3. Check, For another computer.
       await page.locator(`[data-composer-plus-backup-verify="${name}"]`).click();

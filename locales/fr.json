@@ -2285,7 +2285,7 @@
     "backup.transfer": "Pour un autre ordinateur",
     "backup.delete": "Supprimer",
     "backup.deleteConfirm": "Supprimer {name} ? Ses copies dans le vault sont aussi supprimées.",
-    "backup.restoreHow": "Pour restaurer : quittez dsh, puis ouvrez « Composer Plus Rescue » dans le dossier de sauvegarde.",
+    "backup.restoreHow": "Pour restaurer : cliquez sur Afficher le dossier, quittez dsh, puis ouvrez « Composer Plus Rescue » dans ce dossier.",
     "backup.running.backup": "Sauvegarde en cours… {files} fichiers, {size}",
     "backup.running.check": "Vérification de {name}… {size} lus",
     "backup.running.scan": "Vérification des journaux de session… {done} sur {total}",
