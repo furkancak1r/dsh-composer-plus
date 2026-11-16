@@ -3949,7 +3949,7 @@
     "backup.transfer": "Başka bir bilgisayar için",
     "backup.delete": "Sil",
     "backup.deleteConfirm": "{name} silinsin mi? Vault’taki kopyaları da silinir.",
-    "backup.restoreHow": "Geri yüklemek için: dsh’den çıkın, sonra yedek klasöründeki “Composer Plus Rescue” dosyasını açın.",
+    "backup.restoreHow": "Geri yüklemek için: Klasörü göster düğmesine tıklayın, dsh’den çıkın, sonra bu klasördeki “Composer Plus Rescue” dosyasını açın.",
     "backup.running.backup": "Yedekleniyor… {files} dosya, {size}",
     "backup.running.check": "{name} kontrol ediliyor… {size} okundu",
     "backup.running.scan": "Oturum günlükleri kontrol ediliyor… {done}/{total}",

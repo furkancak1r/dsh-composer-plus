@@ -2285,7 +2285,7 @@
     "backup.transfer": "Для другого компьютера",
     "backup.delete": "Удалить",
     "backup.deleteConfirm": "Удалить {name}? Его копии в vault тоже будут удалены.",
-    "backup.restoreHow": "Чтобы восстановить: выйдите из dsh, затем откройте «Composer Plus Rescue» в папке резервных копий.",
+    "backup.restoreHow": "Чтобы восстановить: нажмите Показать папку, выйдите из dsh, затем откройте «Composer Plus Rescue» в этой папке.",
     "backup.running.backup": "Резервное копирование… файлов: {files}, {size}",
     "backup.running.check": "Проверка {name}… прочитано {size}",
     "backup.running.scan": "Проверка журналов сеансов… {done} из {total}",

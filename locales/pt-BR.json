@@ -2285,7 +2285,7 @@
     "backup.transfer": "Para outro computador",
     "backup.delete": "Excluir",
     "backup.deleteConfirm": "Excluir {name}? As cópias dele no vault também são excluídas.",
-    "backup.restoreHow": "Para restaurar: saia do dsh e depois abra “Composer Plus Rescue” na pasta de backups.",
+    "backup.restoreHow": "Para restaurar: clique em Mostrar pasta, saia do dsh e depois abra “Composer Plus Rescue” nessa pasta.",
     "backup.running.backup": "Fazendo backup… {files} arquivos, {size}",
     "backup.running.check": "Verificando {name}… {size} lidos",
     "backup.running.scan": "Verificando logs de sessão… {done} de {total}",

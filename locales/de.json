@@ -2285,7 +2285,7 @@
     "backup.transfer": "Für einen anderen Computer",
     "backup.delete": "Löschen",
     "backup.deleteConfirm": "{name} löschen? Seine Kopien im vault werden auch gelöscht.",
-    "backup.restoreHow": "Zum Wiederherstellen: Beende dsh und öffne dann „Composer Plus Rescue“ im Sicherungsordner.",
+    "backup.restoreHow": "Zum Wiederherstellen: Klicke auf Ordner anzeigen, beende dsh und öffne dann „Composer Plus Rescue“ in diesem Ordner.",
     "backup.running.backup": "Wird gesichert… {files} Dateien, {size}",
     "backup.running.check": "{name} wird geprüft… {size} gelesen",
     "backup.running.scan": "Sitzungsprotokolle werden geprüft… {done} von {total}",

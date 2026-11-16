@@ -2285,7 +2285,7 @@
     "backup.transfer": "Cho máy tính khác",
     "backup.delete": "Xóa",
     "backup.deleteConfirm": "Xóa {name}? Các bản sao của nó trong vault cũng bị xóa.",
-    "backup.restoreHow": "Để khôi phục: thoát dsh, rồi mở “Composer Plus Rescue” trong thư mục sao lưu.",
+    "backup.restoreHow": "Để khôi phục: nhấp Hiển thị thư mục, thoát dsh, rồi mở “Composer Plus Rescue” trong thư mục đó.",
     "backup.running.backup": "Đang sao lưu… {files} tệp, {size}",
     "backup.running.check": "Đang kiểm tra {name}… đã đọc {size}",
     "backup.running.scan": "Đang kiểm tra nhật ký phiên… {done}/{total}",

@@ -2285,7 +2285,7 @@
     "backup.transfer": "다른 컴퓨터용",
     "backup.delete": "삭제",
     "backup.deleteConfirm": "{name}을(를) 삭제할까요? vault의 복사본도 삭제됩니다.",
-    "backup.restoreHow": "복원하려면: dsh를 종료한 다음 백업 폴더에서 “Composer Plus Rescue”를 여세요.",
+    "backup.restoreHow": "복원하려면: 폴더 보기를 클릭하고, dsh를 종료한 다음 그 폴더에서 “Composer Plus Rescue”를 여세요.",
     "backup.running.backup": "백업하는 중… 파일 {files}개, {size}",
     "backup.running.check": "{name} 검사 중… {size} 읽음",
     "backup.running.scan": "세션 로그 검사 중… {done}/{total}",
