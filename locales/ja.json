@@ -1826,7 +1826,7 @@
     "feature.headerFit": "チャットのヘッダーをウィンドウに合わせる",
     "feature.headerFit.description": "狭いウィンドウでは、チャットのヘッダーのボタンが重ならずに 2 行目へ移り、チャットのタイトルも読めるままです。広いウィンドウは変わりません。",
     "feature.subagentRunning": "チャットのヘッダーに実行中のサブエージェントを表示",
-    "feature.subagentRunning.description": "チャットのヘッダーにあるサブエージェントの数は、今実行中のサブエージェントの数を示します。開いた一覧の 1 行目に合計が表示されます。",
+    "feature.subagentRunning.description": "チャットのヘッダーにあるサブエージェントの数は、今実行中のサブエージェントの数を示します。開いた一覧の 1 行目に合計が表示され、実行中のサブエージェントが先頭に並びます。",
     "subagentCount.total": "サブエージェント合計 {count} 個",
     "feature.windowSize": "ウィンドウのサイズを記憶する",
     "feature.windowSize.description": "デスクトップアプリは、既定の小さいサイズではなく、前回使ったときのウィンドウのサイズと位置で開きます。デスクトップアプリのみ。",

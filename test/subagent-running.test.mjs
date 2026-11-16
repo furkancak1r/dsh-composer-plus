@@ -109,6 +109,18 @@ assert.equal(drawn.p.useFooterAvailable((v) => v), false, 'dsh 0.2.2-rc.2: hooks
 footer = true; assert.equal(drawn.p.useFooterAvailable((v) => !v), false, 'the hook reads the source and applies the selector');
 footer = false;
 assert.equal(out.p['data-composer-plus-subagent-running'], 3);
+// Issue #7: dsh's list shows the subagents in their start order, so in a long list the running ones were at the end. dsh's
+// component gets a useSessions that gives each subagent list with the running subagents first (dsh's own rule: status,
+// else summary), then the others, each group in dsh's order. A nested list (a subagent's subagents) too.
+const nested = { ...list, projectionsBySession: { ...list.projectionsBySession, k0: { values: { subagentCatalog: [{ id: 'g1' }, { id: 'g2' }] } } }, byId: { ...list.byId, g2: { running: true } } };
+const sortedOut = render(nested).c[0].p;
+const ids = (key) => sortedOut.useSessions((s) => s.projectionsBySession[key].values.subagentCatalog.map((e) => e.id));
+assert.deepEqual(ids('s1'), ['k0', 'k1', 'k5', ...kids.filter((k) => !['k0', 'k1', 'k5'].includes(k))], 'running first (k2: its status says no), then dsh\'s order');
+assert.deepEqual(ids('k0'), ['g2', 'g1'], 'a nested list too (g2 runs by its summary)');
+assert.deepEqual(nested.projectionsBySession.s1.values.subagentCatalog.slice(0, 3).map((e) => e.id), ['k0', 'k1', 'k2'], 'dsh\'s state is not changed');
+assert.equal(sortedOut.useSessions((s) => s.byId), nested.byId, 'other reads are dsh\'s');
+const idle = render(list, new Map([['k2', { running: false }], ['k5', { running: false }]])).c[0].p;
+assert.equal(idle.useSessions((s) => s), list, 'none runs: dsh\'s own state, not a copy');
 // One running: singular.
 let one = render(list, new Map([['k0', { running: true }], ['k2', { running: false }]]));
 assert.equal(shippedComponent(one.c[0].p).text, '1 subagent running', 'one form');
