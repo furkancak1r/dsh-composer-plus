@@ -10027,6 +10027,36 @@ function answerableCards(ctx, takes, by) {
   return { open: (agent) => cards.has(agent), answer: (agent, text) => cards.get(agent)?.[0]?.answer(text) === true };
 }
 
+/** Subagent models in an old assistant chat (Furkan, 2026-11-16: Damon is always the same chat). dsh writes the
+ * `subagent/model-selection-policy` event of its setting (`subagent-model-selection-settings`) only into a new top-level
+ * chat, so an older assistant chat could choose only its own model for a subagent. This writes the routes of that setting
+ * into the assistant chat (root chat, id `assistantId`) once: when the setting is on and the chat has no policy yet.
+ * Each other case writes nothing; an unknown dsh shape also calls `log`. True when the chat has the event now (written
+ * here or before), so the caller can skip the chat later.
+ * ponytail: dsh uses only the first policy event of a chat, so the routes stay as they were when this wrote them: a later
+ * change of the allowed models does not reach this chat. Upgrade when dsh can give an old chat the current setting.
+ * The event type and the settings form belong to dsh-tool-subagent: a dsh that changes them fails each check here, and
+ * the chat keeps dsh's own rule (only its own model). */
+export const MODEL_POLICY = 'subagent/model-selection-policy';
+export function recordSubagentPolicy(session, settings, assistantId, log = () => {}) {
+  if (!isText(assistantId) || session?.id !== assistantId || !isRootChat(session)) return false;
+  try {
+    if (typeof settings?.describe !== 'function') { log('subagent models: this dsh has no settings service'); return false; }
+    const value = settings.describe().find((d) => d?.ns === 'subagent-model-selection-settings')?.value;
+    if (value?.enabled === false) return false;
+    if (value?.enabled !== true) { log('subagent models: dsh\'s setting subagent-model-selection-settings is missing or has another shape'); return false; }
+    const routes = Array.isArray(value.allowedModels) ? value.allowedModels.map((r) => ({ provider: r?.provider, model: r?.model })) : [];
+    if (routes.length === 0 || !routes.every((r) => isText(r.provider) && isText(r.model))
+      || new Set(routes.map((r) => JSON.stringify([r.provider, r.model]))).size !== routes.length) {
+      log('subagent models: the allowed models of dsh\'s setting are empty, repeated or not valid'); return false;
+    }
+    if (typeof session.snapshotEvents !== 'function' || typeof session.append !== 'function') { log('subagent models: this dsh has no session log API'); return false; }
+    if (session.snapshotEvents().some((e) => e?.type === MODEL_POLICY)) return true;
+    session.append(MODEL_POLICY, { allowedModels: routes });
+    return true;
+  } catch (error) { log(`subagent models: ${error?.message ?? error}`); return false; }
+}
+
 /** Assistant (Host half): the switch route; while on, the `assistant` route, the tools, the approval and the section. */
 export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-composer-plus'), folder = join(homedir(), 'Assistant'), zone } = {}) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
@@ -10309,12 +10339,21 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     } catch (error) { log(`tools of ${agent.id}: ${error?.message ?? error}`); }
   };
   const unmount = (id) => { const offs = mounted.get(id); mounted.delete(id); for (const off of offs ?? []) { try { off?.(); } catch { /* the agent is gone */ } } };
+  // The subagent models of dsh's setting also in an old assistant chat (recordSubagentPolicy): at each start of its agent.
+  // A chat that has the event is not read again (each Damon click runs sync); each log line shows once per dsh run.
+  const hasPolicy = new WeakSet(); const said = new Set();
+  const once = (text) => { if (!said.has(text)) { said.add(text); log(text); } };
+  const policy = (agent) => {
+    if (isAssistant(agent) && !hasPolicy.has(agent.session) && recordSubagentPolicy(agent.session, get('settings'), assistantId, once)) hasPolicy.add(agent.session);
+  };
   const sync = () => {
     for (const id of [...mounted.keys()]) if (!on || (id !== assistantId && rootOf(id) !== assistantId)) unmount(id);
     if (!on) return;
-    for (const agent of get('agents')?.list?.() ?? []) mount(agent);
+    for (const agent of get('agents')?.list?.() ?? []) { policy(agent); mount(agent); }
   };
   ctx.on('agent/created', ({ agent } = {}) => { mount(agent); });
+  // First in the list: dsh 0.2.0 and 0.2.1 read the policy once, in dsh-tool-subagent's own agent/created listener.
+  ctx.on('agent/created', ({ agent } = {}) => { policy(agent); }, true);
   ctx.on('agent/disposed', ({ agent } = {}) => { if (isText(agent?.id)) mounted.delete(agent.id); });
   // Each changing tool asks the user first (dsh's approval card, also on Tether). A denied call stays denied.
   // In dsh's Auto permission mode, Auto review decides instead (user request 2026-11-10: no cards): its gate runs around
