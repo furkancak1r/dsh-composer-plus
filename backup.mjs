@@ -666,8 +666,9 @@ export async function restore({ home, dest, name, signal, progress = {} }) {
   // shortcut: a third folder of archives in the home (another COMPOSER_PLUS_BACKUP_DIR) stays in the old home; find
   // folders of archives in the walk when a folder setting comes.
   const destRel = real === undefined ? undefined : inside(real, await realpath(dest).catch(() => resolve(dest)));
-  const holdsBackups = (rel) => rel === 'backups' || (destRel !== undefined && (destRel === rel || destRel.startsWith(`${rel}/`)));
-  if (destRel !== undefined && !carry.some(holdsBackups)) carry.push(destRel);
+  const coversDest = (rel) => destRel !== undefined && (destRel === rel || destRel.startsWith(`${rel}/`));
+  const holdsBackups = (rel) => rel === 'backups' || coversDest(rel);
+  if (destRel !== undefined && !carry.some(coversDest)) carry.push(destRel);
   let aside;
   if (real !== undefined) {
     aside = `${base}.pre-restore-${stamp()}`;

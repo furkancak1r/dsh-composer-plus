@@ -201,25 +201,41 @@ assert.deepEqual(parseAutoBackup({ on: 'yes', hours: 5, keep: 100, version: '0.2
   assert.match(r.data.failed.message, /EEXIST|ENOTDIR|not a directory|file already exists/i);
   assert.ok(Date.parse(r.data.next) - Date.now() > 50000, 'the next try waits');
   broken.unload();
-  // The old folder (~/Desktop/dsh-backups up to 1.29.2): a start replaces its rescue console only, an automatic backup with
-  // keep 1 never touches its archives, and the list shows the new folder only.
+  // The old folder (~/Desktop/dsh-backups up to 1.29.2): a start and each backup replace its rescue console only; an
+  // automatic backup with keep 3 never touches its 4 Composer Plus archives; the list shows the new folder only.
   const oldHome = join(root, 'old', '.dsh');
   const oldFolder = join(root, 'old-desktop-backups');
   const newFolder = join(oldHome, 'backups');
+  const ownConsole = readFileSync(new URL('../backup.mjs', import.meta.url), 'utf8');
   write(join(oldHome, 'a.txt'), 'a');
-  for (let i = 0; i < 2; i++) await b.backup({ home: oldHome, dest: oldFolder, now: new Date(2026, 9, 1, 0, 0, i) });
+  for (let i = 0; i < 4; i++) await b.backup({ home: oldHome, dest: oldFolder, now: new Date(2026, 9, 1, 0, 0, i) });
   write(join(oldFolder, b.RESCUE_FILE), 'old console');
   const oldBefore = readdirSync(oldFolder, { recursive: true }).filter((n) => n !== b.RESCUE_FILE).sort();
+  // Before the grace time ends: Back up now also replaces the old console.
+  const early = boot({ home: oldHome, folder: newFolder, oldFolder, version: '0.2.1', graceMs: 60000 });
+  await early.call(BACKUP_PATH, { action: 'backup' }); await early.host.settled();
+  assert.equal(readFileSync(join(oldFolder, b.RESCUE_FILE), 'utf8'), ownConsole, 'a backup replaces the old console');
+  early.unload();
+  // No backup in the new folder: the automatic backup is due at once.
+  for (const a of await b.listArchives(newFolder)) await b.removeArchive(newFolder, a.name);
+  write(join(oldFolder, b.RESCUE_FILE), 'old console');
   write(join(oldHome, 'storages', 'dsh-composer-plus', 'auto-backup.json'), JSON.stringify({ on: true, keep: 3, version: '0.2.1' }));
   const moved = boot({ home: oldHome, folder: newFolder, oldFolder, version: '0.2.1', graceMs: 5 });
+  await until(() => readFileSync(join(oldFolder, b.RESCUE_FILE), 'utf8') !== 'old console', 'the old console replaced at start');
   await until(async () => (await b.listArchives(newFolder)).length === 1, 'the automatic backup in the new folder');
   await moved.host.settled();
-  await until(() => readFileSync(join(oldFolder, b.RESCUE_FILE), 'utf8') !== 'old console', 'the old console replaced');
-  assert.equal(readFileSync(join(oldFolder, b.RESCUE_FILE), 'utf8'), readFileSync(new URL('../backup.mjs', import.meta.url), 'utf8'));
+  assert.equal(readFileSync(join(oldFolder, b.RESCUE_FILE), 'utf8'), ownConsole);
   assert.deepEqual(readdirSync(oldFolder, { recursive: true }).filter((n) => !b.rescueFiles().includes(n)).sort(), oldBefore, 'no archive in the old folder changed');
   r = await moved.call(BACKUP_PATH);
   assert.deepEqual([r.data.folder, r.data.archives.length], [newFolder, 1], 'the list shows the new folder only');
   moved.unload();
+  // An old folder without a console gets none.
+  const bare = join(root, 'old-bare');
+  mkdirSync(bare);
+  const quiet = boot({ home: oldHome, folder: newFolder, oldFolder: bare, version: '0.2.1', graceMs: 60000 });
+  await quiet.call(BACKUP_PATH, { action: 'backup' }); await quiet.host.settled();
+  assert.deepEqual(readdirSync(bare), []);
+  quiet.unload();
   // The first start with a version and an automatic backup that is off: the version is remembered, no snapshot.
   const offHome = join(root, 'off', '.dsh');
   write(join(offHome, 'a.txt'), 'a');

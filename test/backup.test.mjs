@@ -237,6 +237,21 @@ assert.equal(sha, execFileSync('shasum', ['-a', '256', join(dest, first.name)]).
   const r = await b.restore({ home: otherHome, dest: otherDest, name: o.name });
   assert.deepEqual([r.moved, r.kept], [['storages/my-backups'], []]);
   assert.ok(existsSync(join(otherDest, o.name)));
+  // The same with a `backups/` folder too: both come back.
+  write(join(otherHome, 'backups', 'note.txt'), 'other');
+  const both = await b.restore({ home: otherHome, dest: otherDest, name: o.name });
+  assert.deepEqual([both.moved.sort(), both.kept], [['backups', 'storages/my-backups'], []]);
+  assert.ok(existsSync(join(otherDest, o.name)) && existsSync(join(otherHome, 'backups', 'note.txt')));
+  // `backups` as a symbolic link to the real folder in the home (the console runs through the link): the folder comes back.
+  const linkedHome = join(root, 'linked-home', '.dsh');
+  const realDest = join(linkedHome, 'storages', 'bk');
+  write(join(linkedHome, 'a.txt'), 'a');
+  mkdirSync(realDest, { recursive: true });
+  symlinkSync('storages/bk', join(linkedHome, 'backups'));
+  const l = await b.backup({ home: linkedHome, dest: join(linkedHome, 'backups') });
+  const lr = await b.restore({ home: linkedHome, dest: join(linkedHome, 'backups'), name: l.name });
+  assert.deepEqual([lr.moved.sort(), lr.kept], [['backups', 'storages/bk'], []]);
+  assert.ok(existsSync(join(realDest, l.name)), 'the archives are in the restored home, behind the link');
 }
 // Retention keeps the newest of its own archives in its folder only: the old folder (~/Desktop/dsh-backups) is never read.
 {
