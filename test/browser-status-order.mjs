@@ -29,7 +29,7 @@ const fake = createServer((req, res) => {
     const send = (delta, finish) => res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`);
     const end = () => res.end('data: [DONE]\n\n');
     if (/session title/i.test(JSON.stringify(last?.content))) { const k = Object.values(CHATS).find((x) => body.includes(x)); send({ role: 'assistant', content: k ?? 'Demo' }); send({}, 'stop'); end(); return; }
-    if (/^You (keep|suggest notes for) the long-term memory/.test(String(msgs[0]?.content ?? ''))) { send({ role: 'assistant', content: '{"changes":[]}' }); send({}, 'stop'); end(); return; } // Project memory review
+    if (/^You keep the long-term memory/.test(String(msgs[0]?.content ?? ''))) { send({ role: 'assistant', content: '{"changes":[]}' }); send({}, 'stop'); end(); return; } // Project memory review
     if (last?.role !== 'tool' && body.includes(CHATS.automated)) {
       // The arguments of the dsh given: 0.2.2 takes `rrule` and `target`, older dsh `daily`.
       const create = (JSON.parse(body).tools ?? []).find((tool) => tool.function?.name === 'schedule_create');

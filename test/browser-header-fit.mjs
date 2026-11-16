@@ -174,7 +174,8 @@ try {
       await page.locator('[data-composer-plus-grants]').waitFor({ timeout: 20000 });
       // dsh 0.2.2-rc.2 dropped "running" from the label ("2 background jobs"); before it, the idle label has no "running".
       const { version } = JSON.parse(await readFile(join(bin, '../../package.json'), 'utf8'));
-      const jobsLabel = /^0\.2\.([01]\b|2-(alpha|rc\.1\b))/.test(version) ? /^\d+ background jobs? running$/ : /^\d+ background jobs?$/;
+      const oldDsh = /^0\.2\.([01]\b|2-(alpha|rc\.1\b))/.test(version); // before 0.2.2-rc.2
+      const jobsLabel = oldDsh ? /^\d+ background jobs? running$/ : /^\d+ background jobs?$/;
       await page.getByRole('button', { name: jobsLabel }).waitFor({ timeout: 20000 });
       await pause(1000);
       const fitOn = (on) => page.evaluate((v) => { for (const st of document.querySelectorAll('style[data-composer-plus-header-fit]')) st.disabled = !v; }, on);
@@ -251,10 +252,11 @@ try {
         assert.equal(m.styles, 1, 'only the Fit chat header style');
         ok(m, `dsh's own header, ${width} px`);
       }
-      // dsh 0.2.2-rc.3 keeps its own items apart without the style (0.2.2-rc.1 does not): the evidence is for older dsh.
-      const dshOverlaps = dshBefore.length > 0;
+      // Without the style, dsh's own header overlaps on 0.2.1-rc.2 and 0.2.2-rc.1, not on 0.2.2-rc.3 (0.2.2-rc.2 not checked):
+      // the evidence is required on older dsh only (the same cut as the jobs label).
+      const dshOverlaps = oldDsh;
       if (dshOverlaps) assert.ok(dshBefore.includes(400), `without the style dsh's own header overlaps at 400 px (it did at: ${dshBefore.join(', ')})`);
-      console.log(`  dsh's own header: no overlap at ${DSH_NARROW.join(', ')} px (${dshOverlaps ? `without the style it overlaps at ${dshBefore.join(', ')} px` : 'this dsh keeps its own header apart without the style'})`);
+      console.log(`  dsh's own header: no overlap at ${DSH_NARROW.join(', ')} px (${dshBefore.length > 0 ? `without the style it overlaps at ${dshBefore.join(', ')} px` : 'this dsh keeps its own header apart without the style'})`);
       await page.setViewportSize({ width: 1280, height: 900 }); await pause(400);
       await page.getByRole('button', { name: 'Open right sidebar' }).click(); await pause(1200);
       await fitOn(false); const asidePlain = await at(1280, 'd1280-sidebar-nofit'); await fitOn(true);
