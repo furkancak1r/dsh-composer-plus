@@ -3333,7 +3333,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // on its own.
       + `@keyframes cp-st-spin{to{transform:rotate(360deg)}}@keyframes cp-st-pulse{from{opacity:.35}to{opacity:.8}}`
       + `[${TODOS_ATTR}] .cp-td-btn[data-refreshing="true"]{opacity:1;cursor:progress;color:var(--dsw-alias-state-business-primary)}[${TODOS_ATTR}] .cp-td-btn[data-refreshing="true"] > *{animation:cp-st-spin .8s linear infinite}`
-      + `[${TODOS_ATTR}] .cp-st-ask{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:140px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}[${TODOS_ATTR}] .cp-st-ask[aria-disabled="true"]{cursor:progress;color:var(--dsw-alias-state-business-primary)}`
+      + `[${TODOS_ATTR}] .cp-st-ask{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:140px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;white-space:nowrap;overflow:hidden;cursor:pointer}[${TODOS_ATTR}] .cp-st-label{min-width:0;overflow:hidden;text-overflow:ellipsis}[${TODOS_ATTR}] .cp-st-ask[aria-disabled="true"]{cursor:progress;color:var(--dsw-alias-state-business-primary)}`
       + `[${TODOS_ATTR}] .cp-st-time[data-refreshing="true"]{font-size:12px;font-weight:500;color:var(--dsw-alias-state-business-primary)}`
       + `[${TODOS_ATTR}] .cp-st-body[data-refreshing="true"] > :not(.cp-st-summary),[${TODOS_ATTR}] .cp-st-old[data-old="true"]{opacity:.4;transition:opacity .15s}`
       + `[${TODOS_ATTR}] .cp-st-spin{flex:none;box-sizing:border-box;width:12px;height:12px;border:2px solid var(--dsw-alias-state-business-primary);border-right-color:transparent;border-radius:50%;animation:cp-st-spin .8s linear infinite}`
@@ -3684,6 +3684,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // previous summary (when there is one) with a short note and Try again.
       const ask = state.ask;
       const asking = ask?.state === 'asking' || ask?.state === 'waiting';
+      const waitInHead = asking && !(state.shown && open); // the card does not show it: Get summary does
       const askNote = ask?.state === 'late' ? t('status.summaryLate') : ask?.state === 'error' ? t('status.summaryFailed', { error: ask.error }) : null;
       // Try again leaves the panel when it is clicked: the focus goes to the button that shows the progress.
       const retry = (label, again, target) => React.createElement('button', { type: 'button', className: 'cp-st-link', 'aria-label': label, 'aria-disabled': target === 'refresh' && state.refreshing,
@@ -3736,10 +3737,12 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
               : state.at === null ? null : React.createElement('span', { className: 'cp-st-time', title: t('status.updatedHint') }, t('status.updated', { time: clockText(state.at, lang) })),
             React.createElement(TodoIcon, open ? { name: 'IconChevronDownOutlineRegular', glyph: '▾' } : { name: 'IconChevronUpOutlineRegular', glyph: '▴' }))),
           // Get summary: a text button (the summary costs a model turn, so it is a choice, not a side effect of Refresh).
-          // "Preparing the summary…" shows in one place: the card, or this button while the card is closed.
+          // "Preparing the summary…" shows in one place: the card, or this button while the card is closed or the panel is
+          // folded. The label is its own span, so a narrow header ends it with "…".
           React.createElement('button', { id: `${headId}-summarize`, type: 'button', className: 'cp-st-ask', 'aria-disabled': asking,
             onClick: () => { store.askSummary(sessionId); } },
-            asking && !state.shown ? React.createElement('span', { className: 'cp-st-spin', 'aria-hidden': true }) : null, asking && !state.shown ? t('status.summaryWaiting') : t('status.summarize')),
+            waitInHead ? React.createElement('span', { className: 'cp-st-spin', 'aria-hidden': true }) : null,
+            React.createElement('span', { className: 'cp-st-label' }, waitInHead ? t('status.summaryWaiting') : t('status.summarize'))),
           React.createElement('button', { id: `${headId}-refresh`, type: 'button', className: 'cp-td-btn', 'data-refreshing': String(state.refreshing), 'aria-disabled': state.refreshing,
             'aria-label': t('status.refresh'), title: t('status.refresh'), onClick: () => { store.refresh(sessionId); } },
             React.createElement(TodoIcon, { name: 'IconRefreshOutlineRegular', glyph: '↻' })),

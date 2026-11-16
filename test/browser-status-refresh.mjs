@@ -91,6 +91,8 @@ const layoutFaults = (panel, width) => panel.evaluate((root, w) => {
       for (const b of kids.slice(i + 1)) if (hit(r(a), r(b))) faults.push(`${name(a)} covers ${name(b)} in ${name(row)}`);
     });
   }
+  // A text that does not fit ends with "…" (not cut in a letter).
+  for (const el of root.querySelectorAll('.cp-st-label, .cp-st-time')) if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow !== 'ellipsis') faults.push(`${name(el)} is cut without "…"`);
   root.style.width = ''; for (const a of turns) a.play();
   return faults;
 }, width);
@@ -240,7 +242,7 @@ try {
       await card.getByRole('button', { name: 'Özeti gizle' }).click();
       assert.equal(await ask.innerText(), 'Özet hazırlanıyor…');
       assert.deepEqual({ marks: await pendingMarks(panel), faults: [...await layoutFaults(panel), ...await layoutFaults(panel, 240)] },
-        { marks: { texts: ['cp-st-ask'], spinners: 1 }, faults: [] }, 'card closed: only the header says it; no icon covers another (also 240 px wide)');
+        { marks: { texts: ['cp-st-label'], spinners: 1 }, faults: [] }, 'card closed: only the header says it; no icon covers another (also 240 px wide)');
       await shot(`${version}-2b-summary-waiting-closed`);
       await until(async () => (await ask.innerText()) === 'Özet getir', 'the summary ends the wait', 30000);
       assert.deepEqual(await pendingMarks(panel), { texts: [], spinners: 0 }); assert.equal(await card.count(), 0, 'the answer does not open the closed card');

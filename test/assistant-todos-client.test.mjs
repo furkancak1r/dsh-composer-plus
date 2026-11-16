@@ -138,6 +138,8 @@ let tree = panel();
 runEffects(rt.effects()); await tick();
 const find = (n, pred) => { if (n === null || typeof n !== 'object') return []; if (Array.isArray(n)) return n.flatMap((c) => find(c, pred)); const own = pred(n) ? [n] : []; return [...own, ...(n.c ?? []).flat(Infinity).flatMap((c) => find(c, pred)), ...(n.portal ? find(n.portal, pred) : [])]; };
 const text = (n) => (typeof n === 'string' ? n : Array.isArray(n) ? n.map(text).join(' ') : n?.portal ? text(n.portal) : n?.c ? text(n.c) : '');
+// Where "Preparing the summary…" and its spinner show (not the screen reader line).
+const waitMarks = (tr) => find(tr, (n) => n.p?.className === 'cp-st-spin' || (n.p?.className !== 'cp-st-sr' && (n.c ?? []).flat(Infinity).includes('status.summaryWaiting'))).map((n) => n.p.className);
 tree = panel();
 const root = find(tree, (n) => n.p?.['data-composer-plus-todos'] === '')[0];
 assert.ok(root, 'the panel shows'); assert.equal(root.t, 'section');
@@ -198,10 +200,13 @@ find(dTree, (n) => n.t === 'button' && n.p.className === 'cp-st-link')[0].p.onCl
   assert.ok(c, 'the card opens at once'); assert.match(text(c), /status\.summaryWaiting/);
   assert.equal(find(tree, (n) => n.p?.className === 'cp-st-ask')[0].p['aria-disabled'], true);
   // One place says it: the card. The button keeps its label and has no second spinner.
-  const waitMarks = (tr) => find(tr, (n) => n.p?.className === 'cp-st-spin' || (n.p?.className !== 'cp-st-sr' && (n.c ?? []).flat(Infinity).includes('status.summaryWaiting'))).map((n) => n.p.className);
   assert.deepEqual(waitMarks(tree), ['cp-st-wait', 'cp-st-spin'], 'one "Preparing the summary…" with one spinner, in the card');
   assert.match(text(find(tree, (n) => n.p?.className === 'cp-st-ask')[0]), /status\.summarize/);
   await tick();
+  // The panel folded while the card waits: the button says it (the card does not show); unfolded, the card again.
+  const head = () => find(panel(), (n) => n.t === 'button' && n.p.className === 'cp-td-head')[0];
+  head().p.onClick(); assert.deepEqual(waitMarks(panel()), ['cp-st-spin', 'cp-st-label'], 'folded: the button says it, with one spinner');
+  head().p.onClick(); assert.deepEqual(waitMarks(panel()), ['cp-st-wait', 'cp-st-spin'], 'unfolded: the card again');
   assert.deepEqual(posts.slice(p0), [{ sessionId: 's-assistant', action: 'summary' }], 'one summary request');
   assert.equal(panelProps.store.of('s-assistant').ask.state, 'waiting');
   // A second click while it waits does nothing.
@@ -559,8 +564,7 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   store.hideSummary('s-assistant'); assert.equal(cardOf(panel()), undefined, 'closed');
   // The card closed while it waits: Get summary says it instead (one place, one spinner).
   assert.equal(store.of('s-assistant').ask.state, 'waiting');
-  assert.deepEqual(find(panel(), (n) => n.p?.className === 'cp-st-spin' || (n.p?.className !== 'cp-st-sr' && (n.c ?? []).flat(Infinity).includes('status.summaryWaiting'))).map((n) => n.p.className),
-    ['cp-st-ask', 'cp-st-spin'], 'card closed: the button says it, with one spinner');
+  assert.deepEqual(waitMarks(panel()), ['cp-st-spin', 'cp-st-label'], 'card closed: the button says it, with one spinner');
   // Reduced motion: no turning and no pulse, only the text. Both themes: dsh's color tokens only.
   const css = find(panel(), (n) => n.t === 'style')[0].c[0];
   assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{[^}]*cp-td-btn\[data-refreshing="true"\] > \*,[^}]*cp-st-skel\{animation:none\}/);
