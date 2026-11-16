@@ -375,6 +375,28 @@ const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
   mem.delete('dsh-composer-plus.status-tasks-dismissed'); tasks = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
+// 2026-11-16 ("prosolocal ne durumda görevlerde görünmüyor"): a delegated chat's row. The panel watches the chat's live
+// state (its turn starts, ends or waits: a new read), and while the row runs without a turn (a background job) and no
+// subagent runs, it reads the Host every 5 s.
+{
+  const saved = tasks;
+  tasks = [{ id: 's-deploy', title: 'Canlı deploy', state: 'running', started: NOW - 5000, chat: true, result: 'prosolocal' }];
+  await panelProps.store.load('s-assistant');
+  const asked = []; const quiet = new Map();
+  const watch = (pick) => pick({ get: (k) => { asked.push(k); return quiet.get(k); } });
+  const realInterval = globalThis.setInterval; const realClear = globalThis.clearInterval; const timers = [];
+  globalThis.setInterval = (fn, ms) => { timers.push({ fn, ms }); return timers.length; }; globalThis.clearInterval = () => {};
+  try {
+    rt.clear(); rt.reset();
+    const out = Panels({ ...panelProps, useSessions: (pick) => pick({ projectionsBySession: {} }), useSessionStatus: watch, t });
+    rt.reset(); const inner = out.c[0][0].portal; inner.t(inner.p);
+    assert.ok(asked.includes('s-deploy'), 'the panel watches the delegated chat\'s live state');
+    for (const f of rt.effects()) f(); await tick();
+    assert.ok(timers.some((x) => x.ms === 5000), 'a running delegated chat (no turn, no subagent): read every 5 s');
+  } finally { globalThis.setInterval = realInterval; globalThis.clearInterval = realClear; }
+  tasks = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
+}
+
 // → writes "<Do this for me:> <item>" in the composer and sends nothing: no POST, the owner and the groups stay.
 const arrow = () => find(panel(), (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? ''))[0];
 const postsBefore = posts.length;

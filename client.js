@@ -3584,8 +3584,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const [historyOpen, setHistoryOpen] = React.useState(false);
       const [dismissed, setDismissed] = React.useState(readDismissed);
       const kids = typeof useSessions === 'function' ? useSessions((list) => childIdsOf(list, sessionId).join(' ')) : '';
-      const live = typeof useSessionStatus === 'function' ? useSessionStatus((statuses) => liveText(statuses, undefined, [sessionId, ...kids.split(' ').filter(Boolean)])) : '';
-      const running = /(^|,)1/.test(live);
+      // The delegated chats (chat_new, chat_send) too: their turns and waits change their rows (2026-11-16: a live deploy
+      // chat did not show). A row that runs without a turn (a background job) is read again every STATUS_POLL_MS.
+      const chats = state.tasks.filter((task) => task.chat === true && typeof task.id === 'string').map((task) => task.id);
+      const live = typeof useSessionStatus === 'function' ? useSessionStatus((statuses) => liveText(statuses, undefined, [sessionId, ...kids.split(' ').filter(Boolean), ...chats])) : '';
+      const running = /(^|,)1/.test(live) || state.tasks.some((task) => task.chat === true && task.state === 'running');
       const first = React.useRef(true);
       React.useEffect(() => { store.load(sessionId); }, [sessionId]);
       React.useEffect(() => { if (first.current) { first.current = false; return; } store.schedule(sessionId); }, [kids, live]);
@@ -6560,7 +6563,23 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
     const APPROVAL_MAX = 500; // the Host's APPROVAL_MAX (index.js) has the same value: test/approve-button.test.mjs checks it
     /** Printable ASCII, the Turkish letters, new lines and a few typographic marks (after NFC). */
     const APPROVAL_CHARS = /^[\x20-\x7E\n\tçğıöşüâîûÇĞİÖŞÜÂÎÛ‘’“”–—…→«»]*$/;
-    const approvable = (text) => text !== '' && text.length <= APPROVAL_MAX && APPROVAL_CHARS.test(text.normalize('NFC'));
+    /* Auto review's deploy gate refuses an approval with a hold or stop word, and a live deploy approval that is not its
+     * strict line (2026-11-16: two clicked sentences with "deploy'u yok" held a later deploy; "... ŞİMDİ: 2.19'a ..."
+     * approved none). Such a block gets no button; the Host tells the agent why. The same expressions as the Host's
+     * APPROVAL_HOLD, DEPLOY_START and DEPLOY_LINE (index.js; from the Auto review plugin): test/approve-button.test.mjs
+     * compares them. */
+    const HOLD_NEGATED = String.raw`(?:etme|etmeyin|etmeyelim|etmesin|edilmesin|edilmeyecek|yapma|yapmayın|yapmayalım|yapılmasın|yapılmayacak)`;
+    const HOLD_DEPLOY_NOUN = String.raw`(?:deploy|yayın|canlı|başlat|güncelle)\p{L}{0,8}(?:['’]\p{L}{1,4})?`;
+    const APPROVAL_HOLD = new RegExp(String.raw`(?<![\p{L}\p{N}])(?:(?<!\p{L}{2,20}(?:(?<!l)[ae]r|[ıiuü]r|m[ae]z)s[ae]n?\s{1,3})(?:dur|durdur|durdurun|durun)|bekle|bekleyin|bekleyelim|beklesin|iptal\p{L}*|ertele\p{L}*|vazgeç\p{L}*|hayır|stop|cancel|do not|don't|onay\p{L}*\s{1,3}geri\s{1,3}(?:al|çek)\p{L}*|onaylam[ıi]yorum|onaylamad[ıi]m|onay\s{1,3}verm(?:edim|iyorum)|(?:şimdi|hemen|simdi)\s{1,3}(?:yapma|yapmayın|olmaz)|deploy\p{L}{0,4}(?:['’]\p{L}{1,4})?(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}${HOLD_NEGATED}|(?:yayınla|(?<!yeniden\s{1,3})başlat|kur)(?:ma|mayın|mayalım|masın)|(?:yayınlan|başlatıl|kurul|alın)masın|canlıya\s{1,3}(?:alma|almayın|çıkma|çıkmayın)|${HOLD_DEPLOY_NOUN}(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}(?:olmaz|dokunma|dokunmayın|askıya\s{1,3}al\p{L}*|yok|edilmeyecek))(?![\p{L}\p{N}])`, 'u');
+    const DEPLOY_START = /^(?:onayliyorum:? *)?canli +deploy(?![\p{L}\p{N}])/u;
+    const DEPLOY_LINE = /^(?:onayliyorum:? {1,3})?canli {1,3}deploy {1,3}(?:promes|prosolocal|proso) {1,3}(?=[0-9]*[a-f])[0-9a-f]{7,40} {1,3}(?:saat {1,3}(?:[01]\d|2[0-3])[:.][0-5]\d|simdi) {0,20}\.?$/;
+    const APPROVAL_DUR = /(?<![\p{L}\p{N}])(?:dur|durun|durdur|durdurun)(?![\p{L}\p{N}])/u; // also after a condition (the model review's list)
+    const passesGate = (text) => {
+      if ([APPROVAL_HOLD, APPROVAL_DUR].some((re) => re.test(text.toLocaleLowerCase('tr')) || re.test(text.toLowerCase()))) return false;
+      const folded = text.normalize('NFC').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/ş/g, 's').replace(/[^\S\n]/g, ' ').trim();
+      return !DEPLOY_START.test(folded) || DEPLOY_LINE.test(folded);
+    };
+    const approvable = (text) => text !== '' && text.length <= APPROVAL_MAX && APPROVAL_CHARS.test(text.normalize('NFC')) && passesGate(text);
     /** The bodies of the closed, top-level `onay` blocks of `text`, also the ones that get no button. */
     function onayBlocks(text) {
       const out = [];

@@ -148,9 +148,10 @@ try {
   const otherAgent = newAgent('s-web');
   const wsReal = [...ws, { id: 'w-repo', title: 'repo', path: repo, sessionIds: [] }];
   const archivedIds = ['s-arch'];
+  const jobsList = []; // dsh's background jobs: list(caller) gives the caller's jobs and the unowned ones
   const ctx = {
     logger: { warn: () => {} }, subprocess,
-    get: (name) => ({ agents: { get: (id) => agents.get(id), list: () => [...agents.values()] }, workspaceRegistry: { list: () => wsReal, archivedSessionIds: archivedIds }, sessionPersistence: { list: async () => [...agents.keys()].map((id) => ({ header: { id } })) } })[name],
+    get: (name) => ({ agents: { get: (id) => agents.get(id), list: () => [...agents.values()] }, jobs: { list: (caller) => jobsList.filter((j) => j.owner === undefined || j.owner === caller) }, workspaceRegistry: { list: () => wsReal, archivedSessionIds: archivedIds }, sessionPersistence: { list: async () => [...agents.keys()].map((id) => ({ header: { id } })) } })[name],
     on: (name, fn) => { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); }, effect: () => {},
     inject: (deps, setup) => { setup({ systemPrompt: { section: (x) => { sections.set(x.name, x); }, context: () => {} } }); return { dispose: () => {} }; },
     connection: { fetch: { register: (route) => { routes.set(route.path, route); return () => routes.delete(route.path); } } },
@@ -356,6 +357,7 @@ try {
   const turnEnd = (id, reason, ...before) => {
     const log = agents.get(id).session.snapshotEvents();
     for (const e of [...before, ev(0, 'turn/end', { reason }, clock)]) log.push({ ...e, seq: log.length });
+    agents.get(id).status = 'idle'; // dsh's agent is idle after its turn ends
     for (const fn of listeners.get('session/event')) fn(agents.get(id).session, log.at(-1));
   };
   const rowsOf = async (id) => (await call('?sessionId=s-a')).body.tasks.filter((t) => t.id === id);
@@ -420,6 +422,33 @@ try {
     await assistant.tasks.add('s-new', { title: 'New one', project: 'acme-web', at: clock - 1000 });
     assert.deepEqual((await rowsOf('s-new')).map((t) => t.state), ['running'], 'a new task: running while its message goes');
     await assistant.tasks.drop('s-new');
+  }
+  // 2026-11-16 ("prosolocal ne durumda görevlerde görünmüyor"): a delegated chat whose turn ended still works (a
+  // background job, as a live deploy) or waits for the user (an `onay` block): an open row, not a done row in History.
+  {
+    await assistant.tasks.add('s-job', { title: 'Canlı deploy', project: 'acme-web', at: clock - 60000 });
+    newAgent('s-job', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {}, clock - 50000)]);
+    jobsList.push({ id: 'bash-1', owner: 's-job', status: 'running' }, { id: 'bash-2', owner: 's-other', status: 'running' }, { id: 'bash-3', status: 'running' });
+    turnEnd('s-job', { kind: 'completed' }, reply(0, 'The deploy runs in the background.'));
+    assert.equal(assistant.tasks.has('s-job'), false, 'the bot ended the task at its turn end');
+    assert.deepEqual(await rowsOf('s-job'), [{ id: 's-job', title: 'Canlı deploy', started: clock - 50000, state: 'running', chat: true, result: 'acme-web' }], 'its background job runs: running');
+    r = await call('?sessionId=s-a'); assert.ok(r.body.tasks.findIndex((t) => t.id === 's-job') <= r.body.tasks.findLastIndex(open), 'with the open tasks');
+    jobsList[0].status = 'completed';
+    assert.deepEqual((await rowsOf('s-job')).map((t) => [t.state, t.result]), [['done', 'The deploy runs in the background.']], 'the job ended: done, in History');
+    jobsList.length = 0;
+    await assistant.tasks.add('s-onay', { title: 'Deploy onayı', project: 'acme-web', branch: 'fix/deploy', at: clock - 60000 });
+    const o = newAgent('s-onay', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {}, clock - 40000)]);
+    await assistant.tasks.add('s-plain', { title: 'Rapor', project: 'acme-web', at: clock - 60000 });
+    newAgent('s-plain', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {}, clock - 40000)]);
+    turnEnd('s-onay', { kind: 'completed' }, reply(0, 'Ready.\n\n```onay\nCANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ\n```'));
+    turnEnd('s-plain', { kind: 'completed' }, reply(0, 'Report sent.'));
+    assert.deepEqual((await rowsOf('s-onay')).map((t) => [t.state, t.result]), [['waiting', 'acme-web · fix/deploy']], 'an onay block: waits for the user');
+    assert.deepEqual((await rowsOf('s-plain')).map((t) => t.state), ['done'], 'an answer without a block: done');
+    // You answer in that chat: its new turn runs, then it ends without a block.
+    o.status = 'running'; o.session.snapshotEvents().push(ev(2, 'turn/start', {}, clock));
+    assert.deepEqual((await rowsOf('s-onay')).map((t) => [t.state, t.started]), [['running', clock]], 'its next turn runs: running');
+    o.status = 'idle'; o.session.snapshotEvents().push(reply(3, 'Deployed.'), ev(4, 'turn/end', { reason: { kind: 'completed' } }, clock));
+    assert.deepEqual((await rowsOf('s-onay')).map((t) => t.state), ['done'], 'then done again');
   }
   // dsh's quit and an AIProxy outage keep the task, but the chat does not run: the row is stopped at the chat's last
   // event (its time does not grow). The outage feature lets the chat go: failed.

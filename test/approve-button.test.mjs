@@ -14,13 +14,13 @@
 //   in the chat's next step (the owner, 2026-11-13: blocks of 1092 to 1439 characters showed no button).
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises'; import { tmpdir } from 'node:os'; import { join } from 'node:path';
-import { APPROVE_PATH, APPROVE_SECTION, APPROVAL_MAX as HOST_MAX, approveLongNote, installApproveButton } from '../index.js';
+import { APPROVE_PATH, APPROVE_SECTION, APPROVAL_DUR as HOST_DUR, APPROVAL_HOLD as HOST_HOLD, APPROVAL_MAX as HOST_MAX, DEPLOY_LINE as HOST_LINE, DEPLOY_START as HOST_START, approveLongNote, approveRuleNote, installApproveButton } from '../index.js';
 const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ?? null, setItem: (k, v) => mem.set(k, String(v)) };
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
 const ANCHOR = '/** Feature switches, in Settings order.';
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks, APPROVAL_HOLD, APPROVAL_DUR, DEPLOY_START, DEPLOY_LINE };\n    ${ANCHOR}`));
 let cur;
 const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }),
   useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
@@ -92,8 +92,8 @@ const LIVE = [
   'Onaylıyorum: 2.19 sunucusuna Z aktarımı yap.', 'Onaylıyorum: Z-share klasörüne kopyala.', 'Onaylıyorum: Z: sürücüsüne yaz.',
   'Onaylıyorum: dosyaları paylaşıma kopyala.', 'Onaylıyorum: canlı sunucuyu yeniden başlat.', 'Onaylıyorum: CANLI ortama al.',
   'Approve: restart the live server.', 'Onaylıyorum: production ayarını değiştir.', 'Onaylıyorum: prod ortamına geç.',
-  'Onaylıyorum: üretim veritabanına bağlan.', 'Onaylıyorum: 192.168.2.19 üzerinde servisi durdur.', 'Onaylıyorum: 2,19 sunucusunu güncelle.',
-  'Onaylıyorum: ssh promes-219 ile betiği çalıştır.', 'Onaylıyorum: promes 219 sunucusunu yeniden başlat.', 'Onaylıyorum: port 5100 servisini durdur.',
+  'Onaylıyorum: üretim veritabanına bağlan.', 'Onaylıyorum: 192.168.2.19 üzerinde servisi kapat.', 'Onaylıyorum: 2,19 sunucusunu güncelle.',
+  'Onaylıyorum: ssh promes-219 ile betiği çalıştır.', 'Onaylıyorum: promes 219 sunucusunu yeniden başlat.', 'Onaylıyorum: port 5100 servisini kapat.',
   'Onaylıyorum: :5100 portunu aç.', 'Onaylıyorum: live database kaydını sil.', 'Onaylıyorum: canlı DB tablosunu güncelle.',
   'Onaylıyorum: inkool_live tablosunu oku.', 'Onaylıyorum: PRS veritabanına yaz.', 'Onaylıyorum: npm publish çalıştır.',
   'Onaylıyorum: GitHub release v1.26.0 oluştur.', 'Onaylıyorum: release notlarını yayımla.', 'Onaylıyorum: yeni sürümü yayınla.',
@@ -115,6 +115,29 @@ SAFE.push('Onaylıyorum: “feature/x” dalını sil – sonra main → origin�
 { const nfd = 'Onaylıyorum: üç şube dalını sil.'.normalize('NFD'); assert.notEqual(nfd, nfd.normalize('NFC'));
   assert.deepEqual(sentences(block(nfd)), [nfd], 'decomposed Turkish letters: checked as NFC, sent as written'); }
 for (const s of SAFE) assert.deepEqual(sentences(block(s)), [s], `test or branch work shows the button: ${s}`);
+
+// --- Auto review's deploy gate (2026-11-16): a hold or stop word, or a loose "CANLI DEPLOY" line, gets no button ---
+const GOOD = ["Onaylıyorum: PR Addon S01 dalı ve geçici klasörü silinsin (main'e alındı, canlı değil).", 'CANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ',
+  'Onaylıyorum: CANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ.', 'canli deploy promes 54e0a07e saat 21.10', 'CANLI DEPLOY PROSO 0123456789abcdef0123456789abcdef01234567 SAAT 09:30',
+  'Onaylıyorum: deploy ayrı onayla, yalnız yerel.', 'Onaylıyorum: canlı sunucuyu yeniden başlat.', 'Onaylıyorum: durdurulan servis yeniden açılsın.'];
+for (const s of GOOD) assert.deepEqual(sentences(block(s)), [s], `the gate accepts it: ${s}`);
+const HELD = [
+  ["Onaylıyorum: 2.19 deploy ayarı değişsin (CANLI sunucu ayarı, kod deploy'u yok).", "deploy'u yok"], ['Onaylıyorum: kurulum yapılsın, hata varsa dur.', 'dur'], ['Onaylıyorum: kurulum yapılsın, gerekirse dur ve bildir.', 'dur'],
+  ['Onaylıyorum: servisi durdur.', 'durdur'], ['Onaylıyorum: işler bitene kadar bekle.', 'bekle'], ['Onaylıyorum: eski görevi iptal et.', 'iptal'],
+  ['Onaylıyorum: canlıya dokunma, yalnız test.', 'canlıya dokunma'], ['Onaylıyorum: deploy şimdi olmaz, dalı push et.', 'deploy şimdi olmaz'], ['Approve: stop the runner.', 'stop'],
+];
+for (const [s, word] of HELD) {
+  assert.deepEqual(sentences(block(s)), [], `a hold word gets no button: ${s}`);
+  assert.match(approveRuleNote(s), new RegExp(`has "${word}", which Auto review reads as a hold or stop word.*"canlı değil", "yalnız yerel", "deploy ayrı onayla"`), `the note names the word: ${s}`);
+}
+for (const s of ["CANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ: 2.19'a betikle yedekli deploy, CalVer etiketi ve rapor kontrolü.", 'CANLI DEPLOY PROSOLOCAL 1234567 ŞİMDİ',
+  'CANLI DEPLOY PROSOLOCAL 15c101d7', 'CANLI DEPLOY ProsoCockpit 15c101d7 ŞİMDİ', 'Onaylıyorum: CANLI DEPLOY PROMES 15c101d7 SAAT 25:00', 'CANLI DEPLOY PROMES 15c101d7 ŞİMDİ ve etiket at.']) {
+  assert.deepEqual(sentences(block(s)), [], `a loose deploy line gets no button: ${s}`);
+  assert.match(approveRuleNote(s), /starts with "CANLI DEPLOY" but is not the strict deploy line/, `its note: ${s}`);
+}
+for (const s of GOOD) assert.equal(approveRuleNote(s), undefined, `no note: ${s}`);
+// The client's expressions are the Host's (one source: the Auto review plugin).
+for (const [name, host] of Object.entries({ APPROVAL_HOLD: HOST_HOLD, APPROVAL_DUR: HOST_DUR, DEPLOY_START: HOST_START, DEPLOY_LINE: HOST_LINE })) assert.equal(String(globalThis.__ap[name]), String(host), `${name}: the client and the Host agree`);
 
 // --- ApproveButtons in dsh's turn-tail slot ---
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -354,6 +377,8 @@ try {
   assert.doesNotMatch(APPROVE_SECTION, /put all of them in one sentence/, 'no rule that makes the block longer than the limit');
   assert.doesNotMatch(APPROVE_SECTION, /Show the `onay` block once|do not repeat the block/, 'no rule that hides a pending approval');
   assert.match(APPROVE_SECTION, /name the targets and the live or not-live scope, without file lines or script names/, 'a short sentence');
+  assert.match(APPROVE_SECTION, /Do not put a word in the block that Auto review reads as a hold or stop \(for example dur, bekle, iptal, hayır, "deploy yok"\): such a block shows only as code, so name the scope with positive words \("canlı değil", "yalnız yerel", "deploy ayrı onayla"\)\./, 'the hold-word rule');
+  assert.match(APPROVE_SECTION, /A block that starts with "CANLI DEPLOY" holds only the strict line "CANLI DEPLOY <PROMES\|PROSOLOCAL\|PROSO> <commit SHA> ŞİMDİ" or "CANLI DEPLOY <PROMES\|PROSOLOCAL\|PROSO> <commit SHA> SAAT HH:MM", optionally after "Onaylıyorum: ", and nothing after it: another form shows only as code\./, 'the strict deploy line rule');
   // A too long block: one note in the chat's next step that has a message (the owner, 2026-11-13: no button, the owner
   // typed a 1439-character sentence by hand). The note never starts a step itself.
   const on = (name) => listeners.get(name);
@@ -377,6 +402,14 @@ try {
   assert.equal(noteOf(await step('c3', [typed])).length, 1, 'an answer without a block keeps the long block');
   say('c4', 5, block(LONG_BLOCK)); say('c4', 7, block(PUSH));
   assert.deepEqual(noteOf(await step('c4', [typed])), [], 'a newer block of the right length replaces it');
+  // A block that Auto review's deploy gate refuses (2026-11-16): one note with the reason, once.
+  say('c8', 5, block("Onaylıyorum: 2.19 ayarı değişsin (CANLI sunucu ayarı, kod deploy'u yok)."));
+  assert.deepEqual(noteOf(await step('c8', [typed])), [approveRuleNote("Onaylıyorum: 2.19 ayarı değişsin (CANLI sunucu ayarı, kod deploy'u yok).")], 'a hold word: one note');
+  assert.deepEqual(noteOf(await step('c8', [typed])), [], 'once');
+  say('c9', 5, block("CANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ: 2.19'a betikle yedekli deploy."));
+  assert.match(noteOf(await step('c9', [typed]))[0], /not the strict deploy line/, 'a loose deploy line: one note');
+  say('c9', 6, block('CANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ')); say('c9', 7, block("Onaylıyorum: dal silinsin (main'e alındı, canlı değil)."));
+  assert.deepEqual(noteOf(await step('c9', [typed])), [], 'a block that the gate accepts: no note');
   say('c5', 5, block(LONG_BLOCK), { inheritedEventCount: 6 });
   assert.deepEqual(noteOf(await step('c5', [typed])), [], 'a fork\'s copied answer is not its own (rule 10)');
   for (const kind of ['composer-plus-rollback', 'dsh-rewind']) {
