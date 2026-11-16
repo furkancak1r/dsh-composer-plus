@@ -3652,15 +3652,19 @@ export const completeStore = (file) => settingsStore(file, (v) => ({ on: v?.on =
 /** `POST {model}` on a settings route: `null` removes the saved model; a model must be one that dsh lists now. Answers
  * the saved settings. Shared by Next message prediction and Complete while typing. */
 async function saveModel(ctx, get, store, model) {
-  let chosen;
-  if (model !== null) {
-    if (!isText(model?.provider) || !isText(model?.model)) return json({ error: 'bad request' }, 400);
-    const catalog = await modelCatalogOf(ctx, get);
-    if (!catalog.groups.some((g) => g.id === model.provider && g.models.some((m) => m.id === model.model))) return json({ error: 'dsh does not list this model' }, 409);
-    chosen = { provider: model.provider, model: model.model };
-  }
+  const { chosen, refused } = await chosenModel(ctx, get, model);
+  if (refused !== undefined) return refused;
   try { return json(await store.change(({ model: _, ...v }) => (chosen === undefined ? v : { ...v, model: chosen }))); }
   catch (error) { return json({ error: String(error?.message ?? error) }, 500); }
+}
+/** A model from the browser: `{chosen}` (undefined for `null`: no own model) when dsh lists it now, else `{refused}` (the
+ * 400 or 409 response). */
+async function chosenModel(ctx, get, model) {
+  if (model === null) return {};
+  if (!isText(model?.provider) || !isText(model?.model)) return { refused: json({ error: 'bad request' }, 400) };
+  const catalog = await modelCatalogOf(ctx, get);
+  if (!catalog.groups.some((g) => g.id === model.provider && g.models.some((m) => m.id === model.model))) return { refused: json({ error: 'dsh does not list this model' }, 409) };
+  return { chosen: { provider: model.provider, model: model.model } };
 }
 
 /** The chat for a completion: the user's messages and the agent's replies, newest kept; '' for a new chat. */
@@ -9627,13 +9631,8 @@ export function installAdvisor(ctx, home, file = join(home, 'storages', 'dsh-com
         if (keys === 'on' && typeof body.on === 'boolean') change = (s) => ({ ...s, on: body.on });
         else if (keys === 'model') {
           // One write: the model and the effort (an effort belongs to the model it was chosen for) change together.
-          let chosen;
-          if (body.model !== null) {
-            if (!isText(body.model?.provider) || !isText(body.model?.model)) return json({ error: 'bad request' }, 400);
-            const catalog = await modelCatalogOf(ctx, get);
-            if (!catalog.groups.some((g) => g.id === body.model.provider && g.models.some((m) => m.id === body.model.model))) return json({ error: 'dsh does not list this model' }, 409);
-            chosen = { provider: body.model.provider, model: body.model.model };
-          }
+          const { chosen, refused } = await chosenModel(ctx, get, body.model);
+          if (refused !== undefined) return refused;
           change = ({ model: _, effort: __, ...s }) => (chosen === undefined ? s : { ...s, model: chosen });
         } else if (keys === 'effort' && (body.effort === null || isText(body.effort, 64))) change = ({ effort: _, ...s }) => (body.effort === null ? s : { ...s, effort: body.effort });
         else if (keys === 'maxUses' && intIn(body.maxUses, ADVISOR_USES) !== undefined) change = (s) => ({ ...s, maxUses: body.maxUses });

@@ -10,12 +10,12 @@ let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } }
 const ROUTE = '/api/composer-plus.advisor';
 const fetches = [];
 let host = { on: false, maxUses: 3, maxTokens: 16000, subagents: false };
-let hold;
+let hold; let holdModel;
 globalThis.fetch = async (url, init) => {
   fetches.push({ url, init });
   if (!String(url).startsWith(ROUTE)) return { ok: true, status: 200, json: async () => ({ on: false }) };
-  if (init?.method === 'POST') { const body = JSON.parse(init.body); if (hold && 'maxUses' in body) await hold; host = { ...host, ...body }; }
-  const body = String(url).includes('efforts=1') ? { efforts: [{ id: 'high', name: 'High' }] } : String(url).includes('sessionId=') ? { on: host.on, ready: host.on && host.model !== undefined, off: false }
+  if (init?.method === 'POST') { const body = JSON.parse(init.body); if (hold && 'maxUses' in body) await hold; if (holdModel && 'model' in body) await holdModel; host = { ...host, ...body }; if (host.model === null) delete host.model; } // the Host drops a removed model
+  const body = String(url).includes('efforts=1') ? { efforts: host.model?.model === 'opus' ? [{ id: 'high', name: 'High' }] : [] } : String(url).includes('sessionId=') ? { on: host.on, ready: host.on && host.model !== undefined, off: false }
     : String(url).includes('catalog=1') ? { ...host, catalog: { groups: [{ id: 'strong', name: 'Strong', models: [{ id: 'opus', name: 'Opus' }] }] } } : host;
   return { ok: true, status: 200, json: async () => body };
 };
@@ -71,6 +71,42 @@ assert.equal(sp.advisorSwitch.getSnapshot().maxUses, 5, 'the saved value stays')
 const effortMenu = (out) => all(out).find((n) => n.p?.['data-composer-plus-advisor'] === 'effort');
 render(settingsEl.t, { ...settingsEl.p, t }, sInst); await tick(); await tick();
 assert.ok(effortMenu(render(settingsEl.t, { ...settingsEl.p, t }, sInst)), 'the chosen model lists efforts: a Reasoning menu');
+// While a model saves, the menus wait (disabled, a save does nothing) and nothing is read; after it, the efforts of the
+// new model are read from the Host (which has the new model then).
+{
+  let go; holdModel = new Promise((r) => { go = r; });
+  const posts = () => fetches.filter((f) => f.url === ROUTE && f.init?.method === 'POST').length;
+  const effortReads = () => fetches.filter((f) => String(f.url).includes('efforts=1')).length;
+  const p0 = posts();
+  const changing = sp.advisorModel.setModel(null);
+  const e0 = effortReads();
+  let out = render(settingsEl.t, { ...settingsEl.p, t }, sInst); await tick();
+  const buttons = all(out).filter((n) => n.t === 'button' && n.p['data-composer-plus-advisor'] !== undefined);
+  assert.ok(buttons.length >= 3 && buttons.every((n) => n.p.disabled === true), 'the menus are disabled while the model saves');
+  const uses = all(out).find((n) => n.t === 'Menu' && n.p.anchor?.p?.['data-composer-plus-advisor'] === 'uses');
+  uses.p.onSelect('10'); await tick();
+  assert.equal(posts(), p0 + 1, 'a menu save waits for the model save: only the model POST');
+  assert.equal(effortReads(), e0, 'no efforts read while the model saves');
+  const reads = () => fetches.filter((f) => f.url === ROUTE && f.init === undefined).length;
+  const r0 = reads();
+  go(); holdModel = undefined; await changing;
+  render(settingsEl.t, { ...settingsEl.p, t }, sInst); await tick(); await tick();
+  assert.ok(reads() > r0, 'the settings are read again after the save (the Host dropped the effort)');
+  assert.equal(effortReads(), e0, 'no model: no efforts to read');
+  // Choose the model again: its efforts are read after its save, from the Host that has it.
+  holdModel = new Promise((r) => { go = r; });
+  const again = sp.advisorModel.setModel({ provider: 'strong', model: 'opus' });
+  render(settingsEl.t, { ...settingsEl.p, t }, sInst); await tick();
+  assert.equal(effortReads(), e0, 'not while it saves');
+  go(); holdModel = undefined; await again;
+  render(settingsEl.t, { ...settingsEl.p, t }, sInst); await tick(); await tick();
+  assert.equal(effortReads(), e0 + 1, 'once after the save');
+  assert.ok(effortMenu(render(settingsEl.t, { ...settingsEl.p, t }, sInst)), 'the new model\'s efforts');
+  await sp.advisorModel.setModel(null);
+  render(settingsEl.t, { ...settingsEl.p, t }, sInst); await tick(); await tick();
+  out = render(settingsEl.t, { ...settingsEl.p, t }, sInst);
+  assert.equal(effortMenu(out), undefined, 'no model now: no Reasoning menu (the Host answered for the new state)');
+}
 // The Advice row: running, done (parsed first line), error.
 const R = row[1];
 assert.match(JSON.stringify(R({ phase: 'start', t })), /advisor.card.running/);

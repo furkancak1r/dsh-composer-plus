@@ -8731,25 +8731,29 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
     const ADVISOR_TOKENS = [4000, 8000, 16000, 32000, 64000];
     function AdvisorSettings({ store, models, t }) {
       const state = React.useSyncExternalStore(store.subscribe, store.getSnapshot);
-      const model = React.useSyncExternalStore(models.subscribe, models.getSnapshot).model;
+      const picked = React.useSyncExternalStore(models.subscribe, models.getSnapshot);
+      const model = picked.model;
       const [open, setOpen] = React.useState(null);
       const [efforts, setEfforts] = React.useState([]);
       const chosen = model === undefined ? '' : modelKey(model);
+      // One change of the advisor's settings at a time: a model save and a menu save wait for each other (rule 7).
+      const busy = state.busy === true || picked.busy === true;
       React.useEffect(() => {
         let live = true;
         setEfforts([]);
-        // A new model drops the saved effort on the Host: read it again, unless a setting of this store is being saved.
-        if (store.getSnapshot().busy !== true) store.refresh();
+        // A saved model drops the saved effort on the Host: read both again once no save runs (the Host has the new model then).
+        if (busy) return undefined;
+        store.refresh();
         if (chosen !== '') fetch(`${ADVISOR_ROUTE}?efforts=1`).then((r) => r.json()).then((d) => { if (live && Array.isArray(d?.efforts)) setEfforts(d.efforts); }, () => {});
         return () => { live = false; };
-      }, [chosen]);
+      }, [chosen, busy]);
       if (state.restart || typeof state.maxUses !== 'number') return null;
-      const save = (body) => { if (store.getSnapshot().busy !== true) store.post(body, { ...body, busy: true }); };
+      const save = (body) => { if (store.getSnapshot().busy !== true && models.getSnapshot().busy !== true) store.post(body, { ...body, busy: true }); };
       const menu = (id, label, items, selected, choose) => React.createElement(React.Fragment, null,
         React.createElement('span', { style: { fontSize: 12, color: 'var(--dsw-alias-label-secondary)' } }, label),
         React.createElement(primitives.Menu, { open: open === id, onClose: () => setOpen(null), items, selectedId: String(selected), portal: true, dense: true,
           onSelect: (value) => { setOpen(null); if (value !== String(selected)) choose(value); },
-          anchor: React.createElement('button', { type: 'button', disabled: state.busy === true, 'aria-label': `${t('feature.advisor')}: ${label}`, 'aria-haspopup': 'menu', 'aria-expanded': open === id,
+          anchor: React.createElement('button', { type: 'button', disabled: busy, 'aria-label': `${t('feature.advisor')}: ${label}`, 'aria-haspopup': 'menu', 'aria-expanded': open === id,
             'data-composer-plus-advisor': id, onClick: () => setOpen(open === id ? null : id), style: { ...smallButton, display: 'inline-flex', alignItems: 'center', gap: 6 } },
           items.find((i) => i.id === String(selected))?.label ?? String(selected),
           primitives.IconChevronDownOutlineRegular === undefined ? null : React.createElement(primitives.IconChevronDownOutlineRegular, { size: 12, 'aria-hidden': true })) }));

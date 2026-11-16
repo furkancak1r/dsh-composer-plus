@@ -96,15 +96,17 @@ try {
   const llm = fakeLlm();
   const agents = new Map();
   const restrictions = new Map(); // agent id → Set of denied names
-  const agent = (id, { origin, parentSession, events = [], inherited = 0 } = {}) => {
+  const agent = (id, { origin, parentSession, events = [], inherited = 0, refuse = false } = {}) => {
     const a = { id, status: 'idle', session: { id, header: { origin, parentSession }, inheritedEventCount: inherited, snapshotEvents: () => a.events }, events,
       ctx: { tools: { restrict: ({ deny }) => {
-        if (!live.has(ADVISOR_TOOL)) throw new Error('unknown global tool');
+        if (refuse || !live.has(ADVISOR_TOOL)) throw new Error('unknown global tool');
         restrictions.set(id, new Set(deny)); return () => restrictions.delete(id);
       } } } };
     agents.set(id, a); handlers.get('agent/created')?.({ agent: a }); return a;
   };
+  const warnings = [];
   const ctx = {
+    logger: { warn: (text) => warnings.push(text) },
     get: (name) => ({ llm, agents: { get: (id) => agents.get(id), list: () => [...agents.values()] } })[name],
     effect: (fn) => effects.push(fn()),
     on: (name, fn) => handlers.set(name, fn),
@@ -141,8 +143,8 @@ try {
   assert.ok(live.has(ADVISOR_TOOL), 'on + model: the tool');
   assert.ok(restrictions.get('k0')?.has(ADVISOR_TOOL), 'a subagent that existed before the tool gets its restriction when the tool comes');
   // A restriction that dsh refuses: the tool stays listed, and the tool itself still refuses there.
-  const stubborn = agent('k9', { origin: 'subagent', parentSession: 's0' });
-  restrictions.delete('k9'); stubborn.ctx.tools.restrict = () => { throw new Error('refused'); };
+  const stubborn = agent('k9', { origin: 'subagent', parentSession: 's0', refuse: true });
+  assert.ok(!restrictions.has('k9') && warnings.some((w) => /the tool stays listed in k9/.test(w)), 'a refused restriction is logged, not thrown');
   await assert.rejects(live.get(ADVISOR_TOOL).execute({}, { agent: stubborn, callId: 'k9c' }), /not available in subagent chats/);
   agents.delete('k9');
   assert.deepEqual((await req(undefined, '?efforts=1')).body.efforts, [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }]);
