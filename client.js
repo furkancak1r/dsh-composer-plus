@@ -6573,10 +6573,10 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
     const APPROVAL_HOLD = new RegExp(String.raw`(?<![\p{L}\p{N}])(?:(?<!\p{L}{2,20}(?:(?<!l)[ae]r|[ıiuü]r|m[ae]z)s[ae]n?\s{1,3})(?:dur|durdur|durdurun|durun)|bekle|bekleyin|bekleyelim|beklesin|iptal\p{L}*|ertele\p{L}*|vazgeç\p{L}*|hayır|stop|cancel|do not|don't|onay\p{L}*\s{1,3}geri\s{1,3}(?:al|çek)\p{L}*|onaylam[ıi]yorum|onaylamad[ıi]m|onay\s{1,3}verm(?:edim|iyorum)|(?:şimdi|hemen|simdi)\s{1,3}(?:yapma|yapmayın|olmaz)|deploy\p{L}{0,4}(?:['’]\p{L}{1,4})?(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}${HOLD_NEGATED}|(?:yayınla|(?<!yeniden\s{1,3})başlat|kur)(?:ma|mayın|mayalım|masın)|(?:yayınlan|başlatıl|kurul|alın)masın|canlıya\s{1,3}(?:alma|almayın|çıkma|çıkmayın)|${HOLD_DEPLOY_NOUN}(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}(?:olmaz|dokunma|dokunmayın|askıya\s{1,3}al\p{L}*|yok|edilmeyecek))(?![\p{L}\p{N}])`, 'u');
     // dur/durdur after a condition in any block; the HOLD list only in a deploy or live block (without its not-live scope
     // phrases); a deploy ask only as the strict line.
-    const APPROVAL_DUR = /(?<![\p{L}\p{N}])\p{L}*(?:[aeıiuü]r|m[ae]z|yor|var|yok|y)s[ae](?:n|n[ıi]z)?(?:\s{1,3}\p{L}+)?\s{1,3}(?:dur|durun|durdur|durdurun)(?![\p{L}\p{N}])/u;
-    const APPROVAL_SCOPE_OFF = /canli\p{L}* +değil|deploy\p{L}*(?:['’]\p{L}+)? +ayri +onay\p{L}*|yalniz +yerel/gu;
+    const APPROVAL_DUR = /(?<![\p{L}\p{N}])(?:\p{L}{2,}[aeıiuü]r|\p{L}*(?:m[ae]z|yor|var|yok|y|[ıiuü][kzş]))s[ae](?:n|n[ıi]z)?(?:\s{1,3}\p{L}+)?\s{1,3}(?:dur|durun|durdur|durdurun)(?![\p{L}\p{N}])/u;
+    const APPROVAL_SCOPE_OFF = /canli\p{L}* +değil|(?:canli\p{L}* +)?deploy\p{L}*(?:['’]\p{L}+)? +ayri +onay\p{L}*|yalniz +yerel/gu;
     const APPROVAL_LIVE_WORD = /deploy|canli|yayin/;
-    const DEPLOY_ASK = /canli +deploy +[a-z][a-z0-9-]{1,30} +(?:[0-9a-f]{4,40}|simdi|saat)(?![\p{L}\p{N}])|^(?=[^]*deploy)[^]*(?<![\p{L}\p{N}])(?=[0-9]*[a-f])[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
+    const DEPLOY_ASK = /^(?:onayliyorum:? *)?canli +deploy +[a-z][a-z0-9-]{1,30} +(?:[0-9a-f]{4,40}|simdi|saat)(?![\p{L}\p{N}])|^(?=[^]*canli)(?=[^]*deploy)[^]*(?<![\p{L}\p{N}])(?=[0-9]*[a-f])[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
     const DEPLOY_LINE = /^(?:onayliyorum:? {1,3})?canli {1,3}deploy {1,3}[a-z][a-z0-9-]{1,30} {1,3}(?=[0-9]*[a-f])[0-9a-f]{7,40} {1,3}(?:saat {1,3}(?:[01]\d|2[0-3])[:.][0-5]\d|simdi) {0,20}\.?$/;
     const passesGate = (text) => {
       const held = (re) => re.test(text.toLocaleLowerCase('tr')) || re.test(text.toLowerCase());

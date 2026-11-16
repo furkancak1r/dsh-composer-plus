@@ -132,7 +132,13 @@ const GOOD = ["Onaylıyorum: PR Addon S01 dalı ve geçici klasörü silinsin (m
   "Onaylıyorum: runner'ı iş bitene kadar durdur.", 'Onaylıyorum: servisleri birer birer durdur.', 'Onaylıyorum: tüm runnerlar durdur',
   'Onaylıyorum: arka plandaki işler durdur.',
   // Any product word in the strict line: the gate refuses a product that it does not know with its own message.
-  'CANLI DEPLOY ProsoCockpit 15c101d7 ŞİMDİ', 'CANLI DEPLOY demo-app 15c101d7 SAAT 18:00'];
+  'CANLI DEPLOY ProsoCockpit 15c101d7 ŞİMDİ', 'CANLI DEPLOY demo-app 15c101d7 SAAT 18:00',
+  // Review 3: "canlı deploy ayrı onayla" is a scope; a condition word is not a place name; a deploy without "canlı" or a
+  // later live deploy is no deploy approval.
+  "Onaylıyorum: sipariş iptal ekranı main'e alınsın, canlı deploy ayrı onayla.", "Onaylıyorum: fatura iptali düzeltmesi main'e alınsın; canlı deploy ayrı onay ister.",
+  'Onaylıyorum: Bursa sayımını durdur.', 'Onaylıyorum: arsa satışını durdur.', 'Onaylıyorum: kursa kaydı durdur.',
+  "Onaylıyorum: abc1234 commit'ini test sunucusuna deploy et (canlı değil).", "Onaylıyorum: feature/x dalı (abc1234) staging'e deploy edilsin.",
+  "Onaylıyorum: Promes main'e alınsın; canlı deploy yarın saat 22:00'de ayrı onaylanacak.", 'Onaylıyorum: prosolocal 15c101d7 deploy edilsin.'];
 for (const s of GOOD) assert.deepEqual(sentences(block(s)), [s], `the gate accepts it: ${s}`);
 const HELD = [
   ["Onaylıyorum: 2.19 deploy ayarı değişsin (CANLI sunucu ayarı, kod deploy'u yok).", "deploy'u yok"], ['Onaylıyorum: kurulum yapılsın, hata varsa dur.', 'varsa dur'], ['Onaylıyorum: kurulum yapılsın, gerekirse dur ve bildir.', 'gerekirse dur'],
@@ -141,6 +147,8 @@ const HELD = [
   ['Onaylıyorum: servisi kur, hata çıkarsa hemen durdur.', 'çıkarsa hemen durdur'], ['Onaylıyorum: hata görürsen durdur.', 'görürsen durdur'],
   ['Onaylıyorum: sayfa açılmazsa durdur.', 'açılmazsa durdur'], ['Onaylıyorum: kur, gerekiyorsa dur.', 'gerekiyorsa dur'],
   ["Onaylıyorum: ayar değişsin (canlı değil, kod deploy'u yok).", "deploy'u yok"],
+  ['Onaylıyorum: kur, hata açıksa dur.', 'açıksa dur'], ['Onaylıyorum: kur, dosya eksikse dur.', 'eksikse dur'], ['Onaylıyorum: test bozuksa dur.', 'bozuksa dur'],
+  ['Onaylıyorum: sorun çıkmışsa durdur.', 'çıkmışsa durdur'], ['Onaylıyorum: sağlık kontrolü başarısızsa durdur.', 'başarısızsa durdur'],
 ];
 for (const [s, word] of HELD) {
   assert.deepEqual(sentences(block(s)), [], `a hold word gets no button: ${s}`);
@@ -148,7 +156,7 @@ for (const [s, word] of HELD) {
   assert.doesNotMatch(approveRuleNote(s), /remove the live or deploy words/, 'the note keeps the scope words');
 }
 for (const s of ["CANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ: 2.19'a betikle yedekli deploy, CalVer etiketi ve rapor kontrolü.", 'CANLI DEPLOY PROSOLOCAL 1234567 ŞİMDİ',
-  'Onaylıyorum: PROMES canlı deploy abc1234 şimdi.', 'Onaylıyorum: prosolocal 15c101d7 deploy edilsin.',
+  'Onaylıyorum: PROMES canlı deploy abc1234 şimdi.',
   'CANLI DEPLOY PROSOLOCAL 15c101d7', 'Onaylıyorum: CANLI DEPLOY PROMES 15c101d7 SAAT 25:00', 'CANLI DEPLOY PROMES 15c101d7 ŞİMDİ ve etiket at.', 'CANLI DEPLOY PROMES ŞİMDİ']) {
   assert.deepEqual(sentences(block(s)), [], `a loose deploy line gets no button: ${s}`);
   assert.match(approveRuleNote(s), /looks like a live deploy approval .* but is not the strict deploy line.*"CANLI DEPLOY <PRODUCT> <commit SHA> ŞİMDİ".*When the block is not a deploy approval, leave out the commit SHA\.$/, `its note: ${s}`);

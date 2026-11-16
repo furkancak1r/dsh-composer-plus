@@ -9729,31 +9729,33 @@ const APPROVE_LONG_SOURCE = 'composer-plus-approve-long';
 export const approveLongNote = (length) => `Composer Plus → Approve button: your last \`onay\` block had ${length} characters, more than ${APPROVAL_MAX}, so it showed only as code, without the button. When an approval is still pending, write its block again with at most ${APPROVAL_MAX} characters: the most urgent approvals that fit, and one short line that says how many still wait.`;
 const approveNoteMessage = (text) => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text })]),
   source: Object.freeze({ kind: APPROVE_LONG_SOURCE, form: 'snapshot' }) });
-/* The hold words of the Auto review plugin's deploy gate: NEGATED, DEPLOY_NOUN, HOLD and holdOf, copied from
- * ~/.dsh/local/auto-review-relaxed-dev/index.js (lines 893-896, 2026-11-16). An approval with such a word does not pass
+/* The hold words of the Auto review plugin's deploy gate: NEGATED, DEPLOY_NOUN, HOLD and holdOf, copied from the local
+ * Auto review plugin's HOLD list (2026-11-16). An approval with such a word does not pass
  * that gate (2026-11-16: "kod deploy'u yok" in a clicked sentence held a deploy that the owner approved later; "gerekirse
  * dur" denied an install). The client's APPROVAL_HOLD (client.js) is the same expression: test/approve-button.test.mjs
  * compares the two. */
 const HOLD_NEGATED = String.raw`(?:etme|etmeyin|etmeyelim|etmesin|edilmesin|edilmeyecek|yapma|yapmayın|yapmayalım|yapılmasın|yapılmayacak)`;
 const HOLD_DEPLOY_NOUN = String.raw`(?:deploy|yayın|canlı|başlat|güncelle)\p{L}{0,8}(?:['’]\p{L}{1,4})?`;
 export const APPROVAL_HOLD = new RegExp(String.raw`(?<![\p{L}\p{N}])(?:(?<!\p{L}{2,20}(?:(?<!l)[ae]r|[ıiuü]r|m[ae]z)s[ae]n?\s{1,3})(?:dur|durdur|durdurun|durun)|bekle|bekleyin|bekleyelim|beklesin|iptal\p{L}*|ertele\p{L}*|vazgeç\p{L}*|hayır|stop|cancel|do not|don't|onay\p{L}*\s{1,3}geri\s{1,3}(?:al|çek)\p{L}*|onaylam[ıi]yorum|onaylamad[ıi]m|onay\s{1,3}verm(?:edim|iyorum)|(?:şimdi|hemen|simdi)\s{1,3}(?:yapma|yapmayın|olmaz)|deploy\p{L}{0,4}(?:['’]\p{L}{1,4})?(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}${HOLD_NEGATED}|(?:yayınla|(?<!yeniden\s{1,3})başlat|kur)(?:ma|mayın|mayalım|masın)|(?:yayınlan|başlatıl|kurul|alın)masın|canlıya\s{1,3}(?:alma|almayın|çıkma|çıkmayın)|${HOLD_DEPLOY_NOUN}(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}(?:olmaz|dokunma|dokunmayın|askıya\s{1,3}al\p{L}*|yok|edilmeyecek))(?![\p{L}\p{N}])`, 'u');
-/** dur and durdur after a condition, in any block: the model review of Auto review reads its wider STOP list (same file,
- * line 645), which has no condition rule (2026-11-16 15:18: "gerekirse dur" in a clicked sentence denied an install).
- * The condition is the suffix -sa/-se (-san, -sen, -sanız, -seniz) after an aorist, -mAz, -yor, var/yok or a vowel
- * (y): "çıkarsa", "gerekirse", "açılmazsa", "gerekiyorsa", "varsa", "bittiyse"; one word can come between ("çıkarsa
- * hemen durdur"). Without a condition ("servisi durdur", "kadar durdur", "kasa servisi durdur") it is a task. */
-export const APPROVAL_DUR = /(?<![\p{L}\p{N}])\p{L}*(?:[aeıiuü]r|m[ae]z|yor|var|yok|y)s[ae](?:n|n[ıi]z)?(?:\s{1,3}\p{L}+)?\s{1,3}(?:dur|durun|durdur|durdurun)(?![\p{L}\p{N}])/u;
-/** The not-live scope phrases of an approval, on the folded text: "canlı değil", "deploy ayrı onayla", "yalnız yerel".
+/** dur and durdur after a condition, in any block: the model review of the local Auto review plugin reads its wider STOP
+ * list, which has no condition rule (2026-11-16 15:18: "gerekirse dur" in a clicked sentence denied an install).
+ * The condition is the suffix -sa/-se (-san, -sen, -sanız, -seniz) after an aorist (two letters or more before it),
+ * -mAz, -yor, var/yok, a vowel (y) or -Ik/-Iz/-Iş: "çıkarsa", "gerekirse", "açılmazsa", "gerekiyorsa", "varsa",
+ * "bittiyse", "açıksa", "başarısızsa", "çıkmışsa"; one word can come between ("çıkarsa hemen durdur"). Without a
+ * condition ("servisi durdur", "kadar durdur", "kasa servisi durdur", "Bursa sayımını durdur") it is a task. */
+export const APPROVAL_DUR = /(?<![\p{L}\p{N}])(?:\p{L}{2,}[aeıiuü]r|\p{L}*(?:m[ae]z|yor|var|yok|y|[ıiuü][kzş]))s[ae](?:n|n[ıi]z)?(?:\s{1,3}\p{L}+)?\s{1,3}(?:dur|durun|durdur|durdurun)(?![\p{L}\p{N}])/u;
+/** The not-live scope phrases of an approval, on the folded text: "canlı değil", "(canlı) deploy ayrı onayla", "yalnız yerel".
  * They are taken out before the live word and the deploy checks (review 2: every approval names its scope). */
-export const APPROVAL_SCOPE_OFF = /canli\p{L}* +değil|deploy\p{L}*(?:['’]\p{L}+)? +ayri +onay\p{L}*|yalniz +yerel/gu;
+export const APPROVAL_SCOPE_OFF = /canli\p{L}* +değil|(?:canli\p{L}* +)?deploy\p{L}*(?:['’]\p{L}+)? +ayri +onay\p{L}*|yalniz +yerel/gu;
 /** The words that make a block a deploy or live approval: only then the gate's HOLD list counts ("erteleme raporu",
  * "Stop butonu", "vazgeçildi" in a branch approval keep the button). On the folded text without the scope phrases. */
 export const APPROVAL_LIVE_WORD = /deploy|canli|yayin/;
-/** A block that asks for a live deploy, on the folded text without the scope phrases: "deploy" and a commit SHA (7-40 hex
- * with a letter a-f), or "CANLI DEPLOY <product>" before a SHA-like token (4-40 hex) or ŞİMDİ|SAAT. Not "Canlı deploy
- * <product> için ayrı onayla" (review 2).
+/** A block that asks for a live deploy, on the folded text without the scope phrases: a block that starts with "CANLI
+ * DEPLOY <product>" before a SHA-like token (4-40 hex) or ŞİMDİ|SAAT, or one with "canlı", "deploy" and a commit SHA (7-40
+ * hex with a letter a-f). Not "Canlı deploy <product> için ayrı onayla" (review 2), not a deploy to a test server
+ * (review 3).
  * Only the strict line passes (DEPLOY_LINE). */
-export const DEPLOY_ASK = /canli +deploy +[a-z][a-z0-9-]{1,30} +(?:[0-9a-f]{4,40}|simdi|saat)(?![\p{L}\p{N}])|^(?=[^]*deploy)[^]*(?<![\p{L}\p{N}])(?=[0-9]*[a-f])[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
+export const DEPLOY_ASK = /^(?:onayliyorum:? *)?canli +deploy +[a-z][a-z0-9-]{1,30} +(?:[0-9a-f]{4,40}|simdi|saat)(?![\p{L}\p{N}])|^(?=[^]*canli)(?=[^]*deploy)[^]*(?<![\p{L}\p{N}])(?=[0-9]*[a-f])[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
 /** The strict live deploy line of the same gate (its APPROVAL_LINE, without "Option N: "), on the folded text (lower
  * case, ı to i, ş to s): the gate accepts nothing else (2026-11-16: "CANLI DEPLOY <product> 15c101d7 ŞİMDİ: 2.19'a ..."
  * got two clicks and approved no deploy).
