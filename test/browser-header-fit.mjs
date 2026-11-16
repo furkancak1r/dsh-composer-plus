@@ -165,7 +165,9 @@ try {
       // Three grants for this chat through the Host route (the same call as the approval card's button), then a reload.
       const sessionId = (await page.locator('[data-row-key^="session:"]').first().getAttribute('data-row-key')).slice('session:'.length);
       await page.evaluate(async (id) => { for (const tool of ['bash', 'write', 'edit']) await fetch('/api/composer-plus.grants', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'grant', sessionId: id, tool }) }); }, sessionId);
-      // Project memory (on for a new user since 2026-11-12) off: its header chips are not part of this check.
+      // Project memory (on for a new user since 2026-11-12) off: this check covers the three header items below.
+      // ponytail: with its two chips on too, dsh's "More actions" gets no click at 520 px (0.2.2-rc.3) and an item leaves the
+      // header at 600 px (0.2.2-rc.1): an open product bug of the memory chips' fit. Remove this line when they fit.
       assert.equal(await page.evaluate(async () => (await fetch('/api/composer-plus.memory', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"on":false}' })).status), 200);
       await page.reload(); await input.waitFor({ timeout: 20000 });
       await page.locator('[data-composer-plus-branch-status]').waitFor({ timeout: 20000 });
@@ -250,7 +252,7 @@ try {
       // dsh 0.2.2-rc.3 keeps its own items apart without the style (0.2.2-rc.1 does not): the evidence is for older dsh.
       const dshOverlaps = dshBefore.length > 0;
       if (dshOverlaps) assert.ok(dshBefore.includes(400), `without the style dsh's own header overlaps at 400 px (it did at: ${dshBefore.join(', ')})`);
-      console.log(`  dsh's own header: no overlap at ${DSH_NARROW.join(', ')} px (without the style it overlaps at ${dshBefore.join(', ')} px)`);
+      console.log(`  dsh's own header: no overlap at ${DSH_NARROW.join(', ')} px (${dshOverlaps ? `without the style it overlaps at ${dshBefore.join(', ')} px` : 'this dsh keeps its own header apart without the style'})`);
       await page.setViewportSize({ width: 1280, height: 900 }); await pause(400);
       await page.getByRole('button', { name: 'Open right sidebar' }).click(); await pause(1200);
       await fitOn(false); const asidePlain = await at(1280, 'd1280-sidebar-nofit'); await fitOn(true);
@@ -275,7 +277,7 @@ try {
       const off = await at(400, 'd400-off');
       assert.equal(off.styles, 0, 'switches off: no fit style');
       if (dshOverlaps) assert.ok(off.overlaps.length > 0, `switches off: dsh's own header overlaps at 400 px again (${off.items.join(' | ')})`);
-      console.log(`  all three off: no fit style, dsh's own header (${off.items.length} items, overlaps again)`);
+      console.log(`  all three off: no fit style, dsh's own header (${off.items.length} items${dshOverlaps ? ', overlaps again' : ''})`);
       // 3c. All three on again.
       await setSwitches({ [FIT]: true, [BRANCH]: true, [GRANTS]: true });
       cpItems = true;

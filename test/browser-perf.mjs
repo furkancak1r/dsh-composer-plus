@@ -64,7 +64,7 @@ const fake = createServer((req, res) => {
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     // "stream probe": a long Markdown answer in STREAM_CHUNKS pieces, one each 20 ms (a streamed reply).
     // The newest typed message: dsh adds runtime notes as user messages (`<system-reminder>`, "Time sampled …").
-    const typed = parsed.messages.filter((m) => m.role === 'user' && !/^(<system-reminder>|Time sampled while preparing)/.test(textOf(m.content))).at(-1);
+    const typed = parsed.messages.filter((m) => m.role === 'user' && !/^(<system-reminder>|Time sampled while preparing|Current runtime context)/.test(textOf(m.content))).at(-1);
     if (!helper && /stream probe/.test(textOf(typed?.content))) {
       const pieces = STREAM_TEXT.match(/[\s\S]{1,24}/g);
       let i = 0;
