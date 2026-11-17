@@ -73,6 +73,6 @@ assert.match(host, /about: chatAbout,/, 'the Host half names the chat and its pr
 const notify = body('private func notify(');
 assert.match(notify, /c\.subtitle = \[pairing\?\.title, s\.map \{ projectName\(\$0\.cwd, workspaces\) \}\]/, 'the local alert: Mac · project');
 assert.match(notify, /c\.body = \[s\?\.title, detail\]/, 'the local alert: the chat title, then the detail');
-assert.match(core, /notify\(String\(localized: "Turn finished"\), lastReply\(transcript\), session: current\)/, 'the local Turn finished shows the reply');
+assert.match(core, /let reply = lastReply\(transcript\)\n\s*if !quietTurn\(reply: reply, reason: reason\?\["kind"\] as\? String\) \{ notify\(String\(localized: "Turn finished"\), reply, session: current\) \}/, 'the local Turn finished shows the reply, and an empty or [quiet] reply of a turn that did not fail gives none');
 assert.match(gw, /pushTo\(\)\.filter\(d => inHours\(d\.push\.hours\)\)/, 'the gateway keeps the phone\'s hours');
 console.log('tether notify per Mac: keys per Mac, off by default, split once, no Host route, pushed by the Mac (APNs) with each Mac\'s own settings');
