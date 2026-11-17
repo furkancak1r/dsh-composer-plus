@@ -746,8 +746,9 @@ struct ConversationView: View {
                 let rows = chatRows(bot ? botLines(c.transcript) : c.transcript, open: openTurns, running: c.running)
                 let hits = finding.map { findRows(rows, query: $0) } ?? []
                 let findIndex = Dictionary(hits.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
-                // Approve button: the answer with the block, or (a folded turn hides it) the next answer on screen.
-                let approval = c.approvalOffer.flatMap { o in
+                // Approve button: the answer with the block, or (a folded turn hides it) the next answer on screen. Only
+                // with an empty composer (the buttons hide while you type), so a keystroke does not read the log again.
+                let approval = !(text.isEmpty && images.isEmpty && files.isEmpty) ? nil : c.approvalOffer.flatMap { o in
                     rows.lazy.compactMap { r -> Int? in
                         guard case .line(let l) = r, l.kind == .assistant, let s = l.seq, s >= o.from else { return nil }
                         return s
@@ -869,11 +870,11 @@ struct ConversationView: View {
             switch row {
             case .line(let l):
                 LineView(line: l, onEdit: { text = $0; focused = true }, onQuote: { text = quoteDraft(text, $0); focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil,
-                         onayButtons: approval.flatMap { o in o.offer.from == l.seq && o.at == l.seq && text.isEmpty && images.isEmpty && files.isEmpty ? Set(o.offer.sentences) : nil } ?? [])
+                         onayButtons: approval.flatMap { o in o.offer.from == l.seq && o.at == l.seq ? Set(o.offer.sentences) : nil } ?? [])
                 // Option buttons (Composer Plus): under the answer that ends with an option list.
                 if l.kind == .assistant, let o = c.optionOffer, o.seq == l.seq, text.isEmpty, images.isEmpty, files.isEmpty { OptionButtons(offer: o) }
                 // Approve button (Composer Plus): under the answer with the newest `onay` block.
-                if let o = approval, l.kind == .assistant, l.seq == o.at, text.isEmpty, images.isEmpty, files.isEmpty { ApproveButtons(offer: o.offer) }
+                if let o = approval, l.kind == .assistant, l.seq == o.at { ApproveButtons(offer: o.offer) }
             case .turn(let l, let foldable):
                 TurnRow(line: l, foldable: foldable, open: openTurns.contains(l.id)) {
                     withAnimation(.snappy) { if openTurns.contains(l.id) { openTurns.remove(l.id) } else { openTurns.insert(l.id) } }
@@ -1532,13 +1533,14 @@ struct OptionButtons: View {
 struct ApproveButtons: View {
     @EnvironmentObject var c: Client
     let offer: ApprovalOffer
-    @State private var asking: String?
+    /// The sentence and the chat of the tap: the confirmation sends only into that chat.
+    @State private var asking: (sid: String, sentence: String)?
     var body: some View {
         let busy = c.current.map { c.optionBusy.contains($0) } ?? true
         let w = approveWords(macLang: c.macLang)
         VStack(alignment: .leading, spacing: 6) {
             ForEach(offer.sentences, id: \.self) { s in
-                Button { UISelectionFeedbackGenerator().selectionChanged(); asking = s } label: {
+                Button { UISelectionFeedbackGenerator().selectionChanged(); asking = c.current.map { ($0, s) } } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 6) {
                         Text(verbatim: w.button).bold().fixedSize()
                         Text(verbatim: s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)).foregroundStyle(.secondary).multilineTextAlignment(.leading)
@@ -1553,10 +1555,10 @@ struct ApproveButtons: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(Text(verbatim: w.group))
-        .confirmationDialog(Text(verbatim: w.confirm), isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }), titleVisibility: .visible, presenting: asking) { s in
-            Button(w.button) { let o = offer; c.run(waits: false) { try await c.approve(o, s) } }
+        .confirmationDialog(Text(verbatim: w.confirm), isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }), titleVisibility: .visible, presenting: asking) { a in
+            Button(w.button) { let o = offer; c.run(waits: false) { try await c.approve(a.sid, o, a.sentence) } }
             Button(w.cancel, role: .cancel) {}
-        } message: { s in Text(verbatim: s) }
+        } message: { a in Text(verbatim: a.sentence) }
     }
 }
 

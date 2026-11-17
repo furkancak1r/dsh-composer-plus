@@ -267,14 +267,26 @@ func macKey(_ key: String, _ fp: String?, legacy: String?) -> String {
     return "\(key).\(fp.prefix(16))"
 }
 
-/// Splits on triple-backtick fences: prose blocks and code blocks; lang is the fence's language tag ("" if none).
+/// Splits on fence lines (``` or ~~~, 3 or more; the close is the same character, at least as long, with no info): prose
+/// blocks and code blocks; lang is the fence's info string ("" if none). An open fence runs to the end. The same fence
+/// rule as the Approve button (`onayBlocks`), so an `onay` block is the code block that its button replaces.
 func mdBlocks(_ s: String) -> [(code: Bool, text: String, lang: String)] {
-    s.components(separatedBy: "```").enumerated().compactMap { i, part in
-        if i % 2 == 0 { let t = part.trimmingCharacters(in: .newlines); return t.isEmpty ? nil : (false, t, "") }
-        var lines = part.components(separatedBy: "\n")
-        let lang = lines.count > 1 ? lines.removeFirst().trimmingCharacters(in: .whitespaces) : ""
-        return (true, lines.joined(separator: "\n").trimmingCharacters(in: .newlines), lang)
+    var out: [(code: Bool, text: String, lang: String)] = [], prose: [String] = []
+    var fence: (mark: String, lang: String, body: [String])?
+    func flush() { let t = prose.joined(separator: "\n").trimmingCharacters(in: .newlines); if !t.isEmpty { out.append((false, t, "")) }; prose = [] }
+    for line in s.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n") {
+        // ponytail: any indent opens a code block here (a fence in a nested list); only the Approve rule needs 0–3 spaces.
+        let f = fenceLine(String(line.drop { $0 == " " || $0 == "\t" }))
+        if let open = fence {
+            if let f, f.mark.first == open.mark.first, f.mark.count >= open.mark.count, f.info.isEmpty {
+                out.append((true, open.body.joined(separator: "\n").trimmingCharacters(in: .newlines), open.lang)); fence = nil
+            } else { fence?.body.append(line) }
+        } else if let f { flush(); fence = (f.mark, f.info, []) }
+        else { prose.append(line) }
     }
+    if let open = fence { out.append((true, open.body.joined(separator: "\n").trimmingCharacters(in: .newlines), open.lang)) }
+    flush()
+    return out
 }
 
 /// One prose line classified for block rendering (headings, lists, quotes, rules); inline syntax stays for AttributedString.
@@ -833,6 +845,11 @@ private let deployLine = try! NSRegularExpression(pattern: #"^(?:onayliyorum:? {
 private let onayFenceRE = try! NSRegularExpression(pattern: #"^( {0,3})(?:(`{3,})([^`]*)|(~{3,})([^\n\r\u2028\u2029]*))$"#)
 /// What JS `trim()` removes: Zs, tab, VT, FF, line ends and U+FEFF.
 let jsTrim = CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\n\r\u{0B}\u{0C}\u{2028}\u{2029}\u{FEFF}"))
+/// A fence line: its mark (``` or ~~~…), its trimmed info string and whether it is indented; nil for any other line.
+func fenceLine(_ line: String) -> (mark: String, info: String, indented: Bool)? {
+    guard let g = wholeMatch(onayFenceRE, line), let mark = g[2] ?? g[4] else { return nil }
+    return (mark, (g[3] ?? g[5] ?? "").trimmingCharacters(in: jsTrim), g[1] != "")
+}
 private func hits(_ re: NSRegularExpression, _ s: String) -> Bool { re.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) != nil }
 /// The groups of a match that covers all of `s`: JS `$` (no `m` flag) is the end of the text only; ICU's `$` also matches
 /// before a last line end.
@@ -861,14 +878,13 @@ func onayBlocks(_ text: String) -> [String] {
     var out: [String] = []
     var fence: (mark: String, approval: Bool, body: [String])?
     for line in text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n") {
-        let g = wholeMatch(onayFenceRE, line)
-        let mark = g.flatMap { $0[2] ?? $0[4] }, info = (g.flatMap { $0[3] ?? $0[5] } ?? "").trimmingCharacters(in: jsTrim)
+        let g = fenceLine(line)
         if let f = fence {
-            if let mark, mark.first == f.mark.first, mark.count >= f.mark.count, info.isEmpty {
+            if let g, g.mark.first == f.mark.first, g.mark.count >= f.mark.count, g.info.isEmpty {
                 if f.approval { out.append(f.body.joined(separator: "\n").trimmingCharacters(in: jsTrim)) }
                 fence = nil
             } else { fence?.body.append(line) }
-        } else if let g, let mark { fence = (mark, g[1] == "" && info.lowercased() == "onay", []) }
+        } else if let g { fence = (g.mark, !g.indented && g.info.lowercased() == "onay", []) }
     }
     return out
 }
@@ -923,8 +939,9 @@ func chatApprovals(_ events: [J], from: Int = 0) -> ApprovalOffer? {
 /// The words of the Approve button: client.js `approve.*` in Turkish when the Mac's Composer Plus language is Turkish
 /// (`/me` `lang`; an older Mac: this iPhone's language), else in English.
 struct ApproveWords { let button, group, confirm, cancel, hint: String }
+func isTurkish(macLang: String?, phone: String?) -> Bool { (macLang ?? phone ?? "en").lowercased().hasPrefix("tr") }
 func approveWords(macLang: String?, phone: String? = Locale.preferredLanguages.first) -> ApproveWords {
-    (macLang ?? phone ?? "en").lowercased().hasPrefix("tr")
+    isTurkish(macLang: macLang, phone: phone)
         ? ApproveWords(button: "Onayla", group: "Bu yanıtın onay cümleleri", confirm: "Bu cümle mesajınız olarak gönderilsin mi?", cancel: "Vazgeç", hint: "Cümleyi mesajınız olarak gönderir")
         : ApproveWords(button: "Approve", group: "Approval sentences of this answer", confirm: "Send this sentence as your message?", cancel: "Cancel", hint: "Sends the sentence as your message")
 }
@@ -939,7 +956,7 @@ private let calloutMark = try! NSRegularExpression(pattern: "^\\[!(\(calloutKind
 enum MdBlock: Equatable { case part(MdPart), callout(kind: String, title: String, lines: [String]) }
 /// The box labels of client.js `callouts.*` (Turkish when the Mac's Composer Plus language is Turkish, else English).
 func calloutLabel(_ kind: String, macLang: String?, phone: String? = Locale.preferredLanguages.first) -> String {
-    let tr = (macLang ?? phone ?? "en").lowercased().hasPrefix("tr")
+    let tr = isTurkish(macLang: macLang, phone: phone)
     switch kind {
     case "result": return tr ? "Sonuç" : "Result"
     case "problem": return tr ? "Sorun" : "Problem"
@@ -952,16 +969,21 @@ func calloutLabel(_ kind: String, macLang: String?, phone: String? = Locale.pref
 }
 /// mdParts with each marked quote as one callout (its quote lines without `>`).
 func mdCallouts(_ parts: [MdPart]) -> [MdBlock] {
-    var out: [MdBlock] = [], open = false // `open`: the last line was a line of the box
+    // `quote`: the last line was a quote line. As on the Mac (calloutOf reads the first text of a quote), only the first
+    // line of a quote can hold the marker; the later lines of a box join it.
+    var out: [MdBlock] = [], quote = false
     for p in parts {
-        guard case .line(let l) = p, case .quote(let s) = mdLine(l) else { out.append(.part(p)); open = false; continue }
-        if open, case .callout(let k, let t, let ls)? = out.last { out[out.count - 1] = .callout(kind: k, title: t, lines: ls + [s]); continue }
-        open = true
+        guard case .line(let l) = p, case .quote(let s) = mdLine(l) else { out.append(.part(p)); quote = false; continue }
+        defer { quote = true }
+        if quote {
+            if case .callout(let k, let t, let ls)? = out.last { out[out.count - 1] = .callout(kind: k, title: t, lines: ls + [s]) } else { out.append(.part(p)) }
+            continue
+        }
         let ns = s as NSString
         if let m = calloutMark.firstMatch(in: s, range: NSRange(location: 0, length: ns.length)) {
             let kind = ns.substring(with: m.range(at: 1)).lowercased(), rest = ns.substring(from: m.range.length).trimmingCharacters(in: .whitespaces)
             out.append(kind == "details" ? .callout(kind: kind, title: rest, lines: []) : .callout(kind: kind, title: "", lines: rest.isEmpty ? [] : [rest]))
-        } else { out.append(.part(p)); open = false }
+        } else { out.append(.part(p)) }
     }
     return out
 }
@@ -2194,8 +2216,10 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
     /// Sends `sentence` of `offer` exactly as your message (Auto review accepts an approval only from your message); the
     /// pick guard of the option buttons: one send per chat at a time, never the same offer twice, a failed send keeps it.
-    func approve(_ offer: ApprovalOffer, _ sentence: String) async throws {
-        guard let sid = current, offer.sentences.contains(sentence), optionsOpen(sid, offer.picks) else { return }
+    /// `sid`: the chat whose button was tapped. The offer must still be the chat's offer now: a newer block, a news turn or
+    /// another chat on screen while the confirmation showed sends nothing.
+    func approve(_ sid: String, _ offer: ApprovalOffer, _ sentence: String) async throws {
+        guard current == sid, let now = approvalOffer, now == offer, offer.sentences.contains(sentence), optionsOpen(sid, offer.picks) else { return }
         optionBusy.insert(sid)
         defer { optionBusy.remove(sid) }
         try await prompt(sentence, images: [])

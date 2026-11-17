@@ -32,13 +32,14 @@ for (const [name, sw] of [['APPROVAL_CHARS', 'approvalChars'], ['APPROVAL_HOLD',
 assert.ok(core.includes(`let approvalMax = ${js.APPROVAL_MAX}\n`), 'the same length limit');
 
 // The send payload: the exact sentence, as your message (the composer's prompt), behind the option guard; a tap asks first.
-const approve = core.slice(core.indexOf('func approve(_ offer: ApprovalOffer, _ sentence: String)'), core.indexOf('/// The Composer Plus language of the Mac'));
-assert.match(approve, /guard let sid = current, offer\.sentences\.contains\(sentence\), optionsOpen\(sid, offer\.picks\) else \{ return \}/, 'only a sentence of the offer, once');
+const approve = core.slice(core.indexOf('func approve(_ sid: String, _ offer: ApprovalOffer, _ sentence: String)'), core.indexOf('/// The Composer Plus language of the Mac'));
+assert.match(approve, /guard current == sid, let now = approvalOffer, now == offer, offer\.sentences\.contains\(sentence\), optionsOpen\(sid, offer\.picks\) else \{ return \}/, 'only a sentence of the chat\'s offer now, once');
 assert.match(approve, /try await prompt\(sentence, images: \[\]\)/, 'the exact sentence, nothing added');
 assert.match(core.slice(core.indexOf('private func deliver(')), /rpc\("session\/prompt", \["request": \["requestId": rid, "sessionId": sid, "mode": steer \? "steer" : "queue", "content": content\]\]\)/, 'sent as a user prompt');
 const buttons = ui.slice(ui.indexOf('struct ApproveButtons: View'), ui.indexOf('struct LineView: View'));
-assert.match(buttons, /\.confirmationDialog\(Text\(verbatim: w\.confirm\)[\s\S]*c\.approve\(o, s\)[\s\S]*message: \{ s in Text\(verbatim: s\) \}/, 'one confirmation with the full sentence, then the send');
-assert.match(ui, /if let o = approval, l\.kind == \.assistant, l\.seq == o\.at, text\.isEmpty, images\.isEmpty, files\.isEmpty \{ ApproveButtons\(offer: o\.offer\) \}/, 'under the answer, only with an empty composer');
+assert.match(buttons, /\.confirmationDialog\(Text\(verbatim: w\.confirm\)[\s\S]*c\.approve\(a\.sid, o, a\.sentence\)[\s\S]*message: \{ a in Text\(verbatim: a\.sentence\) \}/, 'one confirmation with the full sentence, then the send');
+assert.match(ui, /let approval = !\(text\.isEmpty && images\.isEmpty && files\.isEmpty\) \? nil : c\.approvalOffer/, 'only with an empty composer');
+assert.match(ui, /if let o = approval, l\.kind == \.assistant, l\.seq == o\.at \{ ApproveButtons\(offer: o\.offer\) \}/, 'under the answer');
 // The words: Turkish when the Mac's Composer Plus language is Turkish, else English; the Mac's own words.
 const tr = JSON.parse(read('locales/tr.json'))['dsh-composer-plus'];
 for (const [key, word] of [['approve.button', 'Onayla'], ['approve.group', 'Bu yanıtın onay cümleleri']]) assert.equal(tr[key], word, `tr ${key}`);

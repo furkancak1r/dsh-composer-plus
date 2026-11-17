@@ -1658,9 +1658,13 @@ final class AgentboxIdeasTests: XCTestCase {
         XCTAssertNil(c.approvalOffer, "the fork offset is not known yet")
         c.optionsFrom = 0
         let offer = try XCTUnwrap(c.approvalOffer)
-        do { try await c.approve(offer, ask); XCTFail("no Mac: the send fails") } catch {}
+        do { try await c.approve("A", offer, ask); XCTFail("no Mac: the send fails") } catch {}
         XCTAssertNotNil(c.approvalOffer, "a failed send keeps the button")
-        try await c.approve(offer, "Onaylıyorum: başka bir şey.") // not a sentence of the offer: nothing
+        try await c.approve("A", offer, "Onaylıyorum: başka bir şey.") // not a sentence of the offer: nothing
+        try await c.approve("B", offer, ask) // another chat on screen than the tap's: nothing
+        let stale = ApprovalOffer(seq: offer.seq, latest: offer.latest, from: 99, sentences: offer.sentences)
+        try await c.approve("A", stale, ask) // a block that is not the chat's offer now (a newer one came): nothing
+        XCTAssertTrue(c.optionBusy.isEmpty)
         c.optionPicked["A"] = offer.picks; XCTAssertNil(c.approvalOffer, "sent: no button")
         c.optionPicked["A"] = nil; c.running = true; XCTAssertNil(c.approvalOffer, "not while the chat runs"); c.running = false
         c.sessions = [Sess(["sessionId": "A", "parentSessionId": "P", "origin": "subagent"])!]
@@ -1680,6 +1684,11 @@ final class AgentboxIdeasTests: XCTestCase {
         ])
         XCTAssertEqual(mdCallouts(mdParts("> [!NOTE] x\n> see")), [.part(.line("> [!NOTE] x")), .part(.line("> see"))], "an unknown marker: a quote")
         XCTAssertEqual(mdCallouts(mdParts("> [!RESULT]done")), [.part(.line("> [!RESULT]done"))], "a marker glued to a word")
+        XCTAssertEqual(mdCallouts(mdParts("> a\n> [!RESULT] b")), [.part(.line("> a")), .part(.line("> [!RESULT] b"))], "a marker only on the first line of a quote")
+        // The fences of the Approve rule: ~~~, longer fences and CRLF make the same code block (its button hides it).
+        XCTAssertEqual(mdBlocks("Hi.\r\n~~~onay\r\nOk.\r\n~~~\r\nAfter").map { "\($0.code)|\($0.lang)|\($0.text)" }, ["false||Hi.", "true|onay|Ok.", "false||After"])
+        XCTAssertEqual(mdBlocks("````onay\nOk.\n````").map { "\($0.code)|\($0.lang)|\($0.text)" }, ["true|onay|Ok."])
+        XCTAssertEqual(mdBlocks("```\nopen").map(\.code), [true], "an open fence runs to the end")
         XCTAssertEqual(calloutLabel("approval", macLang: "tr"), "Onay gerekli"); XCTAssertEqual(calloutLabel("running", macLang: "en"), "Still running")
     }
 
