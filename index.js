@@ -25,11 +25,13 @@
  */
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { appendFile, chmod, copyFile, cp, lstat, mkdir, mkdtemp, open, readdir, readFile, readlink, realpath, rename, rm, rmdir, stat, symlink, unlink, writeFile } from 'node:fs/promises';
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { homedir, platform as osPlatform, release as osRelease, userInfo } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createGateway, createRelay, macName, normFp, parseComputerLink } from './tether/gateway/server.mjs';
 import { request as httpsRequest } from 'node:https';
+import { createServer as createHttpServer } from 'node:http';
+import { createServer as createNetServer } from 'node:net';
 import { fileURLToPath } from 'node:url';
 import * as backups from './backup.mjs';
 
@@ -87,7 +89,7 @@ export const UNREAD_MAX = 1000;
 /** Feature screenshots shipped in assets/features/<id>.webp; only these ids are served (no path input). */
 export const SHOTS = ['changesPanel', 'featureIdeas', 'projectStatus', 'recentProjects', 'collapseProjects', 'statusOrder', 'notifications', 'idleSwitch', 'nextWaiting', 'optionPicks', 'approveButton', 'allowForChat', 'rejectNote', 'secretInput', 'quoteReply', 'previewQuote', 'sideChat', 'diffComments', 'continueButton', 'resumeAfterRestart', 'outageResume', 'inputHistory', 'planToggle', 'keepFocus', 'questionFit', 'headerFit', 'subagentRunning', 'windowSize',
   'queueReorder', 'mobileConnect', 'remoteComputers', 'copyDeeplink', 'copyProjectPath', 'projectPicker', 'nextPrediction', 'typingCompletion', 'promptImprove', 'exportMarkdown', 'language', 'autoUpdate', 'featureFilter', 'categoryFilter', 'contentSearch', 'turnRollback', 'deleteChat', 'projectName', 'markProjectRead', 'queueEdit', 'copyMessageLink', 'findInChat', 'sessionBranch', 'worktreeChats', 'branchTree', 'defaultWorkspace', 'goalCheck', 'projectMemory',
-  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'assistant', 'assistantApart', 'assistantChatView', 'assistantCallouts', 'assistantFree', 'assistantNotify', 'assistantTodos', 'plannedSteps', 'advisor', 'turkishSkill', 'untangleCodebase', 'memoryHistory', 'memoryExport', 'memorySource', 'memoryCopy', 'memoryStale', 'memoryPerChat', 'memorySuggest', 'issueReport'];
+  'backup', 'autoBackup', 'sessionDoctor', 'rescueConsole', 'stopSendFirst', 'protectedFiles', 'blockedCommands', 'handoffChat', 'contextBreakdown', 'taskBoard', 'assistant', 'assistantApart', 'assistantChatView', 'assistantCallouts', 'assistantFree', 'assistantNotify', 'assistantTodos', 'assistantHermes', 'plannedSteps', 'advisor', 'turkishSkill', 'untangleCodebase', 'memoryHistory', 'memoryExport', 'memorySource', 'memoryCopy', 'memoryStale', 'memoryPerChat', 'memorySuggest', 'issueReport'];
 const PACKAGE = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
 const NPM_NAME = 'dsh-composer-plus';
 const RELEASES_URL = 'https://api.github.com/repos/furkancak1r/dsh-composer-plus/releases/latest';
@@ -2463,6 +2465,7 @@ export function apply(ctx) {
   installAssistantBot(ctx, home, assistant, { outage });
   const todos = installAssistantTodos(ctx, home, assistant, { outage });
   installAssistantMorning(ctx, home, assistant, { todos });
+  installHermes(ctx, home, assistant);
   const setup = installAssistantSetup(ctx, assistant, memory);
   installMemoryImport(ctx, home, assistant, memory, setup);
   installSecrets(ctx, home);
@@ -12441,4 +12444,519 @@ function summaryStore(file) {
     return done;
   };
   return { ready, set, of: (id) => chats.get(id) };
+}
+
+/* Assistant on Hermes (after Hermes Agent, NousResearch/hermes-agent, MIT; no code of it is used): the assistant chat keeps
+ * its place in dsh (log, Approve button, status panel, Tether), but Hermes Agent thinks and acts in it. Off by default: it
+ * runs a local server and a child process. While on and running:
+ * - Each model call of the assistant chat (dsh's `llm/stream` waterfall, the chat's own session id, no auxiliary purpose)
+ *   goes to Hermes' OpenAI API (`hermes gateway`, 127.0.0.1, a random key) as one Hermes turn in the session
+ *   `composer-plus-<chat id>`. Hermes keeps the history; the request carries only the new user text and the Composer Plus
+ *   sections of dsh's system prompt (hermesTurn). The answer streams back as text: dsh runs no tool in this chat.
+ * - A loopback server (random port and token) gives Hermes two things: an MCP server with the assistant's tools
+ *   (HERMES_TOOLS), each run through dsh's tool pipeline in the assistant agent's scope, so its gates (the approval card,
+ *   Auto review, relayed approvals) stay; and an OpenAI-compatible `/v1/chat/completions` on dsh's own models (the
+ *   assistant chat's model as `dsh`, any `<provider>/<model>` that dsh lists), so Hermes needs no model key.
+ * - Hermes' settings for this run come from a managed overlay (HERMES_MANAGED_DIR): the user's config.yaml is not written.
+ * - A dangerous command of Hermes during a dsh turn asks through dsh's approval seam; outside a dsh turn (Telegram,
+ *   WhatsApp, cron) Hermes keeps its own rule (deny when unattended), and the Composer Plus tools that ask are refused.
+ * - Hermes' background work (delegate_task) answers later in its session: a poll finds the new replies and shows them in
+ *   the assistant chat through a hidden note (no chat bubble) and one turn that replays them without a model call.
+ * Off: the process and the server stop, and the assistant chat uses dsh's own agent loop again. */
+export const HERMES_PATH = '/api/composer-plus.assistant-hermes';
+/** Assistant on Hermes → Subagent model: the dsh model of Hermes' delegate_task ({model?}; ?catalog=1 adds dsh's list). */
+export const HERMES_MODEL_PATH = '/api/composer-plus.assistant-hermes-model';
+export const HERMES_SOURCE = 'composer-plus-hermes';
+/** The assistant's tools that Hermes gets over MCP (the memory and schedule tools are dsh's or Composer Plus's own). */
+export const HERMES_TOOLS = [...ASSISTANT_TOOLS, ...TODO_TOOLS, 'memory_remember', 'memory_recall', 'memory_forget', 'schedule_create', 'schedule_list', 'schedule_view', 'schedule_edit'];
+/** start: the first start of a Hermes data root installs its dependencies (minutes). */
+export const HERMES_LIMITS = { health: 15000, poll: 20000, start: 10 * 60000, backoff: [5000, 30000, 120000], body: 8 * 1024 * 1024, tool: 15 * 60000, log: 2000 };
+/** The model id that Hermes sends for the assistant chat's own model. */
+export const HERMES_MAIN_MODEL = 'dsh';
+export const HERMES_SECTION = `# Hermes (Composer Plus)
+You are Hermes Agent. Composer Plus connects you to the user's dsh: in dsh this conversation is the assistant chat, and the dsh instructions below stay valid with these changes.
+- The Composer Plus tools that they name are your MCP tools mcp__composer_plus__<name> (for example chats_list is mcp__composer_plus__chats_list): ${HERMES_TOOLS.join(', ')}.
+- Where they say subagent or subagent_fork, call delegate_task with background true: the chat stays free, and the result comes back to you as a new turn. list_agents, send_message and interrupt_agent are not available here.
+- Reminders: mcp__composer_plus__schedule_create with target this_session, so the reminder comes back into this chat. Use your own cron only for a reminder that the user wants on Telegram or WhatsApp.
+- Memory: only the mcp__composer_plus__memory_* tools (the user's notes); you have no other memory.
+- chat_send, chat_new, chat_stop and chat_archive ask the user in dsh first. They work only while the user talks to you in dsh, not from Telegram or WhatsApp.
+- Your replies show in dsh: Markdown, callouts and the \`onay\` block work as described below.`;
+/** Composer Plus sections of dsh's system prompt that do not fit Hermes (they name dsh's own tools). */
+const HERMES_SKIP = ['# Assistant always free (Composer Plus)', '# Planned steps (Composer Plus)'];
+
+/** The Composer Plus sections (`# … (Composer Plus)` up to the next top-level heading) of a system prompt text. */
+export function composerSections(text) {
+  const out = []; let open;
+  for (const line of String(text ?? '').replace(/\r\n?/g, '\n').split('\n')) {
+    if (/^# /.test(line)) {
+      if (open) out.push(open.join('\n').trim());
+      open = /^# .*\(Composer Plus\)\s*$/.test(line) && !HERMES_SKIP.includes(line.trim()) ? [line] : undefined;
+    } else open?.push(line);
+  }
+  if (open) out.push(open.join('\n').trim());
+  return out;
+}
+
+/** One Hermes turn from dsh's request messages: the system text (HERMES_SECTION and the Composer Plus sections of the
+ * system and developer messages), the new user text (the user messages after the last assistant message; an image or a
+ * file is named, not sent) and `replay` (only Hermes' own note came: the turn shows Hermes' background replies). */
+export function hermesTurn(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  const last = list.findLastIndex((m) => m?.role === 'assistant');
+  const sections = list.filter((m) => m?.role === 'system' || m?.role === 'developer').flatMap((m) => composerSections(textBlocks(m.content)));
+  const after = list.slice(last + 1).filter((m) => m?.role === 'user');
+  const own = after.filter((m) => m.source?.kind !== HERMES_SOURCE);
+  const part = (b) => (b?.type === 'text' ? b.text : b?.type === 'image' ? '[an image: the user sees it in dsh]' : b?.type === 'file' ? '[a file: the user sees it in dsh]' : '');
+  const text = own.map((m) => (Array.isArray(m.content) ? m.content.map(part).join('') : '')).filter((t) => t.trim() !== '').join('\n\n');
+  return { system: [HERMES_SECTION, ...sections].join('\n\n'), text, replay: after.length > 0 && own.length === 0 };
+}
+
+/** Server-sent events of a fetch body: `{event, data}` per frame (comments and keepalives are left out). */
+export async function* sseEvents(body) {
+  const decoder = new TextDecoder(); let buf = '';
+  const frame = (raw) => {
+    let event = 'message'; const data = [];
+    for (const line of raw.split('\n')) {
+      const l = line.replace(/\r$/, '');
+      if (l.startsWith('event:')) event = l.slice(6).trim();
+      else if (l.startsWith('data:')) data.push(l.slice(5).replace(/^ /, ''));
+    }
+    return data.length === 0 ? undefined : { event, data: data.join('\n') };
+  };
+  for await (const chunk of body) {
+    buf += decoder.decode(chunk, { stream: true }).replace(/\r\n/g, '\n');
+    let i;
+    while ((i = buf.indexOf('\n\n')) >= 0) { const f = frame(buf.slice(0, i)); buf = buf.slice(i + 2); if (f) yield f; }
+  }
+  const f = frame(buf + decoder.decode()); if (f) yield f;
+}
+
+/** dsh stream chunks from Hermes' Chat Completions stream: one text block, usage, finish. `onApproval(event)` answers
+ * Hermes' `approval.request` (its run waits meanwhile). A cut stream or Hermes' error finish throws. */
+export async function* hermesChunks(body, onApproval = async () => {}) {
+  let text = ''; let started = false; let finish; let usage;
+  for await (const { event, data } of sseEvents(body)) {
+    if (event === 'approval.request') { let e; try { e = JSON.parse(data); } catch { continue; } await onApproval(e); continue; }
+    if (event !== 'message' || data === '[DONE]') continue;
+    let c; try { c = JSON.parse(data); } catch { continue; }
+    const choice = c?.choices?.[0];
+    const delta = typeof choice?.delta?.content === 'string' ? choice.delta.content : '';
+    if (delta !== '') {
+      if (!started) { started = true; yield { type: 'block-start', index: 0, blockType: 'text' }; }
+      text += delta; yield { type: 'text-delta', index: 0, text: delta };
+    }
+    if (c?.usage) usage = c.usage;
+    if (typeof choice?.finish_reason === 'string') finish = { reason: choice.finish_reason, error: c?.error?.message };
+  }
+  if (started) yield { type: 'block-end', index: 0, block: { type: 'text', text } };
+  if (finish === undefined) throw new Error('Hermes: the answer stopped before its end');
+  if (finish.reason !== 'stop' && finish.reason !== 'length') throw new Error(`Hermes: ${finish.error || `the turn ended with ${finish.reason}`}`);
+  const n = (v) => (Number.isSafeInteger(v) && v >= 0 ? v : 0);
+  yield { type: 'usage', usage: { inputTokens: n(usage?.prompt_tokens ?? usage?.input_tokens), outputTokens: n(usage?.completion_tokens ?? usage?.output_tokens) } };
+  yield { type: 'finish', reason: { kind: finish.reason === 'length' ? 'max-tokens' : 'stop' } };
+}
+
+/** dsh request parts from an OpenAI Chat Completions body (the bridge for Hermes' own model calls). */
+export function bridgeRequest(body) {
+  const text = (content) => (typeof content === 'string' ? content : Array.isArray(content) ? content.map((p) => (p?.type === 'text' && typeof p.text === 'string' ? p.text : '')).join('') : '');
+  const block = (t) => (t === '' ? [] : [{ type: 'text', text: t }]);
+  const system = []; const messages = [];
+  for (const m of Array.isArray(body?.messages) ? body.messages : []) {
+    const id = randomUUID();
+    if (m?.role === 'system' || m?.role === 'developer') system.push(text(m.content));
+    else if (m?.role === 'user') messages.push({ id, role: 'user', content: block(text(m.content)), source: { kind: 'user' } });
+    else if (m?.role === 'assistant') {
+      const calls = (Array.isArray(m.tool_calls) ? m.tool_calls : []).filter((c) => isText(c?.id, 256) && isText(c?.function?.name, 256))
+        .map((c) => ({ type: 'tool-call', id: c.id, name: c.function.name, arguments: typeof c.function.arguments === 'string' ? c.function.arguments : '{}' }));
+      const reasoning = typeof m.reasoning_content === 'string' && m.reasoning_content !== '' ? [{ type: 'reasoning', text: m.reasoning_content }] : [];
+      messages.push({ id, role: 'assistant', content: [...reasoning, ...block(text(m.content)), ...calls], source: { kind: 'model', provider: 'composer-plus', model: String(body?.model ?? '') } });
+    } else if (m?.role === 'tool' && isText(m.tool_call_id, 256)) {
+      messages.push({ id, role: 'tool', toolCallId: m.tool_call_id, content: block(text(m.content) || '(empty)'), isError: false, source: { kind: 'tool', callId: m.tool_call_id } });
+    }
+  }
+  const tools = (Array.isArray(body?.tools) ? body.tools : []).filter((t) => isText(t?.function?.name, 256))
+    .map((t) => ({ name: t.function.name, description: String(t.function.description ?? ''), parameters: plainObject(t.function.parameters) ? t.function.parameters : { type: 'object', properties: {} } }));
+  return { system: system.filter(Boolean).join('\n\n'), messages, tools };
+}
+
+/** OpenAI Chat Completions chunk parts (without the envelope) from dsh stream chunks; tool calls are numbered in order. */
+export function bridgeChunks() {
+  const calls = new Map(); // dsh block index → OpenAI tool call index
+  return (chunk) => {
+    if (chunk.type === 'text-delta') return [{ delta: { content: chunk.text } }];
+    if (chunk.type === 'reasoning-delta') return [{ delta: { reasoning_content: chunk.text } }];
+    if (chunk.type === 'tool-call-delta') {
+      const first = !calls.has(chunk.index); if (first) calls.set(chunk.index, calls.size);
+      return [{ delta: { tool_calls: [{ index: calls.get(chunk.index), ...(first ? { id: chunk.id, type: 'function' } : {}), function: { ...(first && chunk.name ? { name: chunk.name } : {}), arguments: chunk.argumentsDelta ?? '' } }] } }];
+    }
+    if (chunk.type === 'usage') return [{ usage: { prompt_tokens: chunk.usage.inputTokens, completion_tokens: chunk.usage.outputTokens, total_tokens: chunk.usage.inputTokens + chunk.usage.outputTokens } }];
+    if (chunk.type === 'finish') {
+      const k = chunk.reason?.kind;
+      if (k === 'error' || k === 'aborted') return [{ error: chunk.reason.failure?.message ?? k }];
+      return [{ delta: {}, finish_reason: k === 'tool-calls' ? 'tool_calls' : k === 'max-tokens' ? 'length' : 'stop' }];
+    }
+    return [];
+  };
+}
+
+/** One MCP JSON-RPC message (Streamable HTTP with JSON answers): initialize, ping, tools/list, tools/call. A notification
+ * gets undefined. `tools.list()` gives the tool schemas; `tools.call(name, args)` gives text or throws. */
+export async function mcpAnswer(msg, tools, version = '0') {
+  const error = (code, message) => ({ jsonrpc: '2.0', id: msg?.id ?? null, error: { code, message } });
+  if (!plainObject(msg) || msg.jsonrpc !== '2.0' || !isText(msg.method, 128)) return error(-32600, 'invalid request');
+  if (msg.id === undefined) return undefined;
+  const ok = (result) => ({ jsonrpc: '2.0', id: msg.id, result });
+  const p = plainObject(msg.params) ? msg.params : {};
+  if (msg.method === 'initialize') return ok({ protocolVersion: isText(p.protocolVersion, 32) ? p.protocolVersion : '2025-06-18', capabilities: { tools: { listChanged: false } }, serverInfo: { name: 'composer-plus', version } });
+  if (msg.method === 'ping') return ok({});
+  if (msg.method === 'tools/list') return ok({ tools: await tools.list() });
+  if (msg.method === 'tools/call') {
+    if (!isText(p.name, 128)) return error(-32602, 'name is missing');
+    try { return ok({ content: [{ type: 'text', text: String(await tools.call(p.name, plainObject(p.arguments) ? p.arguments : {})) }], isError: false }); }
+    catch (e) { return ok({ content: [{ type: 'text', text: String(e?.message ?? e) }], isError: true }); }
+  }
+  return error(-32601, `no method ${msg.method}`);
+}
+
+/** Hermes' settings for a run of Composer Plus (a managed overlay: Hermes expands `${VAR}` from the gateway's env). JSON
+ * is YAML, so no YAML writer is needed. `delegate`: dsh's subagent model as `<provider>/<model>`, when there is one. */
+export function hermesManaged({ folder, delegate }) {
+  return {
+    model: { provider: 'composer-plus', default: HERMES_MAIN_MODEL },
+    providers: { 'composer-plus': { api: '${COMPOSER_PLUS_URL}/v1', api_key: '${COMPOSER_PLUS_TOKEN}', discover_models: false, models: [HERMES_MAIN_MODEL, ...(delegate ? [delegate] : [])] } },
+    ...(delegate ? { delegation: { provider: 'composer-plus', model: delegate } } : {}),
+    mcp_servers: { composer_plus: { url: '${COMPOSER_PLUS_URL}/mcp', headers: { Authorization: 'Bearer ${COMPOSER_PLUS_TOKEN}' }, timeout: HERMES_LIMITS.tool / 1000, connect_timeout: 30 } },
+    memory: { memory_enabled: false, user_profile_enabled: false },
+    // The assistant's tools are its core tools: no Tool Search bridge (tool_search, tool_describe, tool_call) in front of them.
+    tools: { tool_search: { enabled: 'off' } },
+    terminal: { cwd: folder },
+  };
+}
+
+/** A free TCP port on 127.0.0.1. ponytail: another process can take it before Hermes binds it; the health check then
+ * fails and the restart picks another one. */
+const freePort = () => new Promise((resolvePort, reject) => {
+  const s = createNetServer(); s.once('error', reject);
+  s.listen(0, '127.0.0.1', () => { const { port } = s.address(); s.close(() => resolvePort(port)); });
+});
+const sameToken = (header, token) => {
+  const given = Buffer.from(String(header ?? '')); const want = Buffer.from(`Bearer ${token}`);
+  return given.length === want.length && timingSafeEqual(given, want);
+};
+/** The body of a loopback request, at most HERMES_LIMITS.body bytes. */
+const readBody = (req) => new Promise((resolveBody, reject) => {
+  const parts = []; let size = 0;
+  req.on('data', (c) => { size += c.length; if (size > HERMES_LIMITS.body) { reject(Object.assign(new Error('too large'), { status: 413 })); req.destroy(); } else parts.push(c); });
+  req.on('end', () => resolveBody(Buffer.concat(parts).toString('utf8'))); req.on('error', reject);
+});
+const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
+
+/** Host half of Assistant on Hermes. `assistant`: installAssistant's handle. */
+export function installHermes(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), version = PACKAGE.version, executable } = {}) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
+  const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: hermes: ${text}`);
+  const sw = mobileSwitch(join(dir, 'assistant-hermes.json'), false);
+  let on = false; let state = 'off'; let error; let hermesVersion;
+  let run; // the running gateway: { proc, stop, server, key, api }
+  let failures = 0; let retry; let health; let poll;
+  let route; // the assistant chat's newest model route: Hermes' `dsh` model
+  let lastId; // the newest Hermes message id that the assistant chat has shown
+  const pending = []; // Hermes replies that wait for their replay turn
+  const session = () => `composer-plus-${assistant.id()}`;
+  const set = (next, why) => { state = next; error = why; };
+
+  /** The live assistant agent; its tools run through dsh's pipeline in its scope (gates and approvals stay). */
+  const agentOf = async () => {
+    if (!assistant.isOn()) throw refused('Assistant is off.');
+    const found = await ctx.sessionController.resolveAgent(await assistant.ensure());
+    if ('error' in found) throw refused(found.error?.message ?? 'the assistant chat is not available');
+    return found.agent;
+  };
+  const mcpTools = {
+    list: async () => {
+      const agent = await agentOf(); const tools = get('tools');
+      return HERMES_TOOLS.flatMap((name) => {
+        const t = tools?.get?.(name, agent) ?? tools?.get?.(name);
+        return t ? [{ name, description: String(t.description ?? ''), inputSchema: plainObject(t.parameters) ? t.parameters : { type: 'object', properties: {} } }] : [];
+      });
+    },
+    call: async (name, args) => {
+      if (!HERMES_TOOLS.includes(name)) throw refused(`No Composer Plus tool ${name}.`);
+      const agent = await agentOf();
+      const out = await get('tools').execute({ calls: [{ type: 'tool-call', id: `hermes-${randomUUID()}`, name, arguments: JSON.stringify(args) }], signal: AbortSignal.timeout(HERMES_LIMITS.tool), agent });
+      const r = out?.results?.[0]; const res = r?.result ?? r;
+      const text = textBlocks(res?.content) || textBlocks(res?.message?.content) || JSON.stringify(res ?? '');
+      if (res?.isError === true) throw new Error(text);
+      return text;
+    },
+  };
+
+  /** dsh's route for a Hermes model id: `dsh` = the assistant chat's model, else a `<provider>/<model>` that dsh lists. */
+  const bridgeRoute = async (model) => {
+    const at = typeof model === 'string' ? model.indexOf('/') : -1;
+    if (at > 0) {
+      const want = { provider: model.slice(0, at), model: model.slice(at + 1) };
+      if ((await routeOf(ctx, get, want)) === want) return want;
+    }
+    return route ?? await routeOf(ctx, get);
+  };
+  /** The model of Hermes' delegate_task as `<provider>/<model>`: the one chosen in Settings (Subagent model), else the
+   * first allowed model of dsh's subagent model setting, else none (Hermes' subagents use the assistant chat's model). */
+  const subagentModel = settingsStore(join(dir, 'assistant-hermes-model.json'), savedModel);
+  const delegateModel = async () => {
+    const { model } = await subagentModel.read();
+    if (model) return `${model.provider}/${model.model}`;
+    try {
+      const value = get('settings')?.describe?.().find((d) => d?.ns === 'subagent-model-selection-settings')?.value;
+      const r = value?.enabled === true && Array.isArray(value.allowedModels) ? value.allowedModels.find((m) => isText(m?.provider) && isText(m?.model)) : undefined;
+      return r ? `${r.provider}/${r.model}` : undefined;
+    } catch { return undefined; }
+  };
+  const bridge = async (req, res) => {
+    const body = JSON.parse(await readBody(req));
+    const { system, messages, tools } = bridgeRequest(body);
+    const target = await bridgeRoute(body?.model);
+    const llm = get('llm');
+    if (target === undefined || llm?.prepareCall === undefined) throw Object.assign(new Error('dsh has no model for Hermes'), { status: 503 });
+    const stop = new AbortController(); res.on('close', () => { if (!res.writableEnded) stop.abort(); });
+    const main = target === route;
+    const call = await llm.prepareCall({ provider: target.provider, model: target.model }, stop.signal, (controls, model) => {
+      // The assistant chat's own effort for its model; the highest effort for another model (a subagent: the user's rule).
+      const effort = main && target.reasoningEffort ? target.reasoningEffort : model?.reasoning?.efforts?.at(-1)?.id;
+      return { ...controls, ...(Number.isSafeInteger(body?.max_tokens) ? { maxTokens: body.max_tokens } : {}), ...(effort === undefined ? {} : { reasoningEffort: effort }) };
+    });
+    const map = bridgeChunks(); const id = `chatcmpl-${randomUUID()}`; const created = Math.floor(Date.now() / 1000); const model = String(body?.model ?? '');
+    const stream = call.stream({ ...call.config, system, messages, ...(tools.length > 0 ? { tools } : {}), signal: stop.signal });
+    if (body?.stream === true) {
+      const envelope = (part) => ({ id, object: 'chat.completion.chunk', created, model, choices: part.delta ? [{ index: 0, delta: part.delta, finish_reason: part.finish_reason ?? null }] : [], ...(part.usage ? { usage: part.usage } : {}), ...(part.error ? { error: { message: part.error } } : {}) });
+      res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
+      res.write(`data: ${JSON.stringify(envelope({ delta: { role: 'assistant' } }))}\n\n`);
+      try { for await (const chunk of stream) for (const part of map(chunk)) res.write(`data: ${JSON.stringify(envelope(part))}\n\n`); }
+      catch (e) { res.write(`data: ${JSON.stringify(envelope({ error: String(e?.message ?? e) }))}\n\n`); }
+      res.end('data: [DONE]\n\n');
+      return;
+    }
+    const message = { role: 'assistant', content: '' }; const toolCalls = []; let finish = 'stop'; let usage; let failed;
+    for await (const chunk of stream) for (const part of map(chunk)) {
+      if (part.error) failed = part.error;
+      if (part.usage) usage = part.usage;
+      if (part.finish_reason) finish = part.finish_reason;
+      const d = part.delta ?? {};
+      if (d.content) message.content += d.content;
+      if (d.reasoning_content) message.reasoning_content = (message.reasoning_content ?? '') + d.reasoning_content;
+      for (const t of d.tool_calls ?? []) {
+        toolCalls[t.index] ??= { id: t.id, type: 'function', function: { name: '', arguments: '' } };
+        toolCalls[t.index].function.name += t.function.name ?? ''; toolCalls[t.index].function.arguments += t.function.arguments;
+      }
+    }
+    if (failed) throw Object.assign(new Error(failed), { status: 502 });
+    if (toolCalls.length > 0) message.tool_calls = toolCalls;
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ id, object: 'chat.completion', created, model, choices: [{ index: 0, message, finish_reason: finish }], ...(usage ? { usage } : {}) }));
+  };
+  /** The loopback server: `/mcp` and `/v1/chat/completions`, each request only with this run's token. */
+  const serve = (token) => new Promise((resolveServer, reject) => {
+    const server = createHttpServer(async (req, res) => {
+      try {
+        if (!sameToken(req.headers.authorization, token)) { res.writeHead(401).end(); return; }
+        const path = new URL(req.url, 'http://127.0.0.1').pathname;
+        if (path === '/mcp' && req.method === 'POST') {
+          const answer = await mcpAnswer(JSON.parse(await readBody(req)), mcpTools, version);
+          if (answer === undefined) res.writeHead(202).end();
+          else res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(answer));
+        } else if (path === '/mcp') res.writeHead(405, { allow: 'POST' }).end();
+        else if (path === '/v1/chat/completions' && req.method === 'POST') await bridge(req, res);
+        else res.writeHead(404).end();
+      } catch (e) {
+        if (!res.headersSent) res.writeHead(Number.isInteger(e?.status) ? e.status : 400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: { message: String(e?.message ?? e) } }));
+        else res.end();
+      }
+    });
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolveServer(server));
+  });
+
+  const hermesFetch = (r, path, init = {}) => fetch(`${r.api}${path}`, { ...init, headers: { authorization: `Bearer ${r.key}`, 'content-type': 'application/json', ...init.headers } });
+  /** The hermes executable: the option, dsh's PATH lookup, then Hermes' own install folders. */
+  const findHermes = async () => {
+    if (executable !== undefined) return executable;
+    try { const exe = await ctx.subprocess.resolveExecutable('hermes'); if (exe) return exe; } catch { /* not on dsh's PATH */ }
+    const local = process.env.LOCALAPPDATA ?? join(homedir(), 'AppData', 'Local');
+    const candidates = process.platform === 'win32'
+      ? [join(local, 'hermes', 'bin', 'hermes.exe'), join(local, 'hermes', 'hermes-agent', 'venv', 'Scripts', 'hermes.exe')]
+      : [join(homedir(), '.local', 'bin', 'hermes'), join(homedir(), '.hermes', 'hermes-agent', 'venv', 'bin', 'hermes'), '/opt/homebrew/bin/hermes', '/usr/local/bin/hermes'];
+    return candidates.find((p) => existsSync(p));
+  };
+  const healthy = async (r) => { try { return (await hermesFetch(r, '/health', { signal: AbortSignal.timeout(5000) })).ok; } catch { return false; } };
+  const tail = (r) => {
+    try { return cutEnd((r.proc.collected.stderr?.readFrom(0).text || r.proc.collected.stdout?.readFrom(0).text || '').trim().split('\n').slice(-5).join('\n'), HERMES_LIMITS.log); } catch { return ''; }
+  };
+  const halt = (r) => { r.stop.abort(); r.server.close(); };
+  const stopRun = async () => {
+    clearTimeout(retry); clearInterval(health); clearInterval(poll); retry = health = poll = undefined;
+    const r = run; run = undefined;
+    if (r === undefined) return;
+    halt(r);
+    await Promise.race([r.proc.done.catch(() => {}), sleep(10000)]);
+  };
+  /** A failed run: stop it and start again after a growing pause; after the last pause it stays failed. */
+  const fail = (r, why) => {
+    if (run !== r) return;
+    run = undefined; halt(r);
+    clearInterval(health); clearInterval(poll); health = poll = undefined;
+    set('failed', why); log(why);
+    const wait = HERMES_LIMITS.backoff[failures++];
+    if (on && wait !== undefined) retry = setTimeout(() => { retry = undefined; begin(); }, wait);
+  };
+  /** Start `hermes gateway` with this run's ports, keys and managed settings. */
+  const start = async () => {
+    await stopRun();
+    if (!on) return;
+    const exe = await findHermes();
+    if (!exe) { set('missing'); return; }
+    set('starting');
+    let server;
+    try {
+      const v = await runTool(ctx.subprocess, exe, homedir(), ['--version'], undefined, { timeoutMs: HERMES_LIMITS.start });
+      hermesVersion = /\d+\.\d+\.\d+/.exec(v.stdout)?.[0];
+      const token = randomBytes(32).toString('hex'); const key = randomBytes(32).toString('hex');
+      server = await serve(token);
+      const port = await freePort();
+      const managed = join(dir, 'hermes-managed');
+      await mkdir(managed, { recursive: true, mode: 0o700 });
+      await writeFile(join(managed, 'config.yaml'), JSON.stringify(hermesManaged({ folder: assistant.folder, delegate: await delegateModel() }), null, 2), { mode: 0o600 });
+      // The assistant chat (and its folder, Hermes' cwd) exists first: Hermes' session and tools belong to it.
+      await assistant.ensure();
+      if (!on) { server.close(); return; } // switched off meanwhile
+      const stop = new AbortController();
+      const proc = ctx.subprocess.spawn({
+        argv: [exe, 'gateway'], cwd: assistant.folder,
+        stdio: { stdin: 'ignore', stdout: { maxBytes: 65536 }, stderr: { maxBytes: 65536 } }, graceMs: 5000, signal: stop.signal,
+        env: { HERMES_MANAGED_DIR: managed, API_SERVER_ENABLED: 'true', API_SERVER_HOST: '127.0.0.1', API_SERVER_PORT: String(port), API_SERVER_KEY: key,
+          COMPOSER_PLUS_URL: `http://127.0.0.1:${server.address().port}`, COMPOSER_PLUS_TOKEN: token, PYTHONUNBUFFERED: '1' },
+      });
+      const r = run = { proc, stop, server, key, api: `http://127.0.0.1:${port}` };
+      server = undefined;
+      proc.done.then(() => fail(r, tail(r) || 'Hermes stopped'), () => fail(r, tail(r) || 'Hermes stopped'));
+      const until = Date.now() + HERMES_LIMITS.start;
+      while (run === r && Date.now() < until && !(await healthy(r))) await sleep(1000);
+      if (run !== r) return;
+      if (!(await healthy(r))) { fail(r, tail(r) || 'Hermes did not answer its health check'); return; }
+      failures = 0; set('running');
+      await mark(r);
+      health = setInterval(async () => { if (run === r && !(await healthy(r))) fail(r, 'Hermes stopped answering'); }, HERMES_LIMITS.health);
+      poll = setInterval(() => { check(r).catch((e) => log(`background replies: ${e?.message ?? e}`)); }, HERMES_LIMITS.poll);
+    } catch (e) {
+      server?.close();
+      if (run) fail(run, String(e?.message ?? e)); else { set('failed', String(e?.message ?? e)); log(error); }
+    }
+  };
+
+  /** One start at a time (the switch, Start again, a new subagent model, a retry); the state shows `starting` at once. */
+  let starts = Promise.resolve();
+  const begin = () => { if (on) set('starting'); return (starts = starts.then(start, start).catch(() => {})); };
+
+  /** Hermes' newest messages of the assistant session (newest first). */
+  const newest = async (r, limit) => {
+    const res = await hermesFetch(r, `/api/sessions/${encodeURIComponent(session())}/messages?limit=${limit}&order=latest`, { signal: AbortSignal.timeout(10000) });
+    if (res.status === 404) return [];
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json())?.data ?? [];
+  };
+  const mark = async (r) => { try { const [m] = await newest(r, 1); lastId = Number.isFinite(m?.id) ? m.id : (lastId ?? 0); } catch { /* the next turn marks again */ } };
+  /** Background replies: Hermes' assistant messages after `lastId`, while the assistant chat is idle. */
+  const check = async (r) => {
+    if (run !== r || state !== 'running' || lastId === undefined || pending.length > 0) return;
+    const agent = get('agents')?.get?.(assistant.id());
+    if (agent === undefined || agent.status === 'running') return;
+    const fresh = (await newest(r, 20)).filter((m) => Number.isFinite(m?.id) && m.id > lastId).sort((a, b) => a.id - b.id);
+    if (fresh.length === 0) return;
+    lastId = fresh.at(-1).id;
+    const text = fresh.filter((m) => m.role === 'assistant' && typeof m.content === 'string' && m.content.trim() !== '' && !(m.tool_calls?.length > 0)).map((m) => m.content.trim()).join('\n\n');
+    if (text === '') return;
+    pending.push(text);
+    try { wakeWithContinue(agent, HERMES_SOURCE); } catch (e) { pending.length = 0; throw e; }
+  };
+  const note = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: '[Composer Plus → Hermes] Your background work answered in Hermes; its reply follows.' })]),
+    source: Object.freeze({ kind: HERMES_SOURCE, form: 'snapshot' }) });
+  // The wake markers become one hidden note (as Assistant news does), so no empty chat bubble stays.
+  ctx.on('agent/pre-step', async (payload, next) => {
+    const decision = await next();
+    if (decision.kind !== 'enter' || !decision.messages.some((m) => m.source?.kind === HERMES_SOURCE)) return decision;
+    const first = decision.messages.findIndex((m) => m.source?.kind === HERMES_SOURCE);
+    return { ...decision, messages: decision.messages.flatMap((m, i) => (m.source?.kind !== HERMES_SOURCE ? [m] : i === first ? [note()] : [])) };
+  }, true);
+
+  const textChunks = function* (text) {
+    yield { type: 'block-start', index: 0, blockType: 'text' }; yield { type: 'text-delta', index: 0, text };
+    yield { type: 'block-end', index: 0, block: { type: 'text', text } };
+    yield { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } }; yield { type: 'finish', reason: { kind: 'stop' } };
+  };
+  /** One Hermes turn as dsh stream chunks. */
+  async function* turn(options) {
+    const { system, text, replay } = hermesTurn(options.messages);
+    if (replay) { yield* textChunks(pending.splice(0).join('\n\n') || '(Hermes has no new reply.)'); return; }
+    // A start or a restart that runs: wait for it (at most HERMES_LIMITS.start).
+    const until = Date.now() + HERMES_LIMITS.start;
+    while ((state === 'starting' || retry !== undefined) && Date.now() < until && !options.signal?.aborted) await sleep(1000);
+    const r = run;
+    if (state !== 'running' || r === undefined) throw new Error(`Hermes is not running (${state}${error ? `: ${error}` : ''}). Settings → Composer Plus → Assistant on Hermes.`);
+    const res = await hermesFetch(r, '/v1/chat/completions', { method: 'POST', signal: options.signal, headers: { 'X-Hermes-Session-Id': session() },
+      body: JSON.stringify({ model: 'hermes-agent', stream: true, messages: [{ role: 'system', content: system }, { role: 'user', content: text || 'Continue.' }] }) });
+    if (!res.ok || !res.body) throw new Error(`Hermes: HTTP ${res.status} ${cutEnd(await res.text().catch(() => ''), 500)}`);
+    // Hermes' dangerous command during this dsh turn: dsh's approval card (or Auto review) decides; no answer is a deny.
+    const ask = async (e) => {
+      const runId = String(e?.run_id ?? '');
+      if (!isText(runId, 256)) return;
+      let outcome = 'unavailable';
+      try { outcome = await get('approval').request({ agent: await agentOf(), toolName: 'hermes', reason: `Composer Plus → Hermes wants to run: ${cutEnd(String(e.command ?? e.description ?? ''), ASSISTANT_LIMITS.text)}`, signal: options.signal }); }
+      catch (err) { log(`approval: ${err?.message ?? err}`); }
+      await hermesFetch(r, `/v1/runs/${encodeURIComponent(runId)}/approval`, { method: 'POST', body: JSON.stringify({ choice: outcome === 'allowed-once' ? 'once' : 'deny', ...(isText(e.request_id, 256) ? { request_id: e.request_id } : {}) }) }).catch(() => {});
+    };
+    try { yield* hermesChunks(res.body, ask); } finally { await mark(r); }
+  }
+  ctx.on('llm/stream', (options, next) => {
+    if (!on || options?.purpose !== undefined || !isText(options?.sessionId) || options.sessionId !== assistant.id() || !assistant.isOn()) return next();
+    route = { provider: options.provider, model: options.model, ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}) };
+    return turn(options);
+  });
+
+  // On returns at once (the first start of a Hermes data root can take minutes); the row asks again while it starts.
+  const apply = async (next) => { on = next; failures = 0; if (on) begin(); else { await stopRun(); set('off'); } };
+  const ready = sw.read().then((v) => { on = v; if (v) begin(); });
+  ctx.effect?.(() => () => { on = false; stopRun().catch(() => {}); }, 'dsh-composer-plus: hermes');
+  let switching = ready;
+  ctx.connection.fetch.register({
+    path: HERMES_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    /** GET: `{on, state, version?, reason?}`. POST `{on}`: the switch; `{restart: true}`: start Hermes again. */
+    fetch: async (request) => {
+      await ready;
+      if (request.method === 'POST') {
+        let body; try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        const key = plainObject(body) ? Object.keys(body).join() : '';
+        if (!(key === 'on' && typeof body.on === 'boolean') && !(key === 'restart' && body.restart === true)) return json({ error: 'bad request' }, 400);
+        if (key === 'restart' && !on) return json({ error: 'Assistant on Hermes is off' }, 409);
+        const change = switching.then(async () => { if (key === 'on') { await sw.write(body.on); await apply(body.on); } else { failures = 0; begin(); } });
+        switching = change.catch(() => {});
+        try { await change; } catch (e) { return json({ error: String(e?.message ?? e) }, 500); }
+      }
+      return json({ on, state, ...(hermesVersion ? { version: hermesVersion } : {}), ...(error ? { reason: error } : {}) });
+    },
+  });
+  ctx.connection.fetch.register({
+    path: HERMES_MODEL_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
+    /** GET: `{model?}` (`?catalog=1`: and dsh's model list). POST `{model}` (`null`: none): a running Hermes starts again
+     * with it. */
+    fetch: async (request) => {
+      if (request.method === 'GET') {
+        const settings = await subagentModel.read();
+        return json(new URL(request.url).searchParams.get('catalog') === '1' ? { ...settings, catalog: await modelCatalogOf(ctx, get) } : settings);
+      }
+      let body; try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+      if (!plainObject(body) || Object.keys(body).join() !== 'model') return json({ error: 'bad request' }, 400);
+      const saved = await saveModel(ctx, get, subagentModel, body.model);
+      if (saved.ok && on) begin();
+      return saved;
+    },
+  });
+  return { ready, state: () => state, isOn: () => on };
 }
