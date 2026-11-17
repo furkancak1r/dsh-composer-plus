@@ -5033,12 +5033,18 @@ export function protectGlob(glob, path) {
   }
   return can[0];
 }
+/** An env template: `.env.example` or `.env.<name>.example` (exact case). It is committed and holds no real values, so the
+ * pattern `.env*` does not cover it; `.env.example.bak`, `.env.example~` and `.env.local` stay covered. */
+export const ENV_TEMPLATE = /^\.env(?:\.[\w-]+)?\.example$/;
 /** The first pattern that covers `path` (relative to the folder, `/` separators) for this access, or undefined. A pattern
- * without `/` matches the file name at any depth. */
-export function protectedBy(patterns, path, write) {
+ * without `/` matches the file name at any depth. `template`: the caller checked that the file that the tool opens is a
+ * template (see protectedHit); then `.env*` skips a path whose name is a template. Other patterns still apply. */
+export function protectedBy(patterns, path, write, template = false) {
   const rel = path.replace(/\\/g, '/');
   const name = rel.slice(rel.lastIndexOf('/') + 1);
-  return patterns.find((p) => (write || p.mode === 'all') && protectGlob(p.pattern.replace(/\\/g, '/'), p.pattern.includes('/') ? rel : name));
+  const skip = template && ENV_TEMPLATE.test(name);
+  return patterns.find((p) => (write || p.mode === 'all') && !(skip && p.pattern.toLowerCase() === '.env*')
+    && protectGlob(p.pattern.replace(/\\/g, '/'), p.pattern.includes('/') ? rel : name));
 }
 /** The real path that dsh's file tools use for `raw` (dsh-fs-local `resolveLocalTarget`; ripgrep gets the same path):
  * the realpath of `<cwd>/<raw>` with no `..` removed first (the system walks `..` after a symlinked folder), and for a
@@ -5074,8 +5080,12 @@ export async function protectedHit(patterns, name, args, cwd) {
     try { root = await realpath(cwd); } catch { /* the folder as given */ }
     candidates.push(relativeInside(root, real) ?? basename(real));
   }
+  // The env template exception holds only when the file that the tool opens is a template too: a regular file with one
+  // link (not a hard link of `.env`), or a missing name (not a dangling link that a write follows). Unresolved: no exception.
+  const template = real !== undefined && ENV_TEMPLATE.test(basename(real))
+    && await lstat(real).then((s) => s.isFile() && s.nlink === 1, (error) => error?.code === 'ENOENT');
   for (const path of candidates) {
-    const hit = protectedBy(patterns, path, write);
+    const hit = protectedBy(patterns, path, write, template);
     if (hit !== undefined) return { path: raw, pattern: hit.pattern };
   }
   return undefined;

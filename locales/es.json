@@ -2520,7 +2520,7 @@
     "turkishSkill.restart": "Reinicia dsh para usar el paquete de skill en turco.",
     "board.pending": "Reinicia dsh para aplicar este cambio.",
     "feature.protectedFiles": "Archivos protegidos",
-    "feature.protectedFiles.description": "Las herramientas de archivos del agente (read, write, edit, grep en un archivo) no pueden leer ni cambiar los archivos que coinciden con tus patrones; el agente lee el motivo y se le indica que te pregunte. Por defecto, .env*, *.pem y *.key. Un patrón sin «/» coincide con un nombre de archivo en cualquier carpeta; «solo escritura» aún deja leer al agente. Un comando de shell, un script o una herramienta MCP aún pueden llegar a un archivo: es una barrera de protección, no un sandbox.",
+    "feature.protectedFiles.description": "Las herramientas de archivos del agente (read, write, edit, grep en un archivo) no pueden leer ni cambiar los archivos que coinciden con tus patrones; el agente lee el motivo y se le indica que te pregunte. Por defecto, .env*, *.pem y *.key. El agente puede leer y cambiar las plantillas de entorno (.env.example, .env.<name>.example). Un patrón sin «/» coincide con un nombre de archivo en cualquier carpeta; «solo escritura» aún deja leer al agente. Un comando de shell, un script o una herramienta MCP aún pueden llegar a un archivo: es una barrera de protección, no un sandbox.",
     "protected.list": "Patrones protegidos",
     "protected.none": "No hay archivos protegidos.",
     "protected.modeAll": "lectura y escritura",

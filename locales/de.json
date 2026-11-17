@@ -2520,7 +2520,7 @@
     "turkishSkill.restart": "Starte dsh neu, um das türkische Skill-Paket zu nutzen.",
     "board.pending": "Starte dsh neu, damit diese Änderung gilt.",
     "feature.protectedFiles": "Geschützte Dateien",
-    "feature.protectedFiles.description": "Die Datei-Tools des Agenten (read, write, edit, grep auf eine Datei) können Dateien, die zu deinen Mustern passen, weder lesen noch ändern; der Agent liest den Grund und wird angewiesen, dich zu fragen. Standardmäßig .env*, *.pem und *.key. Ein Muster ohne „/“ passt auf einen Dateinamen in jedem Ordner; „nur Schreiben“ lässt den Agenten weiterhin lesen. Ein Shell-Befehl, ein Skript oder ein MCP-Tool kann eine Datei trotzdem erreichen: Das ist eine Leitplanke, keine Sandbox.",
+    "feature.protectedFiles.description": "Die Datei-Tools des Agenten (read, write, edit, grep auf eine Datei) können Dateien, die zu deinen Mustern passen, weder lesen noch ändern; der Agent liest den Grund und wird angewiesen, dich zu fragen. Standardmäßig .env*, *.pem und *.key. Env-Vorlagen (.env.example, .env.<name>.example) kann der Agent lesen und ändern. Ein Muster ohne „/“ passt auf einen Dateinamen in jedem Ordner; „nur Schreiben“ lässt den Agenten weiterhin lesen. Ein Shell-Befehl, ein Skript oder ein MCP-Tool kann eine Datei trotzdem erreichen: Das ist eine Leitplanke, keine Sandbox.",
     "protected.list": "Geschützte Muster",
     "protected.none": "Keine geschützten Dateien.",
     "protected.modeAll": "Lesen und Schreiben",

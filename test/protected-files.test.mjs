@@ -3,7 +3,7 @@
 // *.key (read and write). "write only" lets reads through. A symlink to a protected file is protected; a pattern without
 // "/" matches the name at any depth; the switch and the list are kept by the Host (owner-only file); bad lists are refused.
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, rm, stat, symlink, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, rm, stat, symlink, realpath, link } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { installProtectedFiles, parsePatterns, protectedBy, protectedHit, protectGlob, PROTECTED_PATH, PROTECT_DEFAULTS } from '../index.js';
@@ -88,6 +88,29 @@ try {
     assert.equal(await hit('write', 'ghost/x.md'), undefined, 'below a dangling link (dsh cannot write there)');
     assert.equal(await hit('read', 'src/link/../../.env'), '.env*');
   }
+  // Env templates (Furkan, 2026-11-17): `.env.example` and `.env.<name>.example` are committed templates, so `.env*` does
+  // not cover them. Every other `.env*` name, a link or hard link to `.env` and `..` after a template name stay covered.
+  {
+    const tpl = join(project, 'tpl');
+    for (const d of ['svc', 'link', 'dangling', 'hard', 'file', 'dir/.env.example']) await mkdir(join(tpl, d), { recursive: true });
+    for (const f of ['.env.example', 'svc/.env.production.example', '.env.example.bak', '.env.example~', '.env.example.local', '.env.local', '.env.production', 'file/.env.example', 'file/.env', 'dir/.env']) await writeFile(join(tpl, f), 'FAKE=1\n');
+    await symlink(join(project, '.env'), join(tpl, 'link', '.env.example'));
+    await symlink(join(tpl, 'dangling', '.env'), join(tpl, 'dangling', '.env.example')); // a write follows it and makes .env
+    await link(join(project, '.env'), join(tpl, 'hard', '.env.example'));
+    await symlink(join(tpl, 'svc'), join(tpl, 'alias'));
+    const hit = async (name, path, patterns = D) => (await protectedHit(patterns, name, name === 'str_replace_editor' ? { command: 'str_replace', path } : { [name === 'grep' ? 'path' : 'file_path']: path, content: 'x' }, project))?.pattern;
+    for (const name of ['read', 'read_image', 'write', 'edit', 'grep', 'str_replace_editor']) {
+      for (const path of ['tpl/.env.example', 'tpl/svc/.env.production.example', join(project, 'tpl/.env.example'), 'tpl/alias/.env.production.example', 'tpl/new/.env.staging.example', 'tpl/svc/../.env.example'])
+        assert.equal(await hit(name, path), undefined, `${name} ${path}: a template`);
+      for (const path of ['.env', 'tpl/.env.local', 'tpl/.env.production', 'tpl/.env.example.local', 'tpl/.env.example.bak', 'tpl/.env.example~', 'tpl/.ENV.EXAMPLE', 'tpl/.env.staging',
+        'tpl/link/.env.example', 'tpl/dangling/.env.example', 'tpl/hard/.env.example', 'tpl/file/.env.example/../.env', 'tpl/dir/.env.example/../.env', 'tpl/dir/.env.example'])
+        assert.equal(await hit(name, path), '.env*', `${name} ${path}: still protected`);
+    }
+    assert.equal(await hit('read', 'tpl/.env.example', [{ pattern: '*.example', mode: 'all' }]), '*.example', 'a pattern of the user still covers a template');
+    assert.equal(protectedBy(D, 'tpl/.env.example', false)?.pattern, '.env*', 'protectedBy skips only when the caller checked the file');
+    assert.equal(protectedBy(D, 'tpl/.env.example', false, true), undefined);
+    assert.equal(protectedBy(D, 'tpl/.env.local', false, true)?.pattern, '.env*', 'only a template name is skipped');
+  }
 
   // The gate and the route, with fake dsh services.
   const home = join(root, 'home');
@@ -103,6 +126,10 @@ try {
   let d = await run('read', { file_path: '.env' });
   assert.equal(d.kind, 'deny'); assert.match(d.reason, /^Protected file: \.env matches "\.env\*"/); assert.match(d.reason, /ask the user/);
   assert.deepEqual(await run('read', { file_path: 'src/app.ts' }), { kind: 'allow' });
+  assert.deepEqual(await run('read', { file_path: 'tpl/.env.example' }), { kind: 'allow' }, 'the gate: an env template is read');
+  assert.deepEqual(await run('edit', { file_path: 'tpl/svc/.env.production.example', old_string: 'a', new_string: 'b' }, { kind: 'ask' }), { kind: 'ask' }, 'and changed with the usual approval');
+  assert.equal((await run('edit', { file_path: 'tpl/link/.env.example' })).kind, 'deny', 'the gate: a link named like a template to .env');
+  assert.match((await run('read', { file_path: 'tpl/.env.example.bak' })).reason, /matches "\.env\*"/);
   assert.deepEqual(await run('bash', { command: 'cat .env' }), { kind: 'allow' });
   assert.deepEqual(await run('read', { file_path: '.env' }, { kind: 'deny', reason: 'approval' }), { kind: 'deny', reason: 'approval' }, 'another gate decides first');
   // Review finding P3-2: a call that would ask the user is refused too (no approval card for a protected file).

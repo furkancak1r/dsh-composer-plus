@@ -2520,7 +2520,7 @@
     "turkishSkill.restart": "Khởi động lại dsh để dùng gói skill tiếng Thổ Nhĩ Kỳ.",
     "board.pending": "Khởi động lại dsh để áp dụng thay đổi này.",
     "feature.protectedFiles": "Tệp được bảo vệ",
-    "feature.protectedFiles.description": "Các công cụ tệp của tác tử (read, write, edit, grep trên một tệp) không thể đọc hoặc thay đổi các tệp khớp với mẫu của bạn; tác tử đọc lý do và được yêu cầu hỏi bạn. Mặc định là .env*, *.pem và *.key. Mẫu không có “/” khớp với tên tệp trong bất kỳ thư mục nào; “chỉ ghi” vẫn cho tác tử đọc. Lệnh shell, script hoặc công cụ MCP vẫn có thể truy cập tệp: đây là rào chắn bảo vệ, không phải sandbox.",
+    "feature.protectedFiles.description": "Các công cụ tệp của tác tử (read, write, edit, grep trên một tệp) không thể đọc hoặc thay đổi các tệp khớp với mẫu của bạn; tác tử đọc lý do và được yêu cầu hỏi bạn. Mặc định là .env*, *.pem và *.key. Tác tử có thể đọc và thay đổi tệp mẫu môi trường (.env.example, .env.<name>.example). Mẫu không có “/” khớp với tên tệp trong bất kỳ thư mục nào; “chỉ ghi” vẫn cho tác tử đọc. Lệnh shell, script hoặc công cụ MCP vẫn có thể truy cập tệp: đây là rào chắn bảo vệ, không phải sandbox.",
     "protected.list": "Mẫu được bảo vệ",
     "protected.none": "Không có tệp nào được bảo vệ.",
     "protected.modeAll": "đọc và ghi",

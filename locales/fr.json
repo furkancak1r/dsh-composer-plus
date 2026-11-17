@@ -2520,7 +2520,7 @@
     "turkishSkill.restart": "Redémarrez dsh pour utiliser le pack de skill turc.",
     "board.pending": "Redémarrez dsh pour appliquer ce changement.",
     "feature.protectedFiles": "Fichiers protégés",
-    "feature.protectedFiles.description": "Les outils de fichiers de l’agent (read, write, edit, grep sur un fichier) ne peuvent ni lire ni modifier les fichiers qui correspondent à vos motifs ; l’agent lit pourquoi et on lui demande de vous consulter. Par défaut, .env*, *.pem et *.key. Un motif sans « / » correspond à un nom de fichier dans n’importe quel dossier ; « écriture seule » laisse encore l’agent lire. Une commande shell, un script ou un outil MCP peut encore atteindre un fichier : c’est un garde-fou, pas un sandbox.",
+    "feature.protectedFiles.description": "Les outils de fichiers de l’agent (read, write, edit, grep sur un fichier) ne peuvent ni lire ni modifier les fichiers qui correspondent à vos motifs ; l’agent lit pourquoi et on lui demande de vous consulter. Par défaut, .env*, *.pem et *.key. L’agent peut lire et modifier les modèles d’environnement (.env.example, .env.<name>.example). Un motif sans « / » correspond à un nom de fichier dans n’importe quel dossier ; « écriture seule » laisse encore l’agent lire. Une commande shell, un script ou un outil MCP peut encore atteindre un fichier : c’est un garde-fou, pas un sandbox.",
     "protected.list": "Motifs protégés",
     "protected.none": "Aucun fichier protégé.",
     "protected.modeAll": "lecture et écriture",

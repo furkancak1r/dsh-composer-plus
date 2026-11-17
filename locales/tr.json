@@ -4184,7 +4184,7 @@
     "turkishSkill.restart": "Türkçe skill paketini kullanmak için dsh’yi yeniden başlatın.",
     "board.pending": "Bu değişikliğin geçerli olması için dsh’yi yeniden başlatın.",
     "feature.protectedFiles": "Korunan dosyalar",
-    "feature.protectedFiles.description": "Ajanın dosya araçları (read, write, edit, bir dosyada grep) desenlerinizle eşleşen dosyaları okuyamaz ve değiştiremez; ajan nedenini okur ve size sorması istenir. Varsayılan olarak .env*, *.pem ve *.key. “/” içermeyen bir desen, her klasördeki bir dosya adıyla eşleşir; “yalnızca yazma” ajanın okumasına yine izin verir. Bir kabuk komutu, bir betik veya bir MCP aracı bir dosyaya yine erişebilir: bu bir korumalı alan değil, bir güvenlik önlemidir.",
+    "feature.protectedFiles.description": "Ajanın dosya araçları (read, write, edit, bir dosyada grep) desenlerinizle eşleşen dosyaları okuyamaz ve değiştiremez; ajan nedenini okur ve size sorması istenir. Varsayılan olarak .env*, *.pem ve *.key. Ajan ortam şablonlarını (.env.example, .env.<name>.example) okuyup değiştirebilir. “/” içermeyen bir desen, her klasördeki bir dosya adıyla eşleşir; “yalnızca yazma” ajanın okumasına yine izin verir. Bir kabuk komutu, bir betik veya bir MCP aracı bir dosyaya yine erişebilir: bu bir korumalı alan değil, bir güvenlik önlemidir.",
     "protected.list": "Korunan desenler",
     "protected.none": "Korunan dosya yok.",
     "protected.modeAll": "okuma ve yazma",
