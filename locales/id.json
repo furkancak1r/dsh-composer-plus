@@ -2520,7 +2520,7 @@
     "turkishSkill.restart": "Mulai ulang dsh untuk memakai paket skill bahasa Turki.",
     "board.pending": "Mulai ulang dsh agar perubahan ini berlaku.",
     "feature.protectedFiles": "File yang dilindungi",
-    "feature.protectedFiles.description": "Alat file agen (read, write, edit, grep pada file) tidak dapat membaca atau mengubah file yang cocok dengan pola Anda; agen membaca alasannya dan diminta untuk bertanya kepada Anda. Bawaannya .env*, *.pem, dan *.key. Pola tanpa “/” cocok dengan nama file di folder mana pun; “hanya tulis” tetap membiarkan agen membaca. Perintah shell, skrip, atau alat MCP tetap dapat menjangkau file: ini pagar pengaman, bukan sandbox.",
+    "feature.protectedFiles.description": "Alat file agen (read, write, edit, grep pada file) tidak dapat membaca atau mengubah file yang cocok dengan pola Anda; agen membaca alasannya dan diminta untuk bertanya kepada Anda. Bawaannya .env*, *.pem, dan *.key. Agen dapat membaca dan mengubah templat env (.env.example, .env.<name>.example). Pola tanpa “/” cocok dengan nama file di folder mana pun; “hanya tulis” tetap membiarkan agen membaca. Perintah shell, skrip, atau alat MCP tetap dapat menjangkau file: ini pagar pengaman, bukan sandbox.",
     "protected.list": "Pola yang dilindungi",
     "protected.none": "Tidak ada file yang dilindungi.",
     "protected.modeAll": "baca dan tulis",
