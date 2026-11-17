@@ -953,12 +953,12 @@ func lastReply(_ transcript: [Line]) -> String {
     return ""
 }
 
-/// A turn end with nothing to say gives no Turn finished notification: its reply, spaces trimmed, is empty or only
-/// `[quiet]` (any case). dsh refuses an empty reply, so the Assistant writes `[quiet]` for routine news (the Mac's push
-/// skips it too: `quietReply` in index.js). A failed turn (`reason` "error") still notifies: for the open chat this is its
-/// only alert, because sessionError shows the error in the chat and sends no notification.
+/// A turn end with nothing to say gives no Turn finished notification: the turn completed (`reason` kind) and its reply,
+/// spaces trimmed, is empty or only `[quiet]` (any case). dsh refuses an empty reply, so the Assistant writes `[quiet]`
+/// for routine news (the Mac's push skips it too: `quietTurn` in index.js). A turn that failed, stopped or hit the token
+/// limit still notifies: for the open chat a failure has no other alert (sessionError only adds a chat line).
 func quietTurn(reply: String, reason: String?) -> Bool {
-    guard reason != "error" else { return false }
+    guard reason == "completed" else { return false }
     let t = reply.trimmingCharacters(in: .whitespacesAndNewlines)
     return t.isEmpty || t.caseInsensitiveCompare("[quiet]") == .orderedSame
 }

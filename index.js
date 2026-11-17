@@ -2397,11 +2397,15 @@ export function apply(ctx) {
     else if (busy.delete(agent.id) && mobileOn === true) {
       changeUnread([agent.id], []);
       // Tether's "Turn finished" also while Tether is closed (APNs, when the gateway has a key): the agent's reply, under
-      // the Mac, the project and the chat's title (chatAbout). A turn with nothing to say (empty or `[quiet]`) gives no
-      // push (quietReply); its green dot above stays.
-      let reply = '';
-      try { reply = lastReply(agent.session?.snapshotEvents?.() ?? []); } catch { /* no log */ }
-      if (!quietReply(reply)) mobile?.push('Turn finished', reply, agent.id);
+      // the Mac, the project and the chat's title (chatAbout). A completed turn with nothing to say (empty or `[quiet]`)
+      // gives no push (quietTurn); its green dot above stays.
+      let reply = '', quiet = false;
+      try {
+        const events = agent.session?.snapshotEvents?.() ?? [];
+        reply = lastReply(events);
+        quiet = quietTurn(events, reply);
+      } catch { /* no log */ }
+      if (!quiet) mobile?.push('Turn finished', reply, agent.id);
     }
   });
   ctx.connection.fetch.register({
@@ -11317,11 +11321,14 @@ function turnPrompt(agent) {
 // The prompts that start a turn of their own: yours, a scheduled delivery, and Assistant news (only in the assistant chat:
 // a news turn after the morning summary is not the morning summary).
 const TURN_PROMPTS = ['user', 'schedule', NEWS_SOURCE];
-/** Tether's Turn finished push skips a turn with nothing to say: its `reply` (lastReply), spaces trimmed, is empty or only
- * `[quiet]` (any case), whatever started the turn. dsh refuses an empty reply, so the Assistant writes `[quiet]` for
- * routine news, also in a turn that an outage note or a typed message started (2026-11-17: those turns pushed). Any other
- * reply still pushes; approvals, questions and errors have their own pushes (the gateway). */
-export const quietReply = (reply) => /^(?:\[quiet\])?$/i.test(reply.trim());
+/** Tether's Turn finished push skips a turn with nothing to say: the newest turn ended `completed` and its `reply`
+ * (lastReply), spaces trimmed, is empty or only `[quiet]` (any case), whatever started the turn. dsh refuses an empty
+ * reply, so the Assistant writes `[quiet]` for routine news, also in a turn that an outage note or a typed message
+ * started (2026-11-17: those turns pushed). Any other reply, and a turn that failed, stopped or hit the token limit,
+ * still pushes; approvals, questions and errors have their own pushes (the gateway). */
+export function quietTurn(events, reply) {
+  return events.findLast((e) => e.type === 'turn/end')?.data?.reason?.kind === 'completed' && /^(?:\[quiet\])?$/i.test(reply.trim());
+}
 
 /** Host half of Assistant apart from chats, Assistant always free and Assistant news from chats. `assistant` is the handle of
  * installAssistant (ready, isOn, id, isAssistant). */
