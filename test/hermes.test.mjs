@@ -1,6 +1,6 @@
 // Assistant on Hermes: the Host half with a fake Hermes gateway.
 // - composerSections / hermesTurn: only the Composer Plus sections (not the dsh-only ones), the new user text after the
-//   last reply, a replay turn for Hermes' own note.
+//   last reply, without Hermes' own wake note.
 // - hermesChunks: text, usage and finish from Hermes' SSE; an approval event goes to the callback; an error finish and a
 //   cut stream throw.
 // - bridgeRequest / bridgeChunks: OpenAI messages with tool calls and reasoning to dsh messages, and dsh chunks back.
@@ -15,7 +15,7 @@ import { createServer } from 'node:http';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { HERMES_PATH, HERMES_SECTION, HERMES_SOURCE, HERMES_TOOLS, bridgeChunks, bridgeRequest, composerSections, hermesChunks, hermesManaged, hermesTurn, installHermes, mcpAnswer } from '../index.js';
+import { HERMES_LIMITS, HERMES_PATH, HERMES_SECTION, HERMES_SOURCE, HERMES_TOOLS, bridgeChunks, bridgeRequest, composerSections, hermesChunks, hermesManaged, hermesTurn, installHermes, mcpAnswer } from '../index.js';
 
 const body = (text) => (async function* () { yield new TextEncoder().encode(text); })();
 const until = async (fn, what) => { for (let i = 0; i < 200; i++) { if (await fn()) return; await new Promise((r) => setTimeout(r, 50)); } throw new Error(`timed out: ${what}`); };
@@ -29,8 +29,7 @@ const t1 = hermesTurn([sys, { role: 'user', content: [{ type: 'text', text: 'old
   { role: 'user', content: [{ type: 'text', text: 'new' }, { type: 'image' }] }, { role: 'user', content: [{ type: 'text', text: 'second' }] }]);
 assert.ok(t1.system.startsWith(HERMES_SECTION) && t1.system.includes('Be short.') && !t1.system.includes('dsh tools only') && !t1.system.includes('base rules'));
 assert.equal(t1.text, 'new[an image: the user sees it in dsh]\n\nsecond');
-assert.equal(t1.replay, false);
-assert.equal(hermesTurn([sys, { role: 'assistant', content: [] }, { role: 'user', content: [], source: { kind: HERMES_SOURCE } }]).replay, true);
+assert.equal(hermesTurn([sys, { role: 'assistant', content: [] }, { role: 'user', content: [{ type: 'text', text: 'note' }], source: { kind: HERMES_SOURCE } }]).text, '', 'Hermes\' wake note is not user text');
 assert.ok(!HERMES_SECTION.includes('—'));
 
 // --- hermesChunks ---
@@ -46,6 +45,9 @@ assert.deepEqual(ok[4].usage, { inputTokens: 7, outputTokens: 3 });
 assert.equal(asked.run_id, 'r1');
 await assert.rejects(collect(hermesChunks(sse(chunk({ choices: [{ delta: {}, finish_reason: 'error' }], error: { message: 'boom' } })))), /boom/);
 await assert.rejects(collect(hermesChunks(sse(chunk({ choices: [{ delta: { content: 'cut' } }] })))), /stopped before its end/);
+// A CRLF split between two chunks.
+const crlf = (async function* () { yield new TextEncoder().encode('data: {\"choices\":[{\"delta\":{\"content\":\"x\"}}]}\r\n\r'); yield new TextEncoder().encode('\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\r\n\r\n'); })();
+assert.equal((await collect(hermesChunks(crlf))).find((c) => c.type === 'block-end').block.text, 'x');
 // A CRLF stream and a frame split over two chunks.
 const split = (async function* () { const s = 'data: {"choices":[{"delta":{"content":"a"}}]}\r\n\r\ndata: {"choices":[{"delta":{},"finish_'; yield new TextEncoder().encode(s); yield new TextEncoder().encode('reason":"length"}]}\r\n\r\n'); })();
 assert.equal((await collect(hermesChunks(split))).at(-1).reason.kind, 'max-tokens');
@@ -87,7 +89,9 @@ assert.equal(hermesManaged({ folder: '/a' }).delegation, undefined);
 const home = await mkdtemp(join(tmpdir(), 'cp-hermes-'));
 try {
   const listeners = {}; const routes = new Map(); let spawned; let gateway; const seen = [];
-  const agent = { id: 'chat-1', status: 'idle' };
+  const woken = []; let deliveries = [];
+  const agent = { id: 'chat-1', status: 'idle', steer: (m) => woken.push(m), inbox: { prepend: () => {}, remove: () => {} } };
+  HERMES_LIMITS.poll = 100;
   const executed = [];
   const services = {
     tools: { get: (name) => (HERMES_TOOLS.includes(name) ? { description: `about ${name}`, parameters: { type: 'object' } } : undefined),
@@ -103,6 +107,7 @@ try {
   const ctx = {
     get: (n) => services[n],
     on: (name, fn) => { (listeners[name] ??= []).push(fn); },
+    inject: (_deps, fn) => { const mine = []; fn({ on: (name, f) => { (listeners[name] ??= []).push(f); mine.push([name, f]); } }); return { dispose: () => { for (const [name, f] of mine) listeners[name] = listeners[name].filter((x) => x !== f); } }; },
     effect: () => {},
     logger: { warn: () => {} },
     connection: { fetch: { register: (r) => { routes.set(r.path, r); return () => routes.delete(r.path); } } },
@@ -116,7 +121,7 @@ try {
         gateway = createServer((q, s) => {
           if (q.headers.authorization !== `Bearer ${env.API_SERVER_KEY}`) { s.writeHead(401).end(); return; }
           if (q.url === '/health') { s.writeHead(200).end('{}'); return; }
-          if (q.url.startsWith('/api/sessions/')) { s.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ data: [] })); return; }
+          if (q.url.startsWith('/api/sessions/')) { s.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ data: deliveries })); return; }
           let text = ''; q.on('data', (c) => { text += c; }); q.on('end', () => {
             gateway.last = { headers: q.headers, body: JSON.parse(text) };
             s.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -135,11 +140,11 @@ try {
   const call = async (b) => (await route.fetch(new Request('http://x', b === undefined ? {} : { method: 'POST', body: JSON.stringify(b) }))).json();
   assert.deepEqual(await call(), { on: false, state: 'off' });
   assert.equal((await route.fetch(new Request('http://x', { method: 'POST', body: '{"on":1}' }))).status, 400);
-  // Another chat's model call is not Hermes'.
-  const llmStream = listeners['llm/stream'][0];
-  assert.equal(llmStream({ sessionId: 'chat-1', messages: [] }, () => 'dsh loop'), 'dsh loop');
+  // Off: no hook at all (rule 1).
+  assert.equal(listeners['llm/stream']?.length ?? 0, 0); assert.equal(listeners['agent/pre-step']?.length ?? 0, 0);
   assert.equal((await call({ on: true })).state, 'starting', 'on answers at once');
   await until(async () => (await call()).state === 'running', 'running');
+  const llmStream = listeners['llm/stream'][0];
   const started = await call();
   assert.equal(started.version, '0.23.2');
   assert.deepEqual(spawned.argv, ['hermes-fake', 'gateway']);
@@ -154,7 +159,17 @@ try {
   assert.equal(gateway.last.headers['x-hermes-session-id'], 'composer-plus-chat-1');
   assert.equal(gateway.last.body.messages[1].content, 'Selam');
   assert.ok(gateway.last.body.messages[0].content.includes('# Assistant (Composer Plus)'));
-  // The loopback server: the token, MCP through dsh's tool service, the model bridge.
+  // dsh's loop can stop reading at the finish chunk (no return()): the turn no longer counts, so Start again runs.
+  const open = llmStream({ sessionId: 'chat-1', provider: 'p', model: 'm', messages: [{ role: 'user', content: [{ type: 'text', text: 'again' }] }] }, () => 'dsh loop')[Symbol.asyncIterator]();
+  for (;;) { const { value } = await open.next(); if (value.type === 'finish') break; }
+  assert.equal((await call({ restart: true })).state, 'starting');
+  await until(async () => (await call()).state === 'running', 'running after Start again');
+  // A background result: Hermes' delivery row wakes the assistant chat, and that turn gives Hermes the result.
+  deliveries = [{ id: 7, role: 'user', display_kind: 'async_delegation_complete', content: '17 x 23 = 391' }];
+  await until(() => woken.some((m) => m.source?.kind === HERMES_SOURCE), 'the wake marker');
+  await collect(llmStream({ sessionId: 'chat-1', provider: 'p', model: 'm', messages: [sys, { role: 'assistant', content: [] }, { role: 'user', content: [{ type: 'text', text: 'note' }], source: { kind: HERMES_SOURCE } }] }, () => 'dsh loop'));
+  assert.match(gateway.last.body.messages[1].content, /background work finished[\s\S]*391/);
+  assert.equal(woken.length, 1, 'one wake for one result');  // The loopback server: the token, MCP through dsh's tool service, the model bridge.
   const loop = spawned.env.COMPOSER_PLUS_URL; const auth = { authorization: `Bearer ${spawned.env.COMPOSER_PLUS_TOKEN}`, 'content-type': 'application/json' };
   assert.equal((await fetch(`${loop}/mcp`, { method: 'POST', headers: { authorization: 'Bearer wrong' }, body: '{}' })).status, 401);
   const listed = await (await fetch(`${loop}/mcp`, { method: 'POST', headers: auth, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) })).json();
@@ -180,7 +195,7 @@ try {
   assert.equal((await call()).state, 'running');
   // Off: the gateway stops and the chat is dsh's again.
   assert.equal((await call({ on: false })).state, 'off');
-  assert.equal(llmStream({ sessionId: 'chat-1', messages: [] }, () => 'dsh loop'), 'dsh loop');
+  assert.equal(listeners['llm/stream'].length, 0, 'off removes the model-call hook'); assert.equal(listeners['agent/pre-step'].length, 0, 'and the wake hook');
   assert.equal((await fetch(`${loop}/mcp`, { method: 'POST', headers: auth, body: '{}' }).catch(() => ({ status: 0 }))).status, 0);
 } finally { await rm(home, { recursive: true, force: true }); }
 console.log('hermes: ok');

@@ -337,7 +337,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 - **记住窗口大小** 仅在桌面应用中有效。每次启动时，dsh 先以 1280 × 820 显示窗口；插件加载后，窗口才移到保存的大小。页面没有窗口移动的事件，所以插件每秒读取一次窗口：dsh 退出前最后 2 秒内的更改不会被保存。大小按电脑保存在应用自己的存储中。
 - **使用计数：** 统计的是副本，不是人：每个 dsh 主目录算一份副本。唯一副本数（`installed.txt`）只包含更新到第一个带有此文件的版本或更新版本的副本；停留在更旧版本的副本不会被统计。删除了 `storages` 文件夹的副本会被再次统计。GitHub 可能会把约 10 分钟内来自同一 IP 地址（例如同一个 NAT 路由器后面的多台电脑）的请求只算作一次。
 - 已向上游请求内置支持：队列 `move` 见 [#773](https://github.com/deepseek-ai/deepseek-harness/discussions/773)，“继续”状态见 [#9269](https://github.com/deepseek-ai/deepseek-harness/discussions/9269)。
-- **助理使用 Hermes** 只向 Hermes 发送文字：图片和文件只写出名称，不会发送。开启期间，dsh 自己的工具（文件、shell、网页）不会在助理对话中运行；Hermes 使用自己的工具，终端位于 `~/Assistant`。状态面板只列出 dsh 的子代理，不列出 Hermes 的后台助手；Hermes 后台任务的回复约在 20 秒内出现。修改其他对话和 Hermes 的高风险命令需要 dsh 的审批，因此从 Telegram 或 WhatsApp 发起时会被拒绝。如果你已经用同一个 Telegram 机器人运行了另一个 Hermes 网关，会与它冲突：请先停止那个网关。每台电脑上只应有一个 dsh 运行它。
+- **助理使用 Hermes** 只向 Hermes 发送文字：图片和文件只写出名称，不会发送。开启期间，dsh 自己的工具（文件、shell、网页）不会在助理对话中运行；Hermes 使用自己的工具，终端位于 `~/Assistant`。状态面板只列出 dsh 的子代理，不列出 Hermes 的后台助手；Hermes 后台任务的回复约在 20 秒内出现。修改其他对话和 Hermes 的高风险命令需要 dsh 的审批，因此从 Telegram 或 WhatsApp 发起时会被拒绝。如果你已经用同一个 Telegram 机器人运行了另一个 Hermes 网关，会与它冲突：请先停止那个网关。每台电脑上只应有一个 dsh 运行它。在助理对话中回滚（回合回滚或 dsh-rewind-plugin）后，Hermes 会开始一个不带先前上下文的新会话，被撤回的消息不会再发给它。
 
 ## 常见问题
 

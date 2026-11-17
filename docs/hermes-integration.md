@@ -43,7 +43,7 @@ DSH Web UI / Tether ──> assistant chat (DSH session, same UI, same log)
 
 | Damon ability | With Hermes |
 |---|---|
-| Chat stays free | Hermes `delegate_task` with `background: true` (the API session id is sent, so Hermes runs it in the background and wakes the session). Composer Plus reads the Hermes session every 20 s while the chat is idle and shows new replies with a hidden note and a replay turn (no model call). |
+| Chat stays free | Hermes `delegate_task` with `background: true` (the API session id is sent, so Hermes runs it in the background and wakes the session). Hermes keeps the result as a delivery row for the client's next turn; Composer Plus reads the Hermes session every 20 s while the chat is idle, wakes the chat with a hidden note, and that turn gives the result to Hermes to tell the user (news rule). |
 | To-do list, status panel | MCP `todo_list_add`, `todo_list_remove`, `status_summary_set` (same Host store). The panel's task list shows dsh subagents only. |
 | Approve button, callouts, news rule, reply form | The Composer Plus sections of dsh's system prompt go to Hermes as the system message of each turn (without Assistant always free and Planned steps); `HERMES_SECTION` maps tool names. Hermes' text is the dsh reply, so the client draws the button and the boxes. |
 | Approval for `chat_send/new/stop/archive` | MCP calls run through `tools.execute` in the assistant agent's scope: the existing `tools/pre-execute` gate (approval card, Auto review, relayed-approval check). Outside a dsh turn (Telegram, cron) the approval seam has no open turn and the call fails closed. |
@@ -84,6 +84,7 @@ DSH Web UI / Tether ──> assistant chat (DSH session, same UI, same log)
 ## Risks and limits
 
 - Text only to Hermes (images and files are named). dsh's own tools do not run in the assistant chat while it is on.
+- Hermes keeps its own transcript: a rollback in the assistant chat starts a new Hermes session (`composer-plus-<chat id>-r<n>`) without the earlier context, so withdrawn messages never reach Hermes again.
 - The status panel lists dsh subagents, not Hermes' background helpers.
 - A Hermes gateway that already runs with the same Telegram bot conflicts; one dsh per computer.
 - Hermes API changes (`/v1/runs` approvals, session messages) break the matching part with a clear error line.

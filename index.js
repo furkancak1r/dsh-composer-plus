@@ -12461,7 +12461,7 @@ function summaryStore(file) {
  * - A dangerous command of Hermes during a dsh turn asks through dsh's approval seam; outside a dsh turn (Telegram,
  *   WhatsApp, cron) Hermes keeps its own rule (deny when unattended), and the Composer Plus tools that ask are refused.
  * - Hermes' background work (delegate_task) answers later in its session: a poll finds the new replies and shows them in
- *   the assistant chat through a hidden note (no chat bubble) and one turn that replays them without a model call.
+ *   the assistant chat: a hidden note (no chat bubble) wakes it, and that turn gives Hermes the results to tell the user.
  * Off: the process and the server stop, and the assistant chat uses dsh's own agent loop again. */
 export const HERMES_PATH = '/api/composer-plus.assistant-hermes';
 /** Assistant on Hermes → Subagent model: the dsh model of Hermes' delegate_task ({model?}; ?catalog=1 adds dsh's list). */
@@ -12499,16 +12499,15 @@ export function composerSections(text) {
 
 /** One Hermes turn from dsh's request messages: the system text (HERMES_SECTION and the Composer Plus sections of the
  * system and developer messages), the new user text (the user messages after the last assistant message; an image or a
- * file is named, not sent) and `replay` (only Hermes' own note came: the turn shows Hermes' background replies). */
+ * file is named, not sent; Hermes' own wake note is left out). */
 export function hermesTurn(messages) {
   const list = Array.isArray(messages) ? messages : [];
   const last = list.findLastIndex((m) => m?.role === 'assistant');
   const sections = list.filter((m) => m?.role === 'system' || m?.role === 'developer').flatMap((m) => composerSections(textBlocks(m.content)));
-  const after = list.slice(last + 1).filter((m) => m?.role === 'user');
-  const own = after.filter((m) => m.source?.kind !== HERMES_SOURCE);
+  const own = list.slice(last + 1).filter((m) => m?.role === 'user' && m.source?.kind !== HERMES_SOURCE);
   const part = (b) => (b?.type === 'text' ? b.text : b?.type === 'image' ? '[an image: the user sees it in dsh]' : b?.type === 'file' ? '[a file: the user sees it in dsh]' : '');
   const text = own.map((m) => (Array.isArray(m.content) ? m.content.map(part).join('') : '')).filter((t) => t.trim() !== '').join('\n\n');
-  return { system: [HERMES_SECTION, ...sections].join('\n\n'), text, replay: after.length > 0 && own.length === 0 };
+  return { system: [HERMES_SECTION, ...sections].join('\n\n'), text };
 }
 
 /** Server-sent events of a fetch body: `{event, data}` per frame (comments and keepalives are left out). */
@@ -12524,7 +12523,8 @@ export async function* sseEvents(body) {
     return data.length === 0 ? undefined : { event, data: data.join('\n') };
   };
   for await (const chunk of body) {
-    buf += decoder.decode(chunk, { stream: true }).replace(/\r\n/g, '\n');
+    // Over the whole buffer: a CRLF can be split between two chunks.
+    buf = (buf + decoder.decode(chunk, { stream: true })).replace(/\r\n/g, '\n');
     let i;
     while ((i = buf.indexOf('\n\n')) >= 0) { const f = frame(buf.slice(0, i)); buf = buf.slice(i + 2); if (f) yield f; }
   }
@@ -12581,13 +12581,16 @@ export function bridgeRequest(body) {
 
 /** OpenAI Chat Completions chunk parts (without the envelope) from dsh stream chunks; tool calls are numbered in order. */
 export function bridgeChunks() {
-  const calls = new Map(); // dsh block index → OpenAI tool call index
+  const calls = new Map(); // dsh block index → { n: OpenAI tool call index, id, name: whether each was sent }
   return (chunk) => {
     if (chunk.type === 'text-delta') return [{ delta: { content: chunk.text } }];
     if (chunk.type === 'reasoning-delta') return [{ delta: { reasoning_content: chunk.text } }];
     if (chunk.type === 'tool-call-delta') {
-      const first = !calls.has(chunk.index); if (first) calls.set(chunk.index, calls.size);
-      return [{ delta: { tool_calls: [{ index: calls.get(chunk.index), ...(first ? { id: chunk.id, type: 'function' } : {}), function: { ...(first && chunk.name ? { name: chunk.name } : {}), arguments: chunk.argumentsDelta ?? '' } }] } }];
+      if (!calls.has(chunk.index)) calls.set(chunk.index, { n: calls.size });
+      // The id and the name go once, on the first delta that has each (dsh's name is optional on a delta).
+      const c = calls.get(chunk.index); const id = !c.id && chunk.id; const name = !c.name && chunk.name;
+      if (id) c.id = true; if (name) c.name = true;
+      return [{ delta: { tool_calls: [{ index: c.n, ...(id ? { id: chunk.id, type: 'function' } : {}), function: { ...(name ? { name: chunk.name } : {}), arguments: chunk.argumentsDelta ?? '' } }] } }];
     }
     if (chunk.type === 'usage') return [{ usage: { prompt_tokens: chunk.usage.inputTokens, completion_tokens: chunk.usage.outputTokens, total_tokens: chunk.usage.inputTokens + chunk.usage.outputTokens } }];
     if (chunk.type === 'finish') {
@@ -12648,6 +12651,7 @@ const readBody = (req) => new Promise((resolveBody, reject) => {
   const parts = []; let size = 0;
   req.on('data', (c) => { size += c.length; if (size > HERMES_LIMITS.body) { reject(Object.assign(new Error('too large'), { status: 413 })); req.destroy(); } else parts.push(c); });
   req.on('end', () => resolveBody(Buffer.concat(parts).toString('utf8'))); req.on('error', reject);
+  req.on('close', () => { if (!req.complete) reject(new Error('the request was aborted')); });
 });
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -12660,9 +12664,18 @@ export function installHermes(ctx, home, assistant, { dir = join(home, 'storages
   let run; // the running gateway: { proc, stop, server, key, api }
   let failures = 0; let retry; let health; let poll;
   let route; // the assistant chat's newest model route: Hermes' `dsh` model
-  let lastId; // the newest Hermes message id that the assistant chat has shown
-  const pending = []; // Hermes replies that wait for their replay turn
-  const session = () => `composer-plus-${assistant.id()}`;
+  let lastId; // the newest Hermes message id that the background poll has read
+  const pending = []; // Hermes' background results that wait for the next turn
+  const shown = []; // the replies that dsh turns streamed (the newest 20): the poll does not show them again
+  let inflight = 0; // Hermes turns that stream now: a restart waits for them
+  /** The Hermes session of the assistant chat. A rollback in the chat (Turn rollback or dsh-rewind-plugin: rule 9) starts
+   * a new one, so Hermes' history never holds withdrawn messages (Hermes keeps its own transcript). ponytail: the new
+   * session starts without the earlier context; upgrade: fork Hermes' session at the withdrawn turn. */
+  const session = () => {
+    let n = 0;
+    try { for (const e of get('agents')?.get?.(assistant.id())?.session?.snapshotEvents?.() ?? []) if (e?.type === 'user/message' && ['composer-plus-rollback', 'dsh-rewind'].includes(e.data?.source?.kind)) n++; } catch { /* no log: generation 0 */ }
+    return `composer-plus-${assistant.id()}${n > 0 ? `-r${n}` : ''}`;
+  };
   const set = (next, why) => { state = next; error = why; };
 
   /** The live assistant agent; its tools run through dsh's pipeline in its scope (gates and approvals stay). */
@@ -12731,9 +12744,9 @@ export function installHermes(ctx, home, assistant, { dir = join(home, 'storages
       const envelope = (part) => ({ id, object: 'chat.completion.chunk', created, model, choices: part.delta ? [{ index: 0, delta: part.delta, finish_reason: part.finish_reason ?? null }] : [], ...(part.usage ? { usage: part.usage } : {}), ...(part.error ? { error: { message: part.error } } : {}) });
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store' });
       res.write(`data: ${JSON.stringify(envelope({ delta: { role: 'assistant' } }))}\n\n`);
-      try { for await (const chunk of stream) for (const part of map(chunk)) res.write(`data: ${JSON.stringify(envelope(part))}\n\n`); }
-      catch (e) { res.write(`data: ${JSON.stringify(envelope({ error: String(e?.message ?? e) }))}\n\n`); }
-      res.end('data: [DONE]\n\n');
+      try { for await (const chunk of stream) for (const part of map(chunk)) if (!res.destroyed) res.write(`data: ${JSON.stringify(envelope(part))}\n\n`); }
+      catch (e) { if (!res.destroyed) res.write(`data: ${JSON.stringify(envelope({ error: String(e?.message ?? e) }))}\n\n`); }
+      if (!res.destroyed) res.end('data: [DONE]\n\n');
       return;
     }
     const message = { role: 'assistant', content: '' }; const toolCalls = []; let finish = 'stop'; let usage; let failed;
@@ -12847,13 +12860,17 @@ export function installHermes(ctx, home, assistant, { dir = join(home, 'storages
       poll = setInterval(() => { check(r).catch((e) => log(`background replies: ${e?.message ?? e}`)); }, HERMES_LIMITS.poll);
     } catch (e) {
       server?.close();
-      if (run) fail(run, String(e?.message ?? e)); else { set('failed', String(e?.message ?? e)); log(error); }
+      if (run) fail(run, String(e?.message ?? e)); else if (on) { set('failed', String(e?.message ?? e)); log(String(e?.message ?? e)); }
     }
   };
 
-  /** One start at a time (the switch, Start again, a new subagent model, a retry); the state shows `starting` at once. */
+  /** One start at a time (the switch, Start again, a new subagent model, a retry); the state shows `starting` at once. A
+   * restart waits until no Hermes turn streams (it would cut that answer). */
   let starts = Promise.resolve();
-  const begin = () => { if (on) set('starting'); return (starts = starts.then(start, start).catch(() => {})); };
+  const begin = () => {
+    if (on) set('starting');
+    return (starts = starts.then(async () => { while (inflight > 0 && on) await sleep(1000); await start(); }).catch(() => {}));
+  };
 
   /** Hermes' newest messages of the assistant session (newest first). */
   const newest = async (r, limit) => {
@@ -12862,46 +12879,49 @@ export function installHermes(ctx, home, assistant, { dir = join(home, 'storages
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json())?.data ?? [];
   };
-  const mark = async (r) => { try { const [m] = await newest(r, 1); lastId = Number.isFinite(m?.id) ? m.id : (lastId ?? 0); } catch { /* the next turn marks again */ } };
-  /** Background replies: Hermes' assistant messages after `lastId`, while the assistant chat is idle. */
+  const mark = async (r) => { try { const [m] = await newest(r, 1); lastId = Number.isFinite(m?.id) ? m.id : 0; } catch { /* the next start marks again */ } };
+  /** Background replies: Hermes' assistant messages after `lastId` that no dsh turn streamed, while the assistant chat is
+   * idle. They wait in `pending` and go into the next turn's text (the wake turn, or the user's own). */
   const check = async (r) => {
-    if (run !== r || state !== 'running' || lastId === undefined || pending.length > 0) return;
+    if (run !== r || state !== 'running' || lastId === undefined || inflight > 0) return;
     const agent = get('agents')?.get?.(assistant.id());
     if (agent === undefined || agent.status === 'running') return;
     const fresh = (await newest(r, 20)).filter((m) => Number.isFinite(m?.id) && m.id > lastId).sort((a, b) => a.id - b.id);
     if (fresh.length === 0) return;
     lastId = fresh.at(-1).id;
-    const text = fresh.filter((m) => m.role === 'assistant' && typeof m.content === 'string' && m.content.trim() !== '' && !(m.tool_calls?.length > 0)).map((m) => m.content.trim()).join('\n\n');
+    // Hermes keeps a background result of an API session as a delivery row (a user row, display_kind
+    // async_delegation_complete) for the client's next turn; a reply that no dsh turn streamed counts too.
+    const news = (m) => typeof m.content === 'string' && m.content.trim() !== '' && (m.display_kind === 'async_delegation_complete'
+      || (m.role === 'assistant' && !(m.tool_calls?.length > 0) && !shown.includes(m.content.trim())));
+    const text = fresh.filter(news).map((m) => m.content.trim()).join('\n\n');
     if (text === '') return;
+    const waking = pending.length > 0; // a wake already waits for its turn: this text joins it
     pending.push(text);
-    try { wakeWithContinue(agent, HERMES_SOURCE); } catch (e) { pending.length = 0; throw e; }
+    if (!waking) try { wakeWithContinue(agent, HERMES_SOURCE); } catch (e) { log(`background replies wait for the next turn: ${e?.message ?? e}`); }
   };
   const note = () => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text: '[Composer Plus → Hermes] Your background work answered in Hermes; its reply follows.' })]),
     source: Object.freeze({ kind: HERMES_SOURCE, form: 'snapshot' }) });
-  // The wake markers become one hidden note (as Assistant news does), so no empty chat bubble stays.
-  ctx.on('agent/pre-step', async (payload, next) => {
-    const decision = await next();
-    if (decision.kind !== 'enter' || !decision.messages.some((m) => m.source?.kind === HERMES_SOURCE)) return decision;
-    const first = decision.messages.findIndex((m) => m.source?.kind === HERMES_SOURCE);
-    return { ...decision, messages: decision.messages.flatMap((m, i) => (m.source?.kind !== HERMES_SOURCE ? [m] : i === first ? [note()] : [])) };
-  }, true);
 
-  const textChunks = function* (text) {
-    yield { type: 'block-start', index: 0, blockType: 'text' }; yield { type: 'text-delta', index: 0, text };
-    yield { type: 'block-end', index: 0, block: { type: 'text', text } };
-    yield { type: 'usage', usage: { inputTokens: 0, outputTokens: 0 } }; yield { type: 'finish', reason: { kind: 'stop' } };
-  };
-  /** One Hermes turn as dsh stream chunks. */
+  /** One Hermes turn as dsh stream chunks. It counts as streaming until its finish chunk: dsh's loop can stop reading at
+   * the finish, so a `finally` after it would not run. */
   async function* turn(options) {
-    const { system, text, replay } = hermesTurn(options.messages);
-    if (replay) { yield* textChunks(pending.splice(0).join('\n\n') || '(Hermes has no new reply.)'); return; }
+    inflight++; let counted = true;
+    const done = () => { if (counted) { counted = false; inflight--; } };
+    try { for await (const chunk of hermesTurnChunks(options)) { if (chunk.type === 'finish') done(); yield chunk; } } finally { done(); }
+  }
+  /** The chunks of one Hermes turn. A wake turn (only Hermes' note) gives Hermes its background results to tell the user. */
+  async function* hermesTurnChunks(options) {
+    const { system, text } = hermesTurn(options.messages);
     // A start or a restart that runs: wait for it (at most HERMES_LIMITS.start).
     const until = Date.now() + HERMES_LIMITS.start;
     while ((state === 'starting' || retry !== undefined) && Date.now() < until && !options.signal?.aborted) await sleep(1000);
     const r = run;
     if (state !== 'running' || r === undefined) throw new Error(`Hermes is not running (${state}${error ? `: ${error}` : ''}). Settings → Composer Plus → Assistant on Hermes.`);
+    // Background replies that came while the user typed go with this turn, so none is lost.
+    const earlier = pending.splice(0).join('\n\n');
+    const user = [earlier && `[Composer Plus: your background work finished; tell the user what matters, as the news rule says]\n${earlier}`, text].filter(Boolean).join('\n\n') || 'Continue.';
     const res = await hermesFetch(r, '/v1/chat/completions', { method: 'POST', signal: options.signal, headers: { 'X-Hermes-Session-Id': session() },
-      body: JSON.stringify({ model: 'hermes-agent', stream: true, messages: [{ role: 'system', content: system }, { role: 'user', content: text || 'Continue.' }] }) });
+      body: JSON.stringify({ model: 'hermes-agent', stream: true, messages: [{ role: 'system', content: system }, { role: 'user', content: user }] }) });
     if (!res.ok || !res.body) throw new Error(`Hermes: HTTP ${res.status} ${cutEnd(await res.text().catch(() => ''), 500)}`);
     // Hermes' dangerous command during this dsh turn: dsh's approval card (or Auto review) decides; no answer is a deny.
     const ask = async (e) => {
@@ -12912,18 +12932,38 @@ export function installHermes(ctx, home, assistant, { dir = join(home, 'storages
       catch (err) { log(`approval: ${err?.message ?? err}`); }
       await hermesFetch(r, `/v1/runs/${encodeURIComponent(runId)}/approval`, { method: 'POST', body: JSON.stringify({ choice: outcome === 'allowed-once' ? 'once' : 'deny', ...(isText(e.request_id, 256) ? { request_id: e.request_id } : {}) }) }).catch(() => {});
     };
-    try { yield* hermesChunks(res.body, ask); } finally { await mark(r); }
+    for await (const chunk of hermesChunks(res.body, ask)) {
+      if (chunk.type === 'block-end' && chunk.block.text.trim() !== '') { shown.push(chunk.block.text.trim()); shown.splice(0, Math.max(0, shown.length - 20)); }
+      yield chunk;
+    }
   }
-  ctx.on('llm/stream', (options, next) => {
-    if (!on || options?.purpose !== undefined || !isText(options?.sessionId) || options.sessionId !== assistant.id() || !assistant.isOn()) return next();
-    route = { provider: options.provider, model: options.model, ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}) };
-    return turn(options);
-  });
+
+  /** The hooks live only while the switch is on (rule 1): the assistant chat's model calls, and the wake markers that
+   * become one hidden note (as Assistant news does), so no empty chat bubble stays. */
+  let fiber;
+  const hook = (sub) => {
+    sub.on('llm/stream', (options, next) => {
+      if (!on || options?.purpose !== undefined || !isText(options?.sessionId) || options.sessionId !== assistant.id() || !assistant.isOn()) return next();
+      route = { provider: options.provider, model: options.model, ...(options.reasoningEffort ? { reasoningEffort: options.reasoningEffort } : {}) };
+      return turn(options);
+    });
+    sub.on('agent/pre-step', async (payload, next) => {
+      const decision = await next();
+      if (decision.kind !== 'enter' || !decision.messages.some((m) => m.source?.kind === HERMES_SOURCE)) return decision;
+      const first = decision.messages.findIndex((m) => m.source?.kind === HERMES_SOURCE);
+      return { ...decision, messages: decision.messages.flatMap((m, i) => (m.source?.kind !== HERMES_SOURCE ? [m] : i === first ? [note()] : [])) };
+    }, true);
+  };
+  const unhook = () => { fiber?.dispose?.(); fiber = undefined; pending.length = 0; lastId = undefined; };
 
   // On returns at once (the first start of a Hermes data root can take minutes); the row asks again while it starts.
-  const apply = async (next) => { on = next; failures = 0; if (on) begin(); else { await stopRun(); set('off'); } };
-  const ready = sw.read().then((v) => { on = v; if (v) begin(); });
-  ctx.effect?.(() => () => { on = false; stopRun().catch(() => {}); }, 'dsh-composer-plus: hermes');
+  const apply = async (next) => {
+    on = next; failures = 0;
+    if (on) { if (fiber === undefined && typeof ctx.inject === 'function') fiber = ctx.inject(['llm'], hook); begin(); }
+    else { unhook(); await stopRun(); set('off'); }
+  };
+  const ready = sw.read().then(apply, () => apply(false));
+  ctx.effect?.(() => () => { on = false; unhook(); stopRun().catch(() => {}); }, 'dsh-composer-plus: hermes');
   let switching = ready;
   ctx.connection.fetch.register({
     path: HERMES_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
