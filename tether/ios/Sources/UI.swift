@@ -100,7 +100,7 @@ struct Root: View {
                 let bot = c.assistantApart ? assistantMark(c.botId, sessions: c.sessions, busy: [], waiting: c.waitingChats, finished: c.finished) : nil
                 TabView(selection: $c.tab) {
                     SessionsView().tabItem { Label("Sessions", systemImage: "bubble.left.and.bubble.right") }.badge(c.finished.count).tag(Client.Tab.sessions)
-                    AssistantTab().tabItem { Label("Assistant", systemImage: "sparkles") }.badge(bot == nil ? 0 : 1).tag(Client.Tab.assistant)
+                    AssistantTab().tabItem { Label(assistantName, systemImage: "sparkles") }.badge(bot == nil ? 0 : 1).tag(Client.Tab.assistant)
                     SettingsView().tabItem { Label("Settings", systemImage: "gear") }.tag(Client.Tab.settings)
                 }
                 // a new view tree per Mac: no scroll position, search text or sheet of one Mac stays on screen for another
@@ -746,6 +746,13 @@ struct ConversationView: View {
                 let rows = chatRows(bot ? botLines(c.transcript) : c.transcript, open: openTurns, running: c.running)
                 let hits = finding.map { findRows(rows, query: $0) } ?? []
                 let findIndex = Dictionary(hits.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
+                // Approve button: the answer with the block, or (a folded turn hides it) the next answer on screen.
+                let approval = c.approvalOffer.flatMap { o in
+                    rows.lazy.compactMap { r -> Int? in
+                        guard case .line(let l) = r, l.kind == .assistant, let s = l.seq, s >= o.from else { return nil }
+                        return s
+                    }.first.map { (offer: o, at: $0) }
+                }
                 ScrollView {
                     // Pinned section headers: an open step group (StepsView) keeps its header at the top of the screen.
                     LazyVStack(alignment: .leading, spacing: 14, pinnedViews: .sectionHeaders) {
@@ -766,7 +773,7 @@ struct ConversationView: View {
                             switch row {
                             // A Section with its own header id: no modifier here, or each part of the Section gets it.
                             case .steps(let ls, let live): StepsView(lines: ls, live: live && !c.answering) { keepHeader(proxy, $0) }
-                            default: lineRow(row, findIndex, hits.count)
+                            default: lineRow(row, findIndex, hits.count, approval: approval)
                             }
                         }
                         // A message on its way to the Mac: shown at once, faded, until the Mac's copy replaces it.
@@ -857,13 +864,16 @@ struct ConversationView: View {
     }
 
     /// A message row or a turn summary row, with its scroll id and its tint (Open message, Find in chat).
-    @ViewBuilder private func lineRow(_ row: ChatRow, _ findIndex: [UUID: Int], _ hitCount: Int) -> some View {
+    @ViewBuilder private func lineRow(_ row: ChatRow, _ findIndex: [UUID: Int], _ hitCount: Int, approval: (offer: ApprovalOffer, at: Int)? = nil) -> some View {
         Group {
             switch row {
             case .line(let l):
-                LineView(line: l, onEdit: { text = $0; focused = true }, onQuote: { text = quoteDraft(text, $0); focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil)
+                LineView(line: l, onEdit: { text = $0; focused = true }, onQuote: { text = quoteDraft(text, $0); focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil,
+                         onayButtons: approval.flatMap { o in o.offer.from == l.seq && o.at == l.seq && text.isEmpty && images.isEmpty && files.isEmpty ? Set(o.offer.sentences) : nil } ?? [])
                 // Option buttons (Composer Plus): under the answer that ends with an option list.
                 if l.kind == .assistant, let o = c.optionOffer, o.seq == l.seq, text.isEmpty, images.isEmpty, files.isEmpty { OptionButtons(offer: o) }
+                // Approve button (Composer Plus): under the answer with the newest `onay` block.
+                if let o = approval, l.kind == .assistant, l.seq == o.at, text.isEmpty, images.isEmpty, files.isEmpty { ApproveButtons(offer: o.offer) }
             case .turn(let l, let foldable):
                 TurnRow(line: l, foldable: foldable, open: openTurns.contains(l.id)) {
                     withAnimation(.snappy) { if openTurns.contains(l.id) { openTurns.remove(l.id) } else { openTurns.insert(l.id) } }
@@ -1517,6 +1527,39 @@ struct OptionButtons: View {
     }
 }
 
+/// Approve button (Composer Plus `approveButton`): one button per approval sentence, with the whole sentence. A tap asks
+/// once (the full sentence), then sends the exact sentence as your message. One send at a time (the option guard).
+struct ApproveButtons: View {
+    @EnvironmentObject var c: Client
+    let offer: ApprovalOffer
+    @State private var asking: String?
+    var body: some View {
+        let busy = c.current.map { c.optionBusy.contains($0) } ?? true
+        let w = approveWords(macLang: c.macLang)
+        VStack(alignment: .leading, spacing: 6) {
+            ForEach(offer.sentences, id: \.self) { s in
+                Button { UISelectionFeedbackGenerator().selectionChanged(); asking = s } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(verbatim: w.button).bold().fixedSize()
+                        Text(verbatim: s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                    }
+                    .font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.bordered).tint(.accentColor)
+                .disabled(busy)
+                .accessibilityLabel(Text(verbatim: "\(w.button): \(s)"))
+                .accessibilityHint(Text(verbatim: w.hint))
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: w.group))
+        .confirmationDialog(Text(verbatim: w.confirm), isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }), titleVisibility: .visible, presenting: asking) { s in
+            Button(w.button) { let o = offer; c.run(waits: false) { try await c.approve(o, s) } }
+            Button(w.cancel, role: .cancel) {}
+        } message: { s in Text(verbatim: s) }
+    }
+}
+
 struct LineView: View {
     @EnvironmentObject var c: Client
     let line: Line
@@ -1526,6 +1569,8 @@ struct LineView: View {
     var onQuote: ((String) -> Void)? = nil
     /// Turn rollback (Composer Plus): nil when this row cannot be rolled back.
     var onRollback: (() -> Void)? = nil
+    /// Approve button: the sentences whose button shows now for this answer.
+    var onayButtons: Set<String> = []
     @State private var open = false
     @State private var copied = false
     @State private var selecting = false
@@ -1576,7 +1621,8 @@ struct LineView: View {
             }.frame(maxWidth: .infinity, alignment: .trailing)
         case .assistant:
             VStack(alignment: .leading, spacing: 6) {
-                Markdown(text: line.text).frame(maxWidth: .infinity, alignment: .leading)
+                // Assistant callouts: only in the assistant chat, as on the Mac.
+                Markdown(text: line.text, callouts: c.current != nil && c.current == c.assistantId, calloutLang: c.macLang, onayButtons: onayButtons).frame(maxWidth: .infinity, alignment: .leading)
                 if !live {
                     Button {
                         UIPasteboard.general.string = line.text; UIImpactFeedbackGenerator(style: .light).impactOccurred()
@@ -1863,22 +1909,65 @@ struct ImageViewer: View {
 
 struct Markdown: View {
     let text: String
+    /// Assistant callouts: the boxes of the assistant chat (`calloutLang`: the Mac's Composer Plus language); nil elsewhere.
+    var callouts = false
+    var calloutLang: String? = nil
+    /// Approve button: the sentences whose button shows under this answer (their block is hidden: the button holds them).
+    var onayButtons: Set<String> = []
     var body: some View {
+        // As on the Mac: a button-worthy `onay` sentence shows once, as plain gray text when it has no button now; a block
+        // that never gets a button stays a code block.
+        let onay = text.range(of: "onay", options: .caseInsensitive) == nil ? [] : Set(onayBlocks(text).filter(approvable))
         VStack(alignment: .leading, spacing: 8) {
             ForEach(Array(mdBlocks(text).enumerated()), id: \.offset) { _, b in
-                if b.code {
+                let sentence = b.code && b.lang.lowercased() == "onay" ? b.text.trimmingCharacters(in: jsTrim) : nil
+                if let sentence, onayButtons.contains(sentence) { EmptyView() }
+                else if let sentence, onay.contains(sentence) { Text(verbatim: sentence).foregroundStyle(.secondary).textSelection(.enabled) }
+                else if b.code {
                     CodeBlock(text: b.text, lang: b.lang)
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
-                        ForEach(Array(mdParts(b.text).enumerated()), id: \.offset) { _, p in
+                        ForEach(Array((callouts ? mdCallouts(mdParts(b.text)) : mdParts(b.text).map(MdBlock.part)).enumerated()), id: \.offset) { _, p in
                             switch p {
-                            case .line(let l): MdLineView(line: mdLine(l))
-                            case .table(let rows): MdTable(rows: rows)
+                            case .part(.line(let l)): MdLineView(line: mdLine(l))
+                            case .part(.table(let rows)): MdTable(rows: rows)
+                            case .callout(let kind, let title, let lines): CalloutBox(kind: kind, title: title, lines: lines, label: calloutLabel(kind, macLang: calloutLang))
                             }
                         }
                     }.textSelection(.enabled)
                 }
             }
+        }
+    }
+}
+
+/// One Assistant callout: a colored box with its label, or `[!DETAILS]` as a closed section that opens with a tap.
+struct CalloutBox: View {
+    let kind: String, title: String, lines: [String], label: String
+    @State private var open = false
+    private var color: Color {
+        switch kind {
+        case "result": .green
+        case "problem": .red
+        case "approval": .accentColor
+        case "questions": .purple
+        case "important": .orange
+        case "running": .secondary
+        default: Color(.separator)
+        }
+    }
+    var body: some View {
+        let content = VStack(alignment: .leading, spacing: 4) { ForEach(Array(lines.enumerated()), id: \.offset) { _, l in MdLineView(line: mdLine(l)) } }
+        if kind == "details" {
+            DisclosureGroup(isExpanded: $open) { content.padding(.top, 4) } label: { Text(verbatim: title.isEmpty ? label : title).bold() }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(color))
+        } else {
+            VStack(alignment: .leading, spacing: 4) { Text(verbatim: label).font(.subheadline.bold()).foregroundStyle(color); content }
+                .padding(.horizontal, 12).padding(.vertical, 8).frame(maxWidth: .infinity, alignment: .leading)
+                .background(color.opacity(0.09), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .overlay(alignment: .leading) { UnevenRoundedRectangle(topLeadingRadius: 8, bottomLeadingRadius: 8).fill(color).frame(width: 3) }
+                .accessibilityElement(children: .combine)
         }
     }
 }
@@ -2356,10 +2445,10 @@ struct AssistantTab: View {
         NavigationStack {
             Group {
                 if c.state == .off || c.state == .reconnecting { OfflineView() }
-                else if !ready || (failed == nil && c.plus.contains("assistant")) { ProgressView(ready ? "Opening the assistant…" : "Connecting to your Mac…") }
+                else if !ready || (failed == nil && c.plus.contains("assistant")) { ProgressView(ready ? "Opening \(assistantName)…" : "Connecting to your Mac…") }
                 else {
                     ContentUnavailableView {
-                        Label("Assistant", systemImage: "sparkles")
+                        Label(assistantName, systemImage: "sparkles")
                     } description: {
                         // No route: an older Composer Plus on the Mac.
                         Text(failed ?? String(localized: "Update Composer Plus on your Mac and switch on Assistant in Settings → Composer Plus."))
@@ -2368,7 +2457,7 @@ struct AssistantTab: View {
                     }
                 }
             }
-            .navigationTitle("Assistant")
+            .navigationTitle(assistantName)
             .toolbar { ToolbarItem(placement: .topBarLeading) { MacPicker() } }
         }
         // Each time the tab shows, and when the Mac connects while it shows.
@@ -2523,7 +2612,7 @@ struct SettingsView: View {
                     Section {
                         Toggle("Assistant apart from chats", isOn: $c.assistantApart)
                         Toggle("Assistant messages only", isOn: $c.assistantMessagesOnly)
-                    } header: { Text("Assistant") } footer: { Text("Apart from chats: the assistant chat is not in the Sessions list (search still finds it); the Assistant tab opens it and shows a badge while it waits for you or has a new reply. Messages only: in the assistant chat you see your messages, its replies and errors, without thinking and tool rows. These switches are for this iPhone.") }
+                    } header: { Text(verbatim: assistantName) } footer: { Text("Apart from chats: the assistant chat is not in the Sessions list (search still finds it); the \(assistantName) tab opens it and shows a badge while it waits for you or has a new reply. Messages only: in the assistant chat you see your messages, its replies and errors, without thinking and tool rows. These switches are for this iPhone.") }
                 }
                 if c.plus.contains("issue-report") {
                     Section {
