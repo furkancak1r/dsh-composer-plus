@@ -3306,6 +3306,13 @@ export function outageWatch({ health, resume, log = () => {}, now = Date.now, ti
   };
 }
 
+/** True for a provider route of AIProxy: its id or its display name in dsh's `llm` registry says so. */
+export function aiproxyProvider(provider, llm) {
+  if (!isText(provider, 200)) return false;
+  let name; try { name = llm?.listProviders?.().find((p) => p.id === provider)?.name; } catch { /* no registry */ }
+  return /aiproxy/i.test(provider) || /aiproxy/i.test(String(name ?? ''));
+}
+
 /** Resume after an AIProxy outage (Host half): the switch route, the turn end watch and the parent note. Answers the
  * handle that the Assistant status panel reads (`last()`: the chats that the newest outage continued). */
 export function installOutageResume(ctx, home, { file = join(home, 'storages', 'dsh-composer-plus', 'outage-resume.json'), timing = OUTAGE,
@@ -3342,10 +3349,7 @@ export function installOutageResume(ctx, home, { file = join(home, 'storages', '
   const onAIProxy = (session) => {
     let events = [];
     try { events = session.snapshotEvents?.() ?? get('agents')?.get?.(session.id)?.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
-    const provider = events.findLast((e) => e.type === 'request/header')?.data?.header?.config?.provider;
-    if (!isText(provider, 200)) return false;
-    let name; try { name = get('llm')?.listProviders?.().find((p) => p.id === provider)?.name; } catch { /* no registry */ }
-    return /aiproxy/i.test(provider) || /aiproxy/i.test(String(name ?? ''));
+    return aiproxyProvider(events.findLast((e) => e.type === 'request/header')?.data?.header?.config?.provider, get('llm'));
   };
   const children = new Set(); // subagents whose turn failed in an outage, until their parent's notice
   /** True for a turn end that the watch takes: it continues the chat later or calls `onLeft(id, why)`. */
@@ -9217,13 +9221,23 @@ export function plannedStepChunks(found) {
   return chunks;
 }
 
-/** The `llm/stream` listener: an agent request of a chat (it has a session, no purpose such as compaction, and offers the
- * plan tool) with one ready step gets the step's message; every other request goes on to the model. */
-export function plannedStream(options, next) {
+/** True when the step runs on AIProxy: its provider (`selection`, dsh 0.2.2+), else the agent's newest model request.
+ * AIProxy's Claude Code bridge pins the tool call ids of its last answer, and a step message that it did not write makes
+ * it answer 409 session_mismatch for that chat from then on (17 Nov 2026: 2 of 2 chats). `llm`: dsh's registry. */
+export function plannedOff(llm, selection, agent) {
+  let provider = selection?.provider;
+  if (provider === undefined) { try { provider = agent?.session?.snapshotEvents?.().findLast((e) => e.type === 'request/header')?.data?.header?.config?.provider; } catch { /* no log */ } }
+  return aiproxyProvider(provider, llm);
+}
+
+/** The `llm/stream` listener: an agent request of a chat (it has a session, no purpose such as compaction, offers the
+ * plan tool and does not go to AIProxy) with one ready step gets the step's message; every other request goes on to the
+ * model, so a plan of an AIProxy chat (also one made before) runs no step. `llm`: dsh's registry (provider names). */
+export function plannedStream(options, next, llm) {
   let found;
   try {
     const tools = Array.isArray(options?.tools) ? new Set(options.tools.map((t) => t?.name)) : undefined;
-    if (options?.sessionId !== undefined && options.purpose === undefined && tools?.has(PLANNED_TOOL)) found = nextPlannedStep(options.messages, tools);
+    if (options?.sessionId !== undefined && options.purpose === undefined && tools?.has(PLANNED_TOOL) && !aiproxyProvider(options.provider, llm)) found = nextPlannedStep(options.messages, tools);
   } catch { found = undefined; }
   if (found === undefined) return next();
   const chunks = plannedStepChunks(found);
@@ -9413,6 +9427,7 @@ export function installSecrets(ctx, home, dir = join(home, 'storages', 'dsh-comp
 /** Planned steps (Host half): the switch route (off by default), and while it is on: the tool, the prompt section and the
  * `llm/stream` listener, all in one fiber that switching off disposes. */
 export function installPlannedSteps(ctx, home, file = join(home, 'storages', 'dsh-composer-plus', 'planned-steps.json')) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const sw = mobileSwitch(file);
   let on = false;
   let fiber;
@@ -9429,7 +9444,8 @@ export function installPlannedSteps(ctx, home, file = join(home, 'storages', 'ds
       }, required: ['id', 'tool', 'arguments'] } },
     }, required: ['steps'] },
     output: textOutput,
-    async execute(args) {
+    async execute(args, exec) {
+      if (plannedOff(get('llm'), undefined, exec?.agent)) throw new Error('Planned steps do not run in a chat on AIProxy. Run each step yourself.');
       const steps = parsePlan(args);
       return `Plan accepted: ${steps.map((s) => `${s.id} (${s.tool}, after ${s.after}, when ${s.when})`).join('; ')}. Composer Plus runs a step without a model call when its predecessor finished and its guard holds. A failed guard, two ready steps, the last step or a new user message gives the turn back to you.`;
     },
@@ -9438,9 +9454,11 @@ export function installPlannedSteps(ctx, home, file = join(home, 'storages', 'ds
     on = next;
     if (on && fiber === undefined && typeof ctx.inject === 'function') {
       fiber = ctx.inject(['tools', 'systemPrompt'], (sub) => {
-        sub.tools.register(tool);
-        sub.systemPrompt.section({ name: 'composer-plus:planned-steps', order: 660, interpolate: false, text: () => PLANNED_SECTION });
-        sub.on('llm/stream', plannedStream);
+        // AIProxy chats get neither the tool nor the section. ponytail: dsh before 0.2.2 ignores `when`, so the tool stays
+        // listed there; the section is gone and no step runs (plannedStream).
+        sub.tools.register(tool, { when: (c) => !plannedOff(get('llm'), c?.modelSelection) });
+        sub.systemPrompt.section({ name: 'composer-plus:planned-steps', order: 660, interpolate: false, text: (c) => (plannedOff(get('llm'), c?.modelSelection, c?.agent) ? '' : PLANNED_SECTION) });
+        sub.on('llm/stream', (options, next) => plannedStream(options, next, get('llm')));
       });
     } else if (!on) { fiber?.dispose?.(); fiber = undefined; }
   };

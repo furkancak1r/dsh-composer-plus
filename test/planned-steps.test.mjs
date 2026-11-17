@@ -135,19 +135,27 @@ await collect(plannedStream(opts(planned(), { sessionId: undefined }), counted))
 await collect(plannedStream(opts(planned(), { tools: [{ name: 'bash' }] }), counted)); assert.equal(nexts, 3, 'the plan tool is not offered (switch off in this chat)');
 await collect(plannedStream(opts([...planned(), user('stop')]), counted)); assert.equal(nexts, 4, 'a user message: the model');
 await collect(plannedStream({ get messages() { throw Error('boom'); }, sessionId: 's', tools: [{ name: PLANNED_TOOL }] }, counted)); assert.equal(nexts, 5, 'a throwing request goes to the model');
+// AIProxy (17 Nov 2026): its bridge pins the tool call ids of its own last answer, so a step message makes it answer
+// 409 session_mismatch for that chat. A request to AIProxy (by its route id or its display name) runs no step, also for
+// a plan that the chat made before; another provider still runs the step.
+const llm = { listProviders: () => [{ id: 'cc', name: 'AIProxy' }, { id: 'p', name: 'DeepSeek' }] };
+await collect(plannedStream(opts(planned(), { provider: 'aiproxy' }), counted, llm)); assert.equal(nexts, 6, 'AIProxy route id: the model');
+await collect(plannedStream(opts(planned(), { provider: 'cc' }), counted, llm)); assert.equal(nexts, 7, 'AIProxy display name: the model');
+assert.equal((await collect(plannedStream(opts(planned()), counted, llm))).filter((c) => c.type === 'tool-call-delta').length, 1); assert.equal(nexts, 7, 'another provider: the step runs');
 
 // The switch: off by default; on registers the tool, the section and the listener; off removes all three.
 const root = await mkdtemp(join(tmpdir(), 'cp-planned-'));
 try {
-  const routes = new Map(); const live = { tools: new Map(), sections: new Map(), on: new Map() }; const effects = [];
+  const routes = new Map(); const live = { tools: new Map(), when: new Map(), sections: new Map(), on: new Map() }; const effects = [];
   let disposed = 0;
   const ctx = {
     effect: (fn) => effects.push(fn()),
+    get: (name) => (name === 'llm' ? llm : undefined),
     connection: { fetch: { register: (r) => routes.set(r.path, r) } },
     inject: (deps, setup) => {
       assert.deepEqual(deps, ['tools', 'systemPrompt']);
       const offs = [];
-      setup({ tools: { register: (t) => { live.tools.set(t.name, t); offs.push(() => live.tools.delete(t.name)); } },
+      setup({ tools: { register: (t, o) => { live.tools.set(t.name, t); live.when.set(t.name, o?.when); offs.push(() => live.tools.delete(t.name)); } },
         systemPrompt: { section: (s) => { live.sections.set(s.name, s); offs.push(() => live.sections.delete(s.name)); } },
         on: (name, fn) => { live.on.set(name, fn); offs.push(() => live.on.delete(name)); } });
       return { dispose: () => { disposed++; offs.forEach((f) => f()); } };
@@ -162,11 +170,28 @@ try {
   for (const bad of [{ on: 'yes' }, { on: true, x: 1 }, {}, []]) assert.equal((await req(bad)).status, 400, JSON.stringify(bad));
   assert.deepEqual((await req({ on: true })).body, { on: true });
   assert.deepEqual(JSON.parse(await readFile(join(home, 'storages', 'dsh-composer-plus', 'planned-steps.json'), 'utf8')), { on: true });
-  assert.ok(live.tools.has(PLANNED_TOOL) && live.sections.has('composer-plus:planned-steps') && live.on.get('llm/stream') === plannedStream);
+  assert.ok(live.tools.has(PLANNED_TOOL) && live.sections.has('composer-plus:planned-steps') && typeof live.on.get('llm/stream') === 'function');
   assert.match(live.sections.get('composer-plus:planned-steps').text(), /plan_next_steps/);
   // The tool: a good plan answers "Plan accepted"; a bad plan throws (dsh shows the error to the model).
   assert.match(await live.tools.get(PLANNED_TOOL).execute(PLAN), /^Plan accepted: test \(bash, after root, when ok\); lint/);
   await assert.rejects(live.tools.get(PLANNED_TOOL).execute({ steps: [{ id: 'a', tool: 'write', arguments: {} }] }), /"tool"/);
+  // An AIProxy chat: dsh's step condition leaves the tool out, the section is empty, the listener runs no step, and a
+  // call from a dsh without `when` (before 0.2.2) is refused. Another provider keeps all of it.
+  const onModel = (provider) => ({ agent: { session: { snapshotEvents: () => [{ type: 'request/header', data: { header: { config: { provider } } } }] } } });
+  const when = live.when.get(PLANNED_TOOL);
+  assert.equal(await when({ modelSelection: { provider: 'aiproxy', model: 'aiproxy-xhigh' } }), false, 'AIProxy: the tool is not offered');
+  assert.equal(await when({ modelSelection: { provider: 'cc', model: 'm' } }), false, 'AIProxy by its display name');
+  assert.equal(await when({ modelSelection: { provider: 'p', model: 'm' } }), true, 'another provider: the tool is offered');
+  const section = live.sections.get('composer-plus:planned-steps').text;
+  assert.equal(section({ modelSelection: { provider: 'aiproxy', model: 'm' } }), '', 'AIProxy: no section');
+  assert.equal(section(onModel('aiproxy')), '', 'AIProxy (no selection: the newest request): no section');
+  assert.match(section({ modelSelection: { provider: 'p', model: 'm' } }), /plan_next_steps/);
+  let modelCalls = 0;
+  const viaModel = () => { modelCalls++; return nextStream(); };
+  await collect(live.on.get('llm/stream')(opts(planned(), { provider: 'cc' }), viaModel)); assert.equal(modelCalls, 1, 'the registered listener: AIProxy goes to the model');
+  assert.equal((await collect(live.on.get('llm/stream')(opts(planned()), viaModel))).filter((c) => c.type === 'tool-call-delta').length, 1, 'the registered listener: another provider runs the step');
+  await assert.rejects(live.tools.get(PLANNED_TOOL).execute(PLAN, onModel('aiproxy')), /AIProxy/);
+  assert.match(await live.tools.get(PLANNED_TOOL).execute(PLAN, onModel('p')), /^Plan accepted/);
   // Two clicks in a row end on the newest one.
   await Promise.all([req({ on: false }), req({ on: true }), req({ on: false })]);
   assert.deepEqual((await req()).body, { on: false });
