@@ -2784,7 +2784,8 @@
     "status.loading": "読み込み中…",
     "status.noGit": "git リポジトリではありません。",
     "status.branch": "ブランチ：{branch}",
-    "status.outage": "AIProxy の停止後に続行しました（{time}）",
+    "status.outageRow": "停止後に続行 · {time}",
+    "status.outageMore": "AIProxy の停止（{time}）：{count} 件のチャットが続行しました",
     "settings.nativeNote": "DeepSeek Harness にこの機能が組み込まれたため、Composer Plus は独自の機能をオフにしました。まだ必要な場合にのみオンにしてください。"
   },
   "common": {

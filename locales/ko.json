@@ -2784,7 +2784,8 @@
     "status.loading": "불러오는 중…",
     "status.noGit": "git 저장소가 아닙니다.",
     "status.branch": "브랜치: {branch}",
-    "status.outage": "AIProxy 장애 후 이어서 실행됨({time})",
+    "status.outageRow": "장애 후 이어서 실행됨 · {time}",
+    "status.outageMore": "AIProxy 장애({time}): 채팅 {count}개가 이어서 실행됨",
     "settings.nativeNote": "이제 DeepSeek Harness에 이 기능이 내장되어 Composer Plus가 자체 버전을 껐습니다. 아직 필요한 경우에만 켜세요."
   },
   "common": {

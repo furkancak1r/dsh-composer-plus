@@ -2784,7 +2784,8 @@
     "status.loading": "Memuat…",
     "status.noGit": "Bukan repositori git.",
     "status.branch": "Branch: {branch}",
-    "status.outage": "Dilanjutkan setelah gangguan AIProxy ({time})",
+    "status.outageRow": "Dilanjutkan setelah gangguan · {time}",
+    "status.outageMore": "Gangguan AIProxy ({time}): {count} obrolan dilanjutkan",
     "settings.nativeNote": "DeepSeek Harness kini memiliki fitur ini secara bawaan, jadi Composer Plus menonaktifkan versinya sendiri. Aktifkan hanya jika Anda masih membutuhkannya."
   },
   "common": {

@@ -6,7 +6,8 @@
 //    request_cancelled (a 499 answer, or an error inside the stream for the one that streams) and new
 //    requests get a refused connection, so both turns fail. The fake comes back: after the settle time each chat gets one
 //    "continue" message (the English UI text) and finishes. A third chat that you stopped gets nothing.
-// 3. The Assistant chat's status panel lists the two chats that continued.
+// 3. The Assistant chat's status panel counts the two chats that continued (they are not its tasks): one line, no
+//    names and no links.
 // 4. A fourth chat runs a slow turn and you queue one more message. The fake answers the turn with AIProxy's
 //    `429 upstream_rejected` while it stays up: the turn fails and dsh leaves the queued message waiting. After the fixed
 //    wait (3 min, OUTAGE.retry) Composer Plus continues the chat once: the note runs (Stop send first puts it first),
@@ -187,13 +188,23 @@ try {
       assert.deepEqual([...state.notes].sort(), [...CHATS].sort(), 'each failed chat continued once; the stopped chat did not');
       note('2: after the outage, each failed chat got one message and finished; the stopped chat got none');
 
-      // 3. The Assistant chat's status panel lists them.
+      // 3. The Assistant chat's status panel counts them.
       await page.locator('button[aria-label="Damon"]').click(); // the assistant's fixed name (main, feat/fixed-damon-assistant-name)
-      const line = page.locator('[data-composer-plus-outage]');
+      const line = page.locator('[data-composer-plus-outage="note"]');
       await until(async () => (await line.count()) === 1 || (await page.getByRole('button', { name: 'Refresh', exact: true }).click().then(() => false, () => false)), 'the outage line', 30000);
-      assert.match(await line.innerText(), /Continued after the AIProxy outage/);
-      assert.equal(await line.getByRole('button').count(), CHATS.length, 'one link per continued chat');
-      note('3: the status panel lists the continued chats');
+      assert.match(await line.innerText(), new RegExp(`^AIProxy outage \\(.+\\): ${CHATS.length} chat\\(s\\) continued$`));
+      assert.equal(await line.getByRole('button').count(), 0, 'a count, no chat links');
+      assert.equal(await page.locator('[data-composer-plus-outage="row"]').count(), 0, 'no task row: the chats are not tasks of the assistant');
+      note('3: the status panel counts the continued chats in one line');
+      // The Settings picture: the Assistant chat with its status panel.
+      if (process.env.SHOT && !shotDone) {
+        await page.locator('[data-composer-plus-todos] .cp-st-body[data-refreshing="false"]').waitFor(); // not dimmed by a refresh
+        await page.mouse.move(640, 790);
+        const png = join(home, 'outage.png');
+        await page.screenshot({ path: png });
+        execFileSync('cwebp', ['-quiet', '-q', '72', '-resize', '960', '0', png, '-o', join(repo, 'assets/features/outageResume.webp')]);
+        shotDone = true; note('SHOT: assets/features/outageResume.webp');
+      }
 
       // 4. A 429 upstream_rejected while AIProxy stays up, with one message in the chat's queue.
       await newChat(); await send(REFUSED); await until(() => state.held !== null, 'the fourth chat runs');
@@ -209,13 +220,6 @@ try {
       assert.ok(state.refusedNote - state.refusedAt >= 175000, 'only after the fixed wait');
       note(`4: after a 429 the chat continued once after ${Math.round((state.refusedNote - state.refusedAt) / 1000)} s; its queued message ran too`);
 
-      if (process.env.SHOT && !shotDone) {
-        await page.mouse.move(640, 790);
-        const png = join(home, 'outage.png');
-        await page.screenshot({ path: png });
-        execFileSync('cwebp', ['-quiet', '-q', '72', '-resize', '960', '0', png, '-o', join(repo, 'assets/features/outageResume.webp')]);
-        shotDone = true; note('SHOT: assets/features/outageResume.webp');
-      }
       assert.deepEqual(errors, [], 'no page errors');
       passed = true;
       console.log(`PASS dsh ${version}`);

@@ -2784,7 +2784,8 @@
     "status.loading": "Cargando…",
     "status.noGit": "No es un repositorio git.",
     "status.branch": "Rama: {branch}",
-    "status.outage": "Continuó tras la caída de AIProxy ({time})",
+    "status.outageRow": "Continuó tras la caída · {time}",
+    "status.outageMore": "Caída de AIProxy ({time}): continuaron {count} chat(s)",
     "settings.nativeNote": "DeepSeek Harness ya incluye esta función, por lo que Composer Plus desactivó su propia versión. Actívala solo si todavía la necesitas."
   },
   "common": {

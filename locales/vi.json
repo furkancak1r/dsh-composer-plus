@@ -2784,7 +2784,8 @@
     "status.loading": "Đang tải…",
     "status.noGit": "Không phải kho git.",
     "status.branch": "Nhánh: {branch}",
-    "status.outage": "Đã tiếp tục sau sự cố AIProxy ({time})",
+    "status.outageRow": "Đã tiếp tục sau sự cố · {time}",
+    "status.outageMore": "Sự cố AIProxy ({time}): {count} cuộc trò chuyện đã tiếp tục",
     "settings.nativeNote": "DeepSeek Harness hiện đã tích hợp sẵn tính năng này nên Composer Plus đã tắt phiên bản của mình. Chỉ bật lại nếu bạn vẫn cần."
   },
   "common": {
