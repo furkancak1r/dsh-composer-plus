@@ -10258,11 +10258,14 @@ const RELAY_QUOTE = /\p{L}+['’]s(?:[ \t]+(?!(?:cancel\w*|revok\w*|withdr\w*|re
  * nothing between "'s" and "approval", and the quote ends its line. */
 const RELAY_HEADER = /\p{L}+['’]s approval \(exact text(?:,[^()\n]*)?\):?[ \t]*(?:\r?\n[ \t]*)?["“]([^\r\n]{0,4000})["”][ \t]*(?=\r?\n|$)/giu;
 /** True when `text`, without its RELAY_HEADER relays, still announces a relayed approval: "exact text" on the line of
- * "approval", "approved" or "deploy line" or on the next line (words in quotes do not count). Auto review denies such a
- * relay (2026-11-17: four relays with other headers, four denials of one live deploy step). A line that withdraws or stops
- * ("revoked approval", "cancel the deploy") is not refused: a stop must reach the chat. */
+ * "approval", "approved" or "deploy line" or on the next line (words in quotes do not count: first the quotes of one line,
+ * with their inner quotes, then the quotes over more lines). Auto review denies such a relay (2026-11-17: four relays with
+ * other headers, four denials of one live deploy step). A line that withdraws or stops ("revoked approval", "cancel the
+ * deploy") is not refused: a stop must reach the chat.
+ * ponytail: words only, so a task text with these words ("Fix the deploy line parser; exact text must match.") is refused
+ * too, and its reason names the fix (other words); the stop words count only on the line of "approval". */
 const looseRelay = (text) => {
-  const lines = text.replace(RELAY_HEADER, '').split(/\r?\n/).map((l) => l.replace(/["“].*["”]/, ''));
+  const lines = text.replace(RELAY_HEADER, '').replace(/["“].*["”]/g, '').replace(/["“][^"”]*["”]/g, '').split(/\r?\n/);
   const exact = (i) => /\bexact text\b/i.test(lines[i] ?? '');
   return lines.some((l, i) => /\b(?:approv(?:al|ed)|deploy line)/i.test(l) && !/\b(?:cancel|revok|withdr|reject|deni|deny|stop|hold)/i.test(l) && (exact(i) || exact(i + 1)));
 };
@@ -10273,7 +10276,7 @@ export const RELAY_WINDOW_MS = 12 * 3600000;
  * message (rule 9). Undefined when every quote is there (2026-11-16: the assistant relayed a button sentence of another
  * chat as the user's exact approval, and Auto review denied the call). */
 export function relayRefusal(text, events, inherited = 0, now = Date.now()) {
-  if (looseRelay(String(text ?? ''))) return 'Composer Plus → Assistant: this text relays an approval, but not in the form that Auto review reads as a relayed approval, so Auto review in the other chat denies its step. Write the approval in this form, with the user\'s sentence word for word and nothing after the closing quote on its line: <Name>\'s approval (exact text, typed by <Name> in the Assistant chat on YYYY-MM-DD at HH:MM): "<sentence>". When the text relays no approval, do not write "exact text" on the line of "approval", "approved" or "deploy line" or on the next line; relay a request as <Name>\'s request (exact text, YYYY-MM-DD): "<sentence>".';
+  if (looseRelay(String(text ?? ''))) return 'Composer Plus → Assistant: this text relays an approval, but not in the form that Auto review reads as a relayed approval, so Auto review in the other chat denies its step. Write the approval in this form (put the sentence on one line, word for word, and nothing after the closing quote): <Name>\'s approval (exact text, typed by <Name> in the Assistant chat on YYYY-MM-DD at HH:MM): "<sentence>". When the text relays no approval (for example a task that names an approval or a deploy line), write it without "exact text" on the line of "approval", "approved" or "deploy line" and on the next line, for example "the same text"; relay a request as <Name>\'s request (exact text, YYYY-MM-DD): "<sentence>".';
   const fold = (s) => String(s ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
   const quotes = [...String(text ?? '').matchAll(RELAY_QUOTE)].map((m) => fold(m[1])).filter((q) => q !== '');
   if (quotes.length === 0) return undefined;
