@@ -107,6 +107,25 @@ try {
         assert.equal(await hit(name, path), '.env*', `${name} ${path}: still protected`);
     }
     assert.equal(await hit('read', 'tpl/.env.example', [{ pattern: '*.example', mode: 'all' }]), '*.example', 'a pattern of the user still covers a template');
+    await symlink(join(tpl, '.env.example'), join(tpl, 'svc', '.env.example'));
+    assert.equal(await hit('edit', 'tpl/svc/.env.example'), undefined, 'a link with a template name to a template');
+    // Review finding P1 (2026-11-17): dsh 0.2.2+ reads `~/…` from the home folder; the gate checks that path too.
+    const savedHome = process.env.HOME; const savedProfile = process.env.USERPROFILE;
+    const fakeHome = join(root, 'fake-home'); await mkdir(join(fakeHome, 'proj', 'h'), { recursive: true }); await mkdir(join(fakeHome, 'proj', 'ok'), { recursive: true });
+    await writeFile(join(fakeHome, 'proj', '.env'), 'FAKE=1\n'); await writeFile(join(fakeHome, 'proj', 'ok', '.env.example'), 'FAKE=\n');
+    await symlink(join(fakeHome, 'proj', '.env'), join(fakeHome, 'proj', '.env.example'));
+    await link(join(fakeHome, 'proj', '.env'), join(fakeHome, 'proj', 'h', '.env.example'));
+    await symlink(join(fakeHome, 'proj', '.env'), join(fakeHome, 'proj', 'settings.txt'));
+    process.env.HOME = fakeHome; process.env.USERPROFILE = fakeHome;
+    try {
+      for (const name of ['read', 'write', 'edit', 'grep']) {
+        for (const path of ['~/proj/.env.example', '~/proj/h/.env.example', '~/proj/settings.txt', '~/proj/.env']) assert.equal(await hit(name, path), '.env*', `${name} ${path}: by the home folder`);
+        assert.equal(await hit(name, '~/proj/ok/.env.example'), undefined, `${name}: a template in the home folder`);
+      }
+    } finally {
+      if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
+      if (savedProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = savedProfile;
+    }
     assert.equal(protectedBy(D, 'tpl/.env.example', false)?.pattern, '.env*', 'protectedBy skips only when the caller checked the file');
     assert.equal(protectedBy(D, 'tpl/.env.example', false, true), undefined);
     assert.equal(protectedBy(D, 'tpl/.env.local', false, true)?.pattern, '.env*', 'only a template name is skipped');

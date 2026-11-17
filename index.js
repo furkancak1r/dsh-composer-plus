@@ -5074,16 +5074,17 @@ export async function protectedHit(patterns, name, args, cwd) {
   if (typeof raw !== 'string' || raw === '' || typeof cwd !== 'string' || !isAbsolute(cwd)) return undefined;
   const full = resolve(cwd, raw);
   const candidates = [relativeInside(cwd, full) ?? basename(full)];
-  const real = await toolTarget(cwd, raw);
-  if (real !== undefined) {
-    let root = cwd;
-    try { root = await realpath(cwd); } catch { /* the folder as given */ }
-    candidates.push(relativeInside(root, real) ?? basename(real));
-  }
-  // The env template exception holds only when the file that the tool opens is a template too: a regular file with one
-  // link (not a hard link of `.env`), or a missing name (not a dangling link that a write follows). Unresolved: no exception.
-  const template = real !== undefined && ENV_TEMPLATE.test(basename(real))
-    && await lstat(real).then((s) => s.isFile() && s.nlink === 1, (error) => error?.code === 'ENOENT');
+  // dsh 0.2.2 and later read `~/…` from the home folder (dsh-fs-local `expandHomePrefix`); older dsh reads it literally.
+  const home = raw === '~' || raw.startsWith('~/') || (process.platform === 'win32' && raw.startsWith('~\\')) ? `${homedir()}${raw.slice(1)}` : undefined;
+  const reals = await Promise.all([raw, home].filter((p) => p !== undefined).map((p) => toolTarget(cwd, p)));
+  let root = cwd;
+  try { root = await realpath(cwd); } catch { /* the folder as given */ }
+  for (const real of reals) if (real !== undefined) candidates.push(relativeInside(root, real) ?? basename(real));
+  // The env template exception holds only when each file that the tool can open is a template too: a regular file with
+  // one link (not a hard link of `.env`), or a missing name (not a dangling link that a write follows). Unresolved: none.
+  const isTemplate = (real) => real !== undefined && ENV_TEMPLATE.test(basename(real))
+    && lstat(real).then((s) => s.isFile() && s.nlink === 1, (error) => error?.code === 'ENOENT');
+  const template = (await Promise.all(reals.map(isTemplate))).every(Boolean);
   for (const path of candidates) {
     const hit = protectedBy(patterns, path, write, template);
     if (hit !== undefined) return { path: raw, pattern: hit.pattern };
