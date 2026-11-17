@@ -3215,8 +3215,14 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       };
     }
     const SETUP_STEPS = ['obsidian', 'vault', 'memory', 'rules'];
-    // The setup is optional (the memory works without Obsidian): Hide ends the card on this device.
+    // The setup is optional (the memory works without Obsidian): Hide ends the card on this device, and the button of
+    // SetupShowAgain under the Assistant switch in Settings shows it again.
     const setupHidden = createFlag('dsh-composer-plus.assistant.setup-hidden');
+    function SetupShowAgain({ t }) {
+      const hidden = React.useSyncExternalStore(setupHidden.subscribe, setupHidden.getSnapshot);
+      return hidden ? React.createElement('div', { style: { marginTop: 6 } },
+        React.createElement(primitives.Button ?? 'button', { type: 'button', variant: 'outline', size: 'sm', onClick: () => { setupHidden.set(false); } }, t('assistant.setup.title'))) : null;
+    }
     /** The setup card: each part with its state (done or missing) and what to do; Set up, Check again, Hide and the
      * official download link. It shows in the assistant chat until the Host says ready or the user hides it, also after
      * the first message. */
@@ -3242,7 +3248,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           button(s?.busy === true ? t('assistant.setup.checking') : t('assistant.setup.check'), () => { setup.check(); }, s?.busy === true),
           button(t('assistant.import.hide'), () => { setupHidden.set(true); }, false)));
     }
-    /** Memory import (part of the onboarding): once the setup is ready, the ready prompt in the UI language, shown in full
+    /** Memory import (part of the onboarding): once the setup is ready or hidden, the ready prompt in the UI language, shown in full
      * in a text field that the user can change. Start sends it as the user's message (dsh's conversation.send); nothing
      * runs before that click. `send(text)` answers a promise; one send at a time. A sent prompt or Hide ends the card on
      * this device (IMPORT_DONE_KEY); until then it shows also in an assistant chat that has messages (an update). */
@@ -10878,6 +10884,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             id === 'advisor' && advisorModel !== undefined && primitives.Menu !== undefined && isOn(enabled, id) ? React.createElement(PredictionModel, { store: advisorModel, t, advisor: true }) : null,
             id === 'advisor' && advisorSwitch !== undefined && primitives.Menu !== undefined && isOn(enabled, id) ? React.createElement(AdvisorSettings, { store: advisorSwitch, models: advisorModel, t }) : null,
             id === 'assistant' && assistantSwitch !== undefined ? React.createElement(MobileStatus, { mobile: assistantSwitch, t, prefix: 'assistant' }) : null,
+            id === 'assistant' && isOn(enabled, id) ? React.createElement(SetupShowAgain, { t }) : null,
             id === 'assistantFree' && assistantFreeSwitch !== undefined ? React.createElement(MobileStatus, { mobile: assistantFreeSwitch, t, prefix: 'assistantFree' }) : null,
             id === 'assistantFree' && assistantFreeSwitch !== undefined && isOn(enabled, id) ? React.createElement(AssistantFreeNote, { store: assistantFreeSwitch, t }) : null,
             id === 'assistantNotify' && assistantNotifySwitch !== undefined ? React.createElement(MobileStatus, { mobile: assistantNotifySwitch, t, prefix: 'assistantNotify' }) : null,

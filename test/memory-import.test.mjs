@@ -202,6 +202,17 @@ try {
   const find = (node, pred, out = []) => { if (node && typeof node === 'object' && !Array.isArray(node)) { if (pred(node)) out.push(node); (node.c ?? []).forEach((c) => find(c, pred, out)); } else if (Array.isArray(node)) node.forEach((c) => find(c, pred, out)); return out; };
   const render = () => { stateAt = 0; const card = Welcome({ sessionId: 's-assistant', useSession: (sel) => sel({ blank: true, promptAttempted: false, running: false }), t, ...props });
     return find(card, (x) => typeof x.t === 'function').map((x) => x.t(x.p))[0]; };
+  // Without Obsidian (17 Nov 2026), after Hide on the optional setup card: the import card shows the prompt too.
+  { const readyHost = globalThis.fetch;
+    globalThis.fetch = async (url) => (String(url) === '/api/composer-plus.assistant-setup' ? Response.json({ ready: false, folder: '~/Assistant', steps: { obsidian: false, vault: false, memory: 'missing', rules: false } }) : readyHost(url));
+    injected.setup.reset(); await injected.setup.check();
+    stateAt = 0; const out = Welcome({ sessionId: 's-assistant', useSession: (sel) => sel({ blank: true, promptAttempted: false, running: false }), t, ...props });
+    const setupCard = typeof out?.t === 'function' ? out.t(out.p) : out;
+    assert.equal(setupCard.p['data-composer-plus-assistant-setup'], '', 'not ready: the setup card');
+    find(setupCard, (x) => x.t === 'Button' && x.c.join('') === 'assistant.import.hide')[0].p.onClick();
+    assert.equal(find(render(), (x) => x.t === 'textarea')[0]?.p.value, 'PROMPT TEXT', 'no Obsidian: the import prompt shows');
+    states.length = 0; // the next checks: a ready Host (the hidden card does not matter then)
+    globalThis.fetch = readyHost; injected.setup.reset(); await injected.setup.check(); }
   let block = render();
   const area = find(block, (x) => x.t === 'textarea')[0];
   assert.equal(area.p.value, 'PROMPT TEXT', 'the full prompt shows in the text field');

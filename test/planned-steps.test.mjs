@@ -184,7 +184,11 @@ try {
   assert.equal(await when({ modelSelection: { provider: 'p', model: 'm' } }), true, 'another provider: the tool is offered');
   const section = live.sections.get('composer-plus:planned-steps').text;
   assert.equal(section({ modelSelection: { provider: 'aiproxy', model: 'm' } }), '', 'AIProxy: no section');
-  assert.equal(section(onModel('aiproxy')), '', 'AIProxy (no selection: the newest request): no section');
+  // dsh before 0.2.2 gives no selection: the agent's options route the request (also its first one, before any header).
+  assert.equal(section({ agent: { options: { provider: 'aiproxy' } } }), '', 'AIProxy (no selection: the agent options): no section');
+  assert.equal(section({ agent: { options: { provider: 'aiproxy' }, session: { snapshotEvents: () => [] } } }), '', 'the first request of a new chat');
+  assert.match(section({ agent: { options: { provider: 'p' } } }), /plan_next_steps/, 'another provider in the options');
+  assert.equal(await when({ agent: { options: { provider: 'cc' } } }), false, 'when: the options too');
   assert.match(section({ modelSelection: { provider: 'p', model: 'm' } }), /plan_next_steps/);
   let modelCalls = 0;
   const viaModel = () => { modelCalls++; return nextStream(); };

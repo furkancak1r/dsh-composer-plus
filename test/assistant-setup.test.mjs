@@ -81,15 +81,18 @@ try {
   await rm(folder); await rename(damon, folder); await vaults([folder]);
   Object.assign(memoryState, { folder: join(folder, 'Hafıza'), folderActive: join(folder, 'Hafıza') });
 
-  // installAssistantSetup with the real installMemory: the gate, the route, Set up.
+  // installAssistantSetup with the real installMemory: the memory without Obsidian, the route, Set up.
   const dshHome = join(root, 'dsh');
   const routes = new Map(); const tools = new Map(); const on = {};
+  // The memory review's model: it adds one note (the fake answers every call the same way).
+  const llm = { prepareCall: async (route, signal, configure) => ({ config: { ...route, ...configure({}, { defaultMaxTokens: 4000 }) }, async *stream() { yield { type: 'text-delta', text: '{"changes":[{"op":"add","text":"The user swims on Sundays"}]}' }; yield { type: 'finish', reason: { kind: 'stop' } }; } }) };
+  // The assistant chat's own log, for the memory review: the user's message after a model request.
+  let chatEvents = [];
   const ctx = {
     on: (name, fn) => { (on[name] ??= []).push(fn); }, effect: () => {}, logger: { warn: () => {} },
-    get: () => undefined,
+    get: (name) => (name === 'llm' ? llm : undefined),
     connection: { fetch: { register: (r) => routes.set(r.path, r) } },
-    // Saved chat headers: a gone subagent (s-gone) between a nested subagent and the assistant chat.
-    sessionQuery: { observeSession: async (id) => ({ events: [], header: { cwd: folder, ...(id === 's-gone' ? { origin: 'subagent', parentSession: 'chat-a' } : {}) } }) },
+    sessionQuery: { observeSession: async (id) => ({ events: id === 'chat-a' ? chatEvents : [], header: { cwd: id === 'chat-a' ? fresh : folder } }) },
     inject: (deps, setup) => { setup({ tools: { register: (t) => tools.set(t.name, t) }, systemPrompt: { section: () => {} } }); return { dispose: () => tools.clear() }; },
   };
   const mem = installMemory(ctx, dshHome); await mem.ready;
@@ -111,15 +114,22 @@ try {
   assert.match(await projectMain(), /- The user likes tea \[source: chat-a/);
   assert.match(await tools.get('memory_remember').execute({ text: 'The user likes green tea', replace: 'likes tea' }, exec('chat-a', fresh)), /^(Saved|Updated|Replaced)/i);
   assert.match(await tools.get('memory_remember').execute({ text: 'The user walks at 7' }, exec('s-sub0', fresh, 'chat-a')), /^Saved/, 'a subagent of the assistant chat too');
-  assert.match(await tools.get('memory_remember').execute({ text: 'The user reads at night' }, exec('s-nested', fresh, 's-gone')), /^Saved/, 'a nested subagent whose parent is gone');
+  assert.match(await tools.get('memory_remember').execute({ text: 'The user reads at night' }, exec('chat-a', fresh)), /^Saved/);
   assert.doesNotMatch(await tools.get('memory_forget').execute({ entry: 'walks at 7' }, exec('chat-a', fresh)), /not|no entry/i, 'forget works');
   const notes = await projectMain();
   assert.match(notes, /The user likes green tea/); assert.match(notes, /The user reads at night/); assert.doesNotMatch(notes, /walks at 7|likes tea \[/);
   assert.match(await tools.get('memory_recall').execute({}, exec('chat-a', fresh)), /2 entries/, 'recall reads them');
+  // The memory review of the assistant chat reads its new messages and saves too (it skipped the chat before).
+  chatEvents = [{ seq: 1, time: 1, type: 'request/header', data: { header: { config: { provider: 'demo', model: 'm1' } } } },
+    { seq: 2, time: 2, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: 'I swim on Sundays' }] } },
+    { seq: 3, time: 3, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Noted.' }] } } }];
+  await mem.review('chat-a');
+  assert.match(await projectMain(), /The user swims on Sundays \[source: chat-a #2/, 'the review saved the note without Obsidian');
+  assert.equal(JSON.parse(await readFile(join(dshHome, 'storages/dsh-composer-plus/memory/reviewed.json'), 'utf8'))['chat-a'], 3, 'its cursor moved');
   const other = join(root, 'proj'); await mkdir(other);
   assert.match(await tools.get('memory_remember').execute({ text: 'The user deploys on Fridays' }, exec('chat-b', other)), /^Saved/, 'another chat keeps its memory');
   assert.deepEqual(await readdir(fresh), [], 'nothing written into the assistant folder');
-  // Assistant off: the gate lets every chat save; the route says off.
+  // Assistant off: the route says off.
   assistantIsOn.on = false;
   assert.equal((await call()).status, 409);
   assistantIsOn.on = true;

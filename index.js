@@ -9197,14 +9197,11 @@ export function plannedStepChunks(found) {
   return chunks;
 }
 
-/** True when the step runs on AIProxy: its provider (`selection`, dsh 0.2.2+), else the agent's newest model request.
- * AIProxy's Claude Code bridge pins the tool call ids of its last answer, and a step message that it did not write makes
- * it answer 409 session_mismatch for that chat from then on (17 Nov 2026: 2 of 2 chats). `llm`: dsh's registry. */
-export function plannedOff(llm, selection, agent) {
-  let provider = selection?.provider;
-  if (provider === undefined) { try { provider = agent?.session?.snapshotEvents?.().findLast((e) => e.type === 'request/header')?.data?.header?.config?.provider; } catch { /* no log */ } }
-  return aiproxyProvider(provider, llm);
-}
+/* Planned steps are off in AIProxy chats: AIProxy's Claude Code bridge pins the tool call ids of its last answer, and a
+ * step message that it did not write makes it answer 409 session_mismatch for that chat from then on (17 Nov 2026: 2 of
+ * 2 chats). The provider of a step being prepared: dsh 0.2.2+ gives its model selection; older dsh routes the request by
+ * the agent's options (its own `provider` prompt variable reads the same). */
+const stepProvider = (c) => c?.modelSelection?.provider ?? c?.agent?.options?.provider;
 
 /** The `llm/stream` listener: an agent request of a chat (it has a session, no purpose such as compaction, offers the
  * plan tool and does not go to AIProxy) with one ready step gets the step's message; every other request goes on to the
@@ -9421,7 +9418,9 @@ export function installPlannedSteps(ctx, home, file = join(home, 'storages', 'ds
     }, required: ['steps'] },
     output: textOutput,
     async execute(args, exec) {
-      if (plannedOff(get('llm'), undefined, exec?.agent)) throw new Error('Planned steps do not run in a chat on AIProxy. Run each step yourself.');
+      // The request that made this call is the agent's newest one (its header is written before the answer).
+      let provider; try { provider = exec?.agent?.session?.snapshotEvents?.().findLast((e) => e.type === 'request/header')?.data?.header?.config?.provider; } catch { /* no log */ }
+      if (aiproxyProvider(provider, get('llm'))) throw new Error('Planned steps do not run in a chat on AIProxy. Run each step yourself.');
       const steps = parsePlan(args);
       return `Plan accepted: ${steps.map((s) => `${s.id} (${s.tool}, after ${s.after}, when ${s.when})`).join('; ')}. Composer Plus runs a step without a model call when its predecessor finished and its guard holds. A failed guard, two ready steps, the last step or a new user message gives the turn back to you.`;
     },
@@ -9432,8 +9431,8 @@ export function installPlannedSteps(ctx, home, file = join(home, 'storages', 'ds
       fiber = ctx.inject(['tools', 'systemPrompt'], (sub) => {
         // AIProxy chats get neither the tool nor the section. ponytail: dsh before 0.2.2 ignores `when`, so the tool stays
         // listed there; the section is gone and no step runs (plannedStream).
-        sub.tools.register(tool, { when: (c) => !plannedOff(get('llm'), c?.modelSelection) });
-        sub.systemPrompt.section({ name: 'composer-plus:planned-steps', order: 660, interpolate: false, text: (c) => (plannedOff(get('llm'), c?.modelSelection, c?.agent) ? '' : PLANNED_SECTION) });
+        sub.tools.register(tool, { when: (c) => !aiproxyProvider(stepProvider(c), get('llm')) });
+        sub.systemPrompt.section({ name: 'composer-plus:planned-steps', order: 660, interpolate: false, text: (c) => (aiproxyProvider(stepProvider(c), get('llm')) ? '' : PLANNED_SECTION) });
         sub.on('llm/stream', (options, next) => plannedStream(options, next, get('llm')));
       });
     } else if (!on) { fiber?.dispose?.(); fiber = undefined; }
@@ -10792,7 +10791,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   return { ready, tools, ensure, isOn: () => on, id: () => assistantId, isAssistant, tasks, endedTasks, addTools, folder, rootOf, onSwitch: (fn) => { switched.add(fn); } };
 }
 
-/* Memory import (part of Assistant setup): once the setup is ready, the onboarding shows a ready prompt that the user can
+/* Memory import (part of Assistant onboarding): with or without Obsidian, the onboarding shows a ready prompt that the user can
  * read and change, and one click sends it to the assistant. The assistant gives the work to a background subagent. That
  * subagent has two tools that only the assistant's subagents get: memory_import_sources lists the agent memory files of
  * the user (read only, a secret-looking line is cut out before the text leaves the Host), and memory_import saves facts
