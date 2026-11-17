@@ -2784,7 +2784,8 @@
     "status.loading": "लोड हो रहा है…",
     "status.noGit": "यह git रिपॉज़िटरी नहीं है।",
     "status.branch": "ब्रांच: {branch}",
-    "status.outage": "AIProxy की रुकावट के बाद जारी रही ({time})",
+    "status.outageRow": "रुकावट के बाद जारी रही · {time}",
+    "status.outageMore": "AIProxy की रुकावट ({time}): {count} चैट जारी रहीं",
     "settings.nativeNote": "DeepSeek Harness में अब यह सुविधा पहले से मौजूद है, इसलिए Composer Plus ने अपना वर्शन बंद कर दिया। इसे सिर्फ़ तभी चालू करें जब आपको अब भी इसकी ज़रूरत हो।"
   },
   "common": {

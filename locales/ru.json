@@ -2784,7 +2784,8 @@
     "status.loading": "Загрузка…",
     "status.noGit": "Это не git-репозиторий.",
     "status.branch": "Ветка: {branch}",
-    "status.outage": "Продолжено после сбоя AIProxy ({time})",
+    "status.outageRow": "Продолжено после сбоя · {time}",
+    "status.outageMore": "Сбой AIProxy ({time}): продолжено чатов: {count}",
     "settings.nativeNote": "Теперь эта функция встроена в DeepSeek Harness, поэтому Composer Plus отключил свою версию. Включайте её, только если она вам всё ещё нужна."
   },
   "common": {

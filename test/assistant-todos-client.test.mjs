@@ -30,6 +30,7 @@ let summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page don
 const posts = []; const gets = []; let gate = null; let failNext = null;
 // Refresh's summary request: the Host's open request time (`asked`), a refused request, a read that fails.
 let askedAt = null; let askFail = null; let missed = false; let readFail = null; let askGate = null;
+let outage; // the Host's `outage` (Resume after an AIProxy outage): {at, chats: [{id, title}]}
 globalThis.fetch = async (url, init) => {
   const u = String(url);
   if (u === '/api/composer-plus.assistant-status') return Response.json({ sessionId: 's-assistant' });
@@ -52,7 +53,7 @@ globalThis.fetch = async (url, init) => {
     const q = new URL(u, 'http://x').searchParams;
     if (q.get('project') !== null) return Response.json({ project: q.get('project'), branch: 'feature/x', commits: [{ hash: 'abc1234', at: NOW - 3600000, subject: 'Fix login' }] });
     if (readFail) return Response.json({ error: readFail }, { status: 500 });
-    return Response.json(q.get('sessionId') === null ? { on: switchOn } : { on: switchOn, items: switchOn ? items : [], tasks, projects, summary, at: NOW,
+    return Response.json(q.get('sessionId') === null ? { on: switchOn } : { on: switchOn, items: switchOn ? items : [], tasks, projects, summary, outage, at: NOW,
       ...(askedAt === null ? {} : { asked: askedAt, ...(missed ? { missed: true } : {}) }) });
   }
   return new Response('{}', { status: 404 });
@@ -373,6 +374,35 @@ const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
   tasks = []; await panelProps.store.load('s-assistant'); tr = panel();
   assert.match(text(tr), /status\.tasksEmpty/); assert.equal(hist(tr), undefined, 'no History header without ended tasks');
   mem.delete('dsh-composer-plus.status-tasks-dismissed'); tasks = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
+}
+
+// 2026-11-17 ("sağ üstte durum var ama güzel durmuyor görevlerde zaten var"): Resume after an AIProxy outage shows no
+// list of chat links above the panel. A task row that the outage continued gets a short line (live and History rows);
+// the other continued chats (an automation, this chat) are one count line without names or links.
+{
+  const saved = tasks;
+  tasks = [{ id: 'c-run', title: 'Research Rome', state: 'running', started: NOW - 125000 }, { id: 'c-done', title: 'Flights', state: 'done', started: NOW - 600000, ended: NOW - 60000 },
+    { id: 'c-calm', title: 'Hotels', state: 'running', started: NOW - 5000 }];
+  outage = { at: NOW - 1000, chats: [{ id: 'c-run', title: 'Research Rome' }, { id: 'c-done', title: 'Flights' }, { id: 's-auto', title: 'Nightly error review' }, { id: 's-assistant', title: 'Damon' }] };
+  await panelProps.store.load('s-assistant'); rt.clear();
+  const tr = panel(); const sec = find(tr, (n) => n.t === 'section' && /-tasks$/.test(n.p['aria-labelledby'] ?? ''))[0];
+  const marked = (v) => find(tr, (n) => n.p?.['data-composer-plus-outage'] === v);
+  const rowOf = (name) => find(sec, (n) => n.t === 'li' && text(find(n, (x) => x.p?.className === 'cp-st-name')[0]) === name)[0];
+  assert.equal(marked('').length, 0, 'no link list above the sections');
+  assert.equal(marked('row').length, 2, 'a line in each continued task row');
+  for (const name of ['Research Rome', 'Flights']) assert.match(text(rowOf(name)), /status\.outageRow:\{"time":"\d{2}[.:]\d{2}"\}/, `${name}: the outage line with its time`);
+  assert.doesNotMatch(text(rowOf('Hotels')), /status\.outage/, 'a task that the outage did not continue has no line');
+  const note = marked('note'); assert.equal(note.length, 1, 'one line for the other chats');
+  assert.match(text(note[0]), /^status\.outageMore:\{"time":"\d{2}[.:]\d{2}","count":2\}$/, 'only a count');
+  assert.equal(find(sec, (n) => n.p?.className === 'cp-st-link').length, 0, 'no chat link'); assert.doesNotMatch(text(tr), /Nightly error review/, 'no names');
+  // Every continued chat is a task: no count line. No task at all: the count line after "no tasks". Yesterday's outage: nothing.
+  outage = { at: NOW - 1000, chats: [{ id: 'c-run', title: 'Research Rome' }] }; await panelProps.store.load('s-assistant');
+  assert.equal(find(panel(), (n) => n.p?.['data-composer-plus-outage'] === 'note').length, 0, 'all in Tasks: no count line');
+  tasks = []; outage = { at: NOW - 1000, chats: [{ id: 's-auto', title: 'Nightly error review' }] }; await panelProps.store.load('s-assistant');
+  assert.match(text(panel()), /status\.tasksEmpty.*status\.outageMore:\{"time":"\d{2}[.:]\d{2}","count":1\}/, 'no task: the count line after "no tasks"');
+  tasks = saved; outage = { at: NOW - 86400000 * 2, chats: [{ id: 'c-run', title: 'Research Rome' }] }; await panelProps.store.load('s-assistant');
+  assert.equal(find(panel(), (n) => n.p?.['data-composer-plus-outage'] !== undefined).length, 0, 'an older day\'s outage shows nothing');
+  outage = undefined; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
 // 2026-11-16 ("prosolocal ne durumda görevlerde görünmüyor"): a delegated chat's row. The panel watches the chat's live

@@ -2784,7 +2784,8 @@
     "status.loading": "Chargement…",
     "status.noGit": "Ce n’est pas un dépôt git.",
     "status.branch": "Branche : {branch}",
-    "status.outage": "Reprise après la panne d’AIProxy ({time})",
+    "status.outageRow": "Reprise après la panne · {time}",
+    "status.outageMore": "Panne d’AIProxy ({time}) : {count} discussion(s) ont repris",
     "settings.nativeNote": "DeepSeek Harness intègre désormais cette fonction, donc Composer Plus a désactivé sa propre version. Activez-la seulement si vous en avez encore besoin."
   },
   "common": {
