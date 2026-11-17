@@ -1,14 +1,15 @@
-// Assistant setup (Obsidian is required): the Host checks Obsidian, its vault, Project memory in that vault and the vault's
-// AGENTS.md; Set up does the parts that Composer Plus may do (never installs Obsidian, never writes over an AGENTS.md); until
-// it is ready, the memory tools and the review save no note of the assistant chat or its subagents (other chats keep their
-// memory). The client shows the setup card in the assistant chat until ready, with Set up, Check again and the download link.
+// Assistant setup (Obsidian is optional): the Host checks Obsidian, its vault, Project memory in that vault and the vault's
+// AGENTS.md; Set up does the parts that Composer Plus may do (never installs Obsidian, never writes over an AGENTS.md).
+// Without Obsidian, the assistant chat and its subagents save their notes in the normal project memory folder; with a
+// ready vault, in the vault. The client shows the setup card in the assistant chat until ready or hidden, with Set up,
+// Check again, Hide and the download link.
 import './temp-home.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, symlink, realpath, rename, lstat, chmod, open } from 'node:fs/promises';
 import { constants, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_SETUP_PATH, OBSIDIAN_DOWNLOAD, SETUP_BLOCKED, assistantSetup, installAssistantSetup, installMemory, memoryNamesOf, obsidianApps, obsidianConfigs, vaultRules } from '../index.js';
+import { ASSISTANT_SETUP_PATH, OBSIDIAN_DOWNLOAD, assistantSetup, installAssistantSetup, installMemory, memoryNamesOf, obsidianApps, obsidianConfigs, vaultRules } from '../index.js';
 // The main memory file of a memory folder: `<name> memory.md` (MEMORY.md before 2026-11-12, still read until the migration).
 const mainOf = (dir) => join(dir, (() => { try { return readdirSync(dir).find((f) => / memory\.md$/.test(f)); } catch { return undefined; } })() ?? 'MEMORY.md');
 
@@ -100,20 +101,24 @@ try {
   const call = async (body) => { const r = await routes.get(ASSISTANT_SETUP_PATH).fetch(new Request(`http://h${ASSISTANT_SETUP_PATH}`, body === undefined ? undefined : { method: 'POST', body: JSON.stringify(body) })); return { status: r.status, body: await r.json() }; };
   let r = await call();
   assert.equal(r.status, 200); assert.equal(r.body.ready, false); assert.equal(r.body.steps.obsidian, false, 'a new user without Obsidian');
-  // The gate: memory is on, but the assistant chat (and its subagents) save nothing; another chat saves.
+  // Obsidian is missing (17 Nov 2026: the owner does not want it): the assistant chat and its subagents save, change and
+  // remove notes in the normal project memory folder (under the dsh home), and nothing goes into the assistant folder.
   await routes.get('/api/composer-plus.memory').fetch(new Request('http://h/api/composer-plus.memory', { method: 'POST', body: JSON.stringify({ on: true }) }));
   const exec = (id, cwd, parent) => ({ agent: { id, session: { header: { cwd, ...(parent ? { origin: 'subagent', parentSession: parent } : {}) } } } });
-  await assert.rejects(tools.get('memory_remember').execute({ text: 'The user likes tea' }, exec('chat-a', fresh)), (e) => e.message === SETUP_BLOCKED);
-  await assert.rejects(tools.get('memory_forget').execute({ entry: 'tea' }, exec('chat-a', fresh)), (e) => e.message === SETUP_BLOCKED);
-  await assert.rejects(tools.get('memory_remember').execute({ text: 'The user likes tea' }, exec('s-sub0', fresh, 'chat-a')), (e) => e.message === SETUP_BLOCKED, 'a subagent of the assistant chat too');
-  await assert.rejects(tools.get('memory_remember').execute({ text: 'The user likes tea' }, exec('s-nested', fresh, 's-gone')), (e) => e.message === SETUP_BLOCKED, 'a nested subagent whose parent is gone: its saved header');
-  assert.match(await tools.get('memory_recall').execute({}, exec('chat-a', fresh)), /0 entries/, 'recall still reads');
+  const projectMain = () => readFile(mainOf(mem.store.project(fresh).dir), 'utf8');
+  assert.match(await tools.get('memory_remember').execute({ text: 'The user likes tea' }, exec('chat-a', fresh)), /^Saved/, 'no Obsidian: the assistant chat saves');
+  assert.ok(mem.store.project(fresh).dir.startsWith(join(dshHome, 'storages/dsh-composer-plus/memory/')), 'the normal project memory folder');
+  assert.match(await projectMain(), /- The user likes tea \[source: chat-a/);
+  assert.match(await tools.get('memory_remember').execute({ text: 'The user likes green tea', replace: 'likes tea' }, exec('chat-a', fresh)), /^(Saved|Updated|Replaced)/i);
+  assert.match(await tools.get('memory_remember').execute({ text: 'The user walks at 7' }, exec('s-sub0', fresh, 'chat-a')), /^Saved/, 'a subagent of the assistant chat too');
+  assert.match(await tools.get('memory_remember').execute({ text: 'The user reads at night' }, exec('s-nested', fresh, 's-gone')), /^Saved/, 'a nested subagent whose parent is gone');
+  assert.doesNotMatch(await tools.get('memory_forget').execute({ entry: 'walks at 7' }, exec('chat-a', fresh)), /not|no entry/i, 'forget works');
+  const notes = await projectMain();
+  assert.match(notes, /The user likes green tea/); assert.match(notes, /The user reads at night/); assert.doesNotMatch(notes, /walks at 7|likes tea \[/);
+  assert.match(await tools.get('memory_recall').execute({}, exec('chat-a', fresh)), /2 entries/, 'recall reads them');
   const other = join(root, 'proj'); await mkdir(other);
   assert.match(await tools.get('memory_remember').execute({ text: 'The user deploys on Fridays' }, exec('chat-b', other)), /^Saved/, 'another chat keeps its memory');
   assert.deepEqual(await readdir(fresh), [], 'nothing written into the assistant folder');
-  // The review of the blocked chat does not read it (its cursor stays).
-  await mem.review('chat-a');
-  assert.equal(JSON.parse(await readFile(join(dshHome, 'storages/dsh-composer-plus/memory/reviewed.json'), 'utf8').catch(() => '{}'))['chat-a'], undefined, 'no review cursor for the blocked chat');
   // Assistant off: the gate lets every chat save; the route says off.
   assistantIsOn.on = false;
   assert.equal((await call()).status, 409);
@@ -252,11 +257,23 @@ try {
     const vS = join(root, 'vS'); await mkdir(vS, { recursive: true }); await symlink(join(root, 'other'), join(vS, namesBefore.global));
     const res = await mRoutes.get('/api/composer-plus.memory').fetch(new Request('http://h/api/composer-plus.memory', { method: 'POST', body: JSON.stringify({ folder: vS }) }));
     assert.equal(res.status, 409, 'a symlinked subfolder under the saved name is refused at once'); }
-  // Ready (Obsidian knows the fresh folder, the memory is active): the gate opens.
-  await vaults([fresh]);
-  const readySetup = installAssistantSetup({ ...ctx, connection: { fetch: { register: () => {} } } }, { ...assistant, folder: fresh }, { ...mem, state: () => ({ on: true, folder: join(fresh, 'Memory'), folderActive: join(fresh, 'Memory') }) }, { home, apps: [app], configs: [config] });
-  assert.equal((await readySetup.check()).ready, true);
-  assert.match(await tools.get('memory_remember').execute({ text: 'The user likes tea' }, exec('s-sub', fresh, 'chat-a')), /^Saved/, 'ready: the assistant\'s subagent saves');
+  // The vault is ready (Obsidian knows the folder, the memory folder is in it and active since this start): the notes of
+  // the assistant chat go into the vault, as before.
+  { const vault = join(root, 'vault-ready'); await mkdir(vault); await writeFile(join(vault, 'AGENTS.md'), '# Rules\n');
+    const vHome = join(root, 'dshV'); const vStore = join(vHome, 'storages/dsh-composer-plus'); await mkdir(vStore, { recursive: true });
+    await writeFile(join(vStore, 'memory.json'), JSON.stringify({ on: true }));
+    await writeFile(join(vStore, 'memory-folder.json'), JSON.stringify({ folder: join(vault, 'Memory'), names: { global: 'General', projects: 'Projects' } }));
+    const vTools = new Map();
+    const vCtx = { ...ctx, connection: { fetch: { register: () => {} } }, inject: (deps, setup) => { setup({ tools: { register: (t) => vTools.set(t.name, t) }, systemPrompt: { section: () => {} } }); return { dispose: () => vTools.clear() }; } };
+    const vMem = installMemory(vCtx, vHome); await vMem.ready;
+    await vaults([vault]);
+    const vSetup = installAssistantSetup(vCtx, { ...assistant, folder: vault }, vMem, { home, apps: [app], configs: [config] });
+    assert.equal((await vSetup.check()).ready, true, 'the vault is ready');
+    assert.match(await vTools.get('memory_remember').execute({ text: 'The user likes tea' }, exec('chat-a', vault)), /^Saved/, 'ready: the assistant chat saves');
+    assert.match(await vTools.get('memory_remember').execute({ text: 'The user walks at 7' }, exec('s-sub', vault, 'chat-a')), /^Saved/, 'ready: its subagent saves');
+    const inVault = await readFile(mainOf(join(vault, 'Memory', 'Projects', 'vault-ready')), 'utf8');
+    assert.match(inVault, /The user likes tea/); assert.match(inVault, /The user walks at 7/);
+    await vaults([folder]); }
 
   // Client: the card shows in the assistant chat until ready (also after the first message), with the steps, the
   // download link, Set up and Check again; ready → the welcome card on a blank chat, nothing later.
@@ -299,18 +316,18 @@ try {
   assert.equal(link.p.href, OBSIDIAN_DOWNLOAD); assert.equal(link.p.rel, 'noopener noreferrer'); assert.equal(text(link), 'assistant.setup.download');
   assert.match(text(card), /assistant\.setup\.vault:\{"folder":"~\/Assistant"\}/);
   const buttons = find(card, (n) => n.t === 'Button');
-  assert.deepEqual(buttons.map(text), ['assistant.setup.fix', 'assistant.setup.check']);
+  assert.deepEqual(buttons.map(text), ['assistant.setup.fix', 'assistant.setup.check', 'assistant.import.hide']);
   buttons[0].p.onClick(); await tick();
   assert.deepEqual(posts, [{ fix: { name: 'assistant.setup.memoryDir', dirs: { global: 'assistant.setup.globalDir', projects: 'assistant.setup.projectsDir' } } }], 'Set up sends the memory folder name and its subfolder names in the UI language');
   // Check again reads the Host; ready → the welcome card on a blank chat, nothing after the first message.
   hostState = { ...hostState, ready: true, steps: { obsidian: true, vault: true, memory: 'done', rules: true } };
-  find(draw(false), (n) => n.t === 'Button').at(-1).p.onClick(); await tick();
+  find(draw(false), (n) => n.t === 'Button' && text(n) === 'assistant.setup.check')[0].p.onClick(); await tick();
   assert.equal(draw(true).p['aria-label'], 'assistant.welcome.title', 'ready: the welcome card');
   assert.equal(draw(false), null, 'ready and not blank: no card');
   // Only Obsidian and the vault missing: no Set up button (the user does those).
   hostState = { ready: false, folder: '~/Assistant', download: OBSIDIAN_DOWNLOAD, steps: { obsidian: false, vault: false, memory: 'done', rules: true } };
   setupStore.reset(); await setupStore.check();
-  assert.deepEqual(find(draw(false), (n) => n.t === 'Button').map(text), ['assistant.setup.check']);
+  assert.deepEqual(find(draw(false), (n) => n.t === 'Button').map(text), ['assistant.setup.check', 'assistant.import.hide']);
   // A failed read shows the reason, and the card stays.
   globalThis.fetch = async () => Response.json({ error: 'disk' }, { status: 500 });
   await setupStore.check();
@@ -325,5 +342,13 @@ try {
   globalThis.fetch = async () => new Response('not found', { status: 404 });
   await setupStore.check();
   assert.equal(draw(false), null, 'no setup card with an older Host');
+  // The setup is optional: Hide ends the card on this device; the welcome card comes on a blank chat, and nothing later.
+  globalThis.fetch = async () => Response.json({ ...hostState, ready: false });
+  setupStore.reset(); await setupStore.check();
+  assert.equal(draw(false).p['data-composer-plus-assistant-setup'], '', 'not ready: the card');
+  find(draw(false), (n) => n.t === 'Button' && text(n) === 'assistant.import.hide')[0].p.onClick();
+  assert.equal(mem2.get('dsh-composer-plus.assistant.setup-hidden'), '1', 'kept on this device');
+  assert.equal(draw(true).p['aria-label'], 'assistant.welcome.title', 'hidden: the welcome card');
+  assert.equal(draw(false), null, 'hidden and not blank: no card');
   console.log('assistant setup checks passed');
 } finally { await rm(root, { recursive: true, force: true }); }
