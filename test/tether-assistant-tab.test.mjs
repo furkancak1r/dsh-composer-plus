@@ -8,10 +8,11 @@ const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 const core = read('tether/ios/Sources/Core.swift'), ui = read('tether/ios/Sources/UI.swift');
 const body = (src, head) => { const i = src.indexOf(head); assert.ok(i >= 0, `source has ${head}`); return src.slice(i, src.indexOf('\n    }\n', i)); };
 
-// The tab bar: Sessions, Assistant (the slot of the old Agents tab), Settings, in this order. No Agents tab or screen.
+// The tab bar: Sessions, Damon (the assistant, in the slot of the old Agents tab), Settings, in this order. No Agents tab
+// or screen. The assistant's tab has its fixed name (`assistantName`, the Host's ASSISTANT_NAME: test/tether-approve.test.mjs).
 const root = body(ui, 'TabView(selection: $c.tab)');
-const order = [...root.matchAll(/(\w+)\(\)\.tabItem \{ Label\("(\w+)"[^\n]*\.tag\(Client\.Tab\.(\w+)\)/g)].map((m) => m.slice(1));
-assert.deepEqual(order, [['SessionsView', 'Sessions', 'sessions'], ['AssistantTab', 'Assistant', 'assistant'], ['SettingsView', 'Settings', 'settings']]);
+const order = [...root.matchAll(/(\w+)\(\)\.tabItem \{ Label\(("\w+"|assistantName)[^\n]*\.tag\(Client\.Tab\.(\w+)\)/g)].map((m) => m.slice(1));
+assert.deepEqual(order, [['SessionsView', '"Sessions"', 'sessions'], ['AssistantTab', 'assistantName', 'assistant'], ['SettingsView', '"Settings"', 'settings']]);
 assert.doesNotMatch(ui, /AgentsView|Label\("Agents"|navigationTitle\("Agents"\)/, 'no Agents tab or screen');
 // Tether opens on the Assistant: at each start and after each pairing. The tab is not saved, so no old saved value (the
 // Agents tab) can open a removed screen.

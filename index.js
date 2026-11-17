@@ -867,7 +867,7 @@ export function unreadStore(file) {
 
 /** Mobile connect: one gateway at a time. Start and stop calls run in order, so a fast toggle never leaves two gateways or a
  * half-closed one. `upstreamUrl` gives dsh's authenticated loopback URL; it is asked again at each DSH login. */
-export function mobileGateway({ upstreamUrl, dir, about, make = createGateway, retryMs = 300 }) {
+export function mobileGateway({ upstreamUrl, dir, about, lang, make = createGateway, retryMs = 300 }) {
   let gateway, admin, error, closed = false, queue = Promise.resolve();
   const run = (fn) => (queue = queue.then(fn, fn));
   // A plugin reload starts the new gateway while the old one still closes its pairing page: wait for the port (about 3 s).
@@ -889,7 +889,7 @@ export function mobileGateway({ upstreamUrl, dir, about, make = createGateway, r
       if (gateway !== undefined || closed) return;
       error = undefined;
       try {
-        gateway = make({ dir, upstreamUrl, about });
+        gateway = make({ dir, upstreamUrl, about, lang });
         admin = `http://127.0.0.1:${await listenAdmin(gateway)}/`;
         await gateway.start();
       } catch (e) { error = String(e?.message ?? e); if (admin === undefined) await stop(); }
@@ -2323,6 +2323,7 @@ export function apply(ctx) {
       dir: process.env.DSH_MOBILE_DIR || join(home, 'storages', 'dsh-composer-plus', 'mobile'),
       upstreamUrl: () => ctx.connection.authenticatedUrl(`http://127.0.0.1:${webCtx.webServer.port}`),
       about: chatAbout,
+      lang: () => reportedLanguage(home),
     });
     mobile = gateway;
     webCtx.effect(() => {
@@ -7597,9 +7598,7 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
   // Before this route's first report, the language that the browser reported to the Turkish skill pack or to Resume after
   // an AIProxy outage (the same UI language), so an existing memory is not renamed with the wrong word first.
   const langFile = settingsStore(join(home, 'storages', 'dsh-composer-plus', 'memory-language.json'), (v) => (isText(v?.lang, 35) && LOCALE_ID.test(v.lang) ? { lang: v.lang } : {}));
-  const lang = ['memory-language.json', 'turkish-skill.json', 'outage-resume.json'].map((f) => {
-    try { const v = JSON.parse(readFileSync(join(home, 'storages', 'dsh-composer-plus', f), 'utf8'))?.lang; return isText(v, 35) && LOCALE_ID.test(v) ? v : undefined; } catch { return undefined; }
-  }).find(Boolean);
+  const lang = reportedLanguage(home);
   const word = memoryWord(lang);
   const store = memoryStore(dir, { beforeSave: (save) => (historyOn ? history.keep(save) : undefined), folder: folderProblem === undefined ? folder : undefined, names, word: () => word });
   // `imported` in the setting names the folder that got the copy: deleting its Genel and Projeler later does not bring the
@@ -9682,6 +9681,14 @@ const turkishSkillHosts = () => {
 };
 const TURKISH_SKILL_LIMITS = { files: 20, file: 256 * 1024, total: 1024 * 1024 };
 const TURKISH_SKILL_FILE = /^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*\.md$/;
+/** The UI language that a browser reported last (Project memory, the Turkish skill pack and Resume after an AIProxy
+ * outage keep it, owner-only), or undefined. Tether reads it through the gateway's `/me` (`lang`) for its Composer Plus
+ * words (the Approve button). */
+export function reportedLanguage(home) {
+  return ['memory-language.json', 'turkish-skill.json', 'outage-resume.json'].map((f) => {
+    try { const v = JSON.parse(readFileSync(join(home, 'storages', 'dsh-composer-plus', f), 'utf8'))?.lang; return isText(v, 35) && LOCALE_ID.test(v) ? v : undefined; } catch { return undefined; }
+  }).find(Boolean);
+}
 /** True for a Turkish UI language id (`tr`, `tr-TR`). */
 export const isTurkishLanguage = (id) => typeof id === 'string' && /^tr(?:-|$)/i.test(id);
 

@@ -1620,6 +1620,78 @@ final class AgentboxIdeasTests: XCTestCase {
         }
     }
 
+    /// Approve button: the same table as client.js parseApprovals (test/fixtures/approval-blocks.json).
+    func testApprovalBlocksMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/approval-blocks.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 100)
+        for c in cases {
+            let text = c["text"] as? String ?? ""
+            XCTAssertEqual(onayBlocks(text).filter(approvable), c["sentences"] as? [String] ?? [], text)
+        }
+    }
+
+    /// Approve button: the newest block after your newest message, also from an earlier turn or the middle of a turn; not
+    /// while the chat runs, after a stopped turn, after your message, in a withdrawn answer or a fork's inherited one.
+    @MainActor func testApproveClient() async throws {
+        let ask = "Onaylıyorum: feature/x dalını origin'e push et."
+        let blk = "Hazır.\n\n```onay\n\(ask)\n```\n"
+        let news: J = ["type": "user/message", "seq": 30, "data": ["content": "news", "source": ["kind": "composer-plus-assistant-news"]]]
+        XCTAssertEqual(chatApprovals(turn(1, "a", blk))?.sentences, [ask])
+        XCTAssertEqual(chatApprovals(turn(1, "a", blk))?.from, 3)
+        XCTAssertNil(chatApprovals(turn(1, "a", blk, end: nil)), "not while the turn runs")
+        XCTAssertNil(chatApprovals(turn(1, "a", blk, end: "interrupted")), "not after a stopped turn")
+        XCTAssertNil(chatApprovals(turn(1, "a", blk) + turn(10, "b", "Tamam.")), "your message after the block ends it")
+        let kept = turn(1, "a", blk) + [news] + [["type": "turn/start", "seq": 31, "data": J()], ["type": "assistant/message", "seq": 32, "data": ["message": ["content": [["type": "text", "text": "Haber."]]]]], ["type": "turn/end", "seq": 33, "data": ["reason": ["kind": "completed"]]]]
+        XCTAssertEqual(chatApprovals(kept)?.sentences, [ask], "a news turn keeps the older block")
+        XCTAssertEqual(chatApprovals(kept)?.from, 3); XCTAssertEqual(chatApprovals(kept)?.seq, 32)
+        XCTAssertNil(chatApprovals(turn(1, "a", blk), from: 5), "a fork's inherited answer")
+        let marker: J = ["type": "user/message", "seq": 20, "sourceEventSeqs": [11, 12, 13], "data": ["content": [], "source": ["kind": rollbackSource]]]
+        XCTAssertEqual(chatApprovals(turn(1, "a", blk) + turn(10, "b", "No.") + [marker])?.from, 3, "a withdrawn turn: the older block offers again")
+        XCTAssertNil(chatApprovals(turn(1, "a", "```onay\n\("x".padding(toLength: 501, withPad: "x", startingAt: 0))\n```")), "too long: code only")
+        XCTAssertNil(chatApprovals(turn(1, "a", blk) + turn(10, "b", "```onay\nOnaylıyorum: canlı görevi iptal et.\n```")), "a newest block without a button hides the older one")
+        // The client: the option guard, a subagent chat offers nothing, the words follow the Mac's language.
+        let c = Client()
+        c.current = "A"; c.path = ["A"]
+        c.sessions = [Sess(["sessionId": "A", "projections": ["values": ["title": "A"]]])!]
+        c.replaySnapshot(turn(1, "hi", blk))
+        XCTAssertNil(c.approvalOffer, "the fork offset is not known yet")
+        c.optionsFrom = 0
+        let offer = try XCTUnwrap(c.approvalOffer)
+        do { try await c.approve("A", offer, ask); XCTFail("no Mac: the send fails") } catch {}
+        XCTAssertNotNil(c.approvalOffer, "a failed send keeps the button")
+        try await c.approve("A", offer, "Onaylıyorum: başka bir şey.") // not a sentence of the offer: nothing
+        try await c.approve("B", offer, ask) // another chat on screen than the tap's: nothing
+        let stale = ApprovalOffer(seq: offer.seq, latest: offer.latest, from: 99, sentences: offer.sentences)
+        try await c.approve("A", stale, ask) // a block that is not the chat's offer now (a newer one came): nothing
+        XCTAssertTrue(c.optionBusy.isEmpty)
+        c.optionPicked["A"] = offer.picks; XCTAssertNil(c.approvalOffer, "sent: no button")
+        c.optionPicked["A"] = nil; c.running = true; XCTAssertNil(c.approvalOffer, "not while the chat runs"); c.running = false
+        c.sessions = [Sess(["sessionId": "A", "parentSessionId": "P", "origin": "subagent"])!]
+        XCTAssertNil(c.approvalOffer)
+        XCTAssertEqual(approveWords(macLang: "tr").button, "Onayla"); XCTAssertEqual(approveWords(macLang: "en-US", phone: "tr").button, "Approve")
+        XCTAssertEqual(approveWords(macLang: nil, phone: "tr-TR").button, "Onayla", "an older Mac: the phone's language")
+        XCTAssertEqual(assistantName, "Damon")
+    }
+
+    /// Assistant callouts: a quote that starts with a marker is one box (its later quote lines too); [!DETAILS] keeps its
+    /// summary; an unknown marker, a marker after text and a plain quote stay quotes.
+    func testCallouts() {
+        let parts = mdParts("Hi.\n> [!PROBLEM] The build fails.\n> - step 2\n>\n> more\nAfter.\n> [!details] Logs\n> line 1\n> plain quote\n> [!NOTE] x\n> see [!RESULT]")
+        XCTAssertEqual(mdCallouts(parts), [
+            .part(.line("Hi.")), .callout(kind: "problem", title: "", lines: ["The build fails.", "- step 2", "", "more"]), .part(.line("After.")),
+            .callout(kind: "details", title: "Logs", lines: ["line 1", "plain quote", "[!NOTE] x", "see [!RESULT]"]),
+        ])
+        XCTAssertEqual(mdCallouts(mdParts("> [!NOTE] x\n> see")), [.part(.line("> [!NOTE] x")), .part(.line("> see"))], "an unknown marker: a quote")
+        XCTAssertEqual(mdCallouts(mdParts("> [!RESULT]done")), [.part(.line("> [!RESULT]done"))], "a marker glued to a word")
+        XCTAssertEqual(mdCallouts(mdParts("> a\n> [!RESULT] b")), [.part(.line("> a")), .part(.line("> [!RESULT] b"))], "a marker only on the first line of a quote")
+        // The fences of the Approve rule: ~~~, longer fences and CRLF make the same code block (its button hides it).
+        XCTAssertEqual(mdBlocks("Hi.\r\n~~~onay\r\nOk.\r\n~~~\r\nAfter").map { "\($0.code)|\($0.lang)|\($0.text)" }, ["false||Hi.", "true|onay|Ok.", "false||After"])
+        XCTAssertEqual(mdBlocks("````onay\nOk.\n````").map { "\($0.code)|\($0.lang)|\($0.text)" }, ["true|onay|Ok."])
+        XCTAssertEqual(mdBlocks("```\nopen").map(\.code), [true], "an open fence runs to the end")
+        XCTAssertEqual(calloutLabel("approval", macLang: "tr"), "Onay gerekli"); XCTAssertEqual(calloutLabel("running", macLang: "en"), "Still running")
+    }
+
     private func turn(_ s: Int, _ user: String, _ answer: String?, end: String? = "completed") -> [J] {
         var e: [J] = [["type": "turn/start", "seq": s, "data": J()], ["type": "user/message", "seq": s + 1, "data": ["content": user, "source": ["kind": "user"]]]]
         if let answer { e.append(["type": "assistant/message", "seq": s + 2, "data": ["message": ["content": [["type": "reasoning", "text": "## Options\n1. secret"], ["type": "text", "text": answer]]]]]) }
