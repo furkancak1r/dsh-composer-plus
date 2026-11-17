@@ -953,6 +953,16 @@ func lastReply(_ transcript: [Line]) -> String {
     return ""
 }
 
+/// A turn end with nothing to say gives no Turn finished notification: the turn completed (`reason` kind) and its reply,
+/// spaces trimmed, is empty or only `[quiet]` (any case). dsh refuses an empty reply, so the Assistant writes `[quiet]`
+/// for routine news (the Mac's push skips it too: `quietTurn` in index.js). A turn that failed, stopped or hit the token
+/// limit still notifies: for the open chat a failure has no other alert (sessionError only adds a chat line).
+func quietTurn(reply: String, reason: String?) -> Bool {
+    guard reason == "completed" else { return false }
+    let t = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+    return t.isEmpty || t.caseInsensitiveCompare("[quiet]") == .orderedSame
+}
+
 /// One row of the chat as DSH desktop shows it.
 enum ChatRow: Identifiable {
     case line(Line)
@@ -2940,7 +2950,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             transcript.append(turnLine(reason: reason?["kind"] as? String, start: turnStartedAt,
                                        end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
-                notify(String(localized: "Turn finished"), lastReply(transcript), session: current)
+                let reply = lastReply(transcript)
+                if !quietTurn(reply: reply, reason: reason?["kind"] as? String) { notify(String(localized: "Turn finished"), reply, session: current) }
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
             running = false

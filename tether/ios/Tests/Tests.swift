@@ -727,6 +727,18 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(lastReply(Array(t.prefix(3)) + [Line(kind: .tool, text: "bash")]), "", "no reply in this turn: not the old one")
     }
 
+    /// A completed turn whose reply is empty or only `[quiet]` gives no Turn finished notification; any other reply, and a
+    /// turn that failed, stopped or hit the token limit, do.
+    func testQuietTurn() {
+        for quiet in ["", "  \n", "[quiet]", "[QUIET]", "  [Quiet]\n"] {
+            XCTAssertTrue(quietTurn(reply: quiet, reason: "completed"), quiet)
+            for reason in ["error", "max-tokens", "aborted", "interrupted", nil] { XCTAssertFalse(quietTurn(reply: quiet, reason: reason), "\(quiet) \(reason ?? "nil")") }
+        }
+        for loud in ["Fixed it.", "[quiet]\nThe audit found 2 issues.", "Audit: [quiet]", "[quiet].", "quiet"] { XCTAssertFalse(quietTurn(reply: loud, reason: "completed"), loud) }
+        let t = [Line(kind: .user, text: "note"), Line(kind: .assistant, text: " [quiet] "), Line(kind: .turn, text: "Completed")]
+        XCTAssertTrue(quietTurn(reply: lastReply(t), reason: "completed"), "the check of the turn/end notification")
+    }
+
     func testGoal() {
         XCTAssertNil(Goal(["objective": "no id"]))
         let g = Goal(["id": "g1", "revision": 3, "objective": "ship", "phase": "paused", "roundsStarted": 2, "maxGoalRounds": 10])
