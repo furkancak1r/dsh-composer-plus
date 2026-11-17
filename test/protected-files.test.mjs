@@ -122,6 +122,11 @@ try {
         for (const path of ['~/proj/.env.example', '~/proj/h/.env.example', '~/proj/settings.txt', '~/proj/.env']) assert.equal(await hit(name, path), '.env*', `${name} ${path}: by the home folder`);
         assert.equal(await hit(name, '~/proj/ok/.env.example'), undefined, `${name}: a template in the home folder`);
       }
+      // Review finding P4: older dsh reads `~/…` in the chat's folder. A hard link of `.env` there stays protected, also
+      // when the home folder has a real template with the same path (each real path must be a template).
+      await mkdir(join(project, '~', 'proj', 'ok'), { recursive: true }); await link(join(project, '.env'), join(project, '~', 'proj', 'ok', '.env.example'));
+      for (const name of ['read', 'write']) assert.equal(await hit(name, '~/proj/ok/.env.example'), '.env*', `${name}: a hard link in <cwd>/~`);
+      await rm(join(project, '~'), { recursive: true });
     } finally {
       if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
       if (savedProfile === undefined) delete process.env.USERPROFILE; else process.env.USERPROFILE = savedProfile;
