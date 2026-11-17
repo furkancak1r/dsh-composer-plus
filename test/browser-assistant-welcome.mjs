@@ -6,9 +6,10 @@
 // 3. The first message hides the card; a new chat in another project never shows it; the next click on Assistant opens
 //    the same chat without the card. No page errors.
 // 0. Before that, a new user without Obsidian (Project memory on): the setup card shows the four steps as missing, the
-//    official download link, Set up and Check again; a memory_remember of the assistant chat is refused and no memory file
-//    is written. Set up writes AGENTS.md and the memory folder setting in ~/Assistant; a made-up Obsidian settings file
-//    that knows ~/Assistant as a vault and a dsh restart make it ready (the welcome card shows).
+//    official download link, Set up, Check again and Hide; a memory_remember of the assistant chat saves the note in the
+//    normal project memory folder (under the dsh home), not in ~/Assistant. Set up writes AGENTS.md and the memory folder
+//    setting in ~/Assistant; a made-up Obsidian settings file that knows ~/Assistant as a vault and a dsh restart make it
+//    ready (the welcome card shows).
 // 0c. Memory import: the welcome card shows the ready prompt; Start sends it; the assistant starts a subagent that reads the
 //    sources (acme-web's AGENTS.md and CLAUDE.md with a fake secret line) and saves facts: they arrive in the vault, the
 //    secret does not, no memory file is written outside the vault, and a second run adds nothing.
@@ -183,7 +184,7 @@ try {
       bind();
       const memFiles = async (at) => { const out = []; const walk = async (d) => { for (const e of await readdir(d, { withFileTypes: true }).catch(() => [])) { if (e.isDirectory()) await walk(join(d, e.name)); else if (e.name.endsWith('.md')) out.push(join(d, e.name)); } }; await walk(at); return out; };
 
-      // 0. A new user without Obsidian: the setup card; the assistant saves no memory.
+      // 0. A new user without Obsidian: the setup card; the assistant saves its memory in the normal folder.
       await assistantRow().waitFor({ timeout: 10000 });
       await assistantRow().click();
       const id0 = await until(async () => { const r = await api('/api/composer-plus.assistant'); return r.status === 200 && r.body.sessionId; }, 'assistant chat id');
@@ -195,14 +196,16 @@ try {
       const appThere = process.platform === 'darwin' && existsSync('/Applications/Obsidian.app');
       assert.deepEqual(await setupCard.locator('[data-step]').evaluateAll((els) => els.map((e) => [e.dataset.step, e.dataset.state])), [['obsidian', appThere ? 'done' : 'missing'], ['vault', 'missing'], ['memory', 'missing'], ['rules', 'missing']]);
       if (!appThere) assert.equal(await setupCard.getByRole('link', { name: 'Download Obsidian' }).getAttribute('href'), 'https://obsidian.md/download');
+      assert.equal(await setupCard.getByRole('button', { name: 'Hide', exact: true }).count(), 1, 'the setup is optional: Hide');
       await input.first().click(); await page.keyboard.type('save this', { delay: 5 }); await page.keyboard.press('Enter');
       await until(() => toolResults.length > 0, 'the memory_remember result', 30000);
-      assert.match(toolResults[0], /Assistant setup: Obsidian and its vault are not ready, so this chat saves no memory yet/, `refused: ${toolResults[0]}`);
+      assert.match(toolResults[0], /^Saved/, `saved without Obsidian: ${toolResults[0]}`);
       await pause(3500); // the memory review of the turn (2 s after it)
-      assert.deepEqual(await memFiles(join(dshHome, 'storages/dsh-composer-plus/memory')), [], 'no memory file under the dsh home');
+      const saved0 = await memFiles(join(dshHome, 'storages/dsh-composer-plus/memory'));
+      assert.ok((await Promise.all(saved0.map((f) => readFile(f, 'utf8')))).some((t) => t.includes('The user likes tea')), `the note is in the normal memory folder: ${saved0}`);
       assert.deepEqual(await memFiles(join(home, 'Assistant')), [], 'no memory file in the assistant folder');
       assert.ok(await setupCard.isVisible(), 'the setup card stays after the first message');
-      note('0a: no Obsidian: the setup card (4 steps missing, download link); memory_remember refused; no memory file written');
+      note('0a: no Obsidian: the setup card (4 steps missing, download link, Hide); memory_remember saved into the normal memory folder');
       // Set up: AGENTS.md and the memory folder in ~/Assistant; Obsidian is still missing.
       await setupCard.getByRole('button', { name: 'Set up', exact: true }).click();
       await until(async () => (await setupCard.locator('[data-step="rules"]').getAttribute('data-state')) === 'done', 'rules done');
@@ -238,7 +241,7 @@ try {
       const importBox = page.locator('[data-composer-plus-memory-import]');
       await importBox.waitFor({ timeout: 20000 });
       const promptText = await importBox.locator('textarea').inputValue();
-      assert.match(promptText, /^Import my earlier memory into Obsidian\./); assert.match(promptText, /memory_import_sources/);
+      assert.match(promptText, /^Import my earlier memory\./); assert.match(promptText, /memory_import_sources/);
       const vaultMemory = join(home, 'Assistant', 'Memory');
       // The first run from the card's Start; a later run is a message in the chat (the card goes with the first message).
       const runImport = async (n) => {
@@ -256,7 +259,9 @@ try {
       const vaultText = (await Promise.all(vaultFiles.map((f) => readFile(f, 'utf8')))).join('\n');
       assert.match(vaultText, /acme-web deploys with make release\./); assert.match(vaultText, /The user wants answers in English\./);
       assert.doesNotMatch(vaultText, /FAKE_TOKEN/, 'the secret is not in the vault');
-      assert.deepEqual(await memFiles(join(dshHome, 'storages/dsh-composer-plus/memory')), [], 'no memory file outside the vault');
+      // The note of step 0a was copied into the vault at the restart; its old copy under the dsh home stays as it was.
+      assert.deepEqual(await memFiles(join(dshHome, 'storages/dsh-composer-plus/memory')), saved0, 'no new memory file outside the vault');
+      assert.match(vaultText, /The user likes tea/, 'the note saved without Obsidian moved into the vault');
       const secondRun = await runImport(2);
       assert.equal(secondRun.added, 0, `a second run adds nothing: ${JSON.stringify(secondRun)}`);
       assert.ok(sourceAnswers[1].alreadyImported?.some((p) => p.endsWith('acme-web/AGENTS.md')), `the second scan marks the imported file: ${JSON.stringify(sourceAnswers[1].alreadyImported)}`);

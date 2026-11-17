@@ -216,6 +216,29 @@ assert.match(text(note()), /assistantFree\.inactive/, 'the note when not active'
 switches.free = { on: true, active: true };
 await settings.inject().setFeature('assistantFree', true); await tick();
 assert.equal(note(), null, 'no note while active');
+// The optional Obsidian setup card that Hide closed comes back with a button under the Assistant switch (only while it
+// is hidden on this device).
+{ const again = () => { const el = find(settingsTree(switches.free), (n) => typeof n.t === 'function' && n.t.name === 'SetupShowAgain'); assert.ok(el, 'the show-again element'); return el.t(el.p); };
+  assert.equal(again(), null, 'not hidden: no button');
+  mem.set('dsh-composer-plus.assistant.setup-hidden', '1');
+  let button = again();
+  assert.equal(button, null, 'the flag is read once: a direct storage write does not show the button');
+  // Hide on the card (the same flag) shows the button; its click shows the card again.
+  const [welcomeEntry, WelcomeCard] = [...live.values()].find(([o]) => o.name === 'conversation.input.dock' && o.id === 'assistant-welcome');
+  const inj = welcomeEntry.inject('x');
+  const hostDown = globalThis.fetch;
+  globalThis.fetch = async (url) => (String(url) === '/api/composer-plus.assistant-setup' ? Response.json({ ready: false, folder: '~/Assistant', steps: { obsidian: false, vault: false, memory: 'missing', rules: false } }) : hostDown(url));
+  await inj.setup.check();
+  const sid = inj.assistant.getSnapshot().sessionId;
+  const card = () => { const out = WelcomeCard({ sessionId: sid, useSession: (sel) => sel({ blank: false, promptAttempted: true, running: false }), ...inj, t }); return typeof out?.t === 'function' ? out.t(out.p) : out; };
+  find(card(), (n) => n.t === 'Button' && text(n) === 'assistant.import.hide').p.onClick();
+  assert.equal(card()?.p?.['data-composer-plus-assistant-setup'], undefined, 'hidden: no setup card (the import card may show)');
+  button = find(again(), (n) => n.t === 'Button');
+  assert.equal(text(button), 'assistant.setup.title', 'the button has the card title');
+  button.p.onClick();
+  assert.equal(again(), null, 'shown again: no button');
+  assert.equal(card()?.p?.['data-composer-plus-assistant-setup'], '', 'the card is back');
+  globalThis.fetch = hostDown; }
 
 // Switch Assistant apart off: its overlay goes, the row icon is plain again.
 const toggled = (id, on) => { toggles.update((d) => { d[id] = on; }); };
