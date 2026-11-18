@@ -57,9 +57,14 @@
             "state": "translated",
             "value": "%1$@ and %2$@"
           }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ve %2$@"
+          }
         }
-      },
-      "shouldTranslate": false
+      }
     },
     "%@ has no tasks today.": {
       "extractionState": "manual",
@@ -2243,7 +2248,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac’te **Onayla** düğmesine tıklayın."
+            "value": "Mac’te **Approve** düğmesine tıklayın."
           }
         }
       }
@@ -2260,7 +2265,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ üzerinde “Onayla” düğmesine tıklayın"
+            "value": "%@ üzerinde Approve düğmesine tıklayın"
           }
         }
       }
@@ -3581,7 +3586,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hedefin amacını düzenle"
+            "value": "Hedefi düzenle"
           }
         }
       }
@@ -3666,7 +3671,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Özel bir yerel ağ (LAN) adresi ya da Tailscale adresi ve port girin."
+            "value": "Özel bir yerel ağ (LAN) ya da Tailscale adresini ve portu girin."
           }
         }
       }
@@ -5548,7 +5553,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac’te kimse zamanında “Onayla” düğmesine tıklamadı. Kodu yeniden tarayın."
+            "value": "Mac’te kimse zamanında Approve düğmesine tıklamadı. Kodu yeniden tarayın."
           }
         }
       }
@@ -5735,7 +5740,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac’te kodun altındaki “Eşleştirme bağlantısını kopyala” düğmesine tıklayın. Sonra bağlantıyı buraya yapıştırın."
+            "value": "Mac’te kodun altındaki Copy pairing link düğmesine tıklayın. Sonra bağlantıyı buraya yapıştırın."
           }
         }
       }
@@ -5769,7 +5774,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Küçük işler için tek ve kalıcı bir sohbet. Ona bir insana yazar gibi yazın. Daha uzun süren bir iş arka planda çalışır; böylece bir sonraki mesajı hemen yazabilirsiniz."
+            "value": "Küçük işler için tek ve kalıcı bir sohbet. Ona bir insana yazar gibi yazın. Daha uzun süren bir iş arka planda çalışır. Böylece bir sonraki mesajı hemen yazabilirsiniz."
           }
         }
       }
@@ -9572,7 +9577,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu bir Tether kodu değil. Kamerayı, Mac’teki Mobil bağlantı bölümünde görünen koda doğrultun."
+            "value": "Bu bir Tether kodu değil. Kamerayı Mac’teki Mobil bağlantı bölümünde görünen koda doğrultun."
           }
         }
       }
@@ -9657,7 +9662,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac bu iPhone’u reddetti. Bir dahaki sefere “Onayla” düğmesine tıklayın."
+            "value": "Mac bu iPhone’u reddetti. Bir dahaki sefere Approve düğmesine tıklayın."
           }
         }
       }
@@ -9674,7 +9679,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac bu iPhone’un adını gösterir. “Onayla” düğmesine tıklayana kadar Tether’i açık tutun."
+            "value": "Mac bu iPhone’un adını gösterir. Approve düğmesine tıklayana kadar Tether’i açık tutun."
           }
         }
       }
@@ -9776,7 +9781,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajan, bu hedef tamamlanana kadar çalışmaya devam eder."
+            "value": "Ajan bu hedef tamamlanana kadar çalışmaya devam eder."
           }
         }
       }
@@ -9793,7 +9798,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajan, reddi ve notunuzu aynı turda okur."
+            "value": "Ajan reddi ve notunuzu aynı turda okur."
           }
         }
       }
@@ -9810,7 +9815,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ajan bu hedef üzerinde çalışmayı bırakır. Bu işlem geri alınamaz."
+            "value": "Ajan bu hedef için çalışmayı bırakır. Bu işlem geri alınamaz."
           }
         }
       }
@@ -9844,7 +9849,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbetin modeli bu projenin kısa bir özetini (README, manifest, son commit’ler) okur ve özellikler önerir. Projede hiçbir şey değişmez."
+            "value": "Sohbetin modeli bu projenin kısa bir özetini (README, manifest dosyası, son commit’ler) okur ve özellik önerir. Projede hiçbir şey değişmez."
           }
         }
       }
@@ -9895,7 +9900,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "“Onayla” düğmesine tıklamanız beklenirken Mac ile bağlantı koptu. Kodu yeniden tarayın."
+            "value": "Approve düğmesine tıklamanız beklenirken Mac ile bağlantı koptu. Kodu yeniden tarayın."
           }
         }
       }
@@ -10082,7 +10087,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Token bu iPhone’dan silinir. Mac’te de geçersiz olması için token’ı Mac’ten ayrıca kaldırın."
+            "value": "Token bu iPhone’dan silinir. Mac’te de geçersiz olması için onu ayrıca Mac’ten iptal edin."
           }
         }
       }
@@ -10099,7 +10104,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sonra Mac’te “Onayla” düğmesine tıklayın."
+            "value": "Sonra Mac’te Approve düğmesine tıklayın."
           }
         }
       }
@@ -10388,7 +10393,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu iPhone’un erişimi kaldırıldı ya da token’ının süresi doldu. Yeniden eşleştirin."
+            "value": "Bu iPhone’un erişimi iptal edildi ya da token’ının süresi doldu. Yeniden eşleştirin."
           }
         }
       }
@@ -10541,7 +10546,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Token bitiş tarihi"
+            "value": "Token son kullanma tarihi"
           }
         }
       }
@@ -11136,7 +11141,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac’inizdeki DeepSeek Harness’ı bu iPhone’dan kullanın."
+            "value": "Mac’inizdeki DeepSeek Harness uygulamasını bu iPhone’dan kullanın."
           }
         }
       }
@@ -11306,7 +11311,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mac’inizin yanıtı bekleniyor…"
+            "value": "Mac’inizden yanıt bekleniyor…"
           }
         }
       }
@@ -11493,7 +11498,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir mesaj yazın ya da bir eki koruyun."
+            "value": "Bir mesaj yazın ya da mesajda en az bir ek bırakın."
           }
         }
       }
@@ -11867,7 +11872,7 @@
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "iOS, uygulamaların kestirmelerinizi görmesine izin vermez; bu yüzden Tether kestirmeyi ekleyip eklemediğinizi bilemez. “Kestirmeyi kontrol et” düğmesine bir kez dokunun: kestirme çalışır, Tether’e geri döner ve Kestirme satırında “Hazır” görünür. Kestirmenin adı tam olarak “Tether Tailscale” olmalıdır.\n\nSessiz çalışması ve uygulama değiştirmemesi için: Kestirmeler › Otomasyon › + › Uygulama › Tether › Açık › Hemen Çalıştır yolunu izleyin, sonra Tailscale › Connect işlemini ekleyin. Tailscale arka planda bağlanır ve yalnızca kısa bir bildirim görünür; tünel açılır açılmaz Tether yeniden bağlanır. Ya da Tailscale’in ayarlarında “VPN On Demand” seçeneğini açın. Yukarıdaki anahtar ise Kestirmeler uygulamasını açar; bu yüzden otomasyon kullanıyorsanız anahtarı kapalı bırakın."
+            "value": "iOS, uygulamaların kestirmelerinizi görmesine izin vermez; bu yüzden Tether kestirmeyi eklediğinizi anlayamaz. “Kestirmeyi kontrol et” düğmesine bir kez dokunun: kestirme çalışır, Tether’e geri döner ve Kestirme satırında “Hazır” görünür. Kestirmenin adı tam olarak “Tether Tailscale” olmalıdır.\n\nUygulama değiştirmeden, sessizce çalışması için: Kestirmeler › Otomasyon › + › Uygulama › Tether › Açık › Hemen Çalıştır yolunu izleyin ve Tailscale › Connect işlemini ekleyin. Tailscale arka planda bağlanır; ekranda yalnızca bir bildirim şeridi görünür ve tünel açılır açılmaz Tether yeniden bağlanır. Ya da Tailscale’in ayarlarında “VPN On Demand” seçeneğini açın. Yukarıdaki anahtar ise Kestirmeler uygulamasını açar; bu yüzden otomasyon kullanıyorsanız anahtarı kapalı bırakın."
           }
         }
       }

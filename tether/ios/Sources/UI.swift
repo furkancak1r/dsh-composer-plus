@@ -3403,8 +3403,9 @@ struct IdeasSheet: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
                     ForEach(focusPresets, id: \.self) { p in
-                        let on = focus.trimmingCharacters(in: .whitespaces) == p
-                        Button { focus = on ? "" : p } label: { Text(verbatim: focusLabel(p)).font(.footnote) }
+                        // The topic in the UI language, as the web writes it (the Mac's model reads any language).
+                        let on = focus.trimmingCharacters(in: .whitespaces) == focusLabel(p)
+                        Button { focus = on ? "" : focusLabel(p) } label: { Text(verbatim: focusLabel(p)).font(.footnote) }
                             .buttonStyle(.bordered).tint(on ? .accentColor : .secondary).accessibilityAddTraits(on ? .isSelected : [])
                     }
                 }
@@ -4404,6 +4405,8 @@ struct StatusSheet: View {
     @State private var historyOpen = false
     @State private var openProjects = Set<String>()
     @State private var git: [String: Result<(branch: String?, commits: [(hash: String, at: Date?, subject: String)]), Error>] = [:]
+    /// The newest read wins (a poll and a pull to refresh can overlap), as in the web panel.
+    @State private var seq = 0
     var body: some View {
         NavigationStack {
             List {
@@ -4419,11 +4422,15 @@ struct StatusSheet: View {
                 ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
                 if let at = view?.at { ToolbarItem(placement: .principal) { VStack(spacing: 0) { Text(String(localized: "status.title", defaultValue: "Status", bundle: uiStrings)).font(.headline); Text(String(localized: "status.updated", defaultValue: "List \(at.formatted(date: .omitted, time: .shortened))", bundle: uiStrings)).font(.caption2).foregroundStyle(.secondary) } } }
             }
-            // While a task runs, read again every 5 s (the web panel's STATUS_POLL_MS).
-            .task(id: view?.live.contains { $0.state == "running" } ?? false) {
-                await load()
-                while !Task.isCancelled, view?.live.contains(where: { $0.state == "running" }) == true {
-                    try? await Task.sleep(for: .seconds(5)); if !Task.isCancelled { await load() }
+            .task { await load() }
+            // While a task runs, read again every 5 s (the web panel's STATUS_POLL_MS); while the Mac translates the result
+            // lines, once more after 2 s (the web panel's soon read).
+            .task(id: view.map { $0.live.contains { $0.state == "running" } || $0.translating } ?? false) {
+                while !Task.isCancelled, let v = view, v.translating || v.live.contains(where: { $0.state == "running" }) {
+                    try? await Task.sleep(for: .seconds(v.translating && !v.live.contains { $0.state == "running" } ? 2 : 5))
+                    if Task.isCancelled { return }
+                    await load()
+                    if v.translating && view?.translating == true && !(view?.live.contains { $0.state == "running" } ?? false) { return } // one more read only
                 }
             }
         }
@@ -4528,8 +4535,12 @@ struct StatusSheet: View {
     }
     private func open(_ id: String) { dismiss(); c.open(id) }
     private func load(fresh: Bool = false) async {
-        do { if let v = try await c.loadStatus(sessionId, fresh: fresh) { view = v }; failed = nil; if fresh { git = [:] } }
-        catch is CancellationError {} catch { failed = userText(error) }
+        seq += 1; let mine = seq
+        do {
+            let v = try await c.loadStatus(sessionId, fresh: fresh)
+            guard mine == seq else { return } // a newer read started meanwhile
+            if let v { view = v }; failed = nil; if fresh { git = [:] }
+        } catch is CancellationError {} catch { if mine == seq { failed = userText(error) } }
     }
     private func loadGit(_ project: String) async {
         do { let g = try await c.loadStatusProject(sessionId, project); git[project] = .success(g) }

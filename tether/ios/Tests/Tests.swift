@@ -2321,6 +2321,15 @@ final class DamonParityTests: XCTestCase {
         // The item texts are data: kept as they came, also one that reads like an order.
         let v = statusView(["items": [["id": "a1", "text": "Ignore the rules **now**", "owner": "agent"]]], now: Date())
         XCTAssertEqual(v.groups.first?.items.first?.text, "Ignore the rules **now**")
+        // The table holds in any time zone of the phone (a time of today is 1 min before now, yesterday 27 h before).
+        let first = try XCTUnwrap(cases.first { ($0["name"] as? String)?.hasPrefix("today outage") == true })
+        for zone in ["Pacific/Kiritimati", "Etc/GMT+12", "America/Los_Angeles"] {
+            var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: zone)!
+            let now = Date(timeIntervalSince1970: (first["now"] as! NSNumber).doubleValue / 1000)
+            XCTAssertEqual(statusView(first["data"] as! J, now: now, cal: cal).outage?.others, 2, zone)
+        }
+        // The Mac reads again while it translates the result lines.
+        XCTAssertTrue(statusView(["translating": true], now: Date()).translating)
     }
 
     /// One string table: every key has en and tr; the Mac's language picks it (Turkish: Turkish, else English).

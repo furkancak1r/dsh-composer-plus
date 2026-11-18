@@ -3567,8 +3567,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * ports this rule (`statusView` in tether/ios/Sources/Core.swift); test/fixtures/status-panel.json is the one table of
      * both. Owner groups (yours first, an empty group left out) with their waiting count, the items that wait longer than
      * TODO_OVERDUE_MS, the live tasks (working or waiting) and the ended ones, today's newest outage (the task rows that it
-     * continued and the count of the other chats), today's summary and each project's summary line. */
-    function statusParts(data, now) {
+     * continued and the count of the other chats), today's summary and each project's summary line. `shown`: only a
+     * summary that the panel shows (the web: its card is open; Tether: the Host marks it `show`, a Get summary answer or
+     * the morning summary) gives the summary and the lines; a news turn's summary opens nothing. */
+    function statusParts(data, now, shown = data?.summary?.show === true) {
       const items = Array.isArray(data?.items) ? data.items : [];
       const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
       const isLive = (task) => task.state === 'running' || task.state === 'waiting';
@@ -3578,7 +3580,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const outage = Number.isFinite(o?.at) && Array.isArray(o?.chats) && sameDay(o.at, now) ? o : null;
       const listed = new Set(tasks.map((task) => task.id));
       const s = data?.summary;
-      const summary = Number.isFinite(s?.at) && Array.isArray(s?.projects) && sameDay(s.at, now) ? s : null;
+      const summary = shown && Number.isFinite(s?.at) && Array.isArray(s?.projects) && sameDay(s.at, now) ? s : null;
       const projects = Array.isArray(data?.projects) ? data.projects : [];
       return { groups, overdue: new Set(items.filter((i) => i.waiting && now - i.waiting.since >= TODO_OVERDUE_MS).map((i) => i.id)),
         live: tasks.filter(isLive), ended: tasks.filter((task) => !isLive(task)),
@@ -3653,10 +3655,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // The summary card shows only after Get summary or a morning summary (state.shown), until its close button. Another
       // summary that the assistant wrote without a request is kept by the Host but opens nothing.
       const now = Date.now();
-      const parts = statusParts(state, now);
-      const summary = state.shown ? parts.summary : null;
+      const parts = statusParts(state, now, state.shown);
+      const summary = parts.summary;
       const projectOfName = (name) => state.projects.find((p) => foldText(p.title) === foldText(name));
-      const lineOf = (p) => (summary === null ? undefined : parts.lines[p.id] ?? undefined);
+      const lineOf = (p) => parts.lines[p.id] ?? undefined;
       const rowId = (p) => `cp-st-${sessionId}-${p.id}`;
       const showProject = (name) => {
         const p = projectOfName(name);

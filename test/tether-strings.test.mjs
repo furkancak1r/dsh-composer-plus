@@ -18,7 +18,8 @@ const keys = Object.keys(table.strings);
 assert.ok(keys.length > 600, `the table has Tether's words (${keys.length})`);
 for (const key of keys) {
   const e = table.strings[key];
-  if (e.shouldTranslate === false) continue;
+  // Only a key without words (symbols, placeholders) or a name stays untranslated: "%@ and %@" must not.
+  if (e.shouldTranslate === false) { assert.doesNotMatch(key.replace(/%(?:\d+\$)?(?:lld|ld|d|@)/g, '').replace(/Composer Plus|Tailscale|Face ID|Touch ID|Mac|tether:\/\/pair|Users|project/g, ''), /[A-Za-z]{2}/, `"${key}" has words: translate it`); continue; }
   const en = value(e, 'en') ?? key, tr = value(e, 'tr');
   assert.ok(typeof tr === 'string' && tr.trim() !== '', `"${key}" has a Turkish value`);
   assert.equal(e.localizations?.tr?.stringUnit?.state, 'translated', `"${key}" tr is translated`);

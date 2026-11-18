@@ -948,7 +948,9 @@ func uiBundle(_ lang: String) -> Bundle { Bundle.main.path(forResource: lang, of
 /// It starts with the language that the last Mac gave, so a start shows no English first.
 /// ponytail: a plain global read without a lock; only the main thread writes it, and a read that races a change gets the
 /// old or the new table, both valid.
-nonisolated(unsafe) var uiStrings = uiBundle(uiLanguage(macLang: UserDefaults.standard.string(forKey: "macLang")))
+/// The unit tests run in this app (TEST_HOST): they start in English, not in a Mac language that a manual run saved.
+let underTests = NSClassFromString("XCTestCase") != nil
+nonisolated(unsafe) var uiStrings = uiBundle(underTests ? "en" : uiLanguage(macLang: UserDefaults.standard.string(forKey: "macLang")))
 extension String {
     /// `String(localized: "…")` in Tether: the Mac's language, not the phone's.
     init(localized key: String.LocalizationValue) { self.init(localized: key, bundle: uiStrings) }
@@ -2255,7 +2257,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     }
     /// The Composer Plus language of the Mac on screen (`/me` `lang`, the UI language that dsh reported); nil for an older Mac.
     /// Tether's words follow it (`uiLanguage`). It is kept, so the next start shows the same language at once.
-    @Published var macLang: String? = UserDefaults.standard.string(forKey: "macLang") {
+    @Published var macLang: String? = underTests ? nil : UserDefaults.standard.string(forKey: "macLang") {
         didSet { UserDefaults.standard.set(macLang, forKey: "macLang"); uiStrings = uiBundle(uiLanguage(macLang: macLang)) }
     }
     /// The locale of Tether's views: the language of the table, the phone's region (dates, numbers).
@@ -4379,29 +4381,23 @@ func boardProjectOf(_ session: String, workspaces: [Workspace]) -> String {
 
 /// An item of the assistant chat's to-do list. `text` and `waiting.reason` are the Mac's data: shown, never read as words
 /// of Tether.
-struct StatusItem: Equatable, Identifiable { let id, text, owner: String; let waiting: (reason: String, since: Date)?
-    static func == (a: StatusItem, b: StatusItem) -> Bool { a.id == b.id && a.text == b.text && a.owner == b.owner && a.waiting?.reason == b.waiting?.reason && a.waiting?.since == b.waiting?.since }
-}
-struct StatusTask: Equatable, Identifiable { let id, title, state: String; let started: Date; let ended: Date?; let result: String?; let chat: Bool }
-struct StatusChat: Equatable, Identifiable { let id, title: String; let updated: Date?; let running: Bool }
-struct StatusProject: Equatable, Identifiable { let id, title: String; let count: Int; let chats: [StatusChat] }
-struct StatusGroup: Equatable { let owner: String; let items: [StatusItem]; let waiting: Int }
+struct StatusItem: Identifiable { let id, text, owner: String; let waiting: (reason: String, since: Date)? }
+struct StatusTask: Identifiable { let id, title, state: String; let started: Date; let ended: Date?; let result: String?; let chat: Bool }
+struct StatusChat: Identifiable { let id, title: String; let updated: Date?; let running: Bool }
+struct StatusProject: Identifiable { let id, title: String; let count: Int; let chats: [StatusChat] }
+struct StatusGroup { let owner: String; let items: [StatusItem]; let waiting: Int }
 /// The panel as the Mac's web panel groups it (client.js `statusParts`; test/fixtures/status-panel.json is the table of
 /// both): the owner groups (yours first, an empty group left out), the items that wait longer than `todoOverdue`, the live
 /// tasks (working, waiting) and the ended ones, today's newest outage (the rows that it continued and the count of the
-/// other chats), today's summary and each project's summary line.
-struct StatusView: Equatable {
+/// other chats), today's summary (only one that the Host marks `show`: a Get summary answer or the morning summary, not a
+/// news turn's) and each project's summary line. `translating`: the Mac translates result lines now (read again soon).
+struct StatusView {
     var groups: [StatusGroup] = []; var overdue: Set<String> = []
     var live: [StatusTask] = []; var ended: [StatusTask] = []
     var outage: (at: Date, resumed: Set<String>, others: Int)?
     var summary: (at: Date, projects: [(project: String, text: String)])?
     var projects: [StatusProject] = []; var lines: [String: String] = [:]
-    var at: Date?; var on = true
-    static func == (a: StatusView, b: StatusView) -> Bool {
-        a.groups == b.groups && a.overdue == b.overdue && a.live == b.live && a.ended == b.ended && a.projects == b.projects && a.lines == b.lines && a.at == b.at && a.on == b.on
-            && a.outage?.at == b.outage?.at && a.outage?.resumed == b.outage?.resumed && a.outage?.others == b.outage?.others
-            && a.summary?.at == b.summary?.at && a.summary?.projects.map(\.text) == b.summary?.projects.map(\.text)
-    }
+    var at: Date?; var on = true; var translating = false
 }
 /// client.js TODO_OVERDUE_MS (24 h), in seconds.
 let todoOverdue: TimeInterval = 86400
@@ -4413,7 +4409,7 @@ private func msDate(_ v: Any?) -> Date? { (v as? NSNumber).map { Date(timeInterv
 /// The Host's answer to `GET /plus/assistant-todos?sessionId=` as the panel shows it at `now` (`cal`: the phone's calendar,
 /// as the web panel's `sameDay` uses the browser's time zone).
 func statusView(_ o: J, now: Date, cal: Calendar = .current) -> StatusView {
-    var v = StatusView(); v.on = o["on"] as? Bool != false; v.at = msDate(o["at"])
+    var v = StatusView(); v.on = o["on"] as? Bool != false; v.at = msDate(o["at"]); v.translating = o["translating"] as? Bool == true
     let items: [StatusItem] = (o["items"] as? [J] ?? []).compactMap { i in
         guard let id = i["id"] as? String, let text = i["text"] as? String else { return nil }
         let w = i["waiting"] as? J
@@ -4435,7 +4431,7 @@ func statusView(_ o: J, now: Date, cal: Calendar = .current) -> StatusView {
         let ids = chats.compactMap { $0["id"] as? String }, listed = Set(tasks.map(\.id))
         v.outage = (at, Set(ids), ids.filter { !listed.contains($0) }.count)
     }
-    if let s = o["summary"] as? J, let at = msDate(s["at"]), let ps = s["projects"] as? [J], cal.isDate(at, inSameDayAs: now) {
+    if let s = o["summary"] as? J, s["show"] as? Bool == true, let at = msDate(s["at"]), let ps = s["projects"] as? [J], cal.isDate(at, inSameDayAs: now) {
         v.summary = (at, ps.compactMap { p in (p["project"] as? String).flatMap { n in (p["text"] as? String).map { (n, $0) } } })
     }
     v.projects = (o["projects"] as? [J] ?? []).compactMap { p in
