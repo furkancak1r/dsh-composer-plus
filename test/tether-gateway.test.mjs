@@ -392,6 +392,17 @@ test('composer-plus routes: allowlisted methods pass with the query or body; swi
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'POST', url: '/api/composer-plus.side-chat', body: JSON.stringify({ sessionId: 's', text: 'Why?' }), type: 'application/json' })
     await call(t.gw, 'GET', '/plus/side-chat?sessionId=side1', undefined, auth)
     assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.side-chat?sessionId=side1', body: '', type: null })
+    // Damon's status panel: the phone reads the same answer as the web panel (the query, with lang, goes as it is). It is
+    // read only: no remove, no Get summary and no switch from the phone.
+    await call(t.gw, 'GET', '/plus/assistant-todos?sessionId=s&lang=tr', undefined, auth)
+    assert.deepEqual(t.dsh.plus.at(-1), { method: 'GET', url: '/api/composer-plus.assistant-todos?sessionId=s&lang=tr', body: '', type: null })
+    await call(t.gw, 'GET', '/plus/assistant-todos?sessionId=s&project=w1', undefined, auth)
+    assert.equal(t.dsh.plus.at(-1).url, '/api/composer-plus.assistant-todos?sessionId=s&project=w1', 'one project\'s git details')
+    const todoSeen = t.dsh.plus.length
+    for (const b of [{ sessionId: 's', id: 'abcd1234', action: 'remove' }, { sessionId: 's', action: 'summary' }, { on: false }]) {
+      assert.equal((await call(t.gw, 'POST', '/plus/assistant-todos', b, auth)).status, 403, JSON.stringify(b))
+    }
+    assert.equal(t.dsh.plus.length, todoSeen, 'a POST never reaches dsh')
     // An older plugin without the route: its 404 reaches the phone, which hides the feature.
     assert.equal((await call(t.gw, 'GET', '/plus/changes?sessionId=s', undefined, auth)).status, 404)
     const seen = t.dsh.plus.length

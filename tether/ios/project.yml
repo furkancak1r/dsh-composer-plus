@@ -50,5 +50,6 @@ targets:
 schemes:
   DSHMobile:
     build: { targets: { DSHMobile: all, DSHMobileTests: [test] } }
-    test: { targets: [DSHMobileTests] }
+    # The tests read English words: the test run is in English on any simulator language (Tether follows the Mac's language).
+    test: { targets: [DSHMobileTests], language: en, region: US }
 

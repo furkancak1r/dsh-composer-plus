@@ -24,12 +24,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     @Environment(\.scenePhase) private var phase
     var body: some Scene {
         WindowGroup {
-            Root().environmentObject(client).environmentObject(lock)
+            // Tether's words in the Mac's Composer Plus language (Localizable.xcstrings: en, tr).
+            Root().environmentObject(client).environmentObject(lock).environment(\.locale, client.uiLocale)
                 .onAppear {
                     delegate.onToken = { [weak client] t in client?.pushToken(t) }
                     delegate.onTokenError = { [weak client] e in client?.pushFailed(e) }
                 }
-                .background(LockWindow(lock: lock))
+                .background(LockWindow(lock: lock, locale: client.uiLocale))
                 .onChange(of: phase, initial: true) { _, p in
                     lock.phase(p == .active ? .active : p == .inactive ? .inactive : .background)
                     if p == .active { client.browse(); client.wake() }
@@ -48,7 +49,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 /// the keyboard. A SwiftUI overlay on Root would sit below an open sheet.
 struct LockWindow: UIViewRepresentable {
     @ObservedObject var lock: AppLock
-    final class Holder { var window: UIWindow? }
+    let locale: Locale
+    final class Holder { var window: UIWindow?; var host: UIHostingController<AnyView>?; var locale: Locale? }
     func makeCoordinator() -> Holder { Holder() }
     func makeUIView(context: Context) -> UIView { UIView(frame: .zero) }
     func updateUIView(_ view: UIView, context: Context) {
@@ -59,12 +61,12 @@ struct LockWindow: UIViewRepresentable {
                 let w = UIWindow(windowScene: scene)
                 w.windowLevel = .alert + 1
                 w.backgroundColor = .clear
-                let host = UIHostingController(rootView: LockView(lock: lock))
+                let host = UIHostingController(rootView: AnyView(LockView(lock: lock).environment(\.locale, locale)))
                 host.view.backgroundColor = .clear
                 host.view.accessibilityViewIsModal = true // VoiceOver reads only the lock screen, not the chats below
                 w.rootViewController = host
-                h.window = w
-            }
+                h.window = w; h.host = host; h.locale = locale
+            } else if h.locale != locale { h.locale = locale; h.host?.rootView = AnyView(LockView(lock: lock).environment(\.locale, locale)) } // only a new language draws it again
             // The lock screen takes the keys (VoiceOver, keyboard) only while it shows.
             if covered { h.window?.isHidden = false; h.window?.makeKeyAndVisible() }
             else if h.window?.isHidden == false { h.window?.isHidden = true; view.window?.makeKey() }
@@ -598,6 +600,8 @@ struct ConversationView: View {
     @State private var showSide = false
     @State private var showContext = false
     @State private var showBoard = false
+    /// Damon's status panel (the Mac's Durum panel), only in the assistant chat.
+    @State private var showStatus = false
     @State private var deleting = false
     /// Turn rollback: the user row whose ↶ was tapped.
     @State private var rollingBack: Line?
@@ -638,6 +642,10 @@ struct ConversationView: View {
             .toolbar(.hidden, for: .tabBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) { ConnBadge() }
+                // Damon's status panel: the Mac shows it at the right side of the chat; the phone has no room, so one tap.
+                if c.plus.contains("assistant-todos"), c.current != nil, c.current == c.assistantId {
+                    ToolbarItem(placement: .topBarTrailing) { Button { showStatus = true } label: { Image(systemName: "checklist") }.accessibilityLabel("Status") }
+                }
                 ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
                 // desktop's session menu: tap the title for rename / fork / pin / archive
                 ToolbarTitleMenu {
@@ -690,6 +698,7 @@ struct ConversationView: View {
             .sheet(isPresented: $showSide) { if let id = c.current { SideChatSheet(sessionId: id) } }
             .sheet(isPresented: $showContext) { if let id = c.current { ContextSheet(sessionId: id) } }
             .sheet(isPresented: $showBoard) { BoardSheet(project: boardProjectOf(c.current ?? "", workspaces: c.workspaces)) }
+            .sheet(isPresented: $showStatus) { if let id = c.current { StatusSheet(sessionId: id) } }
             // Task board → +: the new chat opened here; its first message went, so the board opens again.
             .onChange(of: c.boardBack) { _, back in if back { c.boardBack = false; showBoard = true } }
             .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { text = t; focused = true } } }
@@ -3395,7 +3404,7 @@ struct IdeasSheet: View {
                 HStack(spacing: 6) {
                     ForEach(focusPresets, id: \.self) { p in
                         let on = focus.trimmingCharacters(in: .whitespaces) == p
-                        Button { focus = on ? "" : p } label: { Text(LocalizedStringKey(p)).font(.footnote) }
+                        Button { focus = on ? "" : p } label: { Text(verbatim: focusLabel(p)).font(.footnote) }
                             .buttonStyle(.bordered).tint(on ? .accentColor : .secondary).accessibilityAddTraits(on ? .isSelected : [])
                     }
                 }
@@ -3456,7 +3465,7 @@ struct IdeasSheet: View {
     }
     private func card(_ i: J) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack { Text(i["title"] as? String ?? "").font(.title3.bold()); Spacer(); if let e = i["effort"] as? String { Text(LocalizedStringKey(e.capitalized)).font(.caption).padding(.horizontal, 8).padding(.vertical, 3).background(.quaternary, in: Capsule()) } }
+            HStack { Text(i["title"] as? String ?? "").font(.title3.bold()); Spacer(); if let e = i["effort"] as? String { Text(e == "small" ? "Small" : e == "medium" ? "Medium" : e == "large" ? "Large" : LocalizedStringKey(e.capitalized)).font(.caption).padding(.horizontal, 8).padding(.vertical, 3).background(.quaternary, in: Capsule()) } }
             Text(i["summary"] as? String ?? "")
             if let w = i["why"] as? String { Text(w).font(.footnote).foregroundStyle(.secondary) }
         }
@@ -3823,7 +3832,7 @@ struct MemorySheet: View {
                         Text(p.note.isEmpty ? (p.changes.isEmpty ? String(localized: "The model proposes no change.") : String(localized: "Check these \(p.changes.count) change(s), then apply them.")) : p.note).font(.footnote)
                         ForEach(p.changes) { ch in
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(LocalizedStringKey(ch.op == "add" ? "Add" : ch.op == "edit" ? "Change" : "Remove")).font(.caption.bold())
+                                Text(ch.op == "add" ? "Add" : ch.op == "edit" ? "Change" : "Remove").font(.caption.bold())
                                     .foregroundStyle(ch.op == "add" ? Color.green : ch.op == "edit" ? Color.blue : Color.red)
                                 if let b = ch.before { Text(b).strikethrough().foregroundStyle(.secondary).font(.subheadline) }
                                 if let t = ch.text { Text(t).font(.subheadline) }
@@ -4379,3 +4388,152 @@ struct BoardCardRow: View {
         .accessibilityElement(children: .combine)
     }
 }
+
+/// Damon's status panel (the Mac's Durum panel, Composer Plus `assistantTodos`): the to-do list in its owner groups (yours,
+/// then Damon's) with the waiting state and its reason, Görevler (the live tasks, then the ended ones under History), the
+/// chats that Resume after an AIProxy outage continued, today's summary and the projects that changed in the last 24 hours
+/// (a tap opens one: its chats, to-do items and git branch). It reads the web panel's route on open, every 5 s while a
+/// task runs, and on pull to refresh. Read only: the Mac keeps the list (tell Damon in the chat to change it).
+/// The Mac's texts (items, reasons, task titles and results, summary lines, chat titles, commits) are data: Text(verbatim:).
+struct StatusSheet: View {
+    @EnvironmentObject var c: Client
+    @Environment(\.dismiss) private var dismiss
+    let sessionId: String
+    @State private var view: StatusView?
+    @State private var failed: String?
+    @State private var historyOpen = false
+    @State private var openProjects = Set<String>()
+    @State private var git: [String: Result<(branch: String?, commits: [(hash: String, at: Date?, subject: String)]), Error>] = [:]
+    var body: some View {
+        NavigationStack {
+            List {
+                if let v = view {
+                    if !v.on { Text("Switch on Assistant status panel in Settings → Composer Plus on your Mac.").foregroundStyle(.secondary) }
+                    else { content(v) }
+                } else if failed == nil { HStack(spacing: 8) { ProgressView(); Text(String(localized: "status.loading", defaultValue: "Loading…", bundle: uiStrings)) } }
+                if let f = failed { Text(String(localized: "status.readFailed", defaultValue: "Could not refresh: \(f)", bundle: uiStrings)).font(.footnote).foregroundStyle(.orange) }
+            }
+            .refreshable { await load(fresh: true) }
+            .navigationTitle(String(localized: "status.title", defaultValue: "Status", bundle: uiStrings)).navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+                if let at = view?.at { ToolbarItem(placement: .principal) { VStack(spacing: 0) { Text(String(localized: "status.title", defaultValue: "Status", bundle: uiStrings)).font(.headline); Text(String(localized: "status.updated", defaultValue: "List \(at.formatted(date: .omitted, time: .shortened))", bundle: uiStrings)).font(.caption2).foregroundStyle(.secondary) } } }
+            }
+            // While a task runs, read again every 5 s (the web panel's STATUS_POLL_MS).
+            .task(id: view?.live.contains { $0.state == "running" } ?? false) {
+                await load()
+                while !Task.isCancelled, view?.live.contains(where: { $0.state == "running" }) == true {
+                    try? await Task.sleep(for: .seconds(5)); if !Task.isCancelled { await load() }
+                }
+            }
+        }
+    }
+    @ViewBuilder private func content(_ v: StatusView) -> some View {
+        if let s = v.summary {
+            Section {
+                ForEach(Array(s.projects.enumerated()), id: \.offset) { _, p in
+                    VStack(alignment: .leading, spacing: 2) { Text(verbatim: p.project).font(.subheadline.weight(.semibold)); Text(verbatim: p.text).font(.subheadline) }
+                }
+            } header: { Text(verbatim: String(localized: "status.summary", defaultValue: "Summary", bundle: uiStrings) + " · " + s.at.formatted(date: .omitted, time: .shortened)) }
+        }
+        Section {
+            if v.groups.isEmpty { Text("No items. Tell \(assistantName) a task that you have in mind.").foregroundStyle(.secondary) }
+            ForEach(v.groups, id: \.owner) { g in
+                HStack {
+                    Text(g.owner == "agent" ? String(localized: "todos.groupAgent", defaultValue: "\(assistantName) will do", bundle: uiStrings) : String(localized: "todos.groupUser", defaultValue: "You will do", bundle: uiStrings)).font(.footnote.weight(.semibold)).foregroundStyle(g.owner == "agent" ? Color.accentColor : .secondary)
+                    Text(verbatim: "\(g.items.count)").font(.footnote).foregroundStyle(.tertiary)
+                    if g.waiting > 0 { Text(String(localized: "todos.waitingCount", defaultValue: "\(g.waiting) waiting", bundle: uiStrings)).font(.footnote).foregroundStyle(.orange) }
+                }
+                ForEach(g.items) { i in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: i.text).fontWeight(i.waiting == nil ? .regular : .medium)
+                        if let w = i.waiting {
+                            (Text(String(localized: "todos.waiting", defaultValue: "Waiting for you", bundle: uiStrings)).foregroundStyle(.orange) + Text(verbatim: " · ") + Text(w.since, format: .relative(presentation: .numeric, unitsStyle: .abbreviated))
+                                + (v.overdue.contains(i.id) ? Text(verbatim: " · ") + Text(String(localized: "todos.overdue", defaultValue: "Overdue", bundle: uiStrings)).foregroundStyle(.red).bold() : Text(verbatim: ""))).font(.caption)
+                            Text(verbatim: w.reason).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        } header: { Text(String(localized: "todos.title", defaultValue: "To-do", bundle: uiStrings)) } footer: { Text("Tell \(assistantName) in the chat to add, give or remove an item. The list is kept on your Mac.") }
+        Section {
+            if v.live.isEmpty && v.ended.isEmpty { Text("\(assistantName) has no tasks today.").foregroundStyle(.secondary) }
+            ForEach(v.live) { t in taskRow(t, v) }
+            if let o = v.outage, o.others > 0 { Text(String(localized: "status.outageMore", defaultValue: "AIProxy outage (\(o.at.formatted(date: .omitted, time: .shortened))): \(o.others) chat(s) continued", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) }
+            if !v.ended.isEmpty {
+                DisclosureGroup(isExpanded: $historyOpen) { ForEach(v.ended) { t in taskRow(t, v) } } label: {
+                    HStack { Text(String(localized: "status.history", defaultValue: "History", bundle: uiStrings)); Text(verbatim: "\(v.ended.count)").foregroundStyle(.tertiary) }
+                }
+            }
+        } header: { HStack { Text(String(localized: "status.tasks", defaultValue: "Tasks", bundle: uiStrings)); Text(verbatim: "\(v.live.count)").foregroundStyle(.tertiary) } }
+        Section {
+            if v.projects.isEmpty { Text(String(localized: "status.projectsEmpty", defaultValue: "No project changed in the last 24 hours.", bundle: uiStrings)).foregroundStyle(.secondary) }
+            ForEach(v.projects) { p in
+                DisclosureGroup(isExpanded: Binding(get: { openProjects.contains(p.id) }, set: { if $0 { openProjects.insert(p.id) } else { openProjects.remove(p.id) } })) {
+                    projectDetail(p, v)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(verbatim: p.title).font(.subheadline.weight(.semibold))
+                        if let line = v.lines[p.id] { Text(verbatim: line).font(.caption).foregroundStyle(.secondary) }
+                        else { Text(String(localized: "status.projectChats", defaultValue: "\(p.count) chats changed", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+            }
+        } header: { Text(String(localized: "status.projects", defaultValue: "Projects", bundle: uiStrings)) }
+    }
+    private func stateName(_ s: String) -> String {
+        switch s {
+        case "running": return String(localized: "status.task.running", defaultValue: "Working", bundle: uiStrings)
+        case "waiting": return String(localized: "status.task.waiting", defaultValue: "Waiting for you", bundle: uiStrings)
+        case "done": return String(localized: "status.task.done", defaultValue: "Done", bundle: uiStrings)
+        case "failed": return String(localized: "status.task.failed", defaultValue: "Failed", bundle: uiStrings)
+        default: return String(localized: "status.task.stopped", defaultValue: "Stopped", bundle: uiStrings)
+        }
+    }
+    private func taskRow(_ t: StatusTask, _ v: StatusView) -> some View {
+        Button { open(t.id) } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: t.title).foregroundStyle(.primary)
+                (Text(stateName(t.state)).foregroundStyle(t.state == "running" ? Color.accentColor : t.state == "done" ? .green : t.state == "stopped" ? .secondary : .orange)
+                    + Text(verbatim: " · ") + Text(Duration.seconds(max(0, (t.ended ?? Date()).timeIntervalSince(t.started))), format: .units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1))).font(.caption)
+                if let o = v.outage, o.resumed.contains(t.id) { Text(String(localized: "status.outageRow", defaultValue: "Continued after the outage · \(o.at.formatted(date: .omitted, time: .shortened))", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) }
+                if let r = t.result { Text(verbatim: r).font(.caption).foregroundStyle(.secondary) }
+            }
+        }
+    }
+    @ViewBuilder private func projectDetail(_ p: StatusProject, _ v: StatusView) -> some View {
+        ForEach(p.chats) { ch in
+            Button { open(ch.id) } label: {
+                HStack { Text(verbatim: ch.title).font(.subheadline).foregroundStyle(.primary); Spacer()
+                    if ch.running { Text(String(localized: "status.task.running", defaultValue: "Working", bundle: uiStrings)).font(.caption).foregroundStyle(Color.accentColor) }
+                    else if let u = ch.updated { Text(u, format: .relative(presentation: .named, unitsStyle: .abbreviated)).font(.caption).foregroundStyle(.secondary) } }
+            }
+        }
+        let todos = v.groups.flatMap(\.items).filter { statusFold($0.text).contains(statusFold(p.title)) }
+        ForEach(todos) { i in VStack(alignment: .leading) { Text(verbatim: i.text).font(.subheadline); Text(i.owner == "agent" ? String(localized: "todos.groupAgent", defaultValue: "\(assistantName) will do", bundle: uiStrings) : String(localized: "todos.groupUser", defaultValue: "You will do", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) } }
+        switch git[p.id] {
+        case nil: HStack(spacing: 8) { ProgressView(); Text(String(localized: "status.loading", defaultValue: "Loading…", bundle: uiStrings)).font(.caption) }.task { await loadGit(p.id) }
+        case .failure(let e)?: Text(String(localized: "status.readFailed", defaultValue: "Could not refresh: \(userText(e))", bundle: uiStrings)).font(.caption).foregroundStyle(.orange)
+        case .success(let g)?:
+            if let b = g.branch {
+                Text(String(localized: "status.branch", defaultValue: "Branch: \(b)", bundle: uiStrings)).font(.caption)
+                ForEach(g.commits, id: \.hash) { cm in
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(alignment: .firstTextBaseline) { Text(verbatim: cm.hash).font(.caption2.monospaced()).foregroundStyle(.secondary); Text(verbatim: cm.subject).font(.caption) }
+                        if let at = cm.at { Text(at, format: .relative(presentation: .named, unitsStyle: .abbreviated)).font(.caption2).foregroundStyle(.secondary) }
+                    }
+                }
+            } else { Text(String(localized: "status.noGit", defaultValue: "Not a git repository.", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) }
+        }
+    }
+    private func open(_ id: String) { dismiss(); c.open(id) }
+    private func load(fresh: Bool = false) async {
+        do { if let v = try await c.loadStatus(sessionId, fresh: fresh) { view = v }; failed = nil; if fresh { git = [:] } }
+        catch is CancellationError {} catch { failed = userText(error) }
+    }
+    private func loadGit(_ project: String) async {
+        do { let g = try await c.loadStatusProject(sessionId, project); git[project] = .success(g) }
+        catch is CancellationError {} catch { git[project] = .failure(error) }
+    }
+}
+// END StatusSheet

@@ -44,7 +44,11 @@ assert.match(ui, /if let o = approval, l\.kind == \.assistant, l\.seq == o\.at \
 const tr = JSON.parse(read('locales/tr.json'))['dsh-composer-plus'];
 for (const [key, word] of [['approve.button', 'Onayla'], ['approve.group', 'Bu yanıtın onay cümleleri']]) assert.equal(tr[key], word, `tr ${key}`);
 assert.ok(src.includes("'approve.button': 'Approve'") && src.includes("'approve.group': 'Approval sentences of this answer'"), 'the English words of client.js');
-assert.ok(core.includes('ApproveWords(button: "Onayla", group: "Bu yanıtın onay cümleleri"') && core.includes('ApproveWords(button: "Approve", group: "Approval sentences of this answer"'), 'Tether uses the same words');
+// Tether reads them from its one string table (Localizable.xcstrings) in the Mac's language: the same words.
+const table = JSON.parse(read('tether/ios/Resources/Localizable.xcstrings')).strings;
+const trOf = (key) => table[key]?.localizations?.tr?.stringUnit?.value;
+assert.ok(core.includes('ApproveWords(button: String(localized: "Approve", bundle: b), group: String(localized: "Approval sentences of this answer", bundle: b)'), 'Tether reads the words from the table');
+assert.equal(trOf('Approve'), 'Onayla'); assert.equal(trOf('Approval sentences of this answer'), 'Bu yanıtın onay cümleleri');
 
 // Damon: one name for the Mac and the phone; no "Assistant" label left in the phone's UI.
 assert.equal(ASSISTANT_NAME, 'Damon'); assert.ok(src.includes("const ASSISTANT_NAME = 'Damon';"));
@@ -56,7 +60,8 @@ const kinds = JSON.parse(src.match(/const CALLOUT_KINDS = (\[[^\]]*\]);/)[1].rep
 assert.deepEqual(JSON.parse(core.match(/let calloutKinds = (\[[^\]]*\])/)[1]), kinds, 'the same markers');
 for (const kind of kinds) {
   const en = src.match(new RegExp(`'callouts\\.${kind}': '([^']*)'`))[1];
-  assert.ok(core.includes(`"${tr[`callouts.${kind}`]}" : "${en}"`) || (kind === 'details' && core.includes(`return tr ? "${tr['callouts.details']}" : "${en}"`)), `label of ${kind}: ${tr[`callouts.${kind}`]} / ${en}`);
+  assert.ok(core.includes(`return String(localized: "${en}", bundle: b)`), `Tether reads the ${kind} label (${en}) from the table`);
+  assert.equal(trOf(en), tr[`callouts.${kind}`], `label of ${kind}: ${tr[`callouts.${kind}`]} / ${en}`);
 }
 
 // The Host gives the gateway the reported UI language; /me carries it (bounded locale id only).

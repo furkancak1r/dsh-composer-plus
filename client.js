@@ -3563,6 +3563,28 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       try { return new Intl.NumberFormat(locale || undefined, { style: 'unit', unit, unitDisplay: 'short', maximumFractionDigits: 1 }).format(value); } catch { return `${value} ${unit}`; }
     }
     const foldText = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase('tr');
+    /** The Host's status answer (`data`: items, tasks, projects, summary, outage) as the panel groups it at `now`. Tether
+     * ports this rule (`statusView` in tether/ios/Sources/Core.swift); test/fixtures/status-panel.json is the one table of
+     * both. Owner groups (yours first, an empty group left out) with their waiting count, the items that wait longer than
+     * TODO_OVERDUE_MS, the live tasks (working or waiting) and the ended ones, today's newest outage (the task rows that it
+     * continued and the count of the other chats), today's summary and each project's summary line. */
+    function statusParts(data, now) {
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
+      const isLive = (task) => task.state === 'running' || task.state === 'waiting';
+      const groups = ['user', 'agent'].map((owner) => ({ owner, items: items.filter((i) => (i.owner === 'agent' ? 'agent' : 'user') === owner) }))
+        .filter((g) => g.items.length > 0).map((g) => ({ ...g, waiting: g.items.filter((i) => i.waiting).length }));
+      const o = data?.outage;
+      const outage = Number.isFinite(o?.at) && Array.isArray(o?.chats) && sameDay(o.at, now) ? o : null;
+      const listed = new Set(tasks.map((task) => task.id));
+      const s = data?.summary;
+      const summary = Number.isFinite(s?.at) && Array.isArray(s?.projects) && sameDay(s.at, now) ? s : null;
+      const projects = Array.isArray(data?.projects) ? data.projects : [];
+      return { groups, overdue: new Set(items.filter((i) => i.waiting && now - i.waiting.since >= TODO_OVERDUE_MS).map((i) => i.id)),
+        live: tasks.filter(isLive), ended: tasks.filter((task) => !isLive(task)),
+        outage: outage === null ? null : { at: outage.at, resumed: new Set(outage.chats.map((c) => c.id)), others: outage.chats.filter((c) => !listed.has(c.id)).length },
+        summary, lines: Object.fromEntries(projects.map((p) => [p.id, summary?.projects.find((x) => foldText(x.project) === foldText(p.title))?.text ?? null])) };
+    }
     /** The live state of the assistant chat and its subagents as one short text: the panel reads the Host again when it
      * changes (a subagent starts, stops or waits; the assistant's turn starts or ends). */
     const childIdsOf = (list, id) => (list?.projectionsBySession?.[id]?.values?.subagentCatalog ?? []).filter((c) => c?.mode !== 'external').map((c) => c.id);
@@ -3630,9 +3652,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const toggle = (projectId, show) => setExpanded((prev) => { const next = new Set(prev); if (show ?? !next.has(projectId)) next.add(projectId); else next.delete(projectId); return next; });
       // The summary card shows only after Get summary or a morning summary (state.shown), until its close button. Another
       // summary that the assistant wrote without a request is kept by the Host but opens nothing.
-      const summary = state.shown && state.summary !== null && sameDay(state.summary.at, Date.now()) ? state.summary : null;
+      const now = Date.now();
+      const parts = statusParts(state, now);
+      const summary = state.shown ? parts.summary : null;
       const projectOfName = (name) => state.projects.find((p) => foldText(p.title) === foldText(name));
-      const lineOf = (p) => summary?.projects?.find((x) => foldText(x.project) === foldText(p.title))?.text;
+      const lineOf = (p) => (summary === null ? undefined : parts.lines[p.id] ?? undefined);
       const rowId = (p) => `cp-st-${sessionId}-${p.id}`;
       const showProject = (name) => {
         const p = projectOfName(name);
@@ -3644,15 +3668,14 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const section = (key, title, count, body) => React.createElement('section', { key, 'aria-labelledby': `${headId}-${key}` },
         React.createElement('h3', { id: `${headId}-${key}` }, title, count === undefined ? null : React.createElement('span', { className: 'cp-td-count' }, String(count))), body);
       const empty = (text) => React.createElement('p', { className: 'cp-td-empty' }, text);
-      const now = Date.now();
       // An item of the assistant that waits for the user: "Waiting for you · <time>" (overdue after TODO_OVERDUE_MS) and
       // the reason under its text.
-      const waitLine = (w) => [React.createElement('span', { key: 's', className: 'cp-st-sub' },
-        React.createElement('span', { 'data-state': 'waiting' }, t('todos.waiting')), ` · ${spanText(now - w.since, lang)}`,
-        now - w.since >= TODO_OVERDUE_MS ? [' · ', React.createElement('span', { key: 'o', 'data-state': 'overdue' }, t('todos.overdue'))] : null),
-      React.createElement('span', { key: 'r', className: 'cp-st-sub' }, w.reason)];
+      const waitLine = (item) => [React.createElement('span', { key: 's', className: 'cp-st-sub' },
+        React.createElement('span', { 'data-state': 'waiting' }, t('todos.waiting')), ` · ${spanText(now - item.waiting.since, lang)}`,
+        parts.overdue.has(item.id) ? [' · ', React.createElement('span', { key: 'o', 'data-state': 'overdue' }, t('todos.overdue'))] : null),
+      React.createElement('span', { key: 'r', className: 'cp-st-sub' }, item.waiting.reason)];
       const todoRows = (rows, id, hide) => React.createElement('ul', { id, hidden: hide }, rows.map((item) => React.createElement('li', { key: item.id, 'data-owner': item.owner, ...(item.waiting ? { 'data-waiting': 'true' } : {}) },
-        React.createElement('span', { className: 'cp-td-text' }, item.text, ...(item.waiting ? waitLine(item.waiting) : [])),
+        React.createElement('span', { className: 'cp-td-text' }, item.text, ...(item.waiting ? waitLine(item) : [])),
         // → writes "<Do this for me:> <item>" in the composer and sends nothing; when the user sends it, the assistant
         // gives the item to itself (TODO_SECTION). The list does not change here.
         item.owner === 'agent' ? null : React.createElement('button', { type: 'button', className: 'cp-td-btn',
@@ -3667,12 +3690,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const next = new Set(closedGroups); if (next.has(owner)) next.delete(owner); else next.add(owner);
         setClosedGroups(next); try { localStorage.setItem(TODO_GROUPS_KEY, [...next].join(' ')); } catch { /* storage blocked: this page only */ }
       };
-      const todoGroups = () => ['user', 'agent'].map((owner) => {
-        const rows = list.filter((i) => (i.owner === 'agent' ? 'agent' : 'user') === owner);
-        if (rows.length === 0) return null;
+      const todoGroups = () => parts.groups.map(({ owner, items: rows, waiting: waits }) => {
         const isOpen = !closedGroups.has(owner); const id = `${headId}-${owner}`;
-        // A folded group still tells how many items wait for you.
-        const waits = rows.filter((i) => i.waiting).length;
+        // A folded group still tells how many items wait for you (`waits`).
         return React.createElement(React.Fragment, { key: owner },
           React.createElement('h4', null, React.createElement('button', { type: 'button', className: 'cp-td-group', 'data-owner': owner, 'aria-expanded': isOpen, 'aria-controls': id, onClick: () => toggleGroup(owner) },
             React.createElement('span', { 'aria-hidden': true }, isOpen ? '▾' : '▸'),
@@ -3683,24 +3703,22 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       });
       // Tasks (issue #6): the live ones (working or waiting) in the list, the ended ones (until the day ends, the Host's
       // rule) in a folded History group. × hides an ended row in this browser; a new end of the same task shows it again.
-      const isLive = (task) => task.state === 'running' || task.state === 'waiting';
       const endKey = (task) => `${task.id}|${task.ended ?? task.started}`;
-      const liveTasks = state.tasks.filter(isLive);
-      const endedTasks = state.tasks.filter((task) => !isLive(task) && !dismissed.has(endKey(task)));
+      const liveTasks = parts.live;
+      const endedTasks = parts.ended.filter((task) => !dismissed.has(endKey(task)));
       const historyId = `${headId}-history`;
       // Resume after an AIProxy outage (today's newest one): a short line in each task row that it continued; the other
       // chats that it continued (automations, this chat) are one count without names, so no chat shows twice.
-      const outage = state.outage !== null && sameDay(state.outage.at, now) ? state.outage : null;
+      const outage = parts.outage;
       const outageTime = outage === null ? '' : clockText(outage.at, lang);
-      const resumed = new Set(outage?.chats.map((c) => c.id));
-      const listed = new Set(state.tasks.map((task) => task.id));
-      const others = outage === null ? 0 : outage.chats.filter((c) => !listed.has(c.id)).length;
+      const resumed = outage?.resumed ?? new Set();
+      const others = outage?.others ?? 0;
       const outageNote = others === 0 ? null : React.createElement('p', { key: 'outage', className: 'cp-td-empty', 'data-composer-plus-outage': 'note' },
         t('status.outageMore', { time: outageTime, count: others }));
       const dismiss = (task) => {
         // Only the keys of today's ended tasks stay, so the stored list does not grow.
         // The stored list again (another window can have hidden a row since this panel read it), merged with this one.
-        const ended = new Set(state.tasks.filter((x) => !isLive(x)).map(endKey));
+        const ended = new Set(parts.ended.map(endKey));
         const next = new Set([...readDismissed(), ...dismissed].filter((k) => ended.has(k))); next.add(endKey(task));
         setDismissed(next); try { localStorage.setItem(TASKS_DISMISSED_KEY, JSON.stringify([...next])); } catch { /* storage blocked: this page only */ }
         // The row leaves: the focus goes to its group, or to the panel title when the group goes too.

@@ -429,7 +429,8 @@ func usageText(_ u: J) -> String {
 
 /// Full per-field usage, one per line, for the tap-to-expand status detail (the one-line row drops cache/reasoning).
 func usageDetail(_ u: J) -> String {
-    [("Input", "inputTokens"), ("Output", "outputTokens"), ("Cache read", "cacheReadTokens"), ("Cache write", "cacheWriteTokens"), ("Reasoning", "reasoningTokens"), ("Total", "totalTokens")]
+    [(String(localized: "Input"), "inputTokens"), (String(localized: "Output"), "outputTokens"), (String(localized: "Cache read"), "cacheReadTokens"),
+     (String(localized: "Cache write"), "cacheWriteTokens"), (String(localized: "Reasoning"), "reasoningTokens"), (String(localized: "Total"), "totalTokens")]
         .compactMap { label, k in (u[k] as? Int).map { "\(label): \($0.formatted())" } }.joined(separator: "\n")
 }
 
@@ -936,14 +937,28 @@ func chatApprovals(_ events: [J], from: Int = 0) -> ApprovalOffer? {
     }
     return nil
 }
-/// The words of the Approve button: client.js `approve.*` in Turkish when the Mac's Composer Plus language is Turkish
-/// (`/me` `lang`; an older Mac: this iPhone's language), else in English.
-struct ApproveWords { let button, group, confirm, cancel, hint: String }
+/// Tether's language: Turkish when the Mac's Composer Plus language is Turkish (`/me` `lang`; an older Mac: this iPhone's
+/// language), else English. Every word of Tether is in one table, Resources/Localizable.xcstrings (en and tr for each key;
+/// test/tether-strings.test.mjs). The views get it as `\.locale` (Root), `String(localized:)` as `uiStrings`.
 func isTurkish(macLang: String?, phone: String?) -> Bool { (macLang ?? phone ?? "en").lowercased().hasPrefix("tr") }
+func uiLanguage(macLang: String?, phone: String? = Locale.preferredLanguages.first) -> String { isTurkish(macLang: macLang, phone: phone) ? "tr" : "en" }
+/// The compiled table of one language (`<lang>.lproj` in the app).
+func uiBundle(_ lang: String) -> Bundle { Bundle.main.path(forResource: lang, ofType: "lproj").flatMap { Bundle(path: $0) } ?? .main }
+/// The table that `String(localized:)` reads: the main thread sets it when the Mac's language changes (Client.macLang).
+/// It starts with the language that the last Mac gave, so a start shows no English first.
+/// ponytail: a plain global read without a lock; only the main thread writes it, and a read that races a change gets the
+/// old or the new table, both valid.
+nonisolated(unsafe) var uiStrings = uiBundle(uiLanguage(macLang: UserDefaults.standard.string(forKey: "macLang")))
+extension String {
+    /// `String(localized: "…")` in Tether: the Mac's language, not the phone's.
+    init(localized key: String.LocalizationValue) { self.init(localized: key, bundle: uiStrings) }
+}
+/// The words of the Approve button (client.js `approve.*`), from the table in the Mac's Composer Plus language.
+struct ApproveWords { let button, group, confirm, cancel, hint: String }
 func approveWords(macLang: String?, phone: String? = Locale.preferredLanguages.first) -> ApproveWords {
-    isTurkish(macLang: macLang, phone: phone)
-        ? ApproveWords(button: "Onayla", group: "Bu yanıtın onay cümleleri", confirm: "Bu cümle mesajınız olarak gönderilsin mi?", cancel: "Vazgeç", hint: "Cümleyi mesajınız olarak gönderir")
-        : ApproveWords(button: "Approve", group: "Approval sentences of this answer", confirm: "Send this sentence as your message?", cancel: "Cancel", hint: "Sends the sentence as your message")
+    let b = uiBundle(uiLanguage(macLang: macLang, phone: phone))
+    return ApproveWords(button: String(localized: "Approve", bundle: b), group: String(localized: "Approval sentences of this answer", bundle: b),
+        confirm: String(localized: "Send this sentence as your message?", bundle: b), cancel: String(localized: "Cancel", bundle: b), hint: String(localized: "Sends the sentence as your message", bundle: b))
 }
 /// The assistant's name: the same in every language, and no setting changes it (index.js and client.js ASSISTANT_NAME;
 /// test/tether-approve.test.mjs checks that they agree).
@@ -954,17 +969,17 @@ let assistantName = "Damon"
 let calloutKinds = ["result", "problem", "approval", "questions", "important", "running", "details"]
 private let calloutMark = try! NSRegularExpression(pattern: "^\\[!(\(calloutKinds.joined(separator: "|")))\\](?=[ \\t\\n]|$)", options: .caseInsensitive)
 enum MdBlock: Equatable { case part(MdPart), callout(kind: String, title: String, lines: [String]) }
-/// The box labels of client.js `callouts.*` (Turkish when the Mac's Composer Plus language is Turkish, else English).
+/// The box labels of client.js `callouts.*`, from the table in the Mac's Composer Plus language.
 func calloutLabel(_ kind: String, macLang: String?, phone: String? = Locale.preferredLanguages.first) -> String {
-    let tr = isTurkish(macLang: macLang, phone: phone)
+    let b = uiBundle(uiLanguage(macLang: macLang, phone: phone))
     switch kind {
-    case "result": return tr ? "Sonuç" : "Result"
-    case "problem": return tr ? "Sorun" : "Problem"
-    case "approval": return tr ? "Onay gerekli" : "Approval needed"
-    case "questions": return tr ? "Açık sorular" : "Open questions"
-    case "important": return tr ? "Önemli" : "Important"
-    case "running": return tr ? "Süren işler" : "Still running"
-    default: return tr ? "Ayrıntılar" : "Details"
+    case "result": return String(localized: "Result", bundle: b)
+    case "problem": return String(localized: "Problem", bundle: b)
+    case "approval": return String(localized: "Approval needed", bundle: b)
+    case "questions": return String(localized: "Open questions", bundle: b)
+    case "important": return String(localized: "Important", bundle: b)
+    case "running": return String(localized: "Still running", bundle: b)
+    default: return String(localized: "Details", bundle: b)
     }
 }
 /// mdParts with each marked quote as one callout (its quote lines without `>`).
@@ -1196,13 +1211,14 @@ func stepKind(_ tool: String) -> String {
         : tool == "subagent" || tool.hasPrefix("subagent_") ? "subagents" : "tools"
     }
 }
-private let stepDone = ["thinking": "Analysis completed", "read": "Read files", "readImage": "Read images", "write": "Wrote files",
+// String.LocalizationValue literals: the build puts them in Localizable.xcstrings; stepText reads them in the Mac's language.
+private let stepDone: [String: String.LocalizationValue] = ["thinking": "Analysis completed", "read": "Read files", "readImage": "Read images", "write": "Wrote files",
     "search": "Searched code", "edit": "Edited files", "commands": "Ran commands", "code": "Ran code", "webSearch": "Searched the web",
     "webFetch": "Visited web pages", "subagents": "Coordinated subagents", "plan": "Updated the plan", "questions": "Asked questions", "tools": "Called tools"]
-private let stepLive = ["thinking": "Analyzing the request", "read": "Reading files", "readImage": "Reading images", "write": "Writing files",
+private let stepLive: [String: String.LocalizationValue] = ["thinking": "Analyzing the request", "read": "Reading files", "readImage": "Reading images", "write": "Writing files",
     "search": "Searching code", "edit": "Editing files", "commands": "Running commands", "code": "Running code", "webSearch": "Searching the web",
     "webFetch": "Visiting web pages", "subagents": "Coordinating subagents", "plan": "Updating the plan", "questions": "Waiting for your action", "tools": "Calling tools"]
-private func stepText(_ table: [String: String], _ k: String) -> String { String(localized: String.LocalizationValue(table[k] ?? table["tools"]!)) }
+private func stepText(_ table: [String: String.LocalizationValue], _ k: String) -> String { String(localized: table[k] ?? table["tools"]!) }
 
 /// A step group's title and its kind of work, as in DSH desktop. Done: the three most frequent kinds ("Read files and
 /// searched code"). Live: what runs now and on what ("Running commands · npm test").
@@ -1290,6 +1306,18 @@ func closeFences(_ text: String) -> String {
 
 /// Feature ideas: the fixed focus topics under the focus field (the same six as on the Mac).
 let focusPresets = ["Performance", "Accessibility", "Tests", "Security", "Usability", "Documentation"]
+/// The shown name of a focus preset (the Mac gets the English topic).
+func focusLabel(_ p: String) -> String {
+    switch p {
+    case "Performance": return String(localized: "Performance")
+    case "Accessibility": return String(localized: "Accessibility")
+    case "Tests": return String(localized: "Tests")
+    case "Security": return String(localized: "Security")
+    case "Usability": return String(localized: "Usability")
+    case "Documentation": return String(localized: "Documentation")
+    default: return p
+    }
+}
 /// Feature ideas: the longest focus topic in UTF-16 units, as the browser field and the Mac count it.
 let focusMax = 80
 /// The focus topic cut to `focusMax` UTF-16 units without splitting a character.
@@ -1555,7 +1583,7 @@ struct Preset: Identifiable { let id: String, name: String; let broken: Bool; va
 func presetLabel(_ id: String) -> String { id.count <= 3 ? id.uppercased() : id.prefix(1).uppercased() + id.dropFirst() }
 // The catalog sends raw ids as names; DSH desktop labels them itself, so mirror its labels.
 func permLabel(_ id: String, _ name: String?) -> String {
-    let known = ["read-only": "Read only", "workspace-write": "Workspace write", "danger-full-access": "Full access", "auto": "Auto review (experimental)"]
+    let known = ["read-only": String(localized: "Read only"), "workspace-write": String(localized: "Workspace write"), "danger-full-access": String(localized: "Full access"), "auto": String(localized: "Auto review (experimental)")]
     if let n = name, n != id, !n.isEmpty { return n }
     return known[id] ?? id
 }
@@ -2226,7 +2254,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         optionPicked[sid] = offer.picks
     }
     /// The Composer Plus language of the Mac on screen (`/me` `lang`, the UI language that dsh reported); nil for an older Mac.
-    @Published var macLang: String?
+    /// Tether's words follow it (`uiLanguage`). It is kept, so the next start shows the same language at once.
+    @Published var macLang: String? = UserDefaults.standard.string(forKey: "macLang") {
+        didSet { UserDefaults.standard.set(macLang, forKey: "macLang"); uiStrings = uiBundle(uiLanguage(macLang: macLang)) }
+    }
+    /// The locale of Tether's views: the language of the table, the phone's region (dates, numbers).
+    var uiLocale: Locale { Locale(identifier: uiLanguage(macLang: macLang) + (Locale.current.region.map { "_" + $0.identifier } ?? "")) }
 
     // MARK: Next waiting chat (Composer Plus `nextWaiting`)
 
@@ -3308,6 +3341,23 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         guard plus.contains("assistant-status") else { return }
         if let o = try? await plusCall("assistant-status") { assistantId = Self.assistantStatusId(o) }
     }
+    /// Damon's status panel: the web panel's own read (`GET /plus/assistant-todos?sessionId=`), with the Mac's Composer Plus
+    /// language for the tasks' result lines (the Mac translates them). `fresh`: the chat list now (pull to refresh). Read
+    /// only: the phone never removes an item or asks for a summary. Nil from a Mac without the route.
+    func loadStatus(_ sid: String, fresh: Bool = false) async throws -> StatusView? {
+        guard plus.contains("assistant-todos") else { return nil }
+        var q = ["sessionId": sid]
+        if fresh { q["refresh"] = "1" }
+        if let l = macLang { q["lang"] = l }
+        return statusView(try await plusCall("assistant-todos", query: q), now: Date())
+    }
+    /// One project's git branch and last commits (`&project=`, read-only git on the Mac).
+    func loadStatusProject(_ sid: String, _ project: String) async throws -> (branch: String?, commits: [(hash: String, at: Date?, subject: String)]) {
+        guard plus.contains("assistant-todos") else { return (nil, []) }
+        let o = try await plusCall("assistant-todos", query: ["sessionId": sid, "project": project])
+        let commits = (o["commits"] as? [J] ?? []).compactMap { c in (c["hash"] as? String).map { ($0, (c["at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }, c["subject"] as? String ?? "") } }
+        return (o["branch"] as? String, commits)
+    }
     /// The chat id of a Mac answer to `/plus/assistant-status`; nil for null, empty or anything else.
     static func assistantStatusId(_ o: J) -> String? {
         guard let id = o["sessionId"] as? String, !id.isEmpty else { return nil }
@@ -4323,4 +4373,76 @@ func boardProjectOf(_ session: String, workspaces: [Workspace]) -> String {
             return false
         }
     }
+}
+
+// MARK: - Damon's status panel (Composer Plus `assistantTodos`)
+
+/// An item of the assistant chat's to-do list. `text` and `waiting.reason` are the Mac's data: shown, never read as words
+/// of Tether.
+struct StatusItem: Equatable, Identifiable { let id, text, owner: String; let waiting: (reason: String, since: Date)?
+    static func == (a: StatusItem, b: StatusItem) -> Bool { a.id == b.id && a.text == b.text && a.owner == b.owner && a.waiting?.reason == b.waiting?.reason && a.waiting?.since == b.waiting?.since }
+}
+struct StatusTask: Equatable, Identifiable { let id, title, state: String; let started: Date; let ended: Date?; let result: String?; let chat: Bool }
+struct StatusChat: Equatable, Identifiable { let id, title: String; let updated: Date?; let running: Bool }
+struct StatusProject: Equatable, Identifiable { let id, title: String; let count: Int; let chats: [StatusChat] }
+struct StatusGroup: Equatable { let owner: String; let items: [StatusItem]; let waiting: Int }
+/// The panel as the Mac's web panel groups it (client.js `statusParts`; test/fixtures/status-panel.json is the table of
+/// both): the owner groups (yours first, an empty group left out), the items that wait longer than `todoOverdue`, the live
+/// tasks (working, waiting) and the ended ones, today's newest outage (the rows that it continued and the count of the
+/// other chats), today's summary and each project's summary line.
+struct StatusView: Equatable {
+    var groups: [StatusGroup] = []; var overdue: Set<String> = []
+    var live: [StatusTask] = []; var ended: [StatusTask] = []
+    var outage: (at: Date, resumed: Set<String>, others: Int)?
+    var summary: (at: Date, projects: [(project: String, text: String)])?
+    var projects: [StatusProject] = []; var lines: [String: String] = [:]
+    var at: Date?; var on = true
+    static func == (a: StatusView, b: StatusView) -> Bool {
+        a.groups == b.groups && a.overdue == b.overdue && a.live == b.live && a.ended == b.ended && a.projects == b.projects && a.lines == b.lines && a.at == b.at && a.on == b.on
+            && a.outage?.at == b.outage?.at && a.outage?.resumed == b.outage?.resumed && a.outage?.others == b.outage?.others
+            && a.summary?.at == b.summary?.at && a.summary?.projects.map(\.text) == b.summary?.projects.map(\.text)
+    }
+}
+/// client.js TODO_OVERDUE_MS (24 h), in seconds.
+let todoOverdue: TimeInterval = 86400
+/// client.js `foldText`: NFKD, without marks, lower case with the Turkish rule (the summary names a project in any case).
+func statusFold(_ s: String) -> String {
+    String(String.UnicodeScalarView(s.decomposedStringWithCompatibilityMapping.unicodeScalars.filter { ![.nonspacingMark, .spacingMark, .enclosingMark].contains($0.properties.generalCategory) })).lowercased(with: Locale(identifier: "tr"))
+}
+private func msDate(_ v: Any?) -> Date? { (v as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) } }
+/// The Host's answer to `GET /plus/assistant-todos?sessionId=` as the panel shows it at `now` (`cal`: the phone's calendar,
+/// as the web panel's `sameDay` uses the browser's time zone).
+func statusView(_ o: J, now: Date, cal: Calendar = .current) -> StatusView {
+    var v = StatusView(); v.on = o["on"] as? Bool != false; v.at = msDate(o["at"])
+    let items: [StatusItem] = (o["items"] as? [J] ?? []).compactMap { i in
+        guard let id = i["id"] as? String, let text = i["text"] as? String else { return nil }
+        let w = i["waiting"] as? J
+        let waiting = (w?["reason"] as? String).flatMap { r in msDate(w?["since"]).map { (r, $0) } }
+        return StatusItem(id: id, text: text, owner: i["owner"] as? String == "agent" ? "agent" : "user", waiting: waiting)
+    }
+    v.groups = ["user", "agent"].compactMap { owner in
+        let rows = items.filter { $0.owner == owner }
+        return rows.isEmpty ? nil : StatusGroup(owner: owner, items: rows, waiting: rows.filter { $0.waiting != nil }.count)
+    }
+    v.overdue = Set(items.filter { $0.waiting.map { now.timeIntervalSince($0.since) >= todoOverdue } ?? false }.map(\.id))
+    let tasks: [StatusTask] = (o["tasks"] as? [J] ?? []).compactMap { t in
+        guard let id = t["id"] as? String, let state = t["state"] as? String, let started = msDate(t["started"]) else { return nil }
+        return StatusTask(id: id, title: t["title"] as? String ?? id, state: state, started: started, ended: msDate(t["ended"]), result: t["result"] as? String, chat: t["chat"] as? Bool == true)
+    }
+    let isLive = { (t: StatusTask) in t.state == "running" || t.state == "waiting" }
+    v.live = tasks.filter(isLive); v.ended = tasks.filter { !isLive($0) }
+    if let out = o["outage"] as? J, let at = msDate(out["at"]), let chats = out["chats"] as? [J], cal.isDate(at, inSameDayAs: now) {
+        let ids = chats.compactMap { $0["id"] as? String }, listed = Set(tasks.map(\.id))
+        v.outage = (at, Set(ids), ids.filter { !listed.contains($0) }.count)
+    }
+    if let s = o["summary"] as? J, let at = msDate(s["at"]), let ps = s["projects"] as? [J], cal.isDate(at, inSameDayAs: now) {
+        v.summary = (at, ps.compactMap { p in (p["project"] as? String).flatMap { n in (p["text"] as? String).map { (n, $0) } } })
+    }
+    v.projects = (o["projects"] as? [J] ?? []).compactMap { p in
+        guard let id = p["id"] as? String else { return nil }
+        let chats: [StatusChat] = (p["chats"] as? [J] ?? []).compactMap { c in (c["id"] as? String).map { StatusChat(id: $0, title: c["title"] as? String ?? $0, updated: msDate(c["updated"]), running: c["running"] as? Bool == true) } }
+        return StatusProject(id: id, title: p["title"] as? String ?? id, count: p["count"] as? Int ?? chats.count, chats: chats)
+    }
+    for p in v.projects { if let line = v.summary?.projects.first(where: { statusFold($0.project) == statusFold(p.title) })?.text { v.lines[p.id] = line } }
+    return v
 }

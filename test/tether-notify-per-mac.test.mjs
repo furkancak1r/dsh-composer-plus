@@ -41,7 +41,7 @@ assert.ok([...core.matchAll(/for k in (?:Client|Self)\.perMacKeys/g)].length >= 
 
 // Settings names the Mac that the switch is for.
 assert.match(ui, /Text\("These settings are for \\\(/, 'the Notifications footer names the Mac on screen');
-assert.ok(read('tether/ios/Resources/en.lproj/Localizable.strings').includes('"These settings are for %@ only. Each Mac has its own; a new Mac starts with them off."'), 'the footer is in Localizable.strings');
+assert.ok('These settings are for %@ only. Each Mac has its own; a new Mac starts with them off.' in JSON.parse(read('tether/ios/Resources/Localizable.xcstrings')).strings, 'the footer is in Localizable.xcstrings');
 
 // The setting stays on the phone: no Host route, so no PLUS entry and no plus.contains gate.
 assert.deepEqual([...PLUS.keys()].filter((k) => /notif|push/.test(k)), [], 'no notification route in PLUS');

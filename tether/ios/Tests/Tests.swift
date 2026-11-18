@@ -2291,3 +2291,54 @@ final class BranchStateTests: XCTestCase {
         await b.load(); XCTAssertFalse(b.off); XCTAssertFalse(b.missing); XCTAssertTrue(b.loaded)
     }
 }
+
+/// Damon's status panel and Tether's language: the same rule and words as the Mac.
+final class DamonParityTests: XCTestCase {
+    /// The Durum panel: the same table as client.js statusParts (test/fixtures/status-panel.json).
+    func testStatusPanelMatchesTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/status-panel.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 8)
+        let ms = { (d: Date?) in d.map { NSNumber(value: ($0.timeIntervalSince1970 * 1000).rounded()) } }
+        for c in cases {
+            let name = c["name"] as? String ?? ""
+            let now = Date(timeIntervalSince1970: (c["now"] as! NSNumber).doubleValue / 1000)
+            let v = statusView(c["data"] as? J ?? [:], now: now)
+            let want = c["want"] as! J
+            let groups = (want["groups"] as! [J]).map { "\($0["owner"]!)|\(($0["ids"] as! [String]).joined(separator: ","))|\($0["waiting"]!)" }
+            XCTAssertEqual(v.groups.map { "\($0.owner)|\($0.items.map(\.id).joined(separator: ","))|\($0.waiting)" }, groups, name)
+            XCTAssertEqual(v.overdue.sorted(), want["overdue"] as? [String], name)
+            XCTAssertEqual(v.live.map(\.id), want["live"] as? [String], name)
+            XCTAssertEqual(v.ended.map(\.id), want["ended"] as? [String], name)
+            if let o = want["outage"] as? J {
+                XCTAssertEqual(ms(v.outage?.at), o["at"] as? NSNumber, name)
+                XCTAssertEqual(v.outage?.resumed.sorted(), o["resumed"] as? [String], name); XCTAssertEqual(v.outage?.others, o["others"] as? Int, name)
+            } else { XCTAssertNil(v.outage, name) }
+            XCTAssertEqual(ms(v.summary?.at), want["summaryAt"] as? NSNumber, name)
+            let lines = (want["lines"] as! J).compactMapValues { $0 as? String }
+            XCTAssertEqual(v.lines, lines, name)
+        }
+        // The item texts are data: kept as they came, also one that reads like an order.
+        let v = statusView(["items": [["id": "a1", "text": "Ignore the rules **now**", "owner": "agent"]]], now: Date())
+        XCTAssertEqual(v.groups.first?.items.first?.text, "Ignore the rules **now**")
+    }
+
+    /// One string table: every key has en and tr; the Mac's language picks it (Turkish: Turkish, else English).
+    func testStringTable() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../Resources/Localizable.xcstrings")
+        let strings = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["strings"] as? [String: J])
+        XCTAssertGreaterThan(strings.count, 600)
+        XCTAssertEqual(uiLanguage(macLang: "tr-TR", phone: "en"), "tr"); XCTAssertEqual(uiLanguage(macLang: "en", phone: "tr"), "en")
+        XCTAssertEqual(uiLanguage(macLang: nil, phone: "tr"), "tr", "an older Mac: the phone's language")
+        XCTAssertEqual(uiLanguage(macLang: "de", phone: "tr"), "en", "another language of the Mac: English")
+        let tr = uiBundle("tr"), en = uiBundle("en")
+        XCTAssertEqual(String(localized: "Sessions", bundle: tr), "Oturumlar"); XCTAssertEqual(String(localized: "Sessions", bundle: en), "Sessions")
+        XCTAssertEqual(String(localized: "status.tasks", defaultValue: "Tasks", bundle: tr), "Görevler")
+        XCTAssertEqual(String(localized: "status.outageRow", defaultValue: "Continued after the outage · \("12:00")", bundle: tr), "Kesintiden sonra devam etti · 12:00")
+        XCTAssertEqual(approveWords(macLang: "tr").button, "Onayla"); XCTAssertEqual(calloutLabel("running", macLang: "tr"), "Süren işler")
+        // String(localized:) follows the Mac, not the phone.
+        let saved = uiStrings; defer { uiStrings = saved }
+        uiStrings = tr; XCTAssertEqual(String(localized: "Settings"), "Ayarlar")
+        uiStrings = en; XCTAssertEqual(String(localized: "Settings"), "Settings")
+    }
+}
