@@ -457,6 +457,33 @@ composer.detect = '\uFFFC do it'; composer.draft = '/goal do it';
 arrow().p.onClick();
 assert.deepEqual(composer.inserts.at(-1).span, { start: 7, end: 7, draftRev: 4 }, 'dsh 0.2.1: a command chip is one character');
 composer.detect = undefined;
+// → on every other row (an item of the assistant, a task, a project): "Write in the message box", the row's data (the
+// format: test/status-insert.test.mjs), appended after the draft, focus in the composer, nothing sent, no id.
+{
+  const writes = () => find(panel(), (n) => n.t === 'button' && /^status\.insert:/.test(n.p['aria-label'] ?? ''));
+  const names = writes().map((b) => b.p['aria-label']);
+  assert.deepEqual(names, ['status.insert:{"item":"Rapor yaz"}', 'status.insert:{"item":"Research Rome"}', 'status.insert:{"item":"Flights"}', 'status.insert:{"item":"acme-web"}', 'status.insert:{"item":"weather-cli"}'],
+    '→ on the assistant\'s item, each task (live and History) and each project');
+  assert.ok(writes().every((b) => b.p.title === 'status.insertShort' && b.p.type === 'button'), 'a tooltip and a real button (keyboard)');
+  const before = posts.length; composer.draft = 'Note'; const focus0 = composer.focused;
+  writes()[0].p.onClick();
+  assert.equal(composer.draft, 'Note\nstatus.insert.item:{"text":"Rapor yaz"}\nstatus.insert.owner:{"owner":"Damon"}', 'the item\'s data after the draft');
+  writes()[1].p.onClick();
+  assert.match(composer.draft, /\nstatus\.insert\.task:\{"title":"Research Rome"\}\nstatus\.insert\.state:\{"state":"status\.task\.running · \d+ (dk|min)\.?"\}$/, 'the task, its state and time');
+  writes()[2].p.onClick();
+  assert.match(composer.draft, /\nstatus\.insert\.task:\{"title":"Flights"\}\nstatus\.insert\.state:\{"state":"status\.task\.done · 9 (dk|min)\.?"\}\nstatus\.insert\.result:\{"result":"Flights found: 3 options"\}$/, 'an ended task: its time to the end and its result');
+  writes()[3].p.onClick();
+  assert.match(composer.draft, /\nstatus\.insert\.project:\{"title":"acme-web"\}\nstatus\.projectChats:\{"count":2\}$/, 'the project and its line');
+  assert.equal(composer.focused, focus0 + 4); assert.equal(composer.submits, 0); assert.equal(posts.length, before, 'nothing sent');
+  assert.doesNotMatch(composer.draft, /bbbbbbbb|c-run|w-web|s-assistant/, 'no id in the text');
+  // The task and project rows keep the row button (a click opens the chat or the row) and put → (and ×) next to it.
+  const rowOf = (name) => find(panel(), (n) => n.t === 'li' && find(n, (m) => m.p?.['aria-label'] === `status.insert:{"item":"${name}"}`).length === 1)[0];
+  assert.deepEqual(rowOf('Research Rome').c.flat().filter(Boolean).map((n) => n.p.className), ['cp-st-row', 'cp-td-btn'], 'the row button, then →');
+  assert.deepEqual(rowOf('Flights').c.flat().filter(Boolean).map((n) => n.p['aria-label'] ?? n.p.className), ['cp-st-row', 'status.insert:{"item":"Flights"}', 'status.dismiss:{"task":"Flights"}'], '→ before × in History');
+  const projectLine = rowOf('acme-web').c.flat().filter(Boolean)[0];
+  assert.equal(projectLine.p.className, 'cp-st-line'); assert.deepEqual(projectLine.c.flat().map((n) => n.p.className), ['cp-st-row', 'cp-td-btn'], 'a project: the row button, then →');
+  composer.draft = '';
+}
 // The composer refuses (it sends now): a notice, nothing else.
 composer.refuse = true; composer.draft = ''; arrow().p.onClick(); composer.refuse = false;
 assert.equal(composer.draft, ''); assert.deepEqual(notices.at(-1), ['s-assistant', 'info', 'quote.changed'], 'the user sees why');

@@ -2332,6 +2332,37 @@ final class DamonParityTests: XCTestCase {
         XCTAssertTrue(statusView(["translating": true], now: Date()).translating)
     }
 
+    /// → of the Status sheet: the same text as client.js statusInsert (test/fixtures/status-insert.json), in English and
+    /// Turkish, without ids; appendLine is the web panel's append rule.
+    func testStatusInsertMatchesTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/status-insert.json")
+        let table = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)
+        let ms = { (v: Any?) in (v as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) } }
+        let now = try XCTUnwrap(ms(table["now"]))
+        let cases = try XCTUnwrap(table["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 8)
+        for c in cases {
+            let name = c["name"] as? String ?? "", r = c["row"] as! J, want = c["want"] as! [String: String]
+            let row: StatusRow
+            if let i = r["item"] as? J {
+                let w = i["waiting"] as? J
+                row = .item(StatusItem(id: i["id"] as! String, text: i["text"] as! String, owner: i["owner"] as! String, waiting: w.map { ($0["reason"] as! String, ms($0["since"])!) }), overdue: r["overdue"] as? Bool == true)
+            } else if let t = r["task"] as? J {
+                row = .task(StatusTask(id: t["id"] as! String, title: t["title"] as! String, state: t["state"] as! String, started: ms(t["started"])!, ended: ms(t["ended"]), result: t["result"] as? String, chat: false), outage: r["outage"] as? String)
+            } else {
+                let p = r["project"] as! J
+                row = .project(StatusProject(id: p["id"] as! String, title: p["title"] as! String, count: p["count"] as! Int, chats: []), line: r["line"] as? String)
+            }
+            for lang in ["en", "tr"] {
+                let got = statusInsert(row, now: now, span: { "\(Int($0.rounded()))s" }, bundle: uiBundle(lang))
+                XCTAssertEqual(got, want[lang], "\(name) (\(lang))")
+            }
+        }
+        for a in try XCTUnwrap(table["append"] as? [J]) {
+            XCTAssertEqual(appendLine(a["draft"] as! String, a["text"] as! String), a["want"] as? String, a["name"] as? String ?? "")
+        }
+    }
+
     /// One string table: every key has en and tr; the Mac's language picks it (Turkish: Turkish, else English).
     func testStringTable() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../Resources/Localizable.xcstrings")

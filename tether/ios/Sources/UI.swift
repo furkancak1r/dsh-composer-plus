@@ -4452,13 +4452,17 @@ struct StatusSheet: View {
                     if g.waiting > 0 { Text(String(localized: "todos.waitingCount", defaultValue: "\(g.waiting) waiting", bundle: uiStrings)).font(.footnote).foregroundStyle(.orange) }
                 }
                 ForEach(g.items) { i in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(verbatim: i.text).fontWeight(i.waiting == nil ? .regular : .medium)
-                        if let w = i.waiting {
-                            (Text(String(localized: "todos.waiting", defaultValue: "Waiting for you", bundle: uiStrings)).foregroundStyle(.orange) + Text(verbatim: " · ") + Text(w.since, format: .relative(presentation: .numeric, unitsStyle: .abbreviated))
-                                + (v.overdue.contains(i.id) ? Text(verbatim: " · ") + Text(String(localized: "todos.overdue", defaultValue: "Overdue", bundle: uiStrings)).foregroundStyle(.red).bold() : Text(verbatim: ""))).font(.caption)
-                            Text(verbatim: w.reason).font(.caption).foregroundStyle(.secondary)
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: i.text).fontWeight(i.waiting == nil ? .regular : .medium)
+                            if let w = i.waiting {
+                                (Text(String(localized: "todos.waiting", defaultValue: "Waiting for you", bundle: uiStrings)).foregroundStyle(.orange) + Text(verbatim: " · ") + Text(w.since, format: .relative(presentation: .numeric, unitsStyle: .abbreviated))
+                                    + (v.overdue.contains(i.id) ? Text(verbatim: " · ") + Text(String(localized: "todos.overdue", defaultValue: "Overdue", bundle: uiStrings)).foregroundStyle(.red).bold() : Text(verbatim: ""))).font(.caption)
+                                Text(verbatim: w.reason).font(.caption).foregroundStyle(.secondary)
+                            }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        writeButton(.item(i, overdue: v.overdue.contains(i.id)), name: i.text, handover: i.owner != "agent")
                     }
                 }
             }
@@ -4479,33 +4483,46 @@ struct StatusSheet: View {
                 DisclosureGroup(isExpanded: Binding(get: { openProjects.contains(p.id) }, set: { if $0 { openProjects.insert(p.id) } else { openProjects.remove(p.id) } })) {
                     projectDetail(p, v)
                 } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(verbatim: p.title).font(.subheadline.weight(.semibold))
-                        if let line = v.lines[p.id] { Text(verbatim: line).font(.caption).foregroundStyle(.secondary) }
-                        else { Text(String(localized: "status.projectChats", defaultValue: "\(p.count) chats changed", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) }
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(verbatim: p.title).font(.subheadline.weight(.semibold))
+                            if let line = v.lines[p.id] { Text(verbatim: line).font(.caption).foregroundStyle(.secondary) }
+                            else { Text(String(localized: "status.projectChats", defaultValue: "\(p.count) chats changed", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        writeButton(.project(p, line: v.lines[p.id]), name: p.title)
                     }
                 }
             }
         } header: { Text(String(localized: "status.projects", defaultValue: "Projects", bundle: uiStrings)) }
     }
-    private func stateName(_ s: String) -> String {
-        switch s {
-        case "running": return String(localized: "status.task.running", defaultValue: "Working", bundle: uiStrings)
-        case "waiting": return String(localized: "status.task.waiting", defaultValue: "Waiting for you", bundle: uiStrings)
-        case "done": return String(localized: "status.task.done", defaultValue: "Done", bundle: uiStrings)
-        case "failed": return String(localized: "status.task.failed", defaultValue: "Failed", bundle: uiStrings)
-        default: return String(localized: "status.task.stopped", defaultValue: "Stopped", bundle: uiStrings)
-        }
+    /// → (the Mac's Write in the message box; for an item of yours, Give to the assistant): the row's text after the chat's
+    /// draft, then the sheet closes and the message field has the focus. Nothing is sent. Borderless: in a List row, only
+    /// the arrow takes its tap, not the whole row.
+    private func writeButton(_ row: StatusRow, name: String, handover: Bool = false) -> some View {
+        let label = handover ? String(localized: "todos.handover", defaultValue: "Give to the assistant: \(name)", bundle: uiStrings) : String(localized: "status.insert", defaultValue: "Write in the message box: \(name)", bundle: uiStrings)
+        let short = handover ? String(localized: "todos.handoverShort", defaultValue: "Give to the assistant", bundle: uiStrings) : String(localized: "status.insertShort", defaultValue: "Write in the message box", bundle: uiStrings)
+        let locale = c.uiLocale
+        return Button {
+            c.writeDraft(statusInsert(row, now: Date(), span: { Duration.seconds(max(0, $0)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1).locale(locale)) }), sessionId)
+            dismiss()
+        } label: { Image(systemName: "arrow.right").frame(minWidth: 32, minHeight: 32) }
+            .buttonStyle(.borderless).accessibilityLabel(Text(verbatim: label)).help(Text(verbatim: short))
     }
     private func taskRow(_ t: StatusTask, _ v: StatusView) -> some View {
+        HStack(alignment: .top) {
         Button { open(t.id) } label: {
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: t.title).foregroundStyle(.primary)
-                (Text(stateName(t.state)).foregroundStyle(t.state == "running" ? Color.accentColor : t.state == "done" ? .green : t.state == "stopped" ? .secondary : .orange)
+                (Text(statusTaskState(t.state)).foregroundStyle(t.state == "running" ? Color.accentColor : t.state == "done" ? .green : t.state == "stopped" ? .secondary : .orange)
                     + Text(verbatim: " · ") + Text(Duration.seconds(max(0, (t.ended ?? Date()).timeIntervalSince(t.started))), format: .units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1))).font(.caption)
                 if let o = v.outage, o.resumed.contains(t.id) { Text(String(localized: "status.outageRow", defaultValue: "Continued after the outage · \(o.at.formatted(date: .omitted, time: .shortened))", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) }
                 if let r = t.result { Text(verbatim: r).font(.caption).foregroundStyle(.secondary) }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        writeButton(.task(t, outage: v.outage.flatMap { $0.resumed.contains(t.id) ? $0.at.formatted(date: .omitted, time: .shortened) : nil }), name: t.title)
         }
     }
     @ViewBuilder private func projectDetail(_ p: StatusProject, _ v: StatusView) -> some View {

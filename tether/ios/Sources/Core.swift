@@ -2159,7 +2159,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         diffNotes[sid] = nil
         draftPushed += 1
     }
-    /// A sheet wrote the open chat's draft (Diff notes → Send): the composer reads the draft again.
+    /// → of the Status sheet (the Mac's Write in the message box): the row's text after the chat's draft, on its own line
+    /// (`appendLine`, as the web panel). Nothing is sent and the Mac gets no call.
+    func writeDraft(_ text: String, _ sid: String) {
+        setDraft(appendLine(draft(sid), text), sid)
+        draftPushed += 1
+    }
+    /// A sheet wrote the open chat's draft (Diff notes → Send, Status →): the composer reads the draft again.
     @Published var draftPushed = 0
 
     // MARK: Side chat (Composer Plus `sideChat`)
@@ -4442,3 +4448,48 @@ func statusView(_ o: J, now: Date, cal: Calendar = .current) -> StatusView {
     for p in v.projects { if let line = v.summary?.projects.first(where: { statusFold($0.project) == statusFold(p.title) })?.text { v.lines[p.id] = line } }
     return v
 }
+
+/// → of a Durum row (client.js `statusInsert`; test/fixtures/status-insert.json is the table of both): the text that goes
+/// into the message field. An item of yours gives the hand-over sentence (sent, Damon takes the item); an item of Damon, a
+/// task and a project give their data, one field per line, in the UI language, without ids. `span`: a time span as text.
+enum StatusRow { case item(StatusItem, overdue: Bool), task(StatusTask, outage: String?), project(StatusProject, line: String?) }
+func statusInsert(_ row: StatusRow, now: Date, span: (TimeInterval) -> String, bundle: Bundle = uiStrings) -> String {
+    let one = { (s: String) in s.split(whereSeparator: \.isWhitespace).joined(separator: " ") } // one field, one line
+    switch row {
+    case let .item(i, overdue):
+        if i.owner != "agent" { return String(localized: "todos.handoverMessage", defaultValue: "Do this for me:", bundle: bundle) + " " + one(i.text) }
+        var lines = [String(localized: "status.insert.item", defaultValue: "To-do: \(one(i.text))", bundle: bundle),
+                     String(localized: "status.insert.owner", defaultValue: "Who does it: \(assistantName)", bundle: bundle)]
+        if let x = i.waiting {
+            let state = ([String(localized: "todos.waiting", defaultValue: "Waiting for you", bundle: bundle), span(now.timeIntervalSince(x.since))]
+                + (overdue ? [String(localized: "todos.overdue", defaultValue: "Overdue", bundle: bundle)] : [])).joined(separator: " · ")
+            lines += [String(localized: "status.insert.state", defaultValue: "State: \(state)", bundle: bundle),
+                      String(localized: "status.insert.reason", defaultValue: "Reason: \(one(x.reason))", bundle: bundle)]
+        }
+        return lines.joined(separator: "\n")
+    case let .task(t, outage):
+        // The Mac names a task without a label by its chat id: no title line then.
+        var lines = t.title.isEmpty || t.title == t.id ? [] : [String(localized: "status.insert.task", defaultValue: "Task: \(one(t.title))", bundle: bundle)]
+        let state = statusTaskState(t.state, bundle: bundle) + " · " + span((t.ended ?? now).timeIntervalSince(t.started))
+        lines.append(String(localized: "status.insert.state", defaultValue: "State: \(state)", bundle: bundle))
+        if let r = t.result, !r.isEmpty { lines.append(String(localized: "status.insert.result", defaultValue: "Result: \(one(r))", bundle: bundle)) }
+        if let o = outage { lines.append(String(localized: "status.outageRow", defaultValue: "Continued after the outage · \(o)", bundle: bundle)) }
+        return lines.joined(separator: "\n")
+    case let .project(p, line):
+        return [String(localized: "status.insert.project", defaultValue: "Project: \(one(p.title))", bundle: bundle),
+                line.map { String(localized: "status.insert.summary", defaultValue: "Summary: \(one($0))", bundle: bundle) }
+                    ?? String(localized: "status.projectChats", defaultValue: "\(p.count) chats changed", bundle: bundle)].joined(separator: "\n")
+    }
+}
+/// A task state's name (the web panel's status.task.<state>).
+func statusTaskState(_ s: String, bundle: Bundle = uiStrings) -> String {
+    switch s {
+    case "running": return String(localized: "status.task.running", defaultValue: "Working", bundle: bundle)
+    case "waiting": return String(localized: "status.task.waiting", defaultValue: "Waiting for you", bundle: bundle)
+    case "done": return String(localized: "status.task.done", defaultValue: "Done", bundle: bundle)
+    case "failed": return String(localized: "status.task.failed", defaultValue: "Failed", bundle: bundle)
+    default: return String(localized: "status.task.stopped", defaultValue: "Stopped", bundle: bundle)
+    }
+}
+/// client.js `draftTodo`: the text after the draft, on a new line when the draft has text and no line break at its end.
+func appendLine(_ draft: String, _ text: String) -> String { draft + (draft.isEmpty || draft.hasSuffix("\n") ? "" : "\n") + text }

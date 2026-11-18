@@ -42,6 +42,8 @@ const until = async (fn, what, ms = 30000) => {
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const calls = [];
 const gate = { open: false };
+// A long item with an unbroken token: it must wrap and never run under its → and × buttons.
+const LONG = 'Check each log line of the nightly import job and note each failed row https://example.com/imports/nightly/2026/staging/failed-rows-with-order-numbers before the meeting';
 const fake = createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
@@ -74,6 +76,7 @@ const fake = createServer((req, res) => {
       return tool('todo_list_remove', { id, reason: 'completed' });
     }
     if (/Wait for the ANR path/.test(newest) && !after) return tool('todo_list_add', { text: 'Install ANR', owner: 'agent', waiting: 'Needs the game folder path' });
+    if (/^Add a long one$/.test(newest.trim()) && !after) return tool('todo_list_add', { text: LONG, owner: 'agent' });
     if (/Morning summary please/.test(newest) && !after) return tool('status_summary_set', { projects: [{ project: 'acme-web', text: 'Login page is done; tests pass.' }] });
     if (/Research Rome/.test(newest) && !after) {
       const bg = (parsed.tools ?? []).find((t) => t.function?.name === 'subagent')?.function?.parameters?.properties?.run_in_background !== undefined;
@@ -371,6 +374,48 @@ try {
       await item('Install ANR').waitFor({ timeout: 20000 }); await pause(1000);
       assert.equal(await rome.count(), 0, 'still hidden after a reload');
       note('9: an agent item waits for the user (reason, time, group count); History folded, × hides an ended task after a reload too');
+
+      // 10. → (Write in the message box) on the assistant's items, the tasks and the projects: the row's data goes after
+      //     the draft, on new lines, the focus is in the composer, nothing is sent, no id. Click, Enter and Space. A long
+      //     item wraps and never runs under its buttons.
+      await send('Add a long one'); await item('Check each log line').waitFor({ timeout: 30000 });
+      await send('Research Rome');
+      const rome2 = taskSection.locator('li').filter({ hasText: 'Rome flights' });
+      await until(async () => (await rome2.count()) === 1 && /Done/.test(await rome2.innerText()), 'the second task ended', 30000);
+      if ((await historyHead.getAttribute('aria-expanded')) !== 'true') await historyHead.click();
+      await rome2.waitFor({ state: 'visible', timeout: 5000 });
+      await until(async () => (await panel.locator('section[aria-labelledby$="-projects"] li').count()) > 0, 'a project row');
+      const overlaps = await panel.evaluate((root) => [...root.querySelectorAll('li')].filter((li) => li.querySelector(':scope > .cp-td-btn, :scope > .cp-st-line > .cp-td-btn')).flatMap((li) => {
+        const text = li.querySelector(':scope > .cp-td-text, :scope > .cp-st-row, :scope > .cp-st-line > .cp-st-row'); const buttons = [...li.querySelectorAll(':scope > .cp-td-btn, :scope > .cp-st-line > .cp-td-btn')];
+        const t = text.getBoundingClientRect(); const out = root.getBoundingClientRect();
+        return buttons.flatMap((b) => { const r = b.getBoundingClientRect(); return t.right > r.left + 0.5 || r.right > out.right + 0.5 || r.width < 20 ? [`${li.innerText.slice(0, 30)}: text ${Math.round(t.right)} > button ${Math.round(r.left)} (panel ${Math.round(out.right)})`] : []; });
+      }));
+      assert.deepEqual(overlaps, [], 'no row text runs under its buttons');
+      const writeTo = (name) => panel.getByRole('button', { name: `Write in the message box: ${name}`, exact: true });
+      assert.equal(await writeTo(LONG).getAttribute('title'), 'Write in the message box', 'the tooltip');
+      for (const name of ['Call the bank', 'Install ANR', 'Rome flights', 'acme-web']) assert.equal(await writeTo(name).count(), 1, `→ on ${name}`);
+      assert.equal(await panel.getByRole('button', { name: 'Give to the assistant: Pay rent', exact: true }).count(), 1, 'an item of the user keeps Give to the assistant');
+      await clear(); await page.keyboard.type('Draft note', { delay: 5 }); await page.keyboard.press('Escape');
+      const sent = calls.length;
+      const composerText = async () => (await input.innerText()).replace(/\n+/g, '\n').trim();
+      await writeTo('Install ANR').click();
+      await until(async () => (await composerText()).includes('Reason: Needs the game folder path'), 'the item in the composer');
+      assert.match(await composerText(), /^Draft note\nTo-do: Install ANR\nWho does it: Damon\nState: Waiting for you · \d+ (sec|min)\nReason: Needs the game folder path$/, 'the draft, then the item, one field per line');
+      assert.equal(await input.evaluate((el) => el.contains(document.activeElement) || el === document.activeElement), true, 'the focus is in the composer');
+      await page.keyboard.type(' (asked)', { delay: 5 });
+      assert.match(await composerText(), /path \(asked\)$/, 'the caret is at the end');
+      await writeTo('Rome flights').focus(); await page.keyboard.press('Enter');
+      await until(async () => /Task: Rome flights\nState: Done · \d+ (sec|min)\nResult: Flights found: 3 options$/.test(await composerText()), 'Enter writes the task');
+      await writeTo('acme-web').focus(); await page.keyboard.press('Space');
+      await until(async () => /\nProject: acme-web\n(\d+ chats changed|Summary: .+)$/.test(await composerText()), 'Space writes the project');
+      await pause(1500);
+      assert.equal(calls.length, sent, 'nothing was sent');
+      const ids = [sessionId, ...JSON.parse(await readFile(join(dshHome, 'storages/dsh-composer-plus/assistant-todos.json'), 'utf8')).lists[sessionId].map((i) => i.id)];
+      const all = await composerText(); for (const id of ids) assert.ok(!all.includes(id), `no id (${id}) in the text`);
+      await page.mouse.move(640, 790);
+      if (process.env.SHOT_PANEL) { await page.screenshot({ path: process.env.SHOT_PANEL }); note(`SHOT_PANEL: ${process.env.SHOT_PANEL}`); }
+      await clear();
+      note('10: → on the assistant\'s items, tasks and projects writes the row (click, Enter, Space) after the draft, focus at the end, nothing sent, no id; a long item does not run under its buttons');
 
       assert.deepEqual(errors, [], 'no page errors');
       passed = true;

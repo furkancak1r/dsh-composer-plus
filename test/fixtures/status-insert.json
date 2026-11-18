@@ -1,0 +1,151 @@
+{
+ "about": "One table for the → (write in the message box) of the Durum panel: client.js statusInsert and draftTodo, Tether Core.swift statusInsert and appendLine. `now` is ms; the span of a time is the test stub \"<seconds>s\" (each app shows its own time format). The text never holds an id.",
+ "now": 1794993000000,
+ "cases": [
+  {
+   "name": "an item of yours: the hand-over sentence (sent, Damon takes it)",
+   "row": {
+    "item": {
+     "id": "a0000002",
+     "text": "Call the bank",
+     "owner": "user"
+    }
+   },
+   "want": {
+    "en": "Do this for me: Call the bank",
+    "tr": "Bunu sen yap: Call the bank"
+   }
+  },
+  {
+   "name": "an item of Damon without a wait; a line break in the text stays on one line",
+   "row": {
+    "item": {
+     "id": "b0000001",
+     "text": "Draft the\nreport",
+     "owner": "agent"
+    }
+   },
+   "want": {
+    "en": "To-do: Draft the report\nWho does it: Damon",
+    "tr": "Yapılacak: Draft the report\nKim yapacak: Damon"
+   }
+  },
+  {
+   "name": "an item of Damon that waits for you, overdue, with its reason; no id",
+   "row": {
+    "item": {
+     "id": "a0000001",
+     "text": "Install ANR",
+     "owner": "agent",
+     "waiting": {
+      "reason": "needs the game folder path",
+      "since": 1794885720000
+     }
+    },
+    "overdue": true
+   },
+   "want": {
+    "en": "To-do: Install ANR\nWho does it: Damon\nState: Waiting for you · 107280s · Overdue\nReason: needs the game folder path",
+    "tr": "Yapılacak: Install ANR\nKim yapacak: Damon\nDurum: Senden bekliyor · 107280s · Gecikti\nNeden: needs the game folder path"
+   }
+  },
+  {
+   "name": "a working task with its result, continued after the outage",
+   "row": {
+    "task": {
+     "id": "c-run",
+     "title": "Rome flights",
+     "state": "running",
+     "started": 1794992875000,
+     "result": "Flights found: 3 options"
+    },
+    "outage": "09:40"
+   },
+   "want": {
+    "en": "Task: Rome flights\nState: Working · 125s\nResult: Flights found: 3 options\nContinued after the outage · 09:40",
+    "tr": "Görev: Rome flights\nDurum: Çalışıyor · 125s\nSonuç: Flights found: 3 options\nKesintiden sonra devam etti · 09:40"
+   }
+  },
+  {
+   "name": "an ended task without a label (the Host names it by its id): no title line, the time to its end",
+   "row": {
+    "task": {
+     "id": "chat-9f3a",
+     "title": "chat-9f3a",
+     "state": "done",
+     "started": 1794992400000,
+     "ended": 1794992940000
+    }
+   },
+   "want": {
+    "en": "State: Done · 540s",
+    "tr": "Durum: Bitti · 540s"
+   }
+  },
+  {
+   "name": "a task that waits for you",
+   "row": {
+    "task": {
+     "id": "c-wait",
+     "title": "Deploy check",
+     "state": "waiting",
+     "started": 1794992970000
+    }
+   },
+   "want": {
+    "en": "Task: Deploy check\nState: Waiting for you · 30s",
+    "tr": "Görev: Deploy check\nDurum: Sizi bekliyor · 30s"
+   }
+  },
+  {
+   "name": "a project with its summary line",
+   "row": {
+    "project": {
+     "id": "w-web",
+     "title": "acme-web",
+     "count": 2
+    },
+    "line": "Login page done."
+   },
+   "want": {
+    "en": "Project: acme-web\nSummary: Login page done.",
+    "tr": "Proje: acme-web\nÖzet: Login page done."
+   }
+  },
+  {
+   "name": "a project without a summary line: its chat count",
+   "row": {
+    "project": {
+     "id": "w-cli",
+     "title": "weather-cli",
+     "count": 1
+    },
+    "line": null
+   },
+   "want": {
+    "en": "Project: weather-cli\n1 chats changed",
+    "tr": "Proje: weather-cli\n1 sohbet değişti"
+   }
+  }
+ ],
+ "append": [
+  {
+   "name": "an empty message box: the text only",
+   "draft": "",
+   "text": "To-do: A",
+   "want": "To-do: A"
+  },
+  {
+   "name": "a draft: the text on a new line after it",
+   "draft": "Ask about the invoice",
+   "text": "To-do: A",
+   "want": "Ask about the invoice\nTo-do: A"
+  },
+  {
+   "name": "a draft that ends with a line break: no empty line",
+   "draft": "Ask\n",
+   "text": "To-do: A",
+   "want": "Ask\nTo-do: A"
+  }
+ ]
+}
