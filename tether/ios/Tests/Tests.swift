@@ -384,6 +384,50 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.current, "x")
     }
 
+    /// Damon's Mac switch: the other Mac goes on screen and the Damon tab shows (it opens that Mac's Damon chat when the
+    /// Mac answers, or says that it is not connected). A Mac that is not paired, or the Mac on screen, changes nothing.
+    @MainActor func testOpenDamonOnOtherMac() {
+        let c = Client()
+        let saved = c.pairings
+        defer { c.pairings = saved } // the Keychain item belongs to the real app
+        c.pairings = [Pairing(host: "192.168.1.2", port: 19390, fp: "ev", token: "te", deviceId: "d", name: "n", expiresAt: "", label: "Ev"),
+                      Pairing(host: "192.168.1.3", port: 19390, fp: "is", token: "ti", deviceId: "d", name: "n", expiresAt: "", label: "İş")]
+        c.activeFp = "ev"
+        c.open("damon-ev"); XCTAssertEqual(c.tab, .sessions)
+        c.openDamon(on: "nope")
+        XCTAssertEqual(c.activeFp, "ev"); XCTAssertEqual(c.path, ["damon-ev"], "a Mac that is not paired: nothing changes")
+        c.openDamon(on: "ev")
+        XCTAssertEqual(c.path, ["damon-ev"], "the Mac on screen: nothing changes")
+        c.openDamon(on: "is")
+        XCTAssertEqual(c.activeFp, "is"); XCTAssertEqual(c.pairing?.token, "ti")
+        XCTAssertEqual(c.tab, .assistant, "stays in Damon"); XCTAssertTrue(c.path.isEmpty); XCTAssertNil(c.current, "nothing of Ev stays on screen")
+        XCTAssertNotEqual(c.state, .connected, "not connected yet: the Damon tab says so, it does not crash")
+    }
+
+    /// Improve prompt, Undo and a sheet's text write the field while it has the focus: the field is made again (`put`), so it
+    /// shows the new text (not a text that iOS keeps for a pending autocorrection) and keeps the focus (keyboard stays open).
+    @MainActor func testPutShowsNewText() throws {
+        func field(_ v: UIView) -> UITextView? { if let t = v as? UITextView, t.isEditable { return t }; return v.subviews.lazy.compactMap(field).first }
+        func spin(_ s: Double) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
+        let c = Client(), sid = "put-test"
+        defer { c.setDraft("", sid) }
+        c.state = .connected; c.current = sid; c.setDraft("", sid)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let w = UIWindow(windowScene: scene)
+        defer { w.isHidden = true }
+        w.rootViewController = UIHostingController(rootView: NavigationStack { ConversationView() }.environmentObject(c))
+        w.makeKeyAndVisible(); spin(1)
+        let old = try XCTUnwrap(field(w))
+        old.becomeFirstResponder(); old.insertText("fix teh"); spin(0.5)
+        XCTAssertEqual(c.draft(sid), "fix teh")
+        c.setDraft("Fix the login bug", sid); c.draftPushed += 1; spin(1)
+        let new = try XCTUnwrap(field(w))
+        XCTAssertFalse(new === old, "the field is made again")
+        XCTAssertEqual(new.text, "Fix the login bug", "the field shows the new text before Send")
+        XCTAssertTrue(new.isFirstResponder, "the keyboard stays open")
+        new.resignFirstResponder(); spin(0.3)
+    }
+
     /// The tab bar: the Assistant has the slot of the old Agents tab, and Tether opens on it. A value that an older build
     /// could have saved (the Agents tab was 1) does not open a removed screen: the tab is not read from storage.
     @MainActor func testTabs() {

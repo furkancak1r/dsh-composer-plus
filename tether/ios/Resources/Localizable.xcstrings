@@ -4798,6 +4798,23 @@
         }
       }
     },
+    "Main menu": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Main menu"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ana menü"
+          }
+        }
+      }
+    },
     "MCP results": {
       "extractionState": "manual",
       "localizations": {

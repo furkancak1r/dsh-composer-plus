@@ -241,6 +241,8 @@ struct ConnBadge: View {
 /// the press and hold opens the rename box. Upgrade if SwiftUI gives Menu its own long-press action.
 struct MacPicker: View {
     @EnvironmentObject var c: Client
+    /// In Damon's chat: a switch opens that Mac's Damon chat (`openDamon`), and the label names both Macs.
+    var damon = false
     @State private var menu = false
     var body: some View {
         // The release after a press and hold can also fire this action, or not: the open rename box (which Save and
@@ -248,20 +250,21 @@ struct MacPicker: View {
         let other = otherMac(c.pairings, active: c.activeFp)
         Button {
             guard c.renamingMac == nil else { return }
-            if let other { UISelectionFeedbackGenerator().selectionChanged(); c.switchMac(other.fp) } else { menu = true }
+            if let other { UISelectionFeedbackGenerator().selectionChanged(); pick(other.fp) } else { menu = true }
         } label: {
             HStack(spacing: 6) {
                 ConnBadge()
-                Text(c.pairing?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1).frame(maxWidth: 150, alignment: .leading)
+                Text(c.pairing?.title ?? "").font(.subheadline.weight(.semibold)).lineLimit(1).frame(maxWidth: damon ? 90 : 150, alignment: .leading)
                 // Two Macs: the arrows say that a tap swaps them; more (or one): the menu.
                 Image(systemName: other == nil ? "chevron.down" : "arrow.left.arrow.right").font(.caption2.weight(.bold)).foregroundStyle(.secondary)
+                if damon, let other { Text(other.title).font(.subheadline).foregroundStyle(.secondary).lineLimit(1).frame(maxWidth: 90, alignment: .leading) }
             }
             .foregroundStyle(.primary)
         }
         .simultaneousGesture(LongPressGesture(minimumDuration: 0.5).onEnded { _ in rename() })
         .confirmationDialog("Mac", isPresented: $menu) {
             ForEach(c.pairings) { p in
-                Button(p.fp == c.activeFp ? "✓ \(p.title)" : p.title) { c.switchMac(p.fp) }
+                Button(p.fp == c.activeFp ? "✓ \(p.title)" : p.title) { pick(p.fp) }
             }
             Button("Add a Mac…") { c.addingMac = true }
         }
@@ -271,6 +274,7 @@ struct MacPicker: View {
         // VoiceOver has no press and hold here: the rename stays one action away.
         .accessibilityAction(named: Text("Rename")) { rename() }
     }
+    private func pick(_ fp: String) { if damon { c.openDamon(on: fp) } else { c.switchMac(fp) } }
     private func rename() {
         guard let p = c.pairing else { return }
         menu = false
@@ -623,10 +627,12 @@ struct ConversationView: View {
     @State private var improving: (id: UUID, task: Task<Void, Never>)?
     @State private var improved: (before: String, after: String)?
     @FocusState private var focused: Bool
-    /// Messages sent from this composer: each send makes a new text field (`.id`), so the field shows no sent text.
-    @State private var sent = 0
+    /// Each text that the app writes into the message field makes a new field (`.id`, see `put`).
+    @State private var field = 0
     /// With more than one Mac, the chat says which Mac it runs on.
     private var macSubtitle: String { c.pairings.count > 1 ? c.pairing?.title ?? "" : "" }
+    /// Damon's chat: the Mac switch takes the place of Back.
+    private var damon: Bool { c.current != nil && c.current == c.assistantId }
     var body: some View {
         // no stale chat while unreachable: the Mac is the source of truth and every action would fail anyway
         Group { if c.state == .connected || c.state == .connecting { transcript } else { OfflineView() } }
@@ -640,8 +646,16 @@ struct ConversationView: View {
             .navigationTitle(c.currentSess?.title ?? String(localized: "Conversation"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .tabBar)
+            .navigationBarBackButtonHidden(damon)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { ConnBadge() }
+                // Damon: Main menu (Sessions, the other chats, Settings) and the Mac switch in place of Back. With two Macs,
+                // one tap opens the other Mac's Damon chat; the Damon tab says when that Mac is not connected.
+                if damon {
+                    ToolbarItemGroup(placement: .topBarLeading) {
+                        Button { c.path = [] } label: { Image(systemName: "line.3.horizontal") }.accessibilityLabel("Main menu")
+                        MacPicker(damon: true)
+                    }
+                } else { ToolbarItem(placement: .topBarTrailing) { ConnBadge() } }
                 // Damon's status panel: the Mac shows it at the right side of the chat; the phone has no room, so one tap.
                 if c.plus.contains("assistant-todos"), c.current != nil, c.current == c.assistantId {
                     ToolbarItem(placement: .topBarTrailing) { Button { showStatus = true } label: { Image(systemName: "checklist") }.accessibilityLabel("Status") }
@@ -701,7 +715,7 @@ struct ConversationView: View {
             .sheet(isPresented: $showStatus) { if let id = c.current { StatusSheet(sessionId: id) } }
             // Task board → +: the new chat opened here; its first message went, so the board opens again.
             .onChange(of: c.boardBack) { _, back in if back { c.boardBack = false; showBoard = true } }
-            .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { text = t; focused = true } } }
+            .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { put(t, focus: true) } } }
             .sheet(isPresented: Binding(get: { redoMarker != nil }, set: { if !$0 { redoMarker = nil } })) { if let m = redoMarker { RedoSheet(marker: m) } }
             .confirmationDialog("Delete this chat?", isPresented: $deleting, titleVisibility: .visible) {
                 Button("Delete", role: .destructive) { if let id = c.current { c.run { try await c.deleteChat(id) } } }
@@ -724,7 +738,7 @@ struct ConversationView: View {
             } message: { Text("The agent keeps working toward this until it is complete.") }
             // per-session draft: going back or switching sessions never loses typed text
             .onAppear { text = c.draft(c.current) }
-            .onChange(of: c.draftPushed) { text = c.draft(c.current); focused = true }
+            .onChange(of: c.draftPushed) { put(c.draft(c.current), focus: true) }
             .onChange(of: c.current) { text = c.draft(c.current); guess = nil; improving?.task.cancel(); improving = nil; improved = nil }
             .onChange(of: text) { c.setDraft(text, c.current) }
             // Complete while typing: ask after a pause; a newer keystroke cancels this task. Typing along the guess needs no ask.
@@ -1216,9 +1230,8 @@ struct ConversationView: View {
             // while a turn runs, sending queues the next turn like desktop's default busy-Enter; the queue dock's "Send now" steers
             // While the Mac makes the branch, the field takes no text (the sent message is on its way).
             TextField(c.branching ? "Creating branch…" : c.newBranch ? "First message on a new branch…" : c.running ? "Queue a message…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4).disabled(c.branching)
-                // A new field after each send: iOS can keep the sent text on screen while the field has the focus
-                // (pending autocorrection or input method text), although `text` is empty. `send()` gives the focus back.
-                .id(sent)
+                // A new field after each text that the app writes (`put`): the field shows that text, not the old one.
+                .id(field)
             HStack(spacing: 10) {
                 Menu {
                     if UIImagePickerController.isSourceTypeAvailable(.camera) {
@@ -1304,7 +1317,7 @@ struct ConversationView: View {
             let undo = improved.map { $0.after == text } ?? false
             Button {
                 if let t = improving { t.task.cancel(); improving = nil; return }
-                if undo, let u = improved { text = u.before; improved = nil; return }
+                if undo, let u = improved { put(u.before); improved = nil; return }
                 let draft = text, id = UUID()
                 // Only this ask clears the handle: an older, cancelled one that ends later must not hide a newer one.
                 improving = (id, Task { @MainActor in
@@ -1313,7 +1326,7 @@ struct ConversationView: View {
                         guard let better = try await c.improve(draft), !Task.isCancelled else { return }
                         guard text == draft else { c.error = String(localized: "The message changed while it was improved, so it was not replaced."); return }
                         guard better != draft else { return }
-                        text = better; improved = (draft, better)
+                        put(better); improved = (draft, better)
                         UINotificationFeedbackGenerator().notificationOccurred(.success)
                     } catch is CancellationError {} catch { if !Task.isCancelled { c.error = userText(error) } }
                 })
@@ -1342,15 +1355,22 @@ struct ConversationView: View {
         .buttonStyle(.plain).opacity(canSend || c.running || (icon == "play.fill") ? 1 : 0.3)
     }
 
+    /// The app writes the message field (an improvement, its Undo, a sheet's text, a send). A new field (`.id(field)`) shows
+    /// it: while the field has the focus, iOS can keep the old text on screen (pending autocorrection or input method text)
+    /// although `text` changed, and Send then sends the text that was not shown. The new field takes the focus of the old one.
+    private func put(_ t: String, focus: Bool = false) {
+        let keep = focused || focus
+        text = t; field += 1
+        if keep { DispatchQueue.main.async { focused = true } }
+    }
+
     func send() {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines), imgs = images, fs = files
-        text = ""; images = []; files = []; sent += 1
-        // The new field (`.id(sent)`) takes the focus of the old one, so the keyboard stays open.
-        if focused { DispatchQueue.main.async { focused = true } }
+        put(""); images = []; files = []
         follow = true // your message and its answer show at the end
         let name = t.hasPrefix("/") ? String(t.dropFirst().prefix { !$0.isWhitespace }) : ""
         // a failed send (link down, Mac asleep) puts the draft back instead of losing it
-        let restore = { if text.isEmpty && images.isEmpty && files.isEmpty { text = t; images = imgs; files = fs } }
+        let restore = { if text.isEmpty && images.isEmpty && files.isEmpty { put(t); images = imgs; files = fs } }
         // New branch + `/plan <message>`: the branch chat starts in plan mode (not /plan in this chat).
         if c.newBranch, let m = planMessage(t), !m.isEmpty || !imgs.isEmpty || !fs.isEmpty {
             c.run { do { try await c.startOnBranch(m, images: imgs, files: fs, plan: true) } catch { restore(); throw error } }; return
@@ -2444,8 +2464,8 @@ struct NewSessionSheet: View {
 
 /// The Assistant tab, in the slot of the old Agents tab; Tether opens on it. It asks the Mac for its one assistant chat
 /// (`openAssistant`: `GET /plus/assistant`, the route of the desktop's Assistant row, which makes the chat when there is
-/// none) and opens it on the Sessions stack, so one chat view serves every chat. Back leads to Sessions; this tab opens
-/// the assistant again. It says why when the Mac is not connected or its Assistant is off.
+/// none) and opens it on the Sessions stack, so one chat view serves every chat. The chat has no Back: Main menu (☰) leads
+/// to Sessions, and the Mac switch opens the other Mac's Damon chat (`openDamon`); this tab opens the assistant again. It says why when the Mac is not connected or its Assistant is off.
 struct AssistantTab: View {
     @EnvironmentObject var c: Client
     /// Why the last open failed (for example, the Assistant is off on the Mac); Try again asks again.
@@ -2469,7 +2489,7 @@ struct AssistantTab: View {
                 }
             }
             .navigationTitle(assistantName)
-            .toolbar { ToolbarItem(placement: .topBarLeading) { MacPicker() } }
+            .toolbar { ToolbarItem(placement: .topBarLeading) { MacPicker(damon: true) } }
         }
         // Each time the tab shows, and when the Mac connects while it shows.
         .task(id: ready && c.plus.contains("assistant")) { open() }

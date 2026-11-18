@@ -34,6 +34,28 @@ assert.deepEqual(PLUS.get('assistant'), ['GET']);
 // The Sessions toolbar has no Assistant button now: the tab is the way in.
 assert.doesNotMatch(body(ui, 'struct SessionsView: View'), /openAssistant/);
 
+// Damon's chat has no Back (2026-11-18): Main menu (☰) goes to Sessions, and the Mac switch next to it opens the
+// other Mac's Damon chat (`openDamon`: switchMac, then the Damon tab). The other chats keep Back. XCTest: testOpenDamonOnOtherMac.
+const conv = ui.slice(ui.indexOf('struct ConversationView: View'), ui.indexOf('\n}\n', ui.indexOf('struct ConversationView: View')));
+assert.match(conv, /private var damon: Bool \{ c\.current != nil && c\.current == c\.assistantId \}/);
+assert.match(conv, /\.navigationBarBackButtonHidden\(damon\)/);
+assert.match(conv, /if damon \{\s*ToolbarItemGroup\(placement: \.topBarLeading\) \{\s*Button \{ c\.path = \[\] \} label: \{ Image\(systemName: "line\.3\.horizontal"\) \}\.accessibilityLabel\("Main menu"\)\s*MacPicker\(damon: true\)/);
+assert.match(tab, /MacPicker\(damon: true\)/, 'the Damon tab (Not connected, Assistant off) switches Macs the same way');
+assert.match(ui, /private func pick\(_ fp: String\) \{ if damon \{ c\.openDamon\(on: fp\) \} else \{ c\.switchMac\(fp\) \} \}/);
+assert.match(body(core, 'func openDamon('), /guard fp != activeFp, pairings\.contains\(where: \{ \$0\.fp == fp \}\) else \{ return \}\s*switchMac\(fp\)\s*tab = \.assistant/);
+
+// Improve prompt shows its text before Send: every async write of the message field (the improvement, its Undo, a sheet's
+// text, a send) goes through `put`, which makes a new field (`.id(field)`). A focused field can keep the old text on screen
+// (pending autocorrection or input method text), and Send then sends a text that was not shown. XCTest: testPutShowsNewText.
+assert.match(conv, /private func put\(_ t: String, focus: Bool = false\) \{\s*let keep = focused \|\| focus\s*text = t; field \+= 1\s*if keep \{ DispatchQueue\.main\.async \{ focused = true \} \}/);
+assert.match(conv, /TextField\([^\n]*text: \$text, axis: \.vertical\)[^\n]*\n(?:\s*\/\/[^\n]*\n)*\s*\.id\(field\)/);
+const wand = conv.slice(conv.indexOf('@ViewBuilder private var improveButton'), conv.indexOf('/// ↶ on your own messages'));
+assert.match(wand, /put\(better\); improved = \(draft, better\)/);
+assert.match(wand, /put\(u\.before\); improved = nil/);
+assert.doesNotMatch(wand, /\btext = /, 'the wand writes the field only through put');
+assert.match(conv, /\.onChange\(of: c\.draftPushed\) \{ put\(c\.draft\(c\.current\), focus: true\) \}/);
+assert.match(conv, /func send\(\) \{[^]*?put\(""\); images = \[\]/);
+
 // The RPCs that only the Agents screen used are not allowed now; the chat's goal, preset, permission and command RPCs
 // stay. Each RPC that Tether calls by name is in the allowlist.
 for (const m of ['subagents/prompt', 'subagents/interruptByParent', 'skills/list']) {

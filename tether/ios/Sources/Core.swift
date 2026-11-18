@@ -2709,6 +2709,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         loadNotify()
         connect()
     }
+    /// Damon's Mac switch (the Damon chat's top left, in place of Back): show that Mac and stay in Damon. The Damon tab
+    /// opens that Mac's Damon chat when the Mac answers, or says that it is not connected or that its Assistant is off.
+    func openDamon(on fp: String) {
+        guard fp != activeFp, pairings.contains(where: { $0.fp == fp }) else { return }
+        switchMac(fp)
+        tab = .assistant
+    }
 
     /// Drop the socket and every per-Mac value on screen. A stale reply from the old Mac checks `ws` / `current` and stops.
     private func closeScreen() {
