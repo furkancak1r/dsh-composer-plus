@@ -10263,9 +10263,12 @@ const RELAY_HEADER = /\p{L}+['’]s approval \(exact text(?:,[^()\n]*)?\):?[ \t]
  * other headers, four denials of one live deploy step). A line that withdraws or stops ("revoked approval", "cancel the
  * deploy") is not refused: a stop must reach the chat.
  * ponytail: words only, so a task text with these words ("Fix the deploy line parser; exact text must match.") is refused
- * too, and its reason names the fix (other words); the stop words count only on the line of "approval". */
+ * too, and its reason names the fix (other words); the stop words count only on the line of "approval". The strip also
+ * removes the words between two quotes of one line, so `Task: "fix" then Ayşe approved it. Exact text: "go"` passes;
+ * Auto review in the target chat stays the gate. Each strip looks at most 4000 characters after a quote mark, so many
+ * unclosed quotes stay linear. */
 const looseRelay = (text) => {
-  const lines = text.replace(RELAY_HEADER, '').replace(/["“].*["”]/g, '').replace(/["“][^"”]*["”]/g, '').split(/\r?\n/);
+  const lines = text.replace(RELAY_HEADER, '').replace(/["“].{0,4000}["”]/g, '').replace(/["“][^"”]{0,4000}["”]/g, '').split(/\r?\n/);
   const exact = (i) => /\bexact text\b/i.test(lines[i] ?? '');
   return lines.some((l, i) => /\b(?:approv(?:al|ed)|deploy line)/i.test(l) && !/\b(?:cancel|revok|withdr|reject|deni|deny|stop|hold)/i.test(l) && (exact(i) || exact(i + 1)));
 };
