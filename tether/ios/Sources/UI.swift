@@ -4506,7 +4506,7 @@ struct StatusSheet: View {
         return Button {
             c.writeDraft(statusInsert(row, now: Date(), span: { Duration.seconds(max(0, $0)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1).locale(locale)) }), sessionId)
             dismiss()
-        } label: { Image(systemName: "arrow.right").frame(minWidth: 32, minHeight: 32) }
+        } label: { Image(systemName: "arrow.right").frame(minWidth: 44, minHeight: 44).contentShape(Rectangle()) }
             .buttonStyle(.borderless).accessibilityLabel(Text(verbatim: label)).help(Text(verbatim: short))
     }
     private func taskRow(_ t: StatusTask, _ v: StatusView) -> some View {
@@ -4519,7 +4519,7 @@ struct StatusSheet: View {
                 if let o = v.outage, o.resumed.contains(t.id) { Text(String(localized: "status.outageRow", defaultValue: "Continued after the outage · \(o.at.formatted(date: .omitted, time: .shortened))", bundle: uiStrings)).font(.caption).foregroundStyle(.secondary) }
                 if let r = t.result { Text(verbatim: r).font(.caption).foregroundStyle(.secondary) }
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle()) // the whole row opens the task
         }
         .buttonStyle(.plain)
         writeButton(.task(t, outage: v.outage.flatMap { $0.resumed.contains(t.id) ? $0.at.formatted(date: .omitted, time: .shortened) : nil }), name: t.title)

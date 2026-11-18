@@ -46,12 +46,7 @@ for (const a of append) {
 }
 assert.equal(draftTodo(undefined, 'x'), false, 'no composer: false (the panel shows a notice)');
 
-// The panel: → on each to-do item, task and project row, with its own name; an item of the user keeps "Give to the
-// assistant" (its text gives the item to the assistant when sent).
-const src = read('client.js');
-assert.match(src, /writeButton\(\{ item, overdue: parts\.overdue\.has\(item\.id\) \}, \.\.\.\(item\.owner === 'agent' \? writeLabel\(item\.text\) : \[t\('todos\.handover'/);
-assert.match(src, /writeButton\(\{ task, outage: resumed\.has\(task\.id\) \? outageTime : undefined \}, \.\.\.writeLabel\(task\.title\)\)/);
-assert.match(src, /writeButton\(\{ project: p, line: lineOf\(p\) \}, \.\.\.writeLabel\(p\.title\)\)/);
+// The panel's buttons: test/assistant-todos-client.test.mjs and test/browser-assistant-todos.mjs (step 10).
 assert.equal(tr['status.insertShort'], 'Mesaj kutusuna yaz');
 
 // Tether: the same words and rule, and its own message field (no new gateway route).

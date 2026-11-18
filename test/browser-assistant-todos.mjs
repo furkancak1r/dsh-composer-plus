@@ -413,6 +413,7 @@ try {
       const ids = [sessionId, ...JSON.parse(await readFile(join(dshHome, 'storages/dsh-composer-plus/assistant-todos.json'), 'utf8')).lists[sessionId].map((i) => i.id)];
       const all = await composerText(); for (const id of ids) assert.ok(!all.includes(id), `no id (${id}) in the text`);
       await page.mouse.move(640, 790);
+      await panel.locator('.cp-st-body').evaluate((el) => { el.scrollTop = 0; });
       if (process.env.SHOT_PANEL) { await page.screenshot({ path: process.env.SHOT_PANEL }); note(`SHOT_PANEL: ${process.env.SHOT_PANEL}`); }
       await clear();
       note('10: → on the assistant\'s items, tasks and projects writes the row (click, Enter, Space) after the draft, focus at the end, nothing sent, no id; a long item does not run under its buttons');

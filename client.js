@@ -3352,7 +3352,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${TODOS_ATTR}] .cp-st-row{display:block;width:100%;min-width:0;padding:6px 4px;border:0;border-radius:var(--dsw-radius-md,8px);background:none;color:inherit;font:inherit;text-align:left;overflow-wrap:anywhere;cursor:pointer}`
       // A task or project row: its row button, then → (and ×) at its right; a long title wraps, it never runs under them.
       + `[${TODOS_ATTR}] .cp-st-line{display:flex;align-items:flex-start;gap:6px}`
-      + `[${TODOS_ATTR}] li:has(> .cp-st-row),[${TODOS_ATTR}] li:has(> .cp-st-line){padding:0}[${TODOS_ATTR}] .cp-st-row .cp-st-name{font-weight:500}`
+      + `[${TODOS_ATTR}] li:has(> .cp-st-row),[${TODOS_ATTR}] li:has(> .cp-st-line){padding:0 4px 0 0}[${TODOS_ATTR}] .cp-st-row .cp-st-name{font-weight:500}`
       + `[${TODOS_ATTR}] [data-state]{font-size:11px}[${TODOS_ATTR}] [data-state="running"]{color:var(--dsw-alias-state-business-primary)}[${TODOS_ATTR}] [data-state="waiting"],[${TODOS_ATTR}] [data-state="failed"]{color:var(--dsw-alias-state-warn-label,#b25000)}[${TODOS_ATTR}] [data-state="done"]{color:var(--dsw-alias-state-success-label,#1a7f37)}`
       + `[${TODOS_ATTR}] [data-state="overdue"]{font-weight:600;color:var(--dsw-alias-state-error-label,#d92d20)}[${TODOS_ATTR}] li[data-waiting="true"] .cp-td-text{font-weight:500}`
       + `[${TODOS_ATTR}] .cp-st-summary{margin:6px 4px 0;padding:8px;border-radius:var(--dsw-radius-md,8px);background:var(--dsw-alias-bg-module-platform,rgba(0,0,0,.03))}`
