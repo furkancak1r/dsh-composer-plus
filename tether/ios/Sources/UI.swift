@@ -4424,13 +4424,13 @@ struct StatusSheet: View {
             }
             .task { await load() }
             // While a task runs, read again every 5 s (the web panel's STATUS_POLL_MS); while the Mac translates the result
-            // lines, once more after 2 s (the web panel's soon read).
+            // lines, every 3 s (the web panel's STATUS_GAP_MS) until it says that it is done. A failed read ends it.
             .task(id: view.map { $0.live.contains { $0.state == "running" } || $0.translating } ?? false) {
                 while !Task.isCancelled, let v = view, v.translating || v.live.contains(where: { $0.state == "running" }) {
-                    try? await Task.sleep(for: .seconds(v.translating && !v.live.contains { $0.state == "running" } ? 2 : 5))
+                    try? await Task.sleep(for: .seconds(v.live.contains { $0.state == "running" } ? 5 : 3))
                     if Task.isCancelled { return }
                     await load()
-                    if v.translating && view?.translating == true && !(view?.live.contains { $0.state == "running" } ?? false) { return } // one more read only
+                    if failed != nil { return }
                 }
             }
         }
@@ -4536,10 +4536,11 @@ struct StatusSheet: View {
     private func open(_ id: String) { dismiss(); c.open(id) }
     private func load(fresh: Bool = false) async {
         seq += 1; let mine = seq
+        if fresh { git = [:] } // the open projects read their git details again (the web clears them first too)
         do {
             let v = try await c.loadStatus(sessionId, fresh: fresh)
             guard mine == seq else { return } // a newer read started meanwhile
-            if let v { view = v }; failed = nil; if fresh { git = [:] }
+            if let v { view = v }; failed = nil
         } catch is CancellationError {} catch { if mine == seq { failed = userText(error) } }
     }
     private func loadGit(_ project: String) async {

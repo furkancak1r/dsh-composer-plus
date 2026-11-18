@@ -1308,7 +1308,7 @@ func closeFences(_ text: String) -> String {
 
 /// Feature ideas: the fixed focus topics under the focus field (the same six as on the Mac).
 let focusPresets = ["Performance", "Accessibility", "Tests", "Security", "Usability", "Documentation"]
-/// The shown name of a focus preset (the Mac gets the English topic).
+/// The shown name of a focus preset; the chip writes it as the topic (the Mac gets the label in the UI language, as the web chip writes it).
 func focusLabel(_ p: String) -> String {
     switch p {
     case "Performance": return String(localized: "Performance")
