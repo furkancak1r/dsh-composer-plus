@@ -60,7 +60,9 @@ assert.match(conv, /func send\(\) \{[^]*?put\(""\); images = \[\]/);
 assert.match(conv, /Button \{ put\(p\.text, focus: true\); c\.prediction = nil \}/);
 assert.deepEqual([...conv.matchAll(/(?:\{ |; |^\s*)text (?:=|\+=) /gm)].length, 2, 'text is written only in onAppear and in put');
 // Damon's words: the empty field says Ask Damon and the line under the composer says Damon, not the folder (~/Assistant).
-assert.match(conv, /damon \? "Ask \\\(assistantName\)" : "Ask DeepSeek"/);
+assert.match(conv, /damon \? "Ask Damon" : "Ask DeepSeek"/);
+assert.match(core, /let assistantName = "Damon"\n/, 'the key "Ask Damon" names the fixed assistant name');
+assert.match(conv, /if let p = c\.prediction, [^\n]*, improving == nil \{/, 'no guess row while Improve prompt runs');
 assert.match(conv, /let folder = damon \? assistantName : c\.currentSess\.map/);
 
 // The RPCs that only the Agents screen used are not allowed now; the chat's goal, preset, permission and command RPCs

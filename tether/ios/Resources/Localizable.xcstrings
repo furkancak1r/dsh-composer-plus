@@ -1352,19 +1352,19 @@
         }
       }
     },
-    "Ask %@": {
+    "Ask Damon": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ask %@"
+            "value": "Ask Damon"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@’a sorun"
+            "value": "Damon’a sorun"
           }
         }
       }

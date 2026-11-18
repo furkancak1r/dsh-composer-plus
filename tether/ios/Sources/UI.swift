@@ -1198,7 +1198,8 @@ struct ConversationView: View {
                 }
             }
             // Next message prediction (Composer Plus): the guess for this chat, over an empty composer; a tap puts it in.
-            if let p = c.prediction, text.isEmpty, images.isEmpty, files.isEmpty, !c.running, c.optionOffer == nil {
+            // Not while Improve prompt runs: the guess must not look like the improved text.
+            if let p = c.prediction, text.isEmpty, images.isEmpty, files.isEmpty, !c.running, c.optionOffer == nil, improving == nil {
                 Button { put(p.text, focus: true); c.prediction = nil } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles").font(.caption).foregroundStyle(.secondary)
@@ -1229,7 +1230,7 @@ struct ConversationView: View {
             }
             // while a turn runs, sending queues the next turn like desktop's default busy-Enter; the queue dock's "Send now" steers
             // While the Mac makes the branch, the field takes no text (the sent message is on its way).
-            TextField(c.branching ? "Creating branch…" : c.newBranch ? "First message on a new branch…" : c.running ? "Queue a message…" : damon ? "Ask \(assistantName)" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4).disabled(c.branching)
+            TextField(c.branching ? "Creating branch…" : c.newBranch ? "First message on a new branch…" : c.running ? "Queue a message…" : damon ? "Ask Damon" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4).disabled(c.branching)
                 // A new field after each text that the app writes (`put`): the field shows that text, not the old one.
                 .id(field)
             HStack(spacing: 10) {

@@ -2883,13 +2883,16 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * ponytail: dsh has no per-chat display mode. The rows are found by dsh's chat markup (`data-chat-flow-kind`,
      * `data-turn-process-member`, `data-chat-group-key`) inside `data-conversation-session`; if dsh changes it, the rows show
      * again. Upgrade when dsh lets a chat pick its work-details mode. */
-    function assistantChatCss(id, quiet = [], answers = []) {
+    function assistantChatCss(id, quiet = [], answers = [], quietTails = []) {
       if (typeof id !== 'string') return '';
       const chat = `[data-conversation-session=${JSON.stringify(id)}]`;
       return [`${chat} [data-chat-flow-kind="turn-process"]`, `${chat} [data-chat-flow-kind="tool-call"]`, `${chat} [data-chat-group-key]`,
         `${chat} [data-chat-flow-kind="reasoning"]`, `${chat} [data-turn-process-member]:not([data-chat-flow-kind="assistant-step"])`,
         `${chat} [data-chat-flow-kind="assistant-step"][data-chat-group-part="reasoning"]`].join(',\n') + ' { display: none !important; }'
         + (quiet.length === 0 ? '' : `\n${quiet.map((key) => `${chat} [data-chat-node-key=${JSON.stringify(key)}]`).join(',\n')} { height: 0 !important; margin: 0 !important; overflow: hidden !important; visibility: hidden !important; }`)
+        // A quiet turn's tail keeps its Approve and option buttons; only its Copy/time row (dsh's MessageIconActions, the
+        // child with data-clock) goes, as it belongs to the hidden reply.
+        + (quietTails.length === 0 ? '' : `\n${quietTails.map((turn) => `${chat} [data-turn-tail=${JSON.stringify(String(turn))}] > [data-clock]`).join(',\n')} { display: none !important; }`)
         // dsh folds these with hidden="until-found" (content-visibility: hidden) and a fade (inline height and opacity).
         + (answers.length === 0 ? '' : `\n${answers.map((key) => `${chat} [data-chat-node-key=${JSON.stringify(key)}]:not([data-chat-group-part="reasoning"])`).join(',\n')} { content-visibility: visible !important; height: auto !important; opacity: 1 !important; }`);
     }
@@ -2910,11 +2913,17 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * selection, Quote reply, Find in chat) skip it too. Upgrade when dsh lets a plugin keep a turn's replies open. */
     const replyBlock = (b) => b?.kind !== 'reasoning' && b?.kind !== 'tool-call' && (b?.kind !== 'text' || String(b.text ?? '').trim() !== '');
     /** A reply that is only `[quiet]` (any case, spaces trimmed): the assistant's "nothing to say" for routine news (dsh
-     * refuses an empty reply; the Host's quietTurn and Tether's quietReply use the same rule). Its row is hidden like a
-     * subagent row: the log and the push rules keep it. */
+     * refuses an empty reply; the Host's quietTurn and Tether's botLines use the same rule). Its row is hidden like a
+     * subagent row: the log and the push rules keep it. While it streams, dsh can show it for a moment. */
     const quietStep = (n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks) && !n.data.blocks.some((b) => b?.kind === 'tool-call')
       && /^\[quiet\]$/i.test(n.data.blocks.filter((b) => b?.kind === 'text').map((b) => String(b.text ?? '')).join('').trim());
     const quietRowKeys = (chat) => [...(chat?.nodes?.values?.() ?? [])].filter(quietStep).map((n) => n.key);
+    /** The turns whose last step is a quiet reply: dsh's turn tail shows that reply's Copy/time row (quietTails). */
+    const quietTurnsOf = (chat) => {
+      const last = new Map();
+      for (const n of chat?.nodes?.values?.() ?? []) if (n?.kind === 'assistant-step' && (last.get(n.data?.turn)?.data.step ?? -Infinity) < n.data?.step) last.set(n.data.turn, n);
+      return [...last].filter(([, n]) => quietStep(n)).map(([turn]) => turn);
+    };
     const answerRowKeys = (chat) => {
       const steps = [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks));
       const last = new Map(); for (const n of steps) last.set(n.data.turn, Math.max(last.get(n.data.turn) ?? -Infinity, n.data.step));
@@ -2967,6 +2976,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const [flow, setFlow] = React.useState(null);
       const [quiet, setQuiet] = React.useState([]); // node keys of the subagent rows and the `[quiet]` replies (quietRowKeys)
       const [answers, setAnswers] = React.useState([]); // node keys of the folded answers (answerRowKeys)
+      const [quietTails, setQuietTails] = React.useState([]); // turns that end with a quiet reply (quietTurnsOf)
 
       React.useEffect(() => {
         if (typeof id !== 'string') return undefined;
@@ -2993,8 +3003,11 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       React.useEffect(() => {
         let source; try { source = typeof id === 'string' && flow !== null ? chatOf?.(id) : undefined; } catch { source = undefined; }
         const same = (keys) => (prev) => (prev.length === keys.length && prev.every((k, i) => k === keys[i]) ? prev : keys);
-        if (source === undefined) { setQuiet(same([])); setAnswers(same([])); return undefined; }
-        const read = () => { const chat = source.getSnapshot(); setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat)])); setAnswers(same(answerRowKeys(chat))); };
+        if (source === undefined) { setQuiet(same([])); setAnswers(same([])); setQuietTails(same([])); return undefined; }
+        const read = () => {
+          const chat = source.getSnapshot();
+          setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat)])); setAnswers(same(answerRowKeys(chat))); setQuietTails(same(quietTurnsOf(chat)));
+        };
         read();
         return source.subscribe(read);
       }, [id, flow, chatOf]);
@@ -3023,7 +3036,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         const moved = place.row.getBoundingClientRect().top - place.top;
         if (Math.abs(moved) > 0.5) place.scroller.scrollTop += moved;
       }, [capped]);
-      const css = assistantChatCss(id, quiet, answers) + (capped ? `\n${assistantCapCss(id, turns)}` : '');
+      const css = assistantChatCss(id, quiet, answers, quietTails) + (capped ? `\n${assistantCapCss(id, turns)}` : '');
       const hidden = capped ? turns.length - ASSISTANT_TURNS : 0;
       const button = seat === null || !capped ? null : createPortal(React.createElement(primitives.Button ?? 'button', { type: 'button', variant: 'outline', size: 'sm',
         'data-composer-plus-assistant-earlier-button': String(hidden), onClick: () => { kept.current = shownRow(flow); setAll(id); } }, t('assistantChatView.earlier', { count: String(hidden) })), seat);

@@ -162,6 +162,8 @@ stores.set('s-quiet', storeOf([
   step('12:1', 12, 1, '[quiet]\nThe audit found 2 issues.'), // says more: stays
   step('12:2', 12, 2, 'Audit: [quiet]'), // stays
   step('12:3', 12, 3, '[quiet]', 'tool'), // a tool step: process rules, not this one
+  step('13:1', 13, 1, 'Real answer.'), // a real answer, then a quiet last step: the answer shows, the quiet step goes
+  step('13:2', 13, 2, '[quiet]'),
 ]));
 open = 's-quiet'; id = 's-quiet';
 const quietView = mount(() => ({ status, chatOf, t: (k) => k }));
@@ -170,5 +172,12 @@ const quietRule = (key) => rule(key, 's-quiet');
 for (const key of ['11:1', '11:2']) assert.ok(css().includes(`${quietRule(key)},`) || css().includes(`${quietRule(key)} {`), `[quiet] reply ${key} hidden`);
 for (const key of ['12:1', '12:2', '12:3']) assert.ok(!css().includes(`${quietRule(key)},`) && !css().includes(`${quietRule(key)} {`), `${key} is not hidden as quiet`);
 assert.ok(!css().includes(`${quietRule('11:1')}:not(`), 'a quiet reply is not shown again as a folded answer');
+assert.ok(css().includes(`${quietRule('13:1')}:not(`), 'the real answer before a quiet last step shows');
+assert.ok(css().includes(`${quietRule('13:2')},`) || css().includes(`${quietRule('13:2')} {`), 'the quiet last step is hidden');
+// The tail of a turn that ends quiet: only its Copy/time row goes (the tail keeps the Approve and option buttons).
+const tails = css().split('}').find((b) => b.includes('data-turn-tail')) ?? '';
+for (const turn of ['11', '13']) assert.ok(tails.includes(`[data-conversation-session="s-quiet"] [data-turn-tail="${turn}"] > [data-clock]`), `turn ${turn}: its Copy/time row goes`);
+assert.ok(!tails.includes('"12"'), 'a turn that ends with a reply that says more keeps its row');
+assert.match(tails, /display: none !important;/);
 quietView.unmount();
 console.log('assistant subagent rows: ok');
