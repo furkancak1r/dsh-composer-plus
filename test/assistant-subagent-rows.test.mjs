@@ -152,4 +152,23 @@ assert.ok(css().includes(shown('10:1')), 'a reply that is no longer the turn\'s 
 // Assistant off: no rule.
 id = null; out = answersView.render(); assert.equal(css(), '', 'off: nothing');
 answersView.unmount();
+
+// A reply that is only `[quiet]` (any case, spaces): the assistant's "nothing to say" for routine news. Its row is hidden
+// like a subagent row (also when it is not the turn's last reply); a reply that says more, or a step with a tool call, stays.
+stores.set('s-quiet', storeOf([
+  node('11:trig', 'turn-trigger', { kind: 'composer-plus-assistant-news' }),
+  step('11:1', 11, 1, 'think', ' [QUIET]\n'), // quiet, not the turn's last: hidden, not shown again as an answer
+  step('11:2', 11, 2, '[quiet]'), // the turn's last reply: hidden
+  step('12:1', 12, 1, '[quiet]\nThe audit found 2 issues.'), // says more: stays
+  step('12:2', 12, 2, 'Audit: [quiet]'), // stays
+  step('12:3', 12, 3, '[quiet]', 'tool'), // a tool step: process rules, not this one
+]));
+open = 's-quiet'; id = 's-quiet';
+const quietView = mount(() => ({ status, chatOf, t: (k) => k }));
+out = quietView.render();
+const quietRule = (key) => rule(key, 's-quiet');
+for (const key of ['11:1', '11:2']) assert.ok(css().includes(`${quietRule(key)},`) || css().includes(`${quietRule(key)} {`), `[quiet] reply ${key} hidden`);
+for (const key of ['12:1', '12:2', '12:3']) assert.ok(!css().includes(`${quietRule(key)},`) && !css().includes(`${quietRule(key)} {`), `${key} is not hidden as quiet`);
+assert.ok(!css().includes(`${quietRule('11:1')}:not(`), 'a quiet reply is not shown again as a folded answer');
+quietView.unmount();
 console.log('assistant subagent rows: ok');

@@ -2909,10 +2909,16 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * ponytail: CSS only; the shown row keeps dsh's hidden="until-found", so the tools that skip [hidden] (dsh's text
      * selection, Quote reply, Find in chat) skip it too. Upgrade when dsh lets a plugin keep a turn's replies open. */
     const replyBlock = (b) => b?.kind !== 'reasoning' && b?.kind !== 'tool-call' && (b?.kind !== 'text' || String(b.text ?? '').trim() !== '');
+    /** A reply that is only `[quiet]` (any case, spaces trimmed): the assistant's "nothing to say" for routine news (dsh
+     * refuses an empty reply; the Host's quietTurn and Tether's quietReply use the same rule). Its row is hidden like a
+     * subagent row: the log and the push rules keep it. */
+    const quietStep = (n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks) && !n.data.blocks.some((b) => b?.kind === 'tool-call')
+      && /^\[quiet\]$/i.test(n.data.blocks.filter((b) => b?.kind === 'text').map((b) => String(b.text ?? '')).join('').trim());
+    const quietRowKeys = (chat) => [...(chat?.nodes?.values?.() ?? [])].filter(quietStep).map((n) => n.key);
     const answerRowKeys = (chat) => {
       const steps = [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks));
       const last = new Map(); for (const n of steps) last.set(n.data.turn, Math.max(last.get(n.data.turn) ?? -Infinity, n.data.step));
-      return steps.filter((n) => n.data.step < last.get(n.data.turn) && n.data.blocks.some(replyBlock) && !n.data.blocks.some((b) => b?.kind === 'tool-call')).map((n) => n.key);
+      return steps.filter((n) => n.data.step < last.get(n.data.turn) && n.data.blocks.some(replyBlock) && !n.data.blocks.some((b) => b?.kind === 'tool-call') && !quietStep(n)).map((n) => n.key);
     };
     /** The assistant chat shows only its newest ASSISTANT_TURNS turns at first: the older rows that dsh drew (its window
      * can hold many turns of a long assistant chat) get `display: none`, and a button above the rows shows them all. The
@@ -2959,7 +2965,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const [all, setAll] = React.useState(null); // the chat whose earlier turns the user showed
       const kept = React.useRef(null); // shownRow at the click on Show earlier messages
       const [flow, setFlow] = React.useState(null);
-      const [quiet, setQuiet] = React.useState([]); // node keys of the subagent rows (subagentRowKeys)
+      const [quiet, setQuiet] = React.useState([]); // node keys of the subagent rows and the `[quiet]` replies (quietRowKeys)
       const [answers, setAnswers] = React.useState([]); // node keys of the folded answers (answerRowKeys)
 
       React.useEffect(() => {
@@ -2988,7 +2994,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         let source; try { source = typeof id === 'string' && flow !== null ? chatOf?.(id) : undefined; } catch { source = undefined; }
         const same = (keys) => (prev) => (prev.length === keys.length && prev.every((k, i) => k === keys[i]) ? prev : keys);
         if (source === undefined) { setQuiet(same([])); setAnswers(same([])); return undefined; }
-        const read = () => { const chat = source.getSnapshot(); setQuiet(same(subagentRowKeys(chat))); setAnswers(same(answerRowKeys(chat))); };
+        const read = () => { const chat = source.getSnapshot(); setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat)])); setAnswers(same(answerRowKeys(chat))); };
         read();
         return source.subscribe(read);
       }, [id, flow, chatOf]);

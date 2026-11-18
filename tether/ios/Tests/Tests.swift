@@ -387,25 +387,23 @@ final class CoreTests: XCTestCase {
     /// Damon's Mac switch: the other Mac goes on screen and the Damon tab shows (it opens that Mac's Damon chat when the
     /// Mac answers, or says that it is not connected). A Mac that is not paired, or the Mac on screen, changes nothing.
     @MainActor func testOpenDamonOnOtherMac() {
-        let c = Client()
-        let saved = c.pairings
-        defer { c.pairings = saved } // the Keychain item belongs to the real app
-        c.pairings = [Pairing(host: "192.168.1.2", port: 19390, fp: "ev", token: "te", deviceId: "d", name: "n", expiresAt: "", label: "Ev"),
-                      Pairing(host: "192.168.1.3", port: 19390, fp: "is", token: "ti", deviceId: "d", name: "n", expiresAt: "", label: "İş")]
-        c.activeFp = "ev"
-        c.open("damon-ev"); XCTAssertEqual(c.tab, .sessions)
+        let c = Client(), undo = twoMacs(c)
+        defer { undo() }
+        c.open("damon-a1"); XCTAssertEqual(c.tab, .sessions)
         c.openDamon(on: "nope")
-        XCTAssertEqual(c.activeFp, "ev"); XCTAssertEqual(c.path, ["damon-ev"], "a Mac that is not paired: nothing changes")
-        c.openDamon(on: "ev")
-        XCTAssertEqual(c.path, ["damon-ev"], "the Mac on screen: nothing changes")
-        c.openDamon(on: "is")
-        XCTAssertEqual(c.activeFp, "is"); XCTAssertEqual(c.pairing?.token, "ti")
-        XCTAssertEqual(c.tab, .assistant, "stays in Damon"); XCTAssertTrue(c.path.isEmpty); XCTAssertNil(c.current, "nothing of Ev stays on screen")
-        XCTAssertNotEqual(c.state, .connected, "not connected yet: the Damon tab says so, it does not crash")
+        XCTAssertEqual(c.activeFp, "a1"); XCTAssertEqual(c.path, ["damon-a1"], "a Mac that is not paired: nothing changes")
+        c.openDamon(on: "a1")
+        XCTAssertEqual(c.path, ["damon-a1"], "the Mac on screen: nothing changes")
+        c.openDamon(on: "b2")
+        XCTAssertEqual(c.activeFp, "b2"); XCTAssertEqual(c.pairing?.token, "tb")
+        XCTAssertEqual(c.tab, .assistant, "stays in Damon"); XCTAssertTrue(c.path.isEmpty); XCTAssertNil(c.current, "nothing of A stays on screen")
+        XCTAssertNotEqual(c.state, .connected, "the new Mac is not connected yet")
     }
 
-    /// Improve prompt, Undo and a sheet's text write the field while it has the focus: the field is made again (`put`), so it
-    /// shows the new text (not a text that iOS keeps for a pending autocorrection) and keeps the focus (keyboard stays open).
+    /// Improve prompt, Undo, a prediction and a sheet's text write the field while it has the focus: the field is made again
+    /// (`put`), so it shows the new text (not a text that iOS keeps for a pending autocorrection) and keeps the focus.
+    /// ponytail: only the sheet path (`draftPushed`, focus: true) runs here. The improve answer and Undo (focus: false, the
+    /// focus kept from `focused`) need the Mac or a tap; tether-assistant-tab.test.mjs checks that they call `put`.
     @MainActor func testPutShowsNewText() throws {
         func field(_ v: UIView) -> UITextView? { if let t = v as? UITextView, t.isEditable { return t }; return v.subviews.lazy.compactMap(field).first }
         func spin(_ s: Double) { RunLoop.main.run(until: Date().addingTimeInterval(s)) }
@@ -513,6 +511,9 @@ final class CoreTests: XCTestCase {
         let t = [Line(kind: .user, text: "hi"), Line(kind: .reasoning, text: "hmm"), Line(kind: .tool, text: "bash"), Line(kind: .result, text: "ok"),
                  Line(kind: .assistant, text: "hello"), Line(kind: .error, text: "HTTP 500"), Line(kind: .turn, text: "Completed")]
         XCTAssertEqual(botLines(t).map(\.kind), [.user, .assistant, .error])
+        // A reply that is only `[quiet]` shows nothing (as on the Mac); a reply that says more stays.
+        let quiet = [Line(kind: .user, text: "news"), Line(kind: .assistant, text: " [QUIET]\n"), Line(kind: .assistant, text: "[quiet]\nThe audit found 2 issues.")]
+        XCTAssertEqual(botLines(quiet).map(\.text), ["news", "[quiet]\nThe audit found 2 issues."])
     }
     /// Assistant apart from chats: the list leaves the assistant chat out while the switch is on (its project then has no rows).
     @MainActor func testAssistantApartList() {

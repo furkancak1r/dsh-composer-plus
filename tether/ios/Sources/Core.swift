@@ -1465,7 +1465,11 @@ func assistantMark(_ id: String?, sessions: [Sess], busy: Set<String>, waiting: 
     return projectMark([s], busy: busy, waiting: waiting, finished: finished)
 }
 /// Assistant messages only: the assistant chat shows your messages, its replies and errors (no thinking, tool or turn rows).
-func botLines(_ t: [Line]) -> [Line] { t.filter { $0.kind == .user || $0.kind == .assistant || $0.kind == .error } }
+/// A reply that is only `[quiet]` (the assistant's "nothing to say", `quietTurn`) shows nothing, as on the Mac (client.js
+/// quietStep).
+func botLines(_ t: [Line]) -> [Line] {
+    t.filter { $0.kind == .user || $0.kind == .error || ($0.kind == .assistant && !quietTurn(reply: $0.text, reason: "completed")) }
+}
 /// Order by status (view only): finished and not opened, then running or waiting, then the rest; else dsh's order.
 func statusRank(_ s: Sess, busy: Set<String>, waiting: Set<String>, finished: Set<String>) -> Int {
     finished.contains(s.id) ? 0 : busy.contains(s.id) || waiting.contains(s.id) ? 1 : 2

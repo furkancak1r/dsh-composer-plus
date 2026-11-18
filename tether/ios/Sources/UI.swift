@@ -657,7 +657,7 @@ struct ConversationView: View {
                     }
                 } else { ToolbarItem(placement: .topBarTrailing) { ConnBadge() } }
                 // Damon's status panel: the Mac shows it at the right side of the chat; the phone has no room, so one tap.
-                if c.plus.contains("assistant-todos"), c.current != nil, c.current == c.assistantId {
+                if damon, c.plus.contains("assistant-todos") {
                     ToolbarItem(placement: .topBarTrailing) { Button { showStatus = true } label: { Image(systemName: "checklist") }.accessibilityLabel("Status") }
                 }
                 ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
@@ -739,7 +739,7 @@ struct ConversationView: View {
             // per-session draft: going back or switching sessions never loses typed text
             .onAppear { text = c.draft(c.current) }
             .onChange(of: c.draftPushed) { put(c.draft(c.current), focus: true) }
-            .onChange(of: c.current) { text = c.draft(c.current); guess = nil; improving?.task.cancel(); improving = nil; improved = nil }
+            .onChange(of: c.current) { put(c.draft(c.current)); guess = nil; improving?.task.cancel(); improving = nil; improved = nil }
             .onChange(of: text) { c.setDraft(text, c.current) }
             // Complete while typing: ask after a pause; a newer keystroke cancels this task. Typing along the guess needs no ask.
             .task(id: text) {
@@ -892,7 +892,7 @@ struct ConversationView: View {
         Group {
             switch row {
             case .line(let l):
-                LineView(line: l, onEdit: { text = $0; focused = true }, onQuote: { text = quoteDraft(text, $0); focused = true }, onRollback: canRollBack(l) ? { rollingBack = l } : nil,
+                LineView(line: l, onEdit: { put($0, focus: true) }, onQuote: { put(quoteDraft(text, $0), focus: true) }, onRollback: canRollBack(l) ? { rollingBack = l } : nil,
                          onayButtons: approval.flatMap { o in o.offer.from == l.seq && o.at == l.seq ? Set(o.offer.sentences) : nil } ?? [])
                 // Option buttons (Composer Plus): under the answer that ends with an option list.
                 if l.kind == .assistant, let o = c.optionOffer, o.seq == l.seq, text.isEmpty, images.isEmpty, files.isEmpty { OptionButtons(offer: o) }
@@ -999,7 +999,7 @@ struct ConversationView: View {
             }.allowsHitTesting(false)
             VStack(spacing: 6) {
                 ForEach([String(localized: "Remind me to drink water in 2 minutes"), String(localized: "Find flights to Rome for next week"), String(localized: "Which chats wait for me?")], id: \.self) { s in
-                    Button { text = s; focused = true } label: { Text(s).font(.footnote) }
+                    Button { put(s, focus: true) } label: { Text(s).font(.footnote) }
                         .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                 }
             }.padding(.top, 8)
@@ -1017,7 +1017,7 @@ struct ConversationView: View {
             // starter prompts fill the composer (not send) so they can be edited first
             VStack(spacing: 6) {
                 ForEach([String(localized: "Explain this project"), String(localized: "Find and fix a bug"), String(localized: "Write tests for recent changes")], id: \.self) { s in
-                    Button { text = s; focused = true } label: { Text(s).font(.footnote) }
+                    Button { put(s, focus: true) } label: { Text(s).font(.footnote) }
                         .buttonStyle(.bordered).buttonBorderShape(.capsule).controlSize(.small)
                 }
             }.padding(.top, 8)
@@ -1032,7 +1032,7 @@ struct ConversationView: View {
         let hot = contextHot(share)
         let canCompact = c.commands.contains { $0.name == "compact" } && !c.running
         // project folder first, like the desktop status bar, so the cwd stays visible once the transcript fills up
-        let folder = c.currentSess.map { ($0.cwd as NSString).lastPathComponent }
+        let folder = damon ? assistantName : c.currentSess.map { ($0.cwd as NSString).lastPathComponent } // Damon's folder is ~/Assistant
         let parts = [folder, c.shownModel, ctx, c.usage.map(usageText)].compactMap { $0 }.filter { !$0.isEmpty }
         return Text(parts.joined(separator: " · ")).font(.caption2.monospacedDigit()).foregroundStyle(hot ? AnyShapeStyle(.orange) : AnyShapeStyle(.tertiary)).lineLimit(1).padding(.horizontal).padding(.bottom, 4)
             .contentShape(Rectangle())
@@ -1061,7 +1061,7 @@ struct ConversationView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(suggestions) { cmd in
-                    Button { text = "/\(cmd.name) " } label: {
+                    Button { put("/\(cmd.name) ") } label: {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("/\(cmd.name)").font(.callout.monospaced()) + Text(cmd.hint.map { "  \($0)" } ?? "").font(.caption).foregroundColor(.secondary)
                             if !cmd.desc.isEmpty { Text(cmd.desc).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
@@ -1199,7 +1199,7 @@ struct ConversationView: View {
             }
             // Next message prediction (Composer Plus): the guess for this chat, over an empty composer; a tap puts it in.
             if let p = c.prediction, text.isEmpty, images.isEmpty, files.isEmpty, !c.running, c.optionOffer == nil {
-                Button { text = p.text; c.prediction = nil; focused = true } label: {
+                Button { put(p.text, focus: true); c.prediction = nil } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "sparkles").font(.caption).foregroundStyle(.secondary)
                         Text(verbatim: p.text).font(.subheadline).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
@@ -1214,7 +1214,7 @@ struct ConversationView: View {
             }
             // Complete while typing (Composer Plus): how the message may go on; a tap adds it at the end.
             if let g = guess, let rest = completionRest(typed: text, asked: g.asked, completion: g.completion) {
-                Button { text += rest; guess = nil; focused = true } label: {
+                Button { put(text + rest, focus: true); guess = nil } label: {
                     HStack(spacing: 6) {
                         Image(systemName: "text.cursor").font(.caption).foregroundStyle(.secondary)
                         (Text(verbatim: "…") + Text(verbatim: rest.trimmingCharacters(in: .whitespaces))).font(.subheadline).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
@@ -1229,7 +1229,7 @@ struct ConversationView: View {
             }
             // while a turn runs, sending queues the next turn like desktop's default busy-Enter; the queue dock's "Send now" steers
             // While the Mac makes the branch, the field takes no text (the sent message is on its way).
-            TextField(c.branching ? "Creating branch…" : c.newBranch ? "First message on a new branch…" : c.running ? "Queue a message…" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4).disabled(c.branching)
+            TextField(c.branching ? "Creating branch…" : c.newBranch ? "First message on a new branch…" : c.running ? "Queue a message…" : damon ? "Ask \(assistantName)" : "Ask DeepSeek", text: $text, axis: .vertical).lineLimit(1...6).focused($focused).padding(.horizontal, 4).disabled(c.branching)
                 // A new field after each text that the app writes (`put`): the field shows that text, not the old one.
                 .id(field)
             HStack(spacing: 10) {
@@ -1299,7 +1299,7 @@ struct ConversationView: View {
     @ViewBuilder private var planButton: some View {
         let on = planOn(c.currentSess?.plan), drafted = text.range(of: #"^/plan(?=$|\s)"#, options: .regularExpression) != nil
         Button {
-            if on { c.run { try await c.leavePlan() } } else { text = planToggled(text) }
+            if on { c.run { try await c.leavePlan() } } else { put(planToggled(text)) }
             UISelectionFeedbackGenerator().selectionChanged()
         } label: {
             Image(systemName: "list.bullet.clipboard").font(.footnote.weight(.medium))
@@ -1355,8 +1355,8 @@ struct ConversationView: View {
         .buttonStyle(.plain).opacity(canSend || c.running || (icon == "play.fill") ? 1 : 0.3)
     }
 
-    /// The app writes the message field (an improvement, its Undo, a sheet's text, a send). A new field (`.id(field)`) shows
-    /// it: while the field has the focus, iOS can keep the old text on screen (pending autocorrection or input method text)
+    /// Every text that the app writes into the message field (an improvement and its Undo, a prediction, a completion, a
+    /// starter, a sheet's text, a send) goes through here. A new field (`.id(field)`) shows it: while the field has the focus, iOS can keep the old text on screen (pending autocorrection or input method text)
     /// although `text` changed, and Send then sends the text that was not shown. The new field takes the focus of the old one.
     private func put(_ t: String, focus: Bool = false) {
         let keep = focused || focus
@@ -1568,18 +1568,24 @@ struct ApproveButtons: View {
         let busy = c.current.map { c.optionBusy.contains($0) } ?? true
         let w = approveWords(macLang: c.macLang)
         VStack(alignment: .leading, spacing: 6) {
+            // One quiet card per sentence (the Mac's outlined button: thin accent border, the sentence as plain text), with
+            // its own Onayla button that never wraps. The sentence is text, not a tinted link.
             ForEach(offer.sentences, id: \.self) { s in
-                Button { UISelectionFeedbackGenerator().selectionChanged(); asking = c.current.map { ($0, s) } } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Text(verbatim: w.button).bold().fixedSize()
-                        Text(verbatim: s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                VStack(alignment: .trailing, spacing: 8) {
+                    Text(verbatim: s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression))
+                        .font(.subheadline).foregroundStyle(Color.secondary).multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityHidden(true) // the button below reads the whole sentence
+                    Button { UISelectionFeedbackGenerator().selectionChanged(); asking = c.current.map { ($0, s) } } label: {
+                        Text(verbatim: w.button).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize()
                     }
-                    .font(.subheadline).frame(maxWidth: .infinity, alignment: .leading)
+                    .buttonStyle(.borderedProminent).controlSize(.small)
+                    .disabled(busy)
+                    .accessibilityLabel(Text(verbatim: "\(w.button): \(s)"))
+                    .accessibilityHint(Text(verbatim: w.hint))
                 }
-                .buttonStyle(.bordered).tint(.accentColor)
-                .disabled(busy)
-                .accessibilityLabel(Text(verbatim: "\(w.button): \(s)"))
-                .accessibilityHint(Text(verbatim: w.hint))
+                .padding(12)
+                .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Color.accentColor.opacity(0.6), lineWidth: 1))
             }
         }
         .accessibilityElement(children: .contain)

@@ -55,6 +55,13 @@ assert.match(wand, /put\(u\.before\); improved = nil/);
 assert.doesNotMatch(wand, /\btext = /, 'the wand writes the field only through put');
 assert.match(conv, /\.onChange\(of: c\.draftPushed\) \{ put\(c\.draft\(c\.current\), focus: true\) \}/);
 assert.match(conv, /func send\(\) \{[^]*?put\(""\); images = \[\]/);
+// The prediction row (Furkan's screenshot, 2026-11-18: the improved-looking text stayed in the row above an empty field)
+// and every other app write go through put too; only the first read of the draft writes `text` itself.
+assert.match(conv, /Button \{ put\(p\.text, focus: true\); c\.prediction = nil \}/);
+assert.deepEqual([...conv.matchAll(/(?:\{ |; |^\s*)text (?:=|\+=) /gm)].length, 2, 'text is written only in onAppear and in put');
+// Damon's words: the empty field says Ask Damon and the line under the composer says Damon, not the folder (~/Assistant).
+assert.match(conv, /damon \? "Ask \\\(assistantName\)" : "Ask DeepSeek"/);
+assert.match(conv, /let folder = damon \? assistantName : c\.currentSess\.map/);
 
 // The RPCs that only the Agents screen used are not allowed now; the chat's goal, preset, permission and command RPCs
 // stay. Each RPC that Tether calls by name is in the allowlist.

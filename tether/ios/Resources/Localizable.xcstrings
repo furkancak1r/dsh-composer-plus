@@ -1352,6 +1352,23 @@
         }
       }
     },
+    "Ask %@": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ask %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@’a sorun"
+          }
+        }
+      }
+    },
     "Ask DeepSeek": {
       "extractionState": "manual",
       "localizations": {
