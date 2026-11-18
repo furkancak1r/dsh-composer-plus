@@ -2918,10 +2918,14 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     const quietStep = (n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks) && !n.data.blocks.some((b) => b?.kind === 'tool-call')
       && /^\[quiet\]$/i.test(n.data.blocks.filter((b) => b?.kind === 'text').map((b) => String(b.text ?? '')).join('').trim());
     const quietRowKeys = (chat) => [...(chat?.nodes?.values?.() ?? [])].filter(quietStep).map((n) => n.key);
-    /** The turns whose last step is a quiet reply: dsh's turn tail shows that reply's Copy/time row (quietTails). */
+    /** The turns whose closing reply is quiet: dsh's turn tail shows the Copy/time row of the turn's last step with text
+     * (its `closing`), so that step decides (quietTails). */
+    const hasText = (n) => n.data.blocks.some((b) => b?.kind === 'text' && String(b.text ?? '').trim() !== '');
     const quietTurnsOf = (chat) => {
       const last = new Map();
-      for (const n of chat?.nodes?.values?.() ?? []) if (n?.kind === 'assistant-step' && (last.get(n.data?.turn)?.data.step ?? -Infinity) < n.data?.step) last.set(n.data.turn, n);
+      for (const n of chat?.nodes?.values?.() ?? []) {
+        if (n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks) && hasText(n) && (last.get(n.data.turn)?.data.step ?? -Infinity) < n.data.step) last.set(n.data.turn, n);
+      }
       return [...last].filter(([, n]) => quietStep(n)).map(([turn]) => turn);
     };
     const answerRowKeys = (chat) => {

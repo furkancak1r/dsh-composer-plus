@@ -164,6 +164,8 @@ stores.set('s-quiet', storeOf([
   step('12:3', 12, 3, '[quiet]', 'tool'), // a tool step: process rules, not this one
   step('13:1', 13, 1, 'Real answer.'), // a real answer, then a quiet last step: the answer shows, the quiet step goes
   step('13:2', 13, 2, '[quiet]'),
+  step('14:1', 14, 1, '[quiet]'), step('14:2', 14, 2, 'think', 'tool'), // dsh's tail copies the last step with text: quiet
+  ['15:x', { key: '15:x', kind: 'assistant-step' }], // a node without data: no rule, no error
 ]));
 open = 's-quiet'; id = 's-quiet';
 const quietView = mount(() => ({ status, chatOf, t: (k) => k }));
@@ -176,7 +178,8 @@ assert.ok(css().includes(`${quietRule('13:1')}:not(`), 'the real answer before a
 assert.ok(css().includes(`${quietRule('13:2')},`) || css().includes(`${quietRule('13:2')} {`), 'the quiet last step is hidden');
 // The tail of a turn that ends quiet: only its Copy/time row goes (the tail keeps the Approve and option buttons).
 const tails = css().split('}').find((b) => b.includes('data-turn-tail')) ?? '';
-for (const turn of ['11', '13']) assert.ok(tails.includes(`[data-conversation-session="s-quiet"] [data-turn-tail="${turn}"] > [data-clock]`), `turn ${turn}: its Copy/time row goes`);
+for (const turn of ['11', '13', '14']) assert.ok(tails.includes(`[data-conversation-session="s-quiet"] [data-turn-tail="${turn}"] > [data-clock]`), `turn ${turn}: its Copy/time row goes`);
+assert.ok(!css().includes('"15'), 'a node without data gets no rule');
 assert.ok(!tails.includes('"12"'), 'a turn that ends with a reply that says more keeps its row');
 assert.match(tails, /display: none !important;/);
 quietView.unmount();

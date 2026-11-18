@@ -107,8 +107,8 @@ try {
       for (const text of HIDDEN) assert.equal((await shown(text)).length, 0, `"${text}" stays hidden`);
       assert.equal((await shown(QUIET)).length, 0, 'a reply that is only [quiet] is hidden');
       // dsh's turn tail of the quiet turn: its Copy/time row (the hidden reply's) goes; the tail itself stays in the page.
-      const tail = await chat.locator('[data-turn-tail="3"]').evaluateAll((els) => els.map((el) => Math.round(el.getBoundingClientRect().height)));
-      assert.deepEqual(tail, [0], 'the quiet turn shows no Copy/time row');
+      const tail = await chat.locator('[data-turn-tail="3"] > [data-clock]').evaluateAll((els) => els.map((el) => getComputedStyle(el).display));
+      assert.deepEqual(tail, ['none'], 'the quiet turn shows no Copy/time row');
       const otherTail = await chat.locator('[data-turn-tail="2"] > [data-clock]').evaluateAll((els) => els.filter((el) => el.getBoundingClientRect().height > 0).length);
       assert.equal(otherTail, 1, 'a turn with a reply keeps its Copy/time row');
       assert.ok(await chat.getByText('promes status?').first().isVisible(), 'your message shows');
