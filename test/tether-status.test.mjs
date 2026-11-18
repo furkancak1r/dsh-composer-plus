@@ -37,7 +37,8 @@ assert.deepEqual(PLUS.get('assistant-todos'), ['GET'], 'the phone only reads the
 assert.match(core, /plusCall\("assistant-todos", query: q\)/, 'the phone reads the web panel\'s route');
 assert.match(core, /guard plus\.contains\("assistant-todos"\)/, 'only when the Mac\'s gateway has the route');
 assert.match(core, /if let l = macLang \{ q\["lang"\] = l \}/, 'the tasks\' result lines in the Mac\'s language');
-assert.match(ui, /if c\.plus\.contains\("assistant-todos"\), c\.current != nil, c\.current == c\.assistantId/, 'the button shows only in the Damon chat');
+assert.match(ui, /private var damon: Bool \{ c\.current != nil && c\.current == c\.assistantId \}/);
+assert.match(ui, /if damon, c\.plus\.contains\("assistant-todos"\) \{/, 'the button shows only in the Damon chat');
 
 // Data stays data: the sheet shows the Mac's texts verbatim (no Markdown, no localization lookup).
 const sheet = ui.slice(ui.indexOf('struct StatusSheet: View'), ui.indexOf('// END StatusSheet'));

@@ -22,6 +22,7 @@ const repo = fileURLToPath(new URL('..', import.meta.url));
 const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const REPLIES = ['Promes is fine.', 'GIB has no code.', 'Second result.'];
 const HIDDEN = ['RELAY-ONE from the subagent', 'RELAY-TWO from the subagent', 'chats_list'];
+const QUIET = '[quiet]'; // turn 3: a news turn whose reply is only [quiet] (the assistant has nothing to say): hidden
 
 // The assistant chat's log: the event shapes of a real dsh 0.2.2 log (texts made up).
 function chatLog(sid, cwd) {
@@ -52,6 +53,11 @@ function chatLog(sid, cwd) {
     ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }),
     ev('step/start', { turn: 2, step: 1 }), ev('user/message', two, { surfaceOp: 'append' }),
     reply(2, 1, [{ type: 'text', text: REPLIES[2] }]), ev('step/end', { turn: 2, step: 1 }), ev('turn/end', { turn: 2, reason: { kind: 'completed' } }));
+  const news = msg('[Composer Plus → Assistant news] acme finished.', { kind: 'composer-plus-assistant-news', form: 'snapshot' });
+  lines.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [news] }), ev('turn/start', { turn: 3 }),
+    ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }),
+    ev('step/start', { turn: 3, step: 1 }), ev('user/message', news, { surfaceOp: 'append' }),
+    reply(3, 1, [{ type: 'reasoning', text: 'Routine.' }, { type: 'text', text: QUIET }]), ev('step/end', { turn: 3, step: 1 }), ev('turn/end', { turn: 3, reason: { kind: 'completed' } }));
   // dsh wants the header line alone in the first zstd frame.
   return Buffer.concat([zlib.zstdCompressSync(Buffer.from(`${lines[0]}\n`)), zlib.zstdCompressSync(Buffer.from(`${lines.slice(1).join('\n')}\n`))]);
 }
@@ -99,6 +105,12 @@ try {
       for (const text of REPLIES) { const at = await shown(text); assert.equal(at.length, 1, `the reply "${text}" shows`); tops.push(at[0]); }
       assert.ok(tops[0] < tops[1] && tops[1] < tops[2], `the replies are in time order (${tops.join(' < ')})`);
       for (const text of HIDDEN) assert.equal((await shown(text)).length, 0, `"${text}" stays hidden`);
+      assert.equal((await shown(QUIET)).length, 0, 'a reply that is only [quiet] is hidden');
+      // dsh's turn tail of the quiet turn: its Copy/time row (the hidden reply's) goes; the tail itself stays in the page.
+      const tail = await chat.locator('[data-turn-tail="3"] > [data-clock]').evaluateAll((els) => els.map((el) => getComputedStyle(el).display));
+      assert.deepEqual(tail, ['none'], 'the quiet turn shows no Copy/time row');
+      const otherTail = await chat.locator('[data-turn-tail="2"] > [data-clock]').evaluateAll((els) => els.filter((el) => el.getBoundingClientRect().height > 0).length);
+      assert.equal(otherTail, 1, 'a turn with a reply keeps its Copy/time row');
       assert.ok(await chat.getByText('promes status?').first().isVisible(), 'your message shows');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);

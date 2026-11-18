@@ -37,6 +37,13 @@ assert.match(approve, /guard current == sid, let now = approvalOffer, now == off
 assert.match(approve, /try await prompt\(sentence, images: \[\]\)/, 'the exact sentence, nothing added');
 assert.match(core.slice(core.indexOf('private func deliver(')), /rpc\("session\/prompt", \["request": \["requestId": rid, "sessionId": sid, "mode": steer \? "steer" : "queue", "content": content\]\]\)/, 'sent as a user prompt');
 const buttons = ui.slice(ui.indexOf('struct ApproveButtons: View'), ui.indexOf('struct LineView: View'));
+// The look (Furkan, 2026-11-18: "Bu ne kadar çirkin bir onay butonu"): the Mac's outlined card, the sentence as plain gray
+// text (not a tinted link inside the button), and its own Onayla button on one line.
+assert.match(buttons, /Text\(verbatim: s\.replacingOccurrences[^\n]*\n\s*\.font\(\.subheadline\)\.foregroundStyle\(Color\.secondary\)/, 'the sentence is plain text');
+assert.match(buttons, /Text\(verbatim: w\.button\)\.font\(\.subheadline\.weight\(\.semibold\)\)\.lineLimit\(1\)\.fixedSize\(\)/, 'Onayla never wraps');
+assert.match(buttons, /\.buttonStyle\(\.borderedProminent\)/);
+assert.doesNotMatch(buttons, /\.buttonStyle\(\.bordered\)\.tint/, 'not the old pill with the sentence inside');
+assert.match(buttons, /\.strokeBorder\(Color\.accentColor/, 'the Mac\'s accent border');
 assert.match(buttons, /\.confirmationDialog\(Text\(verbatim: w\.confirm\)[\s\S]*c\.approve\(a\.sid, o, a\.sentence\)[\s\S]*message: \{ a in Text\(verbatim: a\.sentence\) \}/, 'one confirmation with the full sentence, then the send');
 assert.match(ui, /let approval = !\(text\.isEmpty && images\.isEmpty && files\.isEmpty\) \? nil : c\.approvalOffer/, 'only with an empty composer');
 assert.match(ui, /if let o = approval, l\.kind == \.assistant, l\.seq == o\.at \{ ApproveButtons\(offer: o\.offer\) \}/, 'under the answer');
