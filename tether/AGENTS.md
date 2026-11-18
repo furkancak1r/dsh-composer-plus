@@ -126,6 +126,15 @@ Then, on the two targets:
 - Each change to a feature of the Assistant (Damon) chat in Composer Plus also changes Tether in the same branch. When the phone cannot get it in that branch, add the gap to "Assistant chat: gaps" in `FEATURES.md` with its size.
 - Use the Mac's rule, not a second rule: port the code and share a test table (for example `test/fixtures/approval-blocks.json`, `test/fixtures/option-lists.json`), and add a check that fails when the two copies differ.
 - The assistant's name is `assistantName` in `ios/Sources/Core.swift`, the same as `ASSISTANT_NAME` in `index.js` and `client.js`. Do not write "Assistant" as its name in the UI.
+- Damon's status panel is the Damon chat's Status sheet. Its grouping is client.js `statusParts` and its Swift port `statusView`, with one table: `test/fixtures/status-panel.json`. A change of the web panel's grouping changes both and the table.
+
+## Language
+
+- Tether's words follow the Mac's Composer Plus language (`/me` `lang`): Turkish for `tr`, else English. An older Mac without `lang`: the phone's language.
+- Every text of the UI is in one table, `ios/Resources/Localizable.xcstrings`, with an `en` and a `tr` value (`test/tether-strings.test.mjs` fails on a missing key or value, or on other placeholders in `tr`). When you add a text, add its Turkish value in the same change. Do not write a second word list in Swift.
+- Where the Composer Plus web UI has the same feature, use its Turkish words (`locales/tr.json`). For a text of the web panel, use its key (for example `String(localized: "status.tasks", defaultValue: "Tasks", bundle: uiStrings)`).
+- A text from the Mac (a to-do item, a chat title, a reply) is data: show it with `Text(verbatim:)`, never as a key.
+- The iOS tests run in English (`language: en` in the scheme's test action).
 
 ## Gateway
 
