@@ -166,6 +166,16 @@ test('the Mac name goes into the QR, /pair and /me, so the phone can tell Macs a
   } finally { await t.done() }
 })
 
+test('/me gives the Composer Plus language that the Host knows, only as a locale id', async () => {
+  for (const [lang, want] of [[() => 'tr', 'tr'], [() => 'pt-BR', 'pt-BR'], [() => undefined, undefined], [() => 'x; rm -rf', undefined], [() => { throw new Error('x') }, undefined], [undefined, undefined]]) {
+    const t = await setup({ lang })
+    try {
+      const d = await pairDevice(t.gw)
+      assert.equal((await call(t.gw, 'GET', '/me', undefined, { authorization: 'Bearer ' + d.token })).json.lang, want)
+    } finally { await t.done() }
+  }
+})
+
 test('pairing gives a token; only its hash is stored; auth works', async () => {
   const t = await setup()
   try {

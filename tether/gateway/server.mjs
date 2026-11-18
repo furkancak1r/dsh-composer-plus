@@ -577,6 +577,9 @@ export function createGateway(opts = {}) {
       return a && { address: a.address, netmask: a.netmask }
     })
   const mac = opts.macName ?? macName()
+  /** `{lang}` for /me: the Composer Plus UI language that the Host knows (`opts.lang()`), so the phone shows the Composer
+   * Plus words in it; nothing without one. */
+  const meLang = () => { let v; try { v = opts.lang?.() } catch {} return typeof v === 'string' && /^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{2,8})*$/.test(v) && v.length <= 35 ? { lang: v } : {} }
   const codeTtl = opts.codeTtlMs ?? 5 * 60e3
   const approveTtl = opts.approveTtlMs ?? 120e3
   const waterfallTtl = opts.waterfallTimeoutMs ?? 10 * 60e3
@@ -870,7 +873,7 @@ export function createGateway(opts = {}) {
     track(dev, req.socket)
     if (computer) return toDsh(req, res)
     // `push`: this Mac can send Tether's notifications through APNs (it has an APNs key); an older gateway leaves it out.
-    if (req.method === 'GET' && path === '/me') return reply(res, 200, { deviceId: dev.id, name: dev.name, expiresAt: dev.expiresAt, upstream: upState, tailscale: ts.online ? ts.ip : null, mac, plus: [...PLUS.keys()], push: apns.push !== undefined })
+    if (req.method === 'GET' && path === '/me') return reply(res, 200, { deviceId: dev.id, name: dev.name, expiresAt: dev.expiresAt, upstream: upState, tailscale: ts.online ? ts.ip : null, mac, plus: [...PLUS.keys()], push: apns.push !== undefined, ...meLang() })
     if (req.method === 'POST' && path === '/push') return setPush(req, res, dev)
     if (path.startsWith('/plus/')) return plus(req, res, path.slice(6))
     if (req.method !== 'POST' || !path.startsWith('/api/')) return reply(res, 404, { error: 'not found' })

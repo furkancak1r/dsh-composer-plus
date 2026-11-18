@@ -867,7 +867,7 @@ export function unreadStore(file) {
 
 /** Mobile connect: one gateway at a time. Start and stop calls run in order, so a fast toggle never leaves two gateways or a
  * half-closed one. `upstreamUrl` gives dsh's authenticated loopback URL; it is asked again at each DSH login. */
-export function mobileGateway({ upstreamUrl, dir, about, make = createGateway, retryMs = 300 }) {
+export function mobileGateway({ upstreamUrl, dir, about, lang, make = createGateway, retryMs = 300 }) {
   let gateway, admin, error, closed = false, queue = Promise.resolve();
   const run = (fn) => (queue = queue.then(fn, fn));
   // A plugin reload starts the new gateway while the old one still closes its pairing page: wait for the port (about 3 s).
@@ -889,7 +889,7 @@ export function mobileGateway({ upstreamUrl, dir, about, make = createGateway, r
       if (gateway !== undefined || closed) return;
       error = undefined;
       try {
-        gateway = make({ dir, upstreamUrl, about });
+        gateway = make({ dir, upstreamUrl, about, lang });
         admin = `http://127.0.0.1:${await listenAdmin(gateway)}/`;
         await gateway.start();
       } catch (e) { error = String(e?.message ?? e); if (admin === undefined) await stop(); }
@@ -2323,6 +2323,7 @@ export function apply(ctx) {
       dir: process.env.DSH_MOBILE_DIR || join(home, 'storages', 'dsh-composer-plus', 'mobile'),
       upstreamUrl: () => ctx.connection.authenticatedUrl(`http://127.0.0.1:${webCtx.webServer.port}`),
       about: chatAbout,
+      lang: () => reportedLanguage(home),
     });
     mobile = gateway;
     webCtx.effect(() => {
@@ -2397,13 +2398,13 @@ export function apply(ctx) {
     else if (busy.delete(agent.id) && mobileOn === true) {
       changeUnread([agent.id], []);
       // Tether's "Turn finished" also while Tether is closed (APNs, when the gateway has a key): the agent's reply, under
-      // the Mac, the project and the chat's title (chatAbout). An Assistant news turn with nothing to say gives no push
-      // (quietNewsTurn); its green dot above stays.
+      // the Mac, the project and the chat's title (chatAbout). A completed turn with nothing to say (empty or `[quiet]`)
+      // gives no push (quietTurn); its green dot above stays.
       let reply = '', quiet = false;
       try {
         const events = agent.session?.snapshotEvents?.() ?? [];
         reply = lastReply(events);
-        quiet = quietNewsTurn(events, reply);
+        quiet = quietTurn(events, reply);
       } catch { /* no log */ }
       if (!quiet) mobile?.push('Turn finished', reply, agent.id);
     }
@@ -2463,8 +2464,8 @@ export function apply(ctx) {
   installAssistantBot(ctx, home, assistant, { outage });
   const todos = installAssistantTodos(ctx, home, assistant, { outage });
   installAssistantMorning(ctx, home, assistant, { todos });
-  const setup = installAssistantSetup(ctx, assistant, memory);
-  installMemoryImport(ctx, home, assistant, memory, setup);
+  installAssistantSetup(ctx, assistant, memory);
+  installMemoryImport(ctx, home, assistant, memory);
   installSecrets(ctx, home);
   installBackup(ctx, home);
 }
@@ -3306,6 +3307,13 @@ export function outageWatch({ health, resume, log = () => {}, now = Date.now, ti
   };
 }
 
+/** True for a provider route of AIProxy: its id or its display name in dsh's `llm` registry says so. */
+export function aiproxyProvider(provider, llm) {
+  if (!isText(provider, 200)) return false;
+  let name; try { name = llm?.listProviders?.().find((p) => p.id === provider)?.name; } catch { /* no registry */ }
+  return /aiproxy/i.test(provider) || /aiproxy/i.test(String(name ?? ''));
+}
+
 /** Resume after an AIProxy outage (Host half): the switch route, the turn end watch and the parent note. Answers the
  * handle that the Assistant status panel reads (`last()`: the chats that the newest outage continued). */
 export function installOutageResume(ctx, home, { file = join(home, 'storages', 'dsh-composer-plus', 'outage-resume.json'), timing = OUTAGE,
@@ -3342,10 +3350,7 @@ export function installOutageResume(ctx, home, { file = join(home, 'storages', '
   const onAIProxy = (session) => {
     let events = [];
     try { events = session.snapshotEvents?.() ?? get('agents')?.get?.(session.id)?.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
-    const provider = events.findLast((e) => e.type === 'request/header')?.data?.header?.config?.provider;
-    if (!isText(provider, 200)) return false;
-    let name; try { name = get('llm')?.listProviders?.().find((p) => p.id === provider)?.name; } catch { /* no registry */ }
-    return /aiproxy/i.test(provider) || /aiproxy/i.test(String(name ?? ''));
+    return aiproxyProvider(events.findLast((e) => e.type === 'request/header')?.data?.header?.config?.provider, get('llm'));
   };
   const children = new Set(); // subagents whose turn failed in an outage, until their parent's notice
   /** True for a turn end that the watch takes: it continues the chat later or calls `onLeft(id, why)`. */
@@ -7593,9 +7598,7 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
   // Before this route's first report, the language that the browser reported to the Turkish skill pack or to Resume after
   // an AIProxy outage (the same UI language), so an existing memory is not renamed with the wrong word first.
   const langFile = settingsStore(join(home, 'storages', 'dsh-composer-plus', 'memory-language.json'), (v) => (isText(v?.lang, 35) && LOCALE_ID.test(v.lang) ? { lang: v.lang } : {}));
-  const lang = ['memory-language.json', 'turkish-skill.json', 'outage-resume.json'].map((f) => {
-    try { const v = JSON.parse(readFileSync(join(home, 'storages', 'dsh-composer-plus', f), 'utf8'))?.lang; return isText(v, 35) && LOCALE_ID.test(v) ? v : undefined; } catch { return undefined; }
-  }).find(Boolean);
+  const lang = reportedLanguage(home);
   const word = memoryWord(lang);
   const store = memoryStore(dir, { beforeSave: (save) => (historyOn ? history.keep(save) : undefined), folder: folderProblem === undefined ? folder : undefined, names, word: () => word });
   // `imported` in the setting names the folder that got the copy: deleting its Genel and Projeler later does not bring the
@@ -7725,35 +7728,13 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
     if (topic === undefined) throw refused(`"${String(raw).slice(0, 60)}" cannot be a topic name: use a short word or two, such as "deploy" or "api".`);
     return topic;
   };
-  /** Assistant setup's gate (`block(fn)`): `fn(<root chat id>)` gives a reason while that chat must not save notes (the
-   * assistant chat before its Obsidian vault is ready), else undefined. */
-  let blocked = async () => undefined;
-  /** The root chat of `agent`: up the live agents, then up the saved chat headers for a parent that dsh's agent list
-   * does not have any more (a gone subagent between a nested subagent and its root chat). At most 16 levels. */
-  const savedRoot = async (agent) => {
-    let at = rootOf(agent.id); const seen = new Set([at]);
-    for (let i = 0; i < 16; i++) {
-      // A live agent's header (rootOf stopped there: it has no parent) is the answer; only a gone one is read from disk.
-      const live = at === agent.id ? agent : get('agents')?.get?.(at);
-      let parent = live?.session?.header?.parentSession;
-      if (live === undefined) {
-        try { const o = await ctx.sessionQuery.observeSession(at, { projectionMode: 'none' }); try { parent = o.header?.parentSession; } finally { o[Symbol.dispose]?.(); } } catch { parent = undefined; }
-      }
-      if (!isText(parent) || seen.has(parent)) return at;
-      at = rootOf(parent); seen.add(at);
-    }
-    return at;
-  };
-  /** Every memory tool refuses in a chat with the memory off (also for a dsh without `tools.restrict`), before it reads or
-   * writes anything, the global memory too. A tool that saves also refuses while the gate blocks the chat's root chat. */
-  /** Why this agent's chat may not save a note now (the memory is off for the chat, or the gate blocks it), or undefined. */
-  const refusal = async (agent) => {
-    if (offFor(agent?.id)) return 'The project memory is switched off for this chat. Do not use the memory tools here.';
-    return isText(agent?.id) ? blocked(await savedRoot(agent)) : undefined;
-  };
+  /** Why this agent's chat may not save a note now (the memory is switched off for the chat), or undefined. Every memory
+   * tool refuses in such a chat (also for a dsh without `tools.restrict`), before it reads or writes anything, the global
+   * memory too. */
+  const refusal = async (agent) => (offFor(agent?.id) ? 'The project memory is switched off for this chat. Do not use the memory tools here.' : undefined);
   const guarded = (tool) => ({ ...tool, execute: async (args, exec) => {
-    if (offFor(exec?.agent?.id)) throw refused('The project memory is switched off for this chat. Do not use the memory tools here.');
-    if (tool.name !== 'memory_recall') { const why = await refusal(exec?.agent); if (why !== undefined) throw refused(why); }
+    const why = await refusal(exec?.agent);
+    if (why !== undefined) throw refused(why);
     return tool.execute(args, exec);
   } });
   const tools = [
@@ -7841,8 +7822,6 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
     const cwd = folderOf(header);
     const through = events.at(-1)?.seq;
     if (!on || cwd === undefined || through === undefined) return;
-    // A chat that the gate blocks is not read now; its cursor stays, so the review reads these lines when it is ready.
-    if (await blocked(id) !== undefined) return;
     const since = (await cursors.read())[id];
     if (Number.isSafeInteger(since) && through <= since) return;
     // The user's answers on question cards count as the user's words: the user often gives a decision there.
@@ -8464,7 +8443,7 @@ export function installMemory(ctx, home, dir = join(home, 'storages', 'dsh-compo
       } catch (error) { return json({ error: String(error?.message ?? error) }, Number.isInteger(error?.status) ? error.status : 500); }
     },
   });
-  return { store, history, ready, historyReady, review, sectionFor, tools, state: answer, setup, refusal, block: (fn) => { blocked = fn; } };
+  return { store, history, ready, historyReady, review, sectionFor, tools, state: answer, setup, refusal };
 }
 
 /** Backup (dsh-backup's work, see backup.mjs): the archives in one folder, `backups` in the dsh home (not archived; a
@@ -9217,13 +9196,20 @@ export function plannedStepChunks(found) {
   return chunks;
 }
 
-/** The `llm/stream` listener: an agent request of a chat (it has a session, no purpose such as compaction, and offers the
- * plan tool) with one ready step gets the step's message; every other request goes on to the model. */
-export function plannedStream(options, next) {
+/* Planned steps are off in AIProxy chats: AIProxy's Claude Code bridge pins the tool call ids of its last answer, and a
+ * step message that it did not write makes it answer 409 session_mismatch for that chat from then on (17 Nov 2026: 2 of
+ * 2 chats). The provider of a step being prepared: dsh 0.2.2+ gives its model selection; older dsh routes the request by
+ * the agent's options (its own `provider` prompt variable reads the same). */
+const stepProvider = (c) => c?.modelSelection?.provider ?? c?.agent?.options?.provider;
+
+/** The `llm/stream` listener: an agent request of a chat (it has a session, no purpose such as compaction, offers the
+ * plan tool and does not go to AIProxy) with one ready step gets the step's message; every other request goes on to the
+ * model, so a plan of an AIProxy chat (also one made before) runs no step. `llm`: dsh's registry (provider names). */
+export function plannedStream(options, next, llm) {
   let found;
   try {
     const tools = Array.isArray(options?.tools) ? new Set(options.tools.map((t) => t?.name)) : undefined;
-    if (options?.sessionId !== undefined && options.purpose === undefined && tools?.has(PLANNED_TOOL)) found = nextPlannedStep(options.messages, tools);
+    if (options?.sessionId !== undefined && options.purpose === undefined && tools?.has(PLANNED_TOOL) && !aiproxyProvider(options.provider, llm)) found = nextPlannedStep(options.messages, tools);
   } catch { found = undefined; }
   if (found === undefined) return next();
   const chunks = plannedStepChunks(found);
@@ -9413,6 +9399,7 @@ export function installSecrets(ctx, home, dir = join(home, 'storages', 'dsh-comp
 /** Planned steps (Host half): the switch route (off by default), and while it is on: the tool, the prompt section and the
  * `llm/stream` listener, all in one fiber that switching off disposes. */
 export function installPlannedSteps(ctx, home, file = join(home, 'storages', 'dsh-composer-plus', 'planned-steps.json')) {
+  const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const sw = mobileSwitch(file);
   let on = false;
   let fiber;
@@ -9429,7 +9416,10 @@ export function installPlannedSteps(ctx, home, file = join(home, 'storages', 'ds
       }, required: ['id', 'tool', 'arguments'] } },
     }, required: ['steps'] },
     output: textOutput,
-    async execute(args) {
+    async execute(args, exec) {
+      // The request that made this call is the agent's newest one (its header is written before the answer).
+      let provider; try { provider = exec?.agent?.session?.snapshotEvents?.().findLast((e) => e.type === 'request/header')?.data?.header?.config?.provider; } catch { /* no log */ }
+      if (aiproxyProvider(provider, get('llm'))) throw new Error('Planned steps do not run in a chat on AIProxy. Run each step yourself.');
       const steps = parsePlan(args);
       return `Plan accepted: ${steps.map((s) => `${s.id} (${s.tool}, after ${s.after}, when ${s.when})`).join('; ')}. Composer Plus runs a step without a model call when its predecessor finished and its guard holds. A failed guard, two ready steps, the last step or a new user message gives the turn back to you.`;
     },
@@ -9438,9 +9428,11 @@ export function installPlannedSteps(ctx, home, file = join(home, 'storages', 'ds
     on = next;
     if (on && fiber === undefined && typeof ctx.inject === 'function') {
       fiber = ctx.inject(['tools', 'systemPrompt'], (sub) => {
-        sub.tools.register(tool);
-        sub.systemPrompt.section({ name: 'composer-plus:planned-steps', order: 660, interpolate: false, text: () => PLANNED_SECTION });
-        sub.on('llm/stream', plannedStream);
+        // AIProxy chats get neither the tool nor the section. ponytail: dsh before 0.2.2 ignores `when`, so the tool stays
+        // listed there; the section is gone and no step runs (plannedStream).
+        sub.tools.register(tool, { when: (c) => !aiproxyProvider(stepProvider(c), get('llm')) });
+        sub.systemPrompt.section({ name: 'composer-plus:planned-steps', order: 660, interpolate: false, text: (c) => (aiproxyProvider(stepProvider(c), get('llm')) ? '' : PLANNED_SECTION) });
+        sub.on('llm/stream', (options, next) => plannedStream(options, next, get('llm')));
       });
     } else if (!on) { fiber?.dispose?.(); fiber = undefined; }
   };
@@ -9689,6 +9681,14 @@ const turkishSkillHosts = () => {
 };
 const TURKISH_SKILL_LIMITS = { files: 20, file: 256 * 1024, total: 1024 * 1024 };
 const TURKISH_SKILL_FILE = /^[A-Za-z0-9_-][A-Za-z0-9._-]*(?:\/[A-Za-z0-9_-][A-Za-z0-9._-]*)*\.md$/;
+/** The UI language that a browser reported last (Project memory, the Turkish skill pack and Resume after an AIProxy
+ * outage keep it, owner-only), or undefined. Tether reads it through the gateway's `/me` (`lang`) for its Composer Plus
+ * words (the Approve button). */
+export function reportedLanguage(home) {
+  return ['memory-language.json', 'turkish-skill.json', 'outage-resume.json'].map((f) => {
+    try { const v = JSON.parse(readFileSync(join(home, 'storages', 'dsh-composer-plus', f), 'utf8'))?.lang; return isText(v, 35) && LOCALE_ID.test(v) ? v : undefined; } catch { return undefined; }
+  }).find(Boolean);
+}
 /** True for a Turkish UI language id (`tr`, `tr-TR`). */
 export const isTurkishLanguage = (id) => typeof id === 'string' && /^tr(?:-|$)/i.test(id);
 
@@ -10826,7 +10826,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   return { ready, tools, ensure, isOn: () => on, id: () => assistantId, isAssistant, tasks, endedTasks, addTools, folder, rootOf, onSwitch: (fn) => { switched.add(fn); } };
 }
 
-/* Memory import (part of Assistant setup): once the setup is ready, the onboarding shows a ready prompt that the user can
+/* Memory import (part of Assistant onboarding): with or without Obsidian, the onboarding shows a ready prompt that the user can
  * read and change, and one click sends it to the assistant. The assistant gives the work to a background subagent. That
  * subagent has two tools that only the assistant's subagents get: memory_import_sources lists the agent memory files of
  * the user (read only, a secret-looking line is cut out before the text leaves the Host), and memory_import saves facts
@@ -10953,8 +10953,8 @@ export async function importSources({ projects, home, dshHome, skip = [], limits
 }
 
 /** Memory import (Host half): the two tools for the assistant's subagents. `assistant`: installAssistant's handle;
- * `memory`: installMemory's handle; `setup`: installAssistantSetup's handle (the import runs only when it is ready). */
-export function installMemoryImport(ctx, home, assistant, memory, setup, { userHome = homedir(), limits = IMPORT_LIMITS } = {}) {
+ * `memory`: installMemory's handle. Obsidian is not needed: the facts go to the memory folder in use. */
+export function installMemoryImport(ctx, home, assistant, memory, { userHome = homedir(), limits = IMPORT_LIMITS } = {}) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   /** The caller is a subagent of the assistant chat (a nested one too). */
   const mine = (exec) => exec?.agent?.session?.header?.origin === 'subagent' && assistant.isOn() && assistant.rootOf(exec.agent.id) === assistant.id();
@@ -10968,10 +10968,8 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
     const privateDirs = vault === undefined ? [] : ['Gizli', 'Private', 'private'].map((n) => join(vault, n));
     return (await Promise.all([...folders, ...privateDirs].map((f) => realpath(f).catch(() => undefined)))).filter(Boolean);
   };
-  // The setup gate, and Project memory's own refusal for this chat (switched off for the chat, or blocked).
+  // Project memory's own refusal for this chat (switched off for the chat).
   const ready = async (exec) => {
-    const s = await setup.check().catch(() => undefined);
-    if (s?.ready !== true) throw refused(SETUP_BLOCKED);
     const why = await memory.refusal?.(exec?.agent);
     if (why !== undefined) throw refused(why);
   };
@@ -11101,17 +11099,16 @@ export function installMemoryImport(ctx, home, assistant, memory, setup, { userH
   return { tools, importSources, mount };
 }
 
-/* Assistant setup (part of Assistant): the assistant keeps its memory and the user's notes in an Obsidian vault, so
- * Obsidian is a required part. The check reads the disk only (Obsidian's default install folders and its own vault list,
- * obsidian.json): Obsidian is installed, it knows the assistant folder (or a folder above it) as a vault, Project memory
- * is on with its memory folder in that vault (from this dsh run on), and the assistant folder has its rules file
- * AGENTS.md. Until each part is ready, the client shows a setup card in the assistant chat, and the memory tools and the
- * review save no note of the assistant chat or its subagents (other chats keep their memory). Nothing is downloaded or
- * installed: the card links to Obsidian's download page. The folder name is never fixed: a renamed folder that ~/Assistant
- * links to passes when Obsidian knows its real path. */
+/* Assistant setup (part of Assistant, optional): the assistant can keep its memory and the user's notes in an Obsidian
+ * vault. The check reads the disk only (Obsidian's default install folders and its own vault list, obsidian.json):
+ * Obsidian is installed, it knows the assistant folder (or a folder above it) as a vault, Project memory is on with its
+ * memory folder in that vault (from this dsh run on), and the assistant folder has its rules file AGENTS.md. Until each
+ * part is ready, the client offers a setup card in the assistant chat that the user can hide. The memory never waits for
+ * it: without Obsidian (17 Nov 2026: the owner does not want it), the assistant chat saves its notes in the memory folder
+ * in use, as every chat does. Nothing is downloaded or installed: the card links to Obsidian's download page. The folder
+ * name is never fixed: a renamed folder that ~/Assistant links to passes when Obsidian knows its real path. */
 export const ASSISTANT_SETUP_PATH = '/api/composer-plus.assistant-setup';
 export const OBSIDIAN_DOWNLOAD = 'https://obsidian.md/download';
-export const SETUP_BLOCKED = 'Composer Plus → Assistant setup: Obsidian and its vault are not ready, so this chat saves no memory yet. Tell the user to finish the setup card above the input (Check again), then try again.';
 /** Obsidian's app in its default install folders. */
 export function obsidianApps(platform = osPlatform(), home = homedir(), env = process.env) {
   if (platform === 'darwin') return ['/Applications/Obsidian.app', join(home, 'Applications', 'Obsidian.app')];
@@ -11178,12 +11175,10 @@ This folder is the user's Obsidian vault. The assistant works in it. Write your 
 - Never read, search or change a folder that this file marks as private.
 `;
 
-/** Assistant setup (Host half): the check route, Set up, and the memory gate. `assistant`: installAssistant's handle;
- * `memory`: installMemory's handle. */
+/** Assistant setup (Host half): the check route and Set up. `assistant`: installAssistant's handle; `memory`:
+ * installMemory's handle. */
 export function installAssistantSetup(ctx, assistant, memory, { home = homedir(), apps, configs } = {}) {
   const check = () => assistantSetup({ folder: assistant.folder, memory, home, ...(apps === undefined ? {} : { apps }), ...(configs === undefined ? {} : { configs }) });
-  // The memory tools and the review of the assistant chat (and its subagents: their root chat) save nothing until it is ready.
-  memory?.block?.(async (rootId) => (assistant.isOn() && isText(rootId) && rootId === assistant.id() && !(await check().then((s) => s.ready, () => false)) ? SETUP_BLOCKED : undefined));
   let fixing = Promise.resolve();
   /** Set up: what Composer Plus may do itself. The memory folder goes into the vault (`<assistant folder>/<name>` unless
    * the saved one is already in it, with the subfolder names `dirs` of the UI language unless it has its own) and Project
@@ -11349,13 +11344,13 @@ function turnPrompt(agent) {
 // The prompts that start a turn of their own: yours, a scheduled delivery, and Assistant news (only in the assistant chat:
 // a news turn after the morning summary is not the morning summary).
 const TURN_PROMPTS = ['user', 'schedule', NEWS_SOURCE];
-/** Tether's Turn finished push skips an Assistant news turn with nothing to say: the first own prompt (TURN_PROMPTS) of the
- * newest turn is the news note, and the turn's `reply` (lastReply) is empty or only `[quiet]`. A turn that you start and a
- * news turn with a text reply still push (2026-11-15: news turns that ended with `[quiet]` pushed to the iPhone). */
-export function quietNewsTurn(events, reply) {
-  const start = events.findLastIndex((e) => e.type === 'turn/start');
-  const prompt = events.slice(start + 1).find((e) => e.type === 'user/message' && TURN_PROMPTS.includes(e.data?.source?.kind));
-  return prompt?.data.source.kind === NEWS_SOURCE && /^(?:\[quiet\])?$/i.test(reply.trim());
+/** Tether's Turn finished push skips a turn with nothing to say: the newest turn ended `completed` and its `reply`
+ * (lastReply), spaces trimmed, is empty or only `[quiet]` (any case), whatever started the turn. dsh refuses an empty
+ * reply, so the Assistant writes `[quiet]` for routine news, also in a turn that an outage note or a typed message
+ * started (2026-11-17: those turns pushed). Any other reply, and a turn that failed, stopped or hit the token limit,
+ * still pushes; approvals, questions and errors have their own pushes (the gateway). */
+export function quietTurn(events, reply) {
+  return events.findLast((e) => e.type === 'turn/end')?.data?.reason?.kind === 'completed' && /^(?:\[quiet\])?$/i.test(reply.trim());
 }
 
 /** Host half of Assistant apart from chats, Assistant always free and Assistant news from chats. `assistant` is the handle of

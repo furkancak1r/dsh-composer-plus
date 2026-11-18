@@ -267,14 +267,26 @@ func macKey(_ key: String, _ fp: String?, legacy: String?) -> String {
     return "\(key).\(fp.prefix(16))"
 }
 
-/// Splits on triple-backtick fences: prose blocks and code blocks; lang is the fence's language tag ("" if none).
+/// Splits on fence lines (``` or ~~~, 3 or more; the close is the same character, at least as long, with no info): prose
+/// blocks and code blocks; lang is the fence's info string ("" if none). An open fence runs to the end. The same fence
+/// rule as the Approve button (`onayBlocks`), so an `onay` block is the code block that its button replaces.
 func mdBlocks(_ s: String) -> [(code: Bool, text: String, lang: String)] {
-    s.components(separatedBy: "```").enumerated().compactMap { i, part in
-        if i % 2 == 0 { let t = part.trimmingCharacters(in: .newlines); return t.isEmpty ? nil : (false, t, "") }
-        var lines = part.components(separatedBy: "\n")
-        let lang = lines.count > 1 ? lines.removeFirst().trimmingCharacters(in: .whitespaces) : ""
-        return (true, lines.joined(separator: "\n").trimmingCharacters(in: .newlines), lang)
+    var out: [(code: Bool, text: String, lang: String)] = [], prose: [String] = []
+    var fence: (mark: String, lang: String, body: [String])?
+    func flush() { let t = prose.joined(separator: "\n").trimmingCharacters(in: .newlines); if !t.isEmpty { out.append((false, t, "")) }; prose = [] }
+    for line in s.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n") {
+        // ponytail: any indent opens a code block here (a fence in a nested list); only the Approve rule needs 0–3 spaces.
+        let f = fenceLine(String(line.drop { $0 == " " || $0 == "\t" }))
+        if let open = fence {
+            if let f, f.mark.first == open.mark.first, f.mark.count >= open.mark.count, f.info.isEmpty {
+                out.append((true, open.body.joined(separator: "\n").trimmingCharacters(in: .newlines), open.lang)); fence = nil
+            } else { fence?.body.append(line) }
+        } else if let f { flush(); fence = (f.mark, f.info, []) }
+        else { prose.append(line) }
     }
+    if let open = fence { out.append((true, open.body.joined(separator: "\n").trimmingCharacters(in: .newlines), open.lang)) }
+    flush()
+    return out
 }
 
 /// One prose line classified for block rendering (headings, lists, quotes, rules); inline syntax stays for AttributedString.
@@ -817,6 +829,165 @@ func chatOffer(_ events: [J], from: Int = 0) -> OptionOffer? {
     return options.isEmpty ? nil : OptionOffer(seq: seq, latest: latest, options: options)
 }
 
+/// Approve button (Composer Plus `approveButton`): the Mac's rule, ported from client.js `onayBlocks`, `approvable` and
+/// `turnApprovals`. The expressions are client.js APPROVAL_CHARS, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_SCOPE_OFF,
+/// APPROVAL_LIVE_WORD, DEPLOY_ASK and DEPLOY_LINE (JS `[^]` written as `[\s\S]`); test/tether-approve.test.mjs fails
+/// when they differ, and test/fixtures/approval-blocks.json is one table for both apps.
+let approvalMax = 500
+private let approvalChars = try! NSRegularExpression(pattern: #"^[\x20-\x7E\n\tçğıöşüâîûÇĞİÖŞÜÂÎÛ‘’“”–—…→«»]*$"#)
+private let approvalHold = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])(?:(?<!\p{L}{2,20}(?:(?<!l)[ae]r|[ıiuü]r|m[ae]z)s[ae]n?\s{1,3})(?:dur|durdur|durdurun|durun)|bekle|bekleyin|bekleyelim|beklesin|iptal\p{L}*|ertele\p{L}*|vazgeç\p{L}*|hayır|stop|cancel|do not|don't|onay\p{L}*\s{1,3}geri\s{1,3}(?:al|çek)\p{L}*|onaylam[ıi]yorum|onaylamad[ıi]m|onay\s{1,3}verm(?:edim|iyorum)|(?:şimdi|hemen|simdi)\s{1,3}(?:yapma|yapmayın|olmaz)|deploy\p{L}{0,4}(?:['’]\p{L}{1,4})?(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}(?:etme|etmeyin|etmeyelim|etmesin|edilmesin|edilmeyecek|yapma|yapmayın|yapmayalım|yapılmasın|yapılmayacak)|(?:yayınla|(?<!yeniden\s{1,3})başlat|kur)(?:ma|mayın|mayalım|masın)|(?:yayınlan|başlatıl|kurul|alın)masın|canlıya\s{1,3}(?:alma|almayın|çıkma|çıkmayın)|(?:deploy|yayın|canlı|başlat|güncelle)\p{L}{0,8}(?:['’]\p{L}{1,4})?(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}(?:olmaz|dokunma|dokunmayın|askıya\s{1,3}al\p{L}*|yok|edilmeyecek))(?![\p{L}\p{N}])"#)
+private let approvalDur = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])(?:\p{L}{2,}[aeıiuü]r|\p{L}*(?:m[ae]z|yor|var|yok|y|[ıiuü][kzş]))s[ae](?:n|n[ıi]z)?(?:\s{1,3}\p{L}+)?\s{1,3}(?:dur|durun|durdur|durdurun)(?![\p{L}\p{N}])"#)
+private let approvalScopeOff = try! NSRegularExpression(pattern: #"canli\p{L}* +değil|(?:canli\p{L}* +)?deploy\p{L}*(?:['’]\p{L}+)? +ayri +onay\p{L}*|yalniz +yerel"#)
+private let approvalLiveWord = try! NSRegularExpression(pattern: #"deploy|canli|yayin"#)
+private let deployAsk = try! NSRegularExpression(pattern: #"^(?:onayliyorum:? *)?canli +deploy +[a-z][a-z0-9-]{1,30} +(?:[0-9a-f]{4,40}|simdi|saat)(?![\p{L}\p{N}])|^(?=[\s\S]*canli)(?=[\s\S]*deploy)[\s\S]*(?<![\p{L}\p{N}])(?=[0-9]*[a-f])[0-9a-f]{7,40}(?![\p{L}\p{N}])"#)
+private let deployLine = try! NSRegularExpression(pattern: #"^(?:onayliyorum:? {1,3})?canli {1,3}deploy {1,3}[a-z][a-z0-9-]{1,30} {1,3}(?=[0-9]*[a-f])[0-9a-f]{7,40} {1,3}(?:saat {1,3}(?:[01]\d|2[0-3])[:.][0-5]\d|simdi) {0,20}\.?$"#)
+/// client.js onayBlocks' fence line; JS `.` is written as the class of what it matches here.
+private let onayFenceRE = try! NSRegularExpression(pattern: #"^( {0,3})(?:(`{3,})([^`]*)|(~{3,})([^\n\r\u2028\u2029]*))$"#)
+/// What JS `trim()` removes: Zs, tab, VT, FF, line ends and U+FEFF.
+let jsTrim = CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\n\r\u{0B}\u{0C}\u{2028}\u{2029}\u{FEFF}"))
+/// A fence line: its mark (``` or ~~~…), its trimmed info string and whether it is indented; nil for any other line.
+func fenceLine(_ line: String) -> (mark: String, info: String, indented: Bool)? {
+    guard let g = wholeMatch(onayFenceRE, line), let mark = g[2] ?? g[4] else { return nil }
+    return (mark, (g[3] ?? g[5] ?? "").trimmingCharacters(in: jsTrim), g[1] != "")
+}
+private func hits(_ re: NSRegularExpression, _ s: String) -> Bool { re.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) != nil }
+/// The groups of a match that covers all of `s`: JS `$` (no `m` flag) is the end of the text only; ICU's `$` also matches
+/// before a last line end.
+private func wholeMatch(_ re: NSRegularExpression, _ s: String) -> [String?]? {
+    let ns = s as NSString
+    guard let m = re.firstMatch(in: s, range: NSRange(location: 0, length: ns.length)), m.range.length == ns.length else { return nil }
+    return (0..<m.numberOfRanges).map { m.range(at: $0).location == NSNotFound ? nil : ns.substring(with: m.range(at: $0)) }
+}
+/// client.js passesGate: Auto review's deploy gate refuses an approval with a hold or stop word, and a live deploy approval
+/// that is not its strict line; such a block gets no button.
+private func passesGate(_ text: String) -> Bool {
+    let tr = Locale(identifier: "tr")
+    let held = { (re: NSRegularExpression) in hits(re, text.lowercased(with: tr)) || hits(re, text.lowercased()) }
+    let folded = text.precomposedStringWithCanonicalMapping.lowercased(with: tr).replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: "ş", with: "s")
+        .replacingOccurrences(of: #"[^\S\n]"#, with: " ", options: .regularExpression).trimmingCharacters(in: jsTrim)
+    let scope = approvalScopeOff.stringByReplacingMatches(in: folded, range: NSRange(location: 0, length: (folded as NSString).length), withTemplate: " ")
+    if held(approvalDur) || (hits(approvalLiveWord, scope) && held(approvalHold)) { return false }
+    return !hits(deployAsk, scope) || wholeMatch(deployLine, folded) != nil
+}
+/// client.js `approvable`: a sentence that gets a button (at most `approvalMax` UTF-16 units, only APPROVAL_CHARS).
+func approvable(_ text: String) -> Bool {
+    !text.isEmpty && text.utf16.count <= approvalMax && wholeMatch(approvalChars, text.precomposedStringWithCanonicalMapping) != nil && passesGate(text)
+}
+/// client.js `onayBlocks`: the bodies of the closed, top-level `onay` blocks of `text`, also the ones that get no button.
+func onayBlocks(_ text: String) -> [String] {
+    var out: [String] = []
+    var fence: (mark: String, approval: Bool, body: [String])?
+    for line in text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n") {
+        let g = fenceLine(line)
+        if let f = fence {
+            if let g, g.mark.first == f.mark.first, g.mark.count >= f.mark.count, g.info.isEmpty {
+                if f.approval { out.append(f.body.joined(separator: "\n").trimmingCharacters(in: jsTrim)) }
+                fence = nil
+            } else { fence?.body.append(line) }
+        } else if let g { fence = (g.mark, !g.indented && g.info.lowercased() == "onay", []) }
+    }
+    return out
+}
+/// The approval sentences that the open chat offers now (client.js chatOffer with parseApprovals and turnApprovals, read
+/// from the log): the newest turn that a rollback did not withdraw must have ended and not be stopped. Its answers and
+/// the answers of earlier turns after your newest message count, newest first; the first one with an `onay` block gives
+/// its sentences (a newest block without a button hides the older ones). A news turn or a subagent's result does not
+/// end the offer (they are not your messages); your message does. `seq`/`latest` name the offer for the shared pick guard
+/// (the same values as `chatOffer`); `from` is the answer that holds the block.
+struct ApprovalOffer: Equatable {
+    let seq: Int, latest: Int, from: Int, sentences: [String]
+    var picks: OptionOffer { OptionOffer(seq: seq, latest: latest, options: []) }
+}
+func chatApprovals(_ events: [J], from: Int = 0) -> ApprovalOffer? {
+    let spans = events.compactMap(rollbackSpan)
+    let gone = { (s: Int) in spans.contains { $0.contains(s) } }
+    var turns: [(start: Int, end: Int?, stopped: Bool, answer: Int?)] = []
+    var answers: [(seq: Int, text: String)] = [], human = -1
+    for e in events {
+        guard let seq = e["seq"] as? Int else { continue }
+        let d = e["data"] as? J
+        switch e["type"] as? String {
+        case "turn/start": turns.append((seq, nil, false, nil))
+        case "user/message":
+            let kind = (d?["source"] as? J)?["kind"] as? String
+            if kind == nil || kind == "user", !gone(seq) { human = max(human, seq) }
+        case "assistant/message":
+            let blocks = (d?["message"] as? J)?["content"] as? [J] ?? []
+            answers.append((seq, blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined()))
+            if let i = turns.indices.last, turns[i].end == nil { turns[i].answer = seq }
+        case "turn/end":
+            if let i = turns.indices.last, turns[i].end == nil {
+                let kind = (d?["reason"] as? J)?["kind"] as? String
+                turns[i].end = seq; turns[i].stopped = kind == "aborted" || kind == "interrupted"
+            }
+        default: break
+        }
+    }
+    guard let latest = turns.last?.start, let turn = turns.last(where: { !gone($0.answer ?? $0.end ?? $0.start) }),
+          let end = turn.end, !turn.stopped, (turn.answer ?? end) >= from else { return nil }
+    let seq = turn.answer ?? end
+    for a in answers.reversed() where a.seq <= seq && a.seq > human && a.seq >= from && !gone(a.seq) {
+        guard a.text.range(of: "onay", options: .caseInsensitive) != nil else { continue } // fast path: no block
+        var seen = Set<String>()
+        let bodies = onayBlocks(a.text).filter { seen.insert($0).inserted }
+        guard !bodies.isEmpty else { continue }
+        let sentences = bodies.filter(approvable)
+        return sentences.isEmpty ? nil : ApprovalOffer(seq: seq, latest: latest, from: a.seq, sentences: sentences)
+    }
+    return nil
+}
+/// The words of the Approve button: client.js `approve.*` in Turkish when the Mac's Composer Plus language is Turkish
+/// (`/me` `lang`; an older Mac: this iPhone's language), else in English.
+struct ApproveWords { let button, group, confirm, cancel, hint: String }
+func isTurkish(macLang: String?, phone: String?) -> Bool { (macLang ?? phone ?? "en").lowercased().hasPrefix("tr") }
+func approveWords(macLang: String?, phone: String? = Locale.preferredLanguages.first) -> ApproveWords {
+    isTurkish(macLang: macLang, phone: phone)
+        ? ApproveWords(button: "Onayla", group: "Bu yanıtın onay cümleleri", confirm: "Bu cümle mesajınız olarak gönderilsin mi?", cancel: "Vazgeç", hint: "Cümleyi mesajınız olarak gönderir")
+        : ApproveWords(button: "Approve", group: "Approval sentences of this answer", confirm: "Send this sentence as your message?", cancel: "Cancel", hint: "Sends the sentence as your message")
+}
+/// The assistant's name: the same in every language, and no setting changes it (index.js and client.js ASSISTANT_NAME;
+/// test/tether-approve.test.mjs checks that they agree).
+let assistantName = "Damon"
+
+/// Assistant callouts (Composer Plus `assistantCallouts`): client.js CALLOUT_KINDS and calloutOf. A quote whose first line
+/// starts with a marker is a box; `[!DETAILS] <summary>` is a closed section. The rest of the quote is the box's text.
+let calloutKinds = ["result", "problem", "approval", "questions", "important", "running", "details"]
+private let calloutMark = try! NSRegularExpression(pattern: "^\\[!(\(calloutKinds.joined(separator: "|")))\\](?=[ \\t\\n]|$)", options: .caseInsensitive)
+enum MdBlock: Equatable { case part(MdPart), callout(kind: String, title: String, lines: [String]) }
+/// The box labels of client.js `callouts.*` (Turkish when the Mac's Composer Plus language is Turkish, else English).
+func calloutLabel(_ kind: String, macLang: String?, phone: String? = Locale.preferredLanguages.first) -> String {
+    let tr = isTurkish(macLang: macLang, phone: phone)
+    switch kind {
+    case "result": return tr ? "Sonuç" : "Result"
+    case "problem": return tr ? "Sorun" : "Problem"
+    case "approval": return tr ? "Onay gerekli" : "Approval needed"
+    case "questions": return tr ? "Açık sorular" : "Open questions"
+    case "important": return tr ? "Önemli" : "Important"
+    case "running": return tr ? "Süren işler" : "Still running"
+    default: return tr ? "Ayrıntılar" : "Details"
+    }
+}
+/// mdParts with each marked quote as one callout (its quote lines without `>`).
+func mdCallouts(_ parts: [MdPart]) -> [MdBlock] {
+    // `quote`: the last line was a quote line. As on the Mac (calloutOf reads the first text of a quote), only the first
+    // line of a quote can hold the marker; the later lines of a box join it.
+    var out: [MdBlock] = [], quote = false
+    for p in parts {
+        guard case .line(let l) = p, case .quote(let s) = mdLine(l) else { out.append(.part(p)); quote = false; continue }
+        defer { quote = true }
+        if quote {
+            if case .callout(let k, let t, let ls)? = out.last { out[out.count - 1] = .callout(kind: k, title: t, lines: ls + [s]) } else { out.append(.part(p)) }
+            continue
+        }
+        let ns = s as NSString
+        if let m = calloutMark.firstMatch(in: s, range: NSRange(location: 0, length: ns.length)) {
+            let kind = ns.substring(with: m.range(at: 1)).lowercased(), rest = ns.substring(from: m.range.length).trimmingCharacters(in: .whitespaces)
+            out.append(kind == "details" ? .callout(kind: kind, title: rest, lines: []) : .callout(kind: kind, title: "", lines: rest.isEmpty ? [] : [rest]))
+        } else { out.append(.part(p)) }
+    }
+    return out
+}
+
 /// Copy session link: dsh's session URI. Pasted into another chat, dsh attaches that chat as read-only context.
 func sessionLink(_ id: String) -> String {
     let json = (try? JSONSerialization.data(withJSONObject: [id], options: [.withoutEscapingSlashes])).map { String(decoding: $0.dropFirst().dropLast(), as: UTF8.self) } ?? "\"\(id)\""
@@ -951,6 +1122,16 @@ func lastReply(_ transcript: [Line]) -> String {
         if l.kind == .assistant, !l.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return l.text }
     }
     return ""
+}
+
+/// A turn end with nothing to say gives no Turn finished notification: the turn completed (`reason` kind) and its reply,
+/// spaces trimmed, is empty or only `[quiet]` (any case). dsh refuses an empty reply, so the Assistant writes `[quiet]`
+/// for routine news (the Mac's push skips it too: `quietTurn` in index.js). A turn that failed, stopped or hit the token
+/// limit still notifies: for the open chat a failure has no other alert (sessionError only adds a chat line).
+func quietTurn(reply: String, reason: String?) -> Bool {
+    guard reason == "completed" else { return false }
+    let t = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+    return t.isEmpty || t.caseInsensitiveCompare("[quiet]") == .orderedSame
 }
 
 /// One row of the chat as DSH desktop shows it.
@@ -2026,6 +2207,26 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         try await prompt("Option \(n): \(o.text)", images: [])
         optionPicked[sid] = offer
     }
+    /// Approve button (Composer Plus `approveButton`): the open chat's approval sentences, on the terms of the option
+    /// buttons (idle, not a subagent chat, after the Mac told where a fork's own events start, not picked).
+    var approvalOffer: ApprovalOffer? {
+        guard let sid = current, currentSess?.parent == nil, !running, let from = optionsFrom, let o = chatApprovals(events, from: from),
+              optionsOpen(sid, o.picks) || optionBusy.contains(sid) else { return nil }
+        return o
+    }
+    /// Sends `sentence` of `offer` exactly as your message (Auto review accepts an approval only from your message); the
+    /// pick guard of the option buttons: one send per chat at a time, never the same offer twice, a failed send keeps it.
+    /// `sid`: the chat whose button was tapped. The offer must still be the chat's offer now: a newer block, a news turn or
+    /// another chat on screen while the confirmation showed sends nothing.
+    func approve(_ sid: String, _ offer: ApprovalOffer, _ sentence: String) async throws {
+        guard current == sid, let now = approvalOffer, now == offer, offer.sentences.contains(sentence), optionsOpen(sid, offer.picks) else { return }
+        optionBusy.insert(sid)
+        defer { optionBusy.remove(sid) }
+        try await prompt(sentence, images: [])
+        optionPicked[sid] = offer.picks
+    }
+    /// The Composer Plus language of the Mac on screen (`/me` `lang`, the UI language that dsh reported); nil for an older Mac.
+    @Published var macLang: String?
 
     // MARK: Next waiting chat (Composer Plus `nextWaiting`)
 
@@ -2633,6 +2834,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let t = me["tailscale"] as? String, isTailnet(t), t != pairing?.ts { pairing?.ts = t } // learned without re-pairing
         if let m = (me["mac"] as? String).flatMap(macLabel), m != pairing?.mac { pairing?.mac = m } // a gateway that reports its name
         plus = Set(me["plus"] as? [String] ?? []); plusKnown = true
+        if macLang != me["lang"] as? String { macLang = me["lang"] as? String }
         // Each /me (each connection) asks iOS for the token again and sends this Mac the settings: a failed first try, or a
         // Mac that lost the token (APNs said 410), heals on the next connection.
         let push = me["push"] as? Bool == true
@@ -2940,7 +3142,8 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             transcript.append(turnLine(reason: reason?["kind"] as? String, start: turnStartedAt,
                                        end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
-                notify(String(localized: "Turn finished"), lastReply(transcript), session: current)
+                let reply = lastReply(transcript)
+                if !quietTurn(reply: reply, reason: reason?["kind"] as? String) { notify(String(localized: "Turn finished"), reply, session: current) }
                 UINotificationFeedbackGenerator().notificationOccurred(.success)
             }
             running = false

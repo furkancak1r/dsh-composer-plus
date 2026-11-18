@@ -2,7 +2,7 @@
 // chat's project. The gateway puts them under this Mac's name (test/tether-gateway.test.mjs, "push: ...").
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { lastReply, mobileGateway, projectOf, quietNewsTurn, ROLLBACK_SOURCE, REWIND_SOURCE } from '../index.js';
+import { lastReply, mobileGateway, projectOf, quietTurn, ROLLBACK_SOURCE, REWIND_SOURCE } from '../index.js';
 
 const say = (seq, text) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } });
 const tool = (seq) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'toolCall', id: 't', name: 'bash' }] } } });
@@ -41,23 +41,34 @@ m.push('Turn finished', 'Fixed it.', 's1');
 assert.deepEqual(pushes, [['Turn finished', 'Fixed it.', 's1']]);
 await m.close();
 
-// An Assistant news turn with nothing to say gives no Turn finished push; your turns and news with a text reply do. The
-// turns have the shape of a real assistant log (2026-11-15): dsh logs the news note and its time context after turn/start.
-const prompt = (seq, kind) => ({ seq, type: 'user/message', data: { source: { kind }, content: [{ type: 'text', text: 'note' }] } });
+// A completed turn with nothing to say (its reply is empty or only `[quiet]`) gives no Turn finished push, whatever started
+// it; any other reply, and a turn that failed, stopped or hit the token limit, pushes. The turns have the shape of a real
+// assistant log (2026-11-15): dsh logs the prompt and its time context after turn/start. An outage note is a `user`
+// message with an rpcId (2026-11-17: its `[quiet]` turn pushed).
+const prompt = (seq, kind) => ({ seq, type: 'user/message', data: { source: { kind, ...(kind === 'user' ? { rpcId: 'r1' } : {}) }, content: [{ type: 'text', text: 'note' }] } });
 const answer = (seq, text) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'reasoning', text: 'End the turn.' }, ...(text === undefined ? [] : [{ type: 'text', text }])] } } });
-const turnOf = (seq, kind, text) => [{ seq, type: 'turn/start' }, { seq: seq + 1, type: 'agent/inbox/spliced' }, { seq: seq + 2, type: 'step/start' },
-  prompt(seq + 3, kind), prompt(seq + 4, 'time-context'), answer(seq + 5, text), { seq: seq + 6, type: 'step/end' }, { seq: seq + 7, type: 'turn/end' }];
-const pushed = (events) => !quietNewsTurn(events, lastReply(events)); // the Host's check (index.js, agent/status)
+const turnOf = (seq, kind, text, end = 'completed') => [{ seq, type: 'turn/start' }, { seq: seq + 1, type: 'agent/inbox/spliced' }, { seq: seq + 2, type: 'step/start' },
+  prompt(seq + 3, kind), prompt(seq + 4, 'time-context'), answer(seq + 5, text), { seq: seq + 6, type: 'step/end' }, { seq: seq + 7, type: 'turn/end', data: { reason: { kind: end } } }];
+const pushed = (events) => !quietTurn(events, lastReply(events)); // the Host's check (index.js, agent/status)
 const NEWS = 'composer-plus-assistant-news';
-assert.equal(pushed(turnOf(1, NEWS)), false, 'news turn, empty reply: no push');
-assert.equal(pushed([...turnOf(1, NEWS, ''), tool(9)]), false, 'news turn, only an empty text and a tool call: no push');
-assert.equal(pushed(turnOf(1, NEWS, '[quiet]')), false, 'news turn, [quiet]: no push');
-assert.equal(pushed(turnOf(1, NEWS, '  [QUIET]\n')), false, 'news turn, [quiet] in other case and spaces: no push');
-assert.equal(pushed(turnOf(1, NEWS, 'The deploy of recipe-box failed.')), true, 'news turn, real text: push');
-assert.equal(pushed(turnOf(1, NEWS, '[quiet]\nThe audit found 2 issues.')), true, 'news turn, [quiet] and more text: push');
-assert.equal(pushed([...turnOf(1, NEWS, '[quiet]'), ...turnOf(9, 'user')]), true, 'your turn after a news turn, empty reply: push');
-assert.equal(pushed(turnOf(1, 'schedule', '[quiet]')), true, 'a scheduled turn is not a news turn: push');
-// The Host gives the green dot first and pushes only when the turn is not a quiet news turn.
+for (const kind of [NEWS, 'user', 'schedule']) {
+  assert.equal(pushed(turnOf(1, kind)), false, `${kind}: empty reply: no push`);
+  assert.equal(pushed([...turnOf(1, kind, ''), tool(9)]), false, `${kind}: only an empty text and a tool call: no push`);
+  assert.equal(pushed(turnOf(1, kind, '[quiet]')), false, `${kind}: [quiet]: no push`);
+  assert.equal(pushed(turnOf(1, kind, '  [QUIET]\n')), false, `${kind}: [quiet] in other case and spaces: no push`);
+  assert.equal(pushed(turnOf(1, kind, 'The deploy of recipe-box failed.')), true, `${kind}: real text: push`);
+  assert.equal(pushed(turnOf(1, kind, '[quiet]\nThe audit found 2 issues.')), true, `${kind}: [quiet] and more text: push`);
+  assert.equal(pushed(turnOf(1, kind, 'Audit: [quiet]')), true, `${kind}: [quiet] inside a sentence: push`);
+  for (const end of ['error', 'max-tokens', 'aborted', 'interrupted']) {
+    assert.equal(pushed(turnOf(1, kind, undefined, end)), true, `${kind}: ${end}, empty reply: push`);
+    assert.equal(pushed(turnOf(1, kind, '[quiet]', end)), true, `${kind}: ${end}, [quiet]: push`);
+  }
+}
+assert.equal(pushed(turnOf(1, 'user', '[quiet]').slice(0, -1)), true, 'no turn/end yet: push');
+assert.equal(pushed([...turnOf(1, 'user', 'Fixed the login.'), ...turnOf(9, NEWS, '[quiet]')]), false, 'only the newest turn counts: quiet');
+assert.equal(pushed([...turnOf(1, NEWS, '[quiet]'), ...turnOf(9, 'user', 'Fixed the login.')]), true, 'only the newest turn counts: push');
+assert.equal(pushed([...turnOf(1, NEWS, '[quiet]'), ...turnOf(9, 'user', '[quiet]', 'max-tokens')]), true, 'only the newest turn end counts');
+// The Host gives the green dot first and pushes only when the turn has something to say.
 const host = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
-assert.match(host, /changeUnread\(\[agent\.id\], \[\]\);[\s\S]{0,600}quiet = quietNewsTurn\(events, reply\);[\s\S]{0,100}if \(!quiet\) mobile\?\.push\('Turn finished', reply, agent\.id\);/, 'the dot stays, only the push is skipped');
-console.log('tether push words: last reply of the turn (withdrawn replies left out), project name, chat id to the gateway, no push for a quiet news turn');
+assert.match(host, /changeUnread\(\[agent\.id\], \[\]\);[\s\S]{0,600}quiet = quietTurn\(events, reply\);[\s\S]{0,100}if \(!quiet\) mobile\?\.push\('Turn finished', reply, agent\.id\);/, 'the dot stays, only the push is skipped');
+console.log('tether push words: last reply of the turn (withdrawn replies left out), project name, chat id to the gateway, no push for an empty or [quiet] reply');

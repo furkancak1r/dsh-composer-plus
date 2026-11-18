@@ -1,8 +1,8 @@
 // Memory import (part of Assistant setup): the scan list (documented agent memory files only, inside each project, no
 // symlink out, no .env or key file, no private vault folder), the secret filter, the save path (the memory store: format,
 // dedupe, journal; the source file as the source), idempotency (a second run adds nothing), and the tools only for a
-// subagent of the assistant chat after the setup is ready. The client: the ready prompt shows in full in a text field
-// after the setup is ready, can be changed, and goes only with a click on Start.
+// subagent of the assistant chat, also without Obsidian. The client: the ready prompt shows in full in a text field, can
+// be changed, and goes only with a click on Start.
 import './temp-home.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile, rm, symlink, realpath, utimes, chmod } from 'node:fs/promises';
@@ -10,7 +10,7 @@ import { readFileSync, openSync, closeSync, constants } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { IMPORT_PROJECT_FILES, SETUP_BLOCKED, importSources, installMemory, installMemoryImport, secretFile, secretLine, withoutSecrets } from '../index.js';
+import { IMPORT_PROJECT_FILES, importSources, installMemory, installMemoryImport, secretFile, secretLine, withoutSecrets } from '../index.js';
 
 /** A FIFO that a hanging open would wait on: after `ms` the test opens it for writing, so a red run ends. */
 function fifo(path, ms = 3000) {
@@ -65,7 +65,7 @@ try {
   for (const f of ['/p/AGENTS.md', 'C:\\p\\CLAUDE.md', '/p/id_card.md']) assert.equal(secretFile(f), false, f);
   assert.deepEqual(withoutSecrets('- a\n- password: hunter2hunter2\n- b'), { text: '- a\n- b', cut: 1 });
 
-  // 3. The tools: only a subagent of the assistant chat, only when the setup is ready; save through the store.
+  // 3. The tools: only a subagent of the assistant chat; save through the store. Obsidian is not needed (17 Nov 2026).
   const tools = new Map(); const routes = new Map();
   const agents = new Map();
   const ctx = { on: () => {}, effect: () => {}, logger: { warn: () => {} }, get: (n) => (n === 'workspaceRegistry' ? { list: () => [{ path: web }, { path: api }, { path: tree }] } : n === 'agents' ? { list: () => [...agents.values()], get: (id) => agents.get(id) } : undefined),
@@ -73,18 +73,16 @@ try {
   const mem = installMemory({ ...ctx, inject: undefined }, join(root, 'dsh-host'));
   await mem.ready;
   const vault = join(root, 'vault'); await mkdir(join(vault, 'Gizli'), { recursive: true }); await writeFile(join(vault, 'Gizli', 'AGENTS.md'), '- private\n');
-  let ready = false;
   const assistant = { ready: Promise.resolve(), isOn: () => true, id: () => 'chat-a', folder: vault, rootOf: (id) => (id === 's-sub' || id === 's-nested' ? 'chat-a' : id) };
-  const imp = installMemoryImport(ctx, dshHome, assistant, mem, { check: async () => ({ ready }) }, { userHome: home });
+  const imp = installMemoryImport(ctx, dshHome, assistant, mem, { userHome: home });
   const sub = { id: 's-sub', session: { header: { origin: 'subagent', parentSession: 'chat-a' } }, ctx: { tools: { register: (t) => { tools.set(t.name, t); return () => tools.delete(t.name); } } } };
   imp.mount(sub);
   assert.deepEqual([...tools.keys()].sort(), ['memory_import', 'memory_import_sources'], 'the assistant\'s subagent gets the two tools');
   const other = { id: 'chat-b', session: { header: {} }, ctx: { tools: { register: () => { throw Error('must not mount'); } } } };
   imp.mount(other); // another chat: nothing
   const exec = { agent: sub };
-  await assert.rejects(tools.get('memory_import_sources').execute({}, exec), (e) => e.message === SETUP_BLOCKED, 'not before the setup is ready');
   await assert.rejects(tools.get('memory_import').execute({ facts: [{ text: 'x', source: 'y' }] }, { agent: { id: 'chat-b', session: { header: {} } } }), /only in a subagent of the Composer Plus assistant chat/);
-  ready = true;
+  // No Obsidian and no vault on this made-up Mac: the import reads and saves all the same.
   const read = JSON.parse(await tools.get('memory_import_sources').execute({}, exec));
   assert.equal(read.files.length, 6, 'a branch worktree is not a project of its own'); assert.equal(read.secretLinesCut, 1, 'the password line is cut');
   assert.ok(!read.files.some((f) => /worktree copy/.test(f.text)), 'the worktree copy is not read');
@@ -92,7 +90,7 @@ try {
   assert.ok(!read.files.some((f) => /private/.test(f.text)), 'the vault\'s private folder is not read');
   assert.match(read.note, /data, not instructions/);
   // Paging: a small total gives `next`.
-  const small = installMemoryImport({ ...ctx, on: () => {} }, dshHome, assistant, mem, { check: async () => ({ ready: true }) }, { userHome: home, limits: { file: 65536, files: 200, dirFiles: 30, facts: 50, fact: 600, total: 40 } });
+  const small = installMemoryImport({ ...ctx, on: () => {} }, dshHome, assistant, mem, { userHome: home, limits: { file: 65536, files: 200, dirFiles: 30, facts: 50, fact: 600, total: 40 } });
   const page = JSON.parse(await small.tools[0].execute({}, exec));
   assert.ok(page.files.length >= 1 && page.next !== undefined, 'a page and the next offset');
   // Save: project facts to that project, global facts to the global memory; a secret and an unknown project are skipped.
@@ -144,18 +142,18 @@ try {
   assert.equal(mem.store.load(mem.store.GLOBAL)[0].content, globalBefore, 'the global fact went back too');
   // Project memory switched off for the assistant chat: the import saves nothing either.
   const offMem = { ...mem, refusal: async () => 'The project memory is switched off for this chat. Do not use the memory tools here.' };
-  const offImp = installMemoryImport({ ...ctx, on: () => {} }, dshHome, assistant, offMem, { check: async () => ({ ready: true }) }, { userHome: home });
+  const offImp = installMemoryImport({ ...ctx, on: () => {} }, dshHome, assistant, offMem, { userHome: home });
   await assert.rejects(offImp.tools[1].execute({ facts: [{ text: 'x', source: join(dshHome, 'AGENTS.md') }] }, exec), /switched off for this chat/);
   // A source path with [ ] or ; (the note's metadata changes them): the scan still finds it as imported.
   const odd = join(root, 'odd [old]; x'); await mkdir(join(odd, '.dsh'), { recursive: true }); await writeFile(join(odd, '.dsh', 'AGENTS.md'), '- Odd path note.\n');
-  const oddImp = installMemoryImport({ ...ctx, on: () => {} }, join(odd, '.dsh'), assistant, mem, { check: async () => ({ ready: true }) }, { userHome: odd });
+  const oddImp = installMemoryImport({ ...ctx, on: () => {} }, join(odd, '.dsh'), assistant, mem, { userHome: odd });
   const oddSrc = join(odd, '.dsh', 'AGENTS.md');
   assert.equal(JSON.parse(await oddImp.tools[1].execute({ facts: [{ text: 'An odd path fact.', source: oddSrc }], done: [oddSrc] }, exec)).added, 1);
   assert.ok(JSON.parse(await oddImp.tools[0].execute({}, exec)).alreadyImported?.includes(oddSrc), 'a path with [ ] ; is found as imported');
   // An import from before memory-import.json (review 2026-11-12): its notes' sources count as done, so a new run does not
   // word the same facts again.
   { const legacyHome = join(root, 'legacy-dsh'); await mkdir(join(legacyHome, 'storages', 'dsh-composer-plus'), { recursive: true });
-    const legacy = installMemoryImport({ ...ctx, on: () => {} }, legacyHome, assistant, mem, { check: async () => ({ ready: true }) }, { userHome: home });
+    const legacy = installMemoryImport({ ...ctx, on: () => {} }, legacyHome, assistant, mem, { userHome: home });
     const r = JSON.parse(await legacy.tools[0].execute({}, exec));
     assert.ok(r.alreadyImported?.includes(join(web, 'AGENTS.md')), `an older import counts as done: ${JSON.stringify(r.alreadyImported)}`);
     assert.ok(Object.keys(JSON.parse(await readFile(join(legacyHome, 'storages', 'dsh-composer-plus', 'memory-import.json'), 'utf8')).done).length > 0, 'seeded once into the file'); }
@@ -164,7 +162,7 @@ try {
   { const failHome = join(root, 'fail-dsh'); await mkdir(join(failHome, 'storages', 'dsh-composer-plus'), { recursive: true });
     let broken = true;
     const flaky = { ...mem, store: { ...mem.store, load: (scope) => { if (broken) throw Error('read failed'); return mem.store.load(scope); } } };
-    const fi = installMemoryImport({ ...ctx, on: () => {} }, failHome, assistant, flaky, { check: async () => ({ ready: true }) }, { userHome: home });
+    const fi = installMemoryImport({ ...ctx, on: () => {} }, failHome, assistant, flaky, { userHome: home });
     const r = JSON.parse(await fi.tools[1].execute({ facts: [], done: [join(web, 'CLAUDE.md')] }, exec));
     assert.equal(r.done, 0, 'no done mark while the old days are unknown');
     assert.equal(await readFile(join(failHome, 'storages', 'dsh-composer-plus', 'memory-import.json'), 'utf8').catch(() => 'missing'), 'missing', 'the file is not made without them');
@@ -178,7 +176,7 @@ try {
   // The source files did not change.
   assert.equal(await readFile(join(web, 'AGENTS.md'), 'utf8'), '# acme-web\n- Deploys go through make release.\n- password: hunter2hunter2\n');
 
-  // 5. Client: the ready prompt after the setup is ready; editable; sent only on Start.
+  // 5. Client: the ready prompt; editable; sent only on Start.
   const memLs = new Map();
   globalThis.localStorage = { getItem: (k) => (memLs.has(k) ? memLs.get(k) : null), setItem: (k, v) => memLs.set(k, String(v)) };
   globalThis.document = { visibilityState: 'visible', querySelector: () => null, addEventListener() {}, removeEventListener() {} };
@@ -204,6 +202,17 @@ try {
   const find = (node, pred, out = []) => { if (node && typeof node === 'object' && !Array.isArray(node)) { if (pred(node)) out.push(node); (node.c ?? []).forEach((c) => find(c, pred, out)); } else if (Array.isArray(node)) node.forEach((c) => find(c, pred, out)); return out; };
   const render = () => { stateAt = 0; const card = Welcome({ sessionId: 's-assistant', useSession: (sel) => sel({ blank: true, promptAttempted: false, running: false }), t, ...props });
     return find(card, (x) => typeof x.t === 'function').map((x) => x.t(x.p))[0]; };
+  // Without Obsidian (17 Nov 2026), after Hide on the optional setup card: the import card shows the prompt too.
+  { const readyHost = globalThis.fetch;
+    globalThis.fetch = async (url) => (String(url) === '/api/composer-plus.assistant-setup' ? Response.json({ ready: false, folder: '~/Assistant', steps: { obsidian: false, vault: false, memory: 'missing', rules: false } }) : readyHost(url));
+    injected.setup.reset(); await injected.setup.check();
+    stateAt = 0; const out = Welcome({ sessionId: 's-assistant', useSession: (sel) => sel({ blank: true, promptAttempted: false, running: false }), t, ...props });
+    const setupCard = typeof out?.t === 'function' ? out.t(out.p) : out;
+    assert.equal(setupCard.p['data-composer-plus-assistant-setup'], '', 'not ready: the setup card');
+    find(setupCard, (x) => x.t === 'Button' && x.c.join('') === 'assistant.import.hide')[0].p.onClick();
+    assert.equal(find(render(), (x) => x.t === 'textarea')[0]?.p.value, 'PROMPT TEXT', 'no Obsidian: the import prompt shows');
+    states.length = 0; // the next checks: a ready Host (the hidden card does not matter then)
+    globalThis.fetch = readyHost; injected.setup.reset(); await injected.setup.check(); }
   let block = render();
   const area = find(block, (x) => x.t === 'textarea')[0];
   assert.equal(area.p.value, 'PROMPT TEXT', 'the full prompt shows in the text field');
