@@ -5,8 +5,9 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const script = new URL('../scripts/live-copy-check.mjs', import.meta.url).pathname;
+const script = fileURLToPath(new URL('../scripts/live-copy-check.mjs', import.meta.url));
 const root = mkdtempSync(join(tmpdir(), 'cp-live-check-'));
 try {
   const repo = join(root, 'repo');
@@ -58,12 +59,18 @@ try {
   r = run('--commits', '1');
   assert.match(r.stdout, /^index\.js none$/m);
 
-  // 4. release-notes.json counts only when the live copy has it; then a difference is MIXED.
+  // 4. release-notes.json counts whenever the live copy has it: main does not have it yet, so MIXED; then a difference is MIXED too.
   copyAll('HEAD');
   writeFileSync(join(live, 'release-notes.json'), '{}');
   r = run();
-  assert.equal(r.status, 0, 'main has no release-notes.json: the file is not compared');
+  assert.equal(r.status, 1, 'the live file exists, main has none');
+  assert.match(r.stdout, /^release-notes\.json none$/m);
+  writeFileSync(join(repo, 'release-notes.json'), '{}'); git('add', '.'); git('commit', '-m', 'notes0');
+  assert.equal(run().status, 0, 'equal release-notes.json: MATCH');
   writeFileSync(join(repo, 'release-notes.json'), '{"a":1}\n'); git('add', '.'); git('commit', '-m', 'notes');
+  r = run();
+  assert.match(r.stdout, /^MATCH [0-9a-f]+ notes0$/m, 'the older commit with the same release-notes.json is found');
+  writeFileSync(join(live, 'release-notes.json'), '{"b":2}');
   r = run();
   assert.equal(r.status, 1);
   assert.match(r.stdout, /^release-notes\.json none$/m);

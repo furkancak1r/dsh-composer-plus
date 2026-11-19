@@ -28,26 +28,21 @@ export function check({ live, commits = 60, repo }) {
     .map((l) => { const [full, short, ...s] = l.split('\t'); return { full, short, subject: s.join('\t') }; });
   if (!log.length) throw new Error('no commits on main');
   const files = ['client.js', 'index.js', 'backup.mjs'];
-  if (existsSync(join(live, 'release-notes.json')) && show(log[0].full, 'release-notes.json')) files.push('release-notes.json');
+  if (existsSync(join(live, 'release-notes.json'))) files.push('release-notes.json');
   const rows = files.map((file) => {
     const path = join(live, file);
     const buf = existsSync(path) ? readFileSync(path) : null;
-    let found = null;
+    const hashes = new Set(); // full hashes of the commits where the file equals the live file
     if (buf) {
       for (const c of log) {
         const repoBuf = show(c.full, file);
-        if (!repoBuf) continue;
-        if (sha(file === 'client.js' ? withLine12(buf, repoBuf) : buf) === sha(repoBuf)) { found = c; break; }
+        if (repoBuf && sha(file === 'client.js' ? withLine12(buf, repoBuf) : buf) === sha(repoBuf)) hashes.add(c.full);
       }
     }
-    return { file, found, missing: !buf };
+    return { file, hashes, found: log.find((c) => hashes.has(c.full)) ?? null, missing: !buf };
   });
-  // One commit for all files: the newest commit that equals every file.
-  const all = log.find((c) => rows.every((r) => {
-    const repoBuf = show(c.full, r.file);
-    const buf = existsSync(join(live, r.file)) ? readFileSync(join(live, r.file)) : null;
-    return repoBuf && buf && sha(r.file === 'client.js' ? withLine12(buf, repoBuf) : buf) === sha(repoBuf);
-  }));
+  // One commit for all files: the newest commit that is in every set.
+  const all = log.find((c) => rows.every((r) => r.hashes.has(c.full)));
   return { match: all ?? null, rows };
 }
 
