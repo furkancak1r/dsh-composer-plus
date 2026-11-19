@@ -40,6 +40,13 @@ assert.match(note, /Update the to-do list \(todo_list_add, todo_list_remove\): t
 // Damon card stack: news is `[quiet]` unless it brings a new approval or a new live error or risk.
 assert.match(note, /Reply with only `\[quiet\]`, unless the news brings a new approval \(with its `onay` block\) or a new error or risk on a live system: then write one short line per topic, in the user's language, with the topic name and not internal IDs/);
 assert.doesNotMatch(note, /when a task that the user asked for is done/, 'a finished task is a card, not a chat line');
+// Review 1 (P2): with the status panel off there are no cards, so the note keeps the earlier rule (a chat line when a task
+// that the user asked for is done) and does not ask for `[quiet]`.
+{
+  const off = assistantNewsNote([{ id: 'a', title: 'T', project: 'p', at: 1, kind: 'finished', task: true }], 10, { cards: false });
+  assert.match(off, /Write to the user only when the user must act, when a task that the user asked for is done, when a task failed or is blocked, or when a live system has an error or a risk/);
+  assert.doesNotMatch(off, /\[quiet\]|cards of the status panel/, 'panel off: no [quiet], no cards');
+}
 assert.doesNotMatch(note, /a few lines|Tell the user each line/, 'no reply per news line');
 assert.ok(note.indexOf('"New"') < note.indexOf('"Mid"'), 'newest first');
 assert.match(note, /"New" \(project "q", chat b\): waits for your approval/);

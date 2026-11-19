@@ -4664,7 +4664,7 @@ struct DeckView: View {
             Button { act(.projects) } label: { Text(String(localized: "status.projects", defaultValue: "Projects", bundle: b)).font(.footnote).lineLimit(1) }
                 .buttonStyle(.bordered).controlSize(.small)
             Button { open.toggle() } label: { Image(systemName: open ? "chevron.up" : "chevron.down").frame(width: 36, height: 36).contentShape(Rectangle()) }
-                .accessibilityLabel(Text(verbatim: open ? String(localized: "Close", bundle: b) : String(localized: "Open", bundle: b)))
+                .accessibilityLabel(Text(verbatim: open ? String(localized: "Hide", bundle: b) : String(localized: "Show", bundle: b)))
         }
         .contentShape(Rectangle())
         .onTapGesture { open = true }
@@ -4731,7 +4731,7 @@ struct DeckView: View {
             HStack(spacing: 6) { Text(verbatim: open.wrappedValue ? "▾" : "▸").accessibilityHidden(true); Text(verbatim: title).font(.footnote.weight(.semibold)); Spacer(minLength: 0) }
                 .foregroundStyle(.secondary).frame(minHeight: 32).contentShape(Rectangle())
         }
-        .buttonStyle(.plain).accessibilityLabel(Text(verbatim: title)).accessibilityValue(Text(verbatim: open.wrappedValue ? String(localized: "Close", bundle: b) : String(localized: "Open", bundle: b)))
+        .buttonStyle(.plain).accessibilityLabel(Text(verbatim: title)).accessibilityValue(Text(verbatim: open.wrappedValue ? String(localized: "Expanded", bundle: b) : String(localized: "Collapsed", bundle: b)))
     }
 
     // MARK: cards
@@ -4868,7 +4868,9 @@ struct CardDeck: View {
     @State private var seen = Set<String>()
     @State private var newSince = Date(timeIntervalSince1970: 0)
     @State private var showProjects = false
-    @State private var asking: (sid: String, sentence: String)?
+    /// The chat, the offer on screen and the sentence of the tap: a newer block or a news turn while the confirmation shows
+    /// sends nothing (`Client.approve` compares the offer), as with `ApproveButtons`.
+    @State private var asking: (sid: String, offer: ApprovalOffer, sentence: String)?
     @State private var tick = Date()
 
     private var offer: ApprovalOffer? { c.approvalOffer }
@@ -4882,7 +4884,7 @@ struct CardDeck: View {
             .onChange(of: doneOpen) { _, o in if !o { c.cardsFolded(); newSince = c.cardsNewSince } }
             .sheet(isPresented: $showProjects) { StatusSheet(sessionId: sessionId) }
             .confirmationDialog(Text(verbatim: w.confirm), isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }), titleVisibility: .visible, presenting: asking) { a in
-                Button(w.button) { if let o = offer { c.run(waits: false) { try await c.approve(a.sid, o, a.sentence) } } }
+                Button(w.button) { c.run(waits: false) { try await c.approve(a.sid, a.offer, a.sentence) } }
                 Button(w.cancel, role: .cancel) {}
             } message: { a in Text(verbatim: a.sentence) }
             .task { seen = c.cardsSeen(); newSince = c.cardsNewSince; await load() }
@@ -4895,6 +4897,8 @@ struct CardDeck: View {
                 }
             }
             .onChange(of: c.running) { was, now in if was && !now { Task { await load() } } }
+            // Wait times, Overdue, the approval's age and the day's end change while nothing runs: draw again once a minute.
+            .task { while !Task.isCancelled { try? await Task.sleep(for: .seconds(60)); if !Task.isCancelled { tick = Date() } } }
     }
     private var running: Bool { (answer?["tasks"] as? [J] ?? []).contains { $0["state"] as? String == "running" } }
     private func load() async {
@@ -4907,9 +4911,12 @@ struct CardDeck: View {
         let span = { (t: TimeInterval) in Duration.seconds(max(0, t)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1).locale(locale)) }
         switch a {
         case .projects: showProjects = true
-        case .approve(let s): UISelectionFeedbackGenerator().selectionChanged(); asking = (sessionId, s)
+        case .approve(let s): if let o = offer { UISelectionFeedbackGenerator().selectionChanged(); asking = (sessionId, o, s) }
         case .ask(let card), .reply(let card), .write(let card):
-            c.writeDraft(statusInsert(deckRow(card, preferTask: false), now: Date(), span: span), sessionId)
+            // The outage line, as on the Mac: today's newest outage continued this card's task (statusView's rule).
+            let out = answer.flatMap { statusView($0, now: Date()).outage }
+            let time = card.task.flatMap { t in out.flatMap { $0.resumed.contains(t.id) ? $0.at.formatted(date: .omitted, time: .shortened) : nil } }
+            c.writeDraft(deckText(card, outage: time, span: span), sessionId)
         case .done(let card):
             c.writeDraft(String(localized: "cards.doneMessage", defaultValue: "Done: \(card.title)", bundle: uiStrings), sessionId)
         case .watch(let card): if let t = card.task { c.open(t.id) }

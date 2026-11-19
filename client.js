@@ -3348,7 +3348,6 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     const STATUS_BUSY_MS = 500;
     const STATUS_SUMMARY_WAIT_MS = 5 * 60000;
     const TODOS_ATTR = 'data-composer-plus-todos';
-    const TODO_GROUPS_KEY = 'dsh-composer-plus.status-todo-groups-closed'; // "user agent": the folded owner groups
     // Issue #6: an item of the assistant that waits for the user longer than this shows as overdue (the panel only shows
     // it: no message, no notice). The ended tasks that you hid with × (`<task id>|<end time>`, this browser only).
     const TODO_OVERDUE_MS = 24 * 3600000;
@@ -3361,7 +3360,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     // chat, as wide as the chat column, at most 40% of the window high. dsh 0.2.2-rc.2 wraps the scroll body in a
     // `display:contents` frame, so the stack and the scroll body are still siblings in the flex column.
     const TODOS_CSS = `[${TODOS_ATTR}]{order:-1;flex:none;box-sizing:border-box;width:var(--dsh-chat-content-width,720px);max-width:calc(100% - 32px);max-height:40vh;margin:8px auto 4px;display:flex;flex-direction:column;overflow:hidden;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-base);font-size:13px;line-height:18px;color:var(--dsw-alias-label-primary)}`
-      + `[${TODOS_ATTR}] .cp-cs-fixed{flex:none;padding:0 6px}[${TODOS_ATTR}] .cp-cs-count{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-weight:500}`
+      // The summary card scrolls in itself and the fixed part scrolls when it is still too high: Onayla in the Onay card
+      // under them can always be reached in the 40vh stack (review 1).
+      + `[${TODOS_ATTR}] .cp-cs-fixed{flex:0 1 auto;min-height:0;overflow-y:auto;padding:0 6px}[${TODOS_ATTR}] .cp-cs-fixed .cp-st-summary{max-height:14vh;overflow-y:auto}`
+      + `[${TODOS_ATTR}] .cp-cs-count{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-weight:500}`
       + `[${TODOS_ATTR}] .cp-cs-card{--cp-co:var(--dsw-alias-label-secondary,#6b7280);margin:6px 0 0;padding:8px 10px;border-left:3px solid var(--cp-co);border-radius:6px;background:color-mix(in srgb,var(--cp-co) 7%,transparent);list-style:none;display:block}`
       + `[${TODOS_ATTR}] .cp-cs-card[data-card="onay"]{--cp-co:var(--dsw-alias-state-business-primary,#3b6cf6)}[${TODOS_ATTR}] .cp-cs-card[data-card="sorun"]{--cp-co:var(--dsw-alias-state-error-primary,#d92d20)}`
       + `[${TODOS_ATTR}] .cp-cs-card[data-card="senden"]{--cp-co:var(--dsw-alias-state-warn-primary,#f59e0b)}[${TODOS_ATTR}] .cp-cs-card[data-card="bitti"]{--cp-co:var(--dsw-alias-state-success-primary,#16a34a)}`
@@ -3736,7 +3738,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     /** The approval sentences that a chat offers now, for its Onay card: OnayCodeBlocks (one per open chat, dsh's composer
      * dock, which has the chat's hooks) publishes `{ offer, state, empty }` here; the card stack reads it. */
     function createCardOffers() {
-      let map = new Map(); const stacks = new Map(); const listeners = new Set();
+      let map = new Map(); const stacks = new Map(); const listeners = new Set(); let publishers = 0;
       const emit = () => { for (const fn of [...listeners]) fn(); };
       return {
         of: (id) => map.get(id),
@@ -3747,6 +3749,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           map = new Map(map); if (value === undefined) map.delete(id); else map.set(id, value);
           emit();
         },
+        /** The Approve button feature is on (OnayCodeBlocks publishes offers): the Onay card can say that its button comes back. */
+        active: () => publishers > 0,
+        publish() { publishers += 1; emit(); return () => { publishers -= 1; emit(); }; },
         /** A card stack shows in chat `id`: its Approve buttons leave the reply (ApproveButtons) and go into the Onay card. */
         hasStack: (id) => (stacks.get(id) ?? 0) > 0,
         stack(id) {
@@ -3773,7 +3778,6 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const [folds, setFolds] = React.useState(() => new Map()); // group → open (your choice; else the default below)
       const [dismissed, setDismissed] = React.useState(readDismissed);
       const [doneSeen, setDoneSeen] = React.useState(() => readNumber(DONE_SEEN_KEY));
-      React.useLayoutEffect(() => offers.stack(sessionId), [sessionId]);
       const kids = typeof useSessions === 'function' ? useSessions((list) => childIdsOf(list, sessionId).join(' ')) : '';
       // The delegated chats (chat_new, chat_send) too: their turns and waits change their rows (2026-11-16: a live deploy
       // chat did not show). A row that runs without a turn (a background job) is read again every STATUS_POLL_MS.
@@ -3791,7 +3795,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // Wait times, Overdue and the end of the day change while nothing runs: the stack draws again once a minute (no read).
       const [, tick] = React.useState(0);
       React.useEffect(() => { const timer = setInterval(() => tick((n) => n + 1), 60000); return () => clearInterval(timer); }, []);
-      if (state.items === null && state.error === null) return null;
+      // The stack holds the chat's Approve button only while it shows (before its first read, the reply keeps it).
+      const drawn = !(state.items === null && state.error === null);
+      React.useLayoutEffect(() => (drawn ? offers.stack(sessionId) : undefined), [sessionId, drawn]);
+      if (!drawn) return null;
       const lang = locale?.();
       const headId = `cp-td-${sessionId}`;
       // After a click (or Enter) on an item's button, the item can leave the list: the focus goes back to the title.
@@ -3880,7 +3887,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           React.createElement('p', { className: 'cp-cs-sentence cp-cs-main' }, option.text),
           offerNow?.empty !== true ? null : React.createElement('button', { type: 'button', className: 'cp-cs-act', 'data-primary': '', disabled: pick.busy, title: option.text,
             'aria-label': `${t('approve.button')}: ${option.label}`, 'data-composer-plus-approve': 'card', onClick: () => { picks.pick(sessionId, offer, option.n); } }, t('approve.button')))),
-        offer === undefined ? sub(t('cards.approveAgain', { name })) : null,
+        offer === undefined && offers.active() ? sub(t('cards.approveAgain', { name })) : null,
         pick.error === null || pick.error === undefined ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert' }, t('approve.failed', { error: pick.error })),
         approval.items.length === 0 ? null : React.createElement('details', null, React.createElement('summary', { className: 'cp-st-sub' }, t('cards.topics', { count: approval.items.length })),
           React.createElement('ul', { style: { margin: 0, padding: 0 } }, approval.items.map((i) => React.createElement('li', { key: i.id, className: 'cp-cs-line' },
@@ -7134,6 +7141,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       // The chat's offer for the Onay card (the Damon chat's card stack reads it), also while the composer has text.
       React.useEffect(() => { offers?.set(sessionId, shown); }, [sessionId, shown?.offer, shown?.state, shown?.empty]);
       React.useEffect(() => () => offers?.set(sessionId, undefined), [sessionId]);
+      React.useEffect(() => offers?.publish(), []);
       const stacked = React.useSyncExternalStore(offers?.subscribe ?? noSubscribe, () => offers?.hasStack(sessionId) === true);
       // With a card stack, the sentence stays in the reply as gray text: the button is in the Onay card.
       const marks = props.useChat((chat) => JSON.stringify(onayMarks(chat, shown?.empty && !stacked ? shown.offer : undefined)));

@@ -4623,11 +4623,13 @@ func statusCards(_ o: J, now: Date, approvals: Int = 0, seen: Set<String> = [], 
         suruyor: out.groups["suruyor"]!.count, bitti: out.groups["bitti"]!.count, fresh: out.groups["bitti"]!.filter(\.fresh).count)
     return out
 }
-/// The row of a card's → text (`statusInsert`): the item's data, or the task's. The item's text is the card title (without
-/// its mark), its owner is Damon's (a card always writes data, never the hand-over sentence of an item of yours).
-/// `preferTask`: the task's data wins when the card has both.
-func deckRow(_ card: StatusCard, preferTask: Bool) -> StatusRow {
-    let item = card.item.map { StatusItem(id: $0.id, text: card.title, owner: "agent", waiting: $0.waiting, created: $0.created) }
-    if let t = card.task, preferTask || item == nil { return .task(t, outage: nil) }
-    return .item(item!, overdue: card.overdue)
+/// A card's data for the message field (client.js `dataOf` in StatusPanel): its task's data (with the outage line when Resume
+/// after an AIProxy outage continued it: `outage`, its clock time), else an item of Damon's data (its title without the mark),
+/// else the title as a to-do line.
+func deckText(_ card: StatusCard, outage: String? = nil, span: (TimeInterval) -> String, now: Date = Date(), bundle: Bundle = uiStrings) -> String {
+    if let t = card.task { return statusInsert(.task(t, outage: outage), now: now, span: span, bundle: bundle) }
+    if let i = card.item, i.owner == "agent" {
+        return statusInsert(.item(StatusItem(id: i.id, text: card.title, owner: "agent", waiting: i.waiting, created: i.created), overdue: card.overdue), now: now, span: span, bundle: bundle)
+    }
+    return String(localized: "status.insert.item", defaultValue: "To-do: \(card.title)", bundle: bundle)
 }
