@@ -185,7 +185,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const stop = async () => { demo.child.kill('SIGTERM'); await new Promise((r) => { if (demo.child.exitCode !== null) r(); else demo.child.once('exit', r); }); model.close(); await rm(where.home, { recursive: true, force: true }); process.exit(0); };
   process.on('SIGTERM', stop); process.on('SIGINT', stop);
   const { sessionId } = await seed(demo.url, { model });
-  console.log(`demo dsh pid ${demo.child.pid}, model on 127.0.0.1:${model.address().port}, temp home ${where.home}`);
+  console.log(`demo script pid ${process.pid} (SIGTERM stops all and removes the temp home), dsh pid ${demo.child.pid}, model on 127.0.0.1:${model.address().port}, temp home ${where.home}`);
   console.log(`Damon chat ${sessionId}`);
   console.log(`URL ${demo.url}`);
 }
