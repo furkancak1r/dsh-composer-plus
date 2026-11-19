@@ -2801,8 +2801,6 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * description for screen readers. In the collapsed rail (dsh gives size 18) the row has no end: the dot sits on the icon.
      * shortcut: dsh's panel row has no trailing slot, so the dot goes into a seat that this glyph adds at the end of its
      * row button (as the project rows' status does); without that button the dot stays on the icon. */
-    /** dsh 0.2.2-rc.2 shows its pin button at the right end of a panel row (`_panelEntry`) on hover and keyboard focus. */
-    const APART_DOT_CSS = '@media (hover:hover){[class*="_panelEntry"]:is(:hover,:has(:focus-visible)) [data-composer-plus-assistant-dot]{visibility:hidden}}';
     function AssistantApartIcon({ size = 16, active, status, useSessions, useSessionStatus, useWorkspaces, usePanelInfo, t }) {
       const id = React.useSyncExternalStore(status.subscribe, status.getSnapshot);
       // Only the assistant chat and its subagents (the row is always drawn; the whole lists change with every chat's status).
@@ -2837,11 +2835,11 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         next.setAttribute('aria-hidden', 'true');
         // order: last even when dsh adds the label after it (collapse and expand); margin: the row's right end.
         next.style.cssText = 'display:inline-flex;align-items:center;flex:none;margin-left:auto;order:1';
-        // dsh 0.2.2-rc.2 keeps room for its pin button at the right of a wide panel row (more padding on the right): the dot
-        // goes into that room, where a project row shows its status, and gives way to the button (APART_DOT_CSS).
+        // dsh 0.2.2-rc.2 keeps room for its pin button at the right of a wide panel row (more padding on the right). The
+        // Damon row has no pin button (KEEP_PINNED_CSS): the dot goes into that room, where a project row shows its status.
         const style = globalThis.getComputedStyle?.(button);
         const room = parseFloat(style?.paddingRight) - parseFloat(style?.paddingLeft);
-        if (room > 0 && globalThis.matchMedia?.('(hover: hover)').matches === true) next.style.marginRight = `${-room}px`;
+        if (room > 0) next.style.marginRight = `${-room}px`;
         button.append(next); setSeat(next);
         return () => { next.remove(); setSeat(null); };
       }, [rail]);
@@ -2849,7 +2847,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       return React.createElement('span', { ref, 'data-composer-plus-assistant-state': state?.state ?? 'idle', 'data-open': open ? 'true' : undefined, title: label || undefined,
         style: { position: 'relative', display: 'inline-flex' } },
         React.createElement(AssistantIcon, { size }),
-        dot === null ? null : seat !== null ? createPortal(React.createElement('span', { title: label, style: { display: 'inline-flex' } }, React.createElement('style', null, APART_DOT_CSS), dot), seat)
+        dot === null ? null : seat !== null ? createPortal(React.createElement('span', { title: label, style: { display: 'inline-flex' } }, dot), seat)
           : React.createElement('span', { 'aria-hidden': true, style: { position: 'absolute', right: -4, top: -4, display: 'inline-flex' } }, dot));
     }
     /** A boolean store; `on()` sets it and returns the disposer that clears it. With `key`, `set(true)` keeps it in this
@@ -2863,10 +2861,18 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       };
       return { getSnapshot: () => value, subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; }, on: () => { set(true); return () => set(false); }, set };
     }
-    /** The Assistant row's glyph: the plain icon, or with Assistant apart from chats its state dot. */
+    /** The Damon row always stays in the sidebar. dsh 0.2.2-rc.2 and later draw an Unpin button at the right end of each
+     * panel row except Plugins (`canUnpin`) and keep the choice in memory only (`createPanelPins`), so a page reload or a
+     * dsh restart already shows the row again. dsh has no option to keep one row: this rule hides the button in the row
+     * that holds this glyph's style (the `<style>` element is the marker). It goes with the row (Assistant off).
+     * ponytail: the row is found by dsh's class names (`_panelEntry`, `_panelUnpin`); if dsh renames them, the button shows
+     * again. Upgrade when dsh lets a panel registration opt out of unpinning. */
+    const KEEP_PINNED_CSS = '[class*="_panelEntry"]:has(style[data-composer-plus-assistant-row]) [class*="_panelUnpin"]{display:none!important}';
+    /** The Assistant row's glyph: the plain icon, or with Assistant apart from chats its state dot; and the rule above. */
     function AssistantRowIcon(props) {
       const apart = React.useSyncExternalStore(props.apart.subscribe, props.apart.getSnapshot);
-      return apart ? React.createElement(AssistantApartIcon, props) : React.createElement(AssistantIcon, { size: props.size });
+      return React.createElement(React.Fragment, null, React.createElement('style', { 'data-composer-plus-assistant-row': '' }, KEEP_PINNED_CSS),
+        apart ? React.createElement(AssistantApartIcon, props) : React.createElement(AssistantIcon, { size: props.size }));
     }
     /** Hides the assistant chat's rows (see assistantApartCss) while the feature is on. */
     function AssistantApart({ status, useSessions, useWorkspaces }) {
