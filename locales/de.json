@@ -1491,7 +1491,7 @@
     "searchSection": "Anbieter für Websuche",
     "fetchSection": "Anbieter für Webabruf",
     "providerDeepSeek": "DeepSeek Search API",
-    "providerLegacy": "DeepSeek (Legacy)",
+    "providerLegacy": "DeepSeek-Serversuche",
     "legacyKeyHint": "Kontomodellanfragen verwenden das angemeldete Konto; andere verwenden diesen API-Schlüssel ({ref}), standardmäßig mit Modelle geteilt.",
     "apiKeyUnsetApi": "Es ist kein Schlüssel konfiguriert.",
     "invalidMaxUses": "Geben Sie eine positive Ganzzahl ein oder lassen Sie das Feld für den Standard leer.",
@@ -1510,7 +1510,8 @@
     "billingAccountHint": "Erfordert eine Anmeldung bei DeepSeek.",
     "billingApiKey": "DeepSeek-API-Schlüssel",
     "billingApiKeyHint": "Verwendet den API-Schlüssel der Seite Modelle; legen Sie zuerst einen fest.",
-    "billingAdvancedOverride": "Überschrieben durch {fields}"
+    "billingAdvancedOverride": "Überschrieben durch {fields}",
+    "searchAutoHint": "Folgt dem Modell der Unterhaltung: DeepSeek-Modelle verwenden die DeepSeek-Serversuche ohne Kosten pro Suche; andere Modelle verwenden DeepSeek Search API."
   },
   "settings.theme": {
     "appearance.title": "Erscheinungsbild",

@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Redémarrez ensuite dsh. (La CLI ne peut pas installer dans le profil de bureau ; c’est l’app qui le gère.)
 
-> Le pnpm de dsh ignore les versions publiées depuis moins de 24 heures. Juste après une nouvelle version, ajoutez le numéro de version : `dsh-composer-plus@1.30.1`.
+> Le pnpm de dsh ignore les versions publiées depuis moins de 24 heures. Juste après une nouvelle version, ajoutez le numéro de version : `dsh-composer-plus@1.31.0`.
 
 ## Fonctionnalités
 
@@ -144,7 +144,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 Toute l’app change de langue immédiatement. Le choix est la préférence enregistrée par dsh lui-même, `locale.preference` (la même que Général → Langue) : il reste donc valable après un redémarrage. **Langue du système** efface ce choix : l’app de bureau suit la langue du système d’exploitation, l’interface web suit celle du navigateur, et une langue non prise en charge revient à l’anglais. L’installation du plugin ne remplace jamais une langue que vous avez déjà choisie.
 
-Chaque pack contient 5 503 textes : tous les textes d’interface de dsh `0.2.2-rc.1` et `0.2.2-rc.3` (discussions, barre latérale, réglages, approbations, tâches d’automatisation, aperçus de fichiers, gestionnaire de plugins, place de marché de plugins), les contrôles du plugin lui-même et le plugin populaire [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Ne sont pas traduits : vos messages, les réponses du modèle, le code, les noms des commandes slash (`/plan`, `/compact`), les libellés propres aux fournisseurs comme l’effort de raisonnement `High`, les textes des autres plugins, ainsi que les menus natifs et les boîtes de dialogue de mise à jour de l’app de bureau (dsh ne les fournit qu’en anglais et en chinois). Les textes ajoutés par une version plus récente de dsh s’affichent en anglais jusqu’à la mise à jour des packs. Si un autre plugin fournit déjà une langue, cette langue reste fournie par cet autre plugin. Depuis dsh 0.2.2, dsh fournit lui-même 日本語, Español, Français, Deutsch et Русский : pour ces langues, les textes de dsh sont utilisés et le pack n’ajoute que les textes du plugin (Português (Brasil) reste une langue distincte à côté du Português de dsh).
+Chaque pack contient 5 539 textes : tous les textes d’interface de dsh `0.2.2-rc.5` (discussions, barre latérale, réglages, approbations, tâches d’automatisation, aperçus de fichiers, gestionnaire de plugins, place de marché de plugins), les contrôles du plugin lui-même et le plugin populaire [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Ne sont pas traduits : vos messages, les réponses du modèle, le code, les noms des commandes slash (`/plan`, `/compact`), les libellés propres aux fournisseurs comme l’effort de raisonnement `High`, les textes des autres plugins, ainsi que les menus natifs et les boîtes de dialogue de mise à jour de l’app de bureau (dsh ne les fournit qu’en anglais et en chinois). Les textes ajoutés par une version plus récente de dsh s’affichent en anglais jusqu’à la mise à jour des packs. Si un autre plugin fournit déjà une langue, cette langue reste fournie par cet autre plugin. Depuis dsh 0.2.2, dsh fournit lui-même 日本語, Español, Français, Deutsch et Русский : pour ces langues, les textes de dsh sont utilisés et le pack n’ajoute que les textes du plugin (Português (Brasil) reste une langue distincte à côté du Português de dsh).
 
 ## Raccourcis clavier
 
@@ -178,7 +178,7 @@ Quand un menu `/` ou `@` est ouvert, il garde ces touches pour lui.
 
 ## Compatibilité
 
-Testé sur dsh `0.2.2-rc.1` (bureau et web) et `0.2.2-rc.3` (web). La CI exécute les tests à chaque push.
+Testé sur dsh `0.2.2-rc.5` (web). La CI exécute les tests à chaque push.
 
 ## Confidentialité et sécurité
 
@@ -237,7 +237,7 @@ Testé sur dsh `0.2.2-rc.1` (bureau et web) et `0.2.2-rc.3` (web). La CI exécut
 - **Pas de pastille de branche sur une ligne de discussion :** la barre latérale n’est pas en « Dans une seule liste » (dans « Espace de travail » et « Arborescence des espaces de travail », aucune ligne de discussion n’affiche de pastille), la discussion n’a eu aucun tour depuis que vous avez installé cette version, son dossier n’est pas un dépôt git, ou **Branche Git sur les lignes de discussion** est désactivée. Après une mise à jour, redémarrez dsh (la partie hôte enregistre la branche).
 - **Vérification de l’objectif indique que le test s’est terminé avec le code 127 ou « not found » :** dsh démarré depuis le Finder ou le Dock peut avoir un PATH plus court que votre terminal : il ne trouve donc pas `npm`, `pnpm` ou `cargo`. Démarrez dsh depuis un terminal, ou définissez votre propre commande de test avec le chemin complet sous **Vérification de l’objectif** → **Modifier**. **Lancer maintenant** affiche le résultat tout de suite.
 - **L’objectif ne se ferme pas et l’agent continue de travailler :** **Vérification de l’objectif** a trouvé un test en échec ou du travail manquant ; la ligne sous l’objectif indique pourquoi (survolez le résultat pour voir les détails). Corrigez la cause ou la commande de test, ou terminez l’objectif vous-même avec `/goal` ou la barre de l’objectif (ce n’est pas vérifié).
-- **L’installation échoue juste après une nouvelle version :** ajoutez la version (`dsh-composer-plus@1.30.1`) ; voir la note d’installation plus haut.
+- **L’installation échoue juste après une nouvelle version :** ajoutez la version (`dsh-composer-plus@1.31.0`) ; voir la note d’installation plus haut.
 - **Sauvegarder maintenant indique « Une autre action de sauvegarde est en cours » :** une action tourne dans une autre fenêtre de dsh ou dans la console de secours (elles partagent un fichier de verrou, `.composer-plus.lock`, dans le dossier de sauvegarde). Attendez qu’elle se termine. Si aucune action ne tourne, le verrou d’un processus fermé est repris au clic suivant.
 - **La console de secours indique « dsh is running » :** quittez d’abord dsh. Si dsh est vraiment fermé, le fichier nommé dans le message reste d’un plantage : supprimez-le et réessayez.
 - **Après une restauration, dsh ne démarre pas ou un plugin manque :** les paquets de plugins d’un profil doivent être réinstallés. La console de secours le propose après une restauration ; sinon, exécutez `pnpm install` dans chaque dossier sous `$DSH_HOME/profiles/` qu’elle liste. Les secrets qui n’étaient pas dans le vault (autre ordinateur) doivent être saisis de nouveau : la console les liste.
@@ -462,7 +462,7 @@ Testé sur dsh `0.2.2-rc.1` (bureau et web) et `0.2.2-rc.3` (web). La CI exécut
 
 **Comment l’agent peut-il remettre de l’ordre dans un code désordonné ?** Tapez `/untangle-codebase` dans une discussion (**Démêler le code**, activée par défaut), si vous voulez avec une partie, par exemple `/untangle-codebase src/api`. L’agent liste d’abord les copies, les liens cachés, les enveloppes inutiles, le code mort et les cas particuliers, puis les corrige sous forme d’objectif et vérifie de nouveau avec des sous-agents. Lancez-la dans une discussion de **Une branche par discussion** pour que le travail reste sur sa propre branche.
 
-**Est-ce que cela fonctionne avec l’app de bureau ?** Oui : Réglages → Plugins → **Ajouter un plugin** → `dsh-composer-plus`. Testé sur dsh 0.2.2-rc.1 (bureau et web) et 0.2.2-rc.3 (web).
+**Est-ce que cela fonctionne avec l’app de bureau ?** Oui : Réglages → Plugins → **Ajouter un plugin** → `dsh-composer-plus`. Testé sur dsh 0.2.2-rc.5 (web).
 
 ## Développement
 

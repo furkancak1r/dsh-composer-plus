@@ -1491,7 +1491,7 @@
     "searchSection": "Proveedor de búsqueda web",
     "fetchSection": "Proveedor de obtención web",
     "providerDeepSeek": "DeepSeek Search API",
-    "providerLegacy": "DeepSeek (heredado)",
+    "providerLegacy": "Búsqueda en servidor de DeepSeek",
     "legacyKeyHint": "Las solicitudes del modelo de cuenta usan la cuenta conectada; las demás usan esta clave API ({ref}), compartida con Modelos de forma predeterminada.",
     "apiKeyUnsetApi": "No hay ninguna clave configurada.",
     "invalidMaxUses": "Introduzca un entero positivo o deje vacío para usar el valor predeterminado.",
@@ -1510,7 +1510,8 @@
     "billingAccountHint": "Requiere iniciar sesión en DeepSeek.",
     "billingApiKey": "Clave de API de DeepSeek",
     "billingApiKeyHint": "Usa la clave de API de la página Modelos; configúrela primero.",
-    "billingAdvancedOverride": "Anulado por {fields}"
+    "billingAdvancedOverride": "Anulado por {fields}",
+    "searchAutoHint": "Sigue el modelo de la conversación: los modelos de DeepSeek usan la búsqueda en servidor de DeepSeek, sin cargo por búsqueda; los demás modelos usan DeepSeek Search API."
   },
   "settings.theme": {
     "appearance.title": "Apariencia",

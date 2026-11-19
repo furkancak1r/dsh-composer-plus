@@ -1493,7 +1493,7 @@
     "searchSection": "Penyedia pencarian web",
     "fetchSection": "Penyedia pengambilan web",
     "providerDeepSeek": "DeepSeek Search API",
-    "providerLegacy": "DeepSeek (lama)",
+    "providerLegacy": "Pencarian sisi server DeepSeek",
     "legacyKeyHint": "Memakai akun yang masuk untuk permintaan model akun; jika tidak, memakai API key ini ({ref}), yang secara default dibagikan dengan Model.",
     "apiKeyUnsetApi": "Tidak ada key yang dikonfigurasi.",
     "invalidMaxUses": "Masukkan bilangan bulat positif, atau kosongkan untuk memakai default.",
@@ -1510,7 +1510,8 @@
     "billingAccountHint": "Perlu masuk ke DeepSeek.",
     "billingApiKey": "API key DeepSeek",
     "billingApiKeyHint": "Memakai API key dari halaman Model; atur dulu key-nya.",
-    "billingAdvancedOverride": "Ditimpa oleh {fields}"
+    "billingAdvancedOverride": "Ditimpa oleh {fields}",
+    "searchAutoHint": "Mengikuti model percakapan: model DeepSeek memakai pencarian sisi server DeepSeek, tanpa biaya per pencarian; model lain memakai DeepSeek Search API."
   },
   "settings.theme": {
     "appearance.title": "Tampilan",

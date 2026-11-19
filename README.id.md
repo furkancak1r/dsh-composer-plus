@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Lalu mulai ulang dsh. (CLI tidak dapat memasang plugin ke profil desktop; profil itu dikelola oleh aplikasi.)
 
-> pnpm milik dsh melewati versi yang berumur kurang dari 24 jam. Tepat setelah rilis, tambahkan versinya: `dsh-composer-plus@1.30.1`.
+> pnpm milik dsh melewati versi yang berumur kurang dari 24 jam. Tepat setelah rilis, tambahkan versinya: `dsh-composer-plus@1.31.0`.
 
 ## Fitur
 
@@ -144,7 +144,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 Seluruh aplikasi langsung berganti bahasa. Pilihan ini adalah `locale.preference` tersimpan milik dsh sendiri (sama dengan Umum → Bahasa), jadi pilihan tetap ada setelah mulai ulang. **Bahasa sistem** menghapus pilihan itu: aplikasi desktop mengikuti bahasa OS, UI web mengikuti bahasa browser, dan bahasa yang tidak didukung kembali ke bahasa Inggris. Memasang plugin tidak pernah menimpa bahasa yang sudah Anda pilih.
 
-Setiap paket berisi 5.503 teks: setiap teks UI dsh `0.2.2-rc.1` dan `0.2.2-rc.3` (obrolan, bilah samping, pengaturan, persetujuan, jadwal, pratinjau file, pengelola plugin, pasar plugin), kontrol milik plugin ini, dan plugin populer [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Yang tidak diterjemahkan: pesan Anda, output model, kode, nama perintah garis miring (`/plan`, `/compact`), label milik penyedia seperti tingkat penalaran `High`, teks plugin lain, serta menu bawaan dan dialog pembaruan aplikasi desktop (dsh hanya menyediakannya dalam bahasa Inggris/Mandarin). Teks yang ditambahkan oleh dsh versi lebih baru tampil dalam bahasa Inggris sampai paket diperbarui. Jika plugin lain sudah menyediakan suatu bahasa, plugin itu tetap memegang bahasa tersebut. Mulai dsh 0.2.2, dsh sendiri menyediakan 日本語, Español, Français, Deutsch, dan Русский: untuk bahasa-bahasa ini teks dsh sendiri yang dipakai, dan paket hanya menambahkan teks plugin (Português (Brasil) tetap menjadi bahasa terpisah di samping Português milik dsh).
+Setiap paket berisi 5.539 teks: setiap teks UI dsh `0.2.2-rc.5` (obrolan, bilah samping, pengaturan, persetujuan, jadwal, pratinjau file, pengelola plugin, pasar plugin), kontrol milik plugin ini, dan plugin populer [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Yang tidak diterjemahkan: pesan Anda, output model, kode, nama perintah garis miring (`/plan`, `/compact`), label milik penyedia seperti tingkat penalaran `High`, teks plugin lain, serta menu bawaan dan dialog pembaruan aplikasi desktop (dsh hanya menyediakannya dalam bahasa Inggris/Mandarin). Teks yang ditambahkan oleh dsh versi lebih baru tampil dalam bahasa Inggris sampai paket diperbarui. Jika plugin lain sudah menyediakan suatu bahasa, plugin itu tetap memegang bahasa tersebut. Mulai dsh 0.2.2, dsh sendiri menyediakan 日本語, Español, Français, Deutsch, dan Русский: untuk bahasa-bahasa ini teks dsh sendiri yang dipakai, dan paket hanya menambahkan teks plugin (Português (Brasil) tetap menjadi bahasa terpisah di samping Português milik dsh).
 
 ## Pintasan keyboard
 
@@ -178,7 +178,7 @@ Menu `/` atau `@` yang terbuka memakai tombol-tombol ini untuk dirinya sendiri.
 
 ## Kompatibilitas
 
-Diuji pada dsh `0.2.2-rc.1` (desktop dan web) dan `0.2.2-rc.3` (web). CI menjalankan pengujian pada setiap push.
+Diuji pada dsh `0.2.2-rc.5` (web). CI menjalankan pengujian pada setiap push.
 
 ## Privasi dan keamanan
 
@@ -237,7 +237,7 @@ Diuji pada dsh `0.2.2-rc.1` (desktop dan web) dan `0.2.2-rc.3` (web). CI menjala
 - **Tidak ada label branch di baris obrolan:** bilah samping tidak dalam tampilan “Dalam satu daftar” (dalam “Ruang Kerja” dan “Pohon Ruang Kerja”, tidak ada baris obrolan yang menampilkan label), obrolan itu belum memiliki giliran sejak Anda memasang versi ini, foldernya bukan repositori git, atau **Branch Git di baris obrolan** nonaktif. Setelah pembaruan, mulai ulang dsh (bagian Host mencatat branch).
 - **Pemeriksaan tujuan menyebut pengujian keluar dengan kode 127 atau "not found":** dsh yang dimulai dari Finder atau Dock dapat memiliki PATH yang lebih pendek daripada terminal Anda, sehingga tidak menemukan `npm`, `pnpm`, atau `cargo`. Mulai dsh dari terminal, atau atur perintah pengujian Anda sendiri dengan jalur lengkap di **Pemeriksaan tujuan** → **Edit**. **Jalankan sekarang** langsung menampilkan hasilnya.
 - **Tujuan tidak ditutup dan agen terus bekerja:** **Pemeriksaan tujuan** menemukan pengujian yang gagal atau pekerjaan yang belum selesai; baris di bawah tujuan menampilkan alasannya (arahkan penunjuk ke hasil untuk melihat detailnya). Perbaiki penyebabnya atau perintah pengujiannya, atau selesaikan tujuan sendiri dengan `/goal` atau bilah tujuan (penyelesaian itu tidak diperiksa).
-- **Pemasangan gagal tepat setelah rilis:** tambahkan versinya (`dsh-composer-plus@1.30.1`), lihat catatan pemasangan di atas.
+- **Pemasangan gagal tepat setelah rilis:** tambahkan versinya (`dsh-composer-plus@1.31.0`), lihat catatan pemasangan di atas.
 - **Cadangkan sekarang menyatakan "Tindakan pencadangan lain sedang berjalan":** ada tindakan yang berjalan di jendela dsh lain atau di konsol penyelamat (keduanya berbagi file kunci, `.composer-plus.lock`, di folder cadangan). Tunggu sampai tindakan itu selesai. Jika tidak ada tindakan yang berjalan, kunci milik proses yang sudah ditutup diambil alih pada klik berikutnya.
 - **Konsol penyelamat menyatakan "dsh is running":** keluar dari dsh terlebih dahulu. Jika dsh memang sudah tertutup, file yang disebut dalam pesan itu tersisa dari crash: hapus file itu dan coba lagi.
 - **Setelah pemulihan, dsh tidak mau dimulai atau ada plugin yang hilang:** paket plugin sebuah profil harus dipasang lagi. Konsol penyelamat menawarkannya setelah pemulihan; atau jalankan `pnpm install` di setiap folder di bawah `$DSH_HOME/profiles/` yang dicantumkannya. Rahasia yang tidak ada di vault (komputer lain) harus dimasukkan lagi: konsol mencantumkannya.
@@ -462,7 +462,7 @@ Diuji pada dsh `0.2.2-rc.1` (desktop dan web) dan `0.2.2-rc.3` (web). CI menjala
 
 **Bagaimana agen merapikan basis kode yang berantakan?** Ketik `/untangle-codebase` di obrolan (**Rapikan basis kode**, aktif secara default), bila perlu dengan suatu bagian, misalnya `/untangle-codebase src/api`. Agen pertama-tama mendaftar salinan, keterkaitan tersembunyi, pembungkus yang tidak perlu, kode mati, dan kasus khusus, lalu memperbaikinya sebagai tujuan dan memeriksa lagi dengan subagen. Mulai skill ini di obrolan **Branch per obrolan** agar pekerjaannya tetap di branch sendiri.
 
-**Apakah plugin ini berfungsi di aplikasi desktop?** Ya: Pengaturan → Plugin → **Tambahkan plugin** → `dsh-composer-plus`. Diuji pada dsh 0.2.2-rc.1 (desktop dan web) dan 0.2.2-rc.3 (web).
+**Apakah plugin ini berfungsi di aplikasi desktop?** Ya: Pengaturan → Plugin → **Tambahkan plugin** → `dsh-composer-plus`. Diuji pada dsh 0.2.2-rc.5 (web).
 
 ## Pengembangan
 

@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Después, reinicia dsh. (La CLI no puede instalar en el perfil de escritorio: de eso se encarga la app).
 
-> El pnpm de dsh omite las versiones publicadas hace menos de 24 horas. Justo después de una versión nueva, añade la versión: `dsh-composer-plus@1.30.1`.
+> El pnpm de dsh omite las versiones publicadas hace menos de 24 horas. Justo después de una versión nueva, añade la versión: `dsh-composer-plus@1.31.0`.
 
 ## Funciones
 
@@ -144,7 +144,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 Toda la app cambia de inmediato. La elección es la propia preferencia guardada de dsh, `locale.preference` (la misma que General → Idioma), así que se mantiene tras los reinicios. **Idioma del sistema** borra esa elección: la app de escritorio sigue el idioma del sistema operativo, la interfaz web sigue el idioma del navegador, y un idioma no compatible pasa a inglés. Instalar el plugin nunca cambia un idioma que ya elegiste.
 
-Cada paquete tiene 5503 textos: todos los textos de la interfaz de dsh `0.2.2-rc.1` y `0.2.2-rc.3` (chats, barra lateral, configuración, aprobaciones, recordatorios, vistas previas de archivos, gestor de plugins, mercado de plugins), los controles propios del plugin y el popular plugin [dsh-rewind](https://github.com/SiriLee/dsh-rewind). No se traducen: tus mensajes, la salida del modelo, el código, los nombres de los comandos de barra (`/plan`, `/compact`), las etiquetas que pertenecen al proveedor, como el nivel de razonamiento `High`, los textos de otros plugins, ni los menús nativos y los diálogos de actualización de la app de escritorio (dsh solo los incluye en inglés y chino). Los textos que añada una versión más nueva de dsh aparecen en inglés hasta que se actualicen los paquetes. Si otro plugin ya ofrece un idioma, ese plugin lo mantiene. Desde dsh 0.2.2, dsh incluye por sí mismo 日本語, Español, Français, Deutsch y Русский: en estos idiomas se usan los textos propios de dsh y el paquete solo añade los textos del plugin (Português (Brasil) sigue siendo un idioma aparte junto al Português de dsh).
+Cada paquete tiene 5539 textos: todos los textos de la interfaz de dsh `0.2.2-rc.5` (chats, barra lateral, configuración, aprobaciones, recordatorios, vistas previas de archivos, gestor de plugins, mercado de plugins), los controles propios del plugin y el popular plugin [dsh-rewind](https://github.com/SiriLee/dsh-rewind). No se traducen: tus mensajes, la salida del modelo, el código, los nombres de los comandos de barra (`/plan`, `/compact`), las etiquetas que pertenecen al proveedor, como el nivel de razonamiento `High`, los textos de otros plugins, ni los menús nativos y los diálogos de actualización de la app de escritorio (dsh solo los incluye en inglés y chino). Los textos que añada una versión más nueva de dsh aparecen en inglés hasta que se actualicen los paquetes. Si otro plugin ya ofrece un idioma, ese plugin lo mantiene. Desde dsh 0.2.2, dsh incluye por sí mismo 日本語, Español, Français, Deutsch y Русский: en estos idiomas se usan los textos propios de dsh y el paquete solo añade los textos del plugin (Português (Brasil) sigue siendo un idioma aparte junto al Português de dsh).
 
 ## Atajos de teclado
 
@@ -178,7 +178,7 @@ Un menú `/` o `@` abierto se queda con estas teclas.
 
 ## Compatibilidad
 
-Probado en dsh `0.2.2-rc.1` (escritorio y web) y `0.2.2-rc.3` (web). La CI ejecuta las pruebas en cada push.
+Probado en dsh `0.2.2-rc.5` (web). La CI ejecuta las pruebas en cada push.
 
 ## Privacidad y seguridad
 
@@ -237,7 +237,7 @@ Probado en dsh `0.2.2-rc.1` (escritorio y web) y `0.2.2-rc.3` (web). La CI ejecu
 - **No hay etiqueta de rama en una fila de chat:** la barra lateral no está en «En una sola lista» (en «Espacio de trabajo» y «Árbol de espacios de trabajo», ninguna fila de chat muestra una etiqueta), el chat no tuvo ningún turno desde que instalaste esta versión, su carpeta no es un repositorio git o **Rama de Git en las filas de chat** está desactivada. Después de una actualización, reinicia dsh (la parte Host registra la rama).
 - **Comprobación del objetivo dice que la prueba terminó con el código 127 o «not found»:** dsh iniciado desde el Finder o el Dock puede tener un PATH más corto que tu terminal, así que no encuentra `npm`, `pnpm` ni `cargo`. Inicia dsh desde una terminal, o define tu propio comando de prueba con la ruta completa en **Comprobación del objetivo** → **Editar**. **Ejecutar ahora** muestra el resultado al momento.
 - **El objetivo no se cierra y el agente sigue trabajando:** **Comprobación del objetivo** encontró una prueba fallida o trabajo pendiente; la fila bajo el objetivo muestra el motivo (pasa el puntero por el resultado para ver los detalles). Corrige la causa o el comando de prueba, o completa el objetivo tú mismo con `/goal` o con la barra del objetivo (eso no se comprueba).
-- **La instalación falla justo después de una versión nueva:** añade la versión (`dsh-composer-plus@1.30.1`); consulta la nota de instalación de más arriba.
+- **La instalación falla justo después de una versión nueva:** añade la versión (`dsh-composer-plus@1.31.0`); consulta la nota de instalación de más arriba.
 - **Hacer copia ahora dice «Ya hay otra acción de copia de seguridad en curso»:** hay una acción en marcha en otra ventana de dsh o en la consola de rescate (comparten un archivo de bloqueo, `.composer-plus.lock`, en la carpeta de copias de seguridad). Espera a que termine. Si no hay ninguna acción en marcha, el siguiente clic toma el bloqueo de un proceso cerrado.
 - **La consola de rescate dice «dsh is running»:** primero sal de dsh. Si dsh está realmente cerrado, el archivo que nombra el mensaje quedó de un cierre inesperado: elimínalo y vuelve a intentarlo.
 - **Después de una restauración, dsh no se inicia o falta un plugin:** hay que volver a instalar los paquetes de plugins de un perfil. La consola de rescate lo ofrece después de una restauración; o ejecuta `pnpm install` en cada carpeta de `$DSH_HOME/profiles/` que indique. Los secretos que no estaban en el vault (otro equipo) hay que introducirlos de nuevo: la consola los enumera.
@@ -462,7 +462,7 @@ Probado en dsh `0.2.2-rc.1` (escritorio y web) y `0.2.2-rc.3` (web). La CI ejecu
 
 **¿Cómo puede el agente ordenar un código desordenado?** Escribe `/untangle-codebase` en un chat (**Desenredar el código**, activada de forma predeterminada), si quieres con un área, por ejemplo `/untangle-codebase src/api`. Primero el agente enumera las copias, los vínculos ocultos, los envoltorios innecesarios, el código muerto y los casos especiales; luego los corrige como un objetivo y vuelve a comprobar con subagentes. Iníciala en un chat de **Una rama por chat** para que el trabajo quede en su propia rama.
 
-**¿Funciona con la app de escritorio?** Sí: Configuración → Plugins → **Añadir plugin** → `dsh-composer-plus`. Probado en dsh 0.2.2-rc.1 (escritorio y web) y 0.2.2-rc.3 (web).
+**¿Funciona con la app de escritorio?** Sí: Configuración → Plugins → **Añadir plugin** → `dsh-composer-plus`. Probado en dsh 0.2.2-rc.5 (web).
 
 ## Desarrollo
 

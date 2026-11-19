@@ -1571,7 +1571,7 @@
       "id": "language",
       "name": "language.title",
       "shot": "language",
-      "llms": "Switches the whole dsh interface to one of 11 extra languages: Türkçe, Español, Português (Brasil), Français, Deutsch, Русский, 日本語, 한국어, Bahasa Indonesia, Tiếng Việt, हिन्दी. Each pack has 5,503 texts: every UI text of dsh 0.2.2-rc.1 and 0.2.2-rc.3, the plugin's own texts and the dsh-rewind plugin.",
+      "llms": "Switches the whole dsh interface to one of 11 extra languages: Türkçe, Español, Português (Brasil), Français, Deutsch, Русский, 日本語, 한국어, Bahasa Indonesia, Tiếng Việt, हिन्दी. Each pack has 5,539 texts: every UI text of dsh 0.2.2-rc.5, the plugin's own texts and the dsh-rewind plugin.",
       "how": {
         "en": "Settings → Composer Plus → **Application language** switches the whole dsh interface to Türkçe, Español, Português (Brasil), Français, Deutsch, Русский, 日本語, 한국어, Bahasa Indonesia, Tiếng Việt or हिन्दी (see below).",
         "zh": "设置 → Composer Plus → **应用语言** 可以把整个 dsh 界面切换为 Türkçe、Español、Português (Brasil)、Français、Deutsch、Русский、日本語、한국어、Bahasa Indonesia、Tiếng Việt 或 हिन्दी（见下文）。",
