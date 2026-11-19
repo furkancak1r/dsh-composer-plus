@@ -1052,6 +1052,14 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(c.transcript.map(\.text), ["one", "A1", "two", "A2"]); XCTAssertEqual(c.transcript[2].seq, 3, "a user row keeps its seq")
         c.apply(marker)
         XCTAssertEqual(c.transcript.map(\.text), ["one", "A1"], "the withdrawn rows leave at once")
+        // Damon: a message typed while a turn runs goes into that turn (dsh's steer; a `steering` row on the Mac). The phone
+        // draws it as your message with its seq, also in the bot view, so it keeps Roll back (canRollBack).
+        let steer = Client()
+        steer.replaySnapshot([["type": "turn/start", "seq": 1, "data": J()], ["type": "user/message", "seq": 2, "data": ["content": "slow job", "source": ["kind": "user"]]],
+                              ["type": "assistant/message", "seq": 3, "data": ["message": ["content": [["type": "text", "text": "working"]]]]],
+                              ["type": "user/message", "seq": 4, "data": ["content": "steer note", "source": ["kind": "user"]]],
+                              ["type": "turn/end", "seq": 6, "data": ["reason": ["kind": "completed"]]]])
+        XCTAssertEqual(botLines(steer.transcript).filter { $0.kind == .user }.map(\.seq), [2, 4], "the steered message is your row with its seq")
         // A rolled-back chat opened later: the span hides both turn ends but not the first turn's start (seen live).
         let turns: [J] = [
             ["type": "turn/start", "seq": 4, "time": 1_700_000_000_000, "data": J()],

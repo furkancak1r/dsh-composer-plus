@@ -815,9 +815,10 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       useChatRows(sessionId, chatOf, (chat) => {
         if (chat === undefined) { setTargets((now) => (now.length === 0 ? now : [])); return; }
         const next = [];
-        for (const row of document.querySelectorAll('[data-chat-flow-kind="user"][data-chat-anchor-key], [data-chat-flow-kind="turn-tail"][data-chat-anchor-key]')) {
+        // Your messages (also one that went into a running turn: dsh's `steering` row) and finished answers.
+        for (const row of document.querySelectorAll('[data-chat-flow-kind="user"][data-chat-anchor-key], [data-chat-flow-kind="steering"][data-chat-anchor-key], [data-chat-flow-kind="turn-tail"][data-chat-anchor-key]')) {
           const node = chat.nodes.get(row.dataset.chatAnchorKey);
-          const seq = node?.kind === 'user' ? node.data?.seq : node?.kind === 'turn-tail' ? node.data?.closing?.finalNode?.seq : undefined;
+          const seq = node?.kind === 'user' || node?.kind === 'steering' ? node.data?.seq : node?.kind === 'turn-tail' ? node.data?.closing?.finalNode?.seq : undefined;
           if (typeof seq !== 'number' || row.dataset.cpRolledBack !== undefined) continue;
           const host = actionHostOf(row, ['cp-rb-btn', 'cp-ml-btn']);
           if (host !== null) next.push({ key: row.dataset.chatAnchorKey, seq, host });
@@ -932,6 +933,12 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       };
     }
     const inSpans = (spans, seq) => typeof seq === 'number' && spans.some(([start, end]) => seq >= start && seq <= end);
+    /** The rows that get ↶: your messages, also one that went into a running turn (dsh's `steering` row; in the Damon chat,
+     * Assistant always free sends each message that you type while Damon works that way). */
+    const ROLLBACK_ROWS = '[data-chat-flow-kind="user"][data-chat-anchor-key], [data-chat-flow-kind="steering"][data-chat-anchor-key]';
+    /** The message seq that ↶ of this chat node rolls back to, or undefined (not your message, or a rollback withdrew it). */
+    const rollbackSeqOf = (node, spans) => ((node?.kind === 'user' || node?.kind === 'steering') && typeof node.data?.seq === 'number'
+      && !inSpans(spans, node.anchorSeq) ? node.data.seq : undefined);
     const ROLLBACK_CSS = `
 .cp-rb-btn{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--dsw-alias-label-tertiary);cursor:pointer}
 .cp-rb-btn:hover,.cp-rb-btn[aria-expanded=true]{background:var(--dsw-alias-interactive-bg-hover);color:var(--dsw-alias-label-primary)}
@@ -1060,11 +1067,11 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         }
         const next = [];
         if (!rollback.of(sessionId).rewind) {
-          for (const row of document.querySelectorAll('[data-chat-flow-kind="user"][data-chat-anchor-key]')) {
-            const node = chat.nodes.get(row.dataset.chatAnchorKey);
-            if (node?.kind !== 'user' || typeof node.data?.seq !== 'number' || inSpans(spans, node.anchorSeq)) continue;
+          for (const row of document.querySelectorAll(ROLLBACK_ROWS)) {
+            const seq = rollbackSeqOf(chat.nodes.get(row.dataset.chatAnchorKey), spans);
+            if (seq === undefined) continue;
             const host = actionHostOf(row, ['cp-rb-btn', 'cp-ml-btn']);
-            if (host !== null) next.push({ key: row.dataset.chatAnchorKey, seq: node.data.seq, host });
+            if (host !== null) next.push({ key: row.dataset.chatAnchorKey, seq, host });
           }
         }
         setTargets((now) => (sameTargets(now, next) ? now : next));
