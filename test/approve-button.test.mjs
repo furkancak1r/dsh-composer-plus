@@ -20,10 +20,11 @@ const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ??
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
 const ANCHOR = '/** Feature switches, in Settings order.';
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD, DEPLOY_ASK, DEPLOY_LINE };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks, createCardOffers, StatusPanel, createTodos, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD, DEPLOY_ASK, DEPLOY_LINE };\n    ${ANCHOR}`));
 let cur;
 const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }),
-  useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
+  useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = typeof v === 'function' ? v() : v; // React's lazy initial state
+    return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
   useRef: (v) => { const i = cur.ri++; return cur.refs[i] ??= { current: v }; },
   useSyncExternalStore: (sub, get) => get(), useLayoutEffect: () => {},
   useEffect: (f, deps) => {
@@ -36,7 +37,7 @@ const mount = (C, props) => {
   return { render: () => { cur = inst; inst.si = 0; inst.ri = 0; inst.ei = 0; return C(props); }, unmount: () => { for (const c of inst.cleanups) c?.(); } };
 };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host) => ({ portal: el, host }) } : {}));
-const { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks } = globalThis.__ap;
+const { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks, createCardOffers, StatusPanel, createTodos } = globalThis.__ap;
 
 // --- parseApprovals ---
 const sentences = (text) => parseApprovals(text).map((a) => a.message);
@@ -346,6 +347,63 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
     assert.deepEqual(layout.at(-1).map((m) => m[2]), ['text', 'text'], 'composer text hides the button: the sentence comes back as plain text');
     input = { ...input, draft: '' }; dock.unmount();
   } finally { React.useLayoutEffect = keep; }
+}
+
+// --- Damon card stack (2026-11-19): the Onayla button moves from the reply into the Onay card ---
+// The card's Onayla calls the same store (Option picks: one send per chat at a time, never the same answer twice) with
+// the same send function as the button under a reply: the exact sentence goes as your message once. While a card stack
+// shows in the chat, no Approve button is under the reply and the sentence stays as gray text.
+{
+  const CARD = "Onaylıyorum (canlı değil): montaj testi dalı main'e alınsın.";
+  const LIVE = 'Onaylıyorum: canlı sunucuya deploy et.';
+  view = chat(user(200, 'x'), tail(20, 210, `Ready.\n\n${block(CARD)}`)); input = { phase: 'plain', draft: '', attachmentIds: [] }; session = { blank: false, running: false, subagent: null, removed: false };
+  const cardSent = [];
+  const cardPicks = createOptionPicks(async (id, text) => { cardSent.push([id, text]); });
+  const offers = createCardOffers();
+  const props = { sessionId: 'D', ...hooks, picks: cardPicks, check: createRollbackCheck(async () => true), rollback, t, offers };
+  // OnayCodeBlocks publishes the chat's offer (also while the composer has text) for the Onay card.
+  const dock = mount(OnayCodeBlocks, props); dock.render(); await flush(); dock.render();
+  assert.deepEqual(offers.of('D').offer.options.map((o) => o.message), [CARD], 'the offer is published for the card');
+  assert.equal(offers.of('D').empty, true);
+  // Without a card stack (another chat): the button stays under the reply.
+  const tailCell = mount(ApproveButtons, { ...props, turn: {}, seq: 210 });
+  assert.equal(buttonsOf(tailCell.render()).length, 1, 'no stack: the button under the reply');
+  // The stack in this chat: no button under the reply, the sentence is gray text (no 'button' mark).
+  const unstack = offers.stack('D');
+  assert.equal(tailCell.render(), null, 'a stack: no Approve button under the reply');
+  const layout = []; const keep = React.useLayoutEffect; React.useLayoutEffect = (f, deps) => { if (deps?.length === 1 && typeof deps[0] === 'string' && deps[0].startsWith('[')) layout.push(JSON.parse(deps[0])); };
+  try { dock.render(); } finally { React.useLayoutEffect = keep; }
+  assert.ok(layout.at(-1).every((m) => m[2] === 'text'), 'a stack: the sentence stays in the reply as gray text');
+  // The card: a fake store with one "Onay:" item; the card shows the sentence in full and one Onayla.
+  const store = { of: () => Object.freeze({ items: [{ id: 'a1', text: 'Onay: montaj testi main', owner: 'user', created: Date.now() - 14 * 60000 }], tasks: [], projects: [], summary: null, outage: null, at: Date.now(), busy: false, error: null, errorKind: null, refreshing: false, ask: null, shown: false }),
+    subscribe: () => () => {}, load() {}, schedule() {} };
+  const cardProps = { sessionId: 'D', host: {}, store, openSession: () => {}, locale: () => 'en', t, composer: () => true, notify: () => {}, offers, picks: cardPicks };
+  const stack = mount(StatusPanel, cardProps);
+  const onayCard = (tree) => { const all = []; const walk = (n) => { if (Array.isArray(n)) return n.forEach(walk); if (n === null || typeof n !== 'object') return; if (n.p?.['data-card'] === 'onay' && n.p.role === 'region') all.push(n); (n.c ?? []).forEach(walk); }; walk(tree); return all[0]; };
+  const btns = (n) => { const out = []; const walk = (x) => { if (Array.isArray(x)) return x.forEach(walk); if (x === null || typeof x !== 'object') return; if (x.t === 'button') out.push(x); (x.c ?? []).forEach(walk); }; walk(n); return out; };
+  let card = onayCard(stack.render());
+  assert.ok(card, 'the Onay card shows');
+  assert.ok(texts(card).includes(CARD), 'the whole sentence, not cut');
+  assert.ok(texts(card).some((x) => /cards\.onay/.test(x)) && !texts(card).includes('cards.live'), 'Onay bekliyor, no CANLI label for a not-live sentence');
+  const approve = btns(card).filter((b) => b.p['data-composer-plus-approve'] === 'card');
+  assert.equal(approve.length, 1, 'one Onayla in the card'); assert.deepEqual(texts(approve[0]), ['approve.button']);
+  approve[0].p.onClick(); approve[0].p.onClick(); await flush();
+  assert.deepEqual(cardSent, [['D', CARD]], 'one click sends the exact sentence once, on the same path as the reply button');
+  assert.equal(await cardPicks.pick('D', offers.of('D').offer, 1), false, 'the same answer again: refused');
+  // Typing hides the card's Onayla (today's rule); the card and the sentence stay.
+  dock.render(); await flush(); input = { ...input, draft: 'hm' }; dock.render(); await flush();
+  card = onayCard(stack.render()); assert.ok(card, 'the card stays while you type');
+  assert.equal(btns(card).filter((b) => b.p['data-composer-plus-approve'] === 'card').length, 0, 'no Onayla while the composer has text');
+  input = { ...input, draft: '' };
+  // A live sentence gets the CANLI label.
+  view = chat(user(300, 'y'), tail(30, 310, block(LIVE))); dock.render(); await flush(); dock.render(); await flush();
+  assert.ok(texts(onayCard(stack.render())).includes('cards.live'), 'a live sentence: CANLI');
+  // Without a block, the "Onay:" items keep the card and say that the button comes back.
+  view = chat(user(400, 'z'), tail(40, 410, 'Ok.')); dock.render(); await flush(); dock.render(); await flush();
+  card = onayCard(stack.render()); assert.ok(card, 'the items keep the card');
+  assert.ok(texts(card).some((x) => /^cards\.approveAgain/.test(x)), 'the note: the button comes back with the sentence');
+  unstack(); assert.equal(offers.hasStack('D'), false);
+  dock.unmount(); tailCell.unmount(); stack.unmount();
 }
 
 // --- The feature through plugin.apply ---

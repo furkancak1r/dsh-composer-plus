@@ -3348,7 +3348,6 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     const STATUS_BUSY_MS = 500;
     const STATUS_SUMMARY_WAIT_MS = 5 * 60000;
     const TODOS_ATTR = 'data-composer-plus-todos';
-    const SEAT_ATTR = 'data-composer-plus-status-seat';
     const TODO_GROUPS_KEY = 'dsh-composer-plus.status-todo-groups-closed'; // "user agent": the folded owner groups
     // Issue #6: an item of the assistant that waits for the user longer than this shows as overdue (the panel only shows
     // it: no message, no notice). The ended tasks that you hid with × (`<task id>|<end time>`, this browser only).
@@ -3358,11 +3357,22 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     const SUMMARY_CLOSED_KEY = 'dsh-composer-plus.status-summary-closed'; // the time of the summary whose card you closed
     const closedSummary = () => { try { return Number(localStorage.getItem(SUMMARY_CLOSED_KEY)) || 0; } catch { return 0; } };
     const closeSummary = (at) => { try { localStorage.setItem(SUMMARY_CLOSED_KEY, String(at)); } catch { /* private mode */ } };
-    const TODOS_CSS = `[${TODOS_ATTR}]{position:absolute;top:12px;right:20px;z-index:8;box-sizing:border-box;width:300px;max-width:calc(100% - 32px);max-height:calc(100% - 180px);display:flex;flex-direction:column;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-base);box-shadow:0 4px 16px rgba(0,0,0,.08);font-size:13px;line-height:18px;color:var(--dsw-alias-label-primary)}`
-      // The chat moves left to make room while the panel is open: the panel never covers a message. ponytail: below
-      // 1000px the panel covers the right edge of the chat (fold it with its title); upgrade when dsh has a side slot.
-      // dsh 0.2.2-rc.2 wraps the scroll body in a `display:contents` frame (`conversation.hero.frame`): not a direct child.
-      + `@media (min-width:1000px){[${SEAT_ATTR}="open"] [data-conversation-scroll]{padding-right:332px}}`
+    // The card stack is the first flex item of dsh's chat body (a flex column; `order:-1`, the portal appends it): above the
+    // chat, as wide as the chat column, at most 40% of the window high. dsh 0.2.2-rc.2 wraps the scroll body in a
+    // `display:contents` frame, so the stack and the scroll body are still siblings in the flex column.
+    const TODOS_CSS = `[${TODOS_ATTR}]{order:-1;flex:none;box-sizing:border-box;width:var(--dsh-chat-content-width,720px);max-width:calc(100% - 32px);max-height:40vh;margin:8px auto 4px;display:flex;flex-direction:column;overflow:hidden;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-base);font-size:13px;line-height:18px;color:var(--dsw-alias-label-primary)}`
+      + `[${TODOS_ATTR}] .cp-cs-fixed{flex:none;padding:0 6px}[${TODOS_ATTR}] .cp-cs-count{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-weight:500}`
+      + `[${TODOS_ATTR}] .cp-cs-card{--cp-co:var(--dsw-alias-label-secondary,#6b7280);margin:6px 0 0;padding:8px 10px;border-left:3px solid var(--cp-co);border-radius:6px;background:color-mix(in srgb,var(--cp-co) 7%,transparent);list-style:none;display:block}`
+      + `[${TODOS_ATTR}] .cp-cs-card[data-card="onay"]{--cp-co:var(--dsw-alias-state-business-primary,#3b6cf6)}[${TODOS_ATTR}] .cp-cs-card[data-card="sorun"]{--cp-co:var(--dsw-alias-state-error-primary,#d92d20)}`
+      + `[${TODOS_ATTR}] .cp-cs-card[data-card="senden"]{--cp-co:var(--dsw-alias-state-warn-primary,#f59e0b)}[${TODOS_ATTR}] .cp-cs-card[data-card="bitti"]{--cp-co:var(--dsw-alias-state-success-primary,#16a34a)}`
+      + `[${TODOS_ATTR}] .cp-cs-line{display:flex;align-items:flex-start;gap:6px}[${TODOS_ATTR}] .cp-cs-main{flex:1;min-width:0;overflow-wrap:anywhere}`
+      + `[${TODOS_ATTR}] .cp-cs-sym{flex:none;width:14px;color:var(--cp-co);text-align:center}[${TODOS_ATTR}] .cp-cs-title{font-weight:600}`
+      + `[${TODOS_ATTR}] button.cp-cs-title{padding:0;border:0;background:none;color:inherit;font:inherit;font-weight:600;text-align:left;cursor:pointer}[${TODOS_ATTR}] button.cp-cs-title:hover{text-decoration:underline}`
+      + `[${TODOS_ATTR}] .cp-cs-act{flex:none;height:24px;padding:0 10px;border:.5px solid var(--cp-co);border-radius:999px;background:none;color:inherit;font:inherit;font-size:12px;white-space:nowrap;cursor:pointer}`
+      + `[${TODOS_ATTR}] .cp-cs-act[data-primary]{background:var(--cp-co);color:#fff;font-weight:600}[${TODOS_ATTR}] .cp-cs-act:disabled{opacity:.5;cursor:default}`
+      + `[${TODOS_ATTR}] .cp-cs-tag{margin-left:6px;padding:0 5px;border-radius:4px;font-size:10px;font-weight:700;line-height:16px;color:#fff;background:var(--dsw-alias-state-error-primary,#d92d20)}[${TODOS_ATTR}] .cp-cs-new{color:var(--dsw-alias-state-success-label,#1a7f37);font-weight:600}`
+      + `[${TODOS_ATTR}] .cp-cs-sentence{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}[${TODOS_ATTR}] .cp-st-body{flex:1 1 auto;min-height:0}`
+      + `[${TODOS_ATTR}] .cp-st-body ul{margin:0;padding:0}[${TODOS_ATTR}] .cp-cs-card li{border:0;padding:2px 0}`
       + `[${TODOS_ATTR}] h2,[${TODOS_ATTR}] h3,[${TODOS_ATTR}] h4{margin:0;font-size:13px;line-height:18px}[${TODOS_ATTR}] .cp-td-name{font-weight:600}`
       // A narrow header: the list time shrinks first (its width is 0, so the title keeps its name and chevron), then Get
       // summary; the title button never runs under Get summary (its chevron once drew over the summary spinner).
@@ -3723,14 +3733,47 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       if (createPortal === undefined || map.size === 0) return null;
       return React.createElement(React.Fragment, null, [...map].map(([sessionId, host]) => createPortal(React.createElement(StatusPanel, { key: sessionId, sessionId, host, ...rest }), host, sessionId)));
     }
-    function StatusPanel({ sessionId, host, store, useSessions, useSessionStatus, openSession, locale, t, composer, notify }) {
+    /** The approval sentences that a chat offers now, for its Onay card: OnayCodeBlocks (one per open chat, dsh's composer
+     * dock, which has the chat's hooks) publishes `{ offer, state, empty }` here; the card stack reads it. */
+    function createCardOffers() {
+      let map = new Map(); const stacks = new Map(); const listeners = new Set();
+      const emit = () => { for (const fn of [...listeners]) fn(); };
+      return {
+        of: (id) => map.get(id),
+        subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
+        set(id, value) {
+          const old = map.get(id);
+          if (old === value || (old !== undefined && value !== undefined && sameOffer(old.offer, value.offer) && old.state === value.state && old.empty === value.empty)) return;
+          map = new Map(map); if (value === undefined) map.delete(id); else map.set(id, value);
+          emit();
+        },
+        /** A card stack shows in chat `id`: its Approve buttons leave the reply (ApproveButtons) and go into the Onay card. */
+        hasStack: (id) => (stacks.get(id) ?? 0) > 0,
+        stack(id) {
+          stacks.set(id, (stacks.get(id) ?? 0) + 1); emit();
+          return () => { const n = (stacks.get(id) ?? 1) - 1; if (n > 0) stacks.set(id, n); else stacks.delete(id); emit(); };
+        },
+      };
+    }
+    const CARD_SYMBOL = { onay: '●', sorun: '▲', senden: '◆', suruyor: '○', bitti: '✓' };
+    const CARDS_SHOWN = 3; // cards that an open stack shows before it folds a group (Sorun always shows)
+    const DONE_SEEN_KEY = 'dsh-composer-plus.status-done-seen'; // when you last folded the Bugün bitti group
+    const readNumber = (key) => { try { return Number(localStorage.getItem(key)) || 0; } catch { return 0; } };
+    /** The card stack in the Damon chat (the Durum panel's data, statusCards' groups): the count bar (Get summary,
+     * Projects, Refresh, fold), the summary card, the Onay card (both stay in place while the cards scroll), then Sorun,
+     * Senden, Sürüyor, Bugün bitti and your notes. `offers`: the chat's approval sentences (createCardOffers); `picks`:
+     * Option picks' store, so Onayla sends on the same path and guard as the button under a reply. */
+    function StatusPanel({ sessionId, host, store, useSessions, useSessionStatus, openSession, locale, t, composer, notify, offers, picks }) {
       const state = React.useSyncExternalStore(store.subscribe, () => store.of(sessionId));
+      const offerNow = React.useSyncExternalStore(offers.subscribe, () => offers.of(sessionId));
       const name = ASSISTANT_NAME;
       const [open, setOpen] = React.useState(true);
       const [expanded, setExpanded] = React.useState(() => new Set());
-      const [closedGroups, setClosedGroups] = React.useState(() => { try { return new Set(String(localStorage.getItem(TODO_GROUPS_KEY) ?? '').split(' ').filter(Boolean)); } catch { return new Set(); } });
-      const [historyOpen, setHistoryOpen] = React.useState(false);
+      const [projectsOpen, setProjectsOpen] = React.useState(false);
+      const [folds, setFolds] = React.useState(() => new Map()); // group → open (your choice; else the default below)
       const [dismissed, setDismissed] = React.useState(readDismissed);
+      const [doneSeen, setDoneSeen] = React.useState(() => readNumber(DONE_SEEN_KEY));
+      React.useLayoutEffect(() => offers.stack(sessionId), [sessionId]);
       const kids = typeof useSessions === 'function' ? useSessions((list) => childIdsOf(list, sessionId).join(' ')) : '';
       // The delegated chats (chat_new, chat_send) too: their turns and waits change their rows (2026-11-16: a live deploy
       // chat did not show). A row that runs without a turn (a background job) is read again every STATUS_POLL_MS.
@@ -3745,188 +3788,218 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const timer = setInterval(() => { if (pageShown()) store.schedule(sessionId); }, STATUS_POLL_MS);
         return () => clearInterval(timer);
       }, [sessionId, running]);
-      // An item that waits for you: its wait time and Overdue change while nothing runs, so the panel draws again once a
-      // minute (no read, no request).
-      const waits = (state.items ?? []).some((i) => i.waiting);
+      // Wait times, Overdue and the end of the day change while nothing runs: the stack draws again once a minute (no read).
       const [, tick] = React.useState(0);
-      React.useEffect(() => {
-        if (!waits) return undefined;
-        const timer = setInterval(() => tick((n) => n + 1), 60000);
-        return () => clearInterval(timer);
-      }, [waits]);
-      React.useLayoutEffect(() => { host.setAttribute(SEAT_ATTR, open ? 'open' : 'closed'); return () => host.removeAttribute(SEAT_ATTR); }, [host, open]);
+      React.useEffect(() => { const timer = setInterval(() => tick((n) => n + 1), 60000); return () => clearInterval(timer); }, []);
       if (state.items === null && state.error === null) return null;
       const lang = locale?.();
-      const list = state.items ?? [];
       const headId = `cp-td-${sessionId}`;
       // After a click (or Enter) on an item's button, the item can leave the list: the focus goes back to the title.
       const act = (itemId, action) => store.act(sessionId, itemId, action).finally(() => {
         const doc = globalThis.document;
         if (doc !== undefined && (doc.activeElement === null || doc.activeElement === doc.body)) doc.getElementById?.(headId)?.focus();
       });
-      const toggle = (projectId, show) => setExpanded((prev) => { const next = new Set(prev); if (show ?? !next.has(projectId)) next.add(projectId); else next.delete(projectId); return next; });
-      // The summary card shows only after Get summary or a morning summary (state.shown), until its close button. Another
-      // summary that the assistant wrote without a request is kept by the Host but opens nothing.
       const now = Date.now();
+      const offer = offerNow?.offer;
+      const cards = statusCards(state, now, { approvals: offer?.options.length ?? 0, seen: dismissed, newSince: doneSeen });
       const parts = statusParts(state, now, state.shown);
-      const summary = parts.summary;
-      const projectOfName = (name) => state.projects.find((p) => foldText(p.title) === foldText(name));
-      const lineOf = (p) => parts.lines[p.id] ?? undefined;
-      const rowId = (p) => `cp-st-${sessionId}-${p.id}`;
-      const showProject = (name) => {
-        const p = projectOfName(name);
-        if (p === undefined) return;
-        toggle(p.id, true);
-        setTimeout(() => { const el = globalThis.document?.getElementById?.(rowId(p)); el?.scrollIntoView?.({ block: 'nearest' }); el?.focus?.(); }, 0);
-      };
       const stateText = (s) => t(`status.task.${s}`);
-      const section = (key, title, count, body) => React.createElement('section', { key, 'aria-labelledby': `${headId}-${key}` },
-        React.createElement('h3', { id: `${headId}-${key}` }, title, count === undefined ? null : React.createElement('span', { className: 'cp-td-count' }, String(count))), body);
-      const empty = (text) => React.createElement('p', { className: 'cp-td-empty' }, text);
-      // An item of the assistant that waits for the user: "Waiting for you · <time>" (overdue after TODO_OVERDUE_MS) and
-      // the reason under its text.
-      const waitLine = (item) => [React.createElement('span', { key: 's', className: 'cp-st-sub' },
-        React.createElement('span', { 'data-state': 'waiting' }, t('todos.waiting')), ` · ${spanText(now - item.waiting.since, lang)}`,
-        parts.overdue.has(item.id) ? [' · ', React.createElement('span', { key: 'o', 'data-state': 'overdue' }, t('todos.overdue'))] : null),
-      React.createElement('span', { key: 'r', className: 'cp-st-sub' }, item.waiting.reason)];
-      // → of a row writes its text (statusInsert) at the end of the composer and sends nothing; the list does not change.
-      // An item of the user: "<Do this for me:> <item>" (sent, the assistant gives the item to itself: TODO_SECTION).
-      const writeButton = (row, label, short) => React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-label': label, title: short,
-        onClick: () => { if (!composer(sessionId, statusInsert(row, Date.now(), t, (ms) => spanText(ms, lang)))) notify(sessionId, 'info', t('quote.changed')); } },
-        React.createElement(TodoIcon, { name: 'IconArrowRightOutlineRegular', glyph: '→' }));
-      const writeLabel = (name) => [t('status.insert', { item: name }), t('status.insertShort')];
-      const todoRows = (rows, id, hide) => React.createElement('ul', { id, hidden: hide }, rows.map((item) => React.createElement('li', { key: item.id, 'data-owner': item.owner, ...(item.waiting ? { 'data-waiting': 'true' } : {}) },
-        React.createElement('span', { className: 'cp-td-text' }, item.text, ...(item.waiting ? waitLine(item) : [])),
-        writeButton({ item, overdue: parts.overdue.has(item.id) }, ...(item.owner === 'agent' ? writeLabel(item.text) : [t('todos.handover', { item: item.text }), t('todos.handoverShort')])),
-        React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-disabled': state.busy,
-          'aria-label': t('todos.remove', { item: item.text }), title: t('todos.removeShort'),
-          onClick: () => { act(item.id, 'remove'); } }, React.createElement(TodoIcon, { name: 'IconCloseOutlineRegular', glyph: '×' })))));
-      // Two folding groups, the user's items first: the header says who does them, so the rows have no owner line. An
-      // empty group does not show; the folded groups are kept in this browser.
-      const toggleGroup = (owner) => {
-        const next = new Set(closedGroups); if (next.has(owner)) next.delete(owner); else next.add(owner);
-        setClosedGroups(next); try { localStorage.setItem(TODO_GROUPS_KEY, [...next].join(' ')); } catch { /* storage blocked: this page only */ }
-      };
-      const todoGroups = () => parts.groups.map(({ owner, items: rows, waiting: waits }) => {
-        const isOpen = !closedGroups.has(owner); const id = `${headId}-${owner}`;
-        // A folded group still tells how many items wait for you (`waits`).
-        return React.createElement(React.Fragment, { key: owner },
-          React.createElement('h4', null, React.createElement('button', { type: 'button', className: 'cp-td-group', 'data-owner': owner, 'aria-expanded': isOpen, 'aria-controls': id, onClick: () => toggleGroup(owner) },
-            React.createElement('span', { 'aria-hidden': true }, isOpen ? '▾' : '▸'),
-            React.createElement('span', null, owner === 'agent' ? t('todos.groupAgent', { name }) : t('todos.groupUser')),
-            React.createElement('span', { className: 'cp-td-count' }, String(rows.length)),
-            ...(waits === 0 ? [] : [React.createElement('span', { key: 'w', 'data-state': 'waiting' }, t('todos.waitingCount', { count: String(waits) }))]))),
-          todoRows(rows, id, !isOpen));
-      });
-      // Tasks (issue #6): the live ones (working or waiting) in the list, the ended ones (until the day ends, the Host's
-      // rule) in a folded History group. × hides an ended row in this browser; a new end of the same task shows it again.
-      const endKey = (task) => `${task.id}|${task.ended ?? task.started}`;
-      const liveTasks = parts.live;
-      const endedTasks = parts.ended.filter((task) => !dismissed.has(endKey(task)));
-      const historyId = `${headId}-history`;
-      // Resume after an AIProxy outage (today's newest one): a short line in each task row that it continued; the other
-      // chats that it continued (automations, this chat) are one count without names, so no chat shows twice.
+      const sub = (...c) => React.createElement('span', { className: 'cp-st-sub' }, ...c);
+      const write = (text) => { if (!composer(sessionId, text)) notify(sessionId, 'info', t('quote.changed')); };
+      const insertOf = (row) => statusInsert(row, Date.now(), t, (ms) => spanText(ms, lang));
+      const act2 = (label, onClick, extra) => React.createElement('button', { type: 'button', className: 'cp-cs-act', onClick, ...extra }, label);
+      // Resume after an AIProxy outage (today's newest one): a line in each card whose task it continued; the other chats
+      // that it continued are one count without names.
       const outage = parts.outage;
       const outageTime = outage === null ? '' : clockText(outage.at, lang);
       const resumed = outage?.resumed ?? new Set();
-      const others = outage?.others ?? 0;
-      const outageNote = others === 0 ? null : React.createElement('p', { key: 'outage', className: 'cp-td-empty', 'data-composer-plus-outage': 'note' },
-        t('status.outageMore', { time: outageTime, count: others }));
-      const dismiss = (task) => {
-        // Only the keys of today's ended tasks stay, so the stored list does not grow.
-        // The stored list again (another window can have hidden a row since this panel read it), merged with this one.
-        const ended = new Set(parts.ended.map(endKey));
-        const next = new Set([...readDismissed(), ...dismissed].filter((k) => ended.has(k))); next.add(endKey(task));
+      const outageNote = (outage?.others ?? 0) === 0 ? null : React.createElement('p', { key: 'outage', className: 'cp-td-empty', 'data-composer-plus-outage': 'note' },
+        t('status.outageMore', { time: outageTime, count: outage.others }));
+      /** Gördüm (a Bitti card) and × (a task's Sorun card): hidden in this browser; a new end of the same task shows it. */
+      const hide = (c) => {
+        // Only the keys of today's ended tasks stay (the stored list does not grow); another window's keys are merged.
+        const ended = new Set(parts.ended.map((task) => `${task.id}|${task.ended ?? task.started}`));
+        const next = new Set([...readDismissed(), ...dismissed].filter((k) => ended.has(k))); next.add(c.seenKey);
         setDismissed(next); try { localStorage.setItem(TASKS_DISMISSED_KEY, JSON.stringify([...next])); } catch { /* storage blocked: this page only */ }
-        // The row leaves: the focus goes to its group, or to the panel title when the group goes too.
-        globalThis.document?.getElementById?.(endedTasks.length > 1 ? historyId : headId)?.focus?.();
+        globalThis.document?.getElementById?.(headId)?.focus?.();
       };
-      const taskRow = (task, ended) => React.createElement('li', { key: task.id },
-        React.createElement('button', { type: 'button', className: 'cp-st-row', onClick: () => openSession(task.id) },
-          React.createElement('span', { className: 'cp-st-name' }, task.title),
-          React.createElement('span', { className: 'cp-st-sub' },
-            React.createElement('span', { 'data-state': task.state }, stateText(task.state)),
-            ` · ${spanText((task.ended ?? now) - task.started, lang)}`),
-          resumed.has(task.id) ? React.createElement('span', { className: 'cp-st-sub', 'data-composer-plus-outage': 'row' }, t('status.outageRow', { time: outageTime })) : null,
-          task.result === undefined ? null : React.createElement('span', { className: 'cp-st-sub' }, task.result)),
-        writeButton({ task, outage: resumed.has(task.id) ? outageTime : undefined }, ...writeLabel(task.title)),
-        !ended ? null : React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-label': t('status.dismiss', { task: task.title }), title: t('status.dismissShort'),
-          onClick: () => dismiss(task) }, React.createElement(TodoIcon, { name: 'IconCloseOutlineRegular', glyph: '×' })));
-      const taskList = () => [
-        liveTasks.length === 0 ? null : React.createElement('ul', { key: 'live' }, liveTasks.map((task) => taskRow(task, false))),
-        outageNote,
-        endedTasks.length === 0 ? null : React.createElement(React.Fragment, { key: 'history' },
-          React.createElement('h4', null, React.createElement('button', { id: historyId, type: 'button', className: 'cp-td-group', 'aria-expanded': historyOpen, 'aria-controls': `${historyId}-list`, onClick: () => setHistoryOpen((v) => !v) },
-            React.createElement('span', { 'aria-hidden': true }, historyOpen ? '▾' : '▸'),
-            React.createElement('span', null, t('status.history')),
-            React.createElement('span', { className: 'cp-td-count' }, String(endedTasks.length)))),
-          React.createElement('ul', { id: `${historyId}-list`, hidden: !historyOpen }, endedTasks.map((task) => taskRow(task, true))))];
-      // Refresh: the old content stays in place, dimmed, under a "Refreshing…" label (the panel keeps its height, so nothing
-      // jumps; hidden content would make the panel shrink and grow again within a second). Get summary opens the card: a
-      // placeholder while the assistant writes, then the new summary; after the time limit or a failed request, the
-      // previous summary (when there is one) with a short note and Try again.
+      // The data of a card for the composer: its task, else an item of Damon (statusInsert), else the title.
+      const dataOf = (c) => (c.task !== undefined ? insertOf({ task: c.task, outage: resumed.has(c.task.id) ? outageTime : undefined })
+        : c.item.owner === 'agent' ? insertOf({ item: { ...c.item, text: c.title }, overdue: c.overdue }) : t('status.insert.item', { text: c.title }));
+      const end = (task) => task.ended ?? task.started;
+      // "Mesaj kutusuna yaz": the card's data at the end of the composer, nothing sent (one per card).
+      const writeAct = (c) => act2(t('status.insertShort'), () => write(dataOf(c)), { 'aria-label': t('status.insert', { item: c.title }) });
+      const lineOf = {
+        sorun: (c) => [c.task === undefined ? clockText(c.item.created, lang) : `${stateText('failed')} · ${clockText(end(c.task), lang)}`],
+        senden: (c) => [t('todos.waiting'), ` · ${spanText(now - c.since, lang)}`, c.overdue ? [' · ', React.createElement('span', { key: 'o', 'data-state': 'overdue' }, t('todos.overdue'))] : null],
+        suruyor: (c) => [c.task === undefined ? t('cards.withAgent', { name }) : `${stateText('running')} · ${spanText(now - c.task.started, lang)}`],
+        bitti: (c) => [`${stateText(c.task.state)} · ${clockText(end(c.task), lang)} · ${spanText(end(c.task) - c.task.started, lang)}`,
+          c.fresh ? [' · ', React.createElement('span', { key: 'n', className: 'cp-cs-new' }, t('cards.new'))] : null],
+      };
+      const mainOf = {
+        sorun: (c) => act2(t('cards.ask', { name }), () => write(dataOf(c))),
+        senden: (c) => (c.item?.waiting || c.task?.state === 'waiting' ? act2(t('cards.reply'), () => write(dataOf(c)))
+          : act2(t('cards.done'), () => write(t('cards.doneMessage', { item: c.title.replace(/\s+/g, ' ').trim() })))),
+        suruyor: (c) => (c.task === undefined ? writeAct(c) : act2(t('cards.watch'), () => openSession(c.task.id))),
+        bitti: (c) => act2(t('cards.seen'), () => hide(c)),
+      };
+      const card = (c) => React.createElement('li', { key: c.key, className: 'cp-cs-card', 'data-card': c.group, 'data-key': c.key },
+        React.createElement('div', { className: 'cp-cs-line' },
+          React.createElement('span', { className: 'cp-cs-sym', 'aria-hidden': true }, CARD_SYMBOL[c.group]),
+          React.createElement('span', { className: 'cp-cs-main' },
+            React.createElement('span', { className: 'cp-st-sr' }, `${t(`cards.${c.group}`)}: `),
+            // A task's title opens its chat (as a Durum row did).
+            c.task === undefined ? React.createElement('span', { className: 'cp-cs-title' }, c.title)
+              : React.createElement('button', { type: 'button', className: 'cp-cs-title', title: t('cards.open'), onClick: () => openSession(c.task.id) }, c.title),
+            sub(...lineOf[c.group](c)),
+            c.item?.waiting ? sub(c.item.waiting.reason) : null,
+            resumed.has(c.task?.id) ? React.createElement('span', { className: 'cp-st-sub', 'data-composer-plus-outage': 'row' }, t('status.outageRow', { time: outageTime })) : null,
+            c.task?.result === undefined ? null : sub(c.task.result)),
+          mainOf[c.group](c)),
+        // Ayrıntı: the chat, the data for the composer, the hand-over of your step, × for an item or a failed task.
+        React.createElement('details', null, React.createElement('summary', { className: 'cp-st-sub' }, t('cards.details')),
+          React.createElement('div', { className: 'cp-cs-line', style: { flexWrap: 'wrap', marginTop: '4px' } },
+            c.task === undefined ? null : act2(t('cards.open'), () => openSession(c.task.id)),
+            c.group === 'suruyor' && c.task === undefined ? null : writeAct(c),
+            c.item !== undefined && c.item.owner !== 'agent' ? act2(t('todos.handoverShort'), () => write(insertOf({ item: c.item })), { 'aria-label': t('todos.handover', { item: c.item.text }) }) : null,
+            c.item !== undefined ? act2(t('todos.removeShort'), () => { act(c.item.id, 'remove'); }, { 'aria-label': t('todos.remove', { item: c.item.text }), 'aria-disabled': state.busy })
+              : c.group === 'sorun' ? act2(t('status.dismissShort'), () => hide(c), { 'aria-label': t('status.dismiss', { task: c.title }) }) : null)));
+      // The Onay card: the sentences that the chat offers now (the newest `onay` block after your newest message), each with
+      // Onayla; it sends the exact sentence as your message through Option picks' store, the path and guard of the button
+      // under a reply (one send per chat at a time). The buttons show only while the composer is empty (today's rule).
+      const pick = offerNow?.state ?? { busy: false, error: null };
+      const approval = cards.approval;
+      const onayCard = approval === null ? null : React.createElement('div', { className: 'cp-cs-card', 'data-card': 'onay', role: 'region', 'aria-labelledby': `${headId}-onay` },
+        React.createElement('div', { className: 'cp-cs-line' },
+          React.createElement('span', { className: 'cp-cs-sym', 'aria-hidden': true }, CARD_SYMBOL.onay),
+          React.createElement('span', { className: 'cp-cs-main', id: `${headId}-onay` },
+            React.createElement('span', { className: 'cp-cs-title' }, t('cards.onay')),
+            approval.since === null ? null : ` · ${spanText(now - approval.since, lang)}`,
+            [...(offer?.options ?? []).map((o) => o.text), ...approval.items.map((i) => i.text)].some(liveApproval) ? React.createElement('span', { className: 'cp-cs-tag' }, t('cards.live')) : null)),
+        ...(offer?.options ?? []).map((option) => React.createElement('div', { key: option.n, className: 'cp-cs-line' },
+          React.createElement('p', { className: 'cp-cs-sentence cp-cs-main' }, option.text),
+          offerNow?.empty !== true ? null : React.createElement('button', { type: 'button', className: 'cp-cs-act', 'data-primary': '', disabled: pick.busy, title: option.text,
+            'aria-label': `${t('approve.button')}: ${option.label}`, 'data-composer-plus-approve': 'card', onClick: () => { picks.pick(sessionId, offer, option.n); } }, t('approve.button')))),
+        offer === undefined ? sub(t('cards.approveAgain', { name })) : null,
+        pick.error === null || pick.error === undefined ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert' }, t('approve.failed', { error: pick.error })),
+        approval.items.length === 0 ? null : React.createElement('details', null, React.createElement('summary', { className: 'cp-st-sub' }, t('cards.topics', { count: approval.items.length })),
+          React.createElement('ul', { style: { margin: 0, padding: 0 } }, approval.items.map((i) => React.createElement('li', { key: i.id, className: 'cp-cs-line' },
+            React.createElement('span', { className: 'cp-cs-main' }, cardMark(i.text).title, sub(clockText(i.created, lang))),
+            act2(t('todos.removeShort'), () => { act(i.id, 'remove'); }, { 'aria-label': t('todos.remove', { item: i.text }), 'aria-disabled': state.busy }))))));
+      // The groups: Sorun always open; then the next CARDS_SHOWN cards; a group that does not fit and Bugün bitti start
+      // folded ("▸ Sürüyor 3"). Folding Bugün bitti marks its cards seen (no "new" mark). Your notes: one folded group.
+      let budget = CARDS_SHOWN;
+      const groupOpen = {};
+      for (const g of ['sorun', 'senden', 'suruyor', 'bitti']) {
+        const list = cards.groups[g];
+        const fits = g === 'sorun' || (g !== 'bitti' && list.length <= budget);
+        groupOpen[g] = folds.has(g) ? folds.get(g) : fits;
+        if (groupOpen[g]) budget = Math.max(0, budget - list.length);
+      }
+      groupOpen.notes = folds.get('notes') ?? false;
+      const fold = (g) => {
+        const next = new Map(folds); next.set(g, !groupOpen[g]); setFolds(next);
+        if (g === 'bitti' && groupOpen.bitti) { const at = Date.now(); setDoneSeen(at); try { localStorage.setItem(DONE_SEEN_KEY, String(at)); } catch { /* this page only */ } }
+      };
+      const groupHead = (g, count, extra) => React.createElement('h4', null, React.createElement('button', { id: `${headId}-${g}`, type: 'button', className: 'cp-td-group', 'data-group': g,
+        'aria-expanded': groupOpen[g], 'aria-controls': `${headId}-${g}-list`, onClick: () => fold(g) },
+        React.createElement('span', { 'aria-hidden': true }, groupOpen[g] ? '▾' : '▸'), React.createElement('span', null, t(`cards.${g}`)),
+        React.createElement('span', { className: 'cp-td-count' }, String(count)), extra));
+      const groupList = (g) => {
+        const list = cards.groups[g];
+        if (list.length === 0) return null;
+        const extra = g === 'bitti' && cards.counts.fresh > 0 ? React.createElement('span', { className: 'cp-cs-new' }, t('cards.fresh', { count: cards.counts.fresh })) : null;
+        return React.createElement('section', { key: g, 'data-group': g },
+          g === 'sorun' ? null : groupHead(g, list.length, extra),
+          React.createElement('ul', { id: `${headId}-${g}-list`, hidden: !groupOpen[g], style: { margin: 0, padding: 0 } }, list.map(card)));
+      };
+      // Your own notes (your items without a mark): → gives one to Damon ("Bunu sen yap:"), × removes it.
+      const notes = cards.notes.length === 0 ? null : React.createElement('section', { key: 'notes', 'data-group': 'notes' },
+        groupHead('notes', cards.notes.length),
+        React.createElement('ul', { id: `${headId}-notes-list`, hidden: !groupOpen.notes, style: { margin: 0, padding: 0 } }, cards.notes.map((item) => React.createElement('li', { key: item.id, className: 'cp-cs-line', style: { padding: '4px' } },
+          React.createElement('span', { className: 'cp-cs-main' }, item.text),
+          React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-label': t('todos.handover', { item: item.text }), title: t('todos.handoverShort'), onClick: () => write(insertOf({ item })) },
+            React.createElement(TodoIcon, { name: 'IconArrowRightOutlineRegular', glyph: '→' })),
+          React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-disabled': state.busy, 'aria-label': t('todos.remove', { item: item.text }), title: t('todos.removeShort'),
+            onClick: () => { act(item.id, 'remove'); } }, React.createElement(TodoIcon, { name: 'IconCloseOutlineRegular', glyph: '×' }))))));
+      // Projects (a button in the count bar): the projects that changed in the last 24 hours, as in the Durum panel.
+      const projectOfName = (pname) => state.projects.find((p) => foldText(p.title) === foldText(pname));
+      const projLine = (p) => parts.lines[p.id] ?? undefined;
+      const rowId = (p) => `cp-st-${sessionId}-${p.id}`;
+      const toggle = (projectId, show) => setExpanded((prev) => { const next = new Set(prev); if (show ?? !next.has(projectId)) next.add(projectId); else next.delete(projectId); return next; });
+      const showProject = (pname) => {
+        const p = projectOfName(pname);
+        if (p === undefined) return;
+        setProjectsOpen(true); setOpen(true); toggle(p.id, true);
+        setTimeout(() => { const el = globalThis.document?.getElementById?.(rowId(p)); el?.scrollIntoView?.({ block: 'nearest' }); el?.focus?.(); }, 0);
+      };
+      const list = state.items ?? [];
+      const projects = !projectsOpen ? null : React.createElement('section', { key: 'projects', 'aria-labelledby': `${headId}-projects-h` },
+        React.createElement('h3', { id: `${headId}-projects-h` }, t('status.projects')),
+        state.projects.length === 0 ? React.createElement('p', { className: 'cp-td-empty' }, t('status.projectsEmpty'))
+          : React.createElement('ul', null, state.projects.map((p) => {
+            const isOpen = expanded.has(p.id);
+            return React.createElement('li', { key: p.id, style: { display: 'block' } },
+              React.createElement('div', { className: 'cp-st-line' }, React.createElement('button', { id: rowId(p), type: 'button', className: 'cp-st-row', 'aria-expanded': isOpen, onClick: () => toggle(p.id) },
+                React.createElement('span', { 'aria-hidden': true }, isOpen ? '▾ ' : '▸ '), React.createElement('span', { className: 'cp-st-name' }, p.title),
+                sub(projLine(p) ?? t('status.projectChats', { count: p.count }))),
+                React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-label': t('status.insert', { item: p.title }), title: t('status.insertShort'), onClick: () => write(insertOf({ project: p, line: projLine(p) })) },
+                  React.createElement(TodoIcon, { name: 'IconArrowRightOutlineRegular', glyph: '→' }))),
+              isOpen ? React.createElement(ProjectDetail, { sessionId, project: p, store, todos: list.filter((i) => foldText(i.text).includes(foldText(p.title))), openSession, lang, t }) : null);
+          })));
+      // The summary card (Get summary, the morning summary): under the count bar until you close it (Furkan, 12.11).
+      const summary = parts.summary;
       const ask = state.ask;
       const asking = ask?.state === 'asking' || ask?.state === 'waiting';
-      const waitInHead = asking && !(state.shown && open); // the card does not show it: Get summary does
+      const waitInHead = asking && !(state.shown && open);
       const askNote = ask?.state === 'late' ? t('status.summaryLate') : ask?.state === 'error' ? t('status.summaryFailed', { error: ask.error }) : null;
-      // Try again leaves the panel when it is clicked: the focus goes to the button that shows the progress.
       const retry = (label, again, target) => React.createElement('button', { type: 'button', className: 'cp-st-link', 'aria-label': label, 'aria-disabled': target === 'refresh' && state.refreshing,
         onClick: () => { again(sessionId); globalThis.document?.getElementById?.(`${headId}-${target}`)?.focus?.(); } }, t('assistant.retry'));
       const closeCard = () => { store.hideSummary(sessionId); globalThis.document?.getElementById?.(`${headId}-summarize`)?.focus?.(); };
-      const card = !state.shown ? null : React.createElement('div', { className: 'cp-st-summary', role: 'region', 'aria-labelledby': `${headId}-summary`, 'aria-busy': asking },
+      const summaryCard = !state.shown ? null : React.createElement('div', { className: 'cp-st-summary', role: 'region', 'aria-labelledby': `${headId}-summary`, 'aria-busy': asking },
         React.createElement('h3', { id: `${headId}-summary` },
           React.createElement('span', { title: t('status.updatedHint') }, summary === null || asking ? t('status.summary') : `${t('status.summary')} · ${clockText(summary.at, lang)}`),
           React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-label': t('status.hideSummary'), title: t('status.hideSummary'), onClick: closeCard },
             React.createElement(TodoIcon, { name: 'IconCloseOutlineRegular', glyph: '×' }))),
         asking ? React.createElement('p', { className: 'cp-st-wait' }, React.createElement('span', { className: 'cp-st-spin', 'aria-hidden': true }), t('status.summaryWaiting'))
           : askNote === null ? null : React.createElement('p', { className: 'cp-st-note' }, `${askNote} `, retry(`${t('assistant.retry')}: ${t('status.summarize')}`, store.askSummary, 'summarize')),
-        // While it waits, the previous summary stays dimmed below (without one: two placeholder lines).
         summary === null ? (asking ? [React.createElement('span', { key: 's', className: 'cp-st-skel', 'aria-hidden': true }), React.createElement('span', { key: 's2', className: 'cp-st-skel', 'aria-hidden': true })] : null)
           : React.createElement('div', { className: 'cp-st-old', 'data-old': String(asking) }, summary.projects.map((p) => React.createElement('p', { key: p.project },
             projectOfName(p.project) === undefined ? React.createElement('strong', null, p.project)
               : React.createElement('button', { type: 'button', className: 'cp-st-link', onClick: () => showProject(p.project) }, p.project), ` ${p.text}`))));
-      const body = React.createElement('div', { className: 'cp-st-body', 'data-refreshing': String(state.refreshing), 'aria-busy': state.refreshing },
-        state.errorKind !== 'read' ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert' }, `${t('status.readFailed', { error: state.error })} `, retry(`${t('assistant.retry')}: ${t('status.refresh')}`, store.refresh, 'refresh')),
-        card,
-        section('todos', t('todos.title'), list.length, list.length === 0 ? empty(t('todos.empty')) : todoGroups()),
-        section('tasks', t('status.tasks'), liveTasks.length, liveTasks.length === 0 && endedTasks.length === 0 ? React.createElement(React.Fragment, null, empty(t('status.tasksEmpty')), outageNote) : taskList()),
-        section('projects', t('status.projects'), undefined, state.projects.length === 0 ? empty(t('status.projectsEmpty'))
-          : React.createElement('ul', null, state.projects.map((p) => {
-            const isOpen = expanded.has(p.id);
-            const line = lineOf(p) ?? t('status.projectChats', { count: p.count });
-            return React.createElement('li', { key: p.id, style: { display: 'block' } },
-              React.createElement('div', { className: 'cp-st-line' }, React.createElement('button', { id: rowId(p), type: 'button', className: 'cp-st-row', 'aria-expanded': isOpen, onClick: () => toggle(p.id) },
-                React.createElement('span', { 'aria-hidden': true }, isOpen ? '▾ ' : '▸ '), React.createElement('span', { className: 'cp-st-name' }, p.title),
-                React.createElement('span', { className: 'cp-st-sub' }, line)),
-                writeButton({ project: p, line: lineOf(p) }, ...writeLabel(p.title))),
-              isOpen ? React.createElement(ProjectDetail, { sessionId, project: p, store, todos: list.filter((i) => foldText(i.text).includes(foldText(p.title))), openSession, lang, t }) : null);
-          }))),
-        state.error === null || state.errorKind === 'read' ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert' }, t('todos.failed', { error: state.error })));
-      // One polite status line for screen readers (always in the page, so each change is read): Refreshing…, then the
-      // summary's state.
+      // The count bar: "1 onay · 1 sorun · 2 senden · 3 sürüyor · 5 bitti" (only the groups that have cards).
+      const counts = ['onay', 'sorun', 'senden', 'suruyor', 'bitti'].filter((g) => cards.counts[g] > 0).map((g) => t(`cards.count.${g}`, { count: cards.counts[g] }));
+      const countText = counts.length === 0 ? t('cards.none') : counts.join(' · ');
       const spoken = state.refreshing ? t('status.refreshing') : !state.shown ? '' : asking ? t('status.summaryWaiting') : askNote !== null ? askNote
         : ask?.state === 'done' && summary !== null ? `${t('status.summary')} · ${clockText(summary.at, lang)}` : '';
+      const scroll = React.createElement('div', { className: 'cp-st-body', 'data-refreshing': String(state.refreshing), 'aria-busy': state.refreshing },
+        projects, groupList('sorun'), groupList('senden'), groupList('suruyor'), outageNote, groupList('bitti'), notes,
+        state.error === null || state.errorKind === 'read' ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert' }, t('todos.failed', { error: state.error })));
       // aria-disabled (not disabled) while it refreshes: the focus stays on the button; the store refuses a second Refresh.
       return React.createElement('section', { [TODOS_ATTR]: '', 'data-open': String(open), 'aria-labelledby': headId },
         React.createElement('style', null, TODOS_CSS),
-        React.createElement('div', { className: 'cp-st-top' },
-          React.createElement('h2', { style: { display: 'flex', flex: 1 } }, React.createElement('button', { id: headId, type: 'button', className: 'cp-td-head', 'aria-expanded': open, onClick: () => setOpen((v) => !v) },
-            React.createElement('span', { className: 'cp-td-name' }, t('status.title')),
-            state.refreshing ? React.createElement('span', { className: 'cp-st-time', 'data-refreshing': 'true' }, t('status.refreshing'))
-              : state.at === null ? null : React.createElement('span', { className: 'cp-st-time', title: t('status.updatedHint') }, t('status.updated', { time: clockText(state.at, lang) })),
-            React.createElement(TodoIcon, open ? { name: 'IconChevronDownOutlineRegular', glyph: '▾' } : { name: 'IconChevronUpOutlineRegular', glyph: '▴' }))),
-          // Get summary: a text button (the summary costs a model turn, so it is a choice, not a side effect of Refresh).
-          // "Preparing the summary…" shows in one place: the card, or this button while the card is closed or the panel is
-          // folded. The label is its own span, so a narrow header ends it with "…".
-          React.createElement('button', { id: `${headId}-summarize`, type: 'button', className: 'cp-st-ask', 'aria-disabled': asking, 'data-waiting': String(waitInHead),
-            onClick: () => { store.askSummary(sessionId); } },
-            waitInHead ? React.createElement('span', { className: 'cp-st-spin', 'aria-hidden': true }) : null,
-            React.createElement('span', { className: 'cp-st-label' }, waitInHead ? t('status.summaryWaiting') : t('status.summarize'))),
-          React.createElement('button', { id: `${headId}-refresh`, type: 'button', className: 'cp-td-btn', 'data-refreshing': String(state.refreshing), 'aria-disabled': state.refreshing,
-            'aria-label': t('status.refresh'), title: t('status.refresh'), onClick: () => { store.refresh(sessionId); } },
-            React.createElement(TodoIcon, { name: 'IconRefreshOutlineRegular', glyph: '↻' })),
-          React.createElement('span', { className: 'cp-st-sr', role: 'status', 'aria-live': 'polite' }, spoken)),
-        open ? body : null);
+        React.createElement('div', { className: 'cp-cs-fixed' },
+          React.createElement('div', { className: 'cp-st-top' },
+            React.createElement('h2', { style: { display: 'flex', flex: 1, minWidth: 0 } }, React.createElement('button', { id: headId, type: 'button', className: 'cp-td-head', 'aria-expanded': open, onClick: () => setOpen((v) => !v) },
+              React.createElement('span', { className: 'cp-st-sr' }, `${t('status.title')}: `),
+              React.createElement('span', { className: 'cp-cs-count', 'data-composer-plus-counts': '' }, countText),
+              state.refreshing ? React.createElement('span', { className: 'cp-st-time', 'data-refreshing': 'true' }, t('status.refreshing'))
+                : state.at === null ? null : React.createElement('span', { className: 'cp-st-time', title: t('status.updatedHint') }, t('status.updated', { time: clockText(state.at, lang) })),
+              React.createElement(TodoIcon, open ? { name: 'IconChevronDownOutlineRegular', glyph: '▾' } : { name: 'IconChevronUpOutlineRegular', glyph: '▴' }))),
+            React.createElement('button', { id: `${headId}-summarize`, type: 'button', className: 'cp-st-ask', 'aria-disabled': asking, 'data-waiting': String(waitInHead), onClick: () => { store.askSummary(sessionId); } },
+              waitInHead ? React.createElement('span', { className: 'cp-st-spin', 'aria-hidden': true }) : null,
+              React.createElement('span', { className: 'cp-st-label' }, waitInHead ? t('status.summaryWaiting') : t('status.summarize'))),
+            React.createElement('button', { id: `${headId}-projects`, type: 'button', className: 'cp-st-ask', 'aria-expanded': projectsOpen, onClick: () => { setProjectsOpen((v) => !v); setOpen(true); } },
+              React.createElement('span', { className: 'cp-st-label' }, t('status.projects'))),
+            React.createElement('button', { id: `${headId}-refresh`, type: 'button', className: 'cp-td-btn', 'data-refreshing': String(state.refreshing), 'aria-disabled': state.refreshing,
+              'aria-label': t('status.refresh'), title: t('status.refresh'), onClick: () => { store.refresh(sessionId); } },
+              React.createElement(TodoIcon, { name: 'IconRefreshOutlineRegular', glyph: '↻' })),
+            React.createElement('span', { className: 'cp-st-sr', role: 'status', 'aria-live': 'polite' }, spoken)),
+          state.errorKind !== 'read' ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert' }, `${t('status.readFailed', { error: state.error })} `, retry(`${t('assistant.retry')}: ${t('status.refresh')}`, store.refresh, 'refresh')),
+          open ? summaryCard : null,
+          // A closed stack keeps a waiting approval in sight.
+          onayCard),
+        open ? scroll : null);
     }
     /** An open project row: its changed chats (a click opens one), its to-do items and its git branch and commits. */
     function ProjectDetail({ sessionId, project, store, todos, openSession, lang, t }) {
@@ -6939,12 +7012,12 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       // dsh gives each cell its answer's seq (`turn` is dsh's turn object, not its number); one seq is one answer. Without
       // a seq (OnayCodeBlocks): the offer of the chat, under whichever answer it shows.
       const offered = offer !== undefined && (seq === undefined || offer.seq === seq) && (state.busy || picks.open(sessionId, offer));
-      return offered && empty ? { offer, state } : undefined;
+      return offered ? { offer, state, empty } : undefined;
     }
     function OptionPicks(props) {
       const { sessionId, seq, picks, t } = props;
       const shown = useAnswerOffer(props, parseOptions);
-      if (shown === undefined) return null;
+      if (shown === undefined || !shown.empty) return null;
       const { offer, state } = shown;
       return React.createElement('div', { className: 'cp-op', role: 'group', 'aria-label': t('optionPicks.group'), 'data-composer-plus-option-picks': String(seq) },
         React.createElement('style', null, OPTION_PICKS_CSS),
@@ -6960,9 +7033,11 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
      * store as OptionPicks: one send per answer, rule 7). The button shows the whole sentence that it sends, on as many
      * lines as it needs; its "Approve" label stays on one line. */
     function ApproveButtons(props) {
-      const { sessionId, seq, picks, t } = props;
+      const { sessionId, seq, picks, t, offers } = props;
       const shown = useAnswerOffer(props, parseApprovals);
-      if (shown === undefined) return null;
+      // The Damon chat's card stack holds the buttons (its Onay card): none under the reply, one button on screen.
+      const stacked = React.useSyncExternalStore(offers?.subscribe ?? noSubscribe, () => offers?.hasStack(sessionId) === true);
+      if (shown === undefined || !shown.empty || stacked) return null;
       const { offer, state } = shown;
       return React.createElement('div', { className: 'cp-op', role: 'group', 'aria-label': t('approve.group'), 'data-composer-plus-approve': String(seq) },
         React.createElement('style', null, OPTION_PICKS_CSS),
@@ -7050,8 +7125,14 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
     }
     /** One per open chat (dsh's composer dock, inside the chat's `[data-conversation-session]`). */
     function OnayCodeBlocks(props) {
+      const { sessionId, offers } = props;
       const shown = useAnswerOffer({ ...props, seq: undefined }, parseApprovals);
-      const marks = props.useChat((chat) => JSON.stringify(onayMarks(chat, shown?.offer)));
+      // The chat's offer for the Onay card (the Damon chat's card stack reads it), also while the composer has text.
+      React.useEffect(() => { offers?.set(sessionId, shown); }, [sessionId, shown?.offer, shown?.state, shown?.empty]);
+      React.useEffect(() => () => offers?.set(sessionId, undefined), [sessionId]);
+      const stacked = React.useSyncExternalStore(offers?.subscribe ?? noSubscribe, () => offers?.hasStack(sessionId) === true);
+      // With a card stack, the sentence stays in the reply as gray text: the button is in the Onay card.
+      const marks = props.useChat((chat) => JSON.stringify(onayMarks(chat, shown?.empty && !stacked ? shown.offer : undefined)));
       const anchor = React.useRef(null);
       React.useLayoutEffect(() => {
         const root = anchor.current?.closest('[data-conversation-session]');
@@ -11765,6 +11846,32 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             'status.dismissShort': 'Hide from the list',
             'status.insert': 'Write in the message box: {item}',
             'status.insertShort': 'Write in the message box',
+            'cards.count.onay': '{count} approval(s)',
+            'cards.count.sorun': '{count} problem(s)',
+            'cards.count.senden': '{count} for you',
+            'cards.count.suruyor': '{count} running',
+            'cards.count.bitti': '{count} done',
+            'cards.none': 'Nothing open',
+            'cards.onay': 'Approval waits',
+            'cards.sorun': 'Problem',
+            'cards.senden': 'For you',
+            'cards.suruyor': 'Running',
+            'cards.bitti': 'Done today',
+            'cards.notes': 'Your notes',
+            'cards.fresh': '{count} new',
+            'cards.new': 'new',
+            'cards.live': 'LIVE',
+            'cards.topics': '{count} topic(s)',
+            'cards.ask': 'Ask {name}',
+            'cards.done': 'Done',
+            'cards.doneMessage': 'Done: {item}',
+            'cards.reply': 'Reply',
+            'cards.watch': 'Watch',
+            'cards.seen': 'Seen',
+            'cards.open': 'Open the chat',
+            'cards.details': 'Details',
+            'cards.withAgent': 'With {name}',
+            'cards.approveAgain': 'Approve comes back when {name} writes the approval sentence again.',
             'status.insert.item': 'To-do: {text}',
             'status.insert.owner': 'Who does it: {owner}',
             'status.insert.state': 'State: {state}',
@@ -12904,6 +13011,32 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             'status.dismissShort': '从列表隐藏',
             'status.insert': '写入消息框：{item}',
             'status.insertShort': '写入消息框',
+            'cards.count.onay': '{count} 个审批',
+            'cards.count.sorun': '{count} 个问题',
+            'cards.count.senden': '{count} 项待你处理',
+            'cards.count.suruyor': '{count} 项进行中',
+            'cards.count.bitti': '{count} 项已完成',
+            'cards.none': '没有待办',
+            'cards.onay': '等待审批',
+            'cards.sorun': '问题',
+            'cards.senden': '待你处理',
+            'cards.suruyor': '进行中',
+            'cards.bitti': '今天完成',
+            'cards.notes': '你的笔记',
+            'cards.fresh': '{count} 个新',
+            'cards.new': '新',
+            'cards.live': '线上',
+            'cards.topics': '{count} 个主题',
+            'cards.ask': '问 {name}',
+            'cards.done': '已完成',
+            'cards.doneMessage': '已完成：{item}',
+            'cards.reply': '回复',
+            'cards.watch': '查看',
+            'cards.seen': '已看到',
+            'cards.open': '打开对话',
+            'cards.details': '详情',
+            'cards.withAgent': '{name} 处理中',
+            'cards.approveAgain': '{name} 再次写出审批语句后，“批准”按钮会回来。',
             'status.insert.item': '待办：{text}',
             'status.insert.owner': '负责：{owner}',
             'status.insert.state': '状态：{state}',
@@ -13992,6 +14125,8 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         });
         const rollbackCheck = createRollbackCheck((sessionId) => rollback.load(sessionId));
         const optionsGate = createOptionsGate(optionPicks, rollback);
+        // Damon card stack: the chat's approval offer for its Onay card, and which chats show a stack.
+        const cardOffers = createCardOffers();
         feature('optionPicks', () => {
           optionsGate.setOn(true);
           return [ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
@@ -14010,12 +14145,12 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           id: 'approve-button',
           order: 101,
           locale: LOCALE_NS,
-          inject: () => ({ picks: optionPicks, check: rollbackCheck, rollback }),
+          inject: () => ({ picks: optionPicks, check: rollbackCheck, rollback, offers: cardOffers }),
         }, ApproveButtons)), ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
           name: 'conversation.composer.dock',
           id: 'onay-code-blocks', // one per open chat: the sentence shows once (OnayCodeBlocks)
           order: 30,
-          inject: () => ({ picks: optionPicks, check: rollbackCheck, rollback }),
+          inject: () => ({ picks: optionPicks, check: rollbackCheck, rollback, offers: cardOffers }),
         }, OnayCodeBlocks))]);
         // Delete chat: a "Delete…" item in the chat's "…" menu and one confirm dialog for the whole app.
         const deleteChat = createDeleteChat();
@@ -14444,7 +14579,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           id: 'assistant-status',
           locale: LOCALE_NS,
           inject: () => ({ seats: statusSeats, store: todos, locale: () => ctx.locale?.getSnapshot?.().active,
-            composer: (id, text) => draftTodo(inputOf(id), text), notify: notifyIn,
+            composer: (id, text) => draftTodo(inputOf(id), text), notify: notifyIn, offers: cardOffers, picks: optionPicks,
             openSession: (id) => { try { ctx.get('uiWorkspace')?.openSession(id); } catch { /* the chat is in the sidebar */ } } }),
         }, StatusPanels)), () => todos.stop()]);
         const toggles = createToggles({ mobileConnect: mobile, remoteComputers: computersSwitch, resumeAfterRestart: resume, outageResume: outageSwitch, stopSendFirst: sendFirst, projectMemory: memory, memoryHistory: memoryHistorySwitch, memoryPerChat: memoryChatSwitch, contentSearch, turnRollback: rollbackSwitch, nextPrediction: prediction, typingCompletion: completion, sessionBranch: branchSwitch, defaultWorkspace: defaultWs, goalCheck: goalSwitch, worktreeChats: worktreeSwitch, branchTree,
