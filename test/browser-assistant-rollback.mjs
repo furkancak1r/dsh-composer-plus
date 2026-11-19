@@ -3,7 +3,7 @@
 // each message that you type while Damon works into the running turn (dsh's steer), and dsh draws it as a `steering` row:
 // ↶ was put only on `user` rows, so that message had no ↶.
 // 1. Damon: "first note" → reply. "SLOW job" holds the model; "steer note" typed meanwhile goes into that turn (a
-//    `steering` row). Every message of yours, the steering one too, has ↶ (Roll back to before this message).
+//    `steering` row). Every message of yours, the steering one too, has ↶ (Roll back to before this message) and 🔗.
 // 2. ↶ on the steering message → Chat only: it and everything after it leave the chat, the earlier messages stay, the
 //    composer holds "steer note" again, and the next model request does not have it.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-rollback.mjs /path/to/dsh/lib/bin.js [...]
@@ -114,16 +114,19 @@ try {
       await send('first note'); await shown('reply to first note').first().waitFor({ timeout: 30000 });
       await send('SLOW job'); await until(() => release !== null, 'the slow turn runs');
       await send('steer note');
-      // dsh draws the message as a `steering` row when the running turn takes it at its next step (after the held answer).
-      await pause(1500);
+      // dsh shows it as a pending steer until the running turn takes it at its next step (after the held answer); then it
+      // is a `steering` row.
+      await chat.locator('[data-pending-steering]').filter({ hasText: 'steer note' }).first().waitFor({ timeout: 15000 });
       release(); await shown('reply to steer note').first().waitFor({ timeout: 30000 });
       const steering = chat.locator('[data-chat-flow-kind="steering"]').filter({ hasText: 'steer note' });
       await steering.waitFor({ timeout: 15000 });
-      await pause(800);
-      const rows = await chat.locator('[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]').evaluateAll((els) => els.map((el) => ({
-        kind: el.dataset.chatFlowKind, text: el.innerText.split('\n')[0], rollback: el.querySelector('button[aria-label="Roll back to before this message"]') !== null })));
-      assert.deepEqual(rows, [{ kind: 'user', text: 'first note', rollback: true }, { kind: 'user', text: 'SLOW job', rollback: true }, { kind: 'steering', text: 'steer note', rollback: true }],
-        `dsh ${version}: every message of yours has ↶, the steering one too: ${JSON.stringify(rows)}`);
+      const want = [{ kind: 'user', text: 'first note', rollback: true, link: true }, { kind: 'user', text: 'SLOW job', rollback: true, link: true }, { kind: 'steering', text: 'steer note', rollback: true, link: true }];
+      const readRows = () => chat.locator('[data-chat-flow-kind="user"], [data-chat-flow-kind="steering"]').evaluateAll((els) => els.map((el) => ({
+        kind: el.dataset.chatFlowKind, text: el.innerText.split('\n')[0], rollback: el.querySelector('button[aria-label="Roll back to before this message"]') !== null,
+        link: el.querySelector('[data-composer-plus-message-link]') !== null })));
+      let rows = [];
+      await until(async () => { rows = await readRows(); return JSON.stringify(rows) === JSON.stringify(want); }, 'the rows get their buttons', 10000).catch(() => {});
+      assert.deepEqual(rows, want, `dsh ${version}: every message of yours has ↶ and 🔗, the steering one too: ${JSON.stringify(rows)}`);
       // 2. ↶ on the steering message → Chat only.
       await steering.hover();
       await steering.getByRole('button', { name: 'Roll back to before this message' }).click();

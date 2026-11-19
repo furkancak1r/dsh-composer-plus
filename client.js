@@ -815,9 +815,10 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       useChatRows(sessionId, chatOf, (chat) => {
         if (chat === undefined) { setTargets((now) => (now.length === 0 ? now : [])); return; }
         const next = [];
-        for (const row of document.querySelectorAll('[data-chat-flow-kind="user"][data-chat-anchor-key], [data-chat-flow-kind="turn-tail"][data-chat-anchor-key]')) {
+        // Your messages (also one that went into a running turn: dsh's `steering` row) and finished answers.
+        for (const row of document.querySelectorAll('[data-chat-flow-kind="user"][data-chat-anchor-key], [data-chat-flow-kind="steering"][data-chat-anchor-key], [data-chat-flow-kind="turn-tail"][data-chat-anchor-key]')) {
           const node = chat.nodes.get(row.dataset.chatAnchorKey);
-          const seq = node?.kind === 'user' ? node.data?.seq : node?.kind === 'turn-tail' ? node.data?.closing?.finalNode?.seq : undefined;
+          const seq = node?.kind === 'user' || node?.kind === 'steering' ? node.data?.seq : node?.kind === 'turn-tail' ? node.data?.closing?.finalNode?.seq : undefined;
           if (typeof seq !== 'number' || row.dataset.cpRolledBack !== undefined) continue;
           const host = actionHostOf(row, ['cp-rb-btn', 'cp-ml-btn']);
           if (host !== null) next.push({ key: row.dataset.chatAnchorKey, seq, host });
