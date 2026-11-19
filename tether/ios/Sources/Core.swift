@@ -3199,9 +3199,10 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
                                        end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
                 let reply = lastReply(transcript)
-                if !quietTurn(reply: reply, reason: reason?["kind"] as? String) { notify(String(localized: "Turn finished"), reply, session: current) }
-                // Damon's `[quiet]` turn gives no buzz either (2026-11-19); other chats buzz as before.
-                if !(quietReply(reply) && current != nil && current == botId) { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+                let quiet = quietTurn(reply: reply, reason: reason?["kind"] as? String)
+                if !quiet { notify(String(localized: "Turn finished"), reply, session: current) }
+                // Damon's completed `[quiet]` turn gives no buzz either (2026-11-19); other chats and a failed turn buzz as before.
+                if !(quiet && quietReply(reply) && current != nil && current == botId) { UINotificationFeedbackGenerator().notificationOccurred(.success) }
             }
             running = false
             turnStartedAt = nil

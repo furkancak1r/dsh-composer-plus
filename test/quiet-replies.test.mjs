@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply, quietRun, quietReply, statusTasks, ASSISTANT_STATUS_PATH, UNREAD_PATH, ROLLBACK_SOURCE } from '../index.js';
+import { apply, quietRun, quietReply, statusTasks, ASSISTANT_STATUS_PATH, MOBILE_PATH, UNREAD_PATH, ROLLBACK_SOURCE } from '../index.js';
 
 const table = JSON.parse(readFileSync(new URL('./fixtures/quiet-replies.json', import.meta.url), 'utf8')).cases;
 const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
@@ -34,6 +34,9 @@ assert.equal(quietRun([...turn(1, '[quiet]'), { seq: 9, type: 'turn/start' }]), 
 const two = [...turn(1, 'Real.'), ...turn(9, '[quiet]')];
 assert.equal(quietRun(two), false, 'a run with a real reply before its [quiet] reply is news');
 assert.equal(quietRun(two, 4), true, 'a run that starts after the real reply is quiet');
+// A text with a tool call is work (the chat view hides it), not a reply: only the [quiet] reply counts.
+const work = { seq: 2, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Checking.' }, { type: 'tool-call', id: 'c1', name: 'chats_list', arguments: '{}' }] } } };
+assert.equal(quietRun([turn(1, '[quiet]')[0], work, ...turn(1, '[quiet]').slice(1)]), true, 'a progress text with a tool call does not count');
 // A real reply that a rollback withdrew does not count.
 assert.equal(quietRun([...two, { seq: 20, type: 'user/message', sourceEventSeqs: [3], data: { source: { kind: ROLLBACK_SOURCE } } }, ...turn(21, '[quiet]')], 0), true, 'a withdrawn reply does not count');
 
@@ -103,6 +106,13 @@ assert.equal((await route(ASSISTANT_STATUS_PATH)).quiet, undefined, 'and assista
   for (const f of handlers.get('agent/status') ?? []) f({ agent, status: 'running' }); // the next run starts at once
 }
 assert.equal((await route(ASSISTANT_STATUS_PATH)).quiet, true, 'a quiet run stays quiet in assistant-status while the next run runs');
+// Mobile connect off (the desktop alone): assistant-status still says which run was quiet (the client's notification and dot).
+for (const f of handlers.get('agent/status') ?? []) f({ agent: agentOf('s-damon'), status: 'idle' });
+await route(MOBILE_PATH, { on: false });
+await run('s-damon', 'Real news.');
+assert.equal((await route(ASSISTANT_STATUS_PATH)).quiet, undefined, 'Mobile connect off: a real reply is not quiet');
+await run('s-damon', '[quiet]');
+assert.equal((await route(ASSISTANT_STATUS_PATH)).quiet, true, 'Mobile connect off: a quiet run is quiet');
 for (const d of disposers) d?.();
 rmSync(root, { recursive: true, force: true });
 // The handler pushes Turn finished only when quietTurn says the turn has something to say (apply() builds the real gateway,

@@ -2406,8 +2406,7 @@ export function apply(ctx) {
       busy.add(agent.id); if (mobileOn === true) changeUnread([], [agent.id]);
     } else if (busy.delete(agent.id)) {
       const run = runs.get(agent.id); runs.delete(agent.id);
-      if (run === undefined && mobileOn !== true) return;
-      const events = eventsOf(agent);
+      const events = run !== undefined || mobileOn === true ? eventsOf(agent) : [];
       const silent = run !== undefined && quietRun(events, run.from);
       if (silent) quietRuns.add(agent.id); else quietRuns.delete(agent.id);
       if (mobileOn !== true) return;
@@ -11366,14 +11365,17 @@ export function quietTurn(events, reply) {
  * Tether's quietReply; one table: test/fixtures/quiet-replies.json). An empty reply is not one: views show no empty row. */
 export const quietReply = (text) => /^\[quiet\]$/i.test(String(text ?? '').trim());
 /** A run of a chat (its events from index `from`: running → idle, one or more turns) had nothing to say: its last turn
- * ended `completed`, and it has replies, each only `[quiet]` (quietReply; a reply that a rollback withdrew does not count).
- * Damon's quiet run gives no green dot and no notification in the assistant chat (2026-11-19). */
+ * ended `completed`, and it has replies, each only `[quiet]` (quietReply). A reply is a step's text without a tool call:
+ * a text with a tool call is work, which the assistant chat does not show (client.js quietStep and answerRowKeys use the
+ * same rule). A reply that a rollback withdrew does not count. Damon's quiet run gives no green dot and no notification
+ * in the assistant chat (2026-11-19). */
 export function quietRun(events, from = 0) {
   const own = events.slice(from);
   const end = own.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
   if (end?.type !== 'turn/end' || end.data?.reason?.kind !== 'completed') return false;
   const gone = withdrawn(own);
-  const replies = own.filter((e) => e.type === 'assistant/message' && !gone(e.seq)).map((e) => textBlocks(e.data?.message?.content).trim()).filter((t) => t !== '');
+  const replies = own.filter((e) => e.type === 'assistant/message' && !gone(e.seq) && !(e.data?.message?.content ?? []).some?.((b) => b?.type === 'tool-call'))
+    .map((e) => textBlocks(e.data?.message?.content).trim()).filter((t) => t !== '');
   return replies.length > 0 && replies.every(quietReply);
 }
 
