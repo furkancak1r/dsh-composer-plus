@@ -6671,16 +6671,32 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
     // dur/durdur after a condition in any block; the HOLD list only in a deploy or live block (without its not-live scope
     // phrases); a deploy ask only as the strict line.
     const APPROVAL_DUR = /(?<![\p{L}\p{N}])(?:\p{L}{2,}[aeıiuü]r|\p{L}*(?:m[ae]z|yor|var|yok|y|[ıiuü][kzş]))s[ae](?:n|n[ıi]z)?(?:\s{1,3}\p{L}+)?\s{1,3}(?:dur|durun|durdur|durdurun)(?![\p{L}\p{N}])/u;
+    // The negative and revoke forms of Auto review's STOP list (a relayed approval with one is "NOT VERIFIED, POSSIBLE
+    // REVOKE"): the clear ones in any block (also "etme" or "yapma" at the end of a clause); the fixed word list of
+    // APPROVAL_REVOKE_LIVE (kurma … başlatma, "geri alma", "geri çekme", bırak, kalsın, yok) at the end of a clause only
+    // in a live block. The end of a clause: . , ; ! ) … — – a line end or the end of the block (not : ? or a quote mark).
+    const APPROVAL_REVOKE = /(?<![\p{L}\p{N}])(?:\p{L}+m[ae]s[ıi]n(?!\s+diye)|\p{L}+m[ae]y(?:ın|in|alım|elim)|onay vermedim|onaylamıyorum|onay(?:ı|ımı|ımızı)\s{1,3}geri\s{1,3}(?:al|çek)(?!m[ae](?![\p{L}\p{N}]))\p{L}*|(?:etme|yapma)(?=[ \t]*(?:[.,;!)…—–\n]|$))|do not|don't)(?![\p{L}\p{N}])/u;
+    const APPROVAL_REVOKE_LIVE = /(?<![\p{L}\p{N}])(?:kurma|durdurma|yayınlama|gönderme|silme|atma|başlatma|geri\s{1,3}(?:alma|çekme)|bırak|kalsın|yok)(?=[ \t]*(?:[.,;!)…—–\n]|$))/u;
     const APPROVAL_SCOPE_OFF = /canli\p{L}* +değil|(?:canli\p{L}* +)?deploy\p{L}*(?:['’]\p{L}+)? +ayri +onay\p{L}*|yalniz +yerel/gu;
     const APPROVAL_LIVE_WORD = /deploy|canli|yayin/;
     const DEPLOY_ASK = /^(?:onayliyorum:? *)?canli +deploy +[a-z][a-z0-9-]{1,30} +(?:[0-9a-f]{4,40}|simdi|saat)(?![\p{L}\p{N}])|^(?=[^]*canli)(?=[^]*deploy)[^]*(?<![\p{L}\p{N}])(?=[0-9]*[a-f])[0-9a-f]{7,40}(?![\p{L}\p{N}])/u;
-    const DEPLOY_LINE = /^(?:onayliyorum:? {1,3})?canli {1,3}deploy {1,3}[a-z][a-z0-9-]{1,30} {1,3}(?=[0-9]*[a-f])[0-9a-f]{7,40} {1,3}(?:saat {1,3}(?:[01]\d|2[0-3])[:.][0-5]\d|simdi) {0,20}\.?$/;
+    const DEPLOY_LINE = /^(?:onayliyorum:? {1,3})?canli {1,3}deploy {1,3}([a-z][a-z0-9-]{1,30}) {1,3}(?=[0-9]*[a-f])[0-9a-f]{7,40} {1,3}(?:saat {1,3}(?:[01]\d|2[0-3])[:.][0-5]\d|simdi) {0,20}\.?$/;
+    /** The products of the Host's `deployProducts` setting (the Approve button route's `products`; the Host's
+     * isDeployLine): the strict line holds only one of them, or any product word when the list is empty.
+     * ponytail: the list comes with the route's first answer; an answer drawn before it uses any product word until the
+     * chat changes (the Host's note and the gate still name the right product). */
+    let deployProducts = [];
+    const setDeployProducts = (products) => {
+      deployProducts = Array.isArray(products) ? products.filter((p) => typeof p === 'string' && /^[a-z][a-z0-9-]{1,30}$/.test(p)) : [];
+      onaySentences = new WeakMap(); for (const parse of offerMemos.keys()) offerMemos.set(parse, new WeakMap());
+    };
+    const isDeployLine = (folded) => { const m = DEPLOY_LINE.exec(folded); return m !== null && (deployProducts.length === 0 || deployProducts.includes(m[1])); };
     const passesGate = (text) => {
       const held = (re) => re.test(text.toLocaleLowerCase('tr')) || re.test(text.toLowerCase());
       const folded = text.normalize('NFC').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/ş/g, 's').replace(/[^\S\n]/g, ' ').trim();
       const scope = folded.replace(APPROVAL_SCOPE_OFF, ' ');
-      if (held(APPROVAL_DUR) || (APPROVAL_LIVE_WORD.test(scope) && held(APPROVAL_HOLD))) return false;
-      return !DEPLOY_ASK.test(scope) || DEPLOY_LINE.test(folded);
+      if (held(APPROVAL_DUR) || held(APPROVAL_REVOKE) || (APPROVAL_LIVE_WORD.test(scope) && (held(APPROVAL_HOLD) || held(APPROVAL_REVOKE_LIVE)))) return false;
+      return !DEPLOY_ASK.test(scope) || isDeployLine(folded);
     };
     const approvable = (text) => text !== '' && text.length <= APPROVAL_MAX && APPROVAL_CHARS.test(text.normalize('NFC')) && passesGate(text);
     /** The bodies of the closed, top-level `onay` blocks of `text`, also the ones that get no button. */
@@ -6930,7 +6946,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
 .md-code-block[${ONAY_ATTR}="text"]{margin:8px 0;background:none;border-radius:0}
 .md-code-block[${ONAY_ATTR}="text"]>:not([data-code-block-content]){display:none}
 .md-code-block[${ONAY_ATTR}="text"] pre{padding:0;font:inherit;color:var(--dsw-alias-label-secondary);background:none!important;white-space:pre-wrap;word-break:normal;overflow-wrap:anywhere}`;
-    const onaySentences = new WeakMap(); // a settled answer's blocks → its button-worthy `onay` sentences
+    let onaySentences = new WeakMap(); // a settled answer's blocks → its button-worthy `onay` sentences (setDeployProducts empties it)
     /** The `onay` sentences of the chat's settled answers as `[node key, sentence, 'button' | 'text']`: 'button' for the
      * sentences of `offer` (the buttons on screen) in their own answer (`from`), 'text' for the rest. */
     function onayMarks(chat, offer) {
@@ -13947,6 +13963,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         });
         // Approve button: the Host keeps the switch (its prompt rule); the buttons share Option picks' store and rollback check.
         const approveSwitch = createMobile(APPROVE_ROUTE);
+        approveSwitch.subscribe(() => { const p = approveSwitch.getSnapshot().products; if (p !== undefined) setDeployProducts(p); });
         if (typeof fetch === 'function') approveSwitch.refresh();
         feature('approveButton', () => [ctx.slots.inject('conversation.chat.turnTail', () => ctx.slots.register({
           name: 'conversation.chat.turnTail',

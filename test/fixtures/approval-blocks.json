@@ -765,6 +765,228 @@
    "sentences": [
     "Onaylıyorum: dosyayı sil."
    ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: testler çalışsın, ajan merge yapmasın.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: dal push edilsin, açık iş yok.\n```\n",
+   "sentences": [
+    "Onaylıyorum: dal push edilsin, açık iş yok."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: acme-sync dalı push edilsin, reddedilen adımları yeniden denemesin.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı ayar değişsin, mail gönderme.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı ayar değişsin, veri kaybı yok.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı sunucu ayarı eski haliyle kalsın.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): Tur geri alma düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): Tur geri alma düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): yeniden başlatma uyarısı düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): yeniden başlatma uyarısı düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): eski yedek silme betiği main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): eski yedek silme betiği main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): mail gönderme düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): mail gönderme düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): sürüm etiketi atma adımı eklensin.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): sürüm etiketi atma adımı eklensin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): hatalı commit geri alınsın ve push edilsin.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): hatalı commit geri alınsın ve push edilsin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): dal silinsin, geçici klasör kalsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): dal silinsin, geçici klasör kalsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): hatalı commit geri alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): hatalı commit geri alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): son commit geri alınsın, dal push edilsin.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): son commit geri alınsın, dal push edilsin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): Tur geri alma, yeniden başlatma uyarısı ve mail gönderme düzeltmeleri main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): Tur geri alma, yeniden başlatma uyarısı ve mail gönderme düzeltmeleri main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): şu düzeltmeler main'e alınsın: yedek silme, mail gönderme.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): şu düzeltmeler main'e alınsın: yedek silme, mail gönderme."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): PR taslak olarak bırak.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): PR taslak olarak bırak."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): veri kaybı olmasın diye önce yedek alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): veri kaybı olmasın diye önce yedek alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: testler çalışsın, önceki onayımı geri alıyorum.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı ayar değişsin, eski servisi bırak.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): main'e alınsın, push etme.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: PR açılsın, merge etme.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): testler çalışsın, merge yapma.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, eski servisi silme, yedek al.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı ayar değişsin; eski servisi silme; yedek al.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: testler çalışsın, onayımı geri çektim.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: testler çalışsın, onayı geri al.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum geri alma düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum geri alma düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): onay geri alma düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): onay geri alma düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): onaylar geri alınınca liste yenilensin.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): onaylar geri alınınca liste yenilensin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): main'e alınsın (push etme).\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin (eski servisi silme).\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, eski servisi silme…\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: PR açılsın, merge etme, testleri çalıştır.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): testler çalışsın; merge yapma; rapor yazılsın.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, eski servisi durdurma.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, sorun çıkarsa geri alma.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, eski sürümü geri çekme.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): onayı geri alma düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): onayı geri alma düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): onayımı geri alma özelliği eklensin.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): onayımı geri alma özelliği eklensin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): main'e alınsın, push etme — yalnız yerel test.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): main'e alınsın, push etme – yalnız yerel test.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, eski servisi silme — yedek al.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, eski servisi silme – yedek al.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): main'e alınsın, push etme…\n```\n",
+   "sentences": []
   }
  ]
 }

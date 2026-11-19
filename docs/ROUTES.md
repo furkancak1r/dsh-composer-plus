@@ -68,7 +68,7 @@ Every route is on dsh's authenticated `/api` channel. "Tether" tells whether the
 | `/api/composer-plus.turkish-skill` | POST | `{on}`, `{lang}` (dsh's UI language id) or both: the switch (a switch route) and the language that decides the install. | turkishSkill | no |
 | `/api/composer-plus.untangle-codebase` | GET | The switch `{on}`. | untangleCodebase | no |
 | `/api/composer-plus.untangle-codebase` | POST | `{on}`: the switch (a switch route). | untangleCodebase | no |
-| `/api/composer-plus.approve-button` | GET | The switch `{on}`. | approveButton | no |
+| `/api/composer-plus.approve-button` | GET | The switch `{on}`, and `products` (the `deployProducts` setting) when it is set. | approveButton | no |
 | `/api/composer-plus.approve-button` | POST | `{on}`: the switch (a switch route). | approveButton | no |
 | `/api/composer-plus.assistant-switch` | GET | `{on}`: the switch (on by default). | assistant | no |
 | `/api/composer-plus.assistant-switch` | POST | `{on}`: the switch (a switch route). Off removes the `assistant` route, the prompt section and the six tools. Any other body is refused with 400, also `{name}`: the name is always Damon. | assistant | no |
