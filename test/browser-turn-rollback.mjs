@@ -64,7 +64,7 @@ const fingerprint = async (dir) => {
   await walk(dir); return lines.sort().join('\n');
 };
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
     requests.length = 0;
