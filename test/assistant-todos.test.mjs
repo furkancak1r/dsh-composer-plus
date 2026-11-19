@@ -176,7 +176,14 @@ assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'no context for an em
 // The to-do nudge: a turn of the assistant that started work (subagent, subagent_fork, chat_new, schedule_create) and did
 // not change the list puts one line into the next runtime context, once; a turn with a list change does not.
 assert.match(TODO_SECTION, /Each time that you start work for the user \(subagent, subagent_fork, chat_new, schedule_create\), add an item of owner "agent"/);
-assert.match(TODO_SECTION, /Each step that the user must do \(an approval sentence, a manual action, a restart/);
+assert.match(TODO_SECTION, /Each step that the user must do gets an item of owner "user": an approval that waits starts with "Onay:"[^\n]*another step \(a manual action, a restart\) with "Senden:"/);
+// Damon card stack: the marks of the cards, a live error is a "Sorun:" item, a finished task goes to the Done today card
+// (not the chat), and news is only `[quiet]` unless it brings a new approval or a new live error.
+assert.match(TODO_SECTION, /An error or a risk on a live system gets an item of owner "agent" that starts with "Sorun:"/);
+assert.match(TODO_SECTION, /a task that ended shows in the Done today card, so do not write it in the chat/);
+assert.doesNotMatch(TODO_SECTION, /tell the user in one line/, 'no chat line for a finished task');
+assert.match(STATUS_SECTION, /News rule[^\n]*do not write it in the chat\. Update the to-do list[^\n]*reply with only `\[quiet\]`[^\n]*Write one line in the chat only when the news brings a new approval[^\n]*or a new error or risk on a live system/);
+assert.match(STATUS_SECTION, /its Approve button is in this card, not under your answer/);
 {
   const event = (session, e) => { for (const fn of listeners.get('session/event') ?? []) fn(session, e); };
   const turn = (session, names) => { event(session, { type: 'turn/start' }); for (const name of names) event(session, { type: 'tool/call', data: { name, callId: name } }); event(session, { type: 'turn/end', data: { reason: { kind: 'completed' } } }); };
