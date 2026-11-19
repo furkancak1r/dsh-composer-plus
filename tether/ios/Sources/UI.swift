@@ -4909,10 +4909,7 @@ struct CardDeck: View {
         case .projects: showProjects = true
         case .approve(let s): UISelectionFeedbackGenerator().selectionChanged(); asking = (sessionId, s)
         case .ask(let card), .reply(let card), .write(let card):
-            // The Mac's card data (client.js `dataOf`): the task's data first, then an item of Damon's, else the title only.
-            let text = card.task == nil && card.item?.owner == "user" ? String(localized: "status.insert.item", defaultValue: "To-do: \(card.title)", bundle: uiStrings)
-                : statusInsert(deckRow(card, preferTask: true), now: Date(), span: span)
-            c.writeDraft(text, sessionId)
+            c.writeDraft(statusInsert(deckRow(card, preferTask: false), now: Date(), span: span), sessionId)
         case .done(let card):
             c.writeDraft(String(localized: "cards.doneMessage", defaultValue: "Done: \(card.title)", bundle: uiStrings), sessionId)
         case .watch(let card): if let t = card.task { c.open(t.id) }
