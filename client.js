@@ -2914,10 +2914,12 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     const replyBlock = (b) => b?.kind !== 'reasoning' && b?.kind !== 'tool-call' && (b?.kind !== 'text' || String(b.text ?? '').trim() !== '');
     /** A reply that is only `[quiet]` (any case, spaces trimmed): the assistant's "nothing to say" for routine news (dsh
      * refuses an empty reply; the Host's quietTurn and Tether's botLines use the same rule). Its row is hidden like a
-     * subagent row: the log and the push rules keep it. While it streams, dsh can show it for a moment. */
+     * subagent row: the log and the push rules keep it. While it streams, dsh can show it for a moment. A step's text
+     * counts also when the step has a tool call (dsh's default foldedReplies: all shows that text), as in the Host's
+     * quietRun and Tether's transcript; this view hides the tool call anyway. */
     /** The text rule of a quiet reply (index.js quietReply, Tether's quietReply; one table: test/fixtures/quiet-replies.json). */
     const quietText = (text) => /^\[quiet\]$/i.test(String(text ?? '').trim());
-    const quietStep = (n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks) && !n.data.blocks.some((b) => b?.kind === 'tool-call')
+    const quietStep = (n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks)
       && quietText(n.data.blocks.filter((b) => b?.kind === 'text').map((b) => String(b.text ?? '')).join(''));
     const quietRowKeys = (chat) => [...(chat?.nodes?.values?.() ?? [])].filter(quietStep).map((n) => n.key);
     /** The turns whose closing reply is quiet: dsh's turn tail shows the Copy/time row of the turn's last step with text
@@ -2930,13 +2932,14 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       }
       return [...last].filter(([, n]) => quietStep(n)).map(([turn]) => turn);
     };
-    /** The Host's Assistant news note (its context or trigger row, by dsh's node location) of a turn whose every reply step
-     * (text, no tool call) is quiet: no trace of that turn stays. A news turn with a real reply keeps its note. */
+    /** The Host's Assistant news note (its context or trigger row, by dsh's node location) of a turn whose every step with
+     * text is quiet (quietStep): no trace of that turn stays. The Host's quietRun has the same rule (also for a text sent
+     * with a tool call; test/quiet-replies.test.mjs runs both on one table). A news turn with any other text keeps its note. */
     const newsRowKeys = (chat) => {
       const nodes = [...(chat?.nodes?.values?.() ?? [])];
-      const quiet = new Map(); // turn → all its reply steps are quiet
+      const quiet = new Map(); // turn → each of its steps with text is quiet
       for (const n of nodes) {
-        if (n?.kind !== 'assistant-step' || !Array.isArray(n.data?.blocks) || !hasText(n) || n.data.blocks.some((b) => b?.kind === 'tool-call')) continue;
+        if (n?.kind !== 'assistant-step' || !Array.isArray(n.data?.blocks) || !hasText(n)) continue;
         quiet.set(String(n.data.turn), (quiet.get(String(n.data.turn)) ?? true) && quietStep(n));
       }
       return nodes.filter((n) => (n?.kind === 'context' || n?.kind === 'turn-trigger') && n.data?.source?.kind === 'composer-plus-assistant-news'
@@ -5702,7 +5705,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       }
       if (kind === 'done') {
         const text = firstLine(reply);
-        if (text !== '') return text;
+        if (text !== '' && !quietText(text)) return text; // a `[quiet]` reply is never shown: the plain "Finished."
       }
       return t(`notify.${kind}`);
     }

@@ -11365,18 +11365,17 @@ export function quietTurn(events, reply) {
  * Tether's quietReply; one table: test/fixtures/quiet-replies.json). An empty reply is not one: views show no empty row. */
 export const quietReply = (text) => /^\[quiet\]$/i.test(String(text ?? '').trim());
 /** A run of a chat (its events from index `from`: running → idle, one or more turns) had nothing to say: its last turn
- * ended `completed`, and it has replies, each only `[quiet]` (quietReply). A reply is a step's text without a tool call:
- * a text with a tool call is work, which the assistant chat does not show (client.js quietStep and answerRowKeys use the
- * same rule). A reply that a rollback withdrew does not count. Damon's quiet run gives no green dot and no notification
- * in the assistant chat (2026-11-19). */
+ * ended `completed`, and it has texts, each only `[quiet]` (quietReply). Every text counts, also one sent with a tool call:
+ * dsh's default (foldedReplies: all) shows it in the chat (measured on dsh 0.2.2-rc.5), so such a run is news. A text that
+ * a rollback withdrew does not count. Damon's quiet run gives no green dot and no notification in the assistant chat
+ * (2026-11-19). */
 export function quietRun(events, from = 0) {
   const own = events.slice(from);
   const end = own.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
   if (end?.type !== 'turn/end' || end.data?.reason?.kind !== 'completed') return false;
   const gone = withdrawn(own);
-  const replies = own.filter((e) => e.type === 'assistant/message' && !gone(e.seq) && !(e.data?.message?.content ?? []).some?.((b) => b?.type === 'tool-call'))
-    .map((e) => textBlocks(e.data?.message?.content).trim()).filter((t) => t !== '');
-  return replies.length > 0 && replies.every(quietReply);
+  const texts = own.filter((e) => e.type === 'assistant/message' && !gone(e.seq)).map((e) => textBlocks(e.data?.message?.content).trim()).filter((t) => t !== '');
+  return texts.length > 0 && texts.every(quietReply);
 }
 
 /** Host half of Assistant apart from chats, Assistant always free and Assistant news from chats. `assistant` is the handle of

@@ -5,7 +5,9 @@
 // reply and its news note go) and a news turn with a real reply (its reply shows). dsh folds every reply but a turn's last
 // into the turn's process (0.2.0-0.2.1 always, 0.2.2 with foldedReplies: final, set here), and the view hides the control
 // that opens it. Every reply must show, in time order; the agent message rows and the tool row stay hidden.
-// PLAYWRIGHT=/path/to/playwright node test/browser-assistant-answers.mjs /path/to/dsh/lib/bin.js [...]
+// The quiet news turn starts with a [quiet] text sent with a tool call: with FOLDED_REPLIES=all (dsh 0.2.2's default)
+// dsh shows that text, and this view hides it too.
+// PLAYWRIGHT=/path/to/playwright [FOLDED_REPLIES=all] node test/browser-assistant-answers.mjs /path/to/dsh/lib/bin.js [...]
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
@@ -58,15 +60,24 @@ function chatLog(sid, cwd) {
     ev('step/start', { turn: 2, step: 1 }), ev('user/message', two, { surfaceOp: 'append' }),
     reply(2, 1, [{ type: 'text', text: REPLIES[2] }]), ev('step/end', { turn: 2, step: 1 }), ev('turn/end', { turn: 2, reason: { kind: 'completed' } }));
   // A news turn as the Host writes it (wakeWithContinue: empty markers in both queues; the note itself has its own id).
-  const newsTurn = (turn, text, answer) => {
+  // `work`: a first step whose text comes with a tool call (dsh 0.2.2's default foldedReplies: all shows that text).
+  const newsTurn = (turn, text, answer, work) => {
     const marker = () => ({ id: randomUUID(), role: 'user', content: [], source: { kind: 'composer-plus-assistant-news' } });
     lines.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [marker()] }), ev('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [marker()] }),
       ev('turn/start', { turn }), ev('agent/inbox/spliced', { target: 'next-step', start: 0, removedCount: 1, inserted: [] }),
       ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }),
-      ev('step/start', { turn, step: 1 }), ev('user/message', msg(text, { kind: 'composer-plus-assistant-news', form: 'snapshot' }), { surfaceOp: 'append' }),
-      reply(turn, 1, [{ type: 'reasoning', text: 'Routine.' }, { type: 'text', text: answer }]), ev('step/end', { turn, step: 1 }), ev('turn/end', { turn, reason: { kind: 'completed' } }));
+      ev('step/start', { turn, step: 1 }), ev('user/message', msg(text, { kind: 'composer-plus-assistant-news', form: 'snapshot' }), { surfaceOp: 'append' }));
+    let step = 1;
+    if (work !== undefined) {
+      const callId = `call_${turn}`;
+      lines.push(reply(turn, 1, [{ type: 'text', text: work }, { type: 'tool-call', id: callId, name: 'chats_list', arguments: '{}' }]), ev('tool/call', { turn, step: 1, callId, name: 'chats_list', arguments: '{}' }));
+      lines.push(ev('tool/result', { turn, step: 1, message: { role: 'tool', source: { kind: 'tool', callId }, toolCallId: callId, content: [{ type: 'text', text: '{"chats":[]}' }], isError: false, id: randomUUID() } }, { sourceEventSeqs: [seq - 1], surfaceOp: 'append' }),
+        ev('step/end', { turn, step: 1 }), ev('step/start', { turn, step: 2 }));
+      step = 2;
+    }
+    lines.push(reply(turn, step, [{ type: 'reasoning', text: 'Routine.' }, { type: 'text', text: answer }]), ev('step/end', { turn, step }), ev('turn/end', { turn, reason: { kind: 'completed' } }));
   };
-  newsTurn(3, NEWS[0], QUIET);
+  newsTurn(3, NEWS[0], QUIET, QUIET); // [quiet] with a tool call, then [quiet]: the whole turn is quiet
   newsTurn(4, NEWS[1], NEWS_ANSWER);
   // dsh wants the header line alone in the first zstd frame.
   return Buffer.concat([zlib.zstdCompressSync(Buffer.from(`${lines[0]}\n`)), zlib.zstdCompressSync(Buffer.from(`${lines.slice(1).join('\n')}\n`))]);
@@ -83,7 +94,8 @@ try {
     await writeFile(join(profile, 'package.json'), JSON.stringify({ name: 'answers-test', private: true, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-composer-plus'] } } }));
     await writeFile(join(profile, 'cordis.yml'), '[]\n');
     // dsh 0.2.2 keeps every reply by default; the owner's setting folds all but the final answer (0.2.0-0.2.1 always do).
-    const fold = /^0\.2\.[01]-/.test(version) ? '' : '- id: ui-chat\n  name: "@deepseek-ai/dsh-client-ui-chat"\n  config:\n    foldedReplies: final\n';
+    // FOLDED_REPLIES=all checks dsh 0.2.2's default, where a text sent with a tool call shows too.
+    const fold = /^0\.2\.[01]-/.test(version) ? '' : `- id: ui-chat\n  name: "@deepseek-ai/dsh-client-ui-chat"\n  config:\n    foldedReplies: ${process.env.FOLDED_REPLIES ?? 'final'}\n`;
     await writeFile(join(profile, 'cordis.patch.yml'), `${fold}- id: ui-settings-general\n  name: "@deepseek-ai/dsh-client-ui-settings-general"\n  config:\n    welcomeNoticeVersion: 2026-09-28.1\n`);
     const sid = `session-${randomUUID()}`; const wid = randomUUID(); const now = new Date().toISOString();
     const dir = join(dshHome, 'sessions', `-${cwd.replace(/[^A-Za-z0-9_]/g, '-')}--`, sid); await mkdir(dir, { recursive: true });

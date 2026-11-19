@@ -34,9 +34,11 @@ assert.equal(quietRun([...turn(1, '[quiet]'), { seq: 9, type: 'turn/start' }]), 
 const two = [...turn(1, 'Real.'), ...turn(9, '[quiet]')];
 assert.equal(quietRun(two), false, 'a run with a real reply before its [quiet] reply is news');
 assert.equal(quietRun(two, 4), true, 'a run that starts after the real reply is quiet');
-// A text with a tool call is work (the chat view hides it), not a reply: only the [quiet] reply counts.
+// A text sent with a tool call shows in the chat with dsh's default (foldedReplies: all): the run is news.
 const work = { seq: 2, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: 'Checking.' }, { type: 'tool-call', id: 'c1', name: 'chats_list', arguments: '{}' }] } } };
-assert.equal(quietRun([turn(1, '[quiet]')[0], work, ...turn(1, '[quiet]').slice(1)]), true, 'a progress text with a tool call does not count');
+assert.equal(quietRun([turn(1, '[quiet]')[0], work, ...turn(1, '[quiet]').slice(1)]), false, 'a progress text with a tool call is news');
+const silentWork = { ...work, data: { message: { content: [{ type: 'reasoning', text: 'Look.' }, { type: 'tool-call', id: 'c2', name: 'chats_list', arguments: '{}' }] } } };
+assert.equal(quietRun([turn(1, '[quiet]')[0], silentWork, ...turn(1, '[quiet]').slice(1)]), true, 'a tool call without text does not count');
 // A real reply that a rollback withdrew does not count.
 assert.equal(quietRun([...two, { seq: 20, type: 'user/message', sourceEventSeqs: [3], data: { source: { kind: ROLLBACK_SOURCE } } }, ...turn(21, '[quiet]')], 0), true, 'a withdrawn reply does not count');
 
@@ -113,6 +115,15 @@ await run('s-damon', 'Real news.');
 assert.equal((await route(ASSISTANT_STATUS_PATH)).quiet, undefined, 'Mobile connect off: a real reply is not quiet');
 await run('s-damon', '[quiet]');
 assert.equal((await route(ASSISTANT_STATUS_PATH)).quiet, true, 'Mobile connect off: a quiet run is quiet');
+// A run that started while the Host did not know the chat as the assistant (no run record), with Mobile connect off: its
+// end still clears the old quiet result.
+{
+  const agent = agentOf('s-damon');
+  logs.set('s-damon', [...logs.get('s-damon'), ...turn(logs.get('s-damon').length + 1, 'A real reply.')]);
+  for (const f of handlers.get('agent/status') ?? []) f({ agent: { ...agent, id: 's-damon', session: { header: { origin: 'subagent' } } }, status: 'running' }); // not counted
+  for (const f of handlers.get('agent/status') ?? []) f({ agent, status: 'idle' }); // an idle edge without a run record
+}
+assert.equal((await route(ASSISTANT_STATUS_PATH)).quiet, true, 'an idle edge of a chat that was not running changes nothing');
 for (const d of disposers) d?.();
 rmSync(root, { recursive: true, force: true });
 // The handler pushes Turn finished only when quietTurn says the turn has something to say (apply() builds the real gateway,
@@ -136,10 +147,40 @@ globalThis.document = { hasFocus: () => false };
 let badge = 0; Object.defineProperty(globalThis, 'navigator', { value: { setAppBadge: (n) => { badge = n; return Promise.resolve(); }, clearAppBadge: () => { badge = 0; return Promise.resolve(); } }, configurable: true });
 const shown = [];
 globalThis.Notification = class { static get permission() { return 'granted'; } constructor(title, o) { this.title = title; this.body = o.body; shown.push(this); } close() {} };
-eval(src.replace('    function AssistantPage({', '    globalThis.__quiet = { watchAttention, watchQuietDot };\n    function AssistantPage({'));
+eval(src.replace('    function AssistantPage({', '    globalThis.__quiet = { watchAttention, watchQuietDot, newsRowKeys, attentionBody };\n    function AssistantPage({'));
 const React = { createElement: () => ({}), Fragment: 'F', useState: (v) => [v, () => {}], useEffect: () => {}, useSyncExternalStore: (_s, g) => g() };
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: () => ({}) } : {}));
-const { watchAttention, watchQuietDot } = globalThis.__quiet;
+const { watchAttention, watchQuietDot, newsRowKeys, attentionBody } = globalThis.__quiet;
+
+// One rule on both sides: for each completed turn, the Host's quietRun and the client's newsRowKeys (the news note goes
+// only with a quiet turn) give the same answer. A step is its message content; dsh maps each block 1:1 to the chat node
+// (text → text, reasoning → reasoning, tool-call → tool-call: dsh-client-ui-chat toAssistantBlock).
+const T = (text) => ({ type: 'text', text }); const R = { type: 'reasoning', text: 'Look.' };
+const C = { type: 'tool-call', id: 'c', name: 'chats_list', arguments: '{}' };
+const shapes = [
+  [[[R, T('[quiet]')]], true],
+  [[[T(' [QUIET]\n')]], true],
+  [[[R, C], [T('[quiet]')]], true], // a tool call without text does not count
+  [[[T('[quiet]'), C], [T('[quiet]')]], true], // a [quiet] text with a tool call is quiet too
+  [[[T('Checking.'), C], [T('[quiet]')]], false], // a text sent with a tool call is news (dsh's default shows it)
+  [[[T('[quiet]'), C], [T('Found 2 issues.')]], false],
+  [[[T('Started the audit.')], [T('[quiet]')]], false],
+  [[[T('[quiet]\nThe audit found 2 issues.')]], false],
+  [[[R, C]], false], // no text at all: not a quiet reply (the Host's quietTurn handles an empty reply)
+];
+for (const [steps, quiet] of shapes) {
+  const events = [{ seq: 0, type: 'turn/start' }, { seq: 1, type: 'user/message', data: { source: { kind: 'composer-plus-assistant-news' }, content: [T('news')] } },
+    ...steps.map((content, i) => ({ seq: 2 + i, type: 'assistant/message', data: { message: { content } } })), { seq: 9, type: 'turn/end', data: { reason: { kind: 'completed' } } }];
+  const nodes = new Map([['note', { key: 'note', kind: 'context', location: { kind: 'step', turn: { turn: 1 } }, data: { source: { kind: 'composer-plus-assistant-news' } } }],
+    ...steps.map((content, i) => [`s${i}`, { key: `s${i}`, kind: 'assistant-step', data: { turn: 1, step: i + 1, blocks: content.map((b) => ({ kind: b.type, text: b.text })) } }])]);
+  const label = JSON.stringify(steps);
+  assert.equal(quietRun(events), quiet, `Host: ${label}`);
+  assert.equal(newsRowKeys({ nodes }).includes('note'), quiet, `client: ${label}`);
+}
+// The notification body never shows `[quiet]` (dsh's turnOutline keeps the turn's last text, also after a real reply).
+const tr = (k) => k;
+for (const reply of ['[quiet]', ' [QUIET] ']) assert.equal(attentionBody('done', undefined, reply, tr), 'notify.done', JSON.stringify(reply));
+assert.equal(attentionBody('done', undefined, 'Deployed v2.', tr), 'Deployed v2.', 'a real reply is the body');
 const st = (o = {}) => ({ running: false, pendingInteraction: undefined, completionUnread: false, ...o });
 let snap = new Map(); const ls = new Set();
 const status = { getSnapshot: () => snap, subscribe: (l) => { ls.add(l); return () => ls.delete(l); } };

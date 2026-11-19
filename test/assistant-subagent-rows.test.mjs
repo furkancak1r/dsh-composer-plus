@@ -154,25 +154,28 @@ id = null; out = answersView.render(); assert.equal(css(), '', 'off: nothing');
 answersView.unmount();
 
 // A reply that is only `[quiet]` (any case, spaces): the assistant's "nothing to say" for routine news. Its row is hidden
-// like a subagent row (also when it is not the turn's last reply); a reply that says more, or a step with a tool call, stays.
+// like a subagent row (also when it is not the turn's last reply, and also when the step has a tool call); a reply that
+// says more stays.
 stores.set('s-quiet', storeOf([
   node('11:trig', 'turn-trigger', { kind: 'composer-plus-assistant-news' }),
   step('11:1', 11, 1, 'think', ' [QUIET]\n'), // quiet, not the turn's last: hidden, not shown again as an answer
   step('11:2', 11, 2, '[quiet]'), // the turn's last reply: hidden
   step('12:1', 12, 1, '[quiet]\nThe audit found 2 issues.'), // says more: stays
   step('12:2', 12, 2, 'Audit: [quiet]'), // stays
-  step('12:3', 12, 3, '[quiet]', 'tool'), // a tool step: process rules, not this one
   step('13:1', 13, 1, 'Real answer.'), // a real answer, then a quiet last step: the answer shows, the quiet step goes
   step('13:2', 13, 2, '[quiet]'),
   step('14:1', 14, 1, '[quiet]'), step('14:2', 14, 2, 'think', 'tool'), // dsh's tail copies the last step with text: quiet
   ['15:x', { key: '15:x', kind: 'assistant-step' }], // a node without data: no rule, no error
+  // A [quiet] text sent with a tool call: dsh's default (foldedReplies: all) shows it, so it goes too (the Host's
+  // quietRun counts it the same way); the turn's later real reply stays.
+  step('16:1', 16, 1, '[quiet]', 'tool'), step('16:2', 16, 2, 'Found 2 issues.'),
 ]));
 open = 's-quiet'; id = 's-quiet';
 const quietView = mount(() => ({ status, chatOf, t: (k) => k }));
 out = quietView.render();
 const quietRule = (key) => rule(key, 's-quiet');
-for (const key of ['11:1', '11:2']) assert.ok(css().includes(`${quietRule(key)},`) || css().includes(`${quietRule(key)} {`), `[quiet] reply ${key} hidden`);
-for (const key of ['12:1', '12:2', '12:3']) assert.ok(!css().includes(`${quietRule(key)},`) && !css().includes(`${quietRule(key)} {`), `${key} is not hidden as quiet`);
+for (const key of ['11:1', '11:2', '16:1']) assert.ok(css().includes(`${quietRule(key)},`) || css().includes(`${quietRule(key)} {`), `[quiet] reply ${key} hidden`);
+for (const key of ['12:1', '12:2', '16:2']) assert.ok(!css().includes(`${quietRule(key)},`) && !css().includes(`${quietRule(key)} {`), `${key} is not hidden as quiet`);
 assert.ok(!css().includes(`${quietRule('11:1')}:not(`), 'a quiet reply is not shown again as a folded answer');
 assert.ok(css().includes(`${quietRule('13:1')}:not(`), 'the real answer before a quiet last step shows');
 assert.ok(css().includes(`${quietRule('13:2')},`) || css().includes(`${quietRule('13:2')} {`), 'the quiet last step is hidden');
@@ -180,7 +183,7 @@ assert.ok(css().includes(`${quietRule('13:2')},`) || css().includes(`${quietRule
 const tails = css().split('}').find((b) => b.includes('data-turn-tail')) ?? '';
 for (const turn of ['11', '13', '14']) assert.ok(tails.includes(`[data-conversation-session="s-quiet"] [data-turn-tail="${turn}"] > [data-clock]`), `turn ${turn}: its Copy/time row goes`);
 assert.ok(!css().includes('"15'), 'a node without data gets no rule');
-assert.ok(!tails.includes('"12"'), 'a turn that ends with a reply that says more keeps its row');
+for (const turn of ['12', '16']) assert.ok(!tails.includes(`"${turn}"`), `turn ${turn} ends with a reply that says more: it keeps its row`);
 assert.match(tails, /display: none !important;/);
 quietView.unmount();
 
@@ -194,13 +197,18 @@ stores.set('s-news', storeOf([
   news('21:note', 21), step('21:1', 21, 1, 'The deploy failed.'), // a news turn with a real reply: the note stays
   news('22:trig', 22, 'turn-trigger'), step('22:1', 22, 1, '[QUIET]'), // a note drawn as a trigger row: goes too
   news('23:note', 23), step('23:1', 23, 1, 'Started the audit.'), step('23:2', 23, 2, '[quiet]'), // a real reply, then [quiet]: the note stays
-  news('24:note', 24), step('24:1', 24, 1, 'think', 'tool'), step('24:2', 24, 2, '[quiet]'), // a tool step is no reply: the note goes
+  news('24:note', 24), step('24:1', 24, 1, 'think', 'tool'), step('24:2', 24, 2, '[quiet]'), // a tool call without text: the note goes
+  // A text sent with a tool call (dsh's default foldedReplies: all shows it): news, as the Host's quietRun says
+  // (test/quiet-replies.test.mjs has the same shape). The note stays.
+  news('25:note', 25), step('25:1', 25, 1, 'Checking.', 'tool'), step('25:2', 25, 2, '[quiet]'),
+  // A [quiet] text sent with a tool call, then [quiet]: every text is quiet, so the note goes (quietRun says quiet too).
+  news('26:note', 26), step('26:1', 26, 1, '[quiet]', 'tool'), step('26:2', 26, 2, '[quiet]'),
 ]));
 open = 's-news'; id = 's-news';
 const newsView = mount(() => ({ status, chatOf, t: (k) => k }));
 out = newsView.render();
 const newsRule = (key) => rule(key, 's-news');
-for (const key of ['20:note', '22:trig', '20:1', '22:1', '23:2', '24:note']) assert.ok(css().includes(`${newsRule(key)},`) || css().includes(`${newsRule(key)} {`), `${key} goes with the quiet turn`);
-for (const key of ['21:note', '21:1', '20:time', '23:note', '23:1']) assert.ok(!css().includes(`${newsRule(key)},`) && !css().includes(`${newsRule(key)} {`), `${key} stays`);
+for (const key of ['20:note', '22:trig', '20:1', '22:1', '23:2', '24:note', '25:2', '26:note', '26:1', '26:2']) assert.ok(css().includes(`${newsRule(key)},`) || css().includes(`${newsRule(key)} {`), `${key} goes with the quiet turn`);
+for (const key of ['21:note', '21:1', '20:time', '23:note', '23:1', '25:note']) assert.ok(!css().includes(`${newsRule(key)},`) && !css().includes(`${newsRule(key)} {`), `${key} stays`);
 newsView.unmount();
 console.log('assistant subagent rows: ok');
