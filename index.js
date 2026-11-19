@@ -8466,7 +8466,8 @@ export const BACKUP_PATH = '/api/composer-plus.backup';
 export const AUTO_BACKUP_PATH = '/api/composer-plus.auto-backup';
 export const RESCUE_PATH = '/api/composer-plus.rescue-console';
 export const BACKUP_HOURS = [6, 12, 24, 72, 168];
-export const BACKUP_KEEPS = [3, 5, 7, 14];
+/** 2 counts every Composer Plus archive in the folder (automatic, snapshot and a click's together), see backupNow. */
+export const BACKUP_KEEPS = [2, 3, 5, 7, 14];
 /** Snapshots taken when dsh or Composer Plus starts with a new version: the newest this many stay. */
 export const SNAPSHOT_KEEP = 2;
 /** No automatic backup in the first seconds after a start: a full backup reads and compresses about a gigabyte. */
@@ -8548,25 +8549,29 @@ export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retry
     if (await rescue.read()) await backups.writeRescue(folder).catch((error) => log(`could not write the rescue console: ${error?.message ?? error}`));
     await refreshOld();
   };
-  /** A click keeps every archive; an automatic backup keeps the newest `keep` of its own, a snapshot the newest 2. */
+  /** A click keeps every archive; an automatic backup keeps the newest `keep` of its own, a snapshot the newest 2. With
+   * Automatic backup on and Keep 2, each backup (also a click) is read back, then the newest 2 of all kinds stay. */
   const backupNow = (kind = 'backup', automatic = false) => run('backup', async (signal, progress) => {
     const settings = await auto.read();
-    const keep = kind === 'pre-upgrade' ? SNAPSHOT_KEEP : automatic ? settings.keep : undefined;
-    const r = await backups.backup({ home, dest: folder, kind, keep, signal, progress });
+    const total = settings.on && settings.keep === 2;
+    const keep = total ? 2 : kind === 'pre-upgrade' ? SNAPSHOT_KEEP : automatic ? settings.keep : undefined;
+    const r = await backups.backup({ home, dest: folder, kind, keep, allKinds: total, signal, progress });
+    for (const failure of r.rotateFailed) log(`could not remove an old backup: ${failure}`);
     await refreshRescue();
-    return { name: r.name, size: r.size, files: r.files, masked: r.masked.length, skipped: r.skipped.length, rotated: r.rotated.length };
+    return { name: r.name, size: r.size, files: r.files, masked: r.masked.length, skipped: r.skipped.length, rotated: r.rotated.length, notRemoved: r.rotateFailed.length };
   }, { kind });
   const live = (id) => get('agents')?.get?.(id) !== undefined;
   const scanView = (s) => ({ at: s.at, scanned: s.scanned, torn: s.torn, skipped: s.skipped, bad: s.bad.map((x) => ({ id: x.id, reason: x.reason, open: live(x.id) })) });
 
-  // Automatic backup: the newest backup in the folder (also a manual one) + the interval; a failure waits retryMs.
-  const newest = async () => {
-    const at = (await backups.listArchives(folder)).find((a) => a.kind === 'backup')?.at;
+  // Automatic backup: the newest backup in the folder (also a manual one) + the interval; a failure waits retryMs. With
+  // Keep 2 a snapshot counts too: else the backup right after an upgrade's snapshot removes the last one from before it.
+  const newest = async (settings) => {
+    const at = (await backups.listArchives(folder)).find((a) => a.kind === 'backup' || (settings.keep === 2 && a.kind === 'pre-upgrade' && a.meta?.by === backups.BY))?.at;
     return at === undefined ? 0 : Date.parse(at);
   };
   const nextAt = async (settings) => {
     if (!settings.on) return undefined;
-    let due = (await newest()) + settings.hours * 3600000;
+    let due = (await newest(settings)) + settings.hours * 3600000;
     if (failed !== null) due = Math.max(due, Date.parse(failed.at) + Math.min(retryMs, settings.hours * 3600000));
     return Math.max(due, Date.now());
   };
