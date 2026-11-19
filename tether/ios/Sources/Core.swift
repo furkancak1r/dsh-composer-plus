@@ -1147,8 +1147,12 @@ func lastReply(_ transcript: [Line]) -> String {
 /// limit still notifies: for the open chat a failure has no other alert (sessionError only adds a chat line).
 func quietTurn(reply: String, reason: String?) -> Bool {
     guard reason == "completed" else { return false }
-    let t = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-    return t.isEmpty || t.caseInsensitiveCompare("[quiet]") == .orderedSame
+    return reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || quietReply(reply)
+}
+/// A reply that is only `[quiet]` (spaces trimmed, any case): the views hide it (index.js quietReply, client.js quietText;
+/// one table: test/fixtures/quiet-replies.json).
+func quietReply(_ text: String) -> Bool {
+    text.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("[quiet]") == .orderedSame
 }
 
 /// One row of the chat as DSH desktop shows it.
@@ -1468,7 +1472,7 @@ func assistantMark(_ id: String?, sessions: [Sess], busy: Set<String>, waiting: 
 /// A reply that is only `[quiet]` (the assistant's "nothing to say", `quietTurn`) shows nothing, as on the Mac (client.js
 /// quietStep).
 func botLines(_ t: [Line]) -> [Line] {
-    t.filter { $0.kind == .user || $0.kind == .error || ($0.kind == .assistant && !quietTurn(reply: $0.text, reason: "completed")) }
+    t.filter { $0.kind == .user || $0.kind == .error || ($0.kind == .assistant && !quietReply($0.text)) }
 }
 /// Order by status (view only): finished and not opened, then running or waiting, then the rest; else dsh's order.
 func statusRank(_ s: Sess, busy: Set<String>, waiting: Set<String>, finished: Set<String>) -> Int {
@@ -3195,8 +3199,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
                                        end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
                 let reply = lastReply(transcript)
-                if !quietTurn(reply: reply, reason: reason?["kind"] as? String) { notify(String(localized: "Turn finished"), reply, session: current) }
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                // A turn with nothing to say gives no alert and no buzz (2026-11-19: the phone buzzed for Damon's `[quiet]`).
+                if !quietTurn(reply: reply, reason: reason?["kind"] as? String) {
+                    notify(String(localized: "Turn finished"), reply, session: current)
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
             }
             running = false
             turnStartedAt = nil

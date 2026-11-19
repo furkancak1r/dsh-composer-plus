@@ -183,4 +183,22 @@ assert.ok(!css().includes('"15'), 'a node without data gets no rule');
 assert.ok(!tails.includes('"12"'), 'a turn that ends with a reply that says more keeps its row');
 assert.match(tails, /display: none !important;/);
 quietView.unmount();
+
+// The Host's news note (dsh 0.2.2 draws it as a context row, by its location's turn) goes with its turn's quiet reply; the
+// note of a news turn with a real reply, and another context row of the quiet turn, stay.
+const at = (turn) => ({ kind: 'step', turn: { turn } });
+const news = (key, turn, kind = 'context') => [key, { key, kind, location: at(turn), data: { source: { kind: 'composer-plus-assistant-news', form: 'snapshot' } } }];
+stores.set('s-news', storeOf([
+  news('20:note', 20), step('20:1', 20, 1, 'think', '[quiet]'), // a quiet news turn: note and reply go
+  ['20:time', { key: '20:time', kind: 'context', location: at(20), data: { source: { kind: 'time-context' } } }], // dsh's own row: stays
+  news('21:note', 21), step('21:1', 21, 1, 'The deploy failed.'), // a news turn with a real reply: the note stays
+  news('22:trig', 22, 'turn-trigger'), step('22:1', 22, 1, '[QUIET]'), // a note drawn as a trigger row: goes too
+]));
+open = 's-news'; id = 's-news';
+const newsView = mount(() => ({ status, chatOf, t: (k) => k }));
+out = newsView.render();
+const newsRule = (key) => rule(key, 's-news');
+for (const key of ['20:note', '22:trig', '20:1', '22:1']) assert.ok(css().includes(`${newsRule(key)},`) || css().includes(`${newsRule(key)} {`), `${key} goes with the quiet turn`);
+for (const key of ['21:note', '21:1', '20:time']) assert.ok(!css().includes(`${newsRule(key)},`) && !css().includes(`${newsRule(key)} {`), `${key} stays`);
+newsView.unmount();
 console.log('assistant subagent rows: ok');

@@ -2915,8 +2915,10 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
     /** A reply that is only `[quiet]` (any case, spaces trimmed): the assistant's "nothing to say" for routine news (dsh
      * refuses an empty reply; the Host's quietTurn and Tether's botLines use the same rule). Its row is hidden like a
      * subagent row: the log and the push rules keep it. While it streams, dsh can show it for a moment. */
+    /** The text rule of a quiet reply (index.js quietReply, Tether's quietReply; one table: test/fixtures/quiet-replies.json). */
+    const quietText = (text) => /^\[quiet\]$/i.test(String(text ?? '').trim());
     const quietStep = (n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks) && !n.data.blocks.some((b) => b?.kind === 'tool-call')
-      && /^\[quiet\]$/i.test(n.data.blocks.filter((b) => b?.kind === 'text').map((b) => String(b.text ?? '')).join('').trim());
+      && quietText(n.data.blocks.filter((b) => b?.kind === 'text').map((b) => String(b.text ?? '')).join(''));
     const quietRowKeys = (chat) => [...(chat?.nodes?.values?.() ?? [])].filter(quietStep).map((n) => n.key);
     /** The turns whose closing reply is quiet: dsh's turn tail shows the Copy/time row of the turn's last step with text
      * (its `closing`), so that step decides (quietTails). */
@@ -2927,6 +2929,13 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         if (n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks) && hasText(n) && (last.get(n.data.turn)?.data.step ?? -Infinity) < n.data.step) last.set(n.data.turn, n);
       }
       return [...last].filter(([, n]) => quietStep(n)).map(([turn]) => turn);
+    };
+    /** The Host's Assistant news note of a turn that ends quiet (its context or trigger row, by dsh's node location): no
+     * trace of that turn stays. The note of a news turn with a real reply stays as dsh draws it. */
+    const newsRowKeys = (chat, turns) => {
+      const quiet = new Set(turns.map(String));
+      return [...(chat?.nodes?.values?.() ?? [])].filter((n) => (n?.kind === 'context' || n?.kind === 'turn-trigger')
+        && n.data?.source?.kind === 'composer-plus-assistant-news' && quiet.has(String(n.location?.turn?.turn))).map((n) => n.key);
     };
     const answerRowKeys = (chat) => {
       const steps = [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks));
@@ -3010,7 +3019,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         if (source === undefined) { setQuiet(same([])); setAnswers(same([])); setQuietTails(same([])); return undefined; }
         const read = () => {
           const chat = source.getSnapshot();
-          setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat)])); setAnswers(same(answerRowKeys(chat))); setQuietTails(same(quietTurnsOf(chat)));
+          const quietTurns = quietTurnsOf(chat);
+          setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat), ...newsRowKeys(chat, quietTurns)])); setAnswers(same(answerRowKeys(chat))); setQuietTails(same(quietTurns));
         };
         read();
         return source.subscribe(read);
@@ -5700,7 +5710,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     /** Requests answered within this grace period never notify: "Allow for this chat" grants, Rewind and other
      * plugins answer an approval in milliseconds, and a notification for a request that is already gone is noise. */
     const ATTENTION_GRACE_MS = 1500;
-    function watchAttention(status, sessionsList, t, open) {
+    /** `quiet(sessionId)` (optional): a promise of true when that chat's finished turn has nothing to say (the assistant
+     * chat's `[quiet]` turn, quietAssistantEnd); that turn then gives no notification and no badge. */
+    function watchAttention(status, sessionsList, t, open, quiet) {
       let last = status.getSnapshot();
       /** Per chat: the delivered notification and the request it was for (undefined for "finished"). */
       const shown = new Map();
@@ -5744,7 +5756,12 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         for (const [sessionId, current] of next) {
           const kind = attentionKind(before.get(sessionId), current);
           if (kind === null) continue;
-          if (kind === 'done') { deliver(sessionId, kind, undefined, current); continue; }
+          if (kind === 'done') {
+            const check = quiet?.(sessionId);
+            if (check === undefined) deliver(sessionId, kind, undefined, current);
+            else check.then((yes) => { if (!yes && !stopped) deliver(sessionId, kind, undefined, current); }, () => { if (!stopped) deliver(sessionId, kind, undefined, current); });
+            continue;
+          }
           const pending = current.pendingInteraction;
           clearTimeout(waiting.get(sessionId)?.timer);
           const timer = setTimeout(() => {
@@ -5759,13 +5776,46 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       window.addEventListener('focus', onFocus);
       // Delivered notifications stay in Notification Center until clicked, answered, or replaced by a newer one.
       const off = status.subscribe(notify);
+      let stopped = false;
       return () => {
-        off(); window.removeEventListener('focus', onFocus);
+        stopped = true; off(); window.removeEventListener('focus', onFocus);
         for (const entry of waiting.values()) clearTimeout(entry.timer);
         waiting.clear(); unread.clear(); badge();
       };
     }
 
+    /** Damon's "nothing to say" turn: a promise of true when `sessionId` is still the assistant chat and its newest turn
+     * ended with only `[quiet]` (the Host's quietEnd, read from `assistant-status`). An older Host without `quiet` and a
+     * failed read: false, so that turn notifies as before. Ask it only for the assistant chat. */
+    const quietAssistantEnd = async (sessionId) => {
+      try {
+        const response = await fetch(ASSISTANT_STATUS_ROUTE);
+        const data = response.ok ? await response.json() : null;
+        return data?.sessionId === sessionId && data?.quiet === true;
+      } catch { return false; }
+    };
+    /** dsh gives the assistant chat a green dot (`completionUnread`) at each turn end that you did not see. A `[quiet]`
+     * turn is no news (2026-11-19), so after it the chat gets back the dot state that it had before the turn: no dot when
+     * you had read it. `api`: markReadApi (undefined: dsh's dots stay); `assistantId()`: the chat id or null.
+     * ponytail: dsh paints the dot first and this takes it away after one Host read (a short blink while the window is
+     * open); upgrade when dsh lets a plugin veto a completion dot. */
+    function watchQuietDot(status, assistantId, api, quiet = quietAssistantEnd) {
+      if (api === undefined) return () => {};
+      let last = status.getSnapshot(); let stopped = false;
+      const read = new Map(); // assistant chat → it had no dot when its turn started
+      const off = status.subscribe(() => {
+        const next = status.getSnapshot(); const before = last; last = next;
+        const id = assistantId();
+        if (typeof id !== 'string') return;
+        const was = before.get(id); const now = next.get(id);
+        if (now?.running === true && was?.running !== true) read.set(id, was?.completionUnread !== true);
+        if (was?.running === true && now?.running === false && now.completionUnread === true && read.get(id) === true) {
+          quiet(id).then((yes) => { if (yes && !stopped && status.getSnapshot().get(id)?.completionUnread === true) api.markRead([id]); }, () => {});
+        }
+        if (now?.running !== true) read.delete(id);
+      });
+      return () => { stopped = true; off(); };
+    }
     /** Open waiting chat when idle: a chat that waits for you opens after nobody used dsh for IDLE_SWITCH_MS. Orange dot
      * (`pendingInteraction` of kind question, approval or plan review) chats come first, then green dot ones
      * (`completionUnread`: the turn finished while the chat was not on screen, not opened since); in each, the
@@ -13510,13 +13560,14 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             return () => setSchedule(undefined);
           }, 'dsh-composer-plus: schedule catalog');
         })]);
-        feature('notifications', () => injectScope(['uiSession', 'uiWorkspace', 'sessions'], (scope) => {
+        feature('notifications', () => [...watchAssistantStatus(), ...injectScope(['uiSession', 'uiWorkspace', 'sessions'], (scope) => {
           const t = ctx.locale.bind(LOCALE_NS);
           scope.effect(() => watchAttention(scope.uiSession.sessionStatus, scope.sessions.list, t,
-            (sessionId) => scope.uiWorkspace.openSession(sessionId)), 'dsh-composer-plus: attention notifications');
+            (sessionId) => scope.uiWorkspace.openSession(sessionId), (sessionId) => (sessionId === assistantStatus.getSnapshot() ? quietAssistantEnd(sessionId) : undefined)),
+            'dsh-composer-plus: attention notifications');
           // First use asks the OS once; a denied permission stays denied (re-enable it in System Settings).
           if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {});
-        }));
+        })]);
         // The Assistant chat's id (assistantStatus, declared below; read when the feature starts) keeps it open.
         feature('idleSwitch', () => [...watchAssistantStatus(), ...injectScope(['uiWorkspace', 'uiSession', 'sessions'], (scope) => {
           scope.effect(() => watchIdleSwitch(scope.uiSession.sessionStatus, scope.sessions.list,
@@ -14363,7 +14414,10 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           id: 'assistant-chat-view',
           locale: LOCALE_NS,
           inject: () => ({ status: assistantStatus, chatOf: chatNodesOf }),
-        }, AssistantChatView))]);
+        }, AssistantChatView)), ...injectScope(['uiSession'], (scope) => {
+          // A `[quiet]` turn of the assistant chat leaves no green dot (watchQuietDot).
+          scope.effect(() => watchQuietDot(scope.uiSession.sessionStatus, () => assistantStatus.getSnapshot(), markReadApi(scope.uiSession)), 'dsh-composer-plus: quiet assistant dot');
+        })]);
         feature('assistantCallouts', () => [...watchAssistantStatus(), ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay',
           id: 'assistant-callouts',

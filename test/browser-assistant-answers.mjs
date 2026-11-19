@@ -1,7 +1,8 @@
 // Real-app check of Assistant messages only, folded answers, on each dsh given (throwaway DSH_HOME and HOME, a made-up
 // assistant chat log, no model call). Headless.
 // The case: you ask, the reply comes, then a subagent's message arrives mid-turn and wakes a next step whose reply ends
-// the turn; then a hidden agent message starts the next turn, with its own reply. dsh folds every reply but a turn's last
+// the turn; then a hidden agent message starts the next turn, with its own reply; then a news turn with only [quiet] (its
+// reply and its news note go) and a news turn with a real reply (its reply shows). dsh folds every reply but a turn's last
 // into the turn's process (0.2.0-0.2.1 always, 0.2.2 with foldedReplies: final, set here), and the view hides the control
 // that opens it. Every reply must show, in time order; the agent message rows and the tool row stay hidden.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-answers.mjs /path/to/dsh/lib/bin.js [...]
@@ -23,6 +24,9 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const REPLIES = ['Promes is fine.', 'GIB has no code.', 'Second result.'];
 const HIDDEN = ['RELAY-ONE from the subagent', 'RELAY-TWO from the subagent', 'chats_list'];
 const QUIET = '[quiet]'; // turn 3: a news turn whose reply is only [quiet] (the assistant has nothing to say): hidden
+// Turn 3's news note goes with its quiet reply; turn 4 is a news turn with a real reply: its note and reply stay as dsh draws them.
+const NEWS = ['[Composer Plus → Assistant news] QUIET-NEWS acme finished.', '[Composer Plus → Assistant news] LOUD-NEWS deploy failed.'];
+const NEWS_ANSWER = 'The acme deploy failed: the login test is red.';
 
 // The assistant chat's log: the event shapes of a real dsh 0.2.2 log (texts made up).
 function chatLog(sid, cwd) {
@@ -53,11 +57,17 @@ function chatLog(sid, cwd) {
     ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }),
     ev('step/start', { turn: 2, step: 1 }), ev('user/message', two, { surfaceOp: 'append' }),
     reply(2, 1, [{ type: 'text', text: REPLIES[2] }]), ev('step/end', { turn: 2, step: 1 }), ev('turn/end', { turn: 2, reason: { kind: 'completed' } }));
-  const news = msg('[Composer Plus → Assistant news] acme finished.', { kind: 'composer-plus-assistant-news', form: 'snapshot' });
-  lines.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [news] }), ev('turn/start', { turn: 3 }),
-    ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }),
-    ev('step/start', { turn: 3, step: 1 }), ev('user/message', news, { surfaceOp: 'append' }),
-    reply(3, 1, [{ type: 'reasoning', text: 'Routine.' }, { type: 'text', text: QUIET }]), ev('step/end', { turn: 3, step: 1 }), ev('turn/end', { turn: 3, reason: { kind: 'completed' } }));
+  // A news turn as the Host writes it (wakeWithContinue: empty markers in both queues; the note itself has its own id).
+  const newsTurn = (turn, text, answer) => {
+    const marker = () => ({ id: randomUUID(), role: 'user', content: [], source: { kind: 'composer-plus-assistant-news' } });
+    lines.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [marker()] }), ev('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [marker()] }),
+      ev('turn/start', { turn }), ev('agent/inbox/spliced', { target: 'next-step', start: 0, removedCount: 1, inserted: [] }),
+      ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }),
+      ev('step/start', { turn, step: 1 }), ev('user/message', msg(text, { kind: 'composer-plus-assistant-news', form: 'snapshot' }), { surfaceOp: 'append' }),
+      reply(turn, 1, [{ type: 'reasoning', text: 'Routine.' }, { type: 'text', text: answer }]), ev('step/end', { turn, step: 1 }), ev('turn/end', { turn, reason: { kind: 'completed' } }));
+  };
+  newsTurn(3, NEWS[0], QUIET);
+  newsTurn(4, NEWS[1], NEWS_ANSWER);
   // dsh wants the header line alone in the first zstd frame.
   return Buffer.concat([zlib.zstdCompressSync(Buffer.from(`${lines[0]}\n`)), zlib.zstdCompressSync(Buffer.from(`${lines.slice(1).join('\n')}\n`))]);
 }
@@ -106,6 +116,15 @@ try {
       assert.ok(tops[0] < tops[1] && tops[1] < tops[2], `the replies are in time order (${tops.join(' < ')})`);
       for (const text of HIDDEN) assert.equal((await shown(text)).length, 0, `"${text}" stays hidden`);
       assert.equal((await shown(QUIET)).length, 0, 'a reply that is only [quiet] is hidden');
+      // The news note of each turn: dsh 0.2.2 draws it as a context row (folded into the turn's process), 0.2.0-0.2.1 not at
+      // all. The quiet turn's row gets this view's 0-height rule; the note of a news turn with a real reply keeps dsh's own
+      // style, and its reply shows.
+      const noteRule = (turn) => chat.locator(`[data-chat-flow-kind="context"][data-chat-turn="${turn}"]`).evaluateAll((els) => els.map((el) => getComputedStyle(el).visibility));
+      const drawn = /^0\.2\.[01]-/.test(version) ? [] : ['x'];
+      assert.deepEqual(await noteRule(3), drawn.map(() => 'hidden'), 'the quiet turn\'s news note is hidden');
+      assert.deepEqual(await noteRule(4), drawn.map(() => 'visible'), 'the news note of a turn with a real reply keeps dsh\'s own style');
+      for (const note of NEWS) assert.equal((await shown(note.split('] ')[1])).length, 0, `the news text "${note}" is not on screen`);
+      assert.equal((await shown(NEWS_ANSWER)).length, 1, 'the real reply of a news turn shows');
       // dsh's turn tail of the quiet turn: its Copy/time row (the hidden reply's) goes; the tail itself stays in the page.
       const tail = await chat.locator('[data-turn-tail="3"] > [data-clock]').evaluateAll((els) => els.map((el) => getComputedStyle(el).display));
       assert.deepEqual(tail, ['none'], 'the quiet turn shows no Copy/time row');

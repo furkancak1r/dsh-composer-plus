@@ -1,0 +1,17 @@
+{
+  "about": "A reply that is only [quiet] (spaces trimmed, any case) is hidden: index.js quietReply, client.js quietText, Tether quietReply. test/quiet-replies.test.mjs and the iOS QuietReplyTests read this table.",
+  "cases": [
+    { "text": "[quiet]", "quiet": true },
+    { "text": "[QUIET]", "quiet": true },
+    { "text": "  [Quiet]\n", "quiet": true },
+    { "text": "\t[quiet] \r\n", "quiet": true },
+    { "text": "", "quiet": false },
+    { "text": "   ", "quiet": false },
+    { "text": "quiet", "quiet": false },
+    { "text": "[quiet].", "quiet": false },
+    { "text": "[ quiet ]", "quiet": false },
+    { "text": "[quiet]\nThe audit found 2 issues.", "quiet": false },
+    { "text": "Audit: [quiet]", "quiet": false },
+    { "text": "[quiet] [quiet]", "quiet": false }
+  ]
+}

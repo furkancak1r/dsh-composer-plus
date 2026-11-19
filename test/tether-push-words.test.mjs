@@ -1,7 +1,6 @@
 // Tether's push words (Host half): Turn finished carries the agent's last reply of the turn, and every push names the
 // chat's project. The gateway puts them under this Mac's name (test/tether-gateway.test.mjs, "push: ...").
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { lastReply, mobileGateway, projectOf, quietTurn, ROLLBACK_SOURCE, REWIND_SOURCE } from '../index.js';
 
 const say = (seq, text) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } });
@@ -68,7 +67,5 @@ assert.equal(pushed(turnOf(1, 'user', '[quiet]').slice(0, -1)), true, 'no turn/e
 assert.equal(pushed([...turnOf(1, 'user', 'Fixed the login.'), ...turnOf(9, NEWS, '[quiet]')]), false, 'only the newest turn counts: quiet');
 assert.equal(pushed([...turnOf(1, NEWS, '[quiet]'), ...turnOf(9, 'user', 'Fixed the login.')]), true, 'only the newest turn counts: push');
 assert.equal(pushed([...turnOf(1, NEWS, '[quiet]'), ...turnOf(9, 'user', '[quiet]', 'max-tokens')]), true, 'only the newest turn end counts');
-// The Host gives the green dot first and pushes only when the turn has something to say.
-const host = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
-assert.match(host, /changeUnread\(\[agent\.id\], \[\]\);[\s\S]{0,600}quiet = quietTurn\(events, reply\);[\s\S]{0,100}if \(!quiet\) mobile\?\.push\('Turn finished', reply, agent\.id\);/, 'the dot stays, only the push is skipped');
+// The Host's push and green dot on a real agent/status edge: test/unread.test.mjs and test/quiet-replies.test.mjs.
 console.log('tether push words: last reply of the turn (withdrawn replies left out), project name, chat id to the gateway, no push for an empty or [quiet] reply');

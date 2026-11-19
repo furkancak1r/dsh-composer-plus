@@ -2389,25 +2389,30 @@ export function apply(ctx) {
   // (client.js watchRead). Each change goes to the connected phones at once.
   const unread = unreadStore(join(home, 'storages', 'dsh-composer-plus', 'unread.json'));
   const busy = new Set(); // root chats that run now: only their running → idle edge is a finished turn
+  const dots = new Map(); // root chat → whether it had a green dot when its turn started (a quiet assistant turn keeps it)
   function changeUnread(add, remove) {
     if (unread.update(add, remove)) mobile?.emit('composer-plus/unread', [unread.list()]);
   }
   ctx.on('agent/status', ({ agent, status }) => {
     if (agent?.session?.header?.origin === 'subagent') return; // the parent chat shows its subagents' work
-    if (status === 'running') { busy.add(agent.id); if (mobileOn === true) changeUnread([], [agent.id]); }
-    else if (busy.delete(agent.id) && mobileOn === true) {
-      changeUnread([agent.id], []);
+    if (status === 'running') {
+      if (!busy.has(agent.id)) dots.set(agent.id, unread.list().includes(agent.id));
+      busy.add(agent.id); if (mobileOn === true) changeUnread([], [agent.id]);
+    } else if (busy.delete(agent.id) && mobileOn === true) {
       // Tether's "Turn finished" also while Tether is closed (APNs, when the gateway has a key): the agent's reply, under
       // the Mac, the project and the chat's title (chatAbout). A completed turn with nothing to say (empty or `[quiet]`)
-      // gives no push (quietTurn); its green dot above stays.
+      // gives no push (quietTurn). Its green dot stays, except in the assistant chat: Damon's `[quiet]` turn is not news
+      // (2026-11-19), so the chat keeps the dot that it had before the turn.
       let reply = '', quiet = false;
       try {
         const events = agent.session?.snapshotEvents?.() ?? [];
         reply = lastReply(events);
         quiet = quietTurn(events, reply);
       } catch { /* no log */ }
+      const had = dots.get(agent.id); dots.delete(agent.id);
+      if (!(quiet && quietReply(reply) && assistant.isAssistant(agent)) || had === true) changeUnread([agent.id], []);
       if (!quiet) mobile?.push('Turn finished', reply, agent.id);
-    }
+    } else dots.delete(agent.id);
   });
   ctx.connection.fetch.register({
     path: UNREAD_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
@@ -11352,6 +11357,15 @@ const TURN_PROMPTS = ['user', 'schedule', NEWS_SOURCE];
 export function quietTurn(events, reply) {
   return events.findLast((e) => e.type === 'turn/end')?.data?.reason?.kind === 'completed' && /^(?:\[quiet\])?$/i.test(reply.trim());
 }
+/** A reply that is only `[quiet]` (spaces trimmed, any case): the rule of every view that hides it (client.js quietText,
+ * Tether's quietReply; one table: test/fixtures/quiet-replies.json). An empty reply is not one: views show no empty row. */
+export const quietReply = (text) => /^\[quiet\]$/i.test(String(text ?? '').trim());
+/** The chat's newest turn ended `completed` and its last reply is only `[quiet]` (quietTurn and quietReply): Damon's
+ * "nothing to say" turn, which gives no green dot and no notification in the assistant chat (2026-11-19). */
+export function quietEnd(events) {
+  const reply = lastReply(events);
+  return quietReply(reply) && quietTurn(events, reply) && events.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end')?.type === 'turn/end';
+}
 
 /** Host half of Assistant apart from chats, Assistant always free and Assistant news from chats. `assistant` is the handle of
  * installAssistant (ready, isOn, id, isAssistant). */
@@ -11387,7 +11401,13 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   // Assistant apart from chats.
   ctx.connection.fetch.register({
     path: ASSISTANT_STATUS_PATH, methods: ['GET'], requestBody: 'buffered',
-    fetch: async () => { await assistant.ready; return json({ sessionId: assistant.isOn() ? assistant.id() ?? null : null }); },
+    // `quiet`: the assistant chat's newest turn ended with only `[quiet]` (quietEnd); the client then gives that turn no
+    // notification and no green dot.
+    fetch: async () => {
+      await assistant.ready;
+      const id = assistant.isOn() ? assistant.id() ?? null : null;
+      return json({ sessionId: id, ...(id !== null && quietEnd(eventsOf(live(id))) ? { quiet: true } : {}) });
+    },
   });
 
   // Assistant always free.
@@ -11546,7 +11566,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
     const rows = assistant.endedTasks; if (rows === undefined) return;
     const turn = eventsOf(live(id)).findLast((e) => e?.type === 'turn/start')?.time;
     const at = Number.isFinite(task.at) ? task.at : now();
-    rows.delete(id); rows.set(id, { title: task.title, project: task.project, branch: task.branch, started: Number.isFinite(turn) ? Math.max(turn, at) : at, ended: now(), state, result: headLine(result, STATUS_LIMITS.result) });
+    rows.delete(id); rows.set(id, { title: task.title, project: task.project, branch: task.branch, started: Number.isFinite(turn) ? Math.max(turn, at) : at, ended: now(), state, result: headLine(quietReply(result) ? '' : result, STATUS_LIMITS.result) });
     while (rows.size > ASSISTANT_TASKS_MAX) rows.delete(rows.keys().next().value);
   };
   const stalled = new Map(); // chat id → {session, reply} of a task turn that an AIProxy outage stopped
@@ -12391,7 +12411,7 @@ export async function statusTasks(events, inherited, agentOf, { logOf = async ()
     const started = Number.isFinite(d.childCreatedAt) ? d.childCreatedAt : Number.isFinite(e.time) ? e.time : now;
     const last = open ? log.at(-1) : end; // a gone child's open turn ended at its last saved event
     const ended = state === 'running' || state === 'waiting' ? undefined : Number.isFinite(last?.time) ? last.time : undefined;
-    const result = state === 'failed' ? headLine(end?.data?.reason?.error?.message, STATUS_LIMITS.result) : headLine(lastReply(log), STATUS_LIMITS.result);
+    const result = state === 'failed' ? headLine(end?.data?.reason?.error?.message, STATUS_LIMITS.result) : headLine(quietReply(lastReply(log)) ? '' : lastReply(log), STATUS_LIMITS.result);
     const task = { id: d.childId, title: cutEnd(String(d.label ?? '').trim() || d.childId, 120), state, started, ...(ended === undefined ? {} : { ended }), ...(result === '' ? {} : { result }) };
     if (child === undefined && state !== 'running' && state !== 'waiting' && log.length > 0) done.set(d.childId, task);
     if ((ended ?? (state === 'running' || state === 'waiting' ? now : started)) < since) continue;

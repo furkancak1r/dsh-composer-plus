@@ -2427,3 +2427,26 @@ final class DamonParityTests: XCTestCase {
         uiStrings = en; XCTAssertEqual(String(localized: "Settings"), "Settings")
     }
 }
+
+/// Damon's `[quiet]` reply leaves no trace on the phone (2026-11-19): the same text rule as the Mac (index.js quietReply,
+/// client.js quietText; one table: test/fixtures/quiet-replies.json), and a quiet turn end gives no alert and no buzz.
+final class QuietReplyTests: XCTestCase {
+    func testQuietRepliesMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 10)
+        for c in cases {
+            let text = c["text"] as? String ?? ""
+            XCTAssertEqual(quietReply(text), c["quiet"] as? Bool, text)
+            // The chat view uses the same rule: a quiet reply goes, any other reply stays.
+            XCTAssertEqual(botLines([Line(kind: .assistant, text: text)]).count, (c["quiet"] as? Bool == true) ? 0 : 1, text)
+        }
+    }
+    /// The push rule keeps its empty-reply case; a failed turn is never quiet.
+    func testQuietTurn() {
+        XCTAssertTrue(quietTurn(reply: " [QUIET]\n", reason: "completed"))
+        XCTAssertTrue(quietTurn(reply: "", reason: "completed"))
+        XCTAssertFalse(quietTurn(reply: "[quiet]", reason: "error"))
+        XCTAssertFalse(quietTurn(reply: "The deploy failed.", reason: "completed"))
+    }
+}
