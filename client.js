@@ -9736,6 +9736,16 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
      * keyboard bridge, which a webview page does not have, and the page does not start. The layout reads the mark live.
      * ponytail: only `data-platform`; a full-screen window keeps the page's traffic-light space (no `data-fullscreen`). */
     const COMPUTER_PAGE_MARK = "(() => { const t0 = Date.now(); const t = setInterval(() => { if (document.querySelector('[class*=\"_logoRow\"]')) { clearInterval(t); document.documentElement.dataset.platform = 'darwin'; } else if (Date.now() - t0 > 30000) clearInterval(t); }, 100); })()";
+    /** Runs in the other Mac's page at each document, so that its Copy buttons copy. dsh's desktop app gives a webview the
+     * session of its Browser tab, which refuses every permission (desktop lib/main.js `DesktopBrowserGuests.configureSession`).
+     * `navigator.clipboard.writeText` then fails, and dsh's `writeClipboard` reports a failure and copies nothing (it uses
+     * the copy command only when `writeText` is missing). When `writeText` fails, the same text goes through the page's
+     * copy command, which needs only the click (Chromium `ClipboardCommands::CanWriteClipboard`). That `copy` event is
+     * ours: no other listener sees it, and the selection and the focus stay. `navigator.clipboard.write` with one plain
+     * text item (dsh 0.2.2's Copy Session as Markdown) takes the same path after its text is ready.
+     * ponytail: text only; an image copy and a paste button still fail in that page, and so does a copy whose text is
+     * ready more than 5 s after the click (Chromium's click activation ends; a very long chat's Markdown can take that). */
+    const COMPUTER_PAGE_COPY = "(() => { const c = navigator.clipboard; if (c === undefined) return; const viaCommand = (text) => { let done = false; const on = (e) => { e.stopImmediatePropagation(); e.preventDefault(); e.clipboardData.setData('text/plain', text); done = true; }; window.addEventListener('copy', on, true); try { document.execCommand('copy'); } catch {} finally { window.removeEventListener('copy', on, true); } return done; }; const writeText = c.writeText.bind(c); c.writeText = (text) => writeText(text).catch((error) => { if (!viaCommand(String(text))) throw error; }); if (typeof c.write !== 'function') return; const write = c.write.bind(c); c.write = (items) => write(items).catch(async (error) => { const item = items?.length === 1 ? items[0] : undefined; if (item?.types?.length !== 1 || item.types[0] !== 'text/plain') throw error; const text = await (await item.getType('text/plain')).text(); if (!viaCommand(text)) throw error; }); })()";
     /** The right-click menu of the other Mac's page. dsh's desktop app draws its edit menu only for its own page (the
      * `context-menu` handler of its main window, desktop lib/main.js); a webview is another WebContents and showed no
      * menu. The same items in the same order: `[command, enabled]`, `null` for a separator, `[]` for no menu. */
@@ -9858,6 +9868,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           el.addEventListener('dom-ready', () => {
             if (!v.loaded) { v.loaded = true; el.loadURL(url).catch(() => {}); return; }
             loaded(id);
+            el.executeJavaScript?.(COMPUTER_PAGE_COPY)?.catch?.(() => {});
             if (darwin) el.executeJavaScript?.(COMPUTER_PAGE_MARK)?.catch?.(() => {});
           });
           r.appendChild(el);
