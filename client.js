@@ -9729,6 +9729,14 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
      * keyboard bridge, which a webview page does not have, and the page does not start. The layout reads the mark live.
      * ponytail: only `data-platform`; a full-screen window keeps the page's traffic-light space (no `data-fullscreen`). */
     const COMPUTER_PAGE_MARK = "(() => { const t0 = Date.now(); const t = setInterval(() => { if (document.querySelector('[class*=\"_logoRow\"]')) { clearInterval(t); document.documentElement.dataset.platform = 'darwin'; } else if (Date.now() - t0 > 30000) clearInterval(t); }, 100); })()";
+    /** Runs in the other Mac's page at each document, so that its Copy buttons copy. dsh's desktop app gives a webview the
+     * session of its Browser tab, which refuses every permission (desktop lib/main.js `DesktopBrowserGuests.configureSession`).
+     * `navigator.clipboard.writeText` then fails, and dsh's `writeClipboard` reports a failure and copies nothing (it uses
+     * the copy command only when `writeText` is missing). When `writeText` fails, the same text goes through the page's
+     * copy command, which needs only the click (Chromium `ClipboardCommands::CanWriteClipboard`). That `copy` event is
+     * ours: no other listener sees it, and the selection and the focus stay.
+     * ponytail: text only; an image copy (`navigator.clipboard.write`) and a paste button still fail in that page. */
+    const COMPUTER_PAGE_COPY = "(() => { const c = navigator.clipboard; if (c === undefined) return; const real = c.writeText.bind(c); const viaCommand = (text) => { let done = false; const on = (e) => { e.stopImmediatePropagation(); e.preventDefault(); e.clipboardData.setData('text/plain', text); done = true; }; window.addEventListener('copy', on, true); try { document.execCommand('copy'); } catch {} finally { window.removeEventListener('copy', on, true); } return done; }; c.writeText = (text) => real(text).catch((error) => { if (!viaCommand(String(text))) throw error; }); })()";
     /** The right-click menu of the other Mac's page. dsh's desktop app draws its edit menu only for its own page (the
      * `context-menu` handler of its main window, desktop lib/main.js); a webview is another WebContents and showed no
      * menu. The same items in the same order: `[command, enabled]`, `null` for a separator, `[]` for no menu. */
@@ -9851,6 +9859,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           el.addEventListener('dom-ready', () => {
             if (!v.loaded) { v.loaded = true; el.loadURL(url).catch(() => {}); return; }
             loaded(id);
+            el.executeJavaScript?.(COMPUTER_PAGE_COPY)?.catch?.(() => {});
             if (darwin) el.executeJavaScript?.(COMPUTER_PAGE_MARK)?.catch?.(() => {});
           });
           r.appendChild(el);
