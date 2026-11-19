@@ -3364,12 +3364,26 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// language for the tasks' result lines (the Mac translates them). `fresh`: the chat list now (pull to refresh). Read
     /// only: the phone never removes an item or asks for a summary. Nil from a Mac without the route.
     func loadStatus(_ sid: String, fresh: Bool = false) async throws -> StatusView? {
+        try await loadStatusAnswer(sid, fresh: fresh).map { statusView($0, now: Date()) }
+    }
+    /// The same read as `loadStatus`, as the Mac's raw answer (the card deck groups it with `statusCards`; one GET for both).
+    func loadStatusAnswer(_ sid: String, fresh: Bool = false) async throws -> J? {
         guard plus.contains("assistant-todos") else { return nil }
         var q = ["sessionId": sid]
         if fresh { q["refresh"] = "1" }
         if let l = macLang { q["lang"] = l }
-        return statusView(try await plusCall("assistant-todos", query: q), now: Date())
+        return try await plusCall("assistant-todos", query: q)
     }
+    /// Card deck: the Bitti cards that you hid with Seen (`<task id>|<end ms>`, per Mac), and the time you last folded the
+    /// Bitti group (a card that ended later is new). A key whose end is older than 14 days is dropped when a new one is added.
+    func cardsSeen() -> Set<String> { Set(UserDefaults.standard.stringArray(forKey: key("cardsSeen")) ?? []) }
+    func markCardSeen(_ k: String, now: Date = Date()) {
+        let keep = now.timeIntervalSince1970 * 1000 - 14 * 86400000
+        let list = cardsSeen().union([k]).filter { (Double($0.split(separator: "|").last ?? "") ?? .infinity) > keep }
+        UserDefaults.standard.set(Array(list), forKey: key("cardsSeen"))
+    }
+    var cardsNewSince: Date { Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: key("cardsNewSince"))) }
+    func cardsFolded(now: Date = Date()) { UserDefaults.standard.set(now.timeIntervalSince1970, forKey: key("cardsNewSince")) }
     /// One project's git branch and last commits (`&project=`, read-only git on the Mac).
     func loadStatusProject(_ sid: String, _ project: String) async throws -> (branch: String?, commits: [(hash: String, at: Date?, subject: String)]) {
         guard plus.contains("assistant-todos") else { return (nil, []) }
@@ -4398,7 +4412,7 @@ func boardProjectOf(_ session: String, workspaces: [Workspace]) -> String {
 
 /// An item of the assistant chat's to-do list. `text` and `waiting.reason` are the Mac's data: shown, never read as words
 /// of Tether.
-struct StatusItem: Identifiable { let id, text, owner: String; let waiting: (reason: String, since: Date)? }
+struct StatusItem: Identifiable { let id, text, owner: String; let waiting: (reason: String, since: Date)?; var created = Date(timeIntervalSince1970: 0) }
 struct StatusTask: Identifiable { let id, title, state: String; let started: Date; let ended: Date?; let result: String?; let chat: Bool }
 struct StatusChat: Identifiable { let id, title: String; let updated: Date?; let running: Bool }
 struct StatusProject: Identifiable { let id, title: String; let count: Int; let chats: [StatusChat] }
@@ -4423,25 +4437,31 @@ func statusFold(_ s: String) -> String {
     String(String.UnicodeScalarView(s.decomposedStringWithCompatibilityMapping.unicodeScalars.filter { ![.nonspacingMark, .spacingMark, .enclosingMark].contains($0.properties.generalCategory) })).lowercased(with: Locale(identifier: "tr"))
 }
 private func msDate(_ v: Any?) -> Date? { (v as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) } }
+private func statusItems(_ o: J) -> [StatusItem] {
+    (o["items"] as? [J] ?? []).compactMap { i in
+        guard let id = i["id"] as? String, let text = i["text"] as? String else { return nil }
+        let w = i["waiting"] as? J
+        let waiting = (w?["reason"] as? String).flatMap { r in msDate(w?["since"]).map { (r, $0) } }
+        return StatusItem(id: id, text: text, owner: i["owner"] as? String == "agent" ? "agent" : "user", waiting: waiting, created: msDate(i["created"]) ?? Date(timeIntervalSince1970: 0))
+    }
+}
+private func statusTasks(_ o: J) -> [StatusTask] {
+    (o["tasks"] as? [J] ?? []).compactMap { t in
+        guard let id = t["id"] as? String, let state = t["state"] as? String, let started = msDate(t["started"]) else { return nil }
+        return StatusTask(id: id, title: t["title"] as? String ?? id, state: state, started: started, ended: msDate(t["ended"]), result: t["result"] as? String, chat: t["chat"] as? Bool == true)
+    }
+}
 /// The Host's answer to `GET /plus/assistant-todos?sessionId=` as the panel shows it at `now` (`cal`: the phone's calendar,
 /// as the web panel's `sameDay` uses the browser's time zone).
 func statusView(_ o: J, now: Date, cal: Calendar = .current) -> StatusView {
     var v = StatusView(); v.on = o["on"] as? Bool != false; v.at = msDate(o["at"]); v.translating = o["translating"] as? Bool == true
-    let items: [StatusItem] = (o["items"] as? [J] ?? []).compactMap { i in
-        guard let id = i["id"] as? String, let text = i["text"] as? String else { return nil }
-        let w = i["waiting"] as? J
-        let waiting = (w?["reason"] as? String).flatMap { r in msDate(w?["since"]).map { (r, $0) } }
-        return StatusItem(id: id, text: text, owner: i["owner"] as? String == "agent" ? "agent" : "user", waiting: waiting)
-    }
+    let items = statusItems(o)
     v.groups = ["user", "agent"].compactMap { owner in
         let rows = items.filter { $0.owner == owner }
         return rows.isEmpty ? nil : StatusGroup(owner: owner, items: rows, waiting: rows.filter { $0.waiting != nil }.count)
     }
     v.overdue = Set(items.filter { $0.waiting.map { now.timeIntervalSince($0.since) >= todoOverdue } ?? false }.map(\.id))
-    let tasks: [StatusTask] = (o["tasks"] as? [J] ?? []).compactMap { t in
-        guard let id = t["id"] as? String, let state = t["state"] as? String, let started = msDate(t["started"]) else { return nil }
-        return StatusTask(id: id, title: t["title"] as? String ?? id, state: state, started: started, ended: msDate(t["ended"]), result: t["result"] as? String, chat: t["chat"] as? Bool == true)
-    }
+    let tasks = statusTasks(o)
     let isLive = { (t: StatusTask) in t.state == "running" || t.state == "waiting" }
     v.live = tasks.filter(isLive); v.ended = tasks.filter { !isLive($0) }
     if let out = o["outage"] as? J, let at = msDate(out["at"]), let chats = out["chats"] as? [J], cal.isDate(at, inSameDayAs: now) {
@@ -4504,3 +4524,110 @@ func statusTaskState(_ s: String, bundle: Bundle = uiStrings) -> String {
 }
 /// client.js `draftTodo`: the text after the draft, on a new line when the draft has text and no line break at its end.
 func appendLine(_ draft: String, _ text: String) -> String { draft + (draft.isEmpty || draft.hasSuffix("\n") ? "" : "\n") + text }
+
+// MARK: - Damon card stack (Composer Plus `statusCards`)
+
+/// client.js CARD_MARKS and `cardMark`: a mark at the start of an item's text puts it in a card group ("Onay:", "Sorun:",
+/// "Senden:"; the English marks too). An item with a mark and no text after it, or without a mark, has no kind.
+private let cardMarks: [(kind: String, re: NSRegularExpression)] = [
+    ("onay", try! NSRegularExpression(pattern: #"^(?:onay|approval)\s*:\s*"#, options: .caseInsensitive)),
+    ("sorun", try! NSRegularExpression(pattern: #"^(?:sorun|problem)\s*:\s*"#, options: .caseInsensitive)),
+    ("senden", try! NSRegularExpression(pattern: #"^(?:senden|for you)\s*:\s*"#, options: .caseInsensitive))]
+func cardMark(_ text: String) -> (kind: String?, title: String) {
+    let ns = text as NSString
+    for (kind, re) in cardMarks {
+        if let m = re.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)), ns.length > m.range.length { return (kind, ns.substring(from: m.range.length)) }
+    }
+    return (nil, text)
+}
+/// client.js `liveApproval`: an approval text that names a live target (the LIVE label): Auto review's live words without
+/// its not-live phrases ("canlı değil", "yalnız yerel").
+func liveApproval(_ text: String) -> Bool {
+    let f = text.precomposedStringWithCanonicalMapping.lowercased(with: Locale(identifier: "tr")).replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: "ş", with: "s")
+    return hits(approvalLiveWord, approvalScopeOff.stringByReplacingMatches(in: f, range: NSRange(location: 0, length: (f as NSString).length), withTemplate: " "))
+}
+/// One card of the deck: a topic (an item of the to-do list, a task of the day, or both with the same text).
+struct StatusCard: Identifiable {
+    let group: String, key: String, n: Int, title: String, mark: String?
+    let item: StatusItem?, task: StatusTask?
+    let since: Date, seenKey: String?, overdue: Bool, fresh: Bool
+    var id: String { "\(group)|\(n)" }
+}
+struct StatusApproval { let items: [StatusItem]; let since: Date? }
+struct CardCounts: Equatable { var onay = 0, sorun = 0, senden = 0, suruyor = 0, bitti = 0, fresh = 0 }
+struct StatusCards {
+    var approval: StatusApproval?
+    var groups: [String: [StatusCard]] = ["sorun": [], "senden": [], "suruyor": [], "bitti": []]
+    var notes: [StatusItem] = []
+    var counts = CardCounts()
+    /// Every card of the stack, in its order (the Onay card has no `StatusCard`; it is `approval`).
+    var all: [StatusCard] { cardGroups.flatMap { groups[$0] ?? [] } }
+}
+/// The stack's order after the Onay card.
+let cardGroups = ["sorun", "senden", "suruyor", "bitti"]
+/// client.js `statusCards` (test/fixtures/status-cards.json is the table of both): the Host's status answer as cards at
+/// `now`, one card per topic. An item and a task with the same text (case, accents and spaces left out, after the mark) are
+/// one card; the more urgent state wins (an error, then a wait, then the task's state). `approvals`: the count of `onay`
+/// sentences that the chat offers now; `seen`: the end keys that you hid with Seen; `newSince`: the time that you last
+/// folded the Bitti group (a later end is new); `cal`: the phone's calendar (a Bitti card goes when its day ends).
+func statusCards(_ o: J, now: Date, approvals: Int = 0, seen: Set<String> = [], newSince: Date = Date(timeIntervalSince1970: 0), cal: Calendar = .current) -> StatusCards {
+    let items = statusItems(o), tasks = statusTasks(o)
+    let ms = { (d: Date) in (d.timeIntervalSince1970 * 1000).rounded() }
+    let same = { (s: String) in statusFold(s).replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: jsTrim) }
+    let stateGroup = { (t: StatusTask) in t.state == "failed" ? "sorun" : t.state == "waiting" ? "senden" : t.state == "running" ? "suruyor" : "bitti" }
+    var out = StatusCards(); var onay: [StatusItem] = []; var used = Set<String>(); var n = 0
+    let epoch = Date(timeIntervalSince1970: 0)
+    func add(_ group: String, _ title: String, _ mark: String?, _ item: StatusItem?, _ task: StatusTask?) {
+        let end = task.map { $0.ended ?? $0.started }
+        let since: Date? = switch group {
+        case "senden": item?.waiting?.since ?? (task?.state == "waiting" ? task?.started : (item?.created ?? task?.started))
+        case "suruyor": task?.started ?? item?.created
+        case "bitti": end
+        default: item?.created ?? end
+        }
+        let seenKey = (task != nil && end != nil) ? "\(task!.id)|\(Int64(ms(end!)))" : nil
+        // A Bitti card goes when the day ends or when you hid it; a failed task without an item goes when you hid it.
+        if group == "bitti", let end, !cal.isDate(end, inSameDayAs: now) { return }
+        if group == "bitti" || (group == "sorun" && item == nil), let k = seenKey, seen.contains(k) { return }
+        let at = since ?? epoch
+        out.groups[group, default: []].append(StatusCard(group: group, key: item?.id ?? task?.id ?? "", n: n, title: title, mark: mark, item: item, task: task, since: at, seenKey: seenKey,
+            overdue: group == "senden" && since != nil && ms(now) - ms(at) >= todoOverdue * 1000, fresh: group == "bitti" && end.map { ms($0) > ms(newSince) } == true))
+        n += 1
+    }
+    for item in items {
+        let (kind, title) = cardMark(item.text)
+        if kind == "onay" { onay.append(item); continue }
+        let task = tasks.first { !used.contains($0.id) && same($0.title) == same(title) }
+        if let task { used.insert(task.id) }
+        let group: String? = kind == "sorun" || task?.state == "failed" ? "sorun"
+            : item.waiting != nil || kind == "senden" || task?.state == "waiting" ? "senden"
+            : task != nil ? stateGroup(task!) : item.owner == "agent" ? "suruyor" : nil
+        if let group { add(group, title, kind, item, task) } else { out.notes.append(item) }
+    }
+    for task in tasks where !used.contains(task.id) { add(stateGroup(task), task.title, nil, nil, task) }
+    // Sorun: a live-system item first; Senden: overdue first, then the longest wait; the rest: newest first. `n` keeps the
+    // list order of equal ones (Swift's sort is not stable).
+    for g in cardGroups {
+        out.groups[g]?.sort { a, b in
+            let r: Double
+            switch g {
+            case "sorun": let x = (a.mark == "sorun" ? 0 : 1) - (b.mark == "sorun" ? 0 : 1); r = x != 0 ? Double(x) : ms(b.since) - ms(a.since)
+            case "senden": let x = (b.overdue ? 1 : 0) - (a.overdue ? 1 : 0); r = x != 0 ? Double(x) : ms(a.since) - ms(b.since)
+            default: r = ms(b.since) - ms(a.since)
+            }
+            return r != 0 ? r < 0 : a.n < b.n
+        }
+    }
+    out.approval = onay.isEmpty && approvals == 0 ? nil : StatusApproval(items: onay, since: onay.map(\.created).min())
+    out.counts = CardCounts(onay: out.approval == nil ? 0 : 1, sorun: out.groups["sorun"]!.count, senden: out.groups["senden"]!.count,
+        suruyor: out.groups["suruyor"]!.count, bitti: out.groups["bitti"]!.count, fresh: out.groups["bitti"]!.filter(\.fresh).count)
+    return out
+}
+/// The row of a card's → text (`statusInsert`): the item's data, or the task's. The item's text is the card title (without
+/// its mark), its owner is Damon's (a card always writes data, never the hand-over sentence of an item of yours).
+/// `preferTask`: the task's data wins when the card has both.
+func deckRow(_ card: StatusCard, preferTask: Bool) -> StatusRow {
+    let item = card.item.map { StatusItem(id: $0.id, text: card.title, owner: "agent", waiting: $0.waiting, created: $0.created) }
+    if let t = card.task, preferTask || item == nil { return .task(t, outage: nil) }
+    return .item(item!, overdue: card.overdue)
+}

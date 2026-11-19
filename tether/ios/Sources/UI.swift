@@ -604,8 +604,6 @@ struct ConversationView: View {
     @State private var showSide = false
     @State private var showContext = false
     @State private var showBoard = false
-    /// Damon's status panel (the Mac's Durum panel), only in the assistant chat.
-    @State private var showStatus = false
     @State private var deleting = false
     /// Turn rollback: the user row whose ↶ was tapped.
     @State private var rollingBack: Line?
@@ -633,6 +631,8 @@ struct ConversationView: View {
     private var macSubtitle: String { c.pairings.count > 1 ? c.pairing?.title ?? "" : "" }
     /// Damon's chat: the Mac switch takes the place of Back.
     private var damon: Bool { c.current != nil && c.current == c.assistantId }
+    /// Damon's chat with the card deck (it has the Approve button; other chats keep it under the reply).
+    private var damonChat: Bool { damon && c.plus.contains("assistant-todos") }
     var body: some View {
         // no stale chat while unreachable: the Mac is the source of truth and every action would fail anyway
         Group { if c.state == .connected || c.state == .connecting { transcript } else { OfflineView() } }
@@ -641,6 +641,8 @@ struct ConversationView: View {
                     if c.state == .connecting { ConnBanner() }
                     // Branch per chat: the chat's git branch, its changes and push state; a tap opens Changes.
                     if let b = c.branch { BranchBar(state: b) { if c.plus.contains("changes") { showChanges = true } } }
+                    // Damon's card stack (the Mac's Durum panel as cards): the Status sheet opens from its count bar.
+                    if damon, c.plus.contains("assistant-todos"), c.state == .connected, let id = c.current { CardDeck(sessionId: id, typing: !text.isEmpty) }
                 }
             }
             .navigationTitle(c.currentSess?.title ?? String(localized: "Conversation"))
@@ -656,10 +658,6 @@ struct ConversationView: View {
                         MacPicker(damon: true)
                     }
                 } else { ToolbarItem(placement: .topBarTrailing) { ConnBadge() } }
-                // Damon's status panel: the Mac shows it at the right side of the chat; the phone has no room, so one tap.
-                if damon, c.plus.contains("assistant-todos") {
-                    ToolbarItem(placement: .topBarTrailing) { Button { showStatus = true } label: { Image(systemName: "checklist") }.accessibilityLabel("Status") }
-                }
                 ToolbarItem(placement: .topBarTrailing) { Button { creating = true } label: { Image(systemName: "square.and.pencil") }.accessibilityLabel("New session") }
                 // desktop's session menu: tap the title for rename / fork / pin / archive
                 ToolbarTitleMenu {
@@ -712,7 +710,6 @@ struct ConversationView: View {
             .sheet(isPresented: $showSide) { if let id = c.current { SideChatSheet(sessionId: id) } }
             .sheet(isPresented: $showContext) { if let id = c.current { ContextSheet(sessionId: id) } }
             .sheet(isPresented: $showBoard) { BoardSheet(project: boardProjectOf(c.current ?? "", workspaces: c.workspaces)) }
-            .sheet(isPresented: $showStatus) { if let id = c.current { StatusSheet(sessionId: id) } }
             // Task board → +: the new chat opened here; its first message went, so the board opens again.
             .onChange(of: c.boardBack) { _, back in if back { c.boardBack = false; showBoard = true } }
             .sheet(item: $rollingBack) { l in RollbackSheet(line: l) { t in if text.isEmpty { put(t, focus: true) } } }
@@ -797,7 +794,8 @@ struct ConversationView: View {
                             switch row {
                             // A Section with its own header id: no modifier here, or each part of the Section gets it.
                             case .steps(let ls, let live): StepsView(lines: ls, live: live && !c.answering) { keepHeader(proxy, $0) }
-                            default: lineRow(row, findIndex, hits.count, approval: approval)
+                            // Damon's chat: the card deck holds the Approve button, so no button here and the sentence stays plain gray text.
+                            default: lineRow(row, findIndex, hits.count, approval: damonChat ? nil : approval)
                             }
                         }
                         // A message on its way to the Mac: shown at once, faded, until the Mac's copy replaces it.
@@ -4593,3 +4591,333 @@ struct StatusSheet: View {
     }
 }
 // END StatusSheet
+
+// MARK: - Damon card stack (Composer Plus `statusCards`)
+
+/// What a tap in the deck asks for; `CardDeck` does it (the pure `DeckView` only draws).
+enum DeckAction { case ask(StatusCard), done(StatusCard), reply(StatusCard), watch(StatusCard), seen(StatusCard), write(StatusCard), approve(String), projects }
+
+/// The deck as the Mac's Durum panel shows it, drawn from data (no Client): the count bar, the Onay card (at most one),
+/// then the Sorun, Senden, Sürüyor and Bugün bitti cards. Closed: the top card with the edges of the cards behind it and
+/// a "+N". Open: all cards one under the other in a scroll view (`maxHeight`); Bugün bitti and your notes are folded rows.
+/// `compact`: you type, so the Onay card is one line and has no Approve button. The Mac's texts (titles, reasons, results,
+/// sentences) are data: Text(verbatim:). `b`: the table of the UI language.
+struct DeckView: View {
+    let cards: StatusCards, sentences: [String]
+    var loaded = true
+    let now: Date, b: Bundle, locale: Locale
+    var compact = false, busy = false
+    let maxHeight: CGFloat
+    /// False draws the open list without a scroll view (the screenshot test: ImageRenderer cannot draw a scroll view).
+    var scrolls = true
+    @Binding var open: Bool
+    @Binding var doneOpen: Bool
+    @Binding var notesOpen: Bool
+    let act: (DeckAction) -> Void
+    @State private var topicsOpen = false
+    @State private var listHeight: CGFloat = 0
+
+    private var total: Int { (cards.approval == nil ? 0 : 1) + cards.all.count }
+    static func color(_ g: String) -> Color {
+        switch g { case "onay": .accentColor; case "sorun": .red; case "senden": .orange; case "suruyor": .gray; default: .green }
+    }
+    private static func glyph(_ g: String) -> String {
+        switch g { case "onay": "●"; case "sorun": "▲"; case "senden": "◆"; case "suruyor": "○"; default: "✓" }
+    }
+    private func typeWord(_ g: String) -> String {
+        switch g {
+        case "onay": String(localized: "cards.onay", defaultValue: "Approval waits", bundle: b)
+        case "sorun": String(localized: "cards.sorun", defaultValue: "Problem", bundle: b)
+        case "senden": String(localized: "cards.senden", defaultValue: "For you", bundle: b)
+        case "suruyor": String(localized: "cards.suruyor", defaultValue: "Running", bundle: b)
+        default: String(localized: "cards.bitti", defaultValue: "Done today", bundle: b)
+        }
+    }
+    private func span(_ t: TimeInterval) -> String {
+        Duration.seconds(max(0, t)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1).locale(locale))
+    }
+    private var countText: String {
+        if !loaded { return String(localized: "status.loading", defaultValue: "Loading…", bundle: b) }
+        let k = cards.counts
+        let parts = [k.onay > 0 ? String(localized: "cards.count.onay", defaultValue: "\(k.onay) approval(s)", bundle: b) : nil,
+                     k.sorun > 0 ? String(localized: "cards.count.sorun", defaultValue: "\(k.sorun) problem(s)", bundle: b) : nil,
+                     k.senden > 0 ? String(localized: "cards.count.senden", defaultValue: "\(k.senden) for you", bundle: b) : nil,
+                     k.suruyor > 0 ? String(localized: "cards.count.suruyor", defaultValue: "\(k.suruyor) running", bundle: b) : nil,
+                     k.bitti > 0 ? String(localized: "cards.count.bitti", defaultValue: "\(k.bitti) done", bundle: b) : nil].compactMap { $0 }
+        return parts.isEmpty ? String(localized: "cards.none", defaultValue: "Nothing open", bundle: b) : parts.joined(separator: " · ")
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            countBar
+            if open { openList } else if total > 0 { closedStack }
+        }
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .animation(.snappy, value: open)
+    }
+
+    // MARK: count bar
+    /// A tap or a drag down opens the deck, a drag up closes it; the buttons keep their own taps.
+    private var countBar: some View {
+        HStack(spacing: 8) {
+            Text(verbatim: countText).font(.footnote.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75).frame(maxWidth: .infinity, alignment: .leading)
+            Button { act(.projects) } label: { Text(String(localized: "status.projects", defaultValue: "Projects", bundle: b)).font(.footnote).lineLimit(1) }
+                .buttonStyle(.bordered).controlSize(.small)
+            Button { open.toggle() } label: { Image(systemName: open ? "chevron.up" : "chevron.down").frame(width: 36, height: 36).contentShape(Rectangle()) }
+                .accessibilityLabel(Text(verbatim: open ? String(localized: "Close", bundle: b) : String(localized: "Open", bundle: b)))
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { open = true }
+        .gesture(DragGesture(minimumDistance: 16).onEnded { v in
+            if v.translation.height > 16 { open = true } else if v.translation.height < -16 { open = false }
+        })
+    }
+
+    // MARK: closed: the top card, the edges of the cards behind it and "+N"
+    private var closedStack: some View {
+        let behind = min(total - 1, 2)
+        return ZStack(alignment: .top) {
+            topCard
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.bottom, CGFloat(behind) * 6)
+        .background(alignment: .top) {
+            ZStack(alignment: .top) {
+                if behind >= 2 { edge(inset: 20, down: 12) }
+                if behind >= 1 { edge(inset: 10, down: 6) }
+            }
+            .onTapGesture { open = true }
+        }
+        .overlay(alignment: .bottomTrailing) {
+            if total > 1 {
+                Button { open = true } label: { Text(verbatim: "+\(total - 1)").font(.caption2.weight(.bold)).padding(.horizontal, 7).padding(.vertical, 2).background(Capsule().fill(Color(.secondarySystemFill))) }
+                    .buttonStyle(.plain).padding(.trailing, 14).offset(y: 2)
+                    .accessibilityLabel(Text(verbatim: "+\(total - 1)"))
+            }
+        }
+    }
+    private func edge(inset: CGFloat, down: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(.tertiarySystemFill)).frame(height: 36).padding(.horizontal, inset).offset(y: down)
+    }
+    @ViewBuilder private var topCard: some View {
+        if cards.approval != nil { onayCard } else if let first = cards.all.first { card(first) }
+    }
+
+    // MARK: open
+    @ViewBuilder private var openList: some View {
+        let list = VStack(alignment: .leading, spacing: 8) {
+            if cards.approval != nil { onayCard }
+            ForEach(["sorun", "senden", "suruyor"], id: \.self) { g in ForEach(cards.groups[g] ?? []) { card($0) } }
+            let done = cards.groups["bitti"] ?? []
+            if !done.isEmpty {
+                foldRow(open: $doneOpen, title: typeWord("bitti") + " \(done.count)" + (cards.counts.fresh > 0 ? " · " + String(localized: "cards.fresh", defaultValue: "\(cards.counts.fresh) new", bundle: b) : ""))
+                if doneOpen { ForEach(done) { card($0) } }
+            }
+            if !cards.notes.isEmpty {
+                foldRow(open: $notesOpen, title: String(localized: "cards.notes", defaultValue: "Your notes", bundle: b) + " \(cards.notes.count)")
+                if notesOpen {
+                    ForEach(cards.notes) { n in Text(verbatim: n.text).font(.subheadline).frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 10) }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        if scrolls {
+            ScrollView { list.onGeometryChange(for: CGFloat.self) { $0.size.height } action: { listHeight = $0 } }
+                .frame(height: min(max(listHeight, 1), maxHeight))
+        } else { list }
+    }
+    private func foldRow(open: Binding<Bool>, title: String) -> some View {
+        Button { withAnimation(.snappy) { open.wrappedValue.toggle() } } label: {
+            HStack(spacing: 6) { Text(verbatim: open.wrappedValue ? "▾" : "▸").accessibilityHidden(true); Text(verbatim: title).font(.footnote.weight(.semibold)); Spacer(minLength: 0) }
+                .foregroundStyle(.secondary).frame(minHeight: 32).contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).accessibilityLabel(Text(verbatim: title)).accessibilityValue(Text(verbatim: open.wrappedValue ? String(localized: "Close", bundle: b) : String(localized: "Open", bundle: b)))
+    }
+
+    // MARK: cards
+    private func tag(_ s: String, _ color: Color) -> some View {
+        Text(verbatim: s).font(.caption2.weight(.bold)).foregroundStyle(.white).padding(.horizontal, 5).padding(.vertical, 1).background(Capsule().fill(color))
+    }
+    private func frame<V: View>(_ g: String, @ViewBuilder _ content: () -> V) -> some View {
+        let color = Self.color(g)
+        return content().padding(10).frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(color.opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(color.opacity(0.45), lineWidth: 1))
+    }
+    private func card(_ c: StatusCard) -> some View {
+        let color = Self.color(c.group)
+        return frame(c.group) {
+            HStack(alignment: .top, spacing: 8) {
+                Text(verbatim: Self.glyph(c.group)).font(.subheadline).foregroundStyle(color).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(verbatim: c.title).font(.subheadline.weight(.semibold)).lineLimit(3).multilineTextAlignment(.leading)
+                        if c.fresh { tag(String(localized: "cards.new", defaultValue: "new", bundle: b), .green) }
+                    }
+                    stateLine(c)
+                    if let r = reason(c) { Text(verbatim: r).font(.caption).foregroundStyle(.secondary).lineLimit(3) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                mainButton(c)
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+    /// "state · time": the time is the age (Sorun, Senden, Sürüyor) or the end's clock time (Bitti).
+    private func stateLine(_ c: StatusCard) -> some View {
+        let time = c.group == "bitti" ? c.since.formatted(.dateTime.hour().minute().locale(locale)) : span(now.timeIntervalSince(c.since))
+        let state: String? = switch c.group {
+        case "sorun": c.task.map { statusTaskState($0.state, bundle: b) }
+        case "senden": String(localized: "todos.waiting", defaultValue: "Waiting for you", bundle: b)
+        case "suruyor": c.task.map { statusTaskState($0.state, bundle: b) } ?? String(localized: "cards.withAgent", defaultValue: "With \(assistantName)", bundle: b)
+        default: c.task.map { statusTaskState($0.state, bundle: b) }
+        }
+        let first = (state.map { Text(verbatim: $0).foregroundStyle(Self.color(c.group)) } ?? Text(verbatim: "")) + Text(verbatim: state == nil ? time : " · " + time).foregroundStyle(.secondary)
+        let over = c.overdue ? Text(verbatim: " · ").foregroundStyle(.secondary) + Text(String(localized: "todos.overdue", defaultValue: "Overdue", bundle: b)).foregroundStyle(.red).bold() : Text(verbatim: "")
+        return (first + over).font(.caption)
+    }
+    private func reason(_ c: StatusCard) -> String? {
+        if c.group == "senden", let w = c.item?.waiting { return w.reason }
+        if let r = c.task?.result, !r.isEmpty { return r }
+        return nil
+    }
+    @ViewBuilder private func mainButton(_ c: StatusCard) -> some View {
+        let waits = c.item?.waiting != nil || c.task?.state == "waiting"
+        switch c.group {
+        case "sorun": actionButton(c, String(localized: "cards.ask", defaultValue: "Ask \(assistantName)", bundle: b), .ask(c))
+        case "senden": waits ? actionButton(c, String(localized: "cards.reply", defaultValue: "Reply", bundle: b), .reply(c)) : actionButton(c, String(localized: "cards.done", defaultValue: "Done", bundle: b), .done(c))
+        case "suruyor":
+            if c.task != nil { actionButton(c, String(localized: "cards.watch", defaultValue: "Watch", bundle: b), .watch(c)) }
+            else {
+                Button { act(.write(c)) } label: { Image(systemName: "arrow.right").frame(minWidth: 36, minHeight: 36).contentShape(Rectangle()) }
+                    .buttonStyle(.borderless).accessibilityLabel(Text(verbatim: typeWord(c.group) + ", " + String(localized: "status.insert", defaultValue: "Write in the message box: \(c.title)", bundle: b)))
+            }
+        default: actionButton(c, String(localized: "cards.seen", defaultValue: "Seen", bundle: b), .seen(c))
+        }
+    }
+    private func actionButton(_ c: StatusCard, _ label: String, _ a: DeckAction) -> some View {
+        Button { act(a) } label: { Text(verbatim: label).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize() }
+            .buttonStyle(.bordered).controlSize(.small).tint(Self.color(c.group))
+            .accessibilityLabel(Text(verbatim: "\(typeWord(c.group)), \(label): \(c.title)"))
+    }
+
+    // MARK: Onay card
+    private var onayCount: Int { sentences.isEmpty ? (cards.approval?.items.count ?? 0) : sentences.count }
+    private var onayCard: some View {
+        let a = cards.approval!
+        let live = sentences.contains(where: liveApproval) || a.items.contains { liveApproval($0.text) }
+        let approve = String(localized: "Approve", bundle: b)
+        return frame("onay") {
+            if compact {
+                HStack(spacing: 8) {
+                    Text(verbatim: Self.glyph("onay")).foregroundStyle(Self.color("onay")).accessibilityHidden(true)
+                    Text(String(localized: "cards.waitingCount", defaultValue: "\(onayCount) approval(s) waiting", bundle: b)).font(.subheadline.weight(.semibold))
+                    if live { tag(String(localized: "cards.live", defaultValue: "LIVE", bundle: b), .red) }
+                    Spacer(minLength: 0)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Text(verbatim: Self.glyph("onay")).foregroundStyle(Self.color("onay")).accessibilityHidden(true)
+                        Text(verbatim: typeWord("onay") + (a.since.map { " · " + span(now.timeIntervalSince($0)) } ?? "")).font(.subheadline.weight(.semibold))
+                        if live { tag(String(localized: "cards.live", defaultValue: "LIVE", bundle: b), .red) }
+                        Spacer(minLength: 0)
+                    }
+                    ForEach(sentences, id: \.self) { s in
+                        VStack(alignment: .leading, spacing: 6) {
+                            if liveApproval(s) { tag(String(localized: "cards.live", defaultValue: "LIVE", bundle: b), .red) }
+                            Text(verbatim: s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)).font(.subheadline)
+                                .frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true).accessibilityHidden(true)
+                            HStack { Spacer(minLength: 0)
+                                Button { act(.approve(s)) } label: { Text(verbatim: approve).font(.subheadline.weight(.semibold)).lineLimit(1).fixedSize() }
+                                    .buttonStyle(.borderedProminent).controlSize(.small).disabled(busy)
+                                    .accessibilityLabel(Text(verbatim: "\(typeWord("onay")), \(approve): \(s)"))
+                            }
+                        }
+                    }
+                    if sentences.isEmpty && !a.items.isEmpty {
+                        Text(String(localized: "cards.approveAgain", defaultValue: "Approve comes back when \(assistantName) writes the approval sentence again.", bundle: b)).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if !a.items.isEmpty {
+                        DisclosureGroup(isExpanded: $topicsOpen) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                ForEach(a.items) { i in Text(verbatim: cardMark(i.text).title).font(.caption).frame(maxWidth: .infinity, alignment: .leading) }
+                            }
+                        } label: { Text(String(localized: "cards.topics", defaultValue: "\(a.items.count) topic(s)", bundle: b)).font(.caption).foregroundStyle(.secondary) }
+                    }
+                }
+            }
+        }
+        .accessibilityElement(children: .contain)
+    }
+}
+
+/// The deck in Damon's chat: reads the status answer (the same GET as StatusSheet), keeps what the phone remembers (Seen,
+/// the time the Bitti group was folded) and does what a tap asks for. One approval path: the confirmation of
+/// `ApproveButtons`, then `Client.approve`.
+struct CardDeck: View {
+    @EnvironmentObject var c: Client
+    let sessionId: String
+    /// You type: the deck closes and the Onay card is one line.
+    let typing: Bool
+    @State private var answer: J?
+    @State private var open = false
+    @State private var doneOpen = false
+    @State private var notesOpen = false
+    @State private var seq = 0
+    @State private var seen = Set<String>()
+    @State private var newSince = Date(timeIntervalSince1970: 0)
+    @State private var showProjects = false
+    @State private var asking: (sid: String, sentence: String)?
+    @State private var tick = Date()
+
+    private var offer: ApprovalOffer? { c.approvalOffer }
+    private var cards: StatusCards { statusCards(answer ?? [:], now: tick, approvals: offer?.sentences.count ?? 0, seen: seen, newSince: newSince) }
+    var body: some View {
+        let w = approveWords(macLang: c.macLang)
+        DeckView(cards: cards, sentences: offer?.sentences ?? [], loaded: answer != nil, now: tick, b: uiStrings, locale: c.uiLocale, compact: typing,
+                 busy: c.optionBusy.contains(sessionId), maxHeight: UIScreen.main.bounds.height * 0.7, open: $open, doneOpen: $doneOpen, notesOpen: $notesOpen, act: act)
+            .background(.bar)
+            .onChange(of: typing) { _, t in if t { open = false } }
+            .onChange(of: doneOpen) { _, o in if !o { c.cardsFolded(); newSince = c.cardsNewSince } }
+            .sheet(isPresented: $showProjects) { StatusSheet(sessionId: sessionId) }
+            .confirmationDialog(Text(verbatim: w.confirm), isPresented: Binding(get: { asking != nil }, set: { if !$0 { asking = nil } }), titleVisibility: .visible, presenting: asking) { a in
+                Button(w.button) { if let o = offer { c.run(waits: false) { try await c.approve(a.sid, o, a.sentence) } } }
+                Button(w.cancel, role: .cancel) {}
+            } message: { a in Text(verbatim: a.sentence) }
+            .task { seen = c.cardsSeen(); newSince = c.cardsNewSince; await load() }
+            // The same reads as StatusSheet: every 5 s while a task runs, and once after a turn ends.
+            .task(id: running) {
+                while !Task.isCancelled, running {
+                    try? await Task.sleep(for: .seconds(5))
+                    if Task.isCancelled { return }
+                    await load()
+                }
+            }
+            .onChange(of: c.running) { was, now in if was && !now { Task { await load() } } }
+    }
+    private var running: Bool { (answer?["tasks"] as? [J] ?? []).contains { $0["state"] as? String == "running" } }
+    private func load() async {
+        seq += 1; let mine = seq
+        guard let a = try? await c.loadStatusAnswer(sessionId), mine == seq else { return }
+        answer = a; tick = Date()
+    }
+    private func act(_ a: DeckAction) {
+        let locale = c.uiLocale
+        let span = { (t: TimeInterval) in Duration.seconds(max(0, t)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1).locale(locale)) }
+        switch a {
+        case .projects: showProjects = true
+        case .approve(let s): UISelectionFeedbackGenerator().selectionChanged(); asking = (sessionId, s)
+        case .ask(let card), .reply(let card), .write(let card):
+            // The Mac's card data (client.js `dataOf`): the task's data first, then an item of Damon's, else the title only.
+            let text = card.task == nil && card.item?.owner == "user" ? String(localized: "status.insert.item", defaultValue: "To-do: \(card.title)", bundle: uiStrings)
+                : statusInsert(deckRow(card, preferTask: true), now: Date(), span: span)
+            c.writeDraft(text, sessionId)
+        case .done(let card):
+            c.writeDraft(String(localized: "cards.doneMessage", defaultValue: "Done: \(card.title)", bundle: uiStrings), sessionId)
+        case .watch(let card): if let t = card.task { c.open(t.id) }
+        case .seen(let card): if let k = card.seenKey { c.markCardSeen(k); seen = c.cardsSeen() }
+        }
+    }
+}
+// END CardDeck

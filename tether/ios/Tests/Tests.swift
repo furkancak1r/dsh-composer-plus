@@ -2377,6 +2377,91 @@ final class DamonParityTests: XCTestCase {
         XCTAssertTrue(statusView(["translating": true], now: Date()).translating)
     }
 
+    /// Damon card stack: the same cards as client.js statusCards (test/fixtures/status-cards.json), with the Mac's marks and
+    /// the CANLI label. Times are ms in the table.
+    func testStatusCardsMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/status-cards.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 6)
+        let date = { (v: Any?) in Date(timeIntervalSince1970: (v as! NSNumber).doubleValue / 1000) }
+        let ms = { (d: Date) in NSNumber(value: (d.timeIntervalSince1970 * 1000).rounded()) }
+        for c in cases {
+            let name = c["name"] as? String ?? ""
+            let o = c["opts"] as? J ?? [:]
+            let p = statusCards(c["data"] as? J ?? [:], now: date(c["now"]), approvals: o["approvals"] as? Int ?? 0, seen: Set(o["seen"] as? [String] ?? []), newSince: date(o["newSince"] ?? 0))
+            let want = c["want"] as! J
+            if let a = want["approval"] as? J {
+                XCTAssertEqual(p.approval?.items.map(\.id), a["items"] as? [String], name)
+                XCTAssertEqual(p.approval?.since.map(ms), a["since"] as? NSNumber, name)
+            } else { XCTAssertNil(p.approval, name) }
+            let wg = want["groups"] as! J
+            XCTAssertEqual(Set(p.groups.keys), Set(wg.keys), name)
+            for g in cardGroups {
+                let got = (p.groups[g] ?? []).map { "\($0.key)|\($0.title)|\($0.item?.id ?? "-")|\($0.task?.id ?? "-")|\(ms($0.since))|\($0.overdue)|\($0.fresh)" }
+                let exp = (wg[g] as! [J]).map { "\($0["key"]!)|\($0["title"]!)|\(($0["item"] as? String) ?? "-")|\(($0["task"] as? String) ?? "-")|\($0["since"]!)|\($0["overdue"] as! Bool)|\($0["fresh"] as! Bool)" }
+                XCTAssertEqual(got, exp, "\(name): \(g)")
+            }
+            XCTAssertEqual(p.notes.map(\.id), want["notes"] as? [String], name)
+            let k = want["counts"] as! J
+            XCTAssertEqual(p.counts, CardCounts(onay: k["onay"] as! Int, sorun: k["sorun"] as! Int, senden: k["senden"] as! Int, suruyor: k["suruyor"] as! Int, bitti: k["bitti"] as! Int, fresh: k["fresh"] as! Int), name)
+        }
+        // The marks and the CANLI label (the same lines as test/status-cards.test.mjs).
+        XCTAssertEqual(cardMark("SORUN:  canlı").kind, "sorun"); XCTAssertEqual(cardMark("SORUN:  canlı").title, "canlı")
+        XCTAssertNil(cardMark("Bu bir onay: değil").kind); XCTAssertNil(cardMark("Onay:").kind)
+        XCTAssertTrue(liveApproval("Onaylıyorum: canlı sunucuya deploy et."))
+        XCTAssertFalse(liveApproval("Onaylıyorum (canlı değil): dal main'e alınsın."))
+        XCTAssertFalse(liveApproval("Onaylıyorum: yalnız yerel test."))
+        // The day check uses the phone's calendar: the table holds in any time zone.
+        let first = try XCTUnwrap(cases.first { ((($0["want"] as! J)["groups"] as! J)["bitti"] as! [J]).count == 2 })
+        for zone in ["Pacific/Kiritimati", "Etc/GMT+12", "America/Los_Angeles"] {
+            var cal = Calendar(identifier: .gregorian); cal.timeZone = TimeZone(identifier: zone)!
+            let o = first["opts"] as? J ?? [:]
+            let p = statusCards(first["data"] as! J, now: date(first["now"]), approvals: o["approvals"] as? Int ?? 0, seen: Set(o["seen"] as? [String] ?? []), newSince: date(o["newSince"] ?? 0), cal: cal)
+            XCTAssertEqual(p.counts.bitti, 2, zone)
+        }
+    }
+
+    /// Screenshots of the card deck (closed and open) with made-up data, in Turkish. They are written only when SHOT_DIR is
+    /// set (run with TEST_RUNNER_SHOT_DIR=<dir>); without it the test is skipped.
+    @MainActor func testCardDeckScreenshots() throws {
+        guard let dir = ProcessInfo.processInfo.environment["SHOT_DIR"], !dir.isEmpty else { throw XCTSkip("SHOT_DIR is not set") }
+        let now = Date(timeIntervalSince1970: 1_794_993_000)
+        let ago = { (m: Double) in Int((now.timeIntervalSince1970 - m * 60) * 1000) }
+        let data: J = [
+            "items": [
+                ["id": "a1", "text": "Onay: acme-web testi main'e alınır", "owner": "user", "created": ago(14)],
+                ["id": "a2", "text": "Onay: acme-api betiği test servisinde denenir", "owner": "user", "created": ago(6)],
+                ["id": "a3", "text": "Sorun: acme-web gece derlemesi hata verdi", "owner": "agent", "created": ago(40)],
+                ["id": "a4", "text": "Senden: acme-api ortam değişkenini ekle", "owner": "user", "created": ago(26 * 60)],
+                ["id": "a5", "text": "Rapor hizası için karar", "owner": "agent", "created": ago(300), "waiting": ["reason": "Hangi başlık seçilsin?", "since": ago(150)]],
+                ["id": "a6", "text": "Süt al", "owner": "user", "created": ago(500)],
+                ["id": "a7", "text": "Fatura öde", "owner": "user", "created": ago(600)],
+                ["id": "a8", "text": "acme-web sorgularını hızlandır", "owner": "agent", "created": ago(90)]],
+            "tasks": [
+                ["id": "t1", "title": "acme-api uç noktaları", "state": "running", "started": ago(25)],
+                ["id": "t2", "title": "acme-docs çeviri", "state": "running", "started": ago(12)],
+                ["id": "t3", "title": "acme-web sorgularını hızlandır", "state": "running", "started": ago(50)],
+                ["id": "t4", "title": "acme-web gece derlemesi hata verdi", "state": "failed", "started": ago(45), "ended": ago(41)],
+                ["id": "t5", "title": "acme-api yedekleme betiği", "state": "done", "started": ago(120), "ended": ago(70), "result": "Testler geçti"],
+                ["id": "t6", "title": "acme-docs bağlantı denetimi", "state": "done", "started": ago(80), "ended": ago(30), "result": "3 kırık bağlantı düzeltildi"]]]
+        let sentence = "Onaylıyorum: acme-web testi main'e alınsın, canlı değil."
+        let cards = statusCards(data, now: now, approvals: 1, newSince: Date(timeIntervalSince1970: now.timeIntervalSince1970 - 60 * 60))
+        XCTAssertEqual(cards.counts, CardCounts(onay: 1, sorun: 1, senden: 2, suruyor: 3, bitti: 2, fresh: 1))
+        XCTAssertEqual(cards.notes.count, 2)
+        let tr = uiBundle("tr")
+        func render(_ open: Bool, _ name: String) throws {
+            let view = DeckView(cards: cards, sentences: [sentence], now: now, b: tr, locale: Locale(identifier: "tr_TR"), maxHeight: 10_000, scrolls: false,
+                                open: .constant(open), doneOpen: .constant(open), notesOpen: .constant(open), act: { _ in })
+                .frame(width: 390).background(Color(.systemBackground)).environment(\.locale, Locale(identifier: "tr_TR")).environment(\.colorScheme, .light)
+            let r = ImageRenderer(content: view); r.scale = 3
+            let img = try XCTUnwrap(r.uiImage, "ImageRenderer gave no image")
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try XCTUnwrap(img.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent(name))
+        }
+        try render(false, "tether-deste-kapali.png")
+        try render(true, "tether-deste-acik.png")
+    }
+
     /// → of the Status sheet: the same text as client.js statusInsert (test/fixtures/status-insert.json), in English and
     /// Turkish, without ids; appendLine is the web panel's append rule.
     func testStatusInsertMatchesTheMac() throws {
