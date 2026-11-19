@@ -4,7 +4,7 @@
 // - The prompt rule: a reply without a block keeps the button; no new block for news, a reminder or an agent result
 //   when the pending approvals did not change; the sentence names subjects, not internal codes. The old rule for a user
 //   message stays.
-// - The Assistant news note: do not write an unchanged block again, its button stays until the user's next message.
+// - The Assistant news note: do not write an unchanged block again, the Approval card keeps it until the user's next message.
 // - The client (real client.js chatOffer): a newer turn without a text answer (tools only, dsh's closing is null) keeps
 //   the button of the older block, under that turn's end; not after your message, a rollback of the block or in a fork's
 //   inherited part. Option buttons do not change.
@@ -21,7 +21,8 @@ assert.match(APPROVE_SECTION, /After a user message, when an approval is still p
 assert.match(APPROVE_SECTION, /Name each item by its subject in the user's words, never by an internal code such as a review item name \(G3, H1\) or a session id\./);
 for (const kind of [{ task: true }, { automation: true }, {}]) {
   const note = assistantNewsNote([{ id: 's-1', title: 'Nightly audit', project: 'demo-app', at: 1, kind: 'finished', reply: 'No finding.', ...kind }]);
-  assert.match(note, /Do not write an unchanged `onay` block again: its button stays until the user's next message\./, `the news note: ${JSON.stringify(kind)}`);
+  // Damon card stack (2026-11-19): the button is in the Approval card, which keeps the newest block.
+  assert.match(note, /Do not write an unchanged `onay` block again: the Approval card keeps it until the user's next message\./, `the news note: ${JSON.stringify(kind)}`);
 }
 
 // 2. The client: the real chatOffer of client.js.
