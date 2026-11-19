@@ -2302,6 +2302,7 @@
     "autoBackup.every": "Mỗi",
     "autoBackup.keep": "Giữ",
     "autoBackup.keepCount": "{count} bản sao lưu",
+    "autoBackup.keepAll": "Tổng {count} bản sao lưu (kể cả bản thủ công)",
     "autoBackup.next": "Lần sao lưu tiếp theo: {time}",
     "autoBackup.failedAt": "Lần tự động sao lưu gần nhất thất bại: {error}",
     "autoBackup.down": "Không thể lưu cài đặt này: {error}",

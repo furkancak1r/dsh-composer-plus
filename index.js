@@ -8466,7 +8466,8 @@ export const BACKUP_PATH = '/api/composer-plus.backup';
 export const AUTO_BACKUP_PATH = '/api/composer-plus.auto-backup';
 export const RESCUE_PATH = '/api/composer-plus.rescue-console';
 export const BACKUP_HOURS = [6, 12, 24, 72, 168];
-export const BACKUP_KEEPS = [3, 5, 7, 14];
+/** 2 counts every Composer Plus archive in the folder (automatic, snapshot and a click's together), see backupNow. */
+export const BACKUP_KEEPS = [2, 3, 5, 7, 14];
 /** Snapshots taken when dsh or Composer Plus starts with a new version: the newest this many stay. */
 export const SNAPSHOT_KEEP = 2;
 /** No automatic backup in the first seconds after a start: a full backup reads and compresses about a gigabyte. */
@@ -8548,11 +8549,13 @@ export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retry
     if (await rescue.read()) await backups.writeRescue(folder).catch((error) => log(`could not write the rescue console: ${error?.message ?? error}`));
     await refreshOld();
   };
-  /** A click keeps every archive; an automatic backup keeps the newest `keep` of its own, a snapshot the newest 2. */
+  /** A click keeps every archive; an automatic backup keeps the newest `keep` of its own, a snapshot the newest 2. With
+   * Automatic backup on and Keep 2, each backup (also a click) is read back, then the newest 2 of all kinds stay. */
   const backupNow = (kind = 'backup', automatic = false) => run('backup', async (signal, progress) => {
     const settings = await auto.read();
-    const keep = kind === 'pre-upgrade' ? SNAPSHOT_KEEP : automatic ? settings.keep : undefined;
-    const r = await backups.backup({ home, dest: folder, kind, keep, signal, progress });
+    const total = settings.on && settings.keep === 2;
+    const keep = total ? 2 : kind === 'pre-upgrade' ? SNAPSHOT_KEEP : automatic ? settings.keep : undefined;
+    const r = await backups.backup({ home, dest: folder, kind, keep, allKinds: total, signal, progress });
     await refreshRescue();
     return { name: r.name, size: r.size, files: r.files, masked: r.masked.length, skipped: r.skipped.length, rotated: r.rotated.length };
   }, { kind });

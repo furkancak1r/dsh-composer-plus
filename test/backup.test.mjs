@@ -123,6 +123,54 @@ assert.equal(sha, execFileSync('shasum', ['-a', '256', join(dest, first.name)]).
   assert.deepEqual(r.rotated, []);
   assert.equal((await b.listArchives(keepDest)).length, 5);
 }
+// Keep 2 of all kinds (allKinds): full, snapshot and a click's archives count together; the newest 2 stay with the new
+// one; each removed archive goes with its sidecars and vault copies; dsh-backup's archive and other files stay.
+{
+  const all = join(root, 'keep-all');
+  const src = join(root, 'keep-all-home', '.dsh');
+  write(join(src, 'a.txt'), 'a');
+  write(join(src, '.credentials.yaml'), 'key: KEEP-ALL\n');
+  archive(all, [...tarDir('.dsh/'), ...tarFile('.dsh/a', 'x')]);
+  const foreign = (await b.listArchives(all))[0].name;
+  writeFileSync(join(all, 'notes.txt'), 'x');
+  const at = (d) => new Date(2026, 2, d);
+  await b.backup({ home: src, dest: all, now: at(1) });
+  await b.backup({ home: src, dest: all, kind: 'pre-upgrade', keep: 2, now: at(2) });
+  await b.backup({ home: src, dest: all, now: at(3) });
+  const names = (await b.listArchives(all)).map((a) => a.name);
+  assert.equal(names.length, 4, 'per kind and without keep: nothing of the other kinds goes');
+  const r = await b.backup({ home: src, dest: all, keep: 2, allKinds: true, now: at(4) });
+  assert.deepEqual(r.rotated, ['dsh-pre-upgrade-20260302-000000000.tar.gz', 'dsh-20260301-000000000.tar.gz']);
+  assert.deepEqual((await b.listArchives(all)).map((a) => a.name), ['dsh-20260304-000000000.tar.gz', 'dsh-20260303-000000000.tar.gz', foreign]);
+  for (const gone of r.rotated) {
+    assert.ok(!readdirSync(all).some((n) => n.startsWith(gone)), `${gone} and its sidecars are gone`);
+    assert.equal(existsSync(join(all, b.VAULT, gone)), false, `${gone} vault copies are gone`);
+  }
+  for (const kept of ['dsh-20260304-000000000.tar.gz', 'dsh-20260303-000000000.tar.gz']) {
+    for (const f of [kept, ...['.sha256', '.meta.json', '.redacted.json'].map((x) => `${kept}${x}`)]) assert.ok(existsSync(join(all, f)), f);
+    assert.ok(existsSync(join(all, b.VAULT, kept, '.credentials.yaml')), `${kept} keeps its vault copy`);
+  }
+  assert.ok(existsSync(join(all, 'notes.txt')) && existsSync(join(all, `${foreign}.sha256`)));
+  // A snapshot with keep 2 of all kinds: it stays with the newest other one.
+  const snap = await b.backup({ home: src, dest: all, kind: 'pre-upgrade', keep: 2, allKinds: true, now: at(5) });
+  assert.deepEqual(snap.rotated, ['dsh-20260303-000000000.tar.gz']);
+  assert.deepEqual((await b.listArchives(all)).filter((a) => a.meta?.by === b.BY).map((a) => a.name), ['dsh-pre-upgrade-20260305-000000000.tar.gz', 'dsh-20260304-000000000.tar.gz']);
+  // The new archive always stays, also when its time is older than the others (a clock set back).
+  const back = await b.backup({ home: src, dest: all, keep: 2, allKinds: true, now: at(1) });
+  assert.deepEqual(back.rotated, ['dsh-20260304-000000000.tar.gz']);
+  assert.deepEqual((await b.listArchives(all)).filter((a) => a.meta?.by === b.BY).map((a) => a.name), ['dsh-pre-upgrade-20260305-000000000.tar.gz', 'dsh-20260301-000000000.tar.gz']);
+  // A failed backup removes nothing: cancelled while it writes, and cancelled while the new archive is read back.
+  const before = readdirSync(all, { recursive: true }).sort();
+  const stopped = new AbortController(); stopped.abort();
+  await assert.rejects(b.backup({ home: src, dest: all, keep: 2, allKinds: true, signal: stopped.signal, now: at(6) }));
+  assert.deepEqual(readdirSync(all, { recursive: true }).sort(), before, 'a cancelled write: no new file, no old archive removed');
+  const reading = new AbortController();
+  let read = false;
+  const progress = { get read() { return 0; }, set read(v) { read = true; reading.abort(); } };
+  await assert.rejects(b.backup({ home: src, dest: all, keep: 2, allKinds: true, signal: reading.signal, progress, now: at(7) }));
+  assert.ok(read, 'the new archive was read back before any removal');
+  assert.deepEqual(readdirSync(all, { recursive: true }).sort(), before, 'a failed read-back: the new archive goes, no old archive removed');
+}
 
 // The archive check refuses what a restore must not write; a damaged archive and a wrong checksum are not usable.
 {

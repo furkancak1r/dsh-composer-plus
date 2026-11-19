@@ -2302,6 +2302,7 @@
     "autoBackup.every": "Каждые",
     "autoBackup.keep": "Хранить",
     "autoBackup.keepCount": "последние {count}",
+    "autoBackup.keepAll": "всего {count} (включая ручные)",
     "autoBackup.next": "Следующая копия: {time}",
     "autoBackup.failedAt": "Последнее автоматическое резервное копирование завершилось сбоем: {error}",
     "autoBackup.down": "Не удалось сохранить этот параметр: {error}",

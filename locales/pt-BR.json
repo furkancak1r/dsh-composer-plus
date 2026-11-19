@@ -2302,6 +2302,7 @@
     "autoBackup.every": "A cada",
     "autoBackup.keep": "Manter",
     "autoBackup.keepCount": "{count} backups",
+    "autoBackup.keepAll": "{count} backups no total (inclusive os manuais)",
     "autoBackup.next": "Próximo backup: {time}",
     "autoBackup.failedAt": "O último backup automático falhou: {error}",
     "autoBackup.down": "Não foi possível salvar esta configuração: {error}",

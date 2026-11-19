@@ -2302,6 +2302,7 @@
     "autoBackup.every": "Setiap",
     "autoBackup.keep": "Simpan",
     "autoBackup.keepCount": "{count} cadangan",
+    "autoBackup.keepAll": "{count} cadangan total (termasuk yang manual)",
     "autoBackup.next": "Pencadangan berikutnya: {time}",
     "autoBackup.failedAt": "Pencadangan otomatis terakhir gagal: {error}",
     "autoBackup.down": "Tidak dapat menyimpan pengaturan ini: {error}",

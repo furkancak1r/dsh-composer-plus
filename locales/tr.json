@@ -3966,6 +3966,7 @@
     "autoBackup.every": "Sıklık",
     "autoBackup.keep": "Sakla",
     "autoBackup.keepCount": "{count} yedek",
+    "autoBackup.keepAll": "Toplam {count} yedek (elle alınanlar dahil)",
     "autoBackup.next": "Sonraki yedekleme: {time}",
     "autoBackup.failedAt": "Son otomatik yedekleme başarısız oldu: {error}",
     "autoBackup.down": "Bu ayar kaydedilemedi: {error}",

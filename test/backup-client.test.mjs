@@ -184,7 +184,8 @@ const archive = (name, extra = {}) => ({ name, kind: 'backup', at: '2026-10-28T1
   const store = { getSnapshot: () => state, subscribe: () => () => {}, refresh() {}, post: (body, pending) => { fetches.push({ init: { method: 'POST' }, url: 'auto', body }); state = { ...state, ...pending }; } };
   let tree = AutoBackupSettings({ store, t });
   const menus = find(tree, (n) => n.t === 'Menu');
-  assert.deepEqual(menus.map((m) => m.p.items.map((i) => i.id)), [['6', '12', '24', '72', '168'], ['3', '5', '7', '14']]);
+  assert.deepEqual(menus.map((m) => m.p.items.map((i) => i.id)), [['6', '12', '24', '72', '168'], ['2', '3', '5', '7', '14']]);
+  assert.deepEqual(menus[1].p.items.slice(0, 2).map((i) => i.label), ['autoBackup.keepAll:{"count":2}', 'autoBackup.keepCount:{"count":3}'], '2 says that it counts every backup');
   assert.ok(by(tree, 'data-composer-plus-auto-backup-next').length === 1);
   menus[0].p.onSelect('12');
   menus[1].p.onSelect('3');

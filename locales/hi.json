@@ -2302,6 +2302,7 @@
     "autoBackup.every": "हर",
     "autoBackup.keep": "रखें",
     "autoBackup.keepCount": "{count} बैकअप",
+    "autoBackup.keepAll": "कुल {count} बैकअप (हाथ से लिए गए भी)",
     "autoBackup.next": "अगला बैकअप: {time}",
     "autoBackup.failedAt": "पिछला अपने-आप बैकअप विफल हुआ: {error}",
     "autoBackup.down": "यह सेटिंग सेव नहीं की जा सकी: {error}",

@@ -2302,6 +2302,7 @@
     "autoBackup.every": "간격",
     "autoBackup.keep": "보관",
     "autoBackup.keepCount": "백업 {count}개",
+    "autoBackup.keepAll": "전체 백업 {count}개(수동 백업 포함)",
     "autoBackup.next": "다음 백업: {time}",
     "autoBackup.failedAt": "마지막 자동 백업이 실패했습니다: {error}",
     "autoBackup.down": "이 설정을 저장하지 못했습니다: {error}",

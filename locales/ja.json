@@ -2302,6 +2302,7 @@
     "autoBackup.every": "間隔",
     "autoBackup.keep": "保持",
     "autoBackup.keepCount": "{count} 件",
+    "autoBackup.keepAll": "合計 {count} 件（手動を含む）",
     "autoBackup.next": "次回のバックアップ：{time}",
     "autoBackup.failedAt": "前回の自動バックアップに失敗しました：{error}",
     "autoBackup.down": "この設定を保存できませんでした：{error}",

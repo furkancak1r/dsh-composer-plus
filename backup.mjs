@@ -188,9 +188,11 @@ async function* walk(root, rel, skip, signal) {
 const inside = (root, p) => (p.startsWith(`${root}/`) || p.startsWith(`${root}\\`) ? p.slice(root.length + 1).split('\\').join('/') : undefined);
 
 /** Back up the dsh home `home` into `dest` as `dsh-[<kind>-]<stamp>.tar.gz` and its sidecars. With `keep`, then only the
- * newest `keep` archives of that kind that Composer Plus made stay (other archives, such as dsh-backup's, are never
- * removed). `progress` gets `files` and `bytes` as they go. On a failure nothing new stays in `dest`. */
-export async function backup({ home, dest, kind = 'backup', keep, signal, progress = {}, now = new Date() }) {
+ * newest `keep` archives of that kind that Composer Plus made stay (other archives, such as dsh-backup's, and the new one
+ * are never removed). With `allKinds` too, the new archive is first read back in full, then the newest `keep` of all kinds
+ * together stay. `progress` gets `files` and `bytes` as they go. On a failure (also of the read-back) nothing new stays in
+ * `dest` and nothing is removed. */
+export async function backup({ home, dest, kind = 'backup', keep, allKinds = false, signal, progress = {}, now = new Date() }) {
   const realHome = await realpath(home);
   await mkdir(dest, { recursive: true, mode: 0o700 });
   const realDest = await realpath(dest);
@@ -295,13 +297,15 @@ export async function backup({ home, dest, kind = 'backup', keep, signal, progre
     await writeFile(`${file}.meta.json`, `${JSON.stringify({ host: hostname(), home: homedir(), dshHome: realHome, createdAt: now.toISOString(), redacted: masked.length,
       by: BY, files: progress.files, bytes: progress.bytes, skipped: skipped.length })}\n`, { mode: 0o600 });
     await writeFile(`${file}.redacted.json`, `${JSON.stringify({ files: masked })}\n`, { mode: 0o600 });
+    // Before older archives can go: the archive on disk reads in full and has the checksum that was written.
+    if (keep !== undefined && allKinds && (await checkArchive(file, { signal, progress })).sha256 !== sha) throw new ArchiveError('the new backup does not match its checksum');
   } catch (error) {
     await removeArchive(realDest, name).catch(() => {});
     throw error;
   }
   const size = (await stat(file)).size;
-  // The new archive is complete: a failure to remove older ones keeps it.
-  const rotated = keep === undefined ? [] : await rotate(realDest, kind, keep).catch(() => []);
+  // The new archive is complete (and with allKinds checked): a failure to remove older ones keeps it.
+  const rotated = keep === undefined ? [] : await rotate(realDest, name, allKinds ? undefined : kind, keep).catch(() => []);
   return { name, file, sha, size, files: progress.files, bytes: progress.bytes, masked, skipped, changed, rotated };
 }
 
@@ -311,9 +315,11 @@ export async function removeArchive(dest, name) {
   for (const suffix of ['', ...SIDECARS]) await rm(join(dest, `${name}${suffix}`), { force: true });
   await rm(join(dest, VAULT, name), { recursive: true, force: true });
 }
-/** Keeps the newest `keep` Composer Plus archives of one kind; returns the removed names. */
-async function rotate(dest, kind, keep) {
-  const old = (await listArchives(dest)).filter((a) => a.kind === kind && a.meta?.by === BY).slice(Math.max(1, keep));
+/** Keeps the newest `keep` Composer Plus archives of one kind; returns the removed names. `kind` undefined: of all kinds,
+ * and the new archive `name` always stays as one of the `keep`. */
+async function rotate(dest, name, kind, keep) {
+  const ours = (await listArchives(dest)).filter((a) => a.meta?.by === BY);
+  const old = kind === undefined ? ours.filter((a) => a.name !== name).slice(Math.max(1, keep) - 1) : ours.filter((a) => a.kind === kind).slice(Math.max(1, keep));
   for (const a of old) await removeArchive(dest, a.name);
   return old.map((a) => a.name);
 }
