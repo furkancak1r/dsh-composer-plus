@@ -2449,4 +2449,24 @@ final class QuietReplyTests: XCTestCase {
         XCTAssertFalse(quietTurn(reply: "[quiet]", reason: "error"))
         XCTAssertFalse(quietTurn(reply: "The deploy failed.", reason: "completed"))
     }
+    /// The run rule of the Mac (quietRun, runReply) on the shared turn shapes: no alert and no buzz only when every text of
+    /// Damon's turn is `[quiet]`; a turn with a real text notifies with it. Tether draws a step as reasoning and text lines
+    /// (`draw`), and a tool call as its own line.
+    func testQuietTurnsMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
+        let turns = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["turns"] as? [J])
+        XCTAssertGreaterThanOrEqual(turns.count, 8)
+        for t in turns {
+            let steps = t["steps"] as? [[String]] ?? []
+            var lines = [Line(kind: .user, text: "news")]
+            for s in steps {
+                if s.contains("think") { lines.append(Line(kind: .reasoning, text: "Look.")) }
+                let text = s.filter { $0 != "think" && $0 != "tool" }.joined(separator: "\n")
+                if !text.isEmpty { lines.append(Line(kind: .assistant, text: text)) }
+                if s.contains("tool") { lines.append(Line(kind: .tool, text: "chats_list")) }
+            }
+            XCTAssertEqual(quietTexts(lines), t["quiet"] as? Bool, "\(steps)")
+            XCTAssertEqual(newsReply(lines), t["reply"] as? String, "\(steps)")
+        }
+    }
 }

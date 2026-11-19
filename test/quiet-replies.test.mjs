@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { apply, quietRun, quietReply, statusTasks, ASSISTANT_STATUS_PATH, MOBILE_PATH, UNREAD_PATH, ROLLBACK_SOURCE } from '../index.js';
+import { apply, quietRun, quietReply, quietTurn, runReply, statusTasks, ASSISTANT_STATUS_PATH, ASSISTANT_SWITCH_PATH, MOBILE_PATH, UNREAD_PATH, ROLLBACK_SOURCE } from '../index.js';
 
 const table = JSON.parse(readFileSync(new URL('./fixtures/quiet-replies.json', import.meta.url), 'utf8')).cases;
 const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
@@ -18,6 +18,8 @@ const quietText = new Function(`${src.match(/const quietText = [^\n]+/)[0]}; ret
 for (const { text, quiet } of table) {
   assert.equal(quietReply(text), quiet, `Host: ${JSON.stringify(text)}`);
   assert.equal(quietText(text), quiet, `client: ${JSON.stringify(text)}`);
+  // The push rule (quietTurn) uses the same text rule, and also skips an empty reply.
+  assert.equal(quietTurn([{ type: 'turn/end', data: { reason: { kind: 'completed' } } }], text), quiet || text.trim() === '', `push: ${JSON.stringify(text)}`);
 }
 
 // 2. quietRun: the run's last turn ended completed and each of its replies is only `[quiet]`.
@@ -41,6 +43,11 @@ const silentWork = { ...work, data: { message: { content: [{ type: 'reasoning', 
 assert.equal(quietRun([turn(1, '[quiet]')[0], silentWork, ...turn(1, '[quiet]').slice(1)]), true, 'a tool call without text does not count');
 // A real reply that a rollback withdrew does not count.
 assert.equal(quietRun([...two, { seq: 20, type: 'user/message', sourceEventSeqs: [3], data: { source: { kind: ROLLBACK_SOURCE } } }, ...turn(21, '[quiet]')], 0), true, 'a withdrawn reply does not count');
+// runReply: the words of a run that is news, its newest real text, also when the last reply is [quiet].
+assert.equal(runReply(two), 'Real.', 'a real reply, then [quiet] in a later turn of the run');
+assert.equal(runReply([turn(1, '[quiet]')[0], work, ...turn(1, '[quiet]').slice(1)]), 'Checking.', 'a real text with a tool call, then [quiet]');
+assert.equal(runReply(turn(1, '[quiet]')), '', 'a quiet run has no words');
+assert.equal(runReply(two, 4), '', 'only the run\'s own texts');
 
 // 3. The real Host (apply): green dots, pushes and assistant-status.
 const root = mkdtempSync(join(tmpdir(), 'cp-quiet-'));
@@ -115,21 +122,39 @@ await run('s-damon', 'Real news.');
 assert.equal((await route(ASSISTANT_STATUS_PATH)).quiet, undefined, 'Mobile connect off: a real reply is not quiet');
 await run('s-damon', '[quiet]');
 assert.equal((await route(ASSISTANT_STATUS_PATH)).quiet, true, 'Mobile connect off: a quiet run is quiet');
-// A run that started while the Host did not know the chat as the assistant (no run record), with Mobile connect off: its
-// end still clears the old quiet result.
+// A run of a subagent edge is not counted, and an idle edge of a chat that was not running changes nothing.
 {
   const agent = agentOf('s-damon');
-  logs.set('s-damon', [...logs.get('s-damon'), ...turn(logs.get('s-damon').length + 1, 'A real reply.')]);
-  for (const f of handlers.get('agent/status') ?? []) f({ agent: { ...agent, id: 's-damon', session: { header: { origin: 'subagent' } } }, status: 'running' }); // not counted
-  for (const f of handlers.get('agent/status') ?? []) f({ agent, status: 'idle' }); // an idle edge without a run record
+  for (const f of handlers.get('agent/status') ?? []) f({ agent: { ...agent, id: 's-damon', session: { header: { origin: 'subagent' } } }, status: 'running' });
+  for (const f of handlers.get('agent/status') ?? []) f({ agent, status: 'idle' });
 }
 assert.equal((await route(ASSISTANT_STATUS_PATH)).quiet, true, 'an idle edge of a chat that was not running changes nothing');
+// A run that started while Assistant was off (no run record: the Host did not know the chat as the assistant) clears
+// the old quiet result at its end, so the next notification is not dropped as quiet.
+await route(ASSISTANT_SWITCH_PATH, { on: false });
+for (const f of handlers.get('agent/status') ?? []) f({ agent: agentOf('s-damon'), status: 'running' });
+await route(ASSISTANT_SWITCH_PATH, { on: true });
+logs.set('s-damon', [...logs.get('s-damon'), ...turn(logs.get('s-damon').length + 1, 'A real reply.')]);
+for (const f of handlers.get('agent/status') ?? []) f({ agent: agentOf('s-damon'), status: 'idle' });
+assert.equal((await route(ASSISTANT_STATUS_PATH)).quiet, undefined, 'a run without a run record clears the old quiet result');
+// A run that is news says its newest real text, also when its last reply is [quiet]: the desktop notification's words.
+await run('s-damon', 'Started the audit.');
+assert.equal((await route(ASSISTANT_STATUS_PATH)).reply, 'Started the audit.');
+{
+  const agent = agentOf('s-damon');
+  for (const f of handlers.get('agent/status') ?? []) f({ agent, status: 'running' });
+  const at = logs.get('s-damon').length + 1;
+  logs.set('s-damon', [...logs.get('s-damon'), ...turn(at, 'Found 2 issues.'), ...turn(at + 4, '[quiet]')]);
+  for (const f of handlers.get('agent/status') ?? []) f({ agent, status: 'idle' });
+}
+const status2 = await route(ASSISTANT_STATUS_PATH);
+assert.deepEqual([status2.quiet, status2.reply], [undefined, 'Found 2 issues.'], 'a run with a real text, then [quiet]: news, with the real words');
 for (const d of disposers) d?.();
 rmSync(root, { recursive: true, force: true });
 // The handler pushes Turn finished only when quietTurn says the turn has something to say (apply() builds the real gateway,
 // so the gate is read from the source: the push line and the quiet value that it reads).
 const host = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
-assert.match(host, /const reply = lastReply\(events\);[\s\S]{0,120}if \(!quietTurn\(events, reply\)\) mobile\?\.push\('Turn finished', reply, agent\.id\);/, 'the Host pushes only a turn that is not quiet');
+assert.match(host, /const words = pushWords\(events, run\?\.from\);\s*if \(words !== undefined\) mobile\?\.push\('Turn finished', words, agent\.id\);/, 'the Host pushes the words of pushWords (test/tether-push-words.test.mjs)');
 assert.equal(host.match(/mobile\?\.push\('Turn finished'/g)?.length, 1, 'one Turn finished push in the Host');
 
 // 3b. The status panel: a task whose last reply is only `[quiet]` shows no result line; a real reply shows its first line.
@@ -152,29 +177,20 @@ const React = { createElement: () => ({}), Fragment: 'F', useState: (v) => [v, (
 mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: () => ({}) } : {}));
 const { watchAttention, watchQuietDot, newsRowKeys, attentionBody } = globalThis.__quiet;
 
-// One rule on both sides: for each completed turn, the Host's quietRun and the client's newsRowKeys (the news note goes
-// only with a quiet turn) give the same answer. A step is its message content; dsh maps each block 1:1 to the chat node
-// (text → text, reasoning → reasoning, tool-call → tool-call: dsh-client-ui-chat toAssistantBlock).
-const T = (text) => ({ type: 'text', text }); const R = { type: 'reasoning', text: 'Look.' };
-const C = { type: 'tool-call', id: 'c', name: 'chats_list', arguments: '{}' };
-const shapes = [
-  [[[R, T('[quiet]')]], true],
-  [[[T(' [QUIET]\n')]], true],
-  [[[R, C], [T('[quiet]')]], true], // a tool call without text does not count
-  [[[T('[quiet]'), C], [T('[quiet]')]], true], // a [quiet] text with a tool call is quiet too
-  [[[T('Checking.'), C], [T('[quiet]')]], false], // a text sent with a tool call is news (dsh's default shows it)
-  [[[T('[quiet]'), C], [T('Found 2 issues.')]], false],
-  [[[T('Started the audit.')], [T('[quiet]')]], false],
-  [[[T('[quiet]\nThe audit found 2 issues.')]], false],
-  [[[R, C]], false], // no text at all: not a quiet reply (the Host's quietTurn handles an empty reply)
-];
-for (const [steps, quiet] of shapes) {
-  const events = [{ seq: 0, type: 'turn/start' }, { seq: 1, type: 'user/message', data: { source: { kind: 'composer-plus-assistant-news' }, content: [T('news')] } },
-    ...steps.map((content, i) => ({ seq: 2 + i, type: 'assistant/message', data: { message: { content } } })), { seq: 9, type: 'turn/end', data: { reason: { kind: 'completed' } } }];
+// One rule on every side: for each completed turn of the shared table (the iOS QuietReplyTests read it too), the Host's
+// quietRun and runReply and the client's newsRowKeys (the news note goes only with a quiet turn) give its answer. A step is
+// its message content; dsh maps each block 1:1 to the chat node (text → text, reasoning → reasoning, tool-call →
+// tool-call: dsh-client-ui-chat toAssistantBlock).
+const block = (b) => (b === 'tool' ? { type: 'tool-call', id: 'c', name: 'chats_list', arguments: '{}' } : b === 'think' ? { type: 'reasoning', text: 'Look.' } : { type: 'text', text: b });
+for (const { steps, quiet, reply } of JSON.parse(readFileSync(new URL('./fixtures/quiet-replies.json', import.meta.url), 'utf8')).turns) {
+  const contents = steps.map((s) => s.map(block));
+  const events = [{ seq: 0, type: 'turn/start' }, { seq: 1, type: 'user/message', data: { source: { kind: 'composer-plus-assistant-news' }, content: [block('news')] } },
+    ...contents.map((content, i) => ({ seq: 2 + i, type: 'assistant/message', data: { message: { content } } })), { seq: 9, type: 'turn/end', data: { reason: { kind: 'completed' } } }];
   const nodes = new Map([['note', { key: 'note', kind: 'context', location: { kind: 'step', turn: { turn: 1 } }, data: { source: { kind: 'composer-plus-assistant-news' } } }],
-    ...steps.map((content, i) => [`s${i}`, { key: `s${i}`, kind: 'assistant-step', data: { turn: 1, step: i + 1, blocks: content.map((b) => ({ kind: b.type, text: b.text })) } }])]);
+    ...contents.map((content, i) => [`s${i}`, { key: `s${i}`, kind: 'assistant-step', data: { turn: 1, step: i + 1, blocks: content.map((b) => ({ kind: b.type, text: b.text })) } }])]);
   const label = JSON.stringify(steps);
   assert.equal(quietRun(events), quiet, `Host: ${label}`);
+  assert.equal(runReply(events), reply, `Host words: ${label}`);
   assert.equal(newsRowKeys({ nodes }).includes('note'), quiet, `client: ${label}`);
 }
 // The notification body never shows `[quiet]` (dsh's turnOutline keeps the turn's last text, also after a real reply).
@@ -185,9 +201,10 @@ const st = (o = {}) => ({ running: false, pendingInteraction: undefined, complet
 let snap = new Map(); const ls = new Set();
 const status = { getSnapshot: () => snap, subscribe: (l) => { ls.add(l); return () => ls.delete(l); } };
 const pub = (m) => { snap = m; for (const l of [...ls]) l(); };
-const list = { getSnapshot: () => ({ byId: { 's-damon': { displayTitle: 'Damon' }, 's-web': { displayTitle: 'Fix login' } }, projectionsBySession: {} }) };
-let quietNow = true; const asked = [];
-const quiet = (id) => (id === 's-damon' ? (asked.push(id), Promise.resolve(quietNow)) : undefined);
+// dsh's turnOutline response of the assistant chat is its last turn's last text: `[quiet]` after a real reply.
+const list = { getSnapshot: () => ({ byId: { 's-damon': { displayTitle: 'Damon' }, 's-web': { displayTitle: 'Fix login' } }, projectionsBySession: { 's-damon': { values: { turnOutline: [{ turn: 1, response: '[quiet]' }] } } } }) };
+let ends = { quiet: true, reply: '' }; const asked = [];
+const quiet = (id) => (id === 's-damon' ? (asked.push(id), Promise.resolve(ends)) : undefined);
 const off = watchAttention(status, list, (k) => k, () => {}, quiet);
 const settle = () => new Promise((r) => setTimeout(r, 0));
 pub(new Map([['s-damon', st({ running: true })], ['s-web', st({ running: true })]]));
@@ -195,16 +212,20 @@ pub(new Map([['s-damon', st()], ['s-web', st()]])); await settle();
 assert.deepEqual(shown.map((n) => n.title), ['Fix login'], 'the quiet assistant turn gives no notification; another chat still does');
 assert.equal(badge, 1, 'only the other chat counts in the dock badge');
 assert.deepEqual(asked, ['s-damon'], 'only the assistant chat is asked');
-quietNow = false;
+ends = { quiet: false, reply: 'Found 2 issues.\nDetails.' };
 pub(new Map([['s-damon', st({ running: true })], ['s-web', st()]])); pub(new Map([['s-damon', st()], ['s-web', st()]])); await settle();
 assert.deepEqual(shown.map((n) => n.title), ['Fix login', 'Damon'], 'a real assistant reply notifies as before');
+assert.equal(shown.at(-1).body, 'Found 2 issues.', 'with the run\'s real words, not dsh\'s last text [quiet]');
+ends = {}; // an older Host or a failed read: the plain notification
+pub(new Map([['s-damon', st({ running: true })], ['s-web', st()]])); pub(new Map([['s-damon', st()], ['s-web', st()]])); await settle();
+assert.equal(shown.at(-1).body, 'notify.done', 'no words from the Host: never [quiet]');
 off();
 
 // watchQuietDot: dsh's dot of the assistant chat goes after a quiet turn, only when the chat had no dot before it.
 const cleared = []; const api = { markRead: (ids) => { cleared.push(...ids); const m = new Map(snap); for (const id of ids) m.set(id, { ...m.get(id), completionUnread: false }); snap = m; return true; } };
 snap = new Map([['s-damon', st()]]);
 let isQuiet = true;
-const offDot = watchQuietDot(status, () => 's-damon', api, async () => isQuiet);
+const offDot = watchQuietDot(status, () => 's-damon', api, async () => ({ quiet: isQuiet }));
 pub(new Map([['s-damon', st({ running: true })]])); pub(new Map([['s-damon', st({ completionUnread: true })]])); await settle();
 assert.deepEqual(cleared, ['s-damon'], 'a quiet turn leaves no dsh dot');
 isQuiet = false;

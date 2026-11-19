@@ -2932,19 +2932,22 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       }
       return [...last].filter(([, n]) => quietStep(n)).map(([turn]) => turn);
     };
-    /** The Host's Assistant news note (its context or trigger row, by dsh's node location) of a turn whose every step with
-     * text is quiet (quietStep): no trace of that turn stays. The Host's quietRun has the same rule (also for a text sent
-     * with a tool call; test/quiet-replies.test.mjs runs both on one table). A news turn with any other text keeps its note. */
-    const newsRowKeys = (chat) => {
-      const nodes = [...(chat?.nodes?.values?.() ?? [])];
+    /** The quiet turns of the drawn window (their numbers as text): each step with text is quiet (quietStep), and there is
+     * at least one. The Host's quietRun has the same rule (also for a text sent with a tool call; test/quiet-replies.test.mjs
+     * runs both on one table). No trace of such a turn stays: its rows, its news note, its place in the 8-turn cap. */
+    const quietTurnSet = (chat) => {
       const quiet = new Map(); // turn → each of its steps with text is quiet
-      for (const n of nodes) {
+      for (const n of chat?.nodes?.values?.() ?? []) {
         if (n?.kind !== 'assistant-step' || !Array.isArray(n.data?.blocks) || !hasText(n)) continue;
         quiet.set(String(n.data.turn), (quiet.get(String(n.data.turn)) ?? true) && quietStep(n));
       }
-      return nodes.filter((n) => (n?.kind === 'context' || n?.kind === 'turn-trigger') && n.data?.source?.kind === 'composer-plus-assistant-news'
-        && quiet.get(String(n.location?.turn?.turn)) === true).map((n) => n.key);
+      return new Set([...quiet].filter(([, q]) => q).map(([turn]) => turn));
     };
+    /** The Host's Assistant news note (its context or trigger row, by dsh's node location) of a quiet turn (quietTurnSet). A
+     * news turn with any other text keeps its note. */
+    const newsRowKeys = (chat, quiet = quietTurnSet(chat)) => [...(chat?.nodes?.values?.() ?? [])]
+      .filter((n) => (n?.kind === 'context' || n?.kind === 'turn-trigger') && n.data?.source?.kind === 'composer-plus-assistant-news'
+        && quiet.has(String(n.location?.turn?.turn))).map((n) => n.key);
     const answerRowKeys = (chat) => {
       const steps = [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks));
       const last = new Map(); for (const n of steps) last.set(n.data.turn, Math.max(last.get(n.data.turn) ?? -Infinity, n.data.step));
@@ -2963,14 +2966,31 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
      * loads nothing while the cap is on. ponytail: found by dsh's `_older` class; upgrade when dsh can pause history loading. */
     const ASSISTANT_TURNS = 8;
     const ASSISTANT_EARLIER_ATTR = 'data-composer-plus-assistant-earlier';
-    function assistantCapCss(id, turns, keep = ASSISTANT_TURNS) {
-      if (typeof id !== 'string' || turns.length <= keep) return '';
+    /** The turns that count for the cap: a quiet turn (quietTurnSet) shows nothing, so it does not take a place of the 8. */
+    const cappedTurns = (turns, quiet) => turns.filter((turn) => !quiet.has(String(turn)));
+    function assistantCapCss(id, turns, quiet = new Set(), keep = ASSISTANT_TURNS) {
+      const counted = cappedTurns(turns, quiet);
+      if (typeof id !== 'string' || counted.length <= keep) return '';
       const chat = `[data-conversation-session=${JSON.stringify(id)}] [data-chat-flow]`;
-      const hide = turns.slice(0, turns.length - keep);
+      const hide = turns.filter((turn) => turn < counted[counted.length - keep]);
       return `${hide.flatMap((turn) => [`${chat} > ${FLOW_SLOT} > [data-chat-turn="${turn}"]`, `${chat} > [data-chat-turn="${turn}"]`]).join(',\n')} { display: none !important; }\n`
         + `${chat} > [class*="_older"] { position: absolute !important; top: -100000px !important; visibility: hidden !important; }`;
     }
     const FLOW_SLOT = '[data-slot="conversation.chat.flow"]';
+    /** dsh's turn rail (TurnNavigator, dsh 0.2.0+): a `nav` (CSS module class `…_frame`) with a mark per turn and, while one
+     * is pointed at, a tooltip with the turn's prompt and its turnOutline response: the turn's last text, `[quiet]` for a
+     * quiet turn. A tooltip whose response line is quiet is hidden (quietRail). */
+    const TURN_RAIL = 'nav[class*="_frame"]';
+    /** Hides the rail tooltip of `nav` while its response line (its second child) is only `[quiet]`; shows it again else.
+     * ponytail: an inline style on dsh's tooltip, set in the MutationObserver callback, before the browser paints dsh's
+     * change, so `[quiet]` never shows. The turn's mark line stays (it has no text). Upgrade when dsh lets a plugin filter
+     * the rail. */
+    function quietRail(nav) {
+      const tip = nav?.querySelector(':scope > [role="tooltip"]');
+      if (tip == null) return;
+      const quiet = quietText(tip.children[1]?.textContent ?? '');
+      if ((tip.style.display === 'none') !== quiet) tip.style.display = quiet ? 'none' : '';
+    }
     /** The sorted, distinct turn numbers of the rows that dsh drew in the open assistant chat. */
     const drawnTurns = (flow) => {
       const rows = (flow?.querySelector(`:scope > ${FLOW_SLOT}`) ?? flow)?.querySelectorAll(':scope > [data-chat-turn]') ?? [];
@@ -2998,12 +3018,16 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       const [quiet, setQuiet] = React.useState([]); // node keys of the subagent rows and the `[quiet]` replies (quietRowKeys)
       const [answers, setAnswers] = React.useState([]); // node keys of the folded answers (answerRowKeys)
       const [quietTails, setQuietTails] = React.useState([]); // turns that end with a quiet reply (quietTurnsOf)
+      const [quietTurns, setQuietTurns] = React.useState([]); // turns whose every text is quiet (quietTurnSet)
+      const [rail, setRail] = React.useState(null); // dsh's turn rail of the chat (TURN_RAIL)
 
       React.useEffect(() => {
         if (typeof id !== 'string') return undefined;
         const scan = () => {
           const next = document.querySelector(`[data-conversation-session=${JSON.stringify(id)}] [data-chat-flow]`);
           setFlow((prev) => (prev === next ? prev : next));
+          const nav = document.querySelector(`[data-conversation-session=${JSON.stringify(id)}] ${TURN_RAIL}`);
+          setRail((prev) => (prev === nav ? prev : nav));
           const drawn = drawnTurns(next);
           setTurns((prev) => (prev.length === drawn.length && prev.every((x, i) => x === drawn[i]) ? prev : drawn));
         };
@@ -3019,22 +3043,34 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         observer.observe(flow, { childList: true, subtree: true });
         return () => { observer.disconnect(); clearTimeout(timer); };
       }, [flow]);
+      // dsh's turn rail: a tooltip that says only `[quiet]` is hidden (quietRail). Its text changes in place when the pointer
+      // moves to another mark, so the small rail is watched with its text.
+      React.useEffect(() => {
+        if (rail === null || typeof MutationObserver === 'undefined') return undefined;
+        quietRail(rail);
+        const observer = new MutationObserver(() => quietRail(rail));
+        observer.observe(rail, { childList: true, subtree: true, characterData: true });
+        return () => { observer.disconnect(); const tip = rail.querySelector(':scope > [role="tooltip"]'); if (tip != null) tip.style.display = ''; };
+      }, [rail]);
       // The subagent rows of the open assistant chat: read from dsh's chat nodes at each change of the chat (a new row
       // comes with its node, so it is hidden when it is drawn). ponytail: one pass over the drawn window's nodes per change.
       React.useEffect(() => {
         let source; try { source = typeof id === 'string' && flow !== null ? chatOf?.(id) : undefined; } catch { source = undefined; }
         const same = (keys) => (prev) => (prev.length === keys.length && prev.every((k, i) => k === keys[i]) ? prev : keys);
-        if (source === undefined) { setQuiet(same([])); setAnswers(same([])); setQuietTails(same([])); return undefined; }
+        if (source === undefined) { setQuiet(same([])); setAnswers(same([])); setQuietTails(same([])); setQuietTurns(same([])); return undefined; }
         const read = () => {
-          const chat = source.getSnapshot();
-          setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat), ...newsRowKeys(chat)])); setAnswers(same(answerRowKeys(chat))); setQuietTails(same(quietTurnsOf(chat)));
+          const chat = source.getSnapshot(); const turnsQuiet = quietTurnSet(chat);
+          setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat), ...newsRowKeys(chat, turnsQuiet)])); setAnswers(same(answerRowKeys(chat)));
+          setQuietTails(same(quietTurnsOf(chat))); setQuietTurns(same([...turnsQuiet].sort()));
         };
         read();
         return source.subscribe(read);
       }, [id, flow, chatOf]);
       // Each new chat column (the chat opened again, or another assistant chat) starts with the cap again.
       React.useEffect(() => { setAll(null); }, [id, flow]);
-      const capped = all !== id && turns.length > ASSISTANT_TURNS;
+      const quietSet = new Set(quietTurns);
+      const counted = cappedTurns(turns, quietSet).length; // a quiet turn takes no place of the 8
+      const capped = all !== id && counted > ASSISTANT_TURNS;
       // The button's seat: in dsh's row column right before its rows, so it sits above the shown rows.
       const [seat, setSeat] = React.useState(null);
       React.useLayoutEffect(() => {
@@ -3057,8 +3093,8 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         const moved = place.row.getBoundingClientRect().top - place.top;
         if (Math.abs(moved) > 0.5) place.scroller.scrollTop += moved;
       }, [capped]);
-      const css = assistantChatCss(id, quiet, answers, quietTails) + (capped ? `\n${assistantCapCss(id, turns)}` : '');
-      const hidden = capped ? turns.length - ASSISTANT_TURNS : 0;
+      const css = assistantChatCss(id, quiet, answers, quietTails) + (capped ? `\n${assistantCapCss(id, turns, quietSet)}` : '');
+      const hidden = capped ? counted - ASSISTANT_TURNS : 0;
       const button = seat === null || !capped ? null : createPortal(React.createElement(primitives.Button ?? 'button', { type: 'button', variant: 'outline', size: 'sm',
         'data-composer-plus-assistant-earlier-button': String(hidden), onClick: () => { kept.current = shownRow(flow); setAll(id); } }, t('assistantChatView.earlier', { count: String(hidden) })), seat);
       return css === '' ? null : React.createElement(React.Fragment, null, React.createElement('style', { 'data-composer-plus-assistant-chat': '' }, css), button);
@@ -5717,9 +5753,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     /** Requests answered within this grace period never notify: "Allow for this chat" grants, Rewind and other
      * plugins answer an approval in milliseconds, and a notification for a request that is already gone is noise. */
     const ATTENTION_GRACE_MS = 1500;
-    /** `quiet(sessionId)` (optional): a promise of true when that chat's finished turn has nothing to say (the assistant
-     * chat's `[quiet]` turn, quietAssistantEnd); that turn then gives no notification and no badge. */
-    function watchAttention(status, sessionsList, t, open, quiet) {
+    /** `ending(sessionId)` (optional): a promise of `{quiet, reply}` for the assistant chat's finished run (assistantEnd), or
+     * undefined for another chat. A quiet run gives no notification and no badge; a run that is news says its `reply`. */
+    function watchAttention(status, sessionsList, t, open, ending) {
       let last = status.getSnapshot();
       /** Per chat: the delivered notification and the request it was for (undefined for "finished"). */
       const shown = new Map();
@@ -5733,13 +5769,13 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           else navigator.setAppBadge?.(unread.size)?.catch?.(() => {});
         } catch { /* badges are best-effort */ }
       };
-      const deliver = (sessionId, kind, pending, current) => {
+      const deliver = (sessionId, kind, pending, current, reply) => {
         if (typeof Notification === 'undefined' || Notification.permission !== 'granted' || document.hasFocus()) return;
         const row = sessionsList.getSnapshot().byId[sessionId];
         if (row !== undefined && row.origin === 'subagent') return; // the parent chat reports for its children
         const title = row === undefined ? 'DeepSeek Harness' : row.displayTitle;
         shown.get(sessionId)?.notification.close();
-        const body = attentionBody(kind, current.pendingInteraction, kind === 'done' ? replyOf(sessionsList, sessionId) : undefined, t);
+        const body = attentionBody(kind, current.pendingInteraction, kind === 'done' ? reply || replyOf(sessionsList, sessionId) : undefined, t);
         const notification = new Notification(title, { body, tag: `dsh:${sessionId}`, silent: false });
         notification.onclick = () => { window.focus(); open(sessionId); notification.close(); shown.delete(sessionId); unread.delete(sessionId); badge(); };
         shown.set(sessionId, { notification, pending });
@@ -5764,9 +5800,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           const kind = attentionKind(before.get(sessionId), current);
           if (kind === null) continue;
           if (kind === 'done') {
-            const check = quiet?.(sessionId);
+            const check = ending?.(sessionId);
             if (check === undefined) deliver(sessionId, kind, undefined, current);
-            else check.then((yes) => { if (!yes && !stopped) deliver(sessionId, kind, undefined, current); }, () => { if (!stopped) deliver(sessionId, kind, undefined, current); });
+            else check.then((end) => { if (end?.quiet !== true && !stopped) deliver(sessionId, kind, undefined, current, end?.reply); }, () => { if (!stopped) deliver(sessionId, kind, undefined, current); });
             continue;
           }
           const pending = current.pendingInteraction;
@@ -5791,22 +5827,22 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       };
     }
 
-    /** Damon's "nothing to say" run: a promise of true when `sessionId` is still the assistant chat and its newest finished
-     * run had only `[quiet]` replies (the Host's quietRun, kept at the run's end, read from `assistant-status`). An older Host
-     * without `quiet` and a failed read: false, so that run notifies as before. Ask it only for the assistant chat. */
-    const quietAssistantEnd = async (sessionId) => {
+    /** The assistant chat's newest finished run, from the Host (`assistant-status`, kept at the run's end): `{quiet: true}`
+     * when it had only `[quiet]` texts (quietRun), else `{reply}`, its newest real text (runReply; '' when unknown). A chat
+     * that is not the assistant chat any more, an older Host and a failed read: `{}`, so that run notifies as before. */
+    const assistantEnd = async (sessionId) => {
       try {
         const response = await fetch(ASSISTANT_STATUS_ROUTE);
         const data = response.ok ? await response.json() : null;
-        return data?.sessionId === sessionId && data?.quiet === true;
-      } catch { return false; }
+        return data?.sessionId === sessionId ? { quiet: data.quiet === true, reply: typeof data.reply === 'string' ? data.reply : '' } : {};
+      } catch { return {}; }
     };
     /** dsh gives the assistant chat a green dot (`completionUnread`) at each turn end that you did not see. A `[quiet]`
      * turn is no news (2026-11-19), so after it the chat gets back the dot state that it had before the turn: no dot when
      * you had read it. `api`: markReadApi (undefined: dsh's dots stay); `assistantId()`: the chat id or null.
      * ponytail: dsh paints the dot first and this takes it away after one Host read (a short blink while the window is
      * open); upgrade when dsh lets a plugin veto a completion dot. */
-    function watchQuietDot(status, assistantId, api, quiet = quietAssistantEnd) {
+    function watchQuietDot(status, assistantId, api, ending = assistantEnd) {
       if (api === undefined) return () => {};
       let last = status.getSnapshot(); let stopped = false;
       const read = new Map(); // assistant chat → it had no dot when its turn started
@@ -5817,7 +5853,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const was = before.get(id); const now = next.get(id);
         if (now?.running === true && was?.running !== true) read.set(id, was?.completionUnread !== true);
         if (was?.running === true && now?.running === false && now.completionUnread === true && read.get(id) === true) {
-          quiet(id).then((yes) => { if (yes && !stopped && status.getSnapshot().get(id)?.completionUnread === true) api.markRead([id]); }, () => {});
+          ending(id).then((end) => { if (end?.quiet === true && !stopped && status.getSnapshot().get(id)?.completionUnread === true) api.markRead([id]); }, () => {});
         }
         if (now?.running !== true) read.delete(id);
       });
@@ -13570,7 +13606,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         feature('notifications', () => [...watchAssistantStatus(), ...injectScope(['uiSession', 'uiWorkspace', 'sessions'], (scope) => {
           const t = ctx.locale.bind(LOCALE_NS);
           scope.effect(() => watchAttention(scope.uiSession.sessionStatus, scope.sessions.list, t,
-            (sessionId) => scope.uiWorkspace.openSession(sessionId), (sessionId) => (sessionId === assistantStatus.getSnapshot() ? quietAssistantEnd(sessionId) : undefined)),
+            (sessionId) => scope.uiWorkspace.openSession(sessionId), (sessionId) => (sessionId === assistantStatus.getSnapshot() ? assistantEnd(sessionId) : undefined)),
             'dsh-composer-plus: attention notifications');
           // First use asks the OS once; a denied permission stays denied (re-enable it in System Settings).
           if (typeof Notification !== 'undefined' && Notification.permission === 'default') Notification.requestPermission().catch(() => {});

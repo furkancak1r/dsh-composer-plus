@@ -111,7 +111,8 @@ try {
     try {
       for (let i = 0; i < 200 && !log.match(/http:\/\/[^\s]*token=[^\s]*/); i++) { if (child.exitCode !== null) throw Error(`test dsh exited (${child.exitCode})`); await pause(250); }
       const url = log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0]; assert.ok(url, 'test server URL available');
-      context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 1000 } });
+      // 1600 px: dsh hides its turn rail while the chat is 900 px wide or less (`@container (width<=900px)`).
+      context = await browser.newContext({ locale: 'en-US', viewport: { width: 1600, height: 1000 } });
       await context.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false}'); });
       const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       await page.goto(url);
@@ -142,6 +143,16 @@ try {
       assert.deepEqual(tail, ['none'], 'the quiet turn shows no Copy/time row');
       const otherTail = await chat.locator('[data-turn-tail="2"] > [data-clock]').evaluateAll((els) => els.filter((el) => el.getBoundingClientRect().height > 0).length);
       assert.equal(otherTail, 1, 'a turn with a reply keeps its Copy/time row');
+      // dsh's turn rail: its hover tooltip shows a turn's last text. The quiet turn's tooltip does not show; a real one does.
+      const mark = (turn) => chat.locator(`nav[class*="_frame"] button[aria-label$=" ${turn}"]`).first();
+      const tip = chat.locator('nav[class*="_frame"] > [role="tooltip"]');
+      if (await mark(3).count() > 0) {
+        await mark(4).hover(); await tip.waitFor({ timeout: 5000 });
+        assert.ok(await tip.isVisible() && (await tip.textContent()).includes(NEWS_ANSWER.slice(0, 20)), 'a real turn\'s rail tooltip shows');
+        await mark(3).hover(); await pause(300);
+        assert.equal(await tip.evaluateAll((els) => els.filter((el) => el.checkVisibility()).length), 0, 'the quiet turn\'s rail tooltip does not show');
+        await page.mouse.move(10, 10);
+      } else console.log(`  (dsh ${version}: no turn rail drawn)`);
       assert.ok(await chat.getByText('promes status?').first().isVisible(), 'your message shows');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);

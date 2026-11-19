@@ -1,5 +1,5 @@
 {
-  "about": "A reply that is only [quiet] (spaces trimmed, any case) is hidden: index.js quietReply, client.js quietText, Tether quietReply. test/quiet-replies.test.mjs and the iOS QuietReplyTests read this table.",
+  "about": "A reply that is only [quiet] (spaces trimmed, any case) is hidden: index.js quietReply, client.js quietText, Tether quietReply. `turns`: the steps of one completed turn (each a list of blocks: a string is a text, \"tool\" a tool call, \"think\" reasoning); `quiet` is the run rule (index.js quietRun, client.js quietTurnSet, Tether quietTexts) and `reply` the words of a turn that is news (index.js runReply, Tether newsReply). test/quiet-replies.test.mjs and the iOS QuietReplyTests read this table.",
   "cases": [
     { "text": "[quiet]", "quiet": true },
     { "text": "[QUIET]", "quiet": true },
@@ -13,5 +13,16 @@
     { "text": "[quiet]\nThe audit found 2 issues.", "quiet": false },
     { "text": "Audit: [quiet]", "quiet": false },
     { "text": "[quiet] [quiet]", "quiet": false }
+  ],
+  "turns": [
+    { "steps": [["think", "[quiet]"]], "quiet": true, "reply": "" },
+    { "steps": [[" [QUIET]\n"]], "quiet": true, "reply": "" },
+    { "steps": [["think", "tool"],["[quiet]"]], "quiet": true, "reply": "" },
+    { "steps": [["[quiet]", "tool"],["[quiet]"]], "quiet": true, "reply": "" },
+    { "steps": [["Checking.", "tool"],["[quiet]"]], "quiet": false, "reply": "Checking." },
+    { "steps": [["[quiet]", "tool"],["Found 2 issues."]], "quiet": false, "reply": "Found 2 issues." },
+    { "steps": [["Started the audit."],["[quiet]"]], "quiet": false, "reply": "Started the audit." },
+    { "steps": [["[quiet]\nThe audit found 2 issues."]], "quiet": false, "reply": "[quiet]\nThe audit found 2 issues." },
+    { "steps": [["think", "tool"]], "quiet": false, "reply": "" }
   ]
 }

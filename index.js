@@ -2390,11 +2390,12 @@ export function apply(ctx) {
   const unread = unreadStore(join(home, 'storages', 'dsh-composer-plus', 'unread.json'));
   const busy = new Set(); // root chats that run now: only their running → idle edge is a finished turn
   // The assistant chat's run (running → idle, can hold several turns): where its log was at the start and whether it had a
-  // green dot then; and the chats whose newest finished run was quiet (quietRun: every reply only `[quiet]`). Damon's quiet
-  // run is no news (2026-11-19): no green dot (the chat keeps the dot that it had before the run), and the client reads
-  // `quiet` from assistant-status for its notification and dsh's own dot. The result stays until the next run ends, so a
-  // client that asks after the next run started still gets the run that ended.
-  const runs = new Map(); const quietRuns = new Set();
+  // green dot then; and the result of each chat's newest finished run: `quiet` (quietRun: every text only `[quiet]`) or the
+  // newest real text (runReply). Damon's quiet run is no news (2026-11-19): no green dot (the chat keeps the dot that it had
+  // before the run), no push, and the client reads `quiet` from assistant-status for its notification and dsh's own dot.
+  // A run that is news pushes and notifies with its newest real text, also when its last reply is `[quiet]`. The result
+  // stays until the next run ends, so a client that asks after the next run started still gets the run that ended.
+  const runs = new Map(); const ended = new Map();
   const eventsOf = (agent) => { try { return agent.session?.snapshotEvents?.() ?? []; } catch { return []; } };
   function changeUnread(add, remove) {
     if (unread.update(add, remove)) mobile?.emit('composer-plus/unread', [unread.list()]);
@@ -2408,14 +2409,15 @@ export function apply(ctx) {
       const run = runs.get(agent.id); runs.delete(agent.id);
       const events = run !== undefined || mobileOn === true ? eventsOf(agent) : [];
       const silent = run !== undefined && quietRun(events, run.from);
-      if (silent) quietRuns.add(agent.id); else quietRuns.delete(agent.id);
+      const news = run === undefined || silent ? '' : runReply(events, run.from);
+      if (run === undefined) ended.delete(agent.id); else ended.set(agent.id, { quiet: silent, reply: news });
       if (mobileOn !== true) return;
-      // Tether's "Turn finished" also while Tether is closed (APNs, when the gateway has a key): the agent's reply, under
-      // the Mac, the project and the chat's title (chatAbout). A completed turn with nothing to say (empty or `[quiet]`)
-      // gives no push (quietTurn); its green dot stays, except after a quiet run of the assistant chat.
-      const reply = lastReply(events);
+      // Tether's "Turn finished" also while Tether is closed (APNs, when the gateway has a key): the agent's reply
+      // (pushWords), under the Mac, the project and the chat's title (chatAbout). A completed turn with nothing to say
+      // (empty or `[quiet]`) gives no push; its green dot stays, except after a quiet run of the assistant chat.
       if (!silent || run.dot) changeUnread([agent.id], []);
-      if (!quietTurn(events, reply)) mobile?.push('Turn finished', reply, agent.id);
+      const words = pushWords(events, run?.from);
+      if (words !== undefined) mobile?.push('Turn finished', words, agent.id);
     } else runs.delete(agent.id);
   });
   ctx.connection.fetch.register({
@@ -2470,7 +2472,7 @@ export function apply(ctx) {
   installUntangle(ctx, home);
   installApproveButton(ctx, home);
   const assistant = installAssistant(ctx, home);
-  installAssistantBot(ctx, home, assistant, { outage, quiet: (id) => quietRuns.has(id) });
+  installAssistantBot(ctx, home, assistant, { outage, run: (id) => ended.get(id) });
   const todos = installAssistantTodos(ctx, home, assistant, { outage });
   installAssistantMorning(ctx, home, assistant, { todos });
   installAssistantSetup(ctx, assistant, memory);
@@ -11359,28 +11361,48 @@ const TURN_PROMPTS = ['user', 'schedule', NEWS_SOURCE];
  * started (2026-11-17: those turns pushed). Any other reply, and a turn that failed, stopped or hit the token limit,
  * still pushes; approvals, questions and errors have their own pushes (the gateway). */
 export function quietTurn(events, reply) {
-  return events.findLast((e) => e.type === 'turn/end')?.data?.reason?.kind === 'completed' && /^(?:\[quiet\])?$/i.test(reply.trim());
+  return events.findLast((e) => e.type === 'turn/end')?.data?.reason?.kind === 'completed' && (reply.trim() === '' || quietReply(reply));
 }
 /** A reply that is only `[quiet]` (spaces trimmed, any case): the rule of every view that hides it (client.js quietText,
  * Tether's quietReply; one table: test/fixtures/quiet-replies.json). An empty reply is not one: views show no empty row. */
 export const quietReply = (text) => /^\[quiet\]$/i.test(String(text ?? '').trim());
-/** A run of a chat (its events from index `from`: running → idle, one or more turns) had nothing to say: its last turn
- * ended `completed`, and it has texts, each only `[quiet]` (quietReply). Every text counts, also one sent with a tool call:
- * dsh's default (foldedReplies: all) shows it in the chat (measured on dsh 0.2.2-rc.5), so such a run is news. A text that
- * a rollback withdrew does not count. Damon's quiet run gives no green dot and no notification in the assistant chat
- * (2026-11-19). */
+/** The texts of a run (its events from index `from`: running → idle, one or more turns), oldest first, trimmed, not empty.
+ * Every text counts, also one sent with a tool call: dsh's default (foldedReplies: all) shows it in the chat (measured on
+ * dsh 0.2.2-rc.5). A text that a rollback withdrew does not count. */
+const runTexts = (events, from) => {
+  const own = events.slice(from); const gone = withdrawn(own);
+  return own.filter((e) => e.type === 'assistant/message' && !gone(e.seq)).map((e) => textBlocks(e.data?.message?.content).trim()).filter((t) => t !== '');
+};
+/** A run of a chat had nothing to say: its last turn ended `completed`, and it has texts (runTexts), each only `[quiet]`
+ * (quietReply). Damon's quiet run gives no green dot, no notification, no push and no buzz (2026-11-19). */
 export function quietRun(events, from = 0) {
-  const own = events.slice(from);
-  const end = own.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
+  const end = events.slice(from).findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
   if (end?.type !== 'turn/end' || end.data?.reason?.kind !== 'completed') return false;
-  const gone = withdrawn(own);
-  const texts = own.filter((e) => e.type === 'assistant/message' && !gone(e.seq)).map((e) => textBlocks(e.data?.message?.content).trim()).filter((t) => t !== '');
+  const texts = runTexts(events, from);
   return texts.length > 0 && texts.every(quietReply);
+}
+/** The newest text of a run that is not only `[quiet]`, or '' when it has none: the words of a run that is news (its
+ * Turn finished push, its desktop notification), also when its last reply is `[quiet]` (a real text with a tool call, or a
+ * real reply in an earlier turn of the run, then `[quiet]`). */
+export const runReply = (events, from = 0) => runTexts(events, from).findLast((t) => !quietReply(t)) ?? '';
+/** The words of a chat's Turn finished push at its running → idle edge, or undefined for no push. `from`: where the
+ * assistant chat's run started (undefined for another chat). A quiet run of the assistant chat: no push. Its run that is
+ * news: its newest real text (runReply), also when its last reply is `[quiet]`. Else the last reply of the newest turn,
+ * no push for a completed turn with nothing to say (quietTurn); a `[quiet]` reply is never the words (a failed turn
+ * pushes with no text: the gateway then shows the chat's title). */
+export function pushWords(events, from) {
+  if (from !== undefined) {
+    if (quietRun(events, from)) return undefined;
+    const news = runReply(events, from);
+    if (news !== '') return news;
+  }
+  const reply = lastReply(events);
+  return quietTurn(events, reply) ? undefined : quietReply(reply) ? '' : reply;
 }
 
 /** Host half of Assistant apart from chats, Assistant always free and Assistant news from chats. `assistant` is the handle of
  * installAssistant (ready, isOn, id, isAssistant). */
-export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), timing = ASSISTANT_NEWS, now = Date.now, outage, quiet } = {}) {
+export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), timing = ASSISTANT_NEWS, now = Date.now, outage, run } = {}) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: assistant: ${text}`);
   const live = (id) => get('agents')?.get?.(id);
@@ -11412,12 +11434,14 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   // Assistant apart from chats.
   ctx.connection.fetch.register({
     path: ASSISTANT_STATUS_PATH, methods: ['GET'], requestBody: 'buffered',
-    // `quiet`: the assistant chat's newest finished run was quiet (quietRun, kept by apply's agent/status); the client then
-    // gives that run no notification and no green dot.
+    // The assistant chat's newest finished run (kept by apply's agent/status): `quiet` when it was quiet (quietRun), so the
+    // client gives it no notification and no green dot; else `reply`, its newest real text (runReply), the notification's
+    // words (dsh's turnOutline has only the last turn's last text, which can be `[quiet]`).
     fetch: async () => {
       await assistant.ready;
       const id = assistant.isOn() ? assistant.id() ?? null : null;
-      return json({ sessionId: id, ...(id !== null && quiet?.(id) === true ? { quiet: true } : {}) });
+      const last = id === null ? undefined : run?.(id);
+      return json({ sessionId: id, ...(last?.quiet === true ? { quiet: true } : last?.reply ? { reply: cutEnd(last.reply, 600) } : {}) });
     },
   });
 

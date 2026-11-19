@@ -1154,6 +1154,24 @@ func quietTurn(reply: String, reason: String?) -> Bool {
 func quietReply(_ text: String) -> Bool {
     text.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("[quiet]") == .orderedSame
 }
+/// The texts of the last turn of a transcript, newest first, not empty: every text counts, also one sent with a tool call
+/// (the Mac's runTexts: dsh's default foldedReplies: all shows it).
+func turnTexts(_ transcript: [Line]) -> [String] {
+    var out: [String] = []
+    for l in transcript.reversed() {
+        if l.kind == .user { break }
+        if l.kind == .assistant, !l.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append(l.text) }
+    }
+    return out
+}
+/// The last turn had nothing to say: it has texts, and each is only `[quiet]` (the Mac's quietRun).
+func quietTexts(_ transcript: [Line]) -> Bool {
+    let t = turnTexts(transcript)
+    return !t.isEmpty && t.allSatisfy(quietReply)
+}
+/// The newest text of the last turn that is not only `[quiet]`, or "" (the Mac's runReply): the words of a turn that is
+/// news, also when its last reply is `[quiet]`.
+func newsReply(_ transcript: [Line]) -> String { turnTexts(transcript).first { !quietReply($0) } ?? "" }
 
 /// One row of the chat as DSH desktop shows it.
 enum ChatRow: Identifiable {
@@ -3198,11 +3216,16 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             transcript.append(turnLine(reason: reason?["kind"] as? String, start: turnStartedAt,
                                        end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
-                let reply = lastReply(transcript)
-                let quiet = quietTurn(reply: reply, reason: reason?["kind"] as? String)
-                if !quiet { notify(String(localized: "Turn finished"), reply, session: current) }
-                // Damon's completed `[quiet]` turn gives no buzz either (2026-11-19); other chats and a failed turn buzz as before.
-                if !(quiet && quietReply(reply) && current != nil && current == botId) { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+                let reply = lastReply(transcript), kind = reason?["kind"] as? String
+                // Damon's completed turn whose every text is `[quiet]` gives no alert and no buzz (2026-11-19, the Mac's
+                // quietRun). A Damon turn with a real text notifies with it, also when its last reply is `[quiet]` (the Mac's
+                // push says the same). Other chats and a failed turn notify and buzz as before.
+                let bot = current != nil && current == botId
+                if !(bot && kind == "completed" && quietTexts(transcript)) {
+                    let news = bot ? newsReply(transcript) : ""
+                    if !news.isEmpty || !quietTurn(reply: reply, reason: kind) { notify(String(localized: "Turn finished"), news.isEmpty ? (quietReply(reply) ? "" : reply) : news, session: current) }
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
             }
             running = false
             turnStartedAt = nil
