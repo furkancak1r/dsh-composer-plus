@@ -3199,11 +3199,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
                                        end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
                 let reply = lastReply(transcript)
-                // A turn with nothing to say gives no alert and no buzz (2026-11-19: the phone buzzed for Damon's `[quiet]`).
-                if !quietTurn(reply: reply, reason: reason?["kind"] as? String) {
-                    notify(String(localized: "Turn finished"), reply, session: current)
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                }
+                if !quietTurn(reply: reply, reason: reason?["kind"] as? String) { notify(String(localized: "Turn finished"), reply, session: current) }
+                // Damon's `[quiet]` turn gives no buzz either (2026-11-19); other chats buzz as before.
+                if !(quietReply(reply) && current != nil && current == botId) { UINotificationFeedbackGenerator().notificationOccurred(.success) }
             }
             running = false
             turnStartedAt = nil

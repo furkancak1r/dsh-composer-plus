@@ -2389,30 +2389,35 @@ export function apply(ctx) {
   // (client.js watchRead). Each change goes to the connected phones at once.
   const unread = unreadStore(join(home, 'storages', 'dsh-composer-plus', 'unread.json'));
   const busy = new Set(); // root chats that run now: only their running → idle edge is a finished turn
-  const dots = new Map(); // root chat → whether it had a green dot when its turn started (a quiet assistant turn keeps it)
+  // The assistant chat's run (running → idle, can hold several turns): where its log was at the start and whether it had a
+  // green dot then; and the chats whose newest finished run was quiet (quietRun: every reply only `[quiet]`). Damon's quiet
+  // run is no news (2026-11-19): no green dot (the chat keeps the dot that it had before the run), and the client reads
+  // `quiet` from assistant-status for its notification and dsh's own dot. The result stays until the next run ends, so a
+  // client that asks after the next run started still gets the run that ended.
+  const runs = new Map(); const quietRuns = new Set();
+  const eventsOf = (agent) => { try { return agent.session?.snapshotEvents?.() ?? []; } catch { return []; } };
   function changeUnread(add, remove) {
     if (unread.update(add, remove)) mobile?.emit('composer-plus/unread', [unread.list()]);
   }
   ctx.on('agent/status', ({ agent, status }) => {
     if (agent?.session?.header?.origin === 'subagent') return; // the parent chat shows its subagents' work
     if (status === 'running') {
-      if (!busy.has(agent.id)) dots.set(agent.id, unread.list().includes(agent.id));
+      if (!busy.has(agent.id) && assistant.isAssistant(agent)) runs.set(agent.id, { from: eventsOf(agent).length, dot: unread.list().includes(agent.id) });
       busy.add(agent.id); if (mobileOn === true) changeUnread([], [agent.id]);
-    } else if (busy.delete(agent.id) && mobileOn === true) {
+    } else if (busy.delete(agent.id)) {
+      const run = runs.get(agent.id); runs.delete(agent.id);
+      if (run === undefined && mobileOn !== true) return;
+      const events = eventsOf(agent);
+      const silent = run !== undefined && quietRun(events, run.from);
+      if (silent) quietRuns.add(agent.id); else quietRuns.delete(agent.id);
+      if (mobileOn !== true) return;
       // Tether's "Turn finished" also while Tether is closed (APNs, when the gateway has a key): the agent's reply, under
       // the Mac, the project and the chat's title (chatAbout). A completed turn with nothing to say (empty or `[quiet]`)
-      // gives no push (quietTurn). Its green dot stays, except in the assistant chat: Damon's `[quiet]` turn is not news
-      // (2026-11-19), so the chat keeps the dot that it had before the turn.
-      let reply = '', quiet = false;
-      try {
-        const events = agent.session?.snapshotEvents?.() ?? [];
-        reply = lastReply(events);
-        quiet = quietTurn(events, reply);
-      } catch { /* no log */ }
-      const had = dots.get(agent.id); dots.delete(agent.id);
-      if (!(quiet && quietReply(reply) && assistant.isAssistant(agent)) || had === true) changeUnread([agent.id], []);
-      if (!quiet) mobile?.push('Turn finished', reply, agent.id);
-    } else dots.delete(agent.id);
+      // gives no push (quietTurn); its green dot stays, except after a quiet run of the assistant chat.
+      const reply = lastReply(events);
+      if (!silent || run.dot) changeUnread([agent.id], []);
+      if (!quietTurn(events, reply)) mobile?.push('Turn finished', reply, agent.id);
+    } else runs.delete(agent.id);
   });
   ctx.connection.fetch.register({
     path: UNREAD_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
@@ -2466,7 +2471,7 @@ export function apply(ctx) {
   installUntangle(ctx, home);
   installApproveButton(ctx, home);
   const assistant = installAssistant(ctx, home);
-  installAssistantBot(ctx, home, assistant, { outage });
+  installAssistantBot(ctx, home, assistant, { outage, quiet: (id) => quietRuns.has(id) });
   const todos = installAssistantTodos(ctx, home, assistant, { outage });
   installAssistantMorning(ctx, home, assistant, { todos });
   installAssistantSetup(ctx, assistant, memory);
@@ -11360,16 +11365,21 @@ export function quietTurn(events, reply) {
 /** A reply that is only `[quiet]` (spaces trimmed, any case): the rule of every view that hides it (client.js quietText,
  * Tether's quietReply; one table: test/fixtures/quiet-replies.json). An empty reply is not one: views show no empty row. */
 export const quietReply = (text) => /^\[quiet\]$/i.test(String(text ?? '').trim());
-/** The chat's newest turn ended `completed` and its last reply is only `[quiet]` (quietTurn and quietReply): Damon's
- * "nothing to say" turn, which gives no green dot and no notification in the assistant chat (2026-11-19). */
-export function quietEnd(events) {
-  const reply = lastReply(events);
-  return quietReply(reply) && quietTurn(events, reply) && events.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end')?.type === 'turn/end';
+/** A run of a chat (its events from index `from`: running → idle, one or more turns) had nothing to say: its last turn
+ * ended `completed`, and it has replies, each only `[quiet]` (quietReply; a reply that a rollback withdrew does not count).
+ * Damon's quiet run gives no green dot and no notification in the assistant chat (2026-11-19). */
+export function quietRun(events, from = 0) {
+  const own = events.slice(from);
+  const end = own.findLast((e) => e.type === 'turn/start' || e.type === 'turn/end');
+  if (end?.type !== 'turn/end' || end.data?.reason?.kind !== 'completed') return false;
+  const gone = withdrawn(own);
+  const replies = own.filter((e) => e.type === 'assistant/message' && !gone(e.seq)).map((e) => textBlocks(e.data?.message?.content).trim()).filter((t) => t !== '');
+  return replies.length > 0 && replies.every(quietReply);
 }
 
 /** Host half of Assistant apart from chats, Assistant always free and Assistant news from chats. `assistant` is the handle of
  * installAssistant (ready, isOn, id, isAssistant). */
-export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), timing = ASSISTANT_NEWS, now = Date.now, outage } = {}) {
+export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'storages', 'dsh-composer-plus'), timing = ASSISTANT_NEWS, now = Date.now, outage, quiet } = {}) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const log = (text) => ctx.logger?.warn?.(`dsh-composer-plus: assistant: ${text}`);
   const live = (id) => get('agents')?.get?.(id);
@@ -11401,12 +11411,12 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
   // Assistant apart from chats.
   ctx.connection.fetch.register({
     path: ASSISTANT_STATUS_PATH, methods: ['GET'], requestBody: 'buffered',
-    // `quiet`: the assistant chat's newest turn ended with only `[quiet]` (quietEnd); the client then gives that turn no
-    // notification and no green dot.
+    // `quiet`: the assistant chat's newest finished run was quiet (quietRun, kept by apply's agent/status); the client then
+    // gives that run no notification and no green dot.
     fetch: async () => {
       await assistant.ready;
       const id = assistant.isOn() ? assistant.id() ?? null : null;
-      return json({ sessionId: id, ...(id !== null && quietEnd(eventsOf(live(id))) ? { quiet: true } : {}) });
+      return json({ sessionId: id, ...(id !== null && quiet?.(id) === true ? { quiet: true } : {}) });
     },
   });
 

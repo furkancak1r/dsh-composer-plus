@@ -2930,12 +2930,17 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
       }
       return [...last].filter(([, n]) => quietStep(n)).map(([turn]) => turn);
     };
-    /** The Host's Assistant news note of a turn that ends quiet (its context or trigger row, by dsh's node location): no
-     * trace of that turn stays. The note of a news turn with a real reply stays as dsh draws it. */
-    const newsRowKeys = (chat, turns) => {
-      const quiet = new Set(turns.map(String));
-      return [...(chat?.nodes?.values?.() ?? [])].filter((n) => (n?.kind === 'context' || n?.kind === 'turn-trigger')
-        && n.data?.source?.kind === 'composer-plus-assistant-news' && quiet.has(String(n.location?.turn?.turn))).map((n) => n.key);
+    /** The Host's Assistant news note (its context or trigger row, by dsh's node location) of a turn whose every reply step
+     * (text, no tool call) is quiet: no trace of that turn stays. A news turn with a real reply keeps its note. */
+    const newsRowKeys = (chat) => {
+      const nodes = [...(chat?.nodes?.values?.() ?? [])];
+      const quiet = new Map(); // turn → all its reply steps are quiet
+      for (const n of nodes) {
+        if (n?.kind !== 'assistant-step' || !Array.isArray(n.data?.blocks) || !hasText(n) || n.data.blocks.some((b) => b?.kind === 'tool-call')) continue;
+        quiet.set(String(n.data.turn), (quiet.get(String(n.data.turn)) ?? true) && quietStep(n));
+      }
+      return nodes.filter((n) => (n?.kind === 'context' || n?.kind === 'turn-trigger') && n.data?.source?.kind === 'composer-plus-assistant-news'
+        && quiet.get(String(n.location?.turn?.turn)) === true).map((n) => n.key);
     };
     const answerRowKeys = (chat) => {
       const steps = [...(chat?.nodes?.values?.() ?? [])].filter((n) => n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks));
@@ -3019,8 +3024,7 @@ ${row} [data-composer-plus-grants] { flex: none; white-space: nowrap; }`;
         if (source === undefined) { setQuiet(same([])); setAnswers(same([])); setQuietTails(same([])); return undefined; }
         const read = () => {
           const chat = source.getSnapshot();
-          const quietTurns = quietTurnsOf(chat);
-          setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat), ...newsRowKeys(chat, quietTurns)])); setAnswers(same(answerRowKeys(chat))); setQuietTails(same(quietTurns));
+          setQuiet(same([...subagentRowKeys(chat), ...quietRowKeys(chat), ...newsRowKeys(chat)])); setAnswers(same(answerRowKeys(chat))); setQuietTails(same(quietTurnsOf(chat)));
         };
         read();
         return source.subscribe(read);
@@ -5784,9 +5788,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       };
     }
 
-    /** Damon's "nothing to say" turn: a promise of true when `sessionId` is still the assistant chat and its newest turn
-     * ended with only `[quiet]` (the Host's quietEnd, read from `assistant-status`). An older Host without `quiet` and a
-     * failed read: false, so that turn notifies as before. Ask it only for the assistant chat. */
+    /** Damon's "nothing to say" run: a promise of true when `sessionId` is still the assistant chat and its newest finished
+     * run had only `[quiet]` replies (the Host's quietRun, kept at the run's end, read from `assistant-status`). An older Host
+     * without `quiet` and a failed read: false, so that run notifies as before. Ask it only for the assistant chat. */
     const quietAssistantEnd = async (sessionId) => {
       try {
         const response = await fetch(ASSISTANT_STATUS_ROUTE);
@@ -14391,7 +14395,10 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           locale: LOCALE_NS,
           label: () => ASSISTANT_NAME,
           inject: () => ({ status: assistantStatus, apart: apartFlag }),
-        }, AssistantRowIcon)), () => assistant.reset(), () => assistantSetup.reset()]);
+        }, AssistantRowIcon)), () => assistant.reset(), () => assistantSetup.reset(), ...watchAssistantStatus(), ...injectScope(['uiSession'], (scope) => {
+          // A `[quiet]` run of the assistant chat leaves no green dot (watchQuietDot), as the Host leaves Tether's dot.
+          scope.effect(() => watchQuietDot(scope.uiSession.sessionStatus, () => assistantStatus.getSnapshot(), markReadApi(scope.uiSession)), 'dsh-composer-plus: quiet assistant dot');
+        })]);
         // The assistant chat's id: read at start and when Assistant is switched (on → its saved chat, off → none). Only a
         // change of `on` reads it again (each answer of the switch store calls its listeners); a click in Settings also
         // reads it after the Host saved the switch (setFeature below), so a read sent before the save cannot stay.
@@ -14414,10 +14421,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           id: 'assistant-chat-view',
           locale: LOCALE_NS,
           inject: () => ({ status: assistantStatus, chatOf: chatNodesOf }),
-        }, AssistantChatView)), ...injectScope(['uiSession'], (scope) => {
-          // A `[quiet]` turn of the assistant chat leaves no green dot (watchQuietDot).
-          scope.effect(() => watchQuietDot(scope.uiSession.sessionStatus, () => assistantStatus.getSnapshot(), markReadApi(scope.uiSession)), 'dsh-composer-plus: quiet assistant dot');
-        })]);
+        }, AssistantChatView))]);
         feature('assistantCallouts', () => [...watchAssistantStatus(), ctx.slots.inject('shell.overlay', () => ctx.slots.register({
           name: 'shell.overlay',
           id: 'assistant-callouts',

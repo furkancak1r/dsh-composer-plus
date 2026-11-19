@@ -193,12 +193,14 @@ stores.set('s-news', storeOf([
   ['20:time', { key: '20:time', kind: 'context', location: at(20), data: { source: { kind: 'time-context' } } }], // dsh's own row: stays
   news('21:note', 21), step('21:1', 21, 1, 'The deploy failed.'), // a news turn with a real reply: the note stays
   news('22:trig', 22, 'turn-trigger'), step('22:1', 22, 1, '[QUIET]'), // a note drawn as a trigger row: goes too
+  news('23:note', 23), step('23:1', 23, 1, 'Started the audit.'), step('23:2', 23, 2, '[quiet]'), // a real reply, then [quiet]: the note stays
+  news('24:note', 24), step('24:1', 24, 1, 'think', 'tool'), step('24:2', 24, 2, '[quiet]'), // a tool step is no reply: the note goes
 ]));
 open = 's-news'; id = 's-news';
 const newsView = mount(() => ({ status, chatOf, t: (k) => k }));
 out = newsView.render();
 const newsRule = (key) => rule(key, 's-news');
-for (const key of ['20:note', '22:trig', '20:1', '22:1']) assert.ok(css().includes(`${newsRule(key)},`) || css().includes(`${newsRule(key)} {`), `${key} goes with the quiet turn`);
-for (const key of ['21:note', '21:1', '20:time']) assert.ok(!css().includes(`${newsRule(key)},`) && !css().includes(`${newsRule(key)} {`), `${key} stays`);
+for (const key of ['20:note', '22:trig', '20:1', '22:1', '23:2', '24:note']) assert.ok(css().includes(`${newsRule(key)},`) || css().includes(`${newsRule(key)} {`), `${key} goes with the quiet turn`);
+for (const key of ['21:note', '21:1', '20:time', '23:note', '23:1']) assert.ok(!css().includes(`${newsRule(key)},`) && !css().includes(`${newsRule(key)} {`), `${key} stays`);
 newsView.unmount();
 console.log('assistant subagent rows: ok');
