@@ -2450,35 +2450,40 @@ final class QuietReplyTests: XCTestCase {
         XCTAssertFalse(quietTurn(reply: "The deploy failed.", reason: "completed"))
     }
     /// The run rule of the Mac (quietRun, runReply) on the shared turn shapes: no alert and no buzz only when every text of
-    /// Damon's turn is `[quiet]`; a turn with a real text notifies with it. The lines are what `draw` makes at the turn end:
-    /// an older typed turn with a real reply and its end line, then the news turn (its prompt draws no line: a news note is
-    /// not a `user` message), its steps (reasoning, text, a tool call as its own line) and its own end line.
+    /// Damon's turn is `[quiet]`; a turn with a real text notifies with it. The turn is read from the chat's log, as on the
+    /// Mac: an older typed turn with a real reply, then the news turn (its prompt is no `user` message) and its steps.
     func testQuietTurnsMatchTheMac() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
         let turns = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["turns"] as? [J])
         XCTAssertGreaterThanOrEqual(turns.count, 8)
+        var seq = 0
+        func ev(_ type: String, _ data: J = [:], _ extra: J = [:]) -> J { seq += 1; return ["seq": seq, "type": type, "data": data].merging(extra) { a, _ in a } }
+        func say(_ blocks: [J]) -> J { ev("assistant/message", ["message": ["content": blocks]]) }
+        func user(_ kind: String, _ text: String) -> J { ev("user/message", ["source": ["kind": kind], "content": [["type": "text", "text": text]]]) }
         for t in turns {
             let steps = t["steps"] as? [[String]] ?? []
-            var lines = [Line(kind: .user, text: "Fix it."), Line(kind: .assistant, text: "Done: an older turn."), Line(kind: .turn, text: "Completed")]
-            for s in steps {
-                if s.contains("think") { lines.append(Line(kind: .reasoning, text: "Look.")) }
-                let text = s.filter { $0 != "think" && $0 != "tool" }.joined(separator: "\n")
-                if !text.isEmpty { lines.append(Line(kind: .assistant, text: text)) }
-                if s.contains("tool") { lines.append(Line(kind: .tool, text: "chats_list")) }
-            }
-            lines.append(Line(kind: .turn, text: "Completed"))
-            XCTAssertEqual(quietTexts(lines), t["quiet"] as? Bool, "\(steps)")
-            XCTAssertEqual(newsReply(lines), t["reply"] as? String, "\(steps)")
-            // A typed prompt of the same turn shape (a `.user` line) gives the same answer.
-            lines.insert(Line(kind: .user, text: "news"), at: 3)
-            XCTAssertEqual(quietTexts(lines), t["quiet"] as? Bool, "typed: \(steps)")
-            // A message steered into the running turn (a `.user` line after the first step) does not split the turn: the
-            // Mac's quietRun and runReply count the whole run.
-            if steps.count > 1, let i = lines.lastIndex(where: { $0.kind == .assistant }) {
-                lines.insert(Line(kind: .user, text: "steered"), at: i)
-                XCTAssertEqual(quietTexts(lines), t["quiet"] as? Bool, "steered: \(steps)")
-                XCTAssertEqual(newsReply(lines), t["reply"] as? String, "steered: \(steps)")
+            let content = steps.map { s in s.map { b -> J in b == "tool" ? ["type": "tool-call", "id": "c", "name": "chats_list"] : b == "think" ? ["type": "reasoning", "text": "Look."] : ["type": "text", "text": b] } }
+            var log = [ev("turn/start"), user("user", "Fix it."), say([["type": "text", "text": "Done: an older turn."]]), ev("turn/end", ["reason": ["kind": "completed"]]),
+                       ev("turn/start"), user("composer-plus-assistant-news", "news")]
+            log += content.map(say); log.append(ev("turn/end", ["reason": ["kind": "completed"]]))
+            XCTAssertEqual(quietTexts(log), t["quiet"] as? Bool, "\(steps)")
+            XCTAssertEqual(newsReply(log), t["reply"] as? String, "\(steps)")
+            // A message steered into the running turn (a `user` message after the first step) does not split the turn.
+            if content.count > 1 {
+                var steered = log; steered.insert(user("user", "steered"), at: steered.count - 2)
+                XCTAssertEqual(quietTexts(steered), t["quiet"] as? Bool, "steered: \(steps)")
+                XCTAssertEqual(newsReply(steered), t["reply"] as? String, "steered: \(steps)")
             }
         }
+        // A rollback that withdrew an older turn's end (from a steered message to its marker) does not make that turn's
+        // earlier text part of the newest turn: the newest turn starts at its own turn/start.
+        seq = 0
+        let older = [ev("turn/start"), user("user", "Deploy."), say([["type": "text", "text": "Deploying now."]]), user("user", "steer"), say([["type": "text", "text": "Done."]]), ev("turn/end", ["reason": ["kind": "completed"]])]
+        let marker = ev("user/message", ["source": ["kind": rollbackSource]], ["sourceEventSeqs": [4]])
+        let newest = [ev("turn/start"), user("composer-plus-assistant-news", "news"), say([["type": "text", "text": "[quiet]"]]), ev("turn/end", ["reason": ["kind": "completed"]])]
+        XCTAssertTrue(quietTexts(older + [marker] + newest), "the withdrawn half of an older turn does not count")
+        XCTAssertEqual(newsReply(older + [marker] + newest), "")
+        // A failed turn with no text: no words from an older turn.
+        XCTAssertEqual(newsReply(older + [ev("turn/start"), say([["type": "tool-call", "id": "c", "name": "bash"]]), ev("turn/end", ["reason": ["kind": "error"]])]), "")
     }
 }
