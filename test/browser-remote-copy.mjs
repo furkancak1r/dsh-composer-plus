@@ -8,8 +8,10 @@
 // 1. Without the fallback: the button reports a failure and the clipboard keeps its old text (Furkan's report).
 // 2. With client.js `COMPUTER_PAGE_COPY` run in the page (as the webview's dom-ready runs it): the text is on the
 //    clipboard, the helper reports success, the focus and the selection of a text field stay, and the page's own copy
-//    listener sees no event.
+//    listener sees no event. Without a click (no user activation), the fallback copies nothing.
 // 3. The permission allowed (dsh's own window): the real call copies, and the copy command does not run.
+// Steps 1 and 2 also click a Copy Session as Markdown button: dsh 0.2.2's `navigator.clipboard.write` with one deferred
+// `text/plain` item (the shape of dsh-session-log-export `writeDeferred`, its text ready 300 ms after the click).
 // PLAYWRIGHT=/path/to/playwright node test/browser-remote-copy.mjs /path/to/dsh/lib/bin.js [...]
 // An argument that ends with `.js` and is not `bin.js` is read as dsh's web bundle itself (for an unpacked desktop app).
 import assert from 'node:assert/strict';
@@ -33,8 +35,9 @@ function dshHelper(arg) {
 }
 
 const TEXT = 'npm test -- remote-copy';
+const MARKDOWN = '# Garden watering\n\nWater the beds at 6 am.';
 const page = (helper) => `<!doctype html><meta charset=utf-8><body>
-<textarea id=field>keep this selection</textarea><button id=copy>Copy</button>
+<textarea id=field>keep this selection</textarea><button id=copy>Copy</button><button id=md>Copy Session as Markdown</button>
 <script>
 ${helper}
 window.pageCopyEvents = 0; document.addEventListener('copy', () => { window.pageCopyEvents++; });
@@ -47,6 +50,10 @@ document.getElementById('copy').addEventListener('click', async () => {
   const before = [document.activeElement, field.selectionStart, field.selectionEnd];
   const ok = await writeClipboard(${JSON.stringify(TEXT)});
   window.result = { ok, focus: document.activeElement === before[0], selection: field.selectionStart === before[1] && field.selectionEnd === before[2] };
+});
+document.getElementById('md').addEventListener('click', () => {
+  const data = new Promise((ok) => setTimeout(() => ok(new Blob([${JSON.stringify(MARKDOWN)}], { type: 'text/plain' })), 300));
+  navigator.clipboard.write([new ClipboardItem({ 'text/plain': data })]).then(() => { window.mdResult = 'copied'; }, () => { window.mdResult = 'clipboardFailed'; });
 });
 </script></body>`;
 
@@ -80,7 +87,10 @@ try {
       await tab.click('#copy'); await tab.waitForFunction(() => window.result !== undefined);
       assert.equal((await tab.evaluate(() => window.result)).ok, false, 'without the fallback: dsh reports a failure');
       assert.equal(await clip(), 'old text', 'without the fallback: nothing copied');
-      console.log(`  1: ${origin}, permission refused → ${refused}; dsh's Copy reports a failure, the clipboard keeps its old text`);
+      await tab.click('#md'); await tab.waitForFunction(() => window.mdResult !== undefined);
+      assert.equal(await tab.evaluate(() => window.mdResult), 'clipboardFailed', 'without the fallback: Copy Session as Markdown fails');
+      assert.equal(await clip(), 'old text');
+      console.log(`  1: ${origin}, permission refused → ${refused}; dsh's Copy and Copy Session as Markdown fail, the clipboard keeps its old text`);
 
       // 2. The fallback in the page (the webview's dom-ready): the same click copies.
       await tab.evaluate(fallback); await tab.evaluate(() => { window.result = undefined; });
@@ -88,7 +98,22 @@ try {
       assert.deepEqual(await tab.evaluate(() => window.result), { ok: true, focus: true, selection: true }, 'Copy works; the focus and the selection stay');
       assert.equal(await clip(), TEXT, 'the clipboard holds the text');
       assert.equal(await tab.evaluate(() => window.pageCopyEvents), 0, 'the page\'s copy listener sees no event');
-      console.log(`  2: COMPUTER_PAGE_COPY → Copy reports success, clipboard = ${JSON.stringify(TEXT)}, focus and selection kept, no page copy event`);
+      await tab.evaluate(() => { window.mdResult = undefined; });
+      await tab.click('#md'); await tab.waitForFunction(() => window.mdResult !== undefined);
+      assert.equal(await tab.evaluate(() => window.mdResult), 'copied', 'Copy Session as Markdown works');
+      assert.equal(await clip(), MARKDOWN, 'the clipboard holds the Markdown');
+      console.log(`  2: COMPUTER_PAGE_COPY → Copy reports success, clipboard = ${JSON.stringify(TEXT)}, focus and selection kept, no page copy event; Copy Session as Markdown copies its text`);
+      // No click (a fresh document, no user activation): the fallback copies nothing. Playwright's evaluate counts as a
+      // gesture, so the call goes through CDP with `userGesture: false`.
+      await tab.reload(); await tab.evaluate(fallback); await permission('clipboard-write', 'granted'); await tab.evaluate(() => navigator.clipboard.writeText('old text')); await permission('clipboard-write', 'denied');
+      // Without a gesture Chromium asks for the read-write permission (permission_utils.cc), which dsh's session refuses too.
+      await permission('clipboard-read', 'denied');
+      await tab.reload(); const page2 = await context.newCDPSession(tab);
+      const silent = await page2.send('Runtime.evaluate', { expression: `(async () => { const active = navigator.userActivation.hasBeenActive; ${fallback}; return [await writeClipboard('no click'), active, window.commands]; })()`, awaitPromise: true, userGesture: false, returnByValue: true });
+      assert.deepEqual(silent.result.value, [false, false, 1], `no click: the copy command ran and the fallback reports a failure (${JSON.stringify(silent)})`);
+      await permission('clipboard-read', 'granted');
+      assert.equal(await clip(), 'old text', 'no click: nothing copied');
+      console.log('  2b: no click → the fallback copies nothing');
 
       // 3. The permission allowed (dsh's own window): the real call, no copy command.
       await permission('clipboard-write', 'granted');
