@@ -1151,9 +1151,35 @@ func lastReply(_ transcript: [Line]) -> String {
 /// limit still notifies: for the open chat a failure has no other alert (sessionError only adds a chat line).
 func quietTurn(reply: String, reason: String?) -> Bool {
     guard reason == "completed" else { return false }
-    let t = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-    return t.isEmpty || t.caseInsensitiveCompare("[quiet]") == .orderedSame
+    return reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || quietReply(reply)
 }
+/// A reply that is only `[quiet]` (spaces trimmed, any case): the views hide it (index.js quietReply, client.js quietText;
+/// one table: test/fixtures/quiet-replies.json).
+func quietReply(_ text: String) -> Bool {
+    text.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("[quiet]") == .orderedSame
+}
+/// The texts of the newest turn of a chat log, newest first, trimmed, not empty: the `assistant/message` events after the
+/// newest `turn/start`, without the ones that a rollback withdrew (the Mac's runTexts and lastReply read the log the same
+/// way). Every text counts, also one sent with a tool call (dsh's default foldedReplies: all shows it). The log, not the
+/// drawn lines: a news, scheduled or outage prompt draws no `.user` line, a steered message draws one mid-turn, and a
+/// rollback can leave a turn without its end line.
+func turnTexts(_ events: [J]) -> [String] {
+    let shown = withoutRolledBack(events)
+    let start = shown.lastIndex { $0["type"] as? String == "turn/start" }.map { $0 + 1 } ?? 0
+    return shown[start...].reversed().compactMap { e -> String? in
+        guard e["type"] as? String == "assistant/message" else { return nil }
+        let t = contentText(((e["data"] as? J)?["message"] as? J)?["content"], imageMarker: false).trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+}
+/// The newest turn had nothing to say: it has texts, and each is only `[quiet]` (the Mac's quietRun).
+func quietTexts(_ events: [J]) -> Bool {
+    let t = turnTexts(events)
+    return !t.isEmpty && t.allSatisfy(quietReply)
+}
+/// The words of the newest turn's Turn finished: its newest text that is not only `[quiet]` (the Mac's runReply and
+/// lastReply), or "" when it has none.
+func newsReply(_ events: [J]) -> String { turnTexts(events).first { !quietReply($0) } ?? "" }
 
 /// One row of the chat as DSH desktop shows it.
 enum ChatRow: Identifiable {
@@ -1472,7 +1498,7 @@ func assistantMark(_ id: String?, sessions: [Sess], busy: Set<String>, waiting: 
 /// A reply that is only `[quiet]` (the assistant's "nothing to say", `quietTurn`) shows nothing, as on the Mac (client.js
 /// quietStep).
 func botLines(_ t: [Line]) -> [Line] {
-    t.filter { $0.kind == .user || $0.kind == .error || ($0.kind == .assistant && !quietTurn(reply: $0.text, reason: "completed")) }
+    t.filter { $0.kind == .user || $0.kind == .error || ($0.kind == .assistant && !quietReply($0.text)) }
 }
 /// Order by status (view only): finished and not opened, then running or waiting, then the rest; else dsh's order.
 func statusRank(_ s: Sess, busy: Set<String>, waiting: Set<String>, finished: Set<String>) -> Int {
@@ -3198,9 +3224,16 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             transcript.append(turnLine(reason: reason?["kind"] as? String, start: turnStartedAt,
                                        end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
-                let reply = lastReply(transcript)
-                if !quietTurn(reply: reply, reason: reason?["kind"] as? String) { notify(String(localized: "Turn finished"), reply, session: current) }
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                let kind = reason?["kind"] as? String
+                // Damon's chat reads the turn from its log (`events`, the Mac's rule): a completed turn whose every text is
+                // `[quiet]` gives no alert and no buzz (2026-11-19, quietRun); a turn with a real text notifies with it, also
+                // when its last reply is `[quiet]` (runReply). Other chats keep the drawn reply (lastReply), as before.
+                let bot = current != nil && current == botId
+                if !(bot && kind == "completed" && quietTexts(events)) {
+                    let reply = bot ? newsReply(events) : lastReply(transcript)
+                    if !quietTurn(reply: reply, reason: kind) { notify(String(localized: "Turn finished"), quietReply(reply) ? "" : reply, session: current) }
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
             }
             running = false
             turnStartedAt = nil
