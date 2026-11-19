@@ -3264,3 +3264,10 @@ Decisions:
 - `[quiet]` source for non-automation news: not found in index.js prompts, ~/Damon/AGENTS.md, ~/.dsh/AGENTS.md or the schedule store (only a code comment in quietTurn). Not verified, so the new news rule says it explicitly.
 Risks: the stack is a flex item of dsh's chat body (`[data-conversation-content]`, flex column): a dsh markup change hides it; the Approve buttons of the Damon chat then show only in the card when the stack shows.
 Last checkpoint: 2026-11-19 13:35 plan written, no code.
+Checkpoint (2026-11-19 17:50):
+- Phases 1–5 done (commits 520df3d..a27dd6e on feat/damon-chat-card-stack). Checks that ran: test/status-cards.test.mjs, test/approve-button.test.mjs (card Onayla: mutations red), test/assistant-todos-client.test.mjs, Host prompt tests; test/browser-card-stack.mjs PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.3 (Onayla sends the exact sentence once as the user's message, the model gets it); iOS XCTest 112 (1 skipped) by the Tether subagent before the review fixes; locale/readme/feature-docs checks by the docs subagent.
+- Auto review denied: the iOS screenshot run (TEST_RUNNER_SHOT_DIR), then xcodebuild test, then npm test (after the first full run: 2 red tests, fixed in 980d6e3, not re-run), the assistantNotify docs subagent, the branch push, and stopping the first demo. Not retried.
+- Review: round 1 no P1, 2 P2 (fixed 50b695d); round 2 1 P2 (fixed 5ea1055), P3 Tether off state (fixed), P4 attachments (fixed), P4 assistantNotify docs panel-off clause (open: its step was denied). Round 3 not run.
+- Open P3: Gördüm hides a same-text item; assistantTodos.webp shows the old design.
+- Demo: scripts/demo-card-stack.mjs on 127.0.0.1:3290 (dsh 0.2.2-rc.3), script pid 18048, dsh pid 18281. It started before a27dd6e: its two long tasks ended at once (4 Bugün bitti, 1 Sürüyor).
+- No merge to main, no main push (Furkan's OK through Damon first).
