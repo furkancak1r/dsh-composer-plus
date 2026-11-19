@@ -1156,13 +1156,14 @@ func quietReply(_ text: String) -> Bool {
 }
 /// The texts of the last turn of a transcript, newest first, not empty: every text counts, also one sent with a tool call
 /// (the Mac's runTexts: dsh's default foldedReplies: all shows it). The turn starts after the previous turn's end line
-/// (`.turn`): a news, scheduled or outage prompt draws no `.user` line, so a `.user` line is not the boundary. The
-/// transcript's own last `.turn` line (this turn's end, drawn just before the check) is skipped.
+/// (`.turn`): a news, scheduled or outage prompt draws no `.user` line, and a typed message steered into the running turn
+/// draws one in its middle, so a `.user` line is not the boundary. The transcript's own last `.turn` line (this turn's
+/// end, drawn just before the check) is skipped.
 func turnTexts(_ transcript: [Line]) -> [String] {
     var out: [String] = []
     let lines = transcript.last?.kind == .turn ? transcript.dropLast() : transcript[...]
     for l in lines.reversed() {
-        if l.kind == .turn || l.kind == .user { break }
+        if l.kind == .turn { break }
         if l.kind == .assistant, !l.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append(l.text) }
     }
     return out

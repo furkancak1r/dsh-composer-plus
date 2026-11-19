@@ -2472,6 +2472,13 @@ final class QuietReplyTests: XCTestCase {
             // A typed prompt of the same turn shape (a `.user` line) gives the same answer.
             lines.insert(Line(kind: .user, text: "news"), at: 3)
             XCTAssertEqual(quietTexts(lines), t["quiet"] as? Bool, "typed: \(steps)")
+            // A message steered into the running turn (a `.user` line after the first step) does not split the turn: the
+            // Mac's quietRun and runReply count the whole run.
+            if steps.count > 1, let i = lines.lastIndex(where: { $0.kind == .assistant }) {
+                lines.insert(Line(kind: .user, text: "steered"), at: i)
+                XCTAssertEqual(quietTexts(lines), t["quiet"] as? Bool, "steered: \(steps)")
+                XCTAssertEqual(newsReply(lines), t["reply"] as? String, "steered: \(steps)")
+            }
         }
     }
 }
