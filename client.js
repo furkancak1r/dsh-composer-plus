@@ -3643,6 +3643,63 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       return [t('status.insert.project', { title: one(project.title) }),
         row.line == null ? t('status.projectChats', { count: project.count }) : t('status.insert.summary', { text: one(row.line) })].join('\n');
     }
+    /** Damon card stack (the Durum panel since 2026-11-19): a mark at the start of an item's text puts it in a card group.
+     * "Onay:" (an approval that waits), "Sorun:" (an error or a risk on a live system), "Senden:" (a step that Damon asks
+     * of you); the English marks work too. An item of yours without a mark is your own note. */
+    const CARD_MARKS = [['onay', /^(?:onay|approval)\s*:\s*/iu], ['sorun', /^(?:sorun|problem)\s*:\s*/iu], ['senden', /^(?:senden|for you)\s*:\s*/iu]];
+    function cardMark(text) {
+      const s = String(text ?? '');
+      for (const [kind, re] of CARD_MARKS) { const m = re.exec(s); if (m !== null && s.length > m[0].length) return { kind, title: s.slice(m[0].length) }; }
+      return { kind: null, title: s };
+    }
+    /** The Host's status answer as cards at `now`: one card per topic, in the groups sorun, senden, suruyor, bitti (the
+     * stack's order after the Onay card). An item and a task with the same text (case and accents left out, after the
+     * mark) are one card; the more urgent state wins (an error, then a wait, then the task's state). `approvals`: the
+     * count of `onay` sentences that the chat offers now; `seen`: the end keys (`<task id>|<end>`) that you hid with Gördüm
+     * or ×; `newSince`: the time that you last closed the Bitti group (a later end is new). Tether ports it (`statusCards`
+     * in tether/ios/Sources/Core.swift); test/fixtures/status-cards.json is the table of both. */
+    function statusCards(data, now, { approvals = 0, seen = new Set(), newSince = 0 } = {}) {
+      const items = Array.isArray(data?.items) ? data.items : [];
+      const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
+      // Turkish and English case both: "BUILD" and "Build", "SORGULARI" and "sorguları" are the same text.
+      const same = (s) => foldText(s).replace(/ı/g, 'i').replace(/\s+/g, ' ').trim();
+      const stateGroup = (task) => (task.state === 'failed' ? 'sorun' : task.state === 'waiting' ? 'senden' : task.state === 'running' ? 'suruyor' : 'bitti');
+      const groups = { sorun: [], senden: [], suruyor: [], bitti: [] }; const onay = []; const notes = []; const used = new Set();
+      let n = 0;
+      const add = (group, card) => {
+        const { item, task } = card;
+        const end = task === undefined ? undefined : task.ended ?? task.started;
+        const since = group === 'senden' ? item?.waiting?.since ?? (task?.state === 'waiting' ? task.started : item?.created ?? task?.started)
+          : group === 'suruyor' ? task?.started ?? item.created : group === 'bitti' ? end : item?.created ?? end;
+        const seenKey = task === undefined ? undefined : `${task.id}|${end}`;
+        // A Bitti card goes when the day ends (also on a page that stays open over midnight) or when you hid it.
+        if (group === 'bitti' && !sameDay(end, now)) return;
+        if ((group === 'bitti' || (group === 'sorun' && item === undefined)) && seen.has(seenKey)) return;
+        groups[group].push({ group, key: item?.id ?? task.id, n: n++, since, seenKey, overdue: group === 'senden' && now - since >= TODO_OVERDUE_MS,
+          fresh: group === 'bitti' && end > newSince, ...card });
+      };
+      for (const item of items) {
+        const { kind, title } = cardMark(item.text);
+        if (kind === 'onay') { onay.push(item); continue; }
+        const task = tasks.find((x) => !used.has(x.id) && same(x.title) === same(title));
+        if (task !== undefined) used.add(task.id);
+        const group = kind === 'sorun' || task?.state === 'failed' ? 'sorun' : item.waiting || kind === 'senden' || task?.state === 'waiting' ? 'senden'
+          : task !== undefined ? stateGroup(task) : item.owner === 'agent' ? 'suruyor' : null;
+        if (group === null) notes.push(item); else add(group, { title, mark: kind, item, task });
+      }
+      for (const task of tasks) if (!used.has(task.id)) add(stateGroup(task), { title: task.title, mark: null, task });
+      // Sorun: a live-system item first; Senden: overdue first, then the longest wait; the rest: newest first. `n` keeps the
+      // list order of equal ones (Swift's sort is not stable).
+      const order = { sorun: (a, b) => (a.mark === 'sorun' ? 0 : 1) - (b.mark === 'sorun' ? 0 : 1) || b.since - a.since,
+        senden: (a, b) => Number(b.overdue) - Number(a.overdue) || a.since - b.since, suruyor: (a, b) => b.since - a.since, bitti: (a, b) => b.since - a.since };
+      for (const g of Object.keys(groups)) groups[g].sort((a, b) => order[g](a, b) || a.n - b.n);
+      const approval = onay.length === 0 && approvals === 0 ? null : { items: onay, since: onay.length === 0 ? null : Math.min(...onay.map((i) => i.created)) };
+      return { approval, groups, notes, counts: { onay: approval === null ? 0 : 1, sorun: groups.sorun.length, senden: groups.senden.length,
+        suruyor: groups.suruyor.length, bitti: groups.bitti.length, fresh: groups.bitti.filter((c) => c.fresh).length } };
+    }
+    /** An approval sentence that names a live target (the CANLI label): Auto review's live words, without its not-live
+     * phrases ("canlı değil", "yalnız yerel"). */
+    const liveApproval = (text) => APPROVAL_LIVE_WORD.test(String(text ?? '').normalize('NFC').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/ş/g, 's').replace(APPROVAL_SCOPE_OFF, ' '));
     /** The live state of the assistant chat and its subagents as one short text: the panel reads the Host again when it
      * changes (a subagent starts, stops or waits; the assistant's turn starts or ends). */
     const childIdsOf = (list, id) => (list?.projectionsBySession?.[id]?.values?.subagentCatalog ?? []).filter((c) => c?.mode !== 'external').map((c) => c.id);
