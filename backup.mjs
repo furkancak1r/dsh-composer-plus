@@ -210,7 +210,7 @@ export async function backup({ home, dest, kind = 'backup', keep, allKinds = fal
     await mkdir(join(realDest, VAULT), { recursive: true, mode: 0o700 });
     const target = join(vaultDir, ...rel.split('/'));
     await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-    await writeFile(target, data, { flag: 'wx', mode: 0o600 });
+    await writeFile(target, data, { flag: 'wx', mode: 0o600, flush: true });
     masked.push(rel);
   };
   // A backup folder inside the dsh home is not archived into itself; the running dsh's marker is not restored.
@@ -291,12 +291,13 @@ export async function backup({ home, dest, kind = 'backup', keep, allKinds = fal
   const tap = async function* (source) { for await (const chunk of source) { hash.update(chunk); yield chunk; } };
   let sha;
   try {
-    await pipeline(entries, zlib.createGzip({ level: 6 }), tap, createWriteStream(file, { flags: 'wx', mode: 0o600 }), { signal });
+    // flush: each file is on the disk (fsync) before older archives can be removed.
+    await pipeline(entries, zlib.createGzip({ level: 6 }), tap, createWriteStream(file, { flags: 'wx', mode: 0o600, flush: true }), { signal });
     sha = hash.digest('hex');
-    await writeFile(`${file}.sha256`, `${sha}  ${file}\n`, { mode: 0o600 });
+    await writeFile(`${file}.sha256`, `${sha}  ${file}\n`, { mode: 0o600, flush: true });
     await writeFile(`${file}.meta.json`, `${JSON.stringify({ host: hostname(), home: homedir(), dshHome: realHome, createdAt: now.toISOString(), redacted: masked.length,
-      by: BY, files: progress.files, bytes: progress.bytes, skipped: skipped.length })}\n`, { mode: 0o600 });
-    await writeFile(`${file}.redacted.json`, `${JSON.stringify({ files: masked })}\n`, { mode: 0o600 });
+      by: BY, files: progress.files, bytes: progress.bytes, skipped: skipped.length })}\n`, { mode: 0o600, flush: true });
+    await writeFile(`${file}.redacted.json`, `${JSON.stringify({ files: masked })}\n`, { mode: 0o600, flush: true });
     // Before older archives can go: the archive on disk reads in full and has the checksum that was written.
     if (keep !== undefined && allKinds && (await checkArchive(file, { signal, progress })).sha256 !== sha) throw new ArchiveError('the new backup does not match its checksum');
   } catch (error) {
@@ -304,24 +305,30 @@ export async function backup({ home, dest, kind = 'backup', keep, allKinds = fal
     throw error;
   }
   const size = (await stat(file)).size;
-  // The new archive is complete (and with allKinds checked): a failure to remove older ones keeps it.
-  const rotated = keep === undefined ? [] : await rotate(realDest, name, allKinds ? undefined : kind, keep).catch(() => []);
-  return { name, file, sha, size, files: progress.files, bytes: progress.bytes, masked, skipped, changed, rotated };
+  // The new archive is complete (and with allKinds checked): a failure to remove older ones keeps it. The next backup with
+  // `keep` removes what stayed.
+  const { removed: rotated, failed: rotateFailed } = keep === undefined ? { removed: [], failed: [] }
+    : await rotate(realDest, name, allKinds ? undefined : kind, keep).catch((error) => ({ removed: [], failed: [String(error?.message ?? error)] }));
+  return { name, file, sha, size, files: progress.files, bytes: progress.bytes, masked, skipped, changed, rotated, rotateFailed };
 }
 
-/** Removes one archive, its sidecars and its vault copies. `name` must be an archive name (never a path). */
+/** Removes one archive, its sidecars and its vault copies. `name` must be an archive name (never a path). The vault goes
+ * first and the archive before its `.meta.json`: after a failure the archive is still listed as ours, so it can go later. */
 export async function removeArchive(dest, name) {
   if (!ARCHIVE_RE.test(name)) throw new ArchiveError('not a backup archive name');
-  for (const suffix of ['', ...SIDECARS]) await rm(join(dest, `${name}${suffix}`), { force: true });
   await rm(join(dest, VAULT, name), { recursive: true, force: true });
+  for (const suffix of ['', ...SIDECARS]) await rm(join(dest, `${name}${suffix}`), { force: true });
 }
-/** Keeps the newest `keep` Composer Plus archives of one kind; returns the removed names. `kind` undefined: of all kinds,
- * and the new archive `name` always stays as one of the `keep`. */
+/** Keeps the new archive `name` and the newest `keep` - 1 other Composer Plus archives of one kind (`kind` undefined: of
+ * all kinds). Answers `{removed, failed}`: the names that went, and an error text for each one that could not go. */
 async function rotate(dest, name, kind, keep) {
-  const ours = (await listArchives(dest)).filter((a) => a.meta?.by === BY);
-  const old = kind === undefined ? ours.filter((a) => a.name !== name).slice(Math.max(1, keep) - 1) : ours.filter((a) => a.kind === kind).slice(Math.max(1, keep));
-  for (const a of old) await removeArchive(dest, a.name);
-  return old.map((a) => a.name);
+  const old = (await listArchives(dest)).filter((a) => a.name !== name && a.meta?.by === BY && (kind === undefined || a.kind === kind)).slice(Math.max(1, keep) - 1);
+  const removed = [];
+  const failed = [];
+  for (const a of old) {
+    try { await removeArchive(dest, a.name); removed.push(a.name); } catch (error) { failed.push(`${a.name}: ${error?.message ?? error}`); }
+  }
+  return { removed, failed };
 }
 
 /** The archives in `dest`, newest first: `{name, kind, at, size, checksum, meta, masked}` (`masked` null when the archive

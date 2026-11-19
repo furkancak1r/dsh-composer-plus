@@ -6,7 +6,7 @@
 // console. Real files under a temporary folder.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, linkSync, writeFileSync, openSync, closeSync, constants } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, linkSync, writeFileSync, openSync, closeSync, constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -170,6 +170,35 @@ assert.equal(sha, execFileSync('shasum', ['-a', '256', join(dest, first.name)]).
   await assert.rejects(b.backup({ home: src, dest: all, keep: 2, allKinds: true, signal: reading.signal, progress, now: at(7) }));
   assert.ok(read, 'the new archive was read back before any removal');
   assert.deepEqual(readdirSync(all, { recursive: true }).sort(), before, 'a failed read-back: the new archive goes, no old archive removed');
+  // The archive on disk is not the one that was written (another valid archive in its place): no removal.
+  let swapped = false;
+  const swap = { get read() { return 0; }, set read(v) { if (!swapped) { swapped = true; writeFileSync(join(all, 'dsh-20260308-000000000.tar.gz'), readFileSync(join(all, foreign))); } } };
+  await assert.rejects(b.backup({ home: src, dest: all, keep: 2, allKinds: true, progress: swap, now: at(8) }), /does not match its checksum/);
+  assert.ok(swapped);
+  assert.deepEqual(readdirSync(all, { recursive: true }).sort(), before, 'a checksum mismatch: the new archive goes, no old archive removed');
+  // An old archive that cannot go: the backup is kept, the failure is reported, the old archive stays listed; the next
+  // backup removes it.
+  if (posix && process.getuid?.() !== 0) {
+    const stuck = 'dsh-20260301-000000000.tar.gz';
+    chmodSync(join(all, b.VAULT, stuck), 0o500);
+    let r9;
+    try { r9 = await b.backup({ home: src, dest: all, keep: 2, allKinds: true, now: at(9) }); } finally { chmodSync(join(all, b.VAULT, stuck), 0o700); }
+    assert.deepEqual(r9.rotated, []);
+    assert.equal(r9.rotateFailed.length, 1); assert.match(r9.rotateFailed[0], /^dsh-20260301-000000000\.tar\.gz: /);
+    assert.deepEqual((await b.listArchives(all)).filter((a) => a.meta?.by === b.BY).map((a) => a.name), ['dsh-20260309-000000000.tar.gz', 'dsh-pre-upgrade-20260305-000000000.tar.gz', stuck]);
+    const r10 = await b.backup({ home: src, dest: all, keep: 2, allKinds: true, now: at(10) });
+    assert.deepEqual([r10.rotated, r10.rotateFailed], [['dsh-pre-upgrade-20260305-000000000.tar.gz', stuck], []]);
+    assert.ok(!readdirSync(all).some((n) => n.startsWith(stuck)) && !existsSync(join(all, b.VAULT, stuck)));
+  }
+}
+// Keep per kind (3): the new archive stays also when its time is older than the others (a clock set back).
+{
+  const dir = join(root, 'keep-back');
+  const src = join(root, 'keep-all-home', '.dsh');
+  for (const d of [10, 11, 12]) await b.backup({ home: src, dest: dir, keep: 3, now: new Date(2026, 2, d) });
+  const r = await b.backup({ home: src, dest: dir, keep: 3, now: new Date(2026, 2, 1) });
+  assert.deepEqual(r.rotated, ['dsh-20260310-000000000.tar.gz']);
+  assert.deepEqual((await b.listArchives(dir)).map((a) => a.name), ['dsh-20260312-000000000.tar.gz', 'dsh-20260311-000000000.tar.gz', r.name]);
 }
 
 // The archive check refuses what a restore must not write; a damaged archive and a wrong checksum are not usable.
