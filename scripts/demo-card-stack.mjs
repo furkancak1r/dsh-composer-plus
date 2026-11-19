@@ -52,6 +52,10 @@ export async function fakeModel(calls = []) {
       }
       // The Damon chat: "Örnek verileri yükle" adds the items, starts the tasks, then answers with the `onay` block.
       const bg = (parsed.tools ?? []).find((t) => t.function?.name === 'subagent')?.function?.parameters?.properties?.run_in_background !== undefined ? { run_in_background: true } : {};
+      // Only the Damon chat's own steps (they have the to-do tools): a side request of another plugin (a memory review, a
+      // title) can carry the same message without tools.
+      const damonStep = (parsed.tools ?? []).some((t) => t.function?.name === 'todo_list_add');
+      if (/^Örnek verileri yükle$/.test(newest.trim()) && !damonStep) return say('');
       if (/^Örnek verileri yükle$/.test(newest.trim())) {
         state.background = bg.run_in_background === true;
         const plan = [
