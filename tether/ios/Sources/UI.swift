@@ -632,7 +632,7 @@ struct ConversationView: View {
     /// Damon's chat: the Mac switch takes the place of Back.
     private var damon: Bool { c.current != nil && c.current == c.assistantId }
     /// Damon's chat with the card deck (it has the Approve button; other chats keep it under the reply).
-    private var damonChat: Bool { damon && c.plus.contains("assistant-todos") }
+    private var damonChat: Bool { damon && c.plus.contains("assistant-todos") && !c.cardsOff }
     var body: some View {
         // no stale chat while unreachable: the Mac is the source of truth and every action would fail anyway
         Group { if c.state == .connected || c.state == .connecting { transcript } else { OfflineView() } }
@@ -642,7 +642,7 @@ struct ConversationView: View {
                     // Branch per chat: the chat's git branch, its changes and push state; a tap opens Changes.
                     if let b = c.branch { BranchBar(state: b) { if c.plus.contains("changes") { showChanges = true } } }
                     // Damon's card stack (the Mac's Durum panel as cards): the Status sheet opens from its count bar.
-                    if damon, c.plus.contains("assistant-todos"), c.state == .connected, let id = c.current { CardDeck(sessionId: id, typing: !text.isEmpty) }
+                    if damon, c.plus.contains("assistant-todos"), c.state == .connected, let id = c.current { CardDeck(sessionId: id, typing: !(text.isEmpty && images.isEmpty && files.isEmpty)) }
                 }
             }
             .navigationTitle(c.currentSess?.title ?? String(localized: "Conversation"))
@@ -4605,6 +4605,8 @@ enum DeckAction { case ask(StatusCard), done(StatusCard), reply(StatusCard), wat
 struct DeckView: View {
     let cards: StatusCards, sentences: [String]
     var loaded = true
+    /// The Mac's status panel is off: only the count bar, with the hint to switch it on.
+    var off = false
     let now: Date, b: Bundle, locale: Locale
     var compact = false, busy = false
     let maxHeight: CGFloat
@@ -4638,6 +4640,7 @@ struct DeckView: View {
     }
     private var countText: String {
         if !loaded { return String(localized: "status.loading", defaultValue: "Loading…", bundle: b) }
+        if off { return String(localized: "Switch on Assistant status panel in Settings → Composer Plus on your Mac.", bundle: b) }
         let k = cards.counts
         let parts = [k.onay > 0 ? String(localized: "cards.count.onay", defaultValue: "\(k.onay) approval(s)", bundle: b) : nil,
                      k.sorun > 0 ? String(localized: "cards.count.sorun", defaultValue: "\(k.sorun) problem(s)", bundle: b) : nil,
@@ -4650,7 +4653,7 @@ struct DeckView: View {
     var body: some View {
         VStack(spacing: 6) {
             countBar
-            if open { openList } else if total > 0 { closedStack }
+            if off {} else if open { openList } else if total > 0 { closedStack }
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
         .animation(.snappy, value: open)
@@ -4660,7 +4663,7 @@ struct DeckView: View {
     /// A tap or a drag down opens the deck, a drag up closes it; the buttons keep their own taps.
     private var countBar: some View {
         HStack(spacing: 8) {
-            Text(verbatim: countText).font(.footnote.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.75).frame(maxWidth: .infinity, alignment: .leading)
+            Text(verbatim: countText).font(.footnote.weight(.semibold)).lineLimit(off ? 3 : 1).minimumScaleFactor(0.75).frame(maxWidth: .infinity, alignment: .leading)
             Button { act(.projects) } label: { Text(String(localized: "status.projects", defaultValue: "Projects", bundle: b)).font(.footnote).lineLimit(1) }
                 .buttonStyle(.bordered).controlSize(.small)
             Button { open.toggle() } label: { Image(systemName: open ? "chevron.up" : "chevron.down").frame(width: 36, height: 36).contentShape(Rectangle()) }
@@ -4877,7 +4880,7 @@ struct CardDeck: View {
     private var cards: StatusCards { statusCards(answer ?? [:], now: tick, approvals: offer?.sentences.count ?? 0, seen: seen, newSince: newSince) }
     var body: some View {
         let w = approveWords(macLang: c.macLang)
-        DeckView(cards: cards, sentences: offer?.sentences ?? [], loaded: answer != nil, now: tick, b: uiStrings, locale: c.uiLocale, compact: typing,
+        DeckView(cards: cards, sentences: offer?.sentences ?? [], loaded: answer != nil, off: c.cardsOff, now: tick, b: uiStrings, locale: c.uiLocale, compact: typing,
                  busy: c.optionBusy.contains(sessionId), maxHeight: UIScreen.main.bounds.height * 0.7, open: $open, doneOpen: $doneOpen, notesOpen: $notesOpen, act: act)
             .background(.bar)
             .onChange(of: typing) { _, t in if t { open = false } }
@@ -4887,7 +4890,8 @@ struct CardDeck: View {
                 Button(w.button) { c.run(waits: false) { try await c.approve(a.sid, a.offer, a.sentence) } }
                 Button(w.cancel, role: .cancel) {}
             } message: { a in Text(verbatim: a.sentence) }
-            .task { seen = c.cardsSeen(); newSince = c.cardsNewSince; await load() }
+            .task(id: sessionId) { answer = nil; c.cardsOff = false; seen = c.cardsSeen(); newSince = c.cardsNewSince; await load() }
+            .onDisappear { c.cardsOff = false }
             // The same reads as StatusSheet: every 5 s while a task runs, and once after a turn ends.
             .task(id: running) {
                 while !Task.isCancelled, running {
@@ -4904,7 +4908,7 @@ struct CardDeck: View {
     private func load() async {
         seq += 1; let mine = seq
         guard let a = try? await c.loadStatusAnswer(sessionId), mine == seq else { return }
-        answer = a; tick = Date()
+        answer = a; tick = Date(); c.cardsOff = a["on"] as? Bool == false
     }
     private func act(_ a: DeckAction) {
         let locale = c.uiLocale

@@ -2229,6 +2229,9 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var optionBusy = Set<String>()
     /// The answer that was picked in each chat: its buttons stay off until a newer turn (or a rollback of the pick).
     @Published var optionPicked: [String: OptionOffer] = [:]
+    /// The Mac's Assistant status panel is off (its answer says `on: false`): no cards, and the Approve button stays under
+    /// the reply as in other chats (the Mac shows no panel then). The card deck sets it at each read.
+    @Published var cardsOff = false
     /// The options of the open chat's last answer, when the chat is idle and they are not picked: nil otherwise.
     var optionOffer: OptionOffer? {
         guard let sid = current, currentSess?.parent == nil, !running, let from = optionsFrom, let o = chatOffer(events, from: from),

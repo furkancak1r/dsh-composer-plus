@@ -3360,9 +3360,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     // chat, as wide as the chat column, at most 40% of the window high. dsh 0.2.2-rc.2 wraps the scroll body in a
     // `display:contents` frame, so the stack and the scroll body are still siblings in the flex column.
     const TODOS_CSS = `[${TODOS_ATTR}]{order:-1;flex:none;box-sizing:border-box;width:var(--dsh-chat-content-width,720px);max-width:calc(100% - 32px);max-height:40vh;margin:8px auto 4px;display:flex;flex-direction:column;overflow:hidden;border:.5px solid var(--dsw-alias-border-l1);border-radius:var(--dsw-radius-lg,12px);background:var(--dsw-alias-bg-base);font-size:13px;line-height:18px;color:var(--dsw-alias-label-primary)}`
-      // The summary card scrolls in itself and the fixed part scrolls when it is still too high: Onayla in the Onay card
-      // under them can always be reached in the 40vh stack (review 1).
-      + `[${TODOS_ATTR}] .cp-cs-fixed{flex:0 1 auto;min-height:0;overflow-y:auto;padding:0 6px}[${TODOS_ATTR}] .cp-cs-fixed .cp-st-summary{max-height:14vh;overflow-y:auto}`
+      // The fixed part (count bar, summary, Onay card) keeps its height and stays in place while the cards scroll (review 2:
+      // a shrinking fixed part hid the Onay card); the summary card scrolls in itself, and the fixed part scrolls only when
+      // it alone is higher than the stack, so Onayla is always in the stack (review 1).
+      + `[${TODOS_ATTR}] .cp-cs-fixed{flex:none;max-height:calc(40vh - 2px);overflow-y:auto;padding:0 6px}[${TODOS_ATTR}] .cp-cs-fixed .cp-st-summary{max-height:14vh;overflow-y:auto}`
       + `[${TODOS_ATTR}] .cp-cs-count{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-weight:500}`
       + `[${TODOS_ATTR}] .cp-cs-card{--cp-co:var(--dsw-alias-label-secondary,#6b7280);margin:6px 0 0;padding:8px 10px;border-left:3px solid var(--cp-co);border-radius:6px;background:color-mix(in srgb,var(--cp-co) 7%,transparent);list-style:none;display:block}`
       + `[${TODOS_ATTR}] .cp-cs-card[data-card="onay"]{--cp-co:var(--dsw-alias-state-business-primary,#3b6cf6)}[${TODOS_ATTR}] .cp-cs-card[data-card="sorun"]{--cp-co:var(--dsw-alias-state-error-primary,#d92d20)}`
