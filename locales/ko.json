@@ -2292,6 +2292,7 @@
     "backup.running.repair": "세션 로그 복구 중…",
     "backup.running.other": "처리 중…",
     "backup.done.backup": "백업했습니다: {name}({size}, {masked}개 마스킹됨).",
+    "backup.notRemoved": "오래된 백업 {count}개를 삭제하지 못했습니다. 폴더에 그대로 있습니다.",
     "backup.done.check": "{name} 정상: 항목 {entries}개, {size}.",
     "backup.done.transfer": "준비되었습니다: {folder}을(를) 다른 컴퓨터로 복사한 다음 그곳에서 “Composer Plus Rescue”를 여세요. 비밀 값은 포함되지 않으니 그곳에서 다시 입력하세요.",
     "backup.done.delete": "삭제했습니다.",

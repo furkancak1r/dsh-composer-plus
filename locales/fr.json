@@ -2292,6 +2292,7 @@
     "backup.running.repair": "Réparation des journaux de session…",
     "backup.running.other": "Traitement en cours…",
     "backup.done.backup": "Sauvegardé : {name} ({size}, {masked} masqués).",
+    "backup.notRemoved": "Impossible de supprimer {count} anciennes sauvegardes : elles restent dans le dossier.",
     "backup.done.check": "{name} est intact : {entries} entrées, {size}.",
     "backup.done.transfer": "Prêt : copiez {folder} sur l’autre ordinateur, puis ouvrez « Composer Plus Rescue » à cet endroit. Les secrets n’y sont pas : saisissez-les à nouveau là-bas.",
     "backup.done.delete": "Supprimé.",

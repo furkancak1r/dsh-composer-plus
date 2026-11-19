@@ -177,6 +177,15 @@ const archive = (name, extra = {}) => ({ name, kind: 'backup', at: '2026-10-28T1
   store.stop();
 }
 
+// A backup whose old archives could not all go says how many stay.
+{
+  const { backupStatus } = globalThis.__bk;
+  const done = (result) => backupStatus({ busy: null, last: { op: 'backup', ok: true, result: { name: 'n', size: 1, masked: 0, ...result } } }, t);
+  assert.doesNotMatch(done({ notRemoved: 0 }), /backup\.notRemoved/);
+  assert.doesNotMatch(done({}), /backup\.notRemoved/, 'an older Host without the field');
+  assert.match(done({ notRemoved: 2 }), /^backup\.done\.backup:.* backup\.notRemoved:\{"count":2\}$/);
+}
+
 // Automatic backup settings: two menus (interval, keep) post one value; the next time; the last failure; one at a time.
 {
   fetches.length = 0; opened = null;

@@ -8558,7 +8558,7 @@ export function installBackup(ctx, home, { graceMs = AUTO_BACKUP_GRACE_MS, retry
     const r = await backups.backup({ home, dest: folder, kind, keep, allKinds: total, signal, progress });
     for (const failure of r.rotateFailed) log(`could not remove an old backup: ${failure}`);
     await refreshRescue();
-    return { name: r.name, size: r.size, files: r.files, masked: r.masked.length, skipped: r.skipped.length, rotated: r.rotated.length };
+    return { name: r.name, size: r.size, files: r.files, masked: r.masked.length, skipped: r.skipped.length, rotated: r.rotated.length, notRemoved: r.rotateFailed.length };
   }, { kind });
   const live = (id) => get('agents')?.get?.(id) !== undefined;
   const scanView = (s) => ({ at: s.at, scanned: s.scanned, torn: s.torn, skipped: s.skipped, bad: s.bad.map((x) => ({ id: x.id, reason: x.reason, open: live(x.id) })) });

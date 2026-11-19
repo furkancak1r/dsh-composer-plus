@@ -290,6 +290,8 @@ export async function backup({ home, dest, kind = 'backup', keep, allKinds = fal
   const hash = createHash('sha256');
   const tap = async function* (source) { for await (const chunk of source) { hash.update(chunk); yield chunk; } };
   let sha;
+  // The cleanup below removes this name: never one that is there already (two backups in the same millisecond).
+  if (await exists(file) || await exists(vaultDir)) throw new ArchiveError(`${name} is already in the backup folder`);
   try {
     // flush: each file is on the disk (fsync) before older archives can be removed.
     await pipeline(entries, zlib.createGzip({ level: 6 }), tap, createWriteStream(file, { flags: 'wx', mode: 0o600, flush: true }), { signal });
@@ -301,9 +303,13 @@ export async function backup({ home, dest, kind = 'backup', keep, allKinds = fal
     // Before older archives can go: the archive on disk reads in full and has the checksum that was written.
     if (keep !== undefined && allKinds && (await checkArchive(file, { signal, progress })).sha256 !== sha) throw new ArchiveError('the new backup does not match its checksum');
   } catch (error) {
+    // Its .meta.json first: if the rest cannot go, a later rotation does not count this archive as a good one of ours.
+    await rm(`${file}.meta.json`, { force: true }).catch(() => {});
     await removeArchive(realDest, name).catch(() => {});
     throw error;
   }
+  // The new names are on the disk too before older archives go (a folder cannot be opened on Windows: no sync there).
+  if (keep !== undefined) await open(realDest, 'r').then(async (dir) => { try { await dir.sync(); } finally { await dir.close(); } }).catch(() => {});
   const size = (await stat(file)).size;
   // The new archive is complete (and with allKinds checked): a failure to remove older ones keeps it. The next backup with
   // `keep` removes what stayed.

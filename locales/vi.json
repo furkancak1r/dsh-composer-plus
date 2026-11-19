@@ -2292,6 +2292,7 @@
     "backup.running.repair": "Đang sửa nhật ký phiên…",
     "backup.running.other": "Đang xử lý…",
     "backup.done.backup": "Đã sao lưu: {name} ({size}, {masked} đã che).",
+    "backup.notRemoved": "Không xóa được {count} bản sao lưu cũ: chúng vẫn còn trong thư mục.",
     "backup.done.check": "{name} không có lỗi: {entries} mục, {size}.",
     "backup.done.transfer": "Đã sẵn sàng: sao chép {folder} sang máy tính kia, rồi mở “Composer Plus Rescue” ở đó. Thông tin bí mật không có trong đó: hãy nhập lại ở máy đó.",
     "backup.done.delete": "Đã xóa.",

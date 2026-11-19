@@ -191,6 +191,35 @@ assert.equal(sha, execFileSync('shasum', ['-a', '256', join(dest, first.name)]).
     assert.ok(!readdirSync(all).some((n) => n.startsWith(stuck)) && !existsSync(join(all, b.VAULT, stuck)));
   }
 }
+// A backup with a name that is already in the folder (the same millisecond) is refused and removes nothing.
+{
+  const dir = join(root, 'same-name');
+  const src = join(root, 'keep-all-home', '.dsh');
+  const at = new Date(2026, 3, 1);
+  const one = await b.backup({ home: src, dest: dir, now: at });
+  const before = readdirSync(dir, { recursive: true }).sort();
+  await assert.rejects(b.backup({ home: src, dest: dir, keep: 2, allKinds: true, now: at }), /already in the backup folder/);
+  assert.deepEqual(readdirSync(dir, { recursive: true }).sort(), before, 'the first archive and its files stay');
+  assert.equal((await b.verifyArchive(dir, one.name, {})).ok, true);
+}
+// A failed read-back whose cleanup cannot finish: the new archive loses its .meta.json first, so it is not counted as
+// ours and the next keep-2 backup keeps the good older one.
+if (posix && process.getuid?.() !== 0) {
+  const dir = join(root, 'cleanup-fails');
+  const src = join(root, 'keep-all-home', '.dsh');
+  const good = await b.backup({ home: src, dest: dir, keep: 2, allKinds: true, now: new Date(2026, 4, 1) });
+  const bad = 'dsh-20260502-000000000.tar.gz';
+  const vault = join(dir, b.VAULT, bad);
+  const lock = { get read() { return 0; }, set read(v) { chmodSync(vault, 0o500); throw new Error('read-back failed'); } };
+  try {
+    await assert.rejects(b.backup({ home: src, dest: dir, keep: 2, allKinds: true, progress: lock, now: new Date(2026, 4, 2) }), /read-back failed/);
+    assert.equal(existsSync(join(dir, `${bad}.meta.json`)), false, 'the failed archive has no .meta.json');
+    assert.deepEqual((await b.listArchives(dir)).filter((a) => a.meta?.by === b.BY).map((a) => a.name), [good.name]);
+    const next = await b.backup({ home: src, dest: dir, keep: 2, allKinds: true, now: new Date(2026, 4, 3) });
+    assert.deepEqual(next.rotated, [], 'the good older archive stays');
+    assert.deepEqual((await b.listArchives(dir)).filter((a) => a.meta?.by === b.BY).map((a) => a.name), [next.name, good.name]);
+  } finally { chmodSync(vault, 0o700); }
+}
 // Keep per kind (3): the new archive stays also when its time is older than the others (a clock set back).
 {
   const dir = join(root, 'keep-back');

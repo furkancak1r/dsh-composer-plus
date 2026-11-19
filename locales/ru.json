@@ -2292,6 +2292,7 @@
     "backup.running.repair": "Исправление журналов сеансов…",
     "backup.running.other": "Выполняется…",
     "backup.done.backup": "Копия создана: {name} ({size}, скрыто: {masked}).",
+    "backup.notRemoved": "Не удалось удалить старые копии ({count}): они остаются в папке.",
     "backup.done.check": "{name} в порядке. Записей: {entries}, размер: {size}.",
     "backup.done.transfer": "Готово: скопируйте {folder} на другой компьютер, затем откройте там «Composer Plus Rescue». Секретов в ней нет: введите их там заново.",
     "backup.done.delete": "Удалено.",
