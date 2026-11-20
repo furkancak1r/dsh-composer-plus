@@ -3350,3 +3350,11 @@ Phase 1 checkpoint (2026-11-20 09:50):
 - Known: browser-status-refresh step 7 on the plain `dsh-0.2.0-rc.2` path fails (its version regex wants `/0.2.0-rc.2/`); the same regex is on main; not verified on main.
 - origin/main moved to e01a84a (the 1.31.0 release commit): merge it into the branch before main; then push the branch; merge to main only after Damon writes that 1.31.0 is done.
 - Phase 2 decision (open): the "karar" (choices) type: Option picks' offer of the newest answer (client.js parseOptions/chatOffer) is the existing data; no new Host field needed for the first version.
+Phase 1 closed (2026-11-20 10:00):
+- origin/main 216dcf4 (1.31.0 release commit e01a84a and the live-copy check) merged in 9404dce; branch pushed: origin/feat/damon-chat-card-stack.
+- Last passing checks (after 9404dce): `npm test` exit 0; `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' test CODE_SIGNING_ALLOWED=NO`: 115 tests, 1 skipped, 0 failures; `PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-card-stack.mjs <0.2.0-rc.2 bin> <0.2.2-rc.5 bin>`: PASS both; Semgrep `--config auto`: 0 findings.
+- Open steps:
+  1. Merge to main only after Damon writes in this chat that the 1.31.0 release is done: merge origin/main again if it moved, run the checks, push-branch, then merge-main.
+  2. Phase 2 (decision queue + daily briefing) starts after that, on a new branch from main (design: tabs 3 and 5 of the options HTML; decision noted above: "karar" = Option picks' offer of the newest answer).
+  3. Phase 3 (infinite canvas) after phases 1 and 2 are in main.
+- Not done here (separate approval from Furkan): release, tag, npm publish, live copy, DSH/AIProxy restart, Tether install on the phone.
