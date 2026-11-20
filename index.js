@@ -3869,8 +3869,10 @@ export function goalDraft(text) {
  * not a stemmer; the match is a substring match on paths, not a code search. */
 const IMPROVE_STOP = new Set(['the', 'and', 'for', 'with', 'this', 'that', 'from', 'into', 'not', 'but', 'are', 'was', 'you', 'can', 'add', 'fix', 'use', 'all', 'any', 'make', 'should', 'when', 'then', 'also', 'please',
   'bir', 'için', 'ile', 'gibi', 'olarak', 'daha', 'sonra', 'yap', 'ekle', 'olsun', 'şunu', 'bunu', 'nasıl', 'neden', 'var', 'yok']);
+/** Lower case where `İ` is `i` (its own lower case is i + a combining dot, which cuts a word). */
+const lowerTr = (text) => String(text).replace(/İ/g, 'i').toLowerCase();
 /** The draft's own words (3 letters or more, not a common word), at most 40. */
-const draftWords = (text) => [...new Set(String(text).replace(/İ/g, 'i').toLowerCase().match(/[\p{L}\p{N}_]{3,}/gu) ?? [])].filter((w) => !IMPROVE_STOP.has(w)).slice(0, 40);
+const draftWords = (text) => [...new Set(lowerTr(text).match(/[\p{L}\p{N}_]{3,}/gu) ?? [])].filter((w) => !IMPROVE_STOP.has(w)).slice(0, 40);
 const IMPROVE_MEMORY = 4000; // characters of memory notes the model reads
 /** The memory notes for a draft, from Project memory's own store (installMemory's handle): '' while the memory is off, or
  * off for this chat. First the notes of the project's and the global memory (main files and topics) that share the most
@@ -3910,7 +3912,7 @@ export function relatedPaths(paths, text, max = IMPROVE_PATHS) {
   const scored = [];
   for (const path of paths) {
     if (path === '' || path.split('/').some(skipName)) continue;
-    const lower = path.toLowerCase();
+    const lower = lowerTr(path);
     const base = lower.slice(lower.lastIndexOf('/') + 1);
     let score = 0;
     for (const w of words) score += base.includes(w) ? 2 : lower.includes(w) ? 1 : 0;
