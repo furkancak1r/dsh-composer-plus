@@ -2766,6 +2766,8 @@
     "status.summaryLate": "Aucun nouveau résumé n’est arrivé.",
     "status.summaryFailed": "Impossible de demander un nouveau résumé : {error}",
     "status.refresh": "Actualiser",
+    "status.placeTop": "Afficher au-dessus de la discussion",
+    "status.placeSide": "Afficher à droite de la discussion",
     "status.summary": "Résumé",
     "status.summarize": "Obtenir le résumé",
     "status.hideSummary": "Masquer le résumé",

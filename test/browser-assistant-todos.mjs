@@ -2,7 +2,7 @@
 // project (acme-web). Never the normal DSH_HOME, no real model. Headless.
 // 1. The assistant chat: "Remember: buy milk" → the fake model calls todo_list_add (the assistant has the two tools and
 //    Assistant always free lets them run); the request carries the list as runtime context and the section. The card
-//    stack shows ABOVE the chat (the first item of dsh's chat body, above the messages, not in dsh's right sidebar); the
+//    stack shows at the right of the chat by default (in dsh's chat body, over no message, not in dsh's right sidebar); the
 //    user's own items without a mark are in the folded "Your notes" group.
 // 2. → (in "Your notes") writes "Do this for me: <item>" at the end of the composer, after the draft that is there, on
 //    its own line; the focus and the caret are at its end, nothing is sent and the item stays the user's note. Sent, the
@@ -201,20 +201,21 @@ try {
       assert.match(add.system, /todo_list_add, todo_list_remove/, 'Assistant always free names them');
       const addResult = await until(() => calls.find((c) => /Remember: buy milk/.test(c.newest) && c.after), 'the tool result reached the model');
       assert.match(addResult.result, /^Added [0-9a-f]{8} \(owner user\)/, 'Assistant always free lets the tool run');
-      // The stack is the first item of dsh's chat body, ABOVE the chat (its bottom is above the chat scroll's top), and not in dsh's right sidebar.
+      // The stack is in dsh's chat body, at the right of the chat by default (Furkan, 2026-11-20; the place button moves it
+      // above the chat: test/browser-card-stack.mjs), and not in dsh's right sidebar.
       assert.equal(await panel.count(), 1);
       assert.equal(await panel.evaluate((el) => el.parentElement?.hasAttribute('data-conversation-content')), true, 'in the chat body');
-      assert.equal(await panel.evaluate((el) => getComputedStyle(el).order), '-1', 'the first flex item of the chat body (order -1)');
-      const box = await panel.boundingBox(); const scrollBox = await page.locator(`[data-conversation-session="${sessionId}"] [data-conversation-scroll]`).boundingBox();
-      assert.ok(box.y + box.height <= scrollBox.y + 1, `above the chat (${JSON.stringify(box)} / ${JSON.stringify(scrollBox)})`);
+      assert.equal(await panel.getAttribute('data-place'), 'side', 'the right side by default');
+      const box = await panel.boundingBox(); const bodyBox = await page.locator(`[data-conversation-content][data-conversation-session="${sessionId}"]`).boundingBox();
+      assert.ok(box.x + box.width <= bodyBox.x + bodyBox.width + 1 && box.x > bodyBox.x + bodyBox.width / 2, `at the right side of the chat (${JSON.stringify(box)} in ${JSON.stringify(bodyBox)})`);
       assert.equal(await noteRow('Buy milk').count(), 1, 'a note of the user, in "Your notes"');
       assert.equal(await groupHead('notes').getAttribute('aria-expanded'), 'false', '"Your notes" starts folded');
       assert.equal(await panel.locator('li.cp-cs-card').filter({ hasText: 'Buy milk' }).count(), 0, 'a note of the user is no card');
-      // The stack covers no message: each user bubble starts below it.
+      // The stack covers no message: each user bubble ends left of it.
       for (const bubble of await page.getByText('Remember: buy milk', { exact: true }).all()) {
-        const b = await bubble.boundingBox(); assert.ok(b === null || b.y >= box.y + box.height - 1, `a message under the stack: ${JSON.stringify(b)} / ${JSON.stringify(box)}`);
+        const b = await bubble.boundingBox(); assert.ok(b === null || b.x + b.width <= box.x + 1, `a message under the stack: ${JSON.stringify(b)} / ${JSON.stringify(box)}`);
       }
-      note('1: todo_list_add from the agent shows in the card stack above the chat (a note of the user, "Your notes" folded)');
+      note('1: todo_list_add from the agent shows in the card stack at the right of the chat (a note of the user, "Your notes" folded)');
 
       // 2. → writes in the composer and sends nothing; a draft that is there stays. The user sends it: the agent takes it.
       await send('Remember: call the bank'); await noteRow('Call the bank').waitFor({ state: 'attached', timeout: 30000 });

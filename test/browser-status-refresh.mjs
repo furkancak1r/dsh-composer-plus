@@ -174,7 +174,7 @@ try {
       const send = async (text) => { await input.click(); await page.keyboard.press('ControlOrMeta+a'); await page.keyboard.press('Backspace'); await page.keyboard.type(text, { delay: 5 }); await page.keyboard.press('Escape'); await page.keyboard.press('Enter'); };
       const panel = page.locator('[data-composer-plus-todos]');
       const card = panel.locator('.cp-st-summary');
-      const refresh = panel.locator('.cp-st-top > button.cp-td-btn');
+      const refresh = panel.locator('.cp-st-top > button.cp-td-btn[id$="-refresh"]'); // the place button is a .cp-td-btn too
       const ask = panel.locator('.cp-st-ask[id$="-summarize"]'); // Projeler is a .cp-st-ask too
       const spoken = () => panel.locator('[role="status"][aria-live="polite"]').innerText();
 

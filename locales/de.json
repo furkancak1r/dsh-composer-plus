@@ -2766,6 +2766,8 @@
     "status.summaryLate": "Keine neue Übersicht erhalten.",
     "status.summaryFailed": "Neue Übersicht konnte nicht angefordert werden: {error}",
     "status.refresh": "Aktualisieren",
+    "status.placeTop": "Über dem Chat anzeigen",
+    "status.placeSide": "Rechts neben dem Chat anzeigen",
     "status.summary": "Übersicht",
     "status.summarize": "Übersicht holen",
     "status.hideSummary": "Übersicht ausblenden",

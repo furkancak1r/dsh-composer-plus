@@ -19,13 +19,13 @@ const repo = fileURLToPath(new URL('..', import.meta.url));
 export const APPROVAL = "Onaylıyorum (canlı değil): montaj testi dalı main'e alınsın ve servis betiği test servisinde denensin.";
 /** The sample texts: Turkish for the owner's demo, English for the Settings screenshot (AGENTS.md rule 2). All made up. */
 const SAMPLES = {
-  tr: { seed: 'Örnek verileri yükle', approval: APPROVAL, ready: '**Örnek veriler hazır.** Kartlar sohbetin üstünde.\n\nİki iş onay bekliyor:', approved: "**Onay alındı.** Montaj testi dalı main'e alınıyor (örnek: gerçek bir iş yapılmaz).\n\nServis betiği ne zaman denensin?\n\n**Seçenekler:**\n1. Hemen denensin\n2. Yarın sabah denensin",
+  tr: { seed: 'Örnek verileri yükle', approval: APPROVAL, ready: '**Örnek veriler hazır.** Durum paneli sohbetin sağında.\n\nİki iş onay bekliyor:', approved: "**Onay alındı.** Montaj testi dalı main'e alınıyor (örnek: gerçek bir iş yapılmaz).\n\nServis betiği ne zaman denensin?\n\n**Seçenekler:**\n1. Hemen denensin\n2. Yarın sabah denensin",
     other: 'Tamam. (Bu bir demo modelidir; gerçek bir iş yapmaz.)', done: ["Testler geçti, main'e alındı.", 'Rapor üretildi ve paylaşıldı.'], ran: 'Güncelleme bitti.',
     items: ["Onay: montaj testi dalı main'e alınır", 'Onay: servis betiği test servisinde denenir', 'Sorun: Gece denetimi hata verdi (acme-web)', 'Senden: Test sunucusunda Gerekli Tarih alanını aç',
       'Rapor hizası için karar', 'TR ve ENG raporlarından hangisi örnek alınsın?', 'Fatura şablonunu gözden geçir', 'Kırtasiye siparişini ver', 'Toplantı notlarını oku'],
     tasks: ['Satınalma Gerekli Tarih sorguları', 'Haftalık stok raporu', 'Montaj testi dalı', 'Hava durumu CLI güncellemesi'] },
   en: { seed: 'Load the sample data', approval: 'Approve: merge the login-fix branch of acme-web into main and run the build script on the test server.',
-    ready: '**Sample data is ready.** The cards are above the chat.\n\nTwo tasks wait for your approval:', approved: '**Approved.** The login-fix branch goes into main (a demo: nothing real runs).\n\nWhen does the build script run?\n\n**Options:**\n1. Run it now\n2. Run it tomorrow morning',
+    ready: '**Sample data is ready.** The status panel is at the right of the chat.\n\nTwo tasks wait for your approval:', approved: '**Approved.** The login-fix branch goes into main (a demo: nothing real runs).\n\nWhen does the build script run?\n\n**Options:**\n1. Run it now\n2. Run it tomorrow morning',
     other: 'OK. (This is a demo model; it does no real work.)', done: ['Tests pass, merged into main.', 'The report is ready and shared.'], ran: 'The update is done.',
     items: ['Onay: merge the login-fix branch of acme-web', 'Onay: run the build script on the test server', 'Sorun: Nightly check of acme-web failed', 'Senden: Turn on the due-date field on the test server',
       'Choose the report layout', 'Which report is the template: the short or the long one?', 'Review the invoice template', 'Order office supplies', 'Read the meeting notes'],

@@ -2766,6 +2766,8 @@
     "status.summaryLate": "Ringkasan baru tidak datang.",
     "status.summaryFailed": "Tidak dapat meminta ringkasan baru: {error}",
     "status.refresh": "Muat ulang",
+    "status.placeTop": "Tampilkan di atas obrolan",
+    "status.placeSide": "Tampilkan di kanan obrolan",
     "status.summary": "Ringkasan",
     "status.summarize": "Ambil ringkasan",
     "status.hideSummary": "Sembunyikan ringkasan",

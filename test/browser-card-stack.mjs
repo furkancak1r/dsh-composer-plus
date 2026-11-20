@@ -1,7 +1,7 @@
 // Real-app check of the Damon card stack on each dsh given (scripts/demo-card-stack.mjs: a throwaway DSH_HOME and HOME,
 // a fake model on 127.0.0.1, made-up projects and items). Headless, with Chromium's sandbox. Never the user's dsh home.
-// 1. The Damon chat shows the card stack above the chat (inside dsh's chat body, above the messages, not at its right):
-//    the count bar "1 onay · 1 sorun · 2 senden · 3 sürüyor · 2 bitti" (Turkish UI), then Onay, Sorun, Senden,
+// 1. The Damon chat shows the card stack at the right of the chat by default (inside dsh's chat body, over no message,
+//    not in dsh's right sidebar): the count bar "1 onay · 1 sorun · 2 senden · 3 sürüyor · 2 bitti" (Turkish UI), then Onay, Sorun, Senden,
 //    Sürüyor, Bugün bitti (folded) and Notların (folded), in that order.
 // 2. The Onay card shows the whole approval sentence with one Onayla; there is no Approve button under Damon's reply,
 //    and the sentence stays in the reply as gray text (no code block).
@@ -13,6 +13,11 @@
 // 7. Kuyruk (phase 2): the Onay entry first, the choice (the option list of the newest answer) and the Senden cards one at
 //    a time; Sonra moves an entry to the end; a choice sends "Option N: …" once; "N kalan" and "x/y cevaplandı".
 // 8. Brifing: "Sıradaki tek iş · N işten 1.", four counts; Seni bekliyor opens the queue.
+// 9. The place button (Furkan, 2026-11-20): Enter and Space move the stack above the chat and back, the focus stays on the
+//    button, a reload keeps the choice. At 1360x770 and at 900 px, in both places: the page and the stack do not scroll
+//    sideways, nothing leaves the stack, no part inside it is a box (background, shadow, border on two sides); above the
+//    chat it stays in the chat column and above the messages; at the right it covers no message. Below 1000 px the stack
+//    is above the chat and the button hides. SHOTS=<folder> writes the page at each place.
 // PLAYWRIGHT=/path/to/playwright node test/browser-card-stack.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/assistantTodos.webp from its own demo with the English UI and English made-up data.
 import assert from 'node:assert/strict';
@@ -32,6 +37,56 @@ const until = async (fn, what, ms = 30000) => {
   const end = Date.now() + ms;
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(250); }
 };
+// The layout of the stack (Furkan, 2026-11-20: "box in box in box", too wide): nothing inside it leaves it sideways, the
+// page does not scroll sideways, and no part inside it is a box of its own (a background, a shadow, or a border on two or
+// more sides; buttons and small tags are not parts). Above the chat (`top`), it also stays inside the chat column.
+const flatFaults = (page) => page.locator('[data-composer-plus-todos]').evaluate((root) => {
+  const r = (el) => el.getBoundingClientRect(); const box = r(root); const faults = [];
+  const name = (el) => `${el.tagName.toLowerCase()}.${typeof el.className === 'string' ? el.className.split(' ')[0] : ''}`;
+  if (document.documentElement.scrollWidth > window.innerWidth + 1) faults.push(`the page scrolls sideways (${document.documentElement.scrollWidth} > ${window.innerWidth})`);
+  if (root.scrollWidth > root.clientWidth + 1) faults.push(`the stack scrolls sideways (${root.scrollWidth} > ${root.clientWidth})`);
+  const counts = root.querySelector('[data-composer-plus-counts]');
+  if (counts.scrollWidth > counts.clientWidth + 1) faults.push(`the counts are cut (${counts.textContent})`);
+  const time = root.querySelector('.cp-st-time');
+  if (time !== null && (time.clientWidth === 0 || time.scrollWidth > time.clientWidth + 1)) faults.push(`the list time is cut (${time.textContent})`);
+  for (const el of root.querySelectorAll('*')) {
+    const b = r(el); if (b.width === 0 || el.closest('.cp-st-sr, [hidden], details:not([open]) > :not(summary)')) continue;
+    if (b.left < box.left - 1 || b.right > box.right + 1) faults.push(`${name(el)} leaves the stack (${Math.round(b.left)}–${Math.round(b.right)} / ${Math.round(box.left)}–${Math.round(box.right)})`);
+    if (el.closest('button:not(.cp-b-tile), .cp-cs-tag, .cp-q-prog, .cp-st-skel, .cp-st-spin')) continue;
+    const s = getComputedStyle(el); const sides = ['Top', 'Right', 'Bottom', 'Left'].filter((d) => parseFloat(s[`border${d}Width`]) > 0 && s[`border${d}Style`] !== 'none');
+    const bg = s.backgroundColor.match(/[\d.]+/g)?.map(Number) ?? [0, 0, 0, 0];
+    if ((bg.length === 4 ? bg[3] : 1) > 0) faults.push(`${name(el)} has a background (${s.backgroundColor})`);
+    if (s.boxShadow !== 'none') faults.push(`${name(el)} has a shadow`);
+    if (sides.length >= 2) faults.push(`${name(el)} has a border on ${sides.join(', ')}`);
+  }
+  if (root.dataset.place !== 'side' || getComputedStyle(root).position !== 'absolute') {
+    // The chat column: dsh's --dsh-chat-content-width, measured with a probe in the chat body.
+    const probe = document.createElement('div'); probe.style.cssText = 'width:var(--dsh-chat-content-width,720px);height:0;visibility:hidden;position:absolute';
+    root.parentElement.append(probe); const col = r(probe).width; probe.remove();
+    if (box.width > col + 1) faults.push(`wider than the chat column (${Math.round(box.width)} > ${Math.round(col)})`);
+  }
+  return faults;
+});
+/** At the right of the chat: in the right part of the chat body, and no chat row reaches under it. */
+const sideFaults = (page, sessionId) => page.evaluate((id) => {
+  const root = document.querySelector('[data-composer-plus-todos]'); const body = root.parentElement; const b = root.getBoundingClientRect(); const c = body.getBoundingClientRect();
+  const faults = [];
+  if (getComputedStyle(root).position !== 'absolute' || b.right > c.right + 1 || b.left < c.left + c.width / 2) faults.push(`not at the right of the chat (${JSON.stringify([b.left, b.right])} in ${JSON.stringify([c.left, c.right])})`);
+  // The 300px header: the counts have their own line (a narrow column broke them into one word per line).
+  const head = root.querySelector('.cp-st-top > h2').getBoundingClientRect(); const top = root.querySelector('.cp-st-top').getBoundingClientRect();
+  if (head.width < top.width - 12) faults.push(`the counts have no line of their own (${Math.round(head.width)} of ${Math.round(top.width)})`);
+  for (const row of document.querySelectorAll(`[data-conversation-session="${id}"] [data-chat-node-key]`)) {
+    const n = row.getBoundingClientRect(); if (n.width > 0 && n.bottom > b.top && n.top < b.bottom && n.right > b.left + 1) faults.push(`a chat row reaches under the stack (${Math.round(n.right)} > ${Math.round(b.left)})`);
+  }
+  return faults;
+}, sessionId);
+/** Above the chat: the stack ends above the chat's scroll body, at most 40% of the window high. */
+const topFaults = (page, sessionId) => page.evaluate((id) => {
+  const root = document.querySelector('[data-composer-plus-todos]'); const b = root.getBoundingClientRect();
+  const s = document.querySelector(`[data-conversation-session="${id}"] [data-conversation-scroll]`).getBoundingClientRect();
+  return [...(getComputedStyle(root).position === 'absolute' ? ['not in the flow above the chat'] : []), ...(b.bottom > s.top + 1 ? [`over the chat (${b.bottom} > ${s.top})`] : []),
+    ...(b.height > window.innerHeight * 0.4 + 2 ? [`higher than 40% (${b.height})`] : [])];
+}, sessionId);
 const calls = [];
 const model = await fakeModel(calls);
 const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
@@ -57,10 +112,10 @@ try {
       await page.locator('button[aria-label="Damon"]').click();
       const stack = page.locator('[data-composer-plus-todos]');
       await stack.waitFor({ timeout: 30000 });
-      // 1. Above the chat, in the chat body; the count bar; the order of the groups.
+      // 1. At the right of the chat by default (Furkan, 2026-11-20), in the chat body; the count bar; the order of the groups.
       assert.equal(await stack.evaluate((el) => el.parentElement?.hasAttribute('data-conversation-content')), true, 'in dsh\'s chat body');
-      const box = await stack.boundingBox(); const scroll = await page.locator(`[data-conversation-session="${sessionId}"] [data-conversation-scroll]`).boundingBox();
-      assert.ok(box.y + box.height <= scroll.y + 1, `above the chat (${JSON.stringify(box)} / ${JSON.stringify(scroll)})`);
+      assert.equal(await stack.getAttribute('data-place'), 'side', 'the right side by default');
+      assert.deepEqual(await sideFaults(page, sessionId), [], 'at the right of the chat, over no message');
       const counts = stack.locator('[data-composer-plus-counts]');
       // dsh before 0.2.2 has no background subagents: the two long tasks of the seed end at once there.
       const want = background ? '1 onay · 1 sorun · 2 senden · 3 sürüyor · 2 bitti' : '1 onay · 1 sorun · 2 senden · 1 sürüyor · 4 bitti';
@@ -69,8 +124,7 @@ try {
       assert.deepEqual(order, ['onay', 'sorun', 'senden', 'suruyor', 'bitti', 'notes'], 'the order of the stack');
       assert.equal(await stack.locator('[data-group="bitti"] button[aria-expanded]').getAttribute('aria-expanded'), 'false', 'Bugün bitti starts folded');
       assert.equal(await stack.locator('[data-group="notes"] button[aria-expanded]').getAttribute('aria-expanded'), 'false', 'Notların starts folded');
-      assert.ok(box.height <= 900 * 0.4 + 2, `at most 40% of the window (${box.height})`);
-      note('1: the stack above the chat, the count bar, the order (Bugün bitti and Notların folded)');
+      note('1: the stack at the right of the chat (the default), the count bar, the order (Bugün bitti and Notların folded)');
       // 2. The Onay card: the whole sentence and one Onayla; none under the reply; the sentence in the reply as gray text.
       const onay = stack.locator('[data-card="onay"][role="region"]');
       await until(async () => (await onay.innerText()).includes(APPROVAL), 'the whole sentence in the Onay card');
@@ -153,6 +207,51 @@ try {
       await queue.waitFor({ timeout: 10000 });
       await stack.locator('[data-view-button="stack"]').click();
       note('8: Brifing: Sıradaki tek iş · 3 işten 1., four counts, Seni bekliyor opens the queue');
+      // 9. The place button (Furkan, 2026-11-20): keyboard only; the choice stays after a reload; both places are flat, do
+      // not scroll sideways and stay in their room, at 1360x770 (the screenshot's window) and at 900 px.
+      const shot = async (name) => { if (process.env.SHOTS) await page.screenshot({ path: join(process.env.SHOTS, `${version}-${name}.png`) }); };
+      await stack.locator('[data-view-button="brief"]').click(); await brief.waitFor({ timeout: 10000 });
+      await page.setViewportSize({ width: 1360, height: 770 }); await pause(300);
+      const place = stack.locator('[data-place-button]');
+      assert.equal(await place.getAttribute('aria-label'), 'Sohbetin üstünde göster', 'its name says where it moves the panel');
+      assert.deepEqual([...await flatFaults(page), ...await sideFaults(page, sessionId)], [], 'right side, 1360x770: flat, at the right, over no message');
+      await shot('side-1360');
+      await place.focus(); await page.keyboard.press('Enter');
+      await until(async () => (await stack.getAttribute('data-place')) === 'top', 'Enter moves the panel above the chat');
+      assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute('data-place-button')), true, 'the focus stays on the button');
+      assert.equal(await place.getAttribute('aria-label'), 'Sağ panelde göster');
+      await page.keyboard.press(' ');
+      await until(async () => (await stack.getAttribute('data-place')) === 'side', 'Space moves it back to the right');
+      await page.keyboard.press('Enter'); await until(async () => (await stack.getAttribute('data-place')) === 'top', 'above again');
+      await page.reload();
+      if (!(await stack.waitFor({ timeout: 10000 }).then(() => true, () => false))) { await page.keyboard.press('Escape'); await page.locator('button[aria-label="Damon"]').click(); await stack.waitFor({ timeout: 30000 }); }
+      assert.equal(await stack.getAttribute('data-place'), 'top', 'a reload keeps the place above the chat');
+      await brief.waitFor({ timeout: 10000 }); await pause(500);
+      assert.deepEqual([...await flatFaults(page), ...await topFaults(page, sessionId)], [], 'above the chat, 1360x770: flat, in the chat column, above the chat');
+      await shot('top-1360');
+      await page.setViewportSize({ width: 900, height: 770 }); await pause(300);
+      assert.deepEqual([...await flatFaults(page), ...await topFaults(page, sessionId)], [], 'above the chat, 900 px: flat, no sideways scroll');
+      assert.equal(await place.isVisible(), false, 'below 1000 px the place button hides');
+      await shot('top-900');
+      await stack.locator('[data-view-button="stack"]').click(); await pause(300);
+      assert.deepEqual(await flatFaults(page), [], 'the cards above the chat, 900 px: flat');
+      await page.setViewportSize({ width: 1360, height: 770 }); await pause(300);
+      await place.click(); await until(async () => (await stack.getAttribute('data-place')) === 'side', 'a click moves it to the right');
+      await page.reload();
+      if (!(await stack.waitFor({ timeout: 10000 }).then(() => true, () => false))) { await page.keyboard.press('Escape'); await page.locator('button[aria-label="Damon"]').click(); await stack.waitFor({ timeout: 30000 }); }
+      assert.equal(await stack.getAttribute('data-place'), 'side', 'a reload keeps the right side');
+      await pause(500);
+      assert.deepEqual([...await flatFaults(page), ...await sideFaults(page, sessionId)], [], 'the cards at the right, 1360x770: flat, over no message');
+      await shot('side-cards-1360');
+      // Folded at the right, the header and the Onay card still show: they cover no message either (review).
+      const head = stack.locator('.cp-td-head'); await head.click();
+      await until(async () => (await stack.getAttribute('data-open')) === 'false', 'folded');
+      assert.deepEqual(await sideFaults(page, sessionId), [], 'folded at the right: over no message');
+      await head.click(); await until(async () => (await stack.getAttribute('data-open')) === 'true', 'open again');
+      await page.setViewportSize({ width: 900, height: 770 }); await pause(300);
+      assert.deepEqual([...await flatFaults(page), ...await topFaults(page, sessionId)], [], 'the right side at 900 px shows above the chat: flat, no sideways scroll');
+      await page.setViewportSize({ width: 1280, height: 900 });
+      note('9: the place button: Enter and Space, the focus stays, a reload keeps it; flat and no sideways scroll at 1360x770 and 900 px (both places)');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {

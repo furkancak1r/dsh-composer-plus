@@ -2766,6 +2766,8 @@
     "status.summaryLate": "No llegó un resumen nuevo.",
     "status.summaryFailed": "No se pudo pedir un resumen nuevo: {error}",
     "status.refresh": "Actualizar",
+    "status.placeTop": "Mostrar encima del chat",
+    "status.placeSide": "Mostrar a la derecha del chat",
     "status.summary": "Resumen",
     "status.summarize": "Obtener resumen",
     "status.hideSummary": "Ocultar el resumen",
