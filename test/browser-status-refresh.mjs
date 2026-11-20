@@ -1,15 +1,15 @@
-// Real-app check of Refresh and Get summary in the Assistant status panel on each dsh given: a fake model, a throwaway
+// Real-app check of Refresh and Get summary in the Assistant status panel (the card stack above the Damon chat) on each dsh given: a fake model, a throwaway
 // DSH_HOME and HOME, a made-up project (acme-web), Turkish UI. Never the normal DSH_HOME, no real model. Headless, with
 // Chromium's sandbox.
-// 1. Setup: the assistant adds a to-do item. The panel shows no summary card: only the lists, "Liste HH:MM", Özet getir
-//    and Refresh. (A summary of a news turn stays closed: test/assistant-status.test.mjs and the client test.)
+// 1. Setup: the assistant adds a to-do item (a note of the user: the folded "Notların" group). The stack shows no summary
+//    card: only the count bar with "Liste HH:MM", Özet getir, Projeler and Refresh. (A summary of a news turn stays closed: test/assistant-status.test.mjs and the client test.)
 // 2. Refresh: within 100 ms the button turns and is aria-disabled, the header says "Yenileniyor…", the old content stays
 //    in place (dimmed), the polite status line says it. The lists come back in less than a second. No summary request.
 // 3. Özet getir: the card says "Özet hazırlanıyor…" while the assistant's turn writes it (a hidden note, not a chat
 //    bubble); it is the only place with that text and the only spinner (the button keeps "Özet getir", aria-disabled);
 //    a second click and Refresh send no second request; the card then shows the new summary.
 //    Close: the card goes; a summary that you ask for in the chat opens it again.
-//    In the header and the card no icon or text covers another, also in a narrow panel (300 px and 240 px).
+//    In the header and the card no icon or text covers another, also in a narrow panel (300 px and 280 px: the count bar has three buttons now, below about 280 px its title button has no room).
 // 4. A turn that ends without a summary: "Yeni özet gelmedi." and Try again (the 5-minute timer itself is in
 //    test/assistant-todos-client.test.mjs).
 // 5. Errors (the Host answers 500/502): a short reason and Try again; Try again works.
@@ -105,7 +105,9 @@ const browser = await chromium.launch({ headless: true, chromiumSandbox: true })
 try {
   for (const bin of process.argv.slice(2)) {
     calls.length = 0; model.summary = 'write';
-    const version = bin.includes('app.asar') ? 'app' : bin.match(/dsh-real-([^/]+)|\/(\d+\.\d+\.\d+[^/]*)\//)?.slice(1).find(Boolean) ?? bin;
+    // The version from the install path: …/dsh-real-<v>/, …/<v>/ or …/dsh-<v>/ (the 0.2.0-rc.2 install; without it the
+    // 0.2.0 run used the 0.2.2 rrule and step 7 timed out, on main too).
+    const version = bin.includes('app.asar') ? 'app' : bin.match(/dsh-real-([^/]+)|\/(?:dsh-)?(\d+\.\d+\.\d+[^/]*)\//)?.slice(1).find(Boolean) ?? bin;
     model.rrule = !/^0\.2\.[01]-/.test(version); // 0.2.0/0.2.1: schedule_create({after_seconds}); 0.2.2: an rrule
     console.log(`dsh ${version}`);
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-status-refresh-')));
@@ -173,13 +175,17 @@ try {
       const panel = page.locator('[data-composer-plus-todos]');
       const card = panel.locator('.cp-st-summary');
       const refresh = panel.locator('.cp-st-top > button.cp-td-btn');
-      const ask = panel.locator('.cp-st-ask');
+      const ask = panel.locator('.cp-st-ask[id$="-summarize"]'); // Projeler is a .cp-st-ask too
       const spoken = () => panel.locator('[role="status"][aria-live="polite"]').innerText();
 
       // 1. Setup: no summary card by default.
       await page.locator('button[aria-label="Damon"]').click();
       const sessionId = await until(async () => (await page.evaluate(async () => (await (await fetch('/api/composer-plus.assistant-status')).json()).sessionId)), 'assistant id');
-      await send('Remember: buy milk'); await panel.getByText('Süt al').waitFor({ timeout: 30000 });
+      await send('Remember: buy milk'); await panel.getByText('Süt al').waitFor({ state: 'attached', timeout: 30000 });
+      // "Notların" starts folded: open it, so that the old content is in view for the Refresh check.
+      const notesHead = panel.locator('button.cp-td-group[data-group="notes"]');
+      assert.equal(await notesHead.getAttribute('aria-expanded'), 'false', 'Notların starts folded');
+      await notesHead.click(); await panel.getByText('Süt al').waitFor({ state: 'visible', timeout: 5000 });
       await pause(1500); await page.mouse.move(10, 10);
       assert.equal(await card.count(), 0, 'no summary card by default');
       assert.equal(await ask.innerText(), 'Özet getir');
@@ -203,7 +209,7 @@ try {
       await shot(`${version}-1-refreshing`);
       assert.equal(await spoken(), 'Yenileniyor…', 'the polite status line says it');
       assert.equal(await panel.getByText('Süt al').isVisible(), true, 'the old content stays in place');
-      await until(async () => Number(await panel.locator('section[aria-labelledby$="-todos"]').evaluate((el) => getComputedStyle(el).opacity)) < 0.6, 'and is dimmed (after its .15 s fade)', 400);
+      await until(async () => Number(await panel.locator('section[data-group="notes"]').evaluate((el) => getComputedStyle(el).opacity)) < 0.6, 'and is dimmed (after its .15 s fade)', 400);
       const clickedAt = Date.now(); const read = await listRead; await read.finished();
       assert.ok(Date.now() - clickedAt < 1000, 'the lists come back in less than a second');
       await until(async () => (await refresh.getAttribute('aria-disabled')) === 'false', 'Refreshing ends after the read', 3000);
@@ -215,8 +221,8 @@ try {
       model.delay = 5000;
       await ask.click();
       await card.getByText('Özet hazırlanıyor…').waitFor({ timeout: 3000 });
-      assert.deepEqual({ marks: await pendingMarks(panel), faults: [...await layoutFaults(panel), ...await layoutFaults(panel, 240)] },
-        { marks: { texts: ['cp-st-wait'], spinners: 1 }, faults: [] }, 'only the card says it, with one spinner; no icon covers another (also 240 px wide)');
+      assert.deepEqual({ marks: await pendingMarks(panel), faults: [...await layoutFaults(panel), ...await layoutFaults(panel, 280)] },
+        { marks: { texts: ['cp-st-wait'], spinners: 1 }, faults: [] }, 'only the card says it, with one spinner; no icon covers another (also 280 px wide)');
       assert.equal(await ask.innerText(), 'Özet getir'); assert.equal(await ask.getAttribute('aria-disabled'), 'true');
       assert.equal(await spoken(), 'Özet hazırlanıyor…');
       // At once, while it waits (Playwright's click waits for a stable element; the summary could come meanwhile).
@@ -241,8 +247,8 @@ try {
       await ask.click(); await card.getByText('Özet hazırlanıyor…').waitFor({ timeout: 3000 });
       await card.getByRole('button', { name: 'Özeti gizle' }).click();
       assert.equal(await ask.innerText(), 'Özet hazırlanıyor…');
-      assert.deepEqual({ marks: await pendingMarks(panel), faults: [...await layoutFaults(panel), ...await layoutFaults(panel, 240)] },
-        { marks: { texts: ['cp-st-label'], spinners: 1 }, faults: [] }, 'card closed: only the header says it; no icon covers another (also 240 px wide)');
+      assert.deepEqual({ marks: await pendingMarks(panel), faults: [...await layoutFaults(panel), ...await layoutFaults(panel, 280)] },
+        { marks: { texts: ['cp-st-label'], spinners: 1 }, faults: [] }, 'card closed: only the header says it; no icon covers another (also 280 px wide)');
       await shot(`${version}-2b-summary-waiting-closed`);
       await until(async () => (await ask.innerText()) === 'Özet getir', 'the summary ends the wait', 30000);
       assert.deepEqual(await pendingMarks(panel), { texts: [], spinners: 0 }); assert.equal(await card.count(), 0, 'the answer does not open the closed card');

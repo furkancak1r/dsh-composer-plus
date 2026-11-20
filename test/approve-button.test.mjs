@@ -20,10 +20,11 @@ const mem = new Map(); globalThis.localStorage = { getItem: (k) => mem.get(k) ??
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
 const ANCHOR = '/** Feature switches, in Settings order.';
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_REVOKE, APPROVAL_REVOKE_LIVE, APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD, DEPLOY_ASK, DEPLOY_LINE, setDeployProducts };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__ap = { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks, createCardOffers, CardChoices, StatusPanel, createTodos, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_REVOKE, APPROVAL_REVOKE_LIVE, APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD, DEPLOY_ASK, DEPLOY_LINE, setDeployProducts };\n    ${ANCHOR}`));
 let cur;
 const React = { Fragment: 'F', createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }),
-  useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = v; return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
+  useState: (v) => { const i = cur.si++; const s = cur.state; if (!(i in s)) s[i] = typeof v === 'function' ? v() : v; // React's lazy initial state
+    return [s[i], (x) => { s[i] = typeof x === 'function' ? x(s[i]) : x; }]; },
   useRef: (v) => { const i = cur.ri++; return cur.refs[i] ??= { current: v }; },
   useSyncExternalStore: (sub, get) => get(), useLayoutEffect: () => {},
   useEffect: (f, deps) => {
@@ -36,7 +37,7 @@ const mount = (C, props) => {
   return { render: () => { cur = inst; inst.si = 0; inst.ri = 0; inst.ei = 0; return C(props); }, unmount: () => { for (const c of inst.cleanups) c?.(); } };
 };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? { createPortal: (el, host) => ({ portal: el, host }) } : {}));
-const { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks } = globalThis.__ap;
+const { parseApprovals, parseOptions, ApproveButtons, OptionPicks, createOptionPicks, createRollbackCheck, chatOffer, APPROVAL_MAX, onayMarks, markOnayBlocks, ONAY_CSS, OnayCodeBlocks, createCardOffers, StatusPanel, createTodos } = globalThis.__ap;
 
 // --- parseApprovals ---
 const sentences = (text) => parseApprovals(text).map((a) => a.message);
@@ -425,6 +426,186 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
     assert.deepEqual(layout.at(-1).map((m) => m[2]), ['text', 'text'], 'composer text hides the button: the sentence comes back as plain text');
     input = { ...input, draft: '' }; dock.unmount();
   } finally { React.useLayoutEffect = keep; }
+}
+
+// --- Damon card stack (2026-11-19): the Onayla button moves from the reply into the Onay card ---
+// The card's Onayla calls the same store (Option picks: one send per chat at a time, never the same answer twice) with
+// the same send function as the button under a reply: the exact sentence goes as your message once. While a card stack
+// shows in the chat, no Approve button is under the reply and the sentence stays as gray text.
+{
+  const CARD = "Onaylıyorum (canlı değil): montaj testi dalı main'e alınsın.";
+  const LIVE = 'Onaylıyorum: canlı sunucuya deploy et.';
+  view = chat(user(200, 'x'), tail(20, 210, `Ready.\n\n${block(CARD)}`)); input = { phase: 'plain', draft: '', attachmentIds: [] }; session = { blank: false, running: false, subagent: null, removed: false };
+  const cardSent = [];
+  const cardPicks = createOptionPicks(async (id, text) => { cardSent.push([id, text]); });
+  const offers = createCardOffers();
+  const props = { sessionId: 'D', ...hooks, picks: cardPicks, check: createRollbackCheck(async () => true), rollback, t, offers };
+  // OnayCodeBlocks publishes the chat's offer (also while the composer has text) for the Onay card.
+  const dock = mount(OnayCodeBlocks, props); dock.render(); await flush(); dock.render();
+  assert.deepEqual(offers.of('D').offer.options.map((o) => o.message), [CARD], 'the offer is published for the card');
+  assert.equal(offers.of('D').empty, true);
+  // Without a card stack (another chat): the button stays under the reply.
+  const tailCell = mount(ApproveButtons, { ...props, turn: {}, seq: 210 });
+  assert.equal(buttonsOf(tailCell.render()).length, 1, 'no stack: the button under the reply');
+  // The stack in this chat: no button under the reply, the sentence is gray text (no 'button' mark).
+  const unstack = offers.stack('D');
+  assert.equal(tailCell.render(), null, 'a stack: no Approve button under the reply');
+  const layout = []; const keep = React.useLayoutEffect; React.useLayoutEffect = (f, deps) => { if (deps?.length === 1 && typeof deps[0] === 'string' && deps[0].startsWith('[')) layout.push(JSON.parse(deps[0])); };
+  try { dock.render(); } finally { React.useLayoutEffect = keep; }
+  assert.ok(layout.at(-1).every((m) => m[2] === 'text'), 'a stack: the sentence stays in the reply as gray text');
+  // The card: a fake store with one "Onay:" item; the card shows the sentence in full and one Onayla.
+  const store = { of: () => Object.freeze({ items: [{ id: 'a1', text: 'Onay: montaj testi main', owner: 'user', created: Date.now() - 14 * 60000 }], tasks: [], projects: [], summary: null, outage: null, at: Date.now(), busy: false, error: null, errorKind: null, refreshing: false, ask: null, shown: false }),
+    subscribe: () => () => {}, load() {}, schedule() {} };
+  const cardProps = { sessionId: 'D', host: {}, store, openSession: () => {}, locale: () => 'en', t, composer: () => true, notify: () => {}, offers, picks: cardPicks };
+  const stack = mount(StatusPanel, cardProps);
+  const onayCard = (tree) => { const all = []; const walk = (n) => { if (Array.isArray(n)) return n.forEach(walk); if (n === null || typeof n !== 'object') return; if (n.p?.['data-card'] === 'onay' && n.p.role === 'region') all.push(n); (n.c ?? []).forEach(walk); }; walk(tree); return all[0]; };
+  const btns = (n) => { const out = []; const walk = (x) => { if (Array.isArray(x)) return x.forEach(walk); if (x === null || typeof x !== 'object') return; if (x.t === 'button') out.push(x); (x.c ?? []).forEach(walk); }; walk(n); return out; };
+  let card = onayCard(stack.render());
+  assert.ok(card, 'the Onay card shows');
+  assert.ok(texts(card).includes(CARD), 'the whole sentence, not cut');
+  assert.ok(texts(card).some((x) => /cards\.onay/.test(x)) && !texts(card).includes('cards.live'), 'Onay bekliyor, no CANLI label for a not-live sentence');
+  const approve = btns(card).filter((b) => b.p['data-composer-plus-approve'] === 'card');
+  assert.equal(approve.length, 1, 'one Onayla in the card'); assert.deepEqual(texts(approve[0]), ['approve.button']);
+  approve[0].p.onClick(); approve[0].p.onClick(); await flush();
+  assert.deepEqual(cardSent, [['D', CARD]], 'one click sends the exact sentence once, on the same path as the reply button');
+  assert.equal(await cardPicks.pick('D', offers.of('D').offer, 1), false, 'the same answer again: refused');
+  // Typing hides the card's Onayla (today's rule); the card and the sentence stay.
+  dock.render(); await flush(); input = { ...input, draft: 'hm' }; dock.render(); await flush();
+  card = onayCard(stack.render()); assert.ok(card, 'the card stays while you type');
+  assert.equal(btns(card).filter((b) => b.p['data-composer-plus-approve'] === 'card').length, 0, 'no Onayla while the composer has text');
+  input = { ...input, draft: '' };
+  // A live sentence gets the CANLI label.
+  view = chat(user(300, 'y'), tail(30, 310, block(LIVE))); dock.render(); await flush(); dock.render(); await flush();
+  assert.ok(texts(onayCard(stack.render())).includes('cards.live'), 'a live sentence: CANLI');
+  // Without a block, the "Onay:" items keep the card and say that the button comes back.
+  view = chat(user(400, 'z'), tail(40, 410, 'Ok.')); dock.render(); await flush(); dock.render(); await flush();
+  card = onayCard(stack.render()); assert.ok(card, 'the items keep the card');
+  assert.ok(texts(card).some((x) => /^cards\.approveAgain/.test(x)), 'the note: the button comes back with the sentence');
+  // --- Phase 2: the decision queue and the daily briefing (the same cards, two more views) ---
+  // The Onay entry of the queue: one Onayla on screen (the fixed part does not show the card twice); Onayla sends the
+  // exact sentence once through the same store; A sends it too, only after the entry showed for 800 ms.
+  view = chat(user(500, 'w'), tail(50, 510, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
+  const qPicks = cardPicks; const before = cardSent.length;
+  const find = (tree, pred) => { const all = []; const walk = (n) => { if (Array.isArray(n)) return n.forEach(walk); if (n === null || typeof n !== 'object') return; if (pred(n)) all.push(n); (n.c ?? []).forEach(walk); }; walk(tree); return all; };
+  const viewBtn = (tree, v) => find(tree, (n) => n.t === 'button' && n.p['data-view-button'] === v)[0];
+  let tree = stack.render();
+  assert.deepEqual(['stack', 'queue', 'brief'].map((v) => Boolean(viewBtn(tree, v))), [true, true, true], 'three views: Kartlar, Kuyruk, Brifing');
+  viewBtn(tree, 'queue').p.onClick(); tree = stack.render();
+  assert.equal(mem.get('dsh-composer-plus.status-view'), 'queue', 'the view is kept in this browser');
+  const queueSec = find(tree, (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
+  assert.ok(queueSec, 'the queue view');
+  assert.equal(find(tree, (n) => n.p?.['data-composer-plus-approve'] === 'card').length, 1, 'one Onayla on screen in the queue');
+  assert.deepEqual(find(queueSec, (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['onay'], 'the Onay entry first');
+  assert.ok(texts(queueSec).includes('queue.left:{"count":1}'), 'N kalan');
+  // A key at once does nothing (the 800 ms guard); later it sends the sentence once.
+  const key = (k, extra = {}) => { let prevented = false; queueSec.p.onKeyDown({ key: k, preventDefault: () => { prevented = true; }, target: { closest: () => null }, ...extra }); return prevented; };
+  key('a'); await flush(); assert.equal(cardSent.length, before, 'A right after the entry shows: nothing');
+  const realNow = Date.now; Date.now = () => realNow() + 1000;
+  try {
+    tree = stack.render(); const sec2 = find(tree, (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
+    sec2.p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); sec2.p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
+    assert.deepEqual(cardSent.slice(before), [['D', CARD]], 'A sends the exact sentence once (the same store as the button)');
+    // Review 2: each key guard on its own (after the 800 ms): S (Sonra) is not taken, so no preventDefault.
+    const sent2 = cardSent.length;
+    const guarded = (why, extra) => {
+      let prevented = false;
+      const sec = find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
+      sec.p.onKeyDown({ key: 's', preventDefault: () => { prevented = true; }, target: { closest: () => null }, ...extra });
+      assert.equal(prevented, false, `${why}: not taken`);
+    };
+    guarded('a text field', { target: { closest: (sel) => (/input/.test(sel) ? {} : null) } });
+    guarded('a select', { target: { closest: (sel) => (/\bselect\b/.test(sel) ? {} : null) } });
+    guarded('IME (keyCode 229)', { keyCode: 229 });
+    guarded('IME (isComposing)', { isComposing: true });
+    guarded('a handled key (defaultPrevented)', { defaultPrevented: true });
+    guarded('a repeated key', { repeat: true });
+    guarded('Ctrl', { ctrlKey: true });
+    assert.equal(cardSent.length, sent2, 'no guarded key sends');
+  } finally { Date.now = realNow; }
+  assert.equal(await qPicks.pick('D', offers.of('D').offer, 1), false, 'the same answer again: refused');
+  // Review 2: the screen reader hears only the entry line ("1 / 1: <entry>"), in one polite status region.
+  {
+    const said = find(find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0], (n) => n.p?.['aria-live'] === 'polite');
+    assert.equal(said.length, 1, 'one aria-live region in the queue'); assert.equal(said[0].p.role, 'status');
+    assert.deepEqual(texts(said[0]), ['1 / 1: cards.onay'], 'it says the position and the entry, no age text');
+    // Kartlar: the queue section (it holds the key handler) is not drawn.
+    viewBtn(stack.render(), 'stack').p.onClick();
+    assert.equal(find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue').length, 0, 'Kartlar: no queue, so no queue keys');
+    viewBtn(stack.render(), 'queue').p.onClick(); stack.render();
+  }
+  // Review 1 (P1, P2): a new sentence starts the 800 ms clock again; Shift+A does nothing; the clock starts only in the
+  // open queue (A at once after a switch from Kartlar: nothing).
+  {
+    const NEW = "Onaylıyorum (canlı değil): rapor dalı main'e alınsın.";
+    const realNow2 = Date.now; let clock = realNow2() + 5000; Date.now = () => clock;
+    try {
+      view = chat(user(520, 'w2'), tail(52, 530, `Ready.\n\n${block(NEW)}`)); dock.render(); await flush(); dock.render(); await flush();
+      const fresh = cardSent.length;
+      const secNow = () => find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
+      const press = (k, extra = {}) => secNow().p.onKeyDown({ key: k, preventDefault() {}, target: { closest: () => null }, ...extra });
+      clock += 10; press('a'); await flush();
+      assert.equal(cardSent.length, fresh, 'A 10 ms after a new sentence: nothing (the clock starts again)');
+      clock += 1000; press('a', { shiftKey: true }); await flush();
+      assert.equal(cardSent.length, fresh, 'Shift+A: nothing');
+      // Kartlar, then Kuyruk again: the clock starts when the queue opens.
+      viewBtn(stack.render(), 'stack').p.onClick(); stack.render(); clock += 5000;
+      viewBtn(stack.render(), 'queue').p.onClick(); clock += 10; press('a'); await flush();
+      assert.equal(cardSent.length, fresh, 'A at once after the queue opens: nothing');
+      clock += 1000; press('a'); await flush();
+      assert.deepEqual(cardSent.slice(fresh), [['D', NEW]], 'A after 800 ms in the open queue: the new sentence once');
+    } finally { Date.now = realNow2; }
+  }
+  // Review 1 (P3): Sonra holds the entry that you moved; a new sentence is a new entry and goes back to its rank.
+  {
+    const store2 = { ...store, of: () => Object.freeze({ ...store.of(), items: [...store.of().items, { id: 's1', text: 'Senden: test sunucusunu aç', owner: 'user', created: Date.now() - 60000 }] }) };
+    const stack2 = mount(StatusPanel, { ...cardProps, store: store2 });
+    view = chat(user(540, 'w3'), tail(54, 550, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
+    let tree2 = stack2.render(); viewBtn(tree2, 'queue').p.onClick();
+    assert.deepEqual(find(stack2.render(), (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['onay']);
+    find(stack2.render(), (n) => n.t === 'button' && n.p['data-queue-later'] !== undefined)[0].p.onClick();
+    tree2 = stack2.render();
+    assert.deepEqual(find(tree2, (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['senden|s1'], 'Sonra: the Senden card first');
+    // Review 2: a [quiet] news turn moves the offer's seq, not its sentence: the entry stays at the end.
+    const seqBefore = offers.of('D').offer.seq;
+    const aStep = (turn, seq, text) => ({ kind: 'assistant-step', anchorSeq: seq, data: { status: 'settled', turn, step: 1, blocks: [{ kind: 'text', text }], finalNode: { seq } } });
+    view = chat(user(540, 'w3'), aStep(54, 550, `Ready.\n\n${block(CARD)}`), tail(54, 550, `Ready.\n\n${block(CARD)}`), aStep(55, 558, '[quiet]'), tail(55, 558, '[quiet]'));
+    dock.render(); await flush(); dock.render(); await flush();
+    assert.notEqual(offers.of('D').offer.seq, seqBefore, 'the news turn moved the offer');
+    assert.deepEqual(find(stack2.render(), (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['senden|s1'], 'a [quiet] turn: Sonra holds');
+    view = chat(user(560, 'w4'), tail(56, 570, `Ready.\n\n${block("Onaylıyorum (canlı değil): yeni dal main'e alınsın.")}`)); dock.render(); await flush(); dock.render(); await flush();
+    assert.deepEqual(find(stack2.render(), (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['onay'], 'a new sentence: the Onay entry goes back first');
+    stack2.unmount();
+  }
+  // A choice (karar): the option list of the newest answer, published by CardChoices; a button picks through the store.
+  const choiceFrom = cardSent.length; // one store for the buttons, the card and the queue (as in the app)
+  view = chat(user(600, 'v'), tail(60, 610, 'Which one?\n\n**Seçenekler:**\n1. Kendisi alsın\n2. Bana sorsun'));
+  const choices = mount(globalThis.__ap.CardChoices, props); choices.render(); await flush(); choices.render();
+  assert.deepEqual(offers.choiceOf('D').offer.options.map((o) => o.label), ['Kendisi alsın', 'Bana sorsun'], 'the choice is published');
+  dock.render(); await flush(); dock.render(); await flush();
+  tree = stack.render();
+  assert.deepEqual(find(tree, (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['onay'], 'the Onay item still waits: it stays first');
+  assert.equal(find(tree, (n) => n.t === 'button' && n.p['data-composer-plus-choice'] !== undefined).length, 0, 'one entry at a time');
+  find(tree, (n) => n.t === 'button' && texts(n).join('') === 'queue.next')[0].p.onClick(); tree = stack.render();
+  assert.deepEqual(find(tree, (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['karar'], 'Sonraki: the choice');
+  const kararBtns = find(tree, (n) => n.t === 'button' && n.p['data-composer-plus-choice'] !== undefined);
+  assert.deepEqual(kararBtns.map((b) => texts(b).join('')), ['1. Kendisi alsın', '2. Bana sorsun'], 'the karar entry: one button per option');
+  kararBtns[1].p.onClick(); kararBtns[1].p.onClick(); await flush();
+  assert.deepEqual(cardSent.slice(choiceFrom), [['D', 'Option 2: Bana sorsun']], 'a choice sends "Option N: <item>" once (Option picks\' path)');
+  choices.unmount(); assert.equal(offers.choiceOf('D'), undefined, 'unmount: the choice goes');
+  // Sonra moves the entry to the end; the briefing shows the next entry and four counts; a tile opens the queue.
+  view = chat(user(700, 'u'), tail(70, 710, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
+  tree = stack.render();
+  viewBtn(tree, 'brief').p.onClick(); tree = stack.render();
+  const brief = find(tree, (n) => n.t === 'section' && n.p['data-view'] === 'brief')[0];
+  assert.ok(brief, 'the briefing view');
+  assert.ok(texts(brief).includes('brief.next:{"count":1}'), 'Sıradaki tek iş · 1 işten 1.');
+  assert.deepEqual(find(brief, (n) => n.p?.['data-tile'] !== undefined).map((n) => n.p['data-tile']), ['senden', 'sorun', 'suruyor', 'bitti'], 'four counts');
+  assert.equal(find(tree, (n) => n.p?.['data-composer-plus-approve'] === 'card').length, 1, 'one Onayla on screen in the briefing');
+  find(brief, (n) => n.p?.['data-tile'] === 'senden')[0].p.onClick(); tree = stack.render();
+  assert.ok(find(tree, (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0], 'Seni bekliyor opens the queue');
+  viewBtn(tree, 'stack').p.onClick();
+  unstack(); assert.equal(offers.hasStack('D'), false);
+  dock.unmount(); tailCell.unmount(); stack.unmount();
 }
 
 // --- The feature through plugin.apply ---

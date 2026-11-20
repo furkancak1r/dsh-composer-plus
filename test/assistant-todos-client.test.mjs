@@ -144,13 +144,16 @@ const waitMarks = (tr) => find(tr, (n) => n.p?.className === 'cp-st-spin' || (n.
 tree = panel();
 const root = find(tree, (n) => n.p?.['data-composer-plus-todos'] === '')[0];
 assert.ok(root, 'the panel shows'); assert.equal(root.t, 'section');
-assert.equal(attrs.get('data-composer-plus-status-seat'), 'open', 'the chat makes room for the open panel');
-const style = find(root, (n) => n.t === 'style')[0]; assert.match(style.c[0], /position:absolute;top:12px;right:20px/, 'at the right side of the chat');
+// Damon card stack (2026-11-19): the first flex item of dsh's chat body, above the chat, as wide as the chat column.
+const style = find(root, (n) => n.t === 'style')[0]; assert.match(style.c[0], /\{order:-1;flex:none;[^}]*width:var\(--dsh-chat-content-width,720px\)[^}]*max-height:40vh/, 'above the chat, at most 40% high');
+assert.doesNotMatch(style.c[0], /\[data-composer-plus-todos\]\{[^}]*position:absolute|padding-right:332px/, 'no side panel: the chat keeps its width');
 assert.doesNotMatch(style.c[0], /:has\(> \[data-composer-plus-todos\]\)/, 'no :has() rule on the chat body');
 // Heading: h2 > button[aria-expanded]; no aria-label on a span.
 const h2 = find(root, (n) => n.t === 'h2')[0]; assert.equal(find(h2, (n) => n.t === 'button' && n.p['aria-expanded'] === true).length, 1, 'h2 > button[aria-expanded]');
 assert.equal(find(root, (n) => n.t === 'span' && n.p['aria-label'] !== undefined).length, 0, 'no aria-label on a span');
 assert.match(text(h2), /status\.title/); assert.match(text(h2), /status\.updated/, 'the last update time');
+// The count bar: only the groups that have cards ("1 sorun · 2 senden · …").
+assert.equal(text(find(h2, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), 'cards.count.suruyor:{"count":2} · cards.count.bitti:{"count":1}', 'the count bar');
 const refresh = find(root, (n) => n.t === 'button' && n.p['aria-label'] === 'status.refresh')[0]; assert.ok(refresh, 'Refresh button with an aria-label');
 // No summary by default: the Host has one (the assistant wrote it without a request), but the panel shows no card and
 // no summary line in a project row. Get summary is a text button next to Refresh.
@@ -162,13 +165,24 @@ assert.ok(summarize, 'Get summary button'); assert.match(text(summarize), /statu
 assert.match(text(root), /Prosolocal'i internete açmak/); assert.match(text(root), /Rapor yaz/);
 const handover = find(root, (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? ''));
 assert.equal(handover.length, 1, 'Hand over only for an item of the user');
+// Your own note (an item of yours without a mark) is in the folded "Your notes" group at the bottom; Damon's item is a
+// Sürüyor card.
+const notesHead = find(root, (n) => n.t === 'button' && n.p['data-group'] === 'notes')[0];
+assert.equal(notesHead.p["aria-expanded"], false, "your notes: folded"); assert.match(text(notesHead), /cards\.notes\s+1\s*$/, JSON.stringify(text(notesHead)));
+assert.equal(find(root, (n) => n.t === 'ul' && n.p.id === notesHead.p['aria-controls'])[0].p.hidden, true);
+const cardKeys = (tr, g) => find(tr, (n) => n.t === 'li' && n.p.className === 'cp-cs-card' && n.p['data-card'] === g).map((n) => n.p['data-key']);
+assert.deepEqual(cardKeys(root, 'suruyor'), ['c-run', 'bbbbbbbb'], 'Sürüyor: the task (newest start first), then Damon\'s item');
+assert.deepEqual(cardKeys(root, 'bitti'), ['c-done'], 'Bugün bitti: the ended task');
 // Tasks: state, time, result; a click opens its chat.
-const taskRows = find(root, (n) => n.t === 'button' && n.p.className === 'cp-st-row' && n.p['aria-expanded'] === undefined);
-assert.equal(taskRows.length, 2); assert.match(text(taskRows[0]), /Research Rome.*status\.task\.running/); assert.match(text(taskRows[1]), /Flights found: 3 options/);
-assert.match(text(taskRows[0]), /dk|min/, 'the time it runs');
-taskRows[0].p.onClick(); assert.deepEqual(opened, ['c-run'], 'a click opens the task\'s chat');
-// Projects: closed rows with one line (the summary's sentence, else the chat count).
-let rows = find(root, (n) => n.t === 'button' && n.p.className === 'cp-st-row' && n.p['aria-expanded'] !== undefined);
+const taskCard = (tr, key) => find(tr, (n) => n.t === 'li' && n.p['data-key'] === key)[0];
+assert.match(text(taskCard(root, 'c-run')), /Research Rome.*status\.task\.running/); assert.match(text(taskCard(root, 'c-done')), /Flights found: 3 options/);
+assert.match(text(taskCard(root, 'c-run')), /dk|min/, 'the time it runs');
+find(taskCard(root, 'c-run'), (n) => n.t === 'button' && n.p.className === 'cp-cs-title')[0].p.onClick(); assert.deepEqual(opened, ['c-run'], 'the title opens the task\'s chat');
+// Projects (a button in the count bar): closed rows with one line (the summary's sentence, else the chat count).
+const projectsBtn = () => find(panel(), (n) => n.t === 'button' && /-projects$/.test(n.p.id ?? ''))[0];
+assert.equal(projectsBtn().p['aria-expanded'], false, 'the projects are behind their button'); assert.equal(find(root, (n) => n.p?.className === 'cp-st-row').length, 0);
+projectsBtn().p.onClick(); tree = panel();
+let rows = find(tree, (n) => n.t === 'button' && n.p.className === 'cp-st-row' && n.p['aria-expanded'] !== undefined);
 assert.deepEqual(rows.map((r) => r.p['aria-expanded']), [false, false], 'closed by default');
 assert.match(text(rows[0]), /status\.projectChats:\{"count":2\}/); assert.match(text(rows[1]), /status\.projectChats:\{"count":1\}/);
 const nameOf = (b) => text(find(b, (n) => n.p?.className === 'cp-st-name')[0]);
@@ -264,53 +278,63 @@ find(dTree, (n) => n.t === 'button' && n.p.className === 'cp-st-link')[0].p.onCl
   summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }] }; await store.load('s-assistant'); rt.clear();
 }
 
-// Owner groups: the user's items first, then the assistant's, each header with a count; no owner line in a row; a
-// header (aria-expanded, aria-controls) folds its group and the folded groups stay folded in this browser.
-const todoSection = (tr) => find(tr, (n) => n.t === 'section' && /-todos$/.test(n.p['aria-labelledby'] ?? ''))[0];
-const groups = (tr) => find(todoSection(tr), (n) => n.t === 'button' && n.p.className === 'cp-td-group');
-const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
+// Card groups (2026-11-19): the marks and the owners put each item in its card group; your own notes are one folded
+// group at the bottom whose header folds it; each card has its type for a screen reader; no owner line.
+const cardsOf = (tr, g) => find(tr, (n) => n.t === 'li' && n.p.className === 'cp-cs-card' && n.p['data-card'] === g);
+const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'] === g)[0];
 {
   const saved = items;
-  items = [{ id: '11111111', text: 'U1', owner: 'user', created: 1 }, { id: '22222222', text: 'A1', owner: 'agent', created: 2 }, { id: '33333333', text: 'U2', owner: 'user', created: 3 },
-    { id: '44444444', text: 'A2', owner: 'agent', created: 4 }, { id: '55555555', text: 'A3', owner: 'agent', created: 5 }];
-  await panelProps.store.load('s-assistant');
-  let g = groups(panel());
-  assert.deepEqual(g.map((b) => [b.p['data-owner'], b.p['aria-expanded']]), [['user', true], ['agent', true]], 'two groups, the user\'s first, both open');
-  assert.match(text(g[0]), /todos\.groupUser\s+2$/); assert.match(text(g[1]), /todos\.groupAgent:\{"name":"Damon"\}\s+3$/, 'the fixed name Damon');
-  assert.ok(g.every((b) => find(b, (n) => n.p?.['aria-hidden'] === true && /[▸▾]/.test(text(n))).length === 1), 'the arrow is aria-hidden');
-  let lists = groupLists(panel());
-  assert.deepEqual(lists.map((l) => find(l, (n) => n.p?.className === 'cp-td-text').map(text)), [['U1', 'U2'], ['A1', 'A2', 'A3']], 'each item in its owner\'s group');
-  assert.deepEqual(lists.map((l) => l.p.id), g.map((b) => b.p['aria-controls']), 'each header controls its list');
-  assert.doesNotMatch(text(todoSection(panel())), /todos\.owner/, 'no owner line in a row');
-  assert.equal(find(lists[1], (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? '')).length, 0, '→ only in the user\'s group');
-  assert.equal(find(lists[1], (n) => n.t === 'button' && /todos\.remove:/.test(n.p['aria-label'] ?? '')).length, 3, '× in both groups');
-  g[1].p.onClick(); g = groups(panel()); lists = groupLists(panel());
-  assert.deepEqual(g.map((b) => b.p['aria-expanded']), [true, false], 'a click folds the group'); assert.deepEqual(lists.map((l) => l.p.hidden), [false, true]);
-  assert.equal(mem.get('dsh-composer-plus.status-todo-groups-closed'), 'agent', 'kept in this browser');
-  rt.clear(); assert.equal(groups(panel())[1].p['aria-expanded'], false, 'still folded after the panel opens again');
-  groups(panel())[1].p.onClick(); assert.equal(groups(panel())[1].p['aria-expanded'], true, 'a second click opens it');
-  assert.equal(mem.get('dsh-composer-plus.status-todo-groups-closed'), '');
+  items = [{ id: '11111111', text: 'U1', owner: 'user', created: 1 }, { id: '22222222', text: 'A1', owner: 'agent', created: 2 }, { id: '33333333', text: 'Senden: SAP alanını aç', owner: 'user', created: 3 },
+    { id: '44444444', text: 'Sorun: Gece denetimi hata verdi', owner: 'agent', created: NOW - 60000 }, { id: '55555555', text: 'U2', owner: 'user', created: 5 }];
+  await panelProps.store.load('s-assistant'); rt.clear();
+  let tr = panel();
+  assert.deepEqual(cardsOf(tr, 'sorun').map((n) => n.p['data-key']), ['44444444'], 'Sorun: the "Sorun:" item');
+  assert.match(text(cardsOf(tr, 'sorun')[0]), /cards\.sorun: .*Gece denetimi hata verdi/, 'the card type for a screen reader, the title without the mark');
+  assert.ok(find(cardsOf(tr, 'sorun')[0], (n) => n.t === 'span' && n.p['aria-hidden'] === true && text(n) === '▲').length === 1, 'the symbol is hidden from a screen reader');
+  assert.deepEqual(cardsOf(tr, 'senden').map((n) => n.p['data-key']), ['33333333'], 'Senden: the "Senden:" item');
+  assert.ok(cardsOf(tr, 'suruyor').some((n) => n.p['data-key'] === '22222222'), 'Damon\'s item: Sürüyor');
+  // The order of the groups: Sorun, Senden, Sürüyor, Bugün bitti, your notes.
+  const order = find(tr, (n) => n.t === 'section' && n.p['data-group'] !== undefined).map((n) => n.p['data-group']);
+  assert.deepEqual(order, ['sorun', 'senden', 'suruyor', 'bitti', 'notes']);
+  let g = groupBtn(tr, 'notes'); assert.equal(g.p['aria-expanded'], false); assert.match(text(g), /cards\.notes\s+2\s*$/);
+  const notesList = () => find(panel(), (n) => n.t === 'ul' && n.p.id === groupBtn(panel(), 'notes').p['aria-controls'])[0];
+  assert.deepEqual(find(notesList(), (n) => n.t === 'li').map((n) => text(n.c[0])), ['U1', 'U2'], 'your notes in their order');
+  g.p.onClick(); assert.equal(notesList().p.hidden, false, 'a click opens your notes'); assert.equal(groupBtn(panel(), 'notes').p['aria-expanded'], true);
+  assert.doesNotMatch(text(panel()), /todos\.owner/, 'no owner line');
+  assert.equal(find(notesList(), (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? '')).length, 2, '→ gives a note to Damon');
+  assert.equal(find(notesList(), (n) => n.t === 'button' && /todos\.remove:/.test(n.p['aria-label'] ?? '')).length, 2, '× on each note');
+  groupBtn(panel(), 'notes').p.onClick(); assert.equal(notesList().p.hidden, true, 'a second click folds it');
+  // Sorun: "Damon'a sor" writes the card's data into the composer (nothing sent).
+  const before = posts.length; composer.draft = '';
+  find(cardsOf(panel(), 'sorun')[0], (n) => n.t === 'button' && n.p.className === 'cp-cs-act')[0].p.onClick();
+  assert.equal(composer.draft, 'status.insert.item:{"text":"Gece denetimi hata verdi"}\nstatus.insert.owner:{"owner":"Damon"}', 'the card\'s data, no mark, no id');
+  // Senden (your step, no wait): Yaptım writes "Done: <step>".
+  const sendenAct = find(cardsOf(panel(), 'senden')[0], (n) => n.t === 'button' && n.p.className === 'cp-cs-act')[0];
+  assert.equal(text(sendenAct), 'cards.done'); sendenAct.p.onClick();
+  assert.match(composer.draft, /\ncards\.doneMessage:\{"item":"SAP alanını aç"\}$/); assert.equal(posts.length, before, 'nothing sent'); assert.equal(composer.submits, 0);
+  composer.draft = '';
   items = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
-// Issue #6: an item of the assistant that waits for the user shows "Waiting for you", how long and the reason; after
-// 24 hours it is overdue too. The panel sends nothing by itself. The agent group's header counts the waiting items, so
-// a folded group still shows them.
+// Issue #6: an item of Damon that waits for you is a Senden card: "Waiting for you", how long and the reason; after 24
+// hours it is overdue and goes first. Its button is Yanıtla (the card's data into the composer). The panel sends
+// nothing by itself.
 {
   const saved = items; const p0 = posts.length;
   items = [{ id: '11111111', text: 'U1', owner: 'user', created: 1 }, { id: '22222222', text: 'Install ANR', owner: 'agent', created: 2, waiting: { reason: 'Needs the game folder path', since: Date.now() - 3 * 3600000 } },
     { id: '33333333', text: 'Old ask', owner: 'agent', created: 3, waiting: { reason: 'Needs the license key', since: Date.now() - 25 * 3600000 } }, { id: '44444444', text: 'A free', owner: 'agent', created: 4 }];
   await panelProps.store.load('s-assistant');
   const tr = panel();
-  const rowOf = (s) => find(todoSection(tr), (n) => n.t === 'li' && text(n).includes(s))[0];
-  const waiting = rowOf('Install ANR'); const overdue = rowOf('Old ask'); const free = rowOf('A free');
-  assert.equal(waiting.p['data-waiting'], 'true'); assert.match(text(waiting), /todos\.waiting\s+·\s+3/); assert.match(text(waiting), /Needs the game folder path/);
+  assert.deepEqual(cardsOf(tr, 'senden').map((n) => n.p['data-key']), ['33333333', '22222222'], 'overdue first, then the longest wait');
+  const [overdue, waiting] = cardsOf(tr, 'senden');
+  assert.match(text(waiting), /todos\.waiting\s+·\s+3/); assert.match(text(waiting), /Needs the game folder path/);
   assert.equal(find(waiting, (n) => n.p?.['data-state'] === 'overdue').length, 0, 'not overdue before 24 hours');
   assert.equal(find(overdue, (n) => n.p?.['data-state'] === 'overdue').length, 1, 'overdue after 24 hours'); assert.match(text(overdue), /todos\.overdue/); assert.match(text(overdue), /Needs the license key/);
-  assert.equal(free.p['data-waiting'], undefined); assert.doesNotMatch(text(free), /todos\.waiting/);
-  assert.match(text(groups(tr)[1]), /todos\.groupAgent:\{"name":"Damon"\}\s+3\s+todos\.waitingCount:\{"count":"2"\}$/, 'the agent group counts the waiting items');
+  assert.equal(text(find(waiting, (n) => n.t === 'button' && n.p.className === 'cp-cs-act')[0]), 'cards.reply', 'a wait: Yanıtla');
+  assert.ok(cardsOf(tr, 'suruyor').some((n) => n.p['data-key'] === '44444444'), 'an item of Damon without a wait: Sürüyor');
+  assert.match(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.count\.senden:\{"count":2\}/, 'the count bar counts them');
   assert.equal(posts.length, p0, 'no message and no request by itself');
-  // The wait time and Overdue change while nothing runs: a waiting item draws the panel again once a minute (no read,
+  // The wait time, Overdue and the day's end change while nothing runs: the stack draws again once a minute (no read,
   // no request); its cleanup stops the timer.
   {
     const realInterval = globalThis.setInterval; const realClear = globalThis.clearInterval; const timers = []; const cleared = [];
@@ -318,7 +342,7 @@ const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
     try {
       rt.clear(); panel(); const own = []; for (const f of rt.effects()) { const off = f(); if (typeof off === 'function') own.push(off); } await tick();
       const minute = timers.find((x) => x.ms === 60000);
-      assert.ok(minute, 'a one-minute timer while an item waits');
+      assert.ok(minute, 'a one-minute timer');
       const g = gets.length; minute.fn(); await tick(); assert.equal(gets.length, g, 'it reads nothing'); assert.equal(posts.length, p0, 'and sends nothing');
       for (const off of own) off(); assert.ok(cleared.includes(timers.indexOf(minute) + 1), 'the timer stops with the panel');
     } finally { globalThis.setInterval = realInterval; globalThis.clearInterval = realClear; }
@@ -326,80 +350,75 @@ const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
   items = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
-// Issue #6: Tasks shows the live tasks (working or waiting); the ended ones are in a folded "History" group with an ×
-// that hides a row in this browser (a new end of the same task shows it again).
+// Tasks: a running task is a Sürüyor card (İzle opens its chat), a waiting one a Senden card, a failed one a Sorun card
+// (× hides it), an ended one a Bugün bitti card in a folded group ("▸ Bugün bitti 2 · 1 yeni"); Gördüm hides it in this
+// browser (a new end of the same task shows it again). Folding the group marks its cards seen (no "new").
 {
   const saved = tasks;
-  const hist = (tr) => find(find(tr, (n) => n.t === 'section' && /-tasks$/.test(n.p['aria-labelledby'] ?? ''))[0], (n) => n.t === 'button' && n.p.className === 'cp-td-group')[0];
-  const listOf = (tr, id) => find(tr, (n) => n.t === 'ul' && n.p.id === id)[0];
-  const rowsIn = (ul) => find(ul, (n) => n.t === 'li');
   tasks = [{ id: 'c-run', title: 'Research Rome', state: 'running', started: NOW - 125000 }, { id: 'c-ask', title: 'Deploy', state: 'waiting', started: NOW - 5000 },
-    { id: 'c-done', title: 'Flights', state: 'done', started: NOW - 600000, ended: NOW - 60000, result: 'Flights found' }, { id: 'c-stop', title: 'Hotels', state: 'stopped', started: NOW - 900000, ended: NOW - 300000 }];
+    { id: 'c-done', title: 'Flights', state: 'done', started: NOW - 600000, ended: NOW - 60000, result: 'Flights found' }, { id: 'c-stop', title: 'Hotels', state: 'stopped', started: NOW - 900000, ended: NOW - 300000 },
+    { id: 'c-fail', title: 'Crash', state: 'failed', started: NOW - 900000, ended: NOW - 200000 }];
+  mem.delete('dsh-composer-plus.status-done-seen');
   await panelProps.store.load('s-assistant'); rt.clear();
-  let tr = panel(); let h = hist(tr);
-  assert.ok(h, 'a History header'); assert.equal(h.p['aria-expanded'], false, 'folded by default'); assert.match(text(h), /status\.history\s+2$/);
-  const taskSection = find(tr, (n) => n.t === 'section' && /-tasks$/.test(n.p['aria-labelledby'] ?? ''))[0];
-  assert.match(text(find(taskSection, (n) => n.t === 'h3')[0]), /status\.tasks\s*2$/, 'the title counts the live tasks');
-  const liveList = find(taskSection, (n) => n.t === 'ul')[0];
-  assert.deepEqual(rowsIn(liveList).map((r) => text(find(r, (n) => n.p?.className === 'cp-st-name')[0])), ['Research Rome', 'Deploy'], 'the live tasks');
-  assert.equal(find(liveList, (n) => n.t === 'button' && /status\.dismiss/.test(n.p['aria-label'] ?? '')).length, 0, 'no × on a live task');
-  assert.equal(listOf(tr, h.p['aria-controls']).p.hidden, true, 'the ended tasks are hidden');
-  h.p.onClick(); tr = panel(); h = hist(tr);
-  assert.equal(h.p['aria-expanded'], true); const history = listOf(tr, h.p['aria-controls']); assert.equal(history.p.hidden, false);
-  assert.deepEqual(rowsIn(history).map((r) => text(find(r, (n) => n.p?.className === 'cp-st-name')[0])), ['Flights', 'Hotels']);
-  const x = find(history, (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Flights"}')[0];
-  assert.ok(x, 'an × with an aria-label'); assert.equal(x.p.title, 'status.dismissShort');
-  const p0 = posts.length; x.p.onClick(); assert.equal(focused.at(-1), 'cp-td-s-assistant-history', 'the focus goes to the History header'); tr = panel(); h = hist(tr);
-  assert.deepEqual(rowsIn(listOf(tr, h.p['aria-controls'])).map((r) => text(find(r, (n) => n.p?.className === 'cp-st-name')[0])), ['Hotels'], 'the row is gone');
-  assert.match(text(h), /status\.history\s+1$/); assert.equal(posts.length, p0, 'nothing sent to the Host');
+  let tr = panel(); let h = groupBtn(tr, 'bitti');
+  assert.ok(h, 'a Bugün bitti header'); assert.equal(h.p['aria-expanded'], false, 'folded by default'); assert.match(text(h), /cards\.bitti\s+2\s+cards\.fresh:\{"count":2\}$/, 'its count and the new ones');
+  assert.deepEqual(cardsOf(tr, 'sorun').map((n) => n.p['data-key']), ['c-fail'], 'a failed task: Sorun');
+  assert.deepEqual(cardsOf(tr, 'senden').map((n) => n.p['data-key']), ['c-ask'], 'a waiting task: Senden');
+  const run = cardsOf(tr, 'suruyor').find((n) => n.p['data-key'] === 'c-run');
+  const watch = find(run, (n) => n.t === 'button' && n.p.className === 'cp-cs-act')[0]; assert.equal(text(watch), 'cards.watch');
+  const o0 = opened.length; watch.p.onClick(); assert.deepEqual(opened.slice(o0), ['c-run'], 'İzle opens the task\'s chat');
+  const doneList = () => find(panel(), (n) => n.t === 'ul' && n.p.id === groupBtn(panel(), 'bitti').p['aria-controls'])[0];
+  assert.equal(doneList().p.hidden, true, 'the ended tasks are folded');
+  assert.deepEqual(find(doneList(), (n) => n.t === 'li' && n.p.className === 'cp-cs-card').map((n) => n.p['data-key']), ['c-done', 'c-stop'], 'newest end first');
+  assert.match(text(find(doneList(), (n) => n.p?.['data-key'] === 'c-done')[0]), /cards\.new/, 'a new end has the "new" mark');
+  h.p.onClick(); assert.equal(doneList().p.hidden, false, 'a click opens the group');
+  h = groupBtn(panel(), 'bitti'); h.p.onClick(); assert.ok(Number(mem.get('dsh-composer-plus.status-done-seen')) >= NOW, 'folding it again marks them seen');
+  h = groupBtn(panel(), 'bitti'); assert.doesNotMatch(text(h), /cards\.fresh/, 'no new ones now'); h.p.onClick();
+  const seen = find(find(doneList(), (n) => n.p?.['data-key'] === 'c-done')[0], (n) => n.t === 'button' && n.p.className === 'cp-cs-act')[0];
+  assert.equal(text(seen), 'cards.seen');
+  const p0 = posts.length; seen.p.onClick(); assert.equal(focused.at(-1), 'cp-td-s-assistant', 'the focus goes to the stack title');
+  assert.deepEqual(find(doneList(), (n) => n.t === 'li' && n.p.className === 'cp-cs-card').map((n) => n.p['data-key']), ['c-stop'], 'Gördüm: the card is gone');
+  assert.equal(posts.length, p0, 'nothing sent to the Host');
   assert.equal(mem.get('dsh-composer-plus.status-tasks-dismissed'), JSON.stringify([`c-done|${NOW - 60000}`]), 'kept in this browser');
-  rt.clear(); assert.equal(rowsIn(listOf(panel(), hist(panel()).p['aria-controls'])).length, 1, 'still hidden after the panel opens again');
+  rt.clear(); assert.equal(cardsOf(panel(), 'bitti').length, 1, 'still hidden after the panel opens again');
   // The same task ends again (a new end time): it shows again, and the old key goes.
   tasks = tasks.map((t) => (t.id === 'c-done' ? { ...t, ended: NOW - 1000 } : t)); await panelProps.store.load('s-assistant');
-  tr = panel(); assert.match(text(hist(tr)), /status\.history\s+2$/, 'a new end shows the row again');
-  find(tr, (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Hotels"}')[0].p.onClick();
-  assert.equal(focused.at(-1), 'cp-td-s-assistant-history', 'one row stays: the History header');
-  tr = panel(); find(tr, (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Flights"}')[0].p.onClick();
-  assert.equal(focused.at(-1), 'cp-td-s-assistant', 'the last row: the History header goes, the focus goes to the panel title');
-  // Two windows: the other one hid Hotels after this panel read the list; this × keeps that key (it reads the list again).
+  tr = panel(); assert.match(text(groupBtn(tr, 'bitti')), /cards\.bitti\s+2/, 'a new end shows the card again');
+  // × on a failed task's Sorun card (in its Ayrıntı) hides it the same way.
+  const x = find(cardsOf(tr, 'sorun')[0], (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Crash"}')[0];
+  assert.ok(x, 'an × with an aria-label'); x.p.onClick(); assert.equal(cardsOf(panel(), 'sorun').length, 0, 'the failed card is hidden');
+  // Two windows: the other one hid Hotels after this panel read the list; this Gördüm keeps that key (it reads the list again).
   mem.set('dsh-composer-plus.status-tasks-dismissed', '[]'); rt.clear(); tr = panel();
   mem.set('dsh-composer-plus.status-tasks-dismissed', JSON.stringify([`c-stop|${NOW - 300000}`]));
-  find(tr, (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Flights"}')[0].p.onClick();
-  assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.status-tasks-dismissed')).sort(), [`c-done|${NOW - 1000}`, `c-stop|${NOW - 300000}`], 'both windows\' rows stay hidden');
-  mem.set('dsh-composer-plus.status-tasks-dismissed', JSON.stringify([`c-stop|${NOW - 300000}`])); rt.clear(); tr = panel();
-  assert.equal(mem.get('dsh-composer-plus.status-tasks-dismissed'), JSON.stringify([`c-stop|${NOW - 300000}`]), 'only the keys of the ended tasks stay');
-  // Only ended tasks: no live row and no "no tasks" line; no task at all: the line.
-  tasks = tasks.filter((t) => t.ended !== undefined); await panelProps.store.load('s-assistant'); tr = panel();
-  assert.doesNotMatch(text(tr), /status\.tasksEmpty/); assert.ok(hist(tr));
-  tasks = []; await panelProps.store.load('s-assistant'); tr = panel();
-  assert.match(text(tr), /status\.tasksEmpty/); assert.equal(hist(tr), undefined, 'no History header without ended tasks');
-  mem.delete('dsh-composer-plus.status-tasks-dismissed'); tasks = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
+  find(find(tr, (n) => n.p?.['data-key'] === 'c-done')[0], (n) => n.t === 'button' && n.p.className === 'cp-cs-act')[0].p.onClick();
+  assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.status-tasks-dismissed')).sort(), [`c-done|${NOW - 1000}`, `c-stop|${NOW - 300000}`], 'both windows\' cards stay hidden');
+  // A Bitti card ends with the day: an end that is not today shows no card.
+  tasks = [{ id: 'c-old', title: 'Yesterday', state: 'done', started: NOW - 30 * 3600000, ended: NOW - 27 * 3600000 }]; await panelProps.store.load('s-assistant');
+  assert.equal(groupBtn(panel(), 'bitti'), undefined, 'yesterday\'s end: no Bugün bitti card');
+  mem.delete('dsh-composer-plus.status-tasks-dismissed'); mem.delete('dsh-composer-plus.status-done-seen'); tasks = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
 // 2026-11-17 ("sağ üstte durum var ama güzel durmuyor görevlerde zaten var"): Resume after an AIProxy outage shows no
-// list of chat links above the panel. A task row that the outage continued gets a short line (live and History rows);
-// the other continued chats (an automation, this chat) are one count line without names or links.
+// list of chat links. A card whose task the outage continued gets a short line; the other continued chats (an
+// automation, this chat) are one count line without names or links.
 {
   const saved = tasks;
   tasks = [{ id: 'c-run', title: 'Research Rome', state: 'running', started: NOW - 125000 }, { id: 'c-done', title: 'Flights', state: 'done', started: NOW - 600000, ended: NOW - 60000 },
     { id: 'c-calm', title: 'Hotels', state: 'running', started: NOW - 5000 }];
   outage = { at: NOW - 1000, chats: [{ id: 'c-run', title: 'Research Rome' }, { id: 'c-done', title: 'Flights' }, { id: 's-auto', title: 'Nightly error review' }, { id: 's-assistant', title: 'Damon' }] };
   await panelProps.store.load('s-assistant'); rt.clear();
-  const tr = panel(); const sec = find(tr, (n) => n.t === 'section' && /-tasks$/.test(n.p['aria-labelledby'] ?? ''))[0];
+  const tr = panel();
   const marked = (v) => find(tr, (n) => n.p?.['data-composer-plus-outage'] === v);
-  const rowOf = (name) => find(sec, (n) => n.t === 'li' && text(find(n, (x) => x.p?.className === 'cp-st-name')[0]) === name)[0];
-  assert.equal(marked('').length, 0, 'no link list above the sections');
-  assert.equal(marked('row').length, 2, 'a line in each continued task row');
-  for (const name of ['Research Rome', 'Flights']) assert.match(text(rowOf(name)), /status\.outageRow:\{"time":"\d{2}[.:]\d{2}"\}/, `${name}: the outage line with its time`);
-  assert.doesNotMatch(text(rowOf('Hotels')), /status\.outage/, 'a task that the outage did not continue has no line');
+  const cardOf = (key) => find(tr, (n) => n.t === 'li' && n.p['data-key'] === key)[0];
+  assert.equal(marked('').length, 0, 'no link list above the cards');
+  assert.equal(marked('row').length, 2, 'a line in each continued task\'s card');
+  for (const key of ['c-run', 'c-done']) assert.match(text(cardOf(key)), /status\.outageRow:\{"time":"\d{2}[.:]\d{2}"\}/, `${key}: the outage line with its time`);
+  assert.doesNotMatch(text(cardOf('c-calm')), /status\.outage/, 'a task that the outage did not continue has no line');
   const note = marked('note'); assert.equal(note.length, 1, 'one line for the other chats');
   assert.match(text(note[0]), /^status\.outageMore:\{"time":"\d{2}[.:]\d{2}","count":2\}$/, 'only a count');
-  assert.equal(find(sec, (n) => n.p?.className === 'cp-st-link').length, 0, 'no chat link'); assert.doesNotMatch(text(tr), /Nightly error review/, 'no names');
-  // Every continued chat is a task: no count line. No task at all: the count line after "no tasks". Yesterday's outage: nothing.
+  assert.doesNotMatch(text(tr), /Nightly error review/, 'no names');
   outage = { at: NOW - 1000, chats: [{ id: 'c-run', title: 'Research Rome' }] }; await panelProps.store.load('s-assistant');
-  assert.equal(find(panel(), (n) => n.p?.['data-composer-plus-outage'] === 'note').length, 0, 'all in Tasks: no count line');
-  tasks = []; outage = { at: NOW - 1000, chats: [{ id: 's-auto', title: 'Nightly error review' }] }; await panelProps.store.load('s-assistant');
-  assert.match(text(panel()), /status\.tasksEmpty.*status\.outageMore:\{"time":"\d{2}[.:]\d{2}","count":1\}/, 'no task: the count line after "no tasks"');
+  assert.equal(find(panel(), (n) => n.p?.['data-composer-plus-outage'] === 'note').length, 0, 'all in the cards: no count line');
   tasks = saved; outage = { at: NOW - 86400000 * 2, chats: [{ id: 'c-run', title: 'Research Rome' }] }; await panelProps.store.load('s-assistant');
   assert.equal(find(panel(), (n) => n.p?.['data-composer-plus-outage'] !== undefined).length, 0, 'an older day\'s outage shows nothing');
   outage = undefined; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
@@ -430,6 +449,8 @@ const groupLists = (tr) => find(todoSection(tr), (n) => n.t === 'ul');
 // → writes "<Do this for me:> <item>" in the composer and sends nothing: no POST, the owner and the groups stay.
 const arrow = () => find(panel(), (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? ''))[0];
 const postsBefore = posts.length;
+// The card tests above wrote into the composer: start these checks from a fresh composer.
+Object.assign(composer, { draft: '', occurrences: [], rev: 0, inserts: [], focused: 0, submits: 0 });
 arrow().p.onClick(); await tick();
 assert.equal(posts.length, postsBefore, '→ sends nothing to the Host');
 assert.equal(composer.draft, 'todos.handoverMessage Prosolocal\'i internete açmak', 'the text is in the empty composer');
@@ -437,7 +458,7 @@ assert.deepEqual(composer.inserts.at(-1).span, { start: 0, end: 0, draftRev: 0 }
 assert.equal(composer.focused, 1, 'the focus goes to the composer (caret after the text)');
 assert.equal(composer.submits, 0, 'not sent');
 tree = panel(); assert.equal(arrow() !== undefined, true, 'the item stays the user\'s');
-assert.deepEqual(groups(tree).map((b) => b.p['data-owner']), ['user', 'agent'], 'no group change');
+assert.deepEqual(find(tree, (n) => n.t === 'section' && n.p['data-group'] !== undefined).map((n) => n.p['data-group']), ['suruyor', 'bitti', 'notes'], 'no group change');
 // A draft that is there stays: the text goes on a new line after it.
 composer.draft = 'Ask about the invoice';
 arrow().p.onClick();
@@ -457,29 +478,30 @@ composer.detect = '\uFFFC do it'; composer.draft = '/goal do it';
 arrow().p.onClick();
 assert.deepEqual(composer.inserts.at(-1).span, { start: 7, end: 7, draftRev: 4 }, 'dsh 0.2.1: a command chip is one character');
 composer.detect = undefined;
-// → on every other row (an item of the assistant, a task, a project): "Write in the message box", the row's data (the
-// format: test/status-insert.test.mjs), appended after the draft, focus in the composer, nothing sent, no id.
+// "Mesaj kutusuna yaz" on every card (Damon's item, each task, in its Ayrıntı for a task) and on each project row (the
+// Projects button opens them): the data (the format: test/status-insert.test.mjs), appended after the draft, focus in
+// the composer, nothing sent, no id.
 {
+  if (projectsBtn().p['aria-expanded'] !== true) projectsBtn().p.onClick();
   const writes = () => find(panel(), (n) => n.t === 'button' && /^status\.insert:/.test(n.p['aria-label'] ?? ''));
   const names = writes().map((b) => b.p['aria-label']);
-  assert.deepEqual(names, ['status.insert:{"item":"Rapor yaz"}', 'status.insert:{"item":"Research Rome"}', 'status.insert:{"item":"Flights"}', 'status.insert:{"item":"acme-web"}', 'status.insert:{"item":"weather-cli"}'],
-    '→ on the assistant\'s item, each task (live and History) and each project');
-  assert.ok(writes().every((b) => b.p.title === 'status.insertShort' && b.p.type === 'button'), 'a tooltip and a real button (keyboard)');
+  assert.deepEqual(names, ['status.insert:{"item":"acme-web"}', 'status.insert:{"item":"weather-cli"}', 'status.insert:{"item":"Research Rome"}', 'status.insert:{"item":"Rapor yaz"}', 'status.insert:{"item":"Flights"}'],
+    'on each project, each task and Damon\'s item');
+  assert.ok(writes().every((b) => b.p.type === 'button'), 'a real button (keyboard)');
+  const by = (name) => writes().find((b) => b.p['aria-label'] === `status.insert:{"item":"${name}"}`);
   const before = posts.length; composer.draft = 'Note'; const focus0 = composer.focused;
-  writes()[0].p.onClick();
+  by('Rapor yaz').p.onClick();
   assert.equal(composer.draft, 'Note\nstatus.insert.item:{"text":"Rapor yaz"}\nstatus.insert.owner:{"owner":"Damon"}', 'the item\'s data after the draft');
-  writes()[1].p.onClick();
+  by('Research Rome').p.onClick();
   assert.match(composer.draft, /\nstatus\.insert\.task:\{"title":"Research Rome"\}\nstatus\.insert\.state:\{"state":"status\.task\.running · \d+ (dk|min)\.?"\}$/, 'the task, its state and time');
-  writes()[2].p.onClick();
+  by('Flights').p.onClick();
   assert.match(composer.draft, /\nstatus\.insert\.task:\{"title":"Flights"\}\nstatus\.insert\.state:\{"state":"status\.task\.done · 9 (dk|min)\.?"\}\nstatus\.insert\.result:\{"result":"Flights found: 3 options"\}$/, 'an ended task: its time to the end and its result');
-  writes()[3].p.onClick();
+  by('acme-web').p.onClick();
   assert.match(composer.draft, /\nstatus\.insert\.project:\{"title":"acme-web"\}\nstatus\.projectChats:\{"count":2\}$/, 'the project and its line');
   assert.equal(composer.focused, focus0 + 4); assert.equal(composer.submits, 0); assert.equal(posts.length, before, 'nothing sent');
   assert.doesNotMatch(composer.draft, /bbbbbbbb|c-run|w-web|s-assistant/, 'no id in the text');
-  // The task and project rows keep the row button (a click opens the chat or the row) and put → (and ×) next to it.
+  // A project row keeps its row button (a click opens the row) and puts → next to it.
   const rowOf = (name) => find(panel(), (n) => n.t === 'li' && find(n, (m) => m.p?.['aria-label'] === `status.insert:{"item":"${name}"}`).length === 1)[0];
-  assert.deepEqual(rowOf('Research Rome').c.flat().filter(Boolean).map((n) => n.p.className), ['cp-st-row', 'cp-td-btn'], 'the row button, then →');
-  assert.deepEqual(rowOf('Flights').c.flat().filter(Boolean).map((n) => n.p['aria-label'] ?? n.p.className), ['cp-st-row', 'status.insert:{"item":"Flights"}', 'status.dismiss:{"task":"Flights"}'], '→ before × in History');
   const projectLine = rowOf('acme-web').c.flat().filter(Boolean)[0];
   assert.equal(projectLine.p.className, 'cp-st-line'); assert.deepEqual(projectLine.c.flat().map((n) => n.p.className), ['cp-st-row', 'cp-td-btn'], 'a project: the row button, then →');
   composer.draft = '';
@@ -548,7 +570,7 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   assert.match(text(find(tree, (n) => n.t === 'h2')[0]), /status\.refreshing/, 'the header says Refreshing… instead of the time');
   const bodyNode = find(tree, (n) => n.p?.className === 'cp-st-body')[0];
   assert.equal(bodyNode.p['data-refreshing'], 'true'); assert.equal(bodyNode.p['aria-busy'], true);
-  assert.match(text(bodyNode), /Prosolocal|status\.tasks/, 'the old content stays (dimmed), so the panel does not jump');
+  assert.match(text(bodyNode), /Prosolocal|Research Rome|Fresh item/, 'the old content stays (dimmed), so the panel does not jump');
   assert.equal(cardOf(tree), undefined, 'Refresh opens no summary card'); assert.equal(spoken(tree), 'status.refreshing');
   // A second click while it refreshes does nothing (the store refuses it, not only the button).
   assert.equal(await store.refresh('s-assistant'), false, 'one Refresh at a time');
@@ -653,7 +675,8 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
 }
 // Collapse: the chat gives its room back.
 tree = panel(); find(tree, (n) => n.t === 'button' && n.p['aria-expanded'] === true && n.p.className === 'cp-td-head')[0].p.onClick();
-tree = panel(); assert.equal(attrs.get('data-composer-plus-status-seat'), 'closed'); assert.equal(find(tree, (n) => n.p?.className === 'cp-st-body').length, 0);
+tree = panel(); assert.equal(find(tree, (n) => n.p?.className === 'cp-st-body').length, 0, 'a closed stack: only the count bar');
+assert.equal(find(tree, (n) => n.p?.['data-open'] === 'false').length, 1);
 
 // Typing: dsh draws the dock seat again at each key; the seat draws nothing and the panel is not drawn.
 const r1 = renders; for (let i = 0; i < 20; i++) seatOut('s-assistant');

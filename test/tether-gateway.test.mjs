@@ -60,10 +60,14 @@ async function mockDsh() {
   return m
 }
 
+// The test gateway listens on 127.0.0.1, where its clients connect. Without `bind` it listens on [::]:0, and macOS can then
+// give it a port that another server (the mock dsh, any local app) already holds on 127.0.0.1: the more specific socket wins,
+// so a TLS client gets a plain HTTP answer (ERR_SSL_WRONG_VERSION_NUMBER). A network change test sets its own `bind`.
+const loopback = netInfo => () => { const n = netInfo(); return n && { bind: '127.0.0.1', ...n } }
 async function setup(extra = {}) {
   const dsh = await mockDsh()
   const dir = extra.dir ?? mkdtempSync(join(tmpdir(), 'dshm-'))
-  const gw = createGateway({ dir, upstreamUrl: () => dsh.url, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0' }), ...extra })
+  const gw = createGateway({ dir, upstreamUrl: () => dsh.url, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, ...extra, netInfo: loopback(extra.netInfo ?? (() => ({ address: '127.0.0.1', netmask: '255.0.0.0' }))) })
   await gw.start()
   return { gw, dsh, dir, done: async () => { await gw.close(); dsh.close() } }
 }
@@ -778,7 +782,7 @@ test('brute force: repeated bad auth blocks the IP', async () => {
 
 test('token: renews when half-expired, rejects when expired', async () => {
   const t = await setup()
-  const opts = { dir: t.dir, upstreamUrl: () => t.dsh.url, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: () => ({ address: '127.0.0.1', netmask: '255.0.0.0' }) }
+  const opts = { dir: t.dir, upstreamUrl: () => t.dsh.url, port: 0, qr: false, bonjour: false, notify: false, tailscale: { installed: false, online: false, ip: null, name: null }, netInfo: loopback(() => ({ address: '127.0.0.1', netmask: '255.0.0.0' })) }
   const { token, deviceId } = await pairDevice(t.gw)
   await t.gw.close()
   const file = join(t.dir, 'devices.json')
