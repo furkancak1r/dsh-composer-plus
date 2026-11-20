@@ -11,7 +11,7 @@
 // 5. Özet getir, Projeler, the → of a note and Yaptım of a Senden card still work (nothing sent by → or Yaptım).
 // 6. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-card-stack.mjs /path/to/dsh/lib/bin.js [...]
-// SHOT=1 also writes assets/features/assistantTodos.webp (Turkish UI is used for the checks; the shot uses English).
+// SHOT=1 also writes assets/features/assistantTodos.webp from a second page with the English UI (the checks use Turkish).
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
@@ -79,6 +79,24 @@ try {
       assert.equal(await page.locator('.md-code-block[data-composer-plus-onay="text"]').count(), 1, 'the sentence in the reply: gray text');
       assert.equal(await page.locator('.md-code-block[data-composer-plus-onay="button"]').count(), 0);
       note('2: the Onay card has the whole sentence and one Onayla; the reply has none (gray text)');
+      if (process.env.SHOT && !shotDone) {
+        // The Settings shot: English UI (AGENTS.md rule 2), made-up items, a fresh page of the same demo.
+        const shotContext = await browser.newContext({ locale: 'en-US', timezoneId: 'Europe/Istanbul', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
+        try {
+          await shotContext.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}'); });
+          const shot = await shotContext.newPage(); await shot.goto(demo.url);
+          for (const name of [/^Continue$/, /^Configure later$/]) { const b = shot.getByRole('button', { name }); if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) await b.click(); }
+          await shot.keyboard.press('Escape'); await shot.locator('button[aria-label="Damon"]').click();
+          // The optional Obsidian setup card is not part of this feature: hide it for the picture.
+          // The optional setup and memory import cards come one after the other: hide each.
+          for (let n = 0; n < 3; n++) { const hide = shot.getByRole('button', { name: 'Hide', exact: true }).first(); if (!(await hide.waitFor({ timeout: 3000 }).then(() => true, () => false))) break; await hide.click(); await pause(500); }
+          await shot.locator('[data-composer-plus-todos] [data-composer-plus-approve="card"]').waitFor({ timeout: 20000 });
+          await shot.locator('[data-composer-plus-todos] [data-composer-plus-counts]').waitFor({ timeout: 20000 }); await pause(1500); await shot.mouse.move(640, 790);
+          const png = join(where.home, 'stack.png'); await shot.screenshot({ path: png });
+          execFileSync('cwebp', ['-quiet', '-q', '72', '-resize', '960', '0', png, '-o', join(repo, 'assets/features/assistantTodos.webp')]);
+          shotDone = true; note('SHOT: assets/features/assistantTodos.webp');
+        } finally { await shotContext.close(); }
+      }
       // 4 first: typing hides Onayla, the card stays.
       const input = page.locator('[data-composer-input]');
       await input.click(); await page.keyboard.type('x', { delay: 5 });
@@ -113,11 +131,6 @@ try {
       assert.equal(calls.slice(sent).filter((c) => c.newest === APPROVAL && c.step === 0).length, 1, `one user message: ${JSON.stringify(calls.slice(sent).map((c) => [c.newest.slice(0, 40), c.step]))}`);
       await until(async () => (await approve.count()) === 0, 'the button goes after the send');
       note('3: Onayla sent the exact sentence once as the user\'s message; the model got it; the button went');
-      if (process.env.SHOT && !shotDone) {
-        const png = join(where.home, 'stack.png'); await page.screenshot({ path: png });
-        execFileSync('cwebp', ['-quiet', '-q', '72', '-resize', '960', '0', png, '-o', join(repo, 'assets/features/assistantTodos.webp')]);
-        shotDone = true; note('SHOT: assets/features/assistantTodos.webp');
-      }
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {
