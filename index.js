@@ -11403,7 +11403,7 @@ function queuedPrompts(events) {
 }
 
 /** What started the newest turn of `agent`: the source kind of the first own prompt (a typed prompt `user`, dsh's scheduled
- * delivery `schedule`, Assistant news; not dsh's context messages; not a fork's copy of its parent) of the newest turn that
+ * delivery `schedule` but not its `[SCHEDULE CHANGE]` notice, Assistant news; not dsh's context messages; not a fork's copy of its parent) of the newest turn that
  * has one. A turn whose first step failed logs no prompt: the queued message that dsh took to start it counts then. A turn
  * without one (a subagent's result, a resume, a Get summary note) continues the turn before it. Read from the end: no
  * cache, so a typed turn in an automation chat is not an automation. */

@@ -10,7 +10,7 @@
 //   assistant itself give no news. A chat archived or deleted after its news was queued gives none either (a delegated
 //   task's result still goes). The last reply leaves out what a rollback withdrew (both kinds) and a fork's copy.
 //   Scope "automations" (the default): only a turn that a schedule started (the first own prompt of the newest turn has
-//   source.kind "schedule", also in a chat that you started; a failed first step logs no prompt, so the queued message that
+//   source.kind "schedule", not dsh's "[SCHEDULE CHANGE]" notice, also in a chat that you started; a failed first step logs no prompt, so the queued message that
 //   started the turn counts) gives news, at its end (also a short one) and each wait; other chats, a typed turn and a fork
 //   of an automation give none. Scope "all" is the first behavior (the checks above it run with it). The scope stays in the same file.
 import assert from 'node:assert/strict';
@@ -233,12 +233,12 @@ await until(() => bot.pending()[0]?.kind === 'finished', 'the fork turn is news'
 assert.equal(bot.pending()[0].reply, '', 'no inherited reply');
 web.session.inheritedEventCount = 0;
 
-// Off: the queue is dropped, no more wakes. The switch goes off only after its file write; under load that write takes
-// longer than the 30 ms batch, and the flush then sent the news first (4 !== 3). So the assistant runs here: the flush
-// holds the news (before or after the write ends), and the off drops it.
+// Off: the queue is dropped, no more wakes. The switch goes off after its file write; the assistant runs, so a slow write
+// cannot let the flush send the news first.
 assistantAgent.status = 'running';
 turn(web, 'completed', 90000);
 assert.deepEqual((await call(ASSISTANT_NOTIFY_PATH, 'POST', { on: false })).body, { on: false, scope: 'all' });
+assert.equal(bot.pending().length, 0, 'the off drops the queued news');
 assistantAgent.status = 'idle'; emit('agent/status', { agent: assistantAgent, status: 'idle' });
 await pause(80);
 assert.equal(bot.pending().length, 0); assert.equal(steers.length, 3);
