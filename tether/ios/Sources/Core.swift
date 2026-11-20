@@ -831,17 +831,21 @@ func chatOffer(_ events: [J], from: Int = 0) -> OptionOffer? {
 }
 
 /// Approve button (Composer Plus `approveButton`): the Mac's rule, ported from client.js `onayBlocks`, `approvable` and
-/// `turnApprovals`. The expressions are client.js APPROVAL_CHARS, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_SCOPE_OFF,
-/// APPROVAL_LIVE_WORD, DEPLOY_ASK and DEPLOY_LINE (JS `[^]` written as `[\s\S]`); test/tether-approve.test.mjs fails
-/// when they differ, and test/fixtures/approval-blocks.json is one table for both apps.
+/// `turnApprovals`. The expressions are client.js APPROVAL_CHARS, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_REVOKE,
+/// APPROVAL_REVOKE_LIVE, APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD, DEPLOY_ASK and DEPLOY_LINE (JS `[^]` written as `[\s\S]`);
+/// test/tether-approve.test.mjs fails when they differ, and test/fixtures/approval-blocks.json is one table for both apps.
+/// ponytail: any product word in the deploy line (the Mac's `deployProducts` setting is not on the phone); the gate
+/// refuses a product that it does not know.
 let approvalMax = 500
 private let approvalChars = try! NSRegularExpression(pattern: #"^[\x20-\x7E\n\tçğıöşüâîûÇĞİÖŞÜÂÎÛ‘’“”–—…→«»]*$"#)
 private let approvalHold = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])(?:(?<!\p{L}{2,20}(?:(?<!l)[ae]r|[ıiuü]r|m[ae]z)s[ae]n?\s{1,3})(?:dur|durdur|durdurun|durun)|bekle|bekleyin|bekleyelim|beklesin|iptal\p{L}*|ertele\p{L}*|vazgeç\p{L}*|hayır|stop|cancel|do not|don't|onay\p{L}*\s{1,3}geri\s{1,3}(?:al|çek)\p{L}*|onaylam[ıi]yorum|onaylamad[ıi]m|onay\s{1,3}verm(?:edim|iyorum)|(?:şimdi|hemen|simdi)\s{1,3}(?:yapma|yapmayın|olmaz)|deploy\p{L}{0,4}(?:['’]\p{L}{1,4})?(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}(?:etme|etmeyin|etmeyelim|etmesin|edilmesin|edilmeyecek|yapma|yapmayın|yapmayalım|yapılmasın|yapılmayacak)|(?:yayınla|(?<!yeniden\s{1,3})başlat|kur)(?:ma|mayın|mayalım|masın)|(?:yayınlan|başlatıl|kurul|alın)masın|canlıya\s{1,3}(?:alma|almayın|çıkma|çıkmayın)|(?:deploy|yayın|canlı|başlat|güncelle)\p{L}{0,8}(?:['’]\p{L}{1,4})?(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}(?:olmaz|dokunma|dokunmayın|askıya\s{1,3}al\p{L}*|yok|edilmeyecek))(?![\p{L}\p{N}])"#)
 private let approvalDur = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])(?:\p{L}{2,}[aeıiuü]r|\p{L}*(?:m[ae]z|yor|var|yok|y|[ıiuü][kzş]))s[ae](?:n|n[ıi]z)?(?:\s{1,3}\p{L}+)?\s{1,3}(?:dur|durun|durdur|durdurun)(?![\p{L}\p{N}])"#)
+private let approvalRevoke = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])(?:\p{L}+m[ae]s[ıi]n(?!\s+diye)|\p{L}+m[ae]y(?:ın|in|alım|elim)|onay vermedim|onaylamıyorum|onay(?:ı|ımı|ımızı)\s{1,3}geri\s{1,3}(?:al|çek)(?!m[ae](?![\p{L}\p{N}]))\p{L}*|(?:etme|yapma)(?=[ \t]*(?:[.,;!)…—–\n]|$))|do not|don't)(?![\p{L}\p{N}])"#)
+private let approvalRevokeLive = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])(?:kurma|durdurma|yayınlama|gönderme|silme|atma|başlatma|geri\s{1,3}(?:alma|çekme)|bırak|kalsın|yok)(?=[ \t]*(?:[.,;!)…—–\n]|$))"#)
 private let approvalScopeOff = try! NSRegularExpression(pattern: #"canli\p{L}* +değil|(?:canli\p{L}* +)?deploy\p{L}*(?:['’]\p{L}+)? +ayri +onay\p{L}*|yalniz +yerel"#)
 private let approvalLiveWord = try! NSRegularExpression(pattern: #"deploy|canli|yayin"#)
 private let deployAsk = try! NSRegularExpression(pattern: #"^(?:onayliyorum:? *)?canli +deploy +[a-z][a-z0-9-]{1,30} +(?:[0-9a-f]{4,40}|simdi|saat)(?![\p{L}\p{N}])|^(?=[\s\S]*canli)(?=[\s\S]*deploy)[\s\S]*(?<![\p{L}\p{N}])(?=[0-9]*[a-f])[0-9a-f]{7,40}(?![\p{L}\p{N}])"#)
-private let deployLine = try! NSRegularExpression(pattern: #"^(?:onayliyorum:? {1,3})?canli {1,3}deploy {1,3}[a-z][a-z0-9-]{1,30} {1,3}(?=[0-9]*[a-f])[0-9a-f]{7,40} {1,3}(?:saat {1,3}(?:[01]\d|2[0-3])[:.][0-5]\d|simdi) {0,20}\.?$"#)
+private let deployLine = try! NSRegularExpression(pattern: #"^(?:onayliyorum:? {1,3})?canli {1,3}deploy {1,3}([a-z][a-z0-9-]{1,30}) {1,3}(?=[0-9]*[a-f])[0-9a-f]{7,40} {1,3}(?:saat {1,3}(?:[01]\d|2[0-3])[:.][0-5]\d|simdi) {0,20}\.?$"#)
 /// client.js onayBlocks' fence line; JS `.` is written as the class of what it matches here.
 private let onayFenceRE = try! NSRegularExpression(pattern: #"^( {0,3})(?:(`{3,})([^`]*)|(~{3,})([^\n\r\u2028\u2029]*))$"#)
 /// What JS `trim()` removes: Zs, tab, VT, FF, line ends and U+FEFF.
@@ -867,7 +871,7 @@ private func passesGate(_ text: String) -> Bool {
     let folded = text.precomposedStringWithCanonicalMapping.lowercased(with: tr).replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: "ş", with: "s")
         .replacingOccurrences(of: #"[^\S\n]"#, with: " ", options: .regularExpression).trimmingCharacters(in: jsTrim)
     let scope = approvalScopeOff.stringByReplacingMatches(in: folded, range: NSRange(location: 0, length: (folded as NSString).length), withTemplate: " ")
-    if held(approvalDur) || (hits(approvalLiveWord, scope) && held(approvalHold)) { return false }
+    if held(approvalDur) || held(approvalRevoke) || (hits(approvalLiveWord, scope) && (held(approvalHold) || held(approvalRevokeLive))) { return false }
     return !hits(deployAsk, scope) || wholeMatch(deployLine, folded) != nil
 }
 /// client.js `approvable`: a sentence that gets a button (at most `approvalMax` UTF-16 units, only APPROVAL_CHARS).
@@ -1147,9 +1151,35 @@ func lastReply(_ transcript: [Line]) -> String {
 /// limit still notifies: for the open chat a failure has no other alert (sessionError only adds a chat line).
 func quietTurn(reply: String, reason: String?) -> Bool {
     guard reason == "completed" else { return false }
-    let t = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-    return t.isEmpty || t.caseInsensitiveCompare("[quiet]") == .orderedSame
+    return reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || quietReply(reply)
 }
+/// A reply that is only `[quiet]` (spaces trimmed, any case): the views hide it (index.js quietReply, client.js quietText;
+/// one table: test/fixtures/quiet-replies.json).
+func quietReply(_ text: String) -> Bool {
+    text.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("[quiet]") == .orderedSame
+}
+/// The texts of the newest turn of a chat log, newest first, trimmed, not empty: the `assistant/message` events after the
+/// newest `turn/start`, without the ones that a rollback withdrew (the Mac's runTexts and lastReply read the log the same
+/// way). Every text counts, also one sent with a tool call (dsh's default foldedReplies: all shows it). The log, not the
+/// drawn lines: a news, scheduled or outage prompt draws no `.user` line, a steered message draws one mid-turn, and a
+/// rollback can leave a turn without its end line.
+func turnTexts(_ events: [J]) -> [String] {
+    let shown = withoutRolledBack(events)
+    let start = shown.lastIndex { $0["type"] as? String == "turn/start" }.map { $0 + 1 } ?? 0
+    return shown[start...].reversed().compactMap { e -> String? in
+        guard e["type"] as? String == "assistant/message" else { return nil }
+        let t = contentText(((e["data"] as? J)?["message"] as? J)?["content"], imageMarker: false).trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+}
+/// The newest turn had nothing to say: it has texts, and each is only `[quiet]` (the Mac's quietRun).
+func quietTexts(_ events: [J]) -> Bool {
+    let t = turnTexts(events)
+    return !t.isEmpty && t.allSatisfy(quietReply)
+}
+/// The words of the newest turn's Turn finished: its newest text that is not only `[quiet]` (the Mac's runReply and
+/// lastReply), or "" when it has none.
+func newsReply(_ events: [J]) -> String { turnTexts(events).first { !quietReply($0) } ?? "" }
 
 /// One row of the chat as DSH desktop shows it.
 enum ChatRow: Identifiable {
@@ -1468,7 +1498,7 @@ func assistantMark(_ id: String?, sessions: [Sess], busy: Set<String>, waiting: 
 /// A reply that is only `[quiet]` (the assistant's "nothing to say", `quietTurn`) shows nothing, as on the Mac (client.js
 /// quietStep).
 func botLines(_ t: [Line]) -> [Line] {
-    t.filter { $0.kind == .user || $0.kind == .error || ($0.kind == .assistant && !quietTurn(reply: $0.text, reason: "completed")) }
+    t.filter { $0.kind == .user || $0.kind == .error || ($0.kind == .assistant && !quietReply($0.text)) }
 }
 /// Order by status (view only): finished and not opened, then running or waiting, then the rest; else dsh's order.
 func statusRank(_ s: Sess, busy: Set<String>, waiting: Set<String>, finished: Set<String>) -> Int {
@@ -3197,9 +3227,16 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             transcript.append(turnLine(reason: reason?["kind"] as? String, start: turnStartedAt,
                                        end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
-                let reply = lastReply(transcript)
-                if !quietTurn(reply: reply, reason: reason?["kind"] as? String) { notify(String(localized: "Turn finished"), reply, session: current) }
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                let kind = reason?["kind"] as? String
+                // Damon's chat reads the turn from its log (`events`, the Mac's rule): a completed turn whose every text is
+                // `[quiet]` gives no alert and no buzz (2026-11-19, quietRun); a turn with a real text notifies with it, also
+                // when its last reply is `[quiet]` (runReply). Other chats keep the drawn reply (lastReply), as before.
+                let bot = current != nil && current == botId
+                if !(bot && kind == "completed" && quietTexts(events)) {
+                    let reply = bot ? newsReply(events) : lastReply(transcript)
+                    if !quietTurn(reply: reply, reason: kind) { notify(String(localized: "Turn finished"), quietReply(reply) ? "" : reply, session: current) }
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
             }
             running = false
             turnStartedAt = nil

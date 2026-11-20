@@ -6,13 +6,13 @@ const src = readFileSync(new URL('../client.js', import.meta.url), 'utf8');
 const mem = new Map(); globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => { mem.set(k, String(v)); }, removeItem: (k) => { mem.delete(k); } };
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
 globalThis.document = { visibilityState: 'visible', hasFocus: () => true, addEventListener() {}, removeEventListener() {} };
-eval(src.replace('const ROLLBACK_ROUTE = ', 'globalThis.__rb = () => ({ createRollback, createDeleteChat, inSpans, DeleteChatItem });\n    const ROLLBACK_ROUTE = '));
+eval(src.replace('const ROLLBACK_ROUTE = ', 'globalThis.__rb = () => ({ createRollback, createDeleteChat, inSpans, DeleteChatItem, rollbackSeqOf, ROLLBACK_ROWS });\n    const ROLLBACK_ROUTE = '));
 const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment: 'F', useState: (v) => [v, () => {}], useRef: (v) => ({ current: v }), useEffect() {}, useSyncExternalStore: (s, g) => g() };
 const posted = [];
 let answer = () => ({ status: 200, body: { on: true } });
 globalThis.fetch = async (url, init) => { const body = init?.body === undefined ? undefined : JSON.parse(init.body); posted.push([url, body]); const r = answer(url, body); return { ok: r.status < 400, status: r.status, json: async () => r.body }; };
 const plugin = mod.factory((n) => (n === 'react' ? React : n === '@deepseek-ai/dsh-client-ui-primitives' ? { Switch: 'Switch', Input: 'Input', MenuItemButton: 'MenuItemButton', Modal: 'Modal', Button: 'Button' } : {}));
-const { createRollback, createDeleteChat, inSpans, DeleteChatItem } = globalThis.__rb();
+const { createRollback, createDeleteChat, inSpans, DeleteChatItem, rollbackSeqOf, ROLLBACK_ROWS } = globalThis.__rb();
 const gate = () => { let go; const p = new Promise((r) => { go = r; }); return { p, go }; };
 const reply = (status, body) => ({ status, ok: status < 400, json: async () => body });
 
@@ -20,6 +20,16 @@ const reply = (status, body) => ({ status, ok: status < 400, json: async () => b
 assert.equal(inSpans([[9, 20]], 9), true); assert.equal(inSpans([[9, 20]], 20), true); assert.equal(inSpans([[9, 20]], 8), false);
 assert.equal(inSpans([[9, 20]], 23.9), false); assert.equal(inSpans([[9, 20], [22, 30]], 23.9), true, 'turn chrome has fractional anchors');
 assert.equal(inSpans([[9, 20]], undefined), false);
+
+// 1b. ↶ rows: your messages, also one that went into a running turn (dsh's `steering` row: in the Damon chat each message
+// typed while Damon works). Not a context row, not a withdrawn message, not a node without a seq.
+assert.ok(ROLLBACK_ROWS.includes('[data-chat-flow-kind="steering"]') && ROLLBACK_ROWS.includes('[data-chat-flow-kind="user"]'));
+assert.equal(rollbackSeqOf({ kind: 'user', anchorSeq: 4, data: { seq: 4 } }, []), 4);
+assert.equal(rollbackSeqOf({ kind: 'steering', anchorSeq: 7, data: { seq: 7 } }, []), 7, 'a steering message gets ↶');
+assert.equal(rollbackSeqOf({ kind: 'steering', anchorSeq: 7, data: { seq: 7 } }, [[5, 9]]), undefined, 'not when a rollback withdrew it');
+assert.equal(rollbackSeqOf({ kind: 'context', anchorSeq: 7, data: { seq: 7 } }, []), undefined);
+assert.equal(rollbackSeqOf({ kind: 'steering', anchorSeq: 7, data: {} }, []), undefined);
+assert.equal(rollbackSeqOf(undefined, []), undefined);
 
 // 2. Rollback store: one rollback per chat at a time; the span is kept for hiding; a failure keeps the reason.
 {

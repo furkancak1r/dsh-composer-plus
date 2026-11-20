@@ -1,10 +1,13 @@
 // Real-app check of Assistant messages only, folded answers, on each dsh given (throwaway DSH_HOME and HOME, a made-up
 // assistant chat log, no model call). Headless.
 // The case: you ask, the reply comes, then a subagent's message arrives mid-turn and wakes a next step whose reply ends
-// the turn; then a hidden agent message starts the next turn, with its own reply. dsh folds every reply but a turn's last
+// the turn; then a hidden agent message starts the next turn, with its own reply; then a news turn with only [quiet] (its
+// reply and its news note go) and a news turn with a real reply (its reply shows). dsh folds every reply but a turn's last
 // into the turn's process (0.2.0-0.2.1 always, 0.2.2 with foldedReplies: final, set here), and the view hides the control
 // that opens it. Every reply must show, in time order; the agent message rows and the tool row stay hidden.
-// PLAYWRIGHT=/path/to/playwright node test/browser-assistant-answers.mjs /path/to/dsh/lib/bin.js [...]
+// The quiet news turn starts with a [quiet] text sent with a tool call: with FOLDED_REPLIES=all (dsh 0.2.2's default)
+// dsh shows that text, and this view hides it too.
+// PLAYWRIGHT=/path/to/playwright [FOLDED_REPLIES=all] node test/browser-assistant-answers.mjs /path/to/dsh/lib/bin.js [...]
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
@@ -23,6 +26,9 @@ const pause = (ms) => new Promise((r) => setTimeout(r, ms));
 const REPLIES = ['Promes is fine.', 'GIB has no code.', 'Second result.'];
 const HIDDEN = ['RELAY-ONE from the subagent', 'RELAY-TWO from the subagent', 'chats_list'];
 const QUIET = '[quiet]'; // turn 3: a news turn whose reply is only [quiet] (the assistant has nothing to say): hidden
+// Turn 3's news note goes with its quiet reply; turn 4 is a news turn with a real reply: its note and reply stay as dsh draws them.
+const NEWS = ['[Composer Plus → Assistant news] QUIET-NEWS acme finished.', '[Composer Plus → Assistant news] LOUD-NEWS deploy failed.'];
+const NEWS_ANSWER = 'The acme deploy failed: the login test is red.';
 
 // The assistant chat's log: the event shapes of a real dsh 0.2.2 log (texts made up).
 function chatLog(sid, cwd) {
@@ -53,11 +59,26 @@ function chatLog(sid, cwd) {
     ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }),
     ev('step/start', { turn: 2, step: 1 }), ev('user/message', two, { surfaceOp: 'append' }),
     reply(2, 1, [{ type: 'text', text: REPLIES[2] }]), ev('step/end', { turn: 2, step: 1 }), ev('turn/end', { turn: 2, reason: { kind: 'completed' } }));
-  const news = msg('[Composer Plus → Assistant news] acme finished.', { kind: 'composer-plus-assistant-news', form: 'snapshot' });
-  lines.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [news] }), ev('turn/start', { turn: 3 }),
-    ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }),
-    ev('step/start', { turn: 3, step: 1 }), ev('user/message', news, { surfaceOp: 'append' }),
-    reply(3, 1, [{ type: 'reasoning', text: 'Routine.' }, { type: 'text', text: QUIET }]), ev('step/end', { turn: 3, step: 1 }), ev('turn/end', { turn: 3, reason: { kind: 'completed' } }));
+  // A news turn as the Host writes it (wakeWithContinue: empty markers in both queues; the note itself has its own id).
+  // `work`: a first step whose text comes with a tool call (dsh 0.2.2's default foldedReplies: all shows that text).
+  const newsTurn = (turn, text, answer, work) => {
+    const marker = () => ({ id: randomUUID(), role: 'user', content: [], source: { kind: 'composer-plus-assistant-news' } });
+    lines.push(ev('agent/inbox/spliced', { target: 'next-turn', start: 0, inserted: [marker()] }), ev('agent/inbox/spliced', { target: 'next-step', start: 0, inserted: [marker()] }),
+      ev('turn/start', { turn }), ev('agent/inbox/spliced', { target: 'next-step', start: 0, removedCount: 1, inserted: [] }),
+      ev('agent/inbox/spliced', { target: 'next-turn', start: 0, removedCount: 1, inserted: [] }),
+      ev('step/start', { turn, step: 1 }), ev('user/message', msg(text, { kind: 'composer-plus-assistant-news', form: 'snapshot' }), { surfaceOp: 'append' }));
+    let step = 1;
+    if (work !== undefined) {
+      const callId = `call_${turn}`;
+      lines.push(reply(turn, 1, [{ type: 'text', text: work }, { type: 'tool-call', id: callId, name: 'chats_list', arguments: '{}' }]), ev('tool/call', { turn, step: 1, callId, name: 'chats_list', arguments: '{}' }));
+      lines.push(ev('tool/result', { turn, step: 1, message: { role: 'tool', source: { kind: 'tool', callId }, toolCallId: callId, content: [{ type: 'text', text: '{"chats":[]}' }], isError: false, id: randomUUID() } }, { sourceEventSeqs: [seq - 1], surfaceOp: 'append' }),
+        ev('step/end', { turn, step: 1 }), ev('step/start', { turn, step: 2 }));
+      step = 2;
+    }
+    lines.push(reply(turn, step, [{ type: 'reasoning', text: 'Routine.' }, { type: 'text', text: answer }]), ev('step/end', { turn, step }), ev('turn/end', { turn, reason: { kind: 'completed' } }));
+  };
+  newsTurn(3, NEWS[0], QUIET, QUIET); // [quiet] with a tool call, then [quiet]: the whole turn is quiet
+  newsTurn(4, NEWS[1], NEWS_ANSWER);
   // dsh wants the header line alone in the first zstd frame.
   return Buffer.concat([zlib.zstdCompressSync(Buffer.from(`${lines[0]}\n`)), zlib.zstdCompressSync(Buffer.from(`${lines.slice(1).join('\n')}\n`))]);
 }
@@ -73,7 +94,8 @@ try {
     await writeFile(join(profile, 'package.json'), JSON.stringify({ name: 'answers-test', private: true, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-composer-plus'] } } }));
     await writeFile(join(profile, 'cordis.yml'), '[]\n');
     // dsh 0.2.2 keeps every reply by default; the owner's setting folds all but the final answer (0.2.0-0.2.1 always do).
-    const fold = /^0\.2\.[01]-/.test(version) ? '' : '- id: ui-chat\n  name: "@deepseek-ai/dsh-client-ui-chat"\n  config:\n    foldedReplies: final\n';
+    // FOLDED_REPLIES=all checks dsh 0.2.2's default, where a text sent with a tool call shows too.
+    const fold = /^0\.2\.[01]-/.test(version) ? '' : `- id: ui-chat\n  name: "@deepseek-ai/dsh-client-ui-chat"\n  config:\n    foldedReplies: ${process.env.FOLDED_REPLIES ?? 'final'}\n`;
     await writeFile(join(profile, 'cordis.patch.yml'), `${fold}- id: ui-settings-general\n  name: "@deepseek-ai/dsh-client-ui-settings-general"\n  config:\n    welcomeNoticeVersion: 2026-09-28.1\n`);
     const sid = `session-${randomUUID()}`; const wid = randomUUID(); const now = new Date().toISOString();
     const dir = join(dshHome, 'sessions', `-${cwd.replace(/[^A-Za-z0-9_]/g, '-')}--`, sid); await mkdir(dir, { recursive: true });
@@ -89,7 +111,8 @@ try {
     try {
       for (let i = 0; i < 200 && !log.match(/http:\/\/[^\s]*token=[^\s]*/); i++) { if (child.exitCode !== null) throw Error(`test dsh exited (${child.exitCode})`); await pause(250); }
       const url = log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0]; assert.ok(url, 'test server URL available');
-      context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 1000 } });
+      // 1600 px: dsh hides its turn rail while the chat is 900 px wide or less (`@container (width<=900px)`).
+      context = await browser.newContext({ locale: 'en-US', viewport: { width: 1600, height: 1000 } });
       await context.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false}'); });
       const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       await page.goto(url);
@@ -106,11 +129,30 @@ try {
       assert.ok(tops[0] < tops[1] && tops[1] < tops[2], `the replies are in time order (${tops.join(' < ')})`);
       for (const text of HIDDEN) assert.equal((await shown(text)).length, 0, `"${text}" stays hidden`);
       assert.equal((await shown(QUIET)).length, 0, 'a reply that is only [quiet] is hidden');
+      // The news note of each turn: dsh 0.2.2 draws it as a context row (folded into the turn's process), 0.2.0-0.2.1 not at
+      // all. The quiet turn's row gets this view's 0-height rule; the note of a news turn with a real reply keeps dsh's own
+      // style, and its reply shows.
+      const noteRule = (turn) => chat.locator(`[data-chat-flow-kind="context"][data-chat-turn="${turn}"]`).evaluateAll((els) => els.map((el) => getComputedStyle(el).visibility));
+      const drawn = /^0\.2\.[01]-/.test(version) ? [] : ['x'];
+      assert.deepEqual(await noteRule(3), drawn.map(() => 'hidden'), 'the quiet turn\'s news note is hidden');
+      assert.deepEqual(await noteRule(4), drawn.map(() => 'visible'), 'the news note of a turn with a real reply keeps dsh\'s own style');
+      for (const note of NEWS) assert.equal((await shown(note.split('] ')[1])).length, 0, `the news text "${note}" is not on screen`);
+      assert.equal((await shown(NEWS_ANSWER)).length, 1, 'the real reply of a news turn shows');
       // dsh's turn tail of the quiet turn: its Copy/time row (the hidden reply's) goes; the tail itself stays in the page.
       const tail = await chat.locator('[data-turn-tail="3"] > [data-clock]').evaluateAll((els) => els.map((el) => getComputedStyle(el).display));
       assert.deepEqual(tail, ['none'], 'the quiet turn shows no Copy/time row');
       const otherTail = await chat.locator('[data-turn-tail="2"] > [data-clock]').evaluateAll((els) => els.filter((el) => el.getBoundingClientRect().height > 0).length);
       assert.equal(otherTail, 1, 'a turn with a reply keeps its Copy/time row');
+      // dsh's turn rail: its hover tooltip shows a turn's last text. The quiet turn's tooltip does not show; a real one does.
+      const mark = (turn) => chat.locator(`nav[class*="_frame"] button[aria-label$=" ${turn}"]`).first();
+      const tip = chat.locator('nav[class*="_frame"] > [role="tooltip"]');
+      if (await mark(3).count() > 0) {
+        await mark(4).hover(); await tip.waitFor({ timeout: 5000 });
+        assert.ok(await tip.isVisible() && (await tip.textContent()).includes(NEWS_ANSWER.slice(0, 20)), 'a real turn\'s rail tooltip shows');
+        await mark(3).hover(); await pause(300);
+        assert.equal(await tip.evaluateAll((els) => els.filter((el) => el.checkVisibility()).length), 0, 'the quiet turn\'s rail tooltip does not show');
+        await page.mouse.move(10, 10);
+      } else console.log(`  (dsh ${version}: no turn rail drawn)`);
       assert.ok(await chat.getByText('promes status?').first().isVisible(), 'your message shows');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);

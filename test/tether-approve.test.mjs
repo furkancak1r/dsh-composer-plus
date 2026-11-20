@@ -1,8 +1,8 @@
 // Tether's Approve button and assistant name, the same as the Mac (CI has no Swift: this checks the shared table and the
 // contract in the source; the behavior has XCTests in tether/ios/Tests, testApprovalBlocksMatchTheMac and testApproveClient).
 // - test/fixtures/approval-blocks.json is client.js parseApprovals: one table for both apps.
-// - Tether's expressions are client.js APPROVAL_CHARS, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD,
-//   DEPLOY_ASK and DEPLOY_LINE (JS `[^]` written as `[\s\S]`), and approvalMax is APPROVAL_MAX.
+// - Tether's expressions are client.js APPROVAL_CHARS, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_REVOKE, APPROVAL_REVOKE_LIVE,
+//   APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD, DEPLOY_ASK and DEPLOY_LINE (JS `[^]` written as `[\s\S]`), and approvalMax is APPROVAL_MAX.
 // - A tap asks once and sends the exact sentence through the composer's send (session/prompt, your message).
 // - The assistant is Damon on the phone too (one name: index.js and client.js ASSISTANT_NAME).
 // - The gateway's /me gives the Composer Plus language that the Host knows (`lang`), so the phone's words follow it.
@@ -14,7 +14,7 @@ const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 const src = read('client.js'), core = read('tether/ios/Sources/Core.swift'), ui = read('tether/ios/Sources/UI.swift');
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } };
 const ANCHOR = '/** Feature switches, in Settings order.';
-eval(src.replace(ANCHOR, `globalThis.__ta = { parseApprovals, APPROVAL_MAX, APPROVAL_CHARS, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD, DEPLOY_ASK, DEPLOY_LINE };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__ta = { parseApprovals, APPROVAL_MAX, APPROVAL_CHARS, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_REVOKE, APPROVAL_REVOKE_LIVE, APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD, DEPLOY_ASK, DEPLOY_LINE };\n    ${ANCHOR}`));
 mod.factory((n) => (n === 'react' ? { createElement: () => null } : {}));
 const js = globalThis.__ta;
 
@@ -25,7 +25,7 @@ assert.ok(cases.length >= 100 && cases.some((c) => c.sentences.length === 0) && 
 
 // The same expressions and limit in Tether.
 const swiftRe = (name) => { const m = core.match(new RegExp(`let ${name} = try! NSRegularExpression\\(pattern: #"(.*)"#\\)`)); assert.ok(m, `Core.swift has ${name}`); return m[1]; };
-for (const [name, sw] of [['APPROVAL_CHARS', 'approvalChars'], ['APPROVAL_HOLD', 'approvalHold'], ['APPROVAL_DUR', 'approvalDur'], ['APPROVAL_SCOPE_OFF', 'approvalScopeOff'],
+for (const [name, sw] of [['APPROVAL_CHARS', 'approvalChars'], ['APPROVAL_HOLD', 'approvalHold'], ['APPROVAL_DUR', 'approvalDur'], ['APPROVAL_REVOKE', 'approvalRevoke'], ['APPROVAL_REVOKE_LIVE', 'approvalRevokeLive'], ['APPROVAL_SCOPE_OFF', 'approvalScopeOff'],
   ['APPROVAL_LIVE_WORD', 'approvalLiveWord'], ['DEPLOY_ASK', 'deployAsk'], ['DEPLOY_LINE', 'deployLine']]) {
   assert.equal(swiftRe(sw), js[name].source.replaceAll('[^]', '[\\s\\S]'), `Tether's ${sw} = client.js ${name}`);
 }

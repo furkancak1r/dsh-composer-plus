@@ -10,7 +10,8 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { APPROVE_SECTION, ASSISTANT_ASK, ASSISTANT_PATH, ASSISTANT_PRESET, ASSISTANT_SWITCH_PATH, ASSISTANT_TOOLS, assistantRead, installAssistant, waitingOf } from '../index.js';
+import { createHash } from 'node:crypto';
+import { APPROVE_SECTION, ASSISTANT_ASK, ASSISTANT_PATH, ASSISTANT_PRESET, ASSISTANT_SWITCH_PATH, ASSISTANT_TOOLS, assistantRead, codeChanged, installAssistant, waitingOf } from '../index.js';
 
 const tick = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
 
@@ -98,7 +99,8 @@ const ctx = {
   },
 };
 let onDisk; // a newer Composer Plus version on disk than the one that runs (installedUpdate)
-const host = installAssistant(ctx, home, { folder, zone: 'Europe/Istanbul', installed: () => onDisk });
+let codeOnDisk = false; // index.js on disk is not the code that runs (codeChanged)
+const host = installAssistant(ctx, home, { folder, zone: 'Europe/Istanbul', installed: () => onDisk, changed: () => codeOnDisk });
 await host.ready;
 const call = async (path, method = 'GET', body) => {
   const route = routes.get(path);
@@ -186,12 +188,35 @@ assert.ok(rules.includes('\n- Before you give the user a test or a manual step, 
 assert.ok(rules.includes('\n- Never ask the user to open, switch to or paste into another chat. When Auto review denies a relayed approval, ask for the approval in this chat with an `onay` block and run the step in your own subagent. Run each live deploy in your own subagent.\n'), 'no other chat for the user');
 assert.ok(rules.includes('\n- Auto review reads the newest approval of the user as the whole scope of that work: an `onay` block names every remaining step of the work, not only the step that Auto review denied.\n'), 'an approval names the whole remaining work');
 assert.ok(rules.includes('\n- Write a value of a live system (a number on a live page, a deploy state, "deploy started") only after a check in this turn; else write that it is not verified.\n'), 'no live value without a check');
+// 2026-11-18: one copy needed 4 approvals and a task offered a method that the approval did not name; a merge subagent
+// reviewed its own diff; two deploy commands with more around the line were denied; a cause was given for a denial
+// without a reason; 8 screenshots stayed in /tmp after a task.
+assert.ok(rules.includes("\n- When you relay an approval or write a task, keep the scope of the user's approval: add no step, method, access path or condition that the approval does not name. When the work needs more steps (for example a read-only check before or after a copy, or the removal of the agent's own temporary files), ask for all of them first in one `onay` block.\n"), 'the scope of the approval');
+assert.ok(rules.includes('\n- Before a merge, an agent other than the one that wrote the change reviews the final diff. When the agent that merges cannot start a separate reviewer, run the review in your own separate subagent or give the work to a branch chat (chat_new with branch true).\n'), 'an independent review before a merge');
+assert.ok(rules.includes('\n- In a live deploy task, tell the agent to run the exact deploy command (the runbook line) as the whole command, with nothing before or after it (no redirect, echo, date or tail).\n'), 'the exact deploy command');
+assert.ok(rules.includes('\n- When a subagent reports an Auto review denial without a reason, write that the reason is not verified. Do not give a cause, and do not tell the user to stop writing in this chat unless the reviewer reason says so.\n'), 'no cause for a denial without a reason');
+assert.ok(rules.includes('\n- When a task tells an agent to save files outside the repository (for example screenshots in /tmp), the task also says when the agent deletes them.\n'), 'temporary files get a delete step');
 // 2026-11-17: the copy on disk had 1.30.0 from 09:57, but its Host rules worked only after the dsh restart at 17:46.
-assert.doesNotMatch(rules, /still runs Composer Plus/, 'no restart line while the running copy is the newest');
+// 2026-11-18: a copy with the same version was not seen: the line compares the code (sha256 of index.js), not the version.
+assert.doesNotMatch(rules, /still runs Composer Plus|code on disk changed/, 'no restart line while the running code is the code on disk');
+const versionLine = /\n- Composer Plus 99\.0\.0 is on disk, but this dsh still runs Composer Plus \d+\.\d+\.\d+\S*: its new rules and checks work only after a dsh restart\. Do not write that they work now; tell the user once that dsh needs a restart\.$/;
 onDisk = '99.0.0';
-assert.match(section.text({ agent: assistant }), /\n- Composer Plus 99\.0\.0 is on disk, but this dsh still runs Composer Plus \d+\.\d+\.\d+\S*: its new rules and checks work only after a dsh restart\. Do not write that they work now; tell the user once that dsh needs a restart\.$/, 'a newer copy on disk: the restart line');
-assert.equal(section.text({ agent: agents.get('s-web') }), '', 'only in the assistant chat');
+// A release can change only other Host files (tether/gateway/server.mjs, backup.mjs): the version alone shows the line.
+assert.match(section.text({ agent: assistant }), versionLine, 'a newer version, the same index.js: the restart line with its version');
+codeOnDisk = true;
+assert.match(section.text({ agent: assistant }), versionLine, 'a newer version and other code: the line with its version');
 onDisk = undefined;
+assert.match(section.text({ agent: assistant }), /\n- The Composer Plus code on disk changed after this dsh started \(it runs Composer Plus \d+\.\d+\.\d+\S*\): its new rules and checks work only after a dsh restart\. Do not write that they work now; tell the user once that dsh needs a restart\.$/, 'the same version, other code: the restart line');
+assert.equal(section.text({ agent: agents.get('s-web') }), '', 'only in the assistant chat');
+codeOnDisk = false;
+// codeChanged: the sha256 of the file now against the one at load.
+{ const f = join(home, 'code.js'); await writeFile(f, 'a');
+  const loaded = createHash('sha256').update('a').digest('hex');
+  assert.equal(codeChanged(f, loaded), false, 'the same code');
+  await writeFile(f, 'b'); assert.equal(codeChanged(f, loaded), true, 'other code');
+  assert.equal(codeChanged(join(home, 'missing.js'), loaded), false, 'an unreadable file: no line');
+  assert.equal(codeChanged(f, null), false, 'no hash at load: no line');
+  assert.equal(codeChanged(), false, 'this test runs the index.js on disk'); }
 for (const text of [rules, APPROVE_SECTION]) assert.doesNotMatch(text, /Furkan|\/Users\/|aiproxy|review-guard|Promes|Proso/i, 'no personal names, paths, providers or local skills');
 assert.equal(section.text({ agent: agents.get('s-web') }), '', 'no section in another chat');
 assert.equal(section.text({ agent: sub }), '', 'no section in its subagent');
