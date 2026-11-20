@@ -2510,7 +2510,7 @@ export function apply(ctx, config) {
   installAssistantMorning(ctx, home, assistant, { todos });
   installAssistantSetup(ctx, assistant, memory);
   installMemoryImport(ctx, home, assistant, memory);
-  installSecrets(ctx, home);
+  installSecrets(ctx, home, undefined, (id) => assistant.isOn() && assistant.tasks.has(id));
   installBackup(ctx, home);
 }
 
@@ -9346,7 +9346,8 @@ export function maskSecrets(blocks, values) {
   });
   return changed ? out : undefined;
 }
-export function installSecrets(ctx, home, dir = join(home, 'storages', 'dsh-composer-plus')) {
+/** `delegated(chatId)`: true for a chat that the assistant gave work to (its delegated chat list). */
+export function installSecrets(ctx, home, dir = join(home, 'storages', 'dsh-composer-plus'), delegated = () => false) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const sw = mobileSwitch(join(dir, 'secrets.json'), true);
   const folder = join(dir, 'secrets');
@@ -9389,6 +9390,9 @@ export function installSecrets(ctx, home, dir = join(home, 'storages', 'dsh-comp
       if (ask.error !== undefined) throw new Error(ask.error);
       const sessionId = exec?.agent?.session?.id;
       if (typeof sessionId !== 'string') throw new Error('request_secret needs a chat');
+      // Only the root chat that the user looks at asks (2026-11-20: a chat that the assistant started asked, nobody saw
+      // the card, and it waited 70 minutes). A subagent chat or a delegated chat reports the need to the assistant.
+      if (!isRootChat(exec.agent.session) || delegated(sessionId)) throw new Error(`request_secret is not available in a chat that ${ASSISTANT_NAME} started or in a subagent. Do not wait for the user. Stop this step and report to ${ASSISTANT_NAME} the exact secret that the step needs (system, account, and how the step reads it). ${ASSISTANT_NAME} asks the user.`);
       if ([...asks.values()].some((a) => a.sessionId === sessionId)) throw new Error('one secret request at a time: wait for the open one');
       const askId = randomUUID();
       const answer = await new Promise((resolve) => {
@@ -10419,7 +10423,7 @@ export const RELAY_WINDOW_MS = 12 * 3600000;
  * message (rule 9). Undefined when every quote is there (2026-11-16: the assistant relayed a button sentence of another
  * chat as the user's exact approval, and Auto review denied the call). */
 export function relayRefusal(text, events, inherited = 0, now = Date.now()) {
-  if (looseRelay(String(text ?? ''))) return 'Composer Plus → Assistant: this text relays an approval, but not in the form that Auto review reads as a relayed approval, so Auto review in the other chat denies its step. Write the approval in this form (put the sentence on one line, word for word, and nothing after the closing quote): <Name>\'s approval (exact text, typed by <Name> in the Assistant chat on YYYY-MM-DD at HH:MM): "<sentence>". When the text relays no approval (for example a task that names an approval or a deploy line), write it without "exact text" on the line of "approval", "approved" or "deploy line" and on the next line, for example "the same text"; relay a request as <Name>\'s request (exact text, YYYY-MM-DD): "<sentence>".';
+  if (looseRelay(String(text ?? ''))) return 'Composer Plus → Assistant: this text relays an approval, but not in the form that Auto review reads as a relayed approval, so Auto review in the other chat denies its step. Write the approval in this form (put the sentence on one line, word for word, and nothing after the closing quote): <Name>\'s approval (exact text, typed by <Name> in the Assistant chat on YYYY-MM-DD): "<sentence>". The time is optional. When the text relays no approval (for example a task that names an approval or a deploy line), write it without "exact text" on the line of "approval", "approved" or "deploy line" and on the next line, for example "the same text"; relay a request as <Name>\'s request (exact text, YYYY-MM-DD): "<sentence>".';
   const fold = (s) => String(s ?? '').normalize('NFC').replace(/\s+/g, ' ').trim();
   const quotes = [...String(text ?? '').matchAll(RELAY_QUOTE)].map((m) => fold(m[1])).filter((q) => q !== '');
   if (quotes.length === 0) return undefined;
