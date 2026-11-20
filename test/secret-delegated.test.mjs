@@ -1,6 +1,8 @@
-// Secret input through the real Host (apply): request_secret opens no card while a chat's turn runs a message that the
-// assistant sent (chat_send); a later turn of that chat that the user typed opens the card, also when the task stayed
-// (its turn ended while Assistant was off). A fork (parentSession, no origin "subagent", no delegationDepth) opens it too.
+// Secret input through the real Host (apply), with a chat_send task: request_secret opens no card while a chat's turn
+// runs the message that the assistant sent; a later turn of that chat that the user typed opens the card, also when the
+// task stayed (its turn ended while Assistant was off). Not covered: a chat_new task waits for any turn, so the next turn
+// is refused too, until the bot drops the task at that turn end (ponytail at taskTurn in index.js). A fork (parentSession,
+// no origin "subagent", no delegationDepth) opens the card too.
 import assert from 'node:assert/strict';
 import './temp-home.mjs'; // before index.js: apply() must not get the real DSH_HOME
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
