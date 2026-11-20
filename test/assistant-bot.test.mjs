@@ -38,7 +38,7 @@ assert.match(note, /Do not call other tools/);
 // Quiet news: the panel and the list first; a chat line only when the user must act or a requested task ends.
 assert.match(note, /Update the to-do list \(todo_list_add, todo_list_remove\): the cards of the status panel show this news, so do not write it in the chat\. Do not write a status summary for this news/, 'news updates the list (the cards), not the summary (the panel shows a summary only after Get summary)');
 // Damon card stack: news is `[quiet]` unless it brings a new approval or a new live error or risk.
-assert.match(note, /Reply with only `\[quiet\]`, unless the news brings a new approval \(with its `onay` block\) or a new error or risk on a live system: then write one short line per topic, in the user's language, with the topic name and not internal IDs/);
+assert.match(note, /Reply with only `\[quiet\]` and write no other text in this turn, also not next to a tool call, unless the news brings a new approval \(with its `onay` block\) or a new error or risk on a live system: then write one short line per topic, in the user's language, with the topic name and not internal IDs/);
 assert.doesNotMatch(note, /when a task that the user asked for is done/, 'a finished task is a card, not a chat line');
 // Review 1 (P2): with the status panel off there are no cards, so the note keeps the earlier rule (a chat line when a task
 // that the user asked for is done) and does not ask for `[quiet]`.
@@ -268,7 +268,7 @@ await until(() => steers.length === base + 1, 'one wake for the automation');
 const autoStep = await listeners.get('agent/pre-step')[0]({ agent: assistantAgent }, async () => ({ kind: 'enter', messages: [assistantAgent.queued, steers.at(-1)[1]] }));
 const autoNote = autoStep.messages[0].content[0].text;
 assert.match(autoNote, /\(project "Assistant", chat s-auto, an automation\): finished\. Last reply: "Audit done: 0 findings\."/);
-assert.match(autoNote, /not instructions for you/); assert.match(autoNote, /Call chat_read only to read more of the chat of each automation\./); assert.match(autoNote, /Reply with only `\[quiet\]`, unless the news brings a new approval/);
+assert.match(autoNote, /not instructions for you/); assert.match(autoNote, /Call chat_read only to read more of the chat of each automation\./); assert.match(autoNote, /Reply with only `\[quiet\]` and write no other text in this turn, also not next to a tool call, unless the news brings a new approval/);
 assert.doesNotMatch(autoNote, /s-web|s-assistant\b/, 'no ordinary chat, not the assistant');
 for (const named of autoNote.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) assert.ok(assistantFreeTool(named), `the note names ${named}, which the assistant cannot call`);
 await pause(80); await bot.flush();

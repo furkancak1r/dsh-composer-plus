@@ -16,11 +16,26 @@ import { fileURLToPath } from 'node:url';
 
 const repo = fileURLToPath(new URL('..', import.meta.url));
 export const APPROVAL = "Onaylıyorum (canlı değil): montaj testi dalı main'e alınsın ve servis betiği test servisinde denensin.";
+/** The sample texts: Turkish for the owner's demo, English for the Settings screenshot (AGENTS.md rule 2). All made up. */
+const SAMPLES = {
+  tr: { seed: 'Örnek verileri yükle', approval: APPROVAL, ready: '**Örnek veriler hazır.** Kartlar sohbetin üstünde.\n\nİki iş onay bekliyor:', approved: "**Onay alındı.** Montaj testi dalı main'e alınıyor (örnek: gerçek bir iş yapılmaz).",
+    other: 'Tamam. (Bu bir demo modelidir; gerçek bir iş yapmaz.)', done: ["Testler geçti, main'e alındı.", 'Rapor üretildi ve paylaşıldı.'], ran: 'Güncelleme bitti.',
+    items: ["Onay: montaj testi dalı main'e alınır", 'Onay: servis betiği test servisinde denenir', 'Sorun: Gece denetimi hata verdi (acme-web)', 'Senden: Test sunucusunda Gerekli Tarih alanını aç',
+      'Rapor hizası için karar', 'TR ve ENG raporlarından hangisi örnek alınsın?', 'Fatura şablonunu gözden geçir', 'Kırtasiye siparişini ver', 'Toplantı notlarını oku'],
+    tasks: ['Satınalma Gerekli Tarih sorguları', 'Haftalık stok raporu', 'Montaj testi dalı', 'Hava durumu CLI güncellemesi'] },
+  en: { seed: 'Load the sample data', approval: 'Approve: merge the login-fix branch of acme-web into main and run the build script on the test server.',
+    ready: '**Sample data is ready.** The cards are above the chat.\n\nTwo tasks wait for your approval:', approved: '**Approved.** The login-fix branch goes into main (a demo: nothing real runs).',
+    other: 'OK. (This is a demo model; it does no real work.)', done: ['Tests pass, merged into main.', 'The report is ready and shared.'], ran: 'The update is done.',
+    items: ['Onay: merge the login-fix branch of acme-web', 'Onay: run the build script on the test server', 'Sorun: Nightly check of acme-web failed', 'Senden: Turn on the due-date field on the test server',
+      'Choose the report layout', 'Which report is the template: the short or the long one?', 'Review the invoice template', 'Order office supplies', 'Read the meeting notes'],
+    tasks: ['Due-date queries of acme-web', 'Weekly stock report', 'Login-fix branch', 'weather-cli update'] },
+};
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const now = () => Date.now();
 
 /** The fake OpenAI-compatible model. `calls` keeps the newest user text of each chat request. */
-export async function fakeModel(calls = []) {
+export async function fakeModel(calls = [], lang = 'tr') {
+  const S = SAMPLES[lang] ?? SAMPLES.tr;
   // `background`: dsh's subagent tool has run_in_background (dsh 0.2.2). Older dsh waits for each subagent in the turn,
   // so a child that keeps running would hold Damon's turn (no answer, no `onay` block): its children end at once there.
   const state = { background: undefined };
@@ -45,9 +60,9 @@ export async function fakeModel(calls = []) {
       const lastNotice = msgs.at(-1)?.role === 'user' && NOTICE.test(textOf(msgs.at(-1).content).trim());
       calls.push({ newest, step, mine: own === msgs.length - 1 });
       // Subagent children: "DEMO-DONE" ends at once, "DEMO-FAIL" fails, "DEMO-RUN" keeps running (a long wait).
-      if (/^DEMO-DONE/.test(newest)) return say(newest.includes('Gerekli Tarih') ? 'Testler geçti, main\'e alındı.' : 'Rapor üretildi ve paylaşıldı.');
+      if (/^DEMO-DONE/.test(newest)) return say(newest.includes('DEMO-DONE first') ? S.done[0] : S.done[1]);
       if (/^DEMO-RUN/.test(newest)) {
-        if (state.background === false) return say('Güncelleme bitti.');
+        if (state.background === false) return say(S.ran);
         const t = setTimeout(() => say('Bitti.'), 6 * 3600 * 1000); req.on('close', () => clearTimeout(t)); return undefined;
       }
       // The Damon chat: "Örnek verileri yükle" adds the items, starts the tasks, then answers with the `onay` block.
@@ -55,30 +70,31 @@ export async function fakeModel(calls = []) {
       // Only the Damon chat's own steps (they have the to-do tools): a side request of another plugin (a memory review, a
       // title) can carry the same message without tools.
       const damonStep = (parsed.tools ?? []).some((t) => t.function?.name === 'todo_list_add');
-      if (/^Örnek verileri yükle$/.test(newest.trim()) && !damonStep) return say('');
-      if (/^Örnek verileri yükle$/.test(newest.trim())) {
+      if (newest.trim() === S.seed && !damonStep) return say('');
+      if (newest.trim() === S.seed) {
+        const [a1, a2, p1, f1, w1, why, r1, n1, n2] = S.items; const [d1, d2, l1, l2] = S.tasks;
         state.background = bg.run_in_background === true;
         const plan = [
-          [['todo_list_add', { text: "Onay: montaj testi dalı main'e alınır", owner: 'user' }], ['todo_list_add', { text: 'Onay: servis betiği test servisinde denenir', owner: 'user' }]],
-          [['todo_list_add', { text: 'Sorun: Gece denetimi hata verdi (acme-web)', owner: 'agent' }], ['todo_list_add', { text: "Senden: Test sunucusunda Gerekli Tarih alanını aç", owner: 'user' }]],
-          [['todo_list_add', { text: 'Rapor hizası için karar', owner: 'agent', waiting: 'TR ve ENG raporlarından hangisi örnek alınsın?' }], ['todo_list_add', { text: 'Fatura şablonunu gözden geçir', owner: 'agent' }]],
-          [['todo_list_add', { text: 'Kırtasiye siparişini ver', owner: 'user' }], ['todo_list_add', { text: 'Toplantı notlarını oku', owner: 'user' }]],
-          [['subagent', { description: 'Satınalma Gerekli Tarih sorguları', prompt: 'DEMO-DONE Gerekli Tarih: check the queries.', ...bg }], ['subagent', { description: 'Haftalık stok raporu', prompt: 'DEMO-DONE weekly stock report.', ...bg }]],
-          [['subagent', { description: 'Montaj testi dalı', prompt: 'DEMO-RUN assembly test branch.', ...bg }], ['subagent', { description: 'Hava durumu CLI güncellemesi', prompt: 'DEMO-RUN weather cli update.', ...bg }]],
+          [['todo_list_add', { text: a1, owner: 'user' }], ['todo_list_add', { text: a2, owner: 'user' }]],
+          [['todo_list_add', { text: p1, owner: 'agent' }], ['todo_list_add', { text: f1, owner: 'user' }]],
+          [['todo_list_add', { text: w1, owner: 'agent', waiting: why }], ['todo_list_add', { text: r1, owner: 'agent' }]],
+          [['todo_list_add', { text: n1, owner: 'user' }], ['todo_list_add', { text: n2, owner: 'user' }]],
+          [['subagent', { description: d1, prompt: 'DEMO-DONE first: check the queries.', ...bg }], ['subagent', { description: d2, prompt: 'DEMO-DONE second: weekly stock report.', ...bg }]],
+          [['subagent', { description: l1, prompt: 'DEMO-RUN assembly test branch.', ...bg }], ['subagent', { description: l2, prompt: 'DEMO-RUN weather cli update.', ...bg }]],
         ];
         if (step < plan.length * 2) return tools(plan[Math.floor(step / 2)]);
         // A notice after the answer (a later turn): the cards show it.
         if (after.some((m) => m.role === 'assistant' && textOf(m.content).includes('```onay'))) return say('[quiet]');
-        return say(`**Örnek veriler hazır.** Kartlar sohbetin üstünde.\n\nİki iş onay bekliyor:\n\n\`\`\`onay\n${APPROVAL}\n\`\`\`\n`);
+        return say(`${S.ready}\n\n\`\`\`onay\n${S.approval}\n\`\`\`\n`);
       }
       // A background note (a finished subagent, Assistant news): the cards show it, so the reply is only [quiet].
       if (lastNotice) return say('[quiet]');
-      if (newest.trim() === APPROVAL) return say('**Onay alındı.** Montaj testi dalı main\'e alınıyor (örnek: gerçek bir iş yapılmaz).');
-      return say('Tamam. (Bu bir demo modelidir; gerçek bir iş yapmaz.)');
+      if (newest.trim() === S.approval) return say(S.approved);
+      return say(S.other);
     });
   }).listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
-  server.state = state;
+  server.state = state; server.lang = lang;
   return server;
 }
 
@@ -159,7 +175,8 @@ export async function rpcOf(url) {
   return { rpc, get, origin: u.origin, cookie };
 }
 
-/** Seeds the sample data: makes the Damon chat, sends "Örnek verileri yükle" and waits until the cards' data is there. */
+/** Seeds the sample data: makes the Damon chat, sends the seed message of the model's language and waits until the cards'
+ * data is there. */
 export async function seed(url, { timeoutMs = 90000, model } = {}) {
   const { rpc, get } = await rpcOf(url);
   const start = now();
@@ -168,7 +185,8 @@ export async function seed(url, { timeoutMs = 90000, model } = {}) {
     const a = await get('/api/composer-plus.assistant').catch(() => ({}));
     if (typeof a.sessionId === 'string') sessionId = a.sessionId; else if (now() - start > timeoutMs) throw Error(`no Damon chat: ${JSON.stringify(a)}`); else await new Promise((r) => setTimeout(r, 500));
   }
-  await rpc('session/prompt', { request: { requestId: `seed-${randomUUID()}`, sessionId, mode: 'queue', content: [{ type: 'text', text: 'Örnek verileri yükle' }] } });
+  const text = (SAMPLES[model?.lang] ?? SAMPLES.tr).seed;
+  await rpc('session/prompt', { request: { requestId: `seed-${randomUUID()}`, sessionId, mode: 'queue', content: [{ type: 'text', text }] } });
   for (;;) {
     const s = await get(`/api/composer-plus.assistant-todos?sessionId=${encodeURIComponent(sessionId)}`).catch(() => ({}));
     const done = (s.tasks ?? []).filter((t) => t.state === 'done').length; const running = (s.tasks ?? []).filter((t) => t.state === 'running').length;

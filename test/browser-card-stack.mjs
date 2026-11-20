@@ -11,7 +11,7 @@
 // 5. Özet getir, Projeler, the → of a note and Yaptım of a Senden card still work (nothing sent by → or Yaptım).
 // 6. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-card-stack.mjs /path/to/dsh/lib/bin.js [...]
-// SHOT=1 also writes assets/features/assistantTodos.webp from a second page with the English UI (the checks use Turkish).
+// SHOT=1 also writes assets/features/assistantTodos.webp from its own demo with the English UI and English made-up data.
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
@@ -32,7 +32,6 @@ const until = async (fn, what, ms = 30000) => {
 const calls = [];
 const model = await fakeModel(calls);
 const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
-let shotDone = false;
 try {
   for (const [index, bin] of process.argv.slice(2).entries()) {
     const version = JSON.parse(readFileSync(join(bin, '../../package.json'), 'utf8')).version;
@@ -79,24 +78,6 @@ try {
       assert.equal(await page.locator('.md-code-block[data-composer-plus-onay="text"]').count(), 1, 'the sentence in the reply: gray text');
       assert.equal(await page.locator('.md-code-block[data-composer-plus-onay="button"]').count(), 0);
       note('2: the Onay card has the whole sentence and one Onayla; the reply has none (gray text)');
-      if (process.env.SHOT && !shotDone) {
-        // The Settings shot: English UI (AGENTS.md rule 2), made-up items, a fresh page of the same demo.
-        const shotContext = await browser.newContext({ locale: 'en-US', timezoneId: 'Europe/Istanbul', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
-        try {
-          await shotContext.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}'); });
-          const shot = await shotContext.newPage(); await shot.goto(demo.url);
-          for (const name of [/^Continue$/, /^Configure later$/]) { const b = shot.getByRole('button', { name }); if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) await b.click(); }
-          await shot.keyboard.press('Escape'); await shot.locator('button[aria-label="Damon"]').click();
-          // The optional Obsidian setup card is not part of this feature: hide it for the picture.
-          // The optional setup and memory import cards come one after the other: hide each.
-          for (let n = 0; n < 3; n++) { const hide = shot.getByRole('button', { name: 'Hide', exact: true }).first(); if (!(await hide.waitFor({ timeout: 3000 }).then(() => true, () => false))) break; await hide.click(); await pause(500); }
-          await shot.locator('[data-composer-plus-todos] [data-composer-plus-approve="card"]').waitFor({ timeout: 20000 });
-          await shot.locator('[data-composer-plus-todos] [data-composer-plus-counts]').waitFor({ timeout: 20000 }); await pause(1500); await shot.mouse.move(640, 790);
-          const png = join(where.home, 'stack.png'); await shot.screenshot({ path: png });
-          execFileSync('cwebp', ['-quiet', '-q', '72', '-resize', '960', '0', png, '-o', join(repo, 'assets/features/assistantTodos.webp')]);
-          shotDone = true; note('SHOT: assets/features/assistantTodos.webp');
-        } finally { await shotContext.close(); }
-      }
       // 4 first: typing hides Onayla, the card stays.
       const input = page.locator('[data-composer-input]');
       await input.click(); await page.keyboard.type('x', { delay: 5 });
@@ -139,6 +120,33 @@ try {
       await context?.close().catch(() => {});
       if (demo) { demo.child.kill('SIGTERM'); await new Promise((r) => { if (demo.child.exitCode !== null) r(); else demo.child.once('exit', r); }); }
       if (passed) await rm(where.home, { recursive: true, force: true });
+    }
+  }
+  // The Settings shot (SHOT=1): its own throwaway demo with the English UI and English made-up data (AGENTS.md rule 2),
+  // on the last dsh given.
+  if (process.env.SHOT) {
+    const enModel = await fakeModel([], 'en');
+    const where = await demoHome(enModel.address().port);
+    let demo; let shotContext;
+    try {
+      demo = await startDemo(process.argv.at(-1), where, 3399);
+      await seed(demo.url, { model: enModel });
+      shotContext = await browser.newContext({ locale: 'en-US', timezoneId: 'Europe/Istanbul', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
+      await shotContext.addInitScript(() => { localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}'); });
+      const shot = await shotContext.newPage(); await shot.goto(demo.url);
+      for (const name of [/^Continue$/, /^Configure later$/]) { const b = shot.getByRole('button', { name }); if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) await b.click(); }
+      await shot.keyboard.press('Escape'); await shot.locator('button[aria-label="Damon"]').click();
+      // The optional setup and memory import cards are not part of this feature: hide each for the picture.
+      for (let n = 0; n < 3; n++) { const hide = shot.getByRole('button', { name: 'Hide', exact: true }).first(); if (!(await hide.waitFor({ timeout: 3000 }).then(() => true, () => false))) break; await hide.click(); await pause(500); }
+      await shot.locator('[data-composer-plus-todos] [data-composer-plus-approve="card"]').waitFor({ timeout: 20000 });
+      await pause(1500); await shot.mouse.move(640, 790);
+      const png = join(where.home, 'stack.png'); await shot.screenshot({ path: png });
+      execFileSync('cwebp', ['-quiet', '-q', '72', '-resize', '960', '0', png, '-o', join(repo, 'assets/features/assistantTodos.webp')]);
+      console.log('  SHOT: assets/features/assistantTodos.webp');
+    } finally {
+      await shotContext?.close().catch(() => {});
+      if (demo) { demo.child.kill('SIGTERM'); await new Promise((r) => { if (demo.child.exitCode !== null) r(); else demo.child.once('exit', r); }); }
+      enModel.close(); await rm(where.home, { recursive: true, force: true });
     }
   }
 } finally { await browser.close(); model.close(); }

@@ -22,7 +22,7 @@
 //    count bar counts it. The ended subagent task is a "Done today" card (folded group); Seen hides it, and it stays
 //    hidden after a reload.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-todos.mjs /path/to/dsh/lib/bin.js [...]
-// SHOT=1 also writes assets/features/assistantTodos.webp (English UI, made-up project).
+// The Settings screenshot comes from test/browser-card-stack.mjs (SHOT=1).
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
@@ -96,7 +96,6 @@ await new Promise((r) => fake.once('listening', r));
 const fakePort = fake.address().port;
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
-let shotDone = false;
 try {
   for (const bin of process.argv.slice(2)) {
     calls.length = 0;
@@ -365,12 +364,6 @@ try {
       await page.mouse.move(640, 790); // no hover color in the screenshot
       note('8: "Your notes" (2, folded) and "Running" (3 cards), no owner groups; Enter folds a group; after a reload Done today and Your notes start folded');
 
-      if (process.env.SHOT && !shotDone) {
-        const png = join(home, 'todos.png');
-        await page.screenshot({ path: png });
-        execFileSync('cwebp', ['-quiet', '-q', '72', '-resize', '960', '0', png, '-o', join(repo, 'assets/features/assistantTodos.webp')]);
-        shotDone = true; note('SHOT: assets/features/assistantTodos.webp');
-      }
       // 9. Waiting for the user (a "For you" card), and Seen (an ended task is a "Done today" card).
       await send('Wait for the ANR path');
       const anr = cards('senden', 'Install ANR');
