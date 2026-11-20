@@ -2766,6 +2766,8 @@
     "status.summaryLate": "Новая сводка не пришла.",
     "status.summaryFailed": "Не удалось запросить новую сводку: {error}",
     "status.refresh": "Обновить",
+    "status.placeTop": "Показывать над чатом",
+    "status.placeSide": "Показывать справа от чата",
     "status.summary": "Сводка",
     "status.summarize": "Получить сводку",
     "status.hideSummary": "Скрыть сводку",

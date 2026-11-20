@@ -144,10 +144,35 @@ const waitMarks = (tr) => find(tr, (n) => n.p?.className === 'cp-st-spin' || (n.
 tree = panel();
 const root = find(tree, (n) => n.p?.['data-composer-plus-todos'] === '')[0];
 assert.ok(root, 'the panel shows'); assert.equal(root.t, 'section');
-// Damon card stack (2026-11-19): the first flex item of dsh's chat body, above the chat, as wide as the chat column.
+// Damon card stack (2026-11-19): above the chat (`top`), the first flex item of dsh's chat body, as wide as the chat column.
 const style = find(root, (n) => n.t === 'style')[0]; assert.match(style.c[0], /\{order:-1;flex:none;[^}]*width:var\(--dsh-chat-content-width,720px\)[^}]*max-height:40vh/, 'above the chat, at most 40% high');
-assert.doesNotMatch(style.c[0], /\[data-composer-plus-todos\]\{[^}]*position:absolute|padding-right:332px/, 'no side panel: the chat keeps its width');
+assert.doesNotMatch(style.c[0], /\[data-composer-plus-todos\]\{[^}]*position:absolute/, 'only the side place is absolute');
 assert.doesNotMatch(style.c[0], /:has\(> \[data-composer-plus-todos\]\)/, 'no :has() rule on the chat body');
+// The place (Furkan, 2026-11-20): at the right of the chat by default (the old Durum panel's place), above the chat with
+// the place button; the choice is kept in this browser. Flat inside: no card, tile or summary has its own background.
+assert.match(style.c[0], /@media \(min-width:1000px\)\{\[data-composer-plus-todos\]\[data-place="side"\]\{position:absolute;top:12px;right:20px;[^}]*width:300px[^}]*\}\[data-composer-plus-status-seat="open"\] \[data-conversation-scroll\]\{padding-right:332px\}/, 'side: at the right, the chat moves left');
+for (const cls of ['cp-cs-card', 'cp-b-tile', 'cp-st-summary']) assert.doesNotMatch(style.c[0], new RegExp(`\\.${cls}\\{[^}]*background:(?!none)`), `${cls}: no background (no box in a box)`);
+assert.match(style.c[0], /\.cp-b-tiles\{display:flex;flex-wrap:wrap/, 'the four counts wrap in a narrow panel');
+{
+  const placeBtn = (tr) => find(tr, (n) => n.t === 'button' && n.p['data-place-button'] !== undefined)[0];
+  const rootOf = (tr) => find(tr, (n) => n.p?.['data-composer-plus-todos'] === '')[0];
+  assert.equal(mem.get('dsh-composer-plus.status-place'), undefined, 'nothing saved yet');
+  assert.equal(rootOf(tree).p['data-place'], 'side', 'the right side by default');
+  assert.equal(attrs.get('data-composer-plus-status-seat'), 'open', 'the open side panel moves the chat left');
+  let b = placeBtn(tree);
+  assert.equal(b.p.type, 'button'); assert.equal(b.p['aria-label'], 'status.placeTop', 'its name says where it moves the panel'); assert.equal(b.p.title, 'status.placeTop');
+  b.p.onClick(); let tr = panel();
+  assert.equal(rootOf(tr).p['data-place'], 'top', 'above the chat after a click');
+  assert.equal(mem.get('dsh-composer-plus.status-place'), 'top', 'the choice is saved');
+  assert.equal(attrs.get('data-composer-plus-status-seat'), 'closed', 'above the chat: the chat keeps its width');
+  b = placeBtn(tr); assert.equal(b.p['aria-label'], 'status.placeSide');
+  // A new page (a reload) reads the saved place.
+  rt.clear(); tr = panel(); assert.equal(rootOf(tr).p['data-place'], 'top', 'a reload keeps the place');
+  placeBtn(tr).p.onClick(); tr = panel();
+  assert.equal(rootOf(tr).p['data-place'], 'side'); assert.equal(mem.get('dsh-composer-plus.status-place'), 'side');
+  rt.clear(); tr = panel(); assert.equal(rootOf(tr).p['data-place'], 'side', 'a reload keeps the right side');
+  tree = panel();
+}
 // Heading: h2 > button[aria-expanded]; no aria-label on a span.
 const h2 = find(root, (n) => n.t === 'h2')[0]; assert.equal(find(h2, (n) => n.t === 'button' && n.p['aria-expanded'] === true).length, 1, 'h2 > button[aria-expanded]');
 assert.equal(find(root, (n) => n.t === 'span' && n.p['aria-label'] !== undefined).length, 0, 'no aria-label on a span');

@@ -2766,6 +2766,8 @@
     "status.summaryLate": "Không có bản tóm tắt mới.",
     "status.summaryFailed": "Không thể yêu cầu bản tóm tắt mới: {error}",
     "status.refresh": "Làm mới",
+    "status.placeTop": "Hiển thị phía trên cuộc trò chuyện",
+    "status.placeSide": "Hiển thị bên phải cuộc trò chuyện",
     "status.summary": "Tóm tắt",
     "status.summarize": "Lấy bản tóm tắt",
     "status.hideSummary": "Ẩn tóm tắt",

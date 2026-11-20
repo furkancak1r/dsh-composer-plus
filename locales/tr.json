@@ -4430,6 +4430,8 @@
     "status.summaryLate": "Yeni özet gelmedi.",
     "status.summaryFailed": "Yeni özet istenemedi: {error}",
     "status.refresh": "Yenile",
+    "status.placeTop": "Sohbetin üstünde göster",
+    "status.placeSide": "Sağ panelde göster",
     "status.summary": "Özet",
     "status.summarize": "Özet getir",
     "status.hideSummary": "Özeti gizle",

@@ -2766,6 +2766,8 @@
     "status.summaryLate": "नया सार नहीं आया।",
     "status.summaryFailed": "नया सार नहीं मांगा जा सका: {error}",
     "status.refresh": "रीफ़्रेश करें",
+    "status.placeTop": "चैट के ऊपर दिखाएँ",
+    "status.placeSide": "चैट के दाईं ओर दिखाएँ",
     "status.summary": "सार",
     "status.summarize": "सार लाएं",
     "status.hideSummary": "सार छिपाएँ",
