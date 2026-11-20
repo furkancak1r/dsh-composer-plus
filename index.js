@@ -11403,7 +11403,7 @@ function queuedPrompts(events) {
 }
 
 /** What started the newest turn of `agent`: the source kind of the first own prompt (a typed prompt `user`, dsh's scheduled
- * delivery `schedule`, Assistant news; not dsh's context messages; not a fork's copy of its parent) of the newest turn that
+ * delivery `schedule` but not its `[SCHEDULE CHANGE]` notice, Assistant news; not dsh's context messages; not a fork's copy of its parent) of the newest turn that
  * has one. A turn whose first step failed logs no prompt: the queued message that dsh took to start it counts then. A turn
  * without one (a subagent's result, a resume, a Get summary note) continues the turn before it. Read from the end: no
  * cache, so a typed turn in an automation chat is not an automation. */
@@ -11412,7 +11412,7 @@ function turnPrompt(agent) {
   const from = Number.isSafeInteger(agent?.session?.inheritedEventCount) && agent.session.inheritedEventCount > 0 ? agent.session.inheritedEventCount : 0;
   let prompt; let taken;
   for (let i = events.length - 1; i >= from; i--) {
-    if (events[i].type === 'user/message' && TURN_PROMPTS.includes(events[i].data?.source?.kind)) prompt = events[i].data.source.kind;
+    if (events[i].type === 'user/message' && TURN_PROMPTS.includes(events[i].data?.source?.kind) && !scheduleChange(events[i].data)) prompt = events[i].data.source.kind;
     else if (events[i].type === 'turn/start') {
       // ponytail: one pass over the whole log, only when a turn has no logged prompt (a failed first step, a resume).
       if (prompt === undefined) { taken ??= queuedPrompts(events); if (TURN_PROMPTS.includes(taken.get(i)?.kind)) prompt = taken.get(i).kind; }
@@ -11424,6 +11424,9 @@ function turnPrompt(agent) {
 // The prompts that start a turn of their own: yours, a scheduled delivery, and Assistant news (only in the assistant chat:
 // a news turn after the morning summary is not the morning summary).
 const TURN_PROMPTS = ['user', 'schedule', NEWS_SOURCE];
+/** dsh 0.2.2's notice that a task of this chat changed elsewhere (dsh-schedule `notify`): `source.kind` `schedule` too, but
+ * it goes into the next step (`agent.inject`) and starts no turn, so the typed prompt after it in the same turn counts. */
+const scheduleChange = (message) => message?.source?.kind === 'schedule' && textBlocks(message.content).startsWith('[SCHEDULE CHANGE]');
 /** Tether's Turn finished push skips a turn with nothing to say: the newest turn ended `completed` and its `reply`
  * (lastReply), spaces trimmed, is empty or only `[quiet]` (any case), whatever started the turn. dsh refuses an empty
  * reply, so the Assistant writes `[quiet]` for routine news, also in a turn that an outage note or a typed message
