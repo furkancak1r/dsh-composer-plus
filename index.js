@@ -2510,7 +2510,7 @@ export function apply(ctx, config) {
   installAssistantMorning(ctx, home, assistant, { todos });
   installAssistantSetup(ctx, assistant, memory);
   installMemoryImport(ctx, home, assistant, memory);
-  installSecrets(ctx, home, undefined, (id) => assistant.isOn() && assistant.tasks.has(id));
+  installSecrets(ctx, home, undefined, (session) => assistant.isOn() && taskTurn(assistant.tasks.get(session.id), session));
   installBackup(ctx, home);
 }
 
@@ -9346,7 +9346,7 @@ export function maskSecrets(blocks, values) {
   });
   return changed ? out : undefined;
 }
-/** `delegated(chatId)`: true for a chat that the assistant gave work to (its delegated chat list). */
+/** `delegated(session)`: true while the chat's turn runs a task that the assistant gave it (chat_new, chat_send). */
 export function installSecrets(ctx, home, dir = join(home, 'storages', 'dsh-composer-plus'), delegated = () => false) {
   const get = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   const sw = mobileSwitch(join(dir, 'secrets.json'), true);
@@ -9391,8 +9391,9 @@ export function installSecrets(ctx, home, dir = join(home, 'storages', 'dsh-comp
       const sessionId = exec?.agent?.session?.id;
       if (typeof sessionId !== 'string') throw new Error('request_secret needs a chat');
       // Only the root chat that the user looks at asks (2026-11-20: a chat that the assistant started asked, nobody saw
-      // the card, and it waited 70 minutes). A subagent chat or a delegated chat reports the need to the assistant.
-      if (!isRootChat(exec.agent.session) || delegated(sessionId)) throw new Error(`request_secret is not available in a chat that ${ASSISTANT_NAME} started or in a subagent. Do not wait for the user. Stop this step and report to ${ASSISTANT_NAME} the exact secret that the step needs (system, account, and how the step reads it). ${ASSISTANT_NAME} asks the user.`);
+      // the card, and it waited 70 minutes). A subagent reports the need to its parent, a delegated chat to the assistant.
+      if (!isRootChat(exec.agent.session)) throw new Error('request_secret is not available in a subagent. Do not wait for the user. Stop this step and report to your parent agent the exact secret that the step needs (system, account, and how the step reads it).');
+      if (delegated(exec.agent.session)) throw new Error(`request_secret is not available in a chat that ${ASSISTANT_NAME} started or gave a task to. Do not wait for the user. Stop this step and report to ${ASSISTANT_NAME} the exact secret that the step needs (system, account, and how the step reads it). ${ASSISTANT_NAME} asks the user.`);
       if ([...asks.values()].some((a) => a.sessionId === sessionId)) throw new Error('one secret request at a time: wait for the open one');
       const askId = randomUUID();
       const answer = await new Promise((resolve) => {
@@ -10447,6 +10448,22 @@ const rpcOf = (task) => {
   return ids.length > 0 ? ids : [ANY_TURN];
 };
 const withRpc = (task, rpc) => { const { rpc: _, ...rest } = task; return rpc.length === 1 && rpc[0] === ANY_TURN ? rest : { ...rest, rpc }; };
+/** The ids of `rpc` (rpcOf) that the chat's newest turn runs: ANY_TURN always; a request id when a user/message of that
+ * turn has it (source.rpcId), or when dsh took it from the queue to start the turn (a first step that failed logs no
+ * prompt). `events()` gives the chat's log; only its own events count (from `inherited`, a fork's copy is left out). */
+const ranIn = (rpc, events, inherited) => {
+  if (rpc.every((r) => r === ANY_TURN)) return rpc;
+  const log = events(); const last = log.findLastIndex((e) => e.type === 'turn/start');
+  if (last < inherited) return rpc.filter((r) => r === ANY_TURN);
+  const own = new Set(log.slice(last).filter((e) => e.type === 'user/message').map((e) => e.data?.source?.rpcId));
+  own.add(queuedPrompts(log).get(last)?.rpcId);
+  return rpc.filter((r) => r === ANY_TURN || own.has(r));
+};
+/** True when the newest turn of `session` runs a message of the assistant's task `task` (the bot's own test, ranIn).
+ * ponytail: a task that waits for ANY_TURN (chat_new, or a turn that dsh's quit cut) counts each turn until the bot drops
+ * it at a turn end; a turn end while Assistant is off keeps it until the next turn end. */
+const taskTurn = (task, session) => task !== undefined && ranIn(rpcOf(task), () => { try { return session.snapshotEvents?.() ?? []; } catch { return []; } },
+  Number.isSafeInteger(session?.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0).length > 0;
 
 /** The assistant's delegated chats (chat_new, chat_send): `{tasks: {<chat id>: {title?, project, branch?, rpc?, at}}}` in
  * one owner-only file. The map lives in memory; each change saves the whole map, in order, after the saved file was read.
@@ -11778,15 +11795,7 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
       // started a turn whose first step failed) is task news; dsh starts one turn per queued message. Another turn (one that
       // ran before it) keeps the task and is news as for any chat.
       const rpc = rpcOf(task);
-      let ran = rpc.filter((r) => r === ANY_TURN);
-      if (ran.length < rpc.length) {
-        const events = eventsOf(agent); const last = events.findLastIndex((e) => e.type === 'turn/start');
-        if (last >= inherited) {
-          const own = new Set(events.slice(last).filter((e) => e.type === 'user/message').map((e) => e.data?.source?.rpcId));
-          own.add(queuedPrompts(events).get(last)?.rpcId);
-          ran = rpc.filter((r) => r === ANY_TURN || own.has(r));
-        }
-      }
+      const ran = ranIn(rpc, () => eventsOf(agent), inherited);
       if (ran.length > 0) {
         const left = rpc.filter((r) => !ran.includes(r));
         // dsh's quit or a parent's stop: the task goes on after a restart (Resume after restart), so it stays, and the next
