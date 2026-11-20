@@ -1372,7 +1372,8 @@ async function head(path, max, prefix) {
   let file;
   try {
     const real = await realpath(path);
-    if (!real.startsWith(prefix) || privatePath(real) || !(await stat(real)).isFile()) return undefined;
+    // A file below a Gizli folder inside the chat's folder is never read (a chat folder under Gizli is the caller's choice).
+    if (!real.startsWith(prefix) || real.slice(prefix.length).split(/[\\/]/).some(isGizli) || !(await stat(real)).isFile()) return undefined;
     file = await open(real, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
     if (!(await file.stat()).isFile()) return undefined;
     const buffer = Buffer.alloc(max);
@@ -1446,7 +1447,7 @@ export async function projectBrief(cwd, { subprocess, signal, noGizliLog = false
     try {
       // `noGizli` (Improve prompt): the whole repository (`:/`), but no commit that changed only Gizli files. ponytail: a
       // pathspec also drops an empty commit, so Feature ideas keeps the plain log.
-      const log = await runGit(subprocess, cwd, ['log', '--no-merges', '--format=%s', '-n', '300', ...(noGizliLog ? ['--', ':/', ...noGizli(true)] : [])], signal);
+      const log = await runGit(subprocess, cwd, ['log', '--no-merges', '--format=%s', '-n', '300', ...(noGizliLog ? ['--full-history', '--', ':/', ...noGizli(true)] : [])], signal);
       const subjects = firstLines(log.code === 0 ? log.stdout.split('\n').filter((s) => s.trim() !== '') : [], BRIEF_COMMITS);
       if (subjects !== '') tail.push(`Latest commits:\n${subjects}`);
     } catch { /* not a repository, or git is missing */ }
@@ -3869,7 +3870,7 @@ export function goalDraft(text) {
 const IMPROVE_STOP = new Set(['the', 'and', 'for', 'with', 'this', 'that', 'from', 'into', 'not', 'but', 'are', 'was', 'you', 'can', 'add', 'fix', 'use', 'all', 'any', 'make', 'should', 'when', 'then', 'also', 'please',
   'bir', 'için', 'ile', 'gibi', 'olarak', 'daha', 'sonra', 'yap', 'ekle', 'olsun', 'şunu', 'bunu', 'nasıl', 'neden', 'var', 'yok']);
 /** The draft's own words (3 letters or more, not a common word), at most 40. */
-const draftWords = (text) => [...new Set(String(text).toLowerCase().match(/[\p{L}\p{N}_]{3,}/gu) ?? [])].filter((w) => !IMPROVE_STOP.has(w)).slice(0, 40);
+const draftWords = (text) => [...new Set(String(text).replace(/İ/g, 'i').toLowerCase().match(/[\p{L}\p{N}_]{3,}/gu) ?? [])].filter((w) => !IMPROVE_STOP.has(w)).slice(0, 40);
 const IMPROVE_MEMORY = 4000; // characters of memory notes the model reads
 /** The memory notes for a draft, from Project memory's own store (installMemory's handle): '' while the memory is off, or
  * off for this chat. First the notes of the project's and the global memory (main files and topics) that share the most
