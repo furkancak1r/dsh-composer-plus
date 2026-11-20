@@ -178,7 +178,7 @@ Menu `/` atau `@` yang terbuka memakai tombol-tombol ini untuk dirinya sendiri.
 
 ## Kompatibilitas
 
-Diuji pada dsh `0.2.2-rc.5` (web). CI menjalankan pengujian pada setiap push.
+Diuji pada dsh `0.2.2-rc.5` (web). Aplikasi desktop tidak diuji pada versi ini. CI menjalankan pengujian pada setiap push.
 
 ## Privasi dan keamanan
 
@@ -462,7 +462,7 @@ Diuji pada dsh `0.2.2-rc.5` (web). CI menjalankan pengujian pada setiap push.
 
 **Bagaimana agen merapikan basis kode yang berantakan?** Ketik `/untangle-codebase` di obrolan (**Rapikan basis kode**, aktif secara default), bila perlu dengan suatu bagian, misalnya `/untangle-codebase src/api`. Agen pertama-tama mendaftar salinan, keterkaitan tersembunyi, pembungkus yang tidak perlu, kode mati, dan kasus khusus, lalu memperbaikinya sebagai tujuan dan memeriksa lagi dengan subagen. Mulai skill ini di obrolan **Branch per obrolan** agar pekerjaannya tetap di branch sendiri.
 
-**Apakah plugin ini berfungsi di aplikasi desktop?** Ya: Pengaturan → Plugin → **Tambahkan plugin** → `dsh-composer-plus`. Diuji pada dsh 0.2.2-rc.5 (web).
+**Apakah plugin ini berfungsi di aplikasi desktop?** Ya: Pengaturan → Plugin → **Tambahkan plugin** → `dsh-composer-plus`. Diuji pada dsh 0.2.2-rc.5 (web). Aplikasi desktop tidak diuji pada versi ini.
 
 ## Pengembangan
 

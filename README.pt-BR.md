@@ -178,7 +178,7 @@ Um menu `/` ou `@` aberto fica com essas teclas para ele.
 
 ## Compatibilidade
 
-Testado no dsh `0.2.2-rc.5` (web). A CI executa os testes a cada push.
+Testado no dsh `0.2.2-rc.5` (web). O app desktop não foi testado nesta versão. A CI executa os testes a cada push.
 
 ## Privacidade e segurança
 
@@ -462,7 +462,7 @@ Testado no dsh `0.2.2-rc.5` (web). A CI executa os testes a cada push.
 
 **Como o agente pode organizar um código bagunçado?** Digite `/untangle-codebase` em um chat (**Desembaraçar o código**, ativado por padrão), se quiser com uma área, por exemplo `/untangle-codebase src/api`. Primeiro o agente lista as cópias, os vínculos ocultos, os wrappers desnecessários, o código morto e os casos especiais; depois corrige tudo como uma meta e verifica de novo com subagentes. Inicie-a em um chat de **Um branch por chat** para que o trabalho fique no próprio branch.
 
-**Funciona com o app desktop?** Sim: Configurações → Plugins → **Adicionar plugin** → `dsh-composer-plus`. Testado no dsh 0.2.2-rc.5 (web).
+**Funciona com o app desktop?** Sim: Configurações → Plugins → **Adicionar plugin** → `dsh-composer-plus`. Testado no dsh 0.2.2-rc.5 (web). O app desktop não foi testado nesta versão.
 
 ## Desenvolvimento
 

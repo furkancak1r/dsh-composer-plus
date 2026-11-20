@@ -178,7 +178,7 @@ Un menú `/` o `@` abierto se queda con estas teclas.
 
 ## Compatibilidad
 
-Probado en dsh `0.2.2-rc.5` (web). La CI ejecuta las pruebas en cada push.
+Probado en dsh `0.2.2-rc.5` (web). La app de escritorio no se probó en esta versión. La CI ejecuta las pruebas en cada push.
 
 ## Privacidad y seguridad
 
@@ -462,7 +462,7 @@ Probado en dsh `0.2.2-rc.5` (web). La CI ejecuta las pruebas en cada push.
 
 **¿Cómo puede el agente ordenar un código desordenado?** Escribe `/untangle-codebase` en un chat (**Desenredar el código**, activada de forma predeterminada), si quieres con un área, por ejemplo `/untangle-codebase src/api`. Primero el agente enumera las copias, los vínculos ocultos, los envoltorios innecesarios, el código muerto y los casos especiales; luego los corrige como un objetivo y vuelve a comprobar con subagentes. Iníciala en un chat de **Una rama por chat** para que el trabajo quede en su propia rama.
 
-**¿Funciona con la app de escritorio?** Sí: Configuración → Plugins → **Añadir plugin** → `dsh-composer-plus`. Probado en dsh 0.2.2-rc.5 (web).
+**¿Funciona con la app de escritorio?** Sí: Configuración → Plugins → **Añadir plugin** → `dsh-composer-plus`. Probado en dsh 0.2.2-rc.5 (web). La app de escritorio no se probó en esta versión.
 
 ## Desarrollo
 

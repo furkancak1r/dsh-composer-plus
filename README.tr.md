@@ -178,7 +178,7 @@ Açık bir `/` veya `@` menüsü bu tuşları kendisi kullanır.
 
 ## Uyumluluk
 
-dsh `0.2.2-rc.5` (web) üzerinde test edildi. CI, testleri her push’ta çalıştırır.
+dsh `0.2.2-rc.5` (web) üzerinde test edildi. Masaüstü uygulaması bu sürümde test edilmedi. CI, testleri her push’ta çalıştırır.
 
 ## Gizlilik ve güvenlik
 
@@ -462,7 +462,7 @@ dsh `0.2.2-rc.5` (web) üzerinde test edildi. CI, testleri her push’ta çalı�
 
 **Ajan dağınık bir kod tabanını nasıl toparlar?** Bir sohbete `/untangle-codebase` yazın (**Kod tabanını toparla**, varsayılan olarak açık); isterseniz bir alan ekleyin, örneğin `/untangle-codebase src/api`. Ajan önce kopyaları, gizli bağları, gereksiz sarmalayıcıları, ölü kodu ve özel durumları listeler, sonra bunları bir hedef olarak düzeltir ve alt ajanlarla yeniden kontrol eder. İşin kendi dalında kalması için beceriyi bir **Sohbet başına dal** sohbetinde başlatın.
 
-**Masaüstü uygulamasıyla çalışır mı?** Evet: Ayarlar → Eklentiler → **Eklenti ekle** → `dsh-composer-plus`. dsh 0.2.2-rc.5 (web) üzerinde test edildi.
+**Masaüstü uygulamasıyla çalışır mı?** Evet: Ayarlar → Eklentiler → **Eklenti ekle** → `dsh-composer-plus`. dsh 0.2.2-rc.5 (web) üzerinde test edildi. Masaüstü uygulaması bu sürümde test edilmedi.
 
 ## Geliştirme
 

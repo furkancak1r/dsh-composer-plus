@@ -178,7 +178,7 @@ Ein geöffnetes `/`- oder `@`-Menü behält diese Tasten für sich.
 
 ## Kompatibilität
 
-Getestet mit dsh `0.2.2-rc.5` (Web). Die CI führt die Tests bei jedem Push aus.
+Getestet mit dsh `0.2.2-rc.5` (Web). Die Desktop-App wurde mit dieser Version nicht getestet. Die CI führt die Tests bei jedem Push aus.
 
 ## Datenschutz und Sicherheit
 
@@ -462,7 +462,7 @@ Getestet mit dsh `0.2.2-rc.5` (Web). Die CI führt die Tests bei jedem Push aus.
 
 **Wie kann der Agent eine unordentliche Codebasis aufräumen?** Tippe `/untangle-codebase` in einen Chat (**Codebasis entwirren**, standardmäßig an), auf Wunsch mit einem Bereich, zum Beispiel `/untangle-codebase src/api`. Der Agent listet zuerst Kopien, versteckte Kopplungen, unnötige Wrapper, toten Code und Sonderfälle auf, behebt sie dann als Ziel und prüft mit Subagenten erneut. Starte ihn in einem Chat von **Ein Branch pro Chat**, damit die Arbeit in einem eigenen Branch bleibt.
 
-**Funktioniert es mit der Desktop-App?** Ja: Einstellungen → Plugins → **Plugin hinzufügen** → `dsh-composer-plus`. Getestet mit dsh 0.2.2-rc.5 (Web).
+**Funktioniert es mit der Desktop-App?** Ja: Einstellungen → Plugins → **Plugin hinzufügen** → `dsh-composer-plus`. Getestet mit dsh 0.2.2-rc.5 (Web). Die Desktop-App wurde mit dieser Version nicht getestet.
 
 ## Entwicklung
 

@@ -176,7 +176,7 @@ An open `/` or `@` menu keeps these keys for itself.
 
 ## Compatibility
 
-Tested on dsh `0.2.2-rc.5` (web). CI runs the tests on every push.
+Tested on dsh `0.2.2-rc.5` (web). The desktop app was not tested on this version. CI runs the tests on every push.
 
 ## Privacy and security
 
@@ -460,7 +460,7 @@ Tested on dsh `0.2.2-rc.5` (web). CI runs the tests on every push.
 
 **How can the agent clean up a messy codebase?** Type `/untangle-codebase` in a chat (**Untangle codebase**, on by default), optionally with an area, for example `/untangle-codebase src/api`. The agent first lists the copies, hidden links, needless wrappers, dead code and special cases, then fixes them as a goal and checks again with subagents. Start it in a chat of **Branch per chat**, so the work stays on its own branch.
 
-**Does it work with the desktop app?** Yes: Settings → Plugins → **Add plugin** → `dsh-composer-plus`. Tested on dsh 0.2.2-rc.5 (web).
+**Does it work with the desktop app?** Yes: Settings → Plugins → **Add plugin** → `dsh-composer-plus`. Tested on dsh 0.2.2-rc.5 (web). The desktop app was not tested on this version.
 
 ## Development
 

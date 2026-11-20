@@ -178,7 +178,7 @@ Khi menu `/` hoặc `@` đang mở, menu đó giữ các phím này cho riêng n
 
 ## Khả năng tương thích
 
-Đã kiểm thử trên dsh `0.2.2-rc.5` (web). CI chạy kiểm thử ở mỗi lần push.
+Đã kiểm thử trên dsh `0.2.2-rc.5` (web). Ứng dụng desktop chưa được kiểm thử trên phiên bản này. CI chạy kiểm thử ở mỗi lần push.
 
 ## Quyền riêng tư và bảo mật
 
@@ -462,7 +462,7 @@ Khi menu `/` hoặc `@` đang mở, menu đó giữ các phím này cho riêng n
 
 **Làm sao để tác tử dọn dẹp một codebase lộn xộn?** Nhập `/untangle-codebase` trong một cuộc trò chuyện (**Gỡ rối codebase**, mặc định bật), có thể kèm một phần, ví dụ `/untangle-codebase src/api`. Trước tiên tác tử liệt kê mã sao chép, liên kết ẩn, lớp bọc thừa, mã chết và các trường hợp đặc biệt, rồi sửa chúng như một mục tiêu và kiểm tra lại bằng các tác tử con. Hãy khởi động nó trong một cuộc trò chuyện của **Branch riêng cho từng cuộc trò chuyện** để công việc nằm trên branch riêng.
 
-**Plugin có hoạt động với ứng dụng desktop không?** Có: Cài đặt → Plugin → **Thêm plugin** → `dsh-composer-plus`. Đã kiểm thử trên dsh 0.2.2-rc.5 (web).
+**Plugin có hoạt động với ứng dụng desktop không?** Có: Cài đặt → Plugin → **Thêm plugin** → `dsh-composer-plus`. Đã kiểm thử trên dsh 0.2.2-rc.5 (web). Ứng dụng desktop chưa được kiểm thử trên phiên bản này.
 
 ## Phát triển
 

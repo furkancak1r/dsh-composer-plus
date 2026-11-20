@@ -178,7 +178,7 @@ Quand un menu `/` ou `@` est ouvert, il garde ces touches pour lui.
 
 ## Compatibilité
 
-Testé sur dsh `0.2.2-rc.5` (web). La CI exécute les tests à chaque push.
+Testé sur dsh `0.2.2-rc.5` (web). L’app de bureau n’a pas été testée sur cette version. La CI exécute les tests à chaque push.
 
 ## Confidentialité et sécurité
 
@@ -462,7 +462,7 @@ Testé sur dsh `0.2.2-rc.5` (web). La CI exécute les tests à chaque push.
 
 **Comment l’agent peut-il remettre de l’ordre dans un code désordonné ?** Tapez `/untangle-codebase` dans une discussion (**Démêler le code**, activée par défaut), si vous voulez avec une partie, par exemple `/untangle-codebase src/api`. L’agent liste d’abord les copies, les liens cachés, les enveloppes inutiles, le code mort et les cas particuliers, puis les corrige sous forme d’objectif et vérifie de nouveau avec des sous-agents. Lancez-la dans une discussion de **Une branche par discussion** pour que le travail reste sur sa propre branche.
 
-**Est-ce que cela fonctionne avec l’app de bureau ?** Oui : Réglages → Plugins → **Ajouter un plugin** → `dsh-composer-plus`. Testé sur dsh 0.2.2-rc.5 (web).
+**Est-ce que cela fonctionne avec l’app de bureau ?** Oui : Réglages → Plugins → **Ajouter un plugin** → `dsh-composer-plus`. Testé sur dsh 0.2.2-rc.5 (web). L’app de bureau n’a pas été testée sur cette version.
 
 ## Développement
 

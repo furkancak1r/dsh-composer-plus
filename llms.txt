@@ -2,7 +2,7 @@
 
 > Composer Plus: a community plugin for DeepSeek Harness (dsh), DeepSeek's open-source agent harness. One install adds Codex-style quality-of-life features to the dsh desktop app and web UI, and iPhone access with the Tether app. npm package: `dsh-composer-plus`. MIT license. Unofficial.
 
-Install in the dsh desktop app: Settings → Plugins → Add plugin → `dsh-composer-plus` → Enable now. Install in a web/CLI profile: `dsh plugin --profile web add dsh-composer-plus`, then restart dsh. Requires dsh >= 0.2.0-rc.2 and Node.js >= 22. Tested on dsh 0.2.2-rc.5 (web).
+Install in the dsh desktop app: Settings → Plugins → Add plugin → `dsh-composer-plus` → Enable now. Install in a web/CLI profile: `dsh plugin --profile web add dsh-composer-plus`, then restart dsh. Requires dsh >= 0.2.0-rc.2 and Node.js >= 22. Tested on dsh 0.2.2-rc.5 (web). The desktop app was not tested on this version.
 
 Features (each one can be switched off in Settings → Composer Plus):
 
