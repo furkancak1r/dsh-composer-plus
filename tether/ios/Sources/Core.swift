@@ -4626,9 +4626,16 @@ func statusCards(_ o: J, now: Date, approvals: Int = 0, seen: Set<String> = [], 
         default: item?.created ?? end
         }
         let seenKey = (task != nil && end != nil) ? "\(task!.id)|\(Int64(ms(end!)))" : nil
-        // A Bitti card goes when the day ends or when you hid it; a failed task without an item goes when you hid it.
-        if group == "bitti", let end, !cal.isDate(end, inSameDayAs: now) { return }
-        if group == "bitti" || (group == "sorun" && item == nil), let k = seenKey, seen.contains(k) { return }
+        // A Bitti card goes when the day ends or when you hid it (Seen, or × of a failed task). An item of the same topic
+        // stays on the list, so it stays as its own card (client.js statusCards, review 1).
+        let dayGone = group == "bitti" && end.map { !cal.isDate($0, inSameDayAs: now) } == true
+        let hidden = (group == "bitti" || group == "sorun") && seenKey.map { seen.contains($0) } == true
+        if dayGone || hidden {
+            guard let item else { return }
+            let alone: String? = mark == "sorun" ? "sorun" : item.waiting != nil || mark == "senden" ? "senden" : item.owner == "agent" ? "suruyor" : nil
+            if let alone { add(alone, title, mark, item, nil) } else { out.notes.append(item) }
+            return
+        }
         let at = since ?? epoch
         out.groups[group, default: []].append(StatusCard(group: group, key: item?.id ?? task?.id ?? "", n: n, title: title, mark: mark, item: item, task: task, since: at, seenKey: seenKey,
             overdue: group == "senden" && since != nil && ms(now) - ms(at) >= todoOverdue * 1000, fresh: group == "bitti" && end.map { ms($0) > ms(newSince) } == true))

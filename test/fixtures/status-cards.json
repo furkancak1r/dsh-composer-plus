@@ -568,6 +568,101 @@
      "fresh": 0
     }
    }
+  },
+  {
+   "name": "Gördüm or the day end hides the task only: an item of the same topic stays as its own card (or a note)",
+   "now": 1794993000000,
+   "data": {
+    "items": [
+     {
+      "id": "e0000001",
+      "text": "Haftalık rapor",
+      "owner": "agent",
+      "created": 1794990600000
+     },
+     {
+      "id": "e0000002",
+      "text": "Fatura öde",
+      "owner": "user",
+      "created": 1794990000000
+     },
+     {
+      "id": "e0000003",
+      "text": "Sorun: Build kırık",
+      "owner": "agent",
+      "created": 1794991200000
+     }
+    ],
+    "tasks": [
+     {
+      "id": "t1",
+      "title": "Haftalık rapor",
+      "state": "done",
+      "started": 1794991800000,
+      "ended": 1794992700000
+     },
+     {
+      "id": "t2",
+      "title": "Fatura öde",
+      "state": "stopped",
+      "started": 1794885000000,
+      "ended": 1794892200000
+     },
+     {
+      "id": "t3",
+      "title": "Build kırık",
+      "state": "failed",
+      "started": 1794991500000,
+      "ended": 1794992400000
+     }
+    ]
+   },
+   "opts": {
+    "seen": [
+     "t1|1794992700000",
+     "t3|1794992400000"
+    ]
+   },
+   "want": {
+    "approval": null,
+    "groups": {
+     "sorun": [
+      {
+       "key": "e0000003",
+       "title": "Build kırık",
+       "item": "e0000003",
+       "task": null,
+       "since": 1794991200000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "senden": [],
+     "suruyor": [
+      {
+       "key": "e0000001",
+       "title": "Haftalık rapor",
+       "item": "e0000001",
+       "task": null,
+       "since": 1794990600000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "bitti": []
+    },
+    "notes": [
+     "e0000002"
+    ],
+    "counts": {
+     "onay": 0,
+     "sorun": 1,
+     "senden": 0,
+     "suruyor": 1,
+     "bitti": 0,
+     "fresh": 0
+    }
+   }
   }
  ]
 }

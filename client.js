@@ -3745,9 +3745,15 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         const since = group === 'senden' ? item?.waiting?.since ?? (task?.state === 'waiting' ? task.started : item?.created ?? task?.started)
           : group === 'suruyor' ? task?.started ?? item.created : group === 'bitti' ? end : item?.created ?? end;
         const seenKey = task === undefined ? undefined : `${task.id}|${end}`;
-        // A Bitti card goes when the day ends (also on a page that stays open over midnight) or when you hid it.
-        if (group === 'bitti' && !sameDay(end, now)) return;
-        if ((group === 'bitti' || (group === 'sorun' && item === undefined)) && seen.has(seenKey)) return;
+        // A Bitti card goes when the day ends (also on a page that stays open over midnight) or when you hid it (Gördüm, or
+        // × of a failed task). An item of the same topic stays on the list, so it stays as its own card (review 1).
+        const gone = (group === 'bitti' && !sameDay(end, now)) || ((group === 'bitti' || group === 'sorun') && seen.has(seenKey));
+        if (gone && item === undefined) return;
+        if (gone) {
+          const alone = card.mark === 'sorun' ? 'sorun' : item.waiting || card.mark === 'senden' ? 'senden' : item.owner === 'agent' ? 'suruyor' : null;
+          if (alone === null) notes.push(item); else add(alone, { title: card.title, mark: card.mark, item });
+          return;
+        }
         groups[group].push({ group, key: item?.id ?? task.id, n: n++, since, seenKey, overdue: group === 'senden' && now - since >= TODO_OVERDUE_MS,
           fresh: group === 'bitti' && end > newSince, ...card });
       };
