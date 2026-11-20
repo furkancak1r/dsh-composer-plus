@@ -4098,7 +4098,14 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // shows only what waits for you, one entry at a time (statusQueue); each answer goes on today's path (Onayla and the
       // options: Option picks' store; Yanıtla, Yaptım: the composer). The briefing: the next entry, four counts, today's ends.
       const choice = choiceNow;
-      const queue = statusQueue(cards, { sentences: (offer?.options ?? []).map((o) => o.text), options: (choice?.offer.options ?? []).map((o) => o.label), later });
+      // What an entry says now: a new sentence or a new option list is a new entry for the key guard and for Sonra
+      // (review 1: a fixed "onay" key let A approve a sentence that had just replaced the old one, and kept a new live
+      // approval at the end after Sonra).
+      const onayIdent = `onay|${offer?.seq ?? ''}|${(offer?.options ?? []).map((o) => o.text).join('\n')}`;
+      const kararIdent = `karar|${choice?.offer.seq ?? ''}|${(choice?.offer.options ?? []).map((o) => o.text).join('\n')}`;
+      const identOf = (key) => (key === 'onay' ? onayIdent : key === 'karar' ? kararIdent : key);
+      const laterKeys = later.filter((l) => identOf(l.key) === l.ident).map((l) => l.key);
+      const queue = statusQueue(cards, { sentences: (offer?.options ?? []).map((o) => o.text), options: (choice?.offer.options ?? []).map((o) => o.label), later: laterKeys });
       // One count per entry; a new option list (a newer answer) is a new entry. ponytail: the Onay card is one entry (its
       // offer comes after the first read, so its seq cannot name it): a new approval after an answered one counts again.
       const countKey = (e) => (e.kind === 'karar' ? `karar|${choice?.offer.seq}` : e.key);
@@ -4109,10 +4116,13 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const current = queue[at];
       const queueId = `${headId}-queue`;
       const focusQueue = () => setTimeout(() => globalThis.document?.getElementById?.(queueId)?.focus?.(), 0);
-      const moveLater = (e) => { setLater((l) => [...l.filter((k) => k !== e.key), e.key]); focusQueue(); };
-      // A key acts only on an entry that showed for OPTION_KEY_GUARD_MS (a key meant for something else must not answer
-      // what you did not read; the question card's option keys use the same guard).
-      if (current !== undefined && shownAt.current.key !== countKey(current)) shownAt.current = { key: countKey(current), at: Date.now() };
+      const moveLater = (e) => { setLater((l) => [...l.filter((x) => x.key !== e.key), { key: e.key, ident: identOf(e.key) }]); focusQueue(); };
+      // A key acts only on an entry that showed in the open queue for OPTION_KEY_GUARD_MS (a key meant for something else
+      // must not answer what you did not read; the question card's option keys use the same guard). The clock starts again
+      // when the entry's text changes and each time the queue opens.
+      const queueShown = open && view === 'queue' && current !== undefined;
+      if (!queueShown) shownAt.current = { key: null, at: 0 };
+      else if (shownAt.current.key !== identOf(current.key)) shownAt.current = { key: identOf(current.key), at: Date.now() };
       const choiceButtons = () => (choice?.empty !== true ? null : React.createElement('div', { className: 'cp-cs-line', style: { flexWrap: 'wrap', marginTop: '6px' } },
         choice.offer.options.map((o) => React.createElement('button', { key: o.n, type: 'button', className: 'cp-cs-act cp-cs-opt', disabled: choice.state.busy, title: o.text,
           ...(o.recommended ? { 'data-primary': '' } : {}), 'data-composer-plus-choice': String(o.n), onClick: () => { picks.pick(sessionId, choice.offer, o.n); } }, `${o.n}. ${o.label}`))));
@@ -4125,8 +4135,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const entryCard = (e) => (e.kind === 'onay' ? onayCard : e.kind === 'karar' ? kararCard()
         : React.createElement('ul', { style: { margin: 0, padding: 0 } }, card(e.card)));
       const onQueueKey = (ev) => {
-        if (current === undefined || ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat || ev.isComposing || ev.target?.closest?.('input, textarea, [contenteditable]:not([contenteditable="false"])')) return;
-        const k = String(ev.key).toLowerCase(); const read = Date.now() - shownAt.current.at >= OPTION_KEY_GUARD_MS;
+        if (current === undefined || ev.metaKey || ev.ctrlKey || ev.altKey || ev.shiftKey || ev.repeat || ev.isComposing || ev.keyCode === 229 || ev.defaultPrevented
+          || ev.target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return;
+        const k = String(ev.key).toLowerCase(); const read = shownAt.current.key !== null && Date.now() - shownAt.current.at >= OPTION_KEY_GUARD_MS;
         if (k === 'j') setQi(Math.min(at + 1, queue.length - 1));
         else if (k === 'k') setQi(Math.max(at - 1, 0));
         else if (k === 's') moveLater(current);
@@ -4148,7 +4159,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           cards.counts.suruyor === 0 ? null : React.createElement('span', { className: 'cp-st-sub' }, t('queue.emptyRunning', { count: cards.counts.suruyor, name })))
           : [React.createElement('p', { key: 'pos', className: 'cp-st-sub' }, `${at + 1} / ${queue.length}`,
             current.live && current.kind !== 'onay' ? React.createElement('span', { className: 'cp-cs-tag' }, t('cards.live')) : null),
-          React.createElement('div', { key: 'entry', 'data-queue-entry': current.key, 'aria-live': 'polite' }, entryCard(current)),
+          // The screen reader hears the entry change only (not the age texts that change each minute).
+          React.createElement('span', { key: 'said', className: 'cp-st-sr', role: 'status', 'aria-live': 'polite' },
+            `${at + 1} / ${queue.length}: ${current.kind === 'senden' ? current.card.title : current.kind === 'karar' ? t('queue.choiceTitle', { name }) : t('cards.onay')}`),
+          React.createElement('div', { key: 'entry', 'data-queue-entry': current.key }, entryCard(current)),
           React.createElement('div', { key: 'nav', className: 'cp-cs-line', style: { justifyContent: 'space-between', marginTop: '6px' } },
             act2(t('queue.prev'), () => setQi(at - 1), { disabled: at === 0 }),
             act2(t('queue.later'), () => moveLater(current), { 'data-queue-later': '' }),
@@ -7124,7 +7138,24 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       for (const node of chat?.nodes?.values?.() ?? []) if (node?.kind === 'turn-tail' && Number.isSafeInteger(node.data?.turn)) tails.push(node);
       if (tails.length === 0) return undefined;
       tails.sort((a, b) => b.data.turn - a.data.turn);
-      const tail = tails.find((node) => !inSpans(spans ?? [], node.data.closing?.finalNode?.seq ?? node.data.seq));
+      const kept = tails.filter((node) => !inSpans(spans ?? [], node.data.closing?.finalNode?.seq ?? node.data.seq));
+      let tail = kept[0];
+      // Option picks: a hidden news turn after the answer (its reply is only `[quiet]`, so the chat does not show it) keeps
+      // the answer's options, as turnApprovals keeps an `onay` block (review 1 of the decision queue: a news turn took the
+      // choice away). Your message after the answer (a pick, or you went on) ends them. A turn with tools only still ends them.
+      if (parse === parseOptions) {
+        const hidden = (node) => node.data.closing?.status !== 'running' && node.data.closing?.status !== 'interrupted'
+          && Array.isArray(node.data.closing?.blocks) && quietText(answerText(node.data.closing.blocks));
+        let i = 0;
+        while (i < kept.length - 1 && hidden(kept[i])) i++;
+        if (i > 0) {
+          tail = kept[i];
+          const answerSeq = tail.data.closing?.finalNode?.seq ?? Infinity;
+          for (const node of chat.nodes.values()) {
+            if ((node?.kind === 'user' || node?.kind === 'steering') && typeof node.data?.seq === 'number' && node.data.seq > answerSeq && !inSpans(spans ?? [], node.data.seq)) return undefined;
+          }
+        }
+      }
       const closing = tail?.data.closing;
       const seq = closing === null && parse === parseApprovals ? tail.data.seq : closing?.finalNode?.seq;
       if (!Number.isSafeInteger(seq) || seq < from || closing?.status === 'running' || closing?.status === 'interrupted' || (closing !== null && !Array.isArray(closing.blocks))) return undefined;

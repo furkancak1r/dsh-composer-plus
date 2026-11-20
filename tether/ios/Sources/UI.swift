@@ -4778,13 +4778,14 @@ struct DeckView: View {
                     Text(String(localized: "queue.choiceTitle", defaultValue: "\(assistantName) asks you to choose", bundle: b)).font(.subheadline.weight(.semibold))
                     Spacer(minLength: 0)
                 }
-                ForEach(options, id: \.n) { o in
+                // The user types: no option buttons (as OptionButtons hide while the text field has text).
+                if !compact { ForEach(options, id: \.n) { o in
                     Button { act(.pick(o.n)) } label: {
                         Text(verbatim: "\(o.n). \(o.label)").font(.subheadline).multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(.bordered).tint(o.recommended ? .accentColor : .secondary).disabled(busy)
                     .accessibilityLabel(Text(verbatim: "\(o.n). \(o.label)"))
-                }
+                } }
             }
         }
         .accessibilityElement(children: .contain)
@@ -5009,13 +5010,21 @@ struct CardDeck: View {
     /// with Later (not stored), and the entry keys that showed while the deck was on screen (for "x/y answered").
     @AppStorage("cardView") private var view = "stack"
     @State private var queueIndex = 0
-    @State private var later: [String] = []
+    @State private var later: [(key: String, ident: String)] = []
     @State private var queueSeen = Set<String>()
 
     private var offer: ApprovalOffer? { c.approvalOffer }
     private var cards: StatusCards { statusCards(answer ?? [:], now: tick, approvals: offer?.sentences.count ?? 0, seen: seen, newSince: newSince) }
     private var choice: OptionOffer? { c.optionOffer }
-    private var queue: [QueueEntry] { statusQueue(cards, sentences: offer?.sentences ?? [], options: (choice?.options ?? []).map(\.label), later: later) }
+    private var queue: [QueueEntry] { statusQueue(cards, sentences: offer?.sentences ?? [], options: (choice?.options ?? []).map(\.label), later: later.filter { identOf($0.key) == $0.ident }.map(\.key)) }
+    /// What an entry says now: a new sentence or a new option list is a new entry for Later (client.js identOf).
+    private func identOf(_ key: String) -> String {
+        switch key {
+        case "onay": "onay|\(offer.map { String($0.seq) } ?? "")|\((offer?.sentences ?? []).joined(separator: "\n"))"
+        case "karar": "karar|\(choice.map { String($0.seq) } ?? "")|\((choice?.options ?? []).map(\.text).joined(separator: "\n"))"
+        default: key
+        }
+    }
     /// One count per entry; a newer option list is a new entry (client.js countKey).
     private func countKey(_ e: QueueEntry) -> String { e.kind == "karar" ? "karar|\(choice?.seq ?? 0)" : e.key }
     var body: some View {
@@ -5059,7 +5068,7 @@ struct CardDeck: View {
         let span = { (t: TimeInterval) in Duration.seconds(max(0, t)).formatted(.units(allowed: [.hours, .minutes, .seconds], width: .abbreviated, maximumUnitCount: 1).locale(locale)) }
         switch a {
         case .projects: showProjects = true
-        case .later(let key): later = later.filter { $0 != key } + [key]
+        case .later(let key): later = later.filter { $0.key != key } + [(key, identOf(key))]
         case .pick(let n): if let o = choice { UISelectionFeedbackGenerator().selectionChanged(); c.run(waits: false) { try await c.pickOption(o, n) } }
         case .approve(let s): if let o = offer { UISelectionFeedbackGenerator().selectionChanged(); asking = (sessionId, o, s) }
         case .ask(let card), .reply(let card), .write(let card):

@@ -1760,6 +1760,18 @@ final class AgentboxIdeasTests: XCTestCase {
         XCTAssertEqual(chatOffer(two)?.options.map(\.label), ["Merge it", "Add a test"], "reasoning is left out")
         XCTAssertEqual(chatOffer(two)?.options.last?.text, "Add a test\nwith a fixture")
         XCTAssertNil(chatOffer(turn(1, "a", opts) + turn(10, "b", "No list.")), "an older list does not come back")
+        // A hidden news turn (reply only [quiet]) keeps the answer's options; your message after the answer, a news turn
+        // with text, a running or a stopped turn end them (client.js chatOffer).
+        func news(_ s: Int, _ text: String?, end: String? = "completed") -> [J] {
+            var e = turn(s, "", text, end: end); e[1] = ["type": "user/message", "seq": s + 1, "data": ["content": "news", "source": ["kind": "news"]]]; return e
+        }
+        let kept = chatOffer(turn(1, "a", opts) + news(10, "[quiet]") + news(20, " [QUIET] "))
+        XCTAssertEqual(kept?.seq, 3, "the old answer's seq"); XCTAssertEqual(kept?.latest, 20, "latest: the newest turn start")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + turn(10, "b", "[quiet]")), "your message after the answer, then a quiet turn")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "Fine.")), "a news turn with text")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]") + news(20, nil)), "a news turn with tools only")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]", end: "interrupted")), "a stopped news turn")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]", end: nil)), "a running news turn")
         XCTAssertNil(chatOffer(turn(1, "a", opts, end: nil)), "not while the turn runs")
         XCTAssertNil(chatOffer(turn(1, "a", opts) + turn(10, "b", nil, end: nil)), "a newer running turn hides the older list")
         XCTAssertNil(chatOffer(turn(1, "a", opts, end: "interrupted")), "not a stopped turn")

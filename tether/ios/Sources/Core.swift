@@ -809,10 +809,14 @@ struct OptionOffer: Equatable { let seq: Int; let latest: Int; let options: [Cha
 func chatOffer(_ events: [J], from: Int = 0) -> OptionOffer? {
     let spans = events.compactMap(rollbackSpan)
     var turns: [(start: Int, end: Int?, completed: Bool, answer: J?)] = []
+    var humans: [Int] = []
     for e in events {
         guard let seq = e["seq"] as? Int else { continue }
         switch e["type"] as? String {
         case "turn/start": turns.append((seq, nil, false, nil))
+        case "user/message":
+            let kind = (((e["data"] as? J)?["source"]) as? J)?["kind"] as? String
+            if kind == nil || kind == "user", !spans.contains(where: { $0.contains(seq) }) { humans.append(seq) }
         case "assistant/message": if let i = turns.indices.last, turns[i].end == nil { turns[i].answer = e }
         case "turn/end":
             if let i = turns.indices.last, turns[i].end == nil {
@@ -822,11 +826,24 @@ func chatOffer(_ events: [J], from: Int = 0) -> OptionOffer? {
         default: break
         }
     }
-    guard let latest = turns.last?.start,
-          let turn = turns.last(where: { t in let s = (t.answer?["seq"] as? Int) ?? t.end ?? t.start; return !spans.contains { $0.contains(s) } }),
-          turn.completed, let answer = turn.answer, let seq = answer["seq"] as? Int, seq >= from else { return nil }
-    let blocks = ((answer["data"] as? J)?["message"] as? J)?["content"] as? [J] ?? []
-    let options = parseOptions(blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined())
+    let answerText = { (a: J) -> String in
+        let blocks = ((a["data"] as? J)?["message"] as? J)?["content"] as? [J] ?? []
+        return blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined()
+    }
+    // client.js chatOffer: a hidden news turn after the answer (completed, its reply only `[quiet]`) keeps the answer's
+    // options, unless a message of yours came after that answer. A running or stopped turn, a turn without an answer and a
+    // news turn with other text end them.
+    let kept = Array(turns.filter { t in let s = (t.answer?["seq"] as? Int) ?? t.end ?? t.start; return !spans.contains { $0.contains(s) } }.reversed())
+    var i = 0
+    while i < kept.count - 1, kept[i].completed, let a = kept[i].answer, quietReply(answerText(a)) { i += 1 }
+    guard let latest = turns.last?.start, i < kept.count else { return nil }
+    let turn = kept[i]
+    if i > 0 {
+        let after = (turn.answer?["seq"] as? Int) ?? Int.max
+        if humans.contains(where: { $0 > after }) { return nil }
+    }
+    guard turn.completed, let answer = turn.answer, let seq = answer["seq"] as? Int, seq >= from else { return nil }
+    let options = parseOptions(answerText(answer))
     return options.isEmpty ? nil : OptionOffer(seq: seq, latest: latest, options: options)
 }
 

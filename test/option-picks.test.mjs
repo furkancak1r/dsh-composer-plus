@@ -101,6 +101,12 @@ assert.equal(chatOffer(chat(tail(1, 10, opts, 'running')), []), undefined, 'not 
 assert.equal(chatOffer(chat(tail(1, 10, opts, 'interrupted')), []), undefined, 'not a stopped answer');
 assert.equal(chatOffer(chat(tail(1, 10, null)), []), undefined, 'a turn without an answer');
 assert.equal(chatOffer(chat(tail(1, 10, opts), tail(2, 20, null)), []), undefined, 'a newer turn without an answer hides the older list');
+// A hidden news turn (its reply is only [quiet]) keeps the list (the decision queue's choice, review 1); your message
+// after the answer ends it; a news turn with text ends it.
+assert.deepEqual(chatOffer(chat(tail(1, 10, opts), tail(2, 20, '[quiet]'), tail(3, 30, ' [QUIET]\n')), []), { seq: 10, turn: 1, latest: 3, options: parseOptions(opts) }, 'quiet news turns keep the list');
+assert.equal(chatOffer(chat(tail(1, 10, opts), { kind: 'user', data: { seq: 15 } }, tail(2, 20, '[quiet]')), []), undefined, 'your message after the answer ends it');
+assert.equal(chatOffer(chat(tail(1, 10, opts), tail(2, 20, 'News: done.')), []), undefined, 'a news turn with text ends it');
+assert.equal(chatOffer(chat(tail(1, 10, opts), tail(2, 20, '[quiet]', 'running')), []), undefined, 'not while a news turn streams');
 assert.equal(chatOffer(undefined, []), undefined, 'no chat view yet');
 assert.equal(chatOffer(chat(), []), undefined, 'an empty chat');
 // Rule 9: a withdrawn turn does not count, with either marker kind; the newest turn still in the chat does.

@@ -510,6 +510,42 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
     sec2.p.onKeyDown({ key: 's', preventDefault() {}, target: { closest: () => ({}) } }); assert.equal(cardSent.length, sent2);
   } finally { Date.now = realNow; }
   assert.equal(await qPicks.pick('D', offers.of('D').offer, 1), false, 'the same answer again: refused');
+  // Review 1 (P1, P2): a new sentence starts the 800 ms clock again; Shift+A does nothing; the clock starts only in the
+  // open queue (A at once after a switch from Kartlar: nothing).
+  {
+    const NEW = "Onaylıyorum (canlı değil): rapor dalı main'e alınsın.";
+    const realNow2 = Date.now; let clock = realNow2() + 5000; Date.now = () => clock;
+    try {
+      view = chat(user(520, 'w2'), tail(52, 530, `Ready.\n\n${block(NEW)}`)); dock.render(); await flush(); dock.render(); await flush();
+      const fresh = cardSent.length;
+      const secNow = () => find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
+      const press = (k, extra = {}) => secNow().p.onKeyDown({ key: k, preventDefault() {}, target: { closest: () => null }, ...extra });
+      clock += 10; press('a'); await flush();
+      assert.equal(cardSent.length, fresh, 'A 10 ms after a new sentence: nothing (the clock starts again)');
+      clock += 1000; press('a', { shiftKey: true }); await flush();
+      assert.equal(cardSent.length, fresh, 'Shift+A: nothing');
+      // Kartlar, then Kuyruk again: the clock starts when the queue opens.
+      viewBtn(stack.render(), 'stack').p.onClick(); stack.render(); clock += 5000;
+      viewBtn(stack.render(), 'queue').p.onClick(); clock += 10; press('a'); await flush();
+      assert.equal(cardSent.length, fresh, 'A at once after the queue opens: nothing');
+      clock += 1000; press('a'); await flush();
+      assert.deepEqual(cardSent.slice(fresh), [['D', NEW]], 'A after 800 ms in the open queue: the new sentence once');
+    } finally { Date.now = realNow2; }
+  }
+  // Review 1 (P3): Sonra holds the entry that you moved; a new sentence is a new entry and goes back to its rank.
+  {
+    const store2 = { ...store, of: () => Object.freeze({ ...store.of(), items: [...store.of().items, { id: 's1', text: 'Senden: test sunucusunu aç', owner: 'user', created: Date.now() - 60000 }] }) };
+    const stack2 = mount(StatusPanel, { ...cardProps, store: store2 });
+    view = chat(user(540, 'w3'), tail(54, 550, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
+    let tree2 = stack2.render(); viewBtn(tree2, 'queue').p.onClick();
+    assert.deepEqual(find(stack2.render(), (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['onay']);
+    find(stack2.render(), (n) => n.t === 'button' && n.p['data-queue-later'] !== undefined)[0].p.onClick();
+    tree2 = stack2.render();
+    assert.deepEqual(find(tree2, (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['senden|s1'], 'Sonra: the Senden card first');
+    view = chat(user(560, 'w4'), tail(56, 570, `Ready.\n\n${block("Onaylıyorum (canlı değil): yeni dal main'e alınsın.")}`)); dock.render(); await flush(); dock.render(); await flush();
+    assert.deepEqual(find(stack2.render(), (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['onay'], 'a new sentence: the Onay entry goes back first');
+    stack2.unmount();
+  }
   // A choice (karar): the option list of the newest answer, published by CardChoices; a button picks through the store.
   const choiceFrom = cardSent.length; // one store for the buttons, the card and the queue (as in the app)
   view = chat(user(600, 'v'), tail(60, 610, 'Which one?\n\n**Seçenekler:**\n1. Kendisi alsın\n2. Bana sorsun'));
