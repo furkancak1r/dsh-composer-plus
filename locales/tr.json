@@ -1493,7 +1493,7 @@
     "searchSection": "Web arama sağlayıcısı",
     "fetchSection": "Web getirme sağlayıcısı",
     "providerDeepSeek": "DeepSeek Search API",
-    "providerLegacy": "DeepSeek (eski)",
+    "providerLegacy": "DeepSeek sunucu tarafı arama",
     "legacyKeyHint": "Hesap modeli isteklerinde oturum açılmış hesabı kullanır; aksi hâlde varsayılan olarak Modeller ile paylaşılan bu API anahtarını ({ref}) kullanır.",
     "apiKeyUnsetApi": "Yapılandırılmış anahtar yok.",
     "invalidMaxUses": "Pozitif bir tam sayı girin ya da varsayılanı kullanmak için boş bırakın.",
@@ -1510,7 +1510,8 @@
     "billingAccountHint": "DeepSeek'te oturum açmayı gerektirir.",
     "billingApiKey": "DeepSeek API anahtarı",
     "billingApiKeyHint": "Modeller sayfasındaki API anahtarını kullanır; önce bir anahtar ayarlayın.",
-    "billingAdvancedOverride": "{fields} tarafından geçersiz kılındı"
+    "billingAdvancedOverride": "{fields} tarafından geçersiz kılındı",
+    "searchAutoHint": "Sohbetin modelini izler: DeepSeek modelleri, arama başına ücret alınmayan DeepSeek sunucu tarafı aramayı kullanır; diğer modeller DeepSeek Search API kullanır."
   },
   "settings.theme": {
     "appearance.title": "Görünüm",

@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Starte dsh danach neu. (Die CLI kann nicht in das Desktop-Profil installieren; dieses Profil verwaltet die App.)
 
-> Das pnpm von dsh überspringt Versionen, die jünger als 24 Stunden sind. Gib direkt nach einem Release die Version mit an: `dsh-composer-plus@1.31.0`.
+> Das pnpm von dsh überspringt Versionen, die jünger als 24 Stunden sind. Gib direkt nach einem Release die Version mit an: `dsh-composer-plus@1.31.1`.
 
 ## Funktionen
 
@@ -144,7 +144,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 Die ganze App wechselt sofort. Die Auswahl ist die eigene gespeicherte `locale.preference` von dsh (dieselbe wie unter Allgemein → Sprache). Deshalb bleibt sie nach Neustarts erhalten. **Systemsprache** löscht diese Auswahl: Die Desktop-App folgt der Sprache des Betriebssystems, die Weboberfläche der Sprache des Browsers. Eine nicht unterstützte Sprache fällt auf Englisch zurück. Die Installation des Plugins überschreibt nie eine Sprache, die du schon gewählt hast.
 
-Jedes Paket hat 5.503 Texte: jeden Oberflächentext von dsh `0.2.2-rc.1` und `0.2.2-rc.3` (Chats, Seitenleiste, Einstellungen, Genehmigungen, Automatisierungsaufgaben, Dateivorschauen, Plugin-Verwaltung, Plugin-Marktplatz), die eigenen Bedienelemente des Plugins und das beliebte Plugin [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Nicht übersetzt werden: deine Nachrichten, die Ausgabe des Modells, Code, Namen von Slash-Befehlen (`/plan`, `/compact`), Bezeichnungen der Anbieter wie die Reasoning-Stufe `High`, Texte anderer Plugins sowie die nativen Menüs und Update-Dialoge der Desktop-App (dsh liefert diese nur auf Englisch und Chinesisch aus). Texte, die eine neuere dsh-Version hinzufügt, erscheinen auf Englisch, bis die Pakete aktualisiert sind. Wenn ein anderes Plugin eine Sprache bereits bereitstellt, behält dieses Plugin die Sprache. Ab dsh 0.2.2 bringt dsh 日本語, Español, Français, Deutsch und Русский selbst mit: Für diese Sprachen werden die eigenen Texte von dsh verwendet, und das Paket ergänzt nur die Texte des Plugins (Português (Brasil) bleibt eine eigene Sprache neben dem Português von dsh).
+Jedes Paket hat 5.541 Texte: jeden Oberflächentext von dsh `0.2.2-rc.5` (Chats, Seitenleiste, Einstellungen, Genehmigungen, Automatisierungsaufgaben, Dateivorschauen, Plugin-Verwaltung, Plugin-Marktplatz), die eigenen Bedienelemente des Plugins und das beliebte Plugin [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Nicht übersetzt werden: deine Nachrichten, die Ausgabe des Modells, Code, Namen von Slash-Befehlen (`/plan`, `/compact`), Bezeichnungen der Anbieter wie die Reasoning-Stufe `High`, Texte anderer Plugins sowie die nativen Menüs und Update-Dialoge der Desktop-App (dsh liefert diese nur auf Englisch und Chinesisch aus). Texte, die eine neuere dsh-Version hinzufügt, erscheinen auf Englisch, bis die Pakete aktualisiert sind. Wenn ein anderes Plugin eine Sprache bereits bereitstellt, behält dieses Plugin die Sprache. Ab dsh 0.2.2 bringt dsh 日本語, Español, Français, Deutsch und Русский selbst mit: Für diese Sprachen werden die eigenen Texte von dsh verwendet, und das Paket ergänzt nur die Texte des Plugins (Português (Brasil) bleibt eine eigene Sprache neben dem Português von dsh).
 
 ## Tastenkürzel
 
@@ -178,7 +178,7 @@ Ein geöffnetes `/`- oder `@`-Menü behält diese Tasten für sich.
 
 ## Kompatibilität
 
-Getestet mit dsh `0.2.2-rc.1` (Desktop und Web) und `0.2.2-rc.3` (Web). Die CI führt die Tests bei jedem Push aus.
+Getestet mit dsh `0.2.2-rc.5` (Web). Die Desktop-App wurde mit dieser Version nicht getestet. Die CI führt die Tests bei jedem Push aus.
 
 ## Datenschutz und Sicherheit
 
@@ -237,7 +237,7 @@ Getestet mit dsh `0.2.2-rc.1` (Desktop und Web) und `0.2.2-rc.3` (Web). Die CI f
 - **Kein Branch-Etikett an einer Chatzeile:** Die Seitenleiste ist nicht in „In einer Liste“ (in „Arbeitsbereich“ und „Arbeitsbereichsbaum“ zeigt keine Chatzeile ein Etikett), der Chat hatte seit der Installation dieser Version keine Runde, sein Ordner ist kein git-Repository, oder **Git-Branch in Chatzeilen** ist aus. Starte dsh nach einem Update neu (die Host-Hälfte zeichnet den Branch auf).
 - **Zielprüfung meldet, dass der Test mit Code 127 oder „not found“ beendet wurde:** Ein dsh, das aus dem Finder oder dem Dock gestartet wurde, kann einen kürzeren PATH als dein Terminal haben und findet daher `npm`, `pnpm` oder `cargo` nicht. Starte dsh aus einem Terminal, oder lege unter **Zielprüfung** → **Bearbeiten** deinen eigenen Testbefehl mit dem vollständigen Pfad fest. **Jetzt ausführen** zeigt das Ergebnis sofort.
 - **Das Ziel schließt sich nicht und der Agent arbeitet weiter:** **Zielprüfung** hat einen fehlschlagenden Test oder fehlende Arbeit gefunden. Die Zeile unter dem Ziel zeigt den Grund (fahre mit der Maus über das Ergebnis, um die Details zu sehen). Behebe die Ursache oder den Testbefehl, oder schließe das Ziel selbst mit `/goal` oder der Zielleiste ab (das wird nicht geprüft).
-- **Die Installation schlägt direkt nach einem Release fehl:** Gib die Version mit an (`dsh-composer-plus@1.31.0`), siehe den Hinweis zur Installation oben.
+- **Die Installation schlägt direkt nach einem Release fehl:** Gib die Version mit an (`dsh-composer-plus@1.31.1`), siehe den Hinweis zur Installation oben.
 - **Jetzt sichern meldet „Eine andere Sicherungsaktion läuft“:** Eine Aktion läuft in einem anderen dsh-Fenster oder in der Rettungskonsole (sie teilen sich eine Sperrdatei, `.composer-plus.lock`, im Sicherungsordner). Warte, bis sie fertig ist. Läuft keine Aktion, wird die Sperre eines beendeten Prozesses beim nächsten Klick übernommen.
 - **Die Rettungskonsole meldet „dsh is running“:** Beende zuerst dsh. Ist dsh wirklich geschlossen, ist die in der Meldung genannte Datei von einem Absturz übrig: Entferne sie und versuche es erneut.
 - **Nach einer Wiederherstellung startet dsh nicht oder ein Plugin fehlt:** Die Plugin-Pakete eines Profils müssen neu installiert werden. Die Rettungskonsole bietet das nach einer Wiederherstellung an; oder führe `pnpm install` in jedem Ordner unter `$DSH_HOME/profiles/` aus, den sie auflistet. Geheimnisse, die nicht im vault waren (anderer Computer), müssen neu eingegeben werden: Die Konsole listet sie auf.
@@ -462,7 +462,7 @@ Getestet mit dsh `0.2.2-rc.1` (Desktop und Web) und `0.2.2-rc.3` (Web). Die CI f
 
 **Wie kann der Agent eine unordentliche Codebasis aufräumen?** Tippe `/untangle-codebase` in einen Chat (**Codebasis entwirren**, standardmäßig an), auf Wunsch mit einem Bereich, zum Beispiel `/untangle-codebase src/api`. Der Agent listet zuerst Kopien, versteckte Kopplungen, unnötige Wrapper, toten Code und Sonderfälle auf, behebt sie dann als Ziel und prüft mit Subagenten erneut. Starte ihn in einem Chat von **Ein Branch pro Chat**, damit die Arbeit in einem eigenen Branch bleibt.
 
-**Funktioniert es mit der Desktop-App?** Ja: Einstellungen → Plugins → **Plugin hinzufügen** → `dsh-composer-plus`. Getestet mit dsh 0.2.2-rc.1 (Desktop und Web) und 0.2.2-rc.3 (Web).
+**Funktioniert es mit der Desktop-App?** Ja: Einstellungen → Plugins → **Plugin hinzufügen** → `dsh-composer-plus`. Getestet mit dsh 0.2.2-rc.5 (Web). Die Desktop-App wurde mit dieser Version nicht getestet.
 
 ## Entwicklung
 

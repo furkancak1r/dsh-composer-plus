@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Sonra dsh’yi yeniden başlatın. (CLI, masaüstü profiline yükleme yapamaz; bu profili uygulama yönetir.)
 
-> dsh’nin pnpm’i, yayımlanmasının üzerinden 24 saat geçmemiş sürümleri atlar. Bir yayından hemen sonra sürümü ekleyin: `dsh-composer-plus@1.31.0`.
+> dsh’nin pnpm’i, yayımlanmasının üzerinden 24 saat geçmemiş sürümleri atlar. Bir yayından hemen sonra sürümü ekleyin: `dsh-composer-plus@1.31.1`.
 
 ## Özellikler
 
@@ -144,7 +144,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 Uygulamanın tamamı hemen yeni dile geçer. Seçim, dsh’nin kendi kayıtlı `locale.preference` ayarıdır (Genel → Dil ile aynı ayar). Bu yüzden yeniden başlatmadan sonra da korunur. **Sistem dili** bu seçimi temizler: masaüstü uygulaması işletim sisteminin dilini, web arayüzü tarayıcının dilini kullanır. Desteklenmeyen bir dil için İngilizce kullanılır. Eklentiyi yüklemek, daha önce seçtiğiniz bir dili hiçbir zaman değiştirmez.
 
-Her dil paketinde 5.503 metin vardır: dsh `0.2.2-rc.1` ve `0.2.2-rc.3` sürümlerinin tüm arayüz metinleri (sohbetler, kenar çubuğu, ayarlar, onaylar, zamanlamalar, dosya önizlemeleri, eklenti yöneticisi, eklenti pazarı), eklentinin kendi denetimleri ve popüler [dsh-rewind](https://github.com/SiriLee/dsh-rewind) eklentisi. Çevrilmeyenler: mesajlarınız, model çıktısı, kod, eğik çizgi komutlarının adları (`/plan`, `/compact`), sağlayıcıya ait etiketler (örneğin `High` akıl yürütme düzeyi), diğer eklentilerin metinleri ve masaüstü uygulamasının yerel menüleri/güncelleme pencereleri (dsh bunları yalnızca İngilizce/Çince sunar). Daha yeni bir dsh sürümünün eklediği metinler, paketler güncellenene kadar İngilizce görünür. Bir dili başka bir eklenti zaten sağlıyorsa o dil için o eklentinin metinleri kullanılır. dsh 0.2.2’den itibaren dsh 日本語, Español, Français, Deutsch ve Русский dillerini kendisi sunar: bu dillerde dsh’nin kendi metinleri kullanılır, paket yalnızca eklentinin metinlerini ekler (Português (Brasil), dsh’nin Português dilinin yanında ayrı bir dil olarak kalır).
+Her dil paketinde 5.541 metin vardır: dsh `0.2.2-rc.5` sürümünün tüm arayüz metinleri (sohbetler, kenar çubuğu, ayarlar, onaylar, zamanlamalar, dosya önizlemeleri, eklenti yöneticisi, eklenti pazarı), eklentinin kendi denetimleri ve popüler [dsh-rewind](https://github.com/SiriLee/dsh-rewind) eklentisi. Çevrilmeyenler: mesajlarınız, model çıktısı, kod, eğik çizgi komutlarının adları (`/plan`, `/compact`), sağlayıcıya ait etiketler (örneğin `High` akıl yürütme düzeyi), diğer eklentilerin metinleri ve masaüstü uygulamasının yerel menüleri/güncelleme pencereleri (dsh bunları yalnızca İngilizce/Çince sunar). Daha yeni bir dsh sürümünün eklediği metinler, paketler güncellenene kadar İngilizce görünür. Bir dili başka bir eklenti zaten sağlıyorsa o dil için o eklentinin metinleri kullanılır. dsh 0.2.2’den itibaren dsh 日本語, Español, Français, Deutsch ve Русский dillerini kendisi sunar: bu dillerde dsh’nin kendi metinleri kullanılır, paket yalnızca eklentinin metinlerini ekler (Português (Brasil), dsh’nin Português dilinin yanında ayrı bir dil olarak kalır).
 
 ## Klavye kısayolları
 
@@ -178,7 +178,7 @@ Açık bir `/` veya `@` menüsü bu tuşları kendisi kullanır.
 
 ## Uyumluluk
 
-dsh `0.2.2-rc.1` (masaüstü ve web) ve `0.2.2-rc.3` (web) üzerinde test edildi. CI, testleri her push’ta çalıştırır.
+dsh `0.2.2-rc.5` (web) üzerinde test edildi. Masaüstü uygulaması bu sürümde test edilmedi. CI, testleri her push’ta çalıştırır.
 
 ## Gizlilik ve güvenlik
 
@@ -237,7 +237,7 @@ dsh `0.2.2-rc.1` (masaüstü ve web) ve `0.2.2-rc.3` (web) üzerinde test edildi
 - **Bir sohbet satırında dal etiketi yok:** kenar çubuğu “Tek listede” görünümünde değil (“Çalışma alanı” ve “Çalışma alanı ağacı” görünümlerinde hiçbir sohbet satırında etiket görünmez), bu sürümü yüklediğinizden beri sohbette hiç tur olmadı, sohbetin klasörü bir git deposu değil ya da **Sohbet satırlarında Git dalı** kapalı. Bir güncellemeden sonra dsh’yi yeniden başlatın (dalı Host tarafı kaydeder).
 - **Hedef kontrolü, testin 127 koduyla ya da "not found" ile çıktığını söylüyor:** Finder’dan veya Dock’tan başlatılan dsh’nin PATH’i terminalinizdekinden daha kısa olabilir. Bu yüzden dsh `npm`, `pnpm` veya `cargo` aracını bulamaz. dsh’yi bir terminalden başlatın ya da **Hedef kontrolü** → **Düzenle** içinde tam yolu olan kendi test komutunuzu belirleyin. **Şimdi çalıştır** sonucu hemen gösterir.
 - **Hedef kapanmıyor ve ajan çalışmaya devam ediyor:** **Hedef kontrolü** başarısız bir test ya da eksik bir iş buldu. Hedefin altındaki satır nedenini gösterir (ayrıntılar için imleci sonucun üzerine getirin). Nedeni ya da test komutunu düzeltin veya hedefi `/goal` ya da hedef çubuğuyla kendiniz tamamlayın (bu tamamlama kontrol edilmez).
-- **Bir yayından hemen sonra yükleme başarısız oluyor:** sürümü ekleyin (`dsh-composer-plus@1.31.0`) ve yukarıdaki kurulum notuna bakın.
+- **Bir yayından hemen sonra yükleme başarısız oluyor:** sürümü ekleyin (`dsh-composer-plus@1.31.1`) ve yukarıdaki kurulum notuna bakın.
 - **Şimdi yedekle, "Başka bir yedekleme işlemi sürüyor" diyor:** başka bir dsh penceresinde ya da kurtarma konsolunda bir işlem çalışıyor (ikisi, yedek klasöründeki `.composer-plus.lock` kilit dosyasını paylaşır). İşlemin bitmesini bekleyin. Çalışan bir işlem yoksa, kapanmış bir sürecin kilidi bir sonraki tıklamada devralınır.
 - **Kurtarma konsolu "dsh is running" diyor:** önce dsh’den çıkın. dsh gerçekten kapalıysa mesajda adı geçen dosya bir çökmeden kalmıştır: dosyayı silin ve yeniden deneyin.
 - **Geri yüklemeden sonra dsh açılmıyor ya da bir eklenti eksik:** bir profilin eklenti paketlerinin yeniden yüklenmesi gerekir. Kurtarma konsolu bunu geri yüklemeden sonra önerir. Ya da konsolun listelediği, `$DSH_HOME/profiles/` altındaki her klasörde `pnpm install` komutunu çalıştırın. Vault’ta olmayan gizli bilgiler (başka bir bilgisayar) yeniden girilmelidir: konsol bunları listeler.
@@ -462,7 +462,7 @@ dsh `0.2.2-rc.1` (masaüstü ve web) ve `0.2.2-rc.3` (web) üzerinde test edildi
 
 **Ajan dağınık bir kod tabanını nasıl toparlar?** Bir sohbete `/untangle-codebase` yazın (**Kod tabanını toparla**, varsayılan olarak açık); isterseniz bir alan ekleyin, örneğin `/untangle-codebase src/api`. Ajan önce kopyaları, gizli bağları, gereksiz sarmalayıcıları, ölü kodu ve özel durumları listeler, sonra bunları bir hedef olarak düzeltir ve alt ajanlarla yeniden kontrol eder. İşin kendi dalında kalması için beceriyi bir **Sohbet başına dal** sohbetinde başlatın.
 
-**Masaüstü uygulamasıyla çalışır mı?** Evet: Ayarlar → Eklentiler → **Eklenti ekle** → `dsh-composer-plus`. dsh 0.2.2-rc.1 (masaüstü ve web) ve 0.2.2-rc.3 (web) üzerinde test edildi.
+**Masaüstü uygulamasıyla çalışır mı?** Evet: Ayarlar → Eklentiler → **Eklenti ekle** → `dsh-composer-plus`. dsh 0.2.2-rc.5 (web) üzerinde test edildi. Masaüstü uygulaması bu sürümde test edilmedi.
 
 ## Geliştirme
 

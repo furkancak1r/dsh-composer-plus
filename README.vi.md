@@ -29,7 +29,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Sau đó khởi động lại dsh. (CLI không cài được vào profile desktop; ứng dụng tự quản lý profile này.)
 
-> pnpm của dsh bỏ qua các phiên bản ra mắt chưa đủ 24 giờ. Ngay sau một bản phát hành, hãy thêm số phiên bản: `dsh-composer-plus@1.31.0`.
+> pnpm của dsh bỏ qua các phiên bản ra mắt chưa đủ 24 giờ. Ngay sau một bản phát hành, hãy thêm số phiên bản: `dsh-composer-plus@1.31.1`.
 
 ## Tính năng
 
@@ -144,7 +144,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 Toàn bộ ứng dụng chuyển ngôn ngữ ngay lập tức. Lựa chọn này là cài đặt `locale.preference` đã lưu của chính dsh (cùng cài đặt với Chung → Ngôn ngữ), nên vẫn được giữ sau khi khởi động lại. **Ngôn ngữ hệ thống** xóa lựa chọn đó: ứng dụng desktop theo ngôn ngữ của hệ điều hành, giao diện web theo ngôn ngữ của trình duyệt, và ngôn ngữ chưa được hỗ trợ sẽ chuyển về tiếng Anh. Việc cài plugin không bao giờ ghi đè ngôn ngữ bạn đã chọn.
 
-Mỗi gói có 5.503 chuỗi văn bản: mọi văn bản giao diện của dsh `0.2.2-rc.1` và `0.2.2-rc.3` (cuộc trò chuyện, thanh bên, cài đặt, phê duyệt, tác vụ tự động, xem trước tệp, trình quản lý plugin, chợ plugin), các điều khiển riêng của plugin và plugin phổ biến [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Những phần không được dịch: tin nhắn của bạn, đầu ra của mô hình, mã, tên lệnh gạch chéo (`/plan`, `/compact`), nhãn do nhà cung cấp đặt như mức suy luận `High`, văn bản của plugin khác, và menu gốc/hộp thoại cập nhật của ứng dụng desktop (dsh chỉ cung cấp các phần này bằng tiếng Anh/tiếng Trung). Chuỗi mới do phiên bản dsh mới hơn thêm vào sẽ hiện bằng tiếng Anh cho đến khi các gói được cập nhật. Nếu một plugin khác đã cung cấp một ngôn ngữ, plugin đó giữ ngôn ngữ ấy. Từ dsh 0.2.2, chính dsh cung cấp 日本語, Español, Français, Deutsch và Русский: với các ngôn ngữ này, văn bản của chính dsh được dùng, còn gói chỉ thêm văn bản của plugin (Português (Brasil) vẫn là ngôn ngữ riêng bên cạnh Português của dsh).
+Mỗi gói có 5.541 chuỗi văn bản: mọi văn bản giao diện của dsh `0.2.2-rc.5` (cuộc trò chuyện, thanh bên, cài đặt, phê duyệt, tác vụ tự động, xem trước tệp, trình quản lý plugin, chợ plugin), các điều khiển riêng của plugin và plugin phổ biến [dsh-rewind](https://github.com/SiriLee/dsh-rewind). Những phần không được dịch: tin nhắn của bạn, đầu ra của mô hình, mã, tên lệnh gạch chéo (`/plan`, `/compact`), nhãn do nhà cung cấp đặt như mức suy luận `High`, văn bản của plugin khác, và menu gốc/hộp thoại cập nhật của ứng dụng desktop (dsh chỉ cung cấp các phần này bằng tiếng Anh/tiếng Trung). Chuỗi mới do phiên bản dsh mới hơn thêm vào sẽ hiện bằng tiếng Anh cho đến khi các gói được cập nhật. Nếu một plugin khác đã cung cấp một ngôn ngữ, plugin đó giữ ngôn ngữ ấy. Từ dsh 0.2.2, chính dsh cung cấp 日本語, Español, Français, Deutsch và Русский: với các ngôn ngữ này, văn bản của chính dsh được dùng, còn gói chỉ thêm văn bản của plugin (Português (Brasil) vẫn là ngôn ngữ riêng bên cạnh Português của dsh).
 
 ## Phím tắt
 
@@ -178,7 +178,7 @@ Khi menu `/` hoặc `@` đang mở, menu đó giữ các phím này cho riêng n
 
 ## Khả năng tương thích
 
-Đã kiểm thử trên dsh `0.2.2-rc.1` (desktop và web) và `0.2.2-rc.3` (web). CI chạy kiểm thử ở mỗi lần push.
+Đã kiểm thử trên dsh `0.2.2-rc.5` (web). Ứng dụng desktop chưa được kiểm thử trên phiên bản này. CI chạy kiểm thử ở mỗi lần push.
 
 ## Quyền riêng tư và bảo mật
 
@@ -237,7 +237,7 @@ Khi menu `/` hoặc `@` đang mở, menu đó giữ các phím này cho riêng n
 - **Dòng cuộc trò chuyện không có nhãn branch:** thanh bên không ở chế độ xem “Trong một danh sách” (trong “Không gian làm việc” và “Cây không gian làm việc”, không dòng cuộc trò chuyện nào hiển thị nhãn), cuộc trò chuyện chưa có lượt nào kể từ khi bạn cài phiên bản này, thư mục của nó không phải repository git, hoặc **Branch Git trên dòng cuộc trò chuyện** đang tắt. Sau khi cập nhật, hãy khởi động lại dsh (phần Host ghi lại branch).
 - **Kiểm tra mục tiêu báo bài kiểm thử thoát với mã 127 hoặc "not found":** dsh khởi động từ Finder hoặc Dock có thể có PATH ngắn hơn terminal của bạn, nên không tìm thấy `npm`, `pnpm` hoặc `cargo`. Hãy khởi động dsh từ terminal, hoặc đặt lệnh kiểm thử của riêng bạn với đường dẫn đầy đủ trong **Kiểm tra mục tiêu** → **Sửa**. **Chạy ngay** hiện kết quả ngay lập tức.
 - **Mục tiêu không đóng và tác tử tiếp tục làm việc:** **Kiểm tra mục tiêu** đã tìm thấy một bài kiểm thử thất bại hoặc phần việc còn thiếu; dòng bên dưới mục tiêu cho biết lý do (di chuột lên kết quả để xem chi tiết). Hãy sửa nguyên nhân hoặc lệnh kiểm thử, hoặc tự hoàn tất mục tiêu bằng `/goal` hoặc thanh mục tiêu (việc này không được kiểm tra).
-- **Cài đặt thất bại ngay sau một bản phát hành:** thêm số phiên bản (`dsh-composer-plus@1.31.0`), xem ghi chú cài đặt ở trên.
+- **Cài đặt thất bại ngay sau một bản phát hành:** thêm số phiên bản (`dsh-composer-plus@1.31.1`), xem ghi chú cài đặt ở trên.
 - **Sao lưu ngay báo "Một thao tác sao lưu khác đang chạy":** một thao tác đang chạy trong cửa sổ dsh khác hoặc trong bảng điều khiển cứu hộ (chúng dùng chung tệp khóa `.composer-plus.lock` trong thư mục sao lưu). Hãy chờ thao tác đó xong. Nếu không có thao tác nào đang chạy, khóa của tiến trình đã đóng sẽ được tiếp quản ở lần nhấp tiếp theo.
 - **Bảng điều khiển cứu hộ báo "dsh is running":** trước tiên hãy thoát dsh. Nếu dsh thật sự đã đóng, tệp được nêu trong thông báo là phần còn sót lại sau một sự cố: hãy xóa tệp đó rồi thử lại.
 - **Sau khi khôi phục, dsh không khởi động hoặc thiếu một plugin:** cần cài lại các gói plugin của profile. Bảng điều khiển cứu hộ đề nghị việc này sau khi khôi phục; hoặc chạy `pnpm install` trong từng thư mục dưới `$DSH_HOME/profiles/` mà nó liệt kê. Các thông tin bí mật không có trong vault (máy tính khác) phải được nhập lại: bảng điều khiển liệt kê chúng.
@@ -462,7 +462,7 @@ Khi menu `/` hoặc `@` đang mở, menu đó giữ các phím này cho riêng n
 
 **Làm sao để tác tử dọn dẹp một codebase lộn xộn?** Nhập `/untangle-codebase` trong một cuộc trò chuyện (**Gỡ rối codebase**, mặc định bật), có thể kèm một phần, ví dụ `/untangle-codebase src/api`. Trước tiên tác tử liệt kê mã sao chép, liên kết ẩn, lớp bọc thừa, mã chết và các trường hợp đặc biệt, rồi sửa chúng như một mục tiêu và kiểm tra lại bằng các tác tử con. Hãy khởi động nó trong một cuộc trò chuyện của **Branch riêng cho từng cuộc trò chuyện** để công việc nằm trên branch riêng.
 
-**Plugin có hoạt động với ứng dụng desktop không?** Có: Cài đặt → Plugin → **Thêm plugin** → `dsh-composer-plus`. Đã kiểm thử trên dsh 0.2.2-rc.1 (desktop và web) và 0.2.2-rc.3 (web).
+**Plugin có hoạt động với ứng dụng desktop không?** Có: Cài đặt → Plugin → **Thêm plugin** → `dsh-composer-plus`. Đã kiểm thử trên dsh 0.2.2-rc.5 (web). Ứng dụng desktop chưa được kiểm thử trên phiên bản này.
 
 ## Phát triển
 

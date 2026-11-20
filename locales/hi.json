@@ -1493,7 +1493,7 @@
     "searchSection": "वेब सर्च प्रोवाइडर",
     "fetchSection": "वेब फ़ेच प्रोवाइडर",
     "providerDeepSeek": "DeepSeek Search API",
-    "providerLegacy": "DeepSeek (पुराना)",
+    "providerLegacy": "DeepSeek सर्वर-साइड सर्च",
     "legacyKeyHint": "अकाउंट-मॉडल अनुरोधों पर साइन इन किया गया अकाउंट इस्तेमाल होता है; बाकी में यह API key ({ref}) इस्तेमाल होती है, जो डिफ़ॉल्ट रूप से मॉडल के साथ साझा है।",
     "apiKeyUnsetApi": "कोई key सेट नहीं है।",
     "invalidMaxUses": "धनात्मक पूर्ण संख्या डालें, या डिफ़ॉल्ट के लिए खाली छोड़ें।",
@@ -1510,7 +1510,8 @@
     "billingAccountHint": "DeepSeek में साइन इन करना ज़रूरी है।",
     "billingApiKey": "DeepSeek API key",
     "billingApiKeyHint": "मॉडल पेज की API key इस्तेमाल करता है; पहले एक key सेट करें।",
-    "billingAdvancedOverride": "{fields} ने बदला"
+    "billingAdvancedOverride": "{fields} ने बदला",
+    "searchAutoHint": "बातचीत के मॉडल का पालन करता है: DeepSeek मॉडल DeepSeek सर्वर-साइड सर्च इस्तेमाल करते हैं, जिसमें हर सर्च का शुल्क नहीं लगता; दूसरे मॉडल DeepSeek Search API इस्तेमाल करते हैं।"
   },
   "settings.theme": {
     "appearance.title": "रंगरूप",

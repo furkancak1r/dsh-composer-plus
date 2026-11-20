@@ -27,7 +27,7 @@ dsh plugin --profile web add dsh-composer-plus
 
 Then restart dsh. (The CLI can't install into the desktop profile; the app manages it.)
 
-> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.31.0`.
+> dsh's pnpm skips versions younger than 24 hours. Right after a release, add the version: `dsh-composer-plus@1.31.1`.
 
 ## Features
 
@@ -142,7 +142,7 @@ English · 中文 · Türkçe · Español · Português (Brasil) · Français ·
 
 The whole app switches immediately. The choice is dsh’s own saved `locale.preference` (the same one as General → Language), so it survives restarts. **System language** clears that choice: the desktop app follows the OS language, the web UI the browser language, and an unsupported language falls back to English. Installing the plugin never overrides a language you already picked.
 
-Each pack has 5,503 texts: every UI text of dsh `0.2.2-rc.1` and `0.2.2-rc.3` (chats, sidebar, settings, approvals, schedules, file previews, plugin manager, plugin market), the plugin’s own controls, and the popular [dsh-rewind](https://github.com/SiriLee/dsh-rewind) plugin. Not translated: your messages, model output, code, slash-command names (`/plan`, `/compact`), provider-owned labels such as the `High` reasoning effort, other plugins’ texts, and the desktop app’s native menus/update dialogs (dsh ships those in English/Chinese only). Strings added by a newer dsh show in English until the packs are updated. If another plugin already provides a language, that plugin keeps it. From dsh 0.2.2, dsh ships 日本語, Español, Français, Deutsch and Русский itself: for these languages dsh’s own texts are used, and the pack adds only the plugin’s texts (Português (Brasil) stays a separate language next to dsh’s Português).
+Each pack has 5,541 texts: every UI text of dsh `0.2.2-rc.5` (chats, sidebar, settings, approvals, schedules, file previews, plugin manager, plugin market), the plugin’s own controls, and the popular [dsh-rewind](https://github.com/SiriLee/dsh-rewind) plugin. Not translated: your messages, model output, code, slash-command names (`/plan`, `/compact`), provider-owned labels such as the `High` reasoning effort, other plugins’ texts, and the desktop app’s native menus/update dialogs (dsh ships those in English/Chinese only). Strings added by a newer dsh show in English until the packs are updated. If another plugin already provides a language, that plugin keeps it. From dsh 0.2.2, dsh ships 日本語, Español, Français, Deutsch and Русский itself: for these languages dsh’s own texts are used, and the pack adds only the plugin’s texts (Português (Brasil) stays a separate language next to dsh’s Português).
 
 ## Keyboard shortcuts
 
@@ -176,7 +176,7 @@ An open `/` or `@` menu keeps these keys for itself.
 
 ## Compatibility
 
-Tested on dsh `0.2.2-rc.1` (desktop and web) and `0.2.2-rc.3` (web). CI runs the tests on every push.
+Tested on dsh `0.2.2-rc.5` (web). The desktop app was not tested on this version. CI runs the tests on every push.
 
 ## Privacy and security
 
@@ -235,7 +235,7 @@ Tested on dsh `0.2.2-rc.1` (desktop and web) and `0.2.2-rc.3` (web). CI runs the
 - **No branch pill on a chat row:** the sidebar is not in “In one list” (in “WorkSpace” and “Workspace Tree”, no chat row shows a pill), the chat had no turn since you installed this version, its folder is not a git repository, or **Git branch on chat rows** is off. After an update, restart dsh (the Host half records the branch).
 - **Goal check says the test exited with code 127 or "not found":** dsh started from the Finder or the Dock can have a shorter PATH than your terminal, so it does not find `npm`, `pnpm` or `cargo`. Start dsh from a terminal, or set your own test command with the full path under **Goal check** → **Edit**. **Run now** shows the result at once.
 - **The goal does not close and the agent keeps working:** **Goal check** found a failing test or missing work; the row under the goal shows why (hover the result for the details). Fix the cause or the test command, or complete the goal yourself with `/goal` or the goal bar (that is not checked).
-- **Install fails right after a release:** add the version (`dsh-composer-plus@1.31.0`), see the install note above.
+- **Install fails right after a release:** add the version (`dsh-composer-plus@1.31.1`), see the install note above.
 - **Back up now says "another backup action is running":** an action runs in another dsh window or in the rescue console (they share a lock file, `.composer-plus.lock`, in the backup folder). Wait for it. If no action runs, the lock of a closed process is taken over at the next click.
 - **The rescue console says "dsh is running":** quit dsh first. If dsh is really closed, the file named in the message is left from a crash: remove it and try again.
 - **After a restore, dsh does not start or a plugin is missing:** the plugin packages of a profile must be installed again. The rescue console offers it after a restore; or run `pnpm install` in each folder under `$DSH_HOME/profiles/` that it lists. Secrets that were not in the vault (another computer) must be entered again: the console lists them.
@@ -460,7 +460,7 @@ Tested on dsh `0.2.2-rc.1` (desktop and web) and `0.2.2-rc.3` (web). CI runs the
 
 **How can the agent clean up a messy codebase?** Type `/untangle-codebase` in a chat (**Untangle codebase**, on by default), optionally with an area, for example `/untangle-codebase src/api`. The agent first lists the copies, hidden links, needless wrappers, dead code and special cases, then fixes them as a goal and checks again with subagents. Start it in a chat of **Branch per chat**, so the work stays on its own branch.
 
-**Does it work with the desktop app?** Yes: Settings → Plugins → **Add plugin** → `dsh-composer-plus`. Tested on dsh 0.2.2-rc.1 (desktop and web) and 0.2.2-rc.3 (web).
+**Does it work with the desktop app?** Yes: Settings → Plugins → **Add plugin** → `dsh-composer-plus`. Tested on dsh 0.2.2-rc.5 (web). The desktop app was not tested on this version.
 
 ## Development
 

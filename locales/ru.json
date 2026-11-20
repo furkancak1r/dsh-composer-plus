@@ -1491,7 +1491,7 @@
     "searchSection": "Поставщик веб-поиска",
     "fetchSection": "Поставщик загрузки веб-страниц",
     "providerDeepSeek": "DeepSeek Search API",
-    "providerLegacy": "DeepSeek (прежняя версия)",
+    "providerLegacy": "Серверный поиск DeepSeek",
     "legacyKeyHint": "Запросы модели аккаунта используют активный аккаунт; остальные — этот ключ API ({ref}), по умолчанию общий с настройками моделей.",
     "apiKeyUnsetApi": "Ключ не настроен.",
     "invalidMaxUses": "Введите положительное целое или оставьте пустым для значения по умолчанию.",
@@ -1510,7 +1510,8 @@
     "billingAccountHint": "Требуется вход в DeepSeek.",
     "billingApiKey": "Ключ API DeepSeek",
     "billingApiKeyHint": "Использует ключ API со страницы моделей; сначала задайте его.",
-    "billingAdvancedOverride": "Переопределено: {fields}"
+    "billingAdvancedOverride": "Переопределено: {fields}",
+    "searchAutoHint": "Следует модели разговора: модели DeepSeek используют серверный поиск DeepSeek без платы за каждый поиск; остальные модели используют DeepSeek Search API."
   },
   "settings.theme": {
     "appearance.title": "Оформление",

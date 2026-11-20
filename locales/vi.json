@@ -1493,7 +1493,7 @@
     "searchSection": "Nhà cung cấp tìm kiếm web",
     "fetchSection": "Nhà cung cấp tải web",
     "providerDeepSeek": "DeepSeek Search API",
-    "providerLegacy": "DeepSeek (cũ)",
+    "providerLegacy": "Tìm kiếm phía máy chủ DeepSeek",
     "legacyKeyHint": "Dùng tài khoản đã đăng nhập cho yêu cầu mô hình tài khoản; nếu không thì dùng API key này ({ref}), mặc định dùng chung với Mô hình.",
     "apiKeyUnsetApi": "Chưa cấu hình key.",
     "invalidMaxUses": "Nhập số nguyên dương, hoặc để trống để dùng mặc định.",
@@ -1510,7 +1510,8 @@
     "billingAccountHint": "Cần đăng nhập DeepSeek.",
     "billingApiKey": "API key DeepSeek",
     "billingApiKeyHint": "Dùng API key ở trang Mô hình; hãy đặt key trước.",
-    "billingAdvancedOverride": "Bị ghi đè bởi {fields}"
+    "billingAdvancedOverride": "Bị ghi đè bởi {fields}",
+    "searchAutoHint": "Theo mô hình của cuộc trò chuyện: mô hình DeepSeek dùng tìm kiếm phía máy chủ DeepSeek, không tính phí theo lượt tìm kiếm; các mô hình khác dùng DeepSeek Search API."
   },
   "settings.theme": {
     "appearance.title": "Giao diện",

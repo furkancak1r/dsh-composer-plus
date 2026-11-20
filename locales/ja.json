@@ -1491,7 +1491,7 @@
     "searchSection": "Web 検索プロバイダー",
     "fetchSection": "Web 取得プロバイダー",
     "providerDeepSeek": "DeepSeek Search API",
-    "providerLegacy": "DeepSeek（旧版）",
+    "providerLegacy": "DeepSeek サーバー側検索",
     "legacyKeyHint": "アカウントモデルのリクエストではログイン中のアカウントを使い、それ以外ではこの API キー（{ref}、既定ではモデル設定と共有）を使います。",
     "apiKeyUnsetApi": "キーが設定されていません。",
     "invalidMaxUses": "正の整数を入力するか、既定値を使う場合は空欄にしてください。",
@@ -1510,7 +1510,8 @@
     "billingAccountHint": "DeepSeek へのログインが必要です。",
     "billingApiKey": "DeepSeek API キー",
     "billingApiKeyHint": "モデルページの API キーを使います。先に設定してください。",
-    "billingAdvancedOverride": "{fields} により上書き済み"
+    "billingAdvancedOverride": "{fields} により上書き済み",
+    "searchAutoHint": "会話のモデルに従います。DeepSeek モデルでは検索ごとの料金がかからない DeepSeek サーバー側検索を、他のモデルでは DeepSeek Search API を使います。"
   },
   "settings.theme": {
     "appearance.title": "外観",

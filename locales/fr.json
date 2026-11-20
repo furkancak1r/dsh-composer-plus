@@ -1491,7 +1491,7 @@
     "searchSection": "Fournisseur de recherche web",
     "fetchSection": "Fournisseur de récupération web",
     "providerDeepSeek": "DeepSeek Search API",
-    "providerLegacy": "DeepSeek (ancienne version)",
+    "providerLegacy": "Recherche côté serveur DeepSeek",
     "legacyKeyHint": "Les requêtes du modèle de compte utilisent le compte connecté ; les autres utilisent cette clé API ({ref}), partagée avec Modèles par défaut.",
     "apiKeyUnsetApi": "Aucune clé n'est configurée.",
     "invalidMaxUses": "Saisissez un entier positif ou laissez vide pour utiliser la valeur par défaut.",
@@ -1510,7 +1510,8 @@
     "billingAccountHint": "Nécessite une connexion à DeepSeek.",
     "billingApiKey": "Clé API DeepSeek",
     "billingApiKeyHint": "Utilise la clé API de la page Modèles ; définissez-en une d'abord.",
-    "billingAdvancedOverride": "Remplacé par {fields}"
+    "billingAdvancedOverride": "Remplacé par {fields}",
+    "searchAutoHint": "Suit le modèle de la conversation : les modèles DeepSeek utilisent la recherche côté serveur DeepSeek, sans frais par recherche ; les autres modèles utilisent DeepSeek Search API."
   },
   "settings.theme": {
     "appearance.title": "Apparence",
