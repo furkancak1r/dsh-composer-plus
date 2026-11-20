@@ -1346,8 +1346,23 @@ const BRIEF_MAX = 28000;
 // about 7.7k tokens and 72 s for 8 ideas) was cut at 4000 tokens with `output_limit`; this cap leaves room for the thinking.
 const IDEAS_TIMEOUT_MS = 180000;
 const IDEAS_MAX_TOKENS = 32000;
-/** Top-level names that never go into the brief: secrets, a private folder (`Gizli`, the owner's) and bulky generated folders. */
-const BRIEF_SKIP = /^(\.env.*|.*\.(pem|key|p12|pfx)|id_[a-z0-9]+|gizli|\.git|node_modules|dist|build|coverage|\.next|\.venv|venv|__pycache__|\.DS_Store)$/i;
+/** Top-level names that never go into the brief: secrets and bulky generated folders. */
+const BRIEF_SKIP = /^(\.env.*|.*\.(pem|key|p12|pfx)|id_[a-z0-9]+|\.git|node_modules|dist|build|coverage|\.next|\.venv|venv|__pycache__|\.DS_Store)$/i;
+/** `Gizli` (the owner's private folder) in any case and form: GİZLİ, gızlı, an NFD name (I + combining dot). Nothing under it
+ * is read or sent. */
+const isGizli = (name) => squash(String(name).normalize('NFD').replace(/\p{M}/gu, '')) === 'gizli';
+/** A name that never goes into a brief or a path list: BRIEF_SKIP or Gizli. */
+const skipName = (name) => BRIEF_SKIP.test(name) || isGizli(name);
+/** A Gizli folder in a path, as written or in its real path. */
+export function privatePath(path) {
+  const has = (p) => String(p).split(/[\\/]/).some(isGizli);
+  if (has(path)) return true;
+  try { return has(realpathSync(path)); } catch { return false; }
+}
+/** Git pathspecs: no path through a Gizli folder, so git does not even open one (git 2.54: no "could not open" for an
+ * unreadable one). `icase` folds only ASCII, so each Turkish i form (i, İ, ı) of both i's is listed. `top`: from the
+ * repository root (for `log`), else from the chat's folder. ponytail: NFC names only (git on macOS precomposes). */
+const noGizli = (top = false) => ['i', 'İ', 'ı'].flatMap((a) => ['i', 'İ', 'ı'].map((b) => `:(${top ? 'top,' : ''}exclude,icase,glob)**/g${a}zl${b}/**`));
 const BRIEF_FILES = ['README.md', 'readme.md', 'README', 'AGENTS.md', 'package.json', 'pyproject.toml', 'Cargo.toml', 'go.mod', 'composer.json', 'pom.xml'];
 
 /** The first `max` bytes (a Buffer) of one regular file whose real path starts with `prefix` (the chat folder's real path and a
@@ -1357,7 +1372,7 @@ async function head(path, max, prefix) {
   let file;
   try {
     const real = await realpath(path);
-    if (!real.startsWith(prefix) || !(await stat(real)).isFile()) return undefined;
+    if (!real.startsWith(prefix) || privatePath(real) || !(await stat(real)).isFile()) return undefined;
     file = await open(real, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
     if (!(await file.stat()).isFile()) return undefined;
     const buffer = Buffer.alloc(max);
@@ -1403,10 +1418,10 @@ function readmeOutline(text) {
  * only), an outline of the rest of the README and the newest commit subjects. Secrets files and generated folders are
  * skipped; the whole brief is bounded. The outline and the commits have their own room, so long docs cannot push them
  * out: without them the model does not see most of what a large project already has, and suggests it again. */
-export async function projectBrief(cwd, { subprocess, signal } = {}) {
+export async function projectBrief(cwd, { subprocess, signal, noGizliLog = false } = {}) {
   const parts = [];
   try {
-    const entries = (await readdir(cwd, { withFileTypes: true })).filter((e) => !BRIEF_SKIP.test(e.name)).slice(0, 80);
+    const entries = (await readdir(cwd, { withFileTypes: true })).filter((e) => !skipName(e.name)).slice(0, 80);
     parts.push(`Top-level entries:\n${entries.map((e) => `${e.name}${e.isDirectory() ? '/' : ''}`).join('\n')}`);
   } catch { /* unreadable folder: the brief says less */ }
   const seen = new Set();
@@ -1429,7 +1444,9 @@ export async function projectBrief(cwd, { subprocess, signal } = {}) {
   }
   if (subprocess !== undefined) {
     try {
-      const log = await runGit(subprocess, cwd, ['log', '--no-merges', '--format=%s', '-n', '300'], signal);
+      // `noGizli` (Improve prompt): the whole repository (`:/`), but no commit that changed only Gizli files. ponytail: a
+      // pathspec also drops an empty commit, so Feature ideas keeps the plain log.
+      const log = await runGit(subprocess, cwd, ['log', '--no-merges', '--format=%s', '-n', '300', ...(noGizliLog ? ['--', ':/', ...noGizli(true)] : [])], signal);
       const subjects = firstLines(log.code === 0 ? log.stdout.split('\n').filter((s) => s.trim() !== '') : [], BRIEF_COMMITS);
       if (subjects !== '') tail.push(`Latest commits:\n${subjects}`);
     } catch { /* not a repository, or git is missing */ }
@@ -3854,30 +3871,22 @@ const IMPROVE_STOP = new Set(['the', 'and', 'for', 'with', 'this', 'that', 'from
 /** The draft's own words (3 letters or more, not a common word), at most 40. */
 const draftWords = (text) => [...new Set(String(text).toLowerCase().match(/[\p{L}\p{N}_]{3,}/gu) ?? [])].filter((w) => !IMPROVE_STOP.has(w)).slice(0, 40);
 const IMPROVE_MEMORY = 4000; // characters of memory notes the model reads
-const NOGIZLI = ':(exclude,icase,glob)**/gizli/**'; // a git pathspec: no path through a Gizli folder
-/** A folder named Gizli (the owner's private folder, any case) in a path, as written or in its real path: nothing under it
- * is read or sent. */
-export function privatePath(path) {
-  const has = (p) => String(p).split(/[\\/]/).some((part) => /^gizli$/i.test(part));
-  if (has(path)) return true;
-  try { return has(realpathSync(path)); } catch { return false; }
-}
 /** The memory notes for a draft, from Project memory's own store (installMemory's handle): '' while the memory is off, or
  * off for this chat. First the notes of the project's and the global memory (main files and topics) that share the most
- * words with the draft, then the newest notes of the two main files, until `max` characters. A memory under a Gizli folder
- * and a note that looks like a key are never read or sent. ponytail: a word matches by its first 5 letters (so "hafızaya"
- * finds "hafıza"), not a stemmer. */
+ * words with the draft (the project's first on a tie), then the newest notes of the two main files, until `max` characters.
+ * A memory under a Gizli folder, a topic named Gizli and a note that looks like a key are never read or sent. ponytail: a
+ * word matches by its first 5 letters (so "hafızaya" finds "hafıza"), not a stemmer. */
 export async function improveMemory(memory, sessionId, cwd, text, max = IMPROVE_MEMORY) {
   if (memory?.store === undefined || memory.state?.().on !== true || (await memory.refusal?.({ id: sessionId })) !== undefined) return '';
   const scopes = [...(cwd === undefined ? [] : [['project', memory.store.project(cwd)]]), ['global', memory.store.GLOBAL]].filter(([, s]) => !privatePath(s.dir));
-  const words = [...new Set(draftWords(squash(text)).map((w) => w.slice(0, 5)))];
+  const words = [...new Set(draftWords(text).map((w) => squash(w).slice(0, 5)))];
   const notes = []; const mains = [];
-  for (const [label, scope] of scopes) {
+  for (const [scopeAt, [label, scope]] of scopes.entries()) {
     const main = [];
     for (const f of memory.store.load(scope)) for (const e of f.entries) {
-      if (looksSecret(e.text)) continue;
+      if (isGizli(f.topic ?? '') || looksSecret(e.text)) continue;
       const hay = squash(`${e.text} ${f.topic ?? ''}`);
-      const note = { at: notes.length, count: words.filter((w) => hay.includes(w)).length,
+      const note = { scopeAt, at: notes.length, count: words.filter((w) => hay.includes(w)).length,
         line: `- (${f.topic === undefined ? label : `${label} · ${f.topic}`}${isText(e.meta?.added, 10) ? `, ${e.meta.added}` : ''}) ${e.text}` };
       notes.push(note); if (f.topic === undefined) main.push(note);
     }
@@ -3886,7 +3895,7 @@ export async function improveMemory(memory, sessionId, cwd, text, max = IMPROVE_
   const newest = []; // the two main files, newest first, one note of each in turn
   for (let i = 0; mains.some((l) => i < l.length); i++) for (const l of mains) if (i < l.length) newest.push(l[i]);
   const picked = new Set(); let size = 0;
-  for (const n of [...notes.filter((x) => x.count > 0).sort((a, b) => b.count - a.count || b.at - a.at), ...newest]) {
+  for (const n of [...notes.filter((x) => x.count > 0).sort((a, b) => b.count - a.count || a.scopeAt - b.scopeAt || b.at - a.at), ...newest]) {
     if (picked.has(n) || size + n.line.length + 1 > max) continue;
     picked.add(n); size += n.line.length + 1;
   }
@@ -3899,7 +3908,7 @@ export function relatedPaths(paths, text, max = IMPROVE_PATHS) {
   if (words.length === 0) return [];
   const scored = [];
   for (const path of paths) {
-    if (path === '' || path.split('/').some((part) => BRIEF_SKIP.test(part))) continue;
+    if (path === '' || path.split('/').some(skipName)) continue;
     const lower = path.toLowerCase();
     const base = lower.slice(lower.lastIndexOf('/') + 1);
     let score = 0;
@@ -3927,18 +3936,17 @@ export async function improveContext(events, cwd, text, { subprocess, signal, me
   const lines = recent.join('\n\n');
   if (lines !== '') parts.push(`<conversation>\n${data(lines.length > IMPROVE_CONTEXT ? `…${lines.slice(-IMPROVE_CONTEXT)}` : lines)}\n</conversation>`);
   if (cwd !== undefined) {
-    const brief = await projectBrief(cwd, { subprocess, signal });
+    const brief = await projectBrief(cwd, { subprocess, signal, noGizliLog: true });
     if (brief !== '') parts.push(`<project name=${JSON.stringify(cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? '')}>\n${data(brief)}\n</project>`);
     const git = async (args) => { try { const r = await runGit(subprocess, cwd, args, signal); return r.code === 0 ? r.stdout : ''; } catch { return ''; } };
     if (subprocess !== undefined) {
       // `--short` keeps paths relative to the chat's folder; `-- .` keeps them inside it. A rename line ("old -> new") is
       // dropped when either side goes through a secret or generated name (a path with " -> " in it is checked in parts).
-      const skipped = (path) => path.replace(/^"|"$/g, '').split('/').some((part) => BRIEF_SKIP.test(part));
-      // NOGIZLI: git does not even open a Gizli folder (checked with git 2.54: no "could not open" for an unreadable one).
-      const changed = (await git(['-c', 'core.quotePath=false', 'status', '--short', '--untracked-files=normal', '--', '.', NOGIZLI])).split('\n')
+      const skipped = (path) => path.replace(/^"|"$/g, '').split('/').some(skipName);
+      const changed = (await git(['-c', 'core.quotePath=false', 'status', '--short', '--untracked-files=normal', '--', '.', ...noGizli()])).split('\n')
         .filter((l) => l.trim() !== '' && !l.slice(3).split(' -> ').some(skipped));
       if (changed.length > 0) parts.push(`<changed-files>\n${data(changed.slice(0, IMPROVE_PATHS).join('\n'))}${changed.length > IMPROVE_PATHS ? `\n… ${changed.length - IMPROVE_PATHS} more` : ''}\n</changed-files>`);
-      const related = relatedPaths((await git(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '.', NOGIZLI])).split('\0'), text);
+      const related = relatedPaths((await git(['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', '.', ...noGizli()])).split('\0'), text);
       if (related.length > 0) parts.push(`<related-files>\n${data(related.join('\n'))}\n</related-files>`);
     }
   }

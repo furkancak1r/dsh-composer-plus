@@ -152,6 +152,18 @@ try {
     assert.ok(notes.includes('(project · deploy, 2026-11-20) Deploy runs only after the login smoke test'), 'a topic note that matches');
     assert.ok(notes.includes('Furkan wants short Turkish reports') && notes.includes('(global, 2026-11-20) The user is Furkan'), 'the newest main notes too');
     assert.ok(!notes.includes('ghp_') && !notes.includes('Never paste'), 'a note that looks like a key is never sent');
+    // On a tie the project's note comes first; a topic named Gizli is never sent; "nasıl" stays a common word.
+    {
+      const tie = memoryStore(join(root, 'tie-dsh'), { folder: join(root, 'tie-vault'), today: () => '2026-11-20' });
+      await tie.add({ scope: tie.project(repo), text: 'Project: cart totals use cents', actor: 'agent' });
+      await tie.add({ scope: tie.GLOBAL, text: 'Global: cart icons are blue', actor: 'agent' });
+      await tie.add({ scope: tie.GLOBAL, topic: 'gizli', text: 'Cart PIN hint', actor: 'agent' });
+      await tie.add({ scope: tie.GLOBAL, text: 'Nasil is a word in this note', actor: 'agent' });
+      const got = await improveMemory(handle(tie), 's1', repo, 'cart nasıl', 70);
+      assert.equal(got, '- (project, 2026-11-20) Project: cart totals use cents', 'the project note first on a tie');
+      const all = await improveMemory(handle(tie), 's1', repo, 'cart nasıl');
+      assert.ok(!all.includes('PIN'), 'no Gizli topic'); assert.ok(all.indexOf('Nasil') > all.indexOf('Global: cart'), '"nasıl" does not match');
+    }
     // Memory empty, off, off for this chat, no handle: no notes.
     assert.equal(await improveMemory(handle(memoryStore(join(root, 'empty-dsh'), { folder: join(root, 'empty-vault') })), 's1', repo, 'login'), '');
     assert.equal(await improveMemory(handle(store, false), 's1', repo, 'login'), '', 'memory off');
@@ -172,15 +184,36 @@ try {
     const linkedStore = memoryStore(join(root, 'gizli-dsh'), { folder: join(root, 'innocent', 'Hafıza') });
     assert.equal(await improveMemory(handle(linkedStore), 's1', repo, 'login'), '', 'a symlink to a Gizli folder');
     assert.equal(privatePath(join(root, 'innocent', 'Hafıza')), true); assert.equal(privatePath(repo), false); assert.equal(privatePath('/a/GIZLI/b'), true);
-    // Gizli in the chat's project: not in the brief, the changed files or the related paths; a chat folder under Gizli has no project part.
+    // Gizli in the chat's project: not in the brief, the changed files, the related paths or the commit subjects, in any
+    // case (GİZLİ, gızlı); a brief file that is a symlink into Gizli is not read; a chat folder under Gizli has no project part.
     const proj = join(root, 'vault-proj'); await mkdir(join(proj, 'Gizli', 'login'), { recursive: true }); await mkdir(join(proj, 'notes', 'gizli'), { recursive: true });
     await writeFile(join(proj, 'Gizli', 'login', 'login-passwords.md'), 'SECRET'); await writeFile(join(proj, 'notes', 'gizli', 'login.md'), 'SECRET');
     await writeFile(join(proj, 'login-plan.md'), 'plan');
-    git(proj, 'init', '-q', '-b', 'main'); git(proj, 'add', 'login-plan.md'); git(proj, 'commit', '-q', '-m', 'i');
-    git(proj, 'add', '-f', 'Gizli', 'notes'); // tracked private files too
+    git(proj, 'init', '-q', '-b', 'main'); git(proj, 'add', 'login-plan.md'); git(proj, 'commit', '-q', '-m', 'Public plan');
+    git(proj, 'add', '-f', 'Gizli', 'notes'); git(proj, 'commit', '-q', '-m', 'PRIVATE bank notes'); // tracked private files too
+    for (const name of ['GİZLİ', 'gızlı']) { await mkdir(join(proj, 'docs', name), { recursive: true }); await writeFile(join(proj, 'docs', name, 'login.md'), 'SECRET'); }
+    await symlink(join(proj, 'Gizli', 'login', 'login-passwords.md'), join(proj, 'AGENTS.md'));
+    await writeFile(join(proj, 'Gizli', 'login', 'login-passwords.md'), 'SECRET again'); // a change under Gizli
     const projInput = await improveContext([], proj, 'login', { subprocess });
-    assert.ok(!/gizli/i.test(projInput) && !projInput.includes('SECRET'), 'no Gizli path in the context');
+    assert.ok(!/g[iİı]zl[iİı]/i.test(projInput) && !projInput.includes('SECRET') && !projInput.includes('PRIVATE'), 'no Gizli path, file or commit in the context');
+    assert.match(projInput, /Latest commits:\nPublic plan/);
     assert.match(projInput, /<related-files>\nlogin-plan\.md\n<\/related-files>/);
+    assert.equal(privatePath('/a/GİZLİ/b'), true); assert.equal(privatePath('/a/gızlı'), true); assert.equal(privatePath('/a/GI\u0307ZLI\u0307/b'), true, 'an NFD name');
+    // Git gets the exclude pathspecs, so it never opens a Gizli folder (an unreadable one gives no "could not open").
+    const argvs = [];
+    await improveContext([], proj, 'login', { subprocess: { ...subprocess, spawn: (o) => { argvs.push(o.argv); return subprocess.spawn(o); } } });
+    for (const cmd of ['status', 'ls-files', 'log']) {
+      const argv = argvs.find((a) => a.includes(cmd));
+      assert.ok(argv?.some((x) => /^:\((top,)?exclude,icase,glob\)\*\*\/gİzlİ\/\*\*$/.test(x)), `${cmd} excludes Gizli`);
+    }
+    if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+      await mkdir(join(proj, 'Gizli', 'closed')); await writeFile(join(proj, 'Gizli', 'closed', 'x'), 'x');
+      execFileSync('chmod', ['000', join(proj, 'Gizli', 'closed')]);
+      const errs = [];
+      await improveContext([], proj, 'login', { subprocess: { ...subprocess, spawn: (o) => { const h = subprocess.spawn(o); h.done.then(() => errs.push(h.collected.stderr.readFrom().text)); return h; } } });
+      execFileSync('chmod', ['755', join(proj, 'Gizli', 'closed')]);
+      assert.ok(errs.length >= 3 && !errs.join('').includes('could not open'), `git never opens Gizli: ${errs.join('')}`);
+    }
     const inside = await improveContext([], join(proj, 'Gizli', 'login'), 'login', { subprocess });
     assert.equal(inside, '<draft>\nlogin\n</draft>', 'a chat folder under Gizli: the draft only');
     // The memory goes first, as data: our tag names in a note are escaped.
