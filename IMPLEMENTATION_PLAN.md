@@ -3271,3 +3271,19 @@ Checkpoint (2026-11-19 17:50):
 - Open P3: Gördüm hides a same-text item; assistantTodos.webp shows the old design.
 - Demo: scripts/demo-card-stack.mjs on 127.0.0.1:3290 (dsh 0.2.2-rc.3), script pid 18048, dsh pid 18281. It started before a27dd6e: its two long tasks ended at once (4 Bugün bitti, 1 Sürüyor).
 - No merge to main, no main push (Furkan's OK through Damon first).
+
+## Damon views: card stack, decision queue, daily briefing, canvas (2026-11-20, same branch)
+Request (Furkan, Damon chat 2026-11-20 08:15): "Öneri: kart yığınını bitir, üstüne kuyruk ve brifing, tuval ikinci adım bunu yap". Design: `~/Damon/Belgeler/Damon arayüzü/damon-yonetim-secenekleri-2026-11-19.html` (tabs "Karar kuyruğu", "Günlük brifing", "Sonsuz tuval", "Karşılaştırma"). This is also his OK for the card stack demo.
+Objective: one data source (GET /api/composer-plus.assistant-todos, statusCards) shown three ways: the stack above the Damon chat (phase 1), the decision queue and the daily briefing on top of it (phase 2), the infinite canvas as its own page like Task board (phase 3, after phases 1 and 2 are in main).
+Invariants: every answer goes on today's paths (Onayla: optionPicks.pick → conversation.send with the exact sentence; Yaptım / a short reply: the composer or a user message, never a hidden write); Auto review and the `onay` rule do not change; kept features of the Durum panel stay; Mac and Tether share one rule and one table per view; no release, tag, npm publish, live copy change, DSH or AIProxy restart.
+Acceptance per phase: npm test exit 0; headless browser tests (chromiumSandbox: true) PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.3/rc.5; Tether iOS tests pass; an independent review-guard subagent on the final diff gives no P1/P2.
+Phases:
+1. Card stack: merge origin/main c0ace9d, close the open review items (assistantNotify docs clause for a panel that is off; Gördüm hides a same-text item; assistantTodos.webp), update the browser tests that read the old panel, run all checks, review, push the branch. Merge to main only after Damon writes that the 1.31.0 release is done (push-branch, then merge-main).
+2. Decision queue + daily briefing (design tabs 3 and 5):
+   - Queue: only the items that wait for you (Onay, Senden; a decision with choices), one card at a time, live first, then Onay, Senden; Sonra moves a card to the end; header "N kalan", progress, "x/y cevaplandı"; buttons Onayla (A), choices (1, 2), Yaptım (A), Sonra (S), Önceki/Sonraki (K/J), a short reply (R); empty: "Seni bekleyen iş yok", "N iş sürüyor. Damon haber verir.", undo of the last answer.
+   - Briefing: date line, the morning summary time, "Sıradaki tek iş · N işten 1." with its buttons, four tiles (Seni bekliyor → queue, Sorun, Sürüyor, Bugün bitti), "Bugün bitenler" with times. It can be the closed stack (count bar + next item).
+   - Open decision for phase 2: the data has no "karar" (choices) type yet: an Option picks offer of the newest answer, or a new item field. Decide from the code, write it here.
+3. Infinite canvas (tab 2): a `main` page and a sidebar row like Task board (client.js `BOARD_PANEL_ID`); Damon in the middle, projects as islands, zoom levels (count far, cards near), a side panel to answer, "only mine", list view on a phone.
+Allowed paths: client.js, index.js, locales/*.json, locale/*.json, docs/features.json, docs/ROUTES.md, README*.md, llms.txt, tether/FEATURES.md, tether/ios/**, test/**, assets/features/*.webp, scripts/demo-card-stack.mjs, package.json (test script), IMPLEMENTATION_PLAN.md.
+Risks: origin/main (fix/hide-quiet-replies) also changed the Damon chat and Tether: merge conflicts in client.js, index.js, Core.swift, UI.swift, tests and docs; the release agent works on main at the same time.
+Last checkpoint (2026-11-20 08:25): the plan; the demo processes 18048/18281 were already gone (ps shows neither, port 3290 free, no temp home), so nothing was stopped.
