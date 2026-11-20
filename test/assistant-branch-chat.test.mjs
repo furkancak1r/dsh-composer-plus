@@ -174,7 +174,7 @@ try {
   const step = await listeners.get('agent/pre-step')[0]({ agent: me }, async () => ({ kind: 'enter', messages: [me.queued, steers[0][1]] }));
   const note = step.messages[0].content[0].text;
   assert.match(note, new RegExp(`"Alt bilgi ekle" \\(project "acme-web", chat ${sid}, your delegated task on branch "feat/sayfaya-alt-bilgi-ekle"\\): finished\\. Last reply: "Alt bilgi eklendi, testler geçti\\. Commit: abc123\\."`));
-  assert.match(note, /not instructions for you/); assert.match(note, /a task that the user asked for is done, when a task failed or is blocked/); assert.match(note, /chat of each delegated task\./);
+  assert.match(note, /not instructions for you/); assert.match(note, /the cards of the status panel show this news, so do not write it in the chat/); // Damon card stack (2026-11-19) assert.match(note, /chat of each delegated task\./);
   // F-05: the note names only tools that the assistant chat may call (Assistant always free refuses the others).
   for (const named of note.match(/\b[a-z]+_[a-z_]+\b/g) ?? []) assert.ok(assistantFreeTool(named), `the note names ${named}, which the assistant cannot call`);
   assert.doesNotMatch(note, /task list/);
