@@ -105,7 +105,9 @@ const browser = await chromium.launch({ headless: true, chromiumSandbox: true })
 try {
   for (const bin of process.argv.slice(2)) {
     calls.length = 0; model.summary = 'write';
-    const version = bin.includes('app.asar') ? 'app' : bin.match(/dsh-real-([^/]+)|\/(\d+\.\d+\.\d+[^/]*)\//)?.slice(1).find(Boolean) ?? bin;
+    // The version from the install path: …/dsh-real-<v>/, …/<v>/ or …/dsh-<v>/ (the 0.2.0-rc.2 install; without it the
+    // 0.2.0 run used the 0.2.2 rrule and step 7 timed out, on main too).
+    const version = bin.includes('app.asar') ? 'app' : bin.match(/dsh-real-([^/]+)|\/(?:dsh-)?(\d+\.\d+\.\d+[^/]*)\//)?.slice(1).find(Boolean) ?? bin;
     model.rrule = !/^0\.2\.[01]-/.test(version); // 0.2.0/0.2.1: schedule_create({after_seconds}); 0.2.2: an rrule
     console.log(`dsh ${version}`);
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-status-refresh-')));
