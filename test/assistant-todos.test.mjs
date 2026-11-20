@@ -184,6 +184,8 @@ assert.match(TODO_SECTION, /a task that ended shows in the Done today card, so d
 assert.doesNotMatch(TODO_SECTION, /tell the user in one line/, 'no chat line for a finished task');
 assert.match(STATUS_SECTION, /News rule[^\n]*do not write it in the chat\. Update the to-do list[^\n]*reply with only `\[quiet\]`[^\n]*Write one line in the chat only when the news brings a new approval[^\n]*or a new error or risk on a live system/);
 assert.match(STATUS_SECTION, /its Approve button is in this card, not under your answer/);
+// Phase 2: the decision queue's choice is Option picks' list (a bold "Seçenekler:" line and a numbered list).
+assert.match(STATUS_SECTION, /decision queue[^\n]*bold line "Seçenekler:" \(English: "Options:"\) and a numbered list of 2 to 9 short items/);
 {
   const event = (session, e) => { for (const fn of listeners.get('session/event') ?? []) fn(session, e); };
   const turn = (session, names) => { event(session, { type: 'turn/start' }); for (const name of names) event(session, { type: 'tool/call', data: { name, callId: name } }); event(session, { type: 'turn/end', data: { reason: { kind: 'completed' } } }); };

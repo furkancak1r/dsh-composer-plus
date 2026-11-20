@@ -10,6 +10,9 @@
 // 4. Typing in the composer hides Onayla; the card stays.
 // 5. Özet getir, Projeler, the → of a note and Yaptım of a Senden card still work (nothing sent by → or Yaptım).
 // 6. No page errors.
+// 7. Kuyruk (phase 2): the Onay entry first, the choice (the option list of the newest answer) and the Senden cards one at
+//    a time; Sonra moves an entry to the end; a choice sends "Option N: …" once; "N kalan" and "x/y cevaplandı".
+// 8. Brifing: "Sıradaki tek iş · N işten 1.", four counts; Seni bekliyor opens the queue.
 // PLAYWRIGHT=/path/to/playwright node test/browser-card-stack.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/assistantTodos.webp from its own demo with the English UI and English made-up data.
 import assert from 'node:assert/strict';
@@ -112,6 +115,44 @@ try {
       assert.equal(calls.slice(sent).filter((c) => c.newest === APPROVAL && c.step === 0).length, 1, `one user message: ${JSON.stringify(calls.slice(sent).map((c) => [c.newest.slice(0, 40), c.step]))}`);
       await until(async () => (await approve.count()) === 0, 'the button goes after the send');
       note('3: Onayla sent the exact sentence once as the user\'s message; the model got it; the button went');
+      // 7. Phase 2: the decision queue. The answer to the approval ends with an option list: the queue has the choice and
+      // the two Senden cards (the Onay items still wait: the Onay card stays first, without Onayla now).
+      await stack.locator('[data-view-button="queue"]').click();
+      const queue = stack.locator('section[data-view="queue"]');
+      await queue.waitFor({ timeout: 10000 });
+      const entry = () => queue.locator('[data-queue-entry]').getAttribute('data-queue-entry');
+      await until(async () => (await queue.innerText()).includes('4 kalan'), `the queue head (${await queue.innerText().catch(() => '')})`, 20000);
+      assert.equal(await entry(), 'onay', 'the Onay entry first');
+      assert.equal(await stack.locator('[data-card="onay"][role="region"]').count(), 1, 'one Onay card on screen');
+      await queue.getByRole('button', { name: 'Sonraki', exact: true }).click();
+      assert.equal(await entry(), 'karar', 'Sonraki: the choice');
+      const choiceBtn = queue.locator('[data-composer-plus-choice="2"]');
+      assert.equal((await choiceBtn.innerText()).trim(), '2. Yarın sabah denensin');
+      // Sonra moves the choice to the end; Önceki goes back.
+      await queue.getByRole('button', { name: 'Sonra', exact: true }).click();
+      await until(async () => (await entry()) !== 'karar', 'Sonra moves the choice');
+      const seenOrder = [];
+      for (let i = 0; i < 4; i++) { seenOrder.push(await entry()); const next = queue.getByRole('button', { name: 'Sonraki', exact: true }); if (await next.isDisabled()) break; await next.click(); }
+      assert.equal(seenOrder.at(-1), 'karar', `the choice is at the end (${seenOrder})`);
+      // The choice sends "Option 2: …" once, as the button under the answer does.
+      const before7 = calls.length;
+      await choiceBtn.click(); await choiceBtn.click({ timeout: 1000 }).catch(() => {});
+      await until(() => calls.slice(before7).some((c) => c.newest === 'Option 2: Yarın sabah denensin'), 'the model got the choice');
+      await pause(1500);
+      assert.equal(calls.slice(before7).filter((c) => c.newest === 'Option 2: Yarın sabah denensin' && c.step === 0).length, 1, 'one message for the choice');
+      await until(async () => (await queue.innerText()).includes('3 kalan'), 'the choice left the queue');
+      assert.match(await queue.innerText(), /1\/4 cevaplandı/, 'x/y cevaplandı');
+      note('7: Kuyruk: Onay first, then the choice (Sonraki); Sonra moves it to the end; the choice sent "Option 2" once; 3 kalan, 1/4 cevaplandı');
+      // 8. The briefing: the next entry, four counts; Seni bekliyor opens the queue.
+      await stack.locator('[data-view-button="brief"]').click();
+      const brief = stack.locator('section[data-view="brief"]');
+      await brief.waitFor({ timeout: 10000 });
+      assert.match(await brief.innerText(), /Sıradaki tek iş · 3 işten 1\./);
+      assert.deepEqual(await brief.locator('[data-tile]').evaluateAll((els) => els.map((e) => e.dataset.tile)), ['senden', 'sorun', 'suruyor', 'bitti']);
+      await brief.locator('[data-tile="senden"]').click();
+      await queue.waitFor({ timeout: 10000 });
+      await stack.locator('[data-view-button="stack"]').click();
+      note('8: Brifing: Sıradaki tek iş · 3 işten 1., four counts, Seni bekliyor opens the queue');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {

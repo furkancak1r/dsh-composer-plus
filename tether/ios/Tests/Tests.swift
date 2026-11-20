@@ -2470,6 +2470,22 @@ final class DamonParityTests: XCTestCase {
         try render(true, "tether-deste-acik.png")
     }
 
+    /// Damon card stack, phase 2: the decision queue as client.js statusQueue (test/fixtures/status-queue.json).
+    func testStatusQueueMatchesTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/status-queue.json")
+        let cases = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["cases"] as? [J])
+        XCTAssertGreaterThanOrEqual(cases.count, 5)
+        for c in cases {
+            let name = c["name"] as? String ?? ""
+            let now = Date(timeIntervalSince1970: (c["now"] as! NSNumber).doubleValue / 1000)
+            let cards = statusCards(c["data"] as? J ?? [:], now: now, approvals: c["approvals"] as? Int ?? 0)
+            let got = statusQueue(cards, sentences: c["sentences"] as? [String] ?? [], options: c["options"] as? [String] ?? [], later: c["later"] as? [String] ?? [])
+                .map { "\($0.kind)|\($0.key)|\($0.live)" }
+            let want = (c["want"] as! [J]).map { "\($0["kind"]!)|\($0["key"]!)|\($0["live"] as! Bool)" }
+            XCTAssertEqual(got, want, name)
+        }
+    }
+
     /// → of the Status sheet: the same text as client.js statusInsert (test/fixtures/status-insert.json), in English and
     /// Turkish, without ids; appendLine is the web panel's append rule.
     func testStatusInsertMatchesTheMac() throws {

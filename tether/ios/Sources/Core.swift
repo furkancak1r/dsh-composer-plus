@@ -4670,6 +4670,27 @@ func statusCards(_ o: J, now: Date, approvals: Int = 0, seen: Set<String> = [], 
         suruyor: out.groups["suruyor"]!.count, bitti: out.groups["bitti"]!.count, fresh: out.groups["bitti"]!.filter(\.fresh).count)
     return out
 }
+/// One entry of the decision queue: the Onay card (key `onay`), the choice (`karar`) or a Senden card (`senden|<card key>`).
+struct QueueEntry { let kind: String, key: String, live: Bool, card: StatusCard? }
+private let queueKinds = ["onay", "karar", "senden"]
+/// client.js `statusQueue` (test/fixtures/status-queue.json is the table of both): only what waits for you. `sentences`:
+/// the chat's `onay` sentences now; `options`: the labels of the newest answer's option list; `later`: the keys that you
+/// moved to the end with Later, in that order. Order: a live entry first, then onay, karar, senden, then the stack's order;
+/// the `later` keys at the end. `n` keeps the input order of equal ranks (Swift's sort is not stable).
+func statusQueue(_ cards: StatusCards, sentences: [String] = [], options: [String] = [], later: [String] = []) -> [QueueEntry] {
+    var out: [QueueEntry] = []
+    if let a = cards.approval { out.append(QueueEntry(kind: "onay", key: "onay", live: (sentences + a.items.map(\.text)).contains(where: liveApproval), card: nil)) }
+    if !options.isEmpty { out.append(QueueEntry(kind: "karar", key: "karar", live: options.contains(where: liveApproval), card: nil)) }
+    for card in cards.groups["senden"] ?? [] { out.append(QueueEntry(kind: "senden", key: "senden|\(card.key)", live: liveApproval(card.title), card: card)) }
+    let rank = { (e: QueueEntry) -> Int in
+        if let i = later.firstIndex(of: e.key) { return 100 + i }
+        return (e.live ? 0 : 10) + (queueKinds.firstIndex(of: e.kind) ?? 0)
+    }
+    return out.enumerated().sorted { a, b in
+        let x = rank(a.element), y = rank(b.element)
+        return x != y ? x < y : a.offset < b.offset
+    }.map(\.element)
+}
 /// A card's data for the message field (client.js `dataOf` in StatusPanel): its task's data (with the outage line when Resume
 /// after an AIProxy outage continued it: `outage`, its clock time), else an item of Damon's data (its title without the mark),
 /// else the title as a to-do line.

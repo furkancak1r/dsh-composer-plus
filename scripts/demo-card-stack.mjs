@@ -3,6 +3,7 @@
 // - `node scripts/demo-card-stack.mjs <dsh/lib/bin.js> [port]`: starts the demo dsh on 127.0.0.1 and prints its URL; it
 //   runs until you stop it (SIGTERM or Ctrl+C), then it removes its temp folder. No browser opens.
 // - `seed(...)` and `startDemo(...)` are also used by test/browser-card-stack.mjs.
+// The answer to the approval ends with an option list (the decision queue's choice, phase 2).
 // The seed: 2 "Onay:" items and an `onay` block in Damon's last answer (one Onay card with one Approve), 1 Sorun, 2 Senden,
 // 3 Sürüyor (2 tasks and 1 item of Damon), 2 Bugün bitti, 2 notes of yours. The tasks are subagents of the Damon chat
 // that the fake model starts; their children end or keep running by their prompt words.
@@ -18,13 +19,13 @@ const repo = fileURLToPath(new URL('..', import.meta.url));
 export const APPROVAL = "Onaylıyorum (canlı değil): montaj testi dalı main'e alınsın ve servis betiği test servisinde denensin.";
 /** The sample texts: Turkish for the owner's demo, English for the Settings screenshot (AGENTS.md rule 2). All made up. */
 const SAMPLES = {
-  tr: { seed: 'Örnek verileri yükle', approval: APPROVAL, ready: '**Örnek veriler hazır.** Kartlar sohbetin üstünde.\n\nİki iş onay bekliyor:', approved: "**Onay alındı.** Montaj testi dalı main'e alınıyor (örnek: gerçek bir iş yapılmaz).",
+  tr: { seed: 'Örnek verileri yükle', approval: APPROVAL, ready: '**Örnek veriler hazır.** Kartlar sohbetin üstünde.\n\nİki iş onay bekliyor:', approved: "**Onay alındı.** Montaj testi dalı main'e alınıyor (örnek: gerçek bir iş yapılmaz).\n\nServis betiği ne zaman denensin?\n\n**Seçenekler:**\n1. Hemen denensin\n2. Yarın sabah denensin",
     other: 'Tamam. (Bu bir demo modelidir; gerçek bir iş yapmaz.)', done: ["Testler geçti, main'e alındı.", 'Rapor üretildi ve paylaşıldı.'], ran: 'Güncelleme bitti.',
     items: ["Onay: montaj testi dalı main'e alınır", 'Onay: servis betiği test servisinde denenir', 'Sorun: Gece denetimi hata verdi (acme-web)', 'Senden: Test sunucusunda Gerekli Tarih alanını aç',
       'Rapor hizası için karar', 'TR ve ENG raporlarından hangisi örnek alınsın?', 'Fatura şablonunu gözden geçir', 'Kırtasiye siparişini ver', 'Toplantı notlarını oku'],
     tasks: ['Satınalma Gerekli Tarih sorguları', 'Haftalık stok raporu', 'Montaj testi dalı', 'Hava durumu CLI güncellemesi'] },
   en: { seed: 'Load the sample data', approval: 'Approve: merge the login-fix branch of acme-web into main and run the build script on the test server.',
-    ready: '**Sample data is ready.** The cards are above the chat.\n\nTwo tasks wait for your approval:', approved: '**Approved.** The login-fix branch goes into main (a demo: nothing real runs).',
+    ready: '**Sample data is ready.** The cards are above the chat.\n\nTwo tasks wait for your approval:', approved: '**Approved.** The login-fix branch goes into main (a demo: nothing real runs).\n\nWhen does the build script run?\n\n**Options:**\n1. Run it now\n2. Run it tomorrow morning',
     other: 'OK. (This is a demo model; it does no real work.)', done: ['Tests pass, merged into main.', 'The report is ready and shared.'], ran: 'The update is done.',
     items: ['Onay: merge the login-fix branch of acme-web', 'Onay: run the build script on the test server', 'Sorun: Nightly check of acme-web failed', 'Senden: Turn on the due-date field on the test server',
       'Choose the report layout', 'Which report is the template: the short or the long one?', 'Review the invoice template', 'Order office supplies', 'Read the meeting notes'],
