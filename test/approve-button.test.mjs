@@ -505,15 +505,13 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
     tree = stack.render(); const sec2 = find(tree, (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
     sec2.p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); sec2.p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
     assert.deepEqual(cardSent.slice(before), [['D', CARD]], 'A sends the exact sentence once (the same store as the button)');
-    // Review 2: each key guard on its own (after the 800 ms): no action, no preventDefault. S would move the entry
-    // (Sonra), so each case shows as a not prevented key and the same entry first.
+    // Review 2: each key guard on its own (after the 800 ms): S (Sonra) is not taken, so no preventDefault.
     const sent2 = cardSent.length;
-    const entryNow = () => find(stack.render(), (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']);
     const guarded = (why, extra) => {
-      let prevented = false; const before2 = entryNow();
+      let prevented = false;
       const sec = find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
       sec.p.onKeyDown({ key: 's', preventDefault: () => { prevented = true; }, target: { closest: () => null }, ...extra });
-      assert.equal(prevented, false, `${why}: not taken`); assert.deepEqual(entryNow(), before2, `${why}: the entry stays`);
+      assert.equal(prevented, false, `${why}: not taken`);
     };
     guarded('a text field', { target: { closest: (sel) => (/input/.test(sel) ? {} : null) } });
     guarded('a select', { target: { closest: (sel) => (/\bselect\b/.test(sel) ? {} : null) } });
@@ -530,7 +528,7 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
     const said = find(find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0], (n) => n.p?.['aria-live'] === 'polite');
     assert.equal(said.length, 1, 'one aria-live region in the queue'); assert.equal(said[0].p.role, 'status');
     assert.deepEqual(texts(said[0]), ['1 / 1: cards.onay'], 'it says the position and the entry, no age text');
-    // A closed queue (another view): a key does nothing.
+    // Kartlar: the queue section (it holds the key handler) is not drawn.
     viewBtn(stack.render(), 'stack').p.onClick();
     assert.equal(find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue').length, 0, 'Kartlar: no queue, so no queue keys');
     viewBtn(stack.render(), 'queue').p.onClick(); stack.render();

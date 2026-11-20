@@ -1776,15 +1776,19 @@ final class AgentboxIdeasTests: XCTestCase {
         XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]", end: nil), quiet: true), "a running news turn")
         // Review 2: a text sent with a tool call in the news turn is news (quietTurnSet), also when the turn ends with [quiet].
         var loud = news(10, "[quiet]")
-        loud.insert(["type": "assistant/message", "seq": 11, "data": ["message": ["content": [["type": "text", "text": "X finished."], ["type": "tool_use"]]]]], at: 2)
+        loud.insert(["type": "assistant/message", "seq": 14, "data": ["message": ["content": [["type": "text", "text": "X finished."], ["type": "tool_use"]]]]], at: 2)
         XCTAssertNil(chatOffer(turn(1, "a", opts) + loud, quiet: true), "a text with a tool call ends it")
         // Review 2 (rule 9): your message after the answer, also one that went into the running news turn (a steer, a
         // user/message of the turn), ends it; withdrawn by either marker kind, it does not.
-        let steer: J = ["type": "user/message", "seq": 25, "data": ["content": "wait", "source": ["kind": "user"]]]
-        var steered = news(20, "[quiet]"); steered.insert(steer, at: 2)
+        // A news turn in log order: start 20, news 21, your steer 22, its [quiet] answer 23, end 24.
+        let steered: [J] = [["type": "turn/start", "seq": 20, "data": J()],
+                            ["type": "user/message", "seq": 21, "data": ["content": "news", "source": ["kind": "news"]]],
+                            ["type": "user/message", "seq": 22, "data": ["content": "wait", "source": ["kind": "user"]]],
+                            ["type": "assistant/message", "seq": 23, "data": ["message": ["content": [["type": "text", "text": "[quiet]"]]]]],
+                            ["type": "turn/end", "seq": 24, "data": ["reason": ["kind": "completed"]]]]
         XCTAssertNil(chatOffer(turn(1, "a", opts) + steered, quiet: true), "a steered message ends it")
         for kind in [rollbackSource, "dsh-rewind"] {
-            let marker: J = ["type": "user/message", "seq": 40, "sourceEventSeqs": [25], "data": ["content": [], "source": ["kind": kind]]]
+            let marker: J = ["type": "user/message", "seq": 40, "sourceEventSeqs": [22], "data": ["content": [], "source": ["kind": kind]]]
             XCTAssertEqual(chatOffer(turn(1, "a", opts) + steered + [marker], quiet: true)?.seq, 3, "a withdrawn message (\(kind)): kept")
         }
         XCTAssertNil(chatOffer(turn(1, "a", opts, end: nil)), "not while the turn runs")

@@ -4102,6 +4102,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // (review 1: a fixed "onay" key let A approve a sentence that had just replaced the old one, and kept a new live
       // approval at the end after Sonra).
       // The answer that holds the block (`from`), not the offer's seq: a [quiet] news turn moves the seq, not the entry.
+      // The same block in a newer answer is a new entry (Sonra starts again), on purpose.
       const onayIdent = `onay|${offer?.options[0]?.from ?? ''}|${(offer?.options ?? []).map((o) => o.text).join('\n')}`;
       const kararIdent = `karar|${choice?.offer.seq ?? ''}|${(choice?.offer.options ?? []).map((o) => o.text).join('\n')}`;
       const identOf = (key) => (key === 'onay' ? onayIdent : key === 'karar' ? kararIdent : key);

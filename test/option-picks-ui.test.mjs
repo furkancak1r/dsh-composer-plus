@@ -119,6 +119,21 @@ newest.unmount(); older.unmount(); third.unmount(); forkCell.unmount(); quiet.un
   assert.ok(g.version() > v, 'a pick changes the version'); assert.equal(g.offers('G', c1), false, 'picked: no gate');
   assert.equal(g.offers('H', chat(tail(1, 10, 'No list.'))), false, 'no list: no gate');
   g.setOn(false); assert.equal(g.offers('H', chat(tail(2, 20, OPTS))), false, 'off again'); }
+// Review 3: the assistant chat's id store reaches the rule. A hidden [quiet] news turn keeps the older answer's options
+// only in the assistant chat: the gate and the buttons under that answer.
+{
+  const bot = { id: 'DQ', getSnapshot() { return this.id; }, subscribe: () => () => {} };
+  const quietChat = chat(tail(1, 10, OPTS), tail(2, 20, '[quiet]'));
+  const g = createOptionsGate(picks, rollback, bot); g.setOn(true);
+  assert.equal(g.offers('DQ', quietChat), true, 'the assistant chat: a [quiet] turn keeps the options (no guess)');
+  assert.equal(g.offers('OT', quietChat), false, 'another chat: the [quiet] turn ends them');
+  const under = (sessionId, assistant) => mount(OptionPicks, { sessionId, turn: 1, seq: 10, ...hooks, useChat: (sel) => sel(quietChat), picks, check, rollback, assistant, t });
+  const inBot = under('DQ', bot); inBot.render(); await flush();
+  assert.equal(buttonsOf(inBot.render()).length, 2, 'the assistant chat: the buttons stay under the older answer');
+  const other = under('OT', bot); other.render(); await flush();
+  assert.equal(other.render(), null, 'another chat: none');
+  inBot.unmount(); other.unmount();
+}
 // The chat state key: a new node or a newer seq changes it; the same snapshot gives the same key.
 { const c1 = chat(tail(1, 10, 'a')); assert.equal(chatStateKey(c1), '1:10'); assert.equal(chatStateKey(chat(tail(1, 10, 'a'), { kind: 'user', anchorSeq: 12 })), '2:12');
   assert.equal(chatStateKey(undefined), null); }
@@ -217,6 +232,10 @@ assert.equal(installOptionKeys(undefined), undefined, 'no page: nothing');
   assert.equal(found[0].name, 'conversation.chat.turnTail'); assert.equal(found[0].locale, 'dsh-composer-plus'); assert.equal(found[1], OptionPicks);
   const face = found[0].inject('A'); assert.equal(typeof face.picks.pick, 'function'); assert.equal(typeof face.check.ask, 'function'); assert.equal(typeof face.rollback.load, 'function');
   assert.equal(face.hooks, undefined, 'the chat, session and input hooks come from dsh\'s session scope');
+  // Review 3: both option slots get the assistant chat's id store (the [quiet] rule), the same one.
+  const choices = [...slots.values()].find(([o]) => o.id === 'card-choices');
+  assert.equal(typeof face.assistant?.getSnapshot, 'function', 'the buttons get the assistant id store');
+  assert.equal(choices[0].inject('A').assistant, face.assistant, 'the decision queue\'s choice gets the same store');
   const prediction = [...slots.values()].find(([o]) => o.id === 'next-prediction');
   const gate = prediction[0].inject('A').optionsGate; assert.equal(typeof gate.offers, 'function', 'prediction reads the options gate');
   assert.equal(gate.offers('Z', chat(tail(1, 10, OPTS))), true, 'on: the gate is open');
