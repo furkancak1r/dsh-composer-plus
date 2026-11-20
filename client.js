@@ -3435,6 +3435,14 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${TODOS_ATTR}] .cp-cs-act[data-primary]{background:var(--cp-co);color:#fff;font-weight:600}[${TODOS_ATTR}] .cp-cs-act:disabled{opacity:.5;cursor:default}`
       + `[${TODOS_ATTR}] .cp-cs-tag{margin-left:6px;padding:0 5px;border-radius:4px;font-size:10px;font-weight:700;line-height:16px;color:#fff;background:var(--dsw-alias-state-error-primary,#d92d20)}[${TODOS_ATTR}] .cp-cs-new{color:var(--dsw-alias-state-success-label,#1a7f37);font-weight:600}`
       + `[${TODOS_ATTR}] .cp-cs-sentence{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}[${TODOS_ATTR}] .cp-st-body{flex:1 1 auto;min-height:0}`
+      // Phase 2: the view buttons (Kartlar, Kuyruk, Brifing), the queue's head and empty state, the briefing's four counts.
+      + `[${TODOS_ATTR}] .cp-cs-card[data-card="karar"]{--cp-co:var(--dsw-alias-state-warn-primary,#f59e0b)}[${TODOS_ATTR}] .cp-cs-opt{max-width:100%;overflow:hidden;text-overflow:ellipsis}`
+      + `[${TODOS_ATTR}] .cp-cs-views{display:flex;gap:4px;padding:6px 0 0}[${TODOS_ATTR}] .cp-cs-views button{height:24px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l3);border-radius:999px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}`
+      + `[${TODOS_ATTR}] .cp-cs-views button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.15));color:var(--dsw-alias-label-primary);font-weight:600}[${TODOS_ATTR}] section[data-view]:focus{outline:none}`
+      + `[${TODOS_ATTR}] .cp-q-top{display:flex;align-items:center;gap:8px;padding:2px 4px;font-size:12px;color:var(--dsw-alias-label-secondary)}[${TODOS_ATTR}] .cp-q-prog{flex:1;height:4px;border-radius:2px;overflow:hidden;background:var(--dsw-alias-border-l3)}`
+      + `[${TODOS_ATTR}] .cp-q-prog>i{display:block;height:100%;background:var(--dsw-alias-state-success-primary,#16a34a);transform-origin:left}[${TODOS_ATTR}] .cp-q-zero{display:flex;flex-direction:column;gap:2px;padding:12px 4px}`
+      + `[${TODOS_ATTR}] .cp-b-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;padding-top:8px}[${TODOS_ATTR}] .cp-b-tile{--cp-co:var(--dsw-alias-label-secondary);display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;padding:6px 8px;border:0;border-left:3px solid var(--cp-co);border-radius:6px;background:color-mix(in srgb,var(--cp-co) 7%,transparent);color:inherit;font:inherit;font-size:12px;text-align:left;cursor:pointer}`
+      + `[${TODOS_ATTR}] .cp-b-tile>strong{font-size:18px;line-height:22px}[${TODOS_ATTR}] .cp-b-tile[data-card="senden"]{--cp-co:var(--dsw-alias-state-warn-primary,#f59e0b)}[${TODOS_ATTR}] .cp-b-tile[data-card="sorun"]{--cp-co:var(--dsw-alias-state-error-primary,#d92d20)}[${TODOS_ATTR}] .cp-b-tile[data-card="bitti"]{--cp-co:var(--dsw-alias-state-success-primary,#16a34a)}`
       + `[${TODOS_ATTR}] .cp-st-body ul{margin:0;padding:0}[${TODOS_ATTR}] .cp-cs-card li{border:0;padding:2px 0}`
       + `[${TODOS_ATTR}] h2,[${TODOS_ATTR}] h3,[${TODOS_ATTR}] h4{margin:0;font-size:13px;line-height:18px}[${TODOS_ATTR}] .cp-td-name{font-weight:600}`
       // A narrow header: the list time shrinks first (its width is 0, so the title keeps its name and chevron), then Get
@@ -3776,6 +3784,21 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       return { approval, groups, notes, counts: { onay: approval === null ? 0 : 1, sorun: groups.sorun.length, senden: groups.senden.length,
         suruyor: groups.suruyor.length, bitti: groups.bitti.length, fresh: groups.bitti.filter((c) => c.fresh).length } };
     }
+    /** Decision queue (Damon card stack, phase 2): only what waits for you, one entry at a time. `cards`: statusCards;
+     * `sentences`: the chat's `onay` sentences now; `options`: the labels of the option list of its newest answer (Option
+     * picks, the "karar" type); `later`: the keys that you moved to the end with Sonra, in that order. Entries: the Onay
+     * card (key `onay`), the choice (key `karar`), each Senden card (key `senden|<card key>`). Order: a live entry first
+     * (liveApproval on its texts), then onay, karar, senden, then the stack's order; the `later` keys at the end. Tether
+     * ports it (`statusQueue` in tether/ios/Sources/Core.swift); test/fixtures/status-queue.json is the table of both. */
+    const QUEUE_KINDS = ['onay', 'karar', 'senden'];
+    function statusQueue(cards, { sentences = [], options = [], later = [] } = {}) {
+      const out = [];
+      if (cards.approval !== null) out.push({ kind: 'onay', key: 'onay', live: [...sentences, ...cards.approval.items.map((i) => i.text)].some(liveApproval) });
+      if (options.length > 0) out.push({ kind: 'karar', key: 'karar', live: options.some(liveApproval) });
+      for (const card of cards.groups.senden) out.push({ kind: 'senden', key: `senden|${card.key}`, live: liveApproval(card.title), card });
+      const rank = (e) => { const i = later.indexOf(e.key); return i >= 0 ? 100 + i : (e.live ? 0 : 10) + QUEUE_KINDS.indexOf(e.kind); };
+      return out.map((e, n) => ({ e, n })).sort((a, b) => rank(a.e) - rank(b.e) || a.n - b.n).map(({ e }) => e);
+    }
     /** An approval sentence that names a live target (the CANLI label): Auto review's live words, without its not-live
      * phrases ("canlı değil", "yalnız yerel"). */
     const liveApproval = (text) => APPROVAL_LIVE_WORD.test(String(text ?? '').normalize('NFC').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/ş/g, 's').replace(APPROVAL_SCOPE_OFF, ' '));
@@ -3805,17 +3828,21 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     /** The approval sentences that a chat offers now, for its Onay card: OnayCodeBlocks (one per open chat, dsh's composer
      * dock, which has the chat's hooks) publishes `{ offer, state, empty }` here; the card stack reads it. */
     function createCardOffers() {
-      let map = new Map(); const stacks = new Map(); const listeners = new Set(); let publishers = 0;
+      // `approve`: the approval offers (OnayCodeBlocks); `choice`: the option offers (CardChoices) for the decision queue.
+      const maps = { approve: new Map(), choice: new Map() }; const stacks = new Map(); const listeners = new Set(); let publishers = 0;
       const emit = () => { for (const fn of [...listeners]) fn(); };
+      const put = (kind, id, value) => {
+        const old = maps[kind].get(id);
+        if (old === value || (old !== undefined && value !== undefined && sameOffer(old.offer, value.offer) && old.state === value.state && old.empty === value.empty)) return;
+        maps[kind] = new Map(maps[kind]); if (value === undefined) maps[kind].delete(id); else maps[kind].set(id, value);
+        emit();
+      };
       return {
-        of: (id) => map.get(id),
+        of: (id) => maps.approve.get(id),
+        choiceOf: (id) => maps.choice.get(id),
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
-        set(id, value) {
-          const old = map.get(id);
-          if (old === value || (old !== undefined && value !== undefined && sameOffer(old.offer, value.offer) && old.state === value.state && old.empty === value.empty)) return;
-          map = new Map(map); if (value === undefined) map.delete(id); else map.set(id, value);
-          emit();
-        },
+        set: (id, value) => put('approve', id, value),
+        setChoice: (id, value) => put('choice', id, value),
         /** The Approve button feature is on (OnayCodeBlocks publishes offers): the Onay card can say that its button comes back. */
         active: () => publishers > 0,
         publish() { publishers += 1; emit(); return () => { publishers -= 1; emit(); }; },
@@ -3827,10 +3854,24 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         },
       };
     }
-    const CARD_SYMBOL = { onay: '●', sorun: '▲', senden: '◆', suruyor: '○', bitti: '✓' };
+    const CARD_SYMBOL = { onay: '●', sorun: '▲', senden: '◆', karar: '◇', suruyor: '○', bitti: '✓' };
     const CARDS_SHOWN = 3; // cards that an open stack shows before it folds a group (Sorun always shows)
     const DONE_SEEN_KEY = 'dsh-composer-plus.status-done-seen'; // when you last folded the Bugün bitti group
     const readNumber = (key) => { try { return Number(localStorage.getItem(key)) || 0; } catch { return 0; } };
+    /** The view of an open stack (Kartlar, Kuyruk, Brifing): kept in this browser. */
+    const CARD_VIEWS = ['stack', 'queue', 'brief'];
+    const CARD_VIEW_KEY = 'dsh-composer-plus.status-view';
+    const readView = () => { try { const v = localStorage.getItem(CARD_VIEW_KEY); return CARD_VIEWS.includes(v) ? v : 'stack'; } catch { return 'stack'; } };
+    /** The decision queue's "karar" entry: the option list at the end of the chat's newest answer (Option picks' offer, its
+     * rules and its store), published like OnayCodeBlocks' approval offer: one per open chat, dsh's composer dock, which has
+     * the chat's hooks. Draws nothing. */
+    function CardChoices(props) {
+      const { sessionId, offers } = props;
+      const shown = useAnswerOffer({ ...props, seq: undefined }, parseOptions);
+      React.useEffect(() => { offers.setChoice(sessionId, shown); }, [sessionId, shown?.offer, shown?.state, shown?.empty]);
+      React.useEffect(() => () => offers.setChoice(sessionId, undefined), [sessionId]);
+      return null;
+    }
     /** The card stack in the Damon chat (the Durum panel's data, statusCards' groups): the count bar (Get summary,
      * Projects, Refresh, fold), the summary card, the Onay card (both stay in place while the cards scroll), then Sorun,
      * Senden, Sürüyor, Bugün bitti and your notes. `offers`: the chat's approval sentences (createCardOffers); `picks`:
@@ -3845,6 +3886,16 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const [folds, setFolds] = React.useState(() => new Map()); // group → open (your choice; else the default below)
       const [dismissed, setDismissed] = React.useState(readDismissed);
       const [doneSeen, setDoneSeen] = React.useState(() => readNumber(DONE_SEEN_KEY));
+      // Phase 2: the view of the open stack, the queue's position and its Sonra order.
+      const [view, setViewState] = React.useState(readView);
+      const setView = (v) => { setViewState(v); try { localStorage.setItem(CARD_VIEW_KEY, v); } catch { /* this page only */ } };
+      const [qi, setQi] = React.useState(0);
+      const [later, setLater] = React.useState([]);
+      // ponytail: "answered" = queue entries that left the queue while this stack was drawn (Damon removed the item, the
+      // offer was sent); it starts again with a new page. A real log needs a Host store (the design's Zaman akışı).
+      const queueSeen = React.useRef(new Set());
+      const shownAt = React.useRef({ key: null, at: 0 }); // the queue entry on screen and when it showed (the key guard)
+      const choiceNow = React.useSyncExternalStore(offers.subscribe, () => offers.choiceOf?.(sessionId));
       const kids = typeof useSessions === 'function' ? useSessions((list) => childIdsOf(list, sessionId).join(' ')) : '';
       // The delegated chats (chat_new, chat_send) too: their turns and waits change their rows (2026-11-16: a live deploy
       // chat did not show). A row that runs without a turn (a background job) is read again every STATUS_POLL_MS.
@@ -3910,10 +3961,12 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         bitti: (c) => [`${stateText(c.task.state)} · ${clockText(end(c.task), lang)} · ${spanText(end(c.task) - c.task.started, lang)}`,
           c.fresh ? [' · ', React.createElement('span', { key: 'n', className: 'cp-cs-new' }, t('cards.new'))] : null],
       };
+      // Senden: Yanıtla (a wait: its data into the composer) or Yaptım ("Yaptım: <step>" into the composer); nothing is sent.
+      const waits = (c) => Boolean(c.item?.waiting) || c.task?.state === 'waiting';
+      const sendenAct = (c) => (waits(c) ? () => write(dataOf(c)) : () => write(t('cards.doneMessage', { item: c.title.replace(/\s+/g, ' ').trim() })));
       const mainOf = {
         sorun: (c) => act2(t('cards.ask', { name }), () => write(dataOf(c))),
-        senden: (c) => (c.item?.waiting || c.task?.state === 'waiting' ? act2(t('cards.reply'), () => write(dataOf(c)))
-          : act2(t('cards.done'), () => write(t('cards.doneMessage', { item: c.title.replace(/\s+/g, ' ').trim() })))),
+        senden: (c) => act2(waits(c) ? t('cards.reply') : t('cards.done'), sendenAct(c)),
         suruyor: (c) => (c.task === undefined ? writeAct(c) : act2(t('cards.watch'), () => openSession(c.task.id))),
         bitti: (c) => act2(t('cards.seen'), () => hide(c)),
       };
@@ -4041,13 +4094,102 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           : React.createElement('div', { className: 'cp-st-old', 'data-old': String(asking) }, summary.projects.map((p) => React.createElement('p', { key: p.project },
             projectOfName(p.project) === undefined ? React.createElement('strong', null, p.project)
               : React.createElement('button', { type: 'button', className: 'cp-st-link', onClick: () => showProject(p.project) }, p.project), ` ${p.text}`))));
+      // Phase 2 (design tabs "Karar kuyruğu", "Günlük brifing"): the same cards, two more views of the open stack. The queue
+      // shows only what waits for you, one entry at a time (statusQueue); each answer goes on today's path (Onayla and the
+      // options: Option picks' store; Yanıtla, Yaptım: the composer). The briefing: the next entry, four counts, today's ends.
+      const choice = choiceNow;
+      const queue = statusQueue(cards, { sentences: (offer?.options ?? []).map((o) => o.text), options: (choice?.offer.options ?? []).map((o) => o.label), later });
+      // One count per entry; a new option list (a newer answer) is a new entry. ponytail: the Onay card is one entry (its
+      // offer comes after the first read, so its seq cannot name it): a new approval after an answered one counts again.
+      const countKey = (e) => (e.kind === 'karar' ? `karar|${choice?.offer.seq}` : e.key);
+      for (const e of queue) queueSeen.current.add(countKey(e));
+      const waitingNow = new Set(queue.map(countKey));
+      const answered = [...queueSeen.current].filter((k) => !waitingNow.has(k)).length;
+      const at = Math.max(0, Math.min(qi, queue.length - 1));
+      const current = queue[at];
+      const queueId = `${headId}-queue`;
+      const focusQueue = () => setTimeout(() => globalThis.document?.getElementById?.(queueId)?.focus?.(), 0);
+      const moveLater = (e) => { setLater((l) => [...l.filter((k) => k !== e.key), e.key]); focusQueue(); };
+      // A key acts only on an entry that showed for OPTION_KEY_GUARD_MS (a key meant for something else must not answer
+      // what you did not read; the question card's option keys use the same guard).
+      if (current !== undefined && shownAt.current.key !== countKey(current)) shownAt.current = { key: countKey(current), at: Date.now() };
+      const choiceButtons = () => (choice?.empty !== true ? null : React.createElement('div', { className: 'cp-cs-line', style: { flexWrap: 'wrap', marginTop: '6px' } },
+        choice.offer.options.map((o) => React.createElement('button', { key: o.n, type: 'button', className: 'cp-cs-act cp-cs-opt', disabled: choice.state.busy, title: o.text,
+          ...(o.recommended ? { 'data-primary': '' } : {}), 'data-composer-plus-choice': String(o.n), onClick: () => { picks.pick(sessionId, choice.offer, o.n); } }, `${o.n}. ${o.label}`))));
+      const kararCard = () => React.createElement('div', { className: 'cp-cs-card', 'data-card': 'karar' },
+        React.createElement('div', { className: 'cp-cs-line' },
+          React.createElement('span', { className: 'cp-cs-sym', 'aria-hidden': true }, CARD_SYMBOL.karar),
+          React.createElement('span', { className: 'cp-cs-main' }, React.createElement('span', { className: 'cp-cs-title' }, t('queue.choiceTitle', { name })))),
+        choiceButtons(),
+        choice?.state.error == null ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert' }, t('optionPicks.failed', { error: choice.state.error })));
+      const entryCard = (e) => (e.kind === 'onay' ? onayCard : e.kind === 'karar' ? kararCard()
+        : React.createElement('ul', { style: { margin: 0, padding: 0 } }, card(e.card)));
+      const onQueueKey = (ev) => {
+        if (current === undefined || ev.metaKey || ev.ctrlKey || ev.altKey || ev.repeat || ev.isComposing || ev.target?.closest?.('input, textarea, [contenteditable]:not([contenteditable="false"])')) return;
+        const k = String(ev.key).toLowerCase(); const read = Date.now() - shownAt.current.at >= OPTION_KEY_GUARD_MS;
+        if (k === 'j') setQi(Math.min(at + 1, queue.length - 1));
+        else if (k === 'k') setQi(Math.max(at - 1, 0));
+        else if (k === 's') moveLater(current);
+        // A approves only one sentence that names no live target: with two, or a live one, you click the one that you read.
+        else if (k === 'a' && read && current.kind === 'onay' && !current.live && offer?.options.length === 1 && offerNow?.empty === true) picks.pick(sessionId, offer, 1);
+        else if (k === 'a' && read && current.kind === 'senden') sendenAct(current.card)();
+        else if (k === 'r' && current.kind === 'senden') write(dataOf(current.card));
+        else if (/^[1-9]$/.test(k) && read && current.kind === 'karar' && choice?.empty === true && choice.offer.options.some((o) => o.n === Number(k))) picks.pick(sessionId, choice.offer, Number(k));
+        else return;
+        ev.preventDefault();
+      };
+      const total = queueSeen.current.size;
+      const queueView = React.createElement('section', { id: queueId, key: 'queue', 'data-view': 'queue', tabIndex: -1, onKeyDown: onQueueKey, 'aria-label': t('cards.view.queue') },
+        React.createElement('div', { className: 'cp-q-top' },
+          React.createElement('span', null, t('queue.left', { count: queue.length })),
+          React.createElement('span', { className: 'cp-q-prog', 'aria-hidden': true }, React.createElement('i', { style: { transform: `scaleX(${total === 0 ? 1 : answered / total})` } })),
+          React.createElement('span', null, t('queue.answered', { done: answered, total }))),
+        current === undefined ? React.createElement('div', { className: 'cp-q-zero', role: 'status' }, React.createElement('strong', null, t('queue.empty')),
+          cards.counts.suruyor === 0 ? null : React.createElement('span', { className: 'cp-st-sub' }, t('queue.emptyRunning', { count: cards.counts.suruyor, name })))
+          : [React.createElement('p', { key: 'pos', className: 'cp-st-sub' }, `${at + 1} / ${queue.length}`,
+            current.live && current.kind !== 'onay' ? React.createElement('span', { className: 'cp-cs-tag' }, t('cards.live')) : null),
+          React.createElement('div', { key: 'entry', 'data-queue-entry': current.key, 'aria-live': 'polite' }, entryCard(current)),
+          React.createElement('div', { key: 'nav', className: 'cp-cs-line', style: { justifyContent: 'space-between', marginTop: '6px' } },
+            act2(t('queue.prev'), () => setQi(at - 1), { disabled: at === 0 }),
+            act2(t('queue.later'), () => moveLater(current), { 'data-queue-later': '' }),
+            act2(t('queue.next'), () => setQi(at + 1), { disabled: at >= queue.length - 1 })),
+          React.createElement('p', { key: 'keys', className: 'cp-st-sub', style: { marginTop: '4px' } }, t('queue.keys'))]);
+      // The briefing: the date (and the summary's time), the next entry with its buttons, four counts, today's ends.
+      const nextEntry = queue[0];
+      const dateText = (() => { try { return new Date(now).toLocaleDateString(lang || undefined, { weekday: 'long', day: 'numeric', month: 'long' }); } catch { return new Date(now).toDateString(); } })();
+      const goStack = (g) => () => {
+        setView('stack');
+        if (g !== 'sorun') { const next = new Map(folds); next.set(g, true); setFolds(next); }
+        setTimeout(() => globalThis.document?.getElementById?.(g === 'sorun' ? headId : `${headId}-${g}`)?.focus?.(), 0);
+      };
+      const tile = (g, count, label, go) => React.createElement('button', { key: g, type: 'button', className: 'cp-b-tile', 'data-card': g, 'data-tile': g, onClick: go },
+        React.createElement('span', null, label), React.createElement('strong', null, String(count)));
+      const briefView = React.createElement('section', { key: 'brief', 'data-view': 'brief', 'aria-label': t('cards.view.brief') },
+        React.createElement('p', { className: 'cp-st-sub', style: { paddingTop: '6px' } }, dateText, summary === null ? null : ` · ${t('status.summary')} · ${clockText(summary.at, lang)}`),
+        React.createElement('h3', null, nextEntry === undefined ? t('brief.nothing') : t('brief.next', { count: queue.length })),
+        nextEntry === undefined ? null : React.createElement('div', { 'data-queue-entry': nextEntry.key }, entryCard(nextEntry)),
+        React.createElement('div', { className: 'cp-b-tiles' },
+          tile('senden', queue.length, t('brief.waiting'), () => { setView('queue'); setQi(0); focusQueue(); }), tile('sorun', cards.counts.sorun, t('cards.sorun'), goStack('sorun')),
+          tile('suruyor', cards.counts.suruyor, t('cards.suruyor'), goStack('suruyor')), tile('bitti', cards.counts.bitti, t('cards.bitti'), goStack('bitti'))),
+        cards.groups.bitti.length === 0 ? null : React.createElement('h3', null, t('brief.doneList')),
+        cards.groups.bitti.length === 0 ? null : React.createElement('ul', null, cards.groups.bitti.map((c) => React.createElement('li', { key: c.key },
+          React.createElement('span', { className: 'cp-cs-sym', 'aria-hidden': true }, CARD_SYMBOL.bitti),
+          React.createElement('button', { type: 'button', className: 'cp-cs-title cp-cs-main', title: t('cards.open'), onClick: () => openSession(c.task.id) }, c.title),
+          React.createElement('span', { className: 'cp-st-time', style: { flex: 'none', width: 'auto' } }, clockText(end(c.task), lang))))));
+      const viewBar = React.createElement('div', { key: 'views', className: 'cp-cs-views', role: 'group', 'aria-label': t('cards.views') },
+        CARD_VIEWS.map((v) => React.createElement('button', { key: v, type: 'button', 'aria-pressed': view === v, 'data-view-button': v, onClick: () => { setView(v); if (v === 'queue') focusQueue(); } },
+          t(`cards.view.${v}`), v === 'queue' && queue.length > 0 ? React.createElement('span', { className: 'cp-td-count' }, ` ${queue.length}`) : null)));
+      // One Onayla on screen: when the open queue or briefing shows the Onay entry, the fixed part does not.
+      const mainEntry = !open ? undefined : view === 'queue' ? current : view === 'brief' ? nextEntry : undefined;
       // The count bar: "1 onay · 1 sorun · 2 senden · 3 sürüyor · 5 bitti" (only the groups that have cards).
       const counts = ['onay', 'sorun', 'senden', 'suruyor', 'bitti'].filter((g) => cards.counts[g] > 0).map((g) => t(`cards.count.${g}`, { count: cards.counts[g] }));
       const countText = counts.length === 0 ? t('cards.none') : counts.join(' · ');
       const spoken = state.refreshing ? t('status.refreshing') : !state.shown ? '' : asking ? t('status.summaryWaiting') : askNote !== null ? askNote
         : ask?.state === 'done' && summary !== null ? `${t('status.summary')} · ${clockText(summary.at, lang)}` : '';
       const scroll = React.createElement('div', { className: 'cp-st-body', 'data-refreshing': String(state.refreshing), 'aria-busy': state.refreshing },
-        projects, groupList('sorun'), groupList('senden'), groupList('suruyor'), outageNote, groupList('bitti'), notes,
+        viewBar, projects,
+        ...(view === 'queue' ? [queueView] : view === 'brief' ? [briefView]
+          : [groupList('sorun'), groupList('senden'), groupList('suruyor'), outageNote, groupList('bitti'), notes]),
         state.error === null || state.errorKind === 'read' ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert' }, t('todos.failed', { error: state.error })));
       // aria-disabled (not disabled) while it refreshes: the focus stays on the button; the store refuses a second Refresh.
       return React.createElement('section', { [TODOS_ATTR]: '', 'data-open': String(open), 'aria-labelledby': headId },
@@ -4075,8 +4217,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
             React.createElement('span', { className: 'cp-st-sr', role: 'status', 'aria-live': 'polite' }, spoken)),
           state.errorKind !== 'read' ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert' }, `${t('status.readFailed', { error: state.error })} `, retry(`${t('assistant.retry')}: ${t('status.refresh')}`, store.refresh, 'refresh')),
           open ? summaryCard : null,
-          // A closed stack keeps a waiting approval in sight.
-          onayCard),
+          // A closed stack keeps a waiting approval in sight (the open queue or briefing shows it as its entry instead).
+          mainEntry?.kind === 'onay' ? null : onayCard),
         open ? scroll : null);
     }
     /** An open project row: its changed chats (a click opens one), its to-do items and its git branch and commits. */
@@ -12018,6 +12160,23 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             'cards.details': 'Details',
             'cards.withAgent': 'With {name}',
             'cards.approveAgain': 'Approve comes back when {name} writes the approval sentence again.',
+            'cards.views': 'View',
+            'cards.view.stack': 'Cards',
+            'cards.view.queue': 'Queue',
+            'cards.view.brief': 'Briefing',
+            'queue.left': '{count} left',
+            'queue.answered': '{done}/{total} answered',
+            'queue.empty': 'Nothing waits for you',
+            'queue.emptyRunning': '{count} running. {name} tells you.',
+            'queue.prev': 'Previous',
+            'queue.next': 'Next',
+            'queue.later': 'Later',
+            'queue.keys': 'Keys: A approve / done · 1–9 choice · S later · J / K next / previous · R reply',
+            'queue.choiceTitle': '{name} asks you to choose',
+            'brief.next': 'Next task · 1 of {count}',
+            'brief.nothing': 'Nothing needed from you',
+            'brief.waiting': 'Waits for you',
+            'brief.doneList': 'Done today',
             'status.insert.item': 'To-do: {text}',
             'status.insert.owner': 'Who does it: {owner}',
             'status.insert.state': 'State: {state}',
@@ -13185,6 +13344,23 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             'cards.details': '详情',
             'cards.withAgent': '{name} 处理中',
             'cards.approveAgain': '{name} 再次写出审批语句后，“批准”按钮会回来。',
+            'cards.views': '视图',
+            'cards.view.stack': '卡片',
+            'cards.view.queue': '队列',
+            'cards.view.brief': '简报',
+            'queue.left': '剩余 {count} 项',
+            'queue.answered': '已回答 {done}/{total}',
+            'queue.empty': '没有等你处理的事',
+            'queue.emptyRunning': '{count} 项进行中。{name} 会告诉你。',
+            'queue.prev': '上一个',
+            'queue.next': '下一个',
+            'queue.later': '稍后',
+            'queue.keys': '按键：A 批准 / 完成 · 1–9 选项 · S 稍后 · J / K 下一个 / 上一个 · R 回复',
+            'queue.choiceTitle': '{name} 请你选择',
+            'brief.next': '下一件事 · 共 {count} 项中的第 1 项',
+            'brief.nothing': '不需要你做什么',
+            'brief.waiting': '等你处理',
+            'brief.doneList': '今天完成',
             'status.insert.item': '待办：{text}',
             'status.insert.owner': '负责：{owner}',
             'status.insert.state': '状态：{state}',
@@ -14286,7 +14462,12 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             order: 100,
             locale: LOCALE_NS,
             inject: () => ({ picks: optionPicks, check: rollbackCheck, rollback }),
-          }, OptionPicks)), installOptionKeys(globalThis.document), () => optionsGate.setOn(false)];
+          }, OptionPicks)), ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
+            name: 'conversation.composer.dock',
+            id: 'card-choices', // the decision queue's "karar" entry (CardChoices): the same offer and store as the buttons
+            order: 31,
+            inject: () => ({ picks: optionPicks, check: rollbackCheck, rollback, offers: cardOffers }),
+          }, CardChoices)), installOptionKeys(globalThis.document), () => optionsGate.setOn(false)];
         });
         // Approve button: the Host keeps the switch (its prompt rule); the buttons share Option picks' store and rollback check.
         const approveSwitch = createMobile(APPROVE_ROUTE);

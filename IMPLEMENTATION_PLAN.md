@@ -3358,3 +3358,21 @@ Phase 1 closed (2026-11-20 10:00):
   2. Phase 2 (decision queue + daily briefing) starts after that, on a new branch from main (design: tabs 3 and 5 of the options HTML; decision noted above: "karar" = Option picks' offer of the newest answer).
   3. Phase 3 (infinite canvas) after phases 1 and 2 are in main.
 - Not done here (separate approval from Furkan): release, tag, npm publish, live copy, DSH/AIProxy restart, Tether install on the phone.
+
+## Phase 2: decision queue + daily briefing (2026-11-20, same branch, handover from Damon)
+Request (Furkan, 2026-11-20): "Öneri: kart yığınını bitir, üstüne kuyruk ve brifing, tuval ikinci adım bunu yap". Design: tabs "Karar kuyruğu" (3) and "Günlük brifing" (5) of `~/Damon/Belgeler/Damon arayüzü/damon-yonetim-secenekleri-2026-11-19.html`. Change of plan (handover): phase 2 goes on this branch (not a new branch from main); merge to main only after Damon writes "1.31.1 yayını ve canlı kopya güncellemesi bitti".
+Objective: two more views of the open card stack (Mac Damon chat and Tether deck), one data source: "Kartlar" (phase 1), "Kuyruk" (only what waits for you, one entry at a time), "Brifing" (date and summary time, the next entry with its buttons, four counts, today's ends).
+Invariants:
+- Phase 1 stays: one Onayla that sends the exact sentence once (Option picks' store, `picks.pick`); Gördüm hides only the task; `[quiet]` news turns; with the status panel off the old rule (Approve under the reply). One Onayla on screen: when the open queue or briefing shows the Onay entry, the fixed part does not.
+- Every answer on today's paths: Onayla and a choice → `picks.pick` (one send per chat); Yanıtla, Yaptım, R → the composer, nothing sent; Sonra only reorders (this page).
+- No new Host route, no new storage file. One rule for both apps: client.js `statusQueue`, Swift `statusQueue`, one table `test/fixtures/status-queue.json`.
+Decisions:
+- "karar" (choices) = Option picks' offer of the newest answer (parseOptions), published by `CardChoices` (composer dock, only while Option picks is on), shown as one queue entry with numbered buttons.
+- Order: a live entry first (liveApproval on its texts), then onay, karar, senden, then the stack's order; Sonra keys at the end in the order moved.
+- Keys (queue focused, not in a text field, 800 ms after the entry shows, OPTION_KEY_GUARD_MS): J/K, S, A (one non-live sentence only; Yaptım/Yanıtla of a Senden), 1–9 (a choice), R (a Senden's data into the composer).
+- "x/y cevaplandı" counts the entries that left the queue while the page was open (ponytail: no Host log; the design's Zaman akışı needs one).
+- The view is kept in localStorage `dsh-composer-plus.status-view`.
+Acceptance: npm test exit 0; headless browser tests (chromiumSandbox true) PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 (card stack test extended: Kuyruk and Brifing, Onayla from the queue sends once); Tether XCTest (statusQueue table) pass; an independent review-guard subagent on the final diff gives no P1/P2.
+Allowed paths: client.js, index.js (STATUS_SECTION line), locales/*.json, docs/features.json and its generated files, README*.md, llms.txt, tether/FEATURES.md, tether/ios/**, test/**, scripts/demo-card-stack.mjs, package.json (test script), IMPLEMENTATION_PLAN.md.
+Risks: the queue's key handler (a stray A); duplicate option buttons (under the reply and in the queue; one store, so one pick); dsh markup changes hide the stack (phase 1 risk).
+Checkpoint (2026-11-20 10:50): open item of phase 1 closed: `test/browser-status-refresh.mjs` step 7 timed out on main 216dcf4 too (0.2.0-rc.2 path `dsh-0.2.0-rc.2/` did not match the version pattern, so the 0.2.2 rrule was used); fixed in b60ed3a, PASS on 0.2.0-rc.2. statusQueue + table + CardChoices + Mac views in progress.

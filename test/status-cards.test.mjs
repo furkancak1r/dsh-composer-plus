@@ -7,9 +7,9 @@ let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } } }
 const ANCHOR = '/** Feature switches, in Settings order.';
 const src = read('client.js');
 assert.ok(src.includes(ANCHOR));
-eval(src.replace(ANCHOR, `globalThis.__sc = { statusCards, cardMark, liveApproval };\n    ${ANCHOR}`));
+eval(src.replace(ANCHOR, `globalThis.__sc = { statusCards, statusQueue, cardMark, liveApproval };\n    ${ANCHOR}`));
 mod.factory((n) => (n === 'react' ? { createElement: () => null } : {}));
-const { statusCards, cardMark, liveApproval } = globalThis.__sc;
+const { statusCards, statusQueue, cardMark, liveApproval } = globalThis.__sc;
 
 const { cases } = JSON.parse(read('test/fixtures/status-cards.json'));
 const card = (c) => ({ key: c.key, title: c.title, item: c.item?.id ?? null, task: c.task?.id ?? null, since: c.since, overdue: c.overdue, fresh: c.fresh });
@@ -30,4 +30,12 @@ assert.deepEqual(cardMark('SORUN:  canlı'), { kind: 'sorun', title: 'canlı' })
 assert.equal(liveApproval('Onaylıyorum: canlı sunucuya deploy et.'), true);
 assert.equal(liveApproval('Onaylıyorum (canlı değil): dal main\'e alınsın.'), false);
 assert.equal(liveApproval('Onaylıyorum: yalnız yerel test.'), false);
-console.log(`status cards: ${cases.length} shared cases, marks, CANLI label`);
+// The decision queue (phase 2): client.js statusQueue against its table (Tether's testStatusQueueMatchesTheMac reads it too).
+const queueCases = JSON.parse(read('test/fixtures/status-queue.json')).cases;
+for (const c of queueCases) {
+  const cards = statusCards(c.data, c.now, { approvals: c.approvals });
+  const got = statusQueue(cards, { sentences: c.sentences, options: c.options, later: c.later }).map((e) => ({ kind: e.kind, key: e.key, live: e.live }));
+  assert.deepEqual(got, c.want, `queue: ${c.name}`);
+}
+assert.ok(queueCases.length >= 5, 'the queue table covers empty, order, live first, Sonra and a choice alone');
+console.log(`status cards: ${cases.length} shared cases, marks, CANLI label; queue: ${queueCases.length} shared cases`);

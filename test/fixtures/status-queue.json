@@ -1,0 +1,72 @@
+{
+  "about": "One table for the decision queue of the Damon card stack: client.js statusQueue and Tether's Core.swift statusQueue. Each case gives statusCards' input (data, now, approvals) and the queue's input (sentences: the chat's onay sentences; options: the labels of the newest answer's option list; later: the keys moved to the end with Sonra). want is written by hand: the entries in order, each {kind, key, live}.",
+  "cases": [
+    {
+      "name": "nothing waits: an empty queue",
+      "now": 1794993000000, "approvals": 0, "data": {}, "sentences": [], "options": [], "later": [],
+      "want": []
+    },
+    {
+      "name": "the Onay card, then each Senden card in the stack's order (no live text)",
+      "now": 1794993000000, "approvals": 1,
+      "data": {"items": [
+        {"id": "a0000001", "text": "Onay: montaj testi main'e alınır", "owner": "user", "created": 1794992160000},
+        {"id": "a0000004", "text": "Senden: SAP'de Gerekli Tarih alanını aç", "owner": "user", "created": 1794985800000},
+        {"id": "a0000005", "text": "Rapor hizası için karar", "owner": "agent", "created": 1794990000000, "waiting": {"reason": "needs your choice", "since": 1794990600000}},
+        {"id": "a0000006", "text": "Süt al", "owner": "user", "created": 1794982200000},
+        {"id": "a0000008", "text": "Rapor yaz", "owner": "agent", "created": 1794991800000}],
+        "tasks": [{"id": "t4", "title": "Hotels", "state": "waiting", "started": 1794992820000},
+          {"id": "t7", "title": "Crash", "state": "failed", "started": 1794992640000, "ended": 1794992880000}]},
+      "sentences": ["Onaylıyorum (canlı değil): montaj testi dalı main'e alınsın."], "options": [], "later": [],
+      "want": [
+        {"kind": "onay", "key": "onay", "live": false},
+        {"kind": "senden", "key": "senden|a0000004", "live": false},
+        {"kind": "senden", "key": "senden|a0000005", "live": false},
+        {"kind": "senden", "key": "senden|t4", "live": false}]
+    },
+    {
+      "name": "a live entry goes first: a live Senden card before the Onay card and the choice",
+      "now": 1794993000000, "approvals": 0,
+      "data": {"items": [
+        {"id": "b0000001", "text": "Onay: dalı main'e al", "owner": "user", "created": 1794992400000},
+        {"id": "b0000002", "text": "Senden: Ece Hanım'ın cevabını ilet", "owner": "user", "created": 1794990000000},
+        {"id": "b0000003", "text": "Senden: canlı sunucuda servisi yeniden başlat", "owner": "user", "created": 1794991200000}]},
+      "sentences": [], "options": ["Kendisi alsın", "Bana sorsun"], "later": [],
+      "want": [
+        {"kind": "senden", "key": "senden|b0000003", "live": true},
+        {"kind": "onay", "key": "onay", "live": false},
+        {"kind": "karar", "key": "karar", "live": false},
+        {"kind": "senden", "key": "senden|b0000002", "live": false}]
+    },
+    {
+      "name": "live: a live sentence, a live choice label; the order of equal ranks stays",
+      "now": 1794993000000, "approvals": 1, "data": {},
+      "sentences": ["Onaylıyorum: canlı sunucuya deploy et."], "options": ["Yayınla", "Şimdi değil"], "later": [],
+      "want": [
+        {"kind": "onay", "key": "onay", "live": true},
+        {"kind": "karar", "key": "karar", "live": true}]
+    },
+    {
+      "name": "Sonra: the later keys go to the end, in the order you moved them; a key that is gone does nothing",
+      "now": 1794993000000, "approvals": 0,
+      "data": {"items": [
+        {"id": "b0000001", "text": "Onay: dalı main'e al", "owner": "user", "created": 1794992400000},
+        {"id": "b0000002", "text": "Senden: Ece Hanım'ın cevabını ilet", "owner": "user", "created": 1794990000000},
+        {"id": "b0000003", "text": "Senden: canlı sunucuda servisi yeniden başlat", "owner": "user", "created": 1794991200000}]},
+      "sentences": [], "options": ["Kendisi alsın", "Bana sorsun"], "later": ["senden|b0000003", "senden|gone", "onay"],
+      "want": [
+        {"kind": "karar", "key": "karar", "live": false},
+        {"kind": "senden", "key": "senden|b0000002", "live": false},
+        {"kind": "senden", "key": "senden|b0000003", "live": true},
+        {"kind": "onay", "key": "onay", "live": false}]
+    },
+    {
+      "name": "only a choice: no Onay card, no Senden card",
+      "now": 1794993000000, "approvals": 0,
+      "data": {"items": [{"id": "c0000001", "text": "Rapor yaz", "owner": "agent", "created": 1794991800000}],
+        "tasks": [{"id": "t1", "title": "Rome flights", "state": "running", "started": 1794992280000}]},
+      "sentences": [], "options": ["A", "B", "C"], "later": [],
+      "want": [{"kind": "karar", "key": "karar", "live": false}]
+    }
+  ]
+}
