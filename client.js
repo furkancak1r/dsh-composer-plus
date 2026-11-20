@@ -4101,7 +4101,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // What an entry says now: a new sentence or a new option list is a new entry for the key guard and for Sonra
       // (review 1: a fixed "onay" key let A approve a sentence that had just replaced the old one, and kept a new live
       // approval at the end after Sonra).
-      const onayIdent = `onay|${offer?.seq ?? ''}|${(offer?.options ?? []).map((o) => o.text).join('\n')}`;
+      // The answer that holds the block (`from`), not the offer's seq: a [quiet] news turn moves the seq, not the entry.
+      const onayIdent = `onay|${offer?.options[0]?.from ?? ''}|${(offer?.options ?? []).map((o) => o.text).join('\n')}`;
       const kararIdent = `karar|${choice?.offer.seq ?? ''}|${(choice?.offer.options ?? []).map((o) => o.text).join('\n')}`;
       const identOf = (key) => (key === 'onay' ? onayIdent : key === 'karar' ? kararIdent : key);
       const laterKeys = later.filter((l) => identOf(l.key) === l.ident).map((l) => l.key);
@@ -7133,7 +7134,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
      * until its own first answer. Approve button: a newer turn without a text answer (tools only, dsh's `closing` is null)
      * keeps the button of an older `onay` block, under that turn's end (dsh gives the slot the turn end's seq): the
      * assistant does not write an unchanged block again in a reply to news (2026-11-15: 38 news turns repeated one block). */
-    function chatOffer(chat, spans, from = 0, parse = parseOptions) {
+    function chatOffer(chat, spans, from = 0, parse = parseOptions, quiet = false) {
       const tails = [];
       for (const node of chat?.nodes?.values?.() ?? []) if (node?.kind === 'turn-tail' && Number.isSafeInteger(node.data?.turn)) tails.push(node);
       if (tails.length === 0) return undefined;
@@ -7143,9 +7144,13 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       // Option picks: a hidden news turn after the answer (its reply is only `[quiet]`, so the chat does not show it) keeps
       // the answer's options, as turnApprovals keeps an `onay` block (review 1 of the decision queue: a news turn took the
       // choice away). Your message after the answer (a pick, or you went on) ends them. A turn with tools only still ends them.
-      if (parse === parseOptions) {
+      // Only in the assistant chat (`quiet`), and only a turn whose every text is quiet (quietTurnSet's rule, review 2): a
+      // text sent with a tool call is news too.
+      if (parse === parseOptions && quiet) {
+        const loud = new Set();
+        for (const n of chat.nodes.values()) if (n?.kind === 'assistant-step' && Array.isArray(n.data?.blocks) && hasText(n) && !quietStep(n)) loud.add(String(n.data.turn));
         const hidden = (node) => node.data.closing?.status !== 'running' && node.data.closing?.status !== 'interrupted'
-          && Array.isArray(node.data.closing?.blocks) && quietText(answerText(node.data.closing.blocks));
+          && Array.isArray(node.data.closing?.blocks) && quietText(answerText(node.data.closing.blocks)) && !loud.has(String(node.data.turn));
         let i = 0;
         while (i < kept.length - 1 && hidden(kept[i])) i++;
         if (i > 0) {
@@ -7261,13 +7266,13 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
     };
     /** chatOffer, once per chat snapshot and parser: every answer of a chat asks for the same offer. */
     const offerMemos = new Map([[parseOptions, new WeakMap()], [parseApprovals, new WeakMap()]]);
-    const offerOf = (chat, withdrawn, inherited, parse = parseOptions) => {
+    const offerOf = (chat, withdrawn, inherited, parse = parseOptions, quiet = false) => {
       if (typeof chat !== 'object' || chat === null) return undefined;
       const memo = offerMemos.get(parse);
       const hit = memo.get(chat);
-      if (hit !== undefined && hit.withdrawn === withdrawn && hit.inherited === inherited) return hit.offer;
-      const offer = chatOffer(chat, withdrawn, inherited, parse);
-      memo.set(chat, { withdrawn, inherited, offer });
+      if (hit !== undefined && hit.withdrawn === withdrawn && hit.inherited === inherited && hit.quiet === quiet) return hit.offer;
+      const offer = chatOffer(chat, withdrawn, inherited, parse, quiet);
+      memo.set(chat, { withdrawn, inherited, quiet, offer });
       return offer;
     };
     const sameOffer = (a, b) => a === b || (a !== undefined && b !== undefined && a.seq === b.seq && a.latest === b.latest && a.options.length === b.options.length
@@ -7276,16 +7281,16 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
      * chat view and the rollback spans this window has (no wait for the Host). Next message prediction makes no guess
      * then: one owner of the space above the composer, and no model call for a guess that would not show. `version`
      * changes with the switch, a pick and a rollback. */
-    function createOptionsGate(picks, rollback) {
+    function createOptionsGate(picks, rollback, assistant) {
       let on = false; let version = 0;
       const listeners = new Set();
       const bump = () => { version += 1; for (const fn of [...listeners]) fn(); };
-      picks.subscribe(bump); rollback.subscribe(bump);
+      picks.subscribe(bump); rollback.subscribe(bump); assistant?.subscribe(bump);
       return {
         offers(sessionId, chat) {
           if (!on) return false;
           const rb = rollback.of(sessionId);
-          const offer = offerOf(chat, rb.withdrawn, rb.inherited);
+          const offer = offerOf(chat, rb.withdrawn, rb.inherited, parseOptions, assistant?.getSnapshot() === sessionId);
           return offer !== undefined && (picks.of(sessionId).busy || picks.open(sessionId, offer));
         },
         setOn(next) { if (on !== next) { on = next; bump(); } },
@@ -7307,7 +7312,7 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
      * that is still in the chat, while the chat is idle and the composer is empty, after the Host told which answers a
      * rollback withdrew. A click sends `Option N: <item>` through `picks` (one pick at a time, rule 7). `useAnswerOffer`
      * gives `{ offer, state }` while the answer `seq` shows its buttons (`parse`: parseOptions or parseApprovals). */
-    function useAnswerOffer({ sessionId, seq, useSession, useInput, useChat, picks, check, rollback }, parse) {
+    function useAnswerOffer({ sessionId, seq, useSession, useInput, useChat, picks, check, rollback, assistant }, parse) {
       const idle = useSession((s) => s !== undefined && !s.blank && !s.running && s.subagent === null && !s.removed);
       const empty = useInput((s) => s !== undefined && s.phase === 'plain' && s.draft === '' && s.attachmentIds.length === 0);
       const key = useChat((chat) => (idle ? chatStateKey(chat) : null));
@@ -7315,7 +7320,9 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       const ready = React.useSyncExternalStore(check.subscribe, () => check.ready(sessionId, key));
       const rb = React.useSyncExternalStore(rollback.subscribe, () => rollback.of(sessionId));
       const state = React.useSyncExternalStore(picks.subscribe, () => picks.of(sessionId));
-      const offer = useChat((chat) => (idle && ready ? offerOf(chat, rb.withdrawn, rb.inherited, parse) : undefined), sameOffer);
+      // `assistant`: the assistant chat's id store (its hidden [quiet] news turns keep an older answer's options).
+      const quiet = React.useSyncExternalStore(assistant?.subscribe ?? noSubscribe, () => assistant?.getSnapshot() === sessionId);
+      const offer = useChat((chat) => (idle && ready ? offerOf(chat, rb.withdrawn, rb.inherited, parse, quiet) : undefined), sameOffer);
       // dsh gives each cell its answer's seq (`turn` is dsh's turn object, not its number); one seq is one answer. Without
       // a seq (OnayCodeBlocks): the offer of the chat, under whichever answer it shows.
       const offered = offer !== undefined && (seq === undefined || offer.seq === seq) && (state.busy || picks.open(sessionId, offer));
@@ -14482,7 +14489,9 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
           await scope.get('conversation').send(text);
         });
         const rollbackCheck = createRollbackCheck((sessionId) => rollback.load(sessionId));
-        const optionsGate = createOptionsGate(optionPicks, rollback);
+        // The assistant chat's id (Assistant apart from chats, Assistant messages only, Option picks' [quiet] rule).
+        const assistantStatus = createAssistantStatus();
+        const optionsGate = createOptionsGate(optionPicks, rollback, assistantStatus);
         // Damon card stack: the chat's approval offer for its Onay card, and which chats show a stack.
         const cardOffers = createCardOffers();
         feature('optionPicks', () => {
@@ -14492,12 +14501,12 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
             id: 'option-picks',
             order: 100,
             locale: LOCALE_NS,
-            inject: () => ({ picks: optionPicks, check: rollbackCheck, rollback }),
+            inject: () => ({ picks: optionPicks, check: rollbackCheck, rollback, assistant: assistantStatus }),
           }, OptionPicks)), ctx.slots.inject('conversation.composer.dock', () => ctx.slots.register({
             name: 'conversation.composer.dock',
             id: 'card-choices', // the decision queue's "karar" entry (CardChoices): the same offer and store as the buttons
             order: 31,
-            inject: () => ({ picks: optionPicks, check: rollbackCheck, rollback, offers: cardOffers }),
+            inject: () => ({ picks: optionPicks, check: rollbackCheck, rollback, offers: cardOffers, assistant: assistantStatus }),
           }, CardChoices)), installOptionKeys(globalThis.document), () => optionsGate.setOn(false)];
         });
         // Approve button: the Host keeps the switch (its prompt rule); the buttons share Option picks' store and rollback check.
@@ -14799,8 +14808,7 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
         // Assistant: the Host keeps the switch and does the work; the client has the sidebar row and its short panel.
         const assistantSwitch = createMobile(ASSISTANT_SWITCH_ROUTE);
         if (typeof fetch === 'function') assistantSwitch.refresh();
-        // Assistant as a bot: the assistant chat's id (Assistant apart from chats, Assistant messages only) and two Host switches.
-        const assistantStatus = createAssistantStatus();
+        // Assistant as a bot: the assistant chat's id (assistantStatus, above) and two Host switches.
         // Assistant apart from chats puts its state dot on the Assistant row (the row belongs to Assistant).
         const apartFlag = createFlag();
         const assistant = createAssistant((id) => assistantStatus.set(id), () => assistantStatus.getSnapshot(), (id) => listedChat(ctx.sessions?.list, id));

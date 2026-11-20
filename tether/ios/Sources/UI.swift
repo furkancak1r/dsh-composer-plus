@@ -5020,7 +5020,8 @@ struct CardDeck: View {
     /// What an entry says now: a new sentence or a new option list is a new entry for Later (client.js identOf).
     private func identOf(_ key: String) -> String {
         switch key {
-        case "onay": "onay|\(offer.map { String($0.seq) } ?? "")|\((offer?.sentences ?? []).joined(separator: "\n"))"
+        // The answer that holds the block (`from`), not the offer's seq: a [quiet] news turn moves the seq, not the entry.
+        case "onay": "onay|\(offer.map { String($0.from) } ?? "")|\((offer?.sentences ?? []).joined(separator: "\n"))"
         case "karar": "karar|\(choice.map { String($0.seq) } ?? "")|\((choice?.options ?? []).map(\.text).joined(separator: "\n"))"
         default: key
         }

@@ -505,11 +505,36 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
     tree = stack.render(); const sec2 = find(tree, (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
     sec2.p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); sec2.p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
     assert.deepEqual(cardSent.slice(before), [['D', CARD]], 'A sends the exact sentence once (the same store as the button)');
-    // A key in a text field does nothing.
+    // Review 2: each key guard on its own (after the 800 ms): no action, no preventDefault. S would move the entry
+    // (Sonra), so each case shows as a not prevented key and the same entry first.
     const sent2 = cardSent.length;
-    sec2.p.onKeyDown({ key: 's', preventDefault() {}, target: { closest: () => ({}) } }); assert.equal(cardSent.length, sent2);
+    const entryNow = () => find(stack.render(), (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']);
+    const guarded = (why, extra) => {
+      let prevented = false; const before2 = entryNow();
+      const sec = find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
+      sec.p.onKeyDown({ key: 's', preventDefault: () => { prevented = true; }, target: { closest: () => null }, ...extra });
+      assert.equal(prevented, false, `${why}: not taken`); assert.deepEqual(entryNow(), before2, `${why}: the entry stays`);
+    };
+    guarded('a text field', { target: { closest: (sel) => (/input/.test(sel) ? {} : null) } });
+    guarded('a select', { target: { closest: (sel) => (/\bselect\b/.test(sel) ? {} : null) } });
+    guarded('IME (keyCode 229)', { keyCode: 229 });
+    guarded('IME (isComposing)', { isComposing: true });
+    guarded('a handled key (defaultPrevented)', { defaultPrevented: true });
+    guarded('a repeated key', { repeat: true });
+    guarded('Ctrl', { ctrlKey: true });
+    assert.equal(cardSent.length, sent2, 'no guarded key sends');
   } finally { Date.now = realNow; }
   assert.equal(await qPicks.pick('D', offers.of('D').offer, 1), false, 'the same answer again: refused');
+  // Review 2: the screen reader hears only the entry line ("1 / 1: <entry>"), in one polite status region.
+  {
+    const said = find(find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0], (n) => n.p?.['aria-live'] === 'polite');
+    assert.equal(said.length, 1, 'one aria-live region in the queue'); assert.equal(said[0].p.role, 'status');
+    assert.deepEqual(texts(said[0]), ['1 / 1: cards.onay'], 'it says the position and the entry, no age text');
+    // A closed queue (another view): a key does nothing.
+    viewBtn(stack.render(), 'stack').p.onClick();
+    assert.equal(find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue').length, 0, 'Kartlar: no queue, so no queue keys');
+    viewBtn(stack.render(), 'queue').p.onClick(); stack.render();
+  }
   // Review 1 (P1, P2): a new sentence starts the 800 ms clock again; Shift+A does nothing; the clock starts only in the
   // open queue (A at once after a switch from Kartlar: nothing).
   {
@@ -542,6 +567,13 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
     find(stack2.render(), (n) => n.t === 'button' && n.p['data-queue-later'] !== undefined)[0].p.onClick();
     tree2 = stack2.render();
     assert.deepEqual(find(tree2, (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['senden|s1'], 'Sonra: the Senden card first');
+    // Review 2: a [quiet] news turn moves the offer's seq, not its sentence: the entry stays at the end.
+    const seqBefore = offers.of('D').offer.seq;
+    const aStep = (turn, seq, text) => ({ kind: 'assistant-step', anchorSeq: seq, data: { status: 'settled', turn, step: 1, blocks: [{ kind: 'text', text }], finalNode: { seq } } });
+    view = chat(user(540, 'w3'), aStep(54, 550, `Ready.\n\n${block(CARD)}`), tail(54, 550, `Ready.\n\n${block(CARD)}`), aStep(55, 558, '[quiet]'), tail(55, 558, '[quiet]'));
+    dock.render(); await flush(); dock.render(); await flush();
+    assert.notEqual(offers.of('D').offer.seq, seqBefore, 'the news turn moved the offer');
+    assert.deepEqual(find(stack2.render(), (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['senden|s1'], 'a [quiet] turn: Sonra holds');
     view = chat(user(560, 'w4'), tail(56, 570, `Ready.\n\n${block("Onaylıyorum (canlı değil): yeni dal main'e alınsın.")}`)); dock.render(); await flush(); dock.render(); await flush();
     assert.deepEqual(find(stack2.render(), (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['onay'], 'a new sentence: the Onay entry goes back first');
     stack2.unmount();

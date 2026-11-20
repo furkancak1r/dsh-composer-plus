@@ -1765,13 +1765,28 @@ final class AgentboxIdeasTests: XCTestCase {
         func news(_ s: Int, _ text: String?, end: String? = "completed") -> [J] {
             var e = turn(s, "", text, end: end); e[1] = ["type": "user/message", "seq": s + 1, "data": ["content": "news", "source": ["kind": "news"]]]; return e
         }
-        let kept = chatOffer(turn(1, "a", opts) + news(10, "[quiet]") + news(20, " [QUIET] "))
+        // Only in the assistant chat (`quiet: true`, review 2): another chat has no hidden news turns.
+        let kept = chatOffer(turn(1, "a", opts) + news(10, "[quiet]") + news(20, " [QUIET] "), quiet: true)
         XCTAssertEqual(kept?.seq, 3, "the old answer's seq"); XCTAssertEqual(kept?.latest, 20, "latest: the newest turn start")
-        XCTAssertNil(chatOffer(turn(1, "a", opts) + turn(10, "b", "[quiet]")), "your message after the answer, then a quiet turn")
-        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "Fine.")), "a news turn with text")
-        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]") + news(20, nil)), "a news turn with tools only")
-        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]", end: "interrupted")), "a stopped news turn")
-        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]", end: nil)), "a running news turn")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]")), "another chat: a quiet turn ends it")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + turn(10, "b", "[quiet]"), quiet: true), "your message after the answer, then a quiet turn")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "Fine."), quiet: true), "a news turn with text")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]") + news(20, nil), quiet: true), "a news turn with tools only")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]", end: "interrupted"), quiet: true), "a stopped news turn")
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + news(10, "[quiet]", end: nil), quiet: true), "a running news turn")
+        // Review 2: a text sent with a tool call in the news turn is news (quietTurnSet), also when the turn ends with [quiet].
+        var loud = news(10, "[quiet]")
+        loud.insert(["type": "assistant/message", "seq": 11, "data": ["message": ["content": [["type": "text", "text": "X finished."], ["type": "tool_use"]]]]], at: 2)
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + loud, quiet: true), "a text with a tool call ends it")
+        // Review 2 (rule 9): your message after the answer, also one that went into the running news turn (a steer, a
+        // user/message of the turn), ends it; withdrawn by either marker kind, it does not.
+        let steer: J = ["type": "user/message", "seq": 25, "data": ["content": "wait", "source": ["kind": "user"]]]
+        var steered = news(20, "[quiet]"); steered.insert(steer, at: 2)
+        XCTAssertNil(chatOffer(turn(1, "a", opts) + steered, quiet: true), "a steered message ends it")
+        for kind in [rollbackSource, "dsh-rewind"] {
+            let marker: J = ["type": "user/message", "seq": 40, "sourceEventSeqs": [25], "data": ["content": [], "source": ["kind": kind]]]
+            XCTAssertEqual(chatOffer(turn(1, "a", opts) + steered + [marker], quiet: true)?.seq, 3, "a withdrawn message (\(kind)): kept")
+        }
         XCTAssertNil(chatOffer(turn(1, "a", opts, end: nil)), "not while the turn runs")
         XCTAssertNil(chatOffer(turn(1, "a", opts) + turn(10, "b", nil, end: nil)), "a newer running turn hides the older list")
         XCTAssertNil(chatOffer(turn(1, "a", opts, end: "interrupted")), "not a stopped turn")

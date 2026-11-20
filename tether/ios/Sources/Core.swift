@@ -806,18 +806,28 @@ func parseOptions(_ text: String) -> [ChatOption] {
 /// fork's inherited event count `from` (rule 10: the parent's answers offer nothing). The answer's text blocks are
 /// joined as dsh joins them. `latest`: the newest turn start, withdrawn turns too (a pick waits for a newer turn).
 struct OptionOffer: Equatable { let seq: Int; let latest: Int; let options: [ChatOption] }
-func chatOffer(_ events: [J], from: Int = 0) -> OptionOffer? {
+func chatOffer(_ events: [J], from: Int = 0, quiet: Bool = false) -> OptionOffer? {
     let spans = events.compactMap(rollbackSpan)
-    var turns: [(start: Int, end: Int?, completed: Bool, answer: J?)] = []
+    var turns: [(start: Int, end: Int?, completed: Bool, answer: J?, loud: Bool)] = []
     var humans: [Int] = []
+    let answerText = { (a: J) -> String in
+        let blocks = ((a["data"] as? J)?["message"] as? J)?["content"] as? [J] ?? []
+        return blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined()
+    }
     for e in events {
         guard let seq = e["seq"] as? Int else { continue }
         switch e["type"] as? String {
-        case "turn/start": turns.append((seq, nil, false, nil))
+        case "turn/start": turns.append((seq, nil, false, nil, false))
         case "user/message":
             let kind = (((e["data"] as? J)?["source"]) as? J)?["kind"] as? String
             if kind == nil || kind == "user", !spans.contains(where: { $0.contains(seq) }) { humans.append(seq) }
-        case "assistant/message": if let i = turns.indices.last, turns[i].end == nil { turns[i].answer = e }
+        case "assistant/message":
+            if let i = turns.indices.last, turns[i].end == nil {
+                turns[i].answer = e
+                // A text that is not only `[quiet]` (also one sent with a tool call) makes the turn news (quietTurnSet).
+                let t = answerText(e)
+                if !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !quietReply(t) { turns[i].loud = true }
+            }
         case "turn/end":
             if let i = turns.indices.last, turns[i].end == nil {
                 turns[i].end = seq
@@ -826,16 +836,12 @@ func chatOffer(_ events: [J], from: Int = 0) -> OptionOffer? {
         default: break
         }
     }
-    let answerText = { (a: J) -> String in
-        let blocks = ((a["data"] as? J)?["message"] as? J)?["content"] as? [J] ?? []
-        return blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined()
-    }
-    // client.js chatOffer: a hidden news turn after the answer (completed, its reply only `[quiet]`) keeps the answer's
-    // options, unless a message of yours came after that answer. A running or stopped turn, a turn without an answer and a
-    // news turn with other text end them.
+    // client.js chatOffer: in the assistant chat (`quiet`), a hidden news turn after the answer (completed, each of its texts
+    // only `[quiet]`) keeps the answer's options, unless a message of yours came after that answer. A running or stopped
+    // turn, a turn without an answer and a news turn with other text (also with a tool call) end them.
     let kept = Array(turns.filter { t in let s = (t.answer?["seq"] as? Int) ?? t.end ?? t.start; return !spans.contains { $0.contains(s) } }.reversed())
     var i = 0
-    while i < kept.count - 1, kept[i].completed, let a = kept[i].answer, quietReply(answerText(a)) { i += 1 }
+    while quiet, i < kept.count - 1, kept[i].completed, !kept[i].loud, let a = kept[i].answer, quietReply(answerText(a)) { i += 1 }
     guard let latest = turns.last?.start, i < kept.count else { return nil }
     let turn = kept[i]
     if i > 0 {
@@ -2281,7 +2287,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var cardsOff = false
     /// The options of the open chat's last answer, when the chat is idle and they are not picked: nil otherwise.
     var optionOffer: OptionOffer? {
-        guard let sid = current, currentSess?.parent == nil, !running, let from = optionsFrom, let o = chatOffer(events, from: from),
+        guard let sid = current, currentSess?.parent == nil, !running, let from = optionsFrom, let o = chatOffer(events, from: from, quiet: sid == botId),
               optionsOpen(sid, o) || optionBusy.contains(sid) else { return nil }
         return o
     }
@@ -2407,7 +2413,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     func loadPrediction() {
         guard plus.contains("predict"), let sid = current, currentSess?.parent == nil, let seq = predictAfter(events) else { return }
         // Option buttons offer the next step: no guess (and no model call) for that answer.
-        if let o = chatOffer(events, from: optionsFrom ?? 0), optionsOpen(sid, o) { return }
+        if let o = chatOffer(events, from: optionsFrom ?? 0, quiet: sid == botId), optionsOpen(sid, o) { return }
         let key = "\(sid):\(seq)"
         guard predicted != key else { return }
         predicted = key
