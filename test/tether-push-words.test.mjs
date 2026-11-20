@@ -1,8 +1,7 @@
 // Tether's push words (Host half): Turn finished carries the agent's last reply of the turn, and every push names the
 // chat's project. The gateway puts them under this Mac's name (test/tether-gateway.test.mjs, "push: ...").
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { lastReply, mobileGateway, projectOf, quietTurn, ROLLBACK_SOURCE, REWIND_SOURCE } from '../index.js';
+import { lastReply, mobileGateway, projectOf, pushWords, quietTurn, ROLLBACK_SOURCE, REWIND_SOURCE } from '../index.js';
 
 const say = (seq, text) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } });
 const tool = (seq) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'toolCall', id: 't', name: 'bash' }] } } });
@@ -49,7 +48,8 @@ const prompt = (seq, kind) => ({ seq, type: 'user/message', data: { source: { ki
 const answer = (seq, text) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'reasoning', text: 'End the turn.' }, ...(text === undefined ? [] : [{ type: 'text', text }])] } } });
 const turnOf = (seq, kind, text, end = 'completed') => [{ seq, type: 'turn/start' }, { seq: seq + 1, type: 'agent/inbox/spliced' }, { seq: seq + 2, type: 'step/start' },
   prompt(seq + 3, kind), prompt(seq + 4, 'time-context'), answer(seq + 5, text), { seq: seq + 6, type: 'step/end' }, { seq: seq + 7, type: 'turn/end', data: { reason: { kind: end } } }];
-const pushed = (events) => !quietTurn(events, lastReply(events)); // the Host's check (index.js, agent/status)
+const pushed = (events) => pushWords(events) !== undefined; // the Host's check for a chat that is not the assistant (index.js, agent/status)
+assert.equal(pushed([{ type: 'turn/end', data: { reason: { kind: 'completed' } } }]), !quietTurn([{ type: 'turn/end', data: { reason: { kind: 'completed' } } }], ''), 'pushWords keeps quietTurn');
 const NEWS = 'composer-plus-assistant-news';
 for (const kind of [NEWS, 'user', 'schedule']) {
   assert.equal(pushed(turnOf(1, kind)), false, `${kind}: empty reply: no push`);
@@ -68,7 +68,12 @@ assert.equal(pushed(turnOf(1, 'user', '[quiet]').slice(0, -1)), true, 'no turn/e
 assert.equal(pushed([...turnOf(1, 'user', 'Fixed the login.'), ...turnOf(9, NEWS, '[quiet]')]), false, 'only the newest turn counts: quiet');
 assert.equal(pushed([...turnOf(1, NEWS, '[quiet]'), ...turnOf(9, 'user', 'Fixed the login.')]), true, 'only the newest turn counts: push');
 assert.equal(pushed([...turnOf(1, NEWS, '[quiet]'), ...turnOf(9, 'user', '[quiet]', 'max-tokens')]), true, 'only the newest turn end counts');
-// The Host gives the green dot first and pushes only when the turn has something to say.
-const host = readFileSync(new URL('../index.js', import.meta.url), 'utf8');
-assert.match(host, /changeUnread\(\[agent\.id\], \[\]\);[\s\S]{0,600}quiet = quietTurn\(events, reply\);[\s\S]{0,100}if \(!quiet\) mobile\?\.push\('Turn finished', reply, agent\.id\);/, 'the dot stays, only the push is skipped');
+// The assistant chat's run (`from`: where it started): a run whose every text is [quiet] gives no push; a run that is news
+// pushes its newest real text, also when its last reply is [quiet] (a real reply, then a queued [quiet] news turn).
+const run = [...turnOf(1, 'user', 'Fixed the login.'), ...turnOf(9, NEWS, '[quiet]')];
+assert.equal(pushWords(run, 0), 'Fixed the login.', 'the assistant run with a real reply pushes it');
+assert.equal(pushWords(run, 8), undefined, 'a quiet run of the assistant: no push');
+assert.equal(pushWords([...turnOf(1, NEWS, '[quiet]', 'error')], 0), '', 'a failed turn pushes, never with the words [quiet]');
+assert.equal(pushWords(turnOf(1, NEWS, 'Deploy failed.'), 0), 'Deploy failed.');
+// The Host's push and green dot on a real agent/status edge: test/unread.test.mjs and test/quiet-replies.test.mjs.
 console.log('tether push words: last reply of the turn (withdrawn replies left out), project name, chat id to the gateway, no push for an empty or [quiet] reply');
