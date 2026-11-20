@@ -1,7 +1,8 @@
 // Live copy check (read only): does the live copy of the plugin match ONE commit of main?
 // Usage: node scripts/live-copy-check.mjs [--live <folder>] [--commits <n>] [--repo <folder>]
-// It compares client.js, index.js and backup.mjs (and release-notes.json and tether/gateway/* when the live copy has
-// them) with `git show <commit>:<file>` for the newest n first-parent commits of the local main. The live client.js keeps
+// It compares client.js, index.js, backup.mjs, release-notes.json and tether/gateway/{server.mjs,admin.html,qr.swift}
+// with `git show <commit>:<file>` for the newest n first-parent commits of the local main. A file that the live folder
+// does not have is `none`, so the result is MIXED. The live client.js keeps
 // its own line 12 (LIVE_ID): line 12 of the commit becomes LIVE_ID before the compare, so another line 12 matches nothing.
 // Output: `MATCH <short sha> <subject> (newest main commit | n commits behind main)`, exit 0; else one line per file
 // (newest matching commit or `none`), `MIXED`, exit 1. Exit 2: bad argument, no live folder or git error. No writes.
@@ -37,12 +38,11 @@ try {
 } catch (error) { fail(`live-copy-check: ${error.message.trim()}`); }
 if (!log.length) fail('live-copy-check: no commits on main');
 
-const optional = ['release-notes.json', 'tether/gateway/server.mjs', 'tether/gateway/admin.html', 'tether/gateway/qr.swift'];
-const files = ['client.js', 'index.js', 'backup.mjs', ...optional.filter((f) => existsSync(join(opts.live, f)))];
+const files = ['client.js', 'index.js', 'backup.mjs', 'release-notes.json', 'tether/gateway/server.mjs', 'tether/gateway/admin.html', 'tether/gateway/qr.swift'];
 const rows = files.map((file) => {
   const path = join(opts.live, file);
   const buf = existsSync(path) ? readFileSync(path) : null;
-  // equal[i]: the live file is equal to the file in commit log[i].
+  // equal[i]: the live file is equal to the file in commit log[i]. A file that the live folder does not have equals nothing.
   const equal = log.map((c) => { const repoBuf = buf && show(c.full, file); return !!repoBuf && buf.equals(file === 'client.js' ? asLive(repoBuf) : repoBuf); });
   return { file, equal, missing: !buf };
 });
@@ -51,7 +51,8 @@ const at = log.findIndex((_, i) => rows.every((r) => r.equal[i]));
 if (at >= 0) console.log(`MATCH ${log[at].short} ${log[at].subject} (${at ? `${at} commit${at > 1 ? 's' : ''} behind main` : 'newest main commit'})`);
 else {
   for (const r of rows) {
-    const i = r.equal.indexOf(true);
+    if (r.missing && !r.equal.includes(false)) continue; // no checked commit has this file either
+    const i = r.missing ? -1 : r.equal.indexOf(true);
     console.log(i >= 0 ? `${r.file} ${log[i].short} ${log[i].subject}` : `${r.file} none${r.missing ? ' (missing in the live folder)' : ''}`);
   }
   console.log('MIXED');
