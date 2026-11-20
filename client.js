@@ -3903,8 +3903,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const [doneSeen, setDoneSeen] = React.useState(() => readNumber(DONE_SEEN_KEY));
       const [place, setPlaceState] = React.useState(readPlace);
       const setPlace = (p) => { setPlaceState(p); try { localStorage.setItem(STATUS_PLACE_KEY, p); } catch { /* this page only */ } };
-      // At the right, the open panel makes the chat move left (SEAT_ATTR on the chat body); the folded one does not.
-      React.useLayoutEffect(() => { host.setAttribute?.(SEAT_ATTR, place === 'side' && open ? 'open' : 'closed'); return () => host.removeAttribute?.(SEAT_ATTR); }, [host, open, place]);
+      // At the right, the panel makes the chat move left (SEAT_ATTR on the chat body), also while it is folded: the folded
+      // panel still shows its header and the Onay card (review: a folded side panel covered messages).
+      React.useLayoutEffect(() => { host.setAttribute?.(SEAT_ATTR, place === 'side' ? 'open' : 'closed'); return () => host.removeAttribute?.(SEAT_ATTR); }, [host, place]);
       // Phase 2: the view of the open stack, the queue's position and its Sonra order.
       const [view, setViewState] = React.useState(readView);
       const setView = (v) => { setViewState(v); try { localStorage.setItem(CARD_VIEW_KEY, v); } catch { /* this page only */ } };
@@ -4249,7 +4250,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
             React.createElement('button', { id: `${headId}-refresh`, type: 'button', className: 'cp-td-btn', 'data-refreshing': String(state.refreshing), 'aria-disabled': state.refreshing,
               'aria-label': t('status.refresh'), title: t('status.refresh'), onClick: () => { store.refresh(sessionId); } },
               React.createElement(TodoIcon, { name: 'IconRefreshOutlineRegular', glyph: '↻' })),
-            // The place: at the right of the chat or above it (the button names where it moves the panel).
+            // The place: at the right of the chat or above it (the button names where it moves the panel). ponytail: a text
+            // glyph, as TodoIcon's fallback: dsh's primitives have no "panel right" or "panel top" icon (only IconPanelLeft).
             React.createElement('button', { id: `${headId}-place`, type: 'button', className: 'cp-td-btn cp-st-place', 'data-place-button': place,
               'aria-label': t(place === 'side' ? 'status.placeTop' : 'status.placeSide'), title: t(place === 'side' ? 'status.placeTop' : 'status.placeSide'),
               onClick: () => setPlace(place === 'side' ? 'top' : 'side') },

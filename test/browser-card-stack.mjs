@@ -243,6 +243,11 @@ try {
       await pause(500);
       assert.deepEqual([...await flatFaults(page), ...await sideFaults(page, sessionId)], [], 'the cards at the right, 1360x770: flat, over no message');
       await shot('side-cards-1360');
+      // Folded at the right, the header and the Onay card still show: they cover no message either (review).
+      const head = stack.locator('.cp-td-head'); await head.click();
+      await until(async () => (await stack.getAttribute('data-open')) === 'false', 'folded');
+      assert.deepEqual(await sideFaults(page, sessionId), [], 'folded at the right: over no message');
+      await head.click(); await until(async () => (await stack.getAttribute('data-open')) === 'true', 'open again');
       await page.setViewportSize({ width: 900, height: 770 }); await pause(300);
       assert.deepEqual([...await flatFaults(page), ...await topFaults(page, sessionId)], [], 'the right side at 900 px shows above the chat: flat, no sideways scroll');
       await page.setViewportSize({ width: 1280, height: 900 });

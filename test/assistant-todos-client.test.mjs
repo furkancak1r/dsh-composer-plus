@@ -79,13 +79,15 @@ const shell = {
 const notices = [];
 let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
 eval(readFileSync(new URL('../client.js', import.meta.url), 'utf8'));
-// A small hook runtime per component: state and refs by call order; layout effects run at each render; effects are kept.
+// A small hook runtime per component: state and refs by call order; layout effects run at each render (their cleanups
+// are kept: React runs them on unmount); effects are kept.
+const layoutCleanups = [];
 const runtime = () => {
   let hooks = []; let hi = 0; let effects = [];
   const React = { createElement: (t, p, ...c) => ({ t, p: p ?? {}, c }), Fragment: 'F',
     useState: (v) => { const i = hi++; if (!(i in hooks)) hooks[i] = typeof v === 'function' ? v() : v; return [hooks[i], (x) => { hooks[i] = typeof x === 'function' ? x(hooks[i]) : x; }]; },
     useRef: (v) => { const i = hi++; return hooks[i] ??= { current: v }; },
-    useEffect: (f) => { effects.push(f); }, useLayoutEffect: (f) => { f(); }, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f };
+    useEffect: (f) => { effects.push(f); }, useLayoutEffect: (f) => { const off = f(); if (typeof off === 'function') layoutCleanups.push(off); }, useSyncExternalStore: (_s, get) => get(), useMemo: (f) => f(), useCallback: (f) => f };
   return { React, reset: () => { hi = 0; effects = []; }, effects: () => effects, clear: () => { hooks = []; } };
 };
 // The cleanups of the effects that the test ran (the running-task poll is a timer): React runs them on unmount.
@@ -171,6 +173,15 @@ assert.match(style.c[0], /\.cp-b-tiles\{display:flex;flex-wrap:wrap/, 'the four 
   placeBtn(tr).p.onClick(); tr = panel();
   assert.equal(rootOf(tr).p['data-place'], 'side'); assert.equal(mem.get('dsh-composer-plus.status-place'), 'side');
   rt.clear(); tr = panel(); assert.equal(rootOf(tr).p['data-place'], 'side', 'a reload keeps the right side');
+  // Folded at the right, the panel still shows its header (and an Onay card): the chat keeps its room (review).
+  find(tr, (n) => n.t === 'button' && n.p.className === 'cp-td-head')[0].p.onClick(); tr = panel();
+  assert.equal(rootOf(tr).p['data-open'], 'false', 'folded'); assert.equal(attrs.get('data-composer-plus-status-seat'), 'open', 'folded at the right: the chat stays moved left');
+  find(tr, (n) => n.t === 'button' && n.p.className === 'cp-td-head')[0].p.onClick();
+  // Unmount (the feature goes off, the chat closes): the cleanup of the newest draw takes the mark off dsh's chat body
+  // (AGENTS.md rule 1). Only the panel's cleanups: the seat's own cleanup would take the seat away.
+  layoutCleanups.length = 0; tr = panel();
+  for (const off of layoutCleanups.splice(0)) off();
+  assert.equal(attrs.has('data-composer-plus-status-seat'), false, 'unmounted: no mark on the chat body');
   tree = panel();
 }
 // Heading: h2 > button[aria-expanded]; no aria-label on a span.
