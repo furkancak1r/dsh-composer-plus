@@ -11973,6 +11973,20 @@ export const TODO_NUDGE = 'To-do list: in your last turn you started work (subag
 const TODO_ID = /^[0-9a-f]{8}$/;
 const todoText = (raw) => String(raw ?? '').replace(/\s+/g, ' ').trim();
 const todoKey = (text) => foldName(text);
+/** Soft limit of items of owner "user": todo_list_add only adds a note to its result, it never refuses (the user cannot follow a long list). */
+export const TODO_USER_SOFT_LIMIT = 20;
+const TODO_QUOTE_MIN = 4;
+const todoQuotes = (text) => new Set([...String(text).matchAll(/"([^"]*)"|“([^”]*)”/g)].map((m) => (m[1] ?? m[2]).trim().toLocaleLowerCase('tr')).filter((q) => q.length >= TODO_QUOTE_MIN));
+/** The notes that todo_list_add appends to its result (each starts with a space; '' for none). */
+export function todoNotes(list, item, added) {
+  let notes = '';
+  const users = list.filter((i) => i.owner === 'user').length;
+  if (added && item.owner === 'user' && users > TODO_USER_SOFT_LIMIT) notes += ` Note: the user's part of the list has ${users} items (soft limit ${TODO_USER_SOFT_LIMIT}). The user cannot follow a long list: merge items about the same subject and remove done or old items.`;
+  const quotes = todoQuotes(item.text);
+  const same = quotes.size === 0 ? [] : list.filter((i) => i.id !== item.id && [...todoQuotes(i.text)].some((q) => quotes.has(q))).map((i) => i.id);
+  if (same.length > 0) notes += ` Items with the same subject: ${same.slice(0, 5).join(', ')}. Merge them into one item.`;
+  return notes;
+}
 /** A saved item, or undefined when the value is not one. */
 /** `waiting` (only owner "agent"): `{reason, since}` while the item's next step needs the user (issue #6). */
 // `since` must be a valid Date time (at most 8.64e15 ms): todoContext writes it with toISOString, which throws past that.
@@ -12087,8 +12101,8 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         const id = mine(exec);
         if (id === undefined) throw refused('This tool works only in the Composer Plus assistant chat.', 403);
         keepShown(id); // the context keeps the list without this change (todoShown)
-        const { item, added } = await store.change(id, (list) => todoList.add(list, { text: args?.text, owner: args?.owner ?? undefined, waiting: args?.waiting ?? undefined }));
-        return `${added ? 'Added' : 'Already on the list:'} ${item.id} (owner ${item.owner}${item.waiting === undefined ? '' : ', waiting for the user'}): ${JSON.stringify(item.text)}`;
+        const { list, item, added } = await store.change(id, (current) => todoList.add(current, { text: args?.text, owner: args?.owner ?? undefined, waiting: args?.waiting ?? undefined }));
+        return `${added ? 'Added' : 'Already on the list:'} ${item.id} (owner ${item.owner}${item.waiting === undefined ? '' : ', waiting for the user'}): ${JSON.stringify(item.text)}${todoNotes(list, item, added)}`;
       },
     },
     {
