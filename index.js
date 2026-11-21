@@ -11978,7 +11978,7 @@ export const TODO_USER_SOFT_LIMIT = 20;
 const TODO_QUOTE_MIN = 4;
 const todoQuotes = (text) => new Set([...String(text).matchAll(/"([^"]*)"|“([^”]*)”/g)].map((m) => (m[1] ?? m[2]).trim().toLocaleLowerCase('tr')).filter((q) => q.length >= TODO_QUOTE_MIN));
 /** The notes that todo_list_add appends to its result (each starts with a space; '' for none). */
-export function todoNotes(list, item, added) {
+function todoNotes(list, item, added) {
   let notes = '';
   const users = list.filter((i) => i.owner === 'user').length;
   if (added && item.owner === 'user' && users > TODO_USER_SOFT_LIMIT) notes += ` Note: the user's part of the list has ${users} items (soft limit ${TODO_USER_SOFT_LIMIT}). The user cannot follow a long list: merge items about the same subject and remove done or old items.`;
