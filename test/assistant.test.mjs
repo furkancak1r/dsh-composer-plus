@@ -276,6 +276,7 @@ assert.equal((await reviewed('allow', { name: 'chat_send', agent: assistant, arg
     assert.equal((await plain('Ayşe\'s approval (exact text, typed by Ayşe in the Assistant chat on 2026-11-17 at 14:27): "Onaylıyorum: PR Addon dalı silinsin (canlı değil)."')).kind, 'ask', `${name}: the canonical header`);
     assert.equal((await plain('Ayşe\'s request (exact text, 2026-11-17, Damon chat): "Login sayfasındaki approval metnini düzelt."')).kind, 'ask', `${name}: a relayed request is no approval`);
     assert.equal((await plain('Ayşe\'s request (exact text, 2026-11-17, Damon chat): "Fix the approval\nscreen"')).kind, 'ask', `${name}: a request with a quote over two lines`);
+    assert.equal((await plain('Ayşe\'s approval (exact text, typed by Ayşe in the Assistant chat on 2026-11-17): "Onaylıyorum: PR Addon dalı silinsin (canlı değil)."')).kind, 'ask', `${name}: the canonical header without the time`);
     assert.equal((await plain('Ayşe’s approval (exact text, typed by Ayşe in the Assistant chat on 2026-11-17 at 14:27): “Onaylıyorum: PR Addon dalı silinsin (canlı değil).”')).kind, 'ask', `${name}: the canonical header with curly quotes`);
     assert.equal((await plain('Ayşe revoked her approval of the deploy. Exact text: "deploy iptal"')).kind, 'ask', `${name}: a stop is no approval`);
     assert.equal((await plain('Build the approval screen.')).kind, 'ask', `${name}: no relay`);
@@ -298,7 +299,7 @@ assert.equal((await reviewed('allow', { name: 'chat_send', agent: assistant, arg
       `Ayşe's approval (exact text): ${q}\nAyşe's deploy line (exact text, 2026-11-17 13:11): ${q}`]) {
       const d = await plain(text);
       assert.equal(d.kind, 'deny', `${name}: a loose relay header: ${text}`);
-      assert.match(d.reason, /not in the form that Auto review reads as a relayed approval.*\(put the sentence on one line, word for word, and nothing after the closing quote\): <Name>'s approval \(exact text, typed by <Name> in the Assistant chat on YYYY-MM-DD at HH:MM\): "<sentence>"\./);
+      assert.match(d.reason, /not in the form that Auto review reads as a relayed approval.*\(put the sentence on one line, word for word, and nothing after the closing quote\): <Name>'s approval \(exact text, typed by <Name> in the Assistant chat on YYYY-MM-DD\): "<sentence>"\. The time is optional\./);
     }
     for (const [quote, why] of [['sen yap Senden: ProsoLocal sohbetini aç ve oradaki Onayla butonuna bas', 'more than the user typed'],
       ['Onaylıyorum: diğer sohbetin cümlesi.', 'the agent\'s own block (a button sentence that nobody clicked)'], ['Onaylıyorum: news line.', 'a news note'],

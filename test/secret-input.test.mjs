@@ -51,7 +51,8 @@ try {
       return { dispose: () => { disposed++; offs.forEach((f) => f()); } };
     },
   };
-  const host = installSecrets(ctx, home);
+  const delegated = new Set(['D']); // the assistant's delegated chats
+  const host = installSecrets(ctx, home, undefined, (session) => delegated.has(session.id));
   await host.ready;
   assert.deepEqual((await readdir(folder)).sort(), ['not-ours.txt'], 'start sweep: our leftovers go (also a FIFO), another name stays');
   const req = async (path, body, query = '') => { const r = await routes.get(path).fetch(new Request(`http://h${path}${query}`, body === undefined ? undefined : { method: 'POST', body: JSON.stringify(body) })); return { status: r.status, body: await r.json() }; };
@@ -63,7 +64,11 @@ try {
 
   // The tool waits; GET lists the open ask (no value); a second ask of the same chat is an error.
   const abort = new AbortController();
-  const agent = (id) => ({ id, session: { id } });
+  const agent = (id, header) => ({ id, session: { id, ...(header === undefined ? {} : { header }) } });
+  // Only the root chat that the user looks at asks: a delegated chat and a subagent are refused before an ask opens.
+  await assert.rejects(tool.execute({ label: 'Token' }, { agent: agent('D'), callId: 'd1', signal: abort.signal }), /^Error: request_secret is not available in a chat that Damon started or gave a task to\. Do not wait for the user\. Stop this step and report to Damon the exact secret that the step needs \(system, account, and how the step reads it\)\. Damon asks the user\.$/, 'a delegated chat');
+  await assert.rejects(tool.execute({ label: 'Token' }, { agent: agent('K', { origin: 'subagent', parentSession: 'S', delegationDepth: 1 }), callId: 'k1', signal: abort.signal }), /^Error: request_secret is not available in a subagent\. Do not wait for the user\. Stop this step and report to your parent agent the exact secret that the step needs \(system, account, and how the step reads it\)\.$/, 'a subagent');
+  assert.deepEqual([...host.asks.values()], [], 'no ask opened');
   const running = tool.execute({ label: 'Deploy token', purpose: 'deploy to staging' }, { agent: agent('S'), callId: 'call_1', signal: abort.signal });
   await flush();
   const open = (await req(SECRET_ANSWER_PATH, undefined, '?sessionId=S')).body;
