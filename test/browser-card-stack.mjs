@@ -10,9 +10,11 @@
 // 4. Typing in the composer hides Onayla; the card stays.
 // 5. Özet getir, Projeler, the → of a note and Yaptım of a Senden card still work (nothing sent by → or Yaptım).
 // 6. No page errors.
-// 7. Kuyruk (phase 2): the Onay entry first, the choice (the option list of the newest answer) and the Senden cards one at
-//    a time; Sonra moves an entry to the end; a choice sends "Option N: …" once; "N kalan" and "x/y cevaplandı".
-// 8. Brifing: "Sıradaki tek iş · N işten 1.", four counts; Seni bekliyor opens the queue.
+// 7. One list (Furkan, 2026-11-23): no Kartlar/Kuyruk/Brifing switch; the Onay card is the active item (the only card with
+//    a left line); the choice (the option list of the newest answer) is the first Senden card, its → focuses the buttons
+//    under the answer (one set on screen) and the answer's numbered list is hidden while they show; J makes the choice
+//    active and 2 sends "Option 2: …" once.
+// 8. The cards have icon buttons (each with its name as the tooltip) and no İzle.
 // 9. The place button (Furkan, 2026-11-20): Enter and Space move the stack above the chat and back, the focus stays on the
 //    button, a reload keeps the choice. At 1360x770 and at 900 px, in both places: the page and the stack do not scroll
 //    sideways, nothing leaves the stack, no part inside it is a box (background, shadow, border on two sides); above the
@@ -52,7 +54,7 @@ const flatFaults = (page) => page.locator('[data-composer-plus-todos]').evaluate
   for (const el of root.querySelectorAll('*')) {
     const b = r(el); if (b.width === 0 || el.closest('.cp-st-sr, [hidden], details:not([open]) > :not(summary)')) continue;
     if (b.left < box.left - 1 || b.right > box.right + 1) faults.push(`${name(el)} leaves the stack (${Math.round(b.left)}–${Math.round(b.right)} / ${Math.round(box.left)}–${Math.round(box.right)})`);
-    if (el.closest('button:not(.cp-b-tile), .cp-cs-tag, .cp-q-prog, .cp-st-skel, .cp-st-spin')) continue;
+    if (el.closest('button, summary, .cp-cs-tag, .cp-st-skel, .cp-st-spin')) continue;
     const s = getComputedStyle(el); const sides = ['Top', 'Right', 'Bottom', 'Left'].filter((d) => parseFloat(s[`border${d}Width`]) > 0 && s[`border${d}Style`] !== 'none');
     const bg = s.backgroundColor.match(/[\d.]+/g)?.map(Number) ?? [0, 0, 0, 0];
     if ((bg.length === 4 ? bg[3] : 1) > 0) faults.push(`${name(el)} has a background (${s.backgroundColor})`);
@@ -122,8 +124,8 @@ try {
       await until(async () => (await counts.innerText()).trim() === want, `the count bar (${await counts.innerText()})`, 20000);
       const order = await stack.evaluate((el) => [...el.querySelectorAll('[data-card="onay"][role="region"], section[data-group]')].map((n) => n.dataset.card ?? n.dataset.group));
       assert.deepEqual(order, ['onay', 'sorun', 'senden', 'suruyor', 'bitti', 'notes'], 'the order of the stack');
-      assert.equal(await stack.locator('[data-group="bitti"] button[aria-expanded]').getAttribute('aria-expanded'), 'false', 'Bugün bitti starts folded');
-      assert.equal(await stack.locator('[data-group="notes"] button[aria-expanded]').getAttribute('aria-expanded'), 'false', 'Notların starts folded');
+      assert.equal(await stack.locator('button.cp-td-group[data-group="bitti"]').getAttribute('aria-expanded'), 'false', 'Bugün bitti starts folded');
+      assert.equal(await stack.locator('button.cp-td-group[data-group="notes"]').getAttribute('aria-expanded'), 'false', 'Notların starts folded');
       note('1: the stack at the right of the chat (the default), the count bar, the order (Bugün bitti and Notların folded)');
       // 2. The Onay card: the whole sentence and one Onayla; none under the reply; the sentence in the reply as gray text.
       const onay = stack.locator('[data-card="onay"][role="region"]');
@@ -144,10 +146,10 @@ try {
       note('4: typing hides Onayla, the card stays; an empty composer brings it back');
       // 5. → of a note and Yaptım of a Senden card write into the composer and send nothing.
       const before = calls.length;
-      await stack.locator('[data-group="notes"] button[aria-expanded]').click();
+      await stack.locator('button.cp-td-group[data-group="notes"]').click();
       await stack.getByRole('button', { name: 'Asistana devret: Kırtasiye siparişini ver', exact: true }).click();
       await until(async () => (await input.innerText()).includes('Bunu sen yap: Kırtasiye siparişini ver'), '→ writes the hand-over');
-      await stack.locator('[data-card="senden"]').filter({ hasText: 'Gerekli Tarih alanını aç' }).getByRole('button', { name: 'Yaptım', exact: true }).click();
+      await stack.locator('[data-card="senden"]').filter({ hasText: 'Gerekli Tarih alanını aç' }).getByRole('button', { name: 'Yaptım: Test sunucusunda Gerekli Tarih alanını aç', exact: true }).click();
       await until(async () => (await input.innerText()).includes('Yaptım: Test sunucusunda Gerekli Tarih alanını aç'), 'Yaptım writes the step');
       await pause(1200); assert.equal(calls.length, before, 'nothing sent');
       // Projeler: the projects of the last 24 hours (the demo has no other chat: the empty line), in view.
@@ -169,48 +171,47 @@ try {
       assert.equal(calls.slice(sent).filter((c) => c.newest === APPROVAL && c.step === 0).length, 1, `one user message: ${JSON.stringify(calls.slice(sent).map((c) => [c.newest.slice(0, 40), c.step]))}`);
       await until(async () => (await approve.count()) === 0, 'the button goes after the send');
       note('3: Onayla sent the exact sentence once as the user\'s message; the model got it; the button went');
-      // 7. Phase 2: the decision queue. The answer to the approval ends with an option list: the queue has the choice and
-      // the two Senden cards (the Onay items still wait: the Onay card stays first, without Onayla now).
-      await stack.locator('[data-view-button="queue"]').click();
-      const queue = stack.locator('section[data-view="queue"]');
-      await queue.waitFor({ timeout: 10000 });
-      const entry = () => queue.locator('[data-queue-entry]').getAttribute('data-queue-entry');
-      await until(async () => (await queue.innerText()).includes('4 kalan'), `the queue head (${await queue.innerText().catch(() => '')})`, 20000);
-      assert.equal(await entry(), 'onay', 'the Onay entry first');
-      assert.equal(await stack.locator('[data-card="onay"][role="region"]').count(), 1, 'one Onay card on screen');
-      await queue.getByRole('button', { name: 'Sonraki', exact: true }).click();
-      assert.equal(await entry(), 'karar', 'Sonraki: the choice');
-      const choiceBtn = queue.locator('[data-composer-plus-choice="2"]');
-      assert.equal((await choiceBtn.innerText()).trim(), '2. Yarın sabah denensin');
-      // Sonra moves the choice to the end; Önceki goes back.
-      await queue.getByRole('button', { name: 'Sonra', exact: true }).click();
-      await until(async () => (await entry()) !== 'karar', 'Sonra moves the choice');
-      const seenOrder = [];
-      for (let i = 0; i < 4; i++) { seenOrder.push(await entry()); const next = queue.getByRole('button', { name: 'Sonraki', exact: true }); if (await next.isDisabled()) break; await next.click(); }
-      assert.equal(seenOrder.at(-1), 'karar', `the choice is at the end (${seenOrder})`);
-      // The choice sends "Option 2: …" once, as the button under the answer does.
+      // 7. One list: the Onay card stays active (its items still wait); the answer to the approval ends with an option
+      // list: the choice is the first Senden card; its buttons are only under the answer, and the answer's list is hidden.
+      assert.equal(await stack.locator('[data-view-button], section[data-view]').count(), 0, 'one list: no view switch');
+      const activeOf = () => stack.locator('[data-active]').evaluateAll((els) => els.map((e) => e.dataset.card));
+      await until(async () => (await stack.locator('[data-card="karar"]').count()) === 1, 'the choice card', 20000);
+      assert.deepEqual(await activeOf(), ['onay'], 'the Onay card is the active item');
+      const lines = await stack.locator('.cp-cs-card').evaluateAll((els) => els.filter((e) => e.offsetParent !== null).map((e) => [e.dataset.card, getComputedStyle(e).borderLeftColor]));
+      const clear = lines.filter(([card]) => card !== 'onay').map(([, c]) => c);
+      assert.ok(clear.every((c) => c === 'rgba(0, 0, 0, 0)'), `only the active item has a left line (${JSON.stringify(lines)})`);
+      assert.notEqual(lines.find(([card]) => card === 'onay')[1], 'rgba(0, 0, 0, 0)', 'the active item has its line');
+      const picks = page.locator('[data-composer-plus-option-picks] button');
+      assert.equal(await picks.count(), 2, 'the option buttons under the answer');
+      assert.equal(await stack.locator('[data-composer-plus-choice]').count(), 0, 'no second set in the panel');
+      const lists = () => page.locator('[data-chat-node-key]').filter({ hasText: 'Servis betiği ne zaman denensin?' }).locator('ol').evaluateAll((els) => els.map((e) => getComputedStyle(e).display));
+      assert.deepEqual(await lists(), ['none'], 'the answer\'s numbered list is hidden: the options show once, as buttons');
+      assert.equal(await picks.nth(1).getAttribute('title'), 'Yarın sabah denensin', 'the whole item in the tooltip');
+      // For you can start folded (the stack shows CARDS_SHOWN cards before it folds a group): open it.
+      const sendenHead = stack.locator('button.cp-td-group[data-group="senden"]');
+      if ((await sendenHead.getAttribute('aria-expanded')) !== 'true') await sendenHead.click();
+      await stack.locator('[data-card="karar"] [data-act="main"]').click();
+      assert.equal(await page.evaluate(() => document.activeElement?.closest('[data-composer-plus-option-picks]') !== null), true, '→ focuses the buttons under the answer');
+      // J makes the choice active; after 800 ms, 2 sends "Option 2: …" once.
+      await stack.locator('.cp-td-head').focus();
+      await page.keyboard.press('j');
+      await until(async () => JSON.stringify(await activeOf()) === '["karar"]', 'J: the choice is active');
+      await pause(1000);
       const before7 = calls.length;
-      await choiceBtn.click(); await choiceBtn.click({ timeout: 1000 }).catch(() => {});
+      await page.keyboard.press('2'); await page.keyboard.press('2');
       await until(() => calls.slice(before7).some((c) => c.newest === 'Option 2: Yarın sabah denensin'), 'the model got the choice');
       await pause(1500);
       assert.equal(calls.slice(before7).filter((c) => c.newest === 'Option 2: Yarın sabah denensin' && c.step === 0).length, 1, 'one message for the choice');
-      await until(async () => (await queue.innerText()).includes('3 kalan'), 'the choice left the queue');
-      assert.match(await queue.innerText(), /1\/4 cevaplandı/, 'x/y cevaplandı');
-      note('7: Kuyruk: Onay first, then the choice (Sonraki); Sonra moves it to the end; the choice sent "Option 2" once; 3 kalan, 1/4 cevaplandı');
-      // 8. The briefing: the next entry, four counts; Seni bekliyor opens the queue.
-      await stack.locator('[data-view-button="brief"]').click();
-      const brief = stack.locator('section[data-view="brief"]');
-      await brief.waitFor({ timeout: 10000 });
-      assert.match(await brief.innerText(), /Sıradaki tek iş · 3 işten 1\./);
-      assert.deepEqual(await brief.locator('[data-tile]').evaluateAll((els) => els.map((e) => e.dataset.tile)), ['senden', 'sorun', 'suruyor', 'bitti']);
-      await brief.locator('[data-tile="senden"]').click();
-      await queue.waitFor({ timeout: 10000 });
-      await stack.locator('[data-view-button="stack"]').click();
-      note('8: Brifing: Sıradaki tek iş · 3 işten 1., four counts, Seni bekliyor opens the queue');
+      await until(async () => (await stack.locator('[data-card="karar"]').count()) === 0, 'the choice left the list');
+      note('7: one list: Onay active (the only left line); the choice is the first Senden card; its buttons only under the answer, whose list is hidden; J + 2 sent "Option 2" once');
+      // 8. Icon buttons: each has a name and the same tooltip; no İzle.
+      const unnamed = await stack.locator('.cp-cs-card button.cp-td-btn').evaluateAll((els) => els.filter((b) => !b.getAttribute('aria-label') || b.title !== b.getAttribute('aria-label')).length);
+      assert.equal(unnamed, 0, 'each icon button has its name as its tooltip');
+      assert.equal(await stack.getByRole('button', { name: 'İzle', exact: true }).count(), 0, 'no İzle');
+      note('8: icon buttons with names and tooltips; no İzle');
       // 9. The place button (Furkan, 2026-11-20): keyboard only; the choice stays after a reload; both places are flat, do
       // not scroll sideways and stay in their room, at 1360x770 (the screenshot's window) and at 900 px.
       const shot = async (name) => { if (process.env.SHOTS) await page.screenshot({ path: join(process.env.SHOTS, `${version}-${name}.png`) }); };
-      await stack.locator('[data-view-button="brief"]').click(); await brief.waitFor({ timeout: 10000 });
       await page.setViewportSize({ width: 1360, height: 770 }); await pause(300);
       const place = stack.locator('[data-place-button]');
       assert.equal(await place.getAttribute('aria-label'), 'Sohbetin üstünde göster', 'its name says where it moves the panel');
@@ -226,15 +227,13 @@ try {
       await page.reload();
       if (!(await stack.waitFor({ timeout: 10000 }).then(() => true, () => false))) { await page.keyboard.press('Escape'); await page.locator('button[aria-label="Damon"]').click(); await stack.waitFor({ timeout: 30000 }); }
       assert.equal(await stack.getAttribute('data-place'), 'top', 'a reload keeps the place above the chat');
-      await brief.waitFor({ timeout: 10000 }); await pause(500);
+      await pause(500);
       assert.deepEqual([...await flatFaults(page), ...await topFaults(page, sessionId)], [], 'above the chat, 1360x770: flat, in the chat column, above the chat');
       await shot('top-1360');
       await page.setViewportSize({ width: 900, height: 770 }); await pause(300);
       assert.deepEqual([...await flatFaults(page), ...await topFaults(page, sessionId)], [], 'above the chat, 900 px: flat, no sideways scroll');
       assert.equal(await place.isVisible(), false, 'below 1000 px the place button hides');
       await shot('top-900');
-      await stack.locator('[data-view-button="stack"]').click(); await pause(300);
-      assert.deepEqual(await flatFaults(page), [], 'the cards above the chat, 900 px: flat');
       await page.setViewportSize({ width: 1360, height: 770 }); await pause(300);
       await place.click(); await until(async () => (await stack.getAttribute('data-place')) === 'side', 'a click moves it to the right');
       await page.reload();

@@ -5,7 +5,10 @@
 //   deploy ("canli degil": no CANLI label);
 // - a scheduled task with a `new` target: dsh opens a new chat for it in the Damon project folder (an automation chat).
 // It writes <SHOTS>/<PREFIX>.png (the panel) and <SHOTS>/<PREFIX>-projeler.png (Projeler open), each about 368 px wide.
-// It checks that the panel shows no automation chat (CHECK=1, after the change) and no page errors.
+// OPTIONS=1 approves the demo's sentence first, so the newest reply ends with a "Seçenekler:" list: it also writes
+// <SHOTS>/<PREFIX>-secenekler.png (the reply with its option buttons, the panel at its right).
+// It checks that the panel shows no automation chat (CHECK=1, after the change) and no page errors; with OPTIONS=1, that
+// the reply shows its options once (buttons, no numbered list) and that the panel has one list (no view switch).
 // PLAYWRIGHT=/path/to/playwright SHOTS=<folder> PREFIX=panel-sonra-koyu SCHEME=dark node test/browser-panel-shots.mjs <dsh/lib/bin.js>
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
@@ -13,7 +16,7 @@ import { readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fakeModel, demoHome, startDemo, seed, rpcOf } from '../scripts/demo-card-stack.mjs';
 const require = createRequire(import.meta.url);
-const { PLAYWRIGHT, SHOTS, PREFIX = 'panel', SCHEME = 'dark', VIEW, CHECK } = process.env;
+const { PLAYWRIGHT, SHOTS, PREFIX = 'panel', SCHEME = 'dark', VIEW, CHECK, OPTIONS } = process.env;
 if (!PLAYWRIGHT || !SHOTS || process.argv.length < 3) throw Error('Set PLAYWRIGHT and SHOTS and pass one dsh CLI entry path');
 const { chromium } = require(PLAYWRIGHT);
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -74,6 +77,24 @@ try {
   const projects = await panel.locator('section[aria-labelledby$="-projects-h"]').innerText();
   console.log(`  Projeler: ${projects.replace(/\s+/g, ' ').slice(0, 300)}`);
   await shot(`${PREFIX}-projeler`);
+  await page.locator('[id$="-projects"]').first().click(); await pause(400);
+  if (OPTIONS) {
+    // Onayla: the demo model answers with "Servis betiği ne zaman denensin? **Seçenekler:** 1. … 2. …".
+    await panel.locator('[data-composer-plus-approve="card"]').click();
+    const picks = page.locator('[data-composer-plus-option-picks] button');
+    await until(async () => (await picks.count()) === 2, 'the option buttons', 60000);
+    await page.mouse.move(5, 5); await pause(1200);
+    const answer = page.locator('[data-chat-node-key]').filter({ hasText: 'Servis betiği ne zaman denensin?' }).last();
+    const lists = await answer.locator('ol').evaluateAll((els) => els.map((e) => getComputedStyle(e).display));
+    assert.deepEqual(lists, ['none'], 'the options show once: buttons, no numbered list');
+    assert.equal(await panel.locator('[data-view-button], section[data-view]').count(), 0, 'one list: no view switch');
+    // The reply and its buttons, with the panel at its right.
+    const a = await answer.boundingBox(); const b = await panel.boundingBox(); const p = await page.locator('[data-composer-plus-option-picks]').boundingBox();
+    const top = Math.max(0, Math.min(a.y, b.y) - 12); const bottom = Math.max(p.y + p.height, b.y + b.height) + 12;
+    const left = Math.max(0, a.x - 24); const right = b.x + b.width + 34;
+    await page.screenshot({ path: join(SHOTS, `${PREFIX}-secenekler.png`), clip: { x: left, y: top, width: right - left, height: bottom - top } });
+    console.log(`  ${join(SHOTS, `${PREFIX}-secenekler.png`)}`);
+  }
   if (CHECK) {
     assert.doesNotMatch(projects, /Demo automation/, 'no chat that a schedule opened');
     assert.doesNotMatch(await panel.innerText(), /CANLI/, 'no CANLI label for "canli degil"');

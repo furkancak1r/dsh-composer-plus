@@ -3439,7 +3439,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // it alone is higher than the stack, so Onayla is always in the stack (review 1).
       + `[${TODOS_ATTR}] .cp-cs-fixed{flex:none;max-height:calc(40vh - 2px);overflow-y:auto;padding:0 6px}[${TODOS_ATTR}] .cp-cs-fixed .cp-st-summary{max-height:14vh;overflow-y:auto}`
       + `[${TODOS_ATTR}] .cp-cs-count{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-secondary);font-weight:500}`
-      + `[${TODOS_ATTR}] .cp-cs-card{--cp-co:var(--dsw-alias-label-secondary,#6b7280);margin:4px 0 0;padding:4px 8px;border:0;border-left:2px solid var(--cp-co);list-style:none;display:block}`
+      // The thin line at the left shows only on the active item (one list; Furkan, 2026-11-23); the symbol keeps the color.
+      + `[${TODOS_ATTR}] .cp-cs-card{--cp-co:var(--dsw-alias-label-secondary,#6b7280);margin:4px 0 0;padding:4px 8px;border:0;border-left:2px solid transparent;list-style:none;display:block}[${TODOS_ATTR}] .cp-cs-card[data-active]{border-left-color:var(--cp-co)}`
       + `[${TODOS_ATTR}] .cp-cs-card[data-card="onay"]{--cp-co:var(--dsw-alias-state-business-primary,#3b6cf6)}[${TODOS_ATTR}] .cp-cs-card[data-card="sorun"]{--cp-co:var(--dsw-alias-state-error-primary,#d92d20)}`
       + `[${TODOS_ATTR}] .cp-cs-card[data-card="senden"]{--cp-co:var(--dsw-alias-state-warn-primary,#f59e0b)}[${TODOS_ATTR}] .cp-cs-card[data-card="bitti"]{--cp-co:var(--dsw-alias-state-success-primary,#16a34a)}`
       + `[${TODOS_ATTR}] .cp-cs-line{display:flex;align-items:flex-start;gap:6px}[${TODOS_ATTR}] .cp-cs-main{flex:1;min-width:0;overflow-wrap:anywhere}`
@@ -3449,15 +3450,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${TODOS_ATTR}] .cp-cs-act[data-primary]{background:var(--cp-co);color:#fff;font-weight:600}[${TODOS_ATTR}] .cp-cs-act:disabled{opacity:.5;cursor:default}`
       + `[${TODOS_ATTR}] .cp-cs-tag{margin-left:6px;padding:0 5px;border-radius:4px;font-size:10px;font-weight:700;line-height:16px;color:#fff;background:var(--dsw-alias-state-error-primary,#d92d20)}[${TODOS_ATTR}] .cp-cs-new{color:var(--dsw-alias-state-success-label,#1a7f37);font-weight:600}`
       + `[${TODOS_ATTR}] .cp-cs-sentence{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}[${TODOS_ATTR}] .cp-st-body{flex:1 1 auto;min-height:0}`
-      // Phase 2: the view buttons (Kartlar, Kuyruk, Brifing), the queue's head and empty state, the briefing's four counts.
-      + `[${TODOS_ATTR}] .cp-cs-card[data-card="karar"]{--cp-co:var(--dsw-alias-state-warn-primary,#f59e0b)}[${TODOS_ATTR}] .cp-cs-opt{max-width:100%;overflow:hidden;text-overflow:ellipsis}`
-      + `[${TODOS_ATTR}] .cp-cs-views{display:flex;flex-wrap:wrap;gap:4px;padding:6px 0 0}[${TODOS_ATTR}] .cp-cs-views button{height:24px;padding:0 10px;border:0;border-radius:999px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;cursor:pointer}`
-      + `[${TODOS_ATTR}] .cp-cs-views button[aria-pressed="true"]{background:var(--dsw-alias-interactive-bg-hover,rgba(127,127,127,.15));color:var(--dsw-alias-label-primary);font-weight:600}[${TODOS_ATTR}] section[data-view]:focus{outline:none}`
-      + `[${TODOS_ATTR}] .cp-q-top{display:flex;align-items:center;gap:8px;padding:2px 4px;font-size:12px;color:var(--dsw-alias-label-secondary)}[${TODOS_ATTR}] .cp-q-prog{flex:1;height:4px;border-radius:2px;overflow:hidden;background:var(--dsw-alias-border-l3)}`
-      + `[${TODOS_ATTR}] .cp-q-prog>i{display:block;height:100%;background:var(--dsw-alias-state-success-primary,#16a34a);transform-origin:left}[${TODOS_ATTR}] .cp-q-zero{display:flex;flex-direction:column;gap:2px;padding:12px 4px}`
-      // The briefing's four counts: one line of "label count" buttons that wraps in a narrow panel.
-      + `[${TODOS_ATTR}] .cp-b-tiles{display:flex;flex-wrap:wrap;gap:2px 14px;padding:6px 4px 2px}[${TODOS_ATTR}] .cp-b-tile{--cp-co:var(--dsw-alias-label-secondary);display:inline-flex;align-items:baseline;gap:5px;min-width:0;padding:2px 0;border:0;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;text-align:left;cursor:pointer}`
-      + `[${TODOS_ATTR}] .cp-b-tile>strong{font-size:15px;line-height:20px;color:var(--cp-co)}[${TODOS_ATTR}] .cp-b-tile:hover>span{text-decoration:underline}[${TODOS_ATTR}] .cp-b-tile[data-card="senden"]{--cp-co:var(--dsw-alias-state-warn-primary,#f59e0b)}[${TODOS_ATTR}] .cp-b-tile[data-card="sorun"]{--cp-co:var(--dsw-alias-state-error-primary,#d92d20)}[${TODOS_ATTR}] .cp-b-tile[data-card="bitti"]{--cp-co:var(--dsw-alias-state-success-primary,#16a34a)}`
+      + `[${TODOS_ATTR}] .cp-cs-card[data-card="karar"]{--cp-co:var(--dsw-alias-state-warn-primary,#f59e0b)}[${TODOS_ATTR}] .cp-cs-card[data-opens="true"]{cursor:pointer}`
+      // A card's icons (→, ×, "…") in one row at its right; "…" without dsh's menu is a disclosure with text buttons.
+      + `[${TODOS_ATTR}] .cp-cs-acts{flex:none;display:flex;align-items:center}[${TODOS_ATTR}] .cp-cs-more{position:relative}[${TODOS_ATTR}] .cp-cs-more>summary{list-style:none;width:26px;line-height:26px;text-align:center;cursor:pointer}`
+      + `[${TODOS_ATTR}] .cp-cs-more>summary::-webkit-details-marker{display:none}[${TODOS_ATTR}] .cp-cs-more[open]>button{display:block;margin:2px 0}`
       + `[${TODOS_ATTR}] .cp-st-body ul{margin:0;padding:0}[${TODOS_ATTR}] .cp-cs-card li{border:0;padding:2px 0}`
       + `[${TODOS_ATTR}] h2,[${TODOS_ATTR}] h3,[${TODOS_ATTR}] h4{margin:0;font-size:13px;line-height:18px}[${TODOS_ATTR}] .cp-td-name{font-weight:600}`
       // A narrow header: the list time shrinks first (its width is 0, so the title keeps its name and chevron), then Get
@@ -3486,14 +3482,14 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       + `[${TODOS_ATTR}] .cp-st-detail{padding:0 4px 8px 14px}[${TODOS_ATTR}] .cp-st-detail h4{margin-top:6px;font-size:11px;font-weight:600;color:var(--dsw-alias-label-tertiary)}[${TODOS_ATTR}] .cp-st-detail li{padding:3px 0;border:0}`
       + `[${TODOS_ATTR}] code{font-size:11px}`
       + `[${TODOS_ATTR}] .cp-td-btn[aria-disabled="true"],[${TODOS_ATTR}] .cp-st-link[aria-disabled="true"]{opacity:.45;cursor:default}`
-      + `@media (hover:hover){[${TODOS_ATTR}] .cp-td-btn:hover:not([aria-disabled="true"]),[${TODOS_ATTR}] .cp-st-ask:hover:not([aria-disabled="true"]),[${TODOS_ATTR}] .cp-td-head:hover,[${TODOS_ATTR}] .cp-td-group:hover,[${TODOS_ATTR}] .cp-st-row:hover{background:var(--dsw-alias-interactive-bg-hover)}}`
+      + `@media (hover:hover){[${TODOS_ATTR}] .cp-td-btn:hover:not([aria-disabled="true"]),[${TODOS_ATTR}] .cp-td-head:hover,[${TODOS_ATTR}] .cp-td-group:hover,[${TODOS_ATTR}] .cp-st-row:hover{background:var(--dsw-alias-interactive-bg-hover)}}`
       + `[${TODOS_ATTR}] button:focus-visible{outline:var(--dsw-focus-ring-width,2px) solid var(--dsw-focus-ring-color,var(--dsw-alias-state-business-primary));outline-offset:-2px}`
       + `[${TODOS_ATTR}] .cp-td-empty,[${TODOS_ATTR}] .cp-td-err{margin:0;padding:2px 4px 6px;color:var(--dsw-alias-label-tertiary)}[${TODOS_ATTR}] .cp-td-err{color:var(--dsw-alias-state-warn-label,#b25000)}`
       // Refresh: the button turns, the header says "Refreshing…", the old content is dimmed in place, the summary card waits
       // on its own.
       + `@keyframes cp-st-spin{to{transform:rotate(360deg)}}@keyframes cp-st-pulse{from{opacity:.35}to{opacity:.8}}`
       + `[${TODOS_ATTR}] .cp-td-btn[data-refreshing="true"]{opacity:1;cursor:progress;color:var(--dsw-alias-state-business-primary)}[${TODOS_ATTR}] .cp-td-btn[data-refreshing="true"] > *{animation:cp-st-spin .8s linear infinite}`
-      + `[${TODOS_ATTR}] .cp-st-ask{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:140px;padding:0 8px;border:.5px solid var(--dsw-alias-border-l1);border-radius:999px;background:none;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;white-space:nowrap;overflow:hidden;cursor:pointer}[${TODOS_ATTR}] .cp-st-label{min-width:0;overflow:hidden;text-overflow:ellipsis}[${TODOS_ATTR}] .cp-st-ask[aria-disabled="true"]{cursor:progress}[${TODOS_ATTR}] .cp-st-ask[data-waiting="true"]{color:var(--dsw-alias-state-business-primary)}`
+      + `[${TODOS_ATTR}] .cp-st-ask[aria-disabled="true"]{cursor:progress}[${TODOS_ATTR}] .cp-st-ask[data-waiting="true"]{color:var(--dsw-alias-state-business-primary)}`
       + `[${TODOS_ATTR}] .cp-st-time[data-refreshing="true"]{font-size:12px;font-weight:500;color:var(--dsw-alias-state-business-primary)}`
       + `[${TODOS_ATTR}] .cp-st-body[data-refreshing="true"] > :not(.cp-st-summary),[${TODOS_ATTR}] .cp-st-old[data-old="true"]{opacity:.4;transition:opacity .15s}`
       + `[${TODOS_ATTR}] .cp-st-spin{flex:none;box-sizing:border-box;width:12px;height:12px;border:2px solid var(--dsw-alias-state-business-primary);border-right-color:transparent;border-radius:50%;animation:cp-st-spin .8s linear infinite}`
@@ -3975,7 +3971,6 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const sub = (...c) => React.createElement('span', { className: 'cp-st-sub' }, ...c);
       const write = (text) => { if (!composer(sessionId, text)) notify(sessionId, 'info', t('quote.changed')); };
       const insertOf = (row) => statusInsert(row, Date.now(), t, (ms) => spanText(ms, lang));
-      const act2 = (label, onClick, extra) => React.createElement('button', { type: 'button', className: 'cp-cs-act', onClick, ...extra }, label);
       // An icon button: its label is its tooltip and its name for a screen reader.
       const icon = (label, glyph, onClick, extra) => React.createElement('button', { type: 'button', className: 'cp-td-btn', 'aria-label': label, title: label, onClick, ...extra },
         typeof glyph === 'string' ? React.createElement('span', { 'aria-hidden': true }, glyph) : React.createElement(TodoIcon, glyph));
@@ -4081,13 +4076,16 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // under a reply (one send per chat at a time). The buttons show only while the composer is empty (today's rule).
       const pick = offerNow?.state ?? { busy: false, error: null };
       const approval = cards.approval;
-      const onayCard = approval === null ? null : React.createElement('div', { className: 'cp-cs-card', 'data-card': 'onay', role: 'region', 'aria-labelledby': `${headId}-onay` },
+      const onayCard = approval === null ? null : React.createElement('div', { className: 'cp-cs-card', 'data-card': 'onay', role: 'region', 'aria-labelledby': `${headId}-onay`,
+        ...(current?.kind === 'onay' ? { 'data-active': '' } : {}), onClick: openCard('onay') },
         React.createElement('div', { className: 'cp-cs-line' },
           React.createElement('span', { className: 'cp-cs-sym', 'aria-hidden': true }, CARD_SYMBOL.onay),
           React.createElement('span', { className: 'cp-cs-main', id: `${headId}-onay` },
             React.createElement('span', { className: 'cp-cs-title' }, t('cards.onay')),
             approval.since === null ? null : ` · ${span(now - approval.since)}`,
-            [...(offer?.options ?? []).map((o) => o.text), ...approval.items.map((i) => i.text)].some(liveApproval) ? React.createElement('span', { className: 'cp-cs-tag' }, t('cards.live')) : null)),
+            [...(offer?.options ?? []).map((o) => o.text), ...approval.items.map((i) => i.text)].some(liveApproval) ? React.createElement('span', { className: 'cp-cs-tag' }, t('cards.live')) : null),
+          // Sonra for a click too (the S key does the same): in "…" while something else waits.
+          laterAct('onay').length === 0 ? null : React.createElement('span', { className: 'cp-cs-acts' }, more('onay', t('cards.onay'), laterAct('onay')))),
         ...(offer?.options ?? []).map((option) => React.createElement('div', { key: option.n, className: 'cp-cs-line' },
           React.createElement('p', { className: 'cp-cs-sentence cp-cs-main' }, option.text),
           offerNow?.empty !== true ? null : React.createElement('button', { type: 'button', className: 'cp-cs-act', 'data-primary': '', disabled: pick.busy, title: option.text,
@@ -4097,7 +4095,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         approval.items.length === 0 ? null : React.createElement('details', null, React.createElement('summary', { className: 'cp-st-sub' }, t('cards.topics', { count: approval.items.length })),
           React.createElement('ul', { style: { margin: 0, padding: 0 } }, approval.items.map((i) => React.createElement('li', { key: i.id, className: 'cp-cs-line' },
             React.createElement('span', { className: 'cp-cs-main' }, cardMark(i.text).title, sub(clockText(i.created, lang))),
-            act2(t('todos.removeShort'), () => { act(i.id, 'remove'); }, { 'aria-label': t('todos.remove', { item: i.text }), 'aria-disabled': state.busy }))))));
+            icon(t('todos.remove', { item: i.text }), CLOSE, () => { act(i.id, 'remove'); }, { 'data-act': 'close', 'aria-disabled': state.busy }))))));
       // The groups: Sorun always open; then the next CARDS_SHOWN cards; a group that does not fit and Bugün bitti start
       // folded ("▸ Sürüyor 3"). Folding Bugün bitti marks its cards seen (no "new" mark). Your notes: one folded group.
       let budget = CARDS_SHOWN;
@@ -7353,13 +7351,30 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       const offered = offer !== undefined && (seq === undefined || offer.seq === seq) && (state.busy || picks.open(sessionId, offer));
       return offered ? { offer, state, empty } : undefined;
     }
+    /** Options only as buttons (Furkan, 2026-11-23): while the buttons show, dsh's numbered list of the same answer is
+     * hidden (the buttons hold each item: its first line as the label, the whole item as the tooltip). The heading stays.
+     * When the buttons go (a draft, a run, a pick), the list shows again; the chat log and dsh's Copy keep it.
+     * ponytail: a CSS rule on dsh's markup: the `ol` that ends the last Markdown root that is not compact (not the
+     * thinking) of the answer row `[data-chat-node-key]`, with exactly as many items as options. If dsh changes it, the
+     * list shows again (no item is lost). Upgrade when dsh's Markdown has a list slot. */
+    const optionListCss = (key, count) => {
+      const k = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(key) : String(key).replace(/["\\]/g, '\\$&');
+      return `[data-chat-node-key="${k}"] div:not([data-markdown-variant]):last-child>ol:last-child:has(>li:nth-child(${count}):last-child){display:none}`;
+    };
+    /** The node key of the answer whose final seq is `seq` (dsh's chat view), or null. */
+    const answerKeyOf = (chat, seq) => {
+      if (seq === undefined) return null;
+      for (const node of chat?.nodes?.values?.() ?? []) if (node?.kind === 'assistant-step' && node.data?.finalNode?.seq === seq && typeof node.key === 'string') return node.key;
+      return null;
+    };
     function OptionPicks(props) {
       const { sessionId, seq, picks, t } = props;
       const shown = useAnswerOffer(props, parseOptions);
+      const answerKey = props.useChat((chat) => answerKeyOf(chat, shown?.empty ? shown.offer.seq : undefined));
       if (shown === undefined || !shown.empty) return null;
       const { offer, state } = shown;
       return React.createElement('div', { className: 'cp-op', role: 'group', 'aria-label': t('optionPicks.group'), 'data-composer-plus-option-picks': String(seq) },
-        React.createElement('style', null, OPTION_PICKS_CSS),
+        React.createElement('style', null, answerKey === null ? OPTION_PICKS_CSS : `${OPTION_PICKS_CSS}\n${optionListCss(answerKey, offer.options.length)}`),
         offer.options.map((option) => React.createElement('button', {
           key: option.n, type: 'button', className: 'cp-op-btn', title: option.text, disabled: state.busy,
           ...(option.recommended ? { 'data-recommended': '' } : {}),

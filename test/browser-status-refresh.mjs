@@ -92,7 +92,7 @@ const layoutFaults = (panel, width) => panel.evaluate((root, w) => {
     });
   }
   // A text that does not fit ends with "…" (not cut in a letter).
-  for (const el of root.querySelectorAll('.cp-st-label, .cp-st-time')) if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow !== 'ellipsis') faults.push(`${name(el)} is cut without "…"`);
+  for (const el of root.querySelectorAll('.cp-st-time')) if (el.scrollWidth > el.clientWidth + 1 && getComputedStyle(el).textOverflow !== 'ellipsis') faults.push(`${name(el)} is cut without "…"`);
   root.style.width = ''; for (const a of turns) a.play();
   return faults;
 }, width);
@@ -175,7 +175,7 @@ try {
       const panel = page.locator('[data-composer-plus-todos]');
       const card = panel.locator('.cp-st-summary');
       const refresh = panel.locator('.cp-st-top > button.cp-td-btn[id$="-refresh"]'); // the place button is a .cp-td-btn too
-      const ask = panel.locator('.cp-st-ask[id$="-summarize"]'); // Projeler is a .cp-st-ask too
+      const ask = panel.locator('button[id$="-summarize"]');
       const spoken = () => panel.locator('[role="status"][aria-live="polite"]').innerText();
 
       // 1. Setup: no summary card by default.
@@ -188,7 +188,7 @@ try {
       await notesHead.click(); await panel.getByText('Süt al').waitFor({ state: 'visible', timeout: 5000 });
       await pause(1500); await page.mouse.move(10, 10);
       assert.equal(await card.count(), 0, 'no summary card by default');
-      assert.equal(await ask.innerText(), 'Özet getir');
+      assert.equal(await ask.getAttribute('aria-label'), 'Özet getir');
       assert.match(await panel.locator('h2').innerText(), /Liste \d{2}[.:]\d{2}/, 'the list time is named "Liste"');
       await shot(`${version}-0-default`);
       note('1: no summary card by default; "Liste HH:MM", Özet getir and Refresh');
@@ -223,7 +223,7 @@ try {
       await card.getByText('Özet hazırlanıyor…').waitFor({ timeout: 3000 });
       assert.deepEqual({ marks: await pendingMarks(panel), faults: [...await layoutFaults(panel), ...await layoutFaults(panel, 280)] },
         { marks: { texts: ['cp-st-wait'], spinners: 1 }, faults: [] }, 'only the card says it, with one spinner; no icon covers another (also 280 px wide)');
-      assert.equal(await ask.innerText(), 'Özet getir'); assert.equal(await ask.getAttribute('aria-disabled'), 'true');
+      assert.equal(await ask.getAttribute('aria-label'), 'Özet getir'); assert.equal(await ask.getAttribute('aria-disabled'), 'true');
       assert.equal(await spoken(), 'Özet hazırlanıyor…');
       // At once, while it waits (Playwright's click waits for a stable element; the summary could come meanwhile).
       await ask.evaluate((b) => b.click()); await refresh.evaluate((b) => b.click()); await pause(800);
@@ -237,7 +237,7 @@ try {
       await page.mouse.move(10, 10); await shot(`${version}-3-summary-done`);
       await card.getByRole('button', { name: 'Özeti gizle' }).click();
       assert.equal(await card.count(), 0, 'closed');
-      assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('cp-st-ask')), true, 'the focus goes to Özet getir');
+      assert.equal(await page.evaluate(() => document.activeElement?.id.endsWith('-summarize')), true, 'the focus goes to Özet getir');
       await send('Morning summary please'); await card.getByText('Giriş sayfası yapılıyor.').waitFor({ timeout: 30000 });
       assert.equal(summaryPosts.length, 1, 'a summary asked for in the chat opens the card without Özet getir');
       note('3: Özet getir: "Özet hazırlanıyor…" only in the card, one hidden note, the new summary with "Özet · HH:MM"; close; a chat request opens it again');
@@ -246,11 +246,12 @@ try {
       model.delay = 3000;
       await ask.click(); await card.getByText('Özet hazırlanıyor…').waitFor({ timeout: 3000 });
       await card.getByRole('button', { name: 'Özeti gizle' }).click();
-      assert.equal(await ask.innerText(), 'Özet hazırlanıyor…');
+      assert.equal(await ask.getAttribute('aria-label'), 'Özet hazırlanıyor…');
       assert.deepEqual({ marks: await pendingMarks(panel), faults: [...await layoutFaults(panel), ...await layoutFaults(panel, 280)] },
-        { marks: { texts: ['cp-st-label'], spinners: 1 }, faults: [] }, 'card closed: only the header says it; no icon covers another (also 280 px wide)');
+        { marks: { texts: [], spinners: 1 }, faults: [] }, 'card closed: only the header\'s icon button says it (its name and one spinner); no icon covers another (also 280 px wide)');
+      assert.equal(await ask.getAttribute('aria-label'), 'Özet hazırlanıyor…', 'card closed: the button\'s name says it');
       await shot(`${version}-2b-summary-waiting-closed`);
-      await until(async () => (await ask.innerText()) === 'Özet getir', 'the summary ends the wait', 30000);
+      await until(async () => (await ask.getAttribute('aria-label')) === 'Özet getir', 'the summary ends the wait', 30000);
       assert.deepEqual(await pendingMarks(panel), { texts: [], spinners: 0 }); assert.equal(await card.count(), 0, 'the answer does not open the closed card');
       note('3b: the card closed while it waits: only the header says "Özet hazırlanıyor…", until the summary comes');
 
@@ -291,7 +292,7 @@ try {
       await until(async () => (await refresh.getAttribute('aria-disabled')) === 'false', 'idle again', 5000);
       await page.emulateMedia({ reducedMotion: 'reduce' }); model.delay = 1500;
       await ask.focus(); await page.keyboard.press('Enter');
-      assert.equal(await page.evaluate(() => document.activeElement?.classList.contains('cp-st-ask')), true, 'Enter keeps the focus on Özet getir');
+      assert.equal(await page.evaluate(() => document.activeElement?.id.endsWith('-summarize')), true, 'Enter keeps the focus on Özet getir');
       // At once, while it waits (the summary comes in about 1.5 s).
       assert.equal(await card.locator('.cp-st-spin').evaluate((el) => getComputedStyle(el).display, undefined, { timeout: 1000 }), 'none', 'reduced motion: no spinner');
       await refresh.click();

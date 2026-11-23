@@ -173,6 +173,13 @@ try {
   assert.deepEqual(r.body.tasks.map((t) => t.id).sort(), ['c-done', 'c-fail', 'c-lost', 'c-run', 'c-stop', 'c-wait', 's-deleg']);
   assert.deepEqual(r.body.tasks[0], { id: 's-deleg', title: 'Fix the login form', state: 'waiting', started: r.body.tasks[0].started, chat: true, result: 'acme-web · assistant/fix-login' }, 'a delegated chat is a task, first');
   assert.equal(r.body.tasks.find((t) => t.id === 'c-done').result, 'Flights found: 3 options', 'a disposed child: its saved log');
+  // Furkan, 2026-11-23 ("görünmesin o zaman panelde"): an archived delegated chat that waited for the user shows no card
+  // (chat_archive archives it in the assistant's own turn, so the kept chat list does not change); unarchived, it is back.
+  archivedIds.push('s-deleg');
+  r = await call('?sessionId=s-a');
+  assert.equal(r.body.tasks.some((t) => t.id === 's-deleg'), false, 'an archived chat that waited for you: no card');
+  archivedIds.pop();
+  r = await call('?sessionId=s-a'); assert.equal(r.body.tasks[0].id, 's-deleg', 'unarchived: the card is back');
   // F-08: the next read does not read the ended child's log or all chats again; Refresh (`&refresh=1`) does.
   const [o1, l1] = [observed, listed];
   r = await call('?sessionId=s-a'); assert.equal(r.body.tasks.find((t) => t.id === 'c-done').result, 'Flights found: 3 options');
@@ -443,6 +450,13 @@ try {
     turnEnd('s-onay', { kind: 'completed' }, reply(0, 'Ready.\n\n```onay\nCANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ\n```'));
     turnEnd('s-plain', { kind: 'completed' }, reply(0, 'Report sent.'));
     assert.deepEqual((await rowsOf('s-onay')).map((t) => [t.state, t.result]), [['waiting', 'acme-web · fix/deploy']], 'an onay block: waits for the user');
+    // Furkan, 2026-11-23: the ended task's chat is archived (chat_archive) while it still waits: no card (the bot's
+    // ended row is not shown either); unarchived, it waits again.
+    archivedIds.push('s-onay');
+    assert.equal(assistant.tasks.has('s-onay'), false, 'an ended task (the bot\'s endedTasks row)');
+    assert.deepEqual(await rowsOf('s-onay'), [], 'an archived chat that waited for you: no card');
+    archivedIds.pop();
+    assert.deepEqual((await rowsOf('s-onay')).map((t) => t.state), ['waiting'], 'unarchived: it waits again');
     assert.deepEqual((await rowsOf('s-plain')).map((t) => t.state), ['done'], 'an answer without a block: done');
     // Review 1: the 5 s poll does not read an unchanged log again (only the jobs); a grown log is read again.
     {

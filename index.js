@@ -12320,7 +12320,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       projectsCache = { at: now(), sessionId, items, auto };
     }
     // Only the chat list is kept: a chat that is archived (also by the assistant's chat_archive, whose turn keeps the
-    // cache) leaves at the next read.
+    // cache) leaves the projects and the delegated tasks at the next read.
     let archived = new Set(); try { archived = new Set(get('workspaceRegistry')?.archivedSessionIds ?? []); } catch { /* none */ }
     // This read's chat list: a turn edge during the awaits below drops projectsCache.
     const listed = projectsCache.items;
@@ -12349,6 +12349,8 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
     const turnOf = (log, from) => { const turn = log.findLast((e) => e?.type === 'turn/start')?.time; return Number.isFinite(turn) ? Math.max(turn, from) : from; };
     const where = (t) => { const text = [t?.project, t?.branch].filter((x) => isText(x, 200)).join(' · '); return text === '' ? {} : { result: text }; };
     for (const [id, task] of assistant.tasks?.list?.() ?? []) {
+      // An archived chat shows no card (Furkan, 2026-11-23: a chat that chat_archive archived still showed as "waiting").
+      if (archived.has(id)) continue;
       const live = get('agents')?.get?.(id);
       let log = []; try { log = live?.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }
       const row = { id, title: cutEnd(String(task?.title ?? task?.project ?? id), 120), started: Number.isFinite(task?.at) ? task.at : now(), chat: true, ...where(task) };
@@ -12386,7 +12388,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       if (t.ended < today.getTime()) { assistant.endedTasks.delete(id); continue; }
       // The chat has a task again: its open row shows; the bot replaces this row when that task ends (a chat_send whose
       // message did not go drops the task, and this row shows again).
-      if (assistant.tasks?.has?.(id)) continue;
+      if (assistant.tasks?.has?.(id) || archived.has(id)) continue;
       // The chat works or waits again after its task ended: a turn that you started in it, a background job, its question.
       const live = get('agents')?.get?.(id);
       let log = []; try { log = live?.session?.snapshotEvents?.() ?? []; } catch { /* no log */ }

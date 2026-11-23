@@ -134,6 +134,34 @@ newest.unmount(); older.unmount(); third.unmount(); forkCell.unmount(); quiet.un
   assert.equal(other.render(), null, 'another chat: none');
   inBot.unmount(); other.unmount();
 }
+// Options only as buttons (Furkan, 2026-11-23): while the buttons show, dsh's numbered list of the same answer is hidden by
+// one CSS rule on its row (`[data-chat-node-key]` of the answer step); the heading stays; the full item is the tooltip. A
+// normal numbered list (no option heading) stays text and gets no buttons. When the buttons go, the rule goes.
+{
+  const step = (key, turn, seq, text) => ({ kind: 'assistant-step', key, anchorSeq: seq, data: { status: 'settled', turn, blocks: [{ kind: 'text', text }], finalNode: { seq } } });
+  const THREE = 'Ready.\n\n**Seçenekler:**\n1. Hemen denensin\n2. Yarın sabah denensin\n   test sunucusunda\n3. Bekletilsin';
+  let v3 = chat(step('st-3', 1, 10, THREE), tail(1, 10, THREE));
+  const p3 = createOptionPicks(async () => {});
+  const c3 = mount(OptionPicks, { sessionId: 'S3', turn: 1, seq: 10, ...hooks, useChat: (sel) => sel(v3), picks: p3, check, rollback, t });
+  c3.render(); await flush(); const o3 = c3.render();
+  const bs = buttonsOf(o3);
+  assert.deepEqual(bs.map((b) => texts(b).join(' ')), ['1. Hemen denensin', '2. Yarın sabah denensin', '3. Bekletilsin'], 'a "Seçenekler:" list of 3: 3 buttons');
+  assert.equal(bs[1].p.title, 'Yarın sabah denensin\ntest sunucusunda', 'the whole item in the tooltip');
+  const css3 = o3.c[0].c[0];
+  assert.ok(css3.endsWith('[data-chat-node-key="st-3"] div:not([data-markdown-variant]):last-child>ol:last-child:has(>li:nth-child(3):last-child){display:none}'), `the list of this answer is hidden (no second text list): ${css3.slice(-200)}`);
+  assert.equal((css3.match(/display:none/g) ?? []).length, 1, 'only that rule hides something');
+  input = { ...input, draft: 'x' }; assert.equal(c3.render(), null, 'a draft hides the buttons, and with them the rule: the list shows again'); input = { ...input, draft: '' };
+  // A normal numbered list: no heading, no buttons, no rule (it stays text).
+  v3 = chat(step('st-4', 2, 20, 'Steps:\n1. Pull\n2. Build\n3. Test'), tail(2, 20, 'Steps:\n1. Pull\n2. Build\n3. Test'));
+  const c4 = mount(OptionPicks, { sessionId: 'S4', turn: 2, seq: 20, ...hooks, useChat: (sel) => sel(v3), picks: p3, check, rollback, t });
+  c4.render(); await flush(); assert.equal(c4.render(), null, 'a normal numbered list stays text');
+  // An older chat view without the answer step (or an older dsh): the buttons show and nothing is hidden.
+  v3 = chat(tail(3, 50, THREE));
+  const c5 = mount(OptionPicks, { sessionId: 'S5', turn: 3, seq: 50, ...hooks, useChat: (sel) => sel(v3), picks: p3, check, rollback, t });
+  c5.render(); await flush(); const o5 = c5.render();
+  assert.equal(buttonsOf(o5).length, 3); assert.doesNotMatch(o5.c[0].c[0], /display:none/, 'no answer row: nothing hidden');
+  c3.unmount(); c4.unmount(); c5.unmount();
+}
 // The chat state key: a new node or a newer seq changes it; the same snapshot gives the same key.
 { const c1 = chat(tail(1, 10, 'a')); assert.equal(chatStateKey(c1), '1:10'); assert.equal(chatStateKey(chat(tail(1, 10, 'a'), { kind: 'user', anchorSeq: 12 })), '2:12');
   assert.equal(chatStateKey(undefined), null); }

@@ -481,36 +481,33 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
   view = chat(user(400, 'z'), tail(40, 410, 'Ok.')); dock.render(); await flush(); dock.render(); await flush();
   card = onayCard(stack.render()); assert.ok(card, 'the items keep the card');
   assert.ok(texts(card).some((x) => /^cards\.approveAgain/.test(x)), 'the note: the button comes back with the sentence');
-  // --- Phase 2: the decision queue and the daily briefing (the same cards, two more views) ---
-  // The Onay entry of the queue: one Onayla on screen (the fixed part does not show the card twice); Onayla sends the
-  // exact sentence once through the same store; A sends it too, only after the entry showed for 800 ms.
+  // --- One list (Furkan, 2026-11-23): no Kartlar/Kuyruk/Brifing switch; the first item that waits for you is active ---
+  // The Onay card is the active item (a thin line at its left): one Onayla on screen; the keys act on the active item in
+  // the panel; A sends the exact sentence once through the same store, only after the item was active for 800 ms.
   view = chat(user(500, 'w'), tail(50, 510, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
   const qPicks = cardPicks; const before = cardSent.length;
   const find = (tree, pred) => { const all = []; const walk = (n) => { if (Array.isArray(n)) return n.forEach(walk); if (n === null || typeof n !== 'object') return; if (pred(n)) all.push(n); (n.c ?? []).forEach(walk); }; walk(tree); return all; };
-  const viewBtn = (tree, v) => find(tree, (n) => n.t === 'button' && n.p['data-view-button'] === v)[0];
+  const panelOf = (tree) => find(tree, (n) => n.t === 'section' && n.p['data-composer-plus-todos'] === '')[0];
+  const active = (tree) => find(tree, (n) => n.p?.['data-active'] === '').map((n) => n.p['data-card'] + (n.p['data-key'] ? `|${n.p['data-key']}` : ''));
   let tree = stack.render();
-  assert.deepEqual(['stack', 'queue', 'brief'].map((v) => Boolean(viewBtn(tree, v))), [true, true, true], 'three views: Kartlar, Kuyruk, Brifing');
-  viewBtn(tree, 'queue').p.onClick(); tree = stack.render();
-  assert.equal(mem.get('dsh-composer-plus.status-view'), 'queue', 'the view is kept in this browser');
-  const queueSec = find(tree, (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
-  assert.ok(queueSec, 'the queue view');
-  assert.equal(find(tree, (n) => n.p?.['data-composer-plus-approve'] === 'card').length, 1, 'one Onayla on screen in the queue');
-  assert.deepEqual(find(queueSec, (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['onay'], 'the Onay entry first');
-  assert.ok(texts(queueSec).includes('queue.left:{"count":1}'), 'N kalan');
+  assert.equal(find(tree, (n) => n.p?.['data-view-button'] !== undefined || n.p?.['data-view'] !== undefined).length, 0, 'one list: no view buttons, no view sections');
+  assert.equal(mem.get('dsh-composer-plus.status-view'), undefined, 'no view is kept');
+  assert.equal(find(tree, (n) => n.p?.['data-composer-plus-approve'] === 'card').length, 1, 'one Onayla on screen');
+  assert.deepEqual(active(tree), ['onay'], 'the Onay card is the active item');
+  assert.equal(typeof panelOf(tree).p.onKeyDown, 'function', 'the keys are on the panel');
   // A key at once does nothing (the 800 ms guard); later it sends the sentence once.
-  const key = (k, extra = {}) => { let prevented = false; queueSec.p.onKeyDown({ key: k, preventDefault: () => { prevented = true; }, target: { closest: () => null }, ...extra }); return prevented; };
-  key('a'); await flush(); assert.equal(cardSent.length, before, 'A right after the entry shows: nothing');
+  panelOf(tree).p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
+  assert.equal(cardSent.length, before, 'A right after the item is active: nothing');
   const realNow = Date.now; Date.now = () => realNow() + 1000;
   try {
-    tree = stack.render(); const sec2 = find(tree, (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
+    tree = stack.render(); const sec2 = panelOf(tree);
     sec2.p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); sec2.p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
     assert.deepEqual(cardSent.slice(before), [['D', CARD]], 'A sends the exact sentence once (the same store as the button)');
-    // Review 2: each key guard on its own (after the 800 ms): S (Sonra) is not taken, so no preventDefault.
+    // Each key guard on its own (after the 800 ms): S (Sonra) is not taken, so no preventDefault.
     const sent2 = cardSent.length;
     const guarded = (why, extra) => {
       let prevented = false;
-      const sec = find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
-      sec.p.onKeyDown({ key: 's', preventDefault: () => { prevented = true; }, target: { closest: () => null }, ...extra });
+      panelOf(stack.render()).p.onKeyDown({ key: 's', preventDefault: () => { prevented = true; }, target: { closest: () => null }, ...extra });
       assert.equal(prevented, false, `${why}: not taken`);
     };
     guarded('a text field', { target: { closest: (sel) => (/input/.test(sel) ? {} : null) } });
@@ -523,87 +520,103 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
     assert.equal(cardSent.length, sent2, 'no guarded key sends');
   } finally { Date.now = realNow; }
   assert.equal(await qPicks.pick('D', offers.of('D').offer, 1), false, 'the same answer again: refused');
-  // Review 2: the screen reader hears only the entry line ("1 / 1: <entry>"), in one polite status region.
+  // The screen reader hears only the active item ("1 / 1: <item>"), in one polite status region.
   {
-    const said = find(find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0], (n) => n.p?.['aria-live'] === 'polite');
-    assert.equal(said.length, 1, 'one aria-live region in the queue'); assert.equal(said[0].p.role, 'status');
-    assert.deepEqual(texts(said[0]), ['1 / 1: cards.onay'], 'it says the position and the entry, no age text');
-    // Kartlar: the queue section (it holds the key handler) is not drawn.
-    viewBtn(stack.render(), 'stack').p.onClick();
-    assert.equal(find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue').length, 0, 'Kartlar: no queue, so no queue keys');
-    viewBtn(stack.render(), 'queue').p.onClick(); stack.render();
+    const said = find(stack.render(), (n) => n.p?.['data-composer-plus-active'] === '');
+    assert.equal(said.length, 1, 'one region for the active item'); assert.equal(said[0].p.role, 'status'); assert.equal(said[0].p['aria-live'], 'polite');
+    assert.deepEqual(texts(said[0]), ['1 / 1: cards.onay'], 'it says the position and the item, no age text');
   }
-  // Review 1 (P1, P2): a new sentence starts the 800 ms clock again; Shift+A does nothing; the clock starts only in the
-  // open queue (A at once after a switch from Kartlar: nothing).
+  // A new sentence starts the 800 ms clock again; Shift+A does nothing; the clock starts only in the open panel.
   {
     const NEW = "Onaylıyorum (canlı değil): rapor dalı main'e alınsın.";
     const realNow2 = Date.now; let clock = realNow2() + 5000; Date.now = () => clock;
     try {
       view = chat(user(520, 'w2'), tail(52, 530, `Ready.\n\n${block(NEW)}`)); dock.render(); await flush(); dock.render(); await flush();
       const fresh = cardSent.length;
-      const secNow = () => find(stack.render(), (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0];
-      const press = (k, extra = {}) => secNow().p.onKeyDown({ key: k, preventDefault() {}, target: { closest: () => null }, ...extra });
-      clock += 10; press('a'); await flush();
+      const press = (k, extra = {}) => panelOf(stack.render()).p.onKeyDown({ key: k, preventDefault() {}, target: { closest: () => null }, ...extra });
+      stack.render(); clock += 10; press('a'); await flush();
       assert.equal(cardSent.length, fresh, 'A 10 ms after a new sentence: nothing (the clock starts again)');
       clock += 1000; press('a', { shiftKey: true }); await flush();
       assert.equal(cardSent.length, fresh, 'Shift+A: nothing');
-      // Kartlar, then Kuyruk again: the clock starts when the queue opens.
-      viewBtn(stack.render(), 'stack').p.onClick(); stack.render(); clock += 5000;
-      viewBtn(stack.render(), 'queue').p.onClick(); clock += 10; press('a'); await flush();
-      assert.equal(cardSent.length, fresh, 'A at once after the queue opens: nothing');
+      // Folded, then open again: the clock starts when the panel opens.
+      const head = () => find(stack.render(), (n) => n.t === 'button' && n.p.className === 'cp-td-head')[0];
+      head().p.onClick(); stack.render(); clock += 5000;
+      head().p.onClick(); clock += 10; press('a'); await flush();
+      assert.equal(cardSent.length, fresh, 'A at once after the panel opens: nothing');
       clock += 1000; press('a'); await flush();
-      assert.deepEqual(cardSent.slice(fresh), [['D', NEW]], 'A after 800 ms in the open queue: the new sentence once');
+      assert.deepEqual(cardSent.slice(fresh), [['D', NEW]], 'A after 800 ms in the open panel: the new sentence once');
     } finally { Date.now = realNow2; }
   }
-  // Review 1 (P3): Sonra holds the entry that you moved; a new sentence is a new entry and goes back to its rank.
+  // Sonra (S, or "…" → Sonra) moves the active item to the end; J/K move the active item; a key acts only on the active
+  // item (A on a For you card writes "Done: …" into the composer, never the approval); a new sentence is a new item and
+  // goes back to its rank.
   {
     const store2 = { ...store, of: () => Object.freeze({ ...store.of(), items: [...store.of().items, { id: 's1', text: 'Senden: test sunucusunu aç', owner: 'user', created: Date.now() - 60000 }] }) };
-    const stack2 = mount(StatusPanel, { ...cardProps, store: store2 });
+    const written = [];
+    const stack2 = mount(StatusPanel, { ...cardProps, store: store2, composer: (id, text) => { written.push(text); return true; } });
     view = chat(user(540, 'w3'), tail(54, 550, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
-    let tree2 = stack2.render(); viewBtn(tree2, 'queue').p.onClick();
-    assert.deepEqual(find(stack2.render(), (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['onay']);
-    find(stack2.render(), (n) => n.t === 'button' && n.p['data-queue-later'] !== undefined)[0].p.onClick();
+    let tree2 = stack2.render();
+    assert.deepEqual(active(tree2), ['onay'], 'the approval first');
+    const later = find(tree2, (n) => n.t === 'Menu' && n.p.anchor?.p?.['data-more'] === 'onay')[0] ?? find(tree2, (n) => n.p?.className === 'cp-cs-more')[0];
+    assert.ok(later, 'the Onay card has Sonra in its "…"');
+    panelOf(tree2).p.onKeyDown({ key: 's', preventDefault() {}, target: { closest: () => null } });
     tree2 = stack2.render();
-    assert.deepEqual(find(tree2, (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['senden|s1'], 'Sonra: the Senden card first');
-    // Review 2: a [quiet] news turn moves the offer's seq, not its sentence: the entry stays at the end.
+    assert.deepEqual(active(tree2), ['senden|s1'], 'S (Sonra): the For you card is active');
+    const sentNow = cardSent.length; const realNow3 = Date.now; Date.now = () => realNow3() + 2000;
+    try {
+      stack2.render(); Date.now = () => realNow3() + 4000;
+      panelOf(stack2.render()).p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
+      assert.equal(cardSent.length, sentNow, 'A on the active For you card does not approve');
+      assert.deepEqual(written, ['cards.doneMessage:{"item":"test sunucusunu aç"}'], 'A acts on the active item: "Done: <step>" into the composer, nothing sent');
+    } finally { Date.now = realNow3; }
+    panelOf(stack2.render()).p.onKeyDown({ key: 'k', preventDefault() {}, target: { closest: () => null } });
+    assert.deepEqual(active(stack2.render()), ['senden|s1'], 'K at the first item stays');
+    panelOf(stack2.render()).p.onKeyDown({ key: 'j', preventDefault() {}, target: { closest: () => null } });
+    assert.deepEqual(active(stack2.render()), ['onay'], 'J: the next item (the approval, moved to the end)');
+    panelOf(stack2.render()).p.onKeyDown({ key: 'k', preventDefault() {}, target: { closest: () => null } });
+    // A [quiet] news turn moves the offer's seq, not its sentence: Sonra holds.
     const seqBefore = offers.of('D').offer.seq;
     const aStep = (turn, seq, text) => ({ kind: 'assistant-step', anchorSeq: seq, data: { status: 'settled', turn, step: 1, blocks: [{ kind: 'text', text }], finalNode: { seq } } });
     view = chat(user(540, 'w3'), aStep(54, 550, `Ready.\n\n${block(CARD)}`), tail(54, 550, `Ready.\n\n${block(CARD)}`), aStep(55, 558, '[quiet]'), tail(55, 558, '[quiet]'));
     dock.render(); await flush(); dock.render(); await flush();
     assert.notEqual(offers.of('D').offer.seq, seqBefore, 'the news turn moved the offer');
-    assert.deepEqual(find(stack2.render(), (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['senden|s1'], 'a [quiet] turn: Sonra holds');
+    assert.deepEqual(active(stack2.render()), ['senden|s1'], 'a [quiet] turn: Sonra holds');
     view = chat(user(560, 'w4'), tail(56, 570, `Ready.\n\n${block("Onaylıyorum (canlı değil): yeni dal main'e alınsın.")}`)); dock.render(); await flush(); dock.render(); await flush();
-    assert.deepEqual(find(stack2.render(), (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['onay'], 'a new sentence: the Onay entry goes back first');
+    assert.deepEqual(active(stack2.render()), ['onay'], 'a new sentence: the approval goes back first');
     stack2.unmount();
   }
-  // A choice (karar): the option list of the newest answer, published by CardChoices; a button picks through the store.
-  const choiceFrom = cardSent.length; // one store for the buttons, the card and the queue (as in the app)
+  // A choice (karar): the option list of the newest answer, published by CardChoices. It is the first For you card; its
+  // buttons are under the answer only (one set on screen); 1–9 pick while it is the active item.
+  const choiceFrom = cardSent.length; // one store for the buttons, the card and the keys (as in the app)
   view = chat(user(600, 'v'), tail(60, 610, 'Which one?\n\n**Seçenekler:**\n1. Kendisi alsın\n2. Bana sorsun'));
   const choices = mount(globalThis.__ap.CardChoices, props); choices.render(); await flush(); choices.render();
   assert.deepEqual(offers.choiceOf('D').offer.options.map((o) => o.label), ['Kendisi alsın', 'Bana sorsun'], 'the choice is published');
   dock.render(); await flush(); dock.render(); await flush();
   tree = stack.render();
-  assert.deepEqual(find(tree, (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['onay'], 'the Onay item still waits: it stays first');
-  assert.equal(find(tree, (n) => n.t === 'button' && n.p['data-composer-plus-choice'] !== undefined).length, 0, 'one entry at a time');
-  find(tree, (n) => n.t === 'button' && texts(n).join('') === 'queue.next')[0].p.onClick(); tree = stack.render();
-  assert.deepEqual(find(tree, (n) => n.p?.['data-queue-entry'] !== undefined).map((n) => n.p['data-queue-entry']), ['karar'], 'Sonraki: the choice');
-  const kararBtns = find(tree, (n) => n.t === 'button' && n.p['data-composer-plus-choice'] !== undefined);
-  assert.deepEqual(kararBtns.map((b) => texts(b).join('')), ['1. Kendisi alsın', '2. Bana sorsun'], 'the karar entry: one button per option');
-  kararBtns[1].p.onClick(); kararBtns[1].p.onClick(); await flush();
-  assert.deepEqual(cardSent.slice(choiceFrom), [['D', 'Option 2: Bana sorsun']], 'a choice sends "Option N: <item>" once (Option picks\' path)');
+  assert.deepEqual(active(tree), ['onay'], 'the Onay item still waits: it stays active');
+  const karar = find(tree, (n) => n.p?.['data-card'] === 'karar')[0];
+  assert.ok(karar, 'the choice is a card in For you');
+  assert.equal(find(karar, (n) => n.t === 'button' && n.p['data-composer-plus-choice'] !== undefined).length, 0, 'no second set of option buttons in the panel');
+  {
+    const realNow4 = Date.now; let clock = realNow4(); Date.now = () => clock;
+    try {
+      panelOf(stack.render()).p.onKeyDown({ key: '2', preventDefault() {}, target: { closest: () => null } }); clock += 1000;
+      panelOf(stack.render()).p.onKeyDown({ key: '2', preventDefault() {}, target: { closest: () => null } }); await flush();
+      assert.equal(cardSent.length, choiceFrom, '2 while the approval is active: nothing');
+      panelOf(stack.render()).p.onKeyDown({ key: 'j', preventDefault() {}, target: { closest: () => null } });
+      assert.deepEqual(active(stack.render()), ['karar|karar'], 'J: the choice is active');
+      clock += 10; panelOf(stack.render()).p.onKeyDown({ key: '2', preventDefault() {}, target: { closest: () => null } }); await flush();
+      assert.equal(cardSent.length, choiceFrom, '2 at once: nothing (the 800 ms guard)');
+      clock += 1000; panelOf(stack.render()).p.onKeyDown({ key: '2', preventDefault() {}, target: { closest: () => null } });
+      panelOf(stack.render()).p.onKeyDown({ key: '2', preventDefault() {}, target: { closest: () => null } }); await flush();
+      assert.deepEqual(cardSent.slice(choiceFrom), [['D', 'Option 2: Bana sorsun']], '2 picks option 2 once (Option picks\' path)');
+    } finally { Date.now = realNow4; }
+  }
   choices.unmount(); assert.equal(offers.choiceOf('D'), undefined, 'unmount: the choice goes');
-  // Sonra moves the entry to the end; the briefing shows the next entry and four counts; a tile opens the queue.
   view = chat(user(700, 'u'), tail(70, 710, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
   tree = stack.render();
-  viewBtn(tree, 'brief').p.onClick(); tree = stack.render();
-  const brief = find(tree, (n) => n.t === 'section' && n.p['data-view'] === 'brief')[0];
-  assert.ok(brief, 'the briefing view');
-  assert.ok(texts(brief).includes('brief.next:{"count":1}'), 'Sıradaki tek iş · 1 işten 1.');
-  assert.deepEqual(find(brief, (n) => n.p?.['data-tile'] !== undefined).map((n) => n.p['data-tile']), ['senden', 'sorun', 'suruyor', 'bitti'], 'four counts');
-  assert.equal(find(tree, (n) => n.p?.['data-composer-plus-approve'] === 'card').length, 1, 'one Onayla on screen in the briefing');
-  find(brief, (n) => n.p?.['data-tile'] === 'senden')[0].p.onClick(); tree = stack.render();
-  assert.ok(find(tree, (n) => n.t === 'section' && n.p['data-view'] === 'queue')[0], 'Seni bekliyor opens the queue');
-  viewBtn(tree, 'stack').p.onClick();
+  // The briefing's parts are in the one list: the count bar (its tooltip is today's date) and the groups.
+  assert.ok(find(tree, (n) => n.p?.['data-composer-plus-counts'] === '' && typeof n.p.title === 'string' && n.p.title !== '').length === 1, 'the count bar has the date as its tooltip');
   unstack(); assert.equal(offers.hasStack('D'), false);
   dock.unmount(); tailCell.unmount(); stack.unmount();
 }
