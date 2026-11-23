@@ -118,13 +118,13 @@ try {
       await send('Start the deploy task'); await allow();
       await page.getByText('Started the task.').first().waitFor({ timeout: 30000 });
       const started = Date.now();
-      await until(async () => (await liveRow('Deploy acme').count()) > 0 && /Working/.test(await text(liveRow('Deploy acme'))), 'the delegated chat shows as a Running card, working', 20000);
+      await until(async () => (await liveRow('Deploy acme').count()) > 0 && /Running: .*\d+ (sec|min)/.test(await text(liveRow('Deploy acme'))), 'the delegated chat shows as a Running card with its time', 20000);
       assert.equal(await liveRow('Deploy acme').getAttribute('data-opens'), 'true', 'a click on the Running card opens its chat (no Watch button)');
       // Its turn ended (the reply came) and the row still works.
       const sid = await page.evaluate(async () => (await (await fetch(`/api/composer-plus.assistant-todos?sessionId=${encodeURIComponent((await (await fetch('/api/composer-plus.assistant')).json()).sessionId)}`)).json()).tasks.find((t) => t.title === 'Deploy acme')?.id);
       assert.ok(sid, 'the row has the chat id');
       await pause(Math.max(0, 6000 - (Date.now() - started)));
-      assert.match(await text(liveRow('Deploy acme')), /Working/, 'still working after its turn ended (the job runs)');
+      assert.match(await text(liveRow('Deploy acme')), /Running: /, 'still a Running card after its turn ended (the job runs)');
       assert.equal(await historyRow('Deploy acme').count(), 0, 'not a Done today card while the job runs');
       // 2. The job ends: a Done today card, without Refresh.
       await until(async () => (await historyRow('Deploy acme').count()) > 0, 'the card goes to Done today when the job ends', (JOB_SECONDS + 20) * 1000);

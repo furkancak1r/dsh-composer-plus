@@ -176,7 +176,7 @@ try {
       const card = panel.locator('.cp-st-summary');
       const refresh = panel.locator('.cp-st-top > button.cp-td-btn[id$="-refresh"]'); // the place button is a .cp-td-btn too
       const ask = panel.locator('button[id$="-summarize"]');
-      const spoken = () => panel.locator('[role="status"][aria-live="polite"]').innerText();
+      const spoken = () => panel.locator('[role="status"][aria-live="polite"]:not([data-composer-plus-active])').innerText();
 
       // 1. Setup: no summary card by default.
       await page.locator('button[aria-label="Damon"]').click();

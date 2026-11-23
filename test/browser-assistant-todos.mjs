@@ -317,7 +317,8 @@ try {
       const has = async (loc, re) => (await loc.count()) === 1 && re.test(await loc.evaluate((el) => el.textContent));
       const running = cards('suruyor', 'Rome flights');
       await running.waitFor({ state: 'attached', timeout: 30000 });
-      await until(() => has(running, /Working/), 'the task shows as a working Running card', 20000);
+      // Short lines (Furkan, 2026-11-23): the group names the state; the card line has only its time.
+      await until(() => has(running, /Running: .*\d+ (sec|min)/), 'the task shows as a Running card with its time', 20000);
       gate.open = true;
       const ended = cards('bitti', 'Rome flights');
       await until(async () => (await has(ended, /Done/)) && (await has(ended, /Flights found: 3 options/)) && (await running.count()) === 0, 'the task is a Done today card with its result', 30000);
