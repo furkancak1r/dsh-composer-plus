@@ -1,3 +1,43 @@
+# Fix: Improve prompt "Mesaj iyileştirilirken değişti" (branch fix/prompt-improve-change-warning)
+
+Owner report 2026-11-23: the wand says "The message changed while it was improved, so it was not replaced." although the
+user changed nothing (a quoted message; the grey suggestion comes and goes), and the notice never goes away.
+
+## Root cause (verified)
+1. Quote chip (dsh 0.2.2+): `InputState.draft` holds a quote as `> ` lines, dsh's editor offsets count it as 1 character
+   (dsh-client-ui-conversation `$composerLayout`, chip = `\uFFFC`). The wand sent a span `end: draft.length`, past the
+   editor's end; dsh `selectSpan` returns null, `insertText` returns false, the wand showed `improve.changed`.
+   Evidence: unit test on old client.js (span end 44 vs editor end 16); real dsh 0.2.2-rc.5 on old client.js shows the
+   notice with the quote chip and "make it red" in the composer (screenshot checked, then deleted).
+2. Notice stays: dsh shows an info notice until the next notice (InputBar `notice?.level === 'info'`, no timer, no clear
+   call). Old code: the notice still showed after typing (real dsh 0.2.2-rc.5).
+3. Suggestion (Complete while typing): it only sets `--dsh-composer-hint` CSS; draft and draftRev do not change. On old
+   code the run with the suggestion hiding/showing replaced the text; the notice that showed was the stale one of (2).
+
+## Fix (client.js)
+- `quoteLayout()`: reads the editor nodes (Lexical `__lexicalEditor` on `[data-composer-input]`), gives the span end in
+  editor offsets and the text as dsh sends it (quote as its own block). Unreadable quote: `improve.unsupported`.
+- `say()` + `notify` returns a clear function (dsh's input shell `notices` store set to null, only if it is still ours).
+  The notice goes on draft change (typing, send), on a new ask, or after `NOTICE_MS` = 4000 (task board toast,
+  client.js:1927; dsh Toast 3 s + 1 s).
+- Real edit during the run: still refused, notice shows (tests).
+
+## Tether (verified by reading, not run)
+No shared code. UI.swift:1326 compares plain `text == draft`; quotes are plain `> ` text (Core.swift:588 quoteDraft);
+prediction and completion are separate rows (UI.swift:1200-1228), they do not change `text`. Its error banner goes after
+5 s or a tap (UI.swift:133). No change.
+
+## Checks (last passing)
+- `npm test` (exit 0, 2026-11-23 10:3x). Repo has no lint script; CI runs only `npm test`. `node --check client.js` ok.
+- `node test/prompt-improve-client.test.mjs` passes; red on HEAD client.js.
+- `TMPDIR=/tmp/cp-improve-test PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-prompt-improve.mjs <0.2.0-rc.2 bin> <0.2.1-rc.2 bin> <0.2.2-rc.5 bin>`: PASS on all three.
+
+## Last checkpoint / open steps
+- Checkpoint: fix + tests committed on the branch.
+- Open: 1. review-guard in a separate subagent on `git diff main...HEAD` (small diff: one round; P3/P4 fix + tests;
+  P1/P2 one more round). 2. Merge to main, push main. No live copy, release, tag, npm publish or DSH restart.
+  3. /tmp/cp-improve-test is already deleted; a new browser run makes it again.
+
 # dsh-composer-plus — next release (0.6.0)
 
 ## Objective
