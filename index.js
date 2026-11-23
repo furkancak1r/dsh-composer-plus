@@ -12269,6 +12269,44 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
   const stale = new Map(); // kept delegated chat id → {last, turn} times of its saved log (not live; read once until its next turn)
   const busyLogs = new Map(); // delegated chat id → {length, state}: busyOf's answer from its live log of that length
   ctx.on('session/event', (session, event) => { if (event?.type === 'turn/start') { ended.delete(session?.id); stale.delete(session?.id); } });
+  /** Automations stay out of the panel (Furkan, 2026-11-23: "sağdaki panele otomasyonlar gelmesin"): the ids of the chats
+   * in `items` (changed since `since`) whose newest turn a schedule started (turnPrompt `schedule`, the automation rule of
+   * Assistant news): a chat that a scheduled task opened (target `new`, `new_once`) or one that got a scheduled delivery
+   * and no message of yours after it. A live chat is read from memory; a chat without a live agent only when dsh's
+   * schedule service names it as a delivery target, from its saved log, once per change (`autoLogs`). The to-do items
+   * (also a "Sorun:" item that an automation added) and Damon's own tasks stay.
+   * ponytail: the delivery targets of a `new` task come from its newest 100 deliveries (an hourly task makes 24 a day). */
+  const autoLogs = new Map(); // chat id → { updated, auto } of a chat without a live agent
+  const automationChats = async (items, since, signal) => {
+    // A chat that Damon gave work to (chat_new, chat_send) is Damon's own task: it stays, also after a scheduled turn.
+    const recent = items.filter((s) => s?.origin !== 'subagent' && isText(s?.sessionId, 128) && s.updatedAt >= since && !assistant.tasks?.has?.(s.sessionId));
+    const targets = new Set();
+    const service = get('schedule');
+    try {
+      for (const task of (typeof service?.catalog === 'function' ? await service.catalog() : []) ?? []) {
+        for (const id of [task?.target?.sessionId, task?.lastDelivery?.targetSessionId, task?.sessionId]) if (isText(id, 128)) targets.add(id);
+        if (task?.target?.kind !== 'new' || typeof service.history !== 'function') continue;
+        const page = await service.history({ id: task.id, limit: 100 }).catch(() => undefined);
+        for (const r of page?.records ?? []) if (isText(r?.targetSessionId, 128)) targets.add(r.targetSessionId);
+      }
+    } catch { /* no schedule service: only live chats are checked */ }
+    const out = new Set();
+    for (const s of recent) {
+      const agent = get('agents')?.get?.(s.sessionId);
+      if (agent !== undefined) { if (turnPrompt(agent) === 'schedule') out.add(s.sessionId); continue; }
+      if (!targets.has(s.sessionId)) continue;
+      let kept = autoLogs.get(s.sessionId);
+      if (kept?.updated !== s.updatedAt) {
+        const events = await savedEvents(ctx.sessionQuery, s.sessionId, signal).catch(() => undefined);
+        if (events === undefined) continue; // not readable now: shown, read again next time
+        kept = { updated: s.updatedAt, auto: turnPrompt({ session: { snapshotEvents: () => events } }) === 'schedule' };
+        autoLogs.delete(s.sessionId); autoLogs.set(s.sessionId, kept);
+        if (autoLogs.size > 500) autoLogs.delete(autoLogs.keys().next().value);
+      }
+      if (kept.auto) out.add(s.sessionId);
+    }
+    return out;
+  };
   const status = async (sessionId, signal, fresh) => {
     if (!on || !assistant.isAssistant(get('agents')?.get?.(sessionId))) return {};
     const agent = get('agents').get(sessionId);
@@ -12278,14 +12316,15 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       { logOf: (id) => savedEvents(ctx.sessionQuery, id, signal).catch(() => []), since: today.getTime(), now: now(), ended, scan });
     if (fresh || projectsCache === undefined || now() - projectsCache.at >= STATUS_LIMITS.cacheMs || projectsCache.sessionId !== sessionId) {
       let items = []; try { items = (await ctx.sessionController.list({}, signal)).items ?? []; } catch { /* no list */ }
-      projectsCache = { at: now(), sessionId, items };
+      const auto = await automationChats(items, now() - STATUS_LIMITS.recentMs, signal);
+      projectsCache = { at: now(), sessionId, items, auto };
     }
     // Only the chat list is kept: a chat that is archived (also by the assistant's chat_archive, whose turn keeps the
     // cache) leaves at the next read.
     let archived = new Set(); try { archived = new Set(get('workspaceRegistry')?.archivedSessionIds ?? []); } catch { /* none */ }
     // This read's chat list: a turn edge during the awaits below drops projectsCache.
     const listed = projectsCache.items;
-    const projects = statusProjects(listed, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId]), archived });
+    const projects = statusProjects(listed, workspaces(), { since: now() - STATUS_LIMITS.recentMs, skip: new Set([sessionId, ...projectsCache.auto]), archived });
     // Delegated chats (chat_new, with or without branch, and chat_send) are tasks too: open while their turn runs (main's
     // store drops them at the end), then with their final state until the day ends (the bot's endedTasks).
     const closed = [];
