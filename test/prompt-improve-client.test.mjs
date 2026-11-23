@@ -208,7 +208,19 @@ assert.equal(notice, null, 'typing removes it');
   // A quote chip that cannot be read (another markup): no rewrite, the tooltip says why.
   input.append(quoteChip); inputState = { ...inputState, draft, draftRev: inputState.draftRev + 1 };
   out = await view.settle(); assert.equal(buttonOf(out).p.disabled, true); assert.match(out.c.find((c) => c?.t === 'Tooltip').p.label, /improve.unsupported/);
-  input.remove(quoteChip); inputState = { ...inputState, draft: 'login hatasını düzelt ve test ekle', draftRev: inputState.draftRev + 1 }; await view.settle();
+  // Text before a quote, a line break, two quotes and two paragraphs: the span end in editor offsets and the text as dsh
+  // sends it (each quote its own block).
+  const blocks = [[{ type: 'text', text: 'see ' }, { type: 'quote', text: 'a\nb' }, { type: 'text', text: ' and' }, { type: 'linebreak' }, { type: 'quote', text: 'c' }], [{ type: 'text', text: ' fix it ' }]];
+  input.__lexicalEditor = { getEditorState: () => ({ toJSON: () => ({ root: { type: 'root', children: blocks.map((children) => ({ type: 'paragraph', children })) } }) }) };
+  editorEnd = 20;
+  inputState = { ...inputState, draft: 'see > a\n> b and\n> c\n fix it ', draftRev: inputState.draftRev + 1 };
+  out = await view.settle(); assert.equal(buttonOf(out).p.disabled, false);
+  buttonOf(out).p.onClick(); out = await view.settle();
+  assert.equal(JSON.parse(asks().at(-1).init.body).text, 'see\n\n> a\n> b\n\nand\n\n> c\n\nfix it');
+  assert.deepEqual(edits.at(-1).span, { start: 0, end: 20, draftRev: inputState.draftRev - 1 });
+  assert.equal(inputState.draft, 'Find out why the soil is dry every day.');
+  input.remove(quoteChip); delete input.__lexicalEditor; editorEnd = null;
+  inputState = { ...inputState, draft: 'login hatasını düzelt ve test ekle', draftRev: inputState.draftRev + 1 }; await view.settle();
 }
 
 // One ask at a time: a second click cancels the running one (no second request, the answer is dropped).

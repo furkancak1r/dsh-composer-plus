@@ -32,11 +32,19 @@ prediction and completion are separate rows (UI.swift:1200-1228), they do not ch
 - `node test/prompt-improve-client.test.mjs` passes; red on HEAD client.js.
 - `TMPDIR=/tmp/cp-improve-test PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-prompt-improve.mjs <0.2.0-rc.2 bin> <0.2.1-rc.2 bin> <0.2.2-rc.5 bin>`: PASS on all three.
 
+## Review (2026-11-23)
+- review-guard round 1 (separate subagent, `git diff origin/main...HEAD`): no P1/P2. It checked the root cause in the
+  dsh 0.2.2-rc.5 source and compared `quoteLayout()` with dsh's layout on 200,000 random editor states (all equal).
+- P3 fixed: unit case with text before a quote, a line break, two quotes and two paragraphs.
+- P4 fixed: `createImproveAsks` comment names `sent`; the 13 READMEs (limits) say that **Undo improvement** puts a quote
+  chip back as `> ` lines and Cmd/Ctrl+Z brings back the chip.
+
 ## Last checkpoint / open steps
-- Checkpoint: fix + tests committed on the branch.
-- Open: 1. review-guard in a separate subagent on `git diff main...HEAD` (small diff: one round; P3/P4 fix + tests;
-  P1/P2 one more round). 2. Merge to main, push main. No live copy, release, tag, npm publish or DSH restart.
-  3. /tmp/cp-improve-test is already deleted; a new browser run makes it again.
+- Checkpoint: fix, tests and review fixes committed on the branch. origin/main = 046a92e (not moved).
+- Last passing: `npm test` (exit 0), `node test/prompt-improve-client.test.mjs`, `test/browser-prompt-improve.mjs` PASS
+  on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 (after the review fixes).
+- Screenshots for the owner (dark, dsh 0.2.2-rc.5, quote chip before/after, no notice): /tmp/cp-improve-shots.
+- Open: merge to main, push main. No live copy, release, tag, npm publish or DSH restart.
 
 # dsh-composer-plus — next release (0.6.0)
 

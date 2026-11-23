@@ -4860,7 +4860,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * opens another chat, so an ask that the entry kept was cancelled by leaving the chat and its answer was lost. Here it
      * runs on: back in the chat the wand shows it running, and the outcome waits for that chat's composer. One ask per
      * chat: every entry point (click, Esc) and `start` check `of(id).running`. Entry: `{running?: AbortController,
-     * outcome?: {before, improved} | {before, error}}`. Each change is merged, and a cancelled ask's late answer is dropped. */
+     * outcome?: {before, sent, improved} | {before, error}}` (`sent`: the text the Host got). Each change is merged, and a cancelled ask's late answer is dropped. */
     function createImproveAsks() {
       const IDLE = Object.freeze({});
       let asks = new Map();
