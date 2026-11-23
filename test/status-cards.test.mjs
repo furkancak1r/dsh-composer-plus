@@ -30,6 +30,14 @@ assert.deepEqual(cardMark('SORUN:  canlı'), { kind: 'sorun', title: 'canlı' })
 assert.equal(liveApproval('Onaylıyorum: canlı sunucuya deploy et.'), true);
 assert.equal(liveApproval('Onaylıyorum (canlı değil): dal main\'e alınsın.'), false);
 assert.equal(liveApproval('Onaylıyorum: yalnız yerel test.'), false);
+// 2026-11-23: "canlı değil" in any form is never live, also when the text names a deploy or "(CANLI)" (the four Onay items
+// of that morning all said "canlı değil"; the deploy item and the ASCII form got the label).
+for (const text of ["Onay: hata incelemesinin ProsoLocal deploy paketi test dalı main'e alınıp push edilsin (canlı değil)",
+  "Onay: deploy paketi test dalı main'e alınsın (canli degil)", 'Onay: yayın notu, CANLI DEĞİL', 'Onay: X (Canlı Değil), deploy ayrıca',
+  'Onay: canlı\ndeğil, deploy belgesi', 'Onay: canlıya değil, deploy dalına'])
+  assert.equal(liveApproval(text), false, text);
+for (const text of ["Onay: 2.19'da (CANLI) görev yeniden kurulsun", 'Onay: deploy et', 'Onay: canli sunucu', 'Onay: canlıda değişiklik yap', 'Onay: yayına al'])
+  assert.equal(liveApproval(text), true, text);
 // The decision queue (phase 2): client.js statusQueue against its table (Tether's testStatusQueueMatchesTheMac reads it too).
 const queueCases = JSON.parse(read('test/fixtures/status-queue.json')).cases;
 for (const c of queueCases) {

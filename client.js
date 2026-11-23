@@ -3815,8 +3815,13 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       return out.map((e, n) => ({ e, n })).sort((a, b) => rank(a.e) - rank(b.e) || a.n - b.n).map(({ e }) => e);
     }
     /** An approval sentence that names a live target (the CANLI label): Auto review's live words, without its not-live
-     * phrases ("canlı değil", "yalnız yerel"). */
-    const liveApproval = (text) => APPROVAL_LIVE_WORD.test(String(text ?? '').normalize('NFC').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/ş/g, 's').replace(APPROVAL_SCOPE_OFF, ' '));
+     * phrases ("yalnız yerel", "deploy ayrı onay"). A text that says "canlı değil" (any case, also "canli degil") is never
+     * live, also when it names a deploy (2026-11-23: "deploy paketi test dalı … (canlı değil)" got CANLI; the ASCII form
+     * kept "canli" because ğ was not folded). */
+    const liveApproval = (text) => {
+      const folded = String(text ?? '').normalize('NFC').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g');
+      return !/canli\p{L}*\s+degil/u.test(folded) && APPROVAL_LIVE_WORD.test(folded.replace(APPROVAL_SCOPE_OFF, ' '));
+    };
     /** The live state of the assistant chat and its subagents as one short text: the panel reads the Host again when it
      * changes (a subagent starts, stops or waits; the assistant's turn starts or ends). */
     const childIdsOf = (list, id) => (list?.projectionsBySession?.[id]?.values?.subagentCatalog ?? []).filter((c) => c?.mode !== 'external').map((c) => c.id);
