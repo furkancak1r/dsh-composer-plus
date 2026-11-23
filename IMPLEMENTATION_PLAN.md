@@ -3506,5 +3506,7 @@ Checkpoint 2026-11-23 ~16:10 (new chat):
   - P2: the A key also refuses when an Onay item of the card names a live target outside "canlı değil" (`namesLive` on the sentence and the items). Test "Review 2 (P2)" in test/approve-button.test.mjs (red without the fix).
   - P3: the list-hiding CSS rule is scoped to the chat body (`[data-conversation-session]`); keys do nothing on an active item in a folded For you group, and the 800 ms clock starts again when it opens (test, red without the fix).
   - P4: stale comments, unused `listId`, one `foldLive` helper, no description span while the list shows (test), this checkpoint.
-- Last passing: `node test/approve-button.test.mjs`, `node test/option-picks-ui.test.mjs`.
-- Open steps: npm test; review round 3 (round 2 had a P2); merge origin/main; npm test + 5 browser tests; merge to main; push main. No live copy, no release, Tether unchanged.
+- Review round 3 (separate subagent, default model, on 7722156 + f024817, then a P1/P2 pass on origin/main...HEAD): P1 0, P2 0, P3 0, P4 1. Fixed in 98644d4: the R key also needs the item to be active and seen for 800 ms in an open group (test, red without the fix). The review is clean: no more rounds.
+- origin/main 6361c44 merged into the branch (74bac53, no conflict). test/browser-agentbox-ideas.mjs now launches Chromium with `headless: true, chromiumSandbox: true`.
+- Last passing (after the merge): `npm test` exit 0; `PLAYWRIGHT=<playwright 1.58> node test/browser-<name>.mjs <dsh 0.2.2-rc.5 bin>` PASS for card-stack, assistant-todos, assistant-chat-tasks, status-refresh, agentbox-ideas; card-stack also PASS on 0.2.0-rc.2 and 0.2.1-rc.2 (before the merge). No SHOT run; no asset changed. Screenshots not taken again: no fix of rounds 2–3 changes the panel view.
+- Next: merge this branch into main (merge commit after this commit) and push main. No live copy, no release, no npm publish; the branch and the worktree stay.
