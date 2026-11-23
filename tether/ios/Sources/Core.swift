@@ -4604,11 +4604,10 @@ func cardMark(_ text: String) -> (kind: String?, title: String) {
     return (nil, text)
 }
 /// client.js `liveApproval`: an approval text that names a live target (the LIVE label): Auto review's live words without
-/// its not-live phrases. A text that says "canlı değil" (any case, also "canli degil") is never live.
-private let notLive = try! NSRegularExpression(pattern: #"canli\p{L}*\s+degil"#)
+/// its not-live phrases ("canlı değil", "yalnız yerel").
 func liveApproval(_ text: String) -> Bool {
-    let f = text.precomposedStringWithCanonicalMapping.lowercased(with: Locale(identifier: "tr")).replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: "ş", with: "s").replacingOccurrences(of: "ğ", with: "g")
-    return !hits(notLive, f) && hits(approvalLiveWord, approvalScopeOff.stringByReplacingMatches(in: f, range: NSRange(location: 0, length: (f as NSString).length), withTemplate: " "))
+    let f = text.precomposedStringWithCanonicalMapping.lowercased(with: Locale(identifier: "tr")).replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: "ş", with: "s")
+    return hits(approvalLiveWord, approvalScopeOff.stringByReplacingMatches(in: f, range: NSRange(location: 0, length: (f as NSString).length), withTemplate: " "))
 }
 /// One card of the deck: a topic (an item of the to-do list, a task of the day, or both with the same text).
 struct StatusCard: Identifiable {

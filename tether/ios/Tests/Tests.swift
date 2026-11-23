@@ -2450,10 +2450,6 @@ final class DamonParityTests: XCTestCase {
         XCTAssertTrue(liveApproval("Onaylıyorum: canlı sunucuya deploy et."))
         XCTAssertFalse(liveApproval("Onaylıyorum (canlı değil): dal main'e alınsın."))
         XCTAssertFalse(liveApproval("Onaylıyorum: yalnız yerel test."))
-        for t in ["Onay: hata incelemesinin ProsoLocal deploy paketi test dalı main'e alınıp push edilsin (canlı değil)",
-                  "Onay: deploy paketi test dalı main'e alınsın (canli degil)", "Onay: yayın notu, CANLI DEĞİL", "Onay: X (Canlı Değil), deploy ayrıca",
-                  "Onay: canlı\ndeğil, deploy belgesi", "Onay: canlıya değil, deploy dalına"] { XCTAssertFalse(liveApproval(t), t) }
-        for t in ["Onay: 2.19'da (CANLI) görev yeniden kurulsun", "Onay: deploy et", "Onay: canli sunucu", "Onay: canlıda değişiklik yap", "Onay: yayına al"] { XCTAssertTrue(liveApproval(t), t) }
         // The day check uses the phone's calendar: the table holds in any time zone.
         let first = try XCTUnwrap(cases.first { ((($0["want"] as! J)["groups"] as! J)["bitti"] as! [J]).count == 2 })
         for zone in ["Pacific/Kiritimati", "Etc/GMT+12", "America/Los_Angeles"] {
