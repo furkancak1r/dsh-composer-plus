@@ -11,7 +11,7 @@ The Tether iPhone app and its Mac gateway are in `tether/` (Mobile connect). Rea
    - ship `assets/features/<shot>.webp`, about 60 kB or less.
    - Take the image from a throwaway demo dsh with the English UI and made-up projects only (`scripts/capture-screenshots.mjs` or `SHOT=1` in a `test/browser-*.mjs` check). Never use personal names, paths, chats or accounts.
    - `test/shots.test.mjs` fails when a feature has no screenshot.
-   - Run a browser test with SHOT=1 only for the feature that you change. After the run, `git status --short assets/features` must list only the images of that feature. Do not revert another image with git checkout or git restore: Auto review denies it as data loss. Avoid the change instead.
+   - Run a browser test with SHOT=1 only for the feature that you change. After the run, `git status --short assets/features` must list only the images of that feature. Do not revert another image with git checkout or git restore: Auto review denies it as data loss. Do not run SHOT=1 for another feature, so that no other image changes.
 3. Add its texts to `en` and `zh` in `client.js` and to all 11 files in `locales/<id>.json`. Then run `npm run build:locales`.
 4. Document it. The feature table of the 13 READMEs and the feature list of `llms.txt` come from one file:
    - Edit the feature's entry in `docs/features.json` (`how` in all 13 languages, `llms`, `shot`). The row name is the `feature.<id>` label of each language pack.
