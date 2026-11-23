@@ -61,8 +61,15 @@ const plugin = mod.factory((n) => (n === 'react' ? React : n === 'react-dom' ? {
 const regs = [];
 const unregistered = [];
 const notices = [];
+// dsh's input shell: `notify` sets its `notices` store, which the composer shows (an info notice inline) until the next one.
+let notice = null; let noticeSeq = 0;
+const noticeStore = { getSnapshot: () => notice, set: (v) => { notice = v; } };
+const notifyShell = (level, text) => { notices.push([level, text]); notice = { level, text, seq: ++noticeSeq }; };
+// The wand's notice goes after NOTICE_MS (4 s): the test runs that timer by hand.
+const noticeTimers = []; const realSetTimeout = globalThis.setTimeout;
+globalThis.setTimeout = (fn, ms, ...rest) => (ms === 4000 ? (noticeTimers.push(fn), 0) : realSetTimeout(fn, ms, ...rest));
 plugin.apply({ effect: () => {}, configForms: { get: () => ({}) }, locale: { register: () => () => {}, bind: () => (k) => k },
-  sessions: { binding: () => ({}), scope: () => ({ get: () => ({ input: { for: () => ({ notify: (level, text) => notices.push([level, text]) }) } }) }) },
+  sessions: { binding: () => ({}), scope: () => ({ get: () => ({ input: { for: () => ({ notify: notifyShell, notices: noticeStore }) } }) }) },
   slots: { inject: (n, f) => f(), register: (o, C) => { const r = [o, C]; regs.push(r); return () => { unregistered.push(o.id); }; } } });
 const entry = regs.find(([o]) => o.id === 'prompt-improve');
 assert.ok(entry, 'on by default: the composer entry is installed');
@@ -75,11 +82,13 @@ let inputState = { phase: 'plain', draft: '', draftRev: 1, attachmentIds: [], oc
 const edits = [];
 let accept = true;
 let lag = null; // the editor's revision while dsh has not published it yet
+let editorEnd = null; // the end of dsh's editor offsets when they are not the draft's (a quote chip is one character)
 const inputActions = {
   captureInsertion: () => ({ start: 3, end: 3, draftRev: lag ?? inputState.draftRev }),
   insertText: (text, span) => {
     edits.push({ text, span });
     if (!accept || span.draftRev !== inputState.draftRev) return false;
+    if (span.end > (editorEnd ?? inputState.draft.length)) return false; // dsh's selectSpan: past the editor's end
     inputState = { ...inputState, draft: text, draftRev: inputState.draftRev + 1 };
     return true;
   },
@@ -135,6 +144,84 @@ release(); out = await view.settle();
 assert.equal(inputState.draft, 'login hatasını düzelt ve test ekle', 'new typing is never overwritten');
 assert.deepEqual(notices.at(-1), ['info', 'improve.changed']);
 assert.equal(buttonOf(out).p['aria-label'], 'improve.label', 'no undo for a refused edit');
+// The notice goes again (owner's report: it stayed): when the user types on, after 4 s, and when a new ask starts.
+assert.deepEqual(notice?.text, 'improve.changed', 'dsh shows the notice');
+inputState = { ...inputState, draft: `${inputState.draft}.`, draftRev: inputState.draftRev + 1 }; await view.settle();
+assert.equal(notice, null, 'typing removes it');
+{
+  const showChanged = async () => {
+    reply = async (url, init) => { const b = JSON.parse(init.body); await new Promise((r) => { release = r; }); return { status: 200, body: { text: b.text, improved: 'Better prompt', model: 'big' } }; };
+    buttonOf(await view.settle()).p.onClick(); await view.settle();
+    inputState = { ...inputState, draft: `${inputState.draft}!`, draftRev: inputState.draftRev + 1 };
+    release(); await view.settle(); assert.equal(notice?.text, 'improve.changed');
+  };
+  await showChanged();
+  noticeTimers.splice(0).forEach((fn) => fn()); await view.settle();
+  assert.equal(notice, null, 'after 4 s it goes');
+  await showChanged();
+  reply = async (url, init) => { const b = JSON.parse(init.body); await new Promise((r) => { release = r; }); return { status: 200, body: { text: b.text, improved: 'Better prompt', model: 'big' } }; };
+  buttonOf(await view.settle()).p.onClick(); await view.settle();
+  assert.equal(notice, null, 'a new ask removes it');
+  buttonOf(await view.settle()).p.onClick(); release(); await view.settle(); // cancel that ask
+  // A newer notice (another feature's) is never removed by the wand's timer.
+  await showChanged(); notifyShell('info', 'other notice');
+  noticeTimers.splice(0).forEach((fn) => fn()); inputState = { ...inputState, draftRev: inputState.draftRev + 1 }; await view.settle();
+  assert.equal(notice?.text, 'other notice', 'only its own notice');
+  notice = null;
+}
+// A suggestion that shows or hides while it runs (Complete while typing's grey text, Next message prediction): dsh
+// publishes its input state again with the same draft and revision. The answer replaces the draft; no notice.
+{
+  inputState = { ...inputState, draft: 'fix the footer', draftRev: inputState.draftRev + 1 };
+  reply = async (url, init) => { const b = JSON.parse(init.body); await new Promise((r) => { release = r; }); return { status: 200, body: { text: b.text, improved: 'Fix the footer layout.', model: 'big' } }; };
+  const k = notices.length;
+  buttonOf(await view.settle()).p.onClick(); await view.settle();
+  input.style = { '--dsh-composer-hint': '" on mobile"' }; inputState = { ...inputState }; await view.settle(); // shows
+  delete input.style; inputState = { ...inputState }; await view.settle(); // hides
+  release(); out = await view.settle();
+  assert.equal(inputState.draft, 'Fix the footer layout.', 'the answer replaces the draft');
+  assert.equal(notices.length, k, 'no notice'); assert.equal(buttonOf(out).p['aria-label'], 'improve.undo');
+  buttonOf(out).p.onClick(); await view.settle(); assert.equal(inputState.draft, 'fix the footer');
+}
+// A quote (dsh 0.2.2+ Quote in reply / Quote text, owner's report): dsh keeps it as one chip, one character in its editor
+// offsets but `> ` lines in the draft. Before the fix the span ran to the draft's length, past the editor's end: dsh
+// refused it and the wand said "The message changed" although nothing changed. Now the span ends at the editor's end,
+// and the Host gets the text as dsh sends it (the quote as its own block).
+{
+  const quoteChip = new El({ 'data-composer-quote': '' }); input.append(quoteChip);
+  const nodes = [{ type: 'quote', text: 'the soil is dry\nevery day' }, { type: 'text', text: ' why is it dry?' }];
+  input.__lexicalEditor = { getEditorState: () => ({ toJSON: () => ({ root: { type: 'root', children: [{ type: 'paragraph', children: nodes }] } }) }) };
+  const draft = '> the soil is dry\n> every day why is it dry?';
+  editorEnd = 1 + ' why is it dry?'.length;
+  inputState = { ...inputState, draft, draftRev: inputState.draftRev + 1 };
+  reply = async (url, init) => ({ status: 200, body: { text: JSON.parse(init.body).text, improved: 'Find out why the soil is dry every day.', model: 'big' } });
+  const k = notices.length; const e0 = edits.length;
+  out = await view.settle(); assert.equal(buttonOf(out).p.disabled, false, 'a quote does not block it');
+  buttonOf(out).p.onClick(); out = await view.settle();
+  assert.equal(JSON.parse(asks().at(-1).init.body).text, '> the soil is dry\n> every day\n\nwhy is it dry?', 'the Host gets the quote as its own block');
+  assert.deepEqual(edits.at(-1).span, { start: 0, end: editorEnd, draftRev: inputState.draftRev - 1 }, 'the span ends at the editor\'s end');
+  assert.equal(edits.length, e0 + 1); assert.equal(inputState.draft, 'Find out why the soil is dry every day.');
+  assert.equal(notices.length, k, 'no "message changed" notice');
+  input.remove(quoteChip); delete input.__lexicalEditor; editorEnd = null;
+  // Undo puts the text back as dsh would send it (plain `> ` lines; Cmd/Ctrl+Z brings the chip itself back).
+  buttonOf(out).p.onClick(); await view.settle(); assert.equal(inputState.draft, '> the soil is dry\n> every day\n\nwhy is it dry?');
+  // A quote chip that cannot be read (another markup): no rewrite, the tooltip says why.
+  input.append(quoteChip); inputState = { ...inputState, draft, draftRev: inputState.draftRev + 1 };
+  out = await view.settle(); assert.equal(buttonOf(out).p.disabled, true); assert.match(out.c.find((c) => c?.t === 'Tooltip').p.label, /improve.unsupported/);
+  // Text before a quote, a line break, two quotes and two paragraphs: the span end in editor offsets and the text as dsh
+  // sends it (each quote its own block).
+  const blocks = [[{ type: 'text', text: 'see ' }, { type: 'quote', text: 'a\nb' }, { type: 'text', text: ' and' }, { type: 'linebreak' }, { type: 'quote', text: 'c' }], [{ type: 'text', text: ' fix it ' }]];
+  input.__lexicalEditor = { getEditorState: () => ({ toJSON: () => ({ root: { type: 'root', children: blocks.map((children) => ({ type: 'paragraph', children })) } }) }) };
+  editorEnd = 20;
+  inputState = { ...inputState, draft: 'see > a\n> b and\n> c\n fix it ', draftRev: inputState.draftRev + 1 };
+  out = await view.settle(); assert.equal(buttonOf(out).p.disabled, false);
+  buttonOf(out).p.onClick(); out = await view.settle();
+  assert.equal(JSON.parse(asks().at(-1).init.body).text, 'see\n\n> a\n> b\n\nand\n\n> c\n\nfix it');
+  assert.deepEqual(edits.at(-1).span, { start: 0, end: 20, draftRev: inputState.draftRev - 1 });
+  assert.equal(inputState.draft, 'Find out why the soil is dry every day.');
+  input.remove(quoteChip); delete input.__lexicalEditor; editorEnd = null;
+  inputState = { ...inputState, draft: 'login hatasını düzelt ve test ekle', draftRev: inputState.draftRev + 1 }; await view.settle();
+}
 
 // One ask at a time: a second click cancels the running one (no second request, the answer is dropped).
 let signal;

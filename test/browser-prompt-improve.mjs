@@ -7,6 +7,9 @@
 // its own Model menu and Nano is then called; the improve prompt never reaches the chat; no page errors.
 // Leaving the chat while a slow answer runs (owner's report): the model call goes on; back in the chat the wand shows it
 // running, the answer lands in that chat's composer only, and the next click runs (no stuck guard).
+// "The message changed" (owner's report, 2026-11-23): a draft with a quote (Quote in reply; a chip in dsh 0.2.2+) is replaced
+// and the model gets the quote as its own block; Complete while typing's grey text that hides and shows while it runs
+// shows no notice; a real edit keeps the new text and shows the notice, and typing removes it.
 // PLAYWRIGHT=/path/to/playwright node test/browser-prompt-improve.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/promptImprove.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -33,11 +36,14 @@ const fake = createServer((req, res) => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"},{"id":"nano"}]}'); return; }
     const parsed = JSON.parse(body);
     const all = JSON.stringify(parsed.messages);
-    const kind = /You improve a prompt that a user wrote/.test(all) ? 'improve' : /next message that the user will type/.test(all) ? 'predict' : /session title/i.test(all) ? 'title' : 'chat';
+    const kind = /You improve a prompt that a user wrote/.test(all) ? 'improve' : /You complete the message that the user is typing/.test(all) ? 'complete'
+      : /next message that the user will type/.test(all) ? 'predict' : /session title/i.test(all) ? 'title' : 'chat';
     const last = parsed.messages.at(-1)?.content;
     seen.push({ kind, model: parsed.model, input: typeof last === 'string' ? last : JSON.stringify(last) });
     if (kind === 'improve' && slow !== null) await slow;
-    const text = kind === 'improve' ? IMPROVED + (parsed.model === 'nano' ? ' (nano)' : '')
+    // Complete while typing: the grey suggestion starts with the typed last word (the Host's rule 3).
+    const text = kind === 'complete' ? `${/<<<([^>]*)>>>/.exec(String(last).split('The last word')[1] ?? '')?.[1] ?? ''} and the footer`
+      : kind === 'improve' ? IMPROVED + (parsed.model === 'nano' ? ' (nano)' : '')
       : kind === 'predict' ? '' : kind === 'title' ? 'Header work' : 'Done: the logout button is in src/components/Header.tsx.';
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`;
     res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -48,7 +54,7 @@ await new Promise((r) => fake.once('listening', r));
 const fakePort = fake.address().port;
 const git = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 'demo', GIT_AUTHOR_EMAIL: 'demo@example.com', GIT_COMMITTER_NAME: 'demo', GIT_COMMITTER_EMAIL: 'demo@example.com' } });
 
-const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
     seen.length = 0;
@@ -201,6 +207,74 @@ ${provider('fast', 'Fast', [['nano', 'Nano']])}
       // The model call can stop before it reaches the model (the Host aborts it with the request).
       assert.ok(improves().length <= n + 1, 'at most one call for the cancelled click');
 
+      // Owner's report: "The message changed while it was improved" although nothing changed, with a quote in the draft
+      // and the grey suggestion coming and going; and the notice stayed. dsh 0.2.2+ keeps a quote as one chip.
+      const notice = () => page.evaluate(() => document.querySelector('[data-composer-seat]')?.parentElement?.innerText.includes('The message changed while it was improved') ?? false);
+      {
+        await clear();
+        const part = 'logout button';
+        const box = await page.evaluate((part) => {
+          const root = [...document.querySelectorAll('[data-conversation-session] [data-chat-flow-kind="assistant-step"]')].filter((el) => el.textContent.includes(part)).at(-1);
+          const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          for (let n = walker.nextNode(); n !== null; n = walker.nextNode()) {
+            const i = n.data.indexOf(part); if (i < 0) continue;
+            const range = document.createRange(); range.setStart(n, i); range.setEnd(n, i + part.length);
+            const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+            const r = range.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+          }
+          return null;
+        }, part);
+        assert.ok(box, 'the answer holds the part to quote');
+        await page.mouse.click(box.x, box.y, { button: 'right' });
+        await page.getByRole('menuitem', { name: 'Quote', exact: true }).click();
+        // dsh 0.2.2+: a quote chip; older dsh: `> ` lines as text.
+        await page.waitForFunction((part) => document.querySelector('[data-composer-input]')?.innerText.includes(part), part);
+        const chip = await page.locator('[data-composer-input] [data-composer-quote]').count() === 1;
+        await page.keyboard.type('make it red', { delay: 20 });
+        const calls = improves().length;
+        slow = new Promise((r) => { release = r; });
+        await wand.click(); await page.waitForFunction(() => document.querySelector('[data-composer-plus-improve]')?.getAttribute('aria-busy') === 'true');
+        release(); slow = null;
+        await page.waitForFunction((t) => document.querySelector('[data-composer-input]')?.innerText.includes(t), 'Add a logout button to the site header', { timeout: 15000 });
+        assert.equal(await draft(), IMPROVED, 'a quoted draft is replaced');
+        assert.ok(chip ? improves()[calls].input.includes(`<draft>\n> ${part}\n\nmake it red\n</draft>`) : improves()[calls].input.includes(`> ${part}`),
+          `the model gets the quote as its own block: ${improves()[calls].input.slice(-200)}`);
+        assert.equal(await notice(), false, 'no "message changed" notice for a quote');
+        assert.equal(await wand.getAttribute('aria-label'), 'Undo improvement');
+        if (chip) {
+          await input.click(); await page.keyboard.press(`${mod}+Z`); await pause(300);
+          assert.equal(await page.locator('[data-composer-input] [data-composer-quote]').count(), 1, 'Cmd/Ctrl+Z brings the quote chip back');
+        }
+        await clear();
+      }
+      // A real edit while it runs still keeps the new text and says so; the notice goes when the user types on.
+      await clear(); await input.click(); await page.keyboard.type(typed, { delay: 20 });
+      slow = new Promise((r) => { release = r; });
+      await wand.click(); await page.waitForFunction(() => document.querySelector('[data-composer-plus-improve]')?.getAttribute('aria-busy') === 'true');
+      await input.click(); await page.keyboard.press('End'); await page.keyboard.type(' now', { delay: 20 });
+      release(); slow = null;
+      await page.waitForFunction(() => document.querySelector('[data-composer-plus-improve]')?.getAttribute('aria-busy') === 'false', null, { timeout: 15000 }); await pause(300);
+      assert.equal(await draft(), `${typed} now`, 'the real edit is kept');
+      assert.equal(await notice(), true, 'a real edit shows the notice');
+      await page.keyboard.type('!', { delay: 20 }); await pause(300);
+      assert.equal(await notice(), false, 'typing removes the notice');
+      // Complete while typing on: its grey suggestion shows and hides while the wand runs; the answer still replaces the draft.
+      await settings(); await page.getByRole('switch', { name: 'Complete while typing' }).click(); await back();
+      await clear(); await input.click(); await page.keyboard.type('add logout to header', { delay: 20 });
+      await page.waitForFunction(() => /and the footer/.test(document.querySelector('[data-composer-input]')?.style.getPropertyValue('--dsh-composer-hint') ?? ''), null, { timeout: 15000 });
+      slow = new Promise((r) => { release = r; });
+      await wand.click(); await page.waitForFunction(() => document.querySelector('[data-composer-plus-improve]')?.getAttribute('aria-busy') === 'true');
+      await page.keyboard.press('ArrowLeft'); await pause(400); // the caret leaves the end: the suggestion hides
+      const hidden = await page.evaluate(() => document.querySelector('[data-composer-input]')?.style.getPropertyValue('--dsh-composer-hint') ?? '');
+      await page.keyboard.press('ArrowRight'); await pause(400); // back at the end: it shows again
+      const hinted = await page.evaluate(() => document.querySelector('[data-composer-input]')?.style.getPropertyValue('--dsh-composer-hint') ?? '');
+      release(); slow = null;
+      await page.waitForFunction((t) => document.querySelector('[data-composer-input]')?.innerText.includes(t), 'Add a logout button to the site header', { timeout: 15000 });
+      assert.equal(hidden, '', 'the suggestion hid during the run'); assert.match(hinted, /and the footer/, 'and showed again');
+      assert.equal(await notice(), false, 'no notice while the suggestion comes and goes');
+      await wand.click(); await pause(300); // Undo improvement
+      await settings(); await page.getByRole('switch', { name: 'Complete while typing' }).click(); await back();
+
       // Leave the chat while a slow answer runs and come back.
       {
         await clear(); await input.click(); await page.keyboard.type(typed, { delay: 20 });
@@ -257,7 +331,7 @@ ${provider('fast', 'Fast', [['nano', 'Nano']])}
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;
-      console.log(`PASS ${bin}: wand in the tool row (on by default, disabled when empty), draft + chat + README + AGENTS.md + related file sent, improved text replaces the draft and is not sent, Cmd+Z one step back and redo, Undo improvement button, typing during a slow answer kept, Esc cancels, leave the chat and come back (still running, answer in that chat only, next click runs), own Model menu (Nano called, improve.json), switch off removes it, no page errors`);
+      console.log(`PASS ${bin}: wand in the tool row (on by default, disabled when empty), draft + chat + README + AGENTS.md + related file sent, improved text replaces the draft and is not sent, Cmd+Z one step back and redo, Undo improvement button, typing during a slow answer kept, Esc cancels, leave the chat and come back (still running, answer in that chat only, next click runs), quoted draft replaced, suggestion coming and going shows no notice, a real edit shows it and typing removes it, own Model menu (Nano called, improve.json), switch off removes it, no page errors`);
     } catch (error) {
       const page = context?.pages().at(-1);
       if (page) await page.screenshot({ path: join(home, 'failed.png') }).catch(() => {});

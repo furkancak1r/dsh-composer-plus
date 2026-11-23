@@ -4793,6 +4793,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     const IMPROVE_ROUTE = '/api/composer-plus.improve';
     const IMPROVE_INPUT = 8000; // the Host's limit
     const IMPROVE_ATTR = 'data-composer-plus-improve';
+    const NOTICE_MS = 4000; // as the task board's toast, and dsh's own Toast (3 s hold + 1 s fade)
     /** `/goal <objective>` or `/goal edit <objective>` (the Host's `goalDraft`): the length of the command part as typed;
      * undefined for another draft, an empty objective or a control word. The wand then rewrites only the objective. */
     const goalLead = (draft) => {
@@ -4806,6 +4807,34 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const shift = chip && s.phase === 'claimed' && typeof s.claim?.token === 'string' ? Math.max(0, s.claim.token.trimEnd().length - 1) : 0;
       return { ...live, start: Math.max(0, lead - shift), end: s.draft.length - shift };
     };
+    /** dsh 0.2.2 and later keep a quote (Quote in reply, dsh's Quote text) as one chip: `draft` holds it as `> ` lines,
+     * dsh's editor offsets as one character, so a span over `draft.length` ends past the editor's text and dsh refuses it.
+     * From the editor's own nodes: `{end, text}`, the draft's end in editor offsets and the text as dsh sends it (each
+     * quote a `> ` block, an empty line between the parts). undefined: no quote (the plain spans apply); null: a quote
+     * draft that cannot be read. ponytail: reads Lexical's link on the root element (`__lexicalEditor`) and dsh's node
+     * types (`quote`, `linebreak`, text); if dsh changes them, a quote draft gets no rewrite (improve.unsupported). */
+    function quoteLayout(el, draft) {
+      if (el?.querySelector?.('[data-composer-quote]') == null) return undefined;
+      let root;
+      try { root = el.__lexicalEditor?.getEditorState?.().toJSON?.().root; } catch { root = undefined; }
+      if (root === undefined) return null;
+      let clip = ''; let end = 0; let quotes = 0; let odd = false;
+      const parts = [{ text: '' }];
+      const add = (t) => { clip += t; end += t.length; const last = parts.at(-1); if (last.quote === undefined) last.text += t; else parts.push({ text: t }); };
+      (root.children ?? []).forEach((block, i) => {
+        if (i > 0) add('\n');
+        for (const node of block.children ?? []) {
+          if (node.type === 'quote' && typeof node.text === 'string') {
+            const q = node.text.replace(/\r\n?/g, '\n').split('\n').map((line) => `> ${line}`).join('\n'); // dsh's formatQuoteText
+            clip += q; end += 1; quotes += 1; parts.push({ quote: q });
+          } else if (node.type === 'linebreak') add('\n');
+          else if (['text', 'tab', 'composer-text-ref'].includes(node.type) && typeof node.text === 'string') add(node.text);
+          else odd = true;
+        }
+      });
+      if (quotes === 0 || odd || clip !== draft) return null;
+      return { end, text: parts.map((p) => p.quote ?? p.text.trim()).filter((p) => p !== '').join('\n\n') };
+    }
     /** Why the wand cannot run for this input state, or null. A `/goal` command chip is the one command it takes. */
     function improveBlock(s) {
       if (s === undefined) return 'improve.unsupported';
@@ -4831,7 +4860,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * opens another chat, so an ask that the entry kept was cancelled by leaving the chat and its answer was lost. Here it
      * runs on: back in the chat the wand shows it running, and the outcome waits for that chat's composer. One ask per
      * chat: every entry point (click, Esc) and `start` check `of(id).running`. Entry: `{running?: AbortController,
-     * outcome?: {before, improved} | {before, error}}`. Each change is merged, and a cancelled ask's late answer is dropped. */
+     * outcome?: {before, sent, improved} | {before, error}}` (`sent`: the text the Host got). Each change is merged, and a cancelled ask's late answer is dropped. */
     function createImproveAsks() {
       const IDLE = Object.freeze({});
       let asks = new Map();
@@ -4844,12 +4873,13 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       return {
         subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },
         of: (id) => asks.get(id) ?? IDLE,
-        async start(id, before, improve) {
+        /** `sent`: the text that goes to the Host when it is not `before` (a draft with a quote chip). */
+        async start(id, before, improve, sent = before) {
           if (asks.get(id)?.running !== undefined) return;
           const mine = new AbortController();
           merge(id, { running: mine, outcome: undefined });
           let outcome;
-          try { outcome = { before, improved: await improve(before, mine.signal) }; } catch (error) { outcome = { before, error: String(error?.message ?? error) }; }
+          try { outcome = { before, sent, improved: await improve(sent, mine.signal) }; } catch (error) { outcome = { before, error: String(error?.message ?? error) }; }
           if (asks.get(id)?.running === mine) merge(id, { running: undefined, outcome });
         },
         cancel(id) { const mine = asks.get(id)?.running; if (mine !== undefined) { mine.abort(); merge(id, { running: undefined }); } },
@@ -4871,10 +4901,26 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const editable = (s, lead) => s?.phase === 'plain' || (lead !== undefined && s?.phase === 'claimed' && s.claim?.name === 'goal');
       // dsh 0.2.1+ draws the claimed command as a chip in this composer; dsh 0.2.0 keeps it as text.
       const hasChip = () => anchorRef.current?.closest('[data-composer-seat]')?.querySelector('[data-composer-command]') != null;
-      const spanOf = (live, lead) => (lead === undefined ? { ...live, start: 0, end: draft.length } : improveSpan(input, live, lead, hasChip()));
+      // A quote chip (dsh 0.2.2+): its span ends at the editor's own end, and the Host gets the text as dsh sends it.
+      const quoted = () => quoteLayout(anchorRef.current?.closest('[data-composer-seat]')?.querySelector('[data-composer-input]'), draft);
+      const spanOf = (live, lead, q = quoted()) => (lead === undefined ? { ...live, start: 0, end: q?.end ?? draft.length } : improveSpan(input, live, lead, hasChip()));
       const undoable = undo !== null && undo.sessionId === sessionId && draft === undo.after && editable(input, undo.lead);
-      const block = undoable ? null : improveBlock(input);
+      const quoteBlock = (q) => (q === undefined ? null : q === null || goalLead(draft) !== undefined ? 'improve.unsupported' : q.text.length > IMPROVE_INPUT ? 'improve.tooLong' : null);
+      const block = undoable ? null : improveBlock(input) ?? quoteBlock(quoted());
       const cancel = () => { asks.cancel(sessionId); };
+      // An info notice of the wand stays in dsh's composer until the next notice: it goes when the draft changes (typing,
+      // sending), when a new ask starts, or after NOTICE_MS (as the task board's toast).
+      const shown = React.useRef(null); // { clear, rev }
+      const say = (key) => {
+        shown.current?.clear?.();
+        const clear = notify?.('info', t(key));
+        shown.current = { clear, rev: input?.draftRev };
+        if (typeof clear === 'function') setTimeout(clear, NOTICE_MS); // clear() removes only this notice
+      };
+      React.useEffect(() => {
+        if (shown.current === null || (!running && input?.draftRev === shown.current.rev)) return;
+        shown.current.clear?.(); shown.current = null;
+      }, [running, input?.draftRev]);
       // This chat's outcome (also one that came while another chat was open) goes into this chat's composer only.
       React.useEffect(() => {
         if (ask.outcome === undefined || input === undefined || inputActions === undefined) return;
@@ -4884,15 +4930,16 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         if (live.draftRev !== input.draftRev) return;
         const outcome = asks.take(sessionId);
         if (outcome === undefined) return;
-        const { before, improved, error } = outcome;
+        const { before, sent = before, improved, error } = outcome;
         if (error !== undefined) { notify?.('error', t('improve.failed', { error })); return; }
-        if (typeof improved !== 'string' || improved.trim() === '' || improved === before) { notify?.('info', t('improve.same')); return; }
+        if (typeof improved !== 'string' || improved.trim() === '' || improved === sent) { say('improve.same'); return; }
         // Compare the text, not the click's draft revision: back in the chat, dsh can give it a new composer with new
         // revisions. Typing, sending or another draft since the click keeps the user's text.
         const lead = goalLead(before);
-        if (lead !== undefined && improved.slice(0, lead) !== before.slice(0, lead)) { notify?.('info', t('improve.same')); return; }
-        if (draft !== before || !editable(input, lead) || !inputActions.insertText(lead === undefined ? improved : improved.slice(lead), spanOf(live, lead))) { notify?.('info', t('improve.changed')); return; }
-        setUndo({ sessionId, before, after: improved, lead });
+        if (lead !== undefined && improved.slice(0, lead) !== before.slice(0, lead)) { say('improve.same'); return; }
+        if (draft !== before || !editable(input, lead) || !inputActions.insertText(lead === undefined ? improved : improved.slice(lead), spanOf(live, lead))) { say('improve.changed'); return; }
+        // Undo puts back plain text: a quote chip comes back as its `> ` lines (Cmd/Ctrl+Z brings the chip back).
+        setUndo({ sessionId, before: sent, after: improved, lead });
       }, [ask.outcome, input, inputActions]);
       const run = () => {
         if (asks.of(sessionId).running !== undefined) { cancel(); return; } // a second click cancels
@@ -4903,8 +4950,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           if (inputActions.insertText(undo.lead === undefined ? undo.before : undo.before.slice(undo.lead), span)) setUndo(null);
           return;
         }
-        if (block !== null) return;
-        asks.start(sessionId, draft, improve);
+        // The editor now (the first render had no composer to read).
+        const q = quoted();
+        if (block !== null || quoteBlock(q) !== null) return;
+        asks.start(sessionId, draft, improve, q?.text);
       };
       // Esc in the composer cancels a running improvement (before dsh's own keys).
       React.useEffect(() => {
@@ -14770,8 +14819,16 @@ a.cpi-btn{text-decoration:none;color:var(--dsw-alias-state-business-primary,#3b6
               if (!response.ok) throw new Error(data.error ?? `HTTP ${response.status}`);
               return data.text === text && typeof data.improved === 'string' ? data.improved : '';
             },
+            // Returns a function that removes this notice again, or undefined. ponytail: dsh has no call that clears a
+            // notice; its input shell's `notices` store (not in dsh's contract, typed `InputNotice | null`) takes null.
+            // Without that store the notice stays, as before. Upgrade when dsh adds a clear call.
             notify: (level, text) => {
-              try { const actx = ctx.sessions.scope(sessionId); actx.get('conversation').input.for(actx).notify(level, text); } catch { /* notice is best-effort */ }
+              try {
+                const actx = ctx.sessions.scope(sessionId); const input = actx.get('conversation').input.for(actx);
+                input.notify(level, text);
+                const store = input.notices; const mine = store?.getSnapshot?.();
+                return mine == null || typeof store.set !== 'function' ? undefined : () => { if (store.getSnapshot() === mine) store.set(null); };
+              } catch { return undefined; /* notice is best-effort */ }
             },
           }),
         }, PromptImprove))]);
