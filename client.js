@@ -4209,7 +4209,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         else if (k === 'a' && read && current.kind === 'onay' && !current.live && offer?.options.length === 1 && offerNow?.empty === true
           && ![offer.options[0].text, ...(cards.approval?.items ?? []).map((i) => i.text)].some(namesLive)) picks.pick(sessionId, offer, 1);
         else if (k === 'a' && read && current.kind === 'senden') sendenAct(current.card)();
-        else if (k === 'r' && current.kind === 'senden') write(dataOf(current.card));
+        else if (k === 'r' && read && current.kind === 'senden') write(dataOf(current.card));
         else if (/^[1-9]$/.test(k) && read && current.kind === 'karar' && choice?.empty === true && choice.offer.options.some((o) => o.n === Number(k))) picks.pick(sessionId, choice.offer, Number(k));
         else return;
         ev.preventDefault();

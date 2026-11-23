@@ -633,6 +633,8 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
         const wrote = written.length;
         sendenHead().p.onClick(); stack2.render(); clock += 1000; pressA(); await flush();
         assert.equal(written.length, wrote, 'For you folded: A does nothing on its hidden card');
+        panelOf(stack2.render()).p.onKeyDown({ key: 'r', preventDefault() {}, target: { closest: () => null } }); await flush();
+        assert.equal(written.length, wrote, 'For you folded: R does nothing on its hidden card (review 3, P4)');
         sendenHead().p.onClick(); stack2.render(); clock += 10; pressA(); await flush();
         assert.equal(written.length, wrote, 'opened again: A at once does nothing');
         clock += 1000; pressA(); await flush();
