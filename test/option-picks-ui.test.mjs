@@ -147,6 +147,11 @@ newest.unmount(); older.unmount(); third.unmount(); forkCell.unmount(); quiet.un
   const bs = buttonsOf(o3);
   assert.deepEqual(bs.map((b) => texts(b).join(' ')), ['1. Hemen denensin', '2. Yarın sabah denensin', '3. Bekletilsin'], 'a "Seçenekler:" list of 3: 3 buttons');
   assert.equal(bs[1].p.title, 'Yarın sabah denensin\ntest sunucusunda', 'the whole item in the tooltip');
+  // Review 1 (P3): the list is hidden, so the whole item is the button's accessible description when it is more than the label.
+  const descs = o3.c.flat().filter((c) => c?.t === 'span' && c.p.hidden === true);
+  assert.deepEqual(descs.map((d) => [d.p.id, texts(d).join('')]), [['cp-op-S3-10-2', 'Yarın sabah denensin\ntest sunucusunda']], 'one hidden description, for the item with a second line');
+  assert.equal(bs[1].p['aria-describedby'], 'cp-op-S3-10-2', 'the button points to it');
+  assert.equal(bs[0].p['aria-describedby'], undefined, 'label = item: no description');
   const css3 = o3.c[0].c[0];
   assert.ok(css3.endsWith('[data-chat-node-key="st-3"] div:not([data-markdown-variant]):last-child>ol:last-child:has(>li:nth-child(3):last-child){display:none}'), `the list of this answer is hidden (no second text list): ${css3.slice(-200)}`);
   assert.equal((css3.match(/display:none/g) ?? []).length, 1, 'only that rule hides something');

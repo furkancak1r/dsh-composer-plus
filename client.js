@@ -7377,16 +7377,22 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       const { sessionId, seq, picks, t } = props;
       const shown = useAnswerOffer(props, parseOptions);
       const answerKey = props.useChat((chat) => answerKeyOf(chat, shown?.empty ? shown.offer.seq : undefined));
+      const uid = React.useId?.() ?? `${sessionId}-${seq}`;
       if (shown === undefined || !shown.empty) return null;
       const { offer, state } = shown;
+      // The list is hidden: an item longer than its label (more lines, cut, Markdown) is the button's description too.
+      const more = (option) => option.text !== option.label;
+      const descId = (option) => `cp-op-${uid}-${option.n}`;
       return React.createElement('div', { className: 'cp-op', role: 'group', 'aria-label': t('optionPicks.group'), 'data-composer-plus-option-picks': String(seq) },
         React.createElement('style', null, answerKey === null ? OPTION_PICKS_CSS : `${OPTION_PICKS_CSS}\n${optionListCss(answerKey, offer.options.length)}`),
         offer.options.map((option) => React.createElement('button', {
           key: option.n, type: 'button', className: 'cp-op-btn', title: option.text, disabled: state.busy,
           ...(option.recommended ? { 'data-recommended': '' } : {}),
+          ...(more(option) ? { 'aria-describedby': descId(option) } : {}),
           onClick: () => { picks.pick(sessionId, offer, option.n); },
         }, React.createElement('span', { className: 'cp-op-n' }, `${option.n}.`), React.createElement('span', null, option.label),
         option.recommended ? React.createElement('span', { className: 'cp-op-tag' }, t('optionPicks.recommended')) : null)),
+        offer.options.filter(more).map((option) => React.createElement('span', { key: `d${option.n}`, id: descId(option), hidden: true }, option.text)),
         state.error === null ? null : React.createElement('p', { className: 'cp-op-err', role: 'alert' }, t('optionPicks.failed', { error: state.error })));
     }
     /** Approve button: one "Approve" button per `onay` block of the answer that the chat offers now (the same rules and
