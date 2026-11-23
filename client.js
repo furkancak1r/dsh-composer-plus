@@ -3409,7 +3409,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
     const STATUS_SUMMARY_WAIT_MS = 5 * 60000;
     const TODOS_ATTR = 'data-composer-plus-todos';
     // The place of the panel (Furkan, 2026-11-20: the right side was better): `side` (the default) at the right of the
-    // chat, as before the card stack, or `top`, above the chat. Kept in this browser, as the view (Kartlar, Kuyruk, Brifing).
+    // chat, as before the card stack, or `top`, above the chat. Kept in this browser.
     const SEAT_ATTR = 'data-composer-plus-status-seat';
     const STATUS_PLACE_KEY = 'dsh-composer-plus.status-place';
     const readPlace = () => { try { return localStorage.getItem(STATUS_PLACE_KEY) === 'top' ? 'top' : 'side'; } catch { return 'side'; } };
@@ -3795,7 +3795,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       return { approval, groups, notes, counts: { onay: approval === null ? 0 : 1, sorun: groups.sorun.length, senden: groups.senden.length,
         suruyor: groups.suruyor.length, bitti: groups.bitti.length, fresh: groups.bitti.filter((c) => c.fresh).length } };
     }
-    /** Decision queue (Damon card stack, phase 2): only what waits for you, one entry at a time. `cards`: statusCards;
+    /** The order of the items that wait for you in the one list; the first one is the active item (the keys act on it,
+     * J/K move it). `cards`: statusCards;
      * `sentences`: the chat's `onay` sentences now; `options`: the labels of the option list of its newest answer (Option
      * picks, the "karar" type); `later`: the keys that you moved to the end with Sonra, in that order. Entries: the Onay
      * card (key `onay`), the choice (key `karar`), each Senden card (key `senden|<card key>`). Order: a live entry first
@@ -3814,14 +3815,14 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * phrases ("yalnız yerel", "deploy ayrı onay"). A text that says "canlı değil" (any case, also "canli degil") is never
      * live, also when it names a deploy (2026-11-23: "deploy paketi test dalı … (canlı değil)" got CANLI; the ASCII form
      * kept "canli" because ğ was not folded). */
+    const foldLive = (text) => String(text ?? '').normalize('NFC').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g');
     const liveApproval = (text) => {
-      const folded = String(text ?? '').normalize('NFC').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g');
+      const folded = foldLive(text);
       return !/canli\p{L}*\s+degil/u.test(folded) && APPROVAL_LIVE_WORD.test(folded.replace(APPROVAL_SCOPE_OFF, ' '));
     };
-    /** A live word outside the "canlı değil" phrase (review 1, P2): the A key refuses such a sentence, as on main, also when
-     * the CANLI label stays off ("canlı sunucuda … (test sunucusu canlı değil)" still names a live target). */
-    const namesLive = (text) => APPROVAL_LIVE_WORD.test(String(text ?? '').normalize('NFC').toLocaleLowerCase('tr').replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g')
-      .replace(/canli\p{L}*\s+degil/gu, ' ').replace(APPROVAL_SCOPE_OFF, ' '));
+    /** A live word outside the "canlı değil" phrase (review 1, P2): the A key refuses such a sentence or Onay item, as on
+     * main, also when the CANLI label stays off ("canlı sunucuda … (test sunucusu canlı değil)" still names a live target). */
+    const namesLive = (text) => APPROVAL_LIVE_WORD.test(foldLive(text).replace(/canli\p{L}*\s+degil/gu, ' ').replace(APPROVAL_SCOPE_OFF, ' '));
     /** The live state of the assistant chat and its subagents as one short text: the panel reads the Host again when it
      * changes (a subagent starts, stops or waits; the assistant's turn starts or ends). */
     const childIdsOf = (list, id) => (list?.projectionsBySession?.[id]?.values?.subagentCatalog ?? []).filter((c) => c?.mode !== 'external').map((c) => c.id);
@@ -3963,14 +3964,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const queue = statusQueue(cards, { sentences: (offer?.options ?? []).map((o) => o.text), options: (choice?.offer.options ?? []).map((o) => o.label), later: laterKeys });
       const at = Math.max(0, Math.min(qi, queue.length - 1));
       const current = queue[at];
-      const listId = `${headId}-list`;
       const showActive = () => setTimeout(() => host.querySelector?.('[data-composer-plus-todos] [data-active]')?.scrollIntoView?.({ block: 'nearest' }), 0);
       const moveLater = (e) => { setLater((l) => [...l.filter((x) => x.key !== e.key), { key: e.key, ident: identOf(e.key) }]); showActive(); };
-      // A key acts only on an item that was active for OPTION_KEY_GUARD_MS in the open panel (a key meant for something
-      // else must not answer what you did not read; the question card's option keys use the same guard). The clock starts
-      // again when the item's text changes and each time the panel opens.
-      if (!open || current === undefined) shownAt.current = { key: null, at: 0 };
-      else if (shownAt.current.key !== identOf(current.key)) shownAt.current = { key: identOf(current.key), at: Date.now() };
       const stateText = (s) => t(`status.task.${s}`);
       const sub = (...c) => React.createElement('span', { className: 'cp-st-sub' }, ...c);
       const write = (text) => { if (!composer(sessionId, text)) notify(sessionId, 'info', t('quote.changed')); };
@@ -4113,6 +4108,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         if (groupOpen[g]) budget = Math.max(0, budget - list.length);
       }
       groupOpen.notes = folds.get('notes') ?? false;
+      // A key acts only on an item that was active for OPTION_KEY_GUARD_MS in the open panel and in an open group (a key
+      // meant for something else must not answer what you did not read; the question card's option keys use the same
+      // guard). The clock starts again when the item's text changes, when the panel opens and when its group opens.
+      if (!open || current === undefined || (current.kind !== 'onay' && !groupOpen.senden)) shownAt.current = { key: null, at: 0 };
+      else if (shownAt.current.key !== identOf(current.key)) shownAt.current = { key: identOf(current.key), at: Date.now() };
       const fold = (g) => {
         const next = new Map(folds); next.set(g, !groupOpen[g]); setFolds(next);
         if (g === 'bitti' && groupOpen.bitti) { const at = Date.now(); setDoneSeen(at); try { localStorage.setItem(DONE_SEEN_KEY, String(at)); } catch { /* this page only */ } }
@@ -4206,7 +4206,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         else if (k === 'k') { setQi(Math.max(at - 1, 0)); showActive(); }
         else if (k === 's') moveLater(current);
         // A approves only one sentence that names no live target: with two, or a live one, you click the one that you read.
-        else if (k === 'a' && read && current.kind === 'onay' && !current.live && offer?.options.length === 1 && !namesLive(offer.options[0].text) && offerNow?.empty === true) picks.pick(sessionId, offer, 1);
+        else if (k === 'a' && read && current.kind === 'onay' && !current.live && offer?.options.length === 1 && offerNow?.empty === true
+          && ![offer.options[0].text, ...(cards.approval?.items ?? []).map((i) => i.text)].some(namesLive)) picks.pick(sessionId, offer, 1);
         else if (k === 'a' && read && current.kind === 'senden') sendenAct(current.card)();
         else if (k === 'r' && current.kind === 'senden') write(dataOf(current.card));
         else if (/^[1-9]$/.test(k) && read && current.kind === 'karar' && choice?.empty === true && choice.offer.options.some((o) => o.n === Number(k))) picks.pick(sessionId, choice.offer, Number(k));
@@ -4223,7 +4224,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const spoken = state.refreshing ? t('status.refreshing') : !state.shown ? '' : asking ? t('status.summaryWaiting') : askNote !== null ? askNote
         : ask?.state === 'done' && summary !== null ? `${t('status.summary')} · ${clockText(summary.at, lang)}` : '';
       // One list: Sorun, Senden (the choice first), Sürüyor, Bugün bitti (folded: one line with its count), your notes.
-      const scroll = React.createElement('div', { id: listId, className: 'cp-st-body', 'data-refreshing': String(state.refreshing), 'aria-busy': state.refreshing },
+      const scroll = React.createElement('div', { className: 'cp-st-body', 'data-refreshing': String(state.refreshing), 'aria-busy': state.refreshing },
         projects, groupList('sorun'), groupList('senden'), groupList('suruyor'), outageNote, groupList('bitti'), notes,
         state.error === null || state.errorKind === 'read' ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert' }, t('todos.failed', { error: state.error })));
       // aria-disabled (not disabled) while it refreshes: the focus stays on the button; the store refuses a second Refresh.
@@ -7361,11 +7362,12 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
      * hidden (the buttons hold each item: its first line as the label, the whole item as the tooltip). The heading stays.
      * When the buttons go (a draft, a run, a pick), the list shows again; the chat log and dsh's Copy keep it.
      * ponytail: a CSS rule on dsh's markup: the `ol` that ends the last Markdown root that is not compact (not the
-     * thinking) of the answer row `[data-chat-node-key]`, with exactly as many items as options. If dsh changes it, the
-     * list shows again (no item is lost). Upgrade when dsh's Markdown has a list slot. */
-    const optionListCss = (key, count) => {
-      const k = typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(key) : String(key).replace(/["\\]/g, '\\$&');
-      return `[data-chat-node-key="${k}"] div:not([data-markdown-variant]):last-child>ol:last-child:has(>li:nth-child(${count}):last-child){display:none}`;
+     * thinking) of the answer row `[data-chat-node-key]` in this chat's body `[data-conversation-session]` (another chat
+     * on screen can have the same node key), with exactly as many items as options. If dsh changes it, the list shows
+     * again (no item is lost). Upgrade when dsh's Markdown has a list slot. */
+    const optionListCss = (sessionId, key, count) => {
+      const esc = (v) => (typeof CSS !== 'undefined' && typeof CSS.escape === 'function' ? CSS.escape(v) : String(v).replace(/["\\]/g, '\\$&'));
+      return `[data-conversation-session="${esc(sessionId)}"] [data-chat-node-key="${esc(key)}"] div:not([data-markdown-variant]):last-child>ol:last-child:has(>li:nth-child(${count}):last-child){display:none}`;
     };
     /** The node key of the answer whose final seq is `seq` (dsh's chat view), or null. */
     const answerKeyOf = (chat, seq) => {
@@ -7380,11 +7382,11 @@ ${NEXT_WAITING_HEADER} > [class*="_sectionLabel"] { flex-shrink: 1; text-overflo
       const uid = React.useId?.() ?? `${sessionId}-${seq}`;
       if (shown === undefined || !shown.empty) return null;
       const { offer, state } = shown;
-      // The list is hidden: an item longer than its label (more lines, cut, Markdown) is the button's description too.
-      const more = (option) => option.text !== option.label;
+      // While the list is hidden, an item longer than its label (more lines, cut, Markdown) is the button's description too.
+      const more = (option) => answerKey !== null && option.text !== option.label;
       const descId = (option) => `cp-op-${uid}-${option.n}`;
       return React.createElement('div', { className: 'cp-op', role: 'group', 'aria-label': t('optionPicks.group'), 'data-composer-plus-option-picks': String(seq) },
-        React.createElement('style', null, answerKey === null ? OPTION_PICKS_CSS : `${OPTION_PICKS_CSS}\n${optionListCss(answerKey, offer.options.length)}`),
+        React.createElement('style', null, answerKey === null ? OPTION_PICKS_CSS : `${OPTION_PICKS_CSS}\n${optionListCss(sessionId, answerKey, offer.options.length)}`),
         offer.options.map((option) => React.createElement('button', {
           key: option.n, type: 'button', className: 'cp-op-btn', title: option.text, disabled: state.busy,
           ...(option.recommended ? { 'data-recommended': '' } : {}),

@@ -3450,3 +3450,13 @@ Checkpoint 2026-11-23 ~14:50 (chat stopped at ~150 tool calls):
 - DENIED by Auto review (not retried): `git checkout -- assets/features/nextWaiting.webp`. The SHOT=1 run of test/browser-agentbox-ideas.mjs also wrote nextWaiting.webp (not part of this task). It stays uncommitted in the worktree; it needs Furkan's approval to revert it before the merge.
 - Last passing: `npm test` exit 0 (this state); browser-card-stack, browser-assistant-todos, browser-assistant-chat-tasks, browser-status-refresh, browser-agentbox-ideas PASS on 0.2.2-rc.5.
 - Open steps: revert nextWaiting.webp (approval); finish P3 (11) and (12); review round 2 (a P2 was found) in a separate subagent on origin/main...HEAD until no P1/P2; merge origin/main; npm test; merge to main; push main (no force). No live copy, no release, Tether unchanged.
+Checkpoint 2026-11-23 ~16:10 (new chat):
+- nextWaiting.webp: `git restore` with Furkan's approval (14:52); `git status --porcelain` for it is empty.
+- P3 (11) done (f024817): an option button whose full item differs from its label gets `aria-describedby` → a hidden span with the full item, only while the list is hidden.
+- P3 (12) done: `test/browser-card-stack.mjs` PASS on dsh 0.2.0-rc.2 and 0.2.1-rc.2 (~/Documents/testdeepseekharness/work).
+- Review round 2 (separate subagent, default model, origin/main...f024817): P1 0, P2 1, P3 2, P4 5. All fixed:
+  - P2: the A key also refuses when an Onay item of the card names a live target outside "canlı değil" (`namesLive` on the sentence and the items). Test "Review 2 (P2)" in test/approve-button.test.mjs (red without the fix).
+  - P3: the list-hiding CSS rule is scoped to the chat body (`[data-conversation-session]`); keys do nothing on an active item in a folded For you group, and the 800 ms clock starts again when it opens (test, red without the fix).
+  - P4: stale comments, unused `listId`, one `foldLive` helper, no description span while the list shows (test), this checkpoint.
+- Last passing: `node test/approve-button.test.mjs`, `node test/option-picks-ui.test.mjs`.
+- Open steps: npm test; review round 3 (round 2 had a P2); merge origin/main; npm test + 5 browser tests; merge to main; push main. No live copy, no release, Tether unchanged.

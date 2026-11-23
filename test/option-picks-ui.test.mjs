@@ -153,7 +153,7 @@ newest.unmount(); older.unmount(); third.unmount(); forkCell.unmount(); quiet.un
   assert.equal(bs[1].p['aria-describedby'], 'cp-op-S3-10-2', 'the button points to it');
   assert.equal(bs[0].p['aria-describedby'], undefined, 'label = item: no description');
   const css3 = o3.c[0].c[0];
-  assert.ok(css3.endsWith('[data-chat-node-key="st-3"] div:not([data-markdown-variant]):last-child>ol:last-child:has(>li:nth-child(3):last-child){display:none}'), `the list of this answer is hidden (no second text list): ${css3.slice(-200)}`);
+  assert.ok(css3.endsWith('[data-conversation-session="S3"] [data-chat-node-key="st-3"] div:not([data-markdown-variant]):last-child>ol:last-child:has(>li:nth-child(3):last-child){display:none}'), `the list of this answer is hidden (no second text list): ${css3.slice(-200)}`);
   assert.equal((css3.match(/display:none/g) ?? []).length, 1, 'only that rule hides something');
   input = { ...input, draft: 'x' }; assert.equal(c3.render(), null, 'a draft hides the buttons, and with them the rule: the list shows again'); input = { ...input, draft: '' };
   // A normal numbered list: no heading, no buttons, no rule (it stays text).
@@ -165,6 +165,8 @@ newest.unmount(); older.unmount(); third.unmount(); forkCell.unmount(); quiet.un
   const c5 = mount(OptionPicks, { sessionId: 'S5', turn: 3, seq: 50, ...hooks, useChat: (sel) => sel(v3), picks: p3, check, rollback, t });
   c5.render(); await flush(); const o5 = c5.render();
   assert.equal(buttonsOf(o5).length, 3); assert.doesNotMatch(o5.c[0].c[0], /display:none/, 'no answer row: nothing hidden');
+  assert.equal(o5.c.flat().filter((c) => c?.t === 'span' && c.p.hidden === true).length, 0, 'the list shows: no second description');
+  assert.ok(buttonsOf(o5).every((b) => b.p['aria-describedby'] === undefined), 'no aria-describedby while the list shows');
   c3.unmount(); c4.unmount(); c5.unmount();
 }
 // The chat state key: a new node or a newer seq changes it; the same snapshot gives the same key.

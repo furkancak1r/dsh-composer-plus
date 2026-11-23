@@ -534,6 +534,22 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
       assert.equal(cardSent.length, mixedFrom, 'A does not approve a sentence that names a live target');
     } finally { Date.now = realNow5; }
   }
+  // Review 2 (P2): the same for an Onay item of the card: a plain sentence, but the item names a live target outside its
+  // "canlı değil" phrase. On main the entry was live; A does not approve it.
+  {
+    const ITEM = 'Onay: canlı sunucuda servis yeniden başlatılsın (test sunucusu canlı değil)';
+    const PLAIN = 'Onaylıyorum: servis yeniden başlatılsın.';
+    const storeLive = { ...store, of: () => Object.freeze({ ...store.of(), items: [{ id: 'a9', text: ITEM, owner: 'user', created: Date.now() - 60000 }] }) };
+    const stack9 = mount(StatusPanel, { ...cardProps, store: storeLive });
+    const realNow9 = Date.now; let clock = realNow9() + 40000; Date.now = () => clock;
+    try {
+      view = chat(user(516, 'n'), tail(51, 518, `Ready.\n\n${block(PLAIN)}`)); dock.render(); await flush(); dock.render(); await flush();
+      const from9 = cardSent.length;
+      assert.deepEqual(active(stack9.render()), ['onay'], 'the Onay card is active');
+      clock += 1000; panelOf(stack9.render()).p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
+      assert.equal(cardSent.length, from9, 'A does not approve when an Onay item names a live target');
+    } finally { Date.now = realNow9; stack9.unmount(); }
+  }
   // The screen reader hears only the active item ("1 / 1: <item>"), in one polite status region.
   {
     const said = find(stack.render(), (n) => n.p?.['data-composer-plus-active'] === '');
@@ -608,6 +624,21 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
     assert.deepEqual(active(stack2.render()), ['onay'], 'a new sentence: the approval goes back first');
     panelOf(stack2.render()).p.onKeyDown({ key: 's', preventDefault() {}, target: { closest: () => null } });
     assert.deepEqual(active(stack2.render()), ['senden|s1'], 'S (Sonra): the For you card is active');
+    // Review 2 (P3): you fold For you: its active card is out of view, so A does nothing; open again, the clock starts again.
+    {
+      const realNow6 = Date.now; let clock = realNow6() + 60000; Date.now = () => clock;
+      try {
+        const sendenHead = () => find(stack2.render(), (n) => n.t === 'button' && n.p['data-group'] === 'senden')[0];
+        const pressA = () => panelOf(stack2.render()).p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } });
+        const wrote = written.length;
+        sendenHead().p.onClick(); stack2.render(); clock += 1000; pressA(); await flush();
+        assert.equal(written.length, wrote, 'For you folded: A does nothing on its hidden card');
+        sendenHead().p.onClick(); stack2.render(); clock += 10; pressA(); await flush();
+        assert.equal(written.length, wrote, 'opened again: A at once does nothing');
+        clock += 1000; pressA(); await flush();
+        assert.equal(written.length, wrote + 1, 'opened again, after 800 ms: A acts');
+      } finally { Date.now = realNow6; }
+    }
     stack2.unmount();
   }
   // A choice (karar): the option list of the newest answer, published by CardChoices. It is the first For you card; its
