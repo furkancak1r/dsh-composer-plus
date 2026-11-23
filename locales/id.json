@@ -2780,7 +2780,6 @@
     "status.task.stopped": "Dihentikan",
     "status.history": "Riwayat",
     "status.dismiss": "Sembunyikan dari daftar: {task}",
-    "status.dismissShort": "Sembunyikan dari daftar",
     "status.insert": "Tulis di kotak pesan: {item}",
     "status.insertShort": "Tulis di kotak pesan",
     "status.insert.item": "Tugas: {text}",

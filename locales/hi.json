@@ -2780,7 +2780,6 @@
     "status.task.stopped": "रुका",
     "status.history": "इतिहास",
     "status.dismiss": "सूची से छिपाएँ: {task}",
-    "status.dismissShort": "सूची से छिपाएँ",
     "status.insert": "संदेश बॉक्स में लिखें: {item}",
     "status.insertShort": "संदेश बॉक्स में लिखें",
     "status.insert.item": "टू-डू: {text}",

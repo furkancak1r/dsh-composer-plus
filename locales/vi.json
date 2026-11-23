@@ -2780,7 +2780,6 @@
     "status.task.stopped": "Đã dừng",
     "status.history": "Lịch sử",
     "status.dismiss": "Ẩn khỏi danh sách: {task}",
-    "status.dismissShort": "Ẩn khỏi danh sách",
     "status.insert": "Ghi vào ô tin nhắn: {item}",
     "status.insertShort": "Ghi vào ô tin nhắn",
     "status.insert.item": "Việc cần làm: {text}",

@@ -520,6 +520,20 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
     assert.equal(cardSent.length, sent2, 'no guarded key sends');
   } finally { Date.now = realNow; }
   assert.equal(await qPicks.pick('D', offers.of('D').offer, 1), false, 'the same answer again: refused');
+  // Review 1 (P2): a sentence with a live word outside its "canlı değil" phrase gets no CANLI label (the owner's rule), but
+  // A does not approve it: a click does.
+  {
+    const MIXED = 'Onaylıyorum: canlı sunucuda servis yeniden başlatılsın (test sunucusu canlı değil).';
+    const realNow5 = Date.now; let clock = realNow5() + 20000; Date.now = () => clock;
+    try {
+      view = chat(user(512, 'm'), tail(51, 514, `Ready.\n\n${block(MIXED)}`)); dock.render(); await flush(); dock.render(); await flush();
+      const mixedFrom = cardSent.length;
+      assert.ok(!texts(onayCard(stack.render())).includes('cards.live'), 'no CANLI label ("canlı değil")');
+      stack.render(); clock += 1000;
+      panelOf(stack.render()).p.onKeyDown({ key: 'a', preventDefault() {}, target: { closest: () => null } }); await flush();
+      assert.equal(cardSent.length, mixedFrom, 'A does not approve a sentence that names a live target');
+    } finally { Date.now = realNow5; }
+  }
   // The screen reader hears only the active item ("1 / 1: <item>"), in one polite status region.
   {
     const said = find(stack.render(), (n) => n.p?.['data-composer-plus-active'] === '');
@@ -557,11 +571,20 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
     view = chat(user(540, 'w3'), tail(54, 550, `Ready.\n\n${block(CARD)}`)); dock.render(); await flush(); dock.render(); await flush();
     let tree2 = stack2.render();
     assert.deepEqual(active(tree2), ['onay'], 'the approval first');
-    const later = find(tree2, (n) => n.t === 'Menu' && n.p.anchor?.p?.['data-more'] === 'onay')[0] ?? find(tree2, (n) => n.p?.className === 'cp-cs-more')[0];
-    assert.ok(later, 'the Onay card has Sonra in its "…"');
-    panelOf(tree2).p.onKeyDown({ key: 's', preventDefault() {}, target: { closest: () => null } });
+    assert.equal(find(tree2, (n) => n.p?.['data-active'] === '')[0].p['aria-current'], 'true', 'the active item has aria-current');
+    assert.equal(find(tree2, (n) => n.p?.['aria-current'] !== undefined).length, 1, 'only the active item');
+    assert.equal(panelOf(tree2).p['aria-description'], 'queue.keys', 'the keys are named for a screen reader');
+    // This test has no dsh Menu (an older dsh): "…" is a disclosure with text buttons.
+    const more = find(onayCard(tree2), (n) => n.p?.className === 'cp-cs-more')[0];
+    const later = { p: { onSelect: () => find(more, (n) => n.t === 'button')[0].p.onClick() } };
+    assert.deepEqual(find(more, (n) => n.t === 'button').map((n) => texts(n).join('')), ['queue.later'], 'the Onay card has Sonra in its "…"');
+    // A key from the open "…" menu (a portal, still a React child of the panel) is not a panel key.
+    let fromMenu = false;
+    panelOf(tree2).p.onKeyDown({ key: 's', preventDefault: () => { fromMenu = true; }, target: { closest: (sel) => (/role="menu"/.test(sel) ? {} : null) } });
+    assert.equal(fromMenu, false, 'a key in the menu: not taken'); assert.deepEqual(active(stack2.render()), ['onay']);
+    later.p.onSelect('later');
     tree2 = stack2.render();
-    assert.deepEqual(active(tree2), ['senden|s1'], 'S (Sonra): the For you card is active');
+    assert.deepEqual(active(tree2), ['senden|s1'], '"…" → Sonra: the For you card is active');
     const sentNow = cardSent.length; const realNow3 = Date.now; Date.now = () => realNow3() + 2000;
     try {
       stack2.render(); Date.now = () => realNow3() + 4000;
@@ -583,6 +606,8 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
     assert.deepEqual(active(stack2.render()), ['senden|s1'], 'a [quiet] turn: Sonra holds');
     view = chat(user(560, 'w4'), tail(56, 570, `Ready.\n\n${block("Onaylıyorum (canlı değil): yeni dal main'e alınsın.")}`)); dock.render(); await flush(); dock.render(); await flush();
     assert.deepEqual(active(stack2.render()), ['onay'], 'a new sentence: the approval goes back first');
+    panelOf(stack2.render()).p.onKeyDown({ key: 's', preventDefault() {}, target: { closest: () => null } });
+    assert.deepEqual(active(stack2.render()), ['senden|s1'], 'S (Sonra): the For you card is active');
     stack2.unmount();
   }
   // A choice (karar): the option list of the newest answer, published by CardChoices. It is the first For you card; its
@@ -596,6 +621,11 @@ newest.unmount(); older.unmount(); third.unmount(); live.unmount();
   assert.deepEqual(active(tree), ['onay'], 'the Onay item still waits: it stays active');
   const karar = find(tree, (n) => n.p?.['data-card'] === 'karar')[0];
   assert.ok(karar, 'the choice is a card in For you');
+  assert.match(texts(find(tree, (n) => n.p?.['data-composer-plus-counts'] === '')[0]).join(''), /cards\.count\.senden:\{"count":1\}/, 'the count bar counts the choice');
+  assert.equal(find(karar, (n) => n.p?.['data-act'] === 'main').length, 1, '→ while its buttons show');
+  input = { ...input, draft: 'x' }; choices.render(); await flush(); choices.render();
+  assert.equal(find(find(stack.render(), (n) => n.p?.['data-card'] === 'karar')[0], (n) => n.p?.['data-act'] === 'main').length, 0, 'a draft hides the buttons: no → that does nothing');
+  input = { ...input, draft: '' }; choices.render(); await flush(); choices.render();
   assert.equal(find(karar, (n) => n.t === 'button' && n.p['data-composer-plus-choice'] !== undefined).length, 0, 'no second set of option buttons in the panel');
   {
     const realNow4 = Date.now; let clock = realNow4(); Date.now = () => clock;

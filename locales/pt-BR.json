@@ -2780,7 +2780,6 @@
     "status.task.stopped": "Parada",
     "status.history": "Histórico",
     "status.dismiss": "Ocultar da lista: {task}",
-    "status.dismissShort": "Ocultar da lista",
     "status.insert": "Escrever na caixa de mensagem: {item}",
     "status.insertShort": "Escrever na caixa de mensagem",
     "status.insert.item": "A fazer: {text}",

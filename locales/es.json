@@ -2780,7 +2780,6 @@
     "status.task.stopped": "Detenida",
     "status.history": "Historial",
     "status.dismiss": "Ocultar de la lista: {task}",
-    "status.dismissShort": "Ocultar de la lista",
     "status.insert": "Escribir en el cuadro de mensaje: {item}",
     "status.insertShort": "Escribir en el cuadro de mensaje",
     "status.insert.item": "Tarea pendiente: {text}",

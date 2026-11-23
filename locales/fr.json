@@ -2780,7 +2780,6 @@
     "status.task.stopped": "Arrêtée",
     "status.history": "Historique",
     "status.dismiss": "Masquer de la liste : {task}",
-    "status.dismissShort": "Masquer de la liste",
     "status.insert": "Écrire dans la zone de message : {item}",
     "status.insertShort": "Écrire dans la zone de message",
     "status.insert.item": "À faire : {text}",

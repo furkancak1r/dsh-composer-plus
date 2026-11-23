@@ -16,7 +16,7 @@ import { readFile, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fakeModel, demoHome, startDemo, seed, rpcOf } from '../scripts/demo-card-stack.mjs';
 const require = createRequire(import.meta.url);
-const { PLAYWRIGHT, SHOTS, PREFIX = 'panel', SCHEME = 'dark', VIEW, CHECK, OPTIONS } = process.env;
+const { PLAYWRIGHT, SHOTS, PREFIX = 'panel', SCHEME = 'dark', CHECK, OPTIONS } = process.env;
 if (!PLAYWRIGHT || !SHOTS || process.argv.length < 3) throw Error('Set PLAYWRIGHT and SHOTS and pass one dsh CLI entry path');
 const { chromium } = require(PLAYWRIGHT);
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -46,10 +46,9 @@ try {
   await until(() => calls.some((c) => c.newest.includes('DEMO-AUTO run')), 'the scheduled delivery', 90000);
   await pause(3000);
   const context = await browser.newContext({ locale: 'tr-TR', timezoneId: 'Europe/Istanbul', viewport: { width: 1280, height: 1500 }, deviceScaleFactor: 2, colorScheme: SCHEME === 'light' ? 'light' : 'dark' });
-  await context.addInitScript((view) => {
+  await context.addInitScript(() => {
     localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}');
-    if (view) localStorage.setItem('dsh-composer-plus.status-view', view);
-  }, VIEW ?? '');
+  });
   const page = await context.newPage(); const errors = []; page.on('pageerror', (e) => errors.push(String(e)));
   await page.goto(demo.url);
   for (const name of [/^(Continue|Devam)$/, /^(Configure later|Daha sonra yapılandır)$/]) {

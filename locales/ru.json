@@ -2780,7 +2780,6 @@
     "status.task.stopped": "Остановлено",
     "status.history": "История",
     "status.dismiss": "Скрыть из списка: {task}",
-    "status.dismissShort": "Скрыть из списка",
     "status.insert": "Написать в поле сообщения: {item}",
     "status.insertShort": "Написать в поле сообщения",
     "status.insert.item": "Дело: {text}",

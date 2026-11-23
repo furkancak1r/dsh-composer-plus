@@ -4444,7 +4444,6 @@
     "status.task.stopped": "Durduruldu",
     "status.history": "Geçmiş",
     "status.dismiss": "Listeden gizle: {task}",
-    "status.dismissShort": "Listeden gizle",
     "status.insert": "Mesaj kutusuna yaz: {item}",
     "status.insertShort": "Mesaj kutusuna yaz",
     "status.insert.item": "Yapılacak: {text}",

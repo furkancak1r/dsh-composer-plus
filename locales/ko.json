@@ -2780,7 +2780,6 @@
     "status.task.stopped": "중지됨",
     "status.history": "기록",
     "status.dismiss": "목록에서 숨기기: {task}",
-    "status.dismissShort": "목록에서 숨기기",
     "status.insert": "메시지 입력란에 쓰기: {item}",
     "status.insertShort": "메시지 입력란에 쓰기",
     "status.insert.item": "할 일: {text}",
