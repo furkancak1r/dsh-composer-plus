@@ -317,7 +317,8 @@ try {
       const has = async (loc, re) => (await loc.count()) === 1 && re.test(await loc.evaluate((el) => el.textContent));
       const running = cards('suruyor', 'Rome flights');
       await running.waitFor({ state: 'attached', timeout: 30000 });
-      await until(() => has(running, /Working/), 'the task shows as a working Running card', 20000);
+      // Short lines (Furkan, 2026-11-23): the group names the state; the card line has only its time.
+      await until(() => has(running, /Running: .*\d+ (sec|min)/), 'the task shows as a Running card with its time', 20000);
       gate.open = true;
       const ended = cards('bitti', 'Rome flights');
       await until(async () => (await has(ended, /Done/)) && (await has(ended, /Flights found: 3 options/)) && (await running.count()) === 0, 'the task is a Done today card with its result', 30000);
@@ -371,7 +372,7 @@ try {
       await until(async () => (await anr.count()) === 1 && /Waiting for you/.test(await anr.evaluate((el) => el.textContent)), 'the waiting card', 30000);
       assert.match(await anr.evaluate((el) => el.textContent), /Needs the game folder path/, 'the reason');
       assert.match(await anr.evaluate((el) => el.textContent), /Waiting for you · \d+ (sec|min)/, 'the wait time');
-      assert.equal(await anr.getByRole('button', { name: 'Reply', exact: true }).count(), 1, 'Reply');
+      assert.equal(await anr.getByRole('button', { name: 'Reply: Install ANR', exact: true }).count(), 1, 'Reply (an icon button with its name)');
       assert.match((await until(() => calls.find((c) => /Wait for the ANR path/.test(c.newest) && c.after), 'waiting result')).result, /owner agent, waiting for the user/);
       assert.match(await panel.locator('[data-composer-plus-counts]').innerText(), /(^| · )1 for you( · |$)/, 'the count bar counts it');
       assert.equal(await groupHead('senden').getAttribute('aria-expanded'), 'true', 'For you is open');
@@ -381,7 +382,7 @@ try {
       await rome.waitFor({ timeout: 5000 });
       assert.match(await rome.innerText(), /Done/);
       assert.equal(await panel.getByRole('button', { name: 'Hide from the list: Rome flights', exact: true }).count(), 0, 'no × on a done card: it has Seen');
-      await rome.getByRole('button', { name: 'Seen', exact: true }).click();
+      await rome.getByRole('button', { name: 'Seen: Rome flights', exact: true }).click();
       await until(async () => (await rome.count()) === 0, 'the card is hidden');
       assert.equal(await groupHead('bitti').count(), 0, 'no done card is left: the group goes');
       await page.reload(); await input.waitFor({ timeout: 20000 }); await assistantRow().click();
@@ -397,34 +398,38 @@ try {
       const rome2 = cards('bitti', 'Rome flights');
       await until(async () => (await has(rome2, /Done/)) && (await cards('suruyor', 'Rome flights').count()) === 0, 'the second task ended', 30000);
       for (const g of ['senden', 'suruyor', 'bitti', 'notes']) await open(g);
-      const projectsButton = panel.locator('button.cp-st-ask[aria-expanded]');
+      const projectsButton = panel.locator('button[id$="-projects"]');
       if ((await projectsButton.getAttribute('aria-expanded')) !== 'true') await projectsButton.click();
       const projectRows = panel.locator('section[aria-labelledby$="-projects-h"] li');
       await until(async () => (await projectRows.count()) > 0, 'a project row');
       // No text runs under its buttons (a card line, a note, a project row), and no button leaves the stack.
       const overlaps = await panel.evaluate((root) => [...root.querySelectorAll('.cp-cs-line, .cp-st-line')].filter((line) => line.offsetParent !== null && line.closest('details') === null).flatMap((line) => {
-        const text = line.querySelector(':scope > .cp-cs-main, :scope > .cp-st-row'); const buttons = [...line.querySelectorAll(':scope > .cp-cs-act, :scope > .cp-td-btn')].filter((b) => b.offsetParent !== null);
+        const text = line.querySelector(':scope > .cp-cs-main, :scope > .cp-st-row'); const buttons = [...line.querySelectorAll('.cp-td-btn')].filter((b) => b.offsetParent !== null && b.closest('.cp-cs-main, .cp-st-row') === null);
         if (text === null || buttons.length === 0) return [];
         const t = text.getBoundingClientRect(); const out = root.getBoundingClientRect();
         return buttons.flatMap((b) => { const r = b.getBoundingClientRect(); return t.right > r.left + 0.5 || r.right > out.right + 0.5 || r.width < 20 ? [`${line.innerText.slice(0, 30)}: text ${Math.round(t.right)} > button ${Math.round(r.left)} (stack ${Math.round(out.right)})`] : []; });
       }));
       assert.deepEqual(overlaps, [], 'no card text runs under its buttons');
-      // The Details of a card hold its "Write in the message box" (a running item of Damon has it as its main button).
-      for (const card of [anr, rome2]) await card.locator('summary').click();
+      // → is a card's main step: Write in the message box on a Running card, Reply on a waiting For you card (the same
+      // data); a Done today card has it in its "…" menu. Each icon's name is its tooltip.
       const writeTo = (name) => panel.getByRole('button', { name: `Write in the message box: ${name}`, exact: true });
-      assert.equal(await writeTo(LONG).getAttribute('title') ?? await writeTo(LONG).innerText(), 'Write in the message box', 'its label');
-      for (const name of ['Call the bank', 'Install ANR', 'Rome flights', 'acme-web']) assert.equal(await writeTo(name).count(), 1, `→ on ${name}`);
+      assert.equal(await writeTo(LONG).getAttribute('title'), `Write in the message box: ${LONG}`, 'its name is its tooltip');
+      for (const name of ['Call the bank', 'acme-web']) assert.equal(await writeTo(name).count(), 1, `→ on ${name}`);
+      const replyAnr = panel.getByRole('button', { name: 'Reply: Install ANR', exact: true });
+      assert.equal(await replyAnr.count(), 1, 'Reply on the waiting card');
       assert.equal(await panel.getByRole('button', { name: 'Give to the assistant: Pay rent', exact: true }).count(), 1, 'a note of the user keeps Give to the assistant');
       await clear(); await page.keyboard.type('Draft note', { delay: 5 }); await page.keyboard.press('Escape');
       const sent = calls.length;
       const composerText = async () => (await input.innerText()).replace(/\n+/g, '\n').trim();
-      await writeTo('Install ANR').click();
+      await replyAnr.click();
       await until(async () => (await composerText()).includes('Reason: Needs the game folder path'), 'the item in the composer');
       assert.match(await composerText(), /^Draft note\nTo-do: Install ANR\nWho does it: Damon\nState: Waiting for you · \d+ (sec|min)\nReason: Needs the game folder path$/, 'the draft, then the item, one field per line');
       assert.equal(await input.evaluate((el) => el.contains(document.activeElement) || el === document.activeElement), true, 'the focus is in the composer');
       await page.keyboard.type(' (asked)', { delay: 5 });
       assert.match(await composerText(), /path \(asked\)$/, 'the caret is at the end');
-      await writeTo('Rome flights').focus(); await page.keyboard.press('Enter');
+      await panel.getByRole('button', { name: 'More actions: Rome flights', exact: true }).click();
+      const writeItem = page.getByRole('menuitem', { name: 'Write in the message box', exact: true });
+      await writeItem.waitFor({ timeout: 5000 }); await writeItem.focus(); await page.keyboard.press('Enter');
       await until(async () => /Task: Rome flights\nState: Done · \d+ (sec|min)\nResult: Flights found: 3 options$/.test(await composerText()), 'Enter writes the task');
       await writeTo('acme-web').focus(); await page.keyboard.press('Space');
       await until(async () => /\nProject: acme-web\n(\d+ chats changed|Summary: .+)$/.test(await composerText()), 'Space writes the project');

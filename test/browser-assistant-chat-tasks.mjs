@@ -2,7 +2,7 @@
 // its turn ended (2026-11-16: a live deploy chat did not show). A fake model, a throwaway DSH_HOME and HOME, a made-up
 // project (acme-web). Never the normal DSH_HOME, no real model. Headless.
 // 1. "Start the deploy task" → chat_new (Allow once). The task chat starts a background bash job (sleep) and ends its turn.
-//    A Running card "Deploy acme" (Working, Watch) shows while the job runs (old code: done at once).
+//    A Running card "Deploy acme" (Working; a click opens it) shows while the job runs (old code: done at once).
 // 2. The job ends: the card goes to "Bugün bitti"/"Done today" (done), without Refresh.
 // 3. "Start the approval task" → chat_new; the task chat ends its turn with an onay block: a "For you" card waits for the user.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-chat-tasks.mjs /path/to/dsh/lib/bin.js [...]
@@ -118,18 +118,18 @@ try {
       await send('Start the deploy task'); await allow();
       await page.getByText('Started the task.').first().waitFor({ timeout: 30000 });
       const started = Date.now();
-      await until(async () => (await liveRow('Deploy acme').count()) > 0 && /Working/.test(await text(liveRow('Deploy acme'))), 'the delegated chat shows as a Running card, working', 20000);
-      assert.equal(await liveRow('Deploy acme').getByRole('button', { name: 'Watch', exact: true }).count(), 1, 'the Running card has Watch');
+      await until(async () => (await liveRow('Deploy acme').count()) > 0 && /Running: .*\d+ (sec|min)/.test(await text(liveRow('Deploy acme'))), 'the delegated chat shows as a Running card with its time', 20000);
+      assert.equal(await liveRow('Deploy acme').getAttribute('data-opens'), 'true', 'a click on the Running card opens its chat (no Watch button)');
       // Its turn ended (the reply came) and the row still works.
       const sid = await page.evaluate(async () => (await (await fetch(`/api/composer-plus.assistant-todos?sessionId=${encodeURIComponent((await (await fetch('/api/composer-plus.assistant')).json()).sessionId)}`)).json()).tasks.find((t) => t.title === 'Deploy acme')?.id);
       assert.ok(sid, 'the row has the chat id');
       await pause(Math.max(0, 6000 - (Date.now() - started)));
-      assert.match(await text(liveRow('Deploy acme')), /Working/, 'still working after its turn ended (the job runs)');
+      assert.match(await text(liveRow('Deploy acme')), /Running: /, 'still a Running card after its turn ended (the job runs)');
       assert.equal(await historyRow('Deploy acme').count(), 0, 'not a Done today card while the job runs');
       // 2. The job ends: a Done today card, without Refresh.
       await until(async () => (await historyRow('Deploy acme').count()) > 0, 'the card goes to Done today when the job ends', (JOB_SECONDS + 20) * 1000);
       assert.match(await text(historyRow('Deploy acme')), /Done/, 'the Done today card says Done');
-      assert.equal(await historyRow('Deploy acme').locator('button.cp-cs-act').filter({ hasText: /^Seen$/ }).count(), 1, 'the Done today card has Seen (its group is folded: found in the DOM)');
+      assert.equal(await historyRow('Deploy acme').locator('button[aria-label="Seen: Deploy acme"]').count(), 1, 'the Done today card has Seen (its group is folded: found in the DOM)');
       assert.equal(await liveRow('Deploy acme').count(), 0, 'no Running card after the job');
       // 3. A delegated chat that ends its turn with an onay block waits for the user.
       await send('Start the approval task'); await allow();

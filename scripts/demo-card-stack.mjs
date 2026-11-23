@@ -23,13 +23,15 @@ const SAMPLES = {
     other: 'Tamam. (Bu bir demo modelidir; gerçek bir iş yapmaz.)', done: ["Testler geçti, main'e alındı.", 'Rapor üretildi ve paylaşıldı.'], ran: 'Güncelleme bitti.',
     items: ["Onay: montaj testi dalı main'e alınır", 'Onay: servis betiği test servisinde denenir', 'Sorun: Gece denetimi hata verdi (acme-web)', 'Senden: Test sunucusunda Gerekli Tarih alanını aç',
       'Rapor hizası için karar', 'TR ve ENG raporlarından hangisi örnek alınsın?', 'Fatura şablonunu gözden geçir', 'Kırtasiye siparişini ver', 'Toplantı notlarını oku'],
-    tasks: ['Satınalma Gerekli Tarih sorguları', 'Haftalık stok raporu', 'Montaj testi dalı', 'Hava durumu CLI güncellemesi'] },
+    tasks: ['Satınalma Gerekli Tarih sorguları', 'Haftalık stok raporu', 'Montaj testi dalı', 'Hava durumu CLI güncellemesi'],
+    extra: ['Damon paneli: sade görünüm, simge butonlar, otomasyonlar panelde görünmesin', "Onay: deploy paketi test dalı main'e alınsın (canli degil)"] },
   en: { seed: 'Load the sample data', approval: 'Approve: merge the login-fix branch of acme-web into main and run the build script on the test server.',
     ready: '**Sample data is ready.** The status panel is at the right of the chat.\n\nTwo tasks wait for your approval:', approved: '**Approved.** The login-fix branch goes into main (a demo: nothing real runs).\n\nWhen does the build script run?\n\n**Options:**\n1. Run it now\n2. Run it tomorrow morning',
     other: 'OK. (This is a demo model; it does no real work.)', done: ['Tests pass, merged into main.', 'The report is ready and shared.'], ran: 'The update is done.',
     items: ['Onay: merge the login-fix branch of acme-web', 'Onay: run the build script on the test server', 'Sorun: Nightly check of acme-web failed', 'Senden: Turn on the due-date field on the test server',
       'Choose the report layout', 'Which report is the template: the short or the long one?', 'Review the invoice template', 'Order office supplies', 'Read the meeting notes'],
-    tasks: ['Due-date queries of acme-web', 'Weekly stock report', 'Login-fix branch', 'weather-cli update'] },
+    tasks: ['Due-date queries of acme-web', 'Weekly stock report', 'Login-fix branch', 'weather-cli update'],
+    extra: ['Status panel: a plain look, icon buttons, no automations in the panel', 'Approval: merge the deploy package test branch (not live)'] },
 };
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const now = () => Date.now();
@@ -87,6 +89,15 @@ export async function fakeModel(calls = [], lang = 'tr') {
         // A notice after the answer (a later turn): the cards show it.
         if (after.some((m) => m.role === 'assistant' && textOf(m.content).includes('```onay'))) return say('[quiet]');
         return say(`${S.ready}\n\n\`\`\`onay\n${S.approval}\n\`\`\`\n`);
+      }
+      // test/browser-panel-shots.mjs: "DEMO-EXTRA" adds a long agent item and a not-live Onay item that names a deploy;
+      // "DEMO-AUTO-SETUP" makes a one-time scheduled task whose delivery opens a new chat in the Damon chat's folder (an
+      // automation chat; its answer is the plain demo reply).
+      if (damonStep && newest.trim() === 'DEMO-EXTRA') return step === 0 ? tools(S.extra.map((text, i) => ['todo_list_add', { text, owner: i === 0 ? 'agent' : 'user' }])) : say('[quiet]');
+      if (damonStep && newest.trim() === 'DEMO-AUTO-SETUP') {
+        const at = new Date(Date.now() + 8000).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+        // The answer repeats the `onay` block: a block counts only after your newest message.
+        return step === 0 ? tools([['schedule_create', { title: 'Demo automation', prompt: 'DEMO-AUTO run', target: 'new', rrule: `DTSTART:${at}\nRRULE:FREQ=DAILY;COUNT=1` }]]) : say(`${S.ready}\n\n\`\`\`onay\n${S.approval}\n\`\`\`\n`);
       }
       // A background note (a finished subagent, Assistant news): the cards show it, so the reply is only [quiet].
       if (lastNotice) return say('[quiet]');
