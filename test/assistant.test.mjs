@@ -5,15 +5,307 @@
 // denied), and each one refuses another caller. The four tools that change a chat ask (dsh's approval card), except in
 // dsh's Auto permission mode, where Auto review decides without a Composer Plus card. chat_read
 // leaves out the messages that a rollback withdrew (both marker kinds) and a fork's copy; chats_list shows other projects,
-// the waiting state and filters.
+// the waiting state and filters. chat_send steers a running chat and queues to an idle one. The merge gate: with a
+// review-guard skill, chat_send and chat_new refuse a text that mentions a merge into main without merge_main; merge_main
+// ("none" or "after_review") appends its fixed line once.
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
-import { APPROVE_SECTION, ASSISTANT_ASK, ASSISTANT_PATH, ASSISTANT_PRESET, ASSISTANT_SWITCH_PATH, ASSISTANT_TOOLS, assistantRead, codeChanged, installAssistant, waitingOf } from '../index.js';
+import { APPROVE_SECTION, ASSISTANT_ASK, ASSISTANT_PATH, ASSISTANT_PRESET, ASSISTANT_SWITCH_PATH, ASSISTANT_TOOLS, MERGE_MAIN_LINES, MERGE_REFUSAL, assistantRead, codeChanged, mentionsMergeMain, installAssistant, waitingOf } from '../index.js';
 
 const tick = async () => { for (let i = 0; i < 30; i++) await new Promise((r) => setImmediate(r)); };
+
+// The merge gate's detector: a text that mentions a merge or push into main. It reads no intent: a negation, a question,
+// a noun, a review step or an English report (merged into main) counts too (the caller sets merge_main). Only the Turkish
+// past and refs that read main are left out. Rows from the reviews of 2026-11-12.
+const MENTIONS_MERGE_MAIN = [
+  "main'e merge",
+  "main'e push",
+  "Bitince main'e pushla.",
+  "main'e birleştirilen dalları sil.",
+  "Merge the two helpers into the main function.",
+  "Rules:\n- Do not change the API\n- Merge into main when the tests pass",
+  "Do not touch the tests\nMerge into main when done",
+  "Do not force push then git push origin main",
+  "Do not push then merge into main",
+  "Do not use a squash merge then merge into main",
+  "Do not delete the branch after you merge into main.",
+  "Do not squash when you merge into main.",
+  "Don't stop until you merge into main.",
+  "Do not wait for CI to merge into main.",
+  "Never force push when you push to main.",
+  "Merge the work of this branch into main.",
+  "Merge the current feature branch into main.",
+  "Merge release-1.4 into main.",
+  "Merge branch fix/v2.0-footer into main.",
+  "main'e birleştirmeyi unutma.",
+  "main'e birleştirmen gerekiyor",
+  "Dalı main'e birleştirmeni istiyorum.",
+  "main'e birleştirilmesi gerekiyor.",
+  "Testler geçince main'e birleştirmeyi yap.",
+  "main'e push et",
+  "main'e pushla",
+  "merge into \"main\"",
+  "merge into “main”",
+  "`main`'e birleştir",
+  "Merge into main. review-guard isn't needed.",
+  "Merge into main; review-guard not needed.",
+  "review-guard is unnecessary here, merge into main.",
+  "Merge into main (review-guard optional).",
+  "Merge into main; review-guard is skipped.",
+  "review-guard'a gerek yok, main'e birleştir.",
+  "review-guard gerekli değil, main'e birleştir.",
+  "review-guard was clean on the previous commit. Add the docs fix and merge into main.",
+  "merge to main",
+  "Merge onto main",
+  "merge with main then push",
+  "push to main",
+  "git push origin HEAD:main",
+  "git push -u origin main",
+  "merge into the main branch",
+  "merge into `main`",
+  "Merge into origin/main",
+  "merge back into main",
+  "merge the PR into main",
+  "merge-main",
+  "main dalına birleştir",
+  "main'a birleştir",
+  "main'e birleştirelim",
+  "main'e birleştiriniz",
+  "main'e merge edilsin",
+  "main'e birleştirilecek",
+  "CI yeşil olunca dal main'e birleşir",
+  "Dal origin'e push edilir, main'e birleşip push edilir",
+  "main`e birleştir",
+  "main´e birleştir",
+  "main'e birleştır",
+  "Skip review-guard and merge into main.",
+  "Merge into main without review-guard.",
+  "review-guard olmadan main'e birleştir.",
+  "No review-guard needed; merge into main.",
+  "Merge into main. Note: review-guard is not needed.",
+  "Review-guard gerekmez, main'e birleştir.",
+  "Do not run review-guard. Merge into main.",
+  "git push origin feature:main",
+  "With no conflicts merge into main",
+  "Do not stop, merge into main.",
+  "The tests do not fail and then merge into main.",
+  "Fix the footer, then /merge-main.",
+  "Bitince $merge-main çalıştır.",
+  "When the tests pass, run merge-main.",
+  "MERGE INTO MAIN when done",
+  "Then merge it\ninto main.",
+  "Merge the branch into main.",
+  "Push the branch, merge this branch into main",
+  "Testler geçince main’e birleştir.",
+  "Review sonrası main'e birleştirilsin.",
+  "Dal main'e birleşsin.",
+  "Sonra main'e merge et.",
+  "Bitince main'e birleş.",
+  "git push origin main",
+  "Önce test, sonra MAİN'E BİRLEŞTİRİN.",
+  "Run the tests without failures and merge into main.",
+  "Not now. Merge into main later.",
+  "Don't forget to merge into main.",
+  "Do not stop; run /merge-main.",
+  "Then load and follow the `push-branch` skill, then the `merge-main` skill.",
+  "Can you merge into main?",
+  "Please merge into main?",
+  "main'e pushlayın",
+  "Bitince main'e merge yap.",
+  "main'e birleştirildikten sonra dal silinir.",
+  "Hey, can you merge into main?",
+  "CI is green, can you merge into main?",
+  "When the tests pass, can you merge into main?",
+  "OK, please merge into main?",
+  "Dalı main'e birleştirir misin?",
+  "Main'e birleştirir misin?",
+  "Lütfen main'e birleştirir misin?",
+  "Testler geçti, main'e birleştirebilir misin?",
+  "Proceed with the merge into main.",
+  "Go ahead with the merge into main.",
+  "Do the merge into main.",
+  "Finish the merge into main after the tests pass.",
+  "Start the merge into main.",
+  "Run the merge into main.",
+  "Do a push to main.",
+  "Merge feat/a and feat/b into main.",
+  "Merge fix/a and fix/b to main.",
+  "Merge into main before review-guard.",
+  "Merge into main if review-guard is down.",
+  "Merge into main even if review-guard fails.",
+  "Merge into main when review-guard is unavailable.",
+  "Merge into main, then run review-guard.",
+  "Merge into main, okay?",
+  "Merge into main?",
+  "Push to main when done, can you?",
+  "Do not merge or push to main.",
+  "main'e birleştirmeye gerek yok.",
+  "Do not merge into main until review-guard is clean, then merge into main.",
+  "Never merge into main without a clean review-guard run. After that, merge into main.",
+  "Did you merge into main?",
+  "Why did the merge into main fail?",
+  "Show me the result of the merge into main.",
+  "main is at 05a6bda; the merge to main of PR 12 is done.",
+  "Run review-guard, then merge into main",
+  "Run review-guard on the final diff, fix the findings, and merge into main. No need to run review-guard again for docs.",
+  "Kullanıcı onayladı (acme-web): gece dalı bir dal sohbetinde testlerden ve review-guard'dan geçer. Temizse /merge-main ile main'e birleşir ve origin main'e push edilir. Deploy yok.",
+  "Kullanıcı onayladı (weather-cli): betik ve yapılandırma dal sohbetinde hazırlanır, test ve review-guard sonrası main'e birleşir. Sunucuya kurulum ayrı onay ister.",
+  "Kullanıcı onayladı (acme-web, canlı değil): koruma dalı, iki dal main'e girdikten sonra test ve review-guard ile main'e birleşir.",
+  "Kullanıcı onayladı: hafıza dosyaları proje adıyla görünür. Test ve review-guard sonrası main'e birleşir, canlı kopyaya alınmaz.",
+  "Kullanıcı onayladı (acme-web): düşen test ayrı dalda düzeltilir. Test, review-guard ve CI sonrası main'e birleşir.",
+  "Kullanıcı onayladı: düzeltme fix/cert-verify dalında yapılır. Review-guard temizse main'e birleşip push edilir. SSH değişikliği bu onaya dahil değil.",
+  "Kullanıcı onayladı (acme-web): şablondaki açıklama satırı bir dal sohbetinde düzeltilir. Review-guard temizse main'e birleşir ve origin main'e push edilir.",
+  "Kullanıcı onayladı (weather-cli): uyarı eklenir, test ve review-guard sonrası main'e birleşir. Kurulum ayrı karar.",
+  "Kullanıcı kararı: review-guard ve tüm kontroller temizse sormadan push ve main'e merge yapar; canlı ve deploy hariç. Temiz değilse dalı birleştirmez.",
+  "Kullanıcı onayladı: onay defteri ayrı dalda yapılır, test ve review-guard sonrası main'e birleşir. Canlı kurulum ayrı onay ister.",
+  "You are not allowed to merge into main.",
+  "Do not try to merge into main; Furkan merges it.",
+  "Never attempt to push origin main.",
+  "Do not run git push origin main.",
+  "Push the branch. Do not run the merge-main skill.",
+  "Do not load the `merge-main` skill.",
+  "No need to merge into main.",
+  "It is not your job to merge into main.",
+  "Push the branch. You are not allowed to merge into main.",
+  "main'e birleştirmeyin.",
+  "main'e birleştirmesin.",
+  "Merging into main is forbidden: merge into main is not allowed.",
+  "Load the review-guard skill, fix the findings, then merge into main.",
+  "Review-guard'ı final diff üzerinde çalıştır, sonra main'e birleştir.",
+  "Use the push-branch skill, not merge-main.",
+  "Fix the footer, then /merge-main. Before it, run review-guard on the final diff.",
+  "Run $review-guard and /merge-main when clean.",
+  "main'e birleştirme.",
+  "Do not merge into main.",
+  "Don't run /merge-main yet.",
+  "never push origin main",
+  "main'e pushlama.",
+  "main'e birleştirmez.",
+  "main'e birleştirmiyor.",
+  "main'e birleştirmemeli.",
+  "main'e birleştirmeden önce bekle.",
+  "Merge the PR and never push to main.",
+  "Merge the PR and do not push to main.",
+  "Merge the fix, then do not push to main.",
+  "merged into main",
+  "The branch is already merged into main.",
+  "When CI is green, the branch merges into main.",
+  "Finish by merging the branch into main.",
+  "After the tests, the branch is merged into main.",
+  "The fix is pushed to main when the tests pass.",
+  "Push the branch to `origin/main`.",
+  "Merge into \"origin/main\".",
+  "Merge into **main** after review.",
+  "Merge feat/a, feat/b and feat/c into main.",
+  "git push upstream main",
+  "Squash-merge into main.",
+  "Squash-merge the PR into main.",
+  "Enable auto-merge into main.",
+  "Rebase-merge into main.",
+  "Force-push to main.",
+  "Push the branch to upstream/main.",
+  "Merge into upstream/main.",
+  "Merge the PRs, then merge into main.",
+  "Dalı main ile birleştir.",
+  "main'le birleştir",
+  "main branch'ine merge et",
+  "main branch'e merge et",
+  "main branch'a birleştir",
+  "main branch'ına merge et",
+  "main branch ine merge et",
+  "Merge PR #12, then PR #13 into main.",
+  "Merge feat/a, then feat/b into main.",
+  "Merge the fix, then the docs into main.",
+  "Merge the fix, and then the docs into main.",
+  "Push the branch, then main.",
+  "Push feat/a, feat/b and main.",
+  "Push the tag, the branch and main.",
+  "Push the branch, and main.",
+  // A word with a colon between merge and main (review of 2026-11-13, round 7: the colon stopped the English path).
+  "Merge PR #42 (fix: footer color) into main.",
+  "Merge https://github.com/acme/web/pull/42 into main.",
+  // "?" or "!" inside a word, and a colon after the verb (review of 2026-11-24, P3: these texts passed the gate).
+  "Merge https://github.com/acme/web/pull/42?diff=split into main.",
+  "Merge https://github.com/acme/web/pull/42/files?w=1#diff-1 into origin/main.",
+  "Merge PR #42 (feat!: drop Node 18) into main.",
+  "Merge PR #42 (footer red?) into main.",
+  "Merge PR \"Fix it now!\" into main.",
+  "Push https://github.com/acme/web/pull/42?w=1 to main.",
+  "Merge: feat/a into main.",
+  "Merge: PR #42 (fix: footer color) into main.",
+  "Push: the fix to origin main.",
+  // Accepted false positives: a comma does not stop the words between merge or push and main (review of 2026-11-13).
+  "Merge the two PRs, then go back to main.",
+  "Push the changes, then update main.",
+  "Push the fix, main stays as is.",
+  "Push data, main loop.",
+];
+const NO_MERGE_MAIN = [
+  "Dal main'e merge edildi.",
+  "Dal main'e pushlandı.",
+  "main'e birleştirilmiş dal",
+  "main'e push edildi",
+  "main'e birleşti",
+  "main'e birleşmiş dal",
+  "main is at 05a6bda",
+  "origin/main",
+  "git log origin/main",
+  "git diff origin/main...HEAD",
+  "git fetch origin main",
+  "git pull --ff-only origin main",
+  "git merge origin/main into this branch",
+  "Fix the footer and push the branch.",
+  "Dal main'e birleştirildi.",
+  "Dal main'e birleştirilmiş.",
+  "It is in main now.",
+  "The fix is in origin/main.",
+  "Pull from main and push the branch.",
+  "Merge main into the branch.",
+  "Read /merge-mainline.md",
+  "git push origin main-backup",
+  "remerge into maintenance",
+  "Edit main.py and push.",
+  "Fix the merge conflicts with main.",
+  "Push to origin and open a PR against main.",
+  "merge-main.md dosyasını oku",
+  "",
+  "Dal main'e birleştirildi mi?",
+  "git merge origin/main",
+  "main'e birleşmiş feat/sap-idle-di-runner-guards dalı ve klasörü silinsin.",
+  "Dal main'e birleşti.",
+  "Kullanıcı bu depoda onay istemiyor: review-guard temizse dal push, main push ve dal silme serbest.",
+  "git merge upstream/main into this branch",
+  "Merge the resources into src/main/resources.",
+  "Dal main ile birleşti.",
+  "main ile merge conflict var, çöz.",
+  "Dalda main ile merge conflict çıktı, çöz.",
+  "main'le merge conflict var",
+  "main'e merge conflict var",
+  "Merge the two PRs, and then go back to main.", // 7 words between merge and "to main": over the limit of 6
+  // A word that ends in "?" or "!" is a sentence end, like ".".
+  "Should we merge it? Then go back to main.",
+  "Merge it! Then go back to main.",
+  "Merge: conflicts with main",
+  "Dal main branch'ine birleştirildi.",
+  "main branch'e merge edildi",
+];
+for (const text of MENTIONS_MERGE_MAIN) assert.equal(mentionsMergeMain(text), true, `mentions a merge into main: ${JSON.stringify(text)}`);
+for (const text of NO_MERGE_MAIN) assert.equal(mentionsMergeMain(text), false, `no merge into main: ${JSON.stringify(text)}`);
+// Linear time: an input of ASSISTANT_LIMITS.text (8000) characters, and about 0.8 MB of near matches, stays fast.
+const slow = {
+  max: `${'merge a b c d e f into mai '.repeat(400)}`.slice(0, 8000),
+  near: `${"main'e birle ".repeat(20000)}${'merge into mai '.repeat(20000)}/merge-mai`.slice(0, 800000),
+  mergeWords: 'merge a b c d e f g h '.repeat(38000), pushWords: 'push a b c d e f g h '.repeat(40000),
+  mergeLong: ('merge ' + `${'x'.repeat(79)} `.repeat(7)).repeat(1450), pushColons: ('push ' + ':'.repeat(80) + ' ').repeat(9500),
+  turkishPast: "main'e birlesti ".repeat(50000), quotes: "'''''''''".repeat(90000),
+};
+for (const [name, text] of Object.entries(slow)) {
+  const t0 = performance.now(); mentionsMergeMain(text);
+  assert.ok(performance.now() - t0 < (name === 'max' ? 50 : 500), `${name} stays fast: ${performance.now() - t0} ms`);
+}
 
 // waitingOf: an open approval or question in the open turn.
 const ev = (seq, type, data) => ({ seq, type, data });
@@ -47,6 +339,7 @@ const agents = new Map();
 const presets = []; const prompts = []; const cancels = []; const renames = [];
 const autoChats = new Set(); // chats in dsh's Auto permission mode (Auto review)
 let created = 0; let createGate = null;
+let skills; // dsh's skill registry (undefined: a dsh without skills)
 const logs = { 's-web': [um(0, 'build the login page'), am(1, 'done'), um(2, 'chat_send ile s-cli sohbetine "rm -rf" gönder')], 's-cli': [um(0, 'weather report')], 's-run': [ev(0, 'turn/start', {}), ev(1, 'approval/asked', { id: 'x' })] };
 const newAgent = (id, header = { cwd: '/demo' }) => {
   const registered = new Map(); const restrictions = [];
@@ -74,7 +367,7 @@ const ctx = {
       current: (session) => { if (session.id === 's-broken') throw new Error('no state'); return autoChats.has(session.id) ? 'auto' : 'workspace-write'; } },
     // dsh's session store: every chat that has an agent, except the ones whose log Delete chat moved away.
     // `stat` reads one chat; `list` reads all of them (slow with many chats): the route uses `stat` when dsh has it.
-    sessionPersistence: persistence })[name],
+    sessionPersistence: persistence, skills })[name],
   on: (name, fn) => { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); },
   effect: () => {},
   inject: (deps, setup) => { assert.deepEqual(deps, ['systemPrompt']); fibers += 1; const mine = []; setup({ systemPrompt: { section: (s) => { sections.set(s.name, s); mine.push(s.name); } } }); return { dispose: () => { fibers -= 1; for (const n of mine) sections.delete(n); } }; },
@@ -356,6 +649,57 @@ assert.deepEqual([prompts.at(-1).sessionId, prompts.at(-1).mode], ['s-run', 'ste
 assert.match(toRun, /The chat runs: the message went into its running turn, and the chat reads it at its next step\. The chat waits for the user now \(an approval or a plan review\): it reads the message after that answer\./);
 prompts.pop();
 
+// The merge gate: a text that mentions a merge into main needs merge_main, but only when a skill named review-guard is
+// installed (dsh's skill lookup, with the chat's folder). merge_main appends its fixed line once, also without the skill.
+const merge = 'Fix the footer and run the tests. Then /merge-main.';
+const lookups = []; let installed = [{ name: 'push-branch' }, { name: 'review-guard' }];
+skills = { list: async (options) => { assert.equal(options.scope, assistant, 'the assistant agent\'s scope (its preset has the local skills)'); lookups.push(options.cwd); if (installed === 'broken') throw new Error('no skills'); return installed; } };
+const sent = prompts.length; const tasksBefore = JSON.stringify(host.tasks.list());
+await assert.rejects(tool('chat_send').execute({ chat_id: 's-web', text: merge }, as), (e) => e.message === MERGE_REFUSAL && e.status === 409, 'refused: no merge_main');
+await assert.rejects(tool('chat_new').execute({ project: 'acme-web', text: merge, branch: true }, as), (e) => e.message === MERGE_REFUSAL, 'chat_new too');
+assert.deepEqual(lookups, ['/demo', '/demo/acme-web'], 'the lookup uses the chat\'s folder');
+assert.equal(prompts.length, sent, 'nothing sent'); assert.equal(created, 1, 'no chat started'); assert.equal(JSON.stringify(host.tasks.list()), tasksBefore, 'no task kept');
+await assert.rejects(tool('chat_send').execute({ chat_id: 's-web', text: merge, merge_main: 'yes' }, as), /merge_main is "none" or "after_review"/);
+installed = 'broken';
+await assert.rejects(tool('chat_send').execute({ chat_id: 's-web', text: merge }, as), (e) => e.message === MERGE_REFUSAL, 'a failed lookup keeps the gate closed');
+installed = [{ name: 'review-guard' }];
+const textOf = (p) => p.content[0].text;
+// Each text that mentions a merge into main goes with either value, and gets that line once.
+for (const text of [merge, ...MENTIONS_MERGE_MAIN.slice(0, 40), 'Do not merge or push to main.', "main'e birleştirmeye gerek yok.", 'Dalı main\'e birleştirir misin?']) {
+  for (const [value, line] of Object.entries(MERGE_MAIN_LINES)) {
+    await tool('chat_send').execute({ chat_id: 's-web', text, merge_main: value }, as);
+    assert.equal(textOf(prompts.at(-1)), `${text.trim()}\n\n${line}`, `${value}: ${JSON.stringify(text)}`);
+  }
+}
+// A text that has the line of the other value is refused (it would get both lines).
+for (const [value, other] of [['after_review', 'none'], ['none', 'after_review']]) {
+  await assert.rejects(tool('chat_send').execute({ chat_id: 's-web', text: `${merge}\n\n${MERGE_MAIN_LINES[other]}`, merge_main: value }, as), /line of another merge_main value/, `${value} with the ${other} line`);
+}
+// The line is not added twice; with no merge words, a set merge_main still adds it; without it nothing is added.
+const withLine = `${merge}\n\n${MERGE_MAIN_LINES.after_review}`;
+await tool('chat_send').execute({ chat_id: 's-web', text: withLine, merge_main: 'after_review' }, as);
+assert.equal(textOf(prompts.at(-1)), withLine, 'the line once');
+await tool('chat_send').execute({ chat_id: 's-web', text: 'Fix the footer.', merge_main: 'none' }, as);
+assert.equal(textOf(prompts.at(-1)), `Fix the footer.\n\n${MERGE_MAIN_LINES.none}`);
+for (const text of NO_MERGE_MAIN.filter(Boolean)) { await tool('chat_send').execute({ chat_id: 's-web', text }, as); assert.equal(textOf(prompts.at(-1)), text, `as typed: ${text}`); }
+// A text that would pass the limit with the line is refused.
+await assert.rejects(tool('chat_send').execute({ chat_id: 's-web', text: 'x'.repeat(7990), merge_main: 'none' }, as), /characters with merge_main/);
+// The approval card shows the line that goes with the text.
+const card = (await listeners.get('tools/pre-execute')[0]({ name: 'chat_send', agent: assistant, arguments: { chat_id: 's-web', text: merge, merge_main: 'after_review' } }, async () => ({ kind: 'allow' }))).reason;
+assert.ok(card.endsWith(`: "${withLine}"`), 'the card shows the line');
+installed = [{ name: 'push-branch' }];
+const before = prompts.length;
+await tool('chat_send').execute({ chat_id: 's-web', text: merge }, as);
+skills = undefined;
+await tool('chat_send').execute({ chat_id: 's-web', text: merge }, as);
+assert.equal(prompts.length, before + 2, 'without a review-guard skill (or skills in dsh): no gate');
+assert.equal(textOf(prompts.at(-1)), merge, 'and no line');
+// Without the skill, after_review is refused (its line would ask for a skill that is not there); none still works.
+await assert.rejects(tool('chat_send').execute({ chat_id: 's-web', text: merge, merge_main: 'after_review' }, as), /needs a skill named review-guard/);
+await tool('chat_send').execute({ chat_id: 's-web', text: merge, merge_main: 'none' }, as);
+assert.equal(textOf(prompts.at(-1)), `${merge}\n\n${MERGE_MAIN_LINES.none}`, 'none without the skill');
+skills = { list: async () => [{ name: 'review-guard' }] }; // for chat_new below
+
 // chat_new: by project name (accents and case do not matter) or path; an unknown name lists the projects.
 assert.match(await tool('chat_new').execute({ project: 'ACME-WEB', text: 'start the report' }, as), /Started a new chat \(s-assistant-2\) in acme-web/);
 assert.equal(prompts.at(-1).sessionId, 's-assistant-2');
@@ -404,6 +748,9 @@ await assert.rejects(me3.agent.registered.get('chat_new').execute({ project: 'ac
 ctx.sessionController.prompt = sendOf;
 assert.equal(keptFirst, true, 'the task is kept before the message goes');
 assert.equal(host.tasks.has(`s-assistant-${created}`), false, 'no task without its message'); assert.ok(archived.has(`s-assistant-${created}`), 'archived');
+// chat_new adds the merge_main line too (here: a new chat id must not move the ids above).
+await me3.agent.registered.get('chat_new').execute({ project: 'acme-web', text: merge, merge_main: 'after_review' }, me3);
+assert.equal(prompts.at(-1).content[0].text, withLine, 'chat_new adds the line');
 
 // Off: the route, the section and every tool and restriction go; on again: back once, without a second route.
 assert.deepEqual((await call(ASSISTANT_SWITCH_PATH, 'POST', { on: false })).body, { on: false });

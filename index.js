@@ -10393,6 +10393,58 @@ export function assistantRead(events, inherited, count, { message = ASSISTANT_LI
 }
 const foldName = (s) => String(s ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLocaleLowerCase('en');
 
+/** A task text that mentions a merge or push into main (2026-11-12: two task texts that asked for /merge-main went to main
+ * without a review). The caller then states its intent with the tool parameter merge_main, and the tool appends one fixed
+ * line (MERGE_MAIN_LINES). The detector reads no intent: a negation, a question, a noun or a report counts too ("do not
+ * merge into main", "already merged into main"), and a false positive costs the caller one parameter. Only the Turkish past
+ * ("main'e birleşti", "main'e birleşmiş") and refs that read main (origin/main, git log/diff/fetch/pull … main, git merge
+ * origin/main) are left out. Case, accents, quotes, backticks and Markdown * and _ around main (' ’ ` ´ " “ ”), the dotless ı
+ * and line breaks do not matter. Fixed words with bounded repeats (at most 6 words of 80 characters between merge or push
+ * and main), so the time is linear.
+ * ponytail: only these English and Turkish words count. "into the main function" and participles ("main'e birleştirilen
+ * dallar") are found too (the caller sets "none"); "merge in main", "fast-forward main", "update main with this branch",
+ * "main'e al/geçir/gönder", "git checkout main && git merge X && git push" and "merge into master" are not found. A later
+ * chat_send to a branch chat whose first task asked for the merge is not checked. Upgrade: keep merge_main with the task and
+ * check each later message to that chat. */
+const MAIN_END = String.raw`(?![\p{L}\p{N}_-]|\.\p{L})`; // not "main-backup", "maintenance" or "main.py"
+const SP = '[ \\n]';
+// One word between merge or push and main: 1 to 80 characters with no space or ";", not ending in ".", "?" or "!" (a
+// sentence end; "v2.0" stays one word; "feat/a," is a word). A word cannot hold the space before it, so each way to read
+// the repeat is the only one. A comma does not stop it, so a later clause counts too ("Push the changes, then update
+// main"): a false positive costs one parameter, a missed request ("Merge feat/a, then feat/b into main") skips the gate.
+// A colon, "?" or "!" inside a word does not stop it either ("Merge PR #42 (fix: footer color) into main", "feat!:", a URL
+// with "?w=1"). A colon right after the verb counts too ("Merge: feat/a into main").
+const GAP_WORD = String.raw`${SP}[^\s;]{0,79}[^\s;.!?]`;
+const MERGE = '(?:merg(?:e|es|ed|ing)|push(?:es|ed|ing)?)'; // English verbs: merges, merged, merging, pushes …
+// main, 'main', origin/main, upstream/'main'; not src/main/java
+const MAIN = String.raw`'?(?:[\p{L}\p{N}._-]{1,80}/)?'?main'?${MAIN_END}(?!/)`;
+const MERGE_MAIN = new RegExp([
+  String.raw`(?<![\p{L}\p{N}_-])[/$]?merge-main${MAIN_END}`, // the skill or command
+  // A "-" before the verb counts: squash-merge, auto-merge, force-push.
+  String.raw`(?<![\p{L}\p{N}_])${MERGE}:?(?!${SP}conflicts?)(?:${GAP_WORD}){0,6}?${SP}(?:into|to|onto|with)${SP}(?:the${SP})?${MAIN}`,
+  String.raw`(?<![\p{L}\p{N}_-])push(?:es|ed|ing)?:?(?:${GAP_WORD}){0,6}?${SP}(?:[^\s!?;,]{0,80}:)?(?:refs/heads/)?'?main'?${MAIN_END}`, // git push origin main, HEAD:main
+  // Turkish: main'e, main'a, main'le, main ile, main dalına, main branch'e/branch'ine (or "branch ine") + birleş…,
+  // pushla…, merge or push [et/edil/yap…], not "merge conflict"; its verb is "tr".
+  String.raw`(?<![\p{L}\p{N}_-])main(?:'l?[ea]|${SP}(?:e|ile|dalina|branch(?:'|${SP})?(?:in)?[ea]))${SP}(?<tr>birles\p{L}*|pushla\p{L}*|(?:merge|push)(?!${SP}conflict)(?:${SP}(?:et|ed|yap)\p{L}*)?)`,
+].join('|'), 'gu');
+const TR_PAST = /(?:[dt]i|mis)$/; // birleşti, birleştirildi, merge edildi, birleşmiş, pushlandı: a report
+/** True when the text mentions a merge or push into main. */
+export const mentionsMergeMain = (text) => {
+  // Quotes and backticks first (NFKD makes ´ a space and a mark): "`main`'e" becomes "'main'e". Markdown * and _ go
+  // ("**main**"), but not "_" inside a word.
+  const t = foldName(String(text ?? '').replace(/[\u2018\u2019\u02bc\u0060\u00b4"\u201c\u201d]/g, "'")).replace(/\*+|(?<![\p{L}\p{N}])_+|_+(?![\p{L}\p{N}])/gu, '')
+    .replace(/'{2,}/g, "'").replace(/ı/g, 'i').replace(/\s+/g, ' ');
+  for (const m of t.matchAll(MERGE_MAIN)) if (m.groups.tr === undefined || !TR_PAST.test(m.groups.tr)) return true;
+  return false;
+};
+/** merge_main of chat_new and chat_send: the line that each value appends to the task text. */
+export const MERGE_MAIN_LINES = {
+  none: 'Do not merge or push into main in this task.',
+  after_review: 'Before any merge or push into main: run review-guard on the final diff, fix every finding, run review-guard again, and merge only when it is clean.',
+};
+export const MERGE_MAIN_PARAM = { type: 'string', enum: Object.keys(MERGE_MAIN_LINES),
+  description: 'When the text mentions a merge or push into main: "none" if the task must not merge into main, "after_review" if it must (this needs a review-guard skill). Each adds one fixed line to the text; do not add a merge step that the user did not ask for.' };
+export const MERGE_REFUSAL = 'This task mentions a merge or push into main. Set merge_main to "none" if the task must not merge, or to "after_review" if it must merge. Do not add a merge step that the user did not ask for.';
 /** A relayed approval in a chat_send or chat_new text, in the shape of the relay header of a local Auto review plugin
  * (2026-11-16): "<Name>'s <0-2 words> approval (exact text …): "<quote>"", the quote on the same line or the next one,
  * closed at the line end (to the last quote mark of that line: real approvals have inner quotes). Group 1 is the quote.
@@ -10634,6 +10686,34 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     return { id, header };
   };
   const signalOf = (exec) => AbortSignal.any([exec?.signal ?? new AbortController().signal, AbortSignal.timeout(STOP_WAIT_MS)]);
+  /** A skill named review-guard for the target folder: dsh's own skill lookup (as its skill tool: the assistant agent's
+   * scope, whose preset reads ~/.dsh/skills and ~/.agents/skills, and the folder's .dsh/skills and .agents/skills). A dsh
+   * without skills: false. A failed lookup: true (the gate stays closed; the first failure is logged). */
+  let lookupFailed = false;
+  const hasReviewGuard = async (cwd, exec) => {
+    const skills = get('skills');
+    if (typeof skills?.list !== 'function') return false;
+    try { return (await skills.list({ cwd, signal: signalOf(exec), scope: exec?.agent })).some((s) => s?.name === 'review-guard'); } catch (error) {
+      if (!lookupFailed) { lookupFailed = true; log(`the merge check could not read the skills, so it counts review-guard as installed: ${error?.message ?? error}`); }
+      return true;
+    }
+  };
+  /** The merge gate: the task text to send. Without merge_main, a text that mentions a merge or push into main
+   * (mentionsMergeMain) is refused when review-guard is installed. merge_main ("none" or "after_review") appends its fixed
+   * line (MERGE_MAIN_LINES) once; "after_review" needs review-guard, so its line never asks for a skill that is not there. */
+  const mergeGate = async (text, mergeMain, cwd, exec) => {
+    if (mergeMain === undefined) {
+      if (mentionsMergeMain(text) && await hasReviewGuard(cwd, exec)) throw refused(MERGE_REFUSAL);
+      return text;
+    }
+    if (!Object.hasOwn(MERGE_MAIN_LINES, mergeMain)) throw refused('merge_main is "none" or "after_review".');
+    if (mergeMain === 'after_review' && !(await hasReviewGuard(cwd, exec))) throw refused('merge_main "after_review" needs a skill named review-guard, and none is installed. Set it to "none", or leave it out.');
+    const line = MERGE_MAIN_LINES[mergeMain];
+    if (Object.entries(MERGE_MAIN_LINES).some(([value, other]) => value !== mergeMain && text.includes(other))) throw refused(`The text has the line of another merge_main value. Remove that line, or set merge_main to match it.`);
+    if (text.includes(line)) return text;
+    if (text.length + line.length + 2 > ASSISTANT_LIMITS.text) throw refused(`text is 1 to ${ASSISTANT_LIMITS.text - line.length - 2} characters with merge_main.`);
+    return `${text}\n\n${line}`;
+  };
   // chat_send to a chat whose question card waits (2026-11-13: five chats waited 55 minutes with the answers in their
   // queue: a queued message runs only after the turn, and the turn waits for the card): the message answers the card and
   // goes into the same turn at its next step. Only root chats other than the assistant (chat_send's targets).
@@ -10697,13 +10777,15 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
       parameters: { type: 'object', properties: {
         chat_id: { type: 'string', description: 'The chat id from chats_list' },
         text: { type: 'string', description: `The message, at most ${ASSISTANT_LIMITS.text} characters` },
+        merge_main: MERGE_MAIN_PARAM,
       }, required: ['chat_id', 'text'] },
       output: textOutput,
       async execute(args, exec) {
-        const text = String(args?.text ?? '').trim();
-        if (!isText(text, ASSISTANT_LIMITS.text)) throw refused(`text is 1 to ${ASSISTANT_LIMITS.text} characters.`);
+        const typed = String(args?.text ?? '').trim();
+        if (!isText(typed, ASSISTANT_LIMITS.text)) throw refused(`text is 1 to ${ASSISTANT_LIMITS.text} characters.`);
         const { id, header } = await target(args?.chat_id, signalOf(exec));
         if (archived().has(id)) throw refused('This chat is archived. Ask the user to unarchive it first.');
+        const text = await mergeGate(typed, args?.merge_main, header?.cwd, exec);
         // A task too (kept before the message goes), so the reply comes back to the assistant: dsh logs the message with
         // source.rpcId = requestId, and the bot waits for that turn (`rpc`). An older task (chat_new, an earlier chat_send)
         // keeps its fields and what it waits for.
@@ -10756,11 +10838,12 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         text: { type: 'string', description: `The first message, at most ${ASSISTANT_LIMITS.text} characters` },
         branch: { type: 'boolean', description: 'true: start the chat on a new branch in its own worktree (for a code or configuration change in a git project)' },
         title: { type: 'string', description: `The chat title in the user's language, 1 to ${ASSISTANT_LIMITS.title} characters (default: dsh names it from the message)` },
+        merge_main: MERGE_MAIN_PARAM,
       }, required: ['project', 'text'] },
       output: textOutput,
       async execute(args, exec) {
-        const text = String(args?.text ?? '').trim();
-        if (!isText(text, ASSISTANT_LIMITS.text)) throw refused(`text is 1 to ${ASSISTANT_LIMITS.text} characters.`);
+        const typed = String(args?.text ?? '').trim();
+        if (!isText(typed, ASSISTANT_LIMITS.text)) throw refused(`text is 1 to ${ASSISTANT_LIMITS.text} characters.`);
         if (args?.branch !== undefined && typeof args.branch !== 'boolean') throw refused('branch is true or false.');
         const title = args?.title === undefined ? undefined : String(args.title).replace(/\s+/g, ' ').trim();
         if (title !== undefined && !isText(title, ASSISTANT_LIMITS.title)) throw refused(`title is 1 to ${ASSISTANT_LIMITS.title} characters.`);
@@ -10768,6 +10851,7 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
         const want = String(args?.project ?? '').trim();
         const hits = list.filter((w) => w.path === want || foldName(w.title) === foldName(want));
         if (hits.length !== 1) throw refused(`${hits.length === 0 ? 'No project has this name.' : 'More than one project has this name: use its folder path.'} Projects: ${list.map((w) => `${w.title} (${w.path})`).join('; ') || 'none'}.`);
+        const text = await mergeGate(typed, args?.merge_main, hits[0].path, exec);
         if (args?.branch === true) {
           if (!(await worktreesOn())) throw refused('Branch per chat is switched off in Settings → Composer Plus: start the chat without branch, or ask the user to switch it on.');
           if (get('workspaceRegistry')?.create === undefined) throw refused('This dsh cannot add a project for a branch.');
@@ -10880,7 +10964,10 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
     const words = { chat_send: `send a message to ${name}`, chat_new: `start a new chat${a.branch === true ? ' on a new branch' : ''} in "${cutEnd(String(a.project ?? ''), 80)}"${typeof a.title === 'string' && a.title.trim() !== '' ? ` named "${cutEnd(a.title.trim(), 80)}"` : ''}`, chat_stop: `stop ${name}`, chat_archive: `archive ${name}` }[exec.name];
     // The whole message (the tools refuse more than ASSISTANT_LIMITS.text): the user approves what is sent, so the card
     // must not cut it. dsh's card draws the reason as plain text (no HTML) in its scrolling body.
-    const quote = typeof a.text === 'string' ? `: "${cutEnd(a.text.trim(), ASSISTANT_LIMITS.text)}"` : '';
+    // With merge_main, the card shows its line too (the tool appends it when the text does not have it).
+    const line = typeof a.merge_main === 'string' && Object.hasOwn(MERGE_MAIN_LINES, a.merge_main) ? MERGE_MAIN_LINES[a.merge_main] : undefined;
+    const sent = typeof a.text === 'string' && line !== undefined && !a.text.includes(line) ? `${a.text.trim()}\n\n${line}` : a.text;
+    const quote = typeof sent === 'string' ? `: "${cutEnd(sent.trim(), ASSISTANT_LIMITS.text)}"` : '';
     // The user approves a decision too when the message will answer the chat's waiting question card (the chat id as
     // chat_send reads it). ponytail: the state when the card shows; a question card that opens while this card waits is
     // answered too, without this line (2026-11-09: a message while a question card is open is its answer).

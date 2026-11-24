@@ -1,11 +1,12 @@
 // Real-app check: the assistant's chat_send reaches a running chat at its next step (2026-11-14: a correction waited 63
-// minutes in the queue behind a running turn, and the tool result said "Sent"). A fake model, a throwaway DSH_HOME and
-// HOME, a made-up project. Headless.
+// minutes in the queue behind a running turn, and the tool result said "Sent"), and a merge task needs merge_main (a fake
+// model, a throwaway DSH_HOME and HOME, a made-up project, a made-up review-guard skill in DSH_HOME/skills). Headless.
 // 1. A chat in weather-cli runs a long turn (the fake model holds its first reply).
 // 2. The assistant sends it an urgent message with chat_send (Allow once on its card): dsh logs it in the chat's next-step
 //    inbox (a steer), not in the queue, while the turn still runs, and the tool result says that the chat runs.
 // 3. The held reply ends; the same turn takes the message at its next step and answers it (no second turn/start before it).
 // 4. The hidden news note of that turn's end reaches the assistant with the reply to the urgent message.
+// 5. The assistant sends "/merge-main" without merge_main: the tool refuses it, and nothing reaches the chat.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-steer.mjs /path/to/dsh/lib/bin.js [...]
 // PORT=<port> uses another port than 3243.
 import assert from 'node:assert/strict';
@@ -29,7 +30,8 @@ const until = async (fn, what, ms = 30000) => {
 };
 const URGENT = 'URGENT-NOTE: do not use EncodedCommand.';
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
-const seen = { note: undefined, sent: undefined, slow: 0, ids: {} };
+const MERGE = 'Fix the footer, then /merge-main.';
+const seen = { note: undefined, sent: undefined, merge: undefined, slow: 0, ids: {} };
 let gate = false;
 const fake = createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
@@ -46,6 +48,7 @@ const fake = createServer((req, res) => {
     const after = msgs.at(-1)?.role === 'tool';
     const result = after ? textOf(msgs.at(-1).content) : '';
     if (/\[Composer Plus → Assistant news\]/.test(newest)) { if (/Got the urgent note/.test(newest)) seen.note = newest; return say('News read.'); }
+    if (newest.includes('Ask the slow chat to merge')) { if (after) { seen.merge = result; return say('Merge result read.'); } return call('chat_send', { chat_id: seen.ids.slow, text: MERGE }); }
     if (newest.includes('Tell the slow chat')) { if (after) { seen.sent = result; return say('Sent.'); } return call('chat_send', { chat_id: seen.ids.slow, text: URGENT }); }
     if (newest.includes('URGENT-NOTE')) return say('Got the urgent note.');
     if (newest.includes('SLOW-JOB')) { seen.slow += 1; const wait = () => (gate ? say('Slow job done.') : setTimeout(wait, 200)); return wait(); }
@@ -58,12 +61,14 @@ const fakePort = fake.address().port;
 const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
-    seen.note = undefined; seen.sent = undefined; seen.slow = 0; seen.ids = {}; gate = false;
+    seen.note = undefined; seen.sent = undefined; seen.merge = undefined; seen.slow = 0; seen.ids = {}; gate = false;
     const version = JSON.parse(readFileSync(join(bin, '../../package.json'), 'utf8')).version;
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-assistant-steer-')));
     const dshHome = join(home, '.dsh'); const profile = join(dshHome, 'profiles/web');
     await mkdir(join(profile, 'node_modules'), { recursive: true });
     await symlink(repo, join(profile, 'node_modules/dsh-composer-plus'));
+    await mkdir(join(dshHome, 'skills/review-guard'), { recursive: true });
+    await writeFile(join(dshHome, 'skills/review-guard/SKILL.md'), '---\nname: review-guard\ndescription: Review a diff before a merge (demo skill).\n---\n\nReview the diff.\n');
     await writeFile(join(profile, 'package.json'), JSON.stringify({ name: 'steer-test', private: true, dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-composer-plus'] } } }));
     await writeFile(join(profile, 'cordis.yml'), '[]\n');
     await writeFile(join(profile, 'cordis.patch.yml'), `- id: ui-settings-general
@@ -141,11 +146,18 @@ try {
       assert.equal(after.slice(0, at).filter((e) => e.type === 'turn/end').length, 0, 'before that turn ended');
       assert.match(seen.note, /your delegated task\): finished\. Last reply: "Got the urgent note\."/);
       console.log(`  note line: ${seen.note.split('\n').find((l) => l.startsWith('- '))?.slice(0, 300)}`);
+      // 5. A merge task without merge_main: refused after Allow once, nothing sent.
+      await send('Ask the slow chat to merge');
+      await allow.waitFor({ timeout: 30000 }); await allow.click();
+      await until(() => seen.merge, 'the chat_send result');
+      assert.match(seen.merge, /mentions a merge or push into main\. Set merge_main/, `refused: ${seen.merge.slice(0, 300)}`);
+      await pause(500);
+      assert.ok(!events(seen.ids.slow).some((e) => textOf(e.data?.content).includes('/merge-main') || (e.data?.inserted ?? []).some((m) => textOf(m?.content).includes('/merge-main'))), 'nothing reached the chat');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {
       gate = true;
-      if (!passed) { await context?.pages().at(-1)?.screenshot({ path: join(home, 'failed.png') }).catch(() => {}); await writeFile(join(home, 'server.log'), log); console.log(`FAIL dsh ${version}; kept: ${home}\n  note: ${JSON.stringify(seen.note)?.slice(0, 1500)}\n  sent: ${seen.sent?.slice(0, 500)}`); }
+      if (!passed) { await context?.pages().at(-1)?.screenshot({ path: join(home, 'failed.png') }).catch(() => {}); await writeFile(join(home, 'server.log'), log); console.log(`FAIL dsh ${version}; kept: ${home}\n  note: ${JSON.stringify(seen.note)?.slice(0, 1500)}\n  sent: ${seen.sent?.slice(0, 500)}\n  merge: ${seen.merge?.slice(0, 500)}`); }
       await context?.close().catch(() => {});
       child.kill('SIGTERM'); await new Promise((r) => { if (child.exitCode !== null) r(); else { child.once('exit', r); setTimeout(r, 5000); } });
       if (passed) await rm(home, { recursive: true, force: true });
