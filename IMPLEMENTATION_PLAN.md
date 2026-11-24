@@ -62,7 +62,16 @@ English); keys wait 0.8 s after a card shows; "short context" = when the item wa
 - Four other branches change the panel: merge main before review.
 
 ## Last checkpoint
-(updated at each phase end)
+- Phase 1 done: dca48c2 (Host `options`; test/assistant-todos.test.mjs red first, then green).
+- Phases 2–3 done: 5c10feca (client button + DecisionDialog, createOptionPicks.say, 13 languages, docs, Tether gap row,
+  test/decision-dialog.test.mjs red on main client.js, panel tests, browser-card-stack step 10).
+- Last passing: `npm test` exit 0 (after 5c10feca's changes); `PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright
+  node test/browser-card-stack.mjs <0.2.2-rc.5 bin>` PASS (steps 1–10).
+- Implementation choices beyond the task (report them under "Furkan'ın kararı gerekebilir"): a click within 400 ms of
+  the last action does nothing (double click guard); quick clicks after that queue in order; answered cards stay
+  hidden until a page reload; the panel no longer has → (hand over) or × (remove) for a note; the message follows the UI
+  language; the "(Önerilen)" mark is removed from the sent option text; the key guard is 0.8 s; option ≤ 120 chars.
+- Open: screenshots, 0.2.0-rc.2/0.2.1-rc.2 browser run, merge main, review-guard, merge to main, push, cleanup.
 
 # Fix: Improve prompt "Mesaj iyileştirilirken değişti" (branch fix/prompt-improve-change-warning)
 
