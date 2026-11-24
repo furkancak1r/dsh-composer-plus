@@ -1,3 +1,69 @@
+# Feature: Kararlar (decision cards dialog) in the Damon status panel (branch feat/decision-cards-modal)
+
+Furkan's request (2026-11-24, Damon chat): the "Notların" group becomes one button with the count of decision questions;
+a click opens a modal dialog over the whole screen (blurred backdrop) with one decision card at a time, sample options per
+decision, one click per decision. Design: Damon's 7 decisions in the task (copied in "Decisions" below).
+
+## Code map (verified by reading, main 5f6d852)
+- Panel: client.js `StatusPanel` (3941); the notes group `const notes = …` (4179-4186); groups `statusCards` (3798,
+  `cards.notes` = items of owner user without a mark); panel CSS `TODOS_CSS` (3473-3545); feature install
+  `feature('assistantTodos', …)` (15081-15094).
+- Send path of Onayla and the option buttons: `createOptionPicks(send)` (7329); `send` = `scope.get('conversation').send(text)`
+  (14613-14617); OptionPicks (7472), ApproveButtons (7497), the Onay card calls `picks.pick` (4137).
+- Host: `TODO_LIMITS` (index.js 12057), `TODO_SECTION` (12058), `todoItem` (12094), `todoList.add` (12101),
+  `todoContext` (12137), tool `todo_list_add` (12192). The route returns the stored items as they are (`view`, 12346).
+- Tether reads items as dictionaries (`StatusItem`, Core.swift 4478): an unknown `options` field is ignored.
+
+## Invariants
+- Items without options keep working (old file entries load as before; a decision without options still shows).
+- The other panel groups (Onay, Sorun, Senden, Sürüyor, Bugün bitti), the count bar, the panel keys and Tether do not change.
+- The client never removes a to-do item for a decision; Damon removes it after the message.
+- Switch off (assistantTodos) removes the dialog and its style (they live in the panel's tree).
+
+## Acceptance criteria
+1. The notes group is one button "Kararlar" + badge (open decisions) + "N not" (other notes); none waiting: a line says so.
+2. Click: `<dialog>` with showModal over the whole page, blurred and dimmed backdrop, role dialog (native), aria-modal,
+   aria-labelledby; Esc, × and a backdrop click close it; focus stays inside; focus returns to the button.
+3. One card: question, "Eklendi …" line, "i / N", option buttons (1–9), Atla, Sonra, "Başka bir cevap" + Gönder.
+   One click sends `Karar: <item text> → <option>` through `createOptionPicks`' `send` and shows the next card at once.
+   Keys: 1–9 option, → skip, Esc close (keys wait OPTION_KEY_GUARD_MS after a card shows, not in the text field).
+4. No options: Atla, Sonra, the field and "Damon seçenek eklemedi". The client invents no options.
+5. After the decisions: the other notes, each with Yaptım (`Not tamam: <item text>`) and Atla; empty: "Hepsi bitti" + Kapat.
+6. Host: optional `options` (2–5 strings, each ≤ 120 chars) on items and on todo_list_add; the same text updates them,
+   [] removes them; bad input 400; the prompt says how to give options and what the two messages mean.
+7. Short slide/fade between cards, none with prefers-reduced-motion. No new dependency.
+
+## Phases
+1. Host `options` (index.js + test/assistant-todos.test.mjs) — tests first.
+2. Client button + dialog (client.js + test/decision-dialog.test.mjs + panel tests) — tests first.
+3. Texts (en, zh, 11 locales), docs (features.json, README build), tether/FEATURES.md gap row, browser test steps.
+4. Full checks, screenshots, merge main, review-guard, merge to main, push, cleanup.
+
+## Allowed paths
+index.js, client.js, locales/*.json, docs/features.json, README*.md, llms.txt, docs/ROUTES.md (generated), test/*,
+scripts/demo-card-stack.mjs, tether/FEATURES.md, IMPLEMENTATION_PLAN.md, package.json (test:all only).
+
+## Checks
+`npm test`; `node --check client.js index.js`; `git diff --check`; `npm run build:locales -- --check` (in npm test);
+`PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-card-stack.mjs <0.2.2-rc.5 bin>`.
+
+## Decisions (Damon's, from the task)
+Button + badge; modal over the whole screen with blur; one card at a time, one click, Atla/Sonra/free text, keys;
+message "Karar: <item text> → <option text>" on the Approve path; client does not remove items; options field (2–5)
+on items and todo_list_add; notes list with Yaptım/Atla after the decisions; panel styles, no dependency, reduced motion.
+Own choices (simplest working option, listed in the report): a decision = a note with options, or text that starts with
+"Karar ver"/"Decide" or has "karar ver:"; answered cards stay hidden in this panel until a reload (local state); the
+message keeps the option text as Damon wrote it (also "(Önerilen)"); messages follow the UI language ("Decision: …" in
+English); keys wait 0.8 s after a card shows; "short context" = when the item was added; option ≤ 120 characters.
+
+## Risks
+- dsh's own Escape or key listeners: the dialog stops propagation; checked in the real-app test.
+- Native `<dialog>` focus restore differs between engines: the panel focuses the button itself after close.
+- Four other branches change the panel: merge main before review.
+
+## Last checkpoint
+(updated at each phase end)
+
 # Fix: Improve prompt "Mesaj iyileştirilirken değişti" (branch fix/prompt-improve-change-warning)
 
 Owner report 2026-11-23: the wand says "The message changed while it was improved, so it was not replaced." although the
