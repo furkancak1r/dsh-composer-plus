@@ -46,7 +46,46 @@ npm test; iOS tests (xcodebuild test, simulator, CODE_SIGNING_ALLOWED=NO); node 
   `node scripts/build-docs.mjs --check`; `git diff --check`.
 - Red before the fix (old index.js/server.mjs in a detached worktree): 5 of 6 `[quiet]` forms pushed; both gateway push tests failed.
 - Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-bildirim-20261124/ (settings, before/after).
-- Open: merge origin/main, review-guard, merge to main, push, delete branch and worktree.
+- origin/main 6ad16cb3 merged into the branch (14526b56; only IMPLEMENTATION_PLAN.md conflicted, both sides kept).
+  After the merge: `npm test` exit 0, `node scripts/build-docs.mjs --check` ok, `git diff --check origin/main...HEAD` ok.
+  Diff vs origin/main: 17 files, +551/-64, so the review repeats until a round has no P1/P2.
+
+## Review round 1 (2026-11-24, separate subagent review-guard-1): P1 0, P2 2, P3 4, P4 1 — fixes OPEN
+Decisions (Damon's shortest correct path, no owner question):
+1. P2 steered message lost (index.js damonPushWords; Core.swift damonWords): `news "[quiet]"+tool, typed "Is the deploy done?",
+   "Yes: acme-web is live."` gave no push. Fix: split each turn at each `user/message` with `source.kind === 'user'` (typed,
+   also steered). A typed part pushes its newest text that is not only `[quiet]` (quietReply); another part (news, schedule,
+   subagent notice) keeps the strict rule (first text starts or last text ends with `[quiet]` → none). completed: newest
+   part with words; error: none; other ends: newest words ?? ''. A chunk with no turn/end and no text: none (robustness:
+   an event before turn/start must not push ''). Add both reviewer cases to test/fixtures/quiet-replies.json (`push`) and
+   test/tether-push-words.test.mjs; port to Swift damonWords (testDamonWordsMatchTheMac reads the table).
+2. P2 pushText damages names (server.mjs pushText + Swift port): `mcp__aiproxy__bash` → `mcpaiproxybash`, `` `__init__.py` `` →
+   `init.py`, `` `Promise<void>` `` → `Promise`. Fix: put code spans in placeholders (`\uE000<n>\uE001`) first and back last;
+   `__` bold only at word edges `(^|[^\w])__(?=\S)(.+?)(?<=\S)__(?![\w])` (Swift: `[A-Za-z0-9_]`); strip only known HTML tags
+   (`a|b|i|u|s|em|strong|br|p|div|span|code|pre|sub|sup|small|kbd|mark|del|ins|img|hr|details|summary|h[1-6]|ul|ol|li|blockquote`
+   + `\b`). Table cases: those three, `List<String> kalır`, `__kalın__ söz` → `kalın söz`.
+3. P3 failed turn of the open chat gives no local alert (Core.swift sessionError, sid == current): also call
+   `notify(String(localized: "DSH error"), m, session: sid)` there; turn-end buzz only when `words != nil` (update the regex
+   in test/tether-notify-per-mac.test.mjs).
+4. P3 fork of Damon counts as Damon on the Mac only: `damonAbout(assistant, id, origin)` = `id === Damon || (origin ===
+   'subagent' && rootOf(id) === Damon)`; chatAbout reads `session?.header?.origin` before the call; test a fork id.
+5. P3 long line blocks the Host (100k `[` = 3.5 s): cut each line to 2000 code points before the regex chain (both ports);
+   JS check: `pushText('['.repeat(100000))` under 200 ms.
+6. P3 thematic break: check `^(?:[-*_]\s*){3,}$` before the list-mark strip; cases `* * *\nreal`, `- - -\nreal` → `real`.
+7. P4 line split differs: Swift splits only at `\n`, `\r\n`, `\r` (as JS); case `Bitti\u2028Ayrıntı` → `Bitti Ayrıntı`.
+Not checked by round 1: xcodebuild (run by lead: 122/0), real dsh, dsh 0.2.2-rc.5 agent-loop (lead read it: turn/start is
+appended synchronously right after the running status, lib/index.js 630-645 and 737-745).
+
+## Last checkpoint (2026-11-24 18:40) / open steps
+- Checkpoint: branch at the merge commit + this plan update. Review round 1 findings recorded above, NOT fixed yet.
+- Last passing: `npm test` (exit 0) after the origin/main merge; iOS `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj
+  -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' test CODE_SIGNING_ALLOWED=NO`
+  (122 tests, 0 failures, before the merge; the merge changed no iOS file). Screenshot test: add `SHOT_DIR=<dir>`.
+- Open, in order: (1) fix 1-7 above with tests first; (2) npm test, iOS tests, build-docs --check, git diff --check;
+  (3) re-render the before/after image if pushText output changes (script: rebuild from this plan's cases; old code = git
+  show 0cc1cfe1:index.js and :tether/gateway/server.mjs in a detached worktree); (4) review round 2 in a separate subagent,
+  repeat until no P1/P2; (5) merge origin/main again, merge into main --no-ff, push main, `git branch -d`, remove the
+  worktree without --force; (6) report in Turkish.
 
 # Feature: resizable summary in the Damon status panel (branch feat/resizable-status-summary)
 
