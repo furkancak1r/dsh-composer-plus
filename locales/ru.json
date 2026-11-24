@@ -2827,6 +2827,8 @@
     "cards.open": "Открыть чат",
     "cards.more": "Другие действия: {item}",
     "cards.withAgent": "У {name}",
+    "cards.queue": "Очередь {name}",
+    "cards.queued": "в очереди: {count}",
     "cards.approveAgain": "Кнопка «Одобрить» вернётся, когда {name} снова напишет фразу одобрения.",
     "queue.later": "Позже",
     "queue.keys": "Клавиши: A одобрить / сделано · 1–9 вариант · S позже · J / K следующее / предыдущее · R ответить",

@@ -2827,6 +2827,8 @@
     "cards.open": "Ouvrir la discussion",
     "cards.more": "Autres actions : {item}",
     "cards.withAgent": "Avec {name}",
+    "cards.queue": "File de {name}",
+    "cards.queued": "{count} en attente",
     "cards.approveAgain": "Le bouton Approuver revient quand {name} réécrit la phrase d’approbation.",
     "queue.later": "Plus tard",
     "queue.keys": "Touches : A approuver / fait · 1–9 choix · S plus tard · J / K suivant / précédent · R répondre",

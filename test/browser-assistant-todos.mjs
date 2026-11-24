@@ -145,6 +145,9 @@ try {
       const url = log.match(/http:\/\/[^\s]*token=[^\s]*/)?.[0]; assert.ok(url, 'test server URL available');
       context = await browser.newContext({ locale: 'en-US', timezoneId: 'Europe/Istanbul', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
       await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.features') === null) localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false}'); });
+      // The Sürüyor filter (Furkan, 2026-11-24): most steps check the assistant's items without a task, so this test starts on
+      // "Damon's queue" (test/browser-running-filter.mjs checks the default, Working); step 7 picks Working for its task.
+      await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.status-running-filter') === null) localStorage.setItem('dsh-composer-plus.status-running-filter', 'todo'); });
       page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
       await page.goto(url);
       for (const name of [/^Continue$/, /^Configure later$/]) {
@@ -178,6 +181,7 @@ try {
       const groupHead = (g) => panel.locator(`button.cp-td-group[data-group="${g}"]`);
       const open = async (g) => { const head = groupHead(g); await head.waitFor({ timeout: 20000 }); if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click(); };
       const assistantRow = () => page.locator('button[aria-label="Damon"]');
+      const filter = async (f) => { await open('suruyor'); const c = panel.locator(`button.cp-cs-chip[data-filter="${f}"]`); if ((await c.getAttribute('aria-pressed')) !== 'true') await c.click(); };
 
       // Settings: the row has its screenshot and is on by default.
       await settings();
@@ -311,7 +315,8 @@ try {
       await detail.getByText('feature/login').first().waitFor({ timeout: 15000 });
       assert.match(await detail.innerText(), /Add the login page/);
       assert.ok(await detail.getByRole('button').count() >= 1, 'its chats are buttons');
-      // A background subagent task: working, then done with its result (no Refresh).
+      // A background subagent task: working, then done with its result (no Refresh). Running work is behind "Working".
+      await filter('running');
       await send('Research Rome');
       // A running task is a Running card; ended, it is a Done today card (that group starts folded: read the text, not what shows).
       const has = async (loc, re) => (await loc.count()) === 1 && re.test(await loc.evaluate((el) => el.textContent));
@@ -322,6 +327,7 @@ try {
       gate.open = true;
       const ended = cards('bitti', 'Rome flights');
       await until(async () => (await has(ended, /Done/)) && (await has(ended, /Flights found: 3 options/)) && (await running.count()) === 0, 'the task is a Done today card with its result', 30000);
+      await filter('todo');
       // Refresh updates the list time; the button has its name (test/browser-status-refresh.mjs checks its feedback).
       await panel.getByRole('button', { name: 'Refresh', exact: true }).click();
       await until(async () => /List \d/.test(await panel.locator('h2').innerText()) && /List \d/.test(await panel.locator('.cp-st-time').innerText()), 'the list time after Refresh', 5000);
@@ -346,7 +352,8 @@ try {
       await until(async () => (await panel.locator('section[data-group="notes"] li').count()) === 2 && (await cards('suruyor').count()) === 3, 'two notes and three Running cards');
       const heads = panel.locator('button.cp-td-group');
       assert.deepEqual(await heads.evaluateAll((els) => els.map((b) => [b.dataset.group, b.getAttribute('aria-expanded'), [...b.children].slice(0, 3).map((c) => c.textContent.trim()).join(' ')])),
-        [['suruyor', 'true', '▾ Running 3'], ['bitti', 'false', '▸ Done today 1'], ['notes', 'false', '▸ Your notes 2']], 'Running open; Done today and Your notes folded; with counts');
+        [['suruyor', 'true', '▾ Running 0'], ['bitti', 'false', '▸ Done today 1'], ['notes', 'false', '▸ Your notes 2']], 'Running open; Done today and Your notes folded; with counts');
+      assert.match(await groupHead('suruyor').innerText(), /Running\s*0\s*· 3 queued/, 'the Running header: nothing runs, 3 in the assistant\'s queue');
       assert.deepEqual((await panel.locator('section[data-group="notes"] .cp-cs-main').allInnerTexts()).sort(), ['Call mom', 'Pay rent'].sort());
       assert.deepEqual((await cards('suruyor').locator('.cp-cs-title').allInnerTexts()).sort(), ['Book flights', 'Call the bank', 'Draft the report'], 'the assistant\'s items are Running cards');
       assert.doesNotMatch(await panel.evaluate((el) => el.textContent), /You will do|Damon will do|You do it|The assistant does it/, 'no owner groups, no owner line');

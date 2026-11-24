@@ -2827,6 +2827,8 @@
     "cards.open": "Abrir o chat",
     "cards.more": "Mais ações: {item}",
     "cards.withAgent": "Com {name}",
+    "cards.queue": "Fila de {name}",
+    "cards.queued": "{count} na fila",
     "cards.approveAgain": "O botão Aprovar volta quando {name} escrever a frase de aprovação de novo.",
     "queue.later": "Depois",
     "queue.keys": "Teclas: A aprovar / feito · 1–9 opção · S depois · J / K próximo / anterior · R responder",

@@ -3510,3 +3510,15 @@ Checkpoint 2026-11-23 ~16:10 (new chat):
 - origin/main 6361c44 merged into the branch (74bac53, no conflict). test/browser-agentbox-ideas.mjs now launches Chromium with `headless: true, chromiumSandbox: true`.
 - Last passing (after the merge): `npm test` exit 0; `PLAYWRIGHT=<playwright 1.58> node test/browser-<name>.mjs <dsh 0.2.2-rc.5 bin>` PASS for card-stack, assistant-todos, assistant-chat-tasks, status-refresh, agentbox-ideas; card-stack also PASS on 0.2.0-rc.2 and 0.2.1-rc.2 (before the merge). No SHOT run; no asset changed. Screenshots not taken again: no fix of rounds 2–3 changes the panel view.
 - Next: merge this branch into main (merge commit after this commit) and push main. No live copy, no release, no npm publish; the branch and the worktree stay.
+
+## Sürüyor filter: running work vs Damon's to-dos (2026-11-24, feat/status-running-todo-filter, from main 5f6d852)
+
+Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve aktif devam eden işler birleşik görünüyor bir şekilde filtre gibi ayrılması lazım"; later "tümü seçeneğine gerek yok". Both kinds stay in Sürüyor; Furkan must see the difference at once.
+
+- Invariants: the split uses only the state that the status answer has (`card.task.state === 'running'`; an item with a running task's words is that card, statusCards). No text guess. Waiting items stay in Senden. The other groups, the count bar, statusCards and its shared table (`test/fixtures/status-cards.json`) do not change. Tether does not change (gap row in `tether/FEATURES.md`).
+- Done: client.js `RUN_FILTER_KEY` (`dsh-composer-plus.status-running-filter`: running | todo, default running), two chips (`cp-cs-chip`, aria-pressed, role=group), header "Sürüyor 3 · sırada 6" (`cards.queued`), running mark ● that pulses (still with reduced motion), texts `cards.queue`/`cards.queued` in en, zh and 11 locales; docs/features.json (13 languages, llms) + build:readme.
+- Tests: test/assistant-todos-client.test.mjs (filter block + old checks on the new default), test/browser-running-filter.mjs (new; fixture through page.route: 3 running, 6 to-dos), test/browser-assistant-todos.mjs starts on "todo".
+- Checks (last good): `npm test` exit 0; `git diff --check` ok; `PLAYWRIGHT=<Mergen playwright 1.58> node test/browser-running-filter.mjs <0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5>` PASS ×3; browser-assistant-todos, browser-assistant-chat-tasks, browser-card-stack PASS on 0.2.2-rc.5.
+- Screenshots: ~/Damon/Belgeler/Composer Plus/suruyor-filtre-20261124/suruyor-calisiyor.png, suruyor-damonin-sirasi.png.
+- Open steps: merge main into the branch, review-guard loop (diff > 3 files: until no P1/P2), merge --no-ff into main, push, delete the branch and the worktree. Live copy only after Furkan's "tamam".
+- Last checkpoint: the implementation commit on the branch (this section).
