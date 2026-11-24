@@ -4014,7 +4014,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // window size changes. A saved height that does not fit (a smaller window) shows at the room's size and stays saved.
       const [summaryRoom, setSummaryRoom] = React.useState(null);
       const gripRef = React.useRef(null);
-      // A change of 1 px or less keeps the old value: rounded layout sizes must not draw the panel again and again.
+      // A change of 1 px or less keeps the old value: rounded layout sizes must not draw the panel again and again (the room
+      // can be 1 px off). The first draw has no room yet; this layout effect cuts the height before the paint.
       const fitSummary = () => { if (gripRef.current === null) return; const v = summaryRoomOf(gripRef.current); setSummaryRoom((r) => (r !== null && v !== null && Math.abs(r - v) <= 1 ? r : v)); };
       React.useLayoutEffect(fitSummary);
       React.useLayoutEffect(() => { window.addEventListener('resize', fitSummary); return () => window.removeEventListener('resize', fitSummary); }, []);

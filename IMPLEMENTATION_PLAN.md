@@ -11,7 +11,8 @@ Owner request 2026-11-24: "özet çok kısa oluyor ayarlanabilir yap alt kısım
 ## Change
 - client.js: a separator (`.cp-st-grip`, role separator, aria-orientation/valuenow/min/max, tabIndex 0, focus ring) right
   under the summary card. Pointer drag (main button, pointer capture) sets the card's max-height; Up/Down one line (18 px);
-  double-click the default (14vh). Min 92 px; max = the panel's room (`summaryRoomOf`). localStorage
+  double-click the default (14vh). Min 92 px; max = the panel's room (`summaryRoomOf`: a hidden probe with the
+  panel's max-height, measured after each draw and on a window resize; review 1). localStorage
   `dsh-composer-plus.status-summary-height`. CSS: `.cp-cs-fixed{flex:0 1 auto;min-height:0}` (no 40vh cap),
   `.cp-st-body{flex:1 1000 auto}` (the cards shrink first).
 - Texts `status.resizeSummary`, `status.resizeSummaryHint`: en, zh, 11 locales; build:locales.
@@ -23,8 +24,18 @@ Owner request 2026-11-24: "özet çok kısa oluyor ayarlanabilir yap alt kısım
 - `npm test` exit 0 (2026-11-24 14:3x).
 - `TMPDIR=/tmp/cp-ozet-tmp PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-summary-resize.mjs <0.2.2-rc.5 bin>`: PASS.
 
+- After the merge of origin/main 0cc1cfe1: `npm test` exit 0; browser-summary-resize PASS on 0.2.0-rc.2, 0.2.1-rc.2,
+  0.2.2-rc.5; browser-card-stack PASS on 0.2.2-rc.5 (all headless, chromiumSandbox true).
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/ozet-surukle-20261124/ (1-default, 2-taller, 3-after-reload).
+
+## Review
+- Round 1: P1 0, P2 3, P3 4, P4 3. Fixed: measure after each draw (1 px tolerance), probe instead of a write to the panel,
+  no extra measure on focus/key/drag, lost pointer capture, tests (resize cleanup, growing Onay card, idle loop, top
+  place, 900 px), ponytail note.
+- Round 2: P1 0, P2 1 (llms text described the old measuring), P3 2, P4 1. Fixed: llms text, comment.
+
 ## Open steps
-- Older dsh runs, card-stack regression, screenshots, merge main, review-guard, merge to main, push, cleanup.
+- Review round 3, merge to main (--no-ff), push, delete the branch and the worktree.
 - Not in scope: live copy (only after Furkan's "tamam"), release, Tether code.
 
 # Fix: Damon clears a failed task card; X is kept across browsers (branch fix/dismiss-failed-status-task)
