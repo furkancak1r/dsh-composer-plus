@@ -5,6 +5,8 @@
 // 2. Switch off in Settings: the card and its style go; switch on and click Assistant again: the card comes back.
 // 3. The first message hides the card; a new chat in another project never shows it; the next click on Assistant opens
 //    the same chat without the card. No page errors.
+// 3b. After Hide on the import card, a page with new browser storage (as the other Mac's page in this window) opens the
+//    assistant chat without the import card. CARD_SHOT=/path/to/file.png saves a screenshot of that page.
 // 0. Before that, a new user without Obsidian (Project memory on): the setup card shows the four steps as missing, the
 //    official download link, Set up, Check again and Hide; a memory_remember of the assistant chat saves the note in the
 //    normal project memory folder (under the dsh home), not in ~/Assistant. Set up writes AGENTS.md and the memory folder
@@ -273,6 +275,8 @@ try {
       // a new assistant.json makes the Host start a new chat.
       await context.close(); await stop();
       await writeFile(join(dshHome, 'storages/dsh-composer-plus/assistant.json'), '{}');
+      // A user who never imported (step 3 hides the import card).
+      for (const f of ['memory-import.json', 'memory-import-card.json']) await rm(join(dshHome, 'storages/dsh-composer-plus', f), { force: true });
       url = await start(); assert.ok(url);
       context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
       await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.features') === null) localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}'); });
@@ -330,6 +334,20 @@ try {
       assert.equal(await importCard.count(), 0, 'Hide keeps the import card away');
       assert.equal(existsSync(join(home, 'Assistant')), true, '~/Assistant');
       note('3: the first message hides it; the import card stays until Hide; not in another new chat; not on the next open');
+      // 3b. Furkan, 2026-11-24: the import card came back at each switch to the other Mac. That Mac's page in this window
+      // has its own browser storage (a new webview session at each dsh start, a new relay port). A page with new storage
+      // opens the same assistant chat: Hide stays, because the Host keeps it.
+      await context.close();
+      context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
+      await context.addInitScript(() => { if (localStorage.getItem('dsh-composer-plus.features') === null) localStorage.setItem('dsh-composer-plus.features', '{"autoUpdate":false,"worktreeChats":false,"nextPrediction":false}'); });
+      page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
+      await page.goto(url); await page.locator('[data-composer-input]').first().waitFor({ timeout: 20000 }); bind();
+      await assistantRow().click();
+      await page.getByText('hello', { exact: true }).first().waitFor({ timeout: 20000 }); await pause(2500);
+      if (process.env.CARD_SHOT) await page.screenshot({ path: process.env.CARD_SHOT });
+      assert.equal(await page.locator('[data-composer-plus-memory-import-card]').count(), 0, 'a page with new storage: Hide stays');
+      assert.equal((await api('/api/composer-plus.assistant-setup')).body.importEnded, true, 'the Host keeps Hide');
+      note('3b: a page with new browser storage opens the assistant chat without the import card');
       // 4. The fixed name: the project of ~/Assistant and the chat header are Damon (the folder keeps its name).
       const project = Object.values(JSON.parse(readFileSync(join(dshHome, 'storages/workspace.json'), 'utf8')).tables?.workspaces ?? {}).find((w) => w.path === join(home, 'Assistant'));
       assert.equal(project?.title, 'Damon', `the project title: ${JSON.stringify(project)}`);

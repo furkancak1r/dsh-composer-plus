@@ -11428,8 +11428,14 @@ This folder is the user's Obsidian vault. The assistant works in it. Write your 
 
 /** Assistant setup (Host half): the check route and Set up. `assistant`: installAssistant's handle; `memory`:
  * installMemory's handle. */
-export function installAssistantSetup(ctx, assistant, memory, { home = homedir(), apps, configs } = {}) {
-  const check = () => assistantSetup({ folder: assistant.folder, memory, home, ...(apps === undefined ? {} : { apps }), ...(configs === undefined ? {} : { configs }) });
+export function installAssistantSetup(ctx, assistant, memory, { home = homedir(), apps, configs, dir = join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'storages', 'dsh-composer-plus') } = {}) {
+  // The memory import card ends for good when the user clicked Start or Hide on any page (`POST {importEnded: true}`), or
+  // when an import finished files (installMemoryImport's memory-import.json). The browser's own storage is not enough:
+  // the other Mac's page in this Mac's window gets new storage at each dsh start (Furkan, 2026-11-24).
+  const cardFile = settingsStore(join(dir, 'memory-import-card.json'), (v) => v?.ended === true);
+  const importFile = settingsStore(join(dir, 'memory-import.json'), (v) => plainObject(v?.done) && Object.keys(v.done).length > 0);
+  const importEnded = async () => (await cardFile.read()) || importFile.read();
+  const check = async () => ({ ...(await assistantSetup({ folder: assistant.folder, memory, home, ...(apps === undefined ? {} : { apps }), ...(configs === undefined ? {} : { configs }) })), importEnded: await importEnded() });
   let fixing = Promise.resolve();
   /** Set up: what Composer Plus may do itself. The memory folder goes into the vault (`<assistant folder>/<name>` unless
    * the saved one is already in it, with the subfolder names `dirs` of the UI language unless it has its own) and Project
@@ -11460,7 +11466,8 @@ export function installAssistantSetup(ctx, assistant, memory, { home = homedir()
   }));
   ctx.connection.fetch.register({
     path: ASSISTANT_SETUP_PATH, methods: ['GET', 'POST'], requestBody: 'buffered',
-    /** GET: the setup state. POST `{fix: {name}}`: Set up, then the setup state. */
+    /** GET: the setup state. POST `{fix: {name}}`: Set up, then the setup state. POST `{importEnded: true}`: the import card
+     * ends for good, then the setup state. */
     fetch: async (request) => {
       await assistant.ready;
       if (!assistant.isOn()) return json({ error: 'Assistant is off' }, 409);
@@ -11468,6 +11475,11 @@ export function installAssistantSetup(ctx, assistant, memory, { home = homedir()
         if (request.method === 'GET') return json(await check());
         let body;
         try { body = await request.json(); } catch { return json({ error: 'bad request' }, 400); }
+        if (plainObject(body) && Object.hasOwn(body, 'importEnded')) {
+          if (Object.keys(body).join() !== 'importEnded' || body.importEnded !== true) return json({ error: 'bad request' }, 400);
+          await cardFile.change(() => ({ ended: true }));
+          return json(await check());
+        }
         // `{fix: {name, dirs?: {global, projects}}}`: the memory folder's name and its subfolder names in the UI language.
         const keys = plainObject(body?.fix) ? Object.keys(body.fix).sort().join() : '';
         const ok = plainObject(body) && Object.keys(body).join() === 'fix' && (keys === 'name' || keys === 'dirs,name');

@@ -129,6 +129,23 @@ try {
   const other = join(root, 'proj'); await mkdir(other);
   assert.match(await tools.get('memory_remember').execute({ text: 'The user deploys on Fridays' }, exec('chat-b', other)), /^Saved/, 'another chat keeps its memory');
   assert.deepEqual(await readdir(fresh), [], 'nothing written into the assistant folder');
+  // The memory import card ends for good (Furkan, 2026-11-24: it came back at each switch to the other Mac, whose page in
+  // this Mac's window has its own browser storage): the Host keeps Start and Hide, and an import that finished files.
+  { const host = (dir) => { const own = new Map(); installAssistantSetup({ ...ctx, connection: { fetch: { register: (x) => own.set(x.path, x) } } }, { ...assistant, folder: fresh }, mem, { home, apps: [], configs: [], dir });
+      return async (body) => { const x = await own.get(ASSISTANT_SETUP_PATH).fetch(new Request(`http://h${ASSISTANT_SETUP_PATH}`, body === undefined ? undefined : { method: 'POST', body: JSON.stringify(body) })); return { status: x.status, body: await x.json() }; }; };
+    const cardDir = join(root, 'card-dsh');
+    let req = host(cardDir);
+    assert.equal((await req()).body.importEnded, false, 'a new Host: the card may show');
+    for (const bad of [{ importEnded: false }, { importEnded: 'yes' }, { importEnded: true, fix: { name: 'M' } }]) assert.equal((await req(bad)).status, 400, JSON.stringify(bad));
+    assert.equal((await req()).body.importEnded, false, 'a refused body changes nothing');
+    assert.equal((await req({ importEnded: true })).status, 200);
+    req = host(cardDir); // a dsh restart
+    assert.equal((await req()).body.importEnded, true, 'Start or Hide is kept after a restart');
+    const oldDir = join(root, 'card-old'); await mkdir(oldDir);
+    await writeFile(join(oldDir, 'memory-import.json'), JSON.stringify({ done: {} }));
+    assert.equal((await host(oldDir)()).body.importEnded, false, 'no finished file: the card may show');
+    await writeFile(join(oldDir, 'memory-import.json'), JSON.stringify({ done: { '/p/AGENTS.md': '2026-11-13' } }));
+    assert.equal((await host(oldDir)()).body.importEnded, true, 'an import that finished files ends the card'); }
   // Assistant off: the route says off.
   assistantIsOn.on = false;
   assert.equal((await call()).status, 409);
