@@ -111,6 +111,24 @@ Checkpoint (2026-11-24 15:52, about 150 tool calls; the chat stops here, Damon c
   `git push origin main`; 4) delete the branch locally and on origin, `git worktree remove` this folder (no --force).
   Not allowed: live copy update (Furkan sees the screenshots and writes "tamam" first), release, DSH restart.
 
+Checkpoint (2026-11-24 17:35, second chat):
+- Damon's decisions for the round-1 questions: 1) Sil on each note of the dialog (removes the item at once through the
+  panel's remove, as the old ×; → stays removed); 2) an answered or removed card stays hidden for 60 s
+  (DECIDE_HIDE_MS), then shows again when it is still on the list; 3) keep the 0.4 s click guard and the 0.8 s key
+  guard; 4) message in the UI language; 5) a live option is click-only; 6) keep the decision rule.
+- Done: bed744c9 (all round-1 P2/P3/P4 fixes + Sil + 60 s re-show, with unit tests; the two old browser tests moved to
+  the Kararlar button and dialog; browser-card-stack Sil step and DECIDE_SHOTS 6-sil-dugmesi), ab15f55a (merge of
+  origin/main 6ad16cb3: Sürüyor filter, resizable summary, dismissed task cards; conflicts kept both sides;
+  docs/features.json assistantTodos strings merged word by word with git merge-file, then `npm run build:readme`).
+- Last passing (after ab15f55a): `npm test` exit 0; `git diff --check` clean; headless, chromiumSandbox true:
+  `TMPDIR=/tmp/cp-dc-bt PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/<t>.mjs <bins>`
+  for t = browser-card-stack (has the decision dialog step 10), browser-assistant-todos, browser-status-refresh: PASS on
+  0.2.2-rc.5, 0.2.0-rc.2 and 0.2.1-rc.2 (bins: ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/…/lib/bin.js,
+  ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2/…, dsh-0.2.1-rc.2/…).
+- Review round 2: review-guard-2b (separate subagent, default model) on `git diff origin/main...HEAD` at ab15f55a.
+- Open steps: review result and fixes (repeat until no P1/P2); screenshots (DECIDE_SHOTS) to the Belgeler folder;
+  merge --no-ff into main in the main worktree, `npm test` on main, push, worktree remove, `git branch -d`.
+
 # Feature: resizable summary in the Damon status panel (branch feat/resizable-status-summary)
 
 Owner request 2026-11-24: "özet çok kısa oluyor ayarlanabilir yap alt kısım ile özeti mouse ile sürükle genişlet vs".
