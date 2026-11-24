@@ -89,7 +89,15 @@ test/status-canvas.test.mjs, test/assistant-todos-client.test.mjs, test/browser-
   without pointerup ends (`buttons === 0`); P3 Projects pans to its card (focus without a press pans); P4 READMEs and plan
   name only `data-conversation-content`; P4 Tether size cell.
 - After the fixes: `npm test` exit 0; unit tests ok; `git diff --check` clean.
-- Open: review round 2, then merge --no-ff into main, push, delete branch and worktree.
+- review-guard round 2 (separate subagent): P1 0; P2 1 (origin/main moved: 6ad16cb3 resizable summary); P3 3, P4 1.
+  Fixed: origin/main 6ad16cb3 merged (18337ea9; conflicts client.js, docs, READMEs, plan); the summary card has no
+  max-height and no grip on the canvas; dsh's pending interaction is read by its key and closes the canvas also when it
+  waited before the open, then the focus goes into the composer seat; no pan when the window gets the focus back
+  (`relatedTarget == null`); docs name both new rules. Browser test: the focus check waits for the focus (it moves one
+  task after the close).
+- Last passing (after 18337ea9 + the test fix): `npm test` exit 0; unit tests ok; `git diff --check origin/main...HEAD`
+  clean; browser-status-canvas PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-card-stack PASS on the same three.
+- Open: review round 3 on the merged diff, then merge --no-ff into main, push, delete branch and worktree.
 
 # Feature: resizable summary in the Damon status panel (branch feat/resizable-status-summary)
 

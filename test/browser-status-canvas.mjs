@@ -168,7 +168,8 @@ try {
       await canvas.locator('.cp-cv-view').focus();
       await page.keyboard.press('Escape');
       await until(async () => (await page.locator('[data-composer-plus-todos][data-canvas]').count()) === 0, 'Esc closes the canvas');
-      assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute('data-composer-plus-canvas-open')), true, 'the focus goes back to the canvas button');
+      // The focus moves one task after the close (the button is drawn again first).
+      await until(() => page.evaluate(() => document.activeElement?.hasAttribute('data-composer-plus-canvas-open') === true), 'the focus goes back to the canvas button', 3000);
       assert.equal(await page.locator(`[data-conversation-session="${sessionId}"]`).first().evaluate((el) => el.hasAttribute('data-composer-plus-canvas')), false, 'no mark');
       // The draft: the approval sent nothing of it (Onayla shows only with an empty composer: type again after the send).
       // A low window, so that the chat scrolls; a draft in the composer.
