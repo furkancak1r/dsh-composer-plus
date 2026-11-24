@@ -1,7 +1,7 @@
 // Real-app check of Refresh and Get summary in the Assistant status panel (the card stack above the Damon chat) on each dsh given: a fake model, a throwaway
 // DSH_HOME and HOME, a made-up project (acme-web), Turkish UI. Never the normal DSH_HOME, no real model. Headless, with
 // Chromium's sandbox.
-// 1. Setup: the assistant adds a to-do item (a note of the user: the folded "Notların" group). The stack shows no summary
+// 1. Setup: the assistant adds a to-do item (a note of the user: the Kararlar button counts it). The stack shows no summary
 //    card: only the count bar with "Liste HH:MM", Özet getir, Projeler and Refresh. (A summary of a news turn stays closed: test/assistant-status.test.mjs and the client test.)
 // 2. Refresh: within 100 ms the button turns and is aria-disabled, the header says "Yenileniyor…", the old content stays
 //    in place (dimmed), the polite status line says it. The lists come back in less than a second. No summary request.
@@ -181,11 +181,11 @@ try {
       // 1. Setup: no summary card by default.
       await page.locator('button[aria-label="Damon"]').click();
       const sessionId = await until(async () => (await page.evaluate(async () => (await (await fetch('/api/composer-plus.assistant-status')).json()).sessionId)), 'assistant id');
-      await send('Remember: buy milk'); await panel.getByText('Süt al').waitFor({ state: 'attached', timeout: 30000 });
-      // "Notların" starts folded: open it, so that the old content is in view for the Refresh check.
-      const notesHead = panel.locator('button.cp-td-group[data-group="notes"]');
-      assert.equal(await notesHead.getAttribute('aria-expanded'), 'false', 'Notların starts folded');
-      await notesHead.click(); await panel.getByText('Süt al').waitFor({ state: 'visible', timeout: 5000 });
+      // The note is behind the Kararlar button ("1 not"): the button is the old content in view for the Refresh check.
+      const decide = panel.locator('button.cp-dc-open');
+      await send('Remember: buy milk');
+      await until(async () => (await decide.count()) === 1 && (await decide.getAttribute('aria-label')) === 'Kararlar: 0 karar ve 1 not bekliyor. Karar kartlarını aç', 'the Kararlar button counts the note', 30000);
+      await decide.waitFor({ state: 'visible', timeout: 5000 });
       await pause(1500); await page.mouse.move(10, 10);
       assert.equal(await card.count(), 0, 'no summary card by default');
       assert.equal(await ask.getAttribute('aria-label'), 'Özet getir');
@@ -208,7 +208,7 @@ try {
       assert.ok(ms < 100, `the loading state shows within 100 ms (${ms.toFixed(1)} ms)`);
       await shot(`${version}-1-refreshing`);
       assert.equal(await spoken(), 'Yenileniyor…', 'the polite status line says it');
-      assert.equal(await panel.getByText('Süt al').isVisible(), true, 'the old content stays in place');
+      assert.equal(await decide.isVisible(), true, 'the old content stays in place');
       await until(async () => Number(await panel.locator('section[data-group="notes"]').evaluate((el) => getComputedStyle(el).opacity)) < 0.6, 'and is dimmed (after its .15 s fade)', 400);
       const clickedAt = Date.now(); const read = await listRead; await read.finished();
       assert.ok(Date.now() - clickedAt < 1000, 'the lists come back in less than a second');

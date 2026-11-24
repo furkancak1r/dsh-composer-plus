@@ -126,8 +126,285 @@ appended synchronously right after the running status, lib/index.js 630-645 and 
 - Review 1, 2, 3 and 4 fixes done. Last passing: `npm test` exit 0 and iOS 122/0 after round 1 (round 2 checks: see the commit).
   iOS command: `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination
   'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' test CODE_SIGNING_ALLOWED=NO`. Screenshot: `SHOT_DIR=<dir>`.
-- Open, in order: review round 3 in a separate subagent (repeat until no P1/P2); merge origin/main again, merge into main
-  --no-ff, npm test on main, push main, `git branch -d`, remove the worktree; report in Turkish.
+- Review loop done (round 4: no P1/P2). origin/main d4bfaaf8 merged into the branch (conflicts: this plan, package.json
+  test:all; both sides kept). Open: merge into main --no-ff, npm test on main, push main, `git branch -d`, remove the
+  worktree; report in Turkish.
+
+# Damon canvas view (tuval) (branch feat/assistant-canvas-view, 2026-11-24)
+
+Request (Furkan, Damon chat, 2026-11-24): "canvas görünümü yapacaktık başla ona , ona tıklayınca sohbet alanı filan da
+kalksın sadece o gelsin". Spec: the "Sonsuz tuval" option of ~/Damon/Belgeler/Damon arayüzü/damon-yonetim-secenekleri-2026-11-19.html
+(pan, zoom, cards, keyboard: arrows, + and −; "Kart yığınının verisini kullanır, yerini almaz").
+
+## Objective
+A button in the Damon status panel opens a canvas that replaces the chat area (messages, composer) and the panel. The
+canvas shows the panel's data (approval, choice, Sorun, Senden, Sürüyor, Bugün bitti, notes, summary, the queue order) as
+cards: pan (drag, trackpad), zoom (pinch = Ctrl+wheel, Ctrl/Cmd+wheel, + and −), Fit all. **Back to the chat** and Esc
+close it; the chat comes back as it was.
+
+## Invariants
+- Canvas closed: the chat and the status panel behave and look exactly as before (existing unit and browser tests pass
+  unchanged).
+- One data path: the canvas is drawn by StatusPanel from the same `state`, `statusCards`, `statusQueue`; the card
+  elements and their handlers are the panel's own (`card`, `onayCard`, `kararCard`, the notes section with the Kararlar
+  button that opens the same decision dialog, `summaryCard`).
+- The chat is hidden with `visibility:hidden` on the other children of dsh's `[data-conversation-content]` (no unmount,
+  no layout change), so its scroll position and the composer draft stay.
+- Part of the `assistantTodos` feature: switching it off removes the button, the canvas, its listeners and the mark on
+  the chat body. No new dependency, no Host change, no Tether code change.
+
+## Acceptance criteria
+1. Real button (aria-label + tooltip) in the panel header opens the canvas; chat body shows only the canvas.
+2. **Back to the chat** button and Esc close it; scrollTop of the chat and the composer draft are unchanged; focus goes
+   back to the open button.
+3. Approve, →, ×, "…", a task card's click, Get summary, Refresh work on canvas cards through the panel's code. An action
+   that writes into the composer (or needs the option buttons or a project row) shows the chat first.
+4. Card positions and the view (x, y, zoom) are kept in localStorage `dsh-composer-plus.status-canvas` (validated on
+   read, merged on write, pruned to the cards on the canvas); a new card gets the first free place in its group column.
+5. Viewport and cards are focusable; Tab reaches Onayla; a card focused by keyboard is panned into view.
+
+## Phases
+1. [done 2026-11-24 15:4x] Code + tests + texts + docs: pure helpers (`canvasPlace`, `canvasFit`, `canvasZoom`, `readCanvas`) with
+   `test/status-canvas.test.mjs`; StatusCanvas + StatusPanel changes with canvas checks in
+   `test/assistant-todos-client.test.mjs`; 7 texts in en, zh, 11 locales; docs/features.json (13 `how`, `llms`),
+   README limits (13), tether/FEATURES.md gap row (desktop only); `test/browser-status-canvas.mjs` (real dsh 0.2.2-rc.5,
+   headless, chromiumSandbox) + screenshots.
+2. [open] Merge current main, review-guard loop (separate subagent, until no P1/P2), merge --no-ff into main, push,
+   delete branch and worktree.
+
+## Allowed paths
+client.js, locales/*.json, docs/features.json, README*.md, llms.txt, docs/ROUTES.md (generated), tether/FEATURES.md,
+test/status-canvas.test.mjs, test/assistant-todos-client.test.mjs, test/browser-status-canvas.mjs, package.json
+(test:all only), IMPLEMENTATION_PLAN.md.
+
+## Checks
+`npm test`; `node --check client.js`; `git diff --check`; repo has no lint script (verify in package.json);
+`PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-status-canvas.mjs
+~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js`; browser-card-stack.mjs
+(regression, canvas closed).
+
+## Decisions (simplest option where the proposal says nothing; listed for Furkan in the report)
+- Group columns (Onay + summary, Sorun, Senden + choice, Sürüyor, Bugün bitti, Notların), not project islands around a
+  Damon circle: the status data has no project per item, and a second data path is not allowed.
+- No minimap, no "Yalnız bana bekleyenler" filter, no side detail panel, no zoom-level detail change, no touch
+  two-finger pinch (a Mac trackpad pinch comes as Ctrl+wheel).
+- Plain wheel pans; Ctrl/Cmd+wheel zooms (10%–200%); Fit all never zooms above 100%.
+- The canvas button is an icon button (⊞, a text glyph: dsh's primitives have no canvas icon) next to Refresh.
+- An action that writes into the composer (→, Yaptım, Yanıtla) or the choice's → closes the canvas first. The notes
+  column is one `notes` card: the Kararlar button; its decision dialog opens over the canvas (the canvas stays open).
+- Esc closes only while the focus is in the chat body or nowhere, and not while a menu or dialog is open.
+- Card positions are pruned when a card leaves (approval, summary, choice, outage, projects keep theirs).
+- Drag uses window pointer listeners (no pointer capture: dsh's elements took the events after the pointer left).
+- Layout is per browser (localStorage), not synced between Macs.
+- The canvas stays open when you visit another chat and come back (this page only); it opens closed after a reload.
+- dsh's own question, approval or plan review in the Damon chat closes the canvas (review 1, P2).
+- On the canvas, the keys A, 1–9, R act only while the focus is in the active card (review 1, P3).
+- All groups show unfolded on the canvas (Bugün bitti too).
+- Queue order (statusQueue) shows as "i/N" on the cards that wait for you.
+
+## Risks
+- dsh renames `[data-conversation-content]`: the panel and the canvas do not show (the same limit as the panel).
+- A card that grows after it was placed can overlap the card below (only new cards are placed free).
+
+## Last checkpoint
+- 2026-11-24 15:4x: phase 1 done on the branch. main = 5f6d852 at start.
+- Last passing: `npm test` (exit 0); `node test/status-canvas.test.mjs`, `node test/assistant-todos-client.test.mjs`
+  (both red on main's client.js, checked); `PLAYWRIGHT=<Mergen playwright 1.58> node test/browser-status-canvas.mjs
+  <dsh 0.2.2-rc.5 bin>` PASS (headless, chromiumSandbox true); `test/browser-card-stack.mjs` PASS on 0.2.2-rc.5
+  (canvas closed: as before); `git diff --check` clean; no lint script in package.json.
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-20261124/{1-chat-before,2-canvas-open,3-canvas-pan-zoom,4-chat-after}.png
+- origin/main 0cc1cfe1 merged into the branch (7905d7ba); conflicts: client.js (Sürüyor filter + canvas), docs (main's text +
+  the canvas part, build:readme), tether/FEATURES.md (main removed Tether's card deck: the canvas row names the Status
+  sheet), this file.
+- review-guard round 1 (separate subagent, `git diff origin/main...HEAD`): P1 0, P2 2, P3 4, P4 2, all fixed:
+  P2 dsh's own question/approval/plan review closes the canvas (`pendingInteraction`); P2 browser tests also on dsh
+  0.2.0-rc.2 and 0.2.1-rc.2 (browser-status-canvas and browser-card-stack PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5);
+  P3 keys act only in the focused active card on the canvas; P3 saved places of absent cards stay free; P3 a drag
+  without pointerup ends (`buttons === 0`); P3 Projects pans to its card (focus without a press pans); P4 READMEs and plan
+  name only `data-conversation-content`; P4 Tether size cell.
+- After the fixes: `npm test` exit 0; unit tests ok; `git diff --check` clean.
+- review-guard round 2 (separate subagent): P1 0; P2 1 (origin/main moved: 6ad16cb3 resizable summary); P3 3, P4 1.
+  Fixed: origin/main 6ad16cb3 merged (18337ea9; conflicts client.js, docs, READMEs, plan); the summary card has no
+  max-height and no grip on the canvas; dsh's pending interaction is read by its key and closes the canvas also when it
+  waited before the open, then the focus goes into the composer seat; no pan when the window gets the focus back
+  (`relatedTarget == null`); docs name both new rules. Browser test: the focus check waits for the focus (it moves one
+  task after the close).
+- Last passing (after 18337ea9 + the test fix): `npm test` exit 0; unit tests ok; `git diff --check origin/main...HEAD`
+  clean; browser-status-canvas PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-card-stack PASS on the same three.
+- review-guard round 3 (separate subagent, HEAD 3dbc4510 vs origin/main 6ad16cb3): **P1 0, P2 0** (review loop done).
+  P3/P4 fixed after it: the focus after a dsh interaction closes the canvas goes to the first *visible* control of the
+  composer seat (dsh keeps its hidden normal composer first), after the close is drawn; the canvas button hides while a
+  dsh question/approval/plan review waits (docs say so in 13 languages); an Auto Review ask that Allow for this chat
+  answers by itself does not close the canvas. Unit checks added.
+- Last passing (2026-11-24 18:4x, after these fixes): `npm test` exit 0; `node test/status-canvas.test.mjs` and
+  `node test/assistant-todos-client.test.mjs` ok; `git diff --check` clean; `test/browser-status-canvas.mjs` and
+  `test/browser-card-stack.mjs` PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5 (headless, chromiumSandbox true).
+  Command: `PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-status-canvas.mjs <bin>`
+  with bins ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2|dsh-0.2.1-rc.2/node_modules/@deepseek-ai/dsh/lib/bin.js
+  and ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js.
+- 2026-11-24 19:1x: origin/main 922882a2 (Kararlar button and decision dialog) merged into the branch. Conflicts:
+  client.js (the panel's notes are now main's Kararlar button: the canvas shows that same button as one `notes` card in
+  column 5, a CANVAS_FIXED key, and draws the decision dialog too; the old note rows are gone), the en/zh texts and
+  locales (both sides' keys), package.json test:all (both tests), docs/features.json (main's text + the canvas part; the
+  canvas's notes column names the Kararlar button in 13 languages), tether/FEATURES.md (both rows), this file. READMEs,
+  llms.txt and LANGUAGE_PACKS rebuilt (`npm run build:readme`, `npm run build:locales`). Tests changed: the canvas checks
+  of assistant-todos-client (Kararlar on the canvas opens the dialog; × of a Senden item) and browser-status-canvas (the
+  `notes` card).
+- Last passing (after the merge, before its commit): `npm test` exit 0; browser-status-canvas, browser-card-stack (with
+  the Kararlar step 10), browser-running-filter, browser-summary-resize, browser-dismiss-task PASS on dsh 0.2.2-rc.5
+  (headless, chromiumSandbox true).
+- Merge commit 3366d2df. review-guard round 4 (separate subagent, `git diff origin/main...HEAD`, base 922882a2):
+  **P1 0, P2 0**, P3 2, P4 2, all fixed: P3 the focus after the decision dialog closes on the canvas without a Kararlar
+  button goes to the canvas (`homeId`), not to the page; P3 browser-status-canvas step 4b (Kararlar on the canvas opens
+  the modal dialog, Esc closes only the dialog, the focus is back on the button) on all three dsh versions; P4 dsh's
+  question that closes the canvas while the dialog is open gets the focus after the dialog closes (`decideOpen` in the
+  focusSeat effect, closeDecide skips the button); P4 plan lines 17 and 60. Unit checks added for both focus cases.
+- Last passing (2026-11-24 20:1x, after these fixes): `npm test` exit 0; `git diff --check` clean;
+  browser-status-canvas PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-card-stack, browser-running-filter,
+  browser-summary-resize, browser-dismiss-task PASS on 0.2.2-rc.5 (headless, chromiumSandbox true). Screenshots taken
+  again after the merge (the notes column shows the Kararlar button).
+- Stopped here at about 150 tool calls (Damon's rule). Open steps for the next chat:
+  1. `git fetch origin`; if origin/main moved past 6ad16cb3: merge it, run the checks above, run one review-guard round.
+  2. From the main worktree: `git merge --no-ff feat/assistant-canvas-view`, `git push origin main`.
+  3. Delete the branch (local, and remote if it exists) and remove this worktree folder (`git worktree remove`, no --force).
+  4. Live copy only after Furkan sees the screenshots and writes "tamam". No release, no DSH restart.
+# Feature: Kararlar (decision cards dialog) in the Damon status panel (branch feat/decision-cards-modal)
+
+Furkan's request (2026-11-24, Damon chat): the "Notların" group becomes one button with the count of decision questions;
+a click opens a modal dialog over the whole screen (blurred backdrop) with one decision card at a time, sample options per
+decision, one click per decision. Design: Damon's 7 decisions in the task (copied in "Decisions" below).
+
+## Code map (verified by reading, main 5f6d852)
+- Panel: client.js `StatusPanel` (3941); the notes group `const notes = …` (4179-4186); groups `statusCards` (3798,
+  `cards.notes` = items of owner user without a mark); panel CSS `TODOS_CSS` (3473-3545); feature install
+  `feature('assistantTodos', …)` (15081-15094).
+- Send path of Onayla and the option buttons: `createOptionPicks(send)` (7329); `send` = `scope.get('conversation').send(text)`
+  (14613-14617); OptionPicks (7472), ApproveButtons (7497), the Onay card calls `picks.pick` (4137).
+- Host: `TODO_LIMITS` (index.js 12057), `TODO_SECTION` (12058), `todoItem` (12094), `todoList.add` (12101),
+  `todoContext` (12137), tool `todo_list_add` (12192). The route returns the stored items as they are (`view`, 12346).
+- Tether reads items as dictionaries (`StatusItem`, Core.swift 4478): an unknown `options` field is ignored.
+
+## Invariants
+- Items without options keep working (old file entries load as before; a decision without options still shows).
+- The other panel groups (Onay, Sorun, Senden, Sürüyor, Bugün bitti), the count bar, the panel keys and Tether do not change.
+- The client never removes a to-do item for a decision; Damon removes it after the message.
+- Switch off (assistantTodos) removes the dialog and its style (they live in the panel's tree).
+
+## Acceptance criteria
+1. The notes group is one button "Kararlar" + badge (open decisions) + "N not" (other notes); none waiting: a line says so.
+2. Click: `<dialog>` with showModal over the whole page, blurred and dimmed backdrop, role dialog (native), aria-modal,
+   aria-labelledby; Esc, × and a backdrop click close it; focus stays inside; focus returns to the button.
+3. One card: question, "Eklendi …" line, "i / N", option buttons (1–9), Atla, Sonra, "Başka bir cevap" + Gönder.
+   One click sends `Karar: <item text> → <option>` through `createOptionPicks`' `send` and shows the next card at once.
+   Keys: 1–9 option, → skip, Esc close (keys wait OPTION_KEY_GUARD_MS after a card shows, not in the text field).
+4. No options: Atla, Sonra, the field and "Damon seçenek eklemedi". The client invents no options.
+5. After the decisions: the other notes, each with Yaptım (`Not tamam: <item text>`) and Atla; empty: "Hepsi bitti" + Kapat.
+6. Host: optional `options` (2–5 strings, each ≤ 120 chars) on items and on todo_list_add; the same text updates them,
+   [] removes them; bad input 400; the prompt says how to give options and what the two messages mean.
+7. Short slide/fade between cards, none with prefers-reduced-motion. No new dependency.
+
+## Phases
+1. Host `options` (index.js + test/assistant-todos.test.mjs) — tests first.
+2. Client button + dialog (client.js + test/decision-dialog.test.mjs + panel tests) — tests first.
+3. Texts (en, zh, 11 locales), docs (features.json, README build), tether/FEATURES.md gap row, browser test steps.
+4. Full checks, screenshots, merge main, review-guard, merge to main, push, cleanup.
+
+## Allowed paths
+index.js, client.js, locales/*.json, docs/features.json, README*.md, llms.txt, docs/ROUTES.md (generated), test/*,
+scripts/demo-card-stack.mjs, tether/FEATURES.md, IMPLEMENTATION_PLAN.md, package.json (test:all only).
+
+## Checks
+`npm test`; `node --check client.js index.js`; `git diff --check`; `npm run build:locales -- --check` (in npm test);
+`PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-card-stack.mjs <0.2.2-rc.5 bin>`.
+
+## Decisions (Damon's, from the task)
+Button + badge; modal over the whole screen with blur; one card at a time, one click, Atla/Sonra/free text, keys;
+message "Karar: <item text> → <option text>" on the Approve path; client does not remove items; options field (2–5)
+on items and todo_list_add; notes list with Yaptım/Atla after the decisions; panel styles, no dependency, reduced motion.
+Own choices (simplest working option, listed in the report): a decision = a note with options, or text that starts with
+"Karar ver"/"Decide" or has "karar ver:"; answered cards stay hidden in this panel until a reload (local state); the
+message keeps the option text as Damon wrote it (also "(Önerilen)"); messages follow the UI language ("Decision: …" in
+English); keys wait 0.8 s after a card shows; "short context" = when the item was added; option ≤ 120 characters.
+
+## Risks
+- dsh's own Escape or key listeners: the dialog stops propagation; checked in the real-app test.
+- Native `<dialog>` focus restore differs between engines: the panel focuses the button itself after close.
+- Four other branches change the panel: merge main before review.
+
+## Last checkpoint
+- Phase 1 done: dca48c2 (Host `options`; test/assistant-todos.test.mjs red first, then green).
+- Phases 2–3 done: 5c10feca (client button + DecisionDialog, createOptionPicks.say, 13 languages, docs, Tether gap row,
+  test/decision-dialog.test.mjs red on main client.js, panel tests, browser-card-stack step 10).
+- Last passing: `npm test` exit 0 (after 5c10feca's changes); `PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright
+  node test/browser-card-stack.mjs <0.2.2-rc.5 bin>` PASS (steps 1–10).
+- Implementation choices beyond the task (report them under "Furkan'ın kararı gerekebilir"): a click within 400 ms of
+  the last action does nothing (double click guard); quick clicks after that queue in order; answered cards stay
+  hidden until a page reload; the panel no longer has → (hand over) or × (remove) for a note; the message follows the UI
+  language; the "(Önerilen)" mark is removed from the sent option text; the key guard is 0.8 s; option ≤ 120 chars.
+- Open: screenshots, 0.2.0-rc.2/0.2.1-rc.2 browser run, merge main, review-guard, merge to main, push, cleanup.
+
+Checkpoint (2026-11-24 15:52, about 150 tool calls; the chat stops here, Damon continues in a new chat):
+- Done: 2527b660 (focus outline fix + plan), 3e26bbde (merge of origin/main 0ac144bb; conflicts resolved in
+  docs/features.json (our llms text put onto main's text), llms.txt (rebuilt with `npm run build:readme`) and
+  tether/FEATURES.md (main's rows + our Kararlar row; Tether has no card deck now, so the row says the notes are in the
+  Status sheet)).
+- Last passing after the merge: `npm test` exit 0; `TMPDIR=<tmp> PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright
+  node test/browser-card-stack.mjs ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js`
+  PASS. Before the merge: PASS also on ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2 and dsh-0.2.1-rc.2 bins.
+- Screenshots (DECIDE_SHOTS, 0.2.2-rc.5, fixture data): /Users/furkancakir/Damon/Belgeler/Composer Plus/karar-penceresi-20261124/
+  1-panel-butonu.png, 2-karar-karti.png, 3-bir-tiklamadan-sonra.png, 4-notlar-listesi.png, 5-hepsi-bitti.png.
+- Review: round 1 (review-guard, separate subagent, `git diff origin/main...HEAD`) started 14:50 and had no result at
+  15:52. The change is large (more than 3 files): repeat rounds until one gives no P1/P2.
+- Review round 1 result (review-guard-1 on 3e26bbde): P1 0, P2 1, P3 7, P4 4. To fix in the next chat:
+  - P2: test/browser-status-refresh.mjs:184-188 and test/browser-assistant-todos.mjs:176,197,211-212,225-226 still wait
+    for the old note rows, the notes fold button and → of a note: move those steps to the Kararlar button/dialog (or an
+    agent item for the Refresh "old content" check); README.md:552 test line ("→ writes Do this for me"); run both on
+    0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5.
+  - P3: client.js closeDecide: when the Kararlar button is gone (all done), focus the panel head `headId`.
+  - P3: DecisionDialog focus effect deps: add the notes phase (first shown note id / shownNotes.length), so Yaptım/Atla
+    and "Hepsi bitti" keep the focus in the dialog.
+  - P3: `later` (Sonra) without `ready()`: add the 400 ms guard.
+  - P3: a send that fails after the dialog closed calls setError on an unmounted component: report through the panel's
+    `notify(sessionId, 'error', …)` or keep the error in the panel's `decide` state.
+  - P3: `answered` stays until a reload even when Damon never removes the item (rollback, failed turn): drop an id when
+    a list read after the next finished Damon turn still has the item, or hide answered ids only while the dialog is open.
+  - P3: the panel has no × / → for a note now: Furkan's decision (listed in the report), or add remove to the dialog rows.
+  - P3: docs/features.json llms order sentence still says "the user's own notes (cards.notes, folded)": say "the
+    Kararlar button (decide.title)", then `npm run build:readme`.
+  - P4: `say` busy → "Gönderilemedi: busy": let `chain` wait until `busy` ends (or a localized text).
+  - P4: TODO_SECTION names only tr/en message forms; the client sends 13 UI languages: say "in the user's UI language".
+  - P4: a text selection from the field to the backdrop closes the dialog: close only when pointerdown and click are
+    both on the dialog.
+  - Round 2 after the fixes (the change is large: repeat until no P1/P2).
+- Open steps: 1) the round-1 fixes above + `npm test` + browser tests, then review-guard round 2 on `origin/main...HEAD`; 2) fetch and merge
+  origin/main again if it moved; 3) `git switch main` in the main worktree, `git merge --no-ff feat/decision-cards-modal`,
+  `git push origin main`; 4) delete the branch locally and on origin, `git worktree remove` this folder (no --force).
+  Not allowed: live copy update (Furkan sees the screenshots and writes "tamam" first), release, DSH restart.
+
+Checkpoint (2026-11-24 17:35, second chat):
+- Damon's decisions for the round-1 questions: 1) Sil on each note of the dialog (removes the item at once through the
+  panel's remove, as the old ×; → stays removed); 2) an answered or removed card stays hidden for 60 s
+  (DECIDE_HIDE_MS), then shows again when it is still on the list; 3) keep the 0.4 s click guard and the 0.8 s key
+  guard; 4) message in the UI language; 5) a live option is click-only; 6) keep the decision rule.
+- Done: bed744c9 (all round-1 P2/P3/P4 fixes + Sil + 60 s re-show, with unit tests; the two old browser tests moved to
+  the Kararlar button and dialog; browser-card-stack Sil step and DECIDE_SHOTS 6-sil-dugmesi), ab15f55a (merge of
+  origin/main 6ad16cb3: Sürüyor filter, resizable summary, dismissed task cards; conflicts kept both sides;
+  docs/features.json assistantTodos strings merged word by word with git merge-file, then `npm run build:readme`).
+- Last passing (after ab15f55a): `npm test` exit 0; `git diff --check` clean; headless, chromiumSandbox true:
+  `TMPDIR=/tmp/cp-dc-bt PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/<t>.mjs <bins>`
+  for t = browser-card-stack (has the decision dialog step 10), browser-assistant-todos, browser-status-refresh: PASS on
+  0.2.2-rc.5, 0.2.0-rc.2 and 0.2.1-rc.2 (bins: ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/…/lib/bin.js,
+  ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2/…, dsh-0.2.1-rc.2/…).
+- Review round 2: review-guard-2b (separate subagent, default model) on `git diff origin/main...HEAD` at ab15f55a:
+  P1 0, P2 0, P3 2, P4 2. All four fixed in df00a68e (Sil on the decision card too, an answer empties the "Başka bir
+  cevap" field, a card that shows again after 60 s counts once in the progress, an old comment). The review loop ends.
+- After df00a68e: `npm test` exit 0, `git diff --check` clean; browser-card-stack, browser-assistant-todos and
+  browser-status-refresh PASS on 0.2.2-rc.5, 0.2.0-rc.2 and 0.2.1-rc.2; main's browser-running-filter,
+  browser-summary-resize and browser-dismiss-task PASS on 0.2.2-rc.5 (after ab15f55a).
+- Screenshots (DECIDE_SHOTS, rc.5, made-up data): /Users/furkancakir/Damon/Belgeler/Composer Plus/karar-penceresi-20261124/
+  1-panel-butonu, 2-karar-karti, 3-bir-tiklamadan-sonra, 4-notlar-listesi, 5-hepsi-bitti, 6-sil-dugmesi (.png).
+- Open: merge --no-ff into main in the main worktree, `npm test` on main, push, worktree remove, `git branch -d`.
+  Live copy waits for Furkan's "tamam" on the screenshots.
 
 # Feature: resizable summary in the Damon status panel (branch feat/resizable-status-summary)
 
