@@ -4051,7 +4051,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const ref = React.useRef(null);
       const [skipped, setSkipped] = React.useState(() => new Set()); // Atla: in this opening only
       const [noteSkips, setNoteSkips] = React.useState(() => new Set());
-      const [count, setCount] = React.useState(0); // decisions answered in this opening (the progress)
+      const [done, setDone] = React.useState(() => new Set()); // decisions answered or removed in this opening (the progress)
       const [other, setOther] = React.useState('');
       const shown = React.useRef({ id: null, at: 0 }); // the card on screen and when it came (the key and click guards)
       const focusKey = React.useRef(null); // the card that got the focus
@@ -4080,6 +4080,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       React.useLayoutEffect(() => { if (focusKey.current !== view) { focusKey.current = view; ref.current?.querySelector?.('[data-dc-focus]')?.focus?.(); } });
       if (shown.current.id !== (current?.id ?? null)) shown.current = { id: current?.id ?? null, at: Date.now() };
       const one = (s) => String(s ?? '').replace(/\s+/g, ' ').trim();
+      const mark = (id, on) => setDone((d) => { const next = new Set(d); if (on) next.add(id); else next.delete(id); return next; });
       const setError = (error) => setDecide((d) => ({ ...d, error }));
       const setAnswered = (id, on) => setDecide((d) => { const answered = new Map(d.answered); if (on) answered.set(id, Date.now()); else answered.delete(id); return { ...d, answered }; });
       /** One click: the card leaves the queue at once, the message goes on Onayla's path; a failed send brings it back and
@@ -4095,13 +4096,13 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const lastAct = React.useRef(0);
       const ready = () => { if (Date.now() - lastAct.current < DECIDE_CLICK_GUARD_MS) return false; lastAct.current = Date.now(); return true; };
       const answer = (item, text, note = false) => {
-        setError(null); setAnswered(item.id, true); if (!note) setCount((c) => c + 1);
+        setError(null); setAnswered(item.id, true); if (!note) { mark(item.id, true); setOther(''); } // the field belongs to the old card
         const message = t(note ? 'decide.noteMessage' : 'decide.message', { item: one(item.text), answer: one(text) });
         chain.current = chain.current.then(async () => {
           let r;
           do { await idle(); r = await picks.say(sessionId, message); } while (r.busy === true);
           if (r.ok) return;
-          setAnswered(item.id, false); if (!note) setCount((c) => Math.max(0, c - 1));
+          setAnswered(item.id, false); if (!note) mark(item.id, false);
           setError(t('decide.failed', { error: r.error }));
         });
         return chain.current;
@@ -4110,8 +4111,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // the panel's error line says why.
       const drop = (item) => {
         if (busy || !ready()) return;
-        setError(null); setAnswered(item.id, true);
-        remove(item.id).then((ok) => { if (!ok) setAnswered(item.id, false); });
+        const decision = isDecision(item);
+        setError(null); setAnswered(item.id, true); if (decision) { mark(item.id, true); setOther(''); }
+        remove(item.id).then((ok) => { if (!ok) { setAnswered(item.id, false); if (decision) mark(item.id, false); } });
       };
       const skip = () => { if (current !== undefined && ready()) { setSkipped((s) => new Set([...s, current.id])); setOther(''); } };
       const later = () => { if (current !== undefined && ready()) { setDecide((d) => ({ ...d, later: [...d.later.filter((x) => x !== current.id), current.id] })); setOther(''); } };
@@ -4124,8 +4126,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         if (option !== undefined && ![current.text, option.label].some(namesLive)) { ev.preventDefault(); if (ready()) answer(current, option.label); }
         else if (ev.key === 'ArrowRight') { ev.preventDefault(); skip(); }
       };
-      const total = count + decisions.length;
-      const at = current === undefined ? total : count + decisions.indexOf(current) + 1;
+      // The progress: the decisions done here that are not back in the queue (a card that shows again after DECIDE_HIDE_MS
+      // counts once), then the open ones.
+      const doneHere = [...done].filter((id) => !decisions.some((i) => i.id === id)).length;
+      const total = doneHere + decisions.length;
+      const at = current === undefined ? total : doneHere + decisions.indexOf(current) + 1;
       const titleId = `cp-dc-${sessionId}-title`;
       const btn = (label, onClick, extra) => React.createElement('button', { type: 'button', className: 'cp-dc-btn', onClick, ...extra }, label);
       const card = current === undefined ? null : React.createElement('div', { key: current.id, className: 'cp-dc-card', 'data-decision': current.id },
@@ -4142,6 +4147,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
           React.createElement('button', { type: 'submit', className: 'cp-dc-btn', 'data-primary': '', disabled: one(other) === '' }, t('decide.send'))),
         React.createElement('div', { className: 'cp-dc-acts' },
           btn(t('decide.skip'), skip, { 'data-dc': 'skip' }), btn(t('queue.later'), later, { 'data-dc': 'later' }),
+          btn(t('decide.remove'), () => drop(current), { 'data-danger': '', 'data-dc': 'remove', 'aria-disabled': busy, 'aria-label': `${t('decide.remove')}: ${current.text}` }),
           React.createElement('span', { className: 'cp-dc-keys' }, t('decide.keys'))));
       const rest = current !== undefined ? null : [
         shownNotes.length === 0 ? null : React.createElement('section', { key: 'notes', 'aria-labelledby': `${titleId}-notes` },
@@ -4415,7 +4421,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
             React.createElement('span', { className: 'cp-cs-main' }, cardMark(i.text).title, sub(clockText(i.created, lang))),
             icon(t('todos.remove', { item: i.text }), CLOSE, () => { act(i.id, 'remove'); }, { 'data-act': 'close', 'aria-disabled': state.busy }))))));
       // The groups: Sorun always open; then the next CARDS_SHOWN cards; a group that does not fit and Bugün bitti start
-      // folded ("▸ Sürüyor 3"). Folding Bugün bitti marks its cards seen (no "new" mark). Your notes: one folded group.
+      // folded ("▸ Sürüyor 3"). Folding Bugün bitti marks its cards seen (no "new" mark). Your notes: the Kararlar button.
       let budget = CARDS_SHOWN;
       const groupOpen = {};
       for (const g of ['sorun', 'senden', 'suruyor', 'bitti']) {

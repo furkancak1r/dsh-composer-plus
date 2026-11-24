@@ -201,10 +201,22 @@ assert.equal(focused.at(-1), 'rest', 'the end line gets the focus');
 // 60 s later the answered notes are back when Damon did not remove them.
 clock = decide.answered.get('n2') + DECIDE_HIDE_MS; render();
 assert.equal(current(), 'd1', 'an answered decision still on the list after 60 s shows again (first in list order)');
+assert.equal(text(find(tree, (n) => n.p?.['data-dc-progress'] !== undefined)[0]), '1 / 3', 'a card that shows again counts once in the progress');
 assert.deepEqual(decisionQueue(notes, decide).notes.map((i) => i.id), ['n1', 'n2'], 'and the done and removed notes');
 clock += 1000; decide = { ...decide, answered: new Map([...decide.answered].map(([id]) => [id, clock])) }; render();
 assert.equal(current(), undefined); assert.equal(noteRows().length, 0);
 btn('close').p.onClick(); assert.equal(closed, 1, 'Kapat closes it');
+// A decision card has Sil too; an option click empties the "Başka bir cevap" field (its text was for the old card).
+{
+  decide = { answered: new Map(), later: [], error: null }; hooks = []; render(); clock += 900;
+  field().p.onChange({ target: { value: 'yarım kalan cevap' } }); render();
+  optionBtns()[1].p.onClick(); await flush(); render(); clock += 500;
+  assert.equal(current(), 'd2'); assert.equal(field().p.value, '', 'the next card\'s field is empty');
+  const r0 = removed.length; assert.equal(btn('remove').p['aria-label'], 'Sil: Karar ver: yedek gece mi alınsın?');
+  btn('remove').p.onClick(); await flush(); render(); clock += 500;
+  assert.deepEqual(removed.slice(r0), ['d2'], 'Sil on a decision card removes it'); assert.equal(current(), 'd3', 'the next card');
+  assert.equal(text(find(tree, (n) => n.p?.['data-dc-progress'] !== undefined)[0]), '3 / 3', 'the removed decision counts as done');
+}
 // A failed send: the card comes back with the reason; nothing is lost.
 {
   decide = { answered: new Map(), later: [], error: null }; hooks = []; render(); clock += 900;
