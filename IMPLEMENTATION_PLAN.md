@@ -1,3 +1,115 @@
+# Assistant reply guards (branch fix/assistant-reply-guards, 2026-11-24)
+
+Source: Damon's daily error review of 2026-11-24 (Furkan's standing request of 2026-11-11: fix each mistake of the day
+for good). Composer Plus standing approval (2026-11-09): branch push, merge into main, push of main, delete of the
+merged branch and its worktree. Phase 1 (this branch): implement, test, commit, push the branch. No merge before
+Damon's independent review.
+
+## Objective
+The Host (index.js) catches four Assistant (Damon) mistakes that a prompt rule did not stop, and the Approve button's
+prompt names the words that its note checks.
+
+## Invariants
+- Host only. Tether does not change (one line in tether/FEATURES.md says so). No client change.
+- relayRefusal() rules do not change. send_message, subagent and subagent_fork stay free tools (ASSISTANT_FREE_TOOLS):
+  no approval card, only the quote check.
+- The notes use the Approve button's note path: a hidden user message with its own source
+  (`composer-plus-assistant-guard`) in `agent/pre-step`. A note never starts a step or a turn. Each note goes once.
+- Only the assistant chat (isAssistant). A fork's copied events (rule 10) and withdrawn messages (rule 9) do not count.
+- APPROVAL_HOLD and the hold logic do not change (item 5 changes only the prompt text).
+
+## Items and acceptance criteria
+1. Self-quote not in the log: an answer with a quote ("…", “…”, '…', ‘…') after "önceki yanıtımda", "önceki
+   mesajımda", "önceki mesajımdaki" or before "yazdım", "yazmıştım", "dedim", "demiştim", "cümlesini geri alıyorum",
+   "cümlesini düzeltiyorum" (12 characters or more; Markdown * _ ` left out, white space folded, any case) that no
+   earlier answer of the chat has: note at the next step that has a message with text. Cases: 2026-11-24 10:35 and
+   2026-11-23 16:44 (note), 2026-11-24 11:12 (no note).
+2. Auto review denial: a tool result of the open turn that starts with "Error: Auto review denied this tool call":
+   note in the next step of that turn, once per denial. No note for no denial, a Composer Plus refusal, an earlier turn.
+3. Relayed approvals: relayRefusal() also checks send_message `message`, subagent `prompt`, subagent_fork `prompt` of
+   the assistant chat. An exact quote passes, a changed quote is refused with the same reason, a text without a relay
+   header passes, a non-Assistant agent (its subagent, another chat) is not checked.
+4. Approval to-do without a block: a turn that added a to-do "Onay: …" (client CARD_MARKS) of owner user, and no answer
+   after the user's newest message has an `onay` block: note at the next step that has a message with text. No note
+   for an answer with a block, an owner "agent" item, another mark, a refused call.
+5. Approve button prompt: add "başlatma" and make "yok" match what the note checks. BLOCKED, see "Last checkpoint".
+
+## Allowed paths
+index.js, test/assistant-guards.test.mjs (new), test/assistant.test.mjs, test/approve-button.test.mjs, package.json
+(test:all), docs/features.json, llms.txt (generated), tether/FEATURES.md, IMPLEMENTATION_PLAN.md.
+
+## Checks
+- `node test/assistant-guards.test.mjs` (items 1, 2, 4), `node test/assistant.test.mjs` (item 3), `npm test` exit 0,
+  `git diff --check`.
+- No browser test of the repo covers these Host notes (checked: test/browser-*.mjs have no guard or relay case), so no
+  browser run.
+
+## Review rule for the later review (Damon runs it in a separate agent)
+If the final diff is about 100 lines or less, at most 3 files, and has no migration, permission, security, SAP write or
+live deploy: one review-guard round. Otherwise: repeat the review until a round gives no P1/P2. This diff touches
+approval checks and is more than 100 lines in 7 files: expect the second form.
+
+## Risks
+- selfQuotes is a word list: "diye yazdım", English, a quote over two lines are not found (ponytail line in index.js).
+- The denial note relies on the result text "Error: Auto review denied this tool call" (local Auto review plugin
+  `guidance()`); a change of that text stops the note.
+- Item 4 reads the owner and the id from the todo_list_add result text ("Added <id> (owner user"); a change of that text
+  in index.js stops the note. The test pins it.
+- Notes live in memory only: a dsh restart drops them.
+
+## Red / green evidence
+- Red on origin/main d4bfaaf8 (new tests only, no code change):
+  `node test/assistant-guards.test.mjs` exit 1: item 1 "FAIL: index.js exports selfQuotes", items 2 and 4 "FAIL:
+  index.js exports installAssistantGuards". `node test/assistant.test.mjs` exit 1: "send_message: a changed quote is
+  refused" ('allow' !== 'deny').
+- Green after the change: `node test/assistant-guards.test.mjs` exit 0 (items 1, 2, 4: ok), `node test/assistant.test.mjs`
+  exit 0, `npm test` exit 0, `git diff --check` exit 0.
+
+## Review round 1 (independent subagent, head 1e9ec13e): P1 0, P2 1, P3 3, P4 2. All fixed.
+Red on 1e9ec13e (tests first): `node test/assistant-guards.test.mjs` exit 1 at the first P2 row; a probe on the same code
+gave a quote for 'Hafızaya "…" yazdım.', a second note for the withdrawal line, a note for the end-mark and the ’ case,
+and a quote inside a fenced block. Green after the fixes: both test files exit 0, `npm test` exit 0, `git diff --check` 0.
+1. [P2] The suffix form (quote + yazdım/dedim/…) counts only when the same sentence has "önceki yanıtımda", "önceki
+   mesajımda", "önceki mesajımdaki", "daha önce" or "az önce" before the quote (SELF_REF, at most 300 characters back).
+   Five no-note rows (personal names replaced by made-up ones) plus a self-reference in an earlier sentence.
+2. [P3] A per-chat map of folded quotes that got a note (and the quotes of notes that wait) is skipped; a rollback of the
+   answer clears its entry. Test: the withdrawal line of 2026-11-24 gets no second note.
+3. [P3] Accepted false positive: the ponytail comment of looseRelay names send_message, subagent and subagent_fork; the
+   assistant llms text says that the reason tells how to write it again. A test documents the refusal (it passes on
+   1e9ec13e too: documented behavior, no code change).
+4. [P3] quoteFold: ’ ‘ → ', end marks . , ; : ! ? removed. Two no-note tests.
+5. [P4] selfQuotes blanks fenced code blocks (``` and ~~~) first. Two tests.
+6. [P4] missingQuotes reads the earlier answers newest first and folds each only while a quote is not found. Speed
+   checks: selfQuotes worst cases and a log of 2000 answers stay under 1 s.
+
+## Review round 2 (independent subagent, head 4570ceb2): P1 0, P2 0, P3 3, P4 1. Clean of P1/P2: no third round.
+Red on 4570ceb2 (tests first): `node test/assistant-guards.test.mjs` exit 1: item 1 "not a self-quote: Az önce alt ajana
+… dedim.", item 4 "a news turn without a block: a note"; a direct run gave a quote for the four addressee rows and none
+for "Önceki yanıtımdaki …". Green after the fixes: both test files exit 0.
+1. [P3] The self-reference must stand directly before the quote (only white space, "," or ":", or "şunu|şöyle" +
+   "yazdım|yazmıştım|dedim|demiştim" + ":"). Two patterns: "önceki yanıtımda/yanıtımdaki/mesajımda/mesajımdaki" + quote;
+   "daha önce|az önce" + quote + yazdım …, or + şunu yazdım: + quote. SELF_REF and the sentence scan are gone. Four
+   addressee rows give no quote; "şunu yazdım:" and "şöyle dedim:" give one (note test).
+2. [P3] "yanıtımdaki" added (quote test and note test).
+3. [P3] approvalItems looks for the onay block only in the turn that added the item (Math.max(start, typed)). Test: a
+   typed turn with a block for A, then a news turn that adds "Onay: B canlıya deploy" without a block: note. The llms
+   text says "an answer of that turn after the user's newest message".
+4. [P4] The ponytail comment of selfQuotes names the limit: a word or a "." between the reference and the quote hides it.
+
+## Last checkpoint
+- Review round 2 fixes committed on fix/assistant-reply-guards; then origin/main merged in, checks run, merge into main.
+- Review round 1 fixes committed and pushed on fix/assistant-reply-guards. Last passing test command: `npm test` (exit 0).
+- Items 1-4 implemented, tested, committed on fix/assistant-reply-guards.
+- Item 5 BLOCKED: Auto review denied the edit of test/approve-button.test.mjs (the test that pins the prompt text).
+  Exact reason: "The edit changes a test file in the worktree for a branch, a low-risk local change, but the human must
+  confirm the approval wording in the chat. No valid human approval covers this edit." The prompt text in index.js is
+  not changed (the pinned test would fail without the test edit). Verified meanwhile (approveRuleNote on this branch):
+  the note for "başlatma" and "yok" comes only when the block has deploy, canlı or yayın outside "canlı değil",
+  "yalnız yerel", "deploy ayrı onayla" (10:49 block: "deploy ayrı"; a block with "canlı ... kopyası" and "sürüm yok":
+  note; the same block without "canlı": no note). So "in any block" is not what the note checks.
+- Open steps: review round 2 (Damon, separate agent); item 5 stays out (Furkan decides); merge only after a round with
+  no P1/P2.
+
 # Fix: Tether push notifications (branch fix/tether-push-notifications, 2026-11-24)
 
 Furkan (Assistant chat, 2026-11-24): Damon-only notifications (setting, default on), no push for `[quiet]` Damon turns
