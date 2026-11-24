@@ -15,8 +15,8 @@ close it; the chat comes back as it was.
   unchanged).
 - One data path: the canvas is drawn by StatusPanel from the same `state`, `statusCards`, `statusQueue`; the card
   elements and their handlers are the panel's own (`card`, `onayCard`, `kararCard`, the note row, `summaryCard`).
-- The chat is hidden with `visibility:hidden` on dsh's `[data-conversation-scroll]` (no unmount, no layout change), so
-  its scroll position and the composer draft stay.
+- The chat is hidden with `visibility:hidden` on the other children of dsh's `[data-conversation-content]` (no unmount,
+  no layout change), so its scroll position and the composer draft stay.
 - Part of the `assistantTodos` feature: switching it off removes the button, the canvas, its listeners and the mark on
   the chat body. No new dependency, no Host change, no Tether code change.
 
@@ -62,13 +62,14 @@ test/status-canvas.test.mjs, test/assistant-todos-client.test.mjs, test/browser-
 - Card positions are pruned when a card leaves (approval, summary, choice, outage, projects keep theirs).
 - Drag uses window pointer listeners (no pointer capture: dsh's elements took the events after the pointer left).
 - Layout is per browser (localStorage), not synced between Macs.
-- The canvas closes when you leave the Damon chat (the panel unmounts); it opens closed after a reload.
+- The canvas stays open when you visit another chat and come back (this page only); it opens closed after a reload.
+- dsh's own question, approval or plan review in the Damon chat closes the canvas (review 1, P2).
+- On the canvas, the keys A, 1–9, R act only while the focus is in the active card (review 1, P3).
 - All groups show unfolded on the canvas (Bugün bitti too).
 - Queue order (statusQueue) shows as "i/N" on the cards that wait for you.
 
 ## Risks
-- dsh renames `[data-conversation-scroll]`: the chat would stay visible under the canvas (the canvas is opaque and covers
-  the chat body, so the view still works).
+- dsh renames `[data-conversation-content]`: the panel and the canvas do not show (the same limit as the panel).
 - A card that grows after it was placed can overlap the card below (only new cards are placed free).
 
 ## Last checkpoint
@@ -78,7 +79,17 @@ test/status-canvas.test.mjs, test/assistant-todos-client.test.mjs, test/browser-
   <dsh 0.2.2-rc.5 bin>` PASS (headless, chromiumSandbox true); `test/browser-card-stack.mjs` PASS on 0.2.2-rc.5
   (canvas closed: as before); `git diff --check` clean; no lint script in package.json.
 - Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/tuval-20261124/{1-chat-before,2-canvas-open,3-canvas-pan-zoom,4-chat-after}.png
-- Open: phase 2 (merge main, review loop, merge --no-ff, push, delete branch and worktree).
+- origin/main 0cc1cfe1 merged into the branch (7905d7ba); conflicts: client.js (Sürüyor filter + canvas), docs (main's text +
+  the canvas part, build:readme), tether/FEATURES.md (main removed Tether's card deck: the canvas row names the Status
+  sheet), this file.
+- review-guard round 1 (separate subagent, `git diff origin/main...HEAD`): P1 0, P2 2, P3 4, P4 2, all fixed:
+  P2 dsh's own question/approval/plan review closes the canvas (`pendingInteraction`); P2 browser tests also on dsh
+  0.2.0-rc.2 and 0.2.1-rc.2 (browser-status-canvas and browser-card-stack PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5);
+  P3 keys act only in the focused active card on the canvas; P3 saved places of absent cards stay free; P3 a drag
+  without pointerup ends (`buttons === 0`); P3 Projects pans to its card (focus without a press pans); P4 READMEs and plan
+  name only `data-conversation-content`; P4 Tether size cell.
+- After the fixes: `npm test` exit 0; unit tests ok; `git diff --check` clean.
+- Open: review round 2, then merge --no-ff into main, push, delete branch and worktree.
 
 # Fix: Damon clears a failed task card; X is kept across browsers (branch fix/dismiss-failed-status-task)
 

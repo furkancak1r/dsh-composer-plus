@@ -28,6 +28,8 @@ assert.deepEqual(canvasPlace([{ key: 'a', col: 0 }, { key: 'b', col: 0 }], { a: 
 assert.deepEqual(canvasPlace([{ key: 'a', col: 1 }, { key: 'b', col: 1 }], { a: { x: col(1) + 40, y: 10 } }, { a: { w: CANVAS_W, h: 90 }, b: { w: CANVAS_W, h: 60 } }),
   { b: { x: col(1), y: 10 + 90 + CANVAS_GAP } }, 'a card that you moved into the column: the new one goes under it');
 assert.deepEqual(canvasPlace([{ key: 'a', col: 0 }], { a: { x: 3, y: 4 } }, {}), {}, 'a card with a place keeps it');
+assert.deepEqual(canvasPlace([{ key: 'b', col: 0 }], { a: { x: 0, y: 0 } }, { a: { w: CANVAS_W, h: 100 }, b: { w: CANVAS_W, h: 50 } }),
+  { b: { x: 0, y: 100 + CANVAS_GAP } }, 'the saved place of a card that is away stays free');
 // Random layouts: no two cards overlap (with the gap), and a saved place never moves.
 let seed = 7; const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
 for (let run = 0; run < 300; run++) {

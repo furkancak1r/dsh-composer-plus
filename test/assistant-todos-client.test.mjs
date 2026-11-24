@@ -405,11 +405,11 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
 {
   const saved = items; const savedTasks = tasks;
   items = [{ id: 'n1', text: 'Kırtasiye', owner: 'user', created: 1 }, { id: 's1', text: 'Senden: SAP alanını aç', owner: 'user', created: 2 },
-    { id: 'p1', text: 'Sorun: Gece denetimi hata verdi', owner: 'agent', created: NOW - 60000 }, { id: 'o1', text: 'Onay: main push', owner: 'user', created: NOW - 5000 }];
+    { id: 'p1', text: 'Sorun: Gece denetimi hata verdi', owner: 'agent', created: NOW - 60000 }, { id: 'o1', text: 'Onay: rapor dalı birleştirilsin', owner: 'user', created: NOW - 5000 }];
   tasks = [{ id: 'c-run', title: 'Research Rome', state: 'running', started: NOW - 125000 }, { id: 'c-done', title: 'Flights', state: 'done', started: NOW - 600000, ended: NOW - 60000 }];
   mem.delete('dsh-composer-plus.status-canvas');
   await panelProps.store.load('s-assistant'); rt.clear();
-  const offer = { seq: 9, latest: 9, options: [{ n: 1, text: 'Onaylıyorum: main push.', label: 'Onaylıyorum: main push.', message: 'Onaylıyorum: main push.', from: 9 }] };
+  const offer = { seq: 9, latest: 9, options: [{ n: 1, text: 'Onaylıyorum: rapor dalı birleştirilsin.', label: 'Onaylıyorum: rapor dalı birleştirilsin.', message: 'Onaylıyorum: rapor dalı birleştirilsin.', from: 9 }] };
   panelProps.offers.set('s-assistant', { offer, state: { busy: false, error: null }, empty: true });
   const picked = []; const picks = { pick: (id, o, n) => { picked.push([id, o, n]); return Promise.resolve(true); }, of: () => ({ busy: false }) };
   let keyListener = null; const realAdd = globalThis.document.addEventListener; const realRemove = globalThis.document.removeEventListener;
@@ -451,6 +451,15 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   const approve = find(r.cvTree, (n) => n.t === 'button' && n.p['data-composer-plus-approve'] === 'card')[0];
   assert.ok(approve, 'Onayla on the canvas'); approve.p.onClick();
   assert.deepEqual(picked, [['s-assistant', offer, 1]], 'the same send path as the panel');
+  // On the canvas, A acts only while the focus is in the active card (a card out of view is not read; review 1).
+  {
+    r = draw(); await new Promise((res) => setTimeout(res, 850)); r = draw();
+    const rootNow = find(r.tr, (n) => n.p?.['data-composer-plus-todos'] === '')[0]; const n0 = picked.length;
+    rootNow.p.onKeyDown({ key: 'a', target: { closest: () => null }, preventDefault: () => {} });
+    assert.equal(picked.length, n0, 'A outside the active card does nothing');
+    rootNow.p.onKeyDown({ key: 'a', target: { closest: (sel) => (sel === '[data-cv-key]' ? { dataset: { cvKey: 'onay' } } : null) }, preventDefault: () => {} });
+    assert.equal(picked.length, n0 + 1, 'A in the active Onay card approves');
+  }
   // × of a note: the store's remove (one action at a time), as in the panel.
   const p0 = posts.length;
   find(r.cvTree, (n) => n.t === 'button' && n.p['aria-label'] === 'todos.remove:{"item":"Kırtasiye"}')[0].p.onClick(); await tick();
@@ -479,6 +488,12 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   keyListener({ key: 'Escape', shiftKey: true, preventDefault: () => {} }); assert.ok(draw().cv, 'Shift+Esc does not close it');
   const realQuery = globalThis.document.querySelector; globalThis.document.querySelector = (sel) => (/role="menu"/.test(sel) ? {} : null);
   keyListener({ key: 'Escape', preventDefault: () => {} }); assert.ok(draw().cv, 'Esc closes an open menu first'); globalThis.document.querySelector = realQuery;
+  // dsh's own question or approval in the chat: the canvas closes, so that you see it (review 1).
+  statuses.set('s-assistant', { running: false, pendingInteraction: { kind: 'question' } }); draw(); effectsNow();
+  assert.equal(draw().cv, undefined, 'a question of dsh closes the canvas');
+  statuses.set('s-assistant', { running: false });
+  find(draw().tr, (n) => n.p?.['data-composer-plus-canvas-open'] !== undefined)[0].p.onClick(); draw(); effectsNow();
+  assert.ok(draw().cv, 'open again');
   // Back to the chat: a real button with its text.
   // React runs the cleanup of the open draw's layout effect when the canvas closes (this hook runtime keeps them).
   layoutCleanups.length = 0; r = draw(); const back = find(r.cvTree, (n) => n.t === 'button' && n.p['data-composer-plus-canvas-close'] !== undefined)[0];

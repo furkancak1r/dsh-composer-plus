@@ -3609,7 +3609,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
      * the measured sizes. Each new card goes into its column at the first height where it keeps CANVAS_GAP from every card. */
     function canvasPlace(items, pos, size) {
       const sz = (key) => ({ w: size[key]?.w ?? CANVAS_W, h: size[key]?.h ?? CANVAS_H });
-      const rects = items.filter((i) => pos[i.key] !== undefined).map((i) => ({ ...pos[i.key], ...sz(i.key) }));
+      // Every saved place stays free, also of a card that is away now (the approval, the summary: they come back there).
+      const rects = Object.keys(pos).map((key) => ({ ...pos[key], ...sz(key) }));
       const free = (r) => rects.every((o) => r.x + r.w + CANVAS_GAP <= o.x || o.x + o.w + CANVAS_GAP <= r.x || r.y + r.h + CANVAS_GAP <= o.y || o.y + o.h + CANVAS_GAP <= r.y);
       const placed = {};
       for (const i of items) {
@@ -4062,6 +4063,10 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         doc.addEventListener('keydown', onKey);
         return () => doc.removeEventListener('keydown', onKey);
       }, [canvas, host]);
+      // dsh's own question, approval or plan review shows in the chat's composer place: a new one closes the canvas, so that
+      // you see it (review 1).
+      const asked = typeof useSessionStatus === 'function' ? useSessionStatus((s) => s?.get?.(sessionId)?.pendingInteraction?.kind ?? '') : '';
+      React.useEffect(() => { if (asked !== '' && canvasOpen.has(sessionId)) setCanvas(false); }, [asked]);
       // At the right, the panel makes the chat move left (SEAT_ATTR on the chat body), also while it is folded: the folded
       // panel still shows its header and the Onay card (review: a folded side panel covered messages).
       React.useLayoutEffect(() => { host.setAttribute?.(SEAT_ATTR, place === 'side' ? 'open' : 'closed'); return () => host.removeAttribute?.(SEAT_ATTR); }, [host, place]);
@@ -4385,7 +4390,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const onPanelKey = (ev) => {
         if (current === undefined || ev.metaKey || ev.ctrlKey || ev.altKey || ev.shiftKey || ev.repeat || ev.isComposing || ev.keyCode === 229 || ev.defaultPrevented
           || ev.target?.closest?.('input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="menu"], [role="menuitem"]')) return;
-        const k = String(ev.key).toLowerCase(); const read = shownAt.current.key !== null && Date.now() - shownAt.current.at >= OPTION_KEY_GUARD_MS;
+        // On the canvas the active card can be out of view: a key acts only while the focus is in it (J/K focus it).
+        const k = String(ev.key).toLowerCase(); const read = shownAt.current.key !== null && Date.now() - shownAt.current.at >= OPTION_KEY_GUARD_MS
+          && (!canvas || ev.target?.closest?.('[data-cv-key]')?.dataset?.cvKey === current.key);
         if (k === 'j') { setQi(Math.min(at + 1, queue.length - 1)); showActive(); }
         else if (k === 'k') { setQi(Math.max(at - 1, 0)); showActive(); }
         else if (k === 's') moveLater(current);
@@ -4421,7 +4428,8 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const projectsBtn = React.createElement('button', { key: 'projects', id: `${headId}-projects`, type: 'button', className: 'cp-td-btn cp-st-ask', 'aria-expanded': projectsOpen, 'aria-label': t('status.projects'), title: t('status.projects'), onClick: () => {
         setProjectsOpen((v) => !v); setOpen(true);
         // The projects are at the top of the cards: bring them into view (the cards can be scrolled down).
-        setTimeout(() => { globalThis.document?.getElementById?.(`${headId}-projects-h`)?.scrollIntoView?.({ block: 'nearest' }); }, 0);
+        // On the canvas (no scroll): its card gets the focus, and the canvas moves to it.
+        setTimeout(() => { const h = globalThis.document?.getElementById?.(`${headId}-projects-h`); if (canvas) h?.closest?.('[data-cv-key]')?.focus?.(); else h?.scrollIntoView?.({ block: 'nearest' }); }, 0);
       } },
         React.createElement(TodoIcon, { name: 'IconFolderOpenOutlineRegular', glyph: '▤' }));
       const refreshBtn = React.createElement('button', { key: 'refresh', id: `${headId}-refresh`, type: 'button', className: 'cp-td-btn', 'data-refreshing': String(state.refreshing), 'aria-disabled': state.refreshing,
@@ -4496,7 +4504,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const [view, setViewState] = React.useState(() => saved.current.view ?? { x: CANVAS_GAP, y: CANVAS_GAP, k: 1 });
       const [pos, setPos] = React.useState(() => saved.current.pos);
       const [dragging, setDragging] = React.useState(null); // the key of the card that you drag, '' for the canvas
-      const viewNow = React.useRef(view); const saveTimer = React.useRef(0); const drag = React.useRef(null); const moved = React.useRef(false); const unhook = React.useRef(null);
+      const viewNow = React.useRef(view); const saveTimer = React.useRef(0); const drag = React.useRef(null); const moved = React.useRef(false); const unhook = React.useRef(null); const pressed = React.useRef(false);
       const fitted = React.useRef(saved.current.view !== null);
       // The view is saved 250 ms after it stops changing (a wheel gives many events), and when the canvas closes.
       const setView = (v) => { viewNow.current = v; setViewState(v); clearTimeout(saveTimer.current); saveTimer.current = setTimeout(() => writeCanvas({ view: v }), 250); };
@@ -4538,7 +4546,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // Drag: the background moves the canvas, a card moves the card (not its buttons, links or menus). A drag that moved
       // is no click (a task card's click opens its chat).
       const onPointerDown = (ev) => {
-        moved.current = false;
+        moved.current = false; pressed.current = true; setTimeout(() => { pressed.current = false; }, 0);
         // A menu of a card is portaled out of the canvas, but React gives its events to the canvas too.
         if (ev.button !== 0 || viewRef.current?.contains?.(ev.target) !== true) return;
         const card = ev.target?.closest?.('[data-cv-key]');
@@ -4556,6 +4564,7 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       };
       const onPointerMove = (ev) => {
         const d = drag.current; if (d === null || d.id !== ev.pointerId) return;
+        if (ev.buttons === 0) { onPointerUp(ev); unhook.current?.(); return; } // no pointerup came (a window switch)
         const dx = ev.clientX - d.x; const dy = ev.clientY - d.y;
         if (!moved.current) { if (Math.hypot(dx, dy) < 4) return; moved.current = true; setDragging(d.key ?? ''); }
         if (d.key === undefined) { setView({ ...viewNow.current, x: d.from.x + dx, y: d.from.y + dy }); return; }
@@ -4579,10 +4588,11 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
         else return;
         ev.preventDefault();
       };
-      // A card (or a button in it) that gets the focus by key comes into view (Tab, J/K); a click does not move it.
+      // A card (or a button in it) that gets the focus without a press comes into view (Tab, J/K, Projects); a click does not
+      // move it.
       const onFocus = (ev) => {
         const card = ev.target?.closest?.('[data-cv-key]'); const el = viewRef.current;
-        if (!card || !el || ev.target.matches?.(':focus-visible') !== true) return;
+        if (!card || !el || pressed.current) return;
         const r = card.getBoundingClientRect(); const c = el.getBoundingClientRect();
         if (r.left >= c.left && r.right <= c.right && r.top >= c.top && r.bottom <= c.bottom) return;
         const v = viewNow.current;
