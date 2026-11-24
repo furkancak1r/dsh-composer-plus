@@ -125,9 +125,16 @@ Checkpoint (2026-11-24 17:35, second chat):
   for t = browser-card-stack (has the decision dialog step 10), browser-assistant-todos, browser-status-refresh: PASS on
   0.2.2-rc.5, 0.2.0-rc.2 and 0.2.1-rc.2 (bins: ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/…/lib/bin.js,
   ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2/…, dsh-0.2.1-rc.2/…).
-- Review round 2: review-guard-2b (separate subagent, default model) on `git diff origin/main...HEAD` at ab15f55a.
-- Open steps: review result and fixes (repeat until no P1/P2); screenshots (DECIDE_SHOTS) to the Belgeler folder;
-  merge --no-ff into main in the main worktree, `npm test` on main, push, worktree remove, `git branch -d`.
+- Review round 2: review-guard-2b (separate subagent, default model) on `git diff origin/main...HEAD` at ab15f55a:
+  P1 0, P2 0, P3 2, P4 2. All four fixed in df00a68e (Sil on the decision card too, an answer empties the "Başka bir
+  cevap" field, a card that shows again after 60 s counts once in the progress, an old comment). The review loop ends.
+- After df00a68e: `npm test` exit 0, `git diff --check` clean; browser-card-stack, browser-assistant-todos and
+  browser-status-refresh PASS on 0.2.2-rc.5, 0.2.0-rc.2 and 0.2.1-rc.2; main's browser-running-filter,
+  browser-summary-resize and browser-dismiss-task PASS on 0.2.2-rc.5 (after ab15f55a).
+- Screenshots (DECIDE_SHOTS, rc.5, made-up data): /Users/furkancakir/Damon/Belgeler/Composer Plus/karar-penceresi-20261124/
+  1-panel-butonu, 2-karar-karti, 3-bir-tiklamadan-sonra, 4-notlar-listesi, 5-hepsi-bitti, 6-sil-dugmesi (.png).
+- Open: merge --no-ff into main in the main worktree, `npm test` on main, push, worktree remove, `git branch -d`.
+  Live copy waits for Furkan's "tamam" on the screenshots.
 
 # Feature: resizable summary in the Damon status panel (branch feat/resizable-status-summary)
 
