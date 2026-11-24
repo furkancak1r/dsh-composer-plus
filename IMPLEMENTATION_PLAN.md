@@ -3548,7 +3548,7 @@ Last checkpoint (2026-11-24 14:05, after Furkan's approval of the commit, merge 
   a release (each needs its own approval).
 - Next: commit on the branch, merge into main (--no-ff), push main, then remove the branch and its worktree.
 
-## Sürüyor filter: running work vs Damon's to-dos (2026-11-24, feat/status-running-todo-filter, from main 5f6d852)
+## Sürüyor filter: running work vs Damon's to-dos (2026-11-24, feat/status-running-todo-filter, from main 5f6d852; main 3b13f9db merged in)
 
 Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve aktif devam eden işler birleşik görünüyor bir şekilde filtre gibi ayrılması lazım"; later "tümü seçeneğine gerek yok". Both kinds stay in Sürüyor; Furkan must see the difference at once.
 
@@ -3558,4 +3558,5 @@ Objective (Furkan, 2026-11-24): "sürüyor kısmında damonın yapacağı ve akt
 - Checks (last good): `npm test` exit 0; `git diff --check` ok; `PLAYWRIGHT=<Mergen playwright 1.58> node test/browser-running-filter.mjs <0.2.0-rc.2> <0.2.1-rc.2> <0.2.2-rc.5>` PASS ×3; browser-assistant-todos, browser-assistant-chat-tasks, browser-card-stack PASS on 0.2.2-rc.5.
 - Screenshots: ~/Damon/Belgeler/Composer Plus/suruyor-filtre-20261124/suruyor-calisiyor.png, suruyor-damonin-sirasi.png.
 - Open steps: merge main into the branch, review-guard loop (diff > 3 files: until no P1/P2), merge --no-ff into main, push, delete the branch and the worktree. Live copy only after Furkan's "tamam".
-- Last checkpoint: the implementation commit on the branch (this section).
+- Review round 1 (review-guard subagent, main...HEAD): P1 0, P2 0, P3 3, P4 6. Fixed: the count bar counts only what runs, then "sırada N" (P3); an empty chip shows cards.filterEmpty (P3); fr/ja/vi cards.queued no longer read as "waits for you" (P3); functional folds update, one predicate, a brighter cp-cs-run pulse, hi wording, the plan's base (P4). Kept: "· sırada 0" in the group header (the spec example); fr/de chip label = group label (accurate).
+- Last checkpoint: review fixes committed; after them `npm test` exit 0, browser-running-filter PASS on 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-card-stack, browser-assistant-todos, browser-assistant-chat-tasks PASS on 0.2.2-rc.5. Next: merge --no-ff into main and push.

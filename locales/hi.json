@@ -2829,6 +2829,7 @@
     "cards.withAgent": "{name} के पास",
     "cards.queue": "{name} की कतार",
     "cards.queued": "{count} कतार में",
+    "cards.filterEmpty": "अभी यहाँ कुछ नहीं है।",
     "cards.approveAgain": "जब {name} स्वीकृति वाक्य दोबारा लिखेगा, तब “स्वीकृत करें” बटन लौट आएगा।",
     "queue.later": "बाद में",
     "queue.keys": "कुंजियाँ: A स्वीकृत करें / कर दिया · 1–9 विकल्प · S बाद में · J / K अगला / पिछला · R जवाब दें",

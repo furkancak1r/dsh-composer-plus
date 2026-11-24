@@ -3,7 +3,7 @@
 // 127.0.0.1), headless Chromium with its sandbox, never the user's dsh home. The status answer of the Damon chat is a
 // made-up fixture (page.route): 3 tasks that run now (two subagents, one delegated chat; an item with the words of one of
 // them) and 6 items of Damon without a running task, a waiting item, a done task and 2 notes.
-// 1. The header says "Sürüyor 3 · sırada 6"; open, two chips: "Çalışıyor 3" (pressed, the default) and "Damon'ın sırası 6";
+// 1. The header says "Sürüyor 3 · sırada 6" (the count bar "3 sürüyor · sırada 6"); open, two chips: "Çalışıyor 3" (pressed, the default) and "Damon'ın sırası 6";
 //    no third chip. Only the 3 running cards show, each with the running mark (●, it pulses) and its time.
 // 2. Keyboard: Tab from the group header reaches both chips with a visible focus ring; Enter on "Damon'ın sırası" shows
 //    only the 6 to-dos (○, no animation); a reload keeps the choice; Space on "Çalışıyor" goes back.
@@ -80,6 +80,7 @@ try {
       const titles = () => cards.locator('.cp-cs-title').allInnerTexts();
       // 1. The header and the default chip.
       await until(async () => (await head.count()) === 1 && /Sürüyor\s*3\s*· sırada 6/.test(await head.innerText()), 'the Sürüyor header with both counts');
+      assert.equal((await panel.locator('[data-composer-plus-counts]').innerText()).trim(), '1 onay · 1 senden · 3 sürüyor · sırada 6 · 1 bitti', 'the count bar: what runs, then the queue');
       if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click();
       await chip('running').waitFor({ timeout: 10000 });
       assert.equal(await panel.locator('button.cp-cs-chip').count(), 2, 'two chips, no Tümü');
@@ -88,7 +89,7 @@ try {
       assert.equal(await chip('running').getAttribute('aria-pressed'), 'true', 'Çalışıyor is the default'); assert.equal(await chip('todo').getAttribute('aria-pressed'), 'false');
       assert.deepEqual((await titles()).sort(), [...RUNNING].sort(), 'only the running work');
       assert.deepEqual(await cards.evaluateAll((els) => els.map((e) => [e.dataset.running, e.querySelector('.cp-cs-sym').textContent, getComputedStyle(e.querySelector('.cp-cs-sym')).animationName, /\d/.test(e.querySelector('.cp-st-sub')?.textContent ?? '')])),
-        RUNNING.map(() => ['true', '●', 'cp-st-pulse', true]), 'each running card: the mark that pulses and its time');
+        RUNNING.map(() => ['true', '●', 'cp-cs-run', true]), 'each running card: the mark that pulses and its time');
       assert.equal(await panel.locator('li.cp-cs-card[data-card="senden"]').filter({ hasText: 'ANR kur' }).count(), 1, 'the waiting item stays in Senden');
       const shot = async (name) => {
         if (!SHOTS || index !== process.argv.length - 3) return;

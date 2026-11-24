@@ -191,7 +191,7 @@ const h2 = find(root, (n) => n.t === 'h2')[0]; assert.equal(find(h2, (n) => n.t 
 assert.equal(find(root, (n) => n.t === 'span' && n.p['aria-label'] !== undefined).length, 0, 'no aria-label on a span');
 assert.match(text(h2), /status\.title/); assert.match(text(h2), /status\.updated/, 'the last update time');
 // The count bar: only the groups that have cards ("1 sorun · 2 senden · …").
-assert.equal(text(find(h2, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), 'cards.count.suruyor:{"count":2} · cards.count.bitti:{"count":1}', 'the count bar');
+assert.equal(text(find(h2, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), 'cards.count.suruyor:{"count":1} · cards.queued:{"count":1} · cards.count.bitti:{"count":1}', 'the count bar: what runs, then Damon\'s queue');
 const refresh = find(root, (n) => n.t === 'button' && n.p['aria-label'] === 'status.refresh')[0]; assert.ok(refresh, 'Refresh button with an aria-label');
 // No summary by default: the Host has one (the assistant wrote it without a request), but the panel shows no card and
 // no summary line in a project row. Get summary is a text button next to Refresh.
@@ -487,7 +487,8 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   }
   assert.deepEqual(cardsOf(tr, 'senden').map((n) => n.p['data-key']), ['a0000009'], 'a waiting item of Damon stays in Senden');
   assert.deepEqual(cardsOf(tr, 'bitti').map((n) => n.p['data-key']), ['a0000008'], 'an item with a done task\'s words: Bugün bitti');
-  assert.match(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.count\.suruyor:\{"count":9\}/, 'the count bar does not change');
+  assert.match(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.count\.suruyor:\{"count":3\} · cards\.queued:\{"count":6\}/, 'the count bar: 3 running · 6 queued');
+  assert.equal(find(tr, (n) => n.p?.['data-composer-plus-run-empty'] === '').length, 0, 'no empty line while cards show');
   chip(tr, 'todo').p.onClick(); tr = panel();
   assert.equal(mem.get(KEY), 'todo', 'kept in this browser');
   assert.equal(chip(tr, 'todo').p['aria-pressed'], true); assert.equal(chip(tr, 'running').p['aria-pressed'], false);
@@ -498,9 +499,21 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   rt.clear(); tr = openRun(); assert.equal(chip(tr, 'todo').p['aria-pressed'], true, 'a reload keeps the choice');
   chip(tr, 'running').p.onClick(); assert.equal(mem.get(KEY), 'running');
   mem.set(KEY, 'all'); rt.clear(); tr = openRun(); assert.equal(chip(tr, 'running').p['aria-pressed'], true, 'an unknown stored value: the default');
+  // Nothing runs (0 running; the item with a task's words is a to-do now: 7 queued): the header and the count bar say so,
+  // the chip shows a line instead of an empty list.
+  const runningTasks = tasks; tasks = tasks.filter((x) => x.state !== 'running'); await panelProps.store.load('s-assistant'); rt.clear(); tr = openRun();
+  assert.match(text(groupBtn(tr, 'suruyor')), /cards\.suruyor\s+0\s+· cards\.queued:\{"count":7\}\s*$/);
+  assert.doesNotMatch(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.count\.suruyor/, 'no "0 running" in the count bar');
+  assert.deepEqual(shown(tr), []); assert.equal(text(find(tr, (n) => n.p?.['data-composer-plus-run-empty'] === '')[0]), 'cards.filterEmpty', 'Çalışıyor 0: a line, not an empty list');
+  chip(tr, 'todo').p.onClick(); tr = panel(); assert.equal(shown(tr).length, 7); assert.equal(find(tr, (n) => n.p?.['data-composer-plus-run-empty'] === '').length, 0);
+  // Only running work (3 running, 0 queued): Damon'ın sırası 0 says so too.
+  tasks = runningTasks; items = items.filter((i) => i.waiting || i.id === 'a0000007' || i.id === 'a0000008'); await panelProps.store.load('s-assistant'); tr = panel();
+  assert.match(text(chip(tr, 'todo')), /\s0$/); assert.deepEqual(shown(tr), []); assert.equal(text(find(tr, (n) => n.p?.['data-composer-plus-run-empty'] === '')[0]), 'cards.filterEmpty');
+  assert.doesNotMatch(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.queued/, 'no "0 queued" in the count bar');
+  chip(tr, 'running').p.onClick(); tr = panel();
   // The running mark pulses, it is still with reduced motion; a pressed chip has its own look; the focus ring is the panel's.
   const css = find(tr, (n) => n.t === 'style')[0].c[0];
-  assert.match(css, /\.cp-cs-card\[data-running="true"\] \.cp-cs-sym\{[^}]*animation:cp-st-pulse/);
+  assert.match(css, /\.cp-cs-card\[data-running="true"\] \.cp-cs-sym\{[^}]*animation:cp-cs-run/);
   assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{[^}]*\.cp-cs-card\[data-running="true"\] \.cp-cs-sym,[^}]*\{animation:none\}/);
   assert.match(css, /\.cp-cs-chip\[aria-pressed="true"\]\{[^}]*background:/); assert.match(css, /\[data-composer-plus-todos\] button:focus-visible\{outline:/);
   mem.delete(KEY); items = savedItems; tasks = savedTasks; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
