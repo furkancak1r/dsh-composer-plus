@@ -3556,4 +3556,6 @@ Last checkpoint (2026-11-24 14:05, after Furkan's approval of the commit, merge 
 - Tether: no memory import card on the phone; gap row in tether/FEATURES.md.
 - Last checkpoint: commit 5d7bf053 on the branch. Screenshots: ~/Damon/Belgeler/Composer Plus/hafiza-karti-20261124/once-yeni-sayfa.png (card shows on a page with new storage, old code) and sonra-yeni-sayfa.png (no card, new code).
 - Last passing checks: `npm test` exit 0; `PLAYWRIGHT=<Mergen>/node_modules/playwright node test/browser-assistant-welcome.mjs <dsh bin>` PASS on 0.2.2-rc.5, 0.2.0-rc.2, 0.2.1-rc.2 (step 3b red on the old code: "a page with new storage: Hide stays", 1 !== 0).
-- Open: review-guard rounds until no P1/P2 (diff is about 160 lines in 22 files, so the normal loop), then merge --no-ff into main, push, delete branch and worktree. Live copy: only after Furkan sees the screenshots and writes "tamam".
+- Review: round 1 (review-guard, separate subagent): P1 0, P2 0; P3 fixed (required dir, README limits in 13 languages), P4 fixed (MEMORY_IMPORT_FILE, tests). Round 2: P1 0, P2 0, P3 0; P4 fixed (one JSDoc block). Not done here (round 2 P4, pre-existing): the setup card Hide is still kept only in browser storage (setupHidden).
+- Merged origin/main 3b13f9db (conflicts in IMPLEMENTATION_PLAN.md and tether/FEATURES.md: both sides kept).
+- Open: merge --no-ff into main, push, delete branch and worktree. Live copy only after Furkan sees the screenshots and writes "tamam".

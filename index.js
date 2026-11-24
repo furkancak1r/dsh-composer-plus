@@ -11429,8 +11429,8 @@ This folder is the user's Obsidian vault. The assistant works in it. Write your 
 `;
 
 /** Assistant setup (Host half): the check route and Set up. `assistant`: installAssistant's handle; `memory`:
- * installMemory's handle. */
-/** `dir`: Composer Plus's storage folder in the dsh home (required: a test never gets the real one by default). */
+ * installMemory's handle; `dir`: Composer Plus's storage folder in the dsh home (required: a test never gets the real
+ * one by default). */
 export function installAssistantSetup(ctx, assistant, memory, { home = homedir(), apps, configs, dir } = {}) {
   if (!isText(dir, 4096)) throw new TypeError('installAssistantSetup: dir is required');
   // The memory import card ends for good when the user clicked Start or Hide on any page (`POST {importEnded: true}`), or
