@@ -583,7 +583,7 @@ window.__ModuleLoader__.load({
       // dsh's blue for the main branch: it is a data color that its legend names ("Blue: main branch"), not an accent.
       + `${DARK} blockquote[data-cp-callout="questions"]{--cp-co:#b9b2c4}${DARK}{--cp-marked-row:rgba(234,232,228,.1);--cp-map-main:var(--dsw-static-deepseek-400)}`
       // Our white text on the accent (now off-white or sage) becomes dark; a dark ring on our off-white buttons.
-      + `${DARK} [data-composer-plus-issue-type][aria-pressed=true],${DARK} .cpi-primary,${DARK} .cpi-chip[aria-pressed=true],${DARK} .cp-mem-op{color:#141414!important}${DARK} .cpb-primary:focus-visible,${DARK} .cpb-undo:focus-visible,${DARK} .cpb-wait button:focus-visible{outline-color:#141414}`
+      + `${DARK} [data-composer-plus-issue-type][aria-pressed=true],${DARK} .cpi-primary,${DARK} .cpi-chip[aria-pressed=true],${DARK} .cp-mem-op,${DARK} [data-composer-plus-todos] .cp-cs-act[data-primary]{color:#141414!important}${DARK} .cpb-primary:focus-visible,${DARK} .cpb-undo:focus-visible,${DARK} .cpb-wait button:focus-visible,${DARK} [data-composer-plus-todos] .cp-cs-act[data-primary]:focus-visible{outline-color:#141414}`
       + `${DARK} :is(.cpi-btn,.cpi-chip,.cp-mem-btn,[data-composer-plus-issue-type]):focus-visible{outline-offset:2px}`
       // Links are the text color now: a faint underline keeps them apart from the text.
       + `${DARK} [data-conversation-scroll] a[href]{text-decoration-line:underline;text-decoration-color:rgba(234,232,228,.35);text-underline-offset:3px}${DARK} [data-conversation-scroll] a[href]:is(:hover,:focus-visible){text-decoration-color:currentColor}`

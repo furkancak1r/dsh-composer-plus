@@ -71,6 +71,11 @@ assert.ok(ratio(token('--dsw-alias-state-business-primary'), '#141414') >= 3, 'f
 assert.match(css, /button:is\(\[class\*="_primary"\][^)]*\):focus-visible\{outline-offset:2px\}/, "dsh's off-white buttons: the ring sits outside");
 assert.match(css, /:is\(\.cpi-btn,\.cpi-chip,\.cp-mem-btn,\[data-composer-plus-issue-type\]\):focus-visible\{outline-offset:2px\}/, 'our off-white buttons: the ring sits outside');
 assert.doesNotMatch(css, /#(3b82f6|3b6cf6|8250df|a371f7)/i, 'no blue or violet accent');
+// The Onay card's Approve button in the Damon status panel is filled with the accent (now off-white): dark text and a
+// dark focus ring inside it (review 2026-11-24: white on off-white).
+const ruleOf = (sel, body) => rules.some((r) => r.slice(0, r.indexOf('{')).split(/,(?![^()]*\))/).some((x) => x.trim() === sel) && r.slice(r.indexOf('{') + 1).includes(body));
+assert.ok(ruleOf('body[data-ds-dark-theme]:not(#cp-codex) [data-composer-plus-todos] .cp-cs-act[data-primary]', 'color:#141414'), 'the Approve button text is dark');
+assert.ok(ruleOf('body[data-ds-dark-theme]:not(#cp-codex) [data-composer-plus-todos] .cp-cs-act[data-primary]:focus-visible', 'outline-color:#141414'), 'the Approve button focus ring is dark');
 
 setFeature('codexTheme', false);
 assert.equal(styles().length, 0, 'switch off removes the style');
