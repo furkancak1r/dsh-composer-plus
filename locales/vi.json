@@ -2848,7 +2848,8 @@
     "decide.notesTitle": "Các ghi chú khác của bạn",
     "decide.allDone": "Đã xong hết",
     "decide.skipped": "Quay lại các mục đã bỏ qua ({count})",
-    "decide.close": "Đóng"
+    "decide.close": "Đóng",
+    "decide.remove": "Xóa"
   },
   "common": {
     "ok": "OK",

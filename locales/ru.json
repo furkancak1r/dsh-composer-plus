@@ -2848,7 +2848,8 @@
     "decide.notesTitle": "Другие ваши заметки",
     "decide.allDone": "Всё готово",
     "decide.skipped": "Вернуться к пропущенным ({count})",
-    "decide.close": "Закрыть"
+    "decide.close": "Закрыть",
+    "decide.remove": "Удалить"
   },
   "common": {
     "ok": "OK",

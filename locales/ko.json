@@ -2848,7 +2848,8 @@
     "decide.notesTitle": "다른 메모",
     "decide.allDone": "모두 완료",
     "decide.skipped": "건너뛴 항목으로 돌아가기 ({count})",
-    "decide.close": "닫기"
+    "decide.close": "닫기",
+    "decide.remove": "삭제"
   },
   "common": {
     "ok": "확인",

@@ -2848,7 +2848,8 @@
     "decide.notesTitle": "Deine anderen Notizen",
     "decide.allDone": "Alles erledigt",
     "decide.skipped": "Zurück zu den übersprungenen ({count})",
-    "decide.close": "Schließen"
+    "decide.close": "Schließen",
+    "decide.remove": "Löschen"
   },
   "common": {
     "ok": "OK",

@@ -360,13 +360,28 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   assert.equal(text(find(b, (n) => n.p?.['data-decide-count'] !== undefined)[0]), '2', 'the badge: the open decisions');
   assert.equal(b.p['aria-label'], 'decide.button:{"decisions":2,"notes":2}');
   b.p.onClick(); tr = panel();
-  dialogOf(tr).p.setDecide((d) => ({ ...d, answered: new Set([...d.answered, '66666666']) })); tr = panel();
+  dialogOf(tr).p.setDecide((d) => ({ ...d, answered: new Map([...d.answered, ['66666666', Date.now()]]) })); tr = panel();
   assert.equal(text(find(decideBtn(tr), (n) => n.p?.['data-decide-count'] !== undefined)[0]), '1', 'an answered decision leaves the badge at once');
   assert.ok(panelProps.store.of('s-assistant').items.some((i) => i.id === '66666666'), 'the client removes nothing');
-  dialogOf(tr).p.onClose(); tr = panel();
-  // Nothing waits: one line says so.
+  // Sil in the dialog: the panel's remove (one POST, action remove), as the old × of a note did.
+  const r0 = posts.length;
+  assert.equal(await dialogOf(tr).p.remove('77777777'), true);
+  assert.deepEqual(posts.slice(r0), [{ sessionId: 's-assistant', id: '77777777', action: 'remove' }], 'Sil removes the item on the Host');
+  tr = panel(); assert.equal(dialogOf(tr).p.busy, false);
+  // A send that fails after the dialog closed: the panel shows its reason under the button.
+  dialogOf(tr).p.setDecide((d) => ({ ...d, error: 'decide.failed' })); dialogOf(tr).p.onClose(); tr = panel();
+  assert.equal(text(find(tr, (n) => n.p?.['data-decide-error'] !== undefined)[0]), 'decide.failed', 'the reason shows in the panel');
+  rt.clear(); tr = panel();
+  // Nothing waits: one line says so. The dialog that was open closes: the button is gone, so the focus goes to the
+  // panel's title (not to the page).
+  decideBtn(tr).p.onClick(); tr = panel();
   items = items.filter((i) => i.owner !== 'user' || /^(Senden|Sorun):/.test(i.text)); await panelProps.store.load('s-assistant'); tr = panel();
   assert.equal(decideBtn(tr), undefined); assert.equal(text(find(tr, (n) => n.p?.['data-decide-none'] !== undefined)[0]), 'decide.none');
+  const byId = globalThis.document.getElementById;
+  globalThis.document.getElementById = (id) => (id === 'cp-td-s-assistant-decide' ? null : byId(id));
+  dialogOf(tr).p.onClose(); await new Promise((r) => setTimeout(r, 5)); globalThis.document.getElementById = byId;
+  assert.equal(focused.at(-1), 'cp-td-s-assistant', 'the focus goes to the panel title when the button is gone');
+  tr = panel();
   assert.equal(find(tr, (n) => n.t === 'section' && n.p['data-group'] === 'notes').length, 1, 'the place stays');
   // Sorun: "Damon'a sor" writes the card's data into the composer (nothing sent).
   const before = posts.length; composer.draft = '';

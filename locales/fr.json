@@ -2848,7 +2848,8 @@
     "decide.notesTitle": "Vos autres notes",
     "decide.allDone": "Tout est fait",
     "decide.skipped": "Revenir aux passées ({count})",
-    "decide.close": "Fermer"
+    "decide.close": "Fermer",
+    "decide.remove": "Supprimer"
   },
   "common": {
     "ok": "OK",

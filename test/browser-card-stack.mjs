@@ -8,7 +8,7 @@
 // 3. One click on Onayla sends the exact sentence as the user's message: the model gets it as the newest user message,
 //    the chat shows it as the user's message, and the button goes.
 // 4. Typing in the composer hides Onayla; the card stays.
-// 5. Özet getir, Projeler, the → of a note and Yaptım of a Senden card still work (nothing sent by → or Yaptım).
+// 5. Özet getir, Projeler and Yaptım of a Senden card still work (nothing sent by Yaptım).
 // 6. No page errors.
 // 7. One list (Furkan, 2026-11-23): no Kartlar/Kuyruk/Brifing switch; the Onay card is the active item (the only card with
 //    a left line); the choice (the option list of the newest answer) is the first Senden card, its → focuses the buttons
@@ -24,7 +24,8 @@
 //    notes. A click opens a modal dialog over the whole page (the top layer, a blurred backdrop, the chat inert): one
 //    decision card with its options; one click sends "Karar: <item> → <option>" once as the user's message and shows the
 //    next card at once; → skips; a decision without options says so; Esc closes the dialog and
-//    the focus goes back to the button. DECIDE_SHOTS=<folder> writes the screenshots of the dialog.
+//    the focus goes back to the button. The notes: Yaptım sends "Not tamam: <item>", Sil (keyboard) removes a note on
+//    the Host without a message. DECIDE_SHOTS=<folder> writes the screenshots of the dialog.
 // PLAYWRIGHT=/path/to/playwright node test/browser-card-stack.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/assistantTodos.webp from its own demo with the English UI and English made-up data.
 import assert from 'node:assert/strict';
@@ -324,15 +325,22 @@ try {
       await dlg.getByRole('button', { name: 'Gönder', exact: true }).click();
       await until(async () => (await dlg.locator('[data-note]').count()) === 2, 'the notes');
       const before10b = calls.length;
-      for (let n = 0; n < 2; n++) { await pause(500); await dlg.locator('[data-note]').first().getByRole('button', { name: /^Yaptım:/ }).click(); }
+      await pause(500); await dlg.locator('[data-note]').first().getByRole('button', { name: 'Yaptım: Kırtasiye siparişini ver', exact: true }).click();
+      // Sil (the old × of a note): keyboard, at once, no message; the item leaves the Host's list.
+      const sil = dlg.getByRole('button', { name: 'Sil: Toplantı notlarını oku', exact: true });
+      await pause(500); await sil.focus(); await page.mouse.move(5, 5); await pause(300); await decideShot('6-sil-dugmesi');
+      await page.keyboard.press('Enter');
       await until(async () => (await dlg.locator('.cp-dc-empty').count()) === 1, '"Hepsi bitti"');
       assert.equal((await dlg.locator('.cp-dc-empty').innerText()).trim(), 'Hepsi bitti');
-      await until(() => ['Not tamam: Kırtasiye siparişini ver', 'Not tamam: Toplantı notlarını oku', `Karar: ${DECISIONS[3][0]} → Türkçe yazılsın`].every((m) => calls.some((c) => c.newest === m)), 'Yaptım and the free text went as messages');
-      assert.ok(calls.slice(before10b).length > 0);
+      assert.equal(await page.evaluate(() => document.activeElement?.closest('dialog[data-composer-plus-decide]') != null), true, 'the focus stays in the dialog');
+      await until(() => ['Not tamam: Kırtasiye siparişini ver', `Karar: ${DECISIONS[3][0]} → Türkçe yazılsın`].every((m) => calls.some((c) => c.newest === m)), 'Yaptım and the free text went as messages');
+      const todoFile = join(where.home, '.dsh/storages/dsh-composer-plus/assistant-todos.json');
+      await until(() => !JSON.parse(readFileSync(todoFile, 'utf8')).lists[sessionId].some((i) => i.text === 'Toplantı notlarını oku'), 'Sil removed the note on the Host', 5000);
+      await pause(800); assert.equal(calls.slice(before10b).some((c) => c.newest === 'Not tamam: Toplantı notlarını oku'), false, 'Sil sends no message');
       await page.mouse.move(5, 5); await pause(300); await decideShot('5-hepsi-bitti');
       await dlg.locator('[data-dc="close"]').click();
       await until(async () => (await dlg.count()) === 0, 'Kapat closes it');
-      note('10: Kararlar: the badge counts the decisions; a modal dialog over the page (blurred backdrop); one click sent "Karar: … → …" once and showed the next card; → skips; no options: the note; Esc closes, the focus goes back');
+      note('10: Kararlar: the badge counts the decisions; a modal dialog over the page (blurred backdrop); one click sent "Karar: … → …" once and showed the next card; → skips; no options: the note; Esc closes, the focus goes back; Yaptım sent "Not tamam", Sil removed a note on the Host without a message');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {

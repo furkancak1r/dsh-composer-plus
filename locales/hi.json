@@ -2848,7 +2848,8 @@
     "decide.notesTitle": "आपके अन्य नोट",
     "decide.allDone": "सब पूरा",
     "decide.skipped": "छोड़े गए पर वापस जाएँ ({count})",
-    "decide.close": "बंद करें"
+    "decide.close": "बंद करें",
+    "decide.remove": "हटाएं"
   },
   "common": {
     "ok": "ठीक है",

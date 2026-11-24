@@ -2848,7 +2848,8 @@
     "decide.notesTitle": "Suas outras notas",
     "decide.allDone": "Tudo pronto",
     "decide.skipped": "Voltar às puladas ({count})",
-    "decide.close": "Fechar"
+    "decide.close": "Fechar",
+    "decide.remove": "Excluir"
   },
   "common": {
     "ok": "OK",

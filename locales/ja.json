@@ -2848,7 +2848,8 @@
     "decide.notesTitle": "その他のメモ",
     "decide.allDone": "すべて完了",
     "decide.skipped": "スキップした項目に戻る ({count})",
-    "decide.close": "閉じる"
+    "decide.close": "閉じる",
+    "decide.remove": "削除"
   },
   "common": {
     "ok": "OK",

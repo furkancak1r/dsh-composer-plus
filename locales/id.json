@@ -2848,7 +2848,8 @@
     "decide.notesTitle": "Catatan Anda yang lain",
     "decide.allDone": "Semua selesai",
     "decide.skipped": "Kembali ke yang dilewati ({count})",
-    "decide.close": "Tutup"
+    "decide.close": "Tutup",
+    "decide.remove": "Hapus"
   },
   "common": {
     "ok": "OK",
