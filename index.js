@@ -2507,6 +2507,7 @@ export function apply(ctx, config) {
   let todos;
   installAssistantBot(ctx, home, assistant, { outage, run: (id) => ended.get(id), panel: () => todos?.isOn?.() !== false });
   todos = installAssistantTodos(ctx, home, assistant, { outage });
+  installAssistantGuards(ctx, assistant);
   installAssistantMorning(ctx, home, assistant, { todos });
   installAssistantSetup(ctx, assistant, memory, { dir: join(home, 'storages', 'dsh-composer-plus') });
   installMemoryImport(ctx, home, assistant, memory);
@@ -10470,6 +10471,8 @@ const looseRelay = (text) => {
   return lines.some((l, i) => /\b(?:approv(?:al|ed)|deploy line)/i.test(l) && !/\b(?:cancel|revok|withdr|reject|deni|deny|stop|hold)/i.test(l) && (exact(i) || exact(i + 1)));
 };
 export const RELAY_WINDOW_MS = 12 * 3600000;
+/** The tools of the assistant chat whose text relayRefusal checks, and the argument that holds the text. */
+const RELAY_FIELDS = Object.freeze({ __proto__: null, chat_send: 'text', chat_new: 'text', send_message: 'message', subagent: 'prompt', subagent_fork: 'prompt' });
 /** The refusal of a chat_send or chat_new `text` that quotes an approval that the user did not type: each quote must be
  * in one message that the user typed in the assistant chat (`events`, its log; also an Approve button click, which is the
  * user's message) in the last RELAY_WINDOW_MS, after white space is folded. Not news, a card answer or a withdrawn
@@ -10948,13 +10951,16 @@ export function installAssistant(ctx, home, { dir = join(home, 'storages', 'dsh-
   // answerer can reject without a card. An ask from here would always be a card. A preset that cannot be read keeps the card.
   // The preset is read before the inner gates run, so a switch to Auto while they wait never skips both checks.
   ctx.on('tools/pre-execute', async (exec, next) => {
-    if (!ASSISTANT_ASK.includes(exec.name) || !isAssistant(exec.agent)) return next();
-    // A relayed approval must be one that the user typed here (relayRefusal), before any card or review.
-    if (exec.name === 'chat_send' || exec.name === 'chat_new') {
+    // A relayed approval must be one that the user typed here (relayRefusal), before any card or review. The assistant's
+    // own subagents get the same check (2026-11-23: a send_message relayed an approval "from your first task" without its
+    // text); those tools stay free tools, with no card.
+    const field = isAssistant(exec.agent) ? RELAY_FIELDS[exec.name] : undefined;
+    if (field !== undefined) {
       let events = []; try { events = exec.agent.session?.snapshotEvents?.() ?? []; } catch { /* no log: every quote is refused */ }
-      const reason = relayRefusal(argsOf(exec.arguments)?.text, events, exec.agent.session?.inheritedEventCount);
+      const reason = relayRefusal(argsOf(exec.arguments)?.[field], events, exec.agent.session?.inheritedEventCount);
       if (reason !== undefined) return { kind: 'deny', reason };
     }
+    if (!ASSISTANT_ASK.includes(exec.name) || !isAssistant(exec.agent)) return next();
     let preset;
     try { preset = get('permissionPresets')?.current?.(exec.agent.session); } catch { /* unknown: the card stays */ }
     const decision = await next();
@@ -12059,6 +12065,122 @@ export function installAssistantBot(ctx, home, assistant, { dir = join(home, 'st
 
   ctx.effect?.(() => () => { closed = true; freeOn = false; notifyOn = false; fiber?.dispose?.(); fiber = undefined; calloutsOn = false; calloutsFiber?.dispose?.(); calloutsFiber = undefined; clearAll(); notes.clear(); }, 'dsh-composer-plus: assistant bot');
   return { ready: Promise.all([freeRead, notifyRead, calloutsRead]), flush, pending: () => [...pending.values()], free: () => freeOn, notify: () => notifyOn };
+}
+
+/* Assistant reply guards (part of Assistant, error review of 2026-11-24): hidden notes in a later step of the assistant
+ * chat, on the Approve button's note path (installApproveButton), for three mistakes that a prompt rule did not stop:
+ * - a self-quote ("Önceki yanıtımda "…" yazdım") that no earlier answer of the chat has (2026-11-23 16:44, 2026-11-24 10:35);
+ * - a call of the open turn that Auto review denied (2026-11-24 11:06: the next step replied only `[quiet]`);
+ * - a to-do "Onay: …" of owner user in a turn without an `onay` block after the user's newest message (2026-11-24 13:51:
+ *   the panel showed an Onay card without a button).
+ * The quote and to-do notes join the next step that already has a message with text (they never start a step or a turn);
+ * the denial note joins the next step of the same turn (dsh runs it after a tool call). Each note goes once. */
+const GUARD_SOURCE = 'composer-plus-assistant-guard';
+const guardMessage = (text) => Object.freeze({ id: randomUUID(), role: 'user', content: Object.freeze([Object.freeze({ type: 'text', text })]),
+  source: Object.freeze({ kind: GUARD_SOURCE, form: 'snapshot' }) });
+// "…", “…”, '…' or ‘…’ on one line; an apostrophe before a letter (Bey'e, DSH’yi) is inside a single-quoted text.
+const QUOTED = String.raw`"([^"\n]{1,2000})"|“([^”\n]{1,2000})”|(?<![\p{L}\p{N}])'((?:[^'\n]|'(?=\p{L})){1,2000}?)'(?![\p{L}\p{N}])|‘((?:[^’\n]|’(?=\p{L})){1,2000}?)’(?![\p{L}\p{N}])`;
+const SELF_QUOTE = [
+  new RegExp(String.raw`önceki\s+(?:yanıtımda|mesajımda|mesajımdaki)(?![\p{L}\p{N}])(?:\s+[^\s"“'‘:]{1,40}){0,4}?\s*:?\s*(?:${QUOTED})`, 'giu'),
+  new RegExp(String.raw`(?:${QUOTED})[ \t]*,?[ \t]*(?:yazdım|yazmıştım|dedim|demiştim|cümlesini\s+geri\s+alıyorum|cümlesini\s+düzeltiyorum)(?![\p{L}\p{N}])`, 'giu'),
+];
+/** The comparison form of a quote: without the Markdown marks * _ and `, white space folded, lower case. */
+const quoteFold = (s) => String(s ?? '').normalize('NFC').replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('tr');
+/** The texts that an answer quotes as its own earlier words: a quote after "önceki yanıtımda", "önceki mesajımda" or
+ * "önceki mesajımdaki" (at most 4 words between), or before "yazdım", "yazmıştım", "dedim", "demiştim", "cümlesini geri
+ * alıyorum" or "cümlesini düzeltiyorum". A quote of fewer than 12 characters (quoteFold) is left out.
+ * ponytail: these Turkish words only; "diye yazdım", English and a quote over two lines are not found. */
+export function selfQuotes(text) {
+  const out = [];
+  for (const re of SELF_QUOTE) for (const m of String(text ?? '').matchAll(re)) {
+    const q = m.slice(1).find((g) => g !== undefined).trim();
+    if (quoteFold(q).length >= 12 && !out.includes(q)) out.push(q);
+  }
+  return out;
+}
+const AUTO_DENIED = 'Error: Auto review denied this tool call';
+const APPROVAL_ITEM = /^(?:onay|approval)\s*:\s*\S/iu; // the client's CARD_MARKS 'onay' (client.js cardMark)
+export const quoteNote = (quotes) => `Composer Plus → Assistant: your last answer quotes ${quotes.map((q) => JSON.stringify(cutEnd(q, 200))).join(', ')} as your own earlier words, but the quoted text is not in an earlier answer of this chat. Write one short line to the user that withdraws this correction. Never quote a sentence that the log does not have.`;
+export const deniedNote = (names) => `Composer Plus → Assistant: Auto review denied a call of this turn (${[...new Set(names)].join(', ')}). Write one short line for the user with the denied action and the reason. Do not reply only [quiet].`;
+export const approvalItemNote = (texts) => `Composer Plus → Assistant: you added an approval item for the user (${texts.map((t) => JSON.stringify(t)).join(', ')}) without an \`onay\` block. Write the \`onay\` block now, or remove the item with todo_list_remove.`;
+/** `assistant`: installAssistant's handle (isOn, id, isAssistant). */
+export function installAssistantGuards(ctx, assistant) {
+  const notes = new Map(); // chat id → [{seq, text}] for the next step that has a message with text
+  const calls = new Map(); // chat id → callId → tool name, of the open turn
+  const denials = new Map(); // chat id → tool names of the open turn's denials that no step was told yet
+  const eventsOf = (session) => { try { return session?.snapshotEvents?.() ?? []; } catch { return []; } };
+  const fromOf = (session) => (Number.isSafeInteger(session?.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0);
+  const hold = (id, seq, text) => { notes.set(id, [...(notes.get(id) ?? []), { seq, text }].slice(-5)); };
+  /** The quotes of answer `event` that no earlier answer of the chat has (a withdrawn answer does not count, rule 9). An
+   * earlier self-quote does not count either, so a wrong quote written twice gets the note twice. */
+  const missingQuotes = (session, event) => {
+    const quotes = selfQuotes(textBlocks(event.data?.message?.content));
+    if (quotes.length === 0) return [];
+    const own = eventsOf(session).slice(fromOf(session)); const gone = withdrawn(own);
+    const earlier = own.filter((e) => e.type === 'assistant/message' && e.seq < event.seq && !gone(e.seq))
+      .map((e) => quoteFold(SELF_QUOTE.reduce((text, re) => text.replace(re, ' '), textBlocks(e.data?.message?.content))));
+    return quotes.filter((q) => !earlier.some((t) => t.includes(quoteFold(q))));
+  };
+  /** The "Onay: …" to-dos of owner user that the newest turn added (a later todo_list_remove of the same id in the turn
+   * takes one out), when no answer after the user's newest message has an `onay` block.
+   * ponytail: the result text of todo_list_add gives the owner and the id; an item that the user removed in the panel
+   * meanwhile still gets the note (it says "or remove the item"). */
+  const approvalItems = (session) => {
+    const events = eventsOf(session); const from = fromOf(session);
+    const start = Math.max(from, events.findLastIndex((e) => e.type === 'turn/start'));
+    if (!events.slice(start).some((e) => e.type === 'tool/call' && e.data?.name === 'todo_list_add')) return []; // most turns: no log fold
+    const gone = withdrawn(events.slice(from));
+    const adds = new Map(); const removes = new Set(); const items = new Map();
+    for (const e of events.slice(start)) {
+      if (gone(e.seq)) continue;
+      if (e.type === 'tool/call' && e.data?.name === 'todo_list_add') adds.set(e.data.callId, todoText(argsOf(e.data.arguments)?.text));
+      else if (e.type === 'tool/call' && e.data?.name === 'todo_list_remove') removes.add(e.data.callId);
+      else if (e.type === 'tool/result' && e.data?.message?.isError !== true) {
+        const callId = e.data?.message?.source?.callId ?? e.data?.message?.toolCallId; const text = textBlocks(e.data?.message?.content);
+        const added = adds.has(callId) ? /^(?:Added|Already on the list:) (\S+) \(owner user\b/.exec(text) : null;
+        if (added !== null && APPROVAL_ITEM.test(adds.get(callId))) items.set(added[1], adds.get(callId));
+        else if (removes.has(callId)) items.delete(/^Removed (\S+) /.exec(text)?.[1]);
+      }
+    }
+    if (items.size === 0) return [];
+    const typed = events.findLastIndex((e, i) => i >= from && e.type === 'user/message' && typedPrompt(e.data) && !gone(e.seq));
+    const block = events.slice(Math.max(from, typed)).some((e) => e.type === 'assistant/message' && !gone(e.seq) && onayBlocks(textBlocks(e.data?.message?.content)).length > 0);
+    return block ? [] : [...items.values()];
+  };
+  ctx.on('session/event', (session, event) => {
+    const id = session?.id;
+    if (!assistant.isOn() || !isText(id) || id !== assistant.id()) return;
+    const d = event?.data;
+    if (event?.type === 'user/message' && [ROLLBACK_SOURCE, REWIND_SOURCE].includes(d?.source?.kind) && Array.isArray(event.sourceEventSeqs) && event.sourceEventSeqs.length > 0) {
+      const min = Math.min(...event.sourceEventSeqs); const left = (notes.get(id) ?? []).filter((n) => n.seq < min);
+      if (left.length > 0) notes.set(id, left); else notes.delete(id); // a withdrawn answer or turn (rule 9)
+      return;
+    }
+    if (!(event?.seq >= fromOf(session))) return; // a fork's copy is not its own (rule 10)
+    if (event.type === 'turn/start') { calls.set(id, new Map()); denials.delete(id); } else if (event.type === 'tool/call') {
+      if (!calls.has(id)) calls.set(id, new Map());
+      calls.get(id).set(d?.callId, String(d?.name ?? 'a tool'));
+    } else if (event.type === 'tool/result' && textBlocks(d?.message?.content).startsWith(AUTO_DENIED)) {
+      denials.set(id, [...(denials.get(id) ?? []), calls.get(id)?.get(d?.message?.source?.callId ?? d?.message?.toolCallId) ?? 'a tool']);
+    } else if (event.type === 'assistant/message') {
+      const missing = missingQuotes(session, event);
+      if (missing.length > 0) hold(id, event.seq, quoteNote(missing));
+    } else if (event.type === 'turn/end') {
+      calls.delete(id); denials.delete(id);
+      const items = approvalItems(session);
+      if (items.length > 0) hold(id, event.seq, approvalItemNote(items));
+    }
+  });
+  ctx.on('agent/pre-step', async (payload, next) => {
+    const decision = await next();
+    const agent = payload?.agent;
+    if (decision?.kind !== 'enter' || !Array.isArray(decision.messages) || !assistant.isAssistant(agent)) return decision;
+    const id = agent.session?.id ?? agent.id; const texts = [];
+    if (notes.has(id) && decision.messages.some((m) => m?.source?.kind !== 'runtime-context' && textBlocks(m?.content).trim() !== '')) { texts.push(...notes.get(id).map((n) => n.text)); notes.delete(id); }
+    if (denials.has(id)) { texts.push(deniedNote(denials.get(id))); denials.delete(id); }
+    return texts.length === 0 ? decision : { ...decision, messages: [...decision.messages, ...texts.map(guardMessage)] };
+  });
+  ctx.effect?.(() => () => { notes.clear(); calls.clear(); denials.clear(); }, 'dsh-composer-plus: assistant reply guards');
 }
 
 /* Assistant to-do list: the tasks that the user has in mind, in the assistant chat. The user does an item of owner "user"

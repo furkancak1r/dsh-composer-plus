@@ -1,3 +1,81 @@
+# Assistant reply guards (branch fix/assistant-reply-guards, 2026-11-24)
+
+Source: Damon's daily error review of 2026-11-24 (Furkan's standing request of 2026-11-11: fix each mistake of the day
+for good). Composer Plus standing approval (2026-11-09): branch push, merge into main, push of main, delete of the
+merged branch and its worktree. Phase 1 (this branch): implement, test, commit, push the branch. No merge before
+Damon's independent review.
+
+## Objective
+The Host (index.js) catches four Assistant (Damon) mistakes that a prompt rule did not stop, and the Approve button's
+prompt names the words that its note checks.
+
+## Invariants
+- Host only. Tether does not change (one line in tether/FEATURES.md says so). No client change.
+- relayRefusal() rules do not change. send_message, subagent and subagent_fork stay free tools (ASSISTANT_FREE_TOOLS):
+  no approval card, only the quote check.
+- The notes use the Approve button's note path: a hidden user message with its own source
+  (`composer-plus-assistant-guard`) in `agent/pre-step`. A note never starts a step or a turn. Each note goes once.
+- Only the assistant chat (isAssistant). A fork's copied events (rule 10) and withdrawn messages (rule 9) do not count.
+- APPROVAL_HOLD and the hold logic do not change (item 5 changes only the prompt text).
+
+## Items and acceptance criteria
+1. Self-quote not in the log: an answer with a quote ("…", “…”, '…', ‘…') after "önceki yanıtımda", "önceki
+   mesajımda", "önceki mesajımdaki" or before "yazdım", "yazmıştım", "dedim", "demiştim", "cümlesini geri alıyorum",
+   "cümlesini düzeltiyorum" (12 characters or more; Markdown * _ ` left out, white space folded, any case) that no
+   earlier answer of the chat has: note at the next step that has a message with text. Cases: 2026-11-24 10:35 and
+   2026-11-23 16:44 (note), 2026-11-24 11:12 (no note).
+2. Auto review denial: a tool result of the open turn that starts with "Error: Auto review denied this tool call":
+   note in the next step of that turn, once per denial. No note for no denial, a Composer Plus refusal, an earlier turn.
+3. Relayed approvals: relayRefusal() also checks send_message `message`, subagent `prompt`, subagent_fork `prompt` of
+   the assistant chat. An exact quote passes, a changed quote is refused with the same reason, a text without a relay
+   header passes, a non-Assistant agent (its subagent, another chat) is not checked.
+4. Approval to-do without a block: a turn that added a to-do "Onay: …" (client CARD_MARKS) of owner user, and no answer
+   after the user's newest message has an `onay` block: note at the next step that has a message with text. No note
+   for an answer with a block, an owner "agent" item, another mark, a refused call.
+5. Approve button prompt: add "başlatma" and make "yok" match what the note checks. BLOCKED, see "Last checkpoint".
+
+## Allowed paths
+index.js, test/assistant-guards.test.mjs (new), test/assistant.test.mjs, test/approve-button.test.mjs, package.json
+(test:all), docs/features.json, llms.txt (generated), tether/FEATURES.md, IMPLEMENTATION_PLAN.md.
+
+## Checks
+- `node test/assistant-guards.test.mjs` (items 1, 2, 4), `node test/assistant.test.mjs` (item 3), `npm test` exit 0,
+  `git diff --check`.
+- No browser test of the repo covers these Host notes (checked: test/browser-*.mjs have no guard or relay case), so no
+  browser run.
+
+## Review rule for the later review (Damon runs it in a separate agent)
+If the final diff is about 100 lines or less, at most 3 files, and has no migration, permission, security, SAP write or
+live deploy: one review-guard round. Otherwise: repeat the review until a round gives no P1/P2. This diff touches
+approval checks and is more than 100 lines in 7 files: expect the second form.
+
+## Risks
+- selfQuotes is a word list: "diye yazdım", English, a quote over two lines are not found (ponytail line in index.js).
+- The denial note relies on the result text "Error: Auto review denied this tool call" (local Auto review plugin
+  `guidance()`); a change of that text stops the note.
+- Item 4 reads the owner and the id from the todo_list_add result text ("Added <id> (owner user"); a change of that text
+  in index.js stops the note. The test pins it.
+- Notes live in memory only: a dsh restart drops them.
+
+## Red / green evidence
+- Red on origin/main d4bfaaf8 (new tests only, no code change):
+  `node test/assistant-guards.test.mjs` exit 1: item 1 "FAIL: index.js exports selfQuotes", items 2 and 4 "FAIL:
+  index.js exports installAssistantGuards". `node test/assistant.test.mjs` exit 1: "send_message: a changed quote is
+  refused" ('allow' !== 'deny').
+- Green after the change: `node test/assistant-guards.test.mjs` exit 0 (items 1, 2, 4: ok), `node test/assistant.test.mjs`
+  exit 0, `npm test` exit 0, `git diff --check` exit 0.
+
+## Last checkpoint
+- Items 1-4 implemented, tested, committed on fix/assistant-reply-guards. Last passing test command: `npm test` (exit 0).
+- Item 5 BLOCKED: Auto review denied the edit of test/approve-button.test.mjs (the test that pins the prompt text).
+  Exact reason: "The edit changes a test file in the worktree for a branch, a low-risk local change, but the human must
+  confirm the approval wording in the chat. No valid human approval covers this edit." The prompt text in index.js is
+  not changed (the pinned test would fail without the test edit). Verified meanwhile (approveRuleNote on this branch):
+  the note for "başlatma" and "yok" comes only when the block has deploy, canlı or yayın outside "canlı değil",
+  "yalnız yerel", "deploy ayrı onayla" (10:49 block: "deploy ayrı"; a block with "canlı ... kopyası" and "sürüm yok":
+  note; the same block without "canlı": no note). So "in any block" is not what the note checks.
+- Open steps: item 5 needs a chat approval of Furkan for its wording; then Damon's independent review; merge only after it.
+
 # Damon canvas view (tuval) (branch feat/assistant-canvas-view, 2026-11-24)
 
 Request (Furkan, Damon chat, 2026-11-24): "canvas görünümü yapacaktık başla ona , ona tıklayınca sohbet alanı filan da
