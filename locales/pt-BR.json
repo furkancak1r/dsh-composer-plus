@@ -2773,6 +2773,8 @@
     "status.summary": "Resumo",
     "status.summarize": "Obter resumo",
     "status.hideSummary": "Ocultar o resumo",
+    "status.resizeSummary": "Ajustar a altura do resumo",
+    "status.resizeSummaryHint": "Arraste para ajustar a altura do resumo. As setas para cima e para baixo também a mudam; um clique duplo volta à altura padrão.",
     "status.tasks": "Tarefas",
     "status.tasksEmpty": "O assistente não tem tarefas hoje.",
     "status.task.running": "Trabalhando",

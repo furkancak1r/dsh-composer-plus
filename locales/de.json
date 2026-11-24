@@ -2773,6 +2773,8 @@
     "status.summary": "Übersicht",
     "status.summarize": "Übersicht holen",
     "status.hideSummary": "Übersicht ausblenden",
+    "status.resizeSummary": "Höhe der Übersicht ändern",
+    "status.resizeSummaryHint": "Ziehen, um die Höhe der Übersicht zu ändern. Pfeil nach oben und unten ändern sie auch; ein Doppelklick stellt die Standardhöhe wieder her.",
     "status.tasks": "Aufgaben",
     "status.tasksEmpty": "Der Assistent hat heute keine Aufgaben.",
     "status.task.running": "Läuft",

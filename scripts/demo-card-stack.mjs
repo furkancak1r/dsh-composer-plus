@@ -33,6 +33,12 @@ const SAMPLES = {
     tasks: ['Due-date queries of acme-web', 'Weekly stock report', 'Login-fix branch', 'weather-cli update'],
     extra: ['Status panel: a plain look, icon buttons, no automations in the panel', 'Approval: merge the deploy package test branch (not live)'] },
 };
+/** A long summary (made up) for Get summary: more than the default height of the summary card shows. */
+export const SUMMARY = [
+  { project: 'acme-web', text: 'Ürün filtresi düzeltmesi bu sabah canlıya alındı. Tasarım dalının review\'ı sürüyor; temiz çıkınca main\'e alınacak, dallar silinecek, sonra canlı deploy için onay istenecek.' },
+  { project: 'weather-cli', text: 'Hava durumu CLI güncellemesi testte. Yeni şehir listesi eklendi; eski önbellek dosyaları temizlenecek ve sürüm notu yazılacak.' },
+  { project: 'acme-web', text: 'Gece denetimi hatası incelendi: zaman aşımı test sunucusunun yavaşlığından. Süre 60 saniyeye çıkarıldı, yarın sabah yeniden denenecek.' },
+];
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const now = () => Date.now();
 
@@ -77,6 +83,9 @@ export async function fakeModel(calls = [], lang = 'tr') {
       // Only the Damon chat's own steps (they have the to-do tools): a side request of another plugin (a memory review, a
       // title) can carry the same message without tools.
       const damonStep = (parsed.tools ?? []).some((t) => t.function?.name === 'todo_list_add');
+      // Get summary's hidden note (test/browser-summary-resize.mjs): a long made-up summary, then [quiet].
+      const asked = msgs.findLastIndex((m) => m.role === 'user' && textOf(m.content).includes('The user clicked "Get summary"'));
+      if (damonStep && asked > own) return msgs.slice(asked).some((m) => m.role === 'tool') ? say('[quiet]') : tools([['status_summary_set', { projects: SUMMARY }]]);
       if (newest.trim() === S.seed && !damonStep) return say('');
       if (newest.trim() === S.seed) {
         const [a1, a2, p1, f1, w1, why, r1, n1, n2] = S.items; const [d1, d2, l1, l2] = S.tasks;
