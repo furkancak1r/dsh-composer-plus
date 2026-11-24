@@ -91,6 +91,46 @@ test/status-canvas.test.mjs, test/assistant-todos-client.test.mjs, test/browser-
 - After the fixes: `npm test` exit 0; unit tests ok; `git diff --check` clean.
 - Open: review round 2, then merge --no-ff into main, push, delete branch and worktree.
 
+# Feature: resizable summary in the Damon status panel (branch feat/resizable-status-summary)
+
+Owner request 2026-11-24: "özet çok kısa oluyor ayarlanabilir yap alt kısım ile özeti mouse ile sürükle genişlet vs".
+
+## Before (verified in main 5f6d852)
+- client.js `TODOS_CSS`: `.cp-cs-fixed{flex:none;max-height:calc(40vh - 2px)}` and `.cp-cs-fixed .cp-st-summary{max-height:14vh}`.
+  The fixed part (count bar, summary, Onay card) had its own 40vh cap, also at the right where the panel may be
+  `calc(100% - 180px)` high. So the summary was cut at 14vh and the room under the panel stayed empty.
+- The summary card: `StatusPanel` in client.js (`summaryCard`, rendered in `.cp-cs-fixed` after the count bar).
+
+## Change
+- client.js: a separator (`.cp-st-grip`, role separator, aria-orientation/valuenow/min/max, tabIndex 0, focus ring) right
+  under the summary card. Pointer drag (main button, pointer capture) sets the card's max-height; Up/Down one line (18 px);
+  double-click the default (14vh). Min 92 px; max = the panel's room (`summaryRoomOf`: a hidden probe with the
+  panel's max-height, measured after each draw and on a window resize; review 1). localStorage
+  `dsh-composer-plus.status-summary-height`. CSS: `.cp-cs-fixed{flex:0 1 auto;min-height:0}` (no 40vh cap),
+  `.cp-st-body{flex:1 1000 auto}` (the cards shrink first).
+- Texts `status.resizeSummary`, `status.resizeSummaryHint`: en, zh, 11 locales; build:locales.
+- docs/features.json (13 `how` + `llms`), build:readme; tether/FEATURES.md (desktop only).
+- scripts/demo-card-stack.mjs: the fake model answers Get summary with a long made-up summary.
+- Tests: test/assistant-todos-client.test.mjs (red before the change), test/browser-summary-resize.mjs (new, headless).
+
+## Checks (last passing)
+- `npm test` exit 0 (2026-11-24 14:3x).
+- `TMPDIR=/tmp/cp-ozet-tmp PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-summary-resize.mjs <0.2.2-rc.5 bin>`: PASS.
+
+- After the merge of origin/main 0cc1cfe1: `npm test` exit 0; browser-summary-resize PASS on 0.2.0-rc.2, 0.2.1-rc.2,
+  0.2.2-rc.5; browser-card-stack PASS on 0.2.2-rc.5 (all headless, chromiumSandbox true).
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/ozet-surukle-20261124/ (1-default, 2-taller, 3-after-reload).
+
+## Review
+- Round 1: P1 0, P2 3, P3 4, P4 3. Fixed: measure after each draw (1 px tolerance), probe instead of a write to the panel,
+  no extra measure on focus/key/drag, lost pointer capture, tests (resize cleanup, growing Onay card, idle loop, top
+  place, 900 px), ponytail note.
+- Round 2: P1 0, P2 1 (llms text described the old measuring), P3 2, P4 1. Fixed: llms text, comment.
+
+## Open steps
+- Review round 3, merge to main (--no-ff), push, delete the branch and the worktree.
+- Not in scope: live copy (only after Furkan's "tamam"), release, Tether code.
+
 # Fix: Damon clears a failed task card; X is kept across browsers (branch fix/dismiss-failed-status-task)
 
 Furkan 2026-11-24: "ben sana bunu gönderdim hala listede duruyor imdat" and "ben bu görevi sana verince sen görevi

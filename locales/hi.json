@@ -2773,6 +2773,8 @@
     "status.summary": "सार",
     "status.summarize": "सार लाएं",
     "status.hideSummary": "सार छिपाएँ",
+    "status.resizeSummary": "सार की ऊंचाई बदलें",
+    "status.resizeSummaryHint": "सार की ऊंचाई बदलने के लिए खींचें। ऊपर और नीचे तीर कुंजियां भी इसे बदलती हैं; डबल-क्लिक डिफ़ॉल्ट ऊंचाई वापस लाता है।",
     "status.tasks": "काम",
     "status.tasksEmpty": "असिस्टेंट के पास आज कोई काम नहीं है।",
     "status.task.running": "चल रहा है",

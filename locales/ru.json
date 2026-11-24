@@ -2773,6 +2773,8 @@
     "status.summary": "Сводка",
     "status.summarize": "Получить сводку",
     "status.hideSummary": "Скрыть сводку",
+    "status.resizeSummary": "Изменить высоту сводки",
+    "status.resizeSummaryHint": "Перетащите, чтобы изменить высоту сводки. Стрелки вверх и вниз тоже меняют её; двойной щелчок возвращает высоту по умолчанию.",
     "status.tasks": "Задачи",
     "status.tasksEmpty": "У ассистента сегодня нет задач.",
     "status.task.running": "Выполняется",
