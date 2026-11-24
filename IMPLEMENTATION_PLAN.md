@@ -73,6 +73,23 @@ English); keys wait 0.8 s after a card shows; "short context" = when the item wa
   language; the "(Önerilen)" mark is removed from the sent option text; the key guard is 0.8 s; option ≤ 120 chars.
 - Open: screenshots, 0.2.0-rc.2/0.2.1-rc.2 browser run, merge main, review-guard, merge to main, push, cleanup.
 
+Checkpoint (2026-11-24 15:52, about 150 tool calls; the chat stops here, Damon continues in a new chat):
+- Done: 2527b660 (focus outline fix + plan), 3e26bbde (merge of origin/main 0ac144bb; conflicts resolved in
+  docs/features.json (our llms text put onto main's text), llms.txt (rebuilt with `npm run build:readme`) and
+  tether/FEATURES.md (main's rows + our Kararlar row; Tether has no card deck now, so the row says the notes are in the
+  Status sheet)).
+- Last passing after the merge: `npm test` exit 0; `TMPDIR=<tmp> PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright
+  node test/browser-card-stack.mjs ~/ai-maintenance/dsh-composer-plus/dsh/0.2.2-rc.5/node_modules/@deepseek-ai/dsh/lib/bin.js`
+  PASS. Before the merge: PASS also on ~/Documents/testdeepseekharness/work/dsh-0.2.0-rc.2 and dsh-0.2.1-rc.2 bins.
+- Screenshots (DECIDE_SHOTS, 0.2.2-rc.5, fixture data): /Users/furkancakir/Damon/Belgeler/Composer Plus/karar-penceresi-20261124/
+  1-panel-butonu.png, 2-karar-karti.png, 3-bir-tiklamadan-sonra.png, 4-notlar-listesi.png, 5-hepsi-bitti.png.
+- Review: round 1 (review-guard, separate subagent, `git diff origin/main...HEAD`) started 14:50 and had no result at
+  15:52. The change is large (more than 3 files): repeat rounds until one gives no P1/P2.
+- Open steps: 1) review-guard round(s) on `origin/main...HEAD` and fixes + `npm test` + browser test; 2) fetch and merge
+  origin/main again if it moved; 3) `git switch main` in the main worktree, `git merge --no-ff feat/decision-cards-modal`,
+  `git push origin main`; 4) delete the branch locally and on origin, `git worktree remove` this folder (no --force).
+  Not allowed: live copy update (Furkan sees the screenshots and writes "tamam" first), release, DSH restart.
+
 # Fix: Improve prompt "Mesaj iyileştirilirken değişti" (branch fix/prompt-improve-change-warning)
 
 Owner report 2026-11-23: the wand says "The message changed while it was improved, so it was not replaced." although the
