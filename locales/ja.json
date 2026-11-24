@@ -2773,6 +2773,8 @@
     "status.summary": "まとめ",
     "status.summarize": "まとめを取得",
     "status.hideSummary": "まとめを隠す",
+    "status.resizeSummary": "まとめの高さを変更",
+    "status.resizeSummaryHint": "ドラッグでまとめの高さを変えます。上下の矢印キーでも変えられます。ダブルクリックで既定の高さに戻ります。",
     "status.tasks": "タスク",
     "status.tasksEmpty": "アシスタントの今日のタスクはありません。",
     "status.task.running": "作業中",

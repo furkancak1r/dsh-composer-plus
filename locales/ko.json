@@ -2773,6 +2773,8 @@
     "status.summary": "요약",
     "status.summarize": "요약 가져오기",
     "status.hideSummary": "요약 숨기기",
+    "status.resizeSummary": "요약 높이 조절",
+    "status.resizeSummaryHint": "끌어서 요약 높이를 조절합니다. 위아래 화살표 키로도 바꿀 수 있고, 두 번 클릭하면 기본 높이로 돌아갑니다.",
     "status.tasks": "작업",
     "status.tasksEmpty": "오늘 어시스턴트의 작업이 없습니다.",
     "status.task.running": "작업 중",

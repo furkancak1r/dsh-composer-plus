@@ -2773,6 +2773,8 @@
     "status.summary": "Tóm tắt",
     "status.summarize": "Lấy bản tóm tắt",
     "status.hideSummary": "Ẩn tóm tắt",
+    "status.resizeSummary": "Đổi chiều cao bản tóm tắt",
+    "status.resizeSummaryHint": "Kéo để đổi chiều cao bản tóm tắt. Phím mũi tên lên và xuống cũng đổi được; nhấp đúp để về chiều cao mặc định.",
     "status.tasks": "Tác vụ",
     "status.tasksEmpty": "Hôm nay trợ lý không có tác vụ nào.",
     "status.task.running": "Đang làm",

@@ -14,7 +14,7 @@
 // - Switched off, the dock and overlay entries go.
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 const mem = new Map();
-globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)) };
+globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
 const focused = []; const scrolled = [];
 const elements = new Map();
 globalThis.document = { visibilityState: 'visible', body: { tag: 'body' }, activeElement: null, querySelector: () => null, addEventListener() {}, removeEventListener() {},
@@ -315,6 +315,86 @@ find(dTree, (n) => n.t === 'button' && n.p.className === 'cp-st-link')[0].p.onCl
   // A reload on a later day: yesterday's morning summary opens no (empty) card.
   summary = { at: NOW - 86400000 * 2, show: true, projects: [{ project: 'acme-web', text: 'Two days ago.' }] }; await store.load('s-assistant');
   assert.equal(cardOf(), undefined, 'an older day\'s summary opens nothing');
+  summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }] }; await store.load('s-assistant'); rt.clear();
+}
+// The summary height (Furkan, 2026-11-24: "özet çok kısa oluyor ayarlanabilir yap"): a separator right under the summary
+// card. A mouse drag sets the card's max-height (the card follows the pointer; at least the title and about 3 lines), Up and
+// Down change it by one line, a double-click gives the default (CSS) height back. This browser keeps it (a chat switch or
+// a reload draws the panel again from it). A click without a move and a cancelled drag change nothing.
+{
+  const KEY = 'dsh-composer-plus.status-summary-height';
+  const store = panelProps.store;
+  summary = { at: NOW + 10, show: true, projects: [{ project: 'acme-web', text: 'A long summary.' }] }; await store.load('s-assistant');
+  const cardOf = (tr) => find(tr, (n) => n.p?.className === 'cp-st-summary')[0];
+  const gripOf = (tr) => find(tr, (n) => n.p?.role === 'separator' && n.p['data-composer-plus-summary-grip'] !== undefined)[0];
+  let tr = panel(); let card = cardOf(tr); let grip = gripOf(tr);
+  assert.ok(card && grip, 'a separator with the summary card');
+  const fixed = find(tr, (n) => n.p?.className === 'cp-cs-fixed')[0];
+  assert.equal(fixed.c.indexOf(grip), fixed.c.indexOf(card) + 1, 'right under the summary card, over the cards');
+  assert.equal(grip.p['aria-orientation'], 'horizontal'); assert.equal(grip.p.tabIndex, 0);
+  assert.ok(card.p.id); assert.equal(grip.p['aria-controls'], card.p.id, 'it names the card that it resizes');
+  assert.equal(grip.p['aria-label'], 'status.resizeSummary'); assert.equal(grip.p.title, 'status.resizeSummaryHint');
+  assert.equal(grip.p['aria-valuemin'], 92, 'the title and about 3 lines');
+  assert.ok(Number.isFinite(grip.p['aria-valuenow']) && Number.isFinite(grip.p['aria-valuemax']) && grip.p['aria-valuemax'] >= grip.p['aria-valuenow'], 'now and max');
+  assert.equal(card.p.style.maxHeight, 126, 'the default: 14vh as before (no window here: 900 px)'); assert.equal(grip.p['aria-valuenow'], 126); assert.equal(mem.has(KEY), false);
+  // A fake DOM: the card is 120 px high, the handle catches the pointer.
+  const el = { offsetHeight: 120, style: {} }; const on = {};
+  const handle = { previousElementSibling: el, setPointerCapture: (id) => { on.captured = id; }, addEventListener: (k, f) => { on[k] = f; }, removeEventListener: (k) => { delete on[k]; }, closest: () => null };
+  const down = (y, button = 0) => gripOf(panel()).p.onPointerDown({ button, clientY: y, pointerId: 7, currentTarget: handle, preventDefault() {} });
+  const drags = () => Object.keys(on).filter((k) => k !== 'captured');
+  down(100); assert.equal(on.captured, 7, 'the handle catches the pointer');
+  on.pointermove({ type: 'pointermove', clientY: 140 }); assert.equal(el.style.maxHeight, '160px', 'the card follows the pointer');
+  on.pointermove({ type: 'pointermove', clientY: 300 }); assert.equal(el.style.maxHeight, '320px');
+  assert.equal(mem.has(KEY), false, 'saved only when the drag ends');
+  on.pointerup({ type: 'pointerup' }); assert.equal(mem.get(KEY), '320', 'kept in this browser');
+  assert.deepEqual(drags(), [], 'the drag listeners go');
+  tr = panel(); assert.equal(cardOf(tr).p.style.maxHeight, 320); assert.equal(gripOf(tr).p['aria-valuenow'], 320);
+  el.offsetHeight = 320; down(300); on.pointermove({ type: 'pointermove', clientY: -500 }); on.pointerup({ type: 'pointerup' });
+  assert.equal(mem.get(KEY), '92', 'not shorter than the title and about 3 lines');
+  el.offsetHeight = 92; down(50); on.pointerup({ type: 'pointerup' }); assert.equal(mem.get(KEY), '92', 'a click without a move changes nothing');
+  down(50); on.pointermove({ type: 'pointermove', clientY: 150 }); on.pointercancel({ type: 'pointercancel' });
+  assert.equal(mem.get(KEY), '92'); assert.equal(el.style.maxHeight, '92px', 'a cancelled drag: the height goes back'); assert.deepEqual(drags(), []);
+  down(50, 2); assert.deepEqual(drags(), [], 'only the main button drags');
+  // Keys: Down one line taller, Up one line shorter (from the card's max-height); the panel's keys do not act on them.
+  const key = (k) => { let prevented = false; gripOf(panel()).p.onKeyDown({ key: k, currentTarget: handle, preventDefault: () => { prevented = true; } }); return prevented; };
+  mem.set(KEY, '200'); rt.clear(); assert.equal(key('ArrowDown'), true); assert.equal(mem.get(KEY), '218');
+  assert.equal(key('ArrowUp'), true); assert.equal(mem.get(KEY), '200');
+  assert.equal(key('j'), false); assert.equal(mem.get(KEY), '200', 'another key does nothing');
+  mem.set(KEY, '100'); rt.clear(); key('ArrowUp'); assert.equal(mem.get(KEY), '92', 'Up stops at the minimum');
+  mem.set(KEY, '200'); rt.clear(); key('ArrowDown');
+  // A new draw (a chat switch, a reload) reads the height again.
+  rt.clear(); tr = panel(); assert.equal(cardOf(tr).p.style.maxHeight, 218, 'a reload keeps the height'); assert.equal(gripOf(tr).p['aria-valuenow'], 218);
+  // A double-click gives the default height back and forgets the value.
+  gripOf(tr).p.onDoubleClick(); tr = panel();
+  assert.equal(cardOf(tr).p.style.maxHeight, 126, 'the default height again'); assert.equal(mem.has(KEY), false);
+  // A broken or too small saved value: the default, or the minimum.
+  mem.set(KEY, 'abc'); rt.clear(); assert.equal(cardOf(panel()).p.style.maxHeight, 126, 'not a number: the default');
+  mem.set(KEY, '5'); rt.clear(); assert.equal(cardOf(panel()).p.style.maxHeight, 92, 'too small: the minimum');
+  // The room: the panel's max-height (a huge height is cut to it) less its other parts and up to 96 px of the cards. A
+  // drag stops there, and a saved height that does not fit shows at the room's size (it stays saved).
+  {
+    const panelEl = { style: {}, get offsetHeight() { return this.style.height === '9999px' ? 600 : 400; } };
+    const fixedEl = { offsetHeight: 250, scrollHeight: 250 }; const bodyEl = { offsetHeight: 149, scrollHeight: 500 };
+    panelEl.querySelector = (sel) => (sel === '.cp-st-body' ? bodyEl : null);
+    Object.assign(handle, { parentElement: fixedEl, closest: (sel) => (sel === '[data-composer-plus-todos]' ? panelEl : null) });
+    el.offsetHeight = 120; down(0); on.pointermove({ type: 'pointermove', clientY: 2000 }); on.pointerup({ type: 'pointerup' });
+    assert.equal(mem.get(KEY), '373', 'at most the room: 600 - (400 - 250 - 149 + 250 - 120 + 96)'); assert.equal(panelEl.style.height, undefined, 'the panel height is put back');
+    mem.set(KEY, '500'); rt.clear(); gripOf(panel()).p.onFocus({ currentTarget: handle }); tr = panel();
+    assert.equal(cardOf(tr).p.style.maxHeight, 373, 'a saved height that does not fit: the room'); assert.equal(mem.get(KEY), '500', 'it stays saved');
+    assert.equal(gripOf(tr).p['aria-valuemax'], 373); assert.equal(gripOf(tr).p['aria-valuenow'], 373);
+    Object.assign(handle, { parentElement: undefined, closest: () => null });
+  }
+  mem.delete(KEY); rt.clear();
+  // The panel takes the room that it has (no fixed 40vh cap on the count bar, summary and Onay part): the cards get the
+  // rest of the panel's height and scroll. The handle has a visible focus ring and a resize cursor.
+  const css = find(panel(), (n) => n.t === 'style')[0].c[0];
+  assert.match(css, /\.cp-cs-fixed\{flex:0 1 auto;min-height:0;/, 'the fixed part shrinks only after the cards');
+  assert.match(css, /\.cp-st-body\{flex:1 1000 auto;min-height:0\}/, 'the cards shrink first');
+  assert.doesNotMatch(css, /\.cp-cs-fixed\{[^}]*max-height|\.cp-st-summary\{[^}]*max-height/, 'no fixed cap on the fixed part or the summary card');
+  assert.match(css, /\.cp-st-grip\{[^}]*cursor:ns-resize[^}]*touch-action:none/); assert.match(css, /\.cp-st-grip:focus-visible\{outline:/);
+  // No summary card: no handle.
+  find(panel(), (n) => n.t === 'button' && n.p['aria-label'] === 'status.hideSummary')[0].p.onClick();
+  assert.equal(gripOf(panel()), undefined, 'no handle without the summary card');
   summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }] }; await store.load('s-assistant'); rt.clear();
 }
 

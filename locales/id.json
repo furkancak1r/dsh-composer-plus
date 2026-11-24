@@ -2773,6 +2773,8 @@
     "status.summary": "Ringkasan",
     "status.summarize": "Ambil ringkasan",
     "status.hideSummary": "Sembunyikan ringkasan",
+    "status.resizeSummary": "Ubah tinggi ringkasan",
+    "status.resizeSummaryHint": "Seret untuk mengubah tinggi ringkasan. Panah atas dan bawah juga mengubahnya; klik dua kali mengembalikan tinggi bawaan.",
     "status.tasks": "Tugas",
     "status.tasksEmpty": "Asisten tidak punya tugas hari ini.",
     "status.task.running": "Sedang bekerja",
