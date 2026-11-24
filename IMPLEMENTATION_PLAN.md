@@ -48,6 +48,71 @@ npm test; iOS tests (xcodebuild test, simulator, CODE_SIGNING_ALLOWED=NO); node 
 - Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-bildirim-20261124/ (settings, before/after).
 - Open: merge origin/main, review-guard, merge to main, push, delete branch and worktree.
 
+# Feature: resizable summary in the Damon status panel (branch feat/resizable-status-summary)
+
+Owner request 2026-11-24: "özet çok kısa oluyor ayarlanabilir yap alt kısım ile özeti mouse ile sürükle genişlet vs".
+
+## Before (verified in main 5f6d852)
+- client.js `TODOS_CSS`: `.cp-cs-fixed{flex:none;max-height:calc(40vh - 2px)}` and `.cp-cs-fixed .cp-st-summary{max-height:14vh}`.
+  The fixed part (count bar, summary, Onay card) had its own 40vh cap, also at the right where the panel may be
+  `calc(100% - 180px)` high. So the summary was cut at 14vh and the room under the panel stayed empty.
+- The summary card: `StatusPanel` in client.js (`summaryCard`, rendered in `.cp-cs-fixed` after the count bar).
+
+## Change
+- client.js: a separator (`.cp-st-grip`, role separator, aria-orientation/valuenow/min/max, tabIndex 0, focus ring) right
+  under the summary card. Pointer drag (main button, pointer capture) sets the card's max-height; Up/Down one line (18 px);
+  double-click the default (14vh). Min 92 px; max = the panel's room (`summaryRoomOf`: a hidden probe with the
+  panel's max-height, measured after each draw and on a window resize; review 1). localStorage
+  `dsh-composer-plus.status-summary-height`. CSS: `.cp-cs-fixed{flex:0 1 auto;min-height:0}` (no 40vh cap),
+  `.cp-st-body{flex:1 1000 auto}` (the cards shrink first).
+- Texts `status.resizeSummary`, `status.resizeSummaryHint`: en, zh, 11 locales; build:locales.
+- docs/features.json (13 `how` + `llms`), build:readme; tether/FEATURES.md (desktop only).
+- scripts/demo-card-stack.mjs: the fake model answers Get summary with a long made-up summary.
+- Tests: test/assistant-todos-client.test.mjs (red before the change), test/browser-summary-resize.mjs (new, headless).
+
+## Checks (last passing)
+- `npm test` exit 0 (2026-11-24 14:3x).
+- `TMPDIR=/tmp/cp-ozet-tmp PLAYWRIGHT=~/Desktop/FurkanPRS/Kodlar/Projeler/test/Mergen/node_modules/playwright node test/browser-summary-resize.mjs <0.2.2-rc.5 bin>`: PASS.
+
+- After the merge of origin/main 0cc1cfe1: `npm test` exit 0; browser-summary-resize PASS on 0.2.0-rc.2, 0.2.1-rc.2,
+  0.2.2-rc.5; browser-card-stack PASS on 0.2.2-rc.5 (all headless, chromiumSandbox true).
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/ozet-surukle-20261124/ (1-default, 2-taller, 3-after-reload).
+
+## Review
+- Round 1: P1 0, P2 3, P3 4, P4 3. Fixed: measure after each draw (1 px tolerance), probe instead of a write to the panel,
+  no extra measure on focus/key/drag, lost pointer capture, tests (resize cleanup, growing Onay card, idle loop, top
+  place, 900 px), ponytail note.
+- Round 2: P1 0, P2 1 (llms text described the old measuring), P3 2, P4 1. Fixed: llms text, comment.
+
+## Open steps
+- Review round 3, merge to main (--no-ff), push, delete the branch and the worktree.
+- Not in scope: live copy (only after Furkan's "tamam"), release, Tether code.
+
+# Fix: Damon clears a failed task card; X is kept across browsers (branch fix/dismiss-failed-status-task)
+
+Furkan 2026-11-24: "ben sana bunu gönderdim hala listede duruyor imdat" and "ben bu görevi sana verince sen görevi
+başlatınca sen sil kartı". A failed subagent (HTTP 400) stayed in "Sorun"; Damon had no way to remove it.
+
+## Decision
+- Tool: an optional `task` field on `todo_list_remove` (id or task, not both), not a new tool: no new entry in TODO_TOOLS,
+  the free allowlist, the subagent deny list or the prompt tool list. `task` = task id, or the exact title from the
+  "Görev:"/"Task:" line that statusInsert writes (one ended task must match). No id is added to statusInsert's text: its
+  table (test/fixtures/status-insert.json, Tether XCTest) says "never an id", and the title is enough.
+- Host list: `assistant-dismissed.json` `{chats: {<chat>: ["<task id>|<end>"]}}`, today's keys only, ≤ 200 per chat; GET
+  leaves those ended tasks out. `POST {sessionId, action: "dismiss", task}` for the panel's ×. localStorage stays as fallback.
+- Tether reads the same GET: dismissed cards are gone there too; its own Seen stays per phone (gap row in tether/FEATURES.md).
+
+## Last checkpoint (2026-11-24)
+- Code, unit tests, docs committed on the branch. `npm test` exit 0; `node --check`; `git diff --check` clean; no lint script.
+- `test/browser-dismiss-task.mjs` PASS on dsh 0.2.2-rc.5 (headless, chromiumSandbox true). Screenshots:
+  ~/Damon/Belgeler/Composer Plus/sorun-karti-20261124/.
+- origin/main merged into the branch (conflicts: docs/features.json, llms.txt, tether/FEATURES.md; main removed Tether's
+  card deck, so the Tether row says the Status sheet reads the same GET and needs no change).
+- review-guard round 1 (separate subagent, `git diff origin/main...HEAD`): P1 0, P2 0. P3 fixed: a `chat: true` dismiss
+  test, `task`/`id` must be text, the nudge test with object arguments, `ponytail:` notes (one status read per dismiss; a
+  kept chat task's end time can change source). P4: no change needed.
+- Open: merge to main + push, delete branch and worktree. No live copy (Furkan "tamam" first).
+
 # Fix: Improve prompt "Mesaj iyileştirilirken değişti" (branch fix/prompt-improve-change-warning)
 
 Owner report 2026-11-23: the wand says "The message changed while it was improved, so it was not replaced." although the

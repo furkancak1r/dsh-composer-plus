@@ -356,6 +356,72 @@ try {
   r = await call('?sessionId=s-a&project=w-web'); assert.equal(r.status, 200); assert.equal(r.body.branch, undefined, 'a folder that is not there: no git details');
   clock = NOW + 1;
 
+  // Host dismiss list (Furkan, 2026-11-24: a failed task "hâlâ listede takılı kaldı"): Damon dismisses the card of an
+  // ended task with todo_list_remove and `task` (the title from the card that the user sent, or the task id); × of the
+  // panel writes the same list (POST action dismiss). Per chat, today's keys only, kept in a file that a new Host reads; a
+  // running task is refused; a newer end of the same task shows its card again.
+  {
+    const remove = assistantAgent.registered.get('todo_list_remove');
+    const post = async (body) => { const res = await routes.get(ASSISTANT_TODOS_PATH).fetch(new Request(`http://x${ASSISTANT_TODOS_PATH}`, { method: 'POST', body: JSON.stringify(body) })); return { status: res.status, body: await res.json() }; };
+    const shown = async () => (await call('?sessionId=s-a')).body.tasks;
+    const fail = (await shown()).find((t) => t.id === 'c-fail');
+    assert.equal(fail.state, 'failed');
+    // The user sends the failed card: "Damon'a sor" writes client.js statusInsert's lines (here in Turkish); Damon takes
+    // the title from its "Görev:" line.
+    let mod; globalThis.window = { __ModuleLoader__: { load: (m) => { mod = m; } }, addEventListener() {}, removeEventListener() {} };
+    const ANCHOR = '/** Feature switches, in Settings order.';
+    eval((await readFile(new URL('../client.js', import.meta.url), 'utf8')).replace(ANCHOR, `globalThis.__si = { statusInsert };\n    ${ANCHOR}`));
+    mod.factory((n) => (n === 'react' ? { createElement: () => null } : {}));
+    const tr = JSON.parse(await readFile(new URL('../locales/tr.json', import.meta.url), 'utf8'))['dsh-composer-plus'];
+    const sent = globalThis.__si.statusInsert({ task: fail }, NOW, (k, p) => tr[k].replace(/\{(\w+)\}/g, (m, n) => String(p?.[n] ?? m)), (ms) => `${Math.round(ms / 1000)} sn`);
+    assert.match(sent, /^Görev: Build\nDurum: Hata verdi · \d+ sn\nSonuç: HTTP 500$/);
+    const title = sent.split('\n')[0].slice('Görev: '.length);
+    assert.match(remove.description, /When the user sends a failed task card and you start work for it, dismiss that card in the same turn/);
+    assert.deepEqual(remove.parameters.required, ['reason'], 'id or task');
+    assert.match(await remove.execute({ task: title, reason: 'replacement started' }, { agent: assistantAgent }), /^Dismissed the card of the task "Build" \(failed, replacement started\)/);
+    assert.equal((await shown()).some((t) => t.id === 'c-fail'), false, 'the failed card is gone after the tool call');
+    // By the task id; the case and spaces of a title do not matter.
+    assert.match(await remove.execute({ task: 'c-done', reason: 'reported' }, { agent: assistantAgent }), /"Flights" \(done/);
+    assert.equal((await shown()).some((t) => t.id === 'c-done'), false);
+    // Refused: a running or waiting task, an unknown task, id and task together, another chat.
+    await assert.rejects(remove.execute({ task: 'research  ROME', reason: 'x' }, { agent: assistantAgent }), (e) => e.status === 409 && /running/.test(e.message), 'a running task');
+    await assert.rejects(remove.execute({ task: 'Deploy', reason: 'x' }, { agent: assistantAgent }), (e) => e.status === 409, 'a waiting task');
+    await assert.rejects(remove.execute({ task: 'No such task', reason: 'x' }, { agent: assistantAgent }), (e) => e.status === 404);
+    await assert.rejects(remove.execute({ task: 'Build', id: 'aaaaaaaa', reason: 'x' }, { agent: assistantAgent }), (e) => e.status === 400);
+    await assert.rejects(remove.execute({ id: '', task: ' ', reason: 'x' }, { agent: assistantAgent }), (e) => e.status === 400, 'neither');
+    // A model that sends the unused field empty: "" is left out.
+    await assert.rejects(remove.execute({ id: '', task: 'Stopped one', reason: 'x' }, { agent: otherAgent }), (e) => e.status === 403);
+    assert.match(await remove.execute({ id: '', task: 'Lost log', reason: 'old' }, { agent: assistantAgent }), /"Lost log" \(stopped/);
+    await assert.rejects(remove.execute({ task: 'Stopped one', reason: 'x' }, { agent: otherAgent }), (e) => e.status === 403);
+    assert.ok((await shown()).some((t) => t.id === 'c-run'), 'the running task stays');
+    // × of the panel: POST {sessionId, action: "dismiss", task: "<task id>|<end time>"}.
+    const stop = (await shown()).find((t) => t.id === 'c-stop');
+    assert.deepEqual(await post({ sessionId: 's-a', action: 'dismiss', task: `c-stop|${stop.ended}` }), { status: 200, body: { ok: true } });
+    assert.equal((await shown()).some((t) => t.id === 'c-stop'), false, 'the × of one browser hides the card for every reader');
+    assert.equal((await post({ sessionId: 's-a', action: 'dismiss', task: 'c-stop' })).status, 400, 'a key without an end time');
+    assert.equal((await post({ sessionId: 's-web', action: 'dismiss', task: `c-stop|${stop.ended}` })).status, 404, 'only the assistant chat');
+    const saved = JSON.parse(await readFile(join(dir, 'assistant-dismissed.json'), 'utf8'));
+    assert.deepEqual(Object.keys(saved.chats), ['s-a'], 'one list per chat');
+    const lost = cat(9, 'c-lost', '').data.childCreatedAt; // a gone child without a log: its start time is its key
+    assert.deepEqual(saved.chats['s-a'].sort(), [`c-done|${NOW - 100}`, `c-fail|${NOW - 4000}`, `c-lost|${lost}`, `c-stop|${NOW - 3000}`].sort());
+    assert.equal(((await stat(join(dir, 'assistant-dismissed.json'))).mode & 0o777).toString(8), '600');
+    // A new Host (a dsh restart) reads the list again.
+    {
+      const routes3 = new Map(); const ctx3 = { ...ctx, connection: { fetch: { register: (route) => { routes3.set(route.path, route); return () => {}; } } } };
+      await installAssistantTodos(ctx3, home, { ...assistant, addTools: () => ({ remount() {}, off() {} }) }, { now: () => clock }).ready;
+      const res = await routes3.get(ASSISTANT_TODOS_PATH).fetch(new Request(`http://x${ASSISTANT_TODOS_PATH}?sessionId=s-a`));
+      assert.deepEqual((await res.json()).tasks.filter((t) => ['c-fail', 'c-done', 'c-stop'].includes(t.id)), [], 'after a restart too');
+    }
+    // A newer end of the same task shows its card again.
+    children['c-stop'].log.push(ev(2, 'turn/start', {}, NOW - 500), ev(3, 'turn/end', { reason: { kind: 'aborted' } }, NOW - 200));
+    assert.equal((await shown()).find((t) => t.id === 'c-stop')?.ended, NOW - 200, 'a new end: the card is back');
+    // Today's keys only: the next day's write keeps only that day's keys.
+    clock = NOW + 86400000;
+    assert.equal((await post({ sessionId: 's-a', action: 'dismiss', task: `c-x|${clock - 10}` })).status, 200);
+    assert.deepEqual(JSON.parse(await readFile(join(dir, 'assistant-dismissed.json'), 'utf8')).chats, { 's-a': [`c-x|${clock - 10}`] }, 'yesterday\'s keys go');
+    clock = NOW + 1;
+  }
+
   // A delegated chat whose task the bot ends at its turn end stays under Tasks after the open tasks, with its final state,
   // until the day ends. A turn end that dsh's quit or an AIProxy outage stopped keeps the task (no ended row in the bot's
   // map), and the row is stopped while its chat does not run.
@@ -488,6 +554,14 @@ try {
   assert.equal(assistant.endedTasks.has('s-kept'), false);
   outageLeft('s-kept', 'gone');
   assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.started, t.result]), [['failed', NOW - 1000, 'outage']], 'the outage feature did not continue it: failed, with the time of its last turn');
+  // A failed delegated chat (chat: true) is dismissed the same way, by its title; it stays out at each next read.
+  {
+    const end = (await rowsOf('s-kept'))[0].ended;
+    assert.match(await assistantAgent.registered.get('todo_list_remove').execute({ task: 'Deploy', reason: 'replacement started' }, { agent: assistantAgent }), /"Deploy" \(failed/);
+    for (let i = 0; i < 2; i++) assert.deepEqual(await rowsOf('s-kept'), [], `a dismissed chat task stays out (read ${i + 1})`);
+    assert.ok(JSON.parse(await readFile(join(dir, 'assistant-dismissed.json'), 'utf8')).chats['s-a'].includes(`s-kept|${end}`), 'its key');
+    await assert.rejects(assistantAgent.registered.get('todo_list_remove').execute({ task: 123, reason: 'x' }, { agent: assistantAgent }), (e) => e.status === 400, 'not a text');
+  }
   // The next day: the ended rows go.
   clock = NOW + 86400000;
   r = await call('?sessionId=s-a');
