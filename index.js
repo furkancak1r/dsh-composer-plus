@@ -10461,7 +10461,9 @@ const RELAY_HEADER = /\p{L}+['’]s approval \(exact text(?:,[^()\n]*)?\):?[ \t]
  * other headers, four denials of one live deploy step). A line that withdraws or stops ("revoked approval", "cancel the
  * deploy") is not refused: a stop must reach the chat.
  * ponytail: words only, so a task text with these words ("Fix the deploy line parser; exact text must match.") is refused
- * too, and its reason names the fix (other words); the stop words count only on the line of "approval". The strip also
+ * too, and its reason names the fix (other words); the same holds for the assistant's send_message, subagent and
+ * subagent_fork texts ("Check that the Approve button sends the exact text of the approval block." in a subagent prompt
+ * is refused, and the agent writes it again with other words). The stop words count only on the line of "approval". The strip also
  * removes the words between two quotes of one line, so `Task: "fix" then Ayşe approved it. Exact text: "go"` passes;
  * Auto review in the target chat stays the gate. Each strip looks at most 4000 characters after a quote mark, so many
  * unclosed quotes stay linear. */
@@ -12081,23 +12083,61 @@ const guardMessage = (text) => Object.freeze({ id: randomUUID(), role: 'user', c
 // "…", “…”, '…' or ‘…’ on one line; an apostrophe before a letter (Bey'e, DSH’yi) is inside a single-quoted text.
 const QUOTED = String.raw`"([^"\n]{1,2000})"|“([^”\n]{1,2000})”|(?<![\p{L}\p{N}])'((?:[^'\n]|'(?=\p{L})){1,2000}?)'(?![\p{L}\p{N}])|‘((?:[^’\n]|’(?=\p{L})){1,2000}?)’(?![\p{L}\p{N}])`;
 const SELF_QUOTE = [
-  new RegExp(String.raw`önceki\s+(?:yanıtımda|mesajımda|mesajımdaki)(?![\p{L}\p{N}])(?:\s+[^\s"“'‘:]{1,40}){0,4}?\s*:?\s*(?:${QUOTED})`, 'giu'),
+  new RegExp(String.raw`(?<![\p{L}\p{N}])önceki\s+(?:yanıtımda|mesajımda|mesajımdaki)(?![\p{L}\p{N}])(?:\s+[^\s"“'‘:.!?]{1,40}){0,4}?\s*:?\s*(?:${QUOTED})`, 'giu'),
   new RegExp(String.raw`(?:${QUOTED})[ \t]*,?[ \t]*(?:yazdım|yazmıştım|dedim|demiştim|cümlesini\s+geri\s+alıyorum|cümlesini\s+düzeltiyorum)(?![\p{L}\p{N}])`, 'giu'),
 ];
-/** The comparison form of a quote: without the Markdown marks * _ and `, white space folded, lower case. */
-const quoteFold = (s) => String(s ?? '').normalize('NFC').replace(/[*_`]/g, '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('tr');
-/** The texts that an answer quotes as its own earlier words: a quote after "önceki yanıtımda", "önceki mesajımda" or
- * "önceki mesajımdaki" (at most 4 words between), or before "yazdım", "yazmıştım", "dedim", "demiştim", "cümlesini geri
- * alıyorum" or "cümlesini düzeltiyorum". A quote of fewer than 12 characters (quoteFold) is left out.
- * ponytail: these Turkish words only; "diye yazdım", English and a quote over two lines are not found. */
-export function selfQuotes(text) {
-  const out = [];
-  for (const re of SELF_QUOTE) for (const m of String(text ?? '').matchAll(re)) {
-    const q = m.slice(1).find((g) => g !== undefined).trim();
-    if (quoteFold(q).length >= 12 && !out.includes(q)) out.push(q);
+/** The words that make a quote before "yazdım", "dedim" … the answer's own earlier words, in the same sentence before the
+ * quote (review 1: 'Alt ajana "testleri çalıştır" dedim.' is a message to another agent). */
+const SELF_REF = /(?<![\p{L}\p{N}])(?:önceki\s+(?:yanıtımda|mesajımda|mesajımdaki)|daha\s+önce|az\s+önce)(?![\p{L}\p{N}])/iu;
+/** The comparison form of a quote: without the Markdown marks * _ and `, ’ and ‘ as ', white space folded, without the end
+ * marks . , ; : ! ?, lower case. */
+const quoteFold = (s) => String(s ?? '').normalize('NFC').replace(/[*_`]/g, '').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim()
+  .replace(/[.,;:!?]+$/, '').trimEnd().toLocaleLowerCase('tr');
+/** `text` with each line of a fenced code block (``` or ~~~, its fence lines too) as spaces: the same length, so a match
+ * keeps its place. An open fence runs to the end. */
+const blankFences = (text) => {
+  let fence = null;
+  return text.split('\n').map((line) => {
+    const mark = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (fence === null && mark === undefined) return line;
+    if (fence === null) fence = mark;
+    else if (mark !== undefined && mark[0] === fence[0] && mark.length >= fence.length && line.trim() === mark) fence = null;
+    return ' '.repeat(line.length);
+  }).join('\n');
+};
+/** The self-quotes of `text` (selfQuotes) with their place: `{index, end, quote}`. */
+const selfQuoteMatches = (text) => {
+  const plain = blankFences(String(text ?? '')); const out = [];
+  for (const [i, re] of SELF_QUOTE.entries()) {
+    let at = 0; let start = 0; // the start of the sentence of the match: after the last . ! ? or line break before it
+    for (const m of plain.matchAll(re)) {
+      if (i === 1) {
+        for (; at < m.index; at++) if ('.!?\n'.includes(plain[at])) start = at + 1;
+        if (!SELF_REF.test(plain.slice(Math.max(start, m.index - 300), m.index))) continue;
+      }
+      out.push({ index: m.index, end: m.index + m[0].length, quote: m.slice(1).find((g) => g !== undefined).trim() });
+    }
   }
   return out;
+};
+/** The texts that an answer quotes as its own earlier words: a quote after "önceki yanıtımda", "önceki mesajımda" or
+ * "önceki mesajımdaki" (at most 4 words between), or before "yazdım", "yazmıştım", "dedim", "demiştim", "cümlesini geri
+ * alıyorum" or "cümlesini düzeltiyorum" when the same sentence has one of those words, "daha önce" or "az önce" before
+ * the quote (at most 300 characters before it). A fenced code block does not count. A quote of fewer than 12 characters
+ * (quoteFold) is left out.
+ * ponytail: these Turkish words only; "diye yazdım", English and a quote over two lines are not found, and a "." inside
+ * an earlier quote of the same sentence ends that sentence (the quote is then not found). */
+export function selfQuotes(text) {
+  const out = [];
+  for (const { quote } of selfQuoteMatches(text)) if (quoteFold(quote).length >= 12 && !out.includes(quote)) out.push(quote);
+  return out;
 }
+/** `text` without its self-quotes (selfQuoteMatches): an earlier wrong self-quote is not a source. */
+const withoutSelfQuotes = (text) => {
+  let out = ''; let at = 0;
+  for (const { index, end } of selfQuoteMatches(text).sort((a, b) => a.index - b.index)) { if (index > at) out += text.slice(at, index); at = Math.max(at, end); }
+  return out + text.slice(at);
+};
 const AUTO_DENIED = 'Error: Auto review denied this tool call';
 const APPROVAL_ITEM = /^(?:onay|approval)\s*:\s*\S/iu; // the client's CARD_MARKS 'onay' (client.js cardMark)
 export const quoteNote = (quotes) => `Composer Plus → Assistant: your last answer quotes ${quotes.map((q) => JSON.stringify(cutEnd(q, 200))).join(', ')} as your own earlier words, but the quoted text is not in an earlier answer of this chat. Write one short line to the user that withdraws this correction. Never quote a sentence that the log does not have.`;
@@ -12105,21 +12145,29 @@ export const deniedNote = (names) => `Composer Plus → Assistant: Auto review d
 export const approvalItemNote = (texts) => `Composer Plus → Assistant: you added an approval item for the user (${texts.map((t) => JSON.stringify(t)).join(', ')}) without an \`onay\` block. Write the \`onay\` block now, or remove the item with todo_list_remove.`;
 /** `assistant`: installAssistant's handle (isOn, id, isAssistant). */
 export function installAssistantGuards(ctx, assistant) {
-  const notes = new Map(); // chat id → [{seq, text}] for the next step that has a message with text
+  const notes = new Map(); // chat id → [{seq, text, quotes?}] for the next step that has a message with text
+  const noted = new Map(); // chat id → Map(folded quote → seq of its answer): the quotes whose note went to a step
   const calls = new Map(); // chat id → callId → tool name, of the open turn
   const denials = new Map(); // chat id → tool names of the open turn's denials that no step was told yet
   const eventsOf = (session) => { try { return session?.snapshotEvents?.() ?? []; } catch { return []; } };
   const fromOf = (session) => (Number.isSafeInteger(session?.inheritedEventCount) && session.inheritedEventCount > 0 ? session.inheritedEventCount : 0);
-  const hold = (id, seq, text) => { notes.set(id, [...(notes.get(id) ?? []), { seq, text }].slice(-5)); };
-  /** The quotes of answer `event` that no earlier answer of the chat has (a withdrawn answer does not count, rule 9). An
-   * earlier self-quote does not count either, so a wrong quote written twice gets the note twice. */
-  const missingQuotes = (session, event) => {
-    const quotes = selfQuotes(textBlocks(event.data?.message?.content));
-    if (quotes.length === 0) return [];
+  const hold = (id, seq, text, quotes) => { notes.set(id, [...(notes.get(id) ?? []), { seq, text, ...(quotes === undefined ? {} : { quotes }) }].slice(-5)); };
+  /** The quotes of answer `event` that no earlier answer of the chat has (a withdrawn answer does not count, rule 9), and
+   * that did not get a note before (review 1: the line that withdraws the correction quotes the wrong sentence again).
+   * An earlier self-quote does not count as a source. Newest answer first; each one is folded only while a quote is
+   * still not found. */
+  const missingQuotes = (id, session, event) => {
+    const told = new Set([...(noted.get(id)?.keys() ?? []), ...(notes.get(id) ?? []).flatMap((n) => n.quotes ?? [])]);
+    let left = selfQuotes(textBlocks(event.data?.message?.content)).map((quote) => ({ quote, fold: quoteFold(quote) })).filter((q) => !told.has(q.fold));
+    if (left.length === 0) return [];
     const own = eventsOf(session).slice(fromOf(session)); const gone = withdrawn(own);
-    const earlier = own.filter((e) => e.type === 'assistant/message' && e.seq < event.seq && !gone(e.seq))
-      .map((e) => quoteFold(SELF_QUOTE.reduce((text, re) => text.replace(re, ' '), textBlocks(e.data?.message?.content))));
-    return quotes.filter((q) => !earlier.some((t) => t.includes(quoteFold(q))));
+    for (let i = own.length - 1; i >= 0 && left.length > 0; i--) {
+      const e = own[i];
+      if (e.type !== 'assistant/message' || !(e.seq < event.seq) || gone(e.seq)) continue;
+      const earlier = quoteFold(withoutSelfQuotes(textBlocks(e.data?.message?.content)));
+      left = left.filter((q) => !earlier.includes(q.fold));
+    }
+    return left;
   };
   /** The "Onay: …" to-dos of owner user that the newest turn added (a later todo_list_remove of the same id in the turn
    * takes one out), when no answer after the user's newest message has an `onay` block.
@@ -12154,6 +12202,7 @@ export function installAssistantGuards(ctx, assistant) {
     if (event?.type === 'user/message' && [ROLLBACK_SOURCE, REWIND_SOURCE].includes(d?.source?.kind) && Array.isArray(event.sourceEventSeqs) && event.sourceEventSeqs.length > 0) {
       const min = Math.min(...event.sourceEventSeqs); const left = (notes.get(id) ?? []).filter((n) => n.seq < min);
       if (left.length > 0) notes.set(id, left); else notes.delete(id); // a withdrawn answer or turn (rule 9)
+      for (const [fold, seq] of noted.get(id) ?? []) if (seq >= min) noted.get(id).delete(fold); // its quote can get a note again
       return;
     }
     if (!(event?.seq >= fromOf(session))) return; // a fork's copy is not its own (rule 10)
@@ -12163,8 +12212,8 @@ export function installAssistantGuards(ctx, assistant) {
     } else if (event.type === 'tool/result' && textBlocks(d?.message?.content).startsWith(AUTO_DENIED)) {
       denials.set(id, [...(denials.get(id) ?? []), calls.get(id)?.get(d?.message?.source?.callId ?? d?.message?.toolCallId) ?? 'a tool']);
     } else if (event.type === 'assistant/message') {
-      const missing = missingQuotes(session, event);
-      if (missing.length > 0) hold(id, event.seq, quoteNote(missing));
+      const missing = missingQuotes(id, session, event);
+      if (missing.length > 0) hold(id, event.seq, quoteNote(missing.map((q) => q.quote)), missing.map((q) => q.fold));
     } else if (event.type === 'turn/end') {
       calls.delete(id); denials.delete(id);
       const items = approvalItems(session);
@@ -12176,11 +12225,16 @@ export function installAssistantGuards(ctx, assistant) {
     const agent = payload?.agent;
     if (decision?.kind !== 'enter' || !Array.isArray(decision.messages) || !assistant.isAssistant(agent)) return decision;
     const id = agent.session?.id ?? agent.id; const texts = [];
-    if (notes.has(id) && decision.messages.some((m) => m?.source?.kind !== 'runtime-context' && textBlocks(m?.content).trim() !== '')) { texts.push(...notes.get(id).map((n) => n.text)); notes.delete(id); }
+    if (notes.has(id) && decision.messages.some((m) => m?.source?.kind !== 'runtime-context' && textBlocks(m?.content).trim() !== '')) {
+      const told = noted.get(id) ?? new Map();
+      for (const n of notes.get(id)) { texts.push(n.text); for (const fold of n.quotes ?? []) told.set(fold, n.seq); }
+      while (told.size > 200) told.delete(told.keys().next().value); // ponytail: the newest 200 quotes per chat
+      noted.set(id, told); notes.delete(id);
+    }
     if (denials.has(id)) { texts.push(deniedNote(denials.get(id))); denials.delete(id); }
     return texts.length === 0 ? decision : { ...decision, messages: [...decision.messages, ...texts.map(guardMessage)] };
   });
-  ctx.effect?.(() => () => { notes.clear(); calls.clear(); denials.clear(); }, 'dsh-composer-plus: assistant reply guards');
+  ctx.effect?.(() => () => { notes.clear(); noted.clear(); calls.clear(); denials.clear(); }, 'dsh-composer-plus: assistant reply guards');
 }
 
 /* Assistant to-do list: the tasks that the user has in mind, in the assistant chat. The user does an item of owner "user"

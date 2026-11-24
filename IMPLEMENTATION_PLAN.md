@@ -65,8 +65,26 @@ approval checks and is more than 100 lines in 7 files: expect the second form.
 - Green after the change: `node test/assistant-guards.test.mjs` exit 0 (items 1, 2, 4: ok), `node test/assistant.test.mjs`
   exit 0, `npm test` exit 0, `git diff --check` exit 0.
 
+## Review round 1 (independent subagent, head 1e9ec13e): P1 0, P2 1, P3 3, P4 2. All fixed.
+Red on 1e9ec13e (tests first): `node test/assistant-guards.test.mjs` exit 1 at the first P2 row; a probe on the same code
+gave a quote for 'Hafızaya "…" yazdım.', a second note for the withdrawal line, a note for the end-mark and the ’ case,
+and a quote inside a fenced block. Green after the fixes: both test files exit 0, `npm test` exit 0, `git diff --check` 0.
+1. [P2] The suffix form (quote + yazdım/dedim/…) counts only when the same sentence has "önceki yanıtımda", "önceki
+   mesajımda", "önceki mesajımdaki", "daha önce" or "az önce" before the quote (SELF_REF, at most 300 characters back).
+   Five no-note rows (personal names replaced by made-up ones) plus a self-reference in an earlier sentence.
+2. [P3] A per-chat map of folded quotes that got a note (and the quotes of notes that wait) is skipped; a rollback of the
+   answer clears its entry. Test: the withdrawal line of 2026-11-24 gets no second note.
+3. [P3] Accepted false positive: the ponytail comment of looseRelay names send_message, subagent and subagent_fork; the
+   assistant llms text says that the reason tells how to write it again. A test documents the refusal (it passes on
+   1e9ec13e too: documented behavior, no code change).
+4. [P3] quoteFold: ’ ‘ → ', end marks . , ; : ! ? removed. Two no-note tests.
+5. [P4] selfQuotes blanks fenced code blocks (``` and ~~~) first. Two tests.
+6. [P4] missingQuotes reads the earlier answers newest first and folds each only while a quote is not found. Speed
+   checks: selfQuotes worst cases and a log of 2000 answers stay under 1 s.
+
 ## Last checkpoint
-- Items 1-4 implemented, tested, committed on fix/assistant-reply-guards. Last passing test command: `npm test` (exit 0).
+- Review round 1 fixes committed and pushed on fix/assistant-reply-guards. Last passing test command: `npm test` (exit 0).
+- Items 1-4 implemented, tested, committed on fix/assistant-reply-guards.
 - Item 5 BLOCKED: Auto review denied the edit of test/approve-button.test.mjs (the test that pins the prompt text).
   Exact reason: "The edit changes a test file in the worktree for a branch, a low-risk local change, but the human must
   confirm the approval wording in the chat. No valid human approval covers this edit." The prompt text in index.js is
@@ -74,7 +92,8 @@ approval checks and is more than 100 lines in 7 files: expect the second form.
   the note for "başlatma" and "yok" comes only when the block has deploy, canlı or yayın outside "canlı değil",
   "yalnız yerel", "deploy ayrı onayla" (10:49 block: "deploy ayrı"; a block with "canlı ... kopyası" and "sürüm yok":
   note; the same block without "canlı": no note). So "in any block" is not what the note checks.
-- Open steps: item 5 needs a chat approval of Furkan for its wording; then Damon's independent review; merge only after it.
+- Open steps: review round 2 (Damon, separate agent); item 5 stays out (Furkan decides); merge only after a round with
+  no P1/P2.
 
 # Damon canvas view (tuval) (branch feat/assistant-canvas-view, 2026-11-24)
 

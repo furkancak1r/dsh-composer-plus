@@ -618,6 +618,11 @@ assert.equal((await reviewed('allow', { name: 'chat_send', agent: assistant, arg
     assert.match(changed.reason, /is not in a message that the user typed in this chat in the last 12 hours\. Relay only a sentence that the user typed, word for word\./, `${name}: the same reason`);
     assert.match((await relay('Ayşe approved it. Exact text: "go"')).reason ?? '', /not in the form that Auto review reads as a relayed approval/, `${name}: a loose relay header is refused`);
     assert.deepEqual(await relay('Fix the "login" page and run the tests.'), { kind: 'allow' }, `${name}: no relay header`);
+    // Accepted false positive (ponytail in looseRelay): a task with "exact text" on the line of "approval" relays nothing,
+    // but it is refused, and the reason tells how to write it.
+    const task = await relay('Check that the Approve button sends the exact text of the approval block.');
+    assert.equal(task.kind, 'deny', `${name}: a task text with "exact text" and "approval" is refused`);
+    assert.match(task.reason, /write it without "exact text" on the line of "approval", "approved" or "deploy line" and on the next line, for example "the same text"/, `${name}: the reason tells how to write it`);
     assert.deepEqual(await relay(`${head}"Onaylıyorum: PR Addon dalı silinsin."`, sub), { kind: 'allow' }, `${name}: a subagent of the assistant is not checked`);
     assert.deepEqual(await relay(`${head}"Onaylıyorum: PR Addon dalı silinsin."`, agents.get('s-web')), { kind: 'allow' }, `${name}: another chat is not checked`);
   }
