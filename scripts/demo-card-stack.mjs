@@ -40,6 +40,12 @@ export const DECISIONS = [
   ['Karar ver: test sunucusundaki eski loglar silinsin mi?', ['30 günden eskiler silinsin (Önerilen)', 'Arşive taşınsın']],
   ['Karar ver: hava durumu CLI sürüm notu Türkçe mi İngilizce mi?', null],
 ];
+/** A long summary (made up) for Get summary: more than the default height of the summary card shows. */
+export const SUMMARY = [
+  { project: 'acme-web', text: 'Ürün filtresi düzeltmesi bu sabah canlıya alındı. Tasarım dalının review\'ı sürüyor; temiz çıkınca main\'e alınacak, dallar silinecek, sonra canlı deploy için onay istenecek.' },
+  { project: 'weather-cli', text: 'Hava durumu CLI güncellemesi testte. Yeni şehir listesi eklendi; eski önbellek dosyaları temizlenecek ve sürüm notu yazılacak.' },
+  { project: 'acme-web', text: 'Gece denetimi hatası incelendi: zaman aşımı test sunucusunun yavaşlığından. Süre 60 saniyeye çıkarıldı, yarın sabah yeniden denenecek.' },
+];
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const now = () => Date.now();
 
@@ -53,6 +59,10 @@ export async function fakeModel(calls = [], lang = 'tr') {
     let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
       if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
       const parsed = JSON.parse(body); const msgs = parsed.messages ?? [];
+      // A subagent child whose prompt starts with "DEMO-FAIL:" gets a provider error (HTTP 400): its task fails.
+      if (msgs.some((m) => m.role === 'user' && /^DEMO-FAIL:/.test(textOf(m.content).trim()))) {
+        res.writeHead(400, { 'content-type': 'application/json' }); res.end(JSON.stringify({ error: { message: 'Provider rejected the request (HTTP 400)', type: 'invalid_request_error' } })); return;
+      }
       res.writeHead(200, { 'content-type': 'text/event-stream' });
       const send = (delta, finish) => res.write(`data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`);
       const say = (t) => { send({ role: 'assistant', content: t }); send({}, 'stop'); res.end('data: [DONE]\n\n'); };
@@ -80,6 +90,9 @@ export async function fakeModel(calls = [], lang = 'tr') {
       // Only the Damon chat's own steps (they have the to-do tools): a side request of another plugin (a memory review, a
       // title) can carry the same message without tools.
       const damonStep = (parsed.tools ?? []).some((t) => t.function?.name === 'todo_list_add');
+      // Get summary's hidden note (test/browser-summary-resize.mjs): a long made-up summary, then [quiet].
+      const asked = msgs.findLastIndex((m) => m.role === 'user' && textOf(m.content).includes('The user clicked "Get summary"'));
+      if (damonStep && asked > own) return msgs.slice(asked).some((m) => m.role === 'tool') ? say('[quiet]') : tools([['status_summary_set', { projects: SUMMARY }]]);
       if (newest.trim() === S.seed && !damonStep) return say('');
       if (newest.trim() === S.seed) {
         const [a1, a2, p1, f1, w1, why, r1, n1, n2] = S.items; const [d1, d2, l1, l2] = S.tasks;
@@ -110,8 +123,17 @@ export async function fakeModel(calls = [], lang = 'tr') {
         // The answer repeats the `onay` block: a block counts only after your newest message.
         return step === 0 ? tools([['schedule_create', { title: 'Demo automation', prompt: 'DEMO-AUTO run', target: 'new', rrule: `DTSTART:${at}\nRRULE:FREQ=DAILY;COUNT=1` }]]) : say(`${S.ready}\n\n\`\`\`onay\n${S.approval}\n\`\`\`\n`);
       }
+      // test/browser-dismiss-task.mjs: "DEMO-FAILED-TASKS" starts two subagents that fail (HTTP 400). The failed card that the
+      // user sends ("Görev: <title>" / "Task: <title>" on its first line) starts a replacement and dismisses that card in
+      // the same turn (todo_list_remove with task), as the prompt rule asks.
+      if (damonStep && newest.trim() === 'DEMO-FAILED-TASKS') {
+        return step === 0 ? tools(['Derleme kontrolü', 'Rapor dışa aktarma'].map((d) => ['subagent', { description: d, prompt: `DEMO-FAIL: ${d}`, ...bg }])) : say('[quiet]');
+      }
       // A background note (a finished subagent, Assistant news): the cards show it, so the reply is only [quiet].
       if (lastNotice) return say('[quiet]');
+      const card = damonStep ? /^(?:Görev|Task): (.+)$/m.exec(newest) : null;
+      if (card !== null && step === 0) return tools([['subagent', { description: `${card[1]} (yeniden)`, prompt: 'DEMO-DONE second: retry.', ...bg }], ['todo_list_remove', { task: card[1], reason: 'yedek ajan başlatıldı' }]]);
+      if (card !== null) return say('Yeni ajanı başlattım ve hatalı kartı kaldırdım.');
       if (newest.trim() === S.approval) return say(S.approved);
       return say(S.other);
     });

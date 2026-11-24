@@ -14,7 +14,7 @@
 // - Switched off, the dock and overlay entries go.
 import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs';
 const mem = new Map();
-globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)) };
+globalThis.localStorage = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
 const focused = []; const scrolled = [];
 const elements = new Map();
 globalThis.document = { visibilityState: 'visible', body: { tag: 'body' }, activeElement: null, querySelector: () => null, addEventListener() {}, removeEventListener() {},
@@ -27,7 +27,7 @@ let items = [{ id: 'aaaaaaaa', text: 'Prosolocal\'i internete açmak', owner: 'u
 let tasks = [{ id: 'c-run', title: 'Research Rome', state: 'running', started: NOW - 125000 }, { id: 'c-done', title: 'Flights', state: 'done', started: NOW - 600000, ended: NOW - 60000, result: 'Flights found: 3 options' }];
 let projects = [{ id: 'w-web', title: 'acme-web', count: 2, updated: NOW, chats: [{ id: 's-web', title: 'Login page', updated: NOW - 1000, running: true }] }, { id: 'w-cli', title: 'weather-cli', count: 1, updated: NOW - 5000, chats: [{ id: 's-cli', title: 'Weather', updated: NOW - 5000, running: false }] }];
 let summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }, { project: 'other-proj', text: 'Not in the list.' }] };
-const posts = []; const gets = []; let gate = null; let failNext = null;
+const posts = []; const gets = []; let gate = null; let failNext = null; let dismissFail = false;
 // Refresh's summary request: the Host's open request time (`asked`), a refused request, a read that fails.
 let askedAt = null; let askFail = null; let missed = false; let readFail = null; let askGate = null;
 let outage; // the Host's `outage` (Resume after an AIProxy outage): {at, chats: [{id, title}]}
@@ -43,6 +43,8 @@ globalThis.fetch = async (url, init) => {
         if (askFail) return Response.json({ error: askFail }, { status: 502 });
         askedAt ??= Date.now(); return Response.json({ asked: askedAt });
       }
+      // × of a task card (the Host's dismiss list): `dismissFail` answers as an older Host or a failed write.
+      if (body.action === 'dismiss') return dismissFail ? Response.json({ error: 'bad request' }, { status: 400 }) : Response.json({ ok: true });
       if (gate) await gate;
       if (failNext) { const error = failNext; failNext = null; return Response.json({ error, on: true, items }, { status: 502 }); }
       if (body.action === 'remove') items = items.filter((i) => i.id !== body.id);
@@ -191,7 +193,7 @@ const h2 = find(root, (n) => n.t === 'h2')[0]; assert.equal(find(h2, (n) => n.t 
 assert.equal(find(root, (n) => n.t === 'span' && n.p['aria-label'] !== undefined).length, 0, 'no aria-label on a span');
 assert.match(text(h2), /status\.title/); assert.match(text(h2), /status\.updated/, 'the last update time');
 // The count bar: only the groups that have cards ("1 sorun · 2 senden · …").
-assert.equal(text(find(h2, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), 'cards.count.suruyor:{"count":2} · cards.count.bitti:{"count":1}', 'the count bar');
+assert.equal(text(find(h2, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), 'cards.count.suruyor:{"count":1} · cards.queued:{"count":1} · cards.count.bitti:{"count":1}', 'the count bar: what runs, then Damon\'s queue');
 const refresh = find(root, (n) => n.t === 'button' && n.p['aria-label'] === 'status.refresh')[0]; assert.ok(refresh, 'Refresh button with an aria-label');
 // No summary by default: the Host has one (the assistant wrote it without a request), but the panel shows no card and
 // no summary line in a project row. Get summary is a text button next to Refresh.
@@ -200,9 +202,10 @@ assert.doesNotMatch(text(root), /Login page done/, 'no summary text anywhere by 
 const summarize = find(root, (n) => n.t === 'button' && /-summarize$/.test(n.p.id ?? ''))[0];
 assert.ok(summarize, 'Get summary button'); assert.equal(summarize.p['aria-label'], 'status.summarize', 'an icon button: its name'); assert.equal(summarize.p.title, 'status.summarize', 'and its tooltip');
 assert.equal(summarize.p['aria-disabled'], false); assert.equal(text(summarize).trim(), '', 'no text label (an icon)');
-// To-do items: Damon's item is a Sürüyor card; your own note (an item of yours without a mark) is behind the Kararlar
-// button at the bottom (Furkan, 2026-11-24): the panel shows no note text and no → or × of a note.
-assert.match(text(root), /Rapor yaz/); assert.doesNotMatch(text(root), /Prosolocal'i internete açmak/, 'the note is in the Kararlar dialog');
+// To-do items (Damon's item is behind the Sürüyor filter's "Damon'ın sırası" chip: see below); your own note (an item of
+// yours without a mark) is behind the Kararlar button at the bottom (Furkan, 2026-11-24): the panel shows no note text
+// and no → or × of a note.
+assert.doesNotMatch(text(root), /Prosolocal'i internete açmak/, 'the note is in the Kararlar dialog');
 assert.equal(find(root, (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? '')).length, 0, 'no → of a note in the panel');
 const decideBtn = (tr) => find(tr, (n) => n.t === 'button' && /-decide$/.test(n.p.id ?? ''))[0];
 {
@@ -213,7 +216,11 @@ const decideBtn = (tr) => find(tr, (n) => n.t === 'button' && /-decide$/.test(n.
   assert.equal(find(b, (n) => n.p?.['data-decide-count'] !== undefined).length, 0);
 }
 const cardKeys = (tr, g) => find(tr, (n) => n.t === 'li' && n.p.className === 'cp-cs-card' && n.p['data-card'] === g).map((n) => n.p['data-key']);
-assert.deepEqual(cardKeys(root, 'suruyor'), ['c-run', 'bbbbbbbb'], 'Sürüyor: the task (newest start first), then Damon\'s item');
+// The Sürüyor filter's chips (one kind shows at a time; the choice stays in this browser).
+const pickFilter = (f) => find(panel(), (n) => n.t === 'button' && n.p['data-filter'] === f)[0].p.onClick();
+assert.deepEqual(cardKeys(root, 'suruyor'), ['c-run'], 'Sürüyor, Çalışıyor (the default): the running task');
+pickFilter('todo'); assert.deepEqual(cardKeys(panel(), 'suruyor'), ['bbbbbbbb'], 'Damon\'ın sırası: Damon\'s item');
+pickFilter('running');
 assert.deepEqual(cardKeys(root, 'bitti'), ['c-done'], 'Bugün bitti: the ended task');
 // Tasks: state, time, result; a click opens its chat.
 const taskCard = (tr, key) => find(tr, (n) => n.t === 'li' && n.p['data-key'] === key)[0];
@@ -320,6 +327,110 @@ find(dTree, (n) => n.t === 'button' && n.p.className === 'cp-st-link')[0].p.onCl
   assert.equal(cardOf(), undefined, 'an older day\'s summary opens nothing');
   summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }] }; await store.load('s-assistant'); rt.clear();
 }
+// The summary height (Furkan, 2026-11-24: "özet çok kısa oluyor ayarlanabilir yap"): a separator right under the summary
+// card. A mouse drag sets the card's max-height (the card follows the pointer; at least the title and about 3 lines), Up and
+// Down change it by one line, a double-click gives the default (CSS) height back. This browser keeps it (a chat switch or
+// a reload draws the panel again from it). A click without a move and a cancelled drag change nothing.
+{
+  const KEY = 'dsh-composer-plus.status-summary-height';
+  const store = panelProps.store;
+  summary = { at: NOW + 10, show: true, projects: [{ project: 'acme-web', text: 'A long summary.' }] }; await store.load('s-assistant');
+  const cardOf = (tr) => find(tr, (n) => n.p?.className === 'cp-st-summary')[0];
+  const gripOf = (tr) => find(tr, (n) => n.p?.role === 'separator' && n.p['data-composer-plus-summary-grip'] !== undefined)[0];
+  let tr = panel(); let card = cardOf(tr); let grip = gripOf(tr);
+  assert.ok(card && grip, 'a separator with the summary card');
+  const fixed = find(tr, (n) => n.p?.className === 'cp-cs-fixed')[0];
+  assert.equal(fixed.c.indexOf(grip), fixed.c.indexOf(card) + 1, 'right under the summary card, over the cards');
+  assert.equal(grip.p['aria-orientation'], 'horizontal'); assert.equal(grip.p.tabIndex, 0);
+  assert.ok(card.p.id); assert.equal(grip.p['aria-controls'], card.p.id, 'it names the card that it resizes');
+  assert.equal(grip.p['aria-label'], 'status.resizeSummary'); assert.equal(grip.p.title, 'status.resizeSummaryHint');
+  assert.equal(grip.p['aria-valuemin'], 92, 'the title and about 3 lines');
+  assert.ok(Number.isFinite(grip.p['aria-valuenow']) && Number.isFinite(grip.p['aria-valuemax']) && grip.p['aria-valuemax'] >= grip.p['aria-valuenow'], 'now and max');
+  assert.equal(card.p.style.maxHeight, 126, 'the default: 14vh as before (no window here: 900 px)'); assert.equal(grip.p['aria-valuenow'], 126); assert.equal(mem.has(KEY), false);
+  // A fake DOM: the card is 120 px high, the handle catches the pointer.
+  const el = { offsetHeight: 60, style: {} }; const on = {}; // a short summary: lower than its max-height (126)
+  const handle = { previousElementSibling: el, setPointerCapture: (id) => { on.captured = id; }, addEventListener: (k, f) => { on[k] = f; }, removeEventListener: (k) => { delete on[k]; }, closest: () => null };
+  const down = (y, button = 0) => gripOf(panel()).p.onPointerDown({ button, clientY: y, pointerId: 7, currentTarget: handle, preventDefault() {} });
+  const drags = () => Object.keys(on).filter((k) => k !== 'captured');
+  down(100); assert.equal(on.captured, 7, 'the handle catches the pointer');
+  on.pointermove({ type: 'pointermove', clientY: 110 }); assert.equal(el.style.maxHeight, '136px', 'the drag starts from the max-height, not from a short card (review 3)');
+  on.pointermove({ type: 'pointermove', clientY: 300 }); assert.equal(el.style.maxHeight, '326px', 'the card follows the pointer');
+  assert.equal(mem.has(KEY), false, 'saved only when the drag ends');
+  on.pointerup({ type: 'pointerup' }); assert.equal(mem.get(KEY), '326', 'kept in this browser');
+  assert.deepEqual(drags(), [], 'the drag listeners go');
+  tr = panel(); assert.equal(cardOf(tr).p.style.maxHeight, 326); assert.equal(gripOf(tr).p['aria-valuenow'], 326);
+  el.offsetHeight = 326; down(300); on.pointermove({ type: 'pointermove', clientY: -500 }); on.pointerup({ type: 'pointerup' });
+  assert.equal(mem.get(KEY), '92', 'not shorter than the title and about 3 lines');
+  el.offsetHeight = 92; down(50); on.pointerup({ type: 'pointerup' }); assert.equal(mem.get(KEY), '92', 'a click without a move changes nothing');
+  down(50); on.pointermove({ type: 'pointermove', clientY: 150 }); on.pointercancel({ type: 'pointercancel' });
+  assert.equal(mem.get(KEY), '92'); assert.equal(el.style.maxHeight, '92px', 'a cancelled drag: the height goes back'); assert.deepEqual(drags(), []);
+  down(50, 2); assert.deepEqual(drags(), [], 'only the main button drags');
+  // Keys: Down one line taller, Up one line shorter (from the card's max-height); the panel's keys do not act on them.
+  const key = (k) => { let prevented = false; gripOf(panel()).p.onKeyDown({ key: k, currentTarget: handle, preventDefault: () => { prevented = true; } }); return prevented; };
+  mem.set(KEY, '200'); rt.clear(); assert.equal(key('ArrowDown'), true); assert.equal(mem.get(KEY), '218');
+  assert.equal(key('ArrowUp'), true); assert.equal(mem.get(KEY), '200');
+  assert.equal(key('j'), false); assert.equal(mem.get(KEY), '200', 'another key does nothing');
+  mem.set(KEY, '100'); rt.clear(); key('ArrowUp'); assert.equal(mem.get(KEY), '92', 'Up stops at the minimum');
+  mem.set(KEY, '200'); rt.clear(); key('ArrowDown');
+  // A new draw (a chat switch, a reload) reads the height again.
+  rt.clear(); tr = panel(); assert.equal(cardOf(tr).p.style.maxHeight, 218, 'a reload keeps the height'); assert.equal(gripOf(tr).p['aria-valuenow'], 218);
+  // A double-click gives the default height back and forgets the value.
+  gripOf(tr).p.onDoubleClick(); tr = panel();
+  assert.equal(cardOf(tr).p.style.maxHeight, 126, 'the default height again'); assert.equal(mem.has(KEY), false);
+  // A broken or too small saved value: the default, or the minimum.
+  mem.set(KEY, 'abc'); rt.clear(); assert.equal(cardOf(panel()).p.style.maxHeight, 126, 'not a number: the default');
+  mem.set(KEY, '5'); rt.clear(); assert.equal(cardOf(panel()).p.style.maxHeight, 92, 'too small: the minimum');
+  // The room: the panel's max-height (a hidden probe with the panel's max-height in the panel's parent) less the panel's
+  // other parts and up to 96 px of the cards; measured after each draw. A drag and a key stop there, a saved height that
+  // does not fit shows at the room's size (it stays saved), and a change of 1 px or less draws nothing again.
+  {
+    const parent = { append: (el) => { el.parent = parent; } };
+    const panelEl = { offsetHeight: 400, parentElement: parent }; const fixedEl = { offsetHeight: 250, scrollHeight: 250, parentElement: panelEl };
+    const bodyEl = { offsetHeight: 149, scrollHeight: 500 }; fixedEl.nextElementSibling = bodyEl;
+    const probes = [];
+    globalThis.getComputedStyle = (el) => ({ maxHeight: el === panelEl ? 'calc(100% - 180px)' : 'none' });
+    document.createElement = () => { const probe = { style: {}, remove() { probe.removed = true; }, get offsetHeight() { return /max-height:calc\(100% - 180px\)/.test(probe.style.cssText) ? 600 : 0; } }; probes.push(probe); return probe; };
+    Object.assign(handle, { parentElement: fixedEl });
+    el.offsetHeight = 120;
+    gripOf(panel()).p.ref.current = handle; tr = panel(); // the layout effect measures after the draw
+    assert.ok(probes.length > 0 && probes.every((x) => x.removed && x.parent === parent && /position:absolute;visibility:hidden/.test(x.style.cssText)), 'a hidden probe, removed at once');
+    tr = panel(); const room = gripOf(tr).p['aria-valuemax'];
+    assert.equal(room, 373, 'the room: 600 - (400 - 250 - 149 + 250 - 120 + 96)');
+    down(0); on.pointermove({ type: 'pointermove', clientY: 2000 }); on.pointerup({ type: 'pointerup' });
+    assert.equal(mem.get(KEY), '373', 'a drag stops at the room');
+    key('ArrowDown'); assert.equal(mem.get(KEY), '373', 'Down stops at the room');
+    mem.set(KEY, '500'); rt.clear(); gripOf(panel()).p.ref.current = handle; panel(); tr = panel();
+    assert.equal(cardOf(tr).p.style.maxHeight, 373, 'a saved height that does not fit: the room'); assert.equal(mem.get(KEY), '500', 'it stays saved');
+    assert.equal(gripOf(tr).p['aria-valuenow'], 373);
+    // The card is 1 px taller (rounding): the room stays (no new value, no loop).
+    el.offsetHeight = 121; tr = panel(); assert.equal(gripOf(tr).p['aria-valuemax'], 373, 'a 1 px change keeps the room');
+    // The Onay card grows by 60 px: the next draw gives a smaller room.
+    fixedEl.scrollHeight = 310; fixedEl.offsetHeight = 310; panelEl.offsetHeight = 460; tr = panel(); tr = panel();
+    assert.equal(gripOf(tr).p['aria-valuemax'], 314, 'a taller Onay card: less room'); assert.equal(cardOf(tr).p.style.maxHeight, 314);
+    // A lost pointer capture puts the old height back, as a cancel.
+    el.style.maxHeight = '200px'; down(0); on.pointermove({ type: 'pointermove', clientY: 30 }); on.lostpointercapture({ type: 'lostpointercapture' });
+    assert.equal(el.style.maxHeight, '200px', 'a lost capture: the old height'); assert.deepEqual(drags(), [], 'no drag listener stays');
+    // The window resize listener goes when the panel goes (AGENTS.md rule 1).
+    const resizes = new Set(); const realAdd = window.addEventListener; const realRemove = window.removeEventListener;
+    window.addEventListener = (k, f) => { if (k === 'resize') resizes.add(f); }; window.removeEventListener = (k, f) => { if (k === 'resize') resizes.delete(f); };
+    layoutCleanups.length = 0; panel(); assert.ok(resizes.size > 0, 'a resize listener');
+    for (const off of layoutCleanups.splice(0)) off();
+    assert.equal(resizes.size, 0, 'unmounted: no resize listener'); window.addEventListener = realAdd; window.removeEventListener = realRemove;
+    delete document.createElement; delete globalThis.getComputedStyle; Object.assign(handle, { parentElement: undefined });
+  }
+  mem.delete(KEY); rt.clear();
+  // The panel takes the room that it has (no fixed 40vh cap on the count bar, summary and Onay part): the cards get the
+  // rest of the panel's height and scroll. The handle has a visible focus ring and a resize cursor.
+  const css = find(panel(), (n) => n.t === 'style')[0].c[0];
+  assert.match(css, /\.cp-cs-fixed\{flex:0 1 auto;min-height:0;/, 'the fixed part shrinks only after the cards');
+  assert.match(css, /\.cp-st-body\{flex:1 1000 auto;min-height:0\}/, 'the cards shrink first');
+  assert.doesNotMatch(css, /\.cp-cs-fixed\{[^}]*max-height|\.cp-st-summary\{[^}]*max-height/, 'no fixed cap on the fixed part or the summary card');
+  assert.match(css, /\.cp-st-grip\{[^}]*cursor:ns-resize[^}]*touch-action:none/); assert.match(css, /\.cp-st-grip:focus-visible\{outline:/);
+  // No summary card: no handle.
+  find(panel(), (n) => n.t === 'button' && n.p['aria-label'] === 'status.hideSummary')[0].p.onClick();
+  assert.equal(gripOf(panel()), undefined, 'no handle without the summary card');
+  summary = { at: NOW, projects: [{ project: 'acme-web', text: 'Login page done.' }] }; await store.load('s-assistant'); rt.clear();
+}
 
 // Card groups (2026-11-19): the marks and the owners put each item in its card group; your own notes are one folded
 // group at the bottom whose header folds it; each card has its type for a screen reader; no owner line.
@@ -335,7 +446,7 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   assert.match(text(cardsOf(tr, 'sorun')[0]), /cards\.sorun: .*Gece denetimi hata verdi/, 'the card type for a screen reader, the title without the mark');
   assert.ok(find(cardsOf(tr, 'sorun')[0], (n) => n.t === 'span' && n.p['aria-hidden'] === true && text(n) === '▲').length === 1, 'the symbol is hidden from a screen reader');
   assert.deepEqual(cardsOf(tr, 'senden').map((n) => n.p['data-key']), ['33333333'], 'Senden: the "Senden:" item');
-  assert.ok(cardsOf(tr, 'suruyor').some((n) => n.p['data-key'] === '22222222'), 'Damon\'s item: Sürüyor');
+  pickFilter('todo'); assert.ok(cardsOf(panel(), 'suruyor').some((n) => n.p['data-key'] === '22222222'), 'Damon\'s item: Sürüyor (Damon\'ın sırası)'); pickFilter('running');
   // The order of the groups: Sorun, Senden, Sürüyor, Bugün bitti, your notes.
   const order = find(tr, (n) => n.t === 'section' && n.p['data-group'] !== undefined).map((n) => n.p['data-group']);
   assert.deepEqual(order, ['sorun', 'senden', 'suruyor', 'bitti', 'notes']);
@@ -412,7 +523,7 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   assert.equal(find(waiting, (n) => n.p?.['data-state'] === 'overdue').length, 0, 'not overdue before 24 hours');
   assert.equal(find(overdue, (n) => n.p?.['data-state'] === 'overdue').length, 1, 'overdue after 24 hours'); assert.match(text(overdue), /todos\.overdue/); assert.match(text(overdue), /Needs the license key/);
   assert.equal(find(waiting, (n) => n.t === 'button' && n.p['data-act'] === 'main')[0].p['aria-label'], 'cards.reply: Install ANR', 'a wait: Yanıtla');
-  assert.ok(cardsOf(tr, 'suruyor').some((n) => n.p['data-key'] === '44444444'), 'an item of Damon without a wait: Sürüyor');
+  pickFilter('todo'); assert.ok(cardsOf(panel(), 'suruyor').some((n) => n.p['data-key'] === '44444444'), 'an item of Damon without a wait: Sürüyor (Damon\'ın sırası)'); pickFilter('running');
   assert.match(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.count\.senden:\{"count":2\}/, 'the count bar counts them');
   assert.equal(posts.length, p0, 'no message and no request by itself');
   // The wait time, Overdue and the day's end change while nothing runs: the stack draws again once a minute (no read,
@@ -461,7 +572,8 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   assert.equal(seen.p['aria-label'], 'cards.seen: Flights', '×: Gördüm');
   const p0 = posts.length; seen.p.onClick(); assert.equal(focused.at(-1), 'cp-td-s-assistant', 'the focus goes to the stack title');
   assert.deepEqual(find(doneList(), (n) => n.t === 'li' && n.p.className === 'cp-cs-card').map((n) => n.p['data-key']), ['c-stop'], 'Gördüm: the card is gone');
-  assert.equal(posts.length, p0, 'nothing sent to the Host');
+  // Furkan, 2026-11-24: the × goes to the Host's list too (every browser and Tether), and this browser keeps it.
+  assert.deepEqual(posts.slice(p0), [{ sessionId: 's-assistant', action: 'dismiss', task: `c-done|${NOW - 60000}` }], 'the Host gets the key');
   assert.equal(mem.get('dsh-composer-plus.status-tasks-dismissed'), JSON.stringify([`c-done|${NOW - 60000}`]), 'kept in this browser');
   rt.clear(); assert.equal(cardsOf(panel(), 'bitti').length, 1, 'still hidden after the panel opens again');
   // The same task ends again (a new end time): it shows again, and the old key goes.
@@ -469,7 +581,13 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   tr = panel(); assert.match(text(groupBtn(tr, 'bitti')), /cards\.bitti\s+2/, 'a new end shows the card again');
   // × on a failed task's Sorun card (in its Ayrıntı) hides it the same way.
   const x = find(cardsOf(tr, 'sorun')[0], (n) => n.t === 'button' && n.p['aria-label'] === 'status.dismiss:{"task":"Crash"}')[0];
+  // The Host call fails (an older Host, a failed write): this browser's list still hides the card.
+  dismissFail = true; const p1 = posts.length;
   assert.ok(x, 'an × with an aria-label'); x.p.onClick(); assert.equal(cardsOf(panel(), 'sorun').length, 0, 'the failed card is hidden');
+  assert.deepEqual(posts.slice(p1), [{ sessionId: 's-assistant', action: 'dismiss', task: `c-fail|${NOW - 200000}` }]);
+  await tick(); rt.clear(); assert.equal(cardsOf(panel(), 'sorun').length, 0, 'the Host refused it: localStorage keeps it hidden');
+  assert.ok(JSON.parse(mem.get('dsh-composer-plus.status-tasks-dismissed')).includes(`c-fail|${NOW - 200000}`));
+  dismissFail = false;
   // Two windows: the other one hid Hotels after this panel read the list; this Gördüm keeps that key (it reads the list again).
   mem.set('dsh-composer-plus.status-tasks-dismissed', '[]'); rt.clear(); tr = panel();
   mem.set('dsh-composer-plus.status-tasks-dismissed', JSON.stringify([`c-stop|${NOW - 300000}`]));
@@ -479,6 +597,79 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   tasks = [{ id: 'c-old', title: 'Yesterday', state: 'done', started: NOW - 30 * 3600000, ended: NOW - 27 * 3600000 }]; await panelProps.store.load('s-assistant');
   assert.equal(groupBtn(panel(), 'bitti'), undefined, 'yesterday\'s end: no Bugün bitti card');
   mem.delete('dsh-composer-plus.status-tasks-dismissed'); mem.delete('dsh-composer-plus.status-done-seen'); tasks = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
+}
+
+// The Sürüyor filter (Furkan, 2026-11-24: "sürüyor kısmında damonın yapacağı ve aktif devam eden işler birleşik
+// görünüyor"; then "tümü seçeneğine gerek yok"): two chips, Çalışıyor N (the default) and Damon'ın sırası N, buttons with
+// aria-pressed; this browser keeps the choice. A card runs when the Host says that its task runs now (also an item with
+// the task's words: one card), never by its text; an item of Damon without a running task is Damon's to-do. The header:
+// "Sürüyor 3 · sırada 6". A waiting item stays in Senden; the count bar does not change.
+{
+  const savedItems = items; const savedTasks = tasks; const KEY = 'dsh-composer-plus.status-running-filter';
+  mem.delete(KEY);
+  items = [{ id: 'a0000001', text: 'Maccy 2.8.0 belleğini birkaç gün sonra yeniden ölç', owner: 'agent', created: NOW - 9000 },
+    { id: 'a0000002', text: 'Her cuma 10:00–12:00 rapor hatırlatması', owner: 'agent', created: NOW - 8000 },
+    { id: 'a0000003', text: 'Akşam AIProxy boşken yeni main\'i kur', owner: 'agent', created: NOW - 7000 },
+    { id: 'a0000004', text: 'Gece testi çalışıyor mu bak (running)', owner: 'agent', created: NOW - 6000 },
+    { id: 'a0000005', text: 'Yedek klasörünü kontrol et', owner: 'agent', created: NOW - 5000 },
+    { id: 'a0000006', text: 'Stok raporunu güncelle', owner: 'agent', created: NOW - 4000 },
+    { id: 'a0000007', text: 'Satınalma sorgularını çalıştır', owner: 'agent', created: NOW - 3000 },
+    { id: 'a0000008', text: 'Haftalık stok raporu', owner: 'agent', created: NOW - 2000 },
+    { id: 'a0000009', text: 'ANR kur', owner: 'agent', created: NOW - 1000, waiting: { reason: 'Klasör yolu', since: NOW - 60000 } }];
+  tasks = [{ id: 'c-r1', title: 'Satınalma sorgularını çalıştır', state: 'running', started: NOW - 125000 },
+    { id: 'c-r2', title: 'Montaj testi dalı', state: 'running', started: NOW - 65000 },
+    { id: 'c-r3', title: 'Hava durumu CLI', state: 'running', started: NOW - 5000, chat: true },
+    { id: 'c-d1', title: 'Haftalık stok raporu', state: 'done', started: NOW - 600000, ended: NOW - 60000 }];
+  await panelProps.store.load('s-assistant'); rt.clear();
+  const chip = (tr, f) => find(tr, (n) => n.t === 'button' && n.p['data-filter'] === f)[0];
+  const shown = (tr) => cardsOf(tr, 'suruyor').map((n) => n.p['data-key']);
+  const symOf = (n) => text(find(n, (m) => m.p?.className === 'cp-cs-sym')[0]);
+  const openRun = () => { let tr = panel(); if (groupBtn(tr, 'suruyor').p['aria-expanded'] !== true) { groupBtn(tr, 'suruyor').p.onClick(); tr = panel(); } return tr; };
+  let tr = panel();
+  assert.match(text(groupBtn(tr, 'suruyor')), /cards\.suruyor\s+3\s+· cards\.queued:\{"count":6\}\s*$/, 'the header: the running count · the to-do count');
+  tr = openRun();
+  assert.equal(chip(tr, 'running').p.type, 'button'); assert.equal(chip(tr, 'todo').p.type, 'button');
+  assert.equal(chip(tr, 'running').p['aria-pressed'], true, 'Çalışıyor is the default'); assert.equal(chip(tr, 'todo').p['aria-pressed'], false);
+  assert.equal(chip(tr, 'all'), undefined, 'no Tümü chip');
+  assert.match(text(chip(tr, 'running')), /^status\.task\.running\s+3$/); assert.match(text(chip(tr, 'todo')), /^cards\.queue:\{"name":"Damon"\}\s+6$/);
+  assert.equal(find(tr, (n) => n.p?.role === 'group' && n.p.className === 'cp-cs-chips')[0]?.p['aria-label'], 'cards.suruyor', 'the chips are one named group');
+  assert.deepEqual(shown(tr), ['c-r3', 'c-r2', 'a0000007'], 'only what runs now, newest start first; the item with a running task\'s words is that one card');
+  for (const n of cardsOf(tr, 'suruyor')) {
+    assert.equal(n.p['data-running'], 'true'); assert.equal(symOf(n), '●', 'the running mark');
+    assert.match(text(find(n, (m) => m.p?.className === 'cp-st-sub')[0]), /\d/, 'the time it runs');
+  }
+  assert.deepEqual(cardsOf(tr, 'senden').map((n) => n.p['data-key']), ['a0000009'], 'a waiting item of Damon stays in Senden');
+  assert.deepEqual(cardsOf(tr, 'bitti').map((n) => n.p['data-key']), ['a0000008'], 'an item with a done task\'s words: Bugün bitti');
+  assert.match(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.count\.suruyor:\{"count":3\} · cards\.queued:\{"count":6\}/, 'the count bar: 3 running · 6 queued');
+  assert.equal(find(tr, (n) => n.p?.['data-composer-plus-run-empty'] === '').length, 0, 'no empty line while cards show');
+  chip(tr, 'todo').p.onClick(); tr = panel();
+  assert.equal(mem.get(KEY), 'todo', 'kept in this browser');
+  assert.equal(chip(tr, 'todo').p['aria-pressed'], true); assert.equal(chip(tr, 'running').p['aria-pressed'], false);
+  assert.equal(groupBtn(tr, 'suruyor').p['aria-expanded'], true, 'a chip keeps its group open (6 cards do not fit)');
+  assert.deepEqual(shown(tr), ['a0000006', 'a0000005', 'a0000004', 'a0000003', 'a0000002', 'a0000001'], 'only Damon\'s to-dos, newest first; "çalışıyor" in a text is no running state');
+  for (const n of cardsOf(tr, 'suruyor')) { assert.equal(n.p['data-running'], 'false'); assert.equal(symOf(n), '○', 'a neutral mark'); assert.match(text(n), /cards\.withAgent/); }
+  assert.match(text(groupBtn(tr, 'suruyor')), /cards\.suruyor\s+3\s+· cards\.queued:\{"count":6\}\s*$/, 'the header stays');
+  rt.clear(); tr = openRun(); assert.equal(chip(tr, 'todo').p['aria-pressed'], true, 'a reload keeps the choice');
+  chip(tr, 'running').p.onClick(); assert.equal(mem.get(KEY), 'running');
+  mem.set(KEY, 'all'); rt.clear(); tr = openRun(); assert.equal(chip(tr, 'running').p['aria-pressed'], true, 'an unknown stored value: the default');
+  // Nothing runs (0 running; the item with a task's words is a to-do now: 7 queued): the header and the count bar say so,
+  // the chip shows a line instead of an empty list.
+  const runningTasks = tasks; tasks = tasks.filter((x) => x.state !== 'running'); await panelProps.store.load('s-assistant'); rt.clear(); tr = openRun();
+  assert.match(text(groupBtn(tr, 'suruyor')), /cards\.suruyor\s+0\s+· cards\.queued:\{"count":7\}\s*$/);
+  assert.doesNotMatch(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.count\.suruyor/, 'no "0 running" in the count bar');
+  assert.deepEqual(shown(tr), []); assert.equal(text(find(tr, (n) => n.p?.['data-composer-plus-run-empty'] === '')[0]), 'cards.filterEmpty', 'Çalışıyor 0: a line, not an empty list');
+  chip(tr, 'todo').p.onClick(); tr = panel(); assert.equal(shown(tr).length, 7); assert.equal(find(tr, (n) => n.p?.['data-composer-plus-run-empty'] === '').length, 0);
+  // Only running work (3 running, 0 queued): Damon'ın sırası 0 says so too.
+  tasks = runningTasks; items = items.filter((i) => i.waiting || i.id === 'a0000007' || i.id === 'a0000008'); await panelProps.store.load('s-assistant'); tr = panel();
+  assert.match(text(chip(tr, 'todo')), /\s0$/); assert.deepEqual(shown(tr), []); assert.equal(text(find(tr, (n) => n.p?.['data-composer-plus-run-empty'] === '')[0]), 'cards.filterEmpty');
+  assert.doesNotMatch(text(find(tr, (n) => n.p?.['data-composer-plus-counts'] === '')[0]), /cards\.queued/, 'no "0 queued" in the count bar');
+  chip(tr, 'running').p.onClick(); tr = panel();
+  // The running mark pulses, it is still with reduced motion; a pressed chip has its own look; the focus ring is the panel's.
+  const css = find(tr, (n) => n.t === 'style')[0].c[0];
+  assert.match(css, /\.cp-cs-card\[data-running="true"\] \.cp-cs-sym\{[^}]*animation:cp-cs-run/);
+  assert.match(css, /@media \(prefers-reduced-motion:reduce\)\{[^}]*\.cp-cs-card\[data-running="true"\] \.cp-cs-sym,[^}]*\{animation:none\}/);
+  assert.match(css, /\.cp-cs-chip\[aria-pressed="true"\]\{[^}]*background:/); assert.match(css, /\[data-composer-plus-todos\] button:focus-visible\{outline:/);
+  mem.delete(KEY); items = savedItems; tasks = savedTasks; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
 // 2026-11-17 ("sağ üstte durum var ama güzel durmuyor görevlerde zaten var"): Resume after an AIProxy outage shows no
@@ -531,6 +722,7 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
 
 // → of a card (here "Mesaj kutusuna yaz" of Damon's running item) writes its data in the composer and sends nothing: no
 // POST, the owner and the groups stay. (Since Kararlar, 2026-11-24, a note has no → in the panel.)
+pickFilter('todo'); // Damon's item without a task is under the Sürüyor filter's "Damon'ın sırası" chip
 const arrow = () => find(panel(), (n) => n.t === 'button' && n.p['aria-label'] === 'status.insertShort: Rapor yaz')[0];
 const WRITTEN = 'status.insert.item:{"text":"Rapor yaz"}\nstatus.insert.owner:{"owner":"Damon"}';
 const postsBefore = posts.length;
@@ -563,6 +755,7 @@ composer.detect = '\uFFFC do it'; composer.draft = '/goal do it';
 arrow().p.onClick();
 assert.deepEqual(composer.inserts.at(-1).span, { start: 7, end: 7, draftRev: 4 }, 'dsh 0.2.1: a command chip is one character');
 composer.detect = undefined;
+pickFilter('running'); // back to the default (Çalışıyor) for the next checks
 // "Mesaj kutusuna yaz" on every card (Damon's item, each task, in its Ayrıntı for a task) and on each project row (the
 // Projects button opens them): the data (the format: test/status-insert.test.mjs), appended after the draft, focus in
 // the composer, nothing sent, no id.
@@ -570,9 +763,9 @@ composer.detect = undefined;
   if (projectsBtn().p['aria-expanded'] !== true) projectsBtn().p.onClick();
   // A project row and a Sürüyor card: → ("status.insert…" in its name); a Bugün bitti card: "Mesaj kutusuna yaz" in its "…" menu.
   const writes = () => find(panel(), (n) => n.t === 'button' && /^status\.insert(Short)?:/.test(n.p['aria-label'] ?? ''));
-  const names = writes().map((b) => b.p['aria-label']);
+  const names = writes().map((b) => b.p['aria-label']); pickFilter('todo'); names.push(...writes().map((b) => b.p['aria-label']).filter((n) => !names.includes(n)));
   assert.deepEqual(names, ['status.insert:{"item":"acme-web"}', 'status.insert:{"item":"weather-cli"}', 'status.insertShort: Research Rome', 'status.insertShort: Rapor yaz'],
-    'on each project, each running task and Damon\'s item');
+    'on each project, each running task (Çalışıyor) and Damon\'s item (Damon\'ın sırası)');
   assert.ok(writes().every((b) => b.p.type === 'button'), 'a real button (keyboard)');
   const menuOf = (key) => find(panel(), (n) => n.t === 'Menu' && n.p.anchor?.p?.['data-more'] === key)[0];
   const flights = menuOf('c-done');
@@ -581,7 +774,7 @@ composer.detect = undefined;
   const by = (name) => (name === 'Flights' ? { p: { onClick: () => menuOf('c-done').p.onSelect('write') } }
     : writes().find((b) => b.p['aria-label'] === `status.insert:{"item":"${name}"}` || b.p['aria-label'] === `status.insertShort: ${name}`));
   const before = posts.length; composer.draft = 'Note'; const focus0 = composer.focused;
-  by('Rapor yaz').p.onClick();
+  by('Rapor yaz').p.onClick(); pickFilter('running');
   assert.equal(composer.draft, 'Note\nstatus.insert.item:{"text":"Rapor yaz"}\nstatus.insert.owner:{"owner":"Damon"}', 'the item\'s data after the draft');
   by('Research Rome').p.onClick();
   assert.match(composer.draft, /\nstatus\.insert\.task:\{"title":"Research Rome"\}\nstatus\.insert\.state:\{"state":"status\.task\.running · \d+ (dk|min)\.?"\}$/, 'the task, its state and time');
@@ -598,6 +791,7 @@ composer.detect = undefined;
   composer.draft = '';
 }
 // The composer refuses (it sends now): a notice, nothing else.
+pickFilter('todo');
 composer.refuse = true; composer.draft = ''; arrow().p.onClick(); composer.refuse = false;
 assert.equal(composer.draft, ''); assert.deepEqual(notices.at(-1), ['s-assistant', 'info', 'quote.changed'], 'the user sees why');
 // The end comes from the published draft: when the editor is a revision ahead of it, dsh refuses the insert (no wrong place).
@@ -605,8 +799,8 @@ composer.stale = true; const n0 = notices.length; arrow().p.onClick(); composer.
 assert.equal(composer.draft, ''); assert.equal(notices.length, n0 + 1, 'an older draft: refused, with the notice');
 assert.equal(posts.length, postsBefore, 'still nothing sent');
 // Remove.
-tree = panel();
-find(tree, (n) => n.t === 'button' && /todos\.remove:.*Rapor/.test(n.p['aria-label'] ?? ''))[0].p.onClick(); await tick();
+pickFilter('todo'); tree = panel();
+find(tree, (n) => n.t === 'button' && /todos\.remove:.*Rapor/.test(n.p['aria-label'] ?? ''))[0].p.onClick(); await tick(); pickFilter('running');
 assert.deepEqual(posts.at(-1), { sessionId: 's-assistant', id: 'bbbbbbbb', action: 'remove' });
 assert.doesNotMatch(text(panel()), /Rapor yaz/);
 
@@ -616,9 +810,9 @@ items = [{ id: 'aaaaaaaa', text: 'Damon item', owner: 'agent', created: 1 }]; aw
 let open; gate = new Promise((r) => { open = r; });
 const first = store.act('s-assistant', 'aaaaaaaa', 'remove');
 assert.equal(await store.act('s-assistant', 'aaaaaaaa', 'remove'), false, 'a second action waits');
-tree = panel();
+pickFilter('todo'); tree = panel();
 assert.ok(find(tree, (n) => n.t === 'button' && n.p['aria-disabled'] === true).length > 0); assert.equal(find(tree, (n) => n.t === 'button' && n.p.disabled === true).length, 0);
-open(); gate = null; assert.equal(await first, true); assert.deepEqual(store.of('s-assistant').items, []);
+open(); gate = null; assert.equal(await first, true); assert.deepEqual(store.of('s-assistant').items, []); pickFilter('running');
 // A read that started before or during an action does not overwrite its answer.
 items = [{ id: 'eeeeeeee', text: 'e', owner: 'user', created: 5 }]; await store.load('s-assistant');
 let hold; gate = new Promise((r) => { hold = r; });
@@ -650,7 +844,7 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   assert.match(text(find(tree, (n) => n.t === 'h2')[0]), /status\.updated/, 'the list time');
   assert.equal(find(tree, (n) => n.p?.title === 'status.updatedHint').length, 1, 'the list time has the hint');
   const r0 = gets.length; const p0 = posts.length;
-  items = [{ id: 'ffffffff', text: 'Fresh item', owner: 'agent', created: 9 }];
+  items = [{ id: 'ffffffff', text: 'Fresh item', owner: 'agent', created: 9 }]; // Damon's item: "Damon'ın sırası" shows it
   const clicked = Date.now();
   refreshBtn().p.onClick();
   // At once (no await): the button turns and is aria-disabled, the header says Refreshing…, the old content is dimmed in
@@ -675,7 +869,7 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   await new Promise((r) => setTimeout(r, 520)); await tick();
   tree = panel(); assert.equal(store.of('s-assistant').refreshing, false, 'Refreshing… ends after the read (at least 500 ms)');
   assert.equal(find(tree, (n) => n.t === 'button' && n.p['aria-label'] === 'status.refresh')[0].p['aria-disabled'], false);
-  assert.match(text(tree), /Fresh item/); assert.equal(cardOf(tree), undefined);
+  pickFilter('todo'); tree = panel(); assert.match(text(tree), /Fresh item/); assert.equal(cardOf(tree), undefined); pickFilter('running'); tree = panel();
   // Get summary: the card waits with the placeholder; Refresh meanwhile reads only the lists and the wait goes on.
   askBtn().p.onClick(); await tick();
   assert.equal(posts.length - p0, 1, 'one summary request');

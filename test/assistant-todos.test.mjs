@@ -193,6 +193,8 @@ assert.match(STATUS_SECTION, /status_summary_set/);
 assert.match(STATUS_SECTION, /shows a summary of the projects only when the user asks for it\. Call status_summary_set only in three cases: a note says that the user clicked "Get summary", the user asks for a summary in the chat, or a scheduled task asks for it \(for example the morning summary\)/);
 assert.match(STATUS_SECTION, /Do not call it for background news or a finished task\./);
 assert.match(TODO_SECTION, /evidence that an item is done, remove it with todo_list_remove/);
+// Furkan, 2026-11-24 ("sen görevi başlatınca sen sil kartı"): a failed task card that the user sends goes in the same turn.
+assert.match(TODO_SECTION, /When the user sends a failed task card and you start work for it, dismiss that card in the same turn: todo_list_remove with task/);
 assert.match(TODO_SECTION, /do not ask about it, unless the user mentions it/);
 // Keep the list current before each answer: done, missing or a new owner (a default for every user, not a local rule).
 assert.match(TODO_SECTION, /Before each answer, and when you get new information[^\n]*is one done, is one missing, or does the other owner do it now \(todo_list_add with the same text and the new owner\)\?/);
@@ -226,6 +228,19 @@ assert.match(STATUS_SECTION, /decision queue[^\n]*bold line "Seçenekler:" \(Eng
   assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'a turn that started work and added an item: no nudge');
   turn({ id: 's-a' }, ['todo_list_remove', 'chat_new']);
   assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'todo_list_remove is a list change too');
+  // Dismissing a task card (todo_list_remove with task) changes no item: a new subagent in that turn still needs its item.
+  event({ id: 's-a' }, { type: 'turn/start' });
+  event({ id: 's-a' }, { type: 'tool/call', data: { name: 'subagent', callId: 'c1' } });
+  event({ id: 's-a' }, { type: 'tool/call', data: { name: 'todo_list_remove', callId: 'c2', arguments: JSON.stringify({ task: 'Build', reason: 'replacement started' }) } });
+  event({ id: 's-a' }, { type: 'turn/end', data: { reason: { kind: 'completed' } } });
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), TODO_NUDGE, 'a task dismiss is no list change');
+  // The arguments as an object (not a JSON string) too.
+  event({ id: 's-a' }, { type: 'turn/start' });
+  event({ id: 's-a' }, { type: 'tool/call', data: { name: 'subagent', callId: 'c3' } });
+  event({ id: 's-a' }, { type: 'tool/call', data: { name: 'todo_list_remove', callId: 'c4', arguments: { task: 'Build', reason: 'reported' } } });
+  event({ id: 's-a' }, { type: 'turn/end', data: { reason: { kind: 'completed' } } });
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), TODO_NUDGE, 'object arguments: no list change either');
+  turn({ id: 's-a' }, []);
   turn({ id: 's-a' }, ['chats_list', 'memory_recall']);
   assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'no work started: no nudge');
   turn({ id: 's-other' }, ['subagent']);
