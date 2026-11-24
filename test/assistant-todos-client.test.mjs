@@ -200,15 +200,18 @@ assert.doesNotMatch(text(root), /Login page done/, 'no summary text anywhere by 
 const summarize = find(root, (n) => n.t === 'button' && /-summarize$/.test(n.p.id ?? ''))[0];
 assert.ok(summarize, 'Get summary button'); assert.equal(summarize.p['aria-label'], 'status.summarize', 'an icon button: its name'); assert.equal(summarize.p.title, 'status.summarize', 'and its tooltip');
 assert.equal(summarize.p['aria-disabled'], false); assert.equal(text(summarize).trim(), '', 'no text label (an icon)');
-// To-do items.
-assert.match(text(root), /Prosolocal'i internete açmak/); assert.match(text(root), /Rapor yaz/);
-const handover = find(root, (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? ''));
-assert.equal(handover.length, 1, 'Hand over only for an item of the user');
-// Your own note (an item of yours without a mark) is in the folded "Your notes" group at the bottom; Damon's item is a
-// Sürüyor card.
-const notesHead = find(root, (n) => n.t === 'button' && n.p['data-group'] === 'notes')[0];
-assert.equal(notesHead.p["aria-expanded"], false, "your notes: folded"); assert.match(text(notesHead), /cards\.notes\s+1\s*$/, JSON.stringify(text(notesHead)));
-assert.equal(find(root, (n) => n.t === 'ul' && n.p.id === notesHead.p['aria-controls'])[0].p.hidden, true);
+// To-do items: Damon's item is a Sürüyor card; your own note (an item of yours without a mark) is behind the Kararlar
+// button at the bottom (Furkan, 2026-11-24): the panel shows no note text and no → or × of a note.
+assert.match(text(root), /Rapor yaz/); assert.doesNotMatch(text(root), /Prosolocal'i internete açmak/, 'the note is in the Kararlar dialog');
+assert.equal(find(root, (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? '')).length, 0, 'no → of a note in the panel');
+const decideBtn = (tr) => find(tr, (n) => n.t === 'button' && /-decide$/.test(n.p.id ?? ''))[0];
+{
+  const b = decideBtn(root);
+  assert.ok(b, 'one Kararlar button'); assert.equal(b.p.type, 'button'); assert.equal(b.p['aria-haspopup'], 'dialog'); assert.equal(b.p['aria-expanded'], false);
+  assert.equal(b.p['aria-label'], 'decide.button:{"decisions":0,"notes":1}', 'its name counts the decisions and the notes');
+  assert.match(text(b), /decide\.title\s+decide\.noDecisions\s+decide\.notesCount:\{"count":1\}/, 'no decision: no badge, the note count');
+  assert.equal(find(b, (n) => n.p?.['data-decide-count'] !== undefined).length, 0);
+}
 const cardKeys = (tr, g) => find(tr, (n) => n.t === 'li' && n.p.className === 'cp-cs-card' && n.p['data-card'] === g).map((n) => n.p['data-key']);
 assert.deepEqual(cardKeys(root, 'suruyor'), ['c-run', 'bbbbbbbb'], 'Sürüyor: the task (newest start first), then Damon\'s item');
 assert.deepEqual(cardKeys(root, 'bitti'), ['c-done'], 'Bugün bitti: the ended task');
@@ -336,14 +339,35 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   // The order of the groups: Sorun, Senden, Sürüyor, Bugün bitti, your notes.
   const order = find(tr, (n) => n.t === 'section' && n.p['data-group'] !== undefined).map((n) => n.p['data-group']);
   assert.deepEqual(order, ['sorun', 'senden', 'suruyor', 'bitti', 'notes']);
-  let g = groupBtn(tr, 'notes'); assert.equal(g.p['aria-expanded'], false); assert.match(text(g), /cards\.notes\s+2\s*$/);
-  const notesList = () => find(panel(), (n) => n.t === 'ul' && n.p.id === groupBtn(panel(), 'notes').p['aria-controls'])[0];
-  assert.deepEqual(find(notesList(), (n) => n.t === 'li').map((n) => text(n.c[0])), ['U1', 'U2'], 'your notes in their order');
-  g.p.onClick(); assert.equal(notesList().p.hidden, false, 'a click opens your notes'); assert.equal(groupBtn(panel(), 'notes').p['aria-expanded'], true);
   assert.doesNotMatch(text(panel()), /todos\.owner/, 'no owner line');
-  assert.equal(find(notesList(), (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? '')).length, 2, '→ gives a note to Damon');
-  assert.equal(find(notesList(), (n) => n.t === 'button' && /todos\.remove:/.test(n.p['aria-label'] ?? '')).length, 2, '× on each note');
-  groupBtn(panel(), 'notes').p.onClick(); assert.equal(notesList().p.hidden, true, 'a second click folds it');
+  // Kararlar: the button counts the notes; a click opens the decision dialog (a portal into the page body, not into the
+  // panel or the chat) with your notes; closing it gives the focus back to the button. The answered notes of the dialog
+  // leave the badge at once (Damon removes them from the list later).
+  let b = decideBtn(tr);
+  assert.match(text(b), /decide\.notesCount:\{"count":2\}/);
+  const dialogOf = (t2) => find(t2, (n) => n.t?.name === 'DecisionDialog')[0];
+  assert.equal(dialogOf(tr), undefined, 'closed at first');
+  b.p.onClick(); tr = panel();
+  const portal = find(tr, (n) => n.portal?.t?.name === 'DecisionDialog')[0];
+  assert.equal(portal.host, globalThis.document.body, 'over the whole page: portaled into the body');
+  assert.equal(decideBtn(tr).p['aria-expanded'], true);
+  assert.deepEqual(dialogOf(tr).p.notes.map((i) => i.id), ['11111111', '55555555'], 'your notes go to the dialog');
+  dialogOf(tr).p.onClose(); await new Promise((r) => setTimeout(r, 5)); tr = panel();
+  assert.equal(dialogOf(tr), undefined, 'closed'); assert.equal(focused.at(-1), 'cp-td-s-assistant-decide', 'the focus goes back to the button');
+  // Decisions: a "Karar ver" note (or a note with options) is a decision; the badge counts them.
+  items = [...items, { id: '66666666', text: 'Karar ver: rapor şablonu', owner: 'user', created: 6, options: ['Kısa (Önerilen)', 'Uzun'] }, { id: '77777777', text: 'Karar ver: yedek saati', owner: 'user', created: 7 }];
+  await panelProps.store.load('s-assistant'); tr = panel(); b = decideBtn(tr);
+  assert.equal(text(find(b, (n) => n.p?.['data-decide-count'] !== undefined)[0]), '2', 'the badge: the open decisions');
+  assert.equal(b.p['aria-label'], 'decide.button:{"decisions":2,"notes":2}');
+  b.p.onClick(); tr = panel();
+  dialogOf(tr).p.setDecide((d) => ({ ...d, answered: new Set([...d.answered, '66666666']) })); tr = panel();
+  assert.equal(text(find(decideBtn(tr), (n) => n.p?.['data-decide-count'] !== undefined)[0]), '1', 'an answered decision leaves the badge at once');
+  assert.ok(panelProps.store.of('s-assistant').items.some((i) => i.id === '66666666'), 'the client removes nothing');
+  dialogOf(tr).p.onClose(); tr = panel();
+  // Nothing waits: one line says so.
+  items = items.filter((i) => i.owner !== 'user' || /^(Senden|Sorun):/.test(i.text)); await panelProps.store.load('s-assistant'); tr = panel();
+  assert.equal(decideBtn(tr), undefined); assert.equal(text(find(tr, (n) => n.p?.['data-decide-none'] !== undefined)[0]), 'decide.none');
+  assert.equal(find(tr, (n) => n.t === 'section' && n.p['data-group'] === 'notes').length, 1, 'the place stays');
   // Sorun: "Damon'a sor" writes the card's data into the composer (nothing sent).
   const before = posts.length; composer.draft = '';
   const ask = find(cardsOf(panel(), 'sorun')[0], (n) => n.t === 'button' && n.p['data-act'] === 'main')[0];
@@ -490,23 +514,25 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
   tasks = saved; await panelProps.store.load('s-assistant'); rt.clear(); tree = panel();
 }
 
-// → writes "<Do this for me:> <item>" in the composer and sends nothing: no POST, the owner and the groups stay.
-const arrow = () => find(panel(), (n) => n.t === 'button' && /todos\.handover:/.test(n.p['aria-label'] ?? ''))[0];
+// → of a card (here "Mesaj kutusuna yaz" of Damon's running item) writes its data in the composer and sends nothing: no
+// POST, the owner and the groups stay. (Since Kararlar, 2026-11-24, a note has no → in the panel.)
+const arrow = () => find(panel(), (n) => n.t === 'button' && n.p['aria-label'] === 'status.insertShort: Rapor yaz')[0];
+const WRITTEN = 'status.insert.item:{"text":"Rapor yaz"}\nstatus.insert.owner:{"owner":"Damon"}';
 const postsBefore = posts.length;
 // The card tests above wrote into the composer: start these checks from a fresh composer.
 Object.assign(composer, { draft: '', occurrences: [], rev: 0, inserts: [], focused: 0, submits: 0 });
 arrow().p.onClick(); await tick();
 assert.equal(posts.length, postsBefore, '→ sends nothing to the Host');
-assert.equal(composer.draft, 'todos.handoverMessage Prosolocal\'i internete açmak', 'the text is in the empty composer');
+assert.equal(composer.draft, WRITTEN, 'the text is in the empty composer');
 assert.deepEqual(composer.inserts.at(-1).span, { start: 0, end: 0, draftRev: 0 }, 'at the end of the draft');
 assert.equal(composer.focused, 1, 'the focus goes to the composer (caret after the text)');
 assert.equal(composer.submits, 0, 'not sent');
-tree = panel(); assert.equal(arrow() !== undefined, true, 'the item stays the user\'s');
+tree = panel(); assert.equal(arrow() !== undefined, true, 'the item stays');
 assert.deepEqual(find(tree, (n) => n.t === 'section' && n.p['data-group'] !== undefined).map((n) => n.p['data-group']), ['suruyor', 'bitti', 'notes'], 'no group change');
 // A draft that is there stays: the text goes on a new line after it.
 composer.draft = 'Ask about the invoice';
 arrow().p.onClick();
-assert.equal(composer.draft, 'Ask about the invoice\ntodos.handoverMessage Prosolocal\'i internete açmak', 'appended on its own line, the draft kept');
+assert.equal(composer.draft, `Ask about the invoice\n${WRITTEN}`, 'appended on its own line, the draft kept');
 assert.deepEqual(composer.inserts.at(-1).span, { start: 21, end: 21, draftRev: 1 });
 // A chip counts as one character in dsh's span: the end is after the chip, not after its text.
 composer.draft = 'see src/app.js'; composer.occurrences = [{ offset: 4, length: 10 }];
@@ -569,8 +595,9 @@ find(tree, (n) => n.t === 'button' && /todos\.remove:.*Rapor/.test(n.p['aria-lab
 assert.deepEqual(posts.at(-1), { sessionId: 's-assistant', id: 'bbbbbbbb', action: 'remove' });
 assert.doesNotMatch(text(panel()), /Rapor yaz/);
 
-// One action per chat at a time; aria-disabled (not disabled) while it runs.
+// One action per chat at a time; aria-disabled (not disabled) while it runs (a card's ×: a note has none in the panel).
 const store = panelProps.store;
+items = [{ id: 'aaaaaaaa', text: 'Damon item', owner: 'agent', created: 1 }]; await store.load('s-assistant');
 let open; gate = new Promise((r) => { open = r; });
 const first = store.act('s-assistant', 'aaaaaaaa', 'remove');
 assert.equal(await store.act('s-assistant', 'aaaaaaaa', 'remove'), false, 'a second action waits');
@@ -608,7 +635,7 @@ assert.equal(gets.length - reads, 1, 'a burst is merged into one read');
   assert.match(text(find(tree, (n) => n.t === 'h2')[0]), /status\.updated/, 'the list time');
   assert.equal(find(tree, (n) => n.p?.title === 'status.updatedHint').length, 1, 'the list time has the hint');
   const r0 = gets.length; const p0 = posts.length;
-  items = [{ id: 'ffffffff', text: 'Fresh item', owner: 'user', created: 9 }];
+  items = [{ id: 'ffffffff', text: 'Fresh item', owner: 'agent', created: 9 }];
   const clicked = Date.now();
   refreshBtn().p.onClick();
   // At once (no await): the button turns and is aria-disabled, the header says Refreshing…, the old content is dimmed in

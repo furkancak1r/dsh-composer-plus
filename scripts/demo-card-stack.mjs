@@ -33,6 +33,13 @@ const SAMPLES = {
     tasks: ['Due-date queries of acme-web', 'Weekly stock report', 'Login-fix branch', 'weather-cli update'],
     extra: ['Status panel: a plain look, icon buttons, no automations in the panel', 'Approval: merge the deploy package test branch (not live)'] },
 };
+/** Kararlar demo: decision notes (made up), with the options that Damon gives (the recommended one first). */
+export const DECISIONS = [
+  ['Karar ver: haftalık stok raporu hangi şablonla gitsin?', ['Kısa şablon (Önerilen)', 'Uzun şablon', 'Bu hafta gönderme']],
+  ['Karar ver: acme-web gece yedeği hangi saatte alınsın?', ['02:00 (Önerilen)', '05:00', 'Hafta sonu tek sefer']],
+  ['Karar ver: test sunucusundaki eski loglar silinsin mi?', ['30 günden eskiler silinsin (Önerilen)', 'Arşive taşınsın']],
+  ['Karar ver: hava durumu CLI sürüm notu Türkçe mi İngilizce mi?', null],
+];
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const now = () => Date.now();
 
@@ -94,6 +101,10 @@ export async function fakeModel(calls = [], lang = 'tr') {
       // "DEMO-AUTO-SETUP" makes a one-time scheduled task whose delivery opens a new chat in the Damon chat's folder (an
       // automation chat; its answer is the plain demo reply).
       if (damonStep && newest.trim() === 'DEMO-EXTRA') return step === 0 ? tools(S.extra.map((text, i) => ['todo_list_add', { text, owner: i === 0 ? 'agent' : 'user' }])) : say('[quiet]');
+      // Kararlar (test/browser-card-stack.mjs step 10, the screenshots): "DEMO-DECISIONS" adds decision notes of the
+      // user, three with options and one without. A message that starts with "Karar:" or "Not tamam:" is the dialog's.
+      if (damonStep && newest.trim() === 'DEMO-DECISIONS') return step === 0 ? tools(DECISIONS.map(([text, options]) => ['todo_list_add', { text, owner: 'user', ...(options ? { options } : {}) }])) : say('[quiet]');
+      if (/^(Karar|Not tamam|Decision|Note done):/.test(newest.trim())) return say('[quiet]');
       if (damonStep && newest.trim() === 'DEMO-AUTO-SETUP') {
         const at = new Date(Date.now() + 8000).toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
         // The answer repeats the `onay` block: a block counts only after your newest message.

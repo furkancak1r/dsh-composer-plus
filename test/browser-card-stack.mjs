@@ -2,7 +2,7 @@
 // a fake model on 127.0.0.1, made-up projects and items). Headless, with Chromium's sandbox. Never the user's dsh home.
 // 1. The Damon chat shows the card stack at the right of the chat by default (inside dsh's chat body, over no message,
 //    not in dsh's right sidebar): the count bar "1 onay · 1 sorun · 2 senden · 3 sürüyor · 2 bitti" (Turkish UI), then Onay, Sorun, Senden,
-//    Sürüyor, Bugün bitti (folded) and Notların (folded), in that order.
+//    Sürüyor, Bugün bitti (folded) and the Kararlar button (your notes), in that order.
 // 2. The Onay card shows the whole approval sentence with one Onayla; there is no Approve button under Damon's reply,
 //    and the sentence stays in the reply as gray text (no code block).
 // 3. One click on Onayla sends the exact sentence as the user's message: the model gets it as the newest user message,
@@ -20,6 +20,11 @@
 //    sideways, nothing leaves the stack, no part inside it is a box (background, shadow, border on two sides); above the
 //    chat it stays in the chat column and above the messages; at the right it covers no message. Below 1000 px the stack
 //    is above the chat and the button hides. SHOTS=<folder> writes the page at each place.
+// 10. Kararlar (Furkan, 2026-11-24): the notes are one button with the count of decisions (a badge) and of the other
+//    notes. A click opens a modal dialog over the whole page (the top layer, a blurred backdrop, the chat inert): one
+//    decision card with its options; one click sends "Karar: <item> → <option>" once as the user's message and shows the
+//    next card at once; → skips; a decision without options says so; Esc closes the dialog and
+//    the focus goes back to the button. DECIDE_SHOTS=<folder> writes the screenshots of the dialog.
 // PLAYWRIGHT=/path/to/playwright node test/browser-card-stack.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/assistantTodos.webp from its own demo with the English UI and English made-up data.
 import assert from 'node:assert/strict';
@@ -29,7 +34,7 @@ import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { APPROVAL, fakeModel, demoHome, startDemo, seed } from '../scripts/demo-card-stack.mjs';
+import { APPROVAL, DECISIONS, fakeModel, demoHome, startDemo, seed, rpcOf } from '../scripts/demo-card-stack.mjs';
 const require = createRequire(import.meta.url);
 if (!process.env.PLAYWRIGHT || process.argv.length < 3) throw Error('Set PLAYWRIGHT and pass one or more dsh CLI entry paths');
 const { chromium } = require(process.env.PLAYWRIGHT);
@@ -125,8 +130,9 @@ try {
       const order = await stack.evaluate((el) => [...el.querySelectorAll('[data-card="onay"][role="region"], section[data-group]')].map((n) => n.dataset.card ?? n.dataset.group));
       assert.deepEqual(order, ['onay', 'sorun', 'senden', 'suruyor', 'bitti', 'notes'], 'the order of the stack');
       assert.equal(await stack.locator('button.cp-td-group[data-group="bitti"]').getAttribute('aria-expanded'), 'false', 'Bugün bitti starts folded');
-      assert.equal(await stack.locator('button.cp-td-group[data-group="notes"]').getAttribute('aria-expanded'), 'false', 'Notların starts folded');
-      note('1: the stack at the right of the chat (the default), the count bar, the order (Bugün bitti and Notların folded)');
+      const decide = stack.locator('button.cp-dc-open');
+      assert.equal(await decide.getAttribute('aria-label'), 'Kararlar: 0 karar ve 2 not bekliyor. Karar kartlarını aç', 'the Kararlar button counts your notes');
+      note('1: the stack at the right of the chat (the default), the count bar, the order (Bugün bitti folded, the Kararlar button last)');
       // 2. The Onay card: the whole sentence and one Onayla; none under the reply; the sentence in the reply as gray text.
       const onay = stack.locator('[data-card="onay"][role="region"]');
       await until(async () => (await onay.innerText()).includes(APPROVAL), 'the whole sentence in the Onay card');
@@ -144,11 +150,8 @@ try {
       assert.ok(await onay.isVisible(), 'the card stays');
       await page.keyboard.press('Backspace'); await approve.waitFor({ timeout: 10000 });
       note('4: typing hides Onayla, the card stays; an empty composer brings it back');
-      // 5. → of a note and Yaptım of a Senden card write into the composer and send nothing.
+      // 5. Yaptım of a Senden card writes into the composer and sends nothing.
       const before = calls.length;
-      await stack.locator('button.cp-td-group[data-group="notes"]').click();
-      await stack.getByRole('button', { name: 'Asistana devret: Kırtasiye siparişini ver', exact: true }).click();
-      await until(async () => (await input.innerText()).includes('Bunu sen yap: Kırtasiye siparişini ver'), '→ writes the hand-over');
       await stack.locator('[data-card="senden"]').filter({ hasText: 'Gerekli Tarih alanını aç' }).getByRole('button', { name: 'Yaptım: Test sunucusunda Gerekli Tarih alanını aç', exact: true }).click();
       await until(async () => (await input.innerText()).includes('Yaptım: Test sunucusunda Gerekli Tarih alanını aç'), 'Yaptım writes the step');
       await pause(1200); assert.equal(calls.length, before, 'nothing sent');
@@ -160,7 +163,7 @@ try {
       await until(async () => (await inView()).ok, `the projects in view (${JSON.stringify(await inView())})`);
       await input.click(); await page.keyboard.press('ControlOrMeta+a'); await page.keyboard.press('Backspace'); await page.keyboard.press('Escape');
       await approve.waitFor({ timeout: 10000 });
-      note('5: → and Yaptım write into the composer, nothing sent; Projeler opens the projects');
+      note('5: Yaptım writes into the composer, nothing sent; Projeler opens the projects');
       // 3. Onayla sends the exact sentence as the user's message, once.
       const sent = calls.length;
       await approve.click(); await approve.click({ timeout: 1000 }).catch(() => {});
@@ -251,6 +254,85 @@ try {
       assert.deepEqual([...await flatFaults(page), ...await topFaults(page, sessionId)], [], 'the right side at 900 px shows above the chat: flat, no sideways scroll');
       await page.setViewportSize({ width: 1280, height: 900 });
       note('9: the place button: Enter and Space, the focus stays, a reload keeps it; flat and no sideways scroll at 1360x770 and 900 px (both places)');
+      // 10. Kararlar: the decision notes come (the demo's DEMO-DECISIONS); the button's badge counts them.
+      const { rpc } = await rpcOf(demo.url);
+      await rpc('session/prompt', { request: { requestId: `decide-${Date.now()}`, sessionId, mode: 'queue', content: [{ type: 'text', text: 'DEMO-DECISIONS' }] } });
+      const badge = decide.locator('[data-decide-count]');
+      await until(async () => (await badge.count()) === 1 && (await badge.innerText()).trim() === String(DECISIONS.length), 'the badge counts the decisions', 30000);
+      assert.equal(await decide.getAttribute('aria-label'), `Kararlar: ${DECISIONS.length} karar ve 2 not bekliyor. Karar kartlarını aç`);
+      const decideShot = async (name) => {
+        if (!process.env.DECIDE_SHOTS || index !== 0) return;
+        const path = join(process.env.DECIDE_SHOTS, `${name}.png`); await page.screenshot({ path }); console.log(`  ${path}`);
+      };
+      await page.mouse.move(5, 5); await pause(600);
+      await decideShot('1-panel-butonu');
+      await decide.click();
+      const dlg = page.locator('dialog[data-composer-plus-decide]');
+      await dlg.waitFor({ timeout: 10000 });
+      const modal = await dlg.evaluate((d) => ({ open: d.open, modal: d.matches(':modal'), label: document.getElementById(d.getAttribute('aria-labelledby'))?.textContent,
+        filter: getComputedStyle(d, '::backdrop').backdropFilter }));
+      assert.equal(modal.open && modal.modal, true, 'a modal dialog (the top layer)'); assert.equal(modal.label, 'Kararlar', 'aria-labelledby');
+      assert.match(modal.filter, /blur\(\d+px\)/, `the backdrop is blurred (${modal.filter})`);
+      assert.equal(await dlg.getAttribute('aria-modal'), 'true'); assert.equal(await dlg.getAttribute('role'), 'dialog');
+      // A click outside the dialog hits the backdrop (the dialog), not the chat behind it.
+      assert.equal(await page.evaluate(() => { const d = document.querySelector('dialog[data-composer-plus-decide]'); const r = d.getBoundingClientRect(); const hit = document.elementFromPoint(Math.max(2, r.left - 40), r.top + 10); return hit === d; }), true, 'the page behind the dialog takes no click');
+      const card = dlg.locator('[data-decision]');
+      await until(async () => (await card.innerText()).includes(DECISIONS[0][0]), 'the first decision card');
+      assert.equal((await dlg.locator('[data-dc-progress]').innerText()).trim(), `1 / ${DECISIONS.length}`);
+      assert.deepEqual(await dlg.locator('button[data-option]').evaluateAll((els) => els.map((b) => b.innerText.replace(/\s+/g, ' ').trim())), ['1 Kısa şablon Önerilen', '2 Uzun şablon', '3 Bu hafta gönderme']);
+      assert.equal(await page.evaluate(() => document.activeElement?.hasAttribute('data-dc-focus')), true, 'the focus is in the dialog (the question)');
+      await pause(400); await decideShot('2-karar-karti');
+      // One click: the exact message once; the next card at once.
+      const before10 = calls.length;
+      const first = dlg.locator('button[data-option="1"]');
+      await first.click(); await first.click({ timeout: 300 }).catch(() => {});
+      await until(async () => (await card.innerText()).includes(DECISIONS[1][0]), 'the next card at once');
+      const want10 = `Karar: ${DECISIONS[0][0]} → Kısa şablon`;
+      await until(() => calls.slice(before10).some((c) => c.newest === want10), 'the model got the decision as the user\'s message');
+      await pause(1200);
+      assert.equal(calls.slice(before10).filter((c) => c.newest === want10 && c.step === 0).length, 1, 'one message for one click');
+      assert.equal(calls.slice(before10).filter((c) => c.step === 0 && /^Karar:/.test(c.newest)).length, 1, 'the second click on the old card sent nothing');
+      assert.equal((await dlg.locator('[data-dc-progress]').innerText()).trim(), `2 / ${DECISIONS.length}`);
+      await page.mouse.move(5, 5); await pause(400); await decideShot('3-bir-tiklamadan-sonra');
+      // → skips (after the key guard); the decision without options says so.
+      await pause(900); await page.keyboard.press('ArrowRight');
+      await until(async () => (await card.innerText()).includes(DECISIONS[2][0]), '→ skips');
+      await pause(900); await page.keyboard.press('ArrowRight');
+      await until(async () => (await card.innerText()).includes(DECISIONS[3][0]), 'the decision without options');
+      assert.equal(await dlg.locator('button[data-option]').count(), 0); assert.match(await card.innerText(), /Damon seçenek eklemedi/);
+      await pause(900); await page.keyboard.press('ArrowRight');
+      // The notes after the decisions.
+      await until(async () => (await dlg.locator('[data-note]').count()) === 2, 'the other notes');
+      await pause(300); await decideShot('4-notlar-listesi');
+      for (let n = 0; n < 2; n++) { await pause(500); await dlg.locator('[data-note]').first().getByRole('button', { name: /^Atla:/ }).click(); }
+      await dlg.locator('[data-dc="back"]').waitFor();
+      // Esc closes it, the focus goes back to the button.
+      await page.keyboard.press('Escape');
+      await until(async () => (await dlg.count()) === 0, 'Esc closes the dialog');
+      await until(() => page.evaluate(() => document.activeElement?.classList.contains('cp-dc-open') === true), 'the focus goes back to the Kararlar button');
+      assert.equal((await badge.innerText()).trim(), String(DECISIONS.length - 1), 'the answered decision left the badge at once');
+      // Open again: answer the rest (a click, the free text), then the notes with Yaptım: "Hepsi bitti" and Kapat.
+      await decide.click(); await dlg.waitFor({ timeout: 10000 });
+      await until(async () => (await card.innerText()).includes(DECISIONS[1][0]), 'the skipped decisions come back in a new opening');
+      // A user reads each card: a click in the first 0.4 s after the last one does nothing (a double click).
+      await pause(500); await dlg.locator('button[data-option="1"]').click();
+      await until(async () => (await card.innerText()).includes(DECISIONS[2][0]), 'next');
+      await pause(500); await dlg.locator('button[data-option="2"]').click();
+      await until(async () => (await card.innerText()).includes(DECISIONS[3][0]), 'next');
+      await pause(500);
+      await dlg.getByRole('textbox', { name: 'Başka bir cevap' }).fill('Türkçe yazılsın');
+      await dlg.getByRole('button', { name: 'Gönder', exact: true }).click();
+      await until(async () => (await dlg.locator('[data-note]').count()) === 2, 'the notes');
+      const before10b = calls.length;
+      for (let n = 0; n < 2; n++) { await pause(500); await dlg.locator('[data-note]').first().getByRole('button', { name: /^Yaptım:/ }).click(); }
+      await until(async () => (await dlg.locator('.cp-dc-empty').count()) === 1, '"Hepsi bitti"');
+      assert.equal((await dlg.locator('.cp-dc-empty').innerText()).trim(), 'Hepsi bitti');
+      await until(() => ['Not tamam: Kırtasiye siparişini ver', 'Not tamam: Toplantı notlarını oku', `Karar: ${DECISIONS[3][0]} → Türkçe yazılsın`].every((m) => calls.some((c) => c.newest === m)), 'Yaptım and the free text went as messages');
+      assert.ok(calls.slice(before10b).length > 0);
+      await page.mouse.move(5, 5); await pause(300); await decideShot('5-hepsi-bitti');
+      await dlg.locator('[data-dc="close"]').click();
+      await until(async () => (await dlg.count()) === 0, 'Kapat closes it');
+      note('10: Kararlar: the badge counts the decisions; a modal dialog over the page (blurred backdrop); one click sent "Karar: … → …" once and showed the next card; → skips; no options: the note; Esc closes, the focus goes back');
       assert.deepEqual(errors, [], 'no page errors');
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {
