@@ -4300,16 +4300,18 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // An Auto Review ask that Allow for this chat answers by itself waits for nobody (review 3).
       const asked = typeof useSessionStatus === 'function' ? useSessionStatus((s) => { const p = s?.get?.(sessionId)?.pendingInteraction; return p == null || (isAutoReviewAsk(p) && isGranted(sessionId, p.toolName)) ? '' : String(p.key ?? p.kind ?? '?'); }) : '';
       const focusSeat = React.useRef(false);
+      const [decideOpen, setDecideOpen] = React.useState(false); // the Kararlar dialog is open
       React.useEffect(() => {
         if (asked !== '' && canvas) { focusSeat.current = true; setCanvas(false); return; }
-        if (canvas || !focusSeat.current) return;
+        // An open decision dialog is modal (the page outside it takes no focus): the focus goes there after it closes.
+        if (canvas || decideOpen || !focusSeat.current) return;
         // After the close is drawn: the first visible control of the composer place (dsh keeps its normal composer there,
         // hidden, before the card), else the canvas button.
         focusSeat.current = false;
         const shown = [...(host.querySelectorAll?.('[data-composer-seat] button, [data-composer-seat] [tabindex]:not([tabindex="-1"]), [data-composer-seat] input, [data-composer-seat] textarea') ?? [])]
           .find((e) => e.checkVisibility?.() ?? e.getClientRects?.().length > 0);
         (shown ?? globalThis.document?.getElementById?.(`cp-td-${sessionId}-canvas`))?.focus?.();
-      }, [asked, canvas]);
+      }, [asked, canvas, decideOpen]);
       // At the right, the panel makes the chat move left (SEAT_ATTR on the chat body), also while it is folded: the folded
       // panel still shows its header and the Onay card (review: a folded side panel covered messages).
       React.useLayoutEffect(() => { host.setAttribute?.(SEAT_ATTR, place === 'side' ? 'open' : 'closed'); return () => host.removeAttribute?.(SEAT_ATTR); }, [host, place]);
@@ -4318,10 +4320,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       const [qi, setQi] = React.useState(0);
       const [later, setLater] = React.useState([]);
       const [menuKey, setMenuKey] = React.useState(null); // the card whose "…" menu is open
-      // Kararlar: the dialog is open; the notes that you answered or removed (id → when: they stay hidden for
-      // DECIDE_HIDE_MS, Damon removes an answered item after he reads your message), the Sonra order and the reason of a
-      // send that failed (also after the dialog closed).
-      const [decideOpen, setDecideOpen] = React.useState(false);
+      // Kararlar: the notes that you answered or removed (id → when: they stay hidden for DECIDE_HIDE_MS, Damon removes an
+      // answered item after he reads your message), the Sonra order and the reason of a send that failed (also after the
+      // dialog closed). `decideOpen` (the dialog is open) is above, before the effect that reads it.
       const [decide, setDecide] = React.useState(() => ({ answered: new Map(), later: [], error: null }));
       const shownAt = React.useRef({ key: null, at: 0 }); // the active item and when it became active (the key guard)
       const choiceNow = React.useSyncExternalStore(offers.subscribe, () => offers.choiceOf?.(sessionId));
@@ -4576,7 +4577,9 @@ blockquote[data-cp-callout="details"][data-cp-open="false"]>:not(.cp-co-toggle){
       // decisions and of the other notes; it opens the decision dialog. Nothing open: one line says so.
       const dq = decisionQueue(cards.notes, decide, now);
       // The focus goes back to the button; when the button is gone (nothing waits), to the panel's title.
-      const closeDecide = () => { setDecideOpen(false); setTimeout(() => { const doc = globalThis.document; (doc?.getElementById?.(`${headId}-decide`) ?? doc?.getElementById?.(headId))?.focus?.(); }, 0); };
+      // On the canvas the title is the canvas itself (homeId). dsh's question closed the canvas while the dialog was open:
+      // the focus goes into that question (the effect of focusSeat), not to the button.
+      const closeDecide = () => { setDecideOpen(false); if (focusSeat.current) return; setTimeout(() => { const doc = globalThis.document; (doc?.getElementById?.(`${headId}-decide`) ?? doc?.getElementById?.(homeId))?.focus?.(); }, 0); };
       const notes = React.createElement('section', { key: 'notes', 'data-group': 'notes' },
         decideOpen || decide.error == null ? null : React.createElement('p', { className: 'cp-td-err', role: 'alert', 'data-decide-error': '' }, decide.error),
         dq.decisions.length + dq.notes.length === 0 ? React.createElement('p', { className: 'cp-td-empty', 'data-decide-none': '' }, t('decide.none'))

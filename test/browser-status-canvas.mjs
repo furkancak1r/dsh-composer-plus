@@ -8,6 +8,7 @@
 // 3. Pan (drag the background, the wheel), zoom (Ctrl+wheel, + and −), Fit all: every card inside the view.
 // 4. Drag a card: its place is saved; after a reload and an open again, the card and the zoom are where they were. A new
 //    card (the choice after the approval) gets a place that touches no other card.
+// 4b. The Kararlar button (your notes) on the canvas opens the decision dialog; Esc closes only the dialog.
 // 5. Keyboard: Tab from the canvas reaches the cards and the Onayla button; Onayla on the canvas sends the exact sentence
 //    once (the panel's path).
 // 6. Esc and Back to the chat close it: the chat's scroll position and the composer draft are the same as before; the
@@ -147,6 +148,21 @@ try {
       const a1 = afterDrag.cards.find((c) => c.key === noteKey); const a2 = afterReload.cards.find((c) => c.key === noteKey);
       assert.ok(Math.abs(a1.x - a2.x) < 2 && Math.abs(a1.y - a2.y) < 2, `the card stays after a reload (${JSON.stringify([a1, a2])})`);
       note('4: a dragged card and the zoom stay after a reload (localStorage)');
+      // 4b. Your notes on the canvas: the Kararlar button opens the decision dialog over the canvas; Esc closes only the
+      // dialog (not the canvas), and the focus goes back to the button.
+      const decideBtn = canvas.locator('[data-cv-key="notes"] button[aria-haspopup="dialog"]');
+      // The card was dragged out of the view in step 4: Fit all brings it back (a click must not scroll dsh's frame).
+      await canvas.locator('[data-cv-fit]').click(); await pause(200);
+      await decideBtn.click();
+      const dialog = page.locator('dialog[data-composer-plus-decide][open]');
+      await dialog.waitFor({ timeout: 5000 });
+      assert.equal(await dialog.evaluate((d) => d.matches(':modal')), true, 'a modal dialog over the canvas');
+      await pause(300); await page.keyboard.press('Escape');
+      await until(async () => (await dialog.count()) === 0, 'Esc closes the dialog', 5000);
+      await pause(300);
+      assert.equal(await page.locator('[data-composer-plus-todos][data-canvas]').count(), 1, 'the canvas stays open');
+      await until(() => decideBtn.evaluate((b) => document.activeElement === b), 'the focus goes back to the Kararlar button', 3000);
+      note('4b: Kararlar on the canvas opens the modal decision dialog; Esc closes only the dialog; the focus is back on the button');
       // 5. Keyboard: Tab reaches the Onay card's Onayla; Enter on it sends the exact sentence once.
       await canvas.locator('.cp-cv-view').focus();
       let reached = false;

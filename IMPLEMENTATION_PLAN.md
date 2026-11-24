@@ -14,7 +14,8 @@ close it; the chat comes back as it was.
 - Canvas closed: the chat and the status panel behave and look exactly as before (existing unit and browser tests pass
   unchanged).
 - One data path: the canvas is drawn by StatusPanel from the same `state`, `statusCards`, `statusQueue`; the card
-  elements and their handlers are the panel's own (`card`, `onayCard`, `kararCard`, the note row, `summaryCard`).
+  elements and their handlers are the panel's own (`card`, `onayCard`, `kararCard`, the notes section with the Kararlar
+  button that opens the same decision dialog, `summaryCard`).
 - The chat is hidden with `visibility:hidden` on the other children of dsh's `[data-conversation-content]` (no unmount,
   no layout change), so its scroll position and the composer draft stay.
 - Part of the `assistantTodos` feature: switching it off removes the button, the canvas, its listeners and the mark on
@@ -57,7 +58,8 @@ test/status-canvas.test.mjs, test/assistant-todos-client.test.mjs, test/browser-
   two-finger pinch (a Mac trackpad pinch comes as Ctrl+wheel).
 - Plain wheel pans; Ctrl/Cmd+wheel zooms (10%–200%); Fit all never zooms above 100%.
 - The canvas button is an icon button (⊞, a text glyph: dsh's primitives have no canvas icon) next to Refresh.
-- An action that writes into the composer (→, Yaptım, Yanıtla, a note's →) or the choice's → closes the canvas first.
+- An action that writes into the composer (→, Yaptım, Yanıtla) or the choice's → closes the canvas first. The notes
+  column is one `notes` card: the Kararlar button; its decision dialog opens over the canvas (the canvas stays open).
 - Esc closes only while the focus is in the chat body or nowhere, and not while a menu or dialog is open.
 - Card positions are pruned when a card leaves (approval, summary, choice, outage, projects keep theirs).
 - Drag uses window pointer listeners (no pointer capture: dsh's elements took the events after the pointer left).
@@ -119,6 +121,16 @@ test/status-canvas.test.mjs, test/assistant-todos-client.test.mjs, test/browser-
 - Last passing (after the merge, before its commit): `npm test` exit 0; browser-status-canvas, browser-card-stack (with
   the Kararlar step 10), browser-running-filter, browser-summary-resize, browser-dismiss-task PASS on dsh 0.2.2-rc.5
   (headless, chromiumSandbox true).
+- Merge commit 3366d2df. review-guard round 4 (separate subagent, `git diff origin/main...HEAD`, base 922882a2):
+  **P1 0, P2 0**, P3 2, P4 2, all fixed: P3 the focus after the decision dialog closes on the canvas without a Kararlar
+  button goes to the canvas (`homeId`), not to the page; P3 browser-status-canvas step 4b (Kararlar on the canvas opens
+  the modal dialog, Esc closes only the dialog, the focus is back on the button) on all three dsh versions; P4 dsh's
+  question that closes the canvas while the dialog is open gets the focus after the dialog closes (`decideOpen` in the
+  focusSeat effect, closeDecide skips the button); P4 plan lines 17 and 60. Unit checks added for both focus cases.
+- Last passing (2026-11-24 20:1x, after these fixes): `npm test` exit 0; `git diff --check` clean;
+  browser-status-canvas PASS on dsh 0.2.0-rc.2, 0.2.1-rc.2, 0.2.2-rc.5; browser-card-stack, browser-running-filter,
+  browser-summary-resize, browser-dismiss-task PASS on 0.2.2-rc.5 (headless, chromiumSandbox true). Screenshots taken
+  again after the merge (the notes column shows the Kararlar button).
 - Stopped here at about 150 tool calls (Damon's rule). Open steps for the next chat:
   1. `git fetch origin`; if origin/main moved past 6ad16cb3: merge it, run the checks above, run one review-guard round.
   2. From the main worktree: `git merge --no-ff feat/assistant-canvas-view`, `git push origin main`.

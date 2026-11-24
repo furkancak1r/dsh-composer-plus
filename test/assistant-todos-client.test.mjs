@@ -617,6 +617,14 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
     find(r.cvTree, (n) => n.t === 'button' && n.p['aria-label'] === 'todos.remove:{"item":"Senden: SAP alanını aç"}')[0].p.onClick(); await tick();
     assert.deepEqual(posts.slice(p0), [{ sessionId: 's-assistant', id: 's1', action: 'remove' }], 'the item is removed through the store');
     dialog.portal.p.onClose(); r = draw(); assert.equal(find(r.tr, (n) => n.portal?.t?.name === 'DecisionDialog').length, 0, 'closed');
+    await new Promise((res) => setTimeout(res, 5)); assert.equal(focused.at(-1), 'cp-td-s-assistant-decide', 'the focus goes back to the Kararlar button');
+    // No button any more (all answered): the focus goes to the canvas, not to the page (review 4).
+    const byId = globalThis.document.getElementById;
+    globalThis.document.getElementById = (id) => (id === 'cp-td-s-assistant-decide' ? null : byId(id));
+    find(r.cvTree, (n) => n.t === 'button' && /-decide$/.test(n.p.id ?? ''))[0].p.onClick(); r = draw();
+    find(r.tr, (n) => n.portal?.t?.name === 'DecisionDialog')[0].portal.p.onClose(); await new Promise((res) => setTimeout(res, 5));
+    globalThis.document.getElementById = byId; r = draw();
+    assert.equal(focused.at(-1), 'cp-td-s-assistant-view', 'the focus goes to the canvas when the button is gone');
   }
   // A task card's click opens its chat.
   const o0 = opened.length;
@@ -652,6 +660,16 @@ const groupBtn = (tr, g) => find(tr, (n) => n.t === 'button' && n.p['data-group'
     assert.equal(r2.cv, undefined, 'a question of dsh closes the canvas');
     assert.deepEqual(seen, ['card'], 'the focus goes to the visible question, not the hidden composer button');
     assert.equal(find(r2.tr, (n) => n.p?.['data-composer-plus-canvas-open'] !== undefined).length, 0, 'no canvas button while dsh waits');
+    // The same with the Kararlar dialog open on the canvas: it is modal, so the focus goes into dsh's question after the
+    // dialog closes, not to the Kararlar button (review 4).
+    statuses.set('s-assistant', { running: false }); find(draw().tr, (n) => n.p?.['data-composer-plus-canvas-open'] !== undefined)[0].p.onClick(); draw(); effectsNow();
+    find(draw().cvTree, (n) => n.t === 'button' && /-decide$/.test(n.p.id ?? ''))[0].p.onClick(); draw(); effectsNow();
+    seen.length = 0; statuses.set('s-assistant', { running: false, pendingInteraction: { kind: 'question', key: 'q2' } }); draw(); effectsNow();
+    let r3 = draw(); effectsNow(); assert.equal(r3.cv, undefined, 'the question closes the canvas'); assert.deepEqual(seen, [], 'no focus while the dialog is open');
+    await new Promise((res) => setTimeout(res, 5)); // the canvas open's own focus timer
+    const f0 = focused.length; find(r3.tr, (n) => n.portal?.t?.name === 'DecisionDialog')[0].portal.p.onClose(); r3 = draw(); effectsNow();
+    await new Promise((res) => setTimeout(res, 5));
+    assert.deepEqual(seen, ['card'], 'after the dialog: the focus goes to dsh\'s question'); assert.deepEqual(focused.slice(f0), [], 'not to the Kararlar button');
     delete body.querySelectorAll;
   }
   statuses.set('s-assistant', { running: false });
