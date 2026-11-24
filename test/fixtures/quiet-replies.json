@@ -35,6 +35,8 @@
     { "steps": [["[quiet]", "tool"], "@agent-message", ["Not aldım.", "tool"], ["[quiet]"]], "push": null },
     { "steps": [["Found 2 issues: login and search."], "@subagent-settled", ["[quiet]"]], "push": "Found 2 issues: login and search." },
     { "steps": [["Checking.", "tool"], "@subagent-settled", ["[quiet]"]], "push": null },
+    { "steps": [["Checking.", "tool"], ["think"], "@subagent-settled", ["[quiet]"]], "push": null },
+    { "steps": [["Checking.", "tool"], [" "], "@subagent-settled", ["[quiet]"]], "push": null },
     { "steps": [["Checking.", "tool"], "Is the deploy done?", ["Yes: acme-web is live.", "tool"], ["[quiet]"]], "push": "Yes: acme-web is live." },
     { "steps": [["Found 2 issues.", "tool"], "OK.", ["[quiet]"]], "push": null },
     { "steps": [["Found 2 issues.", "tool"], "Which ones?", ["Login and search."]], "push": "Login and search." },

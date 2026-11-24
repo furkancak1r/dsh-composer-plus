@@ -1207,7 +1207,8 @@ func damonWords(_ events: [J], reason: String?) -> String? {
         } else if type == "assistant/message", data?["interrupted"] as? Bool != true {
             let content = (data?["message"] as? J)?["content"]
             let s = contentText(content, imageMarker: false).trimmingCharacters(in: .whitespacesAndNewlines)
-            parts[parts.count - 1].done = !((content as? [J])?.contains { $0["type"] as? String == "tool-call" } ?? false)
+            let tool = (content as? [J])?.contains { $0["type"] as? String == "tool-call" } ?? false
+            if !s.isEmpty || tool { parts[parts.count - 1].done = !tool } // a reasoning-only step changes nothing
             if !s.isEmpty { parts[parts.count - 1].texts.append(s); last = s }
         }
     }

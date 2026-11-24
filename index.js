@@ -11693,7 +11693,8 @@ export function damonPushWords(events, from = 0) {
       }
     } else if (e.type === 'assistant/message' && e.data?.interrupted !== true) {
       const content = e.data?.message?.content; const t = textBlocks(content).trim(); const part = turn.parts.at(-1);
-      part.done = !(Array.isArray(content) && content.some((b) => b?.type === 'tool-call'));
+      const tool = Array.isArray(content) && content.some((b) => b?.type === 'tool-call');
+      if (t !== '' || tool) part.done = !tool; // a reasoning-only step changes nothing
       if (t !== '') part.texts.push(turn.last = t);
     }
   }

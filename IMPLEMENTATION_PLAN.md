@@ -117,8 +117,13 @@ appended synchronously right after the running status, lib/index.js 630-645 and 
   Damon subagent's failure with Damon only (as the gateway). P4 quiet-replies.json `about` text.
 - Red on 25f1bd31: push-text, push-words, quiet-replies, notify-per-mac all fail; green now. `npm test` exit 0, iOS 122/0.
 
+## Review round 4 (2026-11-24, separate subagent review-guard-4): P1 0, P2 0, P3 1, P4 0 — loop done
+- P3 fixed: a reasoning-only or whitespace-only step no longer sets `done` (both ports; 2 table rows, red on 5d964536).
+- Checks: `npm test` exit 0; iOS 122/0 on simulator id 78433038-4CF1-45AC-8B35-0CBEC96CC8CB (iPhone 17, iOS 26.5; the
+  iPhone 17 Pro simulator refused to launch the test host twice: "Busy", "Application failed preflight checks").
+
 ## Last checkpoint (2026-11-24) / open steps
-- Review 1, 2 and 3 fixes done. Last passing: `npm test` exit 0 and iOS 122/0 after round 1 (round 2 checks: see the commit).
+- Review 1, 2, 3 and 4 fixes done. Last passing: `npm test` exit 0 and iOS 122/0 after round 1 (round 2 checks: see the commit).
   iOS command: `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination
   'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' test CODE_SIGNING_ALLOWED=NO`. Screenshot: `SHOT_DIR=<dir>`.
 - Open, in order: review round 3 in a separate subagent (repeat until no P1/P2); merge origin/main again, merge into main
