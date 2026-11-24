@@ -1,0 +1,668 @@
+{
+ "about": "One table for the Damon card stack of Composer Plus (client.js statusCards) and Tether (Core.swift statusCards). Times are ms; a time of today is minutes before now (:10 past an hour), a time of yesterday 27 h or more before: each day check holds in every time zone. want is written by hand.",
+ "cases": [
+  {
+   "name": "empty answer",
+   "now": 1794993000000,
+   "data": {},
+   "opts": {},
+   "want": {
+    "approval": null,
+    "groups": {
+     "sorun": [],
+     "senden": [],
+     "suruyor": [],
+     "bitti": []
+    },
+    "notes": [],
+    "counts": {
+     "onay": 0,
+     "sorun": 0,
+     "senden": 0,
+     "suruyor": 0,
+     "bitti": 0,
+     "fresh": 0
+    }
+   }
+  },
+  {
+   "name": "every group: marks, one card per topic, your notes apart, order in each group",
+   "now": 1794993000000,
+   "data": {
+    "items": [
+     {
+      "id": "a0000001",
+      "text": "Onay: montaj testi main'e alınır",
+      "owner": "user",
+      "created": 1794992160000
+     },
+     {
+      "id": "a0000002",
+      "text": "Onay: servis betiği test servisinde denenir",
+      "owner": "user",
+      "created": 1794992700000
+     },
+     {
+      "id": "a0000003",
+      "text": "Sorun: Gece denetimi hata verdi",
+      "owner": "agent",
+      "created": 1794991200000
+     },
+     {
+      "id": "a0000004",
+      "text": "Senden: SAP'de Gerekli Tarih alanını aç",
+      "owner": "user",
+      "created": 1794985800000
+     },
+     {
+      "id": "a0000005",
+      "text": "Rapor hizası için karar",
+      "owner": "agent",
+      "created": 1794990000000,
+      "waiting": {
+       "reason": "needs your choice",
+       "since": 1794990600000
+      }
+     },
+     {
+      "id": "a0000006",
+      "text": "Süt al",
+      "owner": "user",
+      "created": 1794982200000
+     },
+     {
+      "id": "a0000007",
+      "text": "Fatura öde",
+      "owner": "user",
+      "created": 1794978600000
+     },
+     {
+      "id": "a0000008",
+      "text": "Rapor yaz",
+      "owner": "agent",
+      "created": 1794991800000
+     },
+     {
+      "id": "a0000009",
+      "text": "Satınalma sorguları",
+      "owner": "agent",
+      "created": 1794991200000
+     }
+    ],
+    "tasks": [
+     {
+      "id": "t1",
+      "title": "Rome flights",
+      "state": "running",
+      "started": 1794992280000
+     },
+     {
+      "id": "t3",
+      "title": "satınalma SORGULARI",
+      "state": "done",
+      "started": 1794991500000,
+      "ended": 1794992940000,
+      "result": "Tests pass"
+     },
+     {
+      "id": "t4",
+      "title": "Hotels",
+      "state": "waiting",
+      "started": 1794992820000
+     },
+     {
+      "id": "t5",
+      "title": "Old flights",
+      "state": "done",
+      "started": 1794892200000,
+      "ended": 1794895800000
+     },
+     {
+      "id": "t6",
+      "title": "Deploy",
+      "state": "stopped",
+      "started": 1794991800000,
+      "ended": 1794992460000
+     },
+     {
+      "id": "t7",
+      "title": "Crash",
+      "state": "failed",
+      "started": 1794992640000,
+      "ended": 1794992880000
+     }
+    ]
+   },
+   "opts": {
+    "approvals": 1,
+    "seen": [],
+    "newSince": 1794992700000
+   },
+   "want": {
+    "approval": {
+     "items": [
+      "a0000001",
+      "a0000002"
+     ],
+     "since": 1794992160000
+    },
+    "groups": {
+     "sorun": [
+      {
+       "key": "a0000003",
+       "title": "Gece denetimi hata verdi",
+       "item": "a0000003",
+       "task": null,
+       "since": 1794991200000,
+       "overdue": false,
+       "fresh": false
+      },
+      {
+       "key": "t7",
+       "title": "Crash",
+       "item": null,
+       "task": "t7",
+       "since": 1794992880000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "senden": [
+      {
+       "key": "a0000004",
+       "title": "SAP'de Gerekli Tarih alanını aç",
+       "item": "a0000004",
+       "task": null,
+       "since": 1794985800000,
+       "overdue": false,
+       "fresh": false
+      },
+      {
+       "key": "a0000005",
+       "title": "Rapor hizası için karar",
+       "item": "a0000005",
+       "task": null,
+       "since": 1794990600000,
+       "overdue": false,
+       "fresh": false
+      },
+      {
+       "key": "t4",
+       "title": "Hotels",
+       "item": null,
+       "task": "t4",
+       "since": 1794992820000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "suruyor": [
+      {
+       "key": "t1",
+       "title": "Rome flights",
+       "item": null,
+       "task": "t1",
+       "since": 1794992280000,
+       "overdue": false,
+       "fresh": false
+      },
+      {
+       "key": "a0000008",
+       "title": "Rapor yaz",
+       "item": "a0000008",
+       "task": null,
+       "since": 1794991800000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "bitti": [
+      {
+       "key": "a0000009",
+       "title": "Satınalma sorguları",
+       "item": "a0000009",
+       "task": "t3",
+       "since": 1794992940000,
+       "overdue": false,
+       "fresh": true
+      },
+      {
+       "key": "t6",
+       "title": "Deploy",
+       "item": null,
+       "task": "t6",
+       "since": 1794992460000,
+       "overdue": false,
+       "fresh": false
+      }
+     ]
+    },
+    "notes": [
+     "a0000006",
+     "a0000007"
+    ],
+    "counts": {
+     "onay": 1,
+     "sorun": 2,
+     "senden": 3,
+     "suruyor": 2,
+     "bitti": 2,
+     "fresh": 1
+    }
+   }
+  },
+  {
+   "name": "overdue first in Senden; seen ends hidden; a day-old end gone; no approval",
+   "now": 1794993000000,
+   "data": {
+    "items": [
+     {
+      "id": "b0000001",
+      "text": "Senden: DSH'yi yeniden başlat",
+      "owner": "user",
+      "created": 1794989400000
+     },
+     {
+      "id": "b0000002",
+      "text": "Bekleyen iş",
+      "owner": "agent",
+      "created": 1794899400000,
+      "waiting": {
+       "reason": "needs a path",
+       "since": 1794903000000
+      }
+     }
+    ],
+    "tasks": [
+     {
+      "id": "t1",
+      "title": "Seen done",
+      "state": "done",
+      "started": 1794992460000,
+      "ended": 1794992940000
+     },
+     {
+      "id": "t2",
+      "title": "Seen failure",
+      "state": "failed",
+      "started": 1794992460000,
+      "ended": 1794992880000
+     },
+     {
+      "id": "t3",
+      "title": "Fresh done",
+      "state": "done",
+      "started": 1794992460000,
+      "ended": 1794992820000
+     },
+     {
+      "id": "t4",
+      "title": "Yesterday",
+      "state": "stopped",
+      "started": 1794885000000,
+      "ended": 1794895800000
+     }
+    ]
+   },
+   "opts": {
+    "approvals": 0,
+    "seen": [
+     "t1|1794992940000",
+     "t2|1794992880000"
+    ],
+    "newSince": 0
+   },
+   "want": {
+    "approval": null,
+    "groups": {
+     "sorun": [],
+     "senden": [
+      {
+       "key": "b0000002",
+       "title": "Bekleyen iş",
+       "item": "b0000002",
+       "task": null,
+       "since": 1794903000000,
+       "overdue": true,
+       "fresh": false
+      },
+      {
+       "key": "b0000001",
+       "title": "DSH'yi yeniden başlat",
+       "item": "b0000001",
+       "task": null,
+       "since": 1794989400000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "suruyor": [],
+     "bitti": [
+      {
+       "key": "t3",
+       "title": "Fresh done",
+       "item": null,
+       "task": "t3",
+       "since": 1794992820000,
+       "overdue": false,
+       "fresh": true
+      }
+     ]
+    },
+    "notes": [],
+    "counts": {
+     "onay": 0,
+     "sorun": 0,
+     "senden": 2,
+     "suruyor": 0,
+     "bitti": 1,
+     "fresh": 1
+    }
+   }
+  },
+  {
+   "name": "English marks, a mark with no text is a note, an offer without Onay items",
+   "now": 1794993000000,
+   "data": {
+    "items": [
+     {
+      "id": "c0000001",
+      "text": "Problem: login page is down",
+      "owner": "agent",
+      "created": 1794992520000
+     },
+     {
+      "id": "c0000002",
+      "text": "For you: restart DSH",
+      "owner": "user",
+      "created": 1794992580000
+     },
+     {
+      "id": "c0000003",
+      "text": "Onay:",
+      "owner": "user",
+      "created": 1794992640000
+     },
+     {
+      "id": "c0000004",
+      "text": "ONAY : büyük harf",
+      "owner": "user",
+      "created": 1794992700000
+     }
+    ]
+   },
+   "opts": {
+    "approvals": 2
+   },
+   "want": {
+    "approval": {
+     "items": [
+      "c0000004"
+     ],
+     "since": 1794992700000
+    },
+    "groups": {
+     "sorun": [
+      {
+       "key": "c0000001",
+       "title": "login page is down",
+       "item": "c0000001",
+       "task": null,
+       "since": 1794992520000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "senden": [
+      {
+       "key": "c0000002",
+       "title": "restart DSH",
+       "item": "c0000002",
+       "task": null,
+       "since": 1794992580000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "suruyor": [],
+     "bitti": []
+    },
+    "notes": [
+     "c0000003"
+    ],
+    "counts": {
+     "onay": 1,
+     "sorun": 1,
+     "senden": 1,
+     "suruyor": 0,
+     "bitti": 0,
+     "fresh": 0
+    }
+   }
+  },
+  {
+   "name": "only the offer: the Onay card without items",
+   "now": 1794993000000,
+   "data": {},
+   "opts": {
+    "approvals": 1
+   },
+   "want": {
+    "approval": {
+     "items": [],
+     "since": null
+    },
+    "groups": {
+     "sorun": [],
+     "senden": [],
+     "suruyor": [],
+     "bitti": []
+    },
+    "notes": [],
+    "counts": {
+     "onay": 1,
+     "sorun": 0,
+     "senden": 0,
+     "suruyor": 0,
+     "bitti": 0,
+     "fresh": 0
+    }
+   }
+  },
+  {
+   "name": "item and task of one topic: an error, then a wait, then the task state",
+   "now": 1794993000000,
+   "data": {
+    "items": [
+     {
+      "id": "d0000001",
+      "text": "Deploy",
+      "owner": "agent",
+      "created": 1794991200000,
+      "waiting": {
+       "reason": "needs the approval",
+       "since": 1794992400000
+      }
+     },
+     {
+      "id": "d0000002",
+      "text": "Build",
+      "owner": "agent",
+      "created": 1794991200000
+     },
+     {
+      "id": "d0000003",
+      "text": "Docs",
+      "owner": "user",
+      "created": 1794991200000
+     }
+    ],
+    "tasks": [
+     {
+      "id": "t1",
+      "title": "deploy",
+      "state": "running",
+      "started": 1794991800000
+     },
+     {
+      "id": "t2",
+      "title": "BUILD",
+      "state": "failed",
+      "started": 1794991800000,
+      "ended": 1794992760000
+     },
+     {
+      "id": "t3",
+      "title": "Docs",
+      "state": "running",
+      "started": 1794992100000
+     }
+    ]
+   },
+   "opts": {},
+   "want": {
+    "approval": null,
+    "groups": {
+     "sorun": [
+      {
+       "key": "d0000002",
+       "title": "Build",
+       "item": "d0000002",
+       "task": "t2",
+       "since": 1794991200000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "senden": [
+      {
+       "key": "d0000001",
+       "title": "Deploy",
+       "item": "d0000001",
+       "task": "t1",
+       "since": 1794992400000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "suruyor": [
+      {
+       "key": "d0000003",
+       "title": "Docs",
+       "item": "d0000003",
+       "task": "t3",
+       "since": 1794992100000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "bitti": []
+    },
+    "notes": [],
+    "counts": {
+     "onay": 0,
+     "sorun": 1,
+     "senden": 1,
+     "suruyor": 1,
+     "bitti": 0,
+     "fresh": 0
+    }
+   }
+  },
+  {
+   "name": "Gördüm or the day end hides the task only: an item of the same topic stays as its own card (or a note)",
+   "now": 1794993000000,
+   "data": {
+    "items": [
+     {
+      "id": "e0000001",
+      "text": "Haftalık rapor",
+      "owner": "agent",
+      "created": 1794990600000
+     },
+     {
+      "id": "e0000002",
+      "text": "Fatura öde",
+      "owner": "user",
+      "created": 1794990000000
+     },
+     {
+      "id": "e0000003",
+      "text": "Sorun: Build kırık",
+      "owner": "agent",
+      "created": 1794991200000
+     }
+    ],
+    "tasks": [
+     {
+      "id": "t1",
+      "title": "Haftalık rapor",
+      "state": "done",
+      "started": 1794991800000,
+      "ended": 1794992700000
+     },
+     {
+      "id": "t2",
+      "title": "Fatura öde",
+      "state": "stopped",
+      "started": 1794885000000,
+      "ended": 1794892200000
+     },
+     {
+      "id": "t3",
+      "title": "Build kırık",
+      "state": "failed",
+      "started": 1794991500000,
+      "ended": 1794992400000
+     }
+    ]
+   },
+   "opts": {
+    "seen": [
+     "t1|1794992700000",
+     "t3|1794992400000"
+    ]
+   },
+   "want": {
+    "approval": null,
+    "groups": {
+     "sorun": [
+      {
+       "key": "e0000003",
+       "title": "Build kırık",
+       "item": "e0000003",
+       "task": null,
+       "since": 1794991200000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "senden": [],
+     "suruyor": [
+      {
+       "key": "e0000001",
+       "title": "Haftalık rapor",
+       "item": "e0000001",
+       "task": null,
+       "since": 1794990600000,
+       "overdue": false,
+       "fresh": false
+      }
+     ],
+     "bitti": []
+    },
+    "notes": [
+     "e0000002"
+    ],
+    "counts": {
+     "onay": 0,
+     "sorun": 1,
+     "senden": 0,
+     "suruyor": 1,
+     "bitti": 0,
+     "fresh": 0
+    }
+   }
+  }
+ ]
+}

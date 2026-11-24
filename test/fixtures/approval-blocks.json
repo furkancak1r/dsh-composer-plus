@@ -1,0 +1,992 @@
+{
+ "about": "Approve button: answer texts and the sentences that get a button (client.js parseApprovals). test/tether-approve.test.mjs checks client.js against it; Tether reads it in tether/ios/Tests.",
+ "cases": [
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: 2.19 sunucusuna Z aktarımı yap.\n```\n",
+   "sentences": [
+    "Onaylıyorum: 2.19 sunucusuna Z aktarımı yap."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: Z-share klasörüne kopyala.\n```\n",
+   "sentences": [
+    "Onaylıyorum: Z-share klasörüne kopyala."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: Z: sürücüsüne yaz.\n```\n",
+   "sentences": [
+    "Onaylıyorum: Z: sürücüsüne yaz."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: dosyaları paylaşıma kopyala.\n```\n",
+   "sentences": [
+    "Onaylıyorum: dosyaları paylaşıma kopyala."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı sunucuyu yeniden başlat.\n```\n",
+   "sentences": [
+    "Onaylıyorum: canlı sunucuyu yeniden başlat."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: CANLI ortama al.\n```\n",
+   "sentences": [
+    "Onaylıyorum: CANLI ortama al."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nApprove: restart the live server.\n```\n",
+   "sentences": [
+    "Approve: restart the live server."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: production ayarını değiştir.\n```\n",
+   "sentences": [
+    "Onaylıyorum: production ayarını değiştir."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: prod ortamına geç.\n```\n",
+   "sentences": [
+    "Onaylıyorum: prod ortamına geç."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: üretim veritabanına bağlan.\n```\n",
+   "sentences": [
+    "Onaylıyorum: üretim veritabanına bağlan."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: 192.168.2.19 üzerinde servisi durdur.\n```\n",
+   "sentences": [
+    "Onaylıyorum: 192.168.2.19 üzerinde servisi durdur."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: 2,19 sunucusunu güncelle.\n```\n",
+   "sentences": [
+    "Onaylıyorum: 2,19 sunucusunu güncelle."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: ssh promes-219 ile betiği çalıştır.\n```\n",
+   "sentences": [
+    "Onaylıyorum: ssh promes-219 ile betiği çalıştır."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: promes 219 sunucusunu yeniden başlat.\n```\n",
+   "sentences": [
+    "Onaylıyorum: promes 219 sunucusunu yeniden başlat."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: port 5100 servisini durdur.\n```\n",
+   "sentences": [
+    "Onaylıyorum: port 5100 servisini durdur."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: :5100 portunu aç.\n```\n",
+   "sentences": [
+    "Onaylıyorum: :5100 portunu aç."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: live database kaydını sil.\n```\n",
+   "sentences": [
+    "Onaylıyorum: live database kaydını sil."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı DB tablosunu güncelle.\n```\n",
+   "sentences": [
+    "Onaylıyorum: canlı DB tablosunu güncelle."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: inkool_live tablosunu oku.\n```\n",
+   "sentences": [
+    "Onaylıyorum: inkool_live tablosunu oku."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: PRS veritabanına yaz.\n```\n",
+   "sentences": [
+    "Onaylıyorum: PRS veritabanına yaz."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: npm publish çalıştır.\n```\n",
+   "sentences": [
+    "Onaylıyorum: npm publish çalıştır."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: GitHub release v1.26.0 oluştur.\n```\n",
+   "sentences": [
+    "Onaylıyorum: GitHub release v1.26.0 oluştur."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: release notlarını yayımla.\n```\n",
+   "sentences": [
+    "Onaylıyorum: release notlarını yayımla."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: yeni sürümü yayınla.\n```\n",
+   "sentences": [
+    "Onaylıyorum: yeni sürümü yayınla."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: sürüm 1.26.0 etiketini at.\n```\n",
+   "sentences": [
+    "Onaylıyorum: sürüm 1.26.0 etiketini at."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: ssh proso-deploy deploy abc çalıştır.\n```\n",
+   "sentences": [
+    "Onaylıyorum: ssh proso-deploy deploy abc çalıştır."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: deploy et.\n```\n",
+   "sentences": [
+    "Onaylıyorum: deploy et."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: Proso sunucusuna dağıt.\n```\n",
+   "sentences": [
+    "Onaylıyorum: Proso sunucusuna dağıt."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: bu sayfayı herkese açık yap.\n```\n",
+   "sentences": [
+    "Onaylıyorum: bu sayfayı herkese açık yap."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: repoyu public yap.\n```\n",
+   "sentences": [
+    "Onaylıyorum: repoyu public yap."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: dosyayı paylaş.\n```\n",
+   "sentences": [
+    "Onaylıyorum: dosyayı paylaş."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: DEPLOY et.\n```\n",
+   "sentences": [
+    "Onaylıyorum: DEPLOY et."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: deploy’u başlat.\n```\n",
+   "sentences": [
+    "Onaylıyorum: deploy’u başlat."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: Ürün kodunu ürün ortamına al: prodüksiyon.\n```\n",
+   "sentences": [
+    "Onaylıyorum: Ürün kodunu ürün ortamına al: prodüksiyon."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: herkese\naçık yap.\n```\n",
+   "sentences": [
+    "Onaylıyorum: herkese\naçık yap."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: feature/x için public PR aç.\n```\n",
+   "sentences": [
+    "Onaylıyorum: feature/x için public PR aç."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nApprove: deploy demo-app to production.\n```\n",
+   "sentences": [
+    "Approve: deploy demo-app to production."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı veritabanında (inkool_live) UPDATE çalıştır.\n```\n",
+   "sentences": [
+    "Onaylıyorum: canlı veritabanında (inkool_live) UPDATE çalıştır."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: PR Addon S01 dalı ve geçici klasörü silinsin (main'e alındı, canlı değil).\n```\n",
+   "sentences": [
+    "Onaylıyorum: PR Addon S01 dalı ve geçici klasörü silinsin (main'e alındı, canlı değil)."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nCANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ\n```\n",
+   "sentences": [
+    "CANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ"
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: CANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ.\n```\n",
+   "sentences": [
+    "Onaylıyorum: CANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\ncanli deploy promes 54e0a07e saat 21.10\n```\n",
+   "sentences": [
+    "canli deploy promes 54e0a07e saat 21.10"
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nCANLI DEPLOY PROSO 0123456789abcdef0123456789abcdef01234567 SAAT 09:30\n```\n",
+   "sentences": [
+    "CANLI DEPLOY PROSO 0123456789abcdef0123456789abcdef01234567 SAAT 09:30"
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: deploy ayrı onayla, yalnız yerel.\n```\n",
+   "sentences": [
+    "Onaylıyorum: deploy ayrı onayla, yalnız yerel."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı sunucuyu yeniden başlat.\n```\n",
+   "sentences": [
+    "Onaylıyorum: canlı sunucuyu yeniden başlat."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: durdurulan servis yeniden açılsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum: durdurulan servis yeniden açılsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: GYP/EKS/SRV dalı silinsin (genişletmeden vazgeçildi).\n```\n",
+   "sentences": [
+    "Onaylıyorum: GYP/EKS/SRV dalı silinsin (genişletmeden vazgeçildi)."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: erteleme raporu düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum: erteleme raporu düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: zamanlanmış görevi durdur (yalnız test sunucusu).\n```\n",
+   "sentences": [
+    "Onaylıyorum: zamanlanmış görevi durdur (yalnız test sunucusu)."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: Stop butonu düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum: Stop butonu düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: \"Hayır\" seçeneği eklensin.\n```\n",
+   "sentences": [
+    "Onaylıyorum: \"Hayır\" seçeneği eklensin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: dur kontrolü eklensin.\n```\n",
+   "sentences": [
+    "Onaylıyorum: dur kontrolü eklensin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: Canlı deploy ayrı onayla; Promes main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum: Canlı deploy ayrı onayla; Promes main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: Promes iptal ekranı main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum: Promes iptal ekranı main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: sipariş iptal ekranı main'e alınsın (canlı değil).\n```\n",
+   "sentences": [
+    "Onaylıyorum: sipariş iptal ekranı main'e alınsın (canlı değil)."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: erteleme raporu düzeltmesi main'e alınsın (canlı değil).\n```\n",
+   "sentences": [
+    "Onaylıyorum: erteleme raporu düzeltmesi main'e alınsın (canlı değil)."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: Stop butonu düzeltmesi main'e alınsın, canlı değil.\n```\n",
+   "sentences": [
+    "Onaylıyorum: Stop butonu düzeltmesi main'e alınsın, canlı değil."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: GYP/EKS/SRV dalı silinsin (genişletmeden vazgeçildi, canlı değil).\n```\n",
+   "sentences": [
+    "Onaylıyorum: GYP/EKS/SRV dalı silinsin (genişletmeden vazgeçildi, canlı değil)."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: test sunucusunda servisi durdur (canlı değil).\n```\n",
+   "sentences": [
+    "Onaylıyorum: test sunucusunda servisi durdur (canlı değil)."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: iptal ekranı main'e alınsın, deploy ayrı onayla.\n```\n",
+   "sentences": [
+    "Onaylıyorum: iptal ekranı main'e alınsın, deploy ayrı onayla."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı deploy Promes için ayrı onayla, şimdi yalnız main.\n```\n",
+   "sentences": [
+    "Onaylıyorum: canlı deploy Promes için ayrı onayla, şimdi yalnız main."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: zamanlanmış görevi yarın sabaha kadar durdur.\n```\n",
+   "sentences": [
+    "Onaylıyorum: zamanlanmış görevi yarın sabaha kadar durdur."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: runner'ı iş bitene kadar durdur.\n```\n",
+   "sentences": [
+    "Onaylıyorum: runner'ı iş bitene kadar durdur."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: servisleri birer birer durdur.\n```\n",
+   "sentences": [
+    "Onaylıyorum: servisleri birer birer durdur."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: tüm runnerlar durdur\n```\n",
+   "sentences": [
+    "Onaylıyorum: tüm runnerlar durdur"
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: arka plandaki işler durdur.\n```\n",
+   "sentences": [
+    "Onaylıyorum: arka plandaki işler durdur."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nCANLI DEPLOY ProsoCockpit 15c101d7 ŞİMDİ\n```\n",
+   "sentences": [
+    "CANLI DEPLOY ProsoCockpit 15c101d7 ŞİMDİ"
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nCANLI DEPLOY demo-app 15c101d7 SAAT 18:00\n```\n",
+   "sentences": [
+    "CANLI DEPLOY demo-app 15c101d7 SAAT 18:00"
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: sipariş iptal ekranı main'e alınsın, canlı deploy ayrı onayla.\n```\n",
+   "sentences": [
+    "Onaylıyorum: sipariş iptal ekranı main'e alınsın, canlı deploy ayrı onayla."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: fatura iptali düzeltmesi main'e alınsın; canlı deploy ayrı onay ister.\n```\n",
+   "sentences": [
+    "Onaylıyorum: fatura iptali düzeltmesi main'e alınsın; canlı deploy ayrı onay ister."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: Bursa sayımını durdur.\n```\n",
+   "sentences": [
+    "Onaylıyorum: Bursa sayımını durdur."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: arsa satışını durdur.\n```\n",
+   "sentences": [
+    "Onaylıyorum: arsa satışını durdur."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: kursa kaydı durdur.\n```\n",
+   "sentences": [
+    "Onaylıyorum: kursa kaydı durdur."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: abc1234 commit'ini test sunucusuna deploy et (canlı değil).\n```\n",
+   "sentences": [
+    "Onaylıyorum: abc1234 commit'ini test sunucusuna deploy et (canlı değil)."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: feature/x dalı (abc1234) staging'e deploy edilsin.\n```\n",
+   "sentences": [
+    "Onaylıyorum: feature/x dalı (abc1234) staging'e deploy edilsin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: Promes main'e alınsın; canlı deploy yarın saat 22:00'de ayrı onaylanacak.\n```\n",
+   "sentences": [
+    "Onaylıyorum: Promes main'e alınsın; canlı deploy yarın saat 22:00'de ayrı onaylanacak."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: prosolocal 15c101d7 deploy edilsin.\n```\n",
+   "sentences": [
+    "Onaylıyorum: prosolocal 15c101d7 deploy edilsin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: feature/x dalını origin'e push et.\n```\n",
+   "sentences": [
+    "Onaylıyorum: feature/x dalını origin'e push et."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: “feature/x” dalını sil – sonra main → origin’e push et…\n```\n",
+   "sentences": [
+    "Onaylıyorum: “feature/x” dalını sil – sonra main → origin’e push et…"
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: ÇĞİÖŞÜ çğıöşü dalını sil.\n```\n",
+   "sentences": [
+    "Onaylıyorum: ÇĞİÖŞÜ çğıöşü dalını sil."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: 2.19 deploy ayarı değişsin (CANLI sunucu ayarı, kod deploy'u yok).\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: kurulum yapılsın, hata varsa dur.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: kurulum yapılsın, gerekirse dur ve bildir.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servisi kur, sorun çıkarsa durdur.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı işler bitene kadar bekle.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı görevi iptal et.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlıya dokunma, yalnız test.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: deploy şimdi olmaz, dalı push et.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nApprove: stop the deploy runner.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: servisi kur, hata çıkarsa hemen durdur.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: hata görürsen durdur.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: sayfa açılmazsa durdur.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: kur, gerekiyorsa dur.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: ayar değişsin (canlı değil, kod deploy'u yok).\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: kur, hata açıksa dur.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: kur, dosya eksikse dur.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: test bozuksa dur.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: sorun çıkmışsa durdur.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: sağlık kontrolü başarısızsa durdur.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nCANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ: 2.19'a betikle yedekli deploy, CalVer etiketi ve rapor kontrolü.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nCANLI DEPLOY PROSOLOCAL 1234567 ŞİMDİ\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: PROMES canlı deploy abc1234 şimdi.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nCANLI DEPLOY PROSOLOCAL 15c101d7\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: CANLI DEPLOY PROMES 15c101d7 SAAT 25:00\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nCANLI DEPLOY PROMES 15c101d7 ŞİMDİ ve etiket at.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nCANLI DEPLOY PROMES ŞİMDİ\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```ONAY \nOnaylıyorum: feature/x dalını origin'e push et.\n```\n",
+   "sentences": [
+    "Onaylıyorum: feature/x dalını origin'e push et."
+   ]
+  },
+  {
+   "text": "~~~onay\nOnaylıyorum: feature/x dalını origin'e push et.\n~~~",
+   "sentences": [
+    "Onaylıyorum: feature/x dalını origin'e push et."
+   ]
+  },
+  {
+   "text": "````onay\nOnaylıyorum: feature/x dalını origin'e push et.\n`````",
+   "sentences": [
+    "Onaylıyorum: feature/x dalını origin'e push et."
+   ]
+  },
+  {
+   "text": "```onay\r\n  Onaylıyorum: feature/x dalını origin'e push et.  \r\n\r\n```",
+   "sentences": [
+    "Onaylıyorum: feature/x dalını origin'e push et."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: testleri çalıştır.\n```\n\nAnd:\nReady.\n\n```onay\nOnaylıyorum: feature/y dalını sil.\n```\n",
+   "sentences": [
+    "Onaylıyorum: testleri çalıştır.",
+    "Onaylıyorum: feature/y dalını sil."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: feature/x dalını origin'e push et.\n```\nReady.\n\n```onay\nOnaylıyorum: feature/x dalını origin'e push et.\n```\n",
+   "sentences": [
+    "Onaylıyorum: feature/x dalını origin'e push et.",
+    "Onaylıyorum: feature/x dalını origin'e push et."
+   ]
+  },
+  {
+   "text": "Satır 1\nsatır 2",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```\nOnaylıyorum: feature/x dalını origin'e push et.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```text\nOnaylıyorum: feature/x dalını origin'e push et.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay2\nOnaylıyorum: feature/x dalını origin'e push et.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay x\nOnaylıyorum: feature/x dalını origin'e push et.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "```onay\nOnaylıyorum: feature/x dalını origin'e push et.\n",
+   "sentences": []
+  },
+  {
+   "text": "```onay\nOnaylıyorum: feature/x dalını origin'e push et.\n~~~\n",
+   "sentences": []
+  },
+  {
+   "text": "````onay\nOnaylıyorum: feature/x dalını origin'e push et.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "```onay\nOnaylıyorum: feature/x dalını origin'e push et.\n``` x\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\n   \n```\n",
+   "sentences": []
+  },
+  {
+   "text": "1. Step\n   ```onay\n   Onaylıyorum: feature/x dalını origin'e push et.\n   ```",
+   "sentences": []
+  },
+  {
+   "text": "```md\n```onay\nOnaylıyorum: feature/x dalını origin'e push et.\n```\n```",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n```\n",
+   "sentences": [
+    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: feature/x‮ dalını sil.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: feature/x​ dalını sil.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: feature/x dalını push et.\u0007\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: feature/x dalını push et́.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: рrod dalını push et.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: dεploy et.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: 2٫19 sunucusuna kopyala.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: dalı sil ß.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nApprove: ｄｅｐｌｏｙ now.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum:\nçok satırlı onay.\n```\n",
+   "sentences": [
+    "Onaylıyorum:\nçok satırlı onay."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: üç şube dalını sil.\n```\n",
+   "sentences": [
+    "Onaylıyorum: üç şube dalını sil."
+   ]
+  },
+  {
+   "text": "```js\nx()\n```\nReady.\n\n```onay\nOnaylıyorum: feature/x dalını origin'e push et.\n```\n",
+   "sentences": [
+    "Onaylıyorum: feature/x dalını origin'e push et."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x sil.\n```\n",
+   "sentences": [
+    "Onaylıyorum: x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x sil."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n```\nReady.\n\n```onay\nOnaylıyorum: feature/x dalını origin'e push et.\n```\n",
+   "sentences": [
+    "Onaylıyorum: feature/x dalını origin'e push et."
+   ]
+  },
+  {
+   "text": "```onay\nOnaylıyorum: feature/x dalını origin'e push et.\n```\n\n```onay\nOnaylıyorum: feature/x dalını origin'e push et.\n```",
+   "sentences": [
+    "Onaylıyorum: feature/x dalını origin'e push et.",
+    "Onaylıyorum: feature/x dalını origin'e push et."
+   ]
+  },
+  {
+   "text": "```onay\nCANLI DEPLOY PROMES 15c101d7 ŞİMDİ\n\n```",
+   "sentences": [
+    "CANLI DEPLOY PROMES 15c101d7 ŞİMDİ"
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: dosyayı sil.﻿\n```\n",
+   "sentences": [
+    "Onaylıyorum: dosyayı sil."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: testler çalışsın, ajan merge yapmasın.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: dal push edilsin, açık iş yok.\n```\n",
+   "sentences": [
+    "Onaylıyorum: dal push edilsin, açık iş yok."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: acme-sync dalı push edilsin, reddedilen adımları yeniden denemesin.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı ayar değişsin, mail gönderme.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı ayar değişsin, veri kaybı yok.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı sunucu ayarı eski haliyle kalsın.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): Tur geri alma düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): Tur geri alma düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): yeniden başlatma uyarısı düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): yeniden başlatma uyarısı düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): eski yedek silme betiği main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): eski yedek silme betiği main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): mail gönderme düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): mail gönderme düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): sürüm etiketi atma adımı eklensin.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): sürüm etiketi atma adımı eklensin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): hatalı commit geri alınsın ve push edilsin.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): hatalı commit geri alınsın ve push edilsin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): dal silinsin, geçici klasör kalsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): dal silinsin, geçici klasör kalsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): hatalı commit geri alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): hatalı commit geri alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): son commit geri alınsın, dal push edilsin.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): son commit geri alınsın, dal push edilsin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): Tur geri alma, yeniden başlatma uyarısı ve mail gönderme düzeltmeleri main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): Tur geri alma, yeniden başlatma uyarısı ve mail gönderme düzeltmeleri main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): şu düzeltmeler main'e alınsın: yedek silme, mail gönderme.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): şu düzeltmeler main'e alınsın: yedek silme, mail gönderme."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): PR taslak olarak bırak.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): PR taslak olarak bırak."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): veri kaybı olmasın diye önce yedek alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): veri kaybı olmasın diye önce yedek alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: testler çalışsın, önceki onayımı geri alıyorum.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı ayar değişsin, eski servisi bırak.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): main'e alınsın, push etme.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: PR açılsın, merge etme.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): testler çalışsın, merge yapma.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, eski servisi silme, yedek al.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı ayar değişsin; eski servisi silme; yedek al.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: testler çalışsın, onayımı geri çektim.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: testler çalışsın, onayı geri al.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum geri alma düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum geri alma düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): onay geri alma düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): onay geri alma düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): onaylar geri alınınca liste yenilensin.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): onaylar geri alınınca liste yenilensin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): main'e alınsın (push etme).\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin (eski servisi silme).\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, eski servisi silme…\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: PR açılsın, merge etme, testleri çalıştır.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): testler çalışsın; merge yapma; rapor yazılsın.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, eski servisi durdurma.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, sorun çıkarsa geri alma.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, eski sürümü geri çekme.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): onayı geri alma düzeltmesi main'e alınsın.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): onayı geri alma düzeltmesi main'e alınsın."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): onayımı geri alma özelliği eklensin.\n```\n",
+   "sentences": [
+    "Onaylıyorum (canlı değil): onayımı geri alma özelliği eklensin."
+   ]
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): main'e alınsın, push etme — yalnız yerel test.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): main'e alınsın, push etme – yalnız yerel test.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, eski servisi silme — yedek al.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum: canlı servis güncellensin, eski servisi silme – yedek al.\n```\n",
+   "sentences": []
+  },
+  {
+   "text": "Ready.\n\n```onay\nOnaylıyorum (canlı değil): main'e alınsın, push etme…\n```\n",
+   "sentences": []
+  }
+ ]
+}

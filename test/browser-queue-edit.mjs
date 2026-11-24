@@ -50,7 +50,7 @@ const fake = createServer((req, res) => {
 await new Promise((r) => fake.once('listening', r));
 const fakePort = fake.address().port;
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', chromiumSandbox: true });
 const failures = [];
 try {
   for (const bin of process.argv.slice(2)) {
@@ -91,7 +91,8 @@ try {
       context = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 }, deviceScaleFactor: 2, colorScheme: 'light' });
       await context.addInitScript(() => localStorage.setItem('dsh-composer-plus.features', JSON.stringify({ autoUpdate: false })));
       const page = await context.newPage(); page.on('pageerror', (e) => errors.push(String(e)));
-      page.on('console', (m) => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+      // A 404 is not a page error: Side chat asks its route about each chat, and a chat that is not a side chat is a 404.
+      page.on('console', (m) => { if (m.type() === 'error' && !/^Failed to load resource: .*status of 404/.test(m.text())) errors.push('console: ' + m.text()); });
       await page.goto(url);
       for (const name of [/^Continue$/, /^Configure later$/]) {
         const b = page.getByRole('button', { name });

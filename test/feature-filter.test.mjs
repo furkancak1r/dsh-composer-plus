@@ -90,11 +90,11 @@ assert.deepEqual(ids(tree), FEATURES, 'every row shows');
 assert.ok(tree.c[2] !== null && tree.c[3] !== null, 'the language and update rows show');
 assert.equal(switchOf(tree, 'featureFilter').p.checked, false);
 
-// The switch is a browser setting: on by default, stored only when off, and it installs nothing to remove.
+// The switch is a browser setting: on by default (nothing stored), each choice is stored, and it installs nothing to remove.
 const { setFeature, hooks } = section.inject();
 assert.equal(hooks.composerPlusToggles.getSnapshot().featureFilter, undefined, 'on by default (nothing stored)');
 setFeature('featureFilter', false);
 assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.features')), { featureFilter: false });
 setFeature('featureFilter', true);
-assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.features')), {});
+assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.features')), { featureFilter: true }, 'an on choice is stored too (NATIVE_FEATURES)');
 console.log(`feature filter checks passed (${FEATURES.length} rows, ${offIds([]).length} off by default)`);

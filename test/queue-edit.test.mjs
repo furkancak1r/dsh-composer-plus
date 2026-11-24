@@ -39,7 +39,10 @@ const services = {
     isAttachmentError: (e) => e?.attachmentError === true,
   },
   fileUploads: {
-    resolve: (a, receipt) => (a === agent && receipt.startsWith('ok-') ? { attachmentId: 'sha256:' + receipt, name: receipt + '.txt', bytes: 5 } : undefined),
+    // dsh 0.2.0/0.2.1 give the file reference ('ok-'); dsh 0.2.2 stages `{type, attachment}` ('new-', 'img-').
+    resolve: (a, receipt) => (a !== agent ? undefined : receipt.startsWith('ok-') ? { attachmentId: 'sha256:' + receipt, name: receipt + '.txt', bytes: 5 }
+      : receipt.startsWith('new-') ? { type: 'file', attachment: { attachmentId: 'sha256:' + receipt, name: receipt + '.txt', bytes: 5 } }
+        : receipt.startsWith('img-') ? { type: 'image', attachment: { attachmentId: 'sha256:' + receipt, mediaType: 'image/png', width: 1, height: 1, bytes: 9 }, encodedBytes: 9 } : undefined),
     bindPrompt(a, receipts, rpcId) { bound.push({ receipts, rpcId }); return { commit() { committed += 1; }, [Symbol.dispose]() { disposed += 1; } }; },
   },
   llm: { resolveModelInfo: async () => ({ inputModalities: modalities }) },
@@ -71,6 +74,11 @@ assert.deepEqual(queue[1].content, [file('f1', 'spec.txt'), { type: 'image', att
   { type: 'file', attachment: { attachmentId: 'sha256:ok-r1', name: 'ok-r1.txt', bytes: 5 } }, text('new text')]);
 assert.deepEqual(bound, [{ receipts: ['ok-r1'], rpcId: 'r-b' }], 'the new file\'s receipt goes with the message (dsh retires it when the message leaves)');
 assert.equal(committed, 1); assert.equal(disposed, 1);
+// dsh 0.2.2's staged file: one file block with the file reference (its queue dock reads `attachment.name`).
+r = await edit({ content: [{ type: 'file', receiptId: 'new-r2' }, text('new text')] });
+assert.equal(r.status, 200, JSON.stringify(r.json));
+assert.deepEqual(queue[1].content, [{ type: 'file', attachment: { attachmentId: 'sha256:new-r2', name: 'new-r2.txt', bytes: 5 } }, text('new text')], 'dsh 0.2.2: the file block is not wrapped two times');
+queue[1] = msg('b', [img('i1'), file('f1', 'spec.txt'), text('fix the logo')]);
 // 3. Everything removed but the text; text before the attachments; a message of attachments only.
 r = await edit({ content: [text('just text')] }); assert.equal(r.status, 200); assert.deepEqual(queue[1].content, [text('just text')]);
 queue[1] = msg('b', [text('look:'), img('i2'), img('i3')]);
@@ -88,6 +96,7 @@ let snap = before();
 assert.equal((await edit({ content: [{ type: 'image', attachmentId: 'other' }, text('B')] })).status, 409, 'an attachment that is not in the message');
 assert.equal((await edit({ content: [{ type: 'file', attachmentId: 'i1' }, text('B')] })).status, 409, 'the type must match');
 assert.equal((await edit({ content: [{ type: 'file', receiptId: 'gone' }, text('B')] })).status, 409, 'a receipt that this chat does not have');
+assert.equal((await edit({ content: [{ type: 'file', receiptId: 'img-1' }, text('B')] })).status, 409, 'dsh 0.2.2: a staged image is not a file');
 assert.equal((await edit({ seen: [['text', 'old']], content: [text('B2')] })).status, 409, 'the message changed since the user saw it');
 assert.equal((await post(QUEUE_EDIT_PATH, { sessionId: 's', itemId: 'g', content: [text('G2')] })).status, 409, 'a goal round is not yours');
 assert.equal((await post(QUEUE_EDIT_PATH, { sessionId: 's', itemId: 'zz', content: [text('x')] })).status, 409, 'not in the queue (started to send)');

@@ -6,7 +6,7 @@
 // console. Real files under a temporary folder.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, linkSync, writeFileSync, openSync, closeSync, constants } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, linkSync, writeFileSync, openSync, closeSync, constants } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
@@ -123,6 +123,112 @@ assert.equal(sha, execFileSync('shasum', ['-a', '256', join(dest, first.name)]).
   assert.deepEqual(r.rotated, []);
   assert.equal((await b.listArchives(keepDest)).length, 5);
 }
+// Keep 2 of all kinds (allKinds): full, snapshot and a click's archives count together; the newest 2 stay with the new
+// one; each removed archive goes with its sidecars and vault copies; dsh-backup's archive and other files stay.
+{
+  const all = join(root, 'keep-all');
+  const src = join(root, 'keep-all-home', '.dsh');
+  write(join(src, 'a.txt'), 'a');
+  write(join(src, '.credentials.yaml'), 'key: KEEP-ALL\n');
+  archive(all, [...tarDir('.dsh/'), ...tarFile('.dsh/a', 'x')]);
+  const foreign = (await b.listArchives(all))[0].name;
+  writeFileSync(join(all, 'notes.txt'), 'x');
+  const at = (d) => new Date(2026, 2, d);
+  await b.backup({ home: src, dest: all, now: at(1) });
+  await b.backup({ home: src, dest: all, kind: 'pre-upgrade', keep: 2, now: at(2) });
+  await b.backup({ home: src, dest: all, now: at(3) });
+  const names = (await b.listArchives(all)).map((a) => a.name);
+  assert.equal(names.length, 4, 'per kind and without keep: nothing of the other kinds goes');
+  const r = await b.backup({ home: src, dest: all, keep: 2, allKinds: true, now: at(4) });
+  assert.deepEqual(r.rotated, ['dsh-pre-upgrade-20260302-000000000.tar.gz', 'dsh-20260301-000000000.tar.gz']);
+  assert.deepEqual((await b.listArchives(all)).map((a) => a.name), ['dsh-20260304-000000000.tar.gz', 'dsh-20260303-000000000.tar.gz', foreign]);
+  for (const gone of r.rotated) {
+    assert.ok(!readdirSync(all).some((n) => n.startsWith(gone)), `${gone} and its sidecars are gone`);
+    assert.equal(existsSync(join(all, b.VAULT, gone)), false, `${gone} vault copies are gone`);
+  }
+  for (const kept of ['dsh-20260304-000000000.tar.gz', 'dsh-20260303-000000000.tar.gz']) {
+    for (const f of [kept, ...['.sha256', '.meta.json', '.redacted.json'].map((x) => `${kept}${x}`)]) assert.ok(existsSync(join(all, f)), f);
+    assert.ok(existsSync(join(all, b.VAULT, kept, '.credentials.yaml')), `${kept} keeps its vault copy`);
+  }
+  assert.ok(existsSync(join(all, 'notes.txt')) && existsSync(join(all, `${foreign}.sha256`)));
+  // A snapshot with keep 2 of all kinds: it stays with the newest other one.
+  const snap = await b.backup({ home: src, dest: all, kind: 'pre-upgrade', keep: 2, allKinds: true, now: at(5) });
+  assert.deepEqual(snap.rotated, ['dsh-20260303-000000000.tar.gz']);
+  assert.deepEqual((await b.listArchives(all)).filter((a) => a.meta?.by === b.BY).map((a) => a.name), ['dsh-pre-upgrade-20260305-000000000.tar.gz', 'dsh-20260304-000000000.tar.gz']);
+  // The new archive always stays, also when its time is older than the others (a clock set back).
+  const back = await b.backup({ home: src, dest: all, keep: 2, allKinds: true, now: at(1) });
+  assert.deepEqual(back.rotated, ['dsh-20260304-000000000.tar.gz']);
+  assert.deepEqual((await b.listArchives(all)).filter((a) => a.meta?.by === b.BY).map((a) => a.name), ['dsh-pre-upgrade-20260305-000000000.tar.gz', 'dsh-20260301-000000000.tar.gz']);
+  // A failed backup removes nothing: cancelled while it writes, and cancelled while the new archive is read back.
+  const before = readdirSync(all, { recursive: true }).sort();
+  const stopped = new AbortController(); stopped.abort();
+  await assert.rejects(b.backup({ home: src, dest: all, keep: 2, allKinds: true, signal: stopped.signal, now: at(6) }));
+  assert.deepEqual(readdirSync(all, { recursive: true }).sort(), before, 'a cancelled write: no new file, no old archive removed');
+  const reading = new AbortController();
+  let read = false;
+  const progress = { get read() { return 0; }, set read(v) { read = true; reading.abort(); } };
+  await assert.rejects(b.backup({ home: src, dest: all, keep: 2, allKinds: true, signal: reading.signal, progress, now: at(7) }));
+  assert.ok(read, 'the new archive was read back before any removal');
+  assert.deepEqual(readdirSync(all, { recursive: true }).sort(), before, 'a failed read-back: the new archive goes, no old archive removed');
+  // The archive on disk is not the one that was written (another valid archive in its place): no removal.
+  let swapped = false;
+  const swap = { get read() { return 0; }, set read(v) { if (!swapped) { swapped = true; writeFileSync(join(all, 'dsh-20260308-000000000.tar.gz'), readFileSync(join(all, foreign))); } } };
+  await assert.rejects(b.backup({ home: src, dest: all, keep: 2, allKinds: true, progress: swap, now: at(8) }), /does not match its checksum/);
+  assert.ok(swapped);
+  assert.deepEqual(readdirSync(all, { recursive: true }).sort(), before, 'a checksum mismatch: the new archive goes, no old archive removed');
+  // An old archive that cannot go: the backup is kept, the failure is reported, the old archive stays listed; the next
+  // backup removes it.
+  if (posix && process.getuid?.() !== 0) {
+    const stuck = 'dsh-20260301-000000000.tar.gz';
+    chmodSync(join(all, b.VAULT, stuck), 0o500);
+    let r9;
+    try { r9 = await b.backup({ home: src, dest: all, keep: 2, allKinds: true, now: at(9) }); } finally { chmodSync(join(all, b.VAULT, stuck), 0o700); }
+    assert.deepEqual(r9.rotated, []);
+    assert.equal(r9.rotateFailed.length, 1); assert.match(r9.rotateFailed[0], /^dsh-20260301-000000000\.tar\.gz: /);
+    assert.deepEqual((await b.listArchives(all)).filter((a) => a.meta?.by === b.BY).map((a) => a.name), ['dsh-20260309-000000000.tar.gz', 'dsh-pre-upgrade-20260305-000000000.tar.gz', stuck]);
+    const r10 = await b.backup({ home: src, dest: all, keep: 2, allKinds: true, now: at(10) });
+    assert.deepEqual([r10.rotated, r10.rotateFailed], [['dsh-pre-upgrade-20260305-000000000.tar.gz', stuck], []]);
+    assert.ok(!readdirSync(all).some((n) => n.startsWith(stuck)) && !existsSync(join(all, b.VAULT, stuck)));
+  }
+}
+// A backup with a name that is already in the folder (the same millisecond) is refused and removes nothing.
+{
+  const dir = join(root, 'same-name');
+  const src = join(root, 'keep-all-home', '.dsh');
+  const at = new Date(2026, 3, 1);
+  const one = await b.backup({ home: src, dest: dir, now: at });
+  const before = readdirSync(dir, { recursive: true }).sort();
+  await assert.rejects(b.backup({ home: src, dest: dir, keep: 2, allKinds: true, now: at }), /already in the backup folder/);
+  assert.deepEqual(readdirSync(dir, { recursive: true }).sort(), before, 'the first archive and its files stay');
+  assert.equal((await b.verifyArchive(dir, one.name, {})).ok, true);
+}
+// A failed read-back whose cleanup cannot finish: the new archive loses its .meta.json first, so it is not counted as
+// ours and the next keep-2 backup keeps the good older one.
+if (posix && process.getuid?.() !== 0) {
+  const dir = join(root, 'cleanup-fails');
+  const src = join(root, 'keep-all-home', '.dsh');
+  const good = await b.backup({ home: src, dest: dir, keep: 2, allKinds: true, now: new Date(2026, 4, 1) });
+  const bad = 'dsh-20260502-000000000.tar.gz';
+  const vault = join(dir, b.VAULT, bad);
+  const lock = { get read() { return 0; }, set read(v) { chmodSync(vault, 0o500); throw new Error('read-back failed'); } };
+  try {
+    await assert.rejects(b.backup({ home: src, dest: dir, keep: 2, allKinds: true, progress: lock, now: new Date(2026, 4, 2) }), /read-back failed/);
+    assert.equal(existsSync(join(dir, `${bad}.meta.json`)), false, 'the failed archive has no .meta.json');
+    assert.deepEqual((await b.listArchives(dir)).filter((a) => a.meta?.by === b.BY).map((a) => a.name), [good.name]);
+    const next = await b.backup({ home: src, dest: dir, keep: 2, allKinds: true, now: new Date(2026, 4, 3) });
+    assert.deepEqual(next.rotated, [], 'the good older archive stays');
+    assert.deepEqual((await b.listArchives(dir)).filter((a) => a.meta?.by === b.BY).map((a) => a.name), [next.name, good.name]);
+  } finally { chmodSync(vault, 0o700); }
+}
+// Keep per kind (3): the new archive stays also when its time is older than the others (a clock set back).
+{
+  const dir = join(root, 'keep-back');
+  const src = join(root, 'keep-all-home', '.dsh');
+  for (const d of [10, 11, 12]) await b.backup({ home: src, dest: dir, keep: 3, now: new Date(2026, 2, d) });
+  const r = await b.backup({ home: src, dest: dir, keep: 3, now: new Date(2026, 2, 1) });
+  assert.deepEqual(r.rotated, ['dsh-20260310-000000000.tar.gz']);
+  assert.deepEqual((await b.listArchives(dir)).map((a) => a.name), ['dsh-20260312-000000000.tar.gz', 'dsh-20260311-000000000.tar.gz', r.name]);
+}
 
 // The archive check refuses what a restore must not write; a damaged archive and a wrong checksum are not usable.
 {
@@ -188,6 +294,80 @@ assert.equal(sha, execFileSync('shasum', ['-a', '256', join(dest, first.name)]).
   assert.deepEqual(done.moved, []);
   assert.deepEqual(readdirSync(join(target, 'a')), ['keep.txt'], 'nothing moved into the link target');
   assert.ok(existsSync(join(done.aside, 'plugins', 'a', 'node_modules', 'x', 'i.js')), 'it stays in the old home');
+}
+// The backup folder in the dsh home (the default `backups/`, or COMPOSER_PLUS_BACKUP_DIR elsewhere in it): an archive leaves
+// it out; a restore moves it back with every archive, sidecar, vault copy and the console, also through the console.
+{
+  const inHome = join(root, 'in-home', '.dsh');
+  const folderIn = join(inHome, 'backups');
+  write(join(inHome, 'sessions', 'a.txt'), 'A');
+  write(join(inHome, '.credentials.yaml'), 'key: IN-HOME\n');
+  const one = await b.backup({ home: inHome, dest: folderIn, now: new Date(2026, 10, 16, 9, 0, 0) });
+  const two = await b.backup({ home: inHome, dest: folderIn, now: new Date(2026, 10, 16, 10, 0, 0) });
+  const names = execFileSync('tar', ['-tzf', join(folderIn, two.name)]).toString().trim().split('\n');
+  assert.ok(names.includes('.dsh/sessions/a.txt') && !names.some((n) => n.startsWith('.dsh/backups')), 'an archive leaves out its own folder');
+  await b.writeRescue(folderIn, 'darwin');
+  const before = readdirSync(folderIn, { recursive: true }).sort();
+  write(join(inHome, 'sessions', 'a.txt'), 'changed');
+  const done = await b.restore({ home: inHome, dest: folderIn, name: one.name });
+  assert.deepEqual(readdirSync(folderIn, { recursive: true }).sort(), before, 'every archive, sidecar, vault copy and the console are back');
+  assert.ok(done.moved.includes('backups')); assert.deepEqual(done.kept, []);
+  assert.equal(existsSync(join(done.aside, 'backups')), false, 'no backup stays in the old home');
+  assert.equal(readFileSync(join(inHome, 'sessions', 'a.txt'), 'utf8'), 'A');
+  assert.equal(readFileSync(join(inHome, '.credentials.yaml'), 'utf8'), 'key: IN-HOME\n', 'the vault in the home was read');
+  assert.equal((await b.verifyArchive(folderIn, two.name)).ok, true);
+  // Through the console that runs in that folder: restored, the lock released, no "remove the old home" while it holds backups.
+  const say = async (answers) => {
+    const input = new PassThrough(); const output = new PassThrough(); let text = '';
+    output.on('data', (c) => { text += c; }); input.end(`${answers.join('\n')}\n`);
+    await b.rescueConsole({ folder: folderIn, home: inHome, input, output });
+    return text;
+  };
+  const restored = await say(['3', '2', 'RESTORE', '0']);
+  assert.match(restored, /Restored \d+ entries/);
+  assert.deepEqual(readdirSync(folderIn, { recursive: true }).sort(), before);
+  // A restored home whose archive has its own `backups` (here a file): the folder stays in the old home and the console says so.
+  const odd = archive(folderIn, [...tarDir('.dsh/'), ...tarFile('.dsh/backups', 'not a folder')]);
+  const pickOdd = String((await b.listArchives(folderIn)).findIndex((a) => a.name === odd) + 1);
+  const warned = await say(['3', pickOdd, 'RESTORE', '0']);
+  assert.ok(!(await b.listArchives(folderIn)).length, 'the backups are not in the restored home');
+  const aside = /The old dsh home is (\S+)\. It still holds your backups: (\S+)\. Do not remove it/.exec(warned);
+  assert.ok(aside !== null && !/Remove it when dsh works/.test(warned), warned);
+  // The console's lock moved with the folder (a lock of a process that is gone is taken over).
+  assert.deepEqual(readdirSync(aside[2], { recursive: true }).filter((n) => !n.startsWith(odd) && n !== b.LOCK_FILE).sort(), before, 'every archive is in the old home');
+  // Another folder in the home (COMPOSER_PLUS_BACKUP_DIR): it comes back too, below a folder that the archive has.
+  const otherHome = join(root, 'other-home', '.dsh');
+  const otherDest = join(otherHome, 'storages', 'my-backups');
+  write(join(otherHome, 'storages', 'x.json'), '{}');
+  const o = await b.backup({ home: otherHome, dest: otherDest });
+  const r = await b.restore({ home: otherHome, dest: otherDest, name: o.name });
+  assert.deepEqual([r.moved, r.kept], [['storages/my-backups'], []]);
+  assert.ok(existsSync(join(otherDest, o.name)));
+  // The same with a `backups/` folder too: both come back.
+  write(join(otherHome, 'backups', 'note.txt'), 'other');
+  const both = await b.restore({ home: otherHome, dest: otherDest, name: o.name });
+  assert.deepEqual([both.moved.sort(), both.kept], [['backups', 'storages/my-backups'], []]);
+  assert.ok(existsSync(join(otherDest, o.name)) && existsSync(join(otherHome, 'backups', 'note.txt')));
+  // `backups` as a symbolic link to the real folder in the home (the console runs through the link): the folder comes back.
+  const linkedHome = join(root, 'linked-home', '.dsh');
+  const realDest = join(linkedHome, 'storages', 'bk');
+  write(join(linkedHome, 'a.txt'), 'a');
+  mkdirSync(realDest, { recursive: true });
+  symlinkSync('storages/bk', join(linkedHome, 'backups'));
+  const l = await b.backup({ home: linkedHome, dest: join(linkedHome, 'backups') });
+  const lr = await b.restore({ home: linkedHome, dest: join(linkedHome, 'backups'), name: l.name });
+  assert.deepEqual([lr.moved.sort(), lr.kept], [['backups', 'storages/bk'], []]);
+  assert.ok(existsSync(join(realDest, l.name)), 'the archives are in the restored home, behind the link');
+}
+// Retention keeps the newest of its own archives in its folder only: the old folder (~/Desktop/dsh-backups) is never read.
+{
+  const newFolder = join(root, 'keep-new');
+  const oldFolder = join(root, 'keep-old');
+  for (let i = 0; i < 2; i++) await b.backup({ home: join(home, 'skills'), dest: oldFolder, now: new Date(2026, 9, 1, 0, 0, i) });
+  const oldBefore = readdirSync(oldFolder, { recursive: true }).sort();
+  for (let i = 0; i < 3; i++) await b.backup({ home: join(home, 'skills'), dest: newFolder, keep: 1, now: new Date(2026, 10, 1, 0, 0, i) });
+  assert.deepEqual((await b.listArchives(newFolder)).map((a) => a.name), ['dsh-20261101-000002000.tar.gz']);
+  assert.deepEqual(readdirSync(oldFolder, { recursive: true }).sort(), oldBefore, 'nothing in the old folder changed');
 }
 // A restore of a damaged archive changes nothing. A missing vault copy is reported. A home that does not exist is made.
 {
@@ -300,6 +480,11 @@ assert.equal(sha, execFileSync('shasum', ['-a', '256', join(dest, first.name)]).
   assert.ok(readFileSync(join(consoleDest, b.LAUNCHERS.darwin), 'utf8').includes('ELECTRON_RUN_AS_NODE=1'), 'falls back to the DeepSeek Harness app as Node.js');
   await b.removeRescue(consoleDest, 'darwin');
   assert.deepEqual(readdirSync(consoleDest), []);
+  // Windows does not rename a folder that a window is in: its launcher leaves the backup folder (now in the dsh home).
+  await b.writeRescue(consoleDest, 'win32');
+  const cmd = readFileSync(join(consoleDest, b.LAUNCHERS.win32), 'utf8');
+  assert.ok(cmd.includes('cd /d "%USERPROFILE%"') && cmd.includes(`node "%~dp0${b.RESCUE_FILE}" %*`) && !cmd.includes('cd /d "%~dp0"'), cmd);
+  await b.removeRescue(consoleDest, 'win32');
 
   const run = async (answers, folder, dshHome) => {
     const input = new PassThrough(); const output = new PassThrough(); let text = '';

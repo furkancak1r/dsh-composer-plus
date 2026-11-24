@@ -1,22 +1,28 @@
 // Real-app check of "Assistant to-do list" on each dsh given: a fake model, a throwaway DSH_HOME and HOME, a made-up
 // project (acme-web). Never the normal DSH_HOME, no real model. Headless.
 // 1. The assistant chat: "Remember: buy milk" → the fake model calls todo_list_add (the assistant has the two tools and
-//    Assistant always free lets them run); the request carries the list as runtime context and the section. The panel
-//    shows at the right side of the chat (inside dsh's chat body, right of the messages, not in dsh's right sidebar).
-// 2. → writes "Do this for me: <item>" at the end of the composer, after the draft that is there, on its own line; the
-//    focus and the caret are at its end, nothing is sent and the item stays the user's. Sent, the agent gives it to itself.
-// 3. "Is it done?" → the fake model calls todo_list_remove (reason completed): the item leaves the panel.
+//    Assistant always free lets them run); the request carries the list as runtime context and the section. The card
+//    stack shows at the right of the chat by default (in dsh's chat body, over no message, not in dsh's right sidebar); the
+//    user's own items without a mark are in the folded "Your notes" group.
+// 2. → (in "Your notes") writes "Do this for me: <item>" at the end of the composer, after the draft that is there, on
+//    its own line; the focus and the caret are at its end, nothing is sent and the item stays the user's note. Sent, the
+//    agent gives it to itself: it is a Running card.
+// 3. "Is it done?" → the fake model calls todo_list_remove (reason completed): the item leaves the stack.
 // 4. Remove (×): one click, no dialog, the item is gone. Keyboard: Tab reaches the buttons.
-// 5. Reload: the list is still there (Host file). Another chat has no panel and no to-do tools.
-// 6. Switch off in Settings: no panel, no tools, no context; on again: the panel is back. No page errors.
-// 7. Status: "Morning summary please" → status_summary_set; the card shows today's summary, a project name opens its row
-//    (chats, git branch and commits of the made-up repository). "Research Rome" → a background subagent: Tasks shows it
-//    working, then done with its result, without Refresh. Refresh updates the time. Typing 30 keys does not draw the panel.
-// 8. Owner groups: 2 items of the user and 3 of the assistant show in two folding groups ("You will do 2" first, then
-//    "Damon will do 3"), with no owner line in a row; Enter on a header folds it, and it stays folded after a reload.
+// 5. Reload: the list is still there (Host file). Another chat has no stack and no to-do tools.
+// 6. Switch off in Settings: no stack, no tools, no context; on again: the stack is back. No page errors.
+// 7. Status: "Morning summary please" → status_summary_set; the summary card shows today's summary, a project name opens
+//    its row in the Projects section (chats, git branch and commits of the made-up repository). "Research Rome" → a
+//    background subagent: a Running card shows it, then it is a Done today card with its result, without Refresh.
+//    Refresh updates the list time. Typing 30 keys does not draw the stack.
+// 8. Groups: 2 notes of the user ("Your notes 2") and 3 Running cards of the assistant, no owner groups; Enter on a
+//    group header folds it. After a reload "Your notes" and "Done today" start folded again.
 //    The turn after "Research Rome" (a subagent and no to-do change) has the to-do nudge in its runtime context.
+// 9. Issue #6: todo_list_add with waiting is a "For you" card with "Waiting for you", the reason and Reply, and the
+//    count bar counts it. The ended subagent task is a "Done today" card (folded group); Seen hides it, and it stays
+//    hidden after a reload.
 // PLAYWRIGHT=/path/to/playwright node test/browser-assistant-todos.mjs /path/to/dsh/lib/bin.js [...]
-// SHOT=1 also writes assets/features/assistantTodos.webp (English UI, made-up project).
+// The Settings screenshot comes from test/browser-card-stack.mjs (SHOT=1).
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
@@ -39,6 +45,8 @@ const until = async (fn, what, ms = 30000) => {
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const calls = [];
 const gate = { open: false };
+// A long item with an unbroken token: it must wrap and never run under its → and × buttons.
+const LONG = 'Check each log line of the nightly import job and note each failed row https://example.com/imports/nightly/2026/staging/failed-rows-with-order-numbers before the meeting';
 const fake = createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
@@ -70,6 +78,8 @@ const fake = createServer((req, res) => {
       const id = /- ([0-9a-f]{8}) \(owner \w+\): "Buy milk"/.exec(context)?.[1] ?? 'ffffffff';
       return tool('todo_list_remove', { id, reason: 'completed' });
     }
+    if (/Wait for the ANR path/.test(newest) && !after) return tool('todo_list_add', { text: 'Install ANR', owner: 'agent', waiting: 'Needs the game folder path' });
+    if (/^Add a long one$/.test(newest.trim()) && !after) return tool('todo_list_add', { text: LONG, owner: 'agent' });
     if (/Morning summary please/.test(newest) && !after) return tool('status_summary_set', { projects: [{ project: 'acme-web', text: 'Login page is done; tests pass.' }] });
     if (/Research Rome/.test(newest) && !after) {
       const bg = (parsed.tools ?? []).find((t) => t.function?.name === 'subagent')?.function?.parameters?.properties?.run_in_background !== undefined;
@@ -86,7 +96,6 @@ await new Promise((r) => fake.once('listening', r));
 const fakePort = fake.address().port;
 
 const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
-let shotDone = false;
 try {
   for (const bin of process.argv.slice(2)) {
     calls.length = 0;
@@ -161,9 +170,13 @@ try {
       const clear = async () => { await input.click(); await page.keyboard.press('ControlOrMeta+a'); await page.keyboard.press('Backspace'); await page.keyboard.press('Escape'); };
       const send = async (text) => { await clear(); await page.keyboard.type(text, { delay: 5 }); await page.keyboard.press('Escape'); await page.keyboard.press('Enter'); };
       const panel = page.locator('[data-composer-plus-todos]');
-      const item = (text) => panel.locator('li').filter({ hasText: text });
-      const group = (owner) => panel.locator(`ul[id$="-${owner}"] > li`);
-      const groupHead = (owner) => panel.locator(`.cp-td-group[data-owner="${owner}"]`);
+      // The card stack: the user's own items without a mark are rows of the folded "Your notes" group; every other item and
+      // task is a card `li.cp-cs-card[data-card=sorun|senden|suruyor|bitti]` in its group (a group folds by itself when
+      // it does not fit, so `open(group)` first where a check needs the card in view).
+      const noteRow = (text) => panel.locator('section[data-group="notes"] li').filter({ hasText: text });
+      const cards = (kind, text = '') => panel.locator(`li.cp-cs-card[data-card="${kind}"]`).filter({ hasText: text });
+      const groupHead = (g) => panel.locator(`button.cp-td-group[data-group="${g}"]`);
+      const open = async (g) => { const head = groupHead(g); await head.waitFor({ timeout: 20000 }); if ((await head.getAttribute('aria-expanded')) !== 'true') await head.click(); };
       const assistantRow = () => page.locator('button[aria-label="Damon"]');
 
       // Settings: the row has its screenshot and is on by default.
@@ -181,30 +194,35 @@ try {
       await until(async () => (await page.locator('[data-composer-plus-assistant]').count()) === 0, 'assistant chat open');
       const sessionId = await until(async () => (await page.evaluate(async () => (await (await fetch('/api/composer-plus.assistant-status')).json()).sessionId)), 'assistant id');
       await send('Remember: buy milk');
-      await item('Buy milk').waitFor({ timeout: 30000 });
+      await noteRow('Buy milk').waitFor({ state: 'attached', timeout: 30000 });
       const add = calls.find((c) => /Remember: buy milk/.test(c.newest) && !c.after);
       assert.ok(add.tools.includes('todo_list_add') && add.tools.includes('todo_list_remove'), 'the assistant has the two tools');
       assert.match(add.system, /Assistant to-do list \(Composer Plus\)/, 'the section');
       assert.match(add.system, /todo_list_add, todo_list_remove/, 'Assistant always free names them');
       const addResult = await until(() => calls.find((c) => /Remember: buy milk/.test(c.newest) && c.after), 'the tool result reached the model');
       assert.match(addResult.result, /^Added [0-9a-f]{8} \(owner user\)/, 'Assistant always free lets the tool run');
-      // The panel sits inside dsh's chat body, right of the messages, and not in dsh's right sidebar.
+      // The stack is in dsh's chat body, at the right of the chat by default (Furkan, 2026-11-20; the place button moves it
+      // above the chat: test/browser-card-stack.mjs), and not in dsh's right sidebar.
       assert.equal(await panel.count(), 1);
       assert.equal(await panel.evaluate((el) => el.parentElement?.hasAttribute('data-conversation-content')), true, 'in the chat body');
+      assert.equal(await panel.getAttribute('data-place'), 'side', 'the right side by default');
       const box = await panel.boundingBox(); const bodyBox = await page.locator(`[data-conversation-content][data-conversation-session="${sessionId}"]`).boundingBox();
       assert.ok(box.x + box.width <= bodyBox.x + bodyBox.width + 1 && box.x > bodyBox.x + bodyBox.width / 2, `at the right side of the chat (${JSON.stringify(box)} in ${JSON.stringify(bodyBox)})`);
-      assert.equal(await group('user').filter({ hasText: 'Buy milk' }).count(), 1, 'in the group "You will do"');
-      // The panel covers no message: each user bubble ends left of it.
+      assert.equal(await noteRow('Buy milk').count(), 1, 'a note of the user, in "Your notes"');
+      assert.equal(await groupHead('notes').getAttribute('aria-expanded'), 'false', '"Your notes" starts folded');
+      assert.equal(await panel.locator('li.cp-cs-card').filter({ hasText: 'Buy milk' }).count(), 0, 'a note of the user is no card');
+      // The stack covers no message: each user bubble ends left of it.
       for (const bubble of await page.getByText('Remember: buy milk', { exact: true }).all()) {
-        const b = await bubble.boundingBox(); assert.ok(b === null || b.x + b.width <= box.x, `a message under the panel: ${JSON.stringify(b)} / ${JSON.stringify(box)}`);
+        const b = await bubble.boundingBox(); assert.ok(b === null || b.x + b.width <= box.x + 1, `a message under the stack: ${JSON.stringify(b)} / ${JSON.stringify(box)}`);
       }
-      note('1: todo_list_add from the agent shows in the panel at the right of the chat');
+      note('1: todo_list_add from the agent shows in the card stack at the right of the chat (a note of the user, "Your notes" folded)');
 
       // 2. → writes in the composer and sends nothing; a draft that is there stays. The user sends it: the agent takes it.
-      await send('Remember: call the bank'); await item('Call the bank').waitFor({ timeout: 30000 });
+      await send('Remember: call the bank'); await noteRow('Call the bank').waitFor({ state: 'attached', timeout: 30000 });
       await until(async () => !(await page.evaluate(() => document.querySelector('[data-composer-input]') === null)), 'idle');
       await clear(); await page.keyboard.type('Also check the invoice', { delay: 5 }); await page.keyboard.press('Escape');
       const before = calls.length;
+      await open('notes');
       await page.getByRole('button', { name: 'Give to the assistant: Call the bank', exact: true }).click();
       await until(async () => (await input.innerText()).includes('Do this for me: Call the bank'), 'the text is in the composer');
       assert.equal((await input.innerText()).replace(/\n+/g, '\n').trim(), 'Also check the invoice\nDo this for me: Call the bank', 'the draft stays, the text on its own line');
@@ -213,35 +231,37 @@ try {
       assert.match(await input.innerText(), /Do this for me: Call the bank today$/, 'the caret is after the text');
       await pause(1500);
       assert.equal(calls.length, before, 'nothing was sent');
-      assert.equal(await group('user').filter({ hasText: 'Call the bank' }).count(), 1, 'the item stays in "You will do"');
-      // The fake model plays the assistant: "Do this for me: …" gives the item owner agent.
+      assert.equal(await noteRow('Call the bank').count(), 1, 'the item stays a note of the user');
+      // The fake model plays the assistant: "Do this for me: …" gives the item owner agent: a Running card ("Your notes" loses it).
       await clear(); await page.keyboard.type('Do this for me: Call the bank', { delay: 5 }); await page.keyboard.press('Escape'); await page.keyboard.press('Enter');
-      await until(async () => (await group('agent').filter({ hasText: 'Call the bank' }).count()) === 1, 'owner agent after the send');
+      await until(async () => (await cards('suruyor', 'Call the bank').count()) === 1 && (await noteRow('Call the bank').count()) === 0, 'a Running card after the send');
       assert.equal(await page.getByRole('button', { name: 'Give to the assistant: Call the bank' }).count(), 0, 'no → for an item of the assistant');
       // A claimed command (/goal): dsh 0.2.1 makes it a chip, 0.2.0 keeps it as text. The text still goes at the end.
-      await send('Remember: call the bank'); await until(async () => (await group('user').filter({ hasText: 'Call the bank' }).count()) === 1, 'a user item again');
+      await send('Remember: call the bank'); await until(async () => (await noteRow('Call the bank').count()) === 1, 'a user note again');
       await clear(); await page.keyboard.type('/goal', { delay: 30 }); await page.keyboard.press('Space'); await page.keyboard.type('ship it', { delay: 5 });
       await page.keyboard.press('Escape');
       const goalBefore = (await input.innerText()).trim();
+      await open('notes');
       await page.getByRole('button', { name: 'Give to the assistant: Call the bank', exact: true }).click();
       await until(async () => (await input.innerText()).includes('Do this for me: Call the bank'), 'the text after a command');
       assert.match((await input.innerText()).replace(/\n+/g, '\n').trim(), /ship it\nDo this for me: Call the bank$/, `after the command's text (${goalBefore})`);
       await clear(); await send('Do this for me: Call the bank'); // the later steps expect the assistant's item
-      await until(async () => (await group('agent').filter({ hasText: 'Call the bank' }).count()) === 1, 'owner agent again');
-      note('2: → writes "Do this for me: …" in the composer after the draft, focus at the end, nothing sent; sent, the agent takes the item');
+      await until(async () => (await cards('suruyor', 'Call the bank').count()) === 1, 'a Running card again');
+      note('2: → (Your notes) writes "Do this for me: …" in the composer after the draft, focus at the end, nothing sent; sent, the item is a Running card');
 
       // 3. The agent removes a done item.
       await send('Is the milk done?');
-      await until(async () => (await item('Buy milk').count()) === 0, 'the agent removed the done item', 30000);
+      await until(async () => (await noteRow('Buy milk').count()) === 0, 'the agent removed the done item', 30000);
       assert.match((await until(() => calls.find((c) => /Is the milk done\?/.test(c.newest) && c.after), 'remove result')).result, /^Removed [0-9a-f]{8} \(completed\): "Buy milk"/);
       note('3: todo_list_remove from the agent (reason completed) removes the item');
 
       // 4. Remove with one click, and the keyboard reaches the buttons.
-      await send('Remember: buy milk'); await item('Buy milk').waitFor({ timeout: 30000 });
+      await send('Remember: buy milk'); await noteRow('Buy milk').waitFor({ state: 'attached', timeout: 30000 });
+      await open('notes');
       const removeButton = page.getByRole('button', { name: 'Remove: Buy milk', exact: true });
       await removeButton.focus(); assert.equal(await removeButton.evaluate((b) => b === document.activeElement), true, 'keyboard focus');
       await page.keyboard.press('Enter');
-      await until(async () => (await item('Buy milk').count()) === 0, 'removed');
+      await until(async () => (await noteRow('Buy milk').count()) === 0, 'removed');
       assert.equal(await page.getByRole('dialog').count(), 0, 'no confirmation dialog');
       assert.equal(await page.evaluate(() => document.activeElement?.closest('[data-composer-plus-todos]') !== null), true, 'F-02: the focus stays in the panel');
       note('4: × removes at once (keyboard Enter), no dialog');
@@ -249,7 +269,7 @@ try {
       // 5. Reload: the list stays. Another chat: no panel, no tools.
       await page.reload(); await input.waitFor({ timeout: 20000 });
       await assistantRow().click();
-      await item('Call the bank').waitFor({ timeout: 20000 });
+      await cards('suruyor', 'Call the bank').waitFor({ state: 'attached', timeout: 20000 });
       const file = JSON.parse(await readFile(join(dshHome, 'storages/dsh-composer-plus/assistant-todos.json'), 'utf8'));
       assert.deepEqual(file.lists[sessionId].map((i) => [i.text, i.owner]), [['Call the bank', 'agent']], 'saved on the Host');
       const proj = page.locator('[data-row-key^="workspace:"]').filter({ hasText: 'acme-web' }).first();
@@ -272,7 +292,7 @@ try {
       assert.doesNotMatch(off.context, /Assistant to-do list/, 'context gone');
       await settings(); await sw.click(); await until(async () => (await sw.getAttribute('aria-checked')) === 'true', 'switch on'); await back();
       await assistantRow().click();
-      await item('Call the bank').waitFor({ timeout: 20000 });
+      await cards('suruyor', 'Call the bank').waitFor({ state: 'attached', timeout: 20000 });
       note('6: off removes the panel, the tools, the section and the context; on brings the list back');
 
       // 7. Status.
@@ -285,22 +305,26 @@ try {
       assert.match((await until(() => calls.find((c) => /Morning summary please/.test(c.newest) && c.after), 'summary result')).result, /summary of 1 projects/);
       // The other chat of acme-web (step 5) changed today: its project row; the summary's link opens it.
       await card.getByRole('button', { name: 'acme-web', exact: true }).click();
-      const row = panel.getByRole('button', { name: /acme-web/ }).and(panel.locator('[aria-expanded]'));
-      await until(async () => (await row.getAttribute('aria-expanded')) === 'true', 'the project row opens');
+      const row = panel.locator('section[aria-labelledby$="-projects-h"] .cp-st-row').filter({ hasText: 'acme-web' });
+      await until(async () => (await row.getAttribute('aria-expanded')) === 'true', 'the project row opens in the Projects section');
       const detail = panel.locator('.cp-st-detail');
       await detail.getByText('feature/login').first().waitFor({ timeout: 15000 });
       assert.match(await detail.innerText(), /Add the login page/);
       assert.ok(await detail.getByRole('button').count() >= 1, 'its chats are buttons');
       // A background subagent task: working, then done with its result (no Refresh).
       await send('Research Rome');
-      const task = panel.locator('li').filter({ hasText: 'Rome flights' });
-      await task.waitFor({ timeout: 30000 });
-      await until(async () => /Working/.test(await task.innerText()), 'the task shows as working', 20000);
+      // A running task is a Running card; ended, it is a Done today card (that group starts folded: read the text, not what shows).
+      const has = async (loc, re) => (await loc.count()) === 1 && re.test(await loc.evaluate((el) => el.textContent));
+      const running = cards('suruyor', 'Rome flights');
+      await running.waitFor({ state: 'attached', timeout: 30000 });
+      // Short lines (Furkan, 2026-11-23): the group names the state; the card line has only its time.
+      await until(() => has(running, /Running: .*\d+ (sec|min)/), 'the task shows as a Running card with its time', 20000);
       gate.open = true;
-      await until(async () => /Done/.test(await task.innerText()) && /Flights found: 3 options/.test(await task.innerText()), 'the task shows done with its result', 30000);
+      const ended = cards('bitti', 'Rome flights');
+      await until(async () => (await has(ended, /Done/)) && (await has(ended, /Flights found: 3 options/)) && (await running.count()) === 0, 'the task is a Done today card with its result', 30000);
       // Refresh updates the list time; the button has its name (test/browser-status-refresh.mjs checks its feedback).
       await panel.getByRole('button', { name: 'Refresh', exact: true }).click();
-      await until(async () => /List \d/.test(await panel.locator('h2').innerText()), 'the list time after Refresh', 5000);
+      await until(async () => /List \d/.test(await panel.locator('h2').innerText()) && /List \d/.test(await panel.locator('.cp-st-time').innerText()), 'the list time after Refresh', 5000);
       // Refresh reads the open project's git details again: wait until they are back before the typing check.
       await detail.getByText('feature/login').first().waitFor({ timeout: 15000 }); await pause(1500);
       // Typing does not draw the panel: count DOM changes in the panel while 30 keys go into the composer.
@@ -309,9 +333,9 @@ try {
       const mutations = await page.evaluate(() => { window.__cpObs.disconnect(); return window.__cpMut; });
       assert.equal(mutations, 0, `the panel changed ${mutations} times while typing`);
       await clear();
-      note('7: summary card and project link (chats, git), a subagent task working then done, Refresh, no panel change while typing');
+      note('7: summary card and project link (Projects section: chats, git), a subagent task as a Running then a Done today card, Refresh, no stack change while typing');
 
-      // 8. Owner groups: 2 items of the user and 3 of the assistant ("Call the bank" from step 2 and two new ones).
+      // 8. Groups: 2 notes of the user and 3 Running cards of the assistant ("Call the bank" from step 2 and two new ones).
       const nudgeMark = calls.length;
       await send('Fill the list');
       // The "Research Rome" turn started a subagent and did not change the list: the next turn gets the to-do nudge.
@@ -319,31 +343,106 @@ try {
       assert.ok(calls.slice(calls.findIndex((c) => /Research Rome/.test(c.newest))).some((c) => /To-do list: in your last turn you started work/.test(c.context)),
         'the to-do nudge after a turn that started a subagent without a to-do item');
       assert.ok(!calls.slice(0, calls.findIndex((c) => /Research Rome/.test(c.newest))).some((c) => /To-do list: in your last turn/.test(c.context)), 'no nudge before it');
-      await until(async () => (await group('user').count()) === 2 && (await group('agent').count()) === 3, 'two groups with 2 and 3 items');
-      const heads = panel.locator('.cp-td-group');
-      assert.deepEqual(await heads.evaluateAll((els) => els.map((b) => [b.dataset.owner, b.getAttribute('aria-expanded'), b.innerText.replace(/\s+/g, ' ').trim()])),
-        [['user', 'true', '▾ You will do 2'], ['agent', 'true', '▾ Damon will do 3']], 'the user\'s group first, both open, with counts');
-      assert.deepEqual(await group('user').locator('.cp-td-text').allInnerTexts(), ['Pay rent', 'Call mom']);
-      assert.deepEqual(await group('agent').locator('.cp-td-text').allInnerTexts(), ['Call the bank', 'Book flights', 'Draft the report']);
-      assert.doesNotMatch(await panel.locator('section[aria-labelledby$="-todos"]').innerText(), /You do it|The assistant does it/, 'no owner line in a row');
-      assert.equal(await group('agent').getByRole('button', { name: /^Give to the assistant/ }).count(), 0, '→ only on the user\'s items');
-      // Keyboard: Enter on a header folds its group; the fold stays after a reload.
-      await groupHead('agent').focus(); await page.keyboard.press('Enter');
-      await until(async () => (await groupHead('agent').getAttribute('aria-expanded')) === 'false', 'folded');
-      assert.equal(await group('agent').first().isVisible(), false, 'the folded list is hidden'); assert.equal(await group('user').first().isVisible(), true);
+      await until(async () => (await panel.locator('section[data-group="notes"] li').count()) === 2 && (await cards('suruyor').count()) === 3, 'two notes and three Running cards');
+      const heads = panel.locator('button.cp-td-group');
+      assert.deepEqual(await heads.evaluateAll((els) => els.map((b) => [b.dataset.group, b.getAttribute('aria-expanded'), [...b.children].slice(0, 3).map((c) => c.textContent.trim()).join(' ')])),
+        [['suruyor', 'true', '▾ Running 3'], ['bitti', 'false', '▸ Done today 1'], ['notes', 'false', '▸ Your notes 2']], 'Running open; Done today and Your notes folded; with counts');
+      assert.deepEqual((await panel.locator('section[data-group="notes"] .cp-cs-main').allInnerTexts()).sort(), ['Call mom', 'Pay rent'].sort());
+      assert.deepEqual((await cards('suruyor').locator('.cp-cs-title').allInnerTexts()).sort(), ['Book flights', 'Call the bank', 'Draft the report'], 'the assistant\'s items are Running cards');
+      assert.doesNotMatch(await panel.evaluate((el) => el.textContent), /You will do|Damon will do|You do it|The assistant does it/, 'no owner groups, no owner line');
+      await open('notes');
+      assert.equal(await panel.locator('section[data-group="suruyor"]').getByRole('button', { name: /^Give to the assistant/ }).count(), 0, '→ only on the user\'s notes');
+      assert.equal(await panel.locator('section[data-group="notes"]').getByRole('button', { name: /^Give to the assistant/ }).count(), 2);
+      // Keyboard: Enter on a header folds its group.
+      await groupHead('suruyor').focus(); await page.keyboard.press('Enter');
+      await until(async () => (await groupHead('suruyor').getAttribute('aria-expanded')) === 'false', 'folded');
+      assert.equal(await cards('suruyor').first().isVisible(), false, 'the folded list is hidden'); assert.equal(await panel.locator('section[data-group="notes"] li').first().isVisible(), true);
+      // A reload starts the groups as at first: Running open (it fits), Done today and Your notes folded.
       await page.reload(); await input.waitFor({ timeout: 20000 }); await assistantRow().click();
-      await groupHead('agent').waitFor({ timeout: 20000 });
-      assert.equal(await groupHead('agent').getAttribute('aria-expanded'), 'false', 'still folded after a reload');
-      await groupHead('agent').click(); await until(async () => (await group('agent').first().isVisible()), 'open again');
+      await groupHead('suruyor').waitFor({ timeout: 20000 });
+      assert.equal(await groupHead('suruyor').getAttribute('aria-expanded'), 'true', 'Running is open again after a reload');
+      assert.equal(await groupHead('bitti').getAttribute('aria-expanded'), 'false', 'Done today starts folded');
+      assert.equal(await groupHead('notes').getAttribute('aria-expanded'), 'false', 'Your notes starts folded');
       await page.mouse.move(640, 790); // no hover color in the screenshot
-      note('8: "You will do" (2) above "Damon will do" (3), no owner line, Enter folds a group and it stays folded after a reload');
+      note('8: "Your notes" (2, folded) and "Running" (3 cards), no owner groups; Enter folds a group; after a reload Done today and Your notes start folded');
 
-      if (process.env.SHOT && !shotDone) {
-        const png = join(home, 'todos.png');
-        await page.screenshot({ path: png });
-        execFileSync('cwebp', ['-quiet', '-q', '72', '-resize', '960', '0', png, '-o', join(repo, 'assets/features/assistantTodos.webp')]);
-        shotDone = true; note('SHOT: assets/features/assistantTodos.webp');
-      }
+      // 9. Waiting for the user (a "For you" card), and Seen (an ended task is a "Done today" card).
+      await send('Wait for the ANR path');
+      const anr = cards('senden', 'Install ANR');
+      await until(async () => (await anr.count()) === 1 && /Waiting for you/.test(await anr.evaluate((el) => el.textContent)), 'the waiting card', 30000);
+      assert.match(await anr.evaluate((el) => el.textContent), /Needs the game folder path/, 'the reason');
+      assert.match(await anr.evaluate((el) => el.textContent), /Waiting for you · \d+ (sec|min)/, 'the wait time');
+      assert.equal(await anr.getByRole('button', { name: 'Reply: Install ANR', exact: true }).count(), 1, 'Reply (an icon button with its name)');
+      assert.match((await until(() => calls.find((c) => /Wait for the ANR path/.test(c.newest) && c.after), 'waiting result')).result, /owner agent, waiting for the user/);
+      assert.match(await panel.locator('[data-composer-plus-counts]').innerText(), /(^| · )1 for you( · |$)/, 'the count bar counts it');
+      assert.equal(await groupHead('senden').getAttribute('aria-expanded'), 'true', 'For you is open');
+      assert.equal(await groupHead('bitti').getAttribute('aria-expanded'), 'false', 'Done today is folded');
+      await open('bitti');
+      const rome = cards('bitti', 'Rome flights');
+      await rome.waitFor({ timeout: 5000 });
+      assert.match(await rome.innerText(), /Done/);
+      assert.equal(await panel.getByRole('button', { name: 'Hide from the list: Rome flights', exact: true }).count(), 0, 'no × on a done card: it has Seen');
+      await rome.getByRole('button', { name: 'Seen: Rome flights', exact: true }).click();
+      await until(async () => (await rome.count()) === 0, 'the card is hidden');
+      assert.equal(await groupHead('bitti').count(), 0, 'no done card is left: the group goes');
+      await page.reload(); await input.waitFor({ timeout: 20000 }); await assistantRow().click();
+      await anr.waitFor({ state: 'attached', timeout: 20000 }); await pause(1000);
+      assert.equal(await rome.count(), 0, 'still hidden after a reload (this browser)');
+      note('9: an agent item waits for the user (For you card: reason, time, Reply, count bar); Seen hides a Done today card, also after a reload');
+
+      // 10. "Write in the message box" on the assistant's cards, the tasks and the projects: the data goes after the draft,
+      //     on new lines, the focus is in the composer, nothing is sent, no id. Click, Enter and Space. A long card
+      //     title wraps and never runs under its buttons.
+      await send('Add a long one'); await cards('suruyor', 'Check each log line').waitFor({ state: 'attached', timeout: 30000 });
+      await send('Research Rome');
+      const rome2 = cards('bitti', 'Rome flights');
+      await until(async () => (await has(rome2, /Done/)) && (await cards('suruyor', 'Rome flights').count()) === 0, 'the second task ended', 30000);
+      for (const g of ['senden', 'suruyor', 'bitti', 'notes']) await open(g);
+      const projectsButton = panel.locator('button[id$="-projects"]');
+      if ((await projectsButton.getAttribute('aria-expanded')) !== 'true') await projectsButton.click();
+      const projectRows = panel.locator('section[aria-labelledby$="-projects-h"] li');
+      await until(async () => (await projectRows.count()) > 0, 'a project row');
+      // No text runs under its buttons (a card line, a note, a project row), and no button leaves the stack.
+      const overlaps = await panel.evaluate((root) => [...root.querySelectorAll('.cp-cs-line, .cp-st-line')].filter((line) => line.offsetParent !== null && line.closest('details') === null).flatMap((line) => {
+        const text = line.querySelector(':scope > .cp-cs-main, :scope > .cp-st-row'); const buttons = [...line.querySelectorAll('.cp-td-btn')].filter((b) => b.offsetParent !== null && b.closest('.cp-cs-main, .cp-st-row') === null);
+        if (text === null || buttons.length === 0) return [];
+        const t = text.getBoundingClientRect(); const out = root.getBoundingClientRect();
+        return buttons.flatMap((b) => { const r = b.getBoundingClientRect(); return t.right > r.left + 0.5 || r.right > out.right + 0.5 || r.width < 20 ? [`${line.innerText.slice(0, 30)}: text ${Math.round(t.right)} > button ${Math.round(r.left)} (stack ${Math.round(out.right)})`] : []; });
+      }));
+      assert.deepEqual(overlaps, [], 'no card text runs under its buttons');
+      // → is a card's main step: Write in the message box on a Running card, Reply on a waiting For you card (the same
+      // data); a Done today card has it in its "…" menu. Each icon's name is its tooltip.
+      const writeTo = (name) => panel.getByRole('button', { name: `Write in the message box: ${name}`, exact: true });
+      assert.equal(await writeTo(LONG).getAttribute('title'), `Write in the message box: ${LONG}`, 'its name is its tooltip');
+      for (const name of ['Call the bank', 'acme-web']) assert.equal(await writeTo(name).count(), 1, `→ on ${name}`);
+      const replyAnr = panel.getByRole('button', { name: 'Reply: Install ANR', exact: true });
+      assert.equal(await replyAnr.count(), 1, 'Reply on the waiting card');
+      assert.equal(await panel.getByRole('button', { name: 'Give to the assistant: Pay rent', exact: true }).count(), 1, 'a note of the user keeps Give to the assistant');
+      await clear(); await page.keyboard.type('Draft note', { delay: 5 }); await page.keyboard.press('Escape');
+      const sent = calls.length;
+      const composerText = async () => (await input.innerText()).replace(/\n+/g, '\n').trim();
+      await replyAnr.click();
+      await until(async () => (await composerText()).includes('Reason: Needs the game folder path'), 'the item in the composer');
+      assert.match(await composerText(), /^Draft note\nTo-do: Install ANR\nWho does it: Damon\nState: Waiting for you · \d+ (sec|min)\nReason: Needs the game folder path$/, 'the draft, then the item, one field per line');
+      assert.equal(await input.evaluate((el) => el.contains(document.activeElement) || el === document.activeElement), true, 'the focus is in the composer');
+      await page.keyboard.type(' (asked)', { delay: 5 });
+      assert.match(await composerText(), /path \(asked\)$/, 'the caret is at the end');
+      await panel.getByRole('button', { name: 'More actions: Rome flights', exact: true }).click();
+      const writeItem = page.getByRole('menuitem', { name: 'Write in the message box', exact: true });
+      await writeItem.waitFor({ timeout: 5000 }); await writeItem.focus(); await page.keyboard.press('Enter');
+      await until(async () => /Task: Rome flights\nState: Done · \d+ (sec|min)\nResult: Flights found: 3 options$/.test(await composerText()), 'Enter writes the task');
+      await writeTo('acme-web').focus(); await page.keyboard.press('Space');
+      await until(async () => /\nProject: acme-web\n(\d+ chats changed|Summary: .+)$/.test(await composerText()), 'Space writes the project');
+      await pause(1500);
+      assert.equal(calls.length, sent, 'nothing was sent');
+      const ids = [sessionId, ...JSON.parse(await readFile(join(dshHome, 'storages/dsh-composer-plus/assistant-todos.json'), 'utf8')).lists[sessionId].map((i) => i.id)];
+      const all = await composerText(); for (const id of ids) assert.ok(!all.includes(id), `no id (${id}) in the text`);
+      await page.mouse.move(640, 790);
+      await panel.locator('.cp-st-body').evaluate((el) => { el.scrollTop = 0; });
+      if (process.env.SHOT_PANEL) { await page.screenshot({ path: process.env.SHOT_PANEL }); note(`SHOT_PANEL: ${process.env.SHOT_PANEL}`); }
+      await clear();
+      note('10: "Write in the message box" on the assistant\'s cards, tasks and projects writes the data (click, Enter, Space) after the draft, focus at the end, nothing sent, no id; a long card title does not run under its buttons');
+
       assert.deepEqual(errors, [], 'no page errors');
       passed = true;
       console.log(`PASS dsh ${version}`);

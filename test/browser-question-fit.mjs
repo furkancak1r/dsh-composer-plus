@@ -9,6 +9,8 @@
 // 2. Switch on in Settings (live): the whole question and every answer can be scrolled into view inside the card, Skip
 //    and Submit are in view at once, and the card stays inside the chat area. Also at 1280 × 600 and 1280 × 1000: the
 //    card height follows the window.
+//    On a dsh that fits the card itself (0.2.2 and later), Settings shows the "built into dsh" note and the card does not
+//    need to follow the window.
 // 3. Switch off in Settings: the style goes and dsh's own height cap is back; on again; pick an answer and submit: the
 //    model gets it.
 // PLAYWRIGHT=/path/to/playwright node test/browser-question-fit.mjs /path/to/dsh/lib/bin.js [...]
@@ -47,7 +49,8 @@ const fake = createServer((req, res) => {
     const msgs = JSON.parse(body).messages ?? [];
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: 'demo', choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 } } : {}) })}\n\n`;
     res.writeHead(200, { 'content-type': 'text/event-stream' });
-    if (/session title|next message|complete the message|improve a prompt/i.test(JSON.stringify(msgs[0]?.content ?? '') + JSON.stringify(msgs.at(-1)?.content ?? ''))) { res.end(chunk({ role: 'assistant', content: 'Release plan' }) + chunk({}, 'stop') + 'data: [DONE]\n\n'); return; }
+    // Helper requests by the start of their own prompts: the chat's system text also says "next message".
+    if (/(Generate|Update) the session title|You predict the next message|You complete the message that the user is typing|You improve a prompt/.test(JSON.stringify(msgs[0]?.content ?? '') + JSON.stringify(msgs.at(-1)?.content ?? ''))) { res.end(chunk({ role: 'assistant', content: 'Release plan' }) + chunk({}, 'stop') + 'data: [DONE]\n\n'); return; }
     if (!msgs.some((m) => m.role === 'tool')) {
       const call = { index: 0, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'ask_user_question', arguments: JSON.stringify({ questions: [{ id: 'plan', header: 'Release plan', question: QUESTION, options: OPTIONS }] }) } };
       res.end(chunk({ role: 'assistant', tool_calls: [call] }) + chunk({}, 'tool_calls') + 'data: [DONE]\n\n'); return;
@@ -64,7 +67,8 @@ const fakePort = fake.address().port;
 function measure() {
   const frame = document.querySelector('[data-question-key]');
   const card = frame.querySelector(':scope > section');
-  const title = card.querySelector(':scope > header h2');
+  // dsh 0.2.0/0.2.1: the question is in the header; dsh 0.2.2: at the top of the scrolling body.
+  const title = card.querySelector(':scope > header h2') ?? card.querySelector(':scope > [data-question-scroll] h2');
   const footer = card.querySelector(':scope > footer');
   const options = [...card.querySelectorAll('[role="radio"], [role="checkbox"]')];
   const buttons = footer === null ? [] : [...footer.querySelectorAll('button')].filter((b) => /^(Skip|Submit)$/.test(b.textContent.trim()));
@@ -155,12 +159,14 @@ try {
       await page.goto(url);
       for (const name of [/^Continue$/, /^Configure later$/]) { const b = page.getByRole('button', { name }); if (await b.waitFor({ timeout: 2000 }).then(() => true, () => false)) { await b.click(); await b.waitFor({ state: 'hidden' }); } }
       const input = page.locator('[data-composer-input]'); await input.waitFor({ timeout: 20000 });
+      const notes = []; // per Settings visit: the count of "built into dsh" notes (NATIVE_FEATURES)
       const setSwitch = async (on) => {
         const direct = page.getByRole('button', { name: 'Settings', exact: true });
         if (await direct.isVisible()) await direct.click();
         else { await page.getByRole('button', { name: 'Account menu', exact: true }).click(); await page.getByRole('menuitem', { name: /^Settings/ }).click(); }
         await page.getByText('Composer Plus', { exact: true }).click();
         const sw = page.locator('[data-composer-plus-settings]').getByRole('switch', { name: 'Fit question card to window' }); await sw.waitFor({ timeout: 10000 });
+        notes.push(await page.locator('[data-composer-plus-settings] [data-composer-plus-native="native"]').count());
         if ((await sw.isChecked()) !== on) await sw.click();
         const overlay = page.locator('[class*="_overlay"]').filter({ has: page.locator('[data-composer-plus-settings]') });
         const close = overlay.getByRole('button', { name: /^Close$/ });
@@ -185,7 +191,11 @@ try {
       for (const height of [600, 1000]) { await page.setViewportSize({ width: WINDOW.width, height }); await pause(600); sizes[height] = await page.evaluate(measure); }
       await page.setViewportSize(WINDOW); await pause(600);
       console.log(`  switch on:  ${JSON.stringify(on)}\n  600 high:   ${JSON.stringify(sizes[600])}\n  1000 high:  ${JSON.stringify(sizes[1000])}`);
-      if (off.unreadable.length === 0 && off.atOnce.buttons) console.log('  note: this dsh already fits the card without the feature');
+      // dsh 0.2.2 and later fit the card themselves (the question folds to a preview with Expand): Settings says so, the
+      // feature is off by default there, and the card does not grow with the window (its content is short).
+      const native = off.unreadable.length === 0 && off.atOnce.buttons;
+      if (native) console.log('  note: this dsh already fits the card without the feature');
+      assert.equal(notes[0] > 0, native, 'the Settings row says "built into dsh" exactly on a dsh that fits the card itself');
 
       assert.deepEqual(on.unreadable, [], 'switch on: the whole question and every answer can be scrolled into view');
       assert.ok(on.atOnce.titleTop && on.atOnce.buttons, 'switch on: the start of the question, Skip and Submit are in view at once');
@@ -196,7 +206,7 @@ try {
         assert.ok(m.card[0] >= m.chat[0] && m.card[1] <= m.chat[1], `${m.viewport[1]} px high: the card stays inside the chat area`);
       }
       const height = (m) => m.card[1] - m.card[0];
-      assert.ok(height(sizes[600]) < height(on) && height(on) < height(sizes[1000]), `the card height follows the window: ${height(sizes[600])} < ${height(on)} < ${height(sizes[1000])}`);
+      if (!native) assert.ok(height(sizes[600]) < height(on) && height(on) < height(sizes[1000]), `the card height follows the window: ${height(sizes[600])} < ${height(on)} < ${height(sizes[1000])}`);
 
       await setSwitch(false);
       const again = await page.evaluate(measure);

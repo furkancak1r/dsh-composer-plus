@@ -39,6 +39,7 @@ const fake = createServer((req, res) => {
     const answer = (text) => res.end(chunk({ role: 'assistant', content: text }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
     if (/session title/i.test(JSON.stringify(msgs.at(-1)?.content ?? ''))) { answer('Queue test'); return; }
     if (JSON.stringify(msgs.at(-1)?.content ?? '').includes('Recent conversation:')) { answer(''); return; } // Composer Plus prediction
+    if (/^You (keep|suggest notes for) the long-term memory/.test(String(msgs[0]?.content ?? ''))) { answer('{"changes":[]}'); return; } // Project memory review: nothing to keep
     const lastAssistant = msgs.findLastIndex((m) => m.role === 'assistant');
     const added = JSON.stringify(msgs.slice(lastAssistant + 1).filter((m) => m.role === 'user').map((m) => m.content));
     requests.push(ALL.filter((text) => added.includes(text)));

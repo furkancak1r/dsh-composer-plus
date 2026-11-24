@@ -1,7 +1,7 @@
 // Tether's push words (Host half): Turn finished carries the agent's last reply of the turn, and every push names the
 // chat's project. The gateway puts them under this Mac's name (test/tether-gateway.test.mjs, "push: ...").
 import assert from 'node:assert/strict';
-import { lastReply, mobileGateway, projectOf, ROLLBACK_SOURCE, REWIND_SOURCE } from '../index.js';
+import { lastReply, mobileGateway, projectOf, pushWords, quietTurn, ROLLBACK_SOURCE, REWIND_SOURCE } from '../index.js';
 
 const say = (seq, text) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } });
 const tool = (seq) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'toolCall', id: 't', name: 'bash' }] } } });
@@ -39,4 +39,41 @@ assert.equal(made.o.about('s1').chat, 's1');
 m.push('Turn finished', 'Fixed it.', 's1');
 assert.deepEqual(pushes, [['Turn finished', 'Fixed it.', 's1']]);
 await m.close();
-console.log('tether push words: last reply of the turn (withdrawn replies left out), project name, chat id to the gateway');
+
+// A completed turn with nothing to say (its reply is empty or only `[quiet]`) gives no Turn finished push, whatever started
+// it; any other reply, and a turn that failed, stopped or hit the token limit, pushes. The turns have the shape of a real
+// assistant log (2026-11-15): dsh logs the prompt and its time context after turn/start. An outage note is a `user`
+// message with an rpcId (2026-11-17: its `[quiet]` turn pushed).
+const prompt = (seq, kind) => ({ seq, type: 'user/message', data: { source: { kind, ...(kind === 'user' ? { rpcId: 'r1' } : {}) }, content: [{ type: 'text', text: 'note' }] } });
+const answer = (seq, text) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'reasoning', text: 'End the turn.' }, ...(text === undefined ? [] : [{ type: 'text', text }])] } } });
+const turnOf = (seq, kind, text, end = 'completed') => [{ seq, type: 'turn/start' }, { seq: seq + 1, type: 'agent/inbox/spliced' }, { seq: seq + 2, type: 'step/start' },
+  prompt(seq + 3, kind), prompt(seq + 4, 'time-context'), answer(seq + 5, text), { seq: seq + 6, type: 'step/end' }, { seq: seq + 7, type: 'turn/end', data: { reason: { kind: end } } }];
+const pushed = (events) => pushWords(events) !== undefined; // the Host's check for a chat that is not the assistant (index.js, agent/status)
+assert.equal(pushed([{ type: 'turn/end', data: { reason: { kind: 'completed' } } }]), !quietTurn([{ type: 'turn/end', data: { reason: { kind: 'completed' } } }], ''), 'pushWords keeps quietTurn');
+const NEWS = 'composer-plus-assistant-news';
+for (const kind of [NEWS, 'user', 'schedule']) {
+  assert.equal(pushed(turnOf(1, kind)), false, `${kind}: empty reply: no push`);
+  assert.equal(pushed([...turnOf(1, kind, ''), tool(9)]), false, `${kind}: only an empty text and a tool call: no push`);
+  assert.equal(pushed(turnOf(1, kind, '[quiet]')), false, `${kind}: [quiet]: no push`);
+  assert.equal(pushed(turnOf(1, kind, '  [QUIET]\n')), false, `${kind}: [quiet] in other case and spaces: no push`);
+  assert.equal(pushed(turnOf(1, kind, 'The deploy of recipe-box failed.')), true, `${kind}: real text: push`);
+  assert.equal(pushed(turnOf(1, kind, '[quiet]\nThe audit found 2 issues.')), true, `${kind}: [quiet] and more text: push`);
+  assert.equal(pushed(turnOf(1, kind, 'Audit: [quiet]')), true, `${kind}: [quiet] inside a sentence: push`);
+  for (const end of ['error', 'max-tokens', 'aborted', 'interrupted']) {
+    assert.equal(pushed(turnOf(1, kind, undefined, end)), true, `${kind}: ${end}, empty reply: push`);
+    assert.equal(pushed(turnOf(1, kind, '[quiet]', end)), true, `${kind}: ${end}, [quiet]: push`);
+  }
+}
+assert.equal(pushed(turnOf(1, 'user', '[quiet]').slice(0, -1)), true, 'no turn/end yet: push');
+assert.equal(pushed([...turnOf(1, 'user', 'Fixed the login.'), ...turnOf(9, NEWS, '[quiet]')]), false, 'only the newest turn counts: quiet');
+assert.equal(pushed([...turnOf(1, NEWS, '[quiet]'), ...turnOf(9, 'user', 'Fixed the login.')]), true, 'only the newest turn counts: push');
+assert.equal(pushed([...turnOf(1, NEWS, '[quiet]'), ...turnOf(9, 'user', '[quiet]', 'max-tokens')]), true, 'only the newest turn end counts');
+// The assistant chat's run (`from`: where it started): a run whose every text is [quiet] gives no push; a run that is news
+// pushes its newest real text, also when its last reply is [quiet] (a real reply, then a queued [quiet] news turn).
+const run = [...turnOf(1, 'user', 'Fixed the login.'), ...turnOf(9, NEWS, '[quiet]')];
+assert.equal(pushWords(run, 0), 'Fixed the login.', 'the assistant run with a real reply pushes it');
+assert.equal(pushWords(run, 8), undefined, 'a quiet run of the assistant: no push');
+assert.equal(pushWords([...turnOf(1, NEWS, '[quiet]', 'error')], 0), '', 'a failed turn pushes, never with the words [quiet]');
+assert.equal(pushWords(turnOf(1, NEWS, 'Deploy failed.'), 0), 'Deploy failed.');
+// The Host's push and green dot on a real agent/status edge: test/unread.test.mjs and test/quiet-replies.test.mjs.
+console.log('tether push words: last reply of the turn (withdrawn replies left out), project name, chat id to the gateway, no push for an empty or [quiet] reply');

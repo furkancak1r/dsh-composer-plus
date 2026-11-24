@@ -4,13 +4,13 @@
 // details (a real temporary repository; read-only), the status_summary_set tool (only the assistant chat, limits, saved
 // in a file that a new Host reads again, a broken file is kept aside) and the GET guards (another chat gets no status; an unknown or unregistered
 // project gets 404; off: nothing), and the delegated chats that ended today (done, failed or stopped after the open tasks;
-// not a task that dsh's quit or an AIProxy outage keeps; gone the next day).
+// gone the next day). A task that dsh's quit or an AIProxy outage keeps runs only while its chat runs (issue #5).
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_TODOS_PATH, STATUS_LIMITS, TODO_TOOLS, installAssistant, installAssistantBot, installAssistantTodos, statusGit, statusProjects, statusTasks } from '../index.js';
+import { ASSISTANT_TODOS_PATH, STATUS_LIMITS, TODO_TOOLS, installAssistant, installAssistantBot, installAssistantTodos, statusGit, statusProjects, statusTasks, todoList } from '../index.js';
 
 const NOW = Date.UTC(2026, 10, 9, 12, 0, 0);
 const ev = (seq, type, data, time = NOW - 1000) => ({ seq, type, data, time });
@@ -148,9 +148,10 @@ try {
   const otherAgent = newAgent('s-web');
   const wsReal = [...ws, { id: 'w-repo', title: 'repo', path: repo, sessionIds: [] }];
   const archivedIds = ['s-arch'];
+  const jobsList = []; // dsh's background jobs: list(caller) gives the caller's jobs and the unowned ones
   const ctx = {
     logger: { warn: () => {} }, subprocess,
-    get: (name) => ({ agents: { get: (id) => agents.get(id), list: () => [...agents.values()] }, workspaceRegistry: { list: () => wsReal, archivedSessionIds: archivedIds }, sessionPersistence: { list: async () => [...agents.keys()].map((id) => ({ header: { id } })) } })[name],
+    get: (name) => ({ agents: { get: (id) => agents.get(id), list: () => [...agents.values()] }, jobs: { list: (caller) => jobsList.filter((j) => j.owner === undefined || j.owner === caller) }, workspaceRegistry: { list: () => wsReal, archivedSessionIds: archivedIds }, sessionPersistence: { list: async () => [...agents.keys()].map((id) => ({ header: { id } })) } })[name],
     on: (name, fn) => { if (!listeners.has(name)) listeners.set(name, []); listeners.get(name).push(fn); }, effect: () => {},
     inject: (deps, setup) => { setup({ systemPrompt: { section: (x) => { sections.set(x.name, x); }, context: () => {} } }); return { dispose: () => {} }; },
     connection: { fetch: { register: (route) => { routes.set(route.path, route); return () => routes.delete(route.path); } } },
@@ -172,6 +173,13 @@ try {
   assert.deepEqual(r.body.tasks.map((t) => t.id).sort(), ['c-done', 'c-fail', 'c-lost', 'c-run', 'c-stop', 'c-wait', 's-deleg']);
   assert.deepEqual(r.body.tasks[0], { id: 's-deleg', title: 'Fix the login form', state: 'waiting', started: r.body.tasks[0].started, chat: true, result: 'acme-web · assistant/fix-login' }, 'a delegated chat is a task, first');
   assert.equal(r.body.tasks.find((t) => t.id === 'c-done').result, 'Flights found: 3 options', 'a disposed child: its saved log');
+  // Furkan, 2026-11-23 ("görünmesin o zaman panelde"): an archived delegated chat that waited for the user shows no card
+  // (chat_archive archives it in the assistant's own turn, so the kept chat list does not change); unarchived, it is back.
+  archivedIds.push('s-deleg');
+  r = await call('?sessionId=s-a');
+  assert.equal(r.body.tasks.some((t) => t.id === 's-deleg'), false, 'an archived chat that waited for you: no card');
+  archivedIds.pop();
+  r = await call('?sessionId=s-a'); assert.equal(r.body.tasks[0].id, 's-deleg', 'unarchived: the card is back');
   // F-08: the next read does not read the ended child's log or all chats again; Refresh (`&refresh=1`) does.
   const [o1, l1] = [observed, listed];
   r = await call('?sessionId=s-a'); assert.equal(r.body.tasks.find((t) => t.id === 'c-done').result, 'Flights found: 3 options');
@@ -349,12 +357,14 @@ try {
   clock = NOW + 1;
 
   // A delegated chat whose task the bot ends at its turn end stays under Tasks after the open tasks, with its final state,
-  // until the day ends. A turn end that dsh's quit or an AIProxy outage stopped keeps the task open (no ended row).
+  // until the day ends. A turn end that dsh's quit or an AIProxy outage stopped keeps the task (no ended row in the bot's
+  // map), and the row is stopped while its chat does not run.
   let outageLeft; const outage = { takes: (session, reason) => reason?.error?.message === 'outage', onLeft: (fn) => { outageLeft = fn; } };
   const bot = installAssistantBot(ctx, home, assistant, { now: () => clock, outage }); await bot.ready;
   const turnEnd = (id, reason, ...before) => {
     const log = agents.get(id).session.snapshotEvents();
     for (const e of [...before, ev(0, 'turn/end', { reason }, clock)]) log.push({ ...e, seq: log.length });
+    agents.get(id).status = 'idle'; // dsh's agent is idle after its turn ends
     for (const fn of listeners.get('session/event')) fn(agents.get(id).session, log.at(-1));
   };
   const rowsOf = async (id) => (await call('?sessionId=s-a')).body.tasks.filter((t) => t.id === id);
@@ -380,20 +390,146 @@ try {
     assert.equal(assistant.tasks.has('s-deleg'), false);
     assert.deepEqual(await rowsOf('s-deleg'), failed, 'a message that did not go keeps the ended row');
   }
-  // dsh's quit and an AIProxy outage keep the task: it stays open. The outage feature lets the chat go: failed.
-  await assistant.tasks.add('s-kept', { title: 'Deploy', project: 'acme-web' }); newAgent('s-kept', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {})]);
+  // Issue #5: a delegated chat that dsh's quit stopped yesterday and that nothing continued. The bot keeps its task (the
+  // chat's next turn end is still news), but the chat does not run: today the panel shows no running row with a time of
+  // 23 hours, also when dsh does not have the chat live.
+  {
+    // Yesterday in the local time zone (the panel's day starts at local midnight), in every zone (TZ=Australia/Sydney too).
+    const midnight = new Date(clock); midnight.setHours(0, 0, 0, 0);
+    const at = midnight.getTime() - 86400000;
+    await assistant.tasks.add('s-stale', { title: 'Update prices', project: 'acme-web', at });
+    const log = [ev(0, 'turn/start', {}, at), ev(1, 'turn/end', { reason: { kind: 'aborted', reason: { kind: 'disposed' } } }, midnight.getTime() - 3600000)];
+    const a = newAgent('s-stale', { cwd: '/demo/acme-web' }, log);
+    for (const fn of listeners.get('session/event')) fn(a.session, log[1]);
+    assert.equal(assistant.tasks.has('s-stale'), true, 'stopped by dsh: the task is kept');
+    assert.deepEqual(await rowsOf('s-stale'), [], 'not running since yesterday: no row today');
+    agents.delete('s-stale');
+    assert.deepEqual(await rowsOf('s-stale'), [], 'not live: no row either');
+    // Not live, but dsh's chat list shows activity today (for example after a restart). Without a saved log: dsh's list
+    // time (its last prompt) for both ends, not the time from the task's first start yesterday.
+    items.push({ sessionId: 's-stale', updatedAt: clock - 400, cwd: '/demo/acme-web' });
+    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.started, t.ended]), [['stopped', clock - 400, clock - 400]], 'no saved log: its last prompt');
+    // With its saved log (a log that could not be read is tried again): the time of its last turn. A saved log is read
+    // once (until the chat's next turn).
+    children['s-stale'] = { status: 'idle', log: [...log, ev(2, 'turn/start', {}, clock - 3000), ev(3, 'turn/end', { reason: { kind: 'interrupted' } }, clock - 500)] };
+    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.started, t.ended]), [['stopped', clock - 3000, clock - 500]], 'stopped: the time of its last turn');
+    children['s-stale'].log = [];
+    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.started, t.ended]), [['stopped', clock - 3000, clock - 500]], 'the saved log is read once');
+    // A saved log whose last turn failed (an AIProxy 429/503): failed, not stopped.
+    for (const fn of listeners.get('session/event')) fn({ id: 's-stale' }, { type: 'turn/start' }); // its next turn: read again
+    children['s-stale'].log = [...log, ev(2, 'turn/start', {}, clock - 3000), ev(3, 'turn/end', { reason: { kind: 'error', error: { message: 'aiproxy API error (429)' } } }, clock - 500)];
+    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.ended]), [['failed', clock - 500]], 'its last turn failed: failed');
+    delete children['s-stale']; items.pop();
+    // It runs again (Resume after restart): running, and its time starts at the new turn, not yesterday.
+    const again = newAgent('s-stale', { cwd: '/demo/acme-web' }, [...log, ev(2, 'turn/start', {}, clock - 2000)]); again.status = 'running';
+    assert.deepEqual((await rowsOf('s-stale')).map((t) => [t.state, t.started]), [['running', clock - 2000]], 'running again: the time of its new turn');
+    agents.delete('s-stale');
+    await assistant.tasks.drop('s-stale');
+    // A new task whose message is on its way (the chat does not run yet) is not stopped.
+    await assistant.tasks.add('s-new', { title: 'New one', project: 'acme-web', at: clock - 1000 });
+    assert.deepEqual((await rowsOf('s-new')).map((t) => t.state), ['running'], 'a new task: running while its message goes');
+    await assistant.tasks.drop('s-new');
+  }
+  // 2026-11-16 ("prosolocal ne durumda görevlerde görünmüyor"): a delegated chat whose turn ended still works (a
+  // background job, as a live deploy) or waits for the user (an `onay` block): an open row, not a done row in History.
+  {
+    await assistant.tasks.add('s-job', { title: 'Canlı deploy', project: 'acme-web', at: clock - 60000 });
+    newAgent('s-job', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {}, clock - 50000)]);
+    jobsList.push({ id: 'bash-1', owner: 's-job', status: 'running' }, { id: 'bash-2', owner: 's-other', status: 'running' }, { id: 'bash-3', status: 'running' });
+    turnEnd('s-job', { kind: 'completed' }, reply(0, 'The deploy runs in the background.'));
+    assert.equal(assistant.tasks.has('s-job'), false, 'the bot ended the task at its turn end');
+    assert.deepEqual(await rowsOf('s-job'), [{ id: 's-job', title: 'Canlı deploy', started: clock - 50000, state: 'running', chat: true, result: 'acme-web' }], 'its background job runs: running');
+    r = await call('?sessionId=s-a'); assert.ok(r.body.tasks.findIndex((t) => t.id === 's-job') <= r.body.tasks.findLastIndex(open), 'with the open tasks');
+    jobsList[0].status = 'completed';
+    assert.deepEqual((await rowsOf('s-job')).map((t) => [t.state, t.result]), [['done', 'The deploy runs in the background.']], 'the job ended: done, in History');
+    jobsList.length = 0;
+    await assistant.tasks.add('s-onay', { title: 'Deploy onayı', project: 'acme-web', branch: 'fix/deploy', at: clock - 60000 });
+    const o = newAgent('s-onay', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {}, clock - 40000)]);
+    await assistant.tasks.add('s-plain', { title: 'Rapor', project: 'acme-web', at: clock - 60000 });
+    newAgent('s-plain', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {}, clock - 40000)]);
+    turnEnd('s-onay', { kind: 'completed' }, reply(0, 'Ready.\n\n```onay\nCANLI DEPLOY PROSOLOCAL 15c101d7 ŞİMDİ\n```'));
+    turnEnd('s-plain', { kind: 'completed' }, reply(0, 'Report sent.'));
+    assert.deepEqual((await rowsOf('s-onay')).map((t) => [t.state, t.result]), [['waiting', 'acme-web · fix/deploy']], 'an onay block: waits for the user');
+    // Furkan, 2026-11-23: the ended task's chat is archived (chat_archive) while it still waits: no card (the bot's
+    // ended row is not shown either); unarchived, it waits again.
+    archivedIds.push('s-onay');
+    assert.equal(assistant.tasks.has('s-onay'), false, 'an ended task (the bot\'s endedTasks row)');
+    assert.deepEqual(await rowsOf('s-onay'), [], 'an archived chat that waited for you: no card');
+    archivedIds.pop();
+    assert.deepEqual((await rowsOf('s-onay')).map((t) => t.state), ['waiting'], 'unarchived: it waits again');
+    assert.deepEqual((await rowsOf('s-plain')).map((t) => t.state), ['done'], 'an answer without a block: done');
+    // Review 1: the 5 s poll does not read an unchanged log again (only the jobs); a grown log is read again.
+    {
+      const plainLog = agents.get('s-plain').session.snapshotEvents(); let scans = 0;
+      const counted = new Proxy(plainLog, { get: (target, key, recv) => { if (key === 'slice') scans += 1; return Reflect.get(target, key, recv); } });
+      agents.get('s-plain').session.snapshotEvents = () => counted;
+      await rowsOf('s-plain'); const first = scans; await rowsOf('s-plain'); await rowsOf('s-plain');
+      assert.equal(scans, first, 'an unchanged log: no new scan');
+      plainLog.push(reply(9, 'Later note.')); await rowsOf('s-plain');
+      assert.ok(scans > first, 'a grown log: read again');
+    }
+    // You answer in that chat: its new turn runs, then it ends without a block.
+    o.status = 'running'; o.session.snapshotEvents().push(ev(2, 'turn/start', {}, clock));
+    assert.deepEqual((await rowsOf('s-onay')).map((t) => [t.state, t.started]), [['running', clock]], 'its next turn runs: running');
+    o.status = 'idle'; o.session.snapshotEvents().push(reply(3, 'Deployed.'), ev(4, 'turn/end', { reason: { kind: 'completed' } }, clock));
+    assert.deepEqual((await rowsOf('s-onay')).map((t) => t.state), ['done'], 'then done again');
+  }
+  // dsh's quit and an AIProxy outage keep the task, but the chat does not run: the row is stopped at the chat's last
+  // event (its time does not grow). The outage feature lets the chat go: failed.
+  await assistant.tasks.add('s-kept', { title: 'Deploy', project: 'acme-web', at: clock - 60000 }); newAgent('s-kept', { cwd: '/demo/acme-web' }, [ev(0, 'turn/start', {})]);
   turnEnd('s-kept', { kind: 'aborted', reason: { kind: 'disposed' } });
-  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.chat]), [['running', true]], 'stopped by dsh: kept open');
+  assert.equal(assistant.tasks.has('s-kept'), true, 'stopped by dsh: the task is kept');
+  // Its time is the time of its last turn (from that turn's start, NOW - 1000), not from the task's start.
+  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.started, t.ended, t.chat]), [['stopped', NOW - 1000, clock, true]], 'stopped by dsh: not running');
   turnEnd('s-kept', { kind: 'error', error: { message: 'outage' } }, ev(0, 'turn/start', {}));
-  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.chat]), [['running', true]], 'kept for the outage: open');
+  // Its last turn ended with an error (an AIProxy outage, 429 or 503) while the outage feature waits: failed, not stopped.
+  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.chat]), [['failed', true]], 'kept for the outage: its last turn failed');
+  assert.equal(assistant.tasks.has('s-kept'), true);
   assert.equal(assistant.endedTasks.has('s-kept'), false);
   outageLeft('s-kept', 'gone');
-  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.result]), [['failed', 'outage']], 'the outage feature did not continue it: failed');
+  assert.deepEqual((await rowsOf('s-kept')).map((t) => [t.state, t.started, t.result]), [['failed', NOW - 1000, 'outage']], 'the outage feature did not continue it: failed, with the time of its last turn');
   // The next day: the ended rows go.
   clock = NOW + 86400000;
   r = await call('?sessionId=s-a');
   assert.deepEqual(r.body.tasks.filter((t) => t.chat && !open(t)), [], 'an ended delegated chat of yesterday is left out');
   assert.equal(assistant.endedTasks.size, 0, 'and taken out of the map');
+
+  // Automations stay out of the panel (Furkan, 2026-11-23): a chat whose newest turn a schedule started is not a project
+  // chat, live (its log in memory) or not (dsh's schedule service names it; its saved log is read once). A chat that you
+  // wrote in after the scheduled turn, a delegated task with a scheduled turn and a "Sorun:" item stay.
+  {
+    const sched = [ev(0, 'turn/start', {}), ev(1, 'user/message', { source: { kind: 'schedule' } }), ev(2, 'turn/end', { reason: { kind: 'completed' } })];
+    const typedAfter = [...sched, ev(3, 'turn/start', {}), ev(4, 'user/message', { source: { kind: 'user' } }), ev(5, 'turn/end', { reason: { kind: 'completed' } })];
+    const cold = { 's-cold-auto': sched, 's-cold-new': sched };
+    newAgent('s-auto', { cwd: '/demo/acme-web' }, sched);
+    newAgent('s-typed', { cwd: '/demo/acme-web' }, typedAfter);
+    newAgent('s-deleg2', { cwd: '/demo/acme-web' }, sched);
+    await assistant.tasks.add('s-deleg2', { title: 'Delegated work', project: 'acme-web' });
+    const row = (id, title) => ({ sessionId: id, updatedAt: clock - 500, cwd: '/demo/acme-web', projections: { values: { title } } });
+    const extra = [row('s-auto', 'Nightly check'), row('s-typed', 'Asked after the reminder'), row('s-deleg2', 'Delegated work'), row('s-cold-auto', 'Cold automation'), row('s-cold-new', 'Hourly audit'), row('s-cold-plain', 'Cold plain')];
+    items.push(...extra);
+    let reads = 0; const { observeSession } = ctx.sessionQuery; const getBefore = ctx.get;
+    ctx.sessionQuery.observeSession = async (id, o) => { if (id in cold) { reads += 1; return { header: {}, events: cold[id], inheritedEventCount: 0, [Symbol.dispose]() {} }; } return observeSession(id, o); };
+    const schedule = { catalog: async () => [{ id: 't1', target: { kind: 'session', sessionId: 's-cold-auto' } }, { id: 't2', target: { kind: 'new', create: {} } }],
+      history: async ({ id }) => ({ records: id === 't2' ? [{ targetSessionId: 's-cold-new' }] : [] }) };
+    ctx.get = (name) => (name === 'schedule' ? schedule : getBefore(name));
+    await todos.store.change('s-a', (list) => todoList.add(list, { text: 'Sorun: Gece denetimi hata verdi (acme-web)', owner: 'agent' }));
+    try {
+      r = await call('?sessionId=s-a&refresh=1');
+      const shown = r.body.projects.flatMap((p) => p.chats.map((c) => c.id));
+      for (const id of ['s-auto', 's-cold-auto', 's-cold-new']) assert.ok(!shown.includes(id), `an automation chat is left out: ${id}`);
+      for (const id of ['s-typed', 's-deleg2', 's-cold-plain']) assert.ok(shown.includes(id), `stays: ${id}`);
+      assert.ok(r.body.tasks.some((t) => t.id === 's-deleg2' && t.chat), 'the delegated task stays a task');
+      assert.ok(r.body.items.some((i) => i.text.startsWith('Sorun: Gece denetimi')), 'a "Sorun:" item of an automation stays');
+      assert.equal(reads, 2, 'the saved logs of the two scheduled targets are read, not the plain cold chat');
+      await call('?sessionId=s-a&refresh=1'); assert.equal(reads, 2, 'read once while the chat does not change');
+    } finally {
+      ctx.get = getBefore; Object.assign(ctx.sessionQuery, { observeSession });
+      items.splice(items.length - extra.length, extra.length);
+      for (const id of ['s-auto', 's-typed', 's-deleg2']) agents.delete(id);
+      await assistant.tasks.drop('s-deleg2');
+    }
+  }
 
   // Off: no status, no git.
   const sw = await routes.get(ASSISTANT_TODOS_PATH).fetch(new Request(`http://x${ASSISTANT_TODOS_PATH}`, { method: 'POST', body: JSON.stringify({ on: false }) }));

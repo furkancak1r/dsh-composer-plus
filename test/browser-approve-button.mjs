@@ -17,7 +17,12 @@
 //    "Done."). The button still shows, under the turn's end, and a click sends the sentence.
 // 8. The `onay` answer ends its turn while a background subagent runs; the subagent's result then starts a new turn that
 //    ends with "X finished." (owner, 2026-11-11: "onay butonu çıkmıyor"). The button of the earlier turn's sentence shows.
-// 9. No page errors.
+// 8b. The same, but the result's turn ends with a tool call and no text (2026-11-15: the assistant does not write an
+//    unchanged block again): the button stays, under that turn's end.
+// 9. A block longer than 500 characters (owner, 2026-11-13: blocks of 1092 to 1439 characters): no button; your next
+//    message's request carries one note with the length, the chat shows no bubble or row for the note, and the request
+//    after it has no second note.
+// 10. No page errors.
 // PLAYWRIGHT=/path/to/playwright node test/browser-approve-button.mjs /path/to/dsh/lib/bin.js [...]
 // SHOT=1 also writes assets/features/approveButton.webp (English UI, made-up project).
 import assert from 'node:assert/strict';
@@ -48,12 +53,16 @@ const LONG = 'Onaylıyorum: bu turda Composer Plus Asistan iyileştirme otomasyo
 const LABELS = [...readFileSync(join(repo, 'client.js'), 'utf8').matchAll(/'approve\.button': '([^']+)'/g)].map((m) => m[1])
   .concat(readdirSync(join(repo, 'locales')).filter((f) => f.endsWith('.json')).map((f) => JSON.parse(readFileSync(join(repo, 'locales', f), 'utf8'))['dsh-composer-plus']['approve.button']));
 assert.equal(new Set(LABELS).size, 13, `13 labels: ${LABELS}`);
+const TOO_LONG = `Onaylıyorum: ${'demo-app için uzun onay. '.repeat(25)}`.trim();
+const NOTE = 'Composer Plus → Approve button: your last `onay` block had';
 const ANSWER = (sentence) => `The login fix is ready on its branch. Pushing it needs your approval:\n\n\`\`\`onay\n${sentence}\n\`\`\`\n`;
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
 const RULE = '# Approve button (Composer Plus)';
 // Fake OpenAI-compatible model: "approve:<n>" and "live" answer with an `onay` block; the rest answers "Done.". Every chat
 // request is kept (`calls`): its last user text and whether the system prompt had the rule.
 const calls = [];
+const QUIET = 'Onaylıyorum: demo-app için feature/quiet dalını origin\'e push et.';
+let quietNext = false; let quietDone = 0;
 const fake = createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
@@ -68,9 +77,10 @@ const fake = createServer((req, res) => {
     if (/You predict the next message|You complete the message that the user is typing|next message that the user will type/.test(all)) return say('');
     const users = msgs.filter((m) => m.role === 'user').map((m) => textOf(m.content)).filter((u) => !/runtime context|Time sampled while preparing|^<system-reminder>/i.test(u));
     const last = users.at(-1) ?? '';
-    calls.push({ last, rule: all.includes(RULE) });
+    calls.push({ last, rule: all.includes(RULE), notes: all.split(NOTE).length - 1, users });
     const n = last.match(/^approve:(\d+)$/)?.[1];
     if (n) return say(ANSWER(SENTENCE(n)));
+    if (last === 'toolong') return say(ANSWER(TOO_LONG));
     if (last === 'live') return say(ANSWER(LIVE));
     if (last === 'long') return say(ANSWER(LONG));
     if (last === 'mid') return msgs.at(-1)?.role === 'tool' ? say('Done.') : sayThenTool(ANSWER(MID));
@@ -81,7 +91,19 @@ const fake = createServer((req, res) => {
       send({ tool_calls: [{ index: 0, id: 'call_later_sub', type: 'function', function: { name: 'subagent', arguments: JSON.stringify({ description: 'Check demo-app', prompt: 'sleep-child: check demo-app.', ...(background ? { run_in_background: true } : {}) }) } }] });
       send({}, 'tool_calls'); res.end('data: [DONE]\n\n'); return;
     }
+    // 8b: the same, but the result's turn ends with a tool call and no text (dsh's turn tail has no closing answer).
+    if (last === 'quiet-later') {
+      if (msgs.at(-1)?.role === 'tool') { quietNext = true; return say(ANSWER(QUIET)); }
+      send({ tool_calls: [{ index: 0, id: 'call_quiet_sub', type: 'function', function: { name: 'subagent', arguments: JSON.stringify({ description: 'Check demo-app again', prompt: 'sleep-child: check demo-app again.', ...((parsed.tools ?? []).find((t) => t.function?.name === 'subagent')?.function?.parameters?.properties?.run_in_background !== undefined ? { run_in_background: true } : {}) }) } }] });
+      send({}, 'tool_calls'); res.end('data: [DONE]\n\n'); return;
+    }
     if (last.includes('sleep-child')) { setTimeout(() => say('Child done.'), 3000); return; }
+    if (/Background subagent .* finished/.test(last) && quietNext) {
+      // dsh 0.2.2 can add a message after the tool result: find the result by its call id.
+      if (msgs.some((m) => m.role === 'tool' && m.tool_call_id === 'call_quiet_todo')) { quietNext = false; quietDone += 1; return say(''); }
+      send({ tool_calls: [{ index: 0, id: 'call_quiet_todo', type: 'function', function: { name: 'todo_write', arguments: JSON.stringify({ todos: [{ content: 'Note the check result', status: 'completed' }] }) } }] });
+      send({}, 'tool_calls'); res.end('data: [DONE]\n\n'); return;
+    }
     if (/Background subagent .* finished/.test(last)) return say('X finished.');
     return say('Done.');
   });
@@ -264,6 +286,35 @@ try {
       assert.equal(await approve.count(), 1, 'one button group, under the newest turn');
       assert.ok(calls.some((c) => /Background subagent .* finished/.test(c.last)), 'the new turn came from the subagent\'s result');
       assert.equal(await page.locator('[data-chat-flow-kind="user"]').filter({ hasText: 'Background subagent' }).count(), 0, 'dsh does not show the result as your message');
+
+      // 8b. 2026-11-15: the assistant does not write an unchanged block again. The `onay` answer, then a subagent's result
+      // starts a turn that ends with a tool call and no text: the button stays, under that turn's end.
+      await typeSend('quiet-later'); await page.getByText(QUIET, { exact: true }).first().waitFor({ state: 'attached', timeout: 20000 });
+      const quietButton = approve.locator('button').filter({ hasText: QUIET });
+      await quietButton.waitFor({ timeout: 20000 });
+      const askTurn = Number(await approve.evaluate((e) => e.closest('[data-turn-tail]').getAttribute('data-turn-tail')));
+      await until(() => quietDone === 1, 'the tools-only turn of the subagent result', 30000);
+      await until(async () => (await quietButton.count()) === 1 && Number(await approve.evaluate((e) => e.closest('[data-turn-tail]').getAttribute('data-turn-tail'))) > askTurn, 'the button under the tools-only turn\'s end');
+      assert.equal(await approve.count(), 1, 'one button group');
+      await once(QUIET, 'button', 'a tools-only turn after the block');
+
+      // 9. A too long block: no button; one note in the next request (with the length), none in the request after it.
+      assert.ok(TOO_LONG.length > 500, `the sentence is too long: ${TOO_LONG.length}`);
+      const dones9 = await dones.count();
+      await typeSend('toolong'); await page.getByText(TOO_LONG, { exact: true }).first().waitFor({ state: 'attached', timeout: 20000 }); await pause(2000);
+      assert.equal(await approve.count(), 0, 'a block longer than 500 characters gets no button (and hides the older one)');
+      const before9 = calls.length;
+      await typeSend('after-long'); await until(async () => (await dones.count()) > dones9, 'the answer to the next message');
+      const after = calls.slice(before9).find((c) => c.users.includes('after-long'));
+      assert.ok(after, `the next request: ${JSON.stringify(calls.slice(before9).map((c) => c.last))}`);
+      assert.equal(after.notes, 1, 'one note in the next request');
+      assert.ok(after.users.some((u) => u.startsWith(NOTE) && u.includes(`had ${TOO_LONG.length} characters`)), 'the note has the length');
+      assert.ok(after.users.indexOf('after-long') < after.users.findIndex((u) => u.startsWith(NOTE)), 'your message comes before the note');
+      assert.equal(await page.getByText('Composer Plus → Approve button', { exact: false }).count(), 0, 'the note is hidden: no bubble or context row in the chat');
+      const before9b = calls.length; await typeSend('approve:4'); await approve.waitFor({ timeout: 20000 });
+      assert.equal(calls.slice(before9b).find((c) => c.last === 'approve:4')?.notes, 1, 'no second note: the old one stays in the history only');
+      await page.reload(); await input.waitFor(); await approve.waitFor({ timeout: 20000 });
+      assert.equal(await page.getByText('Composer Plus → Approve button', { exact: false }).count(), 0, 'after a reload (the chat log is read): still no row for the note');
 
       assert.deepEqual(errors, [], 'no browser exceptions');
       passed = true;

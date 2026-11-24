@@ -1,8 +1,9 @@
-// Real-app check: the assistant's chat_send reaches a running chat at its next step, and a merge task needs a review step
-// (a fake model, a throwaway DSH_HOME and HOME, a made-up project, a made-up review-guard skill in DSH_HOME/skills). Headless.
+// Real-app check: the assistant's chat_send reaches a running chat at its next step (2026-11-14: a correction waited 63
+// minutes in the queue behind a running turn, and the tool result said "Sent"), and a merge task needs merge_main (a fake
+// model, a throwaway DSH_HOME and HOME, a made-up project, a made-up review-guard skill in DSH_HOME/skills). Headless.
 // 1. A chat in weather-cli runs a long turn (the fake model holds its first reply).
 // 2. The assistant sends it an urgent message with chat_send (Allow once on its card): dsh logs it in the chat's next-step
-//    inbox (a steer), not in the queue, while the turn still runs.
+//    inbox (a steer), not in the queue, while the turn still runs, and the tool result says that the chat runs.
 // 3. The held reply ends; the same turn takes the message at its next step and answers it (no second turn/start before it).
 // 4. The hidden news note of that turn's end reaches the assistant with the reply to the urgent message.
 // 5. The assistant sends "/merge-main" without merge_main: the tool refuses it, and nothing reaches the chat.
@@ -28,9 +29,9 @@ const until = async (fn, what, ms = 30000) => {
   for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw Error(`timed out: ${what}`); await pause(250); }
 };
 const URGENT = 'URGENT-NOTE: do not use EncodedCommand.';
-const MERGE = 'Fix the footer, then /merge-main.';
 const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.map((p) => (typeof p?.text === 'string' ? p.text : '')).join('') : '');
-const seen = { note: undefined, merge: undefined, slow: 0, ids: {} };
+const MERGE = 'Fix the footer, then /merge-main.';
+const seen = { note: undefined, sent: undefined, merge: undefined, slow: 0, ids: {} };
 let gate = false;
 const fake = createServer((req, res) => {
   let body = ''; req.on('data', (c) => { body += c; }); req.on('end', () => {
@@ -48,7 +49,7 @@ const fake = createServer((req, res) => {
     const result = after ? textOf(msgs.at(-1).content) : '';
     if (/\[Composer Plus → Assistant news\]/.test(newest)) { if (/Got the urgent note/.test(newest)) seen.note = newest; return say('News read.'); }
     if (newest.includes('Ask the slow chat to merge')) { if (after) { seen.merge = result; return say('Merge result read.'); } return call('chat_send', { chat_id: seen.ids.slow, text: MERGE }); }
-    if (newest.includes('Tell the slow chat')) return after ? say('Sent.') : call('chat_send', { chat_id: seen.ids.slow, text: URGENT });
+    if (newest.includes('Tell the slow chat')) { if (after) { seen.sent = result; return say('Sent.'); } return call('chat_send', { chat_id: seen.ids.slow, text: URGENT }); }
     if (newest.includes('URGENT-NOTE')) return say('Got the urgent note.');
     if (newest.includes('SLOW-JOB')) { seen.slow += 1; const wait = () => (gate ? say('Slow job done.') : setTimeout(wait, 200)); return wait(); }
     return say('ok');
@@ -60,7 +61,7 @@ const fakePort = fake.address().port;
 const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
-    seen.note = undefined; seen.merge = undefined; seen.slow = 0; seen.ids = {}; gate = false;
+    seen.note = undefined; seen.sent = undefined; seen.merge = undefined; seen.slow = 0; seen.ids = {}; gate = false;
     const version = JSON.parse(readFileSync(join(bin, '../../package.json'), 'utf8')).version;
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-assistant-steer-')));
     const dshHome = join(home, '.dsh'); const profile = join(dshHome, 'profiles/web');
@@ -134,6 +135,7 @@ try {
       assert.equal(splice?.data?.target, 'next-step', `dsh put the message in the running turn's next-step inbox (a steer): ${JSON.stringify(splice?.data)?.slice(0, 300)}`);
       assert.equal(typeof splice.data.inserted.find(isUrgent).source?.rpcId, 'string', 'with its request id (source.rpcId)');
       assert.ok(!before.some((e) => e.type === 'turn/end'), 'while the slow turn still runs');
+      assert.match(seen.sent ?? '', /The chat runs: the message went into its running turn, and the chat reads it at its next step\./, `the tool result says where the message went: ${seen.sent?.slice(0, 300)}`);
       // 3-4. The held reply ends; the same turn answers the message, and its end wakes the assistant with the reply.
       gate = true;
       await until(() => seen.note, 'the task note with the reply to the urgent message', 90000);
@@ -155,7 +157,7 @@ try {
       passed = true; console.log(`PASS dsh ${version}`);
     } finally {
       gate = true;
-      if (!passed) { await context?.pages().at(-1)?.screenshot({ path: join(home, 'failed.png') }).catch(() => {}); await writeFile(join(home, 'server.log'), log); console.log(`FAIL dsh ${version}; kept: ${home}\n  note: ${JSON.stringify(seen.note)?.slice(0, 1500)}\n  merge: ${seen.merge?.slice(0, 500)}`); }
+      if (!passed) { await context?.pages().at(-1)?.screenshot({ path: join(home, 'failed.png') }).catch(() => {}); await writeFile(join(home, 'server.log'), log); console.log(`FAIL dsh ${version}; kept: ${home}\n  note: ${JSON.stringify(seen.note)?.slice(0, 1500)}\n  sent: ${seen.sent?.slice(0, 500)}\n  merge: ${seen.merge?.slice(0, 500)}`); }
       await context?.close().catch(() => {});
       child.kill('SIGTERM'); await new Promise((r) => { if (child.exitCode !== null) r(); else { child.once('exit', r); setTimeout(r, 5000); } });
       if (passed) await rm(home, { recursive: true, force: true });

@@ -4,10 +4,10 @@
 // files written with a backup, off removes them) and the running-dsh marker. Real files under a temporary folder.
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as zlib from 'node:zlib';
-import { AUTO_BACKUP_PATH, BACKUP_PATH, RESCUE_PATH, apply, installBackup, parseAutoBackup } from '../index.js';
+import { AUTO_BACKUP_PATH, BACKUP_PATH, RESCUE_PATH, apply, backupFolder, installBackup, parseAutoBackup } from '../index.js';
 import * as b from '../backup.mjs';
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), 'cp-backup-host-')));
@@ -15,11 +15,11 @@ const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 const until = async (fn, what, ms = 10000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v) return v; if (Date.now() > end) throw new Error(`timed out: ${what}`); await tick(10); } };
 const write = (path, text) => { mkdirSync(join(path, '..'), { recursive: true }); writeFileSync(path, text); };
 
-function boot({ home, folder, version, graceMs = 0, retryMs = 1000, agents = new Map() }) {
+function boot({ home, folder, oldFolder, version, graceMs = 0, retryMs = 1000, agents = new Map() }) {
   const routes = new Map(); const effects = [];
   const ctx = { get: (n) => (n === 'agents' ? agents : undefined), effect: (f) => { effects.push(f()); }, logger: { warn() {} },
     connection: { fetch: { register: (r) => routes.set(r.path, r) } }, subprocess: {} };
-  const host = installBackup(ctx, home, { graceMs, retryMs, folder, version });
+  const host = installBackup(ctx, home, { graceMs, retryMs, folder, oldFolder, version });
   const call = async (path, body) => {
     const response = await routes.get(path).fetch(new Request(`http://h${path}`, body === undefined ? {} : { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) }));
     return { status: response.status, data: await response.json() };
@@ -27,13 +27,26 @@ function boot({ home, folder, version, graceMs = 0, retryMs = 1000, agents = new
   return { call, host, routes, unload: () => effects.forEach((f) => f?.()) };
 }
 
-// The real apply() registers the three routes.
+// The real apply() registers the three routes. The folder: `backups` in the dsh home; COMPOSER_PLUS_BACKUP_DIR wins.
 {
   process.env.DSH_HOME = join(root, 'apply-home');
-  process.env.COMPOSER_PLUS_BACKUP_DIR = join(root, 'apply-dest');
+  delete process.env.COMPOSER_PLUS_BACKUP_DIR;
+  assert.equal(backupFolder(), join(root, 'apply-home', 'backups'));
+  const saved = process.env.DSH_HOME;
+  delete process.env.DSH_HOME;
+  assert.equal(backupFolder(), join(homedir(), '.dsh', 'backups'), 'no DSH_HOME: ~/.dsh/backups');
+  process.env.DSH_HOME = saved;
   const routes = new Map();
   apply({ on() {}, effect() {}, get: () => undefined, connection: { fetch: { register: (x) => routes.set(x.path, x) } }, subprocess: {}, sessionQuery: {}, sessionController: {} });
   assert.deepEqual([BACKUP_PATH, AUTO_BACKUP_PATH, RESCUE_PATH].map((p) => routes.get(p)?.methods), [['GET', 'POST'], ['GET', 'POST'], ['GET', 'POST']]);
+  const folderOf = async (r) => (await (await r.get(BACKUP_PATH).fetch(new Request(`http://h${BACKUP_PATH}`))).json()).folder;
+  assert.equal(await folderOf(routes), join(root, 'apply-home', 'backups'), 'apply() uses the dsh home\'s backups folder');
+  process.env.COMPOSER_PLUS_BACKUP_DIR = join(root, 'apply-dest');
+  assert.equal(backupFolder(), join(root, 'apply-dest'), 'the variable wins');
+  const routes2 = new Map();
+  apply({ on() {}, effect() {}, get: () => undefined, connection: { fetch: { register: (x) => routes2.set(x.path, x) } }, subprocess: {}, sessionQuery: {}, sessionController: {} });
+  assert.equal(await folderOf(routes2), join(root, 'apply-dest'));
+  assert.equal(existsSync(join(root, 'apply-home', 'backups')), false, 'a start makes no backup folder');
 }
 
 const home = join(root, 'home', '.dsh');
@@ -44,6 +57,8 @@ write(join(home, '.credentials.yaml'), 'key: SECRET\n');
 // Settings parse: off by default, 24 hours, 7 kept; only listed values.
 assert.deepEqual(parseAutoBackup(undefined), { on: false, hours: 24, keep: 7 });
 assert.deepEqual(parseAutoBackup({ on: 'yes', hours: 5, keep: 100, version: '0.2.1' }), { on: false, hours: 24, keep: 7, version: '0.2.1' });
+for (const keep of [2, 3, 5, 7, 14]) assert.equal(parseAutoBackup({ keep }).keep, keep);
+for (const keep of [0, 1, 4, '2']) assert.equal(parseAutoBackup({ keep }).keep, 7, JSON.stringify(keep));
 
 {
   const app = boot({ home, folder, version: '0.2.1-rc.2' });
@@ -143,7 +158,14 @@ assert.deepEqual(parseAutoBackup({ on: 'yes', hours: 5, keep: 100, version: '0.2
   // Automatic backup settings.
   r = await app.call(AUTO_BACKUP_PATH);
   assert.deepEqual([r.data.on, r.data.hours, r.data.keep, r.data.next], [false, 24, 7, undefined]);
-  for (const bad of [{ on: 1 }, { hours: 5 }, { keep: 0 }, { on: true, hours: 6 }, { version: 'x' }]) assert.equal((await app.call(AUTO_BACKUP_PATH, bad)).status, 400, JSON.stringify(bad));
+  for (const bad of [{ on: 1 }, { hours: 5 }, { keep: 0 }, { keep: 1 }, { keep: '2' }, { on: true, hours: 6 }, { version: 'x' }]) assert.equal((await app.call(AUTO_BACKUP_PATH, bad)).status, 400, JSON.stringify(bad));
+  assert.equal((await app.call(AUTO_BACKUP_PATH, { keep: 2 })).data.keep, 2);
+  assert.equal(JSON.parse(readFileSync(join(home, 'storages', 'dsh-composer-plus', 'auto-backup.json'), 'utf8')).keep, 2, 'keep 2 is saved');
+  // Keep 2 with Automatic backup off: a click removes nothing.
+  const offCount = (await app.call(BACKUP_PATH)).data.archives.length;
+  await app.call(BACKUP_PATH, { action: 'backup' }); await app.host.settled();
+  r = await app.call(BACKUP_PATH);
+  assert.deepEqual([r.data.last.result.rotated, r.data.archives.length], [0, offCount + 1], 'switched off: keep 2 removes nothing');
   assert.equal((await app.call(AUTO_BACKUP_PATH, { hours: 12 })).data.hours, 12);
   assert.equal((await app.call(AUTO_BACKUP_PATH, { keep: 3 })).data.keep, 3);
   r = await app.call(AUTO_BACKUP_PATH, { on: true });
@@ -188,6 +210,51 @@ assert.deepEqual(parseAutoBackup({ on: 'yes', hours: 5, keep: 100, version: '0.2
   assert.match(r.data.failed.message, /EEXIST|ENOTDIR|not a directory|file already exists/i);
   assert.ok(Date.parse(r.data.next) - Date.now() > 50000, 'the next try waits');
   broken.unload();
+  // The old folder (~/Desktop/dsh-backups up to 1.29.2): a start and each backup replace its rescue console only; an
+  // automatic backup with keep 3 never touches its 4 Composer Plus archives; the list shows the new folder only.
+  const oldHome = join(root, 'old', '.dsh');
+  const oldFolder = join(root, 'old-desktop-backups');
+  const newFolder = join(oldHome, 'backups');
+  const ownConsole = readFileSync(new URL('../backup.mjs', import.meta.url), 'utf8');
+  write(join(oldHome, 'a.txt'), 'a');
+  for (let i = 0; i < 4; i++) await b.backup({ home: oldHome, dest: oldFolder, now: new Date(2026, 9, 1, 0, 0, i) });
+  write(join(oldFolder, b.RESCUE_FILE), 'old console');
+  const oldBefore = readdirSync(oldFolder, { recursive: true }).filter((n) => n !== b.RESCUE_FILE).sort();
+  // Before the grace time ends: Back up now also replaces the old console.
+  const early = boot({ home: oldHome, folder: newFolder, oldFolder, version: '0.2.1', graceMs: 60000 });
+  await early.call(BACKUP_PATH, { action: 'backup' }); await early.host.settled();
+  assert.equal(readFileSync(join(oldFolder, b.RESCUE_FILE), 'utf8'), ownConsole, 'a backup replaces the old console');
+  early.unload();
+  // No backup in the new folder: the automatic backup is due at once.
+  for (const a of await b.listArchives(newFolder)) await b.removeArchive(newFolder, a.name);
+  write(join(oldFolder, b.RESCUE_FILE), 'old console');
+  write(join(oldHome, 'storages', 'dsh-composer-plus', 'auto-backup.json'), JSON.stringify({ on: true, keep: 3, version: '0.2.1' }));
+  const moved = boot({ home: oldHome, folder: newFolder, oldFolder, version: '0.2.1', graceMs: 5 });
+  await until(() => readFileSync(join(oldFolder, b.RESCUE_FILE), 'utf8') !== 'old console', 'the old console replaced at start');
+  await until(async () => (await b.listArchives(newFolder)).length === 1, 'the automatic backup in the new folder');
+  await moved.host.settled();
+  assert.equal(readFileSync(join(oldFolder, b.RESCUE_FILE), 'utf8'), ownConsole);
+  assert.deepEqual(readdirSync(oldFolder, { recursive: true }).filter((n) => !b.rescueFiles().includes(n)).sort(), oldBefore, 'no archive in the old folder changed');
+  r = await moved.call(BACKUP_PATH);
+  assert.deepEqual([r.data.folder, r.data.archives.length], [newFolder, 1], 'the list shows the new folder only');
+  moved.unload();
+  // A start with no console in the new folder, Automatic backup and Rescue console off: only the old console is replaced,
+  // and no new folder is made.
+  const offStart = join(root, 'old-start', '.dsh');
+  write(join(offStart, 'a.txt'), 'a');
+  write(join(offStart, 'storages', 'dsh-composer-plus', 'rescue-console.json'), JSON.stringify({ on: false }));
+  write(join(oldFolder, b.RESCUE_FILE), 'old console');
+  const started = boot({ home: offStart, folder: join(offStart, 'backups'), oldFolder, version: '0.2.1', graceMs: 5 });
+  await until(() => readFileSync(join(oldFolder, b.RESCUE_FILE), 'utf8') === ownConsole, 'the old console replaced at a start');
+  assert.equal(existsSync(join(offStart, 'backups')), false, 'a start makes no new folder');
+  started.unload();
+  // An old folder without a console gets none.
+  const bare = join(root, 'old-bare');
+  mkdirSync(bare);
+  const quiet = boot({ home: oldHome, folder: newFolder, oldFolder: bare, version: '0.2.1', graceMs: 60000 });
+  await quiet.call(BACKUP_PATH, { action: 'backup' }); await quiet.host.settled();
+  assert.deepEqual(readdirSync(bare), []);
+  quiet.unload();
   // The first start with a version and an automatic backup that is off: the version is remembered, no snapshot.
   const offHome = join(root, 'off', '.dsh');
   write(join(offHome, 'a.txt'), 'a');
@@ -196,6 +263,76 @@ assert.deepEqual(parseAutoBackup({ on: 'yes', hours: 5, keep: 100, version: '0.2
   assert.equal(JSON.parse(readFileSync(join(offHome, 'storages', 'dsh-composer-plus', 'auto-backup.json'), 'utf8')).version, '0.2.1');
   assert.equal(existsSync(join(root, 'off-backups')), false, 'off: no backup, no folder');
   off.unload();
+}
+
+// Keep 2 (Automatic backup on): each backup leaves at most 2 Composer Plus archives of all kinds (the new one and the
+// newest other), with their sidecars and vault copies; dsh-backup's archive stays; a cancelled click removes nothing; Keep 3
+// keeps the old rule. After an upgrade's snapshot, the last full backup from before it stays until the next interval.
+{
+  const twoHome = join(root, 'two', '.dsh');
+  write(join(twoHome, 'a.txt'), 'a');
+  write(join(twoHome, '.credentials.yaml'), 'key: TWO\n');
+  const settings = join(twoHome, 'storages', 'dsh-composer-plus', 'auto-backup.json');
+  /** A folder with an old full backup, snapshot and full backup of Composer Plus and one dsh-backup archive. */
+  const seed = async (dir) => {
+    const old = [];
+    for (const [kind, day] of [['backup', 1], ['pre-upgrade', 2], ['backup', 3]]) old.push((await b.backup({ home: twoHome, dest: dir, kind, now: new Date(2020, 0, day) })).name);
+    const foreign = (await b.backup({ home: twoHome, dest: dir, now: new Date(2019, 0, 1) })).name;
+    rmSync(join(dir, `${foreign}.meta.json`)); // no `by`: not a Composer Plus archive
+    return { old, foreign };
+  };
+  const ours = async (dir) => (await b.listArchives(dir)).filter((a) => a.meta?.by === b.BY);
+  const goneWithAll = (dir, gone) => { for (const n of gone) assert.ok(!readdirSync(dir).some((f) => f.startsWith(n)) && !existsSync(join(dir, b.VAULT, n)), `${n} went with its sidecars and vault`); };
+  // The automatic backup (same version): the new one and the newest old one (a full backup) stay.
+  const autoDir = join(root, 'two-auto');
+  const seeded = await seed(autoDir);
+  write(settings, JSON.stringify({ on: true, hours: 24, keep: 2, version: '0.2.1' }));
+  const first = boot({ home: twoHome, folder: autoDir, version: '0.2.1', graceMs: 5 });
+  await until(async () => (await ours(autoDir)).length === 2, 'the automatic backup');
+  await first.host.settled();
+  let list = await ours(autoDir);
+  assert.deepEqual([list[1].name, list[0].kind], [seeded.old[2], 'backup'], 'the new backup and the newest old one stay');
+  assert.ok(!seeded.old.includes(list[0].name));
+  goneWithAll(autoDir, seeded.old.slice(0, 2));
+  assert.ok(existsSync(join(autoDir, seeded.foreign)), 'dsh-backup\'s archive stays');
+  assert.ok(existsSync(join(autoDir, b.VAULT, list[0].name, '.credentials.yaml')), 'the new backup has its vault copy');
+  first.unload();
+  // A new version: the snapshot and the last full backup from before it stay; no automatic backup right after it.
+  const twoFolder = join(root, 'two-backups');
+  const { old, foreign } = await seed(twoFolder);
+  write(settings, JSON.stringify({ on: true, hours: 24, keep: 2, version: '0.2.0' }));
+  const app = boot({ home: twoHome, folder: twoFolder, version: '0.2.1', graceMs: 30 });
+  await until(() => JSON.parse(readFileSync(settings, 'utf8')).version === '0.2.1', 'the snapshot');
+  await app.host.settled();
+  list = await ours(twoFolder);
+  assert.deepEqual([list[0].kind, list[1].name, list.length], ['pre-upgrade', old[2], 2], 'the snapshot and the last full backup stay');
+  goneWithAll(twoFolder, old.slice(0, 2));
+  assert.ok(existsSync(join(twoFolder, foreign)));
+  let r = await app.call(AUTO_BACKUP_PATH);
+  assert.ok(Math.abs(Date.parse(r.data.next) - Date.parse(list[0].at) - 24 * 3600000) < 2000, 'the next backup: 24 hours after the snapshot');
+  const snapshot = list[0].name;
+  // A click: the new one and the newest other stay.
+  await app.call(BACKUP_PATH, { action: 'backup' }); await app.host.settled();
+  r = await app.call(BACKUP_PATH);
+  assert.equal(r.data.last.ok, true); assert.equal(r.data.last.result.rotated, 1);
+  assert.deepEqual((await ours(twoFolder)).map((a) => a.name), [r.data.last.result.name, snapshot], 'a click with keep 2: the newest 2 of all kinds');
+  // A cancelled click removes nothing.
+  const before = readdirSync(twoFolder, { recursive: true }).sort();
+  write(join(twoHome, 'big.bin'), Buffer.alloc(40 * 1024 * 1024, 1));
+  await app.call(BACKUP_PATH, { action: 'backup' });
+  await app.call(BACKUP_PATH, { action: 'cancel' });
+  await app.host.settled();
+  r = await app.call(BACKUP_PATH);
+  assert.deepEqual([r.data.last.ok, r.data.last.error], [false, 'cancelled']);
+  assert.deepEqual(readdirSync(twoFolder, { recursive: true }).sort(), before, 'a cancelled backup with keep 2 removes nothing');
+  rmSync(join(twoHome, 'big.bin'));
+  // Keep 3: a click removes nothing again (the old rule).
+  assert.equal((await app.call(AUTO_BACKUP_PATH, { keep: 3 })).data.keep, 3);
+  await app.call(BACKUP_PATH, { action: 'backup' }); await app.host.settled();
+  r = await app.call(BACKUP_PATH);
+  assert.equal(r.data.last.result.rotated, 0);
+  assert.equal((await ours(twoFolder)).length, 3);
+  app.unload();
 }
 
 rmSync(root, { recursive: true, force: true });

@@ -6,10 +6,10 @@ const mem=new Map();globalThis.localStorage={getItem:k=>mem.has(k)?mem.get(k):nu
 let mod;globalThis.window={__ModuleLoader__:{load:m=>{mod=m;}}};eval(src);
 let q='';const React={createElement:(t,p,...c)=>({t,p,c}),useState:v=>(v===''?[q,x=>{q=x;}]:[v,()=>{}])};
 const plugin=mod.factory(n=>n==='react'?React:n==='@deepseek-ai/dsh-client-ui-primitives'?{Switch:'Switch'}:{});
-function boot(){
-  const live=new Map();let next=0;const scopes=new Set();const effects=[];
-  const slots={inject:(name,f)=>{const off=f();return()=>off();},entries:()=>[],register:(o)=>{const key=`${o.name}#${o.id??o.key}#${next++}`;live.set(key,o);return()=>live.delete(key);}};
-  const ctx={slots,configForms:{get:()=>({})},effect:(f)=>{effects.push(f());},locale:{register:()=>()=>{},bind:()=>(k)=>k},
+function boot(locale={register:()=>()=>{},bind:()=>(k)=>k}){
+  const live=new Map();let next=0;const scopes=new Set();const effects=[];let Settings;
+  const slots={inject:(name,f)=>{const off=f();return()=>off();},entries:()=>[],register:(o,Comp)=>{if(o.id==='composer-plus')Settings=Comp;const key=`${o.name}#${o.id??o.key}#${next++}`;live.set(key,o);return()=>live.delete(key);}};
+  const ctx={slots,configForms:{get:()=>({})},effect:(f)=>{effects.push(f());},locale,
     inject:(deps,setup)=>{const id=deps.join(',');scopes.add(id);
       setup({effect:()=>{},uiSession:{sessionStatus:{getSnapshot:()=>new Map(),subscribe:()=>()=>{}}},sessions:{list:{getSnapshot:()=>({}),subscribe:()=>()=>{}}},
         uiWorkspace:{},workspaces:{list:{getSnapshot:()=>undefined,subscribe:()=>()=>{}}},sidebarRight:{},sidebarRightTabs:{register:()=>()=>{}}});
@@ -17,10 +17,10 @@ function boot(){
   plugin.apply(ctx);
   const ids=()=>[...live.values()].map(o=>o.id??o.key).sort();
   const settings=[...live.values()].find(o=>o.id==='composer-plus');
-  return {ids,scopes,settings,unload:()=>effects.forEach(f=>typeof f==='function'&&f())};
+  return {ids,scopes,settings,Settings,unload:()=>effects.forEach(f=>typeof f==='function'&&f())};
 }
 let app=boot();
-const all=['approve-button','assistant-apart','assistant-callouts','assistant-chat-view','assistant-status','assistant-todos','assistant-welcome','branch-chip','branch-status','chat-tool-grants','collapse-projects','composer-continue','composer-history','composer-keep-focus','composer-plan-toggle','composer-plus','composer-plus-assistant','composer-plus-assistant','composer-plus-board','composer-plus-board','copy-deeplink','delete-chat','delete-chat-dialog','export-markdown','export-markdown-dialog','find-in-chat','goal-check','handoff-chat','handoff-dialog','issue-report','issue-report-dialog','memory-chat','memory-chat-chip','memory-suggest','memory-suggest-dialog','message-links','next-prediction','onay-code-blocks','option-picks','preview-quote','project-name','project-path-menu','project-picker-search','project-status','prompt-improve','queue-edit','queue-reorder','quote','quote-reply','recent-projects','reject-note','request_secret','session-branch','session-context-menu','side-chat','side-chat-bar','status-order','subagent-catalog','turn-redo','turn-rollback','whats-new'];
+const all=['approve-button','assistant-apart','assistant-callouts','assistant-chat-view','assistant-status','assistant-todos','assistant-welcome','branch-chip','branch-status','card-choices','chat-tool-grants','collapse-projects','composer-continue','composer-history','composer-keep-focus','composer-plan-toggle','composer-plus','composer-plus-assistant','composer-plus-assistant','composer-plus-board','composer-plus-board','copy-deeplink','delete-chat','delete-chat-dialog','export-markdown','export-markdown-dialog','find-in-chat','goal-check','handoff-chat','handoff-dialog','issue-report','issue-report-dialog','memory-chat','memory-chat-chip','memory-suggest','memory-suggest-dialog','message-links','next-prediction','onay-code-blocks','option-picks','preview-quote','project-name','project-path-menu','project-picker-search','project-status','prompt-improve','queue-edit','queue-reorder','quote','quote-reply','recent-projects','reject-note','request_secret','session-branch','session-context-menu','side-chat','side-chat-bar','status-order','subagent-catalog','turn-redo','turn-rollback','whats-new'];
 assert.deepEqual(app.ids(),all,'every feature on by default, plus the settings section');
 assert.ok(app.scopes.has('workspaces,uiSession,sessions')&&app.scopes.has('uiSession,uiWorkspace,sessions')&&app.scopes.has('sidebarRight,sidebarRightTabs')&&app.scopes.has('uiWorkspace,workspaces'));
 assert.equal(app.settings.name,'settings.section');
@@ -36,19 +36,20 @@ for (const [id, slots] of [['assistant',['assistant-welcome','composer-plus-assi
   const before=app.ids(); setFeature(id,false); assert.deepEqual(app.ids(),before.filter((x)=>!slots.includes(x)),`${id} removes only its slots`);
   setFeature(id,true); assert.deepEqual(app.ids(),before,`${id} comes back`);
 }
-assert.deepEqual(JSON.parse(mem.get('dsh-composer-plus.features')),{activeProjectsFirst:false,notifications:false},'only off switches are stored');
+{ const stored=JSON.parse(mem.get('dsh-composer-plus.features'));assert.equal(stored.activeProjectsFirst,false);assert.equal(stored.notifications,false);
+  assert.equal(stored.copyDeeplink,true,'an on choice is stored too (a NATIVE_FEATURES default can change)');assert.ok(Object.values(stored).every(v=>typeof v==='boolean'),'only explicit choices'); }
 app.unload();assert.deepEqual(app.ids(),['composer-plus'],'unload removes every feature slot (dsh disposes the settings section with the plugin)');assert.equal(app.scopes.size,0);
 app=boot();assert.ok(app.ids().includes('copy-deeplink'));assert.ok(!app.scopes.has('workspaces,uiSession,sessions'),'off switch survives a reload');
 // Settings UI: one Switch per feature, reflecting state and writing back.
 let renders=[];const row=app.settings;const C=(() => { let comp; const slots={inject:(n,f)=>f(),register:(o,Comp)=>{if(o.id==='composer-plus')comp=Comp;return()=>{};}};
   plugin.apply({slots,effect:()=>{},locale:{register:()=>()=>{},bind:()=>k=>k}});return comp; })();
 const calls=[];const tree=C({useComposerPlusToggles:f=>f({planToggle:false}),setFeature:(id,on)=>calls.push([id,on]),t:k=>k});
-assert.equal(tree.c[1].p['data-composer-plus-search'],'');assert.equal(tree.c[3],null,'no update row without an updater');assert.equal(tree.c[4],null,'no empty notice');const switches=tree.c.slice(5).map(r=>r.c[2]);assert.equal(tree.c.slice(5).filter(r=>r.c[0].p.id!==undefined).length,84,'every feature row has a screenshot (the auto-update switch shows the update row\'s)');assert.equal(switches.length,84);
+assert.equal(tree.c[1].p['data-composer-plus-search'],'');assert.equal(tree.c[3],null,'no update row without an updater');assert.equal(tree.c[4],null,'no empty notice');const switches=tree.c.slice(5).map(r=>r.c[2]);assert.equal(tree.c.slice(5).filter(r=>r.c[0].p.id!==undefined).length,85,'every feature row has a screenshot (the auto-update switch shows the update row\'s)');assert.equal(switches.length,85);
 const plan=switches.find(s=>s.p.label==='feature.planToggle');assert.equal(plan.p.checked,false);assert.equal(switches.filter(s=>s.p.checked).length,74,'plan mode is off here; Assistant callouts is on; Resume after an AIProxy outage is on; Running subagents in the chat header is on; Approve button is on; Assistant apart from chats, Assistant messages only, Assistant always free and Assistant to-do list are on, Assistant news from chats is off; Report an issue is on (a model call and gh only on a click); On/off filter and Category filter are on; Reject with note, Secret input, Quote in reply, Quote from file preview, Side chat, Diff notes, Memory version history, Export memory to AGENTS.md, Memory note source link, Copy memory to another project, Find stale memory notes, Do not use memory in this chat and Suggest memory notes from a chat are on; Task board, Assistant, Continue in a new chat, Next waiting chat, Option buttons, Context breakdown, Protected files and Blocked commands are on; Mobile connect, Resume after restart, Complete while typing, Branches in the workspace tree, Automatic backup, Project memory and Planned steps are off by default; Next message prediction, Improve prompt, Goal check and Open waiting chat when idle are on; Content search, Turn rollback, Delete chat, Project name, Mark all as read, Edit queued message in place, Remember window size, Send after Stop goes first, Copy message link, Branch per chat, Default workspace, Backup, Session log check and Rescue console are on');
 for (const id of ['issueReport','handoffChat','contextBreakdown','protectedFiles','blockedCommands','taskBoard','nextWaiting','optionPicks','approveButton','untangleCodebase']) assert.equal(switches.find(s=>s.p.label===`feature.${id}`).p.checked,true,`${id}: on by default (no port, no model call without a click)`);
 assert.equal(switches.find(s=>s.p.label==='feature.goalCheck').p.checked,true,'Goal check: on by default (the owner\'s choice)');
 assert.equal(switches.find(s=>s.p.label==='feature.contentSearch').p.checked,true);
-assert.equal(switches.find(s=>s.p.label==='feature.mobileConnect').p.checked,false);assert.equal(switches.find(s=>s.p.label==='feature.remoteComputers').p.checked,false,'Remote computers: off by default (it opens ports)');assert.equal(switches.find(s=>s.p.label==='feature.resumeAfterRestart').p.checked,false);assert.equal(switches.find(s=>s.p.label==='feature.outageResume').p.checked,true,'Resume after an AIProxy outage: on by default (the owner\'s choice)');assert.equal(switches.find(s=>s.p.label==='feature.nextPrediction').p.checked,true,'on by default');assert.equal(switches.find(s=>s.p.label==='feature.typingCompletion').p.checked,false,'Complete while typing: off by default');assert.equal(switches.find(s=>s.p.label==='feature.projectMemory').p.checked,false,'Project memory: off until the Host answers (a new user gets on from the Host, an earlier user keeps the setting)');assert.equal(switches.find(s=>s.p.label==='feature.plannedSteps').p.checked,false,'Planned steps: off by default (it runs commands without a new model call)');assert.equal(switches.find(s=>s.p.label==='feature.assistant').p.checked,true,'Assistant: on by default (each change to another chat waits for an approval)');
+assert.equal(switches.find(s=>s.p.label==='feature.mobileConnect').p.checked,false);assert.equal(switches.find(s=>s.p.label==='feature.remoteComputers').p.checked,false,'Remote computers: off by default (it opens ports)');assert.equal(switches.find(s=>s.p.label==='feature.resumeAfterRestart').p.checked,false);assert.equal(switches.find(s=>s.p.label==='feature.outageResume').p.checked,true,'Resume after an AIProxy outage: on by default (the owner\'s choice)');assert.equal(switches.find(s=>s.p.label==='feature.nextPrediction').p.checked,true,'on by default');assert.equal(switches.find(s=>s.p.label==='feature.typingCompletion').p.checked,false,'Complete while typing: off by default');assert.equal(switches.find(s=>s.p.label==='feature.projectMemory').p.checked,false,'Project memory: off until the Host answers (a new user gets on from the Host, an earlier user keeps the setting)');assert.equal(switches.find(s=>s.p.label==='feature.plannedSteps').p.checked,false,'Planned steps: off by default (it runs commands without a new model call)');assert.equal(switches.find(s=>s.p.label==='feature.advisor').p.checked,false,'Advisor model: off by default (each use is a paid call of another model)');assert.equal(switches.find(s=>s.p.label==='feature.assistant').p.checked,true,'Assistant: on by default (each change to another chat waits for an approval)');
 for (const id of ['assistantApart','assistantChatView','assistantFree','assistantTodos']) assert.equal(switches.find(s=>s.p.label===`feature.${id}`).p.checked,true,`${id}: on by default`);assert.equal(switches.find(s=>s.p.label==='feature.assistantNotify').p.checked,false,'Assistant news from chats: off by default (it starts model turns)');
 plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
 // Settings search: filters by title, description or id; accent/case/Turkish-ı insensitive; Esc clears; empty notice.
@@ -58,7 +59,7 @@ plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
   const tt=k=>tr[k]??k;
   const render=()=>{return C2({useComposerPlusToggles:f=>f({}),setFeature:()=>{},updater:{subscribe:()=>()=>{},getSnapshot:()=>({status:'current'}),check(){}},t:tt});};
   const ids=(tree)=>tree.c.slice(5).map(r=>r.p.key);
-  let tree=render();assert.equal(ids(tree).length,84,'empty query shows all');assert.ok(tree.c[2]&&tree.c[3],'language + update rows');
+  let tree=render();assert.equal(ids(tree).length,85,'empty query shows all');assert.ok(tree.c[2]&&tree.c[3],'language + update rows');
   const input=tree.c[1].c[0];assert.equal(input.p.type,'search');
   input.p.onChange({target:{value:'BİLDİRİM'}});tree=render();assert.deepEqual(ids(tree),['notifications'],'case + dotted İ');
   input.p.onChange({target:{value:'degisiklik'}});tree=render();assert.deepEqual(ids(tree),['changesPanel'],'accent-insensitive ğ/ş');
@@ -74,7 +75,7 @@ plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
   const links=(active)=>{const locale=active===null?undefined:{subscribe:()=>()=>{},getSnapshot:()=>({active})};
     const tree=C3({useComposerPlusToggles:f=>f({}),setFeature:()=>{},locale,t:(k,p)=>(p?.feature?`${k}:${p.feature}`:k)});
     return tree.c.slice(5).map(r=>{const title=r.c[1].c[0];assert.equal(r.c[2].t,'Switch','the switch stays the third child');return title.c[1];});};
-  let a=links('tr');assert.equal(a.length,84,'one link per feature row');
+  let a=links('tr');assert.equal(a.length,85,'one link per feature row');
   const first=a[0];assert.equal(first.t,'a');assert.equal(first.p.href,'https://github.com/furkancak1r/dsh-composer-plus/blob/main/README.tr.md#feature-changespanel');
   assert.equal(first.p.target,'_blank');assert.equal(first.p.rel,'noopener noreferrer');assert.equal(first.p['aria-label'],'settings.help:feature.changesPanel');assert.equal(first.c[0],'?');
   assert.ok(a.every(l=>l.p.href.endsWith(`#feature-${l.p['data-composer-plus-help'].toLowerCase()}`)),'each link opens its own row');
@@ -89,4 +90,25 @@ plan.p.onChange(true);assert.deepEqual(calls,[['planToggle',true]]);
   plugin.apply(ctx);const title=regs.find(([o])=>o.name==='sidebar.right.pane.tab.title');
   assert.ok(title,'title seat registered');assert.equal(title[0].key,'dsh-composer-plus/changes');assert.equal(title[0].locale,'dsh-composer-plus');
   assert.equal(title[1]({t:k=>({'changes.title':'Değişiklikler'})[k]}),'Değişiklikler'); }
+// NATIVE_FEATURES (native-default-off.md): Fit question card to window is built into dsh 0.2.2 (its question dictionary has
+// text.expand). Detected → off by default with a note; switched on → stays on after a reload; stored false → off; not
+// detected → on, as before, without a note.
+{ const native={register:()=>()=>{},bind:(ns)=>(k)=>(ns==='question'&&k==='text.expand'?'Expand':k)};
+  const row=(a)=>{const st=a.settings.inject().hooks.composerPlusToggles;return a.Settings({useComposerPlusToggles:f=>f(st.getSnapshot()),setFeature:()=>{},t:k=>k}).c.slice(5).find(r=>r.p.key==='questionFit');};
+  const noteOf=(r)=>r.c[1].c.find(c=>c?.p?.role==='note');
+  mem.delete('dsh-composer-plus.features');app.unload();
+  let a=boot(native);let r=row(a);assert.equal(r.c[2].p.checked,false,'detected: off by default');
+  assert.equal(noteOf(r).c[0],'settings.nativeNote');assert.equal(noteOf(r).p['data-composer-plus-native'],'native');
+  a.settings.inject().setFeature('questionFit',true);assert.equal(JSON.parse(mem.get('dsh-composer-plus.features')).questionFit,true,'the on choice is stored');
+  a.unload();a=boot(native);assert.equal(row(a).c[2].p.checked,true,'switched on: stays on after a reload');
+  a.settings.inject().setFeature('questionFit',false);a.unload();a=boot(native);assert.equal(row(a).c[2].p.checked,false,'stored false: stays off');
+  a.unload();mem.set('dsh-composer-plus.features','{"questionFit":false}');a=boot();assert.equal(row(a).c[2].p.checked,false,'old data: stored false stays off');
+  a.unload();mem.delete('dsh-composer-plus.features');a=boot();r=row(a);assert.equal(r.c[2].p.checked,true,'not detected: on, as before');assert.equal(noteOf(r),undefined,'no note');a.unload();
+  // dsh 0.2.1 in Turkish: our tr pack registers dsh's own `question` namespace too, with text.expand. That is our text, not
+  // dsh's, so the feature stays on. (A locale that reads dictionaries at lookup time, as dsh's LocaleRuntime does.)
+  const reading=(dshHasExpand)=>{const dicts=new Map();if(dshHasExpand)dicts.set('question/en',{'text.expand':'Expand'});
+    return{register:(ns,id,d)=>{dicts.set(`${ns}/${id}`,d);return()=>dicts.delete(`${ns}/${id}`);},getLocale:()=>({locales:[{id:'zh'},{id:'en'}]}),addLanguage:()=>()=>{},subscribe:()=>()=>{},
+      bind:(ns)=>(k)=>dicts.get(`${ns}/tr`)?.[k]??dicts.get(`${ns}/en`)?.[k]??k};};
+  a=boot(reading(false));r=row(a);assert.equal(r.c[2].p.checked,true,'0.2.1 in Turkish: our own pack text is not dsh\'s feature');assert.equal(noteOf(r),undefined,'no note on 0.2.1 in Turkish');a.unload();
+  a=boot(reading(true));assert.equal(row(a).c[2].p.checked,false,'0.2.2 in Turkish: dsh\'s own text is found');a.unload(); }
 console.log('toggle checks passed');

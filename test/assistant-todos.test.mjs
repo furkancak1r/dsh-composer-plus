@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ASSISTANT_FREE_SECTION, ASSISTANT_TODOS_PATH, ASSISTANT_TOOLS, STATUS_SECTION, TODO_LIMITS, TODO_NUDGE, TODO_SECTION, TODO_TOOLS, TODO_WORK_TOOLS, assistantFreeTool, installAssistant, installAssistantTodos, todoContext, todoList, todoStore } from '../index.js';
+import { ASSISTANT_FREE_SECTION, ASSISTANT_TODOS_PATH, ASSISTANT_TOOLS, STATUS_SECTION, TODO_LIMITS, TODO_NUDGE, TODO_SECTION, TODO_TOOLS, TODO_USER_SOFT_LIMIT, TODO_WORK_TOOLS, assistantFreeTool, installAssistant, installAssistantTodos, todoContext, todoList, todoStore } from '../index.js';
 
 // The list logic.
 let r = todoList.add([], { text: '  Prosolocal\'i   internete açmak ' }, { id: 'aaaaaaaa', now: 5 });
@@ -31,6 +31,26 @@ assert.throws(() => todoList.add(full, { text: 'one more' }), /Remove one first/
 r = todoList.remove(two, 'aaaaaaaa'); assert.deepEqual(r.list.map((i) => i.id), ['bbbbbbbb']); assert.equal(r.item.id, 'aaaaaaaa');
 r = todoList.remove(two, 'ffffffff'); assert.equal(r.item, undefined); assert.equal(r.list, two);
 assert.equal(todoList.handover, undefined, '→ only writes in the composer: the Host has no hand over');
+// Waiting for the user (issue #6): an item of owner "agent" can wait with a short reason. The same text again keeps the
+// state, a new reason keeps its start time, "" clears it, the owner "user" drops it, and an item of the user cannot wait.
+{
+  const first = todoList.add([], { text: 'Install ANR', owner: 'agent' }, { id: 'abababab', now: 10 });
+  const w = todoList.add(first.list, { text: 'install anr', waiting: '  needs the  game folder path ' }, { now: 20 });
+  assert.equal(w.added, false);
+  assert.deepEqual(w.item, { id: 'abababab', text: 'Install ANR', owner: 'agent', created: 10, waiting: { reason: 'needs the game folder path', since: 20 } });
+  assert.deepEqual(todoList.add(w.list, { text: 'Install ANR' }, { now: 30 }).item.waiting, { reason: 'needs the game folder path', since: 20 }, 'left out: the item keeps waiting');
+  assert.deepEqual(todoList.add(w.list, { text: 'Install ANR', waiting: 'needs the license key' }, { now: 30 }).item.waiting, { reason: 'needs the license key', since: 20 }, 'a new reason keeps the start time');
+  assert.equal('waiting' in todoList.add(w.list, { text: 'Install ANR', waiting: ' ' }, { now: 30 }).item, false, '"" clears it');
+  assert.equal('waiting' in todoList.add(w.list, { text: 'Install ANR', owner: 'user' }).item, false, 'the user does it now: it does not wait');
+  assert.throws(() => todoList.add(w.list, { text: 'Install ANR', owner: 'user', waiting: 'x' }), (e) => e.status === 400 && /owner "agent"/.test(e.message));
+  assert.throws(() => todoList.add([], { text: 'new', waiting: 'x' }), (e) => e.status === 400, 'a new item of the user cannot wait');
+  assert.deepEqual(todoList.add([], { text: 'new', owner: 'agent', waiting: 'needs the path' }, { id: 'acacacac', now: 5 }).item,
+    { id: 'acacacac', text: 'new', owner: 'agent', created: 5, waiting: { reason: 'needs the path', since: 5 } }, 'a new item of the agent can wait');
+  for (const bad of ['x'.repeat(TODO_LIMITS.reason + 1), 5, {}]) assert.throws(() => todoList.add(w.list, { text: 'Install ANR', waiting: bad }), (e) => e.status === 400, String(bad).slice(0, 20));
+  assert.equal(first.list[0].waiting, undefined, 'the given list does not change');
+  assert.match(todoContext(w.list), /- abababab \(owner agent, waiting for the user since [^)]*: "needs the game folder path"\): "Install ANR"/);
+  assert.match(TODO_SECTION, /When an item of owner "agent" needs the user[^\n]*todo_list_add with the same text and waiting/, 'the prompt line');
+}
 
 // The prompt context.
 assert.equal(todoContext([]), ''); assert.equal(todoContext(undefined), '');
@@ -75,6 +95,13 @@ await writeFile(join(brokenDir, 'b.json'), JSON.stringify({ lists: { 's-a': [{ i
 const mixed = todoStore(join(brokenDir, 'b.json')); await mixed.ready; assert.deepEqual(mixed.of('s-a').map((i) => i.id), ['44444444'], 'broken items are left out');
 // An id that is no string (here one that cannot become a string) is a broken item too: no half-read file is kept aside.
 await writeFile(join(brokenDir, 'c.json'), JSON.stringify({ lists: { 's-a': [{ id: { toString: 1 }, text: 'bad', owner: 'user', created: 1 }, { id: '66666666', text: 'ok', owner: 'user', created: 1 }], 's-b': [{ id: '77777777', text: 'ok', owner: 'agent', created: 1 }] } }));
+// A waiting item is read again; a broken waiting state is left out, the item stays.
+await writeFile(join(brokenDir, 'd.json'), JSON.stringify({ lists: { 's-a': [{ id: '88888888', text: 'w', owner: 'agent', created: 1, waiting: { reason: 'needs the path', since: 2 } },
+  { id: '99999999', text: 'bad wait', owner: 'agent', created: 1, waiting: { reason: '', since: 'x' } }, { id: '12121212', text: 'user wait', owner: 'user', created: 1, waiting: { reason: 'r', since: 2 } },
+  { id: '13131313', text: 'far wait', owner: 'agent', created: 1, waiting: { reason: 'r', since: 9e15 } }] } }));
+const waits = todoStore(join(brokenDir, 'd.json')); await waits.ready;
+assert.deepEqual(waits.of('s-a').map((i) => [i.id, i.waiting]), [['88888888', { reason: 'needs the path', since: 2 }], ['99999999', undefined], ['12121212', undefined], ['13131313', undefined]], 'only a valid waiting state of an agent item');
+assert.doesNotThrow(() => todoContext(waits.of('s-a')), 'a time past the last valid date does not break the context');
 const odd = todoStore(join(brokenDir, 'c.json')); await odd.ready;
 assert.deepEqual([odd.of('s-a').map((i) => i.id), odd.of('s-b').map((i) => i.id)], [['66666666'], ['77777777']], 'an object id is left out');
 assert.ok(!(await readdir(brokenDir)).some((n) => n.startsWith('c.json.broken-')), 'and the file is not kept aside');
@@ -149,7 +176,16 @@ assert.equal(ctxEntry.text({ agent: assistantAgent }), '', 'no context for an em
 // The to-do nudge: a turn of the assistant that started work (subagent, subagent_fork, chat_new, schedule_create) and did
 // not change the list puts one line into the next runtime context, once; a turn with a list change does not.
 assert.match(TODO_SECTION, /Each time that you start work for the user \(subagent, subagent_fork, chat_new, schedule_create\), add an item of owner "agent"/);
-assert.match(TODO_SECTION, /Each step that the user must do \(an approval sentence, a manual action, a restart/);
+assert.match(TODO_SECTION, /Each step that the user must do gets an item of owner "user": an approval that waits starts with "Onay:"[^\n]*another step \(a manual action, a restart\) with "Senden:"/);
+// Damon card stack: the marks of the cards, a live error is a "Sorun:" item, a finished task goes to the Done today card
+// (not the chat), and news is only `[quiet]` unless it brings a new approval or a new live error.
+assert.match(TODO_SECTION, /An error or a risk on a live system gets an item of owner "agent" that starts with "Sorun:"/);
+assert.match(TODO_SECTION, /a task that ended shows in the Done today card, so do not write it in the chat/);
+assert.doesNotMatch(TODO_SECTION, /tell the user in one line/, 'no chat line for a finished task');
+assert.match(STATUS_SECTION, /News rule[^\n]*do not write it in the chat\. Update the to-do list[^\n]*reply with only `\[quiet\]`[^\n]*Write one line in the chat only when the news brings a new approval[^\n]*or a new error or risk on a live system/);
+assert.match(STATUS_SECTION, /its Approve button is in this card, not under your answer/);
+// Phase 2: the decision queue's choice is Option picks' list (a bold "Seçenekler:" line and a numbered list).
+assert.match(STATUS_SECTION, /decision queue[^\n]*bold line "Seçenekler:" \(English: "Options:"\) and a numbered list of 2 to 9 short items/);
 {
   const event = (session, e) => { for (const fn of listeners.get('session/event') ?? []) fn(session, e); };
   const turn = (session, names) => { event(session, { type: 'turn/start' }); for (const name of names) event(session, { type: 'tool/call', data: { name, callId: name } }); event(session, { type: 'turn/end', data: { reason: { kind: 'completed' } } }); };
@@ -186,15 +222,87 @@ assert.match(await tool('todo_list_add').execute({ text: 'Ece Hanım ile Excel d
 assert.match(await tool('todo_list_add').execute({ text: 'Rapor yaz', owner: 'agent' }, { agent: assistantAgent }), /owner agent/);
 assert.match(await tool('todo_list_add').execute({ text: 'rapor YAZ' }, { agent: assistantAgent }), /^Already on the list: .*owner agent/, 'F-03: no owner keeps the owner');
 assert.match(await tool('todo_list_add').execute({ text: 'rapor YAZ', owner: 'user' }, { agent: assistantAgent }), /^Already on the list: .*owner user/);
+// Waiting: the tool sets and clears it; the GET answer and the context carry it.
+assert.ok(tool('todo_list_add').parameters.properties.waiting, 'the tool has a waiting field');
+assert.match(await tool('todo_list_add').execute({ text: 'ANR kur', owner: 'agent', waiting: 'Oyun klasörünün yolu gerekiyor' }, { agent: assistantAgent }), /^Added [0-9a-f]{8} \(owner agent, waiting for the user\)/);
+assert.deepEqual((await call('GET', undefined, '?sessionId=s-a')).body.items.find((i) => i.text === 'ANR kur').waiting?.reason, 'Oyun klasörünün yolu gerekiyor');
+assert.match(ctxEntry.text({ agent: assistantAgent }), /waiting for the user since [^)]*: "Oyun klasörünün yolu gerekiyor"\): "ANR kur"/);
+await assert.rejects(tool('todo_list_add').execute({ text: 'Ece Hanım ile Excel doldurmak', waiting: 'x' }, { agent: assistantAgent }), (e) => e.status === 400, 'an item of the user cannot wait');
+assert.match(await tool('todo_list_add').execute({ text: 'ANR kur', waiting: '' }, { agent: assistantAgent }), /^Already on the list: [0-9a-f]{8} \(owner agent\)/, '"" clears it');
+assert.equal((await call('GET', undefined, '?sessionId=s-a')).body.items.find((i) => i.text === 'ANR kur').waiting, undefined);
+await tool('todo_list_remove').execute({ id: (await call('GET', undefined, '?sessionId=s-a')).body.items.find((i) => i.text === 'ANR kur').id, reason: 'test' }, { agent: assistantAgent });
 let items = (await call('GET', undefined, '?sessionId=s-a')).body.items;
 assert.deepEqual(items.map((i) => [i.text, i.owner]), [['Prosolocal\'i internete açmak', 'user'], ['Ece Hanım ile Excel doldurmak', 'user'], ['Rapor yaz', 'user']]);
 assert.match(ctxEntry.text({ agent: assistantAgent }), /Ece Hanım ile Excel doldurmak/, 'the context has the list');
 await todos.store.change('s-other', (list) => todoList.add(list, { text: 'not for that chat' }));
 assert.equal(ctxEntry.text({ agent: otherAgent }), '', 'another chat gets no context, also when it has a list');
+// Tokens: dsh sends a new copy of the whole runtime context each time that its text changes. The assistant's own
+// list changes in a turn are in its tool results, so the context keeps the list of the turn start until the next turn
+// (one copy per turn); the panel's change and a compaction show the current list at once.
+{
+  const event = (e) => { for (const fn of listeners.get('session/event') ?? []) fn({ id: 's-a' }, e); };
+  event({ type: 'turn/start' });
+  const atStart = ctxEntry.text({ agent: assistantAgent });
+  await tool('todo_list_add').execute({ text: 'Bir madde daha', owner: 'agent' }, { agent: assistantAgent });
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'an own add in the running turn: the context does not change');
+  const extra = todos.store.of('s-a').find((i) => i.text === 'Bir madde daha');
+  assert.match(await tool('todo_list_add').execute({ text: 'Bir madde daha', waiting: 'needs the folder path' }, { agent: assistantAgent }), /waiting for the user/);
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'an own waiting change: the result tells it, the context stays');
+  await tool('todo_list_add').execute({ text: 'Bir madde daha', waiting: '' }, { agent: assistantAgent });
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'waiting "" too');
+  await assert.rejects(tool('todo_list_add').execute({ text: 'x'.repeat(501) }, { agent: assistantAgent }), (e) => e.status === 400);
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'a refused add: no change');
+  await tool('todo_list_remove').execute({ id: extra.id, reason: 'completed' }, { agent: assistantAgent });
+  assert.equal(ctxEntry.text({ agent: assistantAgent }), atStart, 'an own remove in the running turn: no change either');
+  await tool('todo_list_add').execute({ text: 'Sonraki tur maddesi' }, { agent: assistantAgent });
+  event({ type: 'turn/end', data: { reason: { kind: 'completed' } } });
+  event({ type: 'turn/start' });
+  assert.match(ctxEntry.text({ agent: assistantAgent }), /Sonraki tur maddesi/, 'the next turn shows the current list');
+  await tool('todo_list_add').execute({ text: 'Sıkıştırma maddesi' }, { agent: assistantAgent });
+  assert.doesNotMatch(ctxEntry.text({ agent: assistantAgent }), /Sıkıştırma maddesi/);
+  event({ type: 'compaction/end', data: {} });
+  assert.match(ctxEntry.text({ agent: assistantAgent }), /Sıkıştırma maddesi/, 'after a compaction: the current list');
+  await tool('todo_list_add').execute({ text: 'Panelden silinecek' }, { agent: assistantAgent });
+  const gone = todos.store.of('s-a').find((i) => i.text === 'Panelden silinecek');
+  assert.equal((await call('POST', { sessionId: 's-a', id: gone.id, action: 'remove' })).status, 200);
+  const now = ctxEntry.text({ agent: assistantAgent });
+  assert.doesNotMatch(now, /Panelden silinecek/, 'the user\'s remove in the panel shows at once');
+  assert.match(now, /Sıkıştırma maddesi/, 'with the assistant\'s earlier changes');
+  for (const t of ['Sonraki tur maddesi', 'Sıkıştırma maddesi']) await todos.store.change('s-a', (list) => todoList.remove(list, list.find((i) => i.text === t).id));
+  event({ type: 'turn/end', data: { reason: { kind: 'completed' } } });
+}
 await assert.rejects(tool('todo_list_remove').execute({ id: 'ffffffff', reason: 'completed' }, { agent: assistantAgent }), (e) => e.status === 404);
 await assert.rejects(tool('todo_list_remove').execute({ id: items[2].id, reason: '' }, { agent: assistantAgent }), (e) => e.status === 400, 'a reason is needed');
 assert.match(await tool('todo_list_remove').execute({ id: items[2].id, reason: 'completed' }, { agent: assistantAgent }), /^Removed [0-9a-f]{8} \(completed\): "Rapor yaz"/);
 assert.equal((await call('GET', undefined, '?sessionId=s-a')).body.items.length, 2);
+
+// Notes in the result of todo_list_add (a note only, the add is never refused): a long list of the user, items with the
+// same quoted name. The text before the note stays the same.
+{
+  const add = (args) => tool('todo_list_add').execute(args, { agent: assistantAgent });
+  const before = todos.store.of('s-a').map((i) => i.id); // 2 items of the user
+  await todos.store.change('s-a', (list) => ({ list: [...list, ...Array.from({ length: TODO_USER_SOFT_LIMIT - 3 }, (_, n) => ({ id: `0000000${n.toString(16)}`.slice(-8), text: `dolgu ${n}`, owner: 'user', created: n }))] })); // 19 items of the user
+  const twenty = await add({ text: 'Yirminci madde' });
+  assert.match(twenty, /^Added [0-9a-f]{8} \(owner user\): "Yirminci madde"$/, '20 items of the user: no note');
+  const twentyOne = await add({ text: 'Yirmi birinci madde' });
+  assert.match(twentyOne, /^Added [0-9a-f]{8} \(owner user\): "Yirmi birinci madde" Note: the user's part of the list has 21 items \(soft limit 20\)\. The user cannot follow a long list: merge items about the same subject and remove done or old items\.$/, '21 items of the user: the note');
+  assert.equal(todos.store.of('s-a').length, 21, 'the add was not refused');
+  assert.doesNotMatch(await add({ text: 'Ajan işi', owner: 'agent' }), /Note:/, 'an item of the agent: no length note');
+  assert.doesNotMatch(await add({ text: 'Yirmi birinci madde' }), /Note:/, 'the same text again is not a new item: no length note');
+  // The same quoted name (any owner, case-insensitive, Turkish locale): the ids, at most 5.
+  const first = await add({ text: 'Otomasyon "Asistanı İyileştir" planı', owner: 'agent' });
+  assert.doesNotMatch(first, /Items with the same subject/, 'no other item has the name');
+  const firstId = first.match(/^Added ([0-9a-f]{8})/)[1];
+  assert.match(await add({ text: 'Test: “ASİSTANI iyileştir” bitti mi' , owner: 'agent' }), new RegExp(`\\(owner agent\\): .* Items with the same subject: ${firstId}\\. Merge them into one item\\.$`), 'a typographic quote matches a straight quote');
+  assert.doesNotMatch(await add({ text: 'Konu "abc" kısa', owner: 'agent' }), /same subject/, 'a quote under 4 characters is not a name');
+  assert.doesNotMatch(await add({ text: 'Konu "abc" kısa 2', owner: 'agent' }), /same subject/);
+  assert.doesNotMatch(await add({ text: 'Asistanı iyileştir', owner: 'agent' }), /same subject/, 'no quote: no similar note');
+  for (let n = 0; n < 6; n++) await add({ text: `Ek ${n} "Çok Tekrar"`, owner: 'agent' });
+  const many = (await add({ text: 'Son "çok tekrar"', owner: 'agent' })).match(/same subject: ([^.]*)\./)[1].split(', ');
+  assert.equal(many.length, 5, 'at most 5 ids');
+  await todos.store.change('s-a', (list) => ({ list: list.filter((i) => before.includes(i.id)) }));
+  assert.equal(todos.store.of('s-a').length, 2, 'the list is back');
+}
 
 // The route has no hand over: → only writes in the composer (client), so the Host sends nothing and changes no owner.
 items = (await call('GET', undefined, '?sessionId=s-a')).body.items;

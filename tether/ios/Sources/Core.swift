@@ -267,14 +267,26 @@ func macKey(_ key: String, _ fp: String?, legacy: String?) -> String {
     return "\(key).\(fp.prefix(16))"
 }
 
-/// Splits on triple-backtick fences: prose blocks and code blocks; lang is the fence's language tag ("" if none).
+/// Splits on fence lines (``` or ~~~, 3 or more; the close is the same character, at least as long, with no info): prose
+/// blocks and code blocks; lang is the fence's info string ("" if none). An open fence runs to the end. The same fence
+/// rule as the Approve button (`onayBlocks`), so an `onay` block is the code block that its button replaces.
 func mdBlocks(_ s: String) -> [(code: Bool, text: String, lang: String)] {
-    s.components(separatedBy: "```").enumerated().compactMap { i, part in
-        if i % 2 == 0 { let t = part.trimmingCharacters(in: .newlines); return t.isEmpty ? nil : (false, t, "") }
-        var lines = part.components(separatedBy: "\n")
-        let lang = lines.count > 1 ? lines.removeFirst().trimmingCharacters(in: .whitespaces) : ""
-        return (true, lines.joined(separator: "\n").trimmingCharacters(in: .newlines), lang)
+    var out: [(code: Bool, text: String, lang: String)] = [], prose: [String] = []
+    var fence: (mark: String, lang: String, body: [String])?
+    func flush() { let t = prose.joined(separator: "\n").trimmingCharacters(in: .newlines); if !t.isEmpty { out.append((false, t, "")) }; prose = [] }
+    for line in s.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n") {
+        // ponytail: any indent opens a code block here (a fence in a nested list); only the Approve rule needs 0–3 spaces.
+        let f = fenceLine(String(line.drop { $0 == " " || $0 == "\t" }))
+        if let open = fence {
+            if let f, f.mark.first == open.mark.first, f.mark.count >= open.mark.count, f.info.isEmpty {
+                out.append((true, open.body.joined(separator: "\n").trimmingCharacters(in: .newlines), open.lang)); fence = nil
+            } else { fence?.body.append(line) }
+        } else if let f { flush(); fence = (f.mark, f.info, []) }
+        else { prose.append(line) }
     }
+    if let open = fence { out.append((true, open.body.joined(separator: "\n").trimmingCharacters(in: .newlines), open.lang)) }
+    flush()
+    return out
 }
 
 /// One prose line classified for block rendering (headings, lists, quotes, rules); inline syntax stays for AttributedString.
@@ -417,7 +429,8 @@ func usageText(_ u: J) -> String {
 
 /// Full per-field usage, one per line, for the tap-to-expand status detail (the one-line row drops cache/reasoning).
 func usageDetail(_ u: J) -> String {
-    [("Input", "inputTokens"), ("Output", "outputTokens"), ("Cache read", "cacheReadTokens"), ("Cache write", "cacheWriteTokens"), ("Reasoning", "reasoningTokens"), ("Total", "totalTokens")]
+    [(String(localized: "Input"), "inputTokens"), (String(localized: "Output"), "outputTokens"), (String(localized: "Cache read"), "cacheReadTokens"),
+     (String(localized: "Cache write"), "cacheWriteTokens"), (String(localized: "Reasoning"), "reasoningTokens"), (String(localized: "Total"), "totalTokens")]
         .compactMap { label, k in (u[k] as? Int).map { "\(label): \($0.formatted())" } }.joined(separator: "\n")
 }
 
@@ -793,14 +806,28 @@ func parseOptions(_ text: String) -> [ChatOption] {
 /// fork's inherited event count `from` (rule 10: the parent's answers offer nothing). The answer's text blocks are
 /// joined as dsh joins them. `latest`: the newest turn start, withdrawn turns too (a pick waits for a newer turn).
 struct OptionOffer: Equatable { let seq: Int; let latest: Int; let options: [ChatOption] }
-func chatOffer(_ events: [J], from: Int = 0) -> OptionOffer? {
+func chatOffer(_ events: [J], from: Int = 0, quiet: Bool = false) -> OptionOffer? {
     let spans = events.compactMap(rollbackSpan)
-    var turns: [(start: Int, end: Int?, completed: Bool, answer: J?)] = []
+    var turns: [(start: Int, end: Int?, completed: Bool, answer: J?, loud: Bool)] = []
+    var humans: [Int] = []
+    let answerText = { (a: J) -> String in
+        let blocks = ((a["data"] as? J)?["message"] as? J)?["content"] as? [J] ?? []
+        return blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined()
+    }
     for e in events {
         guard let seq = e["seq"] as? Int else { continue }
         switch e["type"] as? String {
-        case "turn/start": turns.append((seq, nil, false, nil))
-        case "assistant/message": if let i = turns.indices.last, turns[i].end == nil { turns[i].answer = e }
+        case "turn/start": turns.append((seq, nil, false, nil, false))
+        case "user/message":
+            let kind = (((e["data"] as? J)?["source"]) as? J)?["kind"] as? String
+            if kind == nil || kind == "user", !spans.contains(where: { $0.contains(seq) }) { humans.append(seq) }
+        case "assistant/message":
+            if let i = turns.indices.last, turns[i].end == nil {
+                turns[i].answer = e
+                // A text that is not only `[quiet]` (also one sent with a tool call) makes the turn news (quietTurnSet).
+                let t = answerText(e)
+                if !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !quietReply(t) { turns[i].loud = true }
+            }
         case "turn/end":
             if let i = turns.indices.last, turns[i].end == nil {
                 turns[i].end = seq
@@ -809,12 +836,200 @@ func chatOffer(_ events: [J], from: Int = 0) -> OptionOffer? {
         default: break
         }
     }
-    guard let latest = turns.last?.start,
-          let turn = turns.last(where: { t in let s = (t.answer?["seq"] as? Int) ?? t.end ?? t.start; return !spans.contains { $0.contains(s) } }),
-          turn.completed, let answer = turn.answer, let seq = answer["seq"] as? Int, seq >= from else { return nil }
-    let blocks = ((answer["data"] as? J)?["message"] as? J)?["content"] as? [J] ?? []
-    let options = parseOptions(blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined())
+    // client.js chatOffer: in the assistant chat (`quiet`), a hidden news turn after the answer (completed, each of its texts
+    // only `[quiet]`) keeps the answer's options, unless a message of yours came after that answer. A running or stopped
+    // turn, a turn without an answer and a news turn with other text (also with a tool call) end them.
+    let kept = Array(turns.filter { t in let s = (t.answer?["seq"] as? Int) ?? t.end ?? t.start; return !spans.contains { $0.contains(s) } }.reversed())
+    var i = 0
+    while quiet, i < kept.count - 1, kept[i].completed, !kept[i].loud, let a = kept[i].answer, quietReply(answerText(a)) { i += 1 }
+    guard let latest = turns.last?.start, i < kept.count else { return nil }
+    let turn = kept[i]
+    if i > 0 {
+        let after = (turn.answer?["seq"] as? Int) ?? Int.max
+        if humans.contains(where: { $0 > after }) { return nil }
+    }
+    guard turn.completed, let answer = turn.answer, let seq = answer["seq"] as? Int, seq >= from else { return nil }
+    let options = parseOptions(answerText(answer))
     return options.isEmpty ? nil : OptionOffer(seq: seq, latest: latest, options: options)
+}
+
+/// Approve button (Composer Plus `approveButton`): the Mac's rule, ported from client.js `onayBlocks`, `approvable` and
+/// `turnApprovals`. The expressions are client.js APPROVAL_CHARS, APPROVAL_HOLD, APPROVAL_DUR, APPROVAL_REVOKE,
+/// APPROVAL_REVOKE_LIVE, APPROVAL_SCOPE_OFF, APPROVAL_LIVE_WORD, DEPLOY_ASK and DEPLOY_LINE (JS `[^]` written as `[\s\S]`);
+/// test/tether-approve.test.mjs fails when they differ, and test/fixtures/approval-blocks.json is one table for both apps.
+/// ponytail: any product word in the deploy line (the Mac's `deployProducts` setting is not on the phone); the gate
+/// refuses a product that it does not know.
+let approvalMax = 500
+private let approvalChars = try! NSRegularExpression(pattern: #"^[\x20-\x7E\n\tçğıöşüâîûÇĞİÖŞÜÂÎÛ‘’“”–—…→«»]*$"#)
+private let approvalHold = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])(?:(?<!\p{L}{2,20}(?:(?<!l)[ae]r|[ıiuü]r|m[ae]z)s[ae]n?\s{1,3})(?:dur|durdur|durdurun|durun)|bekle|bekleyin|bekleyelim|beklesin|iptal\p{L}*|ertele\p{L}*|vazgeç\p{L}*|hayır|stop|cancel|do not|don't|onay\p{L}*\s{1,3}geri\s{1,3}(?:al|çek)\p{L}*|onaylam[ıi]yorum|onaylamad[ıi]m|onay\s{1,3}verm(?:edim|iyorum)|(?:şimdi|hemen|simdi)\s{1,3}(?:yapma|yapmayın|olmaz)|deploy\p{L}{0,4}(?:['’]\p{L}{1,4})?(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}(?:etme|etmeyin|etmeyelim|etmesin|edilmesin|edilmeyecek|yapma|yapmayın|yapmayalım|yapılmasın|yapılmayacak)|(?:yayınla|(?<!yeniden\s{1,3})başlat|kur)(?:ma|mayın|mayalım|masın)|(?:yayınlan|başlatıl|kurul|alın)masın|canlıya\s{1,3}(?:alma|almayın|çıkma|çıkmayın)|(?:deploy|yayın|canlı|başlat|güncelle)\p{L}{0,8}(?:['’]\p{L}{1,4})?(?:\s{1,3}\p{L}{1,15}){0,2}\s{1,3}(?:olmaz|dokunma|dokunmayın|askıya\s{1,3}al\p{L}*|yok|edilmeyecek))(?![\p{L}\p{N}])"#)
+private let approvalDur = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])(?:\p{L}{2,}[aeıiuü]r|\p{L}*(?:m[ae]z|yor|var|yok|y|[ıiuü][kzş]))s[ae](?:n|n[ıi]z)?(?:\s{1,3}\p{L}+)?\s{1,3}(?:dur|durun|durdur|durdurun)(?![\p{L}\p{N}])"#)
+private let approvalRevoke = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])(?:\p{L}+m[ae]s[ıi]n(?!\s+diye)|\p{L}+m[ae]y(?:ın|in|alım|elim)|onay vermedim|onaylamıyorum|onay(?:ı|ımı|ımızı)\s{1,3}geri\s{1,3}(?:al|çek)(?!m[ae](?![\p{L}\p{N}]))\p{L}*|(?:etme|yapma)(?=[ \t]*(?:[.,;!)…—–\n]|$))|do not|don't)(?![\p{L}\p{N}])"#)
+private let approvalRevokeLive = try! NSRegularExpression(pattern: #"(?<![\p{L}\p{N}])(?:kurma|durdurma|yayınlama|gönderme|silme|atma|başlatma|geri\s{1,3}(?:alma|çekme)|bırak|kalsın|yok)(?=[ \t]*(?:[.,;!)…—–\n]|$))"#)
+private let approvalScopeOff = try! NSRegularExpression(pattern: #"canli\p{L}* +değil|(?:canli\p{L}* +)?deploy\p{L}*(?:['’]\p{L}+)? +ayri +onay\p{L}*|yalniz +yerel"#)
+private let approvalLiveWord = try! NSRegularExpression(pattern: #"deploy|canli|yayin"#)
+private let deployAsk = try! NSRegularExpression(pattern: #"^(?:onayliyorum:? *)?canli +deploy +[a-z][a-z0-9-]{1,30} +(?:[0-9a-f]{4,40}|simdi|saat)(?![\p{L}\p{N}])|^(?=[\s\S]*canli)(?=[\s\S]*deploy)[\s\S]*(?<![\p{L}\p{N}])(?=[0-9]*[a-f])[0-9a-f]{7,40}(?![\p{L}\p{N}])"#)
+private let deployLine = try! NSRegularExpression(pattern: #"^(?:onayliyorum:? {1,3})?canli {1,3}deploy {1,3}([a-z][a-z0-9-]{1,30}) {1,3}(?=[0-9]*[a-f])[0-9a-f]{7,40} {1,3}(?:saat {1,3}(?:[01]\d|2[0-3])[:.][0-5]\d|simdi) {0,20}\.?$"#)
+/// client.js onayBlocks' fence line; JS `.` is written as the class of what it matches here.
+private let onayFenceRE = try! NSRegularExpression(pattern: #"^( {0,3})(?:(`{3,})([^`]*)|(~{3,})([^\n\r\u2028\u2029]*))$"#)
+/// What JS `trim()` removes: Zs, tab, VT, FF, line ends and U+FEFF.
+let jsTrim = CharacterSet.whitespaces.union(CharacterSet(charactersIn: "\n\r\u{0B}\u{0C}\u{2028}\u{2029}\u{FEFF}"))
+/// A fence line: its mark (``` or ~~~…), its trimmed info string and whether it is indented; nil for any other line.
+func fenceLine(_ line: String) -> (mark: String, info: String, indented: Bool)? {
+    guard let g = wholeMatch(onayFenceRE, line), let mark = g[2] ?? g[4] else { return nil }
+    return (mark, (g[3] ?? g[5] ?? "").trimmingCharacters(in: jsTrim), g[1] != "")
+}
+private func hits(_ re: NSRegularExpression, _ s: String) -> Bool { re.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) != nil }
+/// The groups of a match that covers all of `s`: JS `$` (no `m` flag) is the end of the text only; ICU's `$` also matches
+/// before a last line end.
+private func wholeMatch(_ re: NSRegularExpression, _ s: String) -> [String?]? {
+    let ns = s as NSString
+    guard let m = re.firstMatch(in: s, range: NSRange(location: 0, length: ns.length)), m.range.length == ns.length else { return nil }
+    return (0..<m.numberOfRanges).map { m.range(at: $0).location == NSNotFound ? nil : ns.substring(with: m.range(at: $0)) }
+}
+/// client.js passesGate: Auto review's deploy gate refuses an approval with a hold or stop word, and a live deploy approval
+/// that is not its strict line; such a block gets no button.
+private func passesGate(_ text: String) -> Bool {
+    let tr = Locale(identifier: "tr")
+    let held = { (re: NSRegularExpression) in hits(re, text.lowercased(with: tr)) || hits(re, text.lowercased()) }
+    let folded = text.precomposedStringWithCanonicalMapping.lowercased(with: tr).replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: "ş", with: "s")
+        .replacingOccurrences(of: #"[^\S\n]"#, with: " ", options: .regularExpression).trimmingCharacters(in: jsTrim)
+    let scope = approvalScopeOff.stringByReplacingMatches(in: folded, range: NSRange(location: 0, length: (folded as NSString).length), withTemplate: " ")
+    if held(approvalDur) || held(approvalRevoke) || (hits(approvalLiveWord, scope) && (held(approvalHold) || held(approvalRevokeLive))) { return false }
+    return !hits(deployAsk, scope) || wholeMatch(deployLine, folded) != nil
+}
+/// client.js `approvable`: a sentence that gets a button (at most `approvalMax` UTF-16 units, only APPROVAL_CHARS).
+func approvable(_ text: String) -> Bool {
+    !text.isEmpty && text.utf16.count <= approvalMax && wholeMatch(approvalChars, text.precomposedStringWithCanonicalMapping) != nil && passesGate(text)
+}
+/// client.js `onayBlocks`: the bodies of the closed, top-level `onay` blocks of `text`, also the ones that get no button.
+func onayBlocks(_ text: String) -> [String] {
+    var out: [String] = []
+    var fence: (mark: String, approval: Bool, body: [String])?
+    for line in text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n").components(separatedBy: "\n") {
+        let g = fenceLine(line)
+        if let f = fence {
+            if let g, g.mark.first == f.mark.first, g.mark.count >= f.mark.count, g.info.isEmpty {
+                if f.approval { out.append(f.body.joined(separator: "\n").trimmingCharacters(in: jsTrim)) }
+                fence = nil
+            } else { fence?.body.append(line) }
+        } else if let g { fence = (g.mark, !g.indented && g.info.lowercased() == "onay", []) }
+    }
+    return out
+}
+/// The approval sentences that the open chat offers now (client.js chatOffer with parseApprovals and turnApprovals, read
+/// from the log): the newest turn that a rollback did not withdraw must have ended and not be stopped. Its answers and
+/// the answers of earlier turns after your newest message count, newest first; the first one with an `onay` block gives
+/// its sentences (a newest block without a button hides the older ones). A news turn or a subagent's result does not
+/// end the offer (they are not your messages); your message does. `seq`/`latest` name the offer for the shared pick guard
+/// (the same values as `chatOffer`); `from` is the answer that holds the block.
+struct ApprovalOffer: Equatable {
+    let seq: Int, latest: Int, from: Int, sentences: [String]
+    var picks: OptionOffer { OptionOffer(seq: seq, latest: latest, options: []) }
+}
+func chatApprovals(_ events: [J], from: Int = 0) -> ApprovalOffer? {
+    let spans = events.compactMap(rollbackSpan)
+    let gone = { (s: Int) in spans.contains { $0.contains(s) } }
+    var turns: [(start: Int, end: Int?, stopped: Bool, answer: Int?)] = []
+    var answers: [(seq: Int, text: String)] = [], human = -1
+    for e in events {
+        guard let seq = e["seq"] as? Int else { continue }
+        let d = e["data"] as? J
+        switch e["type"] as? String {
+        case "turn/start": turns.append((seq, nil, false, nil))
+        case "user/message":
+            let kind = (d?["source"] as? J)?["kind"] as? String
+            if kind == nil || kind == "user", !gone(seq) { human = max(human, seq) }
+        case "assistant/message":
+            let blocks = (d?["message"] as? J)?["content"] as? [J] ?? []
+            answers.append((seq, blocks.compactMap { $0["type"] as? String == "text" ? $0["text"] as? String : nil }.joined()))
+            if let i = turns.indices.last, turns[i].end == nil { turns[i].answer = seq }
+        case "turn/end":
+            if let i = turns.indices.last, turns[i].end == nil {
+                let kind = (d?["reason"] as? J)?["kind"] as? String
+                turns[i].end = seq; turns[i].stopped = kind == "aborted" || kind == "interrupted"
+            }
+        default: break
+        }
+    }
+    guard let latest = turns.last?.start, let turn = turns.last(where: { !gone($0.answer ?? $0.end ?? $0.start) }),
+          let end = turn.end, !turn.stopped, (turn.answer ?? end) >= from else { return nil }
+    let seq = turn.answer ?? end
+    for a in answers.reversed() where a.seq <= seq && a.seq > human && a.seq >= from && !gone(a.seq) {
+        guard a.text.range(of: "onay", options: .caseInsensitive) != nil else { continue } // fast path: no block
+        var seen = Set<String>()
+        let bodies = onayBlocks(a.text).filter { seen.insert($0).inserted }
+        guard !bodies.isEmpty else { continue }
+        let sentences = bodies.filter(approvable)
+        return sentences.isEmpty ? nil : ApprovalOffer(seq: seq, latest: latest, from: a.seq, sentences: sentences)
+    }
+    return nil
+}
+/// Tether's language: Turkish when the Mac's Composer Plus language is Turkish (`/me` `lang`; an older Mac: this iPhone's
+/// language), else English. Every word of Tether is in one table, Resources/Localizable.xcstrings (en and tr for each key;
+/// test/tether-strings.test.mjs). The views get it as `\.locale` (Root), `String(localized:)` as `uiStrings`.
+func isTurkish(macLang: String?, phone: String?) -> Bool { (macLang ?? phone ?? "en").lowercased().hasPrefix("tr") }
+func uiLanguage(macLang: String?, phone: String? = Locale.preferredLanguages.first) -> String { isTurkish(macLang: macLang, phone: phone) ? "tr" : "en" }
+/// The compiled table of one language (`<lang>.lproj` in the app).
+func uiBundle(_ lang: String) -> Bundle { Bundle.main.path(forResource: lang, ofType: "lproj").flatMap { Bundle(path: $0) } ?? .main }
+/// The table that `String(localized:)` reads: the main thread sets it when the Mac's language changes (Client.macLang).
+/// It starts with the language that the last Mac gave, so a start shows no English first.
+/// ponytail: a plain global read without a lock; only the main thread writes it, and a read that races a change gets the
+/// old or the new table, both valid.
+/// The unit tests run in this app (TEST_HOST): they start in English, not in a Mac language that a manual run saved.
+let underTests = NSClassFromString("XCTestCase") != nil
+nonisolated(unsafe) var uiStrings = uiBundle(underTests ? "en" : uiLanguage(macLang: UserDefaults.standard.string(forKey: "macLang")))
+extension String {
+    /// `String(localized: "…")` in Tether: the Mac's language, not the phone's.
+    init(localized key: String.LocalizationValue) { self.init(localized: key, bundle: uiStrings) }
+}
+/// The words of the Approve button (client.js `approve.*`), from the table in the Mac's Composer Plus language.
+struct ApproveWords { let button, group, confirm, cancel, hint: String }
+func approveWords(macLang: String?, phone: String? = Locale.preferredLanguages.first) -> ApproveWords {
+    let b = uiBundle(uiLanguage(macLang: macLang, phone: phone))
+    return ApproveWords(button: String(localized: "Approve", bundle: b), group: String(localized: "Approval sentences of this answer", bundle: b),
+        confirm: String(localized: "Send this sentence as your message?", bundle: b), cancel: String(localized: "Cancel", bundle: b), hint: String(localized: "Sends the sentence as your message", bundle: b))
+}
+/// The assistant's name: the same in every language, and no setting changes it (index.js and client.js ASSISTANT_NAME;
+/// test/tether-approve.test.mjs checks that they agree).
+let assistantName = "Damon"
+
+/// Assistant callouts (Composer Plus `assistantCallouts`): client.js CALLOUT_KINDS and calloutOf. A quote whose first line
+/// starts with a marker is a box; `[!DETAILS] <summary>` is a closed section. The rest of the quote is the box's text.
+let calloutKinds = ["result", "problem", "approval", "questions", "important", "running", "details"]
+private let calloutMark = try! NSRegularExpression(pattern: "^\\[!(\(calloutKinds.joined(separator: "|")))\\](?=[ \\t\\n]|$)", options: .caseInsensitive)
+enum MdBlock: Equatable { case part(MdPart), callout(kind: String, title: String, lines: [String]) }
+/// The box labels of client.js `callouts.*`, from the table in the Mac's Composer Plus language.
+func calloutLabel(_ kind: String, macLang: String?, phone: String? = Locale.preferredLanguages.first) -> String {
+    let b = uiBundle(uiLanguage(macLang: macLang, phone: phone))
+    switch kind {
+    case "result": return String(localized: "Result", bundle: b)
+    case "problem": return String(localized: "Problem", bundle: b)
+    case "approval": return String(localized: "Approval needed", bundle: b)
+    case "questions": return String(localized: "Open questions", bundle: b)
+    case "important": return String(localized: "Important", bundle: b)
+    case "running": return String(localized: "Still running", bundle: b)
+    default: return String(localized: "Details", bundle: b)
+    }
+}
+/// mdParts with each marked quote as one callout (its quote lines without `>`).
+func mdCallouts(_ parts: [MdPart]) -> [MdBlock] {
+    // `quote`: the last line was a quote line. As on the Mac (calloutOf reads the first text of a quote), only the first
+    // line of a quote can hold the marker; the later lines of a box join it.
+    var out: [MdBlock] = [], quote = false
+    for p in parts {
+        guard case .line(let l) = p, case .quote(let s) = mdLine(l) else { out.append(.part(p)); quote = false; continue }
+        defer { quote = true }
+        if quote {
+            if case .callout(let k, let t, let ls)? = out.last { out[out.count - 1] = .callout(kind: k, title: t, lines: ls + [s]) } else { out.append(.part(p)) }
+            continue
+        }
+        let ns = s as NSString
+        if let m = calloutMark.firstMatch(in: s, range: NSRange(location: 0, length: ns.length)) {
+            let kind = ns.substring(with: m.range(at: 1)).lowercased(), rest = ns.substring(from: m.range.length).trimmingCharacters(in: .whitespaces)
+            out.append(kind == "details" ? .callout(kind: kind, title: rest, lines: []) : .callout(kind: kind, title: "", lines: rest.isEmpty ? [] : [rest]))
+        } else { out.append(.part(p)) }
+    }
+    return out
 }
 
 /// Copy session link: dsh's session URI. Pasted into another chat, dsh attaches that chat as read-only context.
@@ -953,6 +1168,42 @@ func lastReply(_ transcript: [Line]) -> String {
     return ""
 }
 
+/// A turn end with nothing to say gives no Turn finished notification: the turn completed (`reason` kind) and its reply,
+/// spaces trimmed, is empty or only `[quiet]` (any case). dsh refuses an empty reply, so the Assistant writes `[quiet]`
+/// for routine news (the Mac's push skips it too: `quietTurn` in index.js). A turn that failed, stopped or hit the token
+/// limit still notifies: for the open chat a failure has no other alert (sessionError only adds a chat line).
+func quietTurn(reply: String, reason: String?) -> Bool {
+    guard reason == "completed" else { return false }
+    return reply.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || quietReply(reply)
+}
+/// A reply that is only `[quiet]` (spaces trimmed, any case): the views hide it (index.js quietReply, client.js quietText;
+/// one table: test/fixtures/quiet-replies.json).
+func quietReply(_ text: String) -> Bool {
+    text.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("[quiet]") == .orderedSame
+}
+/// The texts of the newest turn of a chat log, newest first, trimmed, not empty: the `assistant/message` events after the
+/// newest `turn/start`, without the ones that a rollback withdrew (the Mac's runTexts and lastReply read the log the same
+/// way). Every text counts, also one sent with a tool call (dsh's default foldedReplies: all shows it). The log, not the
+/// drawn lines: a news, scheduled or outage prompt draws no `.user` line, a steered message draws one mid-turn, and a
+/// rollback can leave a turn without its end line.
+func turnTexts(_ events: [J]) -> [String] {
+    let shown = withoutRolledBack(events)
+    let start = shown.lastIndex { $0["type"] as? String == "turn/start" }.map { $0 + 1 } ?? 0
+    return shown[start...].reversed().compactMap { e -> String? in
+        guard e["type"] as? String == "assistant/message" else { return nil }
+        let t = contentText(((e["data"] as? J)?["message"] as? J)?["content"], imageMarker: false).trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
+    }
+}
+/// The newest turn had nothing to say: it has texts, and each is only `[quiet]` (the Mac's quietRun).
+func quietTexts(_ events: [J]) -> Bool {
+    let t = turnTexts(events)
+    return !t.isEmpty && t.allSatisfy(quietReply)
+}
+/// The words of the newest turn's Turn finished: its newest text that is not only `[quiet]` (the Mac's runReply and
+/// lastReply), or "" when it has none.
+func newsReply(_ events: [J]) -> String { turnTexts(events).first { !quietReply($0) } ?? "" }
+
 /// One row of the chat as DSH desktop shows it.
 enum ChatRow: Identifiable {
     case line(Line)
@@ -1015,13 +1266,14 @@ func stepKind(_ tool: String) -> String {
         : tool == "subagent" || tool.hasPrefix("subagent_") ? "subagents" : "tools"
     }
 }
-private let stepDone = ["thinking": "Analysis completed", "read": "Read files", "readImage": "Read images", "write": "Wrote files",
+// String.LocalizationValue literals: the build puts them in Localizable.xcstrings; stepText reads them in the Mac's language.
+private let stepDone: [String: String.LocalizationValue] = ["thinking": "Analysis completed", "read": "Read files", "readImage": "Read images", "write": "Wrote files",
     "search": "Searched code", "edit": "Edited files", "commands": "Ran commands", "code": "Ran code", "webSearch": "Searched the web",
     "webFetch": "Visited web pages", "subagents": "Coordinated subagents", "plan": "Updated the plan", "questions": "Asked questions", "tools": "Called tools"]
-private let stepLive = ["thinking": "Analyzing the request", "read": "Reading files", "readImage": "Reading images", "write": "Writing files",
+private let stepLive: [String: String.LocalizationValue] = ["thinking": "Analyzing the request", "read": "Reading files", "readImage": "Reading images", "write": "Writing files",
     "search": "Searching code", "edit": "Editing files", "commands": "Running commands", "code": "Running code", "webSearch": "Searching the web",
     "webFetch": "Visiting web pages", "subagents": "Coordinating subagents", "plan": "Updating the plan", "questions": "Waiting for your action", "tools": "Calling tools"]
-private func stepText(_ table: [String: String], _ k: String) -> String { String(localized: String.LocalizationValue(table[k] ?? table["tools"]!)) }
+private func stepText(_ table: [String: String.LocalizationValue], _ k: String) -> String { String(localized: table[k] ?? table["tools"]!) }
 
 /// A step group's title and its kind of work, as in DSH desktop. Done: the three most frequent kinds ("Read files and
 /// searched code"). Live: what runs now and on what ("Running commands · npm test").
@@ -1109,6 +1361,18 @@ func closeFences(_ text: String) -> String {
 
 /// Feature ideas: the fixed focus topics under the focus field (the same six as on the Mac).
 let focusPresets = ["Performance", "Accessibility", "Tests", "Security", "Usability", "Documentation"]
+/// The shown name of a focus preset; the chip writes it as the topic (the Mac gets the label in the UI language, as the web chip writes it).
+func focusLabel(_ p: String) -> String {
+    switch p {
+    case "Performance": return String(localized: "Performance")
+    case "Accessibility": return String(localized: "Accessibility")
+    case "Tests": return String(localized: "Tests")
+    case "Security": return String(localized: "Security")
+    case "Usability": return String(localized: "Usability")
+    case "Documentation": return String(localized: "Documentation")
+    default: return p
+    }
+}
 /// Feature ideas: the longest focus topic in UTF-16 units, as the browser field and the Mac count it.
 let focusMax = 80
 /// The focus topic cut to `focusMax` UTF-16 units without splitting a character.
@@ -1254,7 +1518,11 @@ func assistantMark(_ id: String?, sessions: [Sess], busy: Set<String>, waiting: 
     return projectMark([s], busy: busy, waiting: waiting, finished: finished)
 }
 /// Assistant messages only: the assistant chat shows your messages, its replies and errors (no thinking, tool or turn rows).
-func botLines(_ t: [Line]) -> [Line] { t.filter { $0.kind == .user || $0.kind == .assistant || $0.kind == .error } }
+/// A reply that is only `[quiet]` (the assistant's "nothing to say", `quietTurn`) shows nothing, as on the Mac (client.js
+/// quietStep).
+func botLines(_ t: [Line]) -> [Line] {
+    t.filter { $0.kind == .user || $0.kind == .error || ($0.kind == .assistant && !quietReply($0.text)) }
+}
 /// Order by status (view only): finished and not opened, then running or waiting, then the rest; else dsh's order.
 func statusRank(_ s: Sess, busy: Set<String>, waiting: Set<String>, finished: Set<String>) -> Int {
     finished.contains(s.id) ? 0 : busy.contains(s.id) || waiting.contains(s.id) ? 1 : 2
@@ -1374,7 +1642,7 @@ struct Preset: Identifiable { let id: String, name: String; let broken: Bool; va
 func presetLabel(_ id: String) -> String { id.count <= 3 ? id.uppercased() : id.prefix(1).uppercased() + id.dropFirst() }
 // The catalog sends raw ids as names; DSH desktop labels them itself, so mirror its labels.
 func permLabel(_ id: String, _ name: String?) -> String {
-    let known = ["read-only": "Read only", "workspace-write": "Workspace write", "danger-full-access": "Full access", "auto": "Auto review (experimental)"]
+    let known = ["read-only": String(localized: "Read only"), "workspace-write": String(localized: "Workspace write"), "danger-full-access": String(localized: "Full access"), "auto": String(localized: "Auto review (experimental)")]
     if let n = name, n != id, !n.isEmpty { return n }
     return known[id] ?? id
 }
@@ -1948,7 +2216,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         diffNotes[sid] = nil
         draftPushed += 1
     }
-    /// A sheet wrote the open chat's draft (Diff notes → Send): the composer reads the draft again.
+    /// → of the Status sheet (the Mac's Write in the message box): the row's text after the chat's draft, on its own line
+    /// (`appendLine`, as the web panel). Nothing is sent and the Mac gets no call.
+    func writeDraft(_ text: String, _ sid: String) {
+        setDraft(appendLine(draft(sid), text), sid)
+        draftPushed += 1
+    }
+    /// A sheet wrote the open chat's draft (Diff notes → Send, Status →): the composer reads the draft again.
     @Published var draftPushed = 0
 
     // MARK: Side chat (Composer Plus `sideChat`)
@@ -2008,9 +2282,12 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var optionBusy = Set<String>()
     /// The answer that was picked in each chat: its buttons stay off until a newer turn (or a rollback of the pick).
     @Published var optionPicked: [String: OptionOffer] = [:]
+    /// The Mac's Assistant status panel is off (its answer says `on: false`): no cards, and the Approve button stays under
+    /// the reply as in other chats (the Mac shows no panel then). The card deck sets it at each read.
+    @Published var cardsOff = false
     /// The options of the open chat's last answer, when the chat is idle and they are not picked: nil otherwise.
     var optionOffer: OptionOffer? {
-        guard let sid = current, currentSess?.parent == nil, !running, let from = optionsFrom, let o = chatOffer(events, from: from),
+        guard let sid = current, currentSess?.parent == nil, !running, let from = optionsFrom, let o = chatOffer(events, from: from, quiet: sid == botId),
               optionsOpen(sid, o) || optionBusy.contains(sid) else { return nil }
         return o
     }
@@ -2026,6 +2303,31 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         try await prompt("Option \(n): \(o.text)", images: [])
         optionPicked[sid] = offer
     }
+    /// Approve button (Composer Plus `approveButton`): the open chat's approval sentences, on the terms of the option
+    /// buttons (idle, not a subagent chat, after the Mac told where a fork's own events start, not picked).
+    var approvalOffer: ApprovalOffer? {
+        guard let sid = current, currentSess?.parent == nil, !running, let from = optionsFrom, let o = chatApprovals(events, from: from),
+              optionsOpen(sid, o.picks) || optionBusy.contains(sid) else { return nil }
+        return o
+    }
+    /// Sends `sentence` of `offer` exactly as your message (Auto review accepts an approval only from your message); the
+    /// pick guard of the option buttons: one send per chat at a time, never the same offer twice, a failed send keeps it.
+    /// `sid`: the chat whose button was tapped. The offer must still be the chat's offer now: a newer block, a news turn or
+    /// another chat on screen while the confirmation showed sends nothing.
+    func approve(_ sid: String, _ offer: ApprovalOffer, _ sentence: String) async throws {
+        guard current == sid, let now = approvalOffer, now == offer, offer.sentences.contains(sentence), optionsOpen(sid, offer.picks) else { return }
+        optionBusy.insert(sid)
+        defer { optionBusy.remove(sid) }
+        try await prompt(sentence, images: [])
+        optionPicked[sid] = offer.picks
+    }
+    /// The Composer Plus language of the Mac on screen (`/me` `lang`, the UI language that dsh reported); nil for an older Mac.
+    /// Tether's words follow it (`uiLanguage`). It is kept, so the next start shows the same language at once.
+    @Published var macLang: String? = underTests ? nil : UserDefaults.standard.string(forKey: "macLang") {
+        didSet { UserDefaults.standard.set(macLang, forKey: "macLang"); uiStrings = uiBundle(uiLanguage(macLang: macLang)) }
+    }
+    /// The locale of Tether's views: the language of the table, the phone's region (dates, numbers).
+    var uiLocale: Locale { Locale(identifier: uiLanguage(macLang: macLang) + (Locale.current.region.map { "_" + $0.identifier } ?? "")) }
 
     // MARK: Next waiting chat (Composer Plus `nextWaiting`)
 
@@ -2111,7 +2413,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     func loadPrediction() {
         guard plus.contains("predict"), let sid = current, currentSess?.parent == nil, let seq = predictAfter(events) else { return }
         // Option buttons offer the next step: no guess (and no model call) for that answer.
-        if let o = chatOffer(events, from: optionsFrom ?? 0), optionsOpen(sid, o) { return }
+        if let o = chatOffer(events, from: optionsFrom ?? 0, quiet: sid == botId), optionsOpen(sid, o) { return }
         let key = "\(sid):\(seq)"
         guard predicted != key else { return }
         predicted = key
@@ -2467,6 +2769,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         loadNotify()
         connect()
     }
+    /// Damon's Mac switch (the Damon chat's top left, in place of Back): show that Mac and stay in Damon. The Damon tab
+    /// opens that Mac's Damon chat when the Mac answers, or says that it is not connected or that its Assistant is off.
+    func openDamon(on fp: String) {
+        guard fp != activeFp, pairings.contains(where: { $0.fp == fp }) else { return }
+        switchMac(fp)
+        tab = .assistant
+    }
 
     /// Drop the socket and every per-Mac value on screen. A stale reply from the old Mac checks `ws` / `current` and stops.
     private func closeScreen() {
@@ -2633,6 +2942,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         if let t = me["tailscale"] as? String, isTailnet(t), t != pairing?.ts { pairing?.ts = t } // learned without re-pairing
         if let m = (me["mac"] as? String).flatMap(macLabel), m != pairing?.mac { pairing?.mac = m } // a gateway that reports its name
         plus = Set(me["plus"] as? [String] ?? []); plusKnown = true
+        if macLang != me["lang"] as? String { macLang = me["lang"] as? String }
         // Each /me (each connection) asks iOS for the token again and sends this Mac the settings: a failed first try, or a
         // Mac that lost the token (APNs said 410), heals on the next connection.
         let push = me["push"] as? Bool == true
@@ -2940,8 +3250,16 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
             transcript.append(turnLine(reason: reason?["kind"] as? String, start: turnStartedAt,
                                        end: (e["time"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }))
             if running, !replaying {
-                notify(String(localized: "Turn finished"), lastReply(transcript), session: current)
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                let kind = reason?["kind"] as? String
+                // Damon's chat reads the turn from its log (`events`, the Mac's rule): a completed turn whose every text is
+                // `[quiet]` gives no alert and no buzz (2026-11-19, quietRun); a turn with a real text notifies with it, also
+                // when its last reply is `[quiet]` (runReply). Other chats keep the drawn reply (lastReply), as before.
+                let bot = current != nil && current == botId
+                if !(bot && kind == "completed" && quietTexts(events)) {
+                    let reply = bot ? newsReply(events) : lastReply(transcript)
+                    if !quietTurn(reply: reply, reason: kind) { notify(String(localized: "Turn finished"), quietReply(reply) ? "" : reply, session: current) }
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
             }
             running = false
             turnStartedAt = nil
@@ -3104,6 +3422,37 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     func loadAssistantStatus() async {
         guard plus.contains("assistant-status") else { return }
         if let o = try? await plusCall("assistant-status") { assistantId = Self.assistantStatusId(o) }
+    }
+    /// Damon's status panel: the web panel's own read (`GET /plus/assistant-todos?sessionId=`), with the Mac's Composer Plus
+    /// language for the tasks' result lines (the Mac translates them). `fresh`: the chat list now (pull to refresh). Read
+    /// only: the phone never removes an item or asks for a summary. Nil from a Mac without the route.
+    func loadStatus(_ sid: String, fresh: Bool = false) async throws -> StatusView? {
+        try await loadStatusAnswer(sid, fresh: fresh).map { statusView($0, now: Date()) }
+    }
+    /// The same read as `loadStatus`, as the Mac's raw answer (the card deck groups it with `statusCards`; one GET for both).
+    func loadStatusAnswer(_ sid: String, fresh: Bool = false) async throws -> J? {
+        guard plus.contains("assistant-todos") else { return nil }
+        var q = ["sessionId": sid]
+        if fresh { q["refresh"] = "1" }
+        if let l = macLang { q["lang"] = l }
+        return try await plusCall("assistant-todos", query: q)
+    }
+    /// Card deck: the Bitti cards that you hid with Seen (`<task id>|<end ms>`, per Mac), and the time you last folded the
+    /// Bitti group (a card that ended later is new). A key whose end is older than 14 days is dropped when a new one is added.
+    func cardsSeen() -> Set<String> { Set(UserDefaults.standard.stringArray(forKey: key("cardsSeen")) ?? []) }
+    func markCardSeen(_ k: String, now: Date = Date()) {
+        let keep = now.timeIntervalSince1970 * 1000 - 14 * 86400000
+        let list = cardsSeen().union([k]).filter { (Double($0.split(separator: "|").last ?? "") ?? .infinity) > keep }
+        UserDefaults.standard.set(Array(list), forKey: key("cardsSeen"))
+    }
+    var cardsNewSince: Date { Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: key("cardsNewSince"))) }
+    func cardsFolded(now: Date = Date()) { UserDefaults.standard.set(now.timeIntervalSince1970, forKey: key("cardsNewSince")) }
+    /// One project's git branch and last commits (`&project=`, read-only git on the Mac).
+    func loadStatusProject(_ sid: String, _ project: String) async throws -> (branch: String?, commits: [(hash: String, at: Date?, subject: String)]) {
+        guard plus.contains("assistant-todos") else { return (nil, []) }
+        let o = try await plusCall("assistant-todos", query: ["sessionId": sid, "project": project])
+        let commits = (o["commits"] as? [J] ?? []).compactMap { c in (c["hash"] as? String).map { ($0, (c["at"] as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) }, c["subject"] as? String ?? "") } }
+        return (o["branch"] as? String, commits)
     }
     /// The chat id of a Mac answer to `/plus/assistant-status`; nil for null, empty or anything else.
     static func assistantStatusId(_ o: J) -> String? {
@@ -4120,4 +4469,258 @@ func boardProjectOf(_ session: String, workspaces: [Workspace]) -> String {
             return false
         }
     }
+}
+
+// MARK: - Damon's status panel (Composer Plus `assistantTodos`)
+
+/// An item of the assistant chat's to-do list. `text` and `waiting.reason` are the Mac's data: shown, never read as words
+/// of Tether.
+struct StatusItem: Identifiable { let id, text, owner: String; let waiting: (reason: String, since: Date)?; var created = Date(timeIntervalSince1970: 0) }
+struct StatusTask: Identifiable { let id, title, state: String; let started: Date; let ended: Date?; let result: String?; let chat: Bool }
+struct StatusChat: Identifiable { let id, title: String; let updated: Date?; let running: Bool }
+struct StatusProject: Identifiable { let id, title: String; let count: Int; let chats: [StatusChat] }
+struct StatusGroup { let owner: String; let items: [StatusItem]; let waiting: Int }
+/// The panel as the Mac's web panel groups it (client.js `statusParts`; test/fixtures/status-panel.json is the table of
+/// both): the owner groups (yours first, an empty group left out), the items that wait longer than `todoOverdue`, the live
+/// tasks (working, waiting) and the ended ones, today's newest outage (the rows that it continued and the count of the
+/// other chats), today's summary (only one that the Host marks `show`: a Get summary answer or the morning summary, not a
+/// news turn's) and each project's summary line. `translating`: the Mac translates result lines now (read again soon).
+struct StatusView {
+    var groups: [StatusGroup] = []; var overdue: Set<String> = []
+    var live: [StatusTask] = []; var ended: [StatusTask] = []
+    var outage: (at: Date, resumed: Set<String>, others: Int)?
+    var summary: (at: Date, projects: [(project: String, text: String)])?
+    var projects: [StatusProject] = []; var lines: [String: String] = [:]
+    var at: Date?; var on = true; var translating = false
+}
+/// client.js TODO_OVERDUE_MS (24 h), in seconds.
+let todoOverdue: TimeInterval = 86400
+/// client.js `foldText`: NFKD, without marks, lower case with the Turkish rule (the summary names a project in any case).
+func statusFold(_ s: String) -> String {
+    String(String.UnicodeScalarView(s.decomposedStringWithCompatibilityMapping.unicodeScalars.filter { ![.nonspacingMark, .spacingMark, .enclosingMark].contains($0.properties.generalCategory) })).lowercased(with: Locale(identifier: "tr"))
+}
+private func msDate(_ v: Any?) -> Date? { (v as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) } }
+private func statusItems(_ o: J) -> [StatusItem] {
+    (o["items"] as? [J] ?? []).compactMap { i in
+        guard let id = i["id"] as? String, let text = i["text"] as? String else { return nil }
+        let w = i["waiting"] as? J
+        let waiting = (w?["reason"] as? String).flatMap { r in msDate(w?["since"]).map { (r, $0) } }
+        return StatusItem(id: id, text: text, owner: i["owner"] as? String == "agent" ? "agent" : "user", waiting: waiting, created: msDate(i["created"]) ?? Date(timeIntervalSince1970: 0))
+    }
+}
+private func statusTasks(_ o: J) -> [StatusTask] {
+    (o["tasks"] as? [J] ?? []).compactMap { t in
+        guard let id = t["id"] as? String, let state = t["state"] as? String, let started = msDate(t["started"]) else { return nil }
+        return StatusTask(id: id, title: t["title"] as? String ?? id, state: state, started: started, ended: msDate(t["ended"]), result: t["result"] as? String, chat: t["chat"] as? Bool == true)
+    }
+}
+/// The Host's answer to `GET /plus/assistant-todos?sessionId=` as the panel shows it at `now` (`cal`: the phone's calendar,
+/// as the web panel's `sameDay` uses the browser's time zone).
+func statusView(_ o: J, now: Date, cal: Calendar = .current) -> StatusView {
+    var v = StatusView(); v.on = o["on"] as? Bool != false; v.at = msDate(o["at"]); v.translating = o["translating"] as? Bool == true
+    let items = statusItems(o)
+    v.groups = ["user", "agent"].compactMap { owner in
+        let rows = items.filter { $0.owner == owner }
+        return rows.isEmpty ? nil : StatusGroup(owner: owner, items: rows, waiting: rows.filter { $0.waiting != nil }.count)
+    }
+    v.overdue = Set(items.filter { $0.waiting.map { now.timeIntervalSince($0.since) >= todoOverdue } ?? false }.map(\.id))
+    let tasks = statusTasks(o)
+    let isLive = { (t: StatusTask) in t.state == "running" || t.state == "waiting" }
+    v.live = tasks.filter(isLive); v.ended = tasks.filter { !isLive($0) }
+    if let out = o["outage"] as? J, let at = msDate(out["at"]), let chats = out["chats"] as? [J], cal.isDate(at, inSameDayAs: now) {
+        let ids = chats.compactMap { $0["id"] as? String }, listed = Set(tasks.map(\.id))
+        v.outage = (at, Set(ids), ids.filter { !listed.contains($0) }.count)
+    }
+    if let s = o["summary"] as? J, s["show"] as? Bool == true, let at = msDate(s["at"]), let ps = s["projects"] as? [J], cal.isDate(at, inSameDayAs: now) {
+        v.summary = (at, ps.compactMap { p in (p["project"] as? String).flatMap { n in (p["text"] as? String).map { (n, $0) } } })
+    }
+    v.projects = (o["projects"] as? [J] ?? []).compactMap { p in
+        guard let id = p["id"] as? String else { return nil }
+        let chats: [StatusChat] = (p["chats"] as? [J] ?? []).compactMap { c in (c["id"] as? String).map { StatusChat(id: $0, title: c["title"] as? String ?? $0, updated: msDate(c["updated"]), running: c["running"] as? Bool == true) } }
+        return StatusProject(id: id, title: p["title"] as? String ?? id, count: p["count"] as? Int ?? chats.count, chats: chats)
+    }
+    for p in v.projects { if let line = v.summary?.projects.first(where: { statusFold($0.project) == statusFold(p.title) })?.text { v.lines[p.id] = line } }
+    return v
+}
+
+/// → of a Durum row (client.js `statusInsert`; test/fixtures/status-insert.json is the table of both): the text that goes
+/// into the message field. An item of yours gives the hand-over sentence (sent, Damon takes the item); an item of Damon, a
+/// task and a project give their data, one field per line, in the UI language, without ids. `span`: a time span as text.
+enum StatusRow { case item(StatusItem, overdue: Bool), task(StatusTask, outage: String?), project(StatusProject, line: String?) }
+func statusInsert(_ row: StatusRow, now: Date, span: (TimeInterval) -> String, bundle: Bundle = uiStrings) -> String {
+    let one = { (s: String) in s.split(whereSeparator: \.isWhitespace).joined(separator: " ") } // one field, one line
+    switch row {
+    case let .item(i, overdue):
+        if i.owner != "agent" { return String(localized: "todos.handoverMessage", defaultValue: "Do this for me:", bundle: bundle) + " " + one(i.text) }
+        var lines = [String(localized: "status.insert.item", defaultValue: "To-do: \(one(i.text))", bundle: bundle),
+                     String(localized: "status.insert.owner", defaultValue: "Who does it: \(assistantName)", bundle: bundle)]
+        if let x = i.waiting {
+            let state = ([String(localized: "todos.waiting", defaultValue: "Waiting for you", bundle: bundle), span(now.timeIntervalSince(x.since))]
+                + (overdue ? [String(localized: "todos.overdue", defaultValue: "Overdue", bundle: bundle)] : [])).joined(separator: " · ")
+            lines += [String(localized: "status.insert.state", defaultValue: "State: \(state)", bundle: bundle),
+                      String(localized: "status.insert.reason", defaultValue: "Reason: \(one(x.reason))", bundle: bundle)]
+        }
+        return lines.joined(separator: "\n")
+    case let .task(t, outage):
+        // The Mac names a task without a label by its chat id: no title line then.
+        var lines = t.title.isEmpty || t.title == t.id ? [] : [String(localized: "status.insert.task", defaultValue: "Task: \(one(t.title))", bundle: bundle)]
+        let state = statusTaskState(t.state, bundle: bundle) + " · " + span((t.ended ?? now).timeIntervalSince(t.started))
+        lines.append(String(localized: "status.insert.state", defaultValue: "State: \(state)", bundle: bundle))
+        if let r = t.result, !r.isEmpty { lines.append(String(localized: "status.insert.result", defaultValue: "Result: \(one(r))", bundle: bundle)) }
+        if let o = outage { lines.append(String(localized: "status.outageRow", defaultValue: "Continued after the outage · \(o)", bundle: bundle)) }
+        return lines.joined(separator: "\n")
+    case let .project(p, line):
+        return [String(localized: "status.insert.project", defaultValue: "Project: \(one(p.title))", bundle: bundle),
+                line.map { String(localized: "status.insert.summary", defaultValue: "Summary: \(one($0))", bundle: bundle) }
+                    ?? String(localized: "status.projectChats", defaultValue: "\(p.count) chats changed", bundle: bundle)].joined(separator: "\n")
+    }
+}
+/// A task state's name (the web panel's status.task.<state>).
+func statusTaskState(_ s: String, bundle: Bundle = uiStrings) -> String {
+    switch s {
+    case "running": return String(localized: "status.task.running", defaultValue: "Working", bundle: bundle)
+    case "waiting": return String(localized: "status.task.waiting", defaultValue: "Waiting for you", bundle: bundle)
+    case "done": return String(localized: "status.task.done", defaultValue: "Done", bundle: bundle)
+    case "failed": return String(localized: "status.task.failed", defaultValue: "Failed", bundle: bundle)
+    default: return String(localized: "status.task.stopped", defaultValue: "Stopped", bundle: bundle)
+    }
+}
+/// client.js `draftTodo`: the text after the draft, on a new line when the draft has text and no line break at its end.
+func appendLine(_ draft: String, _ text: String) -> String { draft + (draft.isEmpty || draft.hasSuffix("\n") ? "" : "\n") + text }
+
+// MARK: - Damon card stack (Composer Plus `statusCards`)
+
+/// client.js CARD_MARKS and `cardMark`: a mark at the start of an item's text puts it in a card group ("Onay:", "Sorun:",
+/// "Senden:"; the English marks too). An item with a mark and no text after it, or without a mark, has no kind.
+private let cardMarks: [(kind: String, re: NSRegularExpression)] = [
+    ("onay", try! NSRegularExpression(pattern: #"^(?:onay|approval)\s*:\s*"#, options: .caseInsensitive)),
+    ("sorun", try! NSRegularExpression(pattern: #"^(?:sorun|problem)\s*:\s*"#, options: .caseInsensitive)),
+    ("senden", try! NSRegularExpression(pattern: #"^(?:senden|for you)\s*:\s*"#, options: .caseInsensitive))]
+func cardMark(_ text: String) -> (kind: String?, title: String) {
+    let ns = text as NSString
+    for (kind, re) in cardMarks {
+        if let m = re.firstMatch(in: text, range: NSRange(location: 0, length: ns.length)), ns.length > m.range.length { return (kind, ns.substring(from: m.range.length)) }
+    }
+    return (nil, text)
+}
+/// client.js `liveApproval`: an approval text that names a live target (the LIVE label): Auto review's live words without
+/// its not-live phrases ("canlı değil", "yalnız yerel").
+func liveApproval(_ text: String) -> Bool {
+    let f = text.precomposedStringWithCanonicalMapping.lowercased(with: Locale(identifier: "tr")).replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: "ş", with: "s")
+    return hits(approvalLiveWord, approvalScopeOff.stringByReplacingMatches(in: f, range: NSRange(location: 0, length: (f as NSString).length), withTemplate: " "))
+}
+/// One card of the deck: a topic (an item of the to-do list, a task of the day, or both with the same text).
+struct StatusCard: Identifiable {
+    let group: String, key: String, n: Int, title: String, mark: String?
+    let item: StatusItem?, task: StatusTask?
+    let since: Date, seenKey: String?, overdue: Bool, fresh: Bool
+    var id: String { "\(group)|\(n)" }
+}
+struct StatusApproval { let items: [StatusItem]; let since: Date? }
+struct CardCounts: Equatable { var onay = 0, sorun = 0, senden = 0, suruyor = 0, bitti = 0, fresh = 0 }
+struct StatusCards {
+    var approval: StatusApproval?
+    var groups: [String: [StatusCard]] = ["sorun": [], "senden": [], "suruyor": [], "bitti": []]
+    var notes: [StatusItem] = []
+    var counts = CardCounts()
+    /// Every card of the stack, in its order (the Onay card has no `StatusCard`; it is `approval`).
+    var all: [StatusCard] { cardGroups.flatMap { groups[$0] ?? [] } }
+}
+/// The stack's order after the Onay card.
+let cardGroups = ["sorun", "senden", "suruyor", "bitti"]
+/// client.js `statusCards` (test/fixtures/status-cards.json is the table of both): the Host's status answer as cards at
+/// `now`, one card per topic. An item and a task with the same text (case, accents and spaces left out, after the mark) are
+/// one card; the more urgent state wins (an error, then a wait, then the task's state). `approvals`: the count of `onay`
+/// sentences that the chat offers now; `seen`: the end keys that you hid with Seen; `newSince`: the time that you last
+/// folded the Bitti group (a later end is new); `cal`: the phone's calendar (a Bitti card goes when its day ends).
+func statusCards(_ o: J, now: Date, approvals: Int = 0, seen: Set<String> = [], newSince: Date = Date(timeIntervalSince1970: 0), cal: Calendar = .current) -> StatusCards {
+    let items = statusItems(o), tasks = statusTasks(o)
+    let ms = { (d: Date) in (d.timeIntervalSince1970 * 1000).rounded() }
+    let same = { (s: String) in statusFold(s).replacingOccurrences(of: "ı", with: "i").replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: jsTrim) }
+    let stateGroup = { (t: StatusTask) in t.state == "failed" ? "sorun" : t.state == "waiting" ? "senden" : t.state == "running" ? "suruyor" : "bitti" }
+    var out = StatusCards(); var onay: [StatusItem] = []; var used = Set<String>(); var n = 0
+    let epoch = Date(timeIntervalSince1970: 0)
+    func add(_ group: String, _ title: String, _ mark: String?, _ item: StatusItem?, _ task: StatusTask?) {
+        let end = task.map { $0.ended ?? $0.started }
+        let since: Date? = switch group {
+        case "senden": item?.waiting?.since ?? (task?.state == "waiting" ? task?.started : (item?.created ?? task?.started))
+        case "suruyor": task?.started ?? item?.created
+        case "bitti": end
+        default: item?.created ?? end
+        }
+        let seenKey = (task != nil && end != nil) ? "\(task!.id)|\(Int64(ms(end!)))" : nil
+        // A Bitti card goes when the day ends or when you hid it (Seen, or × of a failed task). An item of the same topic
+        // stays on the list, so it stays as its own card (client.js statusCards, review 1).
+        let dayGone = group == "bitti" && end.map { !cal.isDate($0, inSameDayAs: now) } == true
+        let hidden = (group == "bitti" || group == "sorun") && seenKey.map { seen.contains($0) } == true
+        if dayGone || hidden {
+            guard let item else { return }
+            let alone: String? = mark == "sorun" ? "sorun" : item.waiting != nil || mark == "senden" ? "senden" : item.owner == "agent" ? "suruyor" : nil
+            if let alone { add(alone, title, mark, item, nil) } else { out.notes.append(item) }
+            return
+        }
+        let at = since ?? epoch
+        out.groups[group, default: []].append(StatusCard(group: group, key: item?.id ?? task?.id ?? "", n: n, title: title, mark: mark, item: item, task: task, since: at, seenKey: seenKey,
+            overdue: group == "senden" && since != nil && ms(now) - ms(at) >= todoOverdue * 1000, fresh: group == "bitti" && end.map { ms($0) > ms(newSince) } == true))
+        n += 1
+    }
+    for item in items {
+        let (kind, title) = cardMark(item.text)
+        if kind == "onay" { onay.append(item); continue }
+        let task = tasks.first { !used.contains($0.id) && same($0.title) == same(title) }
+        if let task { used.insert(task.id) }
+        let group: String? = kind == "sorun" || task?.state == "failed" ? "sorun"
+            : item.waiting != nil || kind == "senden" || task?.state == "waiting" ? "senden"
+            : task != nil ? stateGroup(task!) : item.owner == "agent" ? "suruyor" : nil
+        if let group { add(group, title, kind, item, task) } else { out.notes.append(item) }
+    }
+    for task in tasks where !used.contains(task.id) { add(stateGroup(task), task.title, nil, nil, task) }
+    // Sorun: a live-system item first; Senden: overdue first, then the longest wait; the rest: newest first. `n` keeps the
+    // list order of equal ones (Swift's sort is not stable).
+    for g in cardGroups {
+        out.groups[g]?.sort { a, b in
+            let r: Double
+            switch g {
+            case "sorun": let x = (a.mark == "sorun" ? 0 : 1) - (b.mark == "sorun" ? 0 : 1); r = x != 0 ? Double(x) : ms(b.since) - ms(a.since)
+            case "senden": let x = (b.overdue ? 1 : 0) - (a.overdue ? 1 : 0); r = x != 0 ? Double(x) : ms(a.since) - ms(b.since)
+            default: r = ms(b.since) - ms(a.since)
+            }
+            return r != 0 ? r < 0 : a.n < b.n
+        }
+    }
+    out.approval = onay.isEmpty && approvals == 0 ? nil : StatusApproval(items: onay, since: onay.map(\.created).min())
+    out.counts = CardCounts(onay: out.approval == nil ? 0 : 1, sorun: out.groups["sorun"]!.count, senden: out.groups["senden"]!.count,
+        suruyor: out.groups["suruyor"]!.count, bitti: out.groups["bitti"]!.count, fresh: out.groups["bitti"]!.filter(\.fresh).count)
+    return out
+}
+/// One entry of the decision queue: the Onay card (key `onay`), the choice (`karar`) or a Senden card (`senden|<card key>`).
+struct QueueEntry { let kind: String, key: String, live: Bool, card: StatusCard? }
+private let queueKinds = ["onay", "karar", "senden"]
+/// client.js `statusQueue` (test/fixtures/status-queue.json is the table of both): only what waits for you. `sentences`:
+/// the chat's `onay` sentences now; `options`: the labels of the newest answer's option list; `later`: the keys that you
+/// moved to the end with Later, in that order. Order: a live entry first, then onay, karar, senden, then the stack's order;
+/// the `later` keys at the end. `n` keeps the input order of equal ranks (Swift's sort is not stable).
+func statusQueue(_ cards: StatusCards, sentences: [String] = [], options: [String] = [], later: [String] = []) -> [QueueEntry] {
+    var out: [QueueEntry] = []
+    if let a = cards.approval { out.append(QueueEntry(kind: "onay", key: "onay", live: (sentences + a.items.map(\.text)).contains(where: liveApproval), card: nil)) }
+    if !options.isEmpty { out.append(QueueEntry(kind: "karar", key: "karar", live: options.contains(where: liveApproval), card: nil)) }
+    for card in cards.groups["senden"] ?? [] { out.append(QueueEntry(kind: "senden", key: "senden|\(card.key)", live: liveApproval(card.title), card: card)) }
+    let rank = { (e: QueueEntry) -> Int in
+        if let i = later.firstIndex(of: e.key) { return 100 + i }
+        return (e.live ? 0 : 10) + (queueKinds.firstIndex(of: e.kind) ?? 0)
+    }
+    return out.enumerated().sorted { a, b in
+        let x = rank(a.element), y = rank(b.element)
+        return x != y ? x < y : a.offset < b.offset
+    }.map(\.element)
+}
+/// A card's data for the message field (client.js `dataOf` in StatusPanel): its task's data (with the outage line when Resume
+/// after an AIProxy outage continued it: `outage`, its clock time), else an item of Damon's data (its title without the mark),
+/// else the title as a to-do line.
+func deckText(_ card: StatusCard, outage: String? = nil, span: (TimeInterval) -> String, now: Date = Date(), bundle: Bundle = uiStrings) -> String {
+    if let t = card.task { return statusInsert(.task(t, outage: outage), now: now, span: span, bundle: bundle) }
+    if let i = card.item, i.owner == "agent" {
+        return statusInsert(.item(StatusItem(id: i.id, text: card.title, owner: "agent", waiting: i.waiting, created: i.created), overdue: card.overdue), now: now, span: span, bundle: bundle)
+    }
+    return String(localized: "status.insert.item", defaultValue: "To-do: \(card.title)", bundle: bundle)
 }

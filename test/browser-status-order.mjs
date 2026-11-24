@@ -29,8 +29,12 @@ const fake = createServer((req, res) => {
     const send = (delta, finish) => res.write(`data: ${JSON.stringify({ ...base, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 50, completion_tokens: 10, total_tokens: 60 } } : {}) })}\n\n`);
     const end = () => res.end('data: [DONE]\n\n');
     if (/session title/i.test(JSON.stringify(last?.content))) { const k = Object.values(CHATS).find((x) => body.includes(x)); send({ role: 'assistant', content: k ?? 'Demo' }); send({}, 'stop'); end(); return; }
+    if (/^You keep the long-term memory/.test(String(msgs[0]?.content ?? ''))) { send({ role: 'assistant', content: '{"changes":[]}' }); send({}, 'stop'); end(); return; } // Project memory review
     if (last?.role !== 'tool' && body.includes(CHATS.automated)) {
-      send({ role: 'assistant', tool_calls: [{ index: 0, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'schedule_create', arguments: JSON.stringify({ title: 'Dependency check', prompt: 'Check for outdated dependencies.', daily: { time: '09:00:00', time_zone: 'UTC' } }) } }] });
+      // The arguments of the dsh given: 0.2.2 takes `rrule` and `target`, older dsh `daily`.
+      const create = (JSON.parse(body).tools ?? []).find((tool) => tool.function?.name === 'schedule_create');
+      const when = JSON.stringify(create?.function?.parameters ?? {}).includes('"rrule"') ? { rrule: 'DTSTART:20260901T090000Z\nRRULE:FREQ=DAILY', target: 'this_session' } : { daily: { time: '09:00:00', time_zone: 'UTC' } };
+      send({ role: 'assistant', tool_calls: [{ index: 0, id: `call_${randomUUID().slice(0, 8)}`, type: 'function', function: { name: 'schedule_create', arguments: JSON.stringify({ title: 'Dependency check', prompt: 'Check for outdated dependencies.', ...when }) } }] });
       send({}, 'tool_calls'); end(); return;
     }
     const slow = body.includes(CHATS.running) ? 120000 : body.includes(CHATS.done) ? 5000 : 0;
@@ -41,7 +45,7 @@ const fake = createServer((req, res) => {
 await new Promise((r) => fake.once('listening', r));
 const fakePort = fake.address().port;
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-status-')));
@@ -136,10 +140,13 @@ try {
       const png = join(home, 'statusOrder.png'); await page.screenshot({ path: png, clip: shot });
       if (process.env.SHOT) execFileSync('cwebp', ['-quiet', '-q', '78', '-resize', String(Math.round(640 * 1.25)), '0', png, '-o', join(repo, 'assets/features/statusOrder.webp')]);
       // The choice survives a reload; dsh's own Last updated turns it off and restores dsh's order.
-      const ordered = () => page.evaluate(() => [...document.querySelectorAll('style')].some((s) => s.textContent.includes('_flatList"] > :has(') && s.textContent.includes('{ order: -')));
+      // By status sets an inline `order` on the flat list's row wrappers (since 033baab, no `:has()` rule).
+      const ordered = () => page.evaluate(() => [...(document.querySelector('[role="tree"][class*="_flatList"]')?.children ?? [])].some((el) => el.style.order !== ''));
       await page.keyboard.press('Escape'); await page.reload(); await ready(page); await page.waitForTimeout(1200);
       assert.equal(await ordered(), true, 'order rule is back after a reload');
       await viewOptions.click();
+      // The option comes into dsh's menu after the menu shows (a body watcher): wait for it.
+      await page.getByRole('menuitem', { name: /^By status/ }).waitFor({ timeout: 5000 });
       assert.equal(await page.getByRole('menuitem', { name: 'By status selected', exact: true }).count(), 1, 'still selected after a reload');
       await page.getByRole('menuitem', { name: 'Last updated', exact: true }).click(); await page.waitForTimeout(600);
       assert.equal(await ordered(), false, 'Last updated: dsh order again');

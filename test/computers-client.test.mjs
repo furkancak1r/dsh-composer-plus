@@ -240,13 +240,49 @@ wv.fire('did-stop-loading');
 assert.equal(views.getSnapshot().loading, true, 'about:blank is not the page: the spinner stays');
 wv.fire('dom-ready');
 assert.deepEqual(loaded, ['http://127.0.0.1:5555/?cp-ticket=t1']);
+// Each document of the page also gets the copy fallback (dsh's desktop app refuses the clipboard permission there).
+const copyCode = marks.shift();
+assert.match(copyCode, /writeText/, 'the copy fallback first');
 assert.equal(marks.length, 1, 'the page gets the mark once per document');
 assert.equal(views.getSnapshot().loading, false, 'the document is ready: the spinner goes');
 wv.fire('did-start-navigation', { isMainFrame: true, url: 'http://127.0.0.1:5555/' });
 assert.equal(views.getSnapshot().loading, true, 'Try again (a new document): the spinner again');
 wv.fire('did-stop-loading'); assert.equal(views.getSnapshot().loading, false, 'a navigation that failed or was cancelled (a download link) ends it');
 wv.fire('did-start-navigation', { isMainFrame: true, url: 'http://127.0.0.1:5555/' }); wv.fire('dom-ready');
-assert.equal(views.getSnapshot().loading, false); marks.length = 1;
+assert.equal(views.getSnapshot().loading, false);
+assert.deepEqual(marks.slice(1), [copyCode, marks[0]], 'a new document gets the copy fallback and the mark again'); marks.length = 1;
+// The copy fallback in a page whose clipboard permission is refused: dsh's helper gets true, and the copy command
+// carried the same text. A permission that works keeps the real call; when the command also fails, the first error stays.
+{ const run = async ({ permission, command }) => {
+    const written = []; const calls = []; let listener = null; const page = { removed: 0 };
+    const clipboard = { async writeText(x) { calls.push(x); if (!permission) throw new Error('Write permission denied.'); written.push(['api', x]); },
+      async write(items) { calls.push(items); if (!permission) throw new Error('Write permission denied.'); written.push(['api-write', items.length]); } };
+    const win = { addEventListener: (n, f, c) => { if (n === 'copy' && c === true) listener = f; }, removeEventListener: (n, f) => { if (n === 'copy' && f === listener) { listener = null; page.removed++; } } };
+    const doc = { execCommand: (cmd) => { if (cmd !== 'copy' || !command) return false; const e = { stopped: false, prevented: false, stopImmediatePropagation() { this.stopped = true; }, preventDefault() { this.prevented = true; }, clipboardData: { setData: (type, x) => written.push(['command', type, x]) } }; listener?.(e); page.event = e; return true; } };
+    new Function('navigator', 'window', 'document', copyCode)({ clipboard }, win, doc);
+    const helper = async (x) => { try { await clipboard.writeText(x); return true; } catch { return false; } }; // dsh's writeClipboard
+    let error; try { await clipboard.writeText('npm test'); } catch (e) { error = e; }
+    return { ok: await helper('npm test'), written, calls, error, page, clipboard };
+  };
+  // `write` (dsh 0.2.2's Copy Session as Markdown): one plain text item takes the same path once its text is ready.
+  const item = (type, text) => ({ types: [type], getType: async (t) => ({ text: async () => (t === type ? text : '') }) });
+  const writeOf = async (r, items) => { r.written.length = 0; try { await r.clipboard.write(items); return 'ok'; } catch (e) { return String(e.message); } };
+  const refused = await run({ permission: false, command: true });
+  assert.equal(refused.ok, true, 'Copy works when the permission is refused');
+  assert.deepEqual(refused.written[0], ['command', 'text/plain', 'npm test'], 'the copy command carried the text');
+  assert.equal(refused.page.event.stopped && refused.page.event.prevented, true, 'our copy event only: no other listener, no selection copy');
+  assert.equal(refused.page.removed, 2, 'the listener goes after each copy');
+  assert.equal(await writeOf(refused, [item('text/plain', '# Chat')]), 'ok', 'Copy Session as Markdown works when the permission is refused');
+  assert.deepEqual(refused.written, [['command', 'text/plain', '# Chat']], 'its text went through the copy command');
+  assert.equal(await writeOf(refused, [item('image/png', 'x')]), 'Write permission denied.', 'an image keeps the first error');
+  assert.equal(await writeOf(refused, [item('text/plain', 'a'), item('text/plain', 'b')]), 'Write permission denied.', 'more items keep the first error');
+  assert.deepEqual(refused.written, [], 'and copy nothing');
+  const allowed = await run({ permission: true, command: true });
+  assert.deepEqual(allowed.written, [['api', 'npm test'], ['api', 'npm test']], 'a permission that works: the real call, no command');
+  assert.equal(await writeOf(allowed, [item('text/plain', '# Chat')]), 'ok'); assert.deepEqual(allowed.written, [['api-write', 1]], 'write too: the real call');
+  const none = await run({ permission: false, command: false });
+  assert.equal(none.ok, false, 'both fail: the button still says it failed');
+  assert.match(String(none.error), /Write permission denied/, 'with the first error'); }
 // The mark comes after dsh's page mounted (its brand row), never at start: dsh's shortcuts would ask for a desktop bridge.
 { const page = { el: null }; const docEl = { dataset: {} }; let poll;
   const fakeDoc = { documentElement: docEl, querySelector: (s) => (s === '[class*="_logoRow"]' ? page.el : null) };

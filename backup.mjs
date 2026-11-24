@@ -7,8 +7,8 @@
  *   repair session logs. It opens no port.
  * Archive format (the same as dsh-backup 0.13): `dsh-<stamp>.tar.gz`, a gzip tar with one top folder (the dsh home's name),
  * and next to it `<archive>.sha256`, `.meta.json` and `.redacted.json` (the masked files; their real copies stay on this
- * computer in `composer-plus-vault/<archive>/`). `cache/`, `dsh-runtimes/` and every `node_modules` are not archived: a restore moves them
- * over from the current dsh home.
+ * computer in `composer-plus-vault/<archive>/`). `cache/`, `dsh-runtimes/`, `backups/` and every `node_modules` are not archived: a
+ * restore moves them (and a backup folder elsewhere in the dsh home) over from the current dsh home.
  */
 import { constants, createReadStream, createWriteStream, realpathSync } from 'node:fs';
 import * as fsp from 'node:fs/promises';
@@ -36,8 +36,9 @@ const LOG_RE = /^session(?:\.v([1-9]\d*))?\.jsonl(\.zstd)?$/;
 
 /** Archive names in the backup folder: ours and dsh-backup's full backups and snapshots (`dsh-t-` typed parts are not). */
 export const ARCHIVE_RE = /^dsh-(?:(pre-upgrade|pre-restore)-)?(\d{8})-(\d{9})\.tar\.gz$/;
-/** Top-level folders of the dsh home that are not archived (a cache and the app's runtime payload). */
-export const NOT_ARCHIVED = ['cache', 'dsh-runtimes'];
+/** Top-level folders of the dsh home that are not archived (a cache, the app's runtime payload and the default backup
+ * folder): a restore moves them over from the current dsh home. */
+export const NOT_ARCHIVED = ['cache', 'dsh-runtimes', 'backups'];
 /** Folder names that are never archived, at any depth (pnpm installs them again). */
 const NEVER = new Set(['node_modules', '.system']);
 const SIDECARS = ['.sha256', '.meta.json', '.redacted.json'];
@@ -187,9 +188,11 @@ async function* walk(root, rel, skip, signal) {
 const inside = (root, p) => (p.startsWith(`${root}/`) || p.startsWith(`${root}\\`) ? p.slice(root.length + 1).split('\\').join('/') : undefined);
 
 /** Back up the dsh home `home` into `dest` as `dsh-[<kind>-]<stamp>.tar.gz` and its sidecars. With `keep`, then only the
- * newest `keep` archives of that kind that Composer Plus made stay (other archives, such as dsh-backup's, are never
- * removed). `progress` gets `files` and `bytes` as they go. On a failure nothing new stays in `dest`. */
-export async function backup({ home, dest, kind = 'backup', keep, signal, progress = {}, now = new Date() }) {
+ * newest `keep` archives of that kind that Composer Plus made stay (other archives, such as dsh-backup's, and the new one
+ * are never removed). With `allKinds` too, the new archive is first read back in full, then the newest `keep` of all kinds
+ * together stay. `progress` gets `files` and `bytes` as they go. On a failure (also of the read-back) nothing new stays in
+ * `dest` and nothing is removed. */
+export async function backup({ home, dest, kind = 'backup', keep, allKinds = false, signal, progress = {}, now = new Date() }) {
   const realHome = await realpath(home);
   await mkdir(dest, { recursive: true, mode: 0o700 });
   const realDest = await realpath(dest);
@@ -207,7 +210,7 @@ export async function backup({ home, dest, kind = 'backup', keep, signal, progre
     await mkdir(join(realDest, VAULT), { recursive: true, mode: 0o700 });
     const target = join(vaultDir, ...rel.split('/'));
     await mkdir(dirname(target), { recursive: true, mode: 0o700 });
-    await writeFile(target, data, { flag: 'wx', mode: 0o600 });
+    await writeFile(target, data, { flag: 'wx', mode: 0o600, flush: true });
     masked.push(rel);
   };
   // A backup folder inside the dsh home is not archived into itself; the running dsh's marker is not restored.
@@ -287,34 +290,51 @@ export async function backup({ home, dest, kind = 'backup', keep, signal, progre
   const hash = createHash('sha256');
   const tap = async function* (source) { for await (const chunk of source) { hash.update(chunk); yield chunk; } };
   let sha;
+  // The cleanup below removes this name: never one that is there already (two backups in the same millisecond).
+  if (await exists(file) || await exists(vaultDir)) throw new ArchiveError(`${name} is already in the backup folder`);
   try {
-    await pipeline(entries, zlib.createGzip({ level: 6 }), tap, createWriteStream(file, { flags: 'wx', mode: 0o600 }), { signal });
+    // flush: each file is on the disk (fsync) before older archives can be removed.
+    await pipeline(entries, zlib.createGzip({ level: 6 }), tap, createWriteStream(file, { flags: 'wx', mode: 0o600, flush: true }), { signal });
     sha = hash.digest('hex');
-    await writeFile(`${file}.sha256`, `${sha}  ${file}\n`, { mode: 0o600 });
+    await writeFile(`${file}.sha256`, `${sha}  ${file}\n`, { mode: 0o600, flush: true });
     await writeFile(`${file}.meta.json`, `${JSON.stringify({ host: hostname(), home: homedir(), dshHome: realHome, createdAt: now.toISOString(), redacted: masked.length,
-      by: BY, files: progress.files, bytes: progress.bytes, skipped: skipped.length })}\n`, { mode: 0o600 });
-    await writeFile(`${file}.redacted.json`, `${JSON.stringify({ files: masked })}\n`, { mode: 0o600 });
+      by: BY, files: progress.files, bytes: progress.bytes, skipped: skipped.length })}\n`, { mode: 0o600, flush: true });
+    await writeFile(`${file}.redacted.json`, `${JSON.stringify({ files: masked })}\n`, { mode: 0o600, flush: true });
+    // Before older archives can go: the archive on disk reads in full and has the checksum that was written.
+    if (keep !== undefined && allKinds && (await checkArchive(file, { signal, progress })).sha256 !== sha) throw new ArchiveError('the new backup does not match its checksum');
   } catch (error) {
+    // Its .meta.json first: if the rest cannot go, a later rotation does not count this archive as a good one of ours.
+    await rm(`${file}.meta.json`, { force: true }).catch(() => {});
     await removeArchive(realDest, name).catch(() => {});
     throw error;
   }
+  // The new names are on the disk too before older archives go (a folder cannot be opened on Windows: no sync there).
+  if (keep !== undefined) await open(realDest, 'r').then(async (dir) => { try { await dir.sync(); } finally { await dir.close(); } }).catch(() => {});
   const size = (await stat(file)).size;
-  // The new archive is complete: a failure to remove older ones keeps it.
-  const rotated = keep === undefined ? [] : await rotate(realDest, kind, keep).catch(() => []);
-  return { name, file, sha, size, files: progress.files, bytes: progress.bytes, masked, skipped, changed, rotated };
+  // The new archive is complete (and with allKinds checked): a failure to remove older ones keeps it. The next backup with
+  // `keep` removes what stayed.
+  const { removed: rotated, failed: rotateFailed } = keep === undefined ? { removed: [], failed: [] }
+    : await rotate(realDest, name, allKinds ? undefined : kind, keep).catch((error) => ({ removed: [], failed: [String(error?.message ?? error)] }));
+  return { name, file, sha, size, files: progress.files, bytes: progress.bytes, masked, skipped, changed, rotated, rotateFailed };
 }
 
-/** Removes one archive, its sidecars and its vault copies. `name` must be an archive name (never a path). */
+/** Removes one archive, its sidecars and its vault copies. `name` must be an archive name (never a path). The vault goes
+ * first and the archive before its `.meta.json`: after a failure the archive is still listed as ours, so it can go later. */
 export async function removeArchive(dest, name) {
   if (!ARCHIVE_RE.test(name)) throw new ArchiveError('not a backup archive name');
-  for (const suffix of ['', ...SIDECARS]) await rm(join(dest, `${name}${suffix}`), { force: true });
   await rm(join(dest, VAULT, name), { recursive: true, force: true });
+  for (const suffix of ['', ...SIDECARS]) await rm(join(dest, `${name}${suffix}`), { force: true });
 }
-/** Keeps the newest `keep` Composer Plus archives of one kind; returns the removed names. */
-async function rotate(dest, kind, keep) {
-  const old = (await listArchives(dest)).filter((a) => a.kind === kind && a.meta?.by === BY).slice(Math.max(1, keep));
-  for (const a of old) await removeArchive(dest, a.name);
-  return old.map((a) => a.name);
+/** Keeps the new archive `name` and the newest `keep` - 1 other Composer Plus archives of one kind (`kind` undefined: of
+ * all kinds). Answers `{removed, failed}`: the names that went, and an error text for each one that could not go. */
+async function rotate(dest, name, kind, keep) {
+  const old = (await listArchives(dest)).filter((a) => a.name !== name && a.meta?.by === BY && (kind === undefined || a.kind === kind)).slice(Math.max(1, keep) - 1);
+  const removed = [];
+  const failed = [];
+  for (const a of old) {
+    try { await removeArchive(dest, a.name); removed.push(a.name); } catch (error) { failed.push(`${a.name}: ${error?.message ?? error}`); }
+  }
+  return { removed, failed };
 }
 
 /** The archives in `dest`, newest first: `{name, kind, at, size, checksum, meta, masked}` (`masked` null when the archive
@@ -624,7 +644,8 @@ async function profilesToInstall(home, before) {
 
 /** Restores archive `name` of `dest` as the dsh home `home`: check, write it into a new folder next to the home, put the
  * vault copies of the masked files in, then swap the folders. The old home stays as `<home>.pre-restore-<stamp>`; the
- * folders that are not archived (`cache/`, `dsh-runtimes/`, `node_modules`) move over from it. dsh must be closed. */
+ * folders that are not archived (`cache/`, `dsh-runtimes/`, `backups/`, `node_modules`) and `dest` when it is in the home
+ * move over from it. `kept`: backup folders that could not move back (they stay in the old home). dsh must be closed. */
 export async function restore({ home, dest, name, signal, progress = {} }) {
   const check = await verifyArchive(dest, name, { home, signal, progress });
   if (!check.ok) throw new ArchiveError(check.reason);
@@ -660,10 +681,17 @@ export async function restore({ home, dest, name, signal, progress = {} }) {
     throw error;
   }
   const carry = real === undefined ? [] : await carryList(real, signal);
+  // The backup folder (this archive's, also one that is not `backups/`) goes back into the restored home.
+  // shortcut: a third folder of archives in the home (another COMPOSER_PLUS_BACKUP_DIR) stays in the old home; find
+  // folders of archives in the walk when a folder setting comes.
+  const destRel = real === undefined ? undefined : inside(real, await realpath(dest).catch(() => resolve(dest)));
+  const coversDest = (rel) => destRel !== undefined && (destRel === rel || destRel.startsWith(`${rel}/`));
+  const holdsBackups = (rel) => rel === 'backups' || coversDest(rel);
+  if (destRel !== undefined && !carry.some(coversDest)) carry.push(destRel);
   let aside;
   if (real !== undefined) {
     aside = `${base}.pre-restore-${stamp()}`;
-    await rename(base, aside);
+    try { await rename(base, aside); } catch (error) { await rm(staging, { recursive: true, force: true }); throw error; }
     try { await rename(staging, base); } catch (error) {
       await rename(aside, base);
       await rm(staging, { recursive: true, force: true });
@@ -672,13 +700,19 @@ export async function restore({ home, dest, name, signal, progress = {} }) {
   } else await rename(staging, base);
   const moved = [];
   const left = [];
+  const kept = [];
   for (const rel of carry) {
     // Only below real folders of the restored home: a folder that the archive has as a symbolic link is not entered.
-    const to = await plainTarget(base, rel.split('/'), false);
-    if (to === undefined || (await exists(to))) continue;
-    try { await rename(join(aside, ...rel.split('/')), to); moved.push(rel); } catch { left.push(rel); }
+    // A backup folder gets its missing parent folders; one that cannot move back is named (it stays in the old home).
+    const backupFolder = holdsBackups(rel);
+    try {
+      const to = await plainTarget(base, rel.split('/'), backupFolder);
+      if (to === undefined || (await exists(to))) { if (backupFolder) kept.push(rel); continue; }
+      await rename(join(aside, ...rel.split('/')), to);
+      moved.push(rel);
+    } catch { left.push(rel); if (backupFolder) kept.push(rel); }
   }
-  return { name, home: base, aside, entries: check.entries, moved, left, vaultMissing, unlinked, otherHome: check.otherHome, from: check.from,
+  return { name, home: base, aside, entries: check.entries, moved, left, kept, vaultMissing, unlinked, otherHome: check.otherHome, from: check.from,
     install: await profilesToInstall(base, aside) };
 }
 
@@ -898,7 +932,8 @@ for node in "$(command -v node)" /usr/local/bin/node "$HOME"/.nvm/versions/node/
 done
 echo "Node.js was not found. Install it from https://nodejs.org, then run this file again."
 `,
-  win32: `@echo off\r\nrem Composer Plus rescue console: a menu in this window. It works while dsh is closed or cannot start.\r\ncd /d "%~dp0"\r\nnode ${RESCUE_FILE} %*\r\npause\r\n`,
+  // Not in its own folder: Windows does not rename a folder (a restore renames the dsh home) that a window is in.
+  win32: `@echo off\r\nrem Composer Plus rescue console: a menu in this window. It works while dsh is closed or cannot start.\r\ncd /d "%USERPROFILE%"\r\nnode "%~dp0${RESCUE_FILE}" %*\r\npause\r\n`,
 };
 /** The rescue console files of this platform in `dest`. */
 export const rescueFiles = (platform = process.platform) => [RESCUE_FILE, ...(LAUNCHERS[platform] === undefined ? [] : [LAUNCHERS[platform]])];
@@ -1005,13 +1040,15 @@ export async function rescueConsole({ folder, home, input = process.stdin, outpu
         if (r.otherHome) say(`It comes from another computer or folder (${r.from.host ?? '?'}, ${r.from.dshHome}). Chats keep their old project paths.`);
         const missing = r.masked.filter((m) => !m.vault).map((m) => m.path);
         if (r.masked.length > 0) say(`${r.masked.length} masked file(s) come back from the vault on this computer${missing.length ? `; not in the vault (enter these again after the restore): ${missing.join(', ')}` : ''}.`);
-        say(`Your current dsh home stays as ${home}.pre-restore-<time>. cache/, dsh-runtimes/ and node_modules move over from it.`);
+        say(`Your current dsh home stays as ${home}.pre-restore-<time>. cache/, dsh-runtimes/, backups/, node_modules and this backup folder (when it is in the dsh home) move over from it.`);
         if (await ask('Type RESTORE to continue: ') !== 'RESTORE') { say('Cancelled. Nothing changed.'); return; }
         if (!(await closedDsh())) return;
         say('Restoring…');
         const done = await restore({ home, dest: folder, name: a.name });
         say(`Restored ${done.entries} entries into ${done.home}.`);
-        if (done.aside) say(`The old dsh home is ${done.aside}. Remove it when dsh works.`);
+        // Never "remove it" while it still holds a backup folder.
+        if (done.kept.length) say(`The old dsh home is ${done.aside}. It still holds your backups: ${done.kept.map((rel) => join(done.aside, ...rel.split('/'))).join(', ')}. Do not remove it: move them into ${done.home} first.`);
+        else if (done.aside) say(`The old dsh home is ${done.aside}. Remove it when dsh works.`);
         if (done.vaultMissing.length) say(`Enter these again (not in the vault): ${done.vaultMissing.join(', ')}`);
         if (done.unlinked.length) say(`These symbolic links could not be made: ${done.unlinked.join(', ')}`);
         if (done.install.length) {

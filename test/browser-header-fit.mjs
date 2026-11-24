@@ -18,7 +18,7 @@ import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { spawn, execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdtemp, mkdir, writeFile, symlink, rm, realpath } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, rm, realpath, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -107,7 +107,7 @@ function measure() {
     styles: document.querySelectorAll('style[data-composer-plus-header-fit]').length };
 }
 
-const browser = await chromium.launch({ channel: 'chrome' });
+const browser = await chromium.launch({ channel: 'chrome', chromiumSandbox: true });
 const results = [];
 try {
   for (const bin of process.argv.slice(2)) {
@@ -165,10 +165,18 @@ try {
       // Three grants for this chat through the Host route (the same call as the approval card's button), then a reload.
       const sessionId = (await page.locator('[data-row-key^="session:"]').first().getAttribute('data-row-key')).slice('session:'.length);
       await page.evaluate(async (id) => { for (const tool of ['bash', 'write', 'edit']) await fetch('/api/composer-plus.grants', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ action: 'grant', sessionId: id, tool }) }); }, sessionId);
+      // Project memory (on for a new user since 2026-11-12) off: this check covers the three header items below. Step 2b
+      // checks the narrow widths again with its two chips on.
+      const memory = (on) => page.evaluate(async (v) => (await fetch('/api/composer-plus.memory', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: v }) })).status, on);
+      assert.equal(await memory(false), 200);
       await page.reload(); await input.waitFor({ timeout: 20000 });
       await page.locator('[data-composer-plus-branch-status]').waitFor({ timeout: 20000 });
       await page.locator('[data-composer-plus-grants]').waitFor({ timeout: 20000 });
-      await page.getByRole('button', { name: /background jobs? running/ }).waitFor({ timeout: 20000 });
+      // dsh 0.2.2-rc.2 dropped "running" from the label ("2 background jobs"); before it, the idle label has no "running".
+      const { version } = JSON.parse(await readFile(join(bin, '../../package.json'), 'utf8'));
+      const oldDsh = /^0\.2\.([01]\b|2-(alpha|rc\.1\b))/.test(version); // before 0.2.2-rc.2
+      const jobsLabel = oldDsh ? /^\d+ background jobs? running$/ : /^\d+ background jobs?$/;
+      await page.getByRole('button', { name: jobsLabel }).waitFor({ timeout: 20000 });
       await pause(1000);
       const fitOn = (on) => page.evaluate((v) => { for (const st of document.querySelectorAll('style[data-composer-plus-header-fit]')) st.disabled = !v; }, on);
       const at = async (width, name = `w${width}`) => {
@@ -212,6 +220,16 @@ try {
       const aside = await at(1440, 'w1440-sidebar'); ok(aside, '1440 px with the right sidebar');
       console.log(`  1440 px + right sidebar: row ${aside.row.width} px wide, no overlap`);
       await page.getByRole('button', { name: 'Collapse right sidebar' }).first().click(); await pause(600);
+      // 2b. Project memory on: its two chips join the utilities, which wrap instead of leaving the header (before the fix,
+      // "More actions" got no click at 520 px on 0.2.2-rc.3 and "Suggest for memory" left the header at 600 px on 0.2.2-rc.1).
+      assert.equal(await memory(true), 200);
+      await page.reload(); await input.waitFor({ timeout: 20000 });
+      await page.locator('[data-composer-plus-memory-suggest]').waitFor({ timeout: 20000 }); await pause(1000);
+      for (const width of NARROW) ok(await at(width, `m${width}`), `${width} px with the memory chips`);
+      console.log(`  memory chips on: no overlap at ${NARROW.join(', ')} px`);
+      assert.equal(await memory(false), 200);
+      await page.reload(); await input.waitFor({ timeout: 20000 });
+      await page.locator('[data-composer-plus-grants]').waitFor({ timeout: 20000 }); await pause(1000);
 
       // 3. Settings switches.
       const setSwitches = async (wanted) => {
@@ -244,8 +262,11 @@ try {
         assert.equal(m.styles, 1, 'only the Fit chat header style');
         ok(m, `dsh's own header, ${width} px`);
       }
-      assert.ok(dshBefore.includes(400), `without the style dsh's own header overlaps at 400 px (it did at: ${dshBefore.join(', ')})`);
-      console.log(`  dsh's own header: no overlap at ${DSH_NARROW.join(', ')} px (without the style it overlaps at ${dshBefore.join(', ')} px)`);
+      // Without the style, dsh's own header overlaps on 0.2.1-rc.2 and 0.2.2-rc.1, not on 0.2.2-rc.3 (0.2.2-rc.2 not checked):
+      // the evidence is required on older dsh only (the same cut as the jobs label).
+      const dshOverlaps = oldDsh;
+      if (dshOverlaps) assert.ok(dshBefore.includes(400), `without the style dsh's own header overlaps at 400 px (it did at: ${dshBefore.join(', ')})`);
+      console.log(`  dsh's own header: no overlap at ${DSH_NARROW.join(', ')} px (${dshBefore.length > 0 ? `without the style it overlaps at ${dshBefore.join(', ')} px` : 'this dsh keeps its own header apart without the style'})`);
       await page.setViewportSize({ width: 1280, height: 900 }); await pause(400);
       await page.getByRole('button', { name: 'Open right sidebar' }).click(); await pause(1200);
       await fitOn(false); const asidePlain = await at(1280, 'd1280-sidebar-nofit'); await fitOn(true);
@@ -269,8 +290,8 @@ try {
       await setSwitches({ [FIT]: false });
       const off = await at(400, 'd400-off');
       assert.equal(off.styles, 0, 'switches off: no fit style');
-      assert.ok(off.overlaps.length > 0, `switches off: dsh's own header overlaps at 400 px again (${off.items.join(' | ')})`);
-      console.log(`  all three off: no fit style, dsh's own header (${off.items.length} items, overlaps again)`);
+      if (dshOverlaps) assert.ok(off.overlaps.length > 0, `switches off: dsh's own header overlaps at 400 px again (${off.items.join(' | ')})`);
+      console.log(`  all three off: no fit style, dsh's own header (${off.items.length} items${dshOverlaps ? ', overlaps again' : ''})`);
       // 3c. All three on again.
       await setSwitches({ [FIT]: true, [BRANCH]: true, [GRANTS]: true });
       cpItems = true;

@@ -2,6 +2,10 @@
 // Throwaway DSH_HOME, fake model, made-up projects (demo-0 … demo-21) with made-up notes and chats. Headless.
 // Cause found here: Collapse all projects had a `body:has(…)` style rule. With it, each key press made the browser compute
 // the style of the whole page again (about 33 ms per key at CPU ×4, with 22 projects open in "Workspace tree").
+// On dsh 0.2.2-rc.1 (2026-11-12, about 55 ms per key, also with every Composer Plus feature off): dsh's own Files rule
+// `:has(>.k-1LKG_navigator.k-1LKG_fill)>…` has no element before `:has()`, so it hangs on every element of the page. dsh
+// 0.2.2-rc.2 scoped it to `[data-files-navigator-row]`: this check fails on 0.2.2-rc.1 for a reason outside this plugin.
+// Composer Plus had the same form in Reject with note (test/has-selectors.test.mjs, test/browser-t3code-ideas.mjs).
 // 1. Every feature on (the defaults, plus Project memory): the style work per key press stays under STYLE_MAX_MS.
 // 2. Collapse all projects still shows while a project is open (the button is in the header).
 // 3. The typed text arrives whole, and the page has no errors.
@@ -37,7 +41,8 @@ const fake = createServer((req, res) => {
     if (!req.url.includes('chat/completions')) { res.writeHead(200, { 'content-type': 'application/json' }); res.end('{"data":[{"id":"demo"}]}'); return; }
     const parsed = JSON.parse(body);
     const all = JSON.stringify(parsed.messages);
-    const text = /session title/i.test(all) ? 'Demo' : /next message|complete the message|long-term memory/.test(all) ? '' : `Here is the list:\n\n${list}`;
+    // Helpers by the start of their own prompts: the chat's system text also says "next message".
+    const text = /(Generate|Update) the session title/.test(all) ? 'Demo' : /You predict the next message|You complete the message that the user is typing|You (keep|suggest notes for) the long-term memory/.test(all) ? '' : `Here is the list:\n\n${list}`;
     const chunk = (delta, finish) => `data: ${JSON.stringify({ id: 'x', object: 'chat.completion.chunk', created: 1, model: parsed.model, choices: [{ index: 0, delta, finish_reason: finish ?? null }], ...(finish ? { usage: { prompt_tokens: 5, completion_tokens: 5, total_tokens: 10 } } : {}) })}\n\n`;
     res.writeHead(200, { 'content-type': 'text/event-stream' });
     res.end(chunk({ role: 'assistant', content: text }) + chunk({}, 'stop') + 'data: [DONE]\n\n');
@@ -46,7 +51,7 @@ const fake = createServer((req, res) => {
 await new Promise((r) => fake.once('listening', r));
 const fakePort = fake.address().port;
 
-const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const browser = await chromium.launch({ channel: 'chrome', headless: true, chromiumSandbox: true });
 try {
   for (const bin of process.argv.slice(2)) {
     const home = await realpath(await mkdtemp(join(tmpdir(), 'dsh-memtyping-')));
