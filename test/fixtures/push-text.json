@@ -1,0 +1,29 @@
+{
+  "about": "The plain text of a Tether notification (gateway pushText, Tether pushText): the first line that says something, without Markdown. An `onay` block is the approval word (here the English one). test/tether-push-text.test.mjs and the iOS PushTextTests read this table.",
+  "approval": "Approval waits",
+  "cases": [
+    { "text": "**Bitti:** main'e alındı ve push edildi.", "push": "Bitti: main'e alındı ve push edildi." },
+    { "text": "Merge [PR #12](https://github.com/acme/web/pull/12) hazır.", "push": "Merge PR #12 hazır." },
+    { "text": "**Sonuç:** testler geçti.\n\n> [!DETAILS] Ayrıntılar\n> 14 test", "push": "Sonuç: testler geçti." },
+    { "text": "> [!DETAILS] Ayrıntılar\n> 14 test geçti", "push": "14 test geçti" },
+    { "text": "> [!PROBLEM] Canlı derleme hata verdi.", "push": "Canlı derleme hata verdi." },
+    { "text": "> [!problem]\n> Canlı derleme hata verdi.", "push": "Canlı derleme hata verdi." },
+    { "text": "Onay gerekiyor.\n\n```onay\nOnaylıyorum: acme-web main'e alınsın, canlı değil.\n```", "push": "Onay gerekiyor." },
+    { "text": "```onay\nOnaylıyorum: acme-web main'e alınsın, canlı değil.\n```", "push": "Approval waits" },
+    { "text": "```bash\nnpm test\n```\nTestler geçti.", "push": "Testler geçti." },
+    { "text": "~~~\nkod\n~~~\nSonra metin", "push": "Sonra metin" },
+    { "text": "# Başlık\n- madde bir", "push": "Başlık" },
+    { "text": "- [x] *italik* ve `kod` var", "push": "italik ve kod var" },
+    { "text": "1. İlk adım tamam.", "push": "İlk adım tamam." },
+    { "text": "![ekran](shot.png)\n<b>Kalın</b> metin<br>", "push": "Kalın metin" },
+    { "text": "---\n\n__alt__ ve ~~eski~~ yeni", "push": "alt ve eski yeni" },
+    { "text": "  çok   boşluk\tvar  ", "push": "çok boşluk var" },
+    { "text": "todo_list_add ve snake_case kalır, 2 * 3 = 6", "push": "todo_list_add ve snake_case kalır, 2 * 3 = 6" },
+    { "text": "| a | b |\n|---|---|", "push": "| a | b |" },
+    { "text": "\n\n> alıntı satırı", "push": "alıntı satırı" },
+    { "text": "[quiet]\nThe audit found 2 issues.", "push": "The audit found 2 issues." },
+    { "text": "Ayrıntı: <https://acme.example/x>", "push": "Ayrıntı: https://acme.example/x" },
+    { "text": "", "push": "" },
+    { "text": "```\nyalnız kod\n```", "push": "" }
+  ]
+}

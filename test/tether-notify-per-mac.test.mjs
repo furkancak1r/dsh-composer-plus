@@ -10,9 +10,13 @@ const core = read('tether/ios/Sources/Core.swift'), ui = read('tether/ios/Source
 const body = (head) => { const i = core.indexOf(head); assert.ok(i >= 0, `Core.swift has ${head}`); return core.slice(i, core.indexOf('\n    }\n', i)); };
 
 // The keys keep their old names: the split reads the one set of older builds from them.
-const names = Object.fromEntries([...core.matchAll(/\b(notifyKey|hoursKey|fromKey|toKey) = "(\w+)"/g)].map((m) => [m[1], m[2]]));
-assert.deepEqual(names, { notifyKey: 'notifications', hoursKey: 'notifyHours', fromKey: 'notifyFrom', toKey: 'notifyTo' }, 'the old key names');
-assert.match(core, /static let notifyKeys = \[notifyKey, hoursKey, fromKey, toKey\]/, 'notifyKeys lists the four settings');
+const names = Object.fromEntries([...core.matchAll(/\b(notifyKey|hoursKey|fromKey|toKey|damonOnlyKey) = "(\w+)"/g)].map((m) => [m[1], m[2]]));
+assert.deepEqual(names, { notifyKey: 'notifications', hoursKey: 'notifyHours', fromKey: 'notifyFrom', toKey: 'notifyTo', damonOnlyKey: 'notifyDamonOnly' }, 'the old key names');
+assert.match(core, /static let notifyKeys = \[notifyKey, hoursKey, fromKey, toKey, damonOnlyKey\]/, 'notifyKeys lists the five settings');
+// Notifications only from Damon (2026-11-24): on by default for each Mac, sent to the Mac, and the local alert keeps it.
+assert.match(body('private func loadNotify()'), /notifyDamonOnly = \(mac \? d\.object\(forKey: key\(Client\.damonOnlyKey\)\) as\? Bool : nil\) \?\? true/, 'Damon only: on by default');
+assert.match(body('private func notify('), /guard shouldNotify\(\), damonAllows\(sid\),/, 'the local alert keeps Damon only');
+assert.match(ui, /if c\.botId != nil \{ Toggle\("Notifications only from Damon", isOn: \$c\.notifyDamonOnly\) \}/, 'the switch shows on a Mac with a Damon chat');
 
 // Every read and write goes through the Mac's own key (macKey), never the bare key of one shared setting.
 const bare = [...core.matchAll(/forKey:\s*(?:Client\.|Self\.)?(?:notifyKey|hoursKey|fromKey|toKey)\b[^\n]*/g)].map((m) => m[0]);
@@ -51,13 +55,14 @@ assert.match(read('tether/FEATURES.md'), /^\| notifications \| yes \| .*each pai
 // The cause of "Tether shows no notifications": Tether made them itself, only while iOS kept its socket (seconds after it
 // left the screen), so a closed Tether got none. Now the Mac sends them through APNs. The phone gives each Mac that Mac's
 // own switch and hours (the per-Mac setting decides, not a shared one) with the device token, on each change.
-assert.match(body('func syncPush('), /pushBody\(on: notifyOn, token: [\s\S]*hours: notifyHours, from: notifyFrom, to: notifyTo, tz: TimeZone\.current\.identifier, reason: tokenError\)[\s\S]*call\("\/push"/, 'syncPush sends this Mac\'s settings (and why there is no token) to its gateway');
+assert.match(body('func syncPush('), /pushBody\(on: notifyOn, token: [\s\S]*damonOnly: notifyDamonOnly, mac: pairing\?\.label, hours: notifyHours, from: notifyFrom, to: notifyTo, tz: TimeZone\.current\.identifier, reason: tokenError\)[\s\S]*call\("\/push"/, 'syncPush sends this Mac\'s settings, your name for the Mac (and why there is no token) to its gateway');
+assert.match(body('func renameMac('), /if fp == activeFp \{ syncPush\(\) \}/, 'a new name goes to the Mac on screen');
 assert.match(body('private func saveNotify('), /syncPush\(\)/, 'a change of the hours goes to the Mac');
 assert.match(body('@discardableResult func setNotify('), /registerPush\(\)[\s\S]*syncPush\(\)/, 'the switch asks iOS for a device token and tells the Mac');
 assert.match(body('func refreshMe('), /let push = me\["push"\] as\? Bool == true\n\s*if push != macPush \{ macPush = push \}[^\n]*\n\s*registerPush\(\); syncPush\(\)/, 'each connection asks iOS for the token again and sends the Mac the settings (a failed first try heals)');
 assert.match(ui, /didFailToRegisterForRemoteNotificationsWithError[\s\S]*onTokenError\?\(error\.localizedDescription\)/, 'iOS\'s token error is not swallowed');
 assert.match(ui, /if c\.notifyOn, c\.macPush, !c\.pushOn, let e = c\.pushError \{/, 'Settings says why notifications while Tether is closed do not work');
-assert.match(body('private func notify('), /guard shouldNotify\(\), !pushOn,/, 'no local notification while the Mac pushes the same one');
+assert.match(body('private func notify('), /guard shouldNotify\(\), damonAllows\(sid\), !pushOn,/, 'no local notification while the Mac pushes the same one');
 assert.match(body('func forget('), /unpush\(p\)/, 'unpairing stops the Mac\'s pushes');
 assert.match(ui, /@UIApplicationDelegateAdaptor\(AppDelegate\.self\)/, 'iOS gives the device token to an app delegate');
 assert.match(ui, /didRegisterForRemoteNotificationsWithDeviceToken[\s\S]*onToken\?\(/, 'the token goes to the Client');
@@ -68,12 +73,13 @@ assert.match(gw, /path === '\/push'\) return setPush\(req, res, dev\)/, 'POST /p
 assert.match(gw, /pushAll\('Approval needed', v\.request\?\.toolName, v\.agentId\)/); assert.match(gw, /pushAll\('DSH has a question', [^\n]*, v\.agentId\)/); assert.match(gw, /pushAll\('DSH error', v\.args\[1\], v\.args\[0\]\)/);
 assert.match(host, /mobile\?\.push\('Turn finished', words, agent\.id\)/, 'the Host half pushes Turn finished with the reply (pushWords) when a root chat stops');
 // Each alert names its Mac and project (subtitle) and the chat (body), on the Mac's push and on the phone's own one.
-assert.match(gw, /alert: \{ title, subtitle, body \}/, 'the push has a subtitle');
+assert.match(gw, /alert: \{ title: words\[title\] \?\? title, subtitle, body \}/, 'the push has a subtitle');
 assert.match(host, /about: chatAbout,/, 'the Host half names the chat and its project for the gateway');
-const notify = body('private func notify(');
-assert.match(notify, /c\.subtitle = \[pairing\?\.title, s\.map \{ projectName\(\$0\.cwd, workspaces\) \}\]/, 'the local alert: Mac · project');
-assert.match(notify, /c\.body = \[s\?\.title, detail\]/, 'the local alert: the chat title, then the detail');
+assert.match(body('private func notify('), /\(c\.subtitle, c\.body\) = alertWords\(detail, session: sid\)/, 'the local alert uses alertWords');
+const words = body('func alertWords(');
+assert.match(words, /\[pairing\?\.title, project\]/, 'the local alert: Mac (your name for it) · project');
+assert.match(words, /pushText\(detail, approval:[\s\S]*\[s\?\.title == project \? nil : s\?\.title, text\]/, 'the local alert: the chat title (not the project name twice), then the plain text');
 // The rules themselves: QuietReplyTests (iOS) on test/fixtures/quiet-replies.json; here only that the turn end uses them.
-assert.match(core, /let kind = reason\?\["kind"\] as\? String\n(?:\s*\/\/.*\n)*\s*let bot = current != nil && current == botId\n\s*if !\(bot && kind == "completed" && quietTexts\(events\)\) \{\n\s*let reply = bot \? newsReply\(events\) : lastReply\(transcript\)\n\s*if !quietTurn\(reply: reply, reason: kind\) \{ notify\(String\(localized: "Turn finished"\), [^\n]*session: current\) \}\n\s*UINotificationFeedbackGenerator\(\)\.notificationOccurred\(\.success\)/, 'the local Turn finished shows the reply; a quiet completed turn gives no alert, and Damon\'s quiet run also no buzz');
+assert.match(core, /let kind = reason\?\["kind"\] as\? String\n(?:\s*\/\/.*\n)*\s*let bot = current != nil && current == botId\n\s*let words: String\? = bot \? damonWords\(events, reason: kind\) : kind == "error" \? nil : [^\n]*quietTurn\(reply: r, reason: kind\)[^\n]*\n\s*if let words \{ notify\(String\(localized: "Turn finished"\), words, session: current\) \}\n\s*if words != nil \|\| \(!bot && kind == "error"\) \{ UINotificationFeedbackGenerator\(\)\.notificationOccurred\(\.success\) \}/, 'the local Turn finished: Damon\'s words (damonWords), other chats their reply; a quiet Damon turn gives no alert and no buzz');
 assert.match(gw, /pushTo\(\)\.filter\(d => inHours\(d\.push\.hours\)\)/, 'the gateway keeps the phone\'s hours');
 console.log('tether notify per Mac: keys per Mac, off by default, split once, no Host route, pushed by the Mac (APNs) with each Mac\'s own settings');

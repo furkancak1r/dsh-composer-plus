@@ -1203,6 +1203,49 @@ func quietTexts(_ events: [J]) -> Bool {
 /// The words of the newest turn's Turn finished: its newest text that is not only `[quiet]` (the Mac's runReply and
 /// lastReply), or "" when it has none.
 func newsReply(_ events: [J]) -> String { turnTexts(events).first { !quietReply($0) } ?? "" }
+/// The words of Damon's Turn finished for its newest turn, or nil for none: the Mac's damonPushWords (index.js; one table:
+/// test/fixtures/quiet-replies.json `push`). A turn whose first text starts with `[quiet]` or whose last text ends with it
+/// is quiet, also its first part (2026-11-24). A partial text that a stop cut (`interrupted`) does not count. Completed:
+/// the newest text, nil when quiet or without text. Failed: nil (the DSH error alert tells it). Stopped: the text or "".
+func damonWords(_ events: [J], reason: String?) -> String? {
+    let shown = withoutRolledBack(events)
+    let start = shown.lastIndex { $0["type"] as? String == "turn/start" }.map { $0 + 1 } ?? 0
+    let t = shown[start...].compactMap { e -> String? in
+        guard e["type"] as? String == "assistant/message", (e["data"] as? J)?["interrupted"] as? Bool != true else { return nil }
+        let s = contentText(((e["data"] as? J)?["message"] as? J)?["content"], imageMarker: false).trimmingCharacters(in: .whitespacesAndNewlines)
+        return s.isEmpty ? nil : s
+    }
+    let quiet = !t.isEmpty && (t[0].range(of: #"^\[quiet\]"#, options: [.regularExpression, .caseInsensitive]) != nil
+        || t[t.count - 1].range(of: #"\[quiet\]$"#, options: [.regularExpression, .caseInsensitive]) != nil)
+    if reason == "error" { return nil }
+    if reason == "completed" { return t.isEmpty || quiet ? nil : t.last }
+    return quiet ? "" : t.last ?? ""
+}
+/// The plain text of a notification: the first line that says something, without Markdown; an `onay` block alone is
+/// `approval`. The gateway's pushText (one table: test/fixtures/push-text.json).
+func pushText(_ text: String, approval: String) -> String {
+    var fence = "", onay = false
+    let sub = { (s: String, p: String, t: String) in s.replacingOccurrences(of: p, with: t, options: [.regularExpression, .caseInsensitive]) }
+    for raw in text.components(separatedBy: .newlines) {
+        let t = raw.trimmingCharacters(in: .whitespaces)
+        let f = t.range(of: #"^(`{3,}|~{3,})\s*[^\s`]*"#, options: .regularExpression).map { String(t[$0]) }
+        let mark = f.map { m in String(m.prefix { $0 == m.first }) }
+        let info = f.map { m in String(m.drop { $0 == m.first }).trimmingCharacters(in: .whitespaces) } ?? ""
+        if !fence.isEmpty { if let mark, mark.first == fence.first, mark.count >= fence.count, info.isEmpty { fence = "" }; continue }
+        if let mark { fence = mark; if info.lowercased() == "onay" { onay = true }; continue }
+        var s = sub(sub(t, #"^(?:>\s*)+"#, ""), #"^\[quiet\]"#, "").trimmingCharacters(in: .whitespaces)
+        if s.range(of: #"^\[!details\]"#, options: [.regularExpression, .caseInsensitive]) != nil { continue }
+        s = sub(sub(sub(sub(s, #"^\[![a-z]+\]"#, "").trimmingCharacters(in: .whitespaces), #"^#{1,6}\s+"#, ""), #"^(?:[-*+]|\d{1,3}[.)])\s+"#, ""), #"^\[[ xX]\]\s+"#, "")
+        if s.range(of: #"^(?:[-*_]\s*){3,}$"#, options: .regularExpression) != nil { continue }
+        for (p, r) in [(#"!\[[^\]]*\]\([^)]*\)"#, ""), (#"<((?:https?|mailto):[^>\s]+)>"#, "$1"), (#"\[([^\]]+)\]\([^)]*\)"#, "$1"),
+                       (#"</?[a-z][a-z0-9-]*(?:\s[^<>]*)?/?>"#, ""), (#"(`+)(.+?)\1"#, "$2"), (#"(\*\*|__)(?=\S)(.+?)(?<=\S)\1"#, "$2"),
+                       (#"~~(?=\S)(.+?)(?<=\S)~~"#, "$1"), (#"(^|[^A-Za-z0-9_*])\*(?=\S)([^*]+?)(?<=\S)\*(?![A-Za-z0-9_*])"#, "$1$2"),
+                       (#"(^|[^A-Za-z0-9_])_(?=\S)([^_]+?)(?<=\S)_(?![A-Za-z0-9_])"#, "$1$2"), (#"\s+"#, " ")] { s = sub(s, p, r) }
+        s = s.trimmingCharacters(in: .whitespaces)
+        if !s.isEmpty { return s }
+    }
+    return onay ? approval : ""
+}
 
 /// One row of the chat as DSH desktop shows it.
 enum ChatRow: Identifiable {
@@ -1881,8 +1924,11 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     /// Settings › Notifications › Only between these hours. Off by default: every hour.
     /// From and To are minutes after midnight. To before From goes past midnight; From equal to To is all day.
     static let hoursKey = "notifyHours", fromKey = "notifyFrom", toKey = "notifyTo"
-    /// The settings that each Mac has (see macKey). Older builds kept one set for every Mac under these bare keys.
-    static let notifyKeys = [notifyKey, hoursKey, fromKey, toKey]
+    /// Settings › Notifications › Notifications only from Damon (2026-11-24). On by default: a Mac with a Damon chat sends
+    /// only the alerts of Damon's chat (and its subagents); Damon reports the other chats, so one event is one alert.
+    static let damonOnlyKey = "notifyDamonOnly"
+    /// The settings that each Mac has (see macKey). Older builds kept one set for every Mac under the first four bare keys.
+    static let notifyKeys = [notifyKey, hoursKey, fromKey, toKey, damonOnlyKey]
     /// Every UserDefaults key that belongs to one Mac: unpairing (and a new certificate for the same Mac) removes them.
     /// `seenSessions` is no longer written (older builds guessed dots from it); it stays here so that unpairing removes it.
     static let perMacKeys = ["seenSessions", "finished", "drafts"] + notifyKeys
@@ -1913,6 +1959,15 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     @Published var notifyHours = false { didSet { saveNotify(Client.hoursKey, notifyHours) } }
     @Published var notifyFrom = 8 * 60 { didSet { saveNotify(Client.fromKey, notifyFrom) } }
     @Published var notifyTo = 22 * 60 { didSet { saveNotify(Client.toKey, notifyTo) } }
+    @Published var notifyDamonOnly = true { didSet { saveNotify(Client.damonOnlyKey, notifyDamonOnly) } }
+    /// Notifications only from Damon lets this chat's alert through: no Damon chat on this Mac (every chat), Damon's chat,
+    /// or one of its subagents (the Mac's rootOf, from the chat list).
+    func damonAllows(_ sid: String?) -> Bool {
+        guard notifyDamonOnly, let bot = botId else { return true }
+        var at = sid, n = 0
+        while let s = at, n < 32 { if s == bot { return true }; at = sessions.first { $0.id == s }?.parent; n += 1 }
+        return false
+    }
     private func saveNotify(_ k: String, _ v: Any) { if activeFp != nil { UserDefaults.standard.set(v, forKey: key(k)); syncPush() } }
 
     // MARK: Push (APNs): the notifications also while Tether is closed
@@ -1924,9 +1979,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     static let pushTokenKey = "apnsToken"
     private var pushTask: Task<Void, Never>?
     /// `POST /push` body: this Mac's switch and hours, the device token, and the phone's time zone for the hours.
-    static func pushBody(on: Bool, token: String?, sandbox: Bool, hours: Bool, from: Int, to: Int, tz: String, reason: String? = nil) -> J {
+    /// `damonOnly`: Notifications only from Damon. `mac`: the name that you gave this Mac (Rename Mac), for the alert's
+    /// subtitle; nil keeps the Mac's own name.
+    static func pushBody(on: Bool, token: String?, sandbox: Bool, damonOnly: Bool = true, mac: String? = nil, hours: Bool, from: Int, to: Int, tz: String, reason: String? = nil) -> J {
         guard on, let token else { return on ? ["on": false, "reason": String((reason ?? "no device token from iOS yet").prefix(200))] : ["on": false] }
-        return ["on": true, "token": token, "sandbox": sandbox, "hours": hours ? ["from": from, "to": to, "tz": tz] as J : NSNull()]
+        var b: J = ["on": true, "token": token, "sandbox": sandbox, "damonOnly": damonOnly, "hours": hours ? ["from": from, "to": to, "tz": tz] as J : NSNull()]
+        if let mac { b["mac"] = mac }
+        return b
     }
     /// Why iOS gave no device token (AppDelegate). Settings › Notifications shows it, and it goes to the Mac (its pairing
     /// page shows it), so a silent "only while Tether is open" does not hide the cause.
@@ -1955,7 +2014,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         let sandbox = false
         #endif
         let body = Client.pushBody(on: notifyOn, token: UserDefaults.standard.string(forKey: Client.pushTokenKey), sandbox: sandbox,
-                                   hours: notifyHours, from: notifyFrom, to: notifyTo, tz: TimeZone.current.identifier, reason: tokenError)
+                                   damonOnly: notifyDamonOnly, mac: pairing?.label, hours: notifyHours, from: notifyFrom, to: notifyTo, tz: TimeZone.current.identifier, reason: tokenError)
         pushTask = Task {
             try? await Task.sleep(for: .milliseconds(500))
             guard !Task.isCancelled, self.activeFp == mac else { return }
@@ -1989,6 +2048,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
         notifyHours = mac && d.bool(forKey: key(Client.hoursKey))
         notifyFrom = (mac ? d.object(forKey: key(Client.fromKey)) as? Int : nil) ?? 8 * 60
         notifyTo = (mac ? d.object(forKey: key(Client.toKey)) as? Int : nil) ?? 22 * 60
+        notifyDamonOnly = (mac ? d.object(forKey: key(Client.damonOnlyKey)) as? Bool : nil) ?? true
     }
     /// Older builds kept one notification set for every Mac under the bare keys. Once, copy it to each paired Mac (the
     /// owner's choice: nothing changes for the Macs that are paired now; a Mac paired later starts off). The bare keys
@@ -2791,6 +2851,7 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     func renameMac(_ fp: String, _ name: String) {
         guard let i = pairings.firstIndex(where: { $0.fp == fp }) else { return }
         pairings[i].label = macLabel(name)
+        if fp == activeFp { syncPush() } // the Mac's push names it with this name (only the Mac on screen gets the settings)
     }
 
     /// Unpair the active Mac (or `fp`): its token leaves this iPhone and its per-Mac keys are deleted. Then the next Mac
@@ -3251,12 +3312,13 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
                 // Damon's chat reads the turn from its log (`events`, the Mac's rule): a completed turn whose every text is
                 // `[quiet]` gives no alert and no buzz (2026-11-19, quietRun); a turn with a real text notifies with it, also
                 // when its last reply is `[quiet]` (runReply). Other chats keep the drawn reply (lastReply), as before.
+                // Damon's turn uses the Mac's damonPushWords (damonWords): a `[quiet]` turn gives no alert, not even its first
+                // part, and no buzz (2026-11-24). Other chats keep the drawn reply (lastReply); a failed turn has the DSH
+                // error alert. ponytail: the buzz stays for a turn whose alert another rule (Damon only, the hours) drops.
                 let bot = current != nil && current == botId
-                if !(bot && kind == "completed" && quietTexts(events)) {
-                    let reply = bot ? newsReply(events) : lastReply(transcript)
-                    if !quietTurn(reply: reply, reason: kind) { notify(String(localized: "Turn finished"), quietReply(reply) ? "" : reply, session: current) }
-                    UINotificationFeedbackGenerator().notificationOccurred(.success)
-                }
+                let words: String? = bot ? damonWords(events, reason: kind) : kind == "error" ? nil : { let r = lastReply(transcript); return quietTurn(reply: r, reason: kind) ? nil : quietReply(r) ? "" : r }()
+                if let words { notify(String(localized: "Turn finished"), words, session: current) }
+                if words != nil || (!bot && kind == "error") { UINotificationFeedbackGenerator().notificationOccurred(.success) }
             }
             running = false
             turnStartedAt = nil
@@ -3654,13 +3716,18 @@ final class Pinner: NSObject, URLSessionTaskDelegate {
     // shortcut: only notifies while iOS keeps the socket alive (seconds after backgrounding); real wake-ups need APNs via a relay, out of scope for LAN-only.
     private func notify(_ title: String, _ detail: String, session sid: String?) {
         // The Mac pushes the same alerts through APNs (also while Tether is closed): no second, local one.
-        guard shouldNotify(), !pushOn, UIApplication.shared.applicationState != .active else { return }
-        // The same words as the Mac's push: Mac · project above, the chat's title and the detail below.
-        let s = sessions.first { $0.id == sid }
+        guard shouldNotify(), damonAllows(sid), !pushOn, UIApplication.shared.applicationState != .active else { return }
         let c = UNMutableNotificationContent(); c.title = title; c.sound = .default
-        c.subtitle = [pairing?.title, s.map { projectName($0.cwd, workspaces) }].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
-        c.body = [s?.title, detail].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
+        (c.subtitle, c.body) = alertWords(detail, session: sid)
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: c, trigger: nil))
+    }
+    /// The same words as the Mac's push: Mac · project above, the chat's title (not when it is the project's name, as
+    /// Damon's) and the detail as plain text (pushText) below.
+    func alertWords(_ detail: String, session sid: String?) -> (subtitle: String, body: String) {
+        let s = sessions.first { $0.id == sid }, project = s.map { projectName($0.cwd, workspaces) }
+        let subtitle = [pairing?.title, project].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        let text = pushText(detail, approval: String(localized: "cards.onay", defaultValue: "Approval waits", bundle: uiStrings))
+        return (subtitle, [s?.title == project ? nil : s?.title, text].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n"))
     }
 
     // MARK: Bonjour: _dshmobile._tcp with TXT fp=<sha256>, resolved to an IPv4 address.

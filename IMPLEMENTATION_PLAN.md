@@ -1,3 +1,53 @@
+# Fix: Tether push notifications (branch fix/tether-push-notifications, 2026-11-24)
+
+Furkan (Assistant chat, 2026-11-24): Damon-only notifications (setting, default on), no push for `[quiet]` Damon turns
+(also not their first part), the Mac name that he set in Tether, clean plain text, other provable UX defects.
+Scope: Tether (gateway, Host push path, iOS app). The Mac desktop status panel and desktop notifications stay as they are.
+
+## Push code path (verified by reading)
+- Host: index.js `agent/status` handler (~2434-2452) → `pushWords(events, run?.from)` (~11657) → `mobile.push('Turn finished', …)`.
+  `chatAbout` (~2341) gives chat title and project. `mobileGateway` (~881) passes `about`, `lang` to the gateway.
+- Gateway: tether/gateway/server.mjs `pushAll` (~639): subtitle `[mac, project]`, body `[chat, detail]`; `mac = opts.macName ?? macName()`
+  (~579) = `scutil --get ComputerName` (~26). Approval/question pushes (~824), error push (~797). `POST /push` → `setPush` (~660).
+- iOS: Core.swift notify settings (~1877-2009), `syncPush`/`pushBody`, turn-end local alert (~3249-3260), `notify()` (~3655),
+  `Pairing.title = label ?? mac ?? host` (~499); `renameMac` (~2791) keeps the label on the phone only. UI.swift Settings → Notifications (~2607).
+
+## Root causes (verified)
+1. Two pushes per event: the Host pushes Turn finished for every root chat at its running → idle edge (index.js ~2445-2451), so a
+   branch chat, task or automation that ends pushes, and Damon's report of it pushes again. No Damon filter exists.
+2. `[quiet]` leak: `pushWords` for Damon's run uses `runReply` (~11651): the newest real text of the run, also when the turn ends
+   with `[quiet]` (documented rule since 2026-11-19), so "Checking." + tool, then `[quiet]` pushes "Checking.". `quietReply` needs
+   the exact text `[quiet]`, so "[quiet]\n…" pushes with the literal `[quiet]`. A stopped turn's partial stream (dsh logs it as
+   `assistant/message` with `interrupted: true`, dsh-agent-loop 0.2.2-rc.5 lib/index.js ~903-916) also counts as a reply.
+   Tether's local alert ports the same rule (Core.swift ~3254-3257, `newsReply`).
+3. Mac name: the gateway names the Mac by `scutil ComputerName` ("Furkan MacBook Pro" on this Mac, checked); the name that the user
+   sets in Tether (`Pairing.label`) never leaves the phone.
+4. Body: raw Markdown (the reply as written), the whole reply; titles always English from the gateway; Damon's chat title repeats
+   its project name ("Damon" in the subtitle and the body).
+
+## Plan
+- Host: `damonPush(assistant, agentOf, id)` → true/false, undefined without a Damon chat; passed as `fromDamon` to the gateway.
+  `pushWords` for Damon's run: per turn; a turn with a text that starts with `[quiet]` gives no words; interrupted partial texts
+  do not count; a completed run without words: no push; a failed/stopped one: push without words.
+- Gateway: `POST /push` takes `damonOnly` and `mac` (the phone's name for this Mac); `pushAll` filters per phone, uses the phone's
+  Mac name, `pushText` (plain first line, `onay` block → "Approval waits"/"Onay bekliyor"), titles in Turkish when the Mac's
+  language is `tr` (Tether's own strings), no chat title when it equals the project.
+- iOS: per-Mac setting `notifyDamonOnly` (default on), toggle shown with a Damon Mac, sent in `/push`; label sent; local alert
+  uses the same rules (Swift ports `pushText`, `damonWords`; shared tables test/fixtures/push-text.json, quiet-replies.json `push`).
+- Docs: tether/FEATURES.md (notifications row, difference to the Mac desktop), tether/README.md push section.
+
+## Checks
+npm test; iOS tests (xcodebuild test, simulator, CODE_SIGNING_ALLOWED=NO); node scripts/build-docs.mjs --check; git diff --check.
+
+## Last checkpoint / open steps
+- Checkpoint: code, tests, docs and screenshots done and committed on the branch (2026-11-24 17:35).
+- Last passing: `npm test` (exit 0); iOS `xcodebuild test` on simulator id A5766181-4A27-457E-81C2-DFDE4A0F018F (iPhone 17 Pro, iOS 26.5;
+  `name=iPhone 17 Pro` picks OS:latest 27.2, which has no such device), CODE_SIGNING_ALLOWED=NO: 122 tests, 0 failures;
+  `node scripts/build-docs.mjs --check`; `git diff --check`.
+- Red before the fix (old index.js/server.mjs in a detached worktree): 5 of 6 `[quiet]` forms pushed; both gateway push tests failed.
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-bildirim-20261124/ (settings, before/after).
+- Open: merge origin/main, review-guard, merge to main, push, delete branch and worktree.
+
 # Fix: Improve prompt "Mesaj iyileştirilirken değişti" (branch fix/prompt-improve-change-warning)
 
 Owner report 2026-11-23: the wand says "The message changed while it was improved, so it was not replaced." although the

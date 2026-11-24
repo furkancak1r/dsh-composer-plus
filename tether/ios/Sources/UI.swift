@@ -2609,6 +2609,8 @@ struct SettingsView: View {
                     Toggle("Send notifications", isOn: Binding(get: { c.notifyOn }, set: { v in Task { await c.setNotify(v) } }))
                         .disabled(c.notifyAsking)
                     if c.notifyOn {
+                        // Shown while this Mac has a Damon chat (the gateway's Damon filter needs it).
+                        if c.botId != nil { Toggle("Notifications only from Damon", isOn: $c.notifyDamonOnly) }
                         Toggle("Only between these hours", isOn: $c.notifyHours)
                         if c.notifyHours {
                             DatePicker("From", selection: hours(\.notifyFrom), displayedComponents: .hourAndMinute)
@@ -2627,6 +2629,9 @@ struct SettingsView: View {
                         // The Mac can push, but this iPhone gets none: say why (no device token from iOS, or the Mac refused it).
                         if c.notifyOn, c.macPush, !c.pushOn, let e = c.pushError {
                             Text("Notifications while Tether is closed do not work on this iPhone: \(e)").foregroundStyle(.orange)
+                        }
+                        if c.notifyOn, c.botId != nil, c.notifyDamonOnly {
+                            Text("Only Damon's replies, approvals, questions and errors come. Damon tells you when your other chats and tasks end, so each event gives one notification.")
                         }
                         if c.notifyOn, c.notifyHours {
                             Text("Outside these hours, Tether sends no notifications. When To is before From, the hours go past midnight (for example 22:00 to 07:00). The same time for both means all day.")

@@ -2337,17 +2337,20 @@ export function apply(ctx, config) {
   let mobileQueue = Promise.resolve(); // one switch change at a time: save, then start or stop
   const serviceOf = (name) => { try { return ctx.get?.(name); } catch { return undefined; } };
   /** The words of a Tether push about a chat: its title and its project (dsh's project title, else the folder name; a
-   * branch folder `<repo>/.worktrees/<name>` gives its repository's name). Empty for a chat that is not loaded. */
+   * branch folder `<repo>/.worktrees/<name>` gives its repository's name). Empty for a chat that is not loaded. `damon`:
+   * the chat is Damon's or one of its subagents (false for another chat), for Tether's Notifications only from Damon;
+   * left out while this Mac has no Damon chat, so every chat pushes then. */
   const chatAbout = (sessionId) => {
+    const damon = damonAbout(assistant, sessionId);
     const session = serviceOf('agents')?.get?.(sessionId)?.session;
-    if (session === undefined) return {};
+    if (session === undefined) return damon;
     let chat, cwd, project;
     try { chat = ctx.sessionProjections?.snapshot?.(session, ['title'])?.values?.title; } catch { /* no title */ }
     try { cwd = serviceOf('workingDirectory')?.get?.(session); } catch { /* dsh 0.2.0 has none */ }
     if (!isText(cwd, 4096)) cwd = session.header?.cwd;
     let list;
     try { list = serviceOf('workspaceRegistry')?.list?.(); } catch { /* not ready */ }
-    return { chat: isText(chat, 4096) ? chat : undefined, project: projectOf(cwd, list) };
+    return { chat: isText(chat, 4096) ? chat : undefined, project: projectOf(cwd, list), ...damon };
   };
   ctx.inject?.(['webServer'], (webCtx) => {
     const gateway = mobileGateway({
@@ -11649,17 +11652,41 @@ export function quietRun(events, from = 0) {
  * Turn finished push, its desktop notification), also when its last reply is `[quiet]` (a real text with a tool call, or a
  * real reply in an earlier turn of the run, then `[quiet]`). */
 export const runReply = (events, from = 0) => runTexts(events, from).findLast((t) => !quietReply(t)) ?? '';
+/** `{damon}` of a Tether push (Notifications only from Damon): true for Damon's chat and its subagents (`assistant` is the
+ * handle of installAssistant: isOn, id, rootOf), false for another chat, and nothing while this Mac has no Damon chat. */
+export const damonAbout = (assistant, sessionId) => (assistant?.isOn?.() && isText(assistant.id?.()) ? { damon: assistant.rootOf(sessionId) === assistant.id() } : {});
+/** The words of Damon's Turn finished push for a run (its events from `from`), or undefined for none (2026-11-24: Furkan
+ * got the first part of `[quiet]` turns). Each turn is one Damon reply: its texts, without a text that a rollback withdrew
+ * and without a partial text that a stop cut (`interrupted`). A turn whose first text starts with `[quiet]` or whose last
+ * text ends with `[quiet]` is quiet, also with a progress text before a tool call ("Checking.", then `[quiet]`). A
+ * completed turn: its newest text, none when quiet or without text. A failed turn: none (the gateway's DSH error push
+ * tells it). A stopped or cut-off turn: its newest text, or '' (the gateway shows the chat). */
+export function damonPushWords(events, from = 0) {
+  const gone = withdrawn(events.slice(from));
+  const texts = (turn) => turn.filter((e) => e.type === 'assistant/message' && e.data?.interrupted !== true && !gone(e.seq))
+    .map((e) => textBlocks(e.data?.message?.content).trim()).filter((t) => t !== '');
+  const words = (turn) => {
+    const t = texts(turn); const end = turn.findLast((e) => e.type === 'turn/end')?.data?.reason?.kind;
+    const quiet = t.length > 0 && (/^\[quiet\]/i.test(t[0]) || /\[quiet\]$/i.test(t.at(-1)));
+    if (end === 'error') return undefined;
+    if (end === 'completed') return t.length === 0 || quiet ? undefined : t.at(-1);
+    return quiet ? '' : t.at(-1) ?? '';
+  };
+  // A run (running → idle) can hold several turns (a queued message starts the next one): its push has the words of its
+  // newest turn that has some, so a real reply, then a queued `[quiet]` news turn, still pushes the reply.
+  const turns = []; let turn = [];
+  for (const e of events.slice(from)) { if (e.type === 'turn/start' && turn.length > 0) { turns.push(turn); turn = []; } turn.push(e); }
+  if (turn.length > 0) turns.push(turn);
+  return turns.map(words).findLast((w) => w !== undefined);
+}
 /** The words of a chat's Turn finished push at its running → idle edge, or undefined for no push. `from`: where the
- * assistant chat's run started (undefined for another chat). A quiet run of the assistant chat: no push. Its run that is
- * news: its newest real text (runReply), also when its last reply is `[quiet]`. Else the last reply of the newest turn,
- * no push for a completed turn with nothing to say (quietTurn); a `[quiet]` reply is never the words (a failed turn
- * pushes with no text: the gateway then shows the chat's title). */
+ * assistant chat's run started (undefined for another chat): damonPushWords. Else the last reply of the newest turn, no
+ * push for a completed turn with nothing to say (quietTurn); a `[quiet]` reply is never the words (a stopped turn pushes
+ * with no text: the gateway then shows the chat's title). A failed turn gives no Turn finished push: dsh relays its error
+ * (agent/error → api-session/error), and the gateway pushes that as DSH error, so one failure is one push. */
 export function pushWords(events, from) {
-  if (from !== undefined) {
-    if (quietRun(events, from)) return undefined;
-    const news = runReply(events, from);
-    if (news !== '') return news;
-  }
+  if (from !== undefined) return damonPushWords(events, from);
+  if (events.findLast((e) => e.type === 'turn/end')?.data?.reason?.kind === 'error') return undefined;
   const reply = lastReply(events);
   return quietTurn(events, reply) ? undefined : quietReply(reply) ? '' : reply;
 }

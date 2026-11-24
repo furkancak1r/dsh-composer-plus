@@ -1,7 +1,8 @@
 // Tether's push words (Host half): Turn finished carries the agent's last reply of the turn, and every push names the
 // chat's project. The gateway puts them under this Mac's name (test/tether-gateway.test.mjs, "push: ...").
 import assert from 'node:assert/strict';
-import { lastReply, mobileGateway, projectOf, pushWords, quietTurn, ROLLBACK_SOURCE, REWIND_SOURCE } from '../index.js';
+import { readFileSync } from 'node:fs';
+import { damonAbout, lastReply, mobileGateway, projectOf, pushWords, quietTurn, ROLLBACK_SOURCE, REWIND_SOURCE } from '../index.js';
 
 const say = (seq, text) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'text', text }] } } });
 const tool = (seq) => ({ seq, type: 'assistant/message', data: { message: { content: [{ type: 'toolCall', id: 't', name: 'bash' }] } } });
@@ -59,10 +60,14 @@ for (const kind of [NEWS, 'user', 'schedule']) {
   assert.equal(pushed(turnOf(1, kind, 'The deploy of recipe-box failed.')), true, `${kind}: real text: push`);
   assert.equal(pushed(turnOf(1, kind, '[quiet]\nThe audit found 2 issues.')), true, `${kind}: [quiet] and more text: push`);
   assert.equal(pushed(turnOf(1, kind, 'Audit: [quiet]')), true, `${kind}: [quiet] inside a sentence: push`);
-  for (const end of ['error', 'max-tokens', 'aborted', 'interrupted']) {
+  for (const end of ['max-tokens', 'aborted', 'interrupted']) {
     assert.equal(pushed(turnOf(1, kind, undefined, end)), true, `${kind}: ${end}, empty reply: push`);
     assert.equal(pushed(turnOf(1, kind, '[quiet]', end)), true, `${kind}: ${end}, [quiet]: push`);
   }
+  // A failed turn: dsh relays its error (agent/error → api-session/error) and the gateway pushes DSH error, so no second
+  // Turn finished push for the same failure (2026-11-24).
+  assert.equal(pushed(turnOf(1, kind, undefined, 'error')), false, `${kind}: error: DSH error only`);
+  assert.equal(pushed(turnOf(1, kind, 'Half a reply.', 'error')), false, `${kind}: error with text: DSH error only`);
 }
 assert.equal(pushed(turnOf(1, 'user', '[quiet]').slice(0, -1)), true, 'no turn/end yet: push');
 assert.equal(pushed([...turnOf(1, 'user', 'Fixed the login.'), ...turnOf(9, NEWS, '[quiet]')]), false, 'only the newest turn counts: quiet');
@@ -73,7 +78,40 @@ assert.equal(pushed([...turnOf(1, NEWS, '[quiet]'), ...turnOf(9, 'user', '[quiet
 const run = [...turnOf(1, 'user', 'Fixed the login.'), ...turnOf(9, NEWS, '[quiet]')];
 assert.equal(pushWords(run, 0), 'Fixed the login.', 'the assistant run with a real reply pushes it');
 assert.equal(pushWords(run, 8), undefined, 'a quiet run of the assistant: no push');
-assert.equal(pushWords([...turnOf(1, NEWS, '[quiet]', 'error')], 0), '', 'a failed turn pushes, never with the words [quiet]');
+assert.equal(pushWords([...turnOf(1, NEWS, '[quiet]', 'error')], 0), undefined, 'a failed turn: DSH error only, never the words [quiet]');
+assert.equal(pushWords([...turnOf(1, NEWS, '[quiet]', 'aborted')], 0), '', 'a stopped turn pushes, never with the words [quiet]');
 assert.equal(pushWords(turnOf(1, NEWS, 'Deploy failed.'), 0), 'Deploy failed.');
+
+// Damon's [quiet] turn never pushes, not even its first part (2026-11-24, Furkan: "bazı [quiet] bildirimleri de ilk kısım
+// geliyor"). The three forms: only [quiet], a turn that starts with [quiet], a turn that ends with [quiet].
+const steps = (seq, kind, texts, end = 'completed') => [{ seq, type: 'turn/start' }, prompt(seq + 1, kind),
+  ...texts.map((t, i) => ({ seq: seq + 2 + i, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: t }, { type: 'toolCall', id: `t${i}`, name: 'chats_list' }] } } })),
+  { seq: seq + 2 + texts.length, type: 'turn/end', data: { reason: { kind: end } } }];
+for (const [texts, why] of [[['[quiet]'], 'only [quiet]'], [['[quiet]\nThe audit found 2 issues.'], 'starts with [quiet]'],
+  [['[quiet]', 'Updated the list.'], 'first text [quiet], then text'], [['Checking the chats.', '[quiet]'], 'a progress text, then [quiet]'],
+  [['Checking the chats. [quiet]'], 'ends with [quiet]'], [['Checking.', 'Done: nothing new. [QUIET]'], 'last text ends with [QUIET]']]) {
+  assert.equal(pushWords(steps(1, NEWS, texts), 0), undefined, `Damon: ${why}: no push`);
+}
+assert.equal(pushWords(steps(1, 'user', ['Checking.', 'Fixed the login.']), 0), 'Fixed the login.', 'Damon: a real reply pushes its newest text');
+// A partial text that a stop cut (dsh logs it with `interrupted: true`) is not a reply.
+const cut = { seq: 3, type: 'assistant/message', data: { interrupted: true, message: { content: [{ type: 'text', text: 'Half a sent' }] } } };
+assert.equal(pushWords([{ seq: 1, type: 'turn/start' }, prompt(2, NEWS), cut, { seq: 4, type: 'turn/end', data: { reason: { kind: 'aborted' } } }], 0), '', 'Damon: a stopped turn shows no partial text');
+assert.equal(pushWords([{ seq: 1, type: 'turn/start' }, prompt(2, NEWS), { ...cut, data: { ...cut.data, message: { content: [{ type: 'text', text: '[quiet]' }] } } }, { seq: 4, type: 'turn/end', data: { reason: { kind: 'aborted' } } }], 0), '', 'Damon: a stopped [quiet] turn pushes no words');
+// Hidden turns: empty text, only tool calls.
+assert.equal(pushWords(steps(1, NEWS, ['']), 0), undefined, 'Damon: an empty text: no push');
+assert.equal(pushWords([{ seq: 1, type: 'turn/start' }, prompt(2, NEWS), tool(3), { seq: 4, type: 'turn/end', data: { reason: { kind: 'completed' } } }], 0), undefined, 'Damon: only tool calls: no push');
+// A run of two turns: a real reply, then a queued news turn whose first part is real and whose end is [quiet].
+assert.equal(pushWords([...steps(1, 'user', ['Fixed the login.']), ...steps(9, NEWS, ['Checking.', '[quiet]'])], 0), 'Fixed the login.', 'Damon: the quiet second turn does not hide the real reply');
+assert.equal(pushWords([...steps(1, NEWS, ['Checking.', '[quiet]']), ...steps(9, NEWS, ['[quiet]'])], 0), undefined, 'Damon: two quiet turns: no push');
+// Notifications only from Damon: the Host tells the gateway whether a push is about Damon's chat (or one of its subagents).
+const parents = { sub: 'd1', subsub: 'sub', w1: undefined };
+const rootOf = (id) => { let at = id; while (parents[at] !== undefined) at = parents[at]; return at; };
+const damon = (on, id) => ({ isOn: () => on, id: () => id, rootOf });
+assert.deepEqual(damonAbout(damon(true, 'd1'), 'd1'), { damon: true });
+assert.deepEqual(damonAbout(damon(true, 'd1'), 'subsub'), { damon: true }, 'a subagent of Damon');
+assert.deepEqual(damonAbout(damon(true, 'd1'), 'w1'), { damon: false }, 'a branch chat');
+assert.deepEqual(damonAbout(damon(false, 'd1'), 'w1'), {}, 'Assistant off: no Damon, every chat pushes');
+assert.deepEqual(damonAbout(damon(true, undefined), 'w1'), {}, 'no Damon chat yet: every chat pushes');
+assert.match(readFileSync(new URL('../index.js', import.meta.url), 'utf8'), /const chatAbout = \(sessionId\) => \{\n\s*const damon = damonAbout\(assistant, sessionId\);[\s\S]*?if \(session === undefined\) return damon;[\s\S]*?project: projectOf\(cwd, list\), \.\.\.damon \};/, 'chatAbout gives the gateway the Damon flag');
 // The Host's push and green dot on a real agent/status edge: test/unread.test.mjs and test/quiet-replies.test.mjs.
 console.log('tether push words: last reply of the turn (withdrawn replies left out), project name, chat id to the gateway, no push for an empty or [quiet] reply');
