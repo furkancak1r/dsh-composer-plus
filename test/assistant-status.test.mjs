@@ -388,6 +388,10 @@ try {
     await assert.rejects(remove.execute({ task: 'Deploy', reason: 'x' }, { agent: assistantAgent }), (e) => e.status === 409, 'a waiting task');
     await assert.rejects(remove.execute({ task: 'No such task', reason: 'x' }, { agent: assistantAgent }), (e) => e.status === 404);
     await assert.rejects(remove.execute({ task: 'Build', id: 'aaaaaaaa', reason: 'x' }, { agent: assistantAgent }), (e) => e.status === 400);
+    await assert.rejects(remove.execute({ id: '', task: ' ', reason: 'x' }, { agent: assistantAgent }), (e) => e.status === 400, 'neither');
+    // A model that sends the unused field empty: "" is left out.
+    await assert.rejects(remove.execute({ id: '', task: 'Stopped one', reason: 'x' }, { agent: otherAgent }), (e) => e.status === 403);
+    assert.match(await remove.execute({ id: '', task: 'Lost log', reason: 'old' }, { agent: assistantAgent }), /"Lost log" \(stopped/);
     await assert.rejects(remove.execute({ task: 'Stopped one', reason: 'x' }, { agent: otherAgent }), (e) => e.status === 403);
     assert.ok((await shown()).some((t) => t.id === 'c-run'), 'the running task stays');
     // × of the panel: POST {sessionId, action: "dismiss", task: "<task id>|<end time>"}.
@@ -398,7 +402,8 @@ try {
     assert.equal((await post({ sessionId: 's-web', action: 'dismiss', task: `c-stop|${stop.ended}` })).status, 404, 'only the assistant chat');
     const saved = JSON.parse(await readFile(join(dir, 'assistant-dismissed.json'), 'utf8'));
     assert.deepEqual(Object.keys(saved.chats), ['s-a'], 'one list per chat');
-    assert.deepEqual(saved.chats['s-a'].sort(), [`c-done|${NOW - 100}`, `c-fail|${NOW - 4000}`, `c-stop|${NOW - 3000}`].sort());
+    const lost = cat(9, 'c-lost', '').data.childCreatedAt; // a gone child without a log: its start time is its key
+    assert.deepEqual(saved.chats['s-a'].sort(), [`c-done|${NOW - 100}`, `c-fail|${NOW - 4000}`, `c-lost|${lost}`, `c-stop|${NOW - 3000}`].sort());
     assert.equal(((await stat(join(dir, 'assistant-dismissed.json'))).mode & 0o777).toString(8), '600');
     // A new Host (a dsh restart) reads the list again.
     {

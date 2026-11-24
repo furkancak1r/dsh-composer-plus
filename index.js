@@ -12260,8 +12260,10 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
         if (id === undefined) throw refused('This tool works only in the Composer Plus assistant chat.', 403);
         const reason = todoText(args?.reason);
         if (!isText(reason, TODO_LIMITS.reason)) throw refused(`reason is 1 to ${TODO_LIMITS.reason} characters.`, 400);
-        if ((args?.id == null) === (args?.task == null)) throw refused('Give id (a to-do item) or task (a task card), not both.', 400);
-        if (args?.task != null) return dismissTask(id, todoText(args.task), reason, exec?.signal);
+        // A model can send an empty field that it does not use: "" counts as left out.
+        const given = (v) => v != null && todoText(v) !== '';
+        if (given(args?.id) === given(args?.task)) throw refused('Give id (a to-do item) or task (a task card), not both.', 400);
+        if (given(args?.task)) return dismissTask(id, todoText(args.task), reason, exec?.signal);
         keepShown(id);
         const { item } = await store.change(id, (list) => todoList.remove(list, String(args?.id ?? '').trim()));
         if (item === undefined) throw refused(`No item has the id ${JSON.stringify(String(args?.id ?? ''))}. The list in the runtime context is from the start of this turn; the results of your todo_list_add and todo_list_remove calls in this turn show your changes.`, 404);
@@ -12363,7 +12365,7 @@ export function installAssistantTodos(ctx, home, assistant, { dir = join(home, '
       const turn = turns.get(id);
       if (TODO_WORK_TOOLS.has(event.data?.name)) turn.work = true;
       // A task dismiss (todo_list_remove with task) changes no item.
-      if (TODO_CHANGE_TOOLS.has(event.data?.name) && argsOf(event.data?.arguments)?.task == null) { turn.changed = true; nudged.delete(id); }
+      if (TODO_CHANGE_TOOLS.has(event.data?.name) && todoText(argsOf(event.data?.arguments)?.task) === '') { turn.changed = true; nudged.delete(id); }
     } else if (event?.type === 'turn/end') {
       const turn = turns.get(id); turns.delete(id); lastEnd.set(id, event.data?.reason?.kind);
       const ask = asks.get(id); if (ask?.taken) ask.missed = true; // the turn with the note ended without a summary
