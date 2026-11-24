@@ -2679,7 +2679,10 @@ final class PushTextTests: XCTestCase {
             let steps = t["steps"] as? [Any] ?? []
             let log = [ev("turn/start"), ev("user/message", ["source": ["kind": "composer-plus-assistant-news"], "content": [["type": "text", "text": "news"]]])]
                 + steps.map { step -> J in
-                    if let typed = step as? String { return ev("user/message", ["source": ["kind": "user", "rpcId": "r"], "content": [["type": "text", "text": typed]]]) }
+                    if let typed = step as? String {
+                        let source: J = typed.hasPrefix("@") ? ["kind": String(typed.dropFirst())] : ["kind": "user", "rpcId": "r"]
+                        return ev("user/message", ["source": source, "content": [["type": "text", "text": typed]]])
+                    }
                     return ev("assistant/message", ["message": ["content": (step as? [String] ?? []).map { b -> J in b == "tool" ? ["type": "tool-call", "id": "c", "name": "chats_list"] : b == "think" ? ["type": "reasoning", "text": "Look."] : ["type": "text", "text": b] }]])
                 }
             XCTAssertEqual(damonWords(log, reason: "completed"), t["push"] as? String, "\(steps)")
@@ -2724,41 +2727,23 @@ final class QuietReplyTests: XCTestCase {
         XCTAssertFalse(quietTurn(reply: "[quiet]", reason: "error"))
         XCTAssertFalse(quietTurn(reply: "The deploy failed.", reason: "completed"))
     }
-    /// The run rule of the Mac (quietRun, runReply) on the shared turn shapes: no alert and no buzz only when every text of
-    /// Damon's turn is `[quiet]`; a turn with a real text notifies with it. The turn is read from the chat's log, as on the
-    /// Mac: an older typed turn with a real reply, then the news turn (its prompt is no `user` message) and its steps.
-    func testQuietTurnsMatchTheMac() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
-        let turns = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["turns"] as? [J])
-        XCTAssertGreaterThanOrEqual(turns.count, 8)
+    /// Damon's turn is read from the chat's log, as on the Mac: an older typed turn with a real reply, then the news turn
+    /// and its steps. Only the newest turn counts, and a rollback that withdrew an older turn's end does not join its text.
+    func testDamonWordsReadTheNewestTurn() throws {
         var seq = 0
         func ev(_ type: String, _ data: J = [:], _ extra: J = [:]) -> J { seq += 1; return ["seq": seq, "type": type, "data": data].merging(extra) { a, _ in a } }
-        func say(_ blocks: [J]) -> J { ev("assistant/message", ["message": ["content": blocks]]) }
+        func say(_ text: String) -> J { ev("assistant/message", ["message": ["content": [["type": "text", "text": text]]]]) }
         func user(_ kind: String, _ text: String) -> J { ev("user/message", ["source": ["kind": kind], "content": [["type": "text", "text": text]]]) }
-        for t in turns {
-            let steps = t["steps"] as? [[String]] ?? []
-            let content = steps.map { s in s.map { b -> J in b == "tool" ? ["type": "tool-call", "id": "c", "name": "chats_list"] : b == "think" ? ["type": "reasoning", "text": "Look."] : ["type": "text", "text": b] } }
-            var log = [ev("turn/start"), user("user", "Fix it."), say([["type": "text", "text": "Done: an older turn."]]), ev("turn/end", ["reason": ["kind": "completed"]]),
-                       ev("turn/start"), user("composer-plus-assistant-news", "news")]
-            log += content.map(say); log.append(ev("turn/end", ["reason": ["kind": "completed"]]))
-            XCTAssertEqual(quietTexts(log), t["quiet"] as? Bool, "\(steps)")
-            XCTAssertEqual(newsReply(log), t["reply"] as? String, "\(steps)")
-            // A message steered into the running turn (a `user` message after the first step) does not split the turn.
-            if content.count > 1 {
-                var steered = log; steered.insert(user("user", "steered"), at: steered.count - 2)
-                XCTAssertEqual(quietTexts(steered), t["quiet"] as? Bool, "steered: \(steps)")
-                XCTAssertEqual(newsReply(steered), t["reply"] as? String, "steered: \(steps)")
-            }
-        }
-        // A rollback that withdrew an older turn's end (from a steered message to its marker) does not make that turn's
-        // earlier text part of the newest turn: the newest turn starts at its own turn/start.
-        seq = 0
-        let older = [ev("turn/start"), user("user", "Deploy."), say([["type": "text", "text": "Deploying now."]]), user("user", "steer"), say([["type": "text", "text": "Done."]]), ev("turn/end", ["reason": ["kind": "completed"]])]
+        let older = [ev("turn/start"), user("user", "Deploy."), say("Deploying now."), user("user", "steer"), say("Done."), ev("turn/end", ["reason": ["kind": "completed"]])]
         let marker = ev("user/message", ["source": ["kind": rollbackSource]], ["sourceEventSeqs": [4]])
-        let newest = [ev("turn/start"), user("composer-plus-assistant-news", "news"), say([["type": "text", "text": "[quiet]"]]), ev("turn/end", ["reason": ["kind": "completed"]])]
-        XCTAssertTrue(quietTexts(older + [marker] + newest), "the withdrawn half of an older turn does not count")
-        XCTAssertEqual(newsReply(older + [marker] + newest), "")
+        let newest = [ev("turn/start"), user("composer-plus-assistant-news", "news"), say("[quiet]"), ev("turn/end", ["reason": ["kind": "completed"]])]
+        XCTAssertNil(damonWords(older + newest, reason: "completed"), "an older turn's reply is not the words")
+        XCTAssertNil(damonWords(older + [marker] + newest, reason: "completed"), "the withdrawn half of an older turn does not count")
+        // Your own turn keeps the strict rule; a subagent's notice starts a part of its own.
+        XCTAssertNil(damonWords([ev("turn/start"), user("user", "Teşekkürler"), say("Not aldım."), say("[quiet]")], reason: "completed"))
+        XCTAssertNil(damonWords([ev("turn/start"), user("user", "ok"), say("Done. [quiet]")], reason: "completed"))
+        XCTAssertEqual(damonWords([ev("turn/start"), user("user", "Fix it."), say("Fixed the login.")], reason: "completed"), "Fixed the login.")
         // A failed turn with no text: no words from an older turn.
-        XCTAssertEqual(newsReply(older + [ev("turn/start"), say([["type": "tool-call", "id": "c", "name": "bash"]]), ev("turn/end", ["reason": ["kind": "error"]])]), "")
+        XCTAssertNil(damonWords(older + [ev("turn/start"), ev("assistant/message", ["message": ["content": [["type": "tool-call", "id": "c", "name": "bash"]]]]), ev("turn/end", ["reason": ["kind": "error"]])], reason: "error"))
     }
 }

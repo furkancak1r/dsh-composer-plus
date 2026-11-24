@@ -673,15 +673,15 @@ export function createGateway(opts = {}) {
    * this Mac (the name that the phone gave it, else the Mac's own name) and the chat's project; the body is the chat's
    * title (not when it is the project's name, as Damon's), then `detail` (the reply, tool, question or error) as plain text.
    * `opts.about(sessionId)` gives `{ chat, project, damon }` (the Host half); without it the subtitle is the Mac name only.
-   * `damon`: the chat is Damon's (or one of its subagents), false for another chat, undefined while this Mac has no Damon
-   * chat. A phone with Notifications only from Damon (on unless it sent false) gets nothing for another chat: Damon
-   * reports those (2026-11-24: a task's push, then Damon's push about it). */
+   * `damon`: the chat is Damon's (or one of its subagents: `subagent`), false for another chat, undefined while this Mac
+   * has no Damon chat. A phone with Notifications only from Damon (on unless it sent false) gets nothing for another chat,
+   * and no DSH error of Damon's subagent: Damon reports those (2026-11-24: a task's push, then Damon's push about it). */
   function pushAll(title, detail, sessionId) {
     let to = pushTo().filter(d => inHours(d.push.hours))
     if (to.length === 0) return
     let about = {}
     try { if (typeof sessionId === 'string') about = opts.about?.(sessionId) ?? {} } catch {}
-    if (about.damon === false) to = to.filter(d => d.push.damonOnly === false)
+    if (about.damon === false || (about.subagent === true && title === 'DSH error')) to = to.filter(d => d.push.damonOnly === false)
     if (to.length === 0) return
     const some = s => typeof s === 'string' && s.trim() !== ''
     // ponytail: 160 + 600 characters keep the payload under APNs' 4 KB also for 3-byte (CJK) text.

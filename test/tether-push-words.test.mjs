@@ -114,6 +114,22 @@ assert.equal(pushWords([...steered.slice(0, -1), { seq: 7, type: 'user/message',
 // Events of a run that has no turn/start (and no text): no push, not an empty one.
 assert.equal(pushWords([{ seq: 1, type: 'agent/inbox/spliced' }], 0), undefined, 'Damon: no turn and no text: no push');
 assert.equal(pushWords([], 0), undefined, 'Damon: no events: no push');
+// Review round 2 (2026-11-24): a subagent's result that dsh steers into a [quiet] news turn is a part of its own.
+for (const kind of ['subagent-settled', 'agent-message']) {
+  const note = { seq: 5, type: 'user/message', data: { source: { kind }, content: [{ type: 'text', text: 'Subagent finished.' }] } };
+  assert.equal(pushWords([...steered.slice(0, 4), note, say(6, '**Deploy bitti:** acme-web canlıda.'), steered.at(-1)], 0), '**Deploy bitti:** acme-web canlıda.', `Damon: a ${kind} result after a [quiet] news part pushes`);
+  assert.equal(pushWords([...steered.slice(0, 4), note, say(6, 'Not aldım.'), tool(7), say(8, '[quiet]'), { seq: 9, type: 'turn/end', data: { reason: { kind: 'completed' } } }], 0), undefined, `Damon: a ${kind} part that ends with [quiet]: no push`);
+}
+// A turn that you opened by typing keeps the strict rule; a later typed message (steered into your own turn) too.
+const mine = (texts, more = []) => [{ seq: 1, type: 'turn/start' }, typed(2, 'Teşekkürler'), ...texts.map((t, i) => say(3 + i, t)), ...more, { seq: 30, type: 'turn/end', data: { reason: { kind: 'completed' } } }];
+assert.equal(pushWords(mine(['Not aldım.', '[quiet]']), 0), undefined, 'Damon: your turn whose last text is [quiet]: no push');
+assert.equal(pushWords(mine(['Done. [quiet]']), 0), undefined, 'Damon: your turn whose last text ends with [quiet]: no push, never the raw mark');
+assert.equal(pushWords(mine(['Not aldım.'], [typed(20, 'ok'), say(21, '[quiet]')]), 0), undefined, 'Damon: a message typed into your own turn keeps the strict rule');
+// The steered answer: a text that ends with [quiet] is never the words.
+assert.equal(pushWords([...steered.slice(0, -2), say(6, 'Yes. [quiet]'), steered.at(-1)], 0), undefined, 'Damon: a steered answer that ends with [quiet]: no push');
+// A queued second turn that stops: the first turn's real reply stays the words (not '').
+assert.equal(pushWords([...steps(1, 'user', ['Fixed the login.']), ...steps(9, NEWS, ['[quiet]'], 'aborted')], 0), 'Fixed the login.', 'Damon: a stopped quiet turn does not hide the real reply');
+assert.equal(pushWords([...steps(1, 'user', ['Fixed the login.']), ...steps(9, NEWS, ['[quiet]'], 'max-tokens')], 0), 'Fixed the login.');
 // Notifications only from Damon: the Host tells the gateway whether a push is about Damon's chat (or one of its subagents).
 // dsh's session headers: a subagent has `origin: 'subagent'` and `parentSession`; a fork (Branch, Redo) of an older dsh
 // has `parentSession` without that origin.
@@ -122,7 +138,7 @@ const headers = { d1: {}, sub: { origin: 'subagent', parentSession: 'd1' }, subs
 const headerOf = (id) => headers[id];
 const damon = (on, id) => ({ isOn: () => on, id: () => id });
 assert.deepEqual(damonAbout(damon(true, 'd1'), 'd1', headerOf), { damon: true });
-assert.deepEqual(damonAbout(damon(true, 'd1'), 'subsub', headerOf), { damon: true }, 'a subagent of Damon');
+assert.deepEqual(damonAbout(damon(true, 'd1'), 'subsub', headerOf), { damon: true, subagent: true }, 'a subagent of Damon (its error is Damon\'s news)');
 assert.deepEqual(damonAbout(damon(true, 'd1'), 'fork', headerOf), { damon: false }, 'a fork of Damon is another chat, as on the phone');
 assert.deepEqual(damonAbout(damon(true, 'd1'), 'forkSub', headerOf), { damon: false }, 'a subagent of a fork of Damon');
 assert.deepEqual(damonAbout(damon(true, 'd1'), 'loop', headerOf), { damon: false }, 'a parent loop ends');

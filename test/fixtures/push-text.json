@@ -35,6 +35,8 @@
     { "text": "* * *\nreal", "push": "real" },
     { "text": "- - -\nreal", "push": "real" },
     { "text": "Bitti\u2028Ayrıntı", "push": "Bitti Ayrıntı" },
+    { "text": "\u2028# Başlık", "push": "Başlık" },
+    { "text": "\u000b**Kalın** iş\u000b", "push": "Kalın iş" },
     { "text": "x \ue0000\ue001 `y`", "push": "x 0 y" }
   ]
 }

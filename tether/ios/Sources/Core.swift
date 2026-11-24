@@ -1181,49 +1181,31 @@ func quietTurn(reply: String, reason: String?) -> Bool {
 func quietReply(_ text: String) -> Bool {
     text.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("[quiet]") == .orderedSame
 }
-/// The texts of the newest turn of a chat log, newest first, trimmed, not empty: the `assistant/message` events after the
-/// newest `turn/start`, without the ones that a rollback withdrew (the Mac's runTexts and lastReply read the log the same
-/// way). Every text counts, also one sent with a tool call (dsh's default foldedReplies: all shows it). The log, not the
-/// drawn lines: a news, scheduled or outage prompt draws no `.user` line, a steered message draws one mid-turn, and a
-/// rollback can leave a turn without its end line.
-func turnTexts(_ events: [J]) -> [String] {
-    let shown = withoutRolledBack(events)
-    let start = shown.lastIndex { $0["type"] as? String == "turn/start" }.map { $0 + 1 } ?? 0
-    return shown[start...].reversed().compactMap { e -> String? in
-        guard e["type"] as? String == "assistant/message" else { return nil }
-        let t = contentText(((e["data"] as? J)?["message"] as? J)?["content"], imageMarker: false).trimmingCharacters(in: .whitespacesAndNewlines)
-        return t.isEmpty ? nil : t
-    }
-}
-/// The newest turn had nothing to say: it has texts, and each is only `[quiet]` (the Mac's quietRun).
-func quietTexts(_ events: [J]) -> Bool {
-    let t = turnTexts(events)
-    return !t.isEmpty && t.allSatisfy(quietReply)
-}
-/// The words of the newest turn's Turn finished: its newest text that is not only `[quiet]` (the Mac's runReply and
-/// lastReply), or "" when it has none.
-func newsReply(_ events: [J]) -> String { turnTexts(events).first { !quietReply($0) } ?? "" }
+/// The prompts of Damon's turns (the Mac's DAMON_PROMPTS): yours, a schedule, Assistant news, and a subagent's notice that
+/// dsh steers into the running turn.
+let damonPrompts: Set<String> = ["user", "schedule", "composer-plus-assistant-news", "subagent-settled", "agent-message"]
 /// The words of Damon's Turn finished for its newest turn, or nil for none: the Mac's damonPushWords (index.js; one table:
-/// test/fixtures/quiet-replies.json `push` and `steered`). The turn is cut into parts at each message that you typed (also
-/// one steered into the running turn). Your part: its newest text that is not only `[quiet]`. Another part: nil when its
-/// first text starts with `[quiet]` or the turn's last text ends with it (2026-11-24), else its newest text. A partial text
-/// that a stop cut (`interrupted`) does not count. Completed: the newest part's words, else nil. Failed: nil (the DSH
-/// error alert tells it). Stopped: those words or "".
+/// test/fixtures/quiet-replies.json `push` and `steered`). The turn is cut into parts at each prompt that comes into the
+/// running turn. The part of a message that you typed into a turn that you did not open answers you: its newest text that
+/// does not start or end with `[quiet]`. Another part: nil when its first text starts with `[quiet]` or the turn's last
+/// text ends with it (2026-11-24), else its newest text. A partial text that a stop cut (`interrupted`) does not count.
+/// Completed: the newest part's words, else nil. Failed: nil (the DSH error alert tells it). Stopped: those words or "".
 func damonWords(_ events: [J], reason: String?) -> String? {
     let shown = withoutRolledBack(events)
     let start = shown.lastIndex { $0["type"] as? String == "turn/start" }.map { $0 + 1 } ?? 0
-    var parts: [(typed: Bool, texts: [String])] = [(false, [])], last: String?
+    var parts: [(typed: Bool, texts: [String])] = [(false, [])], last: String?, opened: String?
     for e in shown[start...] {
-        let type = e["type"] as? String, data = e["data"] as? J
-        if type == "user/message", (data?["source"] as? J)?["kind"] as? String == "user" { parts.append((true, [])) }
-        else if type == "assistant/message", data?["interrupted"] as? Bool != true {
+        let type = e["type"] as? String, data = e["data"] as? J, kind = (data?["source"] as? J)?["kind"] as? String
+        if type == "user/message", let kind, damonPrompts.contains(kind) {
+            if opened == nil { opened = kind } else { parts.append((kind == "user" && opened != "user", [])) }
+        } else if type == "assistant/message", data?["interrupted"] as? Bool != true {
             let s = contentText((data?["message"] as? J)?["content"], imageMarker: false).trimmingCharacters(in: .whitespacesAndNewlines)
             if !s.isEmpty { parts[parts.count - 1].texts.append(s); last = s }
         }
     }
     let has = { (t: String, p: String) in t.range(of: p, options: [.regularExpression, .caseInsensitive]) != nil }
     let words = parts.reversed().lazy.compactMap { p -> String? in
-        p.typed ? p.texts.last { !quietReply($0) }
+        p.typed ? p.texts.last { !has($0, #"^\[quiet\]|\[quiet\]$"#) }
             : p.texts.isEmpty || has(p.texts[0], #"^\[quiet\]"#) || has(last ?? "", #"\[quiet\]$"#) ? nil : p.texts.last
     }.first
     if reason == "completed" { return words }
@@ -1239,16 +1221,16 @@ func pushText(_ text: String, approval: String) -> String {
     let html = #"</?(?:a|b|i|u|s|em|strong|br|p|div|span|code|pre|sub|sup|small|kbd|mark|del|ins|img|hr|details|summary|h[1-6]|ul|ol|li|blockquote)\b(?:\s[^<>]*)?/?>"#
     let codeSpan = try! NSRegularExpression(pattern: #"(`+)(.+?)\1"#)
     for raw in sub(text, "\r\n?", "\n").components(separatedBy: "\n") {
-        let t = String(String.UnicodeScalarView(raw.trimmingCharacters(in: .whitespaces).unicodeScalars.prefix(2000)))
+        let t = String(String.UnicodeScalarView(raw.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.prefix(2000)))
             .replacingOccurrences(of: "\u{E000}", with: "").replacingOccurrences(of: "\u{E001}", with: "")
         let f = t.range(of: #"^(`{3,}|~{3,})\s*[^\s`]*"#, options: .regularExpression).map { String(t[$0]) }
         let mark = f.map { m in String(m.prefix { $0 == m.first }) }
-        let info = f.map { m in String(m.drop { $0 == m.first }).trimmingCharacters(in: .whitespaces) } ?? ""
+        let info = f.map { m in String(m.drop { $0 == m.first }).trimmingCharacters(in: .whitespacesAndNewlines) } ?? ""
         if !fence.isEmpty { if let mark, mark.first == fence.first, mark.count >= fence.count, info.isEmpty { fence = "" }; continue }
         if let mark { fence = mark; if info.lowercased() == "onay" { onay = true }; continue }
-        var s = sub(sub(t, #"^(?:>\s*)+"#, ""), #"^\[quiet\]"#, "").trimmingCharacters(in: .whitespaces)
+        var s = sub(sub(t, #"^(?:>\s*)+"#, ""), #"^\[quiet\]"#, "").trimmingCharacters(in: .whitespacesAndNewlines)
         if s.range(of: #"^\[!details\]"#, options: [.regularExpression, .caseInsensitive]) != nil { continue }
-        s = sub(s, #"^\[![a-z]+\]"#, "").trimmingCharacters(in: .whitespaces)
+        s = sub(s, #"^\[![a-z]+\]"#, "").trimmingCharacters(in: .whitespacesAndNewlines)
         if s.range(of: #"^(?:[-*_]\s*){3,}$"#, options: .regularExpression) != nil { continue } // before a list mark takes its `*`
         s = sub(sub(sub(s, #"^#{1,6}\s+"#, ""), #"^(?:[-*+]|\d{1,3}[.)])\s+"#, ""), #"^\[[ xX]\]\s+"#, "")
         // Code spans wait in placeholders, so no other rule changes their text (`mcp__aiproxy__bash`, `Promise<void>`).
@@ -1264,7 +1246,7 @@ func pushText(_ text: String, approval: String) -> String {
                        (#"~~(?=\S)(.+?)(?<=\S)~~"#, "$1"), (#"(^|[^A-Za-z0-9_*])\*(?=\S)([^*]+?)(?<=\S)\*(?![A-Za-z0-9_*])"#, "$1$2"),
                        (#"(^|[^A-Za-z0-9_])_(?=\S)([^_]+?)(?<=\S)_(?![A-Za-z0-9_])"#, "$1$2")] { s = sub(s, p, r) }
         for (i, c) in code.enumerated() { s = s.replacingOccurrences(of: "\u{E000}\(i)\u{E001}", with: c) }
-        s = sub(s, #"\s+"#, " ").trimmingCharacters(in: .whitespaces)
+        s = sub(s, #"\s+"#, " ").trimmingCharacters(in: .whitespacesAndNewlines)
         if !s.isEmpty { return s }
     }
     return onay ? approval : ""

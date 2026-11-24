@@ -198,7 +198,7 @@ for (const { steps, quiet, reply, push } of JSON.parse(readFileSync(new URL('./f
 // it answers you, so a [quiet] news start does not hide that answer (review 2026-11-24).
 for (const { steps, push } of JSON.parse(readFileSync(new URL('./fixtures/quiet-replies.json', import.meta.url), 'utf8')).steered) {
   const events = [{ seq: 0, type: 'turn/start' }, { seq: 1, type: 'user/message', data: { source: { kind: 'composer-plus-assistant-news' }, content: [block('news')] } },
-    ...steps.map((s, i) => (typeof s === 'string' ? { seq: 2 + i, type: 'user/message', data: { source: { kind: 'user', rpcId: 'r' }, content: [block(s)] } }
+    ...steps.map((s, i) => (typeof s === 'string' ? { seq: 2 + i, type: 'user/message', data: { source: s.startsWith('@') ? { kind: s.slice(1) } : { kind: 'user', rpcId: 'r' }, content: [block(s)] } }
       : { seq: 2 + i, type: 'assistant/message', data: { message: { content: s.map(block) } } })), { seq: 20, type: 'turn/end', data: { reason: { kind: 'completed' } } }];
   assert.equal(damonPushWords(events) ?? null, push, `Damon's push, steered: ${JSON.stringify(steps)}`);
 }

@@ -50,7 +50,7 @@ npm test; iOS tests (xcodebuild test, simulator, CODE_SIGNING_ALLOWED=NO); node 
   After the merge: `npm test` exit 0, `node scripts/build-docs.mjs --check` ok, `git diff --check origin/main...HEAD` ok.
   Diff vs origin/main: 17 files, +551/-64, so the review repeats until a round has no P1/P2.
 
-## Review round 1 (2026-11-24, separate subagent review-guard-1): P1 0, P2 2, P3 4, P4 1 — fixes OPEN
+## Review round 1 (2026-11-24, separate subagent review-guard-1): P1 0, P2 2, P3 4, P4 1 — all fixed (see below)
 Decisions (Damon's shortest correct path, no owner question):
 1. P2 steered message lost (index.js damonPushWords; Core.swift damonWords): `news "[quiet]"+tool, typed "Is the deploy done?",
    "Yes: acme-web is live."` gave no push. Fix: split each turn at each `user/message` with `source.kind === 'user'` (typed,
@@ -92,16 +92,29 @@ appended synchronously right after the running status, lib/index.js 630-645 and 
 - Image re-rendered (two new rows: tool name, steered question):
   /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-bildirim-20261124/tether-bildirim-once-sonra.png
 
-## Last checkpoint (2026-11-24 18:40) / open steps
-- Checkpoint: branch at the merge commit + this plan update. Review round 1 findings recorded above, fixed 19:30 (above).
-- Last passing: `npm test` (exit 0) after the origin/main merge; iOS `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj
-  -scheme DSHMobile -destination 'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' test CODE_SIGNING_ALLOWED=NO`
-  (122 tests, 0 failures, before the merge; the merge changed no iOS file). Screenshot test: add `SHOT_DIR=<dir>`.
-- Open, in order: (1) fix 1-7 above with tests first; (2) npm test, iOS tests, build-docs --check, git diff --check;
-  (3) re-render the before/after image if pushText output changes (script: rebuild from this plan's cases; old code = git
-  show 0cc1cfe1:index.js and :tether/gateway/server.mjs in a detached worktree); (4) review round 2 in a separate subagent,
-  repeat until no P1/P2; (5) merge origin/main again, merge into main --no-ff, push main, `git branch -d`, remove the
-  worktree without --force; (6) report in Turkish.
+## Review round 2 (2026-11-24, separate subagent review-guard-2): P1 0, P2 2, P3 4, P4 3 — fixed
+- P2 subagent result in a [quiet] news turn: a `subagent-settled`/`agent-message` prompt starts its own part
+  (DAMON_PROMPTS in index.js, damonPrompts in Core.swift). Table `steered` has `@<kind>` steps.
+- P2 a turn that you open by typing pushed its first part / raw `Done. [quiet]`: only a typed message in a turn that
+  another prompt opened is "typed"; its texts skip one that starts or ends with `[quiet]`.
+- P3 stopped second turn hid a real reply: the run takes its newest non-empty words first.
+- P3 Damon subagent's DSH error pushed twice: damonAbout gives `subagent: true`; the gateway drops `DSH error` for it on
+  a Damon-only phone (approvals and questions still come).
+- P3 dead Swift turnTexts/quietTexts/newsReply deleted (their log checks moved to testDamonWordsReadTheNewestTurn).
+- P3 FEATURES.md assistantChatView row; P4 index.js comment, this plan; P4 Swift pushText trims whitespacesAndNewlines
+  (cases `\u2028# Başlık`, `\u000b**Kalın** iş\u000b`).
+- Auto review refused one edit: skip dsh's `[SCHEDULE CHANGE]` notice (scheduleChange) as a part start in
+  damonPushWords. Not redone. Effect (inferred, not verified in real dsh): a `[SCHEDULE CHANGE]` notice inside a running
+  turn starts a strict part (no leak). When the notice comes before your typed prompt in the first step of a turn, that
+  turn counts as opened by `schedule`, so your prompt's part uses the lenient rule and can push its first part
+  ("Not aldım." then `[quiet]`). Rare; it needs the scheduleChange guard (owner approval for that edit).
+
+## Last checkpoint (2026-11-24) / open steps
+- Review 1 and 2 fixes done. Last passing: `npm test` exit 0 and iOS 122/0 after round 1 (round 2 checks: see the commit).
+  iOS command: `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination
+  'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' test CODE_SIGNING_ALLOWED=NO`. Screenshot: `SHOT_DIR=<dir>`.
+- Open, in order: review round 3 in a separate subagent (repeat until no P1/P2); merge origin/main again, merge into main
+  --no-ff, npm test on main, push main, `git branch -d`, remove the worktree; report in Turkish.
 
 # Feature: resizable summary in the Damon status panel (branch feat/resizable-status-summary)
 

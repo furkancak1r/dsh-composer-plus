@@ -941,7 +941,7 @@ test('push: Notifications only from Damon, the phone\'s Mac name, plain text and
   const prevTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED
   process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // the fake APNs only
   // The Host half: `damon` says whether the chat is Damon's (undefined: this Mac has no Damon chat).
-  const about = id => ({ d1: { chat: 'Damon', project: 'Damon', damon: true }, w1: { chat: 'Fix login', project: 'acme-web', damon: false }, x1: { chat: 'Old chat', project: 'acme-web' } })[id] ?? {}
+  const about = id => ({ d1: { chat: 'Damon', project: 'Damon', damon: true }, k1: { chat: 'Audit', project: 'Damon', damon: true, subagent: true }, w1: { chat: 'Fix login', project: 'acme-web', damon: false }, x1: { chat: 'Old chat', project: 'acme-web' } })[id] ?? {}
   let lang = 'tr'
   const t = await setup({ macName: 'Furkan MacBook Pro', about, lang: () => lang, apns: { key: privateKey, keyId: 'KEY1234567', teamId: '9LYL5R6LS4', topic: 'com.furkancakir.dshmobile', origin: 'https://127.0.0.1:' + apnsServer.address().port } })
   try {
@@ -957,20 +957,25 @@ test('push: Notifications only from Damon, the phone\'s Mac name, plain text and
     assert.equal((await set(b, { on: true, token: tokB, sandbox: true, hours: null })).status, 200)
     const to = tok => got.filter(g => g.path.endsWith(tok)).map(g => g.body.aps.alert)
     t.gw.push('Turn finished', 'Branch chat done.', 'w1')
+    // A subagent of Damon: its failure is Damon's news (no second push); its approval needs you.
+    t.gw.push('DSH error', 'Provider failed', 'k1')
     t.gw.push('Turn finished', '**Bitti:** [PR #12](https://x/pr/12) main\'e alındı.\n\n> [!DETAILS] Ayrıntılar\n> 14 test', 'd1')
-    await waitFor(() => got.length === 2)
+    t.gw.push('Approval needed', 'mcp__aiproxy__bash', 'k1')
+    await waitFor(() => got.length === 4)
     await sleep(100)
-    assert.deepEqual(to(tokA), [{ title: 'Tur tamamlandı', subtitle: 'ev · Damon', body: 'Bitti: PR #12 main\'e alındı.' }], 'Damon only: the branch chat gives no push; the phone\'s Mac name; plain text; Damon\'s title not twice')
-    assert.deepEqual(to(tokB), [{ title: 'Tur tamamlandı', subtitle: 'Furkan MacBook Pro · Damon', body: 'Bitti: PR #12 main\'e alındı.' }], 'an older Tether: Damon only too, the Mac\'s own name')
+    const byTitle0 = (x, y) => x.title.localeCompare(y.title)
+    assert.deepEqual(to(tokA).sort(byTitle0), [{ title: 'Onay gerekli', subtitle: 'ev · Damon', body: 'Audit\nmcp__aiproxy__bash' }, { title: 'Tur tamamlandı', subtitle: 'ev · Damon', body: 'Bitti: PR #12 main\'e alındı.' }], 'Damon only: the branch chat and the subagent\'s error give no push; the phone\'s Mac name; plain text; Damon\'s title not twice')
+    assert.deepEqual(to(tokB).sort(byTitle0), [{ title: 'Onay gerekli', subtitle: 'Furkan MacBook Pro · Damon', body: 'Audit\nmcp__aiproxy__bash' }, { title: 'Tur tamamlandı', subtitle: 'Furkan MacBook Pro · Damon', body: 'Bitti: PR #12 main\'e alındı.' }], 'an older Tether: Damon only too, the Mac\'s own name')
     // Switched off on A: every chat; a chat on a Mac without a Damon chat (damon undefined) always pushes.
     await set(a, { on: true, token: tokA, sandbox: true, hours: null, damonOnly: false, mac: 'ev' })
     got.length = 0
     t.gw.push('Approval needed', 'bash', 'w1')
     t.gw.push('DSH error', 'Provider failed', 'x1')
-    await waitFor(() => got.length === 3)
+    t.gw.push('DSH error', 'Subagent failed', 'k1')
+    await waitFor(() => got.length === 4)
     await sleep(100)
-    const byTitle = (x, y) => x.title.localeCompare(y.title)
-    assert.deepEqual(to(tokA).sort(byTitle), [{ title: 'DSH hatası', subtitle: 'ev · acme-web', body: 'Old chat\nProvider failed' }, { title: 'Onay gerekli', subtitle: 'ev · acme-web', body: 'Fix login\nbash' }])
+    const byTitle = (x, y) => x.title.localeCompare(y.title) || x.body.localeCompare(y.body)
+    assert.deepEqual(to(tokA).sort(byTitle), [{ title: 'DSH hatası', subtitle: 'ev · Damon', body: 'Audit\nSubagent failed' }, { title: 'DSH hatası', subtitle: 'ev · acme-web', body: 'Old chat\nProvider failed' }, { title: 'Onay gerekli', subtitle: 'ev · acme-web', body: 'Fix login\nbash' }])
     assert.deepEqual(to(tokB), [{ title: 'DSH hatası', subtitle: 'Furkan MacBook Pro · acme-web', body: 'Old chat\nProvider failed' }])
     // An approval block in Damon's reply; English when the Mac's language is not Turkish.
     lang = 'en'; got.length = 0
