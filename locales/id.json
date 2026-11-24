@@ -1831,6 +1831,8 @@
     "subagentCount.total": "Total subagen: {count}",
     "feature.windowSize": "Ingat ukuran jendela",
     "feature.windowSize.description": "Aplikasi desktop terbuka dengan ukuran dan posisi jendela saat terakhir Anda gunakan, bukan ukuran kecil bawaan. Hanya di aplikasi desktop.",
+    "feature.codexTheme": "Tema gelap Codex",
+    "feature.codexTheme.description": "Nonaktif secara default. Selama dsh memakai palet gelapnya, warna berubah menjadi tema gelap yang polos dan netral seperti Codex: permukaan antrasit, teks dan aksen putih gading, tanpa biru. Tata letak, ukuran, dan teks tetap sama. Matikan untuk mendapatkan kembali warna asli dsh.",
     "feature.queueReorder": "Seret dan lepas antrean",
     "feature.queueReorder.description": "Ubah urutan pesan dalam antrean dengan menyeret pegangannya.",
     "feature.copyDeeplink": "Salin tautan sesi",

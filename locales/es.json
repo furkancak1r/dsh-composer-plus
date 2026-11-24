@@ -1831,6 +1831,8 @@
     "subagentCount.total": "Total de subagentes: {count}",
     "feature.windowSize": "Recordar el tamaño de la ventana",
     "feature.windowSize.description": "La app de escritorio se abre con el tamaño y la posición que tenía su ventana la última vez, no con el tamaño pequeño por defecto. Solo en la app de escritorio.",
+    "feature.codexTheme": "Tema oscuro Codex",
+    "feature.codexTheme.description": "Desactivado de forma predeterminada. Mientras dsh usa su paleta oscura, los colores pasan a un tema oscuro neutro y sencillo, como el de Codex: superficies antracita, texto y acentos blanco roto, sin azul. El diseño, los tamaños y los textos no cambian. Desactívalo para recuperar los colores propios de dsh.",
     "feature.queueReorder": "Arrastrar y soltar en la cola",
     "feature.queueReorder.description": "Reordena los mensajes en cola arrastrándolos por su asa.",
     "feature.copyDeeplink": "Copiar enlace de sesión",

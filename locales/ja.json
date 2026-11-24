@@ -1831,6 +1831,8 @@
     "subagentCount.total": "サブエージェント合計 {count} 個",
     "feature.windowSize": "ウィンドウのサイズを記憶する",
     "feature.windowSize.description": "デスクトップアプリは、既定の小さいサイズではなく、前回使ったときのウィンドウのサイズと位置で開きます。デスクトップアプリのみ。",
+    "feature.codexTheme": "Codex ダークテーマ",
+    "feature.codexTheme.description": "既定ではオフです。dsh がダークパレットを使っている間、色は Codex のようなシンプルで中立的なダークテーマに変わります。アンスラサイトの面、オフホワイトの文字とアクセントを使い、青は使いません。レイアウト、サイズ、文言は変わりません。オフにすると dsh 本来の色に戻ります。",
     "feature.queueReorder": "キューのドラッグ＆ドロップ",
     "feature.queueReorder.description": "ハンドルをドラッグしてキュー内のメッセージを並べ替えます。",
     "feature.copyDeeplink": "セッションリンクをコピー",
