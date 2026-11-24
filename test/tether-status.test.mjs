@@ -38,8 +38,14 @@ assert.match(core, /plusCall\("assistant-todos", query: q\)/, 'the phone reads t
 assert.match(core, /guard plus\.contains\("assistant-todos"\)/, 'only when the Mac\'s gateway has the route');
 assert.match(core, /if let l = macLang \{ q\["lang"\] = l \}/, 'the tasks\' result lines in the Mac\'s language');
 assert.match(ui, /private var damon: Bool \{ c\.current != nil && c\.current == c\.assistantId \}/);
-assert.match(ui, /if damon, c\.plus\.contains\("assistant-todos"\), c\.state == \.connected, let id = c\.current \{ CardDeck\(/, 'the card deck shows only in the Damon chat');
-assert.doesNotMatch(ui, /Image\(systemName: "checklist"\) \}\.accessibilityLabel\("Status"\)/, 'the toolbar Status button is gone: the deck opens the sheet');
+// Furkan (2026-11-24): the cards covered the Damon chat. The chat screen shows no card deck; the Approve button is under
+// the reply as in every chat (ApproveButtons, test/tether-approve.test.mjs), and the Status sheet opens from the title menu.
+const conv = ui.slice(ui.indexOf('struct ConversationView: View'), ui.indexOf('struct ApproveButtons: View'));
+assert.doesNotMatch(conv, /CardDeck\(/, 'no card deck on the chat screen');
+assert.doesNotMatch(conv, /damonChat/, 'the Damon chat keeps the Approve button under the reply');
+assert.match(conv, /default: lineRow\(row, findIndex, hits\.count, approval: approval\)/, 'every chat passes the approval to its rows');
+assert.match(conv, /if damon, c\.plus\.contains\("assistant-todos"\) \{ Button \{ showStatus = true \} label: \{ Label\(String\(localized: "status\.title"/, 'the Status sheet: Damon chat title menu');
+assert.match(conv, /\.sheet\(isPresented: \$showStatus\) \{ if let id = c\.current \{ StatusSheet\(sessionId: id\) \} \}/);
 
 // Data stays data: the sheet shows the Mac's texts verbatim (no Markdown, no localization lookup).
 const sheet = ui.slice(ui.indexOf('struct StatusSheet: View'), ui.indexOf('// END StatusSheet'));
