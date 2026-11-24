@@ -882,7 +882,7 @@ test('push: a closed Tether gets approval, question, error and turn alerts throu
     assert.deepEqual(got.slice(1).map(g => g.body.aps.alert).sort(byTitle), [
       { title: 'DSH error', subtitle: 'Studio Mac', body: 'Search\nProvider failed' },
       { title: 'DSH has a question', subtitle: 'Studio Mac · recipe-box', body: 'Login page\nWhich branch?' },
-      { title: 'Turn finished', subtitle: 'Studio Mac · recipe-box', body: 'Login page\nFixed the login.\nTests pass.' }])
+      { title: 'Turn finished', subtitle: 'Studio Mac · recipe-box', body: 'Login page\nFixed the login.' }]) // the first line (pushText)
     // An unknown chat, a failing lookup and a long reply: the Mac name stays, the body is cut, the push still goes out.
     t.gw.push('Turn finished', '界'.repeat(5000), 'boom') // 3 bytes per character in UTF-8
     t.gw.push('Turn finished', 'done', 'gone-chat')
@@ -919,6 +919,72 @@ test('push: a closed Tether gets approval, question, error and turn alerts throu
     await setPush({ on: true, token: dev, sandbox: true, hours: null })
     t.gw.push('Turn finished', 'back')
     await waitFor(() => t.gw.state().devices[0].pushFail === undefined)
+  } finally {
+    await t.done(); apnsServer.close()
+    if (prevTls === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; else process.env.NODE_TLS_REJECT_UNAUTHORIZED = prevTls
+  }
+})
+
+test('push: Notifications only from Damon, the phone\'s Mac name, plain text and Turkish titles (2026-11-24)', async () => {
+  const { createSecureServer } = await import('node:http2')
+  const { generateKeyPairSync } = await import('node:crypto')
+  const { execFileSync } = await import('node:child_process')
+  const tlsDir = mkdtempSync(join(tmpdir(), 'apns-'))
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', join(tlsDir, 'k.pem'), '-out', join(tlsDir, 'c.pem'), '-days', '1', '-subj', '/CN=localhost'], { stdio: 'ignore' })
+  const got = []
+  const apnsServer = createSecureServer({ key: readFileSync(join(tlsDir, 'k.pem')), cert: readFileSync(join(tlsDir, 'c.pem')) }, (req, res) => {
+    let b = ''
+    req.on('data', d => b += d).on('end', () => { got.push({ path: req.headers[':path'], body: JSON.parse(b) }); res.writeHead(200); res.end() })
+  })
+  await new Promise(r => apnsServer.listen(0, '127.0.0.1', r))
+  const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' })
+  const prevTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // the fake APNs only
+  // The Host half: `damon` says whether the chat is Damon's (undefined: this Mac has no Damon chat).
+  const about = id => ({ d1: { chat: 'Damon', project: 'Damon', damon: true }, k1: { chat: 'Audit', project: 'Damon', damon: true, subagent: true }, w1: { chat: 'Fix login', project: 'acme-web', damon: false }, x1: { chat: 'Old chat', project: 'acme-web' } })[id] ?? {}
+  let lang = 'tr'
+  const t = await setup({ macName: 'Furkan MacBook Pro', about, lang: () => lang, apns: { key: privateKey, keyId: 'KEY1234567', teamId: '9LYL5R6LS4', topic: 'com.furkancakir.dshmobile', origin: 'https://127.0.0.1:' + apnsServer.address().port } })
+  try {
+    await waitFor(() => t.gw.state().upstream === 'connected')
+    const a = await pairDevice(t.gw, 'iPhone A'), b = await pairDevice(t.gw, 'iPhone B')
+    const set = (who, body) => call(t.gw, 'POST', '/push', body, { authorization: 'Bearer ' + who.token })
+    const tokA = 'aa'.repeat(32), tokB = 'bb'.repeat(32)
+    assert.equal((await set(a, { on: true, token: tokA, sandbox: true, hours: null, damonOnly: 'yes' })).status, 400, 'damonOnly is a boolean')
+    assert.equal((await set(a, { on: true, token: tokA, sandbox: true, hours: null, mac: 7 })).status, 400, 'mac is a string')
+    assert.equal((await set(a, { on: true, token: tokA, sandbox: true, hours: null, mac: 'x'.repeat(201) })).status, 400, 'mac is bounded')
+    // A: Damon only (the phone's default), its own name for this Mac. B: an older Tether (sends neither): Damon only too.
+    assert.equal((await set(a, { on: true, token: tokA, sandbox: true, hours: null, damonOnly: true, mac: ' ev\u0007 ' })).status, 200)
+    assert.equal((await set(b, { on: true, token: tokB, sandbox: true, hours: null })).status, 200)
+    const to = tok => got.filter(g => g.path.endsWith(tok)).map(g => g.body.aps.alert)
+    t.gw.push('Turn finished', 'Branch chat done.', 'w1')
+    // A subagent of Damon: its failure is Damon's news (no second push); its approval needs you.
+    t.gw.push('DSH error', 'Provider failed', 'k1')
+    t.gw.push('Turn finished', '**Bitti:** [PR #12](https://x/pr/12) main\'e alındı.\n\n> [!DETAILS] Ayrıntılar\n> 14 test', 'd1')
+    t.gw.push('Approval needed', 'mcp__aiproxy__bash', 'k1')
+    await waitFor(() => got.length === 4)
+    await sleep(100)
+    const byTitle0 = (x, y) => x.title.localeCompare(y.title)
+    assert.deepEqual(to(tokA).sort(byTitle0), [{ title: 'Onay gerekli', subtitle: 'ev · Damon', body: 'Audit\nmcp__aiproxy__bash' }, { title: 'Tur tamamlandı', subtitle: 'ev · Damon', body: 'Bitti: PR #12 main\'e alındı.' }], 'Damon only: the branch chat and the subagent\'s error give no push; the phone\'s Mac name; plain text; Damon\'s title not twice')
+    assert.deepEqual(to(tokB).sort(byTitle0), [{ title: 'Onay gerekli', subtitle: 'Furkan MacBook Pro · Damon', body: 'Audit\nmcp__aiproxy__bash' }, { title: 'Tur tamamlandı', subtitle: 'Furkan MacBook Pro · Damon', body: 'Bitti: PR #12 main\'e alındı.' }], 'an older Tether: Damon only too, the Mac\'s own name')
+    // Switched off on A: every chat; a chat on a Mac without a Damon chat (damon undefined) always pushes.
+    await set(a, { on: true, token: tokA, sandbox: true, hours: null, damonOnly: false, mac: 'ev' })
+    got.length = 0
+    t.gw.push('Approval needed', 'bash', 'w1')
+    t.gw.push('DSH error', 'Provider failed', 'x1')
+    t.gw.push('DSH error', 'Subagent failed', 'k1')
+    await waitFor(() => got.length === 4)
+    await sleep(100)
+    const byTitle = (x, y) => x.title.localeCompare(y.title) || x.body.localeCompare(y.body)
+    assert.deepEqual(to(tokA).sort(byTitle), [{ title: 'DSH hatası', subtitle: 'ev · Damon', body: 'Audit\nSubagent failed' }, { title: 'DSH hatası', subtitle: 'ev · acme-web', body: 'Old chat\nProvider failed' }, { title: 'Onay gerekli', subtitle: 'ev · acme-web', body: 'Fix login\nbash' }])
+    assert.deepEqual(to(tokB), [{ title: 'DSH hatası', subtitle: 'Furkan MacBook Pro · acme-web', body: 'Old chat\nProvider failed' }])
+    // An approval block in Damon's reply; English when the Mac's language is not Turkish.
+    lang = 'en'; got.length = 0
+    t.gw.push('Turn finished', '```onay\nOnaylıyorum: acme-web main\'e alınsın, canlı değil.\n```', 'd1')
+    await waitFor(() => got.length === 2)
+    assert.deepEqual(to(tokA), [{ title: 'Turn finished', subtitle: 'ev · Damon', body: 'Approval waits' }])
+    // The name and the switch stay with the pairing (devices.json), and the Mac page shows no token.
+    const saved = JSON.parse(readFileSync(join(t.dir, 'devices.json'), 'utf8'))
+    assert.deepEqual(saved.map(d => [d.push.mac, d.push.damonOnly]), [['ev', false], [undefined, undefined]])
   } finally {
     await t.done(); apnsServer.close()
     if (prevTls === undefined) delete process.env.NODE_TLS_REJECT_UNAUTHORIZED; else process.env.NODE_TLS_REJECT_UNAUTHORIZED = prevTls

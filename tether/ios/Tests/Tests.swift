@@ -975,6 +975,61 @@ final class CoreTests: XCTestCase {
         XCTAssertEqual(Client.pushBody(on: false, token: nil, sandbox: true, hours: false, from: 1, to: 2, tz: "UTC", reason: "x") as NSDictionary, ["on": false], "switched off: no reason")
         // A new Client (or a Mac switch) does not push until that Mac's /me says it can.
         XCTAssertFalse(Client().pushOn)
+        // Notifications only from Damon (on by default) and your name for the Mac go to the Mac (2026-11-24).
+        let named = Client.pushBody(on: true, token: "ab", sandbox: true, damonOnly: false, mac: "ev", hours: false, from: 0, to: 0, tz: "UTC")
+        XCTAssertEqual(named["damonOnly"] as? Bool, false); XCTAssertEqual(named["mac"] as? String, "ev")
+        XCTAssertEqual(on["damonOnly"] as? Bool, true, "on by default"); XCTAssertNil(on["mac"], "no name of yours: the Mac's own name")
+    }
+
+    /// Notifications only from Damon: on by default for each Mac, kept per Mac; it lets through Damon's chat and its
+    /// subagents, and every chat while the Mac has no Damon chat.
+    @MainActor func testNotifyDamonOnly() async {
+        let c = Client(), undo = twoMacs(c)
+        defer { undo(); c.plus = []; c.setAssistantIdForTest(nil); c.sessions = [] }
+        XCTAssertTrue(c.notifyDamonOnly, "on by default")
+        XCTAssertTrue(c.damonAllows("w1"), "no Damon chat on this Mac: every chat")
+        c.plus = ["assistant-status"]; c.setAssistantIdForTest("d1")
+        c.sessions = [Sess(["sessionId": "d1"])!, Sess(["sessionId": "k1", "origin": "subagent", "parentSessionId": "d1"])!,
+                      Sess(["sessionId": "k2", "origin": "subagent", "parentSessionId": "k1"])!, Sess(["sessionId": "w1", "parentSessionId": "d1"])!]
+        XCTAssertTrue(c.damonAllows("d1")); XCTAssertTrue(c.damonAllows("k2"), "a subagent of Damon")
+        XCTAssertFalse(c.damonAllows("w1"), "a branch chat"); XCTAssertFalse(c.damonAllows(nil), "a chat that is not known")
+        c.notifyDamonOnly = false
+        XCTAssertTrue(c.damonAllows("w1"), "switched off: every chat")
+        c.switchMac("b2")
+        XCTAssertTrue(c.notifyDamonOnly, "B: on by default")
+        c.switchMac("a1")
+        XCTAssertFalse(c.notifyDamonOnly, "A keeps its own value")
+    }
+
+    /// Settings → Notifications with Notifications only from Damon (screenshot for the owner; SHOT_DIR only).
+    @MainActor func testNotifySettingsScreenshot() async throws {
+        guard let dir = ProcessInfo.processInfo.environment["SHOT_DIR"], !dir.isEmpty else { throw XCTSkip("SHOT_DIR is not set") }
+        let c = Client(), undo = twoMacs(c), strings = uiStrings
+        defer { undo(); c.plus = []; c.setAssistantIdForTest(nil); c.macLang = nil; uiStrings = strings }
+        c.askNotify = { true }
+        c.pairings[0].label = "ev"
+        c.macLang = "tr"; c.plus = ["assistant-status"]; c.setAssistantIdForTest("d1")
+        await c.setNotify(true)
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.first as? UIWindowScene)
+        let w = UIWindow(windowScene: scene)
+        defer { w.isHidden = true }
+        w.overrideUserInterfaceStyle = .light
+        w.rootViewController = UIHostingController(rootView: SettingsView().environmentObject(c).environmentObject(AppLock()).environment(\.locale, Locale(identifier: "tr_TR")))
+        w.makeKeyAndVisible(); RunLoop.main.run(until: Date().addingTimeInterval(1))
+        // Scroll the Form so that the Notifications section is at the top: the first section whose first two rows are
+        // switches (Send notifications, Notifications only from Damon; Tailscale's first row is a status line).
+        func find<T: UIView>(_ v: UIView, _ t: T.Type) -> T? { (v as? T) ?? v.subviews.lazy.compactMap { find($0, t) }.first }
+        let cv = try XCTUnwrap(find(w, UICollectionView.self))
+        func hasSwitch(_ p: IndexPath) -> Bool {
+            cv.scrollToItem(at: p, at: .top, animated: false); cv.layoutIfNeeded()
+            return cv.cellForItem(at: p).flatMap { find($0, UISwitch.self) } != nil
+        }
+        let section = try XCTUnwrap((0..<cv.numberOfSections).first { s in cv.numberOfItems(inSection: s) >= 2 && hasSwitch(IndexPath(item: 0, section: s)) && hasSwitch(IndexPath(item: 1, section: s)) })
+        cv.scrollToItem(at: IndexPath(item: 0, section: section), at: .top, animated: false)
+        RunLoop.main.run(until: Date().addingTimeInterval(1))
+        let img = UIGraphicsImageRenderer(bounds: w.bounds).image { _ in _ = w.drawHierarchy(in: w.bounds, afterScreenUpdates: true) }
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try XCTUnwrap(img.pngData()).write(to: URL(fileURLWithPath: dir).appendingPathComponent("tether-ayarlar-bildirimler.png"))
     }
 
     /// The same Mac paired again with a new certificate: its notification settings go to the new pairing.
@@ -2599,6 +2654,60 @@ final class DamonParityTests: XCTestCase {
 
 /// Damon's `[quiet]` reply leaves no trace on the phone (2026-11-19): the same text rule as the Mac (index.js quietReply,
 /// client.js quietText; one table: test/fixtures/quiet-replies.json), and a quiet turn end gives no alert and no buzz.
+/// The notification text (2026-11-24): the Mac's pushText and damonPushWords on the shared tables
+/// (test/fixtures/push-text.json, test/fixtures/quiet-replies.json `push`).
+final class PushTextTests: XCTestCase {
+    func testPushTextMatchesTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/push-text.json")
+        let table = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)
+        let cases = try XCTUnwrap(table["cases"] as? [J]), approval = try XCTUnwrap(table["approval"] as? String)
+        XCTAssertGreaterThanOrEqual(cases.count, 20)
+        for c in cases { XCTAssertEqual(pushText(c["text"] as? String ?? "", approval: approval), c["push"] as? String, c["text"] as? String ?? "") }
+        // A long line is cut first (the gateway's PUSH_LINE), so it costs no time (review 2026-11-24).
+        let start = Date(), long = pushText(String(repeating: "[", count: 100_000), approval: approval)
+        XCTAssertLessThan(Date().timeIntervalSince(start), 1); XCTAssertEqual(long.unicodeScalars.count, 2000)
+    }
+    func testDamonWordsMatchTheMac() throws {
+        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
+        let table = try XCTUnwrap(try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)
+        let turns = try XCTUnwrap(table["turns"] as? [J]), steered = try XCTUnwrap(table["steered"] as? [J])
+        XCTAssertGreaterThanOrEqual(steered.count, 5)
+        var seq = 0
+        func ev(_ type: String, _ data: J = [:]) -> J { seq += 1; return ["seq": seq, "type": type, "data": data] }
+        // A step is a list of blocks (one assistant message), or a string: a message that you typed into the running turn.
+        for t in turns + steered {
+            let steps = t["steps"] as? [Any] ?? []
+            let log = [ev("turn/start"), ev("user/message", ["source": ["kind": "composer-plus-assistant-news"], "content": [["type": "text", "text": "news"]]])]
+                + steps.map { step -> J in
+                    if let typed = step as? String {
+                        let source: J = typed.hasPrefix("@") ? ["kind": String(typed.dropFirst())] : ["kind": "user", "rpcId": "r"]
+                        return ev("user/message", ["source": source, "content": [["type": "text", "text": typed]]])
+                    }
+                    return ev("assistant/message", ["message": ["content": (step as? [String] ?? []).map { b -> J in b == "tool" ? ["type": "tool-call", "id": "c", "name": "chats_list"] : b == "think" ? ["type": "reasoning", "text": "Look."] : ["type": "text", "text": b] }]])
+                }
+            XCTAssertEqual(damonWords(log, reason: "completed"), t["push"] as? String, "\(steps)")
+        }
+        // A failed turn: the DSH error alert only. A stopped turn: its words, never a partial text or [quiet].
+        let cut = ev("assistant/message", ["interrupted": true, "message": ["content": [["type": "text", "text": "Half a sent"]]]])
+        XCTAssertNil(damonWords([ev("turn/start"), ev("assistant/message", ["message": ["content": [["type": "text", "text": "Deploy failed."]]]])], reason: "error"))
+        XCTAssertEqual(damonWords([ev("turn/start"), cut], reason: "aborted"), "")
+        XCTAssertEqual(damonWords([ev("turn/start"), ev("assistant/message", ["message": ["content": [["type": "text", "text": "[quiet]"]]]])], reason: "aborted"), "")
+    }
+    /// The local alert: your name for the Mac, the project, no Damon title twice, plain text.
+    @MainActor func testAlertWords() {
+        let c = Client(), saved = c.pairings, savedFp = c.activeFp
+        defer { c.pairings = saved; c.activeFp = savedFp; c.sessions = []; c.workspaces = [] }
+        c.pairings = [Pairing(host: "192.168.1.2", port: 19390, fp: "aw1", token: "t", deviceId: "d", name: "n", expiresAt: "", mac: "Furkan MacBook Pro", label: "ev")]
+        c.activeFp = "aw1"
+        c.workspaces = [Workspace(["workspaceId": "w", "path": "/u/Assistant", "title": "Damon"])!]
+        c.sessions = [Sess(["sessionId": "d1", "cwd": "/u/Assistant", "projections": ["values": ["title": "Damon"]]])!, Sess(["sessionId": "w1", "cwd": "/u/dev/acme-web", "projections": ["values": ["title": "Fix login"]]])!]
+        let d = c.alertWords("**Bitti:** [PR #12](https://x) alındı.", session: "d1")
+        XCTAssertEqual(d.subtitle, "ev · Damon"); XCTAssertEqual(d.body, "Bitti: PR #12 alındı.")
+        let w = c.alertWords("`npm test` geçti", session: "w1")
+        XCTAssertEqual(w.subtitle, "ev · acme-web"); XCTAssertEqual(w.body, "Fix login\nnpm test geçti")
+    }
+}
+
 final class QuietReplyTests: XCTestCase {
     func testQuietRepliesMatchTheMac() throws {
         let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
@@ -2618,41 +2727,23 @@ final class QuietReplyTests: XCTestCase {
         XCTAssertFalse(quietTurn(reply: "[quiet]", reason: "error"))
         XCTAssertFalse(quietTurn(reply: "The deploy failed.", reason: "completed"))
     }
-    /// The run rule of the Mac (quietRun, runReply) on the shared turn shapes: no alert and no buzz only when every text of
-    /// Damon's turn is `[quiet]`; a turn with a real text notifies with it. The turn is read from the chat's log, as on the
-    /// Mac: an older typed turn with a real reply, then the news turn (its prompt is no `user` message) and its steps.
-    func testQuietTurnsMatchTheMac() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../test/fixtures/quiet-replies.json")
-        let turns = try XCTUnwrap((try JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? J)?["turns"] as? [J])
-        XCTAssertGreaterThanOrEqual(turns.count, 8)
+    /// Damon's turn is read from the chat's log, as on the Mac: an older typed turn with a real reply, then the news turn
+    /// and its steps. Only the newest turn counts, and a rollback that withdrew an older turn's end does not join its text.
+    func testDamonWordsReadTheNewestTurn() throws {
         var seq = 0
         func ev(_ type: String, _ data: J = [:], _ extra: J = [:]) -> J { seq += 1; return ["seq": seq, "type": type, "data": data].merging(extra) { a, _ in a } }
-        func say(_ blocks: [J]) -> J { ev("assistant/message", ["message": ["content": blocks]]) }
+        func say(_ text: String) -> J { ev("assistant/message", ["message": ["content": [["type": "text", "text": text]]]]) }
         func user(_ kind: String, _ text: String) -> J { ev("user/message", ["source": ["kind": kind], "content": [["type": "text", "text": text]]]) }
-        for t in turns {
-            let steps = t["steps"] as? [[String]] ?? []
-            let content = steps.map { s in s.map { b -> J in b == "tool" ? ["type": "tool-call", "id": "c", "name": "chats_list"] : b == "think" ? ["type": "reasoning", "text": "Look."] : ["type": "text", "text": b] } }
-            var log = [ev("turn/start"), user("user", "Fix it."), say([["type": "text", "text": "Done: an older turn."]]), ev("turn/end", ["reason": ["kind": "completed"]]),
-                       ev("turn/start"), user("composer-plus-assistant-news", "news")]
-            log += content.map(say); log.append(ev("turn/end", ["reason": ["kind": "completed"]]))
-            XCTAssertEqual(quietTexts(log), t["quiet"] as? Bool, "\(steps)")
-            XCTAssertEqual(newsReply(log), t["reply"] as? String, "\(steps)")
-            // A message steered into the running turn (a `user` message after the first step) does not split the turn.
-            if content.count > 1 {
-                var steered = log; steered.insert(user("user", "steered"), at: steered.count - 2)
-                XCTAssertEqual(quietTexts(steered), t["quiet"] as? Bool, "steered: \(steps)")
-                XCTAssertEqual(newsReply(steered), t["reply"] as? String, "steered: \(steps)")
-            }
-        }
-        // A rollback that withdrew an older turn's end (from a steered message to its marker) does not make that turn's
-        // earlier text part of the newest turn: the newest turn starts at its own turn/start.
-        seq = 0
-        let older = [ev("turn/start"), user("user", "Deploy."), say([["type": "text", "text": "Deploying now."]]), user("user", "steer"), say([["type": "text", "text": "Done."]]), ev("turn/end", ["reason": ["kind": "completed"]])]
+        let older = [ev("turn/start"), user("user", "Deploy."), say("Deploying now."), user("user", "steer"), say("Done."), ev("turn/end", ["reason": ["kind": "completed"]])]
         let marker = ev("user/message", ["source": ["kind": rollbackSource]], ["sourceEventSeqs": [4]])
-        let newest = [ev("turn/start"), user("composer-plus-assistant-news", "news"), say([["type": "text", "text": "[quiet]"]]), ev("turn/end", ["reason": ["kind": "completed"]])]
-        XCTAssertTrue(quietTexts(older + [marker] + newest), "the withdrawn half of an older turn does not count")
-        XCTAssertEqual(newsReply(older + [marker] + newest), "")
+        let newest = [ev("turn/start"), user("composer-plus-assistant-news", "news"), say("[quiet]"), ev("turn/end", ["reason": ["kind": "completed"]])]
+        XCTAssertNil(damonWords(older + newest, reason: "completed"), "an older turn's reply is not the words")
+        XCTAssertNil(damonWords(older + [marker] + newest, reason: "completed"), "the withdrawn half of an older turn does not count")
+        // Your own turn keeps the strict rule; a subagent's notice starts a part of its own.
+        XCTAssertNil(damonWords([ev("turn/start"), user("user", "Teşekkürler"), say("Not aldım."), say("[quiet]")], reason: "completed"))
+        XCTAssertNil(damonWords([ev("turn/start"), user("user", "ok"), say("Done. [quiet]")], reason: "completed"))
+        XCTAssertEqual(damonWords([ev("turn/start"), user("user", "Fix it."), say("Fixed the login.")], reason: "completed"), "Fixed the login.")
         // A failed turn with no text: no words from an older turn.
-        XCTAssertEqual(newsReply(older + [ev("turn/start"), say([["type": "tool-call", "id": "c", "name": "bash"]]), ev("turn/end", ["reason": ["kind": "error"]])]), "")
+        XCTAssertNil(damonWords(older + [ev("turn/start"), ev("assistant/message", ["message": ["content": [["type": "tool-call", "id": "c", "name": "bash"]]]]), ev("turn/end", ["reason": ["kind": "error"]])], reason: "error"))
     }
 }

@@ -462,6 +462,43 @@ export function inHours(hours, now = new Date()) {
   } catch { return true } // an unknown time zone: every hour, as with no hours
   return hours.from < hours.to ? t >= hours.from && t < hours.to : t >= hours.from || t < hours.to
 }
+/** The plain text of a notification: the first line that says something, without Markdown (bold, italic, code, links,
+ * images, HTML tags, headings, list, quote and callout marks, a `[!DETAILS]` summary line, a `[quiet]` mark, code
+ * blocks), spaces collapsed. A code span keeps its text as it is (a tool name such as `mcp__aiproxy__bash`, `Promise<void>`),
+ * `__` is bold only at word edges, and only known HTML tags go (`List<String>` stays). A reply that has only an `onay`
+ * block is `approval`. The same rule as Tether's pushText (one table: test/fixtures/push-text.json). Damon writes its
+ * result on the first line. ponytail: each line is cut to PUSH_LINE code points first, so a long line cannot keep the
+ * Host busy (the push shows 600 at most). */
+export const PUSH_LINE = 2000
+const HTML_TAG = /<\/?(?:a|b|i|u|s|em|strong|br|p|div|span|code|pre|sub|sup|small|kbd|mark|del|ins|img|hr|details|summary|h[1-6]|ul|ol|li|blockquote)\b(?:\s[^<>]*)?\/?>/gi
+export function pushText(text, approval = 'Approval waits') {
+  let fence = '', onay = false
+  // VT, FF, NEL and BOM are spaces first: JS and Swift (ICU) read them differently.
+  for (const raw of String(text ?? '').replace(/[\u000b\u000c\u0085\ufeff]/g, ' ').split(/\r\n?|\n/)) {
+    const t = [...raw.trim().slice(0, 2 * PUSH_LINE)].slice(0, PUSH_LINE).join('').replace(/[\uE000\uE001]/g, ''), f = /^(`{3,}|~{3,})\s*([^\s`]*)/.exec(t)
+    if (fence) { if (f && f[1][0] === fence[0] && f[1].length >= fence.length && !f[2]) fence = ''; continue }
+    if (f) { fence = f[1]; if (f[2].toLowerCase() === 'onay') onay = true; continue }
+    let s = t.replace(/^(?:>\s*)+/, '').replace(/^\[quiet\]/i, '').trim()
+    if (/^\[!details\]/i.test(s)) continue // the summary line of a closed section
+    s = s.replace(/^\[![a-z]+\]/i, '').trim()
+    if (/^(?:[-*_]\s*){3,}$/.test(s)) continue // a thematic break (`---`, `* * *`), before a list mark can take its first `*`
+    s = s.replace(/^#{1,6}\s+/, '').replace(/^(?:[-*+]|\d{1,3}[.)])\s+/, '').replace(/^\[[ xX]\]\s+/, '')
+    const code = [] // code spans wait in placeholders, so no other rule changes their text
+    s = s.replace(/(`+)(.+?)\1/g, (_, m, c) => `\uE000${code.push(c) - 1}\uE001`)
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/<((?:https?|mailto):[^>\s]+)>/gi, '$1').replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(HTML_TAG, '').replace(/\*\*(?=\S)(.+?)(?<=\S)\*\*/g, '$1').replace(/(^|[^\w])__(?=\S)(.+?)(?<=\S)__(?!\w)/g, '$1$2')
+      .replace(/~~(?=\S)(.+?)(?<=\S)~~/g, '$1')
+      .replace(/(^|[^\w*])\*(?=\S)([^*]+?)(?<=\S)\*(?![\w*])/g, '$1$2').replace(/(^|[^\w_])_(?=\S)([^_]+?)(?<=\S)_(?![\w_])/g, '$1$2')
+      .replace(/\uE000(\d+)\uE001/g, (_, i) => code[i]).replace(/\s+/g, ' ').trim()
+    if (s) return s
+  }
+  return onay ? approval : ''
+}
+/** The gateway's notification words in Tether's language (the Mac's Composer Plus language): the same Turkish words as
+ * Tether's own alerts (ios/Resources/Localizable.xcstrings; test/tether-push-text.test.mjs compares them). */
+export const PUSH_WORDS = {
+  tr: { 'Turn finished': 'Tur tamamlandı', 'Approval needed': 'Onay gerekli', 'DSH has a question': 'DSH’nin bir sorusu var', 'DSH error': 'DSH hatası', 'Approval waits': 'Onay bekliyor' },
+}
 /** Sends alerts to APNs over HTTP/2 with a provider token. `cfg`: `{ key, keyId, teamId, topic }` (`key` a private key
  * object). `send(token, sandbox, payload)` answers `{ status, reason }` (200: APNs took it). `origin` replaces Apple's
  * server (tests). */
@@ -634,21 +671,29 @@ export function createGateway(opts = {}) {
   const pushTo = () => apns.push ? devices.filter(d => d.push?.on === true && typeof d.push.token === 'string') : []
   const pushFails = new Map() // device id → { reason, at } of its last failed push (memory only)
   /** One alert to each phone that wants this Mac's notifications now (switched on, inside its hours). The subtitle names
-   * this Mac and the chat's project; the body is the chat's title, then `detail` (the reply, tool, question or error).
-   * `opts.about(sessionId)` gives `{ chat, project }` (the Host half); without it the subtitle is the Mac name only. */
+   * this Mac (the name that the phone gave it, else the Mac's own name) and the chat's project; the body is the chat's
+   * title (not when it is the project's name, as Damon's), then `detail` (the reply, tool, question or error) as plain text.
+   * `opts.about(sessionId)` gives `{ chat, project, damon }` (the Host half); without it the subtitle is the Mac name only.
+   * `damon`: the chat is Damon's (or one of its subagents: `subagent`), false for another chat, undefined while this Mac
+   * has no Damon chat. A phone with Notifications only from Damon (on unless it sent false) gets nothing for another chat,
+   * and no DSH error of Damon's subagent: Damon reports those (2026-11-24: a task's push, then Damon's push about it). */
   function pushAll(title, detail, sessionId) {
-    const to = pushTo().filter(d => inHours(d.push.hours))
+    let to = pushTo().filter(d => inHours(d.push.hours))
     if (to.length === 0) return
     let about = {}
     try { if (typeof sessionId === 'string') about = opts.about?.(sessionId) ?? {} } catch {}
+    if (about.damon === false || (about.subagent === true && title === 'DSH error')) to = to.filter(d => d.push.damonOnly === false)
+    if (to.length === 0) return
     const some = s => typeof s === 'string' && s.trim() !== ''
     // ponytail: 160 + 600 characters keep the payload under APNs' 4 KB also for 3-byte (CJK) text.
     const cut = (s, n) => [...s].slice(0, n).join('') // by code point: an emoji is not split in half
-    const subtitle = cut([mac, about.project].filter(some).join(' · '), 160)
-    const body = cut([about.chat, detail].filter(some).join('\n'), 600)
+    let lang; try { lang = opts.lang?.() } catch {}
+    const words = /^tr(?:-|$)/i.test(lang ?? '') ? PUSH_WORDS.tr : {}
+    const body = cut([about.chat !== about.project ? about.chat : undefined, pushText(detail, words['Approval waits'])].filter(some).join('\n'), 600)
     for (const d of to) {
       const token = d.push.token
-      apns.push.send(token, d.push.sandbox === true, { aps: { alert: { title, subtitle, body }, sound: 'default' } }).then(r => {
+      const subtitle = cut([d.push.mac ?? mac, about.project].filter(some).join(' · '), 160)
+      apns.push.send(token, d.push.sandbox === true, { aps: { alert: { title: words[title] ?? title, subtitle, body }, sound: 'default' } }).then(r => {
         // The Mac page shows why the last push to this phone failed (no secret in it: APNs' reason or the HTTP status).
         if (r.status === 200) pushFails.delete(d.id); else pushFails.set(d.id, { reason: String(r.reason || (r.status ? 'HTTP ' + r.status : 'no answer')).slice(0, 100), at: new Date().toISOString() })
         // The app left the iPhone (or the token is not for this app): forget the token; the phone sends a new one.
@@ -656,16 +701,21 @@ export function createGateway(opts = {}) {
       }, () => {})
     }
   }
-  /** `POST /push` from a paired phone: `{ token, sandbox, on, hours: {from, to, tz} | null }`. */
+  /** `POST /push` from a paired phone: `{ token, sandbox, on, hours: {from, to, tz} | null, damonOnly?, mac? }`. `damonOnly`:
+   * Notifications only from Damon (a phone that does not send it gets them only from Damon). `mac`: the name that the
+   * phone gave this Mac (Rename Mac), for the subtitle. */
   async function setPush(req, res, dev) {
     let b
     try { b = JSON.parse(await readBody(req, 4096)) } catch { return reply(res, 400, { error: 'bad request' }) }
     const mins = v => Number.isInteger(v) && v >= 0 && v < 1440
     const hours = b?.hours === null ? null : mins(b?.hours?.from) && mins(b.hours.to) && typeof b.hours.tz === 'string' && b.hours.tz.length <= 64 ? { from: b.hours.from, to: b.hours.to, tz: b.hours.tz } : undefined
     if (typeof b?.on !== 'boolean' || (b.on && (!/^[0-9a-f]{64,200}$/i.test(b.token ?? '') || typeof b.sandbox !== 'boolean' || hours === undefined))) return reply(res, 400, { error: 'bad request' })
+    if ((b.damonOnly !== undefined && typeof b.damonOnly !== 'boolean') || (b.mac !== undefined && (typeof b.mac !== 'string' || b.mac.length > 200))) return reply(res, 400, { error: 'bad request' })
     // Switched on but no device token: the phone says why (iOS's error), and the Mac page shows it.
     const reason = !b.on && typeof b.reason === 'string' && b.reason.trim() !== '' ? b.reason.trim().slice(0, 200) : undefined
-    dev.push = b.on ? { on: true, token: b.token.toLowerCase(), sandbox: b.sandbox, hours } : { on: false, ...(reason ? { reason } : {}) }
+    const name = typeof b.mac === 'string' ? [...b.mac.replace(/[\u0000-\u001f\u007f]/g, '').trim()].slice(0, 64).join('') : ''
+    dev.push = b.on ? { on: true, token: b.token.toLowerCase(), sandbox: b.sandbox, hours, ...(b.damonOnly === false ? { damonOnly: false } : {}), ...(name ? { mac: name } : {}) }
+      : { on: false, ...(reason ? { reason } : {}) }
     saveDevices()
     reply(res, 200, { push: b.on })
   }

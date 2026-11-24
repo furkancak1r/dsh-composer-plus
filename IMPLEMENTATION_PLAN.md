@@ -110,6 +110,138 @@ for "Önceki yanıtımdaki …". Green after the fixes: both test files exit 0.
 - Open steps: review round 2 (Damon, separate agent); item 5 stays out (Furkan decides); merge only after a round with
   no P1/P2.
 
+# Fix: Tether push notifications (branch fix/tether-push-notifications, 2026-11-24)
+
+Furkan (Assistant chat, 2026-11-24): Damon-only notifications (setting, default on), no push for `[quiet]` Damon turns
+(also not their first part), the Mac name that he set in Tether, clean plain text, other provable UX defects.
+Scope: Tether (gateway, Host push path, iOS app). The Mac desktop status panel and desktop notifications stay as they are.
+
+## Push code path (verified by reading)
+- Host: index.js `agent/status` handler (~2434-2452) → `pushWords(events, run?.from)` (~11657) → `mobile.push('Turn finished', …)`.
+  `chatAbout` (~2341) gives chat title and project. `mobileGateway` (~881) passes `about`, `lang` to the gateway.
+- Gateway: tether/gateway/server.mjs `pushAll` (~639): subtitle `[mac, project]`, body `[chat, detail]`; `mac = opts.macName ?? macName()`
+  (~579) = `scutil --get ComputerName` (~26). Approval/question pushes (~824), error push (~797). `POST /push` → `setPush` (~660).
+- iOS: Core.swift notify settings (~1877-2009), `syncPush`/`pushBody`, turn-end local alert (~3249-3260), `notify()` (~3655),
+  `Pairing.title = label ?? mac ?? host` (~499); `renameMac` (~2791) keeps the label on the phone only. UI.swift Settings → Notifications (~2607).
+
+## Root causes (verified)
+1. Two pushes per event: the Host pushes Turn finished for every root chat at its running → idle edge (index.js ~2445-2451), so a
+   branch chat, task or automation that ends pushes, and Damon's report of it pushes again. No Damon filter exists.
+2. `[quiet]` leak: `pushWords` for Damon's run uses `runReply` (~11651): the newest real text of the run, also when the turn ends
+   with `[quiet]` (documented rule since 2026-11-19), so "Checking." + tool, then `[quiet]` pushes "Checking.". `quietReply` needs
+   the exact text `[quiet]`, so "[quiet]\n…" pushes with the literal `[quiet]`. A stopped turn's partial stream (dsh logs it as
+   `assistant/message` with `interrupted: true`, dsh-agent-loop 0.2.2-rc.5 lib/index.js ~903-916) also counts as a reply.
+   Tether's local alert ports the same rule (Core.swift ~3254-3257, `newsReply`).
+3. Mac name: the gateway names the Mac by `scutil ComputerName` ("Furkan MacBook Pro" on this Mac, checked); the name that the user
+   sets in Tether (`Pairing.label`) never leaves the phone.
+4. Body: raw Markdown (the reply as written), the whole reply; titles always English from the gateway; Damon's chat title repeats
+   its project name ("Damon" in the subtitle and the body).
+
+## Plan
+- Host: `damonPush(assistant, agentOf, id)` → true/false, undefined without a Damon chat; passed as `fromDamon` to the gateway.
+  `pushWords` for Damon's run: per turn; a turn with a text that starts with `[quiet]` gives no words; interrupted partial texts
+  do not count; a completed run without words: no push; a failed/stopped one: push without words.
+- Gateway: `POST /push` takes `damonOnly` and `mac` (the phone's name for this Mac); `pushAll` filters per phone, uses the phone's
+  Mac name, `pushText` (plain first line, `onay` block → "Approval waits"/"Onay bekliyor"), titles in Turkish when the Mac's
+  language is `tr` (Tether's own strings), no chat title when it equals the project.
+- iOS: per-Mac setting `notifyDamonOnly` (default on), toggle shown with a Damon Mac, sent in `/push`; label sent; local alert
+  uses the same rules (Swift ports `pushText`, `damonWords`; shared tables test/fixtures/push-text.json, quiet-replies.json `push`).
+- Docs: tether/FEATURES.md (notifications row, difference to the Mac desktop), tether/README.md push section.
+
+## Checks
+npm test; iOS tests (xcodebuild test, simulator, CODE_SIGNING_ALLOWED=NO); node scripts/build-docs.mjs --check; git diff --check.
+
+## Last checkpoint / open steps
+- Checkpoint: code, tests, docs and screenshots done and committed on the branch (2026-11-24 17:35).
+- Last passing: `npm test` (exit 0); iOS `xcodebuild test` on simulator id A5766181-4A27-457E-81C2-DFDE4A0F018F (iPhone 17 Pro, iOS 26.5;
+  `name=iPhone 17 Pro` picks OS:latest 27.2, which has no such device), CODE_SIGNING_ALLOWED=NO: 122 tests, 0 failures;
+  `node scripts/build-docs.mjs --check`; `git diff --check`.
+- Red before the fix (old index.js/server.mjs in a detached worktree): 5 of 6 `[quiet]` forms pushed; both gateway push tests failed.
+- Screenshots: /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-bildirim-20261124/ (settings, before/after).
+- origin/main 6ad16cb3 merged into the branch (14526b56; only IMPLEMENTATION_PLAN.md conflicted, both sides kept).
+  After the merge: `npm test` exit 0, `node scripts/build-docs.mjs --check` ok, `git diff --check origin/main...HEAD` ok.
+  Diff vs origin/main: 17 files, +551/-64, so the review repeats until a round has no P1/P2.
+
+## Review round 1 (2026-11-24, separate subagent review-guard-1): P1 0, P2 2, P3 4, P4 1 — all fixed (see below)
+Decisions (Damon's shortest correct path, no owner question):
+1. P2 steered message lost (index.js damonPushWords; Core.swift damonWords): `news "[quiet]"+tool, typed "Is the deploy done?",
+   "Yes: acme-web is live."` gave no push. Fix: split each turn at each `user/message` with `source.kind === 'user'` (typed,
+   also steered). A typed part pushes its newest text that is not only `[quiet]` (quietReply); another part (news, schedule,
+   subagent notice) keeps the strict rule (first text starts or last text ends with `[quiet]` → none). completed: newest
+   part with words; error: none; other ends: newest words ?? ''. A chunk with no turn/end and no text: none (robustness:
+   an event before turn/start must not push ''). Add both reviewer cases to test/fixtures/quiet-replies.json (`push`) and
+   test/tether-push-words.test.mjs; port to Swift damonWords (testDamonWordsMatchTheMac reads the table).
+2. P2 pushText damages names (server.mjs pushText + Swift port): `mcp__aiproxy__bash` → `mcpaiproxybash`, `` `__init__.py` `` →
+   `init.py`, `` `Promise<void>` `` → `Promise`. Fix: put code spans in placeholders (`\uE000<n>\uE001`) first and back last;
+   `__` bold only at word edges `(^|[^\w])__(?=\S)(.+?)(?<=\S)__(?![\w])` (Swift: `[A-Za-z0-9_]`); strip only known HTML tags
+   (`a|b|i|u|s|em|strong|br|p|div|span|code|pre|sub|sup|small|kbd|mark|del|ins|img|hr|details|summary|h[1-6]|ul|ol|li|blockquote`
+   + `\b`). Table cases: those three, `List<String> kalır`, `__kalın__ söz` → `kalın söz`.
+3. P3 failed turn of the open chat gives no local alert (Core.swift sessionError, sid == current): also call
+   `notify(String(localized: "DSH error"), m, session: sid)` there; turn-end buzz only when `words != nil` (update the regex
+   in test/tether-notify-per-mac.test.mjs).
+4. P3 fork of Damon counts as Damon on the Mac only: `damonAbout(assistant, id, origin)` = `id === Damon || (origin ===
+   'subagent' && rootOf(id) === Damon)`; chatAbout reads `session?.header?.origin` before the call; test a fork id.
+5. P3 long line blocks the Host (100k `[` = 3.5 s): cut each line to 2000 code points before the regex chain (both ports);
+   JS check: `pushText('['.repeat(100000))` under 200 ms.
+6. P3 thematic break: check `^(?:[-*_]\s*){3,}$` before the list-mark strip; cases `* * *\nreal`, `- - -\nreal` → `real`.
+7. P4 line split differs: Swift splits only at `\n`, `\r\n`, `\r` (as JS); case `Bitti\u2028Ayrıntı` → `Bitti Ayrıntı`.
+Not checked by round 1: xcodebuild (run by lead: 122/0), real dsh, dsh 0.2.2-rc.5 agent-loop (lead read it: turn/start is
+appended synchronously right after the running status, lib/index.js 630-645 and 737-745).
+
+## Review round 1 fixes (2026-11-24 19:30): all 7 DONE
+- 1 steered: index.js damonPushWords + Swift damonWords cut a turn at each typed `user` message; table
+  test/fixtures/quiet-replies.json `steered` (7 cases; JS test/quiet-replies.test.mjs, iOS PushTextTests). Rule: the typed
+  part pushes its newest text that is not only `[quiet]`; another part: none when its first text starts with `[quiet]` or
+  the turn's last text ends with `[quiet]`. Events without turn/end and without text: none.
+- 2 names: pushText (gateway + Swift) keeps code spans in placeholders, `__` only at word edges, only known HTML tags.
+- 3 open chat's failure: sessionError also calls notify(DSH error); turn-end buzz only with words.
+- 4 fork: damonAbout(assistant, id, headerOf) follows only `origin: 'subagent'` links (as Swift damonAllows).
+- 5 long line: PUSH_LINE = 2000 code points per line first (JS 100k `[`: 3.3 s → <5 ms; Swift 60 s → <1 s).
+- 6 thematic break before the list-mark strip. 7 Swift splits only at \n, \r\n, \r.
+- Red on old code (detached worktree of 7e95fe10): JS push-text, push-words, quiet-replies, notify-per-mac all fail;
+  iOS PushTextTests 14 failures. Green on new: `npm test` exit 0; iOS 122 tests, 0 failures (2 skipped: SHOT_DIR);
+  build-docs --check ok; git diff --check ok.
+- Image re-rendered (two new rows: tool name, steered question):
+  /Users/furkancakir/Damon/Belgeler/Composer Plus/tether-bildirim-20261124/tether-bildirim-once-sonra.png
+
+## Review round 2 (2026-11-24, separate subagent review-guard-2): P1 0, P2 2, P3 4, P4 3 — fixed
+- P2 subagent result in a [quiet] news turn: a `subagent-settled`/`agent-message` prompt starts its own part
+  (DAMON_PROMPTS in index.js, damonPrompts in Core.swift). Table `steered` has `@<kind>` steps.
+- P2 a turn that you open by typing pushed its first part / raw `Done. [quiet]`: only a typed message in a turn that
+  another prompt opened is "typed"; its texts skip one that starts or ends with `[quiet]`.
+- P3 stopped second turn hid a real reply: the run takes its newest non-empty words first.
+- P3 Damon subagent's DSH error pushed twice: damonAbout gives `subagent: true`; the gateway drops `DSH error` for it on
+  a Damon-only phone (approvals and questions still come).
+- P3 dead Swift turnTexts/quietTexts/newsReply deleted (their log checks moved to testDamonWordsReadTheNewestTurn).
+- P3 FEATURES.md assistantChatView row; P4 index.js comment, this plan; P4 Swift pushText trims whitespacesAndNewlines
+  (cases `\u2028# Başlık`, `\u000b**Kalın** iş\u000b`).
+- Auto review refused one edit: skip dsh's `[SCHEDULE CHANGE]` notice (scheduleChange) as a part start in
+  damonPushWords. Not redone. Effect (inferred, not verified in real dsh): a `[SCHEDULE CHANGE]` notice inside a running
+  turn starts a strict part (no leak). When the notice comes before your typed prompt in the first step of a turn, that
+  turn counts as opened by `schedule`, so your prompt's part uses the lenient rule and can push its first part
+  ("Not aldım." then `[quiet]`). Rare; it needs the scheduleChange guard (owner approval for that edit).
+
+## Review round 3 (2026-11-24, separate subagent review-guard-3): P1 0, P2 1, P3 1, P4 3 — fixed
+- P2 your answer, then a subagent notice and a [quiet] reply: the part's own last text decides when its newest message has
+  no tool call and a notice (not your message) cut it (`done` flag, both ports).
+- P3 hidden openers (Get summary, Continue, Resume) added to DAMON_PROMPTS / damonPrompts.
+- P4 pushText: VT, FF, NEL, BOM become spaces first (both ports; 4 table rows). P4 Swift sessionError: no local alert for a
+  Damon subagent's failure with Damon only (as the gateway). P4 quiet-replies.json `about` text.
+- Red on 25f1bd31: push-text, push-words, quiet-replies, notify-per-mac all fail; green now. `npm test` exit 0, iOS 122/0.
+
+## Review round 4 (2026-11-24, separate subagent review-guard-4): P1 0, P2 0, P3 1, P4 0 — loop done
+- P3 fixed: a reasoning-only or whitespace-only step no longer sets `done` (both ports; 2 table rows, red on 5d964536).
+- Checks: `npm test` exit 0; iOS 122/0 on simulator id 78433038-4CF1-45AC-8B35-0CBEC96CC8CB (iPhone 17, iOS 26.5; the
+  iPhone 17 Pro simulator refused to launch the test host twice: "Busy", "Application failed preflight checks").
+
+## Last checkpoint (2026-11-24) / open steps
+- Review 1, 2, 3 and 4 fixes done. Last passing: `npm test` exit 0 and iOS 122/0 after round 1 (round 2 checks: see the commit).
+  iOS command: `cd tether/ios && xcodebuild -project DSHMobile.xcodeproj -scheme DSHMobile -destination
+  'platform=iOS Simulator,id=A5766181-4A27-457E-81C2-DFDE4A0F018F' test CODE_SIGNING_ALLOWED=NO`. Screenshot: `SHOT_DIR=<dir>`.
+- Review loop done (round 4: no P1/P2). origin/main d4bfaaf8 merged into the branch (conflicts: this plan, package.json
+  test:all; both sides kept). Open: merge into main --no-ff, npm test on main, push main, `git branch -d`, remove the
+  worktree; report in Turkish.
+
 # Damon canvas view (tuval) (branch feat/assistant-canvas-view, 2026-11-24)
 
 Request (Furkan, Damon chat, 2026-11-24): "canvas görünümü yapacaktık başla ona , ona tıklayınca sohbet alanı filan da
